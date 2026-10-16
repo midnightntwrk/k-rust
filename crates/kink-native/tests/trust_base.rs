@@ -150,6 +150,10 @@ fn unbound_mutants(validator: &NativeValidator) -> [(&'static str, Patch); 2] {
 /// two ground terminals denote the same value in a model of the baseline, but they are distinct
 /// terms. Identical in both profiles. `fres(3)` (an unbound result variable) keeps the call with
 /// an `UndecidedCondition` diagnostic instead, which the bridge maps to `BackendLimit`.
+///
+/// Re-pin R0a (finding E-14; k-rust KINK-10): at 501f18b9 the baseline's kept-call leaves of
+/// `freq(3)` and `part(1)` carry an `UndefinedInitialInstances` diagnostic (the initial state's
+/// call may be undefined), so they are diagnosed (fail-closed); at 927b9ce6 they carried none.
 #[test]
 fn kept_calls_in_ground_terminals_are_not_values() {
     let validator = NativeValidator::bind(support::load("unbound.k"), CompileOptions::default());
@@ -176,8 +180,16 @@ fn kept_calls_in_ground_terminals_are_not_values() {
                 bridge::discarded(leaf),
                 diagnosed(leaf)
             ),
-            (HaltClass::Stuck, LeafFeasibility::Unknown, None, false),
+            (HaltClass::Stuck, LeafFeasibility::Unknown, None, true),
             "{call}"
+        );
+        assert!(
+            leaf.diagnostics.iter().any(|diagnostic| matches!(
+                diagnostic,
+                k_rust::backend::BackendDiagnosticOutput::UndefinedInitialInstances { .. }
+            )),
+            "{call}: {:?}",
+            leaf.diagnostics
         );
         assert_eq!(
             state(leaf),
@@ -1295,26 +1307,28 @@ fn audit_vi_t10_partial_equalities_require_input_refusal() {
             &[equal("X", 1), equal("Y", 1)],
         );
         eprintln!("TB02-EQUALITY {label}: {measured:?}");
+        // Re-pin R0a (finding E-14, Z3 only; not traced to one k-rust commit, plausibly answers
+        // section_2_2_summary (4) or KINK-10's admission definedness): at 927b9ce6 Z3 kept a
+        // Trivial leaf and refuted its X=1,Y=0 instance (Unsat); at 501f18b9 the leaf is Stuck
+        // and that instance is Unknown, a lost refutation (fail-closed). The instance outside
+        // stays Unsat. Without Z3 nothing moved.
         assert_eq!(
             measured,
-            [row(
-                if cfg!(feature = "z3") {
-                    HaltClass::Trivial
-                } else {
-                    HaltClass::Stuck
-                },
-                LeafFeasibility::Unknown,
-                if cfg!(feature = "z3") {
-                    Feasibility::Unsat
-                } else {
-                    Feasibility::Unknown
-                },
-                if cfg!(feature = "z3") {
-                    Feasibility::Unsat
-                } else {
-                    Feasibility::Unknown
-                },
-            )],
+            [if cfg!(feature = "z3") {
+                row(
+                    HaltClass::Stuck,
+                    LeafFeasibility::Unknown,
+                    Feasibility::Unknown,
+                    Feasibility::Unsat,
+                )
+            } else {
+                row(
+                    HaltClass::Stuck,
+                    LeafFeasibility::Unknown,
+                    Feasibility::Unknown,
+                    Feasibility::Unknown,
+                )
+            }],
             "{label}"
         );
     }
@@ -1570,6 +1584,13 @@ fn audit_vi_t10_positive_predicate_instance_queries_are_not_refuted() {
 }
 
 /// Review F6: measure the declared-total String2Bytes hook's Bottom residue; do not refuse it.
+///
+/// Re-pin R0a (finding E-11; k-rust 5ea4e0d74 "leave String2Bytes of a code point above 255
+/// unevaluated"): at 927b9ce6 `\ceil(String2Bytes("Ā"))` left a Bottom residue (one Vacuous leaf,
+/// discarded); at 501f18b9 the application stays unevaluated and is read as defined by the hook's
+/// `total` attribute, so the run is one complete, syntactically feasible Stuck leaf at depth 0.
+/// That reading is an implementation choice (decision 1): R0b makes every comparison of a
+/// definition that references `BYTES.string2bytes` Unknown.
 #[test]
 fn audit_vi_t10_string2bytes_declared_totality_residue() {
     let validator = NativeValidator::bind(support::load("tb02input.k"), CompileOptions::default());
@@ -1624,24 +1645,31 @@ fn audit_vi_t10_string2bytes_declared_totality_residue() {
     eprintln!("TB02-STRING2BYTES: {rows:?}");
     assert_eq!(
         rows,
-        [(
-            HaltClass::Vacuous,
-            LeafFeasibility::Unknown,
-            0,
-            Some(DiscardReason::Vacuous)
-        )]
+        [(HaltClass::Stuck, LeafFeasibility::Syntactic, 0, None)]
     );
 }
 
 /// F1: a bare String pattern carries the same String value as its domain-value spelling.
+///
+/// Re-pin R0a (finding E-08; k-rust 4a3b0b099, 3a8af2805, 61fa9e32d): a KORE `\xhh` in a String
+/// literal is U+00hh at 501f18b9, so the texts `"\x80"` parse to the valid value U+0080 and are
+/// admitted. The guard stays pinned on host-built patterns whose payload is not UTF-8, the
+/// route that remains (every KORE reader now yields UTF-8).
 #[test]
 fn audit_vi_t11_invalid_utf8_string_guard_is_independent_of_polarity() {
     let validator = NativeValidator::bind(support::load("tb02string.k"), CompileOptions::default());
     let side = validator.compile_baseline().expect("baseline");
     let mut backend = backend(&side, "TB02STRING");
-    for source in [r#"\dv{SortString{}}("\x80")"#, r#""\x80""#] {
-        let value =
-            k_rust::kore::parser::parse_pattern(source).expect("invalid UTF-8 parses as bytes");
+    for (source, value) in [
+        (
+            "dv-x80",
+            Pattern::DomainValue {
+                sort: kore_sort("SortString"),
+                value: vec![0x80].into(),
+            },
+        ),
+        ("string-x80", Pattern::String(vec![0x80].into())),
+    ] {
         for input in [
             value.clone(),
             Pattern::Not {
@@ -1662,6 +1690,9 @@ fn audit_vi_t11_invalid_utf8_string_guard_is_independent_of_polarity() {
         r#"\dv{SortString{}}("A")"#,
         r#"\dv{SortString{}}("\u0080")"#,
         r#""\xc3\xa9""#,
+        // The invalid inputs at 927b9ce6 (E-08): U+0080 at 501f18b9.
+        r#"\dv{SortString{}}("\x80")"#,
+        r#""\x80""#,
     ] {
         let input = k_rust::kore::parser::parse_pattern(source).expect("valid UTF-8");
         assert!(bridge::validate_test_initial_state(&mut backend, &input).is_ok());
@@ -1671,6 +1702,10 @@ fn audit_vi_t11_invalid_utf8_string_guard_is_independent_of_polarity() {
 /// TB02-R3-F1: invalid UTF-8 is refused in every domain value whose sort is not
 /// `BYTES.Bytes`-hooked, at any polarity: `STRING.token2string` turns any token into a
 /// String byte for byte. Bytes keeps every byte sequence (review F3).
+///
+/// Re-pin R0a (finding E-08; k-rust 4a3b0b099, 3a8af2805, 61fa9e32d): a KORE `\xhh` in a token
+/// literal is U+00hh at 501f18b9, so those texts are valid and admitted; the guard stays pinned
+/// on host-built domain values whose payload is not UTF-8.
 #[test]
 fn audit_vi_t11_review3_invalid_utf8_token_guard_is_independent_of_polarity() {
     let validator = NativeValidator::bind(support::load("tb02token.k"), CompileOptions::default());
@@ -1680,16 +1715,31 @@ fn audit_vi_t11_review3_invalid_utf8_token_guard_is_independent_of_polarity() {
         sort: kore_sort("SortString"),
         argument: Box::new(value),
     };
-    for source in [
-        r#"\dv{SortId{}}("\x80")"#,
-        r#"\dv{SortId{}}("\xff")"#,
-        r#"\dv{SortTok{}}("\x80")"#,
-        r#"LblId2String'LParUndsRParUnds'ID-COMMON'Unds'String'Unds'Id{}(\dv{SortId{}}("\x80"))"#,
-        r#"Lbltok2s{}(\dv{SortTok{}}("\x80"))"#,
-        r#"\dv{SortInt{}}("\x80")"#,
+    let raw = |sort: &str, byte: u8| Pattern::DomainValue {
+        sort: kore_sort(sort),
+        value: vec![byte].into(),
+    };
+    let apply = |symbol: &str, argument: Pattern| Pattern::Application {
+        symbol: k_rust::kore::ast::Symbol {
+            name: symbol.into(),
+            sort_parameters: Vec::new(),
+        },
+        arguments: vec![argument],
+    };
+    for (source, value) in [
+        ("id-x80", raw("SortId", 0x80)),
+        ("id-xff", raw("SortId", 0xff)),
+        ("tok-x80", raw("SortTok", 0x80)),
+        (
+            "id2string-x80",
+            apply(
+                "LblId2String'LParUndsRParUnds'ID-COMMON'Unds'String'Unds'Id",
+                raw("SortId", 0x80),
+            ),
+        ),
+        ("tok2s-x80", apply("Lbltok2s", raw("SortTok", 0x80))),
+        ("int-x80", raw("SortInt", 0x80)),
     ] {
-        let value =
-            k_rust::kore::parser::parse_pattern(source).expect("invalid UTF-8 parses as bytes");
         for input in [value.clone(), negate(value)] {
             let admission = bridge::validate_test_initial_state(&mut tokens, &input);
             assert!(
@@ -1706,6 +1756,12 @@ fn audit_vi_t11_review3_invalid_utf8_token_guard_is_independent_of_polarity() {
         r#"\dv{SortId{}}("\u0080")"#,
         r#"\dv{SortTok{}}("\xc3\xa9")"#,
         r#"Lbltok2s{}(\dv{SortTok{}}("\u0080"))"#,
+        // The invalid inputs at 927b9ce6 (E-08): code points U+0080 and U+00FF at 501f18b9.
+        r#"\dv{SortId{}}("\x80")"#,
+        r#"\dv{SortId{}}("\xff")"#,
+        r#"\dv{SortTok{}}("\x80")"#,
+        r#"LblId2String'LParUndsRParUnds'ID-COMMON'Unds'String'Unds'Id{}(\dv{SortId{}}("\x80"))"#,
+        r#"Lbltok2s{}(\dv{SortTok{}}("\x80"))"#,
     ] {
         let value = k_rust::kore::parser::parse_pattern(source).expect("valid UTF-8");
         for input in [value.clone(), negate(value)] {

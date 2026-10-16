@@ -547,9 +547,10 @@ impl Authored<'_> {
 ///
 /// For a `.k` file (any name not ending in `.md`, as k-rust's loader decides) it is the
 /// file's text. For a `.md` file it is `k_rust::outer::extract_fenced_k_code_with_map(raw,
-/// md_selector).text`, the extraction the loader parses: every whitespace character of the
-/// file and every character of a selected fence's content, so lines are the file's lines and
-/// columns on code lines are the file's columns. The constructor ([`View::read`]) is the only
+/// md_selector).text`, the extraction the loader parses: at k-rust 501f18b9 every character of
+/// a selected fence's content and every line break are kept, and every other character becomes
+/// one space per byte, so the view has the file's byte length, lines and columns (its offset
+/// map is the identity). The constructor ([`View::read`]) is the only
 /// code of kink-flow that reads a Markdown file's text; the raw text is dropped once the view
 /// is built.
 pub struct View {
@@ -557,17 +558,26 @@ pub struct View {
     pub text: String,
     /// Whether the file is Markdown (its view is an extraction).
     pub markdown: bool,
-    /// The source-table ids of the baseline's extractions equal to this view (the same logical
-    /// name, raw content hash and offset map); never empty.
+    /// The source-table ids of the baseline's extractions of this file (the same logical name,
+    /// raw content hash and offset map); never empty.
     pub source_ids: BTreeSet<SourceId>,
 }
 
 impl View {
     /// The K view of the source file `name` of `loaded`, read from `directory` (the manifest's
-    /// directory) and checked twice: its bytes against the digest the load recorded
-    /// (`source-changed`), and its view against the baseline's source table: the table must
-    /// hold an extraction of this file (its logical name and raw content hash) whose offset
-    /// map equals the recomputed one (`.k`: none), else `source-view-mismatch`.
+    /// directory) and checked: its bytes against the digest the load recorded
+    /// (`source-changed`); for a `.md` file, the view under `md_selector` against the text the
+    /// loader parsed, which is the extraction of those same bytes under the selector the load
+    /// used ([`LoadedSource::md_selector`]; a load that recorded none is refused); and the
+    /// baseline's source table must hold an extraction of this file (its logical name and raw
+    /// content hash) whose offset map equals the recomputed one (`.k`: none). A failure of
+    /// either of the last two is `source-view-mismatch`.
+    ///
+    /// The text comparison is what binds the view to the load: at k-rust 501f18b9 the offset
+    /// map of every extraction is the identity (re-pin finding E-09), so the source table no
+    /// longer tells a view built under another selector (one that also selects a ghost fence,
+    /// say) from the text k-rust parsed. A view whose text differs would let a mutant differ
+    /// from the baseline by more than its declared edits.
     pub fn read(
         directory: &Path,
         loaded: &LoadedSource,
@@ -598,6 +608,23 @@ impl View {
                     "{name} does not extract under md_selector {md_selector:?}: {e}"
                 ))
             })?;
+            let parsed_under = loaded.md_selector().ok_or_else(|| {
+                mismatch(format!(
+                    "the load of {name} recorded no Markdown selector, so the text k-rust parsed \
+                     is unknown"
+                ))
+            })?;
+            let parsed = extract_fenced_k_code_with_map(&raw, parsed_under).map_err(|e| {
+                mismatch(format!(
+                    "{name} does not extract under the load's selector {parsed_under:?}: {e}"
+                ))
+            })?;
+            if parsed.text != extracted.text {
+                return Err(mismatch(format!(
+                    "the K view of {name} under md_selector {md_selector:?} is not the text the \
+                     load parsed under {parsed_under:?}: k-rust parsed other text"
+                )));
+            }
             (extracted.text, Some(extracted.offset_map))
         } else {
             (raw, None)
@@ -1178,11 +1205,10 @@ pub struct Envelope {
     pub extracted: String,
     /// The extraction's first-line length minus the view's: the offset shift between the
     /// edited load's spans and the edited view. The fence line carries the view's first line,
-    /// so the shift is 0 when the info string is at most one tag; an info string of several
-    /// tags adds the spaces between them (the extractor keeps whitespace). At the pin a
-    /// selector that selects no single tag also rejects the builtin fences (tagged `k`), so
-    /// such a specification cannot be admitted (it loads, but does not compile: F-10 review 1
-    /// m2) and every shift of an admitted specification is 0.
+    /// and at k-rust 501f18b9 the extractor writes every character of the fence line itself
+    /// (backticks and info string) as one space (re-pin finding E-09), so the shift is the
+    /// length of the fence and its info string (`` ```k ``: 4). Only the first line grows, so
+    /// one constant shift maps every later offset.
     pub shift: isize,
 }
 

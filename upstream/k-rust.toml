@@ -32,13 +32,17 @@ updated = "2026-10-15"
 # Seven pre/* merges followed 3796d5b7 before this pin.
 # Not moved on 2026-10-15: kink still builds against this pin. Statuses at k-rust main
 # 9ea39ec716c713981bb11efee03ac05a59fb2ba6 (1961 commits later) are in status_at_main and in draft/tasks/k-rust-handoff-2026-10-15/HANDOFF.md.
-k_rust_commit = "927b9ce6352357db340c221ff5377b294b8324e9"
-k_rust_version = "0.4.0"
+# Re-pin RP-01 (2026-10-16): the workspace builds against k-rust main 501f18b9, and k_rust_commit, the versions and
+# checkout below say so, because kink-native K_RUST_REVISION must equal k_rust_commit (tests/pin.rs).
+# The rows below are still judged at 927b9ce6 (each status_basis says so) until the ledger move re-screens them
+# and retires 927b9ce6.
+k_rust_commit = "501f18b9bde3cba800924a0efef932b440e66bf0"
+k_rust_version = "0.7.0"
 # kink-native also depends on k-rust-backend from the same checkout, for execution cancellation and diagnostics.
-k_rust_backend_version = "0.3.0"
+k_rust_backend_version = "0.4.0"
 k_release = "7.1.337"
 # The workspace builds against a read-only `git archive` export of this commit instead of the live checkout.
-checkout = "../k-rust-927b9ce6"
+checkout = "../k-rust-501f18b9"
 live_checkout = "../inspirations/midnightntwrk/k-rust"
 source = "Cargo.toml [workspace.dependencies] path dependency"
 

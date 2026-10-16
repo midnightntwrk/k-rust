@@ -41,6 +41,36 @@ fn kore(declarations: &str, sentences: &str) -> k_rust::kore::ast::Definition {
     .expect("test KORE parses")
 }
 
+/// `definition` with the payload of every top-level domain value spelled `RAW` (an axiom's
+/// pattern or an alias body) replaced by `bytes`. Re-pin R0a (finding E-08; k-rust 4a3b0b099):
+/// at 501f18b9 every KORE reader stores a String literal as the UTF-8 of its code points, so a
+/// String payload that is not UTF-8 reaches the representation scan only in a host-built
+/// definition AST.
+fn with_raw_payload(
+    mut definition: k_rust::kore::ast::Definition,
+    bytes: &[u8],
+) -> k_rust::kore::ast::Definition {
+    use k_rust::kore::ast::Sentence as KoreSentence;
+    let mut replaced = 0;
+    for module in &mut definition.modules {
+        for sentence in &mut module.sentences {
+            let (KoreSentence::Axiom { pattern, .. }
+            | KoreSentence::AliasDeclaration { right: pattern, .. }) = sentence
+            else {
+                continue;
+            };
+            if let Pattern::DomainValue { value, .. } = pattern.as_mut()
+                && *value == *"RAW"
+            {
+                *value = bytes.to_vec().into();
+                replaced += 1;
+            }
+        }
+    }
+    assert_eq!(replaced, 1, "one RAW payload");
+    definition
+}
+
 fn loaded(token: Option<&str>) -> Definition {
     let local_sentences = token
         .map(|token| {
@@ -508,23 +538,39 @@ fn review1_constant_folded_string_tokens_are_refused_in_the_execution_definition
 
 /// TB-03 review 1 F1, defence in depth: a compiled String domain value must be UTF-8 text
 /// (k-rust's String values are UTF-8). Bytes values remain byte sequences.
+///
+/// Re-pin R0a (finding E-08; k-rust 4a3b0b099, 3a8af2805, 61fa9e32d): at 501f18b9 the text
+/// `\xe9` is U+00E9 (valid UTF-8 `c3 a9`), so the refused rows are built as definition ASTs whose
+/// payloads are the old bytes; the texts are admitted.
 #[test]
 fn review1_compiled_string_domain_values_must_be_utf8() {
-    for value in [r#"\xe9"#, r#"\xc3"#, r#"A\xff"#] {
-        let definition = kore(
-            DECLARATIONS,
-            &format!(r#"axiom{{}} \dv{{SortText{{}}}}("{value}") [UNIQUE'Unds'ID{{}}("byte-id")]"#),
+    for value in [&[0xe9][..], &[0xc3], b"A\xff"] {
+        let definition = with_raw_payload(
+            kore(
+                DECLARATIONS,
+                r#"axiom{} \dv{SortText{}}("RAW") [UNIQUE'Unds'ID{}("byte-id")]"#,
+            ),
+            value,
         );
         let finding = validate_representation_ast(&definition, None, &loaded(None)).unwrap_err();
         assert_eq!(
             finding.clause,
             RepresentationClause::StringSpelling,
-            "{value}"
+            "{value:?}"
         );
         assert_eq!(finding.sort, "SortText");
         assert_eq!(finding.sentence_unique_id.as_deref(), Some("byte-id"));
     }
-    for value in [r#"\xc3\xa9"#, r#"é"#, "A", ""] {
+    // The first three were refused at 927b9ce6 (E-08): code points at 501f18b9.
+    for value in [
+        r#"\xe9"#,
+        r#"\xc3"#,
+        r#"A\xff"#,
+        r#"\xc3\xa9"#,
+        r#"é"#,
+        "A",
+        "",
+    ] {
         let definition = kore(
             DECLARATIONS,
             &format!(r#"axiom{{}} \dv{{SortText{{}}}}("{value}") []"#),
@@ -553,7 +599,9 @@ fn review1_alias_declaration_bodies_are_scanned() {
             "007",
             RepresentationClause::RenamedIntLiteral,
         ),
-        ("SortText", r#"\xe9"#, RepresentationClause::StringSpelling),
+        // Re-pin R0a (finding E-08; k-rust 4a3b0b099): the text `\xe9` is U+00E9 at 501f18b9,
+        // so the String row's payload is the old byte `e9`, set in the AST (`with_raw_payload`).
+        ("SortText", "RAW", RepresentationClause::StringSpelling),
     ] {
         let definition = kore(
             DECLARATIONS,
@@ -561,6 +609,11 @@ fn review1_alias_declaration_bodies_are_scanned() {
                 r#"alias lit{{}}() : {sort}{{}} where lit{{}}() := \dv{{{sort}{{}}}}("{value}") []"#
             ),
         );
+        let definition = if value == "RAW" {
+            with_raw_payload(definition, &[0xe9])
+        } else {
+            definition
+        };
         assert_eq!(
             validate_representation_ast(&definition, None, &loaded(None))
                 .unwrap_err()
@@ -671,6 +724,11 @@ fn audit_vi_t12_macros_text_is_parsed_in_the_emitted_form() {
     let float = r#"axiom{} \dv{SortFloat{}}("1.0") [UNIQUE'Unds'ID{}("macro-id")]"#;
     let mint = r#"axiom{} \dv{SortMInt{}}("1p8") [UNIQUE'Unds'ID{}("macro-id")]"#;
     let renamed = r#"axiom{} \dv{SortOtherInt{}}("007") [UNIQUE'Unds'ID{}("macro-id")]"#;
+    // Re-pin R0a (finding E-08; k-rust 4a3b0b099, 3a8af2805): at 501f18b9 the text `\xe9` is
+    // U+00E9, valid UTF-8, and no KORE text spells a String payload that is not UTF-8, so this
+    // route can no longer reach the String rule: the row moved from the refused rows to the
+    // admitted ones. The rule is pinned on definition ASTs in
+    // review1_compiled_string_domain_values_must_be_utf8.
     let string = r#"axiom{} \dv{SortText{}}("\xe9") [UNIQUE'Unds'ID{}("macro-id")]"#;
     let alias = r#"alias lit{}() : SortFloat{} where lit{}() := \dv{SortFloat{}}("1.0") [UNIQUE'Unds'ID{}("macro-id")]"#;
     for (text, clause) in [
@@ -686,10 +744,6 @@ fn audit_vi_t12_macros_text_is_parsed_in_the_emitted_form() {
         (
             format!("{clean}\n{renamed}\n"),
             RepresentationClause::RenamedIntLiteral,
-        ),
-        (
-            format!("{clean}\n{string}\n"),
-            RepresentationClause::StringSpelling,
         ),
         (format!("{alias}\n"), RepresentationClause::FloatLiteral),
     ] {
@@ -711,6 +765,7 @@ fn audit_vi_t12_macros_text_is_parsed_in_the_emitted_form() {
         " \n\n",
         &format!("{clean}\n"),
         &format!("{clean}\n{clean}"),
+        &format!("{clean}\n{string}\n"),
     ] {
         assert_eq!(
             validate_representation_kore(&declarations, "", text, &loaded(None)),

@@ -482,14 +482,48 @@ fn universe_value_has_exact_keys_and_the_excluded_payload_digest() {
     );
 }
 
+/// A rule k-rust 501f18b9 compiles but its sentence typer still refuses: a local function whose
+/// equation has a variable in the body of a cell with children (`SentenceTypingError::
+/// CellCompletion`, the stated exception of k-rust docs/compatibility.md to compiles-implies-
+/// types; k-rust tests/sentence_typing.rs
+/// a_cell_with_a_variable_in_a_local_functions_equation_is_refused). It keeps the Untyped
+/// exclusion exercised now that `#let` types (re-pin R0a, findings C-01, E-12).
+const UNTYPED_CELL: &str = r#"module UNTYPEDCELL
+  imports INT
+  imports BOOL
+  configuration <t>
+    <k> $PGM:K </k>
+    <accounts> <account multiplicity="*" type="Map"> <id> 0 </id> <bal> 0 </bal> </account> </accounts>
+  </t>
+  syntax KItem ::= "go" | "stop" | box(AccountsCell) | fooK(K)
+  rule [completed]: <k> go => #fun(box(<accounts> B </accounts>) => fooK(B))(box(<accounts> A </accounts>)) ... </k> <accounts> A </accounts>
+  rule [plain]: <k> stop => .K ... </k>
+endmodule
+"#;
+
+fn untyped_cell() -> Baseline {
+    load_module("UNTYPEDCELL", UNTYPED_CELL)
+}
+
 #[test]
 fn expected_rule_exclusions() {
     let partial = support::load("sympartial.k");
     let resolved = resolve_universe(&partial, &Universe::v1());
+    // Re-pin R0a (findings C-01, E-12; k-rust KINK-03, SentenceTyper types `#let`): at 927b9ce6
+    // SYMPARTIAL.halflet (a `#let` in its requires) was excluded as Untyped; at 501f18b9 it types
+    // and is a mutation site, and sympartial.k excludes nothing.
+    assert_eq!(resolved.excluded(), &[]);
+    assert!(
+        resolved
+            .included()
+            .contains(&support::rule(&partial, "SYMPARTIAL.halflet"))
+    );
+    let untyped = untyped_cell();
+    let resolved = resolve_universe(&untyped, &Universe::v1());
     assert_eq!(
         resolved.excluded(),
         &[(
-            support::rule(&partial, "SYMPARTIAL.halflet"),
+            support::rule(&untyped, "UNTYPEDCELL.completed"),
             ExclusionReason::Untyped
         )]
     );
@@ -559,12 +593,24 @@ fn exclusion_priority_is_untyped_then_attribute_then_macro_rule() {
         ..Universe::v1()
     };
     let resolved = resolve_universe(&partial, &universe);
+    // Re-pin R0a (findings C-01, E-12): halflet types at 501f18b9, so its label excludes it; the
+    // untyped-first priority is pinned on UNTYPEDCELL.completed, which carries a label too.
     assert!(resolved.excluded().contains(&(
         support::rule(&partial, "SYMPARTIAL.halflet"),
-        ExclusionReason::Untyped
+        ExclusionReason::Attribute("label".to_owned())
     )));
     assert!(resolved.excluded().contains(&(
         support::rule(&partial, "SYMPARTIAL.half"),
+        ExclusionReason::Attribute("label".to_owned())
+    )));
+    let untyped = untyped_cell();
+    let resolved = resolve_universe(&untyped, &universe);
+    assert!(resolved.excluded().contains(&(
+        support::rule(&untyped, "UNTYPEDCELL.completed"),
+        ExclusionReason::Untyped
+    )));
+    assert!(resolved.excluded().contains(&(
+        support::rule(&untyped, "UNTYPEDCELL.plain"),
         ExclusionReason::Attribute("label".to_owned())
     )));
     let macros = support::load("t12macro.k");
@@ -581,13 +627,25 @@ fn exclusion_priority_is_untyped_then_attribute_then_macro_rule() {
     )));
 }
 
+/// Re-pin R0a (findings C-01, E-12; k-rust KINK-03): sympartial.k excluded SYMPARTIAL.halflet
+/// as Untyped at 927b9ce6 (1 exclusion, 3 requires sites); at 501f18b9 it types, so sympartial.k
+/// excludes nothing and halflet's requires is a fourth site. The recorded-exclusion case is kept
+/// on UNTYPEDCELL, whose CellCompletion rule is still Untyped.
 #[test]
 fn recorded_exclusions_alone_do_not_make_a_generation_incomplete() {
-    let baseline = support::load("sympartial.k");
-    let universe = resolve_universe(&baseline, &Universe::v1());
-    assert_eq!(universe.excluded().len(), 1);
+    for (baseline, excluded, sites) in [
+        (support::load("sympartial.k"), 0, 4),
+        (untyped_cell(), 1, 1),
+    ] {
+        recorded_exclusions_row(&baseline, excluded, sites);
+    }
+}
+
+fn recorded_exclusions_row(baseline: &Baseline, excluded: usize, sites: usize) {
+    let universe = resolve_universe(baseline, &Universe::v1());
+    assert_eq!(universe.excluded().len(), excluded);
     let discovery = derive_sites_in(
-        &baseline,
+        baseline,
         &universe,
         &[
             SiteSelector::Path(vec![1]),
@@ -596,7 +654,7 @@ fn recorded_exclusions_alone_do_not_make_a_generation_incomplete() {
     )
     .expect("declared requires sites");
     assert!(discovery.exhaustive());
-    assert_eq!(discovery.tuples().len(), 3);
+    assert_eq!(discovery.tuples().len(), sites);
     let generation = select(&discovery, SelectionPolicy::Each, 16)
         .expect("finite selection")
         .fold("requires-false", |origin| {
@@ -613,7 +671,7 @@ fn recorded_exclusions_alone_do_not_make_a_generation_incomplete() {
         })
         .expect("each edit stays in its origin");
     assert!(generation.scored());
-    assert_eq!(generation.candidates().len(), 3);
+    assert_eq!(generation.candidates().len(), sites);
 }
 
 #[test]

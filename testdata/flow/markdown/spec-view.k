@@ -1,11 +1,11 @@
-     
+                               
 
-             
-           
-             
-              
+                                                                               
+                                                                               
+                                                                              
+                                                                  
 
-
+    
 module LIT-SYNTAX
   imports INT-SYNTAX
   syntax Exp ::= Int
@@ -15,12 +15,12 @@ module LIT-SYNTAX
                > left:
                  Exp "+" Exp [strict, symbol(add)]
 endmodule
+   
 
+                                                                         
+                                                           
 
-             
-           
-
-
+    
 module LIT
   imports LIT-SYNTAX
   imports INT
@@ -29,22 +29,22 @@ module LIT
   syntax KResult ::= Int
   rule [inc]: inc I:Int => I +Int 1
   rule I1:Int + I2:Int => I1 +Int I2
+   
 
+                                                                            
+                                    
 
-             
-       
+        
+                              
+   
 
+                                                                            
+                                           
 
-       
-
-
-            
-       
-
-
+    
   rule dec I:Int => I -Int 1 [label(dec)]
   rule [twice]: twice I:Int => I +Int 1 +Int 1
 endmodule
+   
 
-
-              
+                                                                        

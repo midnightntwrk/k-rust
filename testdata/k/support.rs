@@ -23,6 +23,36 @@ use std::path::Path;
 
 pub const DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/k/");
 
+/// The definitions of this directory that load but that k-rust refuses to compile, with the
+/// native compilation stage and two fragments of the detail. Tests that walk the directory pin the
+/// refusal instead of skipping the file. Re-pin R0a (finding E-06; k-rust f07565265, 55a57846b,
+/// bc90d4226): at 501f18b9 a collection role production without its role's signature (here the
+/// `element(mkFoo)` of `_LI_`, where `mkFoo : Int -> Foo`) refuses the definition; at 927b9ce6
+/// both compiled and B1 was refused later, at the baseline oracle.
+pub const EXPECTED_COMPILE_FAILURES: &[(&str, &str, &str, &str)] = &[
+    (
+        "b1coll.k",
+        "hook namespace checks",
+        "The element attribute of production _LI_ names mkFoo",
+        "which has result sort Foo, not the collection sort LI",
+    ),
+    (
+        "t13role.k",
+        "hook namespace checks",
+        "The element attribute of production _LI_ names mkFoo",
+        "which has result sort Foo, not the collection sort LI",
+    ),
+];
+
+/// The expected compile refusal of the definition file `name`, as (stage, detail fragments):
+/// k-rust writes the production's location between the two fragments.
+pub fn expected_compile_failure(name: &str) -> Option<(&'static str, [&'static str; 2])> {
+    EXPECTED_COMPILE_FAILURES
+        .iter()
+        .find(|(file, _, _, _)| *file == name)
+        .map(|(_, stage, first, second)| (*stage, [*first, *second]))
+}
+
 /// Keys that record where a sentence was written, not what it says.
 const POSITION_KEYS: [AttributeKey; 9] = [
     AttributeKey::Location,

@@ -30,6 +30,20 @@ pub struct LoadedSource {
     // Retain only host-side context here; neither field enters the baseline's identity.
     pub(crate) root: PathBuf,
     pub(crate) syntax_module: String,
+    /// The Markdown selector this load passed to k-rust's loader (`LoadOptions::
+    /// markdown_selector`), or `None` for a value not loaded from files. With the bytes of a
+    /// source file (checked against [`SourceFile::sha256`]) it determines the text the loader
+    /// parsed for a `.md` file: k-rust 501f18b9's offset map is the identity for every selector
+    /// (re-pin finding E-09), so the source table alone no longer tells two extractions apart.
+    pub(crate) md_selector: Option<String>,
+}
+
+impl LoadedSource {
+    /// The Markdown selector the load used ([`LoadedSource::md_selector`]'s field doc).
+    #[must_use]
+    pub fn md_selector(&self) -> Option<&str> {
+        self.md_selector.as_deref()
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -94,8 +108,9 @@ pub fn load_source_with_overlay(
     };
     relative_path(&source.entry)?;
     let entry = resolver.read(Path::new(&source.entry))?;
+    let md_selector = source.md_selector.clone().unwrap_or_else(|| "k".to_owned());
     let options = LoadOptions {
-        markdown_selector: source.md_selector.clone().unwrap_or_else(|| "k".to_owned()),
+        markdown_selector: md_selector.clone(),
         implicit_sources: vec![
             builtin::embedded("kast.md").expect("embedded kast"),
             builtin::embedded("prelude.md").expect("embedded prelude"),
@@ -137,6 +152,7 @@ pub fn load_source_with_overlay(
             .collect(),
         root: resolver.root,
         syntax_module,
+        md_selector: Some(md_selector),
     })
 }
 

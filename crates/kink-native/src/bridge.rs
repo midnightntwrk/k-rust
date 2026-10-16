@@ -432,7 +432,11 @@ pub const fn halt_stop(halt: HaltClass) -> Result<Option<PathStop>, BridgeFailur
         HaltClass::BreadthBound => PathStop::BranchLimit,
         // Until upstream tells cancellation from timeout.
         HaltClass::Cancelled => PathStop::Error,
-        HaltClass::Branch | HaltClass::CutPoint | HaltClass::TerminalRule | HaltClass::Timeout => {
+        HaltClass::Branch
+        | HaltClass::CutPoint
+        | HaltClass::TerminalRule
+        | HaltClass::Timeout
+        | HaltClass::WorkBound => {
             return Err(BridgeFailure::ContractViolation(halt));
         }
     }))
@@ -1565,7 +1569,7 @@ mod tests {
         use Expected::{Complete, Discarded, Incomplete, Violation};
         use LeafFeasibility::{Solver as Z, Unsat as N};
         #[rustfmt::skip]
-        let rows: [Row; 46] = [
+        let rows: [Row; 47] = [
             // Halts without solver facts.
             (H::Stuck, GROUND, U, 1, Complete(Normal, GROUND)),
             (H::Stuck, CRASH, U, 1, Complete(SemanticCrash, CRASH)),
@@ -1595,6 +1599,8 @@ mod tests {
             (H::Timeout, GROUND, U, 1, Violation),
             (H::Timeout, CONSTRAINED, U, 1, Violation),
             (H::Cancelled, GROUND, U, 1, Incomplete(P::Error)),
+            // kink sends no max_work: a work-bound leaf is a contract violation (re-pin probe).
+            (H::WorkBound, GROUND, U, 1, Violation),
             (H::Vacuous, BOTTOM, U, 1, Discarded(DiscardReason::Vacuous)),
             // A `Stuck` halt holds for every instance of its state, in both profiles. A
             // constrained or symbolic stuck leaf completes when its state was shown feasible
@@ -1849,9 +1855,15 @@ mod tests {
                 .filter(|halt| !halt.adapter_admits(budget))
                 .collect::<std::collections::BTreeSet<_>>()
         };
-        let always_excluded = [H::Branch, H::CutPoint, H::TerminalRule, H::Timeout]
-            .into_iter()
-            .collect::<std::collections::BTreeSet<_>>();
+        let always_excluded = [
+            H::Branch,
+            H::CutPoint,
+            H::TerminalRule,
+            H::Timeout,
+            H::WorkBound,
+        ]
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>();
         assert_eq!(
             excluded(&unbounded),
             [
@@ -1861,6 +1873,7 @@ mod tests {
                 H::DepthBound,
                 H::BreadthBound,
                 H::Timeout,
+                H::WorkBound,
             ]
             .into_iter()
             .collect()

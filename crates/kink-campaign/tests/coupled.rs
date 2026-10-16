@@ -3259,7 +3259,11 @@ fn audit_ei_at11_constructor_lemma_is_refused() {
                     Some(kink_campaign::MutantScopeFailure::Rejected)
                 );
             } else {
-                assert_eq!(outcomes(&run), vec![vec![U, U, U]]);
+                // Re-pin R0a (finding E-14; k-rust KINK-11 8113ed089, e4766a728, ffd80eb64): at
+                // 927b9ce6 every slot was Unknown (withheld value-production definedness). At
+                // 501f18b9 the whole-term slot is decided and agrees; the pattern slots stay
+                // Unknown, so the status stays Unknown and nothing kills.
+                assert_eq!(outcomes(&run), vec![vec![A, U, U]]);
             }
         }
     });
@@ -7036,6 +7040,18 @@ fn audit_vi_t11_input_rows() -> Vec<(
     ] {
         rows.push((id, rule, head, sort, parse(source)));
     }
+    // Re-pin R0a (finding E-08): `string-high-hex` is U+0080 at 501f18b9; a String payload that is
+    // not UTF-8 now reaches kink only as a host-built pattern.
+    rows.push((
+        "string-high-raw",
+        "string",
+        "stringCheck",
+        "String",
+        Pattern::DomainValue {
+            sort: kore_sort("SortString"),
+            value: vec![0x80].into(),
+        },
+    ));
     rows.extend([
         ("list-flat", "list", "listCheck", "List", concat(vec![item(1), item(2)])),
         ("list-units", "list", "listCheck", "List", concat(vec![unit(), concat(vec![item(1), concat(vec![item(2), unit()])])])),
@@ -7101,7 +7117,10 @@ fn audit_vi_t11_non_normal_inputs_against_owise_are_not_killed() {
                     "bool-invalid" | "map-duplicate" | "set-duplicate" => {
                         ViResult::Refused(CampaignFailureKind::BaselineError)
                     }
-                    "free-set" | "string-high-hex" | "map-symbolic-key" => {
+                    // Re-pin R0a (finding E-08; k-rust 4a3b0b099): `string-high-hex` (`\x80`) is
+                    // U+0080 at 501f18b9 and runs like `string-high-unicode`; the refusal of a
+                    // payload that is not UTF-8 is pinned on `string-high-raw`.
+                    "free-set" | "string-high-raw" | "map-symbolic-key" => {
                         ViResult::Refused(CampaignFailureKind::BaselineOracleFailed)
                     }
                     _ => ViResult::Ran {
@@ -7354,6 +7373,12 @@ fn audit_vi_t10_declared_totality_change_has_no_rule_origin() {
 
 /// Review F1: invalid UTF-8 acts as a phantom code point between U+007F and U+0080.
 /// The range and singleton guards are equivalent to false and equality on K Strings.
+///
+/// Re-pin R0a (finding E-08; k-rust 4a3b0b099, 3a8af2805, 61fa9e32d): at 501f18b9 a KORE
+/// `\xhh` in a String literal is the code point U+00hh, so every reader (text, JSON, binary
+/// KORE) yields UTF-8 and the text inputs `"\x80"` are the valid value U+0080 (Survived, like
+/// `\u0080`). The refusal stays pinned on a payload that is not UTF-8 reaching the guard by the
+/// remaining route, a host-built KORE pattern (`KoreString::from_bytes`).
 #[test]
 fn audit_vi_t11_invalid_utf8_string_inputs_are_refused() {
     with_stack(|| {
@@ -7466,15 +7491,34 @@ fn audit_vi_t11_invalid_utf8_string_inputs_are_refused() {
                 )
                 .expect("fire"),
             ];
-            for (id, source, invalid) in [
-                ("invalid-hex", r#"\dv{SortString{}}("\x80")"#, true),
-                ("invalid-raw", r#""\x80""#, true),
-                ("ascii", r#"\dv{SortString{}}("A")"#, false),
-                ("unicode", r#"\dv{SortString{}}("\u0080")"#, false),
-                ("utf8-hex", r#"\dv{SortString{}}("\xc3\xa9")"#, false),
+            let parsed = |source: &str| {
+                k_rust::kore::parser::parse_pattern(source).expect("String argument")
+            };
+            for (id, argument, invalid) in [
+                (
+                    "invalid-dv",
+                    Pattern::DomainValue {
+                        sort: kore_sort("SortString"),
+                        value: vec![0x80].into(),
+                    },
+                    true,
+                ),
+                ("invalid-raw", Pattern::String(vec![0x80].into()), true),
+                // At 927b9ce6 these two texts were the invalid inputs (E-08).
+                (
+                    "hex-is-u0080",
+                    parsed(r#"\dv{SortString{}}("\x80")"#),
+                    false,
+                ),
+                ("raw-hex-is-u0080", parsed(r#""\x80""#), false),
+                ("ascii", parsed(r#"\dv{SortString{}}("A")"#), false),
+                ("unicode", parsed(r#"\dv{SortString{}}("\u0080")"#), false),
+                (
+                    "utf8-hex",
+                    parsed(r#"\dv{SortString{}}("\xc3\xa9")"#),
+                    false,
+                ),
             ] {
-                let argument =
-                    k_rust::kore::parser::parse_pattern(source).expect("String argument");
                 let tests = [case(
                     id,
                     support::initial_state(app(head, vec![argument]), "SortProg"),
@@ -7517,6 +7561,10 @@ fn audit_vi_t11_invalid_utf8_string_inputs_are_refused() {
 /// invalid-UTF-8 token of any token sort (K's `Id`, a user `[token]` sort) reaches the
 /// review F1 String guards without a String domain value. The mutants are those of
 /// `audit_vi_t11_invalid_utf8_string_inputs_are_refused`, equivalent on K Strings.
+///
+/// Re-pin R0a (finding E-08; k-rust 4a3b0b099, 3a8af2805, 61fa9e32d): a KORE `\xhh` in a token
+/// literal is now U+00hh, so the text tokens `"\x80"` and `"\xff"` are valid (Survived). The
+/// refusal stays pinned on host-built token domain values whose payload is not UTF-8.
 #[test]
 fn audit_vi_t11_review3_invalid_utf8_token_inputs_are_refused() {
     with_stack(|| {
@@ -7607,30 +7655,54 @@ fn audit_vi_t11_review3_invalid_utf8_token_inputs_are_refused() {
                 )
                 .expect("fire"),
             ];
-            for (id, hook, source, invalid) in [
+            let parsed =
+                |source: &str| k_rust::kore::parser::parse_pattern(source).expect("token argument");
+            let raw = |sort: &str, byte: u8| Pattern::DomainValue {
+                sort: kore_sort(sort),
+                value: vec![byte].into(),
+            };
+            for (id, hook, token, invalid) in [
+                ("id-invalid-x80", id2string, raw("SortId", 0x80), true),
+                ("id-invalid-xff", id2string, raw("SortId", 0xff), true),
+                ("tok-invalid-x80", "tok2s", raw("SortTok", 0x80), true),
+                // At 927b9ce6 these texts were the invalid inputs (E-08).
                 (
-                    "id-invalid-x80",
+                    "id-hex-is-u0080",
                     id2string,
-                    r#"\dv{SortId{}}("\x80")"#,
-                    true,
+                    parsed(r#"\dv{SortId{}}("\x80")"#),
+                    false,
                 ),
                 (
-                    "id-invalid-xff",
+                    "id-hex-is-u00ff",
                     id2string,
-                    r#"\dv{SortId{}}("\xff")"#,
-                    true,
+                    parsed(r#"\dv{SortId{}}("\xff")"#),
+                    false,
                 ),
                 (
-                    "tok-invalid-x80",
+                    "tok-hex-is-u0080",
                     "tok2s",
-                    r#"\dv{SortTok{}}("\x80")"#,
-                    true,
+                    parsed(r#"\dv{SortTok{}}("\x80")"#),
+                    false,
                 ),
-                ("id-ascii", id2string, r#"\dv{SortId{}}("A")"#, false),
-                ("id-unicode", id2string, r#"\dv{SortId{}}("\u0080")"#, false),
-                ("tok-unicode", "tok2s", r#"\dv{SortTok{}}("\u0080")"#, false),
+                (
+                    "id-ascii",
+                    id2string,
+                    parsed(r#"\dv{SortId{}}("A")"#),
+                    false,
+                ),
+                (
+                    "id-unicode",
+                    id2string,
+                    parsed(r#"\dv{SortId{}}("\u0080")"#),
+                    false,
+                ),
+                (
+                    "tok-unicode",
+                    "tok2s",
+                    parsed(r#"\dv{SortTok{}}("\u0080")"#),
+                    false,
+                ),
             ] {
-                let token = k_rust::kore::parser::parse_pattern(source).expect("token argument");
                 let tests = [case(
                     id,
                     support::initial_state(app(head, vec![app(hook, vec![token])]), "SortProg"),
@@ -8139,9 +8211,11 @@ fn t12_patch(baseline: &Baseline, rule: &str, edit: &T12Edit) -> Patch {
         }
         T12Edit::Respell(from, to) => {
             let path = t12_token_path(baseline, rule, from);
-            let Term::Token { sort, .. } = term(&path).unannotated().clone() else {
+            let at = term(&path);
+            let Term::Token { sort, .. } = at.unannotated() else {
                 panic!("token")
             };
+            let sort = sort.clone();
             vec![replaced(
                 baseline,
                 rule,
@@ -8153,9 +8227,11 @@ fn t12_patch(baseline: &Baseline, rule: &str, edit: &T12Edit) -> Patch {
             )]
         }
         T12Edit::Equality(head) => {
-            let Term::Apply { arguments, .. } = term(&[1]).unannotated().clone() else {
+            let at = term(&[1]);
+            let Term::Apply { arguments, .. } = at.unannotated() else {
                 panic!("requires")
             };
+            let arguments = arguments.clone();
             vec![replaced(baseline, rule, &[1], Term::apply(head, arguments))]
         }
     };
@@ -8827,10 +8903,10 @@ fn audit_vi_t12_review1_constant_folded_strings_are_refused() {
             ))
             .expect("chrChar")
             .unannotated()
-            .clone()
         else {
             panic!("chrChar application")
         };
+        let chr = chr.clone();
         let label = "T12FOLDCLEAN.p";
         let path = t12_find(
             baseline,

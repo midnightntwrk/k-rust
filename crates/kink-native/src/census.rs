@@ -367,9 +367,9 @@ struct CollectionRoles<'a> {
     namespace: &'static str,
     sort: &'a str,
     symbols: &'a CollectionSymbols,
-    key: Option<&'a str>,
-    value: Option<&'a str>,
-    element: Option<&'a str>,
+    key: Option<&'a Sort>,
+    value: Option<&'a Sort>,
+    element: Option<&'a Sort>,
 }
 fn collection_roles(metadata: &CollectionMetadata) -> CollectionRoles<'_> {
     match metadata {
@@ -400,14 +400,13 @@ fn collection_roles(metadata: &CollectionMetadata) -> CollectionRoles<'_> {
     }
 }
 fn role_sort(position: RolePosition, roles: &CollectionRoles<'_>) -> Option<Sort> {
-    let name = match position {
-        Collection => Some(roles.sort),
-        Key => roles.key,
-        Value => roles.value,
-        Element => roles.element,
-        Bool => Some("SortBool"),
-    }?;
-    Some(Sort::simple(name))
+    match position {
+        Collection => Some(Sort::simple(roles.sort)),
+        Key => roles.key.cloned(),
+        Value => roles.value.cloned(),
+        Element => roles.element.cloned(),
+        Bool => Some(Sort::simple("SortBool")),
+    }
 }
 fn role_signature(
     symbol: &Symbol,
@@ -527,11 +526,12 @@ fn natural_collection_hook(
             && role_signature(symbol, positions, *result, &roles)
             // Require the closed table itself to agree with a standard prelude signature.
             && signatures.iter().any(|s| {
+                let kitem = Sort::simple("SortKItem");
                 let standard_roles = CollectionRoles {
                     sort: standard,
-                    key: Some("SortKItem"),
-                    value: Some("SortKItem"),
-                    element: Some("SortKItem"),
+                    key: Some(&kitem),
+                    value: Some(&kitem),
+                    element: Some(&kitem),
                     ..roles
                 };
                 role_signature(s, positions, *result, &standard_roles)
@@ -686,21 +686,13 @@ fn reference_text(files: &[String], modules: &[String]) -> String {
     text
 }
 
-/// Modules that fail a standalone default compilation at k-rust 927b9ce6.
+/// Modules that fail a standalone default compilation at k-rust 501f18b9 (re-measured by the
+/// re-pin, finding E-16: at 927b9ce6 KAST, KSEQ, KSEQ-SYMBOLIC, K, K-TERM,
+/// ID-SYNTAX-PROGRAM-PARSING and KVAR-SYNTAX-PROGRAM-PARSING failed too; at 501f18b9 they compile
+/// alone and are reference census inputs).
 /// The census tests also check that none declares a hooked symbol.
-pub const EXCLUDED_REFERENCE_MODULES: &[&str] = &[
-    "KAST",
-    "KSEQ",
-    "KSEQ-SYMBOLIC",
-    "KCELLS",
-    "RULE-CELLS",
-    "CONFIG-CELLS",
-    "K",
-    "K-TERM",
-    "DEFAULT-LAYOUT",
-    "ID-SYNTAX-PROGRAM-PARSING",
-    "KVAR-SYNTAX-PROGRAM-PARSING",
-];
+pub const EXCLUDED_REFERENCE_MODULES: &[&str] =
+    &["KCELLS", "RULE-CELLS", "CONFIG-CELLS", "DEFAULT-LAYOUT"];
 
 fn build_reference() -> Result<Reference, CensusError> {
     let files: Vec<String> = REFERENCE_FILES.iter().map(|f| (*f).to_owned()).collect();

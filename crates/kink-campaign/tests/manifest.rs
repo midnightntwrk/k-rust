@@ -673,13 +673,18 @@ fn counter_manifest_is_deterministic_and_declaration_changes_are_local() {
         };
         let original = build(&campaign, &generation, 1).unwrap();
         check_manifest(&original);
+        // Re-pin R0a (finding E-07; k-rust 67b9f5c54): the semantic input is KRUST-PROVENANCE
+        // version 8 at 501f18b9, and the structure digest moved with the builtin Markdown
+        // sources' positions (finding E-09's identity offset map) and builtin kast.md's layout
+        // regexes (k-rust df11bc569, 4df229f70); compiled KORE is unchanged (kink-patch
+        // semantic_input.rs literal_digests, compiled_kore_is_unchanged_by_the_provenance_move).
         assert_eq!(
             original.value()["baseline"]["semantic_input_sha256"],
-            "f997509eac63f303e54f078c721ca0e2bf9f7d780b82f60c88b39cfda9accb3d"
+            "a7181f8fe5cad482a4b76e0bfb506e1eb00b55f354f87a1b1684442cd740bb49"
         );
         assert_eq!(
             original.value()["baseline"]["structure_sha256"],
-            "4af7e670c3bdec82d0997ef284611fcff09d1ae538546dbea4abc9f047013373"
+            "f71bf625e0ba7b96ef9377c0b9bf550b57210b0422ce294df7146bd334649e2a"
         );
         let mutants = original.value()["mutants"].as_array().unwrap();
         assert_eq!(mutants.len(), 4);
@@ -768,13 +773,18 @@ fn coupled_manifest_is_deterministic() {
         })
         .unwrap();
         check_manifest(&manifest);
+        // Re-pin R0a (finding E-07; k-rust 67b9f5c54): the semantic input is KRUST-PROVENANCE
+        // version 8 at 501f18b9, and the structure digest moved with the builtin Markdown
+        // sources' positions (finding E-09's identity offset map) and builtin kast.md's layout
+        // regexes (k-rust df11bc569, 4df229f70); compiled KORE is unchanged (kink-patch
+        // semantic_input.rs literal_digests, compiled_kore_is_unchanged_by_the_provenance_move).
         assert_eq!(
             manifest.value()["baseline"]["semantic_input_sha256"],
-            "a554dcedd4b0bd2dcdfb65edfd24b207de4899acc68e26345caf5175e869cad3"
+            "31458cc30035f03ed69d43a180358989867e952b570b81a031c4fb4fe4d03fe4"
         );
         assert_eq!(
             manifest.value()["baseline"]["structure_sha256"],
-            "87957ecd07877afe84beee0893c4aa7fbe3e0e714e0b4cb453604da7ce485f58"
+            "149d73dc878819b0974b7aabcad4402ada7f0ef90b6d1531e16b5ed92ef7d8af"
         );
         assert_eq!(manifest.value()["mutants"].as_array().unwrap().len(), 1);
         let patch = &generation.candidates()[0].patch;

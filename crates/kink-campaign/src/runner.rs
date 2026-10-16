@@ -1517,7 +1517,9 @@ impl Runtime {
 
     fn facts(&mut self) -> Result<DefinitionFacts, String> {
         if self.facts.is_none() {
-            self.facts = Some(definition_facts(&mut self.backend).map_err(|error| error.0));
+            self.facts = Some(
+                definition_facts(&mut self.backend).map_err(|error| error.message().to_owned()),
+            );
         }
         self.facts.clone().expect("filled above")
     }

@@ -353,9 +353,30 @@ fn rule_authors_resolve_over_testdata() {
                 eprintln!("COVERAGE_MAP_LOAD_REFUSED {name}");
                 continue;
             };
-            let side = NativeValidator::bind(baseline, CompileOptions::default())
-                .compile_baseline()
-                .unwrap_or_else(|error| panic!("{name}: {error}"));
+            let compiled =
+                NativeValidator::bind(baseline, CompileOptions::default()).compile_baseline();
+            // Re-pin R0a (finding E-06; k-rust f07565265, 55a57846b, bc90d4226): b1coll.k and
+            // t13role.k are refused by compilation at 501f18b9; the refusal is pinned, not skipped.
+            let side = match (support::expected_compile_failure(&name), compiled) {
+                (None, Ok(side)) => side,
+                (None, Err(error)) => panic!("{name}: {error}"),
+                (
+                    Some((stage, detail)),
+                    Err(kink_native::NativeFailure::Compilation {
+                        stage: actual,
+                        detail: text,
+                    }),
+                ) => {
+                    assert_eq!(actual, stage, "{name}: {text}");
+                    assert!(
+                        detail.iter().all(|fragment| text.contains(fragment)),
+                        "{name}: {text}"
+                    );
+                    eprintln!("COVERAGE_MAP_COMPILE_REFUSED {name}");
+                    continue;
+                }
+                (Some(_), Ok(_)) => panic!("{name}: expected a compile refusal, compiled"),
+            };
             let authors = RuleAuthors::of(&side);
             assert!(
                 authors.unresolved().is_empty(),

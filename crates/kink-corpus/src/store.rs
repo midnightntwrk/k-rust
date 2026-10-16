@@ -200,6 +200,7 @@ impl Store {
             files: Vec::new(),
             root: PathBuf::new(),
             syntax_module,
+            md_selector: None,
         };
         definition
             .tests

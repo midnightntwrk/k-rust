@@ -15,7 +15,7 @@ serde_json.workspace = true
 [features]
 # The Z3 profile (SYM-3B-00: machine wrapper `with-z3-static-4.16.0`, no gh-release, no bundled
 # build). No other workspace member enables it, so `cargo test --workspace` stays no-Z3.
-z3 = ["k-rust/z3-inference", "k-rust-backend/z3"]
+z3 = ["k-rust/z3-inference"]
 
 [dev-dependencies]
 toml = { version = "=0.9.12", default-features = false, features = ["parse", "serde", "std"] }

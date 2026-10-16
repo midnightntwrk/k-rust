@@ -311,11 +311,24 @@ fn hooked_string_sort_identity_is_undecided() {
     let steps = run_steps(&side, "MYSTR", &state);
     let equality_state = support::initial_state(app("Lblstep", vec![support::int(1)]), "SortProg");
     let equality_steps = run_steps(&side, "MYSTR", &equality_state);
-    assert!(
-        equality_steps.states[0]
-            .iter()
-            .any(|state| contains_domain_value(state, "SortBool", b"false"))
-    );
+    // Re-pin R0a (finding E-13): at 927b9ce6 the run evaluated the ill-sorted MyStr hooks and
+    // reached `verdict(false)` beside `done` payloads that were byte-equal for the two different
+    // strings (the old two-reading bug). At 501f18b9 k-rust leaves `chrM` unevaluated
+    // (UnsupportedHook, `the evaluator did not reduce constructor-like arguments`), so no Bool
+    // verdict is formed and the `eqM` application stays in the state.
+    let mut equality_symbols = std::collections::BTreeSet::new();
+    for state in &equality_steps.states[0] {
+        k_rust::kore::walk::for_each_post_order(state, |node| {
+            if let Pattern::Application { symbol, .. } = node {
+                equality_symbols.insert(symbol.name.clone());
+            }
+        });
+    }
+    assert!(equality_symbols.contains("LbleqM"), "{equality_symbols:?}");
+    assert!(equality_steps.states[0].iter().all(|state| {
+        !contains_domain_value(state, "SortBool", b"false")
+            && !contains_domain_value(state, "SortBool", b"true")
+    }));
     let path = paths_for(&side, &side, "MYSTR", &state, vec![]).remove(0);
     let spec = StepEventSpec {
         constructor: "probe".into(),
@@ -2194,8 +2207,8 @@ fn top_path(sort: &str) -> PathInput {
 /// non-free head, so a declaration whose pattern meets `tag(..)` with another `tag(..)` or with a
 /// free constructor is Undecided, never Absent; a repeated variable bound to two different
 /// `tag` applications goes to the shared relation, which is Indeterminate (Undecided) unless
-/// k-rust decomposes both as normal on every instance (`tag(z)` against `tag(s(s(z)))`: both
-/// normal, Unequal, Absent); identical applications are Equal by identity (Certain); and a
+/// k-rust decomposes both as normal on every instance (`tag(z)` against `tag(s(s(z)))` was both
+/// normal, Unequal, Absent at 927b9ce6, and is Indeterminate at 501f18b9); identical applications are Equal by identity (Certain); and a
 /// payload bound to a `tag` application is Certain but not definition independent, so a
 /// `with_bindings` slot over it is Unknown (SO-D4). Same in both profiles (no solver query).
 #[test]
@@ -2258,7 +2271,11 @@ fn audit_so_equation_heads_stay_undecided_in_steps() {
             StepPresence::Undecided,
             StepPresence::Undecided,
             StepPresence::Undecided,
-            StepPresence::Absent,
+            // Re-pin R0a (finding E-14; k-rust instance_normal.rs 216849c33, 22b9d5a07): at
+            // 927b9ce6 k-rust decomposed `tag(z)` and `tag(s(s(z)))` as normal (Unequal, Absent);
+            // at 501f18b9 the shared relation is Indeterminate, so the row is Undecided
+            // (a lost decision, fail-closed).
+            StepPresence::Undecided,
             StepPresence::Certain(Vec::new()),
             StepPresence::Certain(vec![tag(z())]),
         ]

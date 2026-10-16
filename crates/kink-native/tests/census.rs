@@ -18,7 +18,7 @@ use kink_native::census::{
     CensusClass, CensusVerdict, DeclarationCensus, EXCLUDED_REFERENCE_MODULES, FOLDED_HOOKS,
     REFERENCE_FILES, declaration_census, internalize, reference_prelude,
 };
-use kink_native::{NativeValidator, ValidatedDefinition};
+use kink_native::{NativeFailure, NativeValidator, ValidatedDefinition};
 use kink_patch::Baseline;
 use serde_json::json;
 
@@ -39,17 +39,42 @@ fn compile(name: &str) -> ValidatedDefinition {
         .unwrap_or_else(|e| panic!("{name}: {e}"))
 }
 
+/// `name`'s compile result checked against support::EXPECTED_COMPILE_FAILURES: the side when it
+/// is not listed, `None` (after asserting the listed stage and detail) when it is.
+fn compile_or_expected_refusal(
+    name: &str,
+    validator: NativeValidator,
+) -> Option<ValidatedDefinition> {
+    let result = validator.compile_baseline();
+    match (support::expected_compile_failure(name), result) {
+        (None, Ok(side)) => Some(side),
+        (None, Err(error)) => panic!("{name}: {error}"),
+        (
+            Some((stage, detail)),
+            Err(NativeFailure::Compilation {
+                stage: actual,
+                detail: text,
+            }),
+        ) => {
+            assert_eq!(actual, stage, "{name}: {text}");
+            assert!(
+                detail.iter().all(|fragment| text.contains(fragment)),
+                "{name}: {text}"
+            );
+            None
+        }
+        (Some(_), Ok(_)) => panic!("{name}: expected a compile refusal, compiled"),
+    }
+}
+
 fn expected(name: &str) -> Option<Vec<(CensusClass, &'static str)>> {
-    use CensusClass::{C, H, U};
+    use CensusClass::{H, U};
     Some(match name {
         "t13ite.k" => vec![(H, "Lbli2b")],
         "t13owk.k" => vec![(H, "LbladdB")],
         "t13tok.k" => vec![(H, "Lblb2t"), (H, "Lbltok2s")],
-        "t13role.k" => vec![
-            (C, "Lbl'Stop'LI"),
-            (C, "Lbl'Unds'LI'Unds'"),
-            (C, "LblmkFoo"),
-        ],
+        // t13role.k (rule C at 927b9ce6: .LI, _LI_, mkFoo) no longer compiles at 501f18b9, which
+        // refuses the misfit role itself (E-06; support::EXPECTED_COMPILE_FAILURES).
         "t13typedlist.k" => vec![(H, "LblgetLE")],
         "t13implemented.k" => vec![(U, "Lblkeccak")],
         "tb02bytestoken.k" => vec![(H, "Lblb2s")],
@@ -92,7 +117,6 @@ fn census_fixture_verdicts() {
         "t13ite.k",
         "t13owk.k",
         "t13tok.k",
-        "t13role.k",
         "t13typedlist.k",
         "t13natural.k",
         "t13inert.k",
@@ -107,6 +131,13 @@ fn census_fixture_verdicts() {
             json!({"file":name,"census":census.value()})
         );
     }
+    // Re-pin R0a (finding E-06; k-rust f07565265, 55a57846b, bc90d4226): t13role.k's rule C
+    // fixture is refused by k-rust's compilation at 501f18b9, before any census runs.
+    let refused = compile_or_expected_refusal(
+        "t13role.k",
+        NativeValidator::bind(support::load("t13role.k"), CompileOptions::default()),
+    );
+    assert!(refused.is_none());
 }
 
 #[test]
@@ -161,9 +192,13 @@ fn census_testdata_table() {
                 continue;
             }
         };
-        let side = NativeValidator::bind(loaded, CompileOptions::default())
-            .compile_baseline()
-            .unwrap_or_else(|e| panic!("{name}: {e}"));
+        let Some(side) = compile_or_expected_refusal(
+            name,
+            NativeValidator::bind(loaded, CompileOptions::default()),
+        ) else {
+            eprintln!("CENSUS_COMPILE_REFUSED {}", json!({"file": name}));
+            continue;
+        };
         let census = declaration_census(&side).unwrap_or_else(|e| panic!("{name}: {e}"));
         assert_row(name, &census);
         eprintln!(
@@ -173,17 +208,22 @@ fn census_testdata_table() {
     }
 }
 
+/// Re-pin R0a (finding E-06): the flagged fixture is t13tok.k (two H findings), since t13role.k
+/// no longer compiles at 501f18b9.
 #[test]
 fn census_is_deterministic() {
-    for name in ["counter.k", "t13role.k"] {
+    for name in ["counter.k", "t13tok.k"] {
         let first = declaration_census(&compile(name)).unwrap();
         let second = declaration_census(&compile(name)).unwrap();
         assert_eq!(first.text(), second.text());
         assert_eq!(first.digest(), second.digest());
         assert!(!first.text().contains(env!("CARGO_MANIFEST_DIR")));
         assert!(!first.text().contains("/home"));
+        if name == "t13tok.k" {
+            assert_eq!(first.findings().len(), 2);
+        }
         for finding in first.findings() {
-            assert_eq!(finding.source.as_deref(), Some("Source(t13role.k)"));
+            assert_eq!(finding.source.as_deref(), Some("Source(t13tok.k)"));
             assert!(finding.location.is_some());
         }
     }

@@ -4,9 +4,9 @@ k-in-k2 provides execution pattern matching and semantic mutation testing for K 
 It is built on k-rust,
 which the workspace consumes as a path dependency.
 The intended source is the on-disk checkout at `../inspirations/midnightntwrk/k-rust`, tracking k-rust main.
-The workspace builds against a read-only export of k-rust main commit `927b9ce6352357db340c221ff5377b294b8324e9` at `../k-rust-927b9ce6`,
-exported with `git -C ../inspirations/midnightntwrk/k-rust archive 927b9ce6352357db340c221ff5377b294b8324e9 | tar -x -C ../k-rust-927b9ce6`.
-That commit carries variable identity version 3: verbatim name reading, injective printing and request-unique free mints.
+The workspace builds against a read-only export of k-rust main commit `501f18b9bde3cba800924a0efef932b440e66bf0` (k-rust 0.7.0, k-rust-backend 0.4.0) at `../k-rust-501f18b9`,
+exported with `git -C ../inspirations/midnightntwrk/k-rust archive 501f18b9bde3cba800924a0efef932b440e66bf0 | tar -x -C ../k-rust-501f18b9`.
+That commit carries variable identity version 3 (verbatim name reading, injective printing and request-unique free mints) and KRUST-PROVENANCE version 8.
 Moving back to the live checkout means changing the two paths in `Cargo.toml` `[workspace.dependencies]` and adapting to the new k-rust.
 The work is intended to be merged into k-rust together with KRS.
 
@@ -53,9 +53,9 @@ and on the integrity of the cache directory, which is trusted like the build.
 A killer hint never decides a status: it only orders the work.
 When a mutation runs live, the baseline result of each program it runs is compared with that program's cached result, which detects a corpus that changed under the cache.
 A killed mutation decided by a cached outcome, or a survivor whose every outcome is cached, runs nothing and gets no such check: there the programs' cached results are trusted with the rest of the cache directory.
-Known gap at the k-rust pin (927b9ce6): a result can depend on the stack of the thread that loads the definition or runs the program, and on other threads, because k-rust silently dismisses a stop for lack of stack both in the load's discharge of rewrite-rule definedness (k-rust KINK-06/4) and in a run's refinement of a result (KINK-06/5).
+Known gap at the k-rust pin (501f18b9, as at 927b9ce6 before it): a result can depend on the stack of the thread that loads the definition or runs the program, and on other threads, because k-rust silently dismisses a stop for lack of stack both in the load's discharge of rewrite-rule definedness (k-rust KINK-06/4) and in a run's refinement of a result (KINK-06/5).
 This affects live and cached kills alike, and `--verify` does not remove it.
-The planned re-pin (RP-01) closes it: a comparison will be unknown, live or cached, when either run reports a nonzero `stackStops` or the load of either definition reports a nonzero stack-stop count (`discharge_counts().stack_stops` or `value_claims().counts().condition_stack_stops`).
+The fail-closed rule that closes it is the next step of the re-pin (RP-01), not yet in this build: a comparison will be unknown, live or cached, when either run reports a nonzero `stackStops` or the load of either definition reports a nonzero stack-stop count (`discharge_counts().stack_stops` or `value_claims().counts().condition_stack_stops`).
 
 ### Commands
 

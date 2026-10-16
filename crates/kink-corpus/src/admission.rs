@@ -583,10 +583,11 @@ fn pinned_load(
         files: BTreeMap::new(),
         failure: None,
     };
+    let md_selector = d.md_selector.clone().unwrap_or_else(|| "k".into());
     let result = (|| {
         let entry = resolver.read(&d.entry)?;
         let options = LoadOptions {
-            markdown_selector: d.md_selector.clone().unwrap_or_else(|| "k".into()),
+            markdown_selector: md_selector.clone(),
             implicit_sources: vec![
                 builtin::embedded("kast.md").expect("embedded kast"),
                 builtin::embedded("prelude.md").expect("embedded prelude"),
@@ -655,6 +656,7 @@ fn pinned_load(
             files: record.files.clone(),
             root,
             syntax_module,
+            md_selector: Some(md_selector),
         },
         texts,
     ))

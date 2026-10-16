@@ -795,6 +795,62 @@ fn e6_failures_never_distinguish() {
     );
 }
 
+/// Re-pin R0a (findings E-02, E-05): a `work-bound` leaf can never yield Distinguish. kink sends
+/// no `max_work`, so the bridge answers a contract violation, the runner an infrastructure
+/// failure with no operand, and the mutant's status is Error, on its own or beside a test that
+/// agrees. (kink-native execution.rs `work_bound_leaf_is_a_contract_violation_under_every_budget`
+/// pins the adapter's refusal.)
+#[test]
+fn work_bound_leaf_never_yields_distinguish() {
+    assert!(matches!(
+        halt_stop(HaltClass::WorkBound),
+        Err(BridgeFailure::ContractViolation(HaltClass::WorkBound))
+    ));
+    let failure = ExecutionAdapterFailure::ContractViolation(HaltClass::WorkBound);
+    assert_eq!(
+        ExecutionFailureKind::from(&failure),
+        ExecutionFailureKind::Infrastructure
+    );
+    for projection in [
+        StateProjection::WholeTerm,
+        StateProjection::TermPaths(vec![vec![0]]),
+    ] {
+        assert_eq!(
+            halt_side(&projection, HaltClass::WorkBound),
+            Err(ExecutionFailureKind::Infrastructure)
+        );
+    }
+    assert_eq!(
+        mutant_status(TestRun::Failed(ExecutionFailureKind::Infrastructure)),
+        MutantStatus::Error
+    );
+    let plan = MutantPlan {
+        selection: None,
+        mutant_id: MutantId(0),
+        tests: vec![
+            TestPlan {
+                test_id: "agrees".to_owned(),
+                run: TestRun::Compared(vec![Agree]),
+            },
+            TestPlan {
+                test_id: "work-bound".to_owned(),
+                run: TestRun::Failed(ExecutionFailureKind::Infrastructure),
+            },
+        ],
+        mutant_failure: None,
+        claims: Withdrawal::default(),
+    };
+    let manifest = ["agrees", "work-bound"].map(|test_id| ManifestTest {
+        test_id: test_id.to_owned(),
+        slot_count: 1,
+    });
+    for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+        let report = derive_mutant_report(&plan, &manifest, schedule).expect("report");
+        assert_eq!(report.status, MutantStatus::Error, "{schedule:?}");
+        assert!(report.killing_test_ids.is_empty(), "{schedule:?}");
+    }
+}
+
 /// Formerly `incomplete_normal_side_is_unknown_even_against_a_crash` (critique C6): a
 /// bounded or indeterminate run is `Unknown` against any other side, including a crash
 /// and under every crash policy, so a bounded baseline that might crash beyond its bound
@@ -932,7 +988,7 @@ fn runner_mapping_is_exhaustive() {
     };
     let infrastructure = Err(ExecutionFailureKind::Infrastructure);
     #[rustfmt::skip]
-    let halts: [(HaltClass, Result<OracleSide, ExecutionFailureKind>); 13] = [
+    let halts: [(HaltClass, Result<OracleSide, ExecutionFailureKind>); 14] = [
         (H::Stuck, Ok(value(std::slice::from_ref(&done)))),
         // An undefined step's final result is its last configuration.
         (H::Trivial, Ok(value(std::slice::from_ref(&done)))),
@@ -949,6 +1005,8 @@ fn runner_mapping_is_exhaustive() {
         (H::Timeout, infrastructure.clone()),
         // Until upstream tells cancellation from timeout.
         (H::Cancelled, Ok(OracleSide::Error)),
+        // kink sends no max_work, so a work-bound leaf is a contract violation (re-pin probe).
+        (H::WorkBound, infrastructure.clone()),
     ];
     assert_eq!(
         halts.iter().map(|(halt, _)| *halt).collect::<Vec<_>>(),

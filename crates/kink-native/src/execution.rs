@@ -18,10 +18,10 @@ use std::{
 };
 
 use k_rust::backend::{
-    Backend, BackendDiagnosticOutput, BackendError, EffectOutput, ExecuteRequest, ExecutionLeaf,
-    ExecutionResult, ExecutionStrategy, HaltReasonOutput, ObservationEventOutput, ObservedRequest,
-    ResultModalityOutput, SearchFailureOutput, TraceEntry, TransitionClassOutput,
-    TransitionIdOutput,
+    BACKEND_SCHEMA_VERSION, Backend, BackendDiagnosticOutput, BackendError, CancelledResultOutput,
+    EffectOutput, ExecuteRequest, ExecutionLeaf, ExecutionResult, ExecutionStrategy,
+    HaltReasonOutput, ObservationEventOutput, ObservedRequest, ResultModalityOutput,
+    SearchFailureOutput, TraceEntry, TransitionClassOutput, TransitionIdOutput,
 };
 use k_rust::kore::{ast::Pattern, codec};
 use k_rust_backend::stop::{CancellationToken, StopCause};
@@ -46,10 +46,13 @@ pub enum HaltClass {
     SimplificationError,
     Timeout,
     Cancelled,
+    /// k-rust's `work-bound` halt (`max_work` reached). kink sends no `max_work`, so the
+    /// adapter never admits it: a leaf of this class is a contract violation (fail-closed).
+    WorkBound,
 }
 
 impl HaltClass {
-    pub const ALL: [Self; 13] = [
+    pub const ALL: [Self; 14] = [
         Self::Stuck,
         Self::Trivial,
         Self::Vacuous,
@@ -63,6 +66,7 @@ impl HaltClass {
         Self::SimplificationError,
         Self::Timeout,
         Self::Cancelled,
+        Self::WorkBound,
     ];
 
     /// Whether the adapter's request can yield this halt under `budget`.
@@ -78,7 +82,11 @@ impl HaltClass {
             | Self::Cancelled => true,
             Self::DepthBound => budget.max_depth.is_some(),
             Self::BreadthBound => budget.max_breadth.is_some(),
-            Self::Branch | Self::CutPoint | Self::TerminalRule | Self::Timeout => false,
+            Self::Branch
+            | Self::CutPoint
+            | Self::TerminalRule
+            | Self::Timeout
+            | Self::WorkBound => false,
         }
     }
 
@@ -99,6 +107,7 @@ impl HaltClass {
             HaltReasonOutput::SimplificationError => Self::SimplificationError,
             HaltReasonOutput::Timeout => Self::Timeout,
             HaltReasonOutput::Cancelled => Self::Cancelled,
+            HaltReasonOutput::WorkBound => Self::WorkBound,
         }
     }
 }
@@ -337,19 +346,34 @@ pub enum ExecutionAdapterFailure {
 /// collection candidate per rule, so an instance matched only through another candidate may have
 /// a defined successor although its leaf is `Trivial`. Stop-at-branch, cut-point and terminal
 /// rules are off, so no leaf stops at a branch or a designated rule.
+///
+/// The request is a full struct literal with no struct-update base (no defaults taken from
+/// `ExecuteRequest::new`), so a field k-rust adds at a later pin is a compile error that forces a
+/// decision here instead of a silent wire default (re-pin findings D-05, D-07). The four fields k-rust 501f18b9 added keep the
+/// behaviour kink had at 927b9ce6, chosen explicitly: `trace` on, a cancelled run answers its
+/// `Partial` leaves (the watchdog's `timed_out` flag, not leaf presence, makes it Timeout), no
+/// `max_work` (so a `work-bound` leaf is a contract violation, [`HaltClass::WorkBound`]), and no
+/// coverage. Lane 1 of the re-pin changes them (F-11 rewrite).
 fn request(state: Pattern, budget: ExecutionBudget) -> ExecuteRequest {
     ExecuteRequest {
+        state,
+        module_name: None,
         max_depth: budget.max_depth,
         max_breadth: budget.max_breadth.map(NonZeroUsize::get),
         max_simplification_iterations: budget.max_simplification_iterations,
         strategy: ExecutionStrategy::All,
         stop_at_branch: false,
-        result_modality: ResultModalityOutput::PathSet,
         cut_point_rules: Vec::new(),
         terminal_rules: Vec::new(),
         step_timeout_ms: None,
         moving_average_timeout: false,
-        ..ExecuteRequest::new(state)
+        assume_state_defined: false,
+        result_modality: ResultModalityOutput::PathSet,
+        collect_coverage: false,
+        max_work: None,
+        trace: true,
+        cancelled_result: CancelledResultOutput::Partial,
+        schema_version: BACKEND_SCHEMA_VERSION,
     }
 }
 
@@ -625,6 +649,10 @@ fn execute_with_watchdog(
             leaves: Vec::new(),
             effects: Vec::new(),
             discarded: Vec::new(),
+            coverage: None,
+            work: 0,
+            expanded: 0,
+            stack_stops: 0,
         },
         Err(error) => return Err(ExecutionAdapterFailure::Backend(error.to_string())),
     };
@@ -960,10 +988,14 @@ mod tests {
         // cancellation error mapped to no leaves), both indistinguishable from a complete run.
         let unobserved = unobserved.expect("a timeout is not an adapter failure");
         assert!(unobserved.timed_out, "a fired watchdog is a timeout");
+        // Re-pin R0a (finding E-14; answers section_2_2_summary (5)): at 927b9ce6 the no-Z3
+        // build kept the cancelled leaf (1 leaf) and Z3 returned the cancellation error. At
+        // 501f18b9 both builds return the error for a cancellation seen at the operation's entry,
+        // so no leaf is published; the fired watchdog still makes the run a Timeout.
         assert_eq!(
             unobserved.leaves.len(),
-            usize::from(!cfg!(feature = "z3")),
-            "no-Z3 keeps the cancelled leaf, Z3 returns the cancellation error"
+            0,
+            "a cancellation at entry returns the error in both profiles"
         );
     }
 
@@ -976,5 +1008,87 @@ mod tests {
             max_breadth: None,
         };
         assert!(!HaltClass::DepthBound.adapter_admits(&budget));
+    }
+
+    /// Re-pin R0a (findings E-02, E-05): kink sends no `max_work` (`request`), so a `work-bound`
+    /// leaf is never admitted. Whatever the budget and whatever leaves surround it, the adapter
+    /// answers `ContractViolation` and publishes no leaf, so the run has no operand and can never
+    /// Distinguish (the campaign maps the failure to Infrastructure, oracles.rs
+    /// `work_bound_leaf_never_yields_distinguish`).
+    #[test]
+    fn work_bound_leaf_is_a_contract_violation_under_every_budget() {
+        let state = codec::to_value(&Pattern::Application {
+            symbol: Symbol {
+                name: "Lblunit".into(),
+                sort_parameters: Vec::new(),
+            },
+            arguments: Vec::new(),
+        })
+        .expect("encode state");
+        let leaf = |reason| ExecutionLeaf {
+            state: state.clone(),
+            diagnostics: Vec::new(),
+            candidates: None,
+            remainder: None,
+            depth: 0,
+            reason,
+            rule_id: None,
+            rule_label: None,
+            contradicted_total: None,
+            cause: None,
+            detail: None,
+            trace: Vec::new(),
+            branch: Vec::new(),
+            effects: Vec::new(),
+            observations: Vec::new(),
+        };
+        let result = |leaves: Vec<ExecutionLeaf>| ExecutionResult {
+            modality: ResultModalityOutput::PathSet,
+            leaves,
+            effects: Vec::new(),
+            discarded: Vec::new(),
+            coverage: None,
+            work: 1,
+            expanded: 0,
+            stack_stops: 0,
+        };
+        let one = NonZeroUsize::new(1).expect("nonzero");
+        for (max_depth, max_breadth) in [
+            (None, None),
+            (Some(1), None),
+            (None, Some(one)),
+            (Some(1), Some(one)),
+        ] {
+            let budget = ExecutionBudget {
+                time: Duration::from_secs(1),
+                max_simplification_iterations: 1,
+                max_depth,
+                max_breadth,
+            };
+            assert!(!HaltClass::WorkBound.adapter_admits(&budget), "{budget:?}");
+            for leaves in [
+                vec![leaf(HaltReasonOutput::WorkBound)],
+                vec![
+                    leaf(HaltReasonOutput::Stuck),
+                    leaf(HaltReasonOutput::WorkBound),
+                ],
+            ] {
+                let feasibility = vec![LeafFeasibility::Syntactic; leaves.len()];
+                for timed_out in [false, true] {
+                    assert_eq!(
+                        ExecutionAdapter::adapt(
+                            result(leaves.clone()),
+                            timed_out,
+                            &budget,
+                            feasibility.clone()
+                        ),
+                        Err(ExecutionAdapterFailure::ContractViolation(
+                            HaltClass::WorkBound
+                        )),
+                        "{budget:?} timed_out={timed_out}"
+                    );
+                }
+            }
+        }
     }
 }

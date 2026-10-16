@@ -166,9 +166,16 @@ fn row(
         .fold(id, |_| patch.clone())
         .unwrap();
     assert_eq!(generation.candidates().len(), 1);
+    // C4's baseline does not compile at 501f18b9 (E-06), so its program cannot be parsed through
+    // the compiled grammar; its initial state is written as KORE instead.
+    let initial_state = if expected.is_some() {
+        program(&validator, syntax_and_sort.0, syntax_and_sort.1, text)
+    } else {
+        support::initial_state(support::app("Lblstart", vec![support::int(1)]), "SortProg")
+    };
     let tests = [TestCase {
         id: id.into(),
-        initial_state: program(&validator, syntax_and_sort.0, syntax_and_sort.1, text),
+        initial_state,
         oracles: oracles(),
     }];
     let module = k_rust::kast::identifier::encode(main);
@@ -188,10 +195,28 @@ fn row(
     for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
         let result = run_campaign(&campaign, &generation, schedule);
         let Some((status, outcomes)) = &expected else {
+            // Re-pin R0a (finding E-06; k-rust f07565265, 55a57846b, bc90d4226): at 927b9ce6 the
+            // B1 baseline compiled and was refused by the baseline oracle (BaselineOracleFailed).
+            // At 501f18b9 k-rust refuses the misfit list role at compilation, so the baseline is
+            // invalid before any run: the refusal moved earlier (fail-closed).
             assert_eq!(
                 result.expect_err("C4 B1 baseline refused").kind(),
-                CampaignFailureKind::BaselineOracleFailed
+                CampaignFailureKind::BaselineInvalid
             );
+            let (stage, detail) = support::expected_compile_failure("b1coll.k").expect("listed");
+            match validator.compile_baseline() {
+                Err(kink_native::NativeFailure::Compilation {
+                    stage: actual,
+                    detail: text,
+                }) => {
+                    assert_eq!(actual, stage, "{text}");
+                    assert!(
+                        detail.iter().all(|fragment| text.contains(fragment)),
+                        "{text}"
+                    );
+                }
+                Ok(_) => panic!("C4 B1 baseline compiled"),
+            }
             continue;
         };
         let run = result.unwrap();

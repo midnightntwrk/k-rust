@@ -1087,7 +1087,7 @@ fn term_paths_agree_with_k_rust_destination_anchors() {
         let Some(target) = definition
             .modules
             .iter()
-            .find(|module| module.name == anchor.module)
+            .find(|module| *module.name == *anchor.module)
             .and_then(|module| module.local_sentences.get(anchor.sentence_index as usize))
         else {
             continue;
@@ -1096,14 +1096,14 @@ fn term_paths_agree_with_k_rust_destination_anchors() {
             .attributes()
             .string(AttributeKey::UniqueId)
             .or_else(|| target.attributes().string(AttributeKey::Label));
-        if name != Some(anchor.sentence.as_str()) {
+        if name != Some(&*anchor.sentence) {
             continue;
         }
         let at = term_at(
             definition,
             &anchor.module,
             anchor.sentence_index,
-            &anchor.path,
+            &anchor.path.to_vec(),
         )
         .unwrap_or_else(|| panic!("{anchor:?} does not resolve"));
         let found = at

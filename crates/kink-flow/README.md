@@ -220,7 +220,7 @@ a reason and a detail; it is never compiled. Reasons:
 | `edit-outside-rule` | `find` occurs in the file but not inside the addressed rule (or inside no rule). |
 | `overlapping-edits` | Two edits of one rule overlap, or a deleted rule is also edited. |
 | `source-changed` | A source file changed since the specification was loaded. |
-| `source-view-mismatch` | The file's K view is not what k-rust parsed: the loaded definition holds no such extraction of the file (for example `md_selector` changed since the load), or an addressed rule's spans index another one. |
+| `source-view-mismatch` | The file's K view is not what k-rust parsed: for a `.md` file, the view under `md_selector` differs from the extraction of the same bytes under the selector the load used (for example `md_selector` changed since the load); or the loaded definition holds no such extraction of the file; or an addressed rule's spans index another one. Since k-rust 501f18b9 every extraction's offset map is the identity, so only the text comparison tells two selectors' views apart. |
 | `markdown-envelope` | A Markdown file's edited K view cannot be loaded as K text: an edit makes a line a Markdown fence line (three or more backticks or tildes after at most three spaces), or the envelope does not extract to the edited view. |
 | `edited-load-failed` | The edited sources do not load (parse or sort error); the detail is k-rust's message. |
 | `structure-changed` | The edit changed something besides its rule: a sentence split, merged, added, removed, changed kind or changed elsewhere. |

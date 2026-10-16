@@ -838,6 +838,14 @@ fn audit_so_prestart_cancel_is_timeout_on_every_adapter_run() {
 /// profiles: every mutant leaf of `run(2.0)` and `done(f(2.0))` carries it, every path of both
 /// bridges is incomplete `BackendLimit` (collection `BackendLimit`), and no leaf is discarded.
 /// The baseline's runs are complete (`halt`), so the difference is visible only as Unknown.
+///
+/// Re-pin R0a (finding E-10; k-rust 19f7b3d90, 3f0feebbc, `MismatchedFloatFormats` removed): at
+/// 501f18b9 an execution evaluates binary32 `+Float` binary64 exactly and rounds once to binary64,
+/// so the condition holds, `f` applies, no leaf carries `RuleConditionFailed`, and the mutant's
+/// paths are complete `Terminal` leaves whose final states equal the baseline's (both `halt`):
+/// the mutant agrees here, nothing distinguishes. The binary64 destination is k-rust's choice
+/// (decision 1: R0b refuses comparisons that reference such hooks); `RuleConditionFailed`
+/// handling stays pinned generically (any leaf diagnostic makes the path incomplete).
 #[test]
 fn audit_so_rule_condition_failed_leaf_is_never_complete() {
     use k_rust::backend::BackendDiagnosticOutput;
@@ -882,6 +890,7 @@ fn audit_so_rule_condition_failed_leaf_is_never_complete() {
     ];
     let sorts = symbol_sorts(&baseline);
     let normal = |_: &Pattern| ExecutionTerminalKind::Normal;
+    let mut finals = std::collections::BTreeMap::new();
     for (label, side) in [("baseline", &baseline), ("mutant", &mutant)] {
         for program in &programs {
             let state = support::initial_state(program.clone(), "SortProg");
@@ -947,27 +956,42 @@ fn audit_so_rule_condition_failed_leaf_is_never_complete() {
                 event_free.collection.stop,
                 steps.collection.stop,
             );
-            if label == "mutant" {
-                assert!(execution.leaves().iter().all(failed), "{program:?}");
-                assert!(
-                    execution
-                        .leaves()
-                        .iter()
-                        .all(|leaf| kink_native::bridge::discarded(leaf).is_none())
-                );
-                assert!(!rows.is_empty());
-                assert!(
-                    rows.iter()
-                        .all(|row| *row == (false, PathStop::BackendLimit)),
-                    "{program:?}: {rows:?}"
-                );
-                assert_eq!(event_free.collection.stop, CollectionStop::BackendLimit);
-                assert_eq!(steps.collection.stop, CollectionStop::BackendLimit);
-            } else {
-                assert!(!execution.leaves().iter().any(failed));
-                assert!(rows.iter().all(|row| *row == (true, PathStop::Terminal)));
-            }
+            // Both sides alike at 501f18b9 (E-10): no RuleConditionFailed, no discard, every
+            // path a complete terminal, the collections exhausted.
+            assert!(
+                !execution.leaves().iter().any(failed),
+                "{label} {program:?}"
+            );
+            assert!(
+                execution
+                    .leaves()
+                    .iter()
+                    .all(|leaf| kink_native::bridge::discarded(leaf).is_none())
+            );
+            assert!(!rows.is_empty());
+            assert!(
+                rows.iter().all(|row| *row == (true, PathStop::Terminal)),
+                "{label} {program:?}: {rows:?}"
+            );
+            assert_eq!(event_free.collection.stop, CollectionStop::SearchExhausted);
+            assert_eq!(steps.collection.stop, CollectionStop::SearchExhausted);
+            finals.insert(
+                (label, format!("{program:?}")),
+                event_free
+                    .paths
+                    .iter()
+                    .map(|path| path.execution_terminal.clone().expect("terminal").state)
+                    .collect::<Vec<_>>(),
+            );
         }
+    }
+    for program in &programs {
+        let program = format!("{program:?}");
+        assert_eq!(
+            finals[&("mutant", program.clone())],
+            finals[&("baseline", program.clone())],
+            "{program}: the mutant agrees"
+        );
     }
 }
 
@@ -983,7 +1007,7 @@ fn audit_so_rule_condition_failed_leaf_is_never_complete() {
 #[test]
 fn audit_so_every_stop_cause_is_a_non_complete_stop() {
     use k_rust::backend::{BackendError, HaltReasonOutput};
-    use k_rust_backend::stop::{PreludeFailure, StopCause};
+    use k_rust_backend::stop::{PreludeFailure, StackLimit, StopCause};
     use k_rust_backend::timeout::StepTimeoutMode;
     use kink_native::bridge::halt_stop;
     use kink_native::execution::ExecutionAdapterFailure;
@@ -992,7 +1016,7 @@ fn audit_so_every_stop_cause_is_a_non_complete_stop() {
         match cause {
             StopCause::Cancelled => Some(HaltReasonOutput::Cancelled),
             StopCause::Deadline(_) => Some(HaltReasonOutput::Timeout),
-            StopCause::StackExhausted => Some(HaltReasonOutput::SimplificationError),
+            StopCause::StackExhausted(_) => Some(HaltReasonOutput::SimplificationError),
             StopCause::SolverPrelude(_) => None,
         }
     }
@@ -1000,7 +1024,8 @@ fn audit_so_every_stop_cause_is_a_non_complete_stop() {
         StopCause::Cancelled,
         StopCause::Deadline(StepTimeoutMode::Manual(Duration::from_millis(1))),
         StopCause::Deadline(StepTimeoutMode::MovingAverage(Duration::from_millis(1))),
-        StopCause::StackExhausted,
+        StopCause::StackExhausted(StackLimit::ThreadBudget(1)),
+        StopCause::StackExhausted(StackLimit::ProcessBudget(1)),
         StopCause::SolverPrelude(PreludeFailure::Inconsistent),
         StopCause::SolverPrelude(PreludeFailure::Unknown("unknown".into())),
     ];
@@ -1028,7 +1053,7 @@ fn audit_so_every_stop_cause_is_a_non_complete_stop() {
             StepObservationError::Internalization(_)
         ));
     }
-    let refused = || BackendError("InsufficientStack { depth: 1, required: 2, limit: 1 }".into());
+    let refused = || BackendError::new("InsufficientStack { depth: 1, required: 2, limit: 1 }");
     assert!(matches!(
         ExecutionAdapterFailure::from(refused()),
         ExecutionAdapterFailure::Backend(_)

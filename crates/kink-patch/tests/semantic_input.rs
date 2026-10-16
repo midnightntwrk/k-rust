@@ -28,18 +28,28 @@ fn artifact_has_no_paths_or_measurements(value: &serde_json::Value, key: &str) {
     }
 }
 
+/// Re-pin R0a (finding E-07; k-rust 67b9f5c54 "write KRUST-PROVENANCE version 8"): the semantic
+/// input is KRUST-PROVENANCE version 8 at k-rust 501f18b9 (version 7 at 927b9ce6: an `anchors`
+/// table and interned origin-set sources), so its digests moved: counter.k from f997509e...,
+/// symmem.k from a554dced.... The structure digests (the KAST definition JSON) moved too, from
+/// 4af7e670... and 87957ecd...: measured against 927b9ce6, the two JSON documents are equal except
+/// for source positions of the builtin Markdown sentences (locations, sentence offsets, content
+/// starts and origin ranges: the extraction's offset map is the identity, k-rust 50c5812cb,
+/// bdad0af15, 760930379, finding E-09) and the two default-layout regexes of builtin kast.md
+/// (k-rust df11bc569, 4df229f70); the user modules are equal. The compiled KORE is unchanged
+/// (`compiled_kore_is_unchanged_by_the_provenance_move`).
 #[test]
 fn literal_digests() {
     for (name, artifact, structure) in [
         (
             "counter.k",
-            "f997509eac63f303e54f078c721ca0e2bf9f7d780b82f60c88b39cfda9accb3d",
-            "4af7e670c3bdec82d0997ef284611fcff09d1ae538546dbea4abc9f047013373",
+            "a7181f8fe5cad482a4b76e0bfb506e1eb00b55f354f87a1b1684442cd740bb49",
+            "f71bf625e0ba7b96ef9377c0b9bf550b57210b0422ce294df7146bd334649e2a",
         ),
         (
             "symmem.k",
-            "a554dcedd4b0bd2dcdfb65edfd24b207de4899acc68e26345caf5175e869cad3",
-            "87957ecd07877afe84beee0893c4aa7fbe3e0e714e0b4cb453604da7ce485f58",
+            "31458cc30035f03ed69d43a180358989867e952b570b81a031c4fb4fe4d03fe4",
+            "149d73dc878819b0974b7aabcad4402ada7f0ef90b6d1531e16b5ed92ef7d8af",
         ),
     ] {
         let baseline = support::load(name);
@@ -51,6 +61,35 @@ fn literal_digests() {
         assert_eq!(
             structure_sha256(baseline.definition()).unwrap().to_string(),
             structure,
+            "{name}"
+        );
+    }
+}
+
+/// Re-pin R0a (finding E-07): the semantic-input digests moved with the provenance format, but
+/// what compilation emits did not. These are the SHA-256 digests of `definition_kore` measured at
+/// k-rust 927b9ce6 (stage-1 trial, scratch-E/dump-old); 501f18b9 compiles the same bytes.
+#[test]
+fn compiled_kore_is_unchanged_by_the_provenance_move() {
+    for (name, kore) in [
+        (
+            "counter.k",
+            "aafd92147714ace030b35666daed4c0fa0646dc9ee91fa89e49765f448debc52",
+        ),
+        (
+            "symmem.k",
+            "fc4fb79cdfa2d2426fa89547b2c57defacbcace95c7aee64baceae935a1a17b8",
+        ),
+        (
+            "guardedmem.k",
+            "6554be06977a8fb574a60d3eb5daf8fff91c9db675f26121ac74361a35b5941a",
+        ),
+    ] {
+        let baseline = support::load(name);
+        let artifacts = support::compile(baseline.loaded()).expect("compiles");
+        assert_eq!(
+            kink_patch::sha256(artifacts.definition_kore.as_bytes()).to_string(),
+            kore,
             "{name}"
         );
     }

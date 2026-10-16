@@ -971,7 +971,7 @@ mod tests {
     #[test]
     fn non_ascii_strings_are_not_clashes_or_interpreted_predicates() {
         let value =
-            |bytes: &[u8]| Term::domain_value(Sort::builtin(BuiltinSort::String), bytes.to_vec());
+            |bytes: &[u8]| Term::string(std::str::from_utf8(bytes).expect("UTF-8 test text"));
         let non_ascii = value("é".as_bytes());
         let other = value("Ã©".as_bytes());
         assert!(!proves_clash(&UnificationFailure::DifferentValues(
@@ -2195,9 +2195,13 @@ mod tests {
     /// VI-06 re-run of VI-03F review attack AT13 (T-FREE, README 16.4): an `anywhere` head
     /// (`HeadRole::EquationHead`) is decomposed only by k-rust, and only where both
     /// applications are normal on every instance. Every relation that an equation could
-    /// decide another way is Indeterminate and every such query Unknown; only `tag(z)` against
-    /// `tag(s(s(z)))`, both normal on every instance, is Unequal. Same values in both profiles,
-    /// with the build's solver. No unjustified Equal, Unequal or Clash.
+    /// decide another way is Indeterminate and every such query Unknown; at 927b9ce6 only
+    /// `tag(z)` against `tag(s(s(z)))`, both normal on every instance, was Unequal. Same values
+    /// in both profiles, with the build's solver. No unjustified Equal, Unequal or Clash.
+    ///
+    /// Re-pin R0a (finding E-14; k-rust instance_normal.rs 216849c33, 22b9d5a07): at 501f18b9
+    /// k-rust no longer shows `tag(z)` and `tag(s(s(z)))` normal, so that pair is Indeterminate
+    /// too (a lost decision, fail-closed; `unify_term_pairs` is byte-identical between the pins).
     #[test]
     fn audit_vi_at13_anywhere_heads_are_decomposed_only_where_normal() {
         let mut backend = Backend::new(TAG, "MAIN", BackendOptions::default()).expect("backend");
@@ -2232,8 +2236,7 @@ mod tests {
                 Ok::<_, BackendError>((answers, queries))
             })
             .expect("relations");
-        let mut expected = [const { Indeterminate }; 11];
-        expected[10] = Unequal;
+        let expected = [const { Indeterminate }; 11];
         assert_eq!(answers, expected);
         assert_eq!(queries, [Unknown, Unknown]);
     }

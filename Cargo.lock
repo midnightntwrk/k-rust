@@ -325,7 +325,7 @@ dependencies = [
 
 [[package]]
 name = "k-rust"
-version = "0.4.0"
+version = "0.7.0"
 dependencies = [
  "indexmap",
  "k-rust-backend",
@@ -349,10 +349,11 @@ dependencies = [
 
 [[package]]
 name = "k-rust-backend"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "k-rust-kore",
  "k256",
+ "libc",
  "num-bigint",
  "num-traits",
  "petgraph",
@@ -367,7 +368,7 @@ dependencies = [
 
 [[package]]
 name = "k-rust-kore"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "serde",
  "serde_json",

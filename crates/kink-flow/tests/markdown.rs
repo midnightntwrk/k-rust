@@ -176,10 +176,10 @@ fn the_k_view_is_what_k_rust_parsed_and_spans_index_it() {
         rules, 4,
         "inc, the unlabelled +, dec and twice; no ghost rule"
     );
-    assert_eq!(
-        raw_differs, rules,
-        "raw Markdown offsets would name other text"
-    );
+    // Re-pin R0a (finding E-09; k-rust 50c5812cb, bdad0af15, 760930379): at 501f18b9 the
+    // extraction turns prose into one space per byte, so its offset map is the identity and
+    // raw-Markdown offsets name the same text as view offsets (at 927b9ce6: all 4 differed).
+    assert_eq!(raw_differs, 0, "raw Markdown offsets name the view's text");
     assert!(
         spec.loaded
             .baseline
@@ -266,7 +266,13 @@ fn every_fixture_mutation_resolves_alike_on_markdown_and_on_its_k_view() {
             );
             let overlay = &resolved.overlay()["spec.md"];
             assert!(overlay.starts_with("```k"), "{overlay}");
-            assert_eq!(k_view(overlay).trim_end(), edited.trim_end());
+            // Re-pin R0a (finding E-09; k-rust 50c5812cb, bdad0af15, 760930379): the envelope's
+            // fence line `` ```k `` extracts to four spaces before the view's first line (the
+            // envelope's shift), where 927b9ce6 dropped it.
+            assert_eq!(
+                k_view(overlay).trim_end(),
+                format!("    {edited}").trim_end()
+            );
             assert!(!edited.contains("```"));
         }
         pinned.push((
@@ -321,7 +327,10 @@ fn the_review_m1_attack_no_longer_resolves_silently() {
     write(&dir.join("FLOW-k.toml"), REVIEW_FLOW_K);
     let md = Spec::at(&dir.join("FLOW.toml"));
     let k = Spec::at(&dir.join("FLOW-k.toml"));
-    // The premise of the attack: the raw slice at bb's offsets starts with rule a.
+    // The premise of the attack at 927b9ce6 was that the raw slice at bb's offsets started with
+    // rule a. Re-pin R0a (finding E-09; k-rust 50c5812cb, bdad0af15, 760930379): the offset map
+    // is now the identity, so the raw slice is rule bb's own text and the premise is gone; the
+    // find rows below still pin that the resolution is in the K view.
     let (_, bb) = md
         .loaded
         .baseline
@@ -333,7 +342,7 @@ fn the_review_m1_attack_no_longer_resolves_silently() {
         .value(AttributeKey::SentenceStartOffset)
         .and_then(Value::as_u64)
         .unwrap() as usize;
-    assert!(REVIEW_MD[start..].starts_with("rule a => 1\n  rule [bb]"));
+    assert!(REVIEW_MD[start..].starts_with("rule [bb]: b => 2"));
     for edits in [
         "[[mutation.edit]]\nrule = \"bb\"\nfind = \"2\"\nreplace = \"5\"\n",
         "[[mutation.edit]]\nline = 9\nfind = \"2\"\nreplace = \"5\"\n",
@@ -458,19 +467,25 @@ fn a_replacement_with_a_fence_line_is_markdown_envelope() {
 fn the_envelope_round_trips_through_k_rusts_extractor() {
     let view = fs::read_to_string(markdown().join("spec-view.k")).unwrap();
     let envelope = markdown_envelope(&view, "k").unwrap();
-    assert_eq!(envelope.shift, 0);
+    // Re-pin R0a (finding E-09; k-rust 50c5812cb, bdad0af15, 760930379): the extractor keeps
+    // each character of the fence line as a space, so the shift is the fence line's length
+    // (`` ```k ``: 4; it was 0 at 927b9ce6, which dropped the fence line).
+    assert_eq!(envelope.shift, 4);
     // The fence line carries the whitespace of the view's first line (prose there).
     let first = view.lines().next().unwrap();
     assert!(!first.is_empty());
     assert!(envelope.text.starts_with(&format!("```k{first}\n")));
-    assert_eq!(envelope.extracted, view);
+    // The closing fence line is three spaces of the extraction too (a whitespace-only suffix).
+    assert_eq!(envelope.extracted, format!("    {view}   "));
     // A view whose lines start with backtick runs (the content of a wider user fence) gets a
     // fence one backtick wider than the longest run, and still round trips.
     let fenced = "  \nrule a\n```\n   ````x\n    `````\nrule b";
     let envelope = markdown_envelope(fenced, "k").unwrap();
     assert!(envelope.text.starts_with("`````k  \n"), "{}", envelope.text);
     assert!(envelope.text.ends_with("\n`````"));
-    assert_eq!(envelope.extracted, format!("{fenced}\n"));
+    // The six characters of the fence line `` `````k `` are spaces of the extraction (E-09).
+    assert_eq!(envelope.extracted, format!("      {fenced}\n     "));
+    assert_eq!(envelope.shift, 6);
     // A first line that holds code, or no line break, cannot be enveloped.
     assert!(markdown_envelope("rule a\n", "k").is_err());
     assert!(markdown_envelope("   ", "k").is_err());
@@ -481,12 +496,16 @@ fn the_envelope_round_trips_through_k_rusts_extractor() {
     assert_eq!(fence_info("k & extra").unwrap(), "{k extra}");
     assert_eq!(fence_info("ghost | k /* comment */").unwrap(), "ghost");
     assert!(fence_info("k & !k").is_err());
-    // Several tags: the space between them is whitespace the extractor keeps, so the
-    // extracted first line is one byte longer than the view's (a shift of 1).
+    // Several tags: every character of the fence line `` ```{k extra} `` is a space of the
+    // extraction, so the extracted first line is twelve bytes longer than the view's. Re-pin R0a
+    // (finding E-09): at 927b9ce6 only the space between the tags was kept (a shift of 1).
     let envelope = markdown_envelope("\n  rule a\n", "k & (extra | other)").unwrap();
     assert!(envelope.text.starts_with("```{k extra}\n"));
-    assert_eq!(envelope.extracted, " \n  rule a\n");
-    assert_eq!(envelope.shift, 1);
+    assert_eq!(
+        envelope.extracted,
+        format!("{}\n  rule a\n   ", " ".repeat(12))
+    );
+    assert_eq!(envelope.shift, 12);
 }
 
 /// The commented-out-neighbour attack of review m1: rule c's replacement comments out rule d,
@@ -607,6 +626,73 @@ fn a_view_that_is_not_what_k_rust_parsed_is_refused() {
     let same = resolve(&other, &spec.loaded, &list.mutations[0]).unwrap();
     let expected = resolve(&spec.manifest, &spec.loaded, &list.mutations[0]).unwrap();
     assert_eq!(same.digest, expected.digest);
+}
+
+/// A specification whose `ghost` fence, selected only by `k | ghost`, continues rule `a` of the
+/// `k` fence before it: under `k` rule `a` is `a => 1`, under `k | ghost` it is
+/// `a => 1 +Int 2`. The module has the same sentences under both selectors.
+const GHOST_EDIT_MD: &str = "# Ghost\n\n```k\nmodule M\n  imports INT\n  syntax Exp ::= Int | \"a\" | \"b\"\n  configuration <k> $PGM:Exp </k>\n  rule [a]: a => 1\n```\n\nProse.\n\n```ghost\n    +Int 2\n```\n\n```k\n  rule [b]: b => 3\nendmodule\n```\n";
+
+/// Re-pin R0a (finding E-09; k-rust 50c5812cb, bdad0af15, 760930379): at 501f18b9 every
+/// extraction's offset map is the identity, so the source table no longer tells a view built
+/// under another selector from the text k-rust parsed. A ghost fence that changes a sentence
+/// without adding one (so no structure check fires) must still be refused as
+/// source-view-mismatch, by View::read and by a resolution that edits another rule, for LF and
+/// CRLF line breaks; the view under the load's own selector is accepted.
+#[test]
+fn a_ghost_fence_that_changes_a_sentence_is_a_source_view_mismatch() {
+    for (case, newline) in [("lf", "\n"), ("crlf", "\r\n")] {
+        let dir = scratch(&format!("ghost-edit-{case}"));
+        write(&dir.join("m.md"), &GHOST_EDIT_MD.replace('\n', newline));
+        write(
+            &dir.join("FLOW.toml"),
+            "[spec]\nentry = \"m.md\"\nmain_module = \"M\"\n",
+        );
+        let spec = Spec::at(&dir.join("FLOW.toml"));
+        let own = spec.view("m.md");
+        assert!(own.text.contains("rule [a]: a => 1"), "{case}");
+        assert!(!own.text.contains("+Int 2"), "{case}");
+        let ghost =
+            extract_fenced_k_code_with_map(&GHOST_EDIT_MD.replace('\n', newline), "k | ghost")
+                .unwrap()
+                .text;
+        assert!(
+            ghost.contains("+Int 2"),
+            "{case}: the ghost fence is in that view"
+        );
+        let mut other = spec.manifest.clone();
+        other.spec.md_selector = "k | ghost".to_owned();
+        let refused = View::read(&dir, &spec.loaded, &other.spec.md_selector, "m.md")
+            .err()
+            .unwrap_or_else(|| panic!("{case}: a view k-rust did not parse was accepted"));
+        assert_eq!(
+            refused.0,
+            InvalidReason::SourceViewMismatch,
+            "{case}: {}",
+            refused.1
+        );
+        assert!(
+            refused.1.contains("k-rust parsed other text"),
+            "{case}: {}",
+            refused.1
+        );
+        let list = MutationList::decode(
+            "[[mutation]]\nid = \"m\"\n[[mutation.edit]]\nrule = \"b\"\nfind = \"=> 3\"\nreplace = \"=> 4\"\n",
+        )
+        .unwrap();
+        let invalid = expect_invalid(
+            resolve(&other, &spec.loaded, &list.mutations[0]),
+            Some(0),
+            InvalidReason::SourceViewMismatch,
+        );
+        assert!(
+            invalid.detail.contains("k-rust parsed other text"),
+            "{case}: {invalid}"
+        );
+        // The same mutation under the load's own selector resolves.
+        resolve(&spec.manifest, &spec.loaded, &list.mutations[0])
+            .unwrap_or_else(|invalid| panic!("{case}: {invalid}"));
+    }
 }
 
 /// `kink-flow run` through the library, as the binary runs it.

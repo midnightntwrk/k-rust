@@ -19,7 +19,7 @@ use k_rust::{
 };
 use k_rust_backend::{definition::BackendDefinition, term::CollectionMetadata};
 use kink_native::{
-    CensusClass, CensusVerdict, NativeValidator, ValidatedDefinition,
+    CensusVerdict, NativeValidator, ValidatedDefinition,
     bridge::{BridgeContext, paths_from_execution, paths_from_execution_values},
     declaration_census,
     execution::{ExecutionAdapter, ExecutionBudget, HaltClass, SolverProfile},
@@ -281,30 +281,31 @@ fn natural_collection_terminals_and_bridge_rows() {
     );
 }
 
+/// Re-pin R0a (finding E-06; k-rust f07565265, 55a57846b, bc90d4226): at 927b9ce6 B1 compiled,
+/// its census flagged the roles .LI, _LI_ and mkFoo (rule C, N6) and `start(1)` ran to an
+/// incomplete SolverUnknown path. At 501f18b9 k-rust refuses the misfit role itself
+/// (`element(mkFoo)` with `mkFoo : Int -> Foo`), so the definition never compiles and nothing of
+/// it is a terminal value: the refusal moved earlier (fail-closed).
 #[test]
 fn b1_non_natural_role_is_not_a_terminal_value() {
-    let fixture = Fixture::new("b1coll.k", "B1COLL", "B1COLL-SYNTAX");
-    let census = declaration_census(&fixture.compiled).expect("census");
-    assert_eq!(census.verdict(), CensusVerdict::Flagged, "N6");
-    let roles: std::collections::BTreeSet<_> = census
-        .findings()
-        .iter()
-        .filter(|finding| finding.class == CensusClass::C)
-        .map(|finding| finding.symbol.as_str())
-        .collect();
-    let expected: std::collections::BTreeSet<_> = [".LI", "_LI_", "mkFoo"]
-        .map(|name| format!("Lbl{}", k_rust::kast::identifier::encode(name)))
-        .into_iter()
-        .collect();
-    assert_eq!(
-        roles,
-        expected.iter().map(String::as_str).collect(),
-        "N6 B1 role census"
+    let validator = NativeValidator::bind(
+        support::load_path(&Path::new(support::DIR).join("b1coll.k"), "B1COLL"),
+        CompileOptions::default(),
     );
-    execute_rows(
-        &fixture,
-        &[("start1", "start(1)", false, PathStop::SolverUnknown)],
-    );
+    let (stage, detail) = support::expected_compile_failure("b1coll.k").expect("listed");
+    match validator.compile_baseline() {
+        Err(kink_native::NativeFailure::Compilation {
+            stage: actual,
+            detail: text,
+        }) => {
+            assert_eq!(actual, stage, "{text}");
+            assert!(
+                detail.iter().all(|fragment| text.contains(fragment)),
+                "{text}"
+            );
+        }
+        Ok(_) => panic!("B1 compiled"),
+    }
 }
 
 fn at<'a>(term: &'a Pattern, path: &[usize]) -> &'a Pattern {

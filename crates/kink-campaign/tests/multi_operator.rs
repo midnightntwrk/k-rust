@@ -412,7 +412,13 @@ fn flagged_census_records_without_refusing_the_campaign() {
             .unwrap();
             assert_eq!(manifest.value()["admission"]["verdict"], "flagged");
             census_baseline(manifest.value());
-            let run = run_campaign_multi(
+            // Re-pin R0a (finding E-13): at 927b9ce6 the flagged baseline ran (`addB`, INT.add
+            // declared with result Bool, evaluated to Stuck `done(7)`) and the campaign was
+            // reported. At 501f18b9 k-rust leaves an ill-sorted hook result unevaluated
+            // (UnsupportedHookUnevaluated INT.add), so the baseline leaf is Indeterminate and the
+            // baseline oracle refuses the campaign. The census still records without refusing:
+            // the refusal is the baseline oracle's, not the census's.
+            let refused = run_campaign_multi(
                 &campaign,
                 &generations,
                 &CampaignOptions {
@@ -421,12 +427,11 @@ fn flagged_census_records_without_refusing_the_campaign() {
                     share_evidence: true,
                 },
             )
-            .unwrap();
-            let report = campaign_report_multi(&manifest, &campaign, &generations, &run).unwrap();
-            println!(
-                "CS09_FLAGGED {:?} {}",
-                schedule,
-                canonical_json(&report.value()["mutants"])
+            .expect_err("the baseline oracle refuses the undefined baseline");
+            assert_eq!(
+                refused.kind(),
+                CampaignFailureKind::BaselineOracleFailed,
+                "{schedule:?}"
             );
         }
     });
