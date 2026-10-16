@@ -1,8 +1,8 @@
 # Benchmark registry schema (version 1)
 
 Every `*.toml` file in this directory is one part of the benchmark registry that `kbench` reads.
-A file holds `version = 1`, any number of `[[prepare]]` steps, `[[workload]]` entries, and `[[gap]]` entries.
-Names of prepare steps and workload ids are global across all files and must be unique.
+A file holds `version = 1`, any number of `[[prepare]]` steps, `[[workload]]` entries, `[[gap]]` entries, and `[[set]]` entries.
+Names of prepare steps, workload ids, and set names are global across all files and must be unique.
 Files are grouped by semantics for readers; the grouping carries no meaning for `kbench`.
 
 ## Placeholders
@@ -59,6 +59,7 @@ A ladder parameter must not be named like a placeholder above.
 | `timeout_seconds` | optional per-run wall limit, default 600 (heavy: 3600) |
 | `memory_gib` | optional per-run memory limit of the run's cgroup, default 16 |
 | `pins` | `[reference.*]` sections of `scripts/reference-differential.toml` whose checkouts must be at their pinned revision: `k`, `imp`, `kevm`, `kevm-plugin`, `wasm`, `mir` |
+| `compare` | optional `[workload.compare]` table: output that varies between runs of the same binary (below) |
 
 Default runs: `quick` 5, `standard` 3, `heavy` 1; ladders run each value once.
 Default warmup: 1 for `parse`, `load`, `execute`, `search`, `prove`, `rpc` in the quick tier, otherwise 0.
@@ -98,6 +99,17 @@ Each side is one engine invocation, or a short sequence timed as one unit.
 | `expect` | an integer expression over ladder parameters (`+ - * //`, parentheses) bound to `${expect}` |
 | `expect_out` | a file whose `#Equals <int>` value is bound to `${expect}` |
 
+### `[workload.compare]`
+
+`kbench compare` requires the base and candidate binaries to produce the same output on every run: a digest of standard output and of every `check.files` file, with each binary's own prepared root and path replaced by placeholders.
+Output that varies between runs of the same binary (a timing, a peak RSS) would make every comparison a mismatch; this table leaves it out of the digest, with the reason, which the compare report prints.
+
+| Key | Meaning |
+|:--|:--|
+| `reason` | why the output varies, in plain words |
+| `ignore_stdout` | optional, default `false`: leave standard output out of the digest |
+| `ignore_files` | optional: `check.files` entries, spelled as there, to leave out of the digest |
+
 ### `[workload.ladder]`
 
 The same workload at growing sizes; the report gives a growth exponent.
@@ -109,6 +121,22 @@ The same workload at growing sizes; the report gives a growth exponent.
 | `stop_seconds` | a value slower than this ends the ladder (default 120) |
 | `input` | template written to `${input}` for each value |
 | `generator` | instead of `input`: an argv (expanded) whose standard output becomes `${input}` |
+
+## `[[set]]`
+
+A named selection of workloads for `kbench run --set NAME` and `kbench compare --set NAME` (`kbench sets` lists them).
+A set selects its workloads whatever their tier; `--only` narrows it further.
+The sets live in `sets.toml` by convention.
+
+| Key | Meaning |
+|:--|:--|
+| `name` | unique set name |
+| `description` | one sentence: what the set covers and what a compare of it costs |
+| `workloads` | workload ids (exact), or patterns containing `*` (a prefix match where `*` matches anything, as `--only`); each must match a workload |
+| `sets` | optional: other sets whose workloads (and caps) this one includes |
+| `ladder_max` | optional table `{ "<id>" = <value> }`: for `kbench compare` only, the largest ladder value of that workload to run, one of its ladder values; when several included sets cap a workload, the smallest cap applies; `kbench run` and `compare --full-ladders` ignore it |
+
+A cap keeps a compare of the set within its time budget without changing the registry's ladders, which `kbench run` and the reference cache keep using.
 
 ## `[[gap]]`
 

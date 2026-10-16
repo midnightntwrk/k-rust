@@ -66,10 +66,27 @@ pub struct Invocation {
     pub cwd: PathBuf,
     pub timeout: Duration,
     pub memory_max_bytes: u64,
+    /// When set, step `i` runs with `KRUST_COUNTERS=<prefix>.<i>.json` (`counter_files`).
+    pub counters: Option<PathBuf>,
 }
 
+/// The `KRUST_COUNTERS` file of each step of an invocation run with `counters` set.
+pub fn counter_files(prefix: &Path, steps: usize) -> Vec<PathBuf> {
+    (0..steps)
+        .map(|index| {
+            let mut name = prefix.as_os_str().to_owned();
+            name.push(format!(".{index}.json"));
+            PathBuf::from(name)
+        })
+        .collect()
+}
+
+/// Run cgroups are numbered across every `Meter` of the process, so two meters (one per
+/// binary in `kbench compare`) never pick the same name.
+static NEXT_RUN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 enum Method {
-    Cgroup { scope: PathBuf, next: u64 },
+    Cgroup { scope: PathBuf },
     Rusage { clock_ticks: f64 },
 }
 
@@ -170,13 +187,25 @@ fn read_key(path: &Path, key: &str) -> Option<u64> {
 impl Meter {
     /// The cgroup method when this process runs in a delegated scope (`SCOPE_ENV` set by the
     /// re-exec in `main`), otherwise the rusage method.
+    /// The scope is entered once per process: after that, `kbench` itself sits in its
+    /// `supervisor` child, which a second meter must not take for the scope.
     pub fn new() -> Meter {
-        if std::env::var_os(SCOPE_ENV).is_some()
-            && let Some(scope) = current_cgroup()
-            && Meter::enter_scope(&scope).is_ok()
-        {
+        static SCOPE: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
+        let scope = SCOPE.get_or_init(|| {
+            if std::env::var_os(SCOPE_ENV).is_some()
+                && let Some(scope) = current_cgroup()
+                && Meter::enter_scope(&scope).is_ok()
+            {
+                Some(scope)
+            } else {
+                None
+            }
+        });
+        if let Some(scope) = scope {
             return Meter {
-                method: Method::Cgroup { scope, next: 0 },
+                method: Method::Cgroup {
+                    scope: scope.clone(),
+                },
             };
         }
         Meter {
@@ -208,8 +237,8 @@ impl Meter {
 
     pub fn run(&mut self, invocation: &Invocation) -> io::Result<Sample> {
         match &mut self.method {
-            Method::Cgroup { scope, next } => {
-                *next += 1;
+            Method::Cgroup { scope } => {
+                let next = NEXT_RUN.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
                 let scope = scope.clone();
                 let run = scope.join(format!("run-{next}"));
                 fs::create_dir(&run)?;
@@ -275,9 +304,13 @@ fn execute(invocation: &Invocation) -> io::Result<(f64, Outcome)> {
         None => None,
     };
     let stderr = File::create(&invocation.stderr)?;
+    let counters = invocation
+        .counters
+        .as_deref()
+        .map(|prefix| counter_files(prefix, invocation.steps.len()));
     let started = Instant::now();
     let deadline = started + invocation.timeout;
-    for step in &invocation.steps {
+    for (index, step) in invocation.steps.iter().enumerate() {
         let mut command = Command::new(&step[0]);
         command
             .args(&step[1..])
@@ -295,6 +328,12 @@ fn execute(invocation: &Invocation) -> io::Result<(f64, Outcome)> {
         for (name, value) in &invocation.env {
             command.env(name, value);
         }
+        // A measure build counts only when asked: an inherited KRUST_COUNTERS would make every
+        // run pay for counting and overwrite one file.
+        match &counters {
+            Some(files) => command.env("KRUST_COUNTERS", &files[index]),
+            None => command.env_remove("KRUST_COUNTERS"),
+        };
         let mut child = match command.spawn() {
             Ok(child) => child,
             Err(error) => {
