@@ -1873,8 +1873,32 @@ impl<'a> Matcher<'a> {
             pattern_entries.push((self.unalias(key, true)?, value.clone()));
         }
         check_duplicate_keys(&definition, &pattern_entries, &pattern_rest)?;
-        if !binds_each_key_once(subject) {
+        let subject_binds_each_key_once = binds_each_key_once(subject);
+        if !subject_binds_each_key_once {
             check_stored_duplicate_keys(&definition, subject_entries, &subject_rest)?;
+        }
+
+        // More pattern entries than subject entries, against a subject without a rest that binds
+        // each key once, match nothing. Such a subject (constructor-like, or `ceil_free`, which a
+        // map is only without a rest and with keys apart for every valuation of its variables)
+        // denotes, for every valuation, a defined map with exactly as many keys as it has entries.
+        // An instance of the pattern is the concatenation of one binding per pattern entry and of
+        // the rest's instance, defined only when the bindings' keys are pairwise distinct values
+        // none of which is a key of the rest (`TermKind::Map`): a defined instance has at least as
+        // many keys as the pattern has entries, more than the subject has, and an undefined one is
+        // `\bottom`, which no defined subject equals. So no substitution makes the two equal,
+        // whichever keys are concrete or symbolic, whatever the rest is (an opaque concatenation
+        // too: its instance is a map). That refutes the pair in every mode: each succeeds only
+        // on such an equality, and the other modes fail where some instance of the subject does
+        // not match, a fortiori where none does. Without these guarantees on the subject (a rest,
+        // or keys that may denote one value) the entries are paired below and the remainders left
+        // to the collection solver.
+        if subject_rest.is_none()
+            && subject_binds_each_key_once
+            && pattern_entries.len() > subject_entries.len()
+        {
+            let pattern = Term::map(definition, pattern_entries, pattern_rest);
+            return Err(FailReason::DifferentContents(pattern, subject.clone()));
         }
 
         if pattern_rest

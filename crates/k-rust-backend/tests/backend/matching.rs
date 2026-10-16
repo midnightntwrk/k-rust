@@ -1492,6 +1492,80 @@ fn defers_a_symbolic_map_entry_against_a_subject_frame() {
     ));
 }
 
+/// A pattern with more entries than a rest-free subject that binds each key once has no instance
+/// equal to it: a defined instance has a key per pattern entry, the subject has fewer keys. That
+/// holds for symbolic pattern keys, with or without a pattern rest, and is refuted in every mode.
+/// Against a subject whose keys may denote one value (variable keys) or that has a rest, the
+/// count proves nothing and the rewrite match stays undecided.
+#[test]
+fn refutes_more_pattern_entries_than_a_closed_subject_has() {
+    let definition = map_definition();
+    let key_sort = Sort::simple("MapKey");
+    let value_sort = Sort::simple("MapValue");
+    let key = |name| domain_value(key_sort.clone(), name);
+    let value = |name| domain_value(value_sort.clone(), name);
+    let symbolic_entries = |count: usize, rest: Option<Term>| {
+        Term::map(
+            definition.clone(),
+            (1..=count)
+                .map(|index| {
+                    (
+                        var(&format!("K{index}"), key_sort.clone()),
+                        var(&format!("V{index}"), value_sort.clone()),
+                    )
+                })
+                .collect(),
+            rest,
+        )
+    };
+    let ground_subject = Term::map(definition.clone(), vec![(key("a"), value("1"))], None);
+    for pattern in [
+        symbolic_entries(2, None),
+        symbolic_entries(2, Some(var("REST", Sort::simple("MapSort")))),
+        Term::map(
+            definition.clone(),
+            vec![
+                (key("a"), var("V1", value_sort.clone())),
+                (var("K2", key_sort.clone()), var("V2", value_sort.clone())),
+            ],
+            None,
+        ),
+    ] {
+        for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
+            let result = match_terms(mode, &sort_graph(), &pattern, &ground_subject);
+            assert!(
+                matches!(
+                    result,
+                    MatchResult::Failed(FailReason::DifferentContents(_, _))
+                ),
+                "{mode:?}: {pattern:?}: {result:?}"
+            );
+        }
+    }
+
+    let variable_keys = Term::map(
+        definition.clone(),
+        vec![
+            (var("S1", key_sort.clone()), value("1")),
+            (var("S2", key_sort.clone()), value("2")),
+        ],
+        None,
+    );
+    let with_rest = Term::map(
+        definition.clone(),
+        vec![(key("a"), value("1"))],
+        Some(var("SUBJECT_REST", Sort::simple("MapSort"))),
+    );
+    for subject in [variable_keys, with_rest] {
+        let pattern = symbolic_entries(3, None);
+        let result = match_terms(MatchMode::Rewrite, &sort_graph(), &pattern, &subject);
+        assert!(
+            matches!(result, MatchResult::Indeterminate { .. }),
+            "{subject:?}: {result:?}"
+        );
+    }
+}
+
 #[test]
 fn extracts_a_map_remainder_after_common_keys() {
     let definition = map_definition();
