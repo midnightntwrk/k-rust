@@ -3,7 +3,7 @@
 use k_rust::builtin;
 use k_rust::definition::{AttributeKey, Definition, ResolvedDefinition, Sentence};
 use k_rust::inner::{ParseError, RuleError};
-use k_rust::kast::{Sort, Term};
+use k_rust::kast::{InternalLabel, Sort, Term};
 use k_rust::kompile::{
     BranchTyping, CompilationBackend, CompileOptions, PositionTyping, SentenceTyper,
     SentenceTyping, SentenceTypingError, SortInjectionError, SortInjector,
@@ -1250,6 +1250,7 @@ fn corpus() -> Vec<(String, String, String, Option<std::path::PathBuf>)> {
         ("regression/withConfig.k", "TEST"),
         ("configuration-context.k", "TYPER-CFG"),
         ("transaction-data.k", "TX-DATA"),
+        ("collection-cell-content.k", "TEST"),
         ("private-configuration-context.k", "P"),
     ] {
         let path = root.join("sentence-typing").join(file);
@@ -1907,5 +1908,603 @@ fn a_rewrite_below_the_top_of_a_fun_equation_is_typed_per_projection() {
         typing.branches.get(&[0, 1, 0, 0, 0]).is_some(),
         "{:#?}",
         typing.branches
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Cell-fragment variables: the sorts cell completion gives them.
+
+const COLLECTION_CELL_CONTENT: &str =
+    include_str!("fixtures/sentence-typing/collection-cell-content.k");
+
+/// The path of every named variable of `sentence`, a rule or claim, with its name: the paths of
+/// [`SentenceTyping`], a semantic cast being an application. A local function's equation is a
+/// rule of its own once compiled, and only its value is walked.
+fn named_variables(sentence: &Sentence) -> Vec<(Vec<u32>, String)> {
+    fn walk(term: &Term, path: &mut Vec<u32>, found: &mut Vec<(Vec<u32>, String)>) {
+        if let Term::Apply { label, arguments } = term.unannotated() {
+            let value = match arguments.len() {
+                3 if label.is(InternalLabel::Let) => Some(1),
+                3 if label.is(InternalLabel::Fun3) => Some(2),
+                2 if label.is(InternalLabel::Fun2) => Some(1),
+                _ => None,
+            };
+            if let Some(value) = value {
+                path.push(value);
+                walk(&arguments[value as usize], path, found);
+                path.pop();
+                return;
+            }
+        }
+        let children: Vec<&Term> = match term.unannotated() {
+            Term::Variable { name, .. } => {
+                if !name.starts_with('_') {
+                    found.push((path.clone(), name.clone()));
+                }
+                return;
+            }
+            Term::Rewrite { left, right } => vec![left, right],
+            Term::As { pattern, alias } => vec![pattern, alias],
+            Term::Apply { arguments, .. } => arguments.iter().collect(),
+            Term::Sequence(items) => items.iter().collect(),
+            _ => return,
+        };
+        for (index, child) in children.into_iter().enumerate() {
+            path.push(u32::try_from(index).unwrap());
+            walk(child, path, found);
+            path.pop();
+        }
+    }
+    let (Sentence::Rule {
+        body,
+        requires,
+        ensures,
+        ..
+    }
+    | Sentence::Claim {
+        body,
+        requires,
+        ensures,
+        ..
+    }) = sentence
+    else {
+        panic!("a rule or claim")
+    };
+    let mut found = Vec::new();
+    for (field, root) in [body, requires, ensures].into_iter().enumerate() {
+        walk(root, &mut vec![u32::try_from(field).unwrap()], &mut found);
+    }
+    found
+}
+
+/// The subterm of `sentence`, a rule or claim, at `path`.
+fn subterm<'a>(sentence: &'a Sentence, path: &[u32]) -> &'a Term {
+    let (Sentence::Rule {
+        body,
+        requires,
+        ensures,
+        ..
+    }
+    | Sentence::Claim {
+        body,
+        requires,
+        ensures,
+        ..
+    }) = sentence
+    else {
+        panic!("a rule or claim")
+    };
+    let mut term = [body, requires, ensures][path[0] as usize];
+    for step in &path[1..] {
+        let step = *step as usize;
+        term = match term.unannotated() {
+            Term::Rewrite { left, right } => [left, right][step],
+            Term::As { pattern, alias } => [pattern, alias][step],
+            Term::Apply { arguments, .. } => &arguments[step],
+            Term::Sequence(items) => &items[step],
+            other => panic!("no child {step} in {other}"),
+        };
+    }
+    term
+}
+
+/// The typings of `path`: its one position, or its position in each branch.
+fn typings_at<'a>(typing: &'a SentenceTyping, path: &[u32]) -> Vec<&'a PositionTyping> {
+    match typing.positions.get(path) {
+        Some(position) => vec![position],
+        None => typing
+            .branches
+            .get(path)
+            .map(|branches| vec![&branches.left, &branches.right])
+            .unwrap_or_else(|| panic!("no typing of {path:?}")),
+    }
+}
+
+/// The text of the axiom or claim that carries `label`, from its `axiom{` or `claim{` up to
+/// the label attribute.
+fn sentence_of<'a>(kore: &'a str, label: &str) -> &'a str {
+    let attribute = format!("label{{}}(\"{label}\")");
+    let end = kore
+        .find(&attribute)
+        .unwrap_or_else(|| panic!("no sentence labelled {label}"));
+    let start = ["axiom{", "claim{"]
+        .iter()
+        .filter_map(|keyword| kore[..end].rfind(keyword))
+        .max()
+        .expect("a sentence precedes its attributes");
+    &kore[start..end]
+}
+
+/// For every labelled rule and claim of `module`, the view's sort of each occurrence of a named
+/// variable is the sort of the term the compiled sentence `kore` has for it: the variable at
+/// that sort, the fragment term of that sort (`<p>-fragment(..)`, injected at the position), or,
+/// for an occurrence the view reports no sort for, no such variable at all (completion replaced
+/// it by its parts). The operand of a cast to `Bag`, which cell completion removes, reports the
+/// requirement of the cast's position. Returns the number of occurrences checked.
+fn assert_variable_sorts_are_compiled(
+    loaded: &LoadedDefinition,
+    module: &str,
+    kore: &str,
+) -> usize {
+    let typer = main_typer(loaded);
+    let mut checked = 0;
+    let sentences = loaded
+        .definition()
+        .modules
+        .iter()
+        .find(|candidate| candidate.name == module)
+        .unwrap()
+        .local_sentences
+        .iter();
+    for sentence in sentences {
+        if !matches!(&**sentence, Sentence::Rule { .. } | Sentence::Claim { .. }) {
+            continue;
+        }
+        let Some(label) = sentence.attributes().string(AttributeKey::Label) else {
+            continue;
+        };
+        let compiled = sentence_of(kore, label);
+        let typing = typer
+            .typing_in(sentence, module)
+            .unwrap_or_else(|error| panic!("{label}: {error}"));
+        for (path, name) in named_variables(sentence) {
+            for position in typings_at(&typing, &path) {
+                match &position.sort {
+                    Some(sort) if sort.name.ends_with("CellFragment") => assert!(
+                        compiled.contains(&format!("Sort{}{{}}", sort.name))
+                            && compiled.contains("'-fragment{}("),
+                        "{label}: {name} at {path:?} is a {sort}, which {compiled} does not build"
+                    ),
+                    Some(sort) => assert!(
+                        compiled.contains(&format!("Var{name}:Sort{}{{}}", sort.name)),
+                        "{label}: {name} at {path:?} is a {sort}, unlike {compiled}"
+                    ),
+                    None => assert!(
+                        !compiled.contains(&format!("Var{name}:")),
+                        "{label}: {name} at {path:?} has no sort, unlike {compiled}"
+                    ),
+                }
+                let (_, parent) = path.split_last().unwrap();
+                if matches!(
+                    subterm(sentence, parent).unannotated(),
+                    Term::Apply { label, .. } if label.semantic_cast_sort() == Some(Sort::new("Bag"))
+                ) {
+                    let cast = typings_at(&typing, parent);
+                    assert!(
+                        cast.iter().any(|cast| cast.required == position.required)
+                            && position.required != Some(Sort::new("Bag")),
+                        "{label}: {name} at {path:?} requires {:?}, its cast's position {cast:?}",
+                        position.required
+                    );
+                }
+                checked += 1;
+            }
+        }
+    }
+    checked
+}
+
+/// The positions of `typing` at the occurrences of `name` in `sentence`, by path.
+fn occurrences<'a>(
+    typing: &'a SentenceTyping,
+    sentence: &Sentence,
+    name: &str,
+) -> Vec<(Vec<u32>, &'a PositionTyping)> {
+    named_variables(sentence)
+        .into_iter()
+        .filter(|(_, variable)| variable == name)
+        .flat_map(|(path, _)| {
+            typings_at(typing, &path)
+                .into_iter()
+                .map(move |position| (path.clone(), position))
+        })
+        .collect()
+}
+
+/// The sorts the view gives the occurrences of `name` in the rule labelled `label`.
+fn occurrence_sorts(loaded: &LoadedDefinition, label: &str, name: &str) -> Vec<Option<String>> {
+    let sentence = labelled(loaded.definition(), label);
+    let typing = main_typer(loaded).typing_in(sentence, "TEST").unwrap();
+    let mut sorts = occurrences(&typing, sentence, name)
+        .into_iter()
+        .map(|(_, position)| position.sort.as_ref().map(ToString::to_string))
+        .collect::<Vec<_>>();
+    sorts.sort();
+    sorts.dedup();
+    sorts
+}
+
+// A variable without a cell sort written in the body of a cell with children is a cell
+// fragment: completion places it, at that occurrence, in the children it stands for (at a
+// collection's sort for a `multiplicity="*"` child, a cell's sort for another, nothing for none
+// or several), and replaces every other occurrence by the cell's fragment term. The rule parser
+// reads it at `Bag`. KEVM's `#pushWorldState` and KWasm's
+// `<moduleInstances> _ => .Bag </moduleInstances>` have such variables.
+#[test]
+fn a_cell_fragment_variable_has_the_sorts_cell_completion_gives_it() {
+    let loaded = load_main(
+        "collection-cell-content.k",
+        COLLECTION_CELL_CONTENT,
+        "TEST",
+        None,
+    );
+    let kore = compiled_kore(&loaded).unwrap_or_else(|error| panic!("{error}"));
+    assert!(assert_closure_types(&loaded, "TEST") > 0);
+    assert!(assert_view_injections_are_emitted(&loaded, "TEST") > 0);
+    assert!(assert_variable_sorts_are_compiled(&loaded, "TEST", &kore) > 0);
+    let sorts = |label: &str, name: &str| occurrence_sorts(&loaded, &format!("TEST.{label}"), name);
+    let some = |sorts: &[&str]| {
+        sorts
+            .iter()
+            .map(|sort| Some((*sort).to_owned()))
+            .collect::<Vec<_>>()
+    };
+    // A collection child, through a rewrite side and inside a cell under a constructor.
+    assert_eq!(sorts("save", "A"), some(&["AccountCellMap"]));
+    assert_eq!(sorts("restore", "A"), some(&["AccountCellMap"]));
+    // The other occurrences are the fragment term, in the body and in the requires.
+    assert_eq!(
+        sorts("keep-queue", "Q"),
+        some(&["ItemCellList", "QueueCellFragment"])
+    );
+    assert_eq!(
+        sorts("keep-accounts", "A"),
+        some(&["AccountCellMap", "AccountsCellFragment"])
+    );
+    assert_eq!(
+        sorts("checked", "A"),
+        some(&["AccountCellMap", "AccountsCellFragment"])
+    );
+    assert_eq!(
+        sorts("boxed", "A"),
+        some(&["AccountCellMap", "AccountsCellFragment"])
+    );
+    assert_eq!(
+        sorts("cast-fragment", "A"),
+        some(&["AccountCellMap", "AccountsCellFragment"])
+    );
+    assert_eq!(
+        sorts("let", "A"),
+        some(&["AccountCellMap", "AccountsCellFragment"])
+    );
+    // A single child, a `?` child, an annotation `X:Bag`, among several items.
+    assert_eq!(
+        sorts("keep-one", "X"),
+        some(&["InnerCell", "OneCellFragment"])
+    );
+    assert_eq!(sorts("drop-maybe", "X"), some(&["MaybeCell"]));
+    assert_eq!(sorts("cast-bag", "X"), some(&["AccountCellMap"]));
+    assert_eq!(sorts("mixed", "A"), some(&["AccountCellMap"]));
+    // The one free child of a cell with several children.
+    assert_eq!(sorts("two", "A"), some(&["Acc2CellMap", "TwoCellFragment"]));
+    assert_eq!(
+        sorts("pair-read", "P"),
+        some(&["PairCellFragment", "RCell"])
+    );
+    // A variable for two children or none has no one term in the body.
+    assert_eq!(
+        sorts("pair", "P"),
+        vec![None, Some("PairCellFragment".to_owned())]
+    );
+    assert_eq!(
+        sorts("zero-one", "X"),
+        vec![None, Some("OneCellFragment".to_owned())]
+    );
+    // The sort predicate of the variable tests its one part.
+    assert_eq!(sorts("tested", "A"), some(&["AccountCellMap"]));
+    // A local function's value is a term of the sentence's scope; a closure variable is
+    // written only in the equation, whose occurrences the helper does not walk, and its
+    // fragment term fits the parameter sort `AccountsCellFragment` the equation gives it.
+    assert_eq!(sorts("closure", "A"), some(&["AccountCellMap"]));
+    assert_eq!(sorts("value-cell", "A"), some(&["AccountCellMap"]));
+    assert_eq!(
+        sorts("applied", "A"),
+        some(&["AccountCellMap", "AccountsCellFragment"])
+    );
+    // The alias of one cell has that cell's sort wherever it occurs.
+    assert_eq!(sorts("aliased", "X"), some(&["AccountCell"]));
+    // A variable of a cell sort is an item, not a fragment, wherever it occurs.
+    assert_eq!(sorts("one-account", "X"), some(&["AccountCell"]));
+    assert_eq!(sorts("map-annotated", "A"), some(&["AccountCell"]));
+    // `variables` has the sort the compiled variable has, and nothing for a variable that
+    // completion splits.
+    let typer = main_typer(&loaded);
+    let typing = |label: &str| {
+        typer
+            .typing_in(
+                labelled(loaded.definition(), &format!("TEST.{label}")),
+                "TEST",
+            )
+            .unwrap()
+    };
+    assert_eq!(
+        typing("keep-queue").variables.get("Q"),
+        Some(&Sort::new("ItemCellList"))
+    );
+    assert_eq!(typing("pair").variables.get("P"), None);
+    assert_eq!(
+        typing("aliased").variables.get("X"),
+        Some(&Sort::new("AccountCell"))
+    );
+}
+
+/// `rule` added to the collection-cell-content fixture, loaded.
+fn with_rule(rule: &str) -> LoadedDefinition {
+    let source =
+        COLLECTION_CELL_CONTENT.replace("endmodule", &format!("  rule [probe]: {rule}\nendmodule"));
+    load_main("collection-cell-content.k", &source, "TEST", None)
+}
+
+// Each of these rules is rejected by compilation, and so its typing fails, with the reason
+// compilation gives. Before the typer modelled the fragment term, it typed the other occurrence
+// at `Bag` and accepted the first six.
+#[test]
+fn a_cell_fragment_sentence_compilation_rejects_fails_typing() {
+    for (rule, reason) in [
+        (
+            "<k> go => fooBag(A) ... </k> <accounts> A </accounts>",
+            "AccountsCellFragment",
+        ),
+        (
+            "<k> go => .K ... </k> <accounts> A </accounts> requires pb(A)",
+            "AccountsCellFragment",
+        ),
+        (
+            "<k> fooBag(M) => .K ... </k> <accounts> _ => M:Bag </accounts>",
+            "AccountsCellFragment",
+        ),
+        (
+            "<k> go => fooBag(T) ... </k> <tags> T </tags>",
+            "TagsCellFragment",
+        ),
+        (
+            "<k> go => fooBag(X) ... </k> <one> X </one>",
+            "OneCellFragment",
+        ),
+        (
+            "<k> go => fooBag(A) ... </k> <two> A <cnt> C </cnt> </two>",
+            "TwoCellFragment",
+        ),
+        (
+            "<k> go => .K ... </k> <accounts> A </accounts> <tags> A </tags>",
+            "is used under two cells",
+        ),
+        (
+            "<k> go => fooK(REST) ... </k> <account> <id> 1 </id> REST ... </account>",
+            "as can the frame",
+        ),
+        // A closure variable is passed to the lambda as its fragment term, at the parameter
+        // sort its occurrence in the equation gives it (`Bag` here).
+        (
+            "<k> go => #let Y = 1 #in fooK(A) ... </k> <accounts> A </accounts>",
+            "AccountsCellFragment",
+        ),
+        // An alias closure variable is passed at its cell's sort, here to a `Bag` parameter.
+        (
+            "<k> go => #let Y = 1 #in fooK(X) ... </k> <one> (<inner> 1 </inner> #as X) </one>",
+            "term X has sort InnerCell, which is not a subsort of the sort Bag",
+        ),
+        // Completion places no local function in a cell body; the view refuses the shape.
+        (
+            "<k> go => .K ... </k> <accounts> _ => #let Y = 1 #in A </accounts> <tags> A </tags>",
+            "cannot place",
+        ),
+    ] {
+        let loaded = with_rule(rule);
+        let compiled = compiled_kore(&loaded)
+            .err()
+            .unwrap_or_else(|| panic!("{rule}: compiles"));
+        assert!(
+            compiled.to_string().contains(reason)
+                || compiled
+                    .diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.message.contains(reason)),
+            "{rule}: {compiled} {:?}",
+            compiled.diagnostics
+        );
+        let error = main_typer(&loaded)
+            .typing_in(labelled(loaded.definition(), "TEST.probe"), "TEST")
+            .err()
+            .unwrap_or_else(|| panic!("{rule}: types"));
+        assert!(error.to_string().contains(reason), "{rule}: {error}");
+    }
+}
+
+/// The typing of the rule `TEST.probe` of `loaded`, in the main view.
+fn probe_typing(loaded: &LoadedDefinition) -> Result<SentenceTyping, SentenceTypingError> {
+    main_typer(loaded).typing_in(labelled(loaded.definition(), "TEST.probe"), "TEST")
+}
+
+// A local function's equation is a scope of its own: a variable its pattern binds is not the
+// enclosing cell-fragment variable of the same name, and these rules compile and type.
+#[test]
+fn a_local_functions_own_variable_is_no_cell_fragment() {
+    for rule in [
+        "<k> go => #fun(A => fooK(A))(1) ... </k> <accounts> A </accounts>",
+        "<k> go => #let A = 1 #in fooK(A) ... </k> <accounts> A </accounts>",
+    ] {
+        let loaded = with_rule(rule);
+        compiled_kore(&loaded).unwrap_or_else(|error| panic!("{rule}: {error}"));
+        let typing = probe_typing(&loaded).unwrap_or_else(|error| panic!("{rule}: {error}"));
+        assert_eq!(
+            typing.variables.get("A"),
+            Some(&Sort::new("AccountCellMap")),
+            "{rule}"
+        );
+    }
+}
+
+// The stated exception to compiles-implies-types: compilation completes the cells of a local
+// function's equation as a rule of its own, which the view does not, so it refuses an equation
+// with a variable in the body of a cell with children, although compilation accepts it.
+#[test]
+fn a_cell_with_a_variable_in_a_local_functions_equation_is_refused() {
+    let loaded = with_rule(
+        "<k> go => #fun(box(<accounts> B </accounts>) => fooK(B))(box(<accounts> A </accounts>)) ... </k> <accounts> A </accounts>",
+    );
+    compiled_kore(&loaded).unwrap_or_else(|error| panic!("{error}"));
+    let error = probe_typing(&loaded).unwrap_err();
+    assert!(
+        matches!(error, SentenceTypingError::CellCompletion { .. })
+            && error.to_string().contains("equation of a local function"),
+        "{error}"
+    );
+}
+
+// Macro expansion reads instances from a typing without the cell-completion re-sorting, so what
+// compiles is what compiled before the view modelled it. With it, `m(A)` beside
+// `<two> A <cnt> C </cnt> </two>` would have the instance `TwoCellFragment` instead of `Bag`, and
+// `mm()` beside `<accounts> A </accounts>` would have a known instance instead of none.
+#[test]
+fn macro_expansion_compiles_as_without_the_cell_completion_view() {
+    let loaded = load_main(
+        "macro-instance-fragment.k",
+        include_str!("fixtures/sentence-typing/macro-instance-fragment.k"),
+        "TEST",
+        None,
+    );
+    let kore = compiled_kore(&loaded).unwrap_or_else(|error| panic!("{error}"));
+    let axiom = sentence_of(&kore, "TEST.r");
+    let axiom = &axiom[..axiom.rfind("\n    [").expect("the axiom has attributes")];
+    assert_eq!(
+        format!("{}\n", axiom.trim_end()),
+        include_str!("fixtures/sentence-typing/macro-instance-fragment.axiom")
+    );
+    // `mm()` beside a sentence the view without the model does not type (a fragment variable
+    // at `Bag` in an `AccountCellMap` body, an as-pattern of an authored cell) has no instance.
+    for (name, source) in [
+        (
+            "macro-instance-undetermined.k",
+            include_str!("fixtures/sentence-typing/macro-instance-undetermined.k"),
+        ),
+        (
+            "macro-instance-alias-one.k",
+            include_str!("fixtures/sentence-typing/macro-instance-alias-one.k"),
+        ),
+        (
+            "macro-instance-alias-accounts.k",
+            include_str!("fixtures/sentence-typing/macro-instance-alias-accounts.k"),
+        ),
+    ] {
+        let loaded = load_main(name, source, "TEST", None);
+        let error = compiled_kore(&loaded).unwrap_err();
+        assert!(
+            error.diagnostics.iter().any(|diagnostic| diagnostic
+                .message
+                .contains("macro symbol that was not expanded")),
+            "{name}: {error} {:?}",
+            error.diagnostics
+        );
+    }
+}
+
+// The rule parser reads no collection-sorted variable as a cell's content.
+#[test]
+fn a_collection_sorted_variable_is_no_cell_content() {
+    let source = COLLECTION_CELL_CONTENT.replace(
+        "endmodule",
+        "  rule [probe]: <k> go => .K ... </k> <accounts> X:AccountCellMap </accounts>\nendmodule",
+    );
+    let mut resolver =
+        |_: &str, required: &str| builtin::embedded(required).ok_or_else(|| required.to_owned());
+    let loaded = load_for_compilation(
+        ResolvedSource::new("collection-cell-content.k", source),
+        "TEST",
+        None,
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![
+                builtin::embedded("kast.md").unwrap(),
+                builtin::embedded("prelude.md").unwrap(),
+            ],
+            ..LoadOptions::default()
+        },
+    );
+    let Err(error) = loaded else {
+        panic!("the rule parses")
+    };
+    assert!(error.to_string().contains(":AccountCellMap"), "{error}");
+}
+
+// A claim's cell-fragment variables are completed as a rule's are.
+#[test]
+fn a_claims_cell_fragment_variable_has_the_sorts_cell_completion_gives_it() {
+    let source = format!(
+        "{COLLECTION_CELL_CONTENT}\nmodule SPEC\n  imports TEST\n  \
+         claim [claim-accounts]: <k> keepAccounts => fooK(A) ... </k> <accounts> A => .Bag </accounts>\n  \
+         claim [claim-pair]: <k> pair => fooK(P) ... </k> <pair> P </pair>\nendmodule\n"
+    );
+    let mut resolver =
+        |_: &str, required: &str| builtin::embedded(required).ok_or_else(|| required.to_owned());
+    let (loaded, _) = load_for_compilation(
+        ResolvedSource::new("collection-cell-content-spec.k", source),
+        "SPEC",
+        None,
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![
+                builtin::embedded("kast.md").unwrap(),
+                builtin::embedded("prelude.md").unwrap(),
+            ],
+            excluded_module_attributes: vec![
+                CompilationBackend::Rust
+                    .excluded_module_attribute()
+                    .to_owned(),
+            ],
+            configuration_module: Some("TEST".into()),
+            ..LoadOptions::default()
+        },
+    )
+    .unwrap_or_else(|error| panic!("{error}"));
+    let kore = compile_loaded_definition(
+        &loaded,
+        CompileOptions {
+            check_mode: k_rust::definition::CheckMode::Proof {
+                definition_module: "TEST".into(),
+            },
+            default_claims_to_all_path: true,
+            ..CompileOptions::default()
+        },
+    )
+    .unwrap_or_else(|error| panic!("{error} {:?}", error.diagnostics))
+    .definition_kore;
+    assert!(assert_closure_types(&loaded, "SPEC") > 0);
+    assert!(assert_variable_sorts_are_compiled(&loaded, "SPEC", &kore) > 0);
+    let typer = main_typer(&loaded);
+    let claim = labelled(loaded.definition(), "SPEC.claim-accounts");
+    let typing = typer.typing_in(claim, "SPEC").unwrap();
+    let mut sorts = occurrences(&typing, claim, "A")
+        .into_iter()
+        .map(|(_, position)| position.sort.clone())
+        .collect::<Vec<_>>();
+    sorts.sort();
+    sorts.dedup();
+    assert_eq!(
+        sorts,
+        vec![
+            Some(Sort::new("AccountCellMap")),
+            Some(Sort::new("AccountsCellFragment"))
+        ]
     );
 }
