@@ -610,6 +610,52 @@ fn a_bytes_key_remains_unknown_with_the_runners_cause() {
     assert_eq!(document["rules"][0]["reached_by"], json!([]));
 }
 
+/// Re-pin R0c-fix-1 deliverable 1: the campaign runner now admits a baseline run that contradicts
+/// a trusted claim and makes only its test unknown (decision 2 per test), so `results` reads the
+/// run's missing sides itself: the program is `unknown`, never `comparable`, with the exclusion in
+/// its cause (before, the runner refused the run and the class was `unknown` too). Another
+/// program of the same definition is comparable.
+#[test]
+fn a_contradicted_baseline_program_is_unknown() {
+    let dir = scratch("contradicted-baseline");
+    write(
+        &dir.join("contra.k"),
+        r"module CONTRA-SYNTAX
+  imports INT-SYNTAX
+  syntax Prog ::= tdiv(Int) [symbol(tdiv)]
+                | val(Int) [symbol(val)]
+  syntax Int ::= td(Int) [function, total, symbol(td)]
+endmodule
+
+module CONTRA
+  imports CONTRA-SYNTAX
+  imports INT
+  configuration <k> $PGM:Prog </k>
+  rule [tdeq]: td(I) => 10 /Int (I +Int 1)
+  rule [tdiv]: <k> tdiv(I) => val(td(I)) </k>
+endmodule
+",
+    );
+    write(
+        &dir.join("FLOW.toml"),
+        "[spec]\nentry = \"contra.k\"\nmain_module = \"CONTRA\"\nsyntax_module = \"CONTRA-SYNTAX\"\n\n\
+         [[program]]\nid = \"base\"\ntext = \"tdiv(-1)\"\n\n[[program]]\nid = \"kill\"\ntext = \"tdiv(1)\"\n",
+    );
+    let (document, status) = run(&dir.join("FLOW.toml"), false);
+    assert_eq!(status, EXIT_OK, "{document:#}");
+    assert_eq!(
+        rows(&document),
+        expect(&[("base", "unknown", false), ("kill", "comparable", false)])
+    );
+    let cause = document["programs"][0]["cause"].as_str().unwrap();
+    assert!(
+        cause.starts_with(
+            "the campaign runner gave the baseline run no sides: contradicted-claim; "
+        ),
+        "{cause}"
+    );
+}
+
 #[test]
 fn rules_no_comparable_program_reaches_are_listed_first() {
     let manifest = fixture("loop", "rules").join("FLOW.toml");

@@ -132,6 +132,10 @@ pub enum ExecutionFailureKind {
     /// chooses where the definition leaves it open (re-pin decision 1,
     /// [`kink_native::exclusion::Exclusion::ImplementationChosenHook`]).
     ImplementationChosenHook,
+    /// The run's result depends on whether a short-circuit operator skips an operand that may
+    /// be undefined, which the definition leaves to the backend (re-pin decision 1,
+    /// [`kink_native::exclusion::Exclusion::ShortCircuitReading`]).
+    ShortCircuitReading,
     /// A leaf reports a hook refused for the process's memory allowance, a host property
     /// ([`kink_native::exclusion::Exclusion::AllowanceRefusal`]).
     AllowanceRefusal,
@@ -149,6 +153,7 @@ impl ExecutionFailureKind {
             | Self::LoadStackStop
             | Self::ContradictedClaim
             | Self::ImplementationChosenHook
+            | Self::ShortCircuitReading
             | Self::AllowanceRefusal => MutantStatus::Unknown,
             Self::TimeLimit => MutantStatus::Timeout,
             Self::Infrastructure => MutantStatus::Error,
@@ -165,6 +170,7 @@ impl ExecutionFailureKind {
             Self::LoadStackStop => Exclusion::LoadStackStop,
             Self::ContradictedClaim => Exclusion::ContradictedClaim,
             Self::ImplementationChosenHook => Exclusion::ImplementationChosenHook,
+            Self::ShortCircuitReading => Exclusion::ShortCircuitReading,
             Self::AllowanceRefusal => Exclusion::AllowanceRefusal,
             Self::Indeterminate
             | Self::ResourceLimit
@@ -183,6 +189,7 @@ impl From<kink_native::exclusion::Exclusion> for ExecutionFailureKind {
             Exclusion::LoadStackStop => Self::LoadStackStop,
             Exclusion::ContradictedClaim => Self::ContradictedClaim,
             Exclusion::ImplementationChosenHook => Self::ImplementationChosenHook,
+            Exclusion::ShortCircuitReading => Self::ShortCircuitReading,
             Exclusion::AllowanceRefusal => Self::AllowanceRefusal,
         }
     }
@@ -440,14 +447,13 @@ fn check_plan(
 /// failed infrastructure runs), timeout and unknown, and complete agreement
 /// (survived) only when nothing else was seen.
 ///
-/// A contradicted claim is the exception to "a kill beats any inconclusive outcome" (re-pin
-/// decision 2, applied mutant-wide in R0c): when a test the fold reads is
-/// `Failed(ContradictedClaim)`, the mutant's theory has no model, so no distinction of any of
-/// its tests is evidence. Its status is then the fold with every distinguishing slot read as
-/// unknown (`Unknown`, or `Timeout`/`Error` when another test gave one), never `Killed`. Under
-/// `FirstKill` the fold reads the tests through the first kill, so a contradiction in a later
-/// test, which the runner never runs, is not seen: the early-stop residual
-/// ([`contradicts_a_claim`]).
+/// A contradicted claim (`Failed(ContradictedClaim)`, re-pin decision 2) is read per test, as
+/// every other exclusion: it makes that test unknown and leaves a kill by another test standing
+/// (Sebastien, 2026-10-17, "killing test only"). A kill is a `Distinguish`, which only a test
+/// whose baseline and mutant runs are both complete and free of every exclusion gives (the
+/// runner's `run_tests`). Where a claim is false only at inputs the killing test never touches,
+/// weakening it there gives a definition that has models, and the killing test behaves the same
+/// in all of them. So `FirstKill` reports `Full`'s status.
 pub fn derive_mutant_report(
     plan: &MutantPlan,
     manifest: &[ManifestTest],
@@ -458,26 +464,16 @@ pub fn derive_mutant_report(
     let mut executed = Vec::new();
     let mut killing = Vec::new();
     let mut status = MutantStatus::Survived;
-    // The fold with every distinguishing slot read as unknown.
-    let mut without_kills = MutantStatus::Survived;
     for test in &plan.tests {
         if schedule == ScheduleMode::FirstKill && !killing.is_empty() {
             break;
         }
-        let (test_status, unkilled) = match &test.run {
-            TestRun::Compared(outcomes) => {
-                let statuses = || outcomes.iter().map(|outcome| slot_status(*outcome));
-                (
-                    statuses().fold(MutantStatus::Survived, fold),
-                    statuses()
-                        .map(|status| match status {
-                            MutantStatus::Killed => MutantStatus::Unknown,
-                            status => status,
-                        })
-                        .fold(MutantStatus::Survived, fold),
-                )
-            }
-            TestRun::Failed(kind) => (kind.status(), kind.status()),
+        let test_status = match &test.run {
+            TestRun::Compared(outcomes) => outcomes
+                .iter()
+                .map(|outcome| slot_status(*outcome))
+                .fold(MutantStatus::Survived, fold),
+            TestRun::Failed(kind) => kind.status(),
             // `check_plan` admits a skip only after a kill, which has already
             // ended the first-kill fold, and never under `Full`.
             TestRun::SkippedAfterKill => break,
@@ -487,11 +483,6 @@ pub fn derive_mutant_report(
             killing.push(test.test_id.clone());
         }
         status = fold(status, test_status);
-        without_kills = fold(without_kills, unkilled);
-    }
-    if contradicts_a_claim(&plan.tests[..executed.len()]) {
-        status = without_kills;
-        killing.clear();
     }
     if let Some(failure) = plan.mutant_failure {
         status = failure.status();
@@ -513,25 +504,6 @@ pub fn derive_mutant_report(
         skipped_test_ids,
         claims: plan.claims.clone(),
     })
-}
-
-/// Whether any of `tests`, runs of one mutant, undefinedly falsified a trusted claim
-/// (`Failed(ContradictedClaim)`, re-pin decision 2): the mutant is then inconsistent, and no
-/// test of it is evidence of a kill ([`derive_mutant_report`]).
-///
-/// Only the runs kink makes are read. A contradiction no run exhibits is not seen: under
-/// `FirstKill` the tests after the first kill (and in kink-flow every program a tier-1 `killed`
-/// record or a hinted kill spares), and in any schedule an inconsistency that no test reaches,
-/// or an undefined candidate that disappears beside a defined same-priority sibling and leaves
-/// no leaf to flag (finding A-13; a k-rust flag is KINK-18's territory). This is the smaller of
-/// the two sound options the packet offers (re-pin R0c deliverable 3): a kill stands only when
-/// no run kink made of the mutant shows a contradiction, rather than running every remaining
-/// test for one; the residual is named in README "What a kill trusts".
-#[must_use]
-pub fn contradicts_a_claim(tests: &[TestPlan]) -> bool {
-    tests
-        .iter()
-        .any(|test| test.run == TestRun::Failed(ExecutionFailureKind::ContradictedClaim))
 }
 
 /// Baseline admission result, evaluated before mutant work.

@@ -332,15 +332,22 @@ fn failure_cause(kind: ExecutionFailureKind, budget: Budget) -> String {
         }
         ExecutionFailureKind::ContradictedClaim => {
             "contradicted-claim: the mutant's run takes an undefined step that falsifies a \
-             `total` or `preserves-definedness` claim, so the mutant is inconsistent and no \
-             program kills it"
+             `total` or `preserves-definedness` claim, so the mutant is inconsistent there and \
+             this program's comparison is no evidence"
                 .into()
         }
         ExecutionFailureKind::ImplementationChosenHook => {
             "implementation-chosen-hook: the mutant uses a hook whose value k-rust chooses \
              where the definition leaves it open (choice, map and set listing order, \
-             mixed-format or NaN-sign Float, and the hooks domains.md leaves to the backend or \
-             the environment, such as String2Bytes, Bytes2String, Base2String or I/O)"
+             mixed-format or NaN-sign Float, and the hooks k-rust's builtin files leave to the \
+             backend or the environment, such as String2Bytes, Bytes2String, Base2String, \
+             substitution's renamed variables or I/O)"
+                .into()
+        }
+        ExecutionFailureKind::ShortCircuitReading => {
+            "short-circuit-reading: the mutant's result depends on whether andBool, orBool, \
+             impliesBool, #if, andThenBool or orElseBool skip an operand that may be undefined, \
+             which the definition leaves to the backend; k-rust evaluates every operand"
                 .into()
         }
         ExecutionFailureKind::AllowanceRefusal => {

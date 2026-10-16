@@ -1,6 +1,7 @@
 //! Re-pin R0b (`draft/tasks/repin-501f18b9`): campaigns over runs that are no evidence
 //! (kink-native `exclusion`). A mutant whose run is excluded is `Unknown`, never killed, in both
-//! schedules; a baseline whose run is excluded is refused before any mutant runs.
+//! schedules; a baseline whose run is excluded is refused before any mutant runs, except one
+//! that contradicts a claim, which makes only its own test unknown (re-pin R0c-fix-1).
 
 #[path = "../../../testdata/k/support.rs"]
 mod support;
@@ -42,6 +43,18 @@ fn validator(name: &str) -> NativeValidator {
     NativeValidator::bind(
         support::load_path(
             &Path::new(support::DIR).join(format!("r0b/{name}.k")),
+            &name.to_ascii_uppercase(),
+        ),
+        CompileOptions::default(),
+    )
+}
+
+/// The validator of the R0c fixture `testdata/k/r0c/<name>.k` (its main module the upper-cased
+/// name).
+fn r0c_validator(name: &str) -> NativeValidator {
+    NativeValidator::bind(
+        support::load_path(
+            &Path::new(support::DIR).join(format!("r0c/{name}.k")),
             &name.to_ascii_uppercase(),
         ),
         CompileOptions::default(),
@@ -257,16 +270,15 @@ fn an_excluded_baseline_is_refused() {
     });
 }
 
-/// Re-pin R0c deliverable 3 (decision 2, mutant-wide): a theory whose claim is false on one input
-/// has no model, so a kill by another test of the same mutant is vacuous. `TDIV.tdeq` with
-/// `I +Int 0` distinguishes on `tdiv(1)` (`val(10)` against the baseline's `val(5)`) and
-/// contradicts `td`'s `total` claim on `tdiv(0)`. Under `Full`, and under `FirstKill` when the
-/// contradicting test runs first, the mutant is `Unknown`, never `Killed` (before R0c it was
-/// killed by `tdiv(1)`). Under `FirstKill` with the killing test first the contradicting test
-/// never runs and the kill stands: the documented early-stop residual
-/// (`kink_campaign::contradicts_a_claim`).
+/// Re-pin R0c-fix-1 deliverable 1 (decision 2 per test, Sebastien 2026-10-17: "killing test
+/// only"): `TDIV.tdeq` with `I +Int 0` distinguishes on `tdiv(1)` (`val(10)` against the
+/// baseline's `val(5)`) and contradicts `td`'s `total` claim on `tdiv(0)`. The contradicting test
+/// is unknown and the kill by `tdiv(1)` stands, in both orders and both schedules, so `Full` and
+/// `FirstKill` agree (under R0c's mutant-wide rule `Full`, and `FirstKill` with the contradicting
+/// test first, gave `Unknown`). The killing test is free of contradictions: both of its runs gave
+/// sides, which an excluded run never does.
 #[test]
-fn a_contradicted_claim_leaves_no_kill_standing() {
+fn a_contradicted_claim_leaves_the_kill_of_another_test_standing() {
     on_a_big_stack(|| {
         let validator = validator("tdiv");
         let baseline = validator.baseline();
@@ -278,24 +290,26 @@ fn a_contradicted_claim_leaves_no_kill_standing() {
             kink_campaign::OracleOutcome::Distinguish,
         ]);
         let contradicted = TestRun::Failed(ExecutionFailureKind::ContradictedClaim);
-        for (tests, schedule, runs, status) in [
+        for (tests, schedule, runs) in [
             (
                 [kill(), contra()],
                 ScheduleMode::Full,
                 vec![distinguish.clone(), contradicted.clone()],
-                MutantStatus::Unknown,
+            ),
+            (
+                [contra(), kill()],
+                ScheduleMode::Full,
+                vec![contradicted.clone(), distinguish.clone()],
             ),
             (
                 [contra(), kill()],
                 ScheduleMode::FirstKill,
                 vec![contradicted.clone(), distinguish.clone()],
-                MutantStatus::Unknown,
             ),
             (
                 [kill(), contra()],
                 ScheduleMode::FirstKill,
                 vec![distinguish.clone(), TestRun::SkippedAfterKill],
-                MutantStatus::Killed,
             ),
         ] {
             let campaign = campaign(&validator, "TDIV", &tests);
@@ -314,16 +328,158 @@ fn a_contradicted_claim_leaves_no_kill_standing() {
                 runs,
                 "{ids:?} {schedule:?}"
             );
-            assert_eq!(mutant.report.status, status, "{ids:?} {schedule:?}");
             assert_eq!(
-                mutant.report.killing_test_ids,
-                if status == MutantStatus::Killed {
-                    vec!["kill".to_owned()]
-                } else {
-                    Vec::new()
-                },
+                mutant.report.status,
+                MutantStatus::Killed,
                 "{ids:?} {schedule:?}"
             );
+            assert_eq!(
+                mutant.report.killing_test_ids,
+                vec!["kill".to_owned()],
+                "{ids:?} {schedule:?}"
+            );
+            assert_clean(&run, mutant, "kill");
         }
+    });
+}
+
+/// The killing test `id`'s baseline and mutant runs both gave sides: neither is excluded, so
+/// neither has a leaf that contradicts a claim.
+fn assert_clean(run: &kink_campaign::CampaignRun, mutant: &kink_campaign::MutantRun, id: &str) {
+    let sides = |evidence: &[kink_campaign::TestEvidence]| {
+        evidence
+            .iter()
+            .find(|evidence| evidence.test_id == id)
+            .map(|evidence| matches!(evidence.run, kink_campaign::SideRun::Sides { .. }))
+    };
+    assert_eq!(sides(&run.baseline), Some(true), "{id}: baseline");
+    assert_eq!(sides(&mutant.evidence), Some(true), "{id}: mutant");
+}
+
+/// Re-pin R0c-fix-1 deliverable 1: a baseline run that contradicts a claim no longer refuses the
+/// campaign; it makes its own test unknown for every mutant. The baseline `TDIV` contradicts
+/// `td`'s `total` claim on `tdiv(-1)`. Under R0b and R0c the campaign was refused
+/// (`BaselineOracleFailed`, `contradicted-claim`); now the mutant `tdeq` with `I +Int 0`, which is
+/// defined on -1, is killed by `tdiv(1)`, whose runs are clean, and the contradicting test is
+/// `Failed(ContradictedClaim)`, in both schedules.
+#[test]
+fn a_contradicted_baseline_run_makes_only_its_test_unknown() {
+    on_a_big_stack(|| {
+        let validator = validator("tdiv");
+        let baseline = validator.baseline();
+        let generation = one_to_zero(baseline, "TDIV.tdeq");
+        let tests = [
+            test("base", support::app("Lbltdiv", vec![support::int(-1)])),
+            test("kill", support::app("Lbltdiv", vec![support::int(1)])),
+        ];
+        let campaign_of_both = campaign(&validator, "TDIV", &tests);
+        for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+            let run = run_campaign(&campaign_of_both, &generation, schedule).unwrap();
+            assert_eq!(
+                run.baseline[0].run,
+                kink_campaign::SideRun::Failed(ExecutionFailureKind::ContradictedClaim)
+            );
+            let [mutant] = run.mutants.as_slice() else {
+                panic!("one mutant")
+            };
+            assert_eq!(
+                mutant.plan.tests[0].run,
+                TestRun::Failed(ExecutionFailureKind::ContradictedClaim),
+                "{schedule:?}"
+            );
+            assert_eq!(mutant.report.status, MutantStatus::Killed, "{schedule:?}");
+            assert_eq!(mutant.report.killing_test_ids, vec!["kill".to_owned()]);
+            assert_clean(&run, mutant, "kill");
+        }
+        // A campaign of the contradicting test alone is admitted, and its mutant is unknown.
+        let alone = [test(
+            "base",
+            support::app("Lbltdiv", vec![support::int(-1)]),
+        )];
+        let run = run_campaign(
+            &campaign(&validator, "TDIV", &alone),
+            &generation,
+            ScheduleMode::Full,
+        )
+        .unwrap();
+        assert_eq!(run.mutants[0].report.status, MutantStatus::Unknown);
+    });
+}
+
+/// Re-pin R0c-fix-1 deliverable 1 (R0c review 1 major 1, the reviewer's `tdivloop` probe): a
+/// contradiction inside a run that is also timed out is never a kill. On `both(0)` the mutant
+/// `tdeq` with `I +Int 0` takes an undefined step that contradicts `td`'s `total` claim and spins
+/// until the time bound: its run is timed out and one of its leaves names the contradicted claim
+/// (read from the mutant's text, `r0c/tdivloopm.k`). The test is `Failed(TimeLimit)`, never
+/// compared; with `tdiv(1)` beside it the mutant is killed by `tdiv(1)` alone, whose runs are
+/// clean, in both schedules; alone it is `Timeout`.
+#[test]
+fn a_timed_out_run_with_a_contradiction_never_distinguishes() {
+    use kink_native::execution::{ExecutionAdapter, SolverProfile};
+    on_a_big_stack(|| {
+        let both = || support::app("Lblboth", vec![support::int(0)]);
+        let budget = ExecutionBudget {
+            time: Duration::from_secs(3),
+            max_simplification_iterations: 10_000,
+            max_depth: None,
+            max_breadth: None,
+        };
+        // The mutant's own run: timed out, with a contradicted leaf.
+        let mutant = r0c_validator("tdivloopm").compile_baseline().unwrap();
+        let mut backend = k_rust::backend::Backend::new(
+            &mutant.artifacts().definition_kore,
+            k_rust::kast::identifier::encode("TDIVLOOPM"),
+            k_rust::backend::BackendOptions::default(),
+        )
+        .unwrap();
+        let execution = ExecutionAdapter::with_profile(SolverProfile::BUILD)
+            .execute(
+                &mut backend,
+                &support::initial_state(both(), "SortProg"),
+                budget,
+            )
+            .unwrap();
+        assert!(execution.timed_out());
+        assert!(
+            execution
+                .leaves()
+                .iter()
+                .any(|leaf| leaf.contradicted_total.is_some()),
+            "{execution:?}"
+        );
+
+        let validator = r0c_validator("tdivloop");
+        let generation = one_to_zero(validator.baseline(), "TDIVLOOP.tdeq");
+        let tests = [
+            test("masked", both()),
+            test("kill", support::app("Lbltdiv", vec![support::int(1)])),
+        ];
+        let mut both_tests = campaign(&validator, "TDIVLOOP", &tests);
+        both_tests.budget = budget;
+        for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+            let run = run_campaign(&both_tests, &generation, schedule).unwrap();
+            let [mutant] = run.mutants.as_slice() else {
+                panic!("one mutant")
+            };
+            assert_eq!(
+                mutant.plan.tests[0].run,
+                TestRun::Failed(ExecutionFailureKind::TimeLimit),
+                "{schedule:?}"
+            );
+            assert!(
+                matches!(&mutant.plan.tests[1].run, TestRun::Compared(outcomes)
+                    if outcomes.contains(&kink_campaign::OracleOutcome::Distinguish)),
+                "{schedule:?}"
+            );
+            assert_eq!(mutant.report.status, MutantStatus::Killed, "{schedule:?}");
+            assert_eq!(mutant.report.killing_test_ids, vec!["kill".to_owned()]);
+            assert_clean(&run, mutant, "kill");
+        }
+        let alone = [test("masked", both())];
+        let mut masked = campaign(&validator, "TDIVLOOP", &alone);
+        masked.budget = budget;
+        let run = run_campaign(&masked, &generation, ScheduleMode::Full).unwrap();
+        assert_eq!(run.mutants[0].report.status, MutantStatus::Timeout);
+        assert!(run.mutants[0].report.killing_test_ids.is_empty());
     });
 }

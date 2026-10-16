@@ -1786,15 +1786,15 @@ id = "choice-differs"
     }
 }
 
-/// Re-pin R0c deliverable 3 (decision 2, mutant-wide), through kink-flow's first-kill search:
-/// the mutation `I +Int 0` of a `total` function's equation contradicts the claim on
-/// `tdiv(0)` and distinguishes on `tdiv(1)`. With the contradicting program first the mutation
-/// is `unknown`, reason `contradicted-claim`, and writes no outcome record, so no later command
-/// takes a `killed` record for it (before R0c it was killed by `kill` and its record cached).
-/// With the killing program first the contradicting one never runs, and the kill stands: the
-/// early-stop residual.
+/// Re-pin R0c-fix-1 deliverable 1 (decision 2 per test, Sebastien 2026-10-17), through
+/// kink-flow's first-kill search: the mutation `I +Int 0` of a `total` function's equation
+/// contradicts the claim on `tdiv(0)` and distinguishes on `tdiv(1)`. In both program orders the
+/// mutation is killed by `kill`, whose runs are clean, and the contradicting program is listed
+/// `unknown` with failure `contradicted-claim` when it ran (under R0c's mutant-wide rule the
+/// contradicting program first made the mutation `unknown` and wrote no record). The killing
+/// program's record is written (tier 1, no-Z3 profile): it rests on that program's runs alone.
 #[test]
-fn a_contradicted_claim_leaves_no_kill_or_record() {
+fn a_contradicted_claim_leaves_the_kill_of_another_program_standing() {
     let definition = r"module CONTRA-SYNTAX
   imports INT-SYNTAX
   syntax Prog ::= tdiv(Int) [symbol(tdiv)]
@@ -1817,15 +1817,8 @@ id = "denominator"
   find = "I +Int 1"
   replace = "I +Int 0"
 "#;
-    for (order, status, killer, reason) in [
-        (
-            ["contra", "kill"],
-            "unknown",
-            None,
-            Some("contradicted-claim"),
-        ),
-        (["kill", "contra"], "killed", Some("kill"), None),
-    ] {
+    for order in [["contra", "kill"], ["kill", "contra"]] {
+        let (status, killer, reason) = ("killed", Some("kill"), None::<&str>);
         let dir = scratch(&format!("contradicted-{}", order[0]));
         fs::write(dir.join("contra.k"), definition).unwrap();
         let programs = order
@@ -1859,12 +1852,33 @@ id = "denominator"
             (Some(status), killer, reason),
             "{order:?} {row:#}"
         );
+        let executed = row["executed"].as_array().unwrap();
+        let entry = |program: &str| {
+            executed
+                .iter()
+                .find(|entry| entry["program"] == program)
+                .cloned()
+        };
+        assert_eq!(
+            entry("kill").map(|entry| entry["outcome"].clone()),
+            Some(json!("distinguish")),
+            "{row:#}"
+        );
+        if order[0] == "contra" {
+            let contra = entry("contra").expect("the contradicting program ran first");
+            assert_eq!(
+                (contra["outcome"].as_str(), contra["failure"].as_str()),
+                (Some("unknown"), Some("contradicted-claim")),
+                "{row:#}"
+            );
+        } else {
+            assert_eq!(entry("contra"), None, "{row:#}");
+        }
         if kink_native::execution::SolverProfile::BUILD
             == kink_native::execution::SolverProfile::NoZ3
         {
-            assert_eq!(
+            assert!(
                 outcome_file(&manifest, &document, "denominator").exists(),
-                status == "killed",
                 "{order:?}"
             );
         }

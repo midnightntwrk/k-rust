@@ -28,13 +28,16 @@
 //!   Unknown. Bindings require complete coverage, ground terms and definition independence.
 //! - A run that is no evidence (kink-native `exclusion`: a counted stack stop, a load stack stop
 //!   of its side's definition, an undefined step that contradicts a trusted claim, an
-//!   implementation-chosen hook in its side's definition or initial state, an allowance refusal)
-//!   is `SideRun::Failed` with that exclusion, so no slot of its test is compared: a mutant's is
-//!   `Unknown`, and a baseline's makes admission refuse the campaign (`BaselineOracleFailed`).
-//!   The check runs whenever a run is judged, a baseline run a session reuses included, which
-//!   is judged under the facts of the load that produced it as well as the current call's
-//!   ([`BaselineSession`]). A contradicted claim in any run of a mutant also leaves no kill of
-//!   another of its tests standing ([`crate::contradicts_a_claim`]).
+//!   implementation-chosen hook in its side's definition or initial state, a value or step that
+//!   depends on the short-circuit reading, an allowance refusal) is `SideRun::Failed` with that
+//!   exclusion, so no slot of its test is compared: a mutant's is `Unknown`, and a baseline's
+//!   makes admission refuse the campaign (`BaselineOracleFailed`), except a contradicted claim,
+//!   which makes only that test `Failed(ContradictedClaim)` for every mutant (re-pin decision 2
+//!   is per test: Sebastien, 2026-10-17). The check runs whenever a run is judged, a baseline
+//!   run a session reuses included, which is judged under the facts of the load that produced it
+//!   as well as the current call's ([`BaselineSession`]). A test compares its slots only when
+//!   both runs gave sides, so a run whose leaves contradict a claim never gives a
+//!   `Distinguish`, whatever else it is (timed out, stack-stopped, failed to bridge).
 //!
 //! A test whose initial state has an element or set variable is symbolic: its verdict is a
 //! claim about every ground instance, and k-rust's answer supports that claim only while the
@@ -1044,24 +1047,32 @@ fn admission_failure(admission: BaselineAdmission) -> CampaignFailure {
     validate_baseline(admission).expect_err("a rejected admission")
 }
 
-/// The first baseline test whose run is excluded ([`kink_native::exclusion`]), with its exclusion.
+/// The first baseline test whose run is excluded ([`kink_native::exclusion`]) in a way that
+/// refuses the campaign, with its exclusion: every exclusion but a contradicted claim ([`admit`]).
 fn baseline_exclusion(evidence: &[TestEvidence]) -> Option<(&str, Exclusion)> {
     evidence.iter().find_map(|evidence| match evidence.run {
+        SideRun::Failed(ExecutionFailureKind::ContradictedClaim) | SideRun::Sides { .. } => None,
         SideRun::Failed(kind) => kind
             .exclusion()
             .map(|exclusion| (evidence.test_id.as_str(), exclusion)),
-        SideRun::Sides { .. } => None,
     })
 }
 
 /// A baseline side that failed is `Error`; one that is bounded, unknown or a crash its
 /// declaration rejects is `OracleFailed`, and so is a baseline run that is excluded
 /// ([`kink_native::exclusion`]): it completed but is no evidence, as an unknown side.
+///
+/// The exception is a baseline run that contradicts a trusted claim (re-pin decision 2, per
+/// test since Sebastien's 2026-10-17 decision): it makes that test `Failed(ContradictedClaim)`
+/// for every mutant ([`run_tests`]) and refuses nothing else. The baseline is inconsistent only
+/// at inputs that test reaches; weakening the claim there gives a definition with models in
+/// which every other test, whose runs show no contradiction, behaves the same.
 fn admit(tests: &[TestCase], evidence: &[TestEvidence]) -> BaselineAdmission {
     let mut admission = BaselineAdmission::Accepted;
     for (test, evidence) in tests.iter().zip(evidence) {
         let sides = match &evidence.run {
             SideRun::Sides { sides, .. } => sides,
+            SideRun::Failed(ExecutionFailureKind::ContradictedClaim) => continue,
             SideRun::Failed(kind) if kind.exclusion().is_some() => {
                 admission = BaselineAdmission::OracleFailed;
                 continue;
@@ -1158,11 +1169,8 @@ struct MutantExecution {
 /// report it where `FirstKill` reports the kill. This is structural: the failure comes only
 /// from preparing the mutant, before any test runs, and [`run_tests`] has no way to report
 /// one. A later mutant-scope failure must end the mutant's tests under both schedules alike,
-/// or make `FirstKill` run every test. The one test outcome that also overrides a kill, a
-/// contradicted claim (re-pin decision 2, [`crate::contradicts_a_claim`]), is read only from the
-/// tests a schedule runs: under `FirstKill` a contradiction in a test after the first kill is
-/// not seen, so `Full` can report `Unknown` where `FirstKill` reports the kill (the documented
-/// early-stop residual).
+/// or make `FirstKill` run every test. No test outcome overrides a kill: a contradicted claim
+/// (re-pin decision 2) makes only its own test unknown ([`derive_mutant_report`]).
 fn run_mutant(
     campaign: &Campaign<'_>,
     patch: &Patch,
@@ -1516,6 +1524,10 @@ fn run_tests(
             );
         }
         let run = match (&paired_baseline.run, &mutant.run) {
+            // Admission keeps a baseline run that contradicts a claim: the test is unknown.
+            (SideRun::Failed(ExecutionFailureKind::ContradictedClaim), _) => {
+                TestRun::Failed(ExecutionFailureKind::ContradictedClaim)
+            }
             (_, SideRun::Failed(kind)) => TestRun::Failed(*kind),
             (
                 SideRun::Sides {
@@ -1537,7 +1549,7 @@ fn run_tests(
                     })
                     .collect(),
             ),
-            // Admission refused a failed baseline run.
+            // Admission refused every other failed baseline run.
             (SideRun::Failed(_), SideRun::Sides { .. }) => {
                 TestRun::Failed(ExecutionFailureKind::Infrastructure)
             }
@@ -1782,11 +1794,22 @@ impl Runtime {
                 );
                 let state_exclusion =
                     state_references_implementation_chosen(definition, &test.initial_state)
-                        .then_some(Exclusion::ImplementationChosenHook);
+                        .then_some(Exclusion::ImplementationChosenHook)
+                        .or_else(|| {
+                            exclusions
+                                .state_depends_on_short_circuit(definition, &test.initial_state)
+                                .then_some(Exclusion::ShortCircuitReading)
+                        });
                 Ok::<_, k_rust::backend::BackendError>((bridged, state_exclusion))
             }) {
-                Err(_) => SideRun::Sides {
-                    sides: vec![OracleSide::Unknown; test.oracles.len()],
+                // No decider: every slot is unknown, unless the run is excluded, which is read
+                // from its leaves alone. An excluded run gives no side, so no slot, a pattern slot
+                // `run_tests` fills from the stepped run included, can take one from it.
+                Err(_) => match exclusions.run_exclusion(execution) {
+                    Some(exclusion) => SideRun::Failed(exclusion.into()),
+                    None => SideRun::Sides {
+                        sides: vec![OracleSide::Unknown; test.oracles.len()],
+                    },
                 },
                 Ok((Err(failure), _)) => SideRun::Failed((&failure).into()),
                 // A run that bridged is checked for its exclusions before any side is formed

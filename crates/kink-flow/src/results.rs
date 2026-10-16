@@ -13,8 +13,10 @@
 //! live runs in its kill search. The session is never written to disk, so a later command runs
 //! every baseline it needs live again. The documents report the count as `baseline_runs`.
 //!
-//! A program is `comparable` exactly when that campaign admits its baseline run: the run is
-//! complete and every oracle side is a value. Only a comparable program can later kill a mutant.
+//! A program is `comparable` exactly when that campaign admits its baseline run and gives it
+//! sides: the run is complete, no exclusion holds (a run that contradicts a trusted claim is
+//! admitted but gives none, re-pin decision 2), and every oracle side is a value. Only a
+//! comparable program can later kill a mutant.
 //! When the campaign refuses the baseline run, the runner returns no evidence; a diagnostic run
 //! of the same initial state through the kink-native execution adapter then tells a timeout from
 //! an unknown or failed run and supplies the cause, the final states and the coverage for the
@@ -314,6 +316,21 @@ impl<'a> BaselineRunner<'a> {
             Ok(run) => {
                 assert!(run.mutants.is_empty() && run.baseline.len() == 1);
                 let evidence = &run.baseline[0];
+                // The campaign admits a baseline run that contradicts a trusted claim and makes
+                // only its own test unknown (re-pin decision 2, per test): such a program is
+                // never comparable.
+                if let SideRun::Failed(kind) = evidence.run {
+                    let mut result = self.diagnose(
+                        &test,
+                        CampaignFailureKind::BaselineOracleFailed,
+                        &format!(
+                            "the campaign runner gave the baseline run no sides: {}",
+                            kind.exclusion().map_or("a failed run", |e| e.name())
+                        ),
+                    );
+                    result.wall_ms = wall_ms;
+                    return result;
+                }
                 let row = match CampaignReport::baseline_row(evidence) {
                     Ok(row) => row,
                     Err(e) => return self.error(format!("cannot encode the baseline row: {e}")),
@@ -346,7 +363,11 @@ impl<'a> BaselineRunner<'a> {
                     wall_ms: None,
                 }
             }
-            Err(failure) => self.diagnose(&test, &failure),
+            Err(failure) => self.diagnose(
+                &test,
+                failure.kind(),
+                &format!("the campaign runner refused the baseline run ({failure})"),
+            ),
         };
         result.wall_ms = wall_ms;
         result
@@ -363,12 +384,11 @@ impl<'a> BaselineRunner<'a> {
         }
     }
 
-    /// The campaign refused the baseline run and it did not stop on time: run the initial state
-    /// once more through the execution adapter, for the class, the cause, the final states and
-    /// the coverage.
-    fn diagnose(&self, test: &TestCase, failure: &CampaignFailure) -> ProgramResult {
+    /// The campaign refused the baseline run, or gave it no sides, and it did not stop on time:
+    /// run the initial state once more through the execution adapter, for the class, the cause,
+    /// the final states and the coverage.
+    fn diagnose(&self, test: &TestCase, kind: CampaignFailureKind, refused: &str) -> ProgramResult {
         self.diagnostic.set(self.diagnostic.get() + 1);
-        let refused = format!("the campaign runner refused the baseline run ({failure})");
         let mut backend = match input_backend(&self.spec.compiled, self.main_module) {
             Ok(backend) => backend,
             Err(e) => return self.error(format!("{refused}; no diagnostic run: {}", e.detail)),
@@ -399,7 +419,7 @@ impl<'a> BaselineRunner<'a> {
             };
         }
         let leaves = execution.leaves();
-        let class = match failure.kind() {
+        let class = match kind {
             CampaignFailureKind::BaselineOracleFailed => ResultClass::Unknown,
             _ => ResultClass::Error,
         };

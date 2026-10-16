@@ -14,8 +14,9 @@ use k_rust::kompile::CompileOptions;
 use k_rust::kore::{ast::Pattern, parser::parse_definition, parser::parse_pattern};
 use k_rust_backend::nesting::with_simplification_stack_budget;
 use kink_native::exclusion::{
-    DOMAINS_OPEN_HOOKS, DefinitionExclusions, Exclusion, IMPLEMENTATION_CHOSEN_HOOKS,
-    K_RUST_IMPLEMENTATION_CHOSEN_HOOKS, state_references_implementation_chosen,
+    BUILTIN_OPEN_HOOKS, DOMAINS_OPEN_HOOKS, DefinitionExclusions, Exclusion,
+    IMPLEMENTATION_CHOSEN_HOOKS, K_RUST_IMPLEMENTATION_CHOSEN_HOOKS,
+    state_references_implementation_chosen,
 };
 use kink_native::execution::{
     AdaptedExecution, ExecutionAdapter, ExecutionBudget, HaltClass, SolverProfile,
@@ -133,7 +134,7 @@ fn k_rust_backend() -> PathBuf {
 /// k-rust source the workspace builds against: its match arms, the hooks of the binary Float
 /// operations `float::mixed_destination` accepts (`BinaryOperation::of`) and the one hook
 /// `float::nan_sign` reads. `IMPLEMENTATION_CHOSEN_HOOKS` is that list and the kink-side
-/// `DOMAINS_OPEN_HOOKS`, each once. A change of any of them in k-rust fails this test, so a
+/// `DOMAINS_OPEN_HOOKS` and `BUILTIN_OPEN_HOOKS`, each once. A change of any of them in k-rust fails this test, so a
 /// re-pin re-derives the list.
 ///
 /// Re-pin R0c deliverable 5 (R0b review 1 minor): reading arms and two helper calls misses a
@@ -206,6 +207,7 @@ fn implementation_chosen_hooks_are_k_rusts() {
         .iter()
         .copied()
         .chain(DOMAINS_OPEN_HOOKS.iter().map(|(hook, _, _)| *hook))
+        .chain(BUILTIN_OPEN_HOOKS.iter().map(|(_, hook, _, _)| *hook))
         .collect::<Vec<_>>();
     assert_eq!(IMPLEMENTATION_CHOSEN_HOOKS, all.as_slice());
     assert_eq!(
@@ -263,6 +265,346 @@ fn domains_md_leaves_these_hook_values_open() {
     assert!(!IMPLEMENTATION_CHOSEN_HOOKS.contains(&"BYTES.encodeBytes"));
 }
 
+/// The builtin files k-rust 501f18b9 ships (`k-rust/builtin`), each with its digest: a re-pin
+/// that adds, removes or changes one sweeps it again for hook values it leaves open.
+const BUILTIN_FILES: [(&str, &str); 9] = [
+    (
+        "domains.md",
+        "eb5b7c3cd001d5fe3cbd481598bb53c3abfd417c409135276008d50edf79aa0d",
+    ),
+    (
+        "ffi.md",
+        "9715ca4b6424dc2d2c7145b356dd78138350d8ac7b7d42bd735b909582efa6aa",
+    ),
+    (
+        "json.md",
+        "f167dae52f2fb2cc0f87631b93b0bb5425f5f8adeb61d666126ddae25e6d12fa",
+    ),
+    (
+        "kast.md",
+        "6e62ad3f96785ed24b6db2ce34ff201367493f01c285a34eec98da1f3cbd6b6f",
+    ),
+    (
+        "prelude.md",
+        "60abd2e7ee255b202dd95f50f760ab09b71a78547454d99a8a3d0fc33020172c",
+    ),
+    (
+        "rat.md",
+        "685711fa32c16b27f4e4e9da20b2a9ea0d2a63a7dba566eba711e35dde31fd03",
+    ),
+    (
+        "substitution.md",
+        "c7e3fe10066a8b0cb8dcfd60c2b8e9bda78914b1e8d488ceeeacd16f231e293e",
+    ),
+    (
+        "timer.md",
+        "4b718e4ac1929f5bf9ccdb1f27a7998870c5105aeaeb300358a8a1fc601605e4",
+    ),
+    (
+        "unification.k",
+        "4a6fc7b72406d14a26c584366e8395b93071f6377ca8ca44aeba3edea5da8dbd",
+    ),
+];
+
+/// Every hook `hook(NAME)` a builtin file's text declares, with whether that declaration is
+/// `impure`.
+fn declared_hooks(text: &str) -> Vec<(String, bool)> {
+    text.lines()
+        .filter_map(|line| {
+            let start = line.find("hook(")? + "hook(".len();
+            let end = line[start..].find(')')? + start;
+            Some((line[start..end].to_owned(), line.contains("impure")))
+        })
+        .collect()
+}
+
+/// Re-pin R0c-fix-1 deliverable 2 (R0c review 1 major 3): decision 1's sweep covers every builtin
+/// file k-rust ships, not only domains.md. The file set and each file's digest are pinned. Each
+/// `BUILTIN_OPEN_HOOKS` entry's cited lines say what it cites, and its file declares the hook.
+/// Every hook the non-domains files declare is on the census list or named here as fixed by its
+/// file; every hook any builtin file declares `impure` is on the list or named here, with the
+/// reason its value is fixed (domains.md's sweep, pinned by
+/// `domains_md_leaves_these_hook_values_open`, covers the rest of domains.md).
+#[test]
+fn builtin_files_leave_these_hook_values_open() {
+    let dir = k_rust_backend().join("../k-rust/builtin");
+    let mut names = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect::<Vec<_>>();
+    names.sort();
+    assert_eq!(
+        names,
+        BUILTIN_FILES.map(|(name, _)| name.to_owned()),
+        "k-rust's builtin files changed: sweep them again"
+    );
+    let texts = BUILTIN_FILES
+        .iter()
+        .map(|(name, digest)| {
+            let text = std::fs::read_to_string(dir.join(name)).unwrap();
+            assert_eq!(
+                kink_patch::sha256(text.as_bytes()).to_string(),
+                *digest,
+                "{name} changed: sweep it again for hook values it leaves open"
+            );
+            (*name, text)
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
+    for (file, hook, range, phrase) in BUILTIN_OPEN_HOOKS {
+        let text = &texts[file];
+        let lines = text.lines().collect::<Vec<_>>();
+        let (first, last) = range.split_once('-').unwrap();
+        let (first, last) = (
+            first.parse::<usize>().unwrap(),
+            last.parse::<usize>().unwrap(),
+        );
+        assert!(
+            lines[first - 1..last].join(" ").contains(phrase),
+            "{hook}: {file}:{range} does not say {phrase:?}"
+        );
+        assert!(
+            declared_hooks(text)
+                .iter()
+                .any(|(declared, _)| declared == hook),
+            "{hook} is not a {file} hook"
+        );
+        assert!(IMPLEMENTATION_CHOSEN_HOOKS.contains(hook));
+    }
+    // Hooks whose value their file fixes, each with the reason.
+    let fixed = [
+        ("FFI.free", "ffi.md:178 \"The function returns `.K`\""),
+        (
+            "BUFFER.empty",
+            "domains.md: the empty StringBuffer (impure for mutability)",
+        ),
+        ("IO.log", "domains.md:2660-2690: returns `.K` (returnsUnit)"),
+        (
+            "IO.logString",
+            "domains.md:2660-2690: returns `.K` (returnsUnit)",
+        ),
+        (
+            "IO.traceTerm",
+            "domains.md:2660-2690: returns `.K` (returnsUnit)",
+        ),
+        ("K.K", "kast.md: a sort hook, no value"),
+        ("K.KItem", "kast.md: a sort hook, no value"),
+        ("KVAR.KVar", "substitution.md: a sort hook, no value"),
+        (
+            "STRING.string2token",
+            "substitution.md:51 String2KVar: the KVar token spelled by the string",
+        ),
+    ];
+    let listed = |hook: &str| {
+        IMPLEMENTATION_CHOSEN_HOOKS.contains(&hook) || fixed.iter().any(|(h, _)| *h == hook)
+    };
+    for (name, text) in &texts {
+        for (hook, impure) in declared_hooks(text) {
+            if *name == "domains.md" {
+                assert!(
+                    !impure || listed(&hook),
+                    "domains.md: impure {hook} unswept"
+                );
+            } else if *name == "rat.md" {
+                // Rational arithmetic in the canonical form rat.md states; Rat2Float rounds as
+                // IEEE 754, as the other Float hooks.
+                assert!(
+                    hook.starts_with("RAT.") || hook == "FLOAT.rat2float",
+                    "rat.md: {hook}"
+                );
+                assert!(!impure, "rat.md: impure {hook}");
+            } else {
+                assert!(listed(&hook), "{name}: {hook} unswept");
+            }
+        }
+    }
+    // The fresh-value judgement rests on kast.md's wording: `!X` is only distinct.
+    assert!(
+        texts["kast.md"]
+            .contains("refer to a unique value of the specified sort which is distinct from any")
+    );
+}
+
+/// Re-pin R0c-fix-1 deliverable 2 (R0c review 1 major 3, the reviewer's alpha-equivalence probe):
+/// beta reduction through `SUBSTITUTION.substOne`. On `run(app(lam(x, lam(y, x)), y))` the
+/// baseline gives `out(lam(y0, y))` and the mutant, which routes the substitution through `y0`,
+/// the alpha-equivalent `out(lam(y1, y))`: the two differ only in the suffix k-rust mints
+/// (substitution.md 83-88 leaves it to the backend). Both definitions are flagged, so neither
+/// run is evidence; before R0c-fix-1 neither was flagged and the pair distinguished.
+#[test]
+fn a_substitution_rule_flags_the_definition() {
+    on_a_big_stack(|| {
+        let program = parse_pattern(
+            r#"Lblrun{}(Lblapp{}(Lbllam{}(\dv{SortKVar{}}("x"), Lbllam{}(\dv{SortKVar{}}("y"), inj{SortKVar{}, SortExp{}}(\dv{SortKVar{}}("x")))), inj{SortKVar{}, SortExp{}}(\dv{SortKVar{}}("y"))))"#,
+        )
+        .unwrap();
+        let mut finals = Vec::new();
+        for name in ["lam", "lamm"] {
+            let (side, module) = fixture("r0c", name);
+            let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+            assert!(
+                exclusions
+                    .implementation_chosen
+                    .iter()
+                    .any(|reference| reference.hook == "SUBSTITUTION.substOne"),
+                "{name}: {exclusions:?}"
+            );
+            let execution = run(&side, &module, program.clone());
+            let [leaf] = execution.leaves() else {
+                panic!("{name}: one leaf")
+            };
+            assert_eq!(leaf.halt, HaltClass::Stuck, "{name}");
+            finals.push(leaf.branch.state.to_string());
+            assert_eq!(
+                exclusions.run_exclusion(&execution),
+                Some(Exclusion::ImplementationChosenHook),
+                "{name}"
+            );
+        }
+        // The two finals differ, by the minted suffix alone.
+        assert!(finals[0].contains(r#""y0""#), "{}", finals[0]);
+        assert!(finals[1].contains(r#""y1""#), "{}", finals[1]);
+        assert_eq!(finals[0].replace(r#""y0""#, r#""y1""#), finals[1]);
+    });
+}
+
+/// Re-pin R0c-fix-1 deliverable 3 (R0c review 1 minor, the reviewer's probe): a definition with a
+/// `stdout` stream cell gets the prelude's stream rules, which apply `#write` (`IO.write`) and
+/// `Float2String`, with their prelude `Source`. The census counts every rewrite rule whatever its
+/// source, so the definition is flagged; before R0c-fix-1 it was not (the rules' source is
+/// `krust-builtin://domains.md`).
+#[test]
+fn prelude_stream_rules_are_counted_whatever_their_source() {
+    on_a_big_stack(|| {
+        let (side, module) = fixture("r0c", "outs");
+        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+        let hooks = exclusions
+            .implementation_chosen
+            .iter()
+            .map(|reference| reference.hook.as_str())
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            hooks,
+            BTreeSet::from(["IO.write", "STRING.float2string"]),
+            "{exclusions:?}"
+        );
+        assert_eq!(
+            exclusions.definition_exclusion(),
+            Some(Exclusion::ImplementationChosenHook)
+        );
+    });
+}
+
+/// Re-pin R0c-fix-1 deliverable 4 (R0c review 1 minor, decision 1): an undefined step of a rule
+/// whose right-hand side applies a short-circuit operator over an operand that may be undefined
+/// is excluded. On 0, `go` (`false andBool 10 /Int I >Int 0`), `fn` (the same through a function),
+/// `at` and `oe` (`andThenBool`, `orElseBool`, which domains.md calls short-circuiting), `cond`
+/// (`#if`) and `imp` (`impliesBool`) are each a `Trivial` leaf naming the rule in k-rust, where
+/// a short-circuiting backend gives `res(..)`; before R0c-fix-1 each was a complete terminal. On
+/// 1 each is a defined value and not excluded. `rqa`, whose condition is a top-level
+/// conjunction, `gd`, whose condition calls a conjunctive guard
+/// (`I =/=Int 0 andBool 10 /Int I >Int 0`), and `ctl`, whose operands are total, are not
+/// flagged; nothing flags the definition as a whole.
+#[test]
+fn a_short_circuit_step_over_an_undefined_operand_is_excluded() {
+    on_a_big_stack(|| {
+        let (side, module) = fixture("r0c", "scrhs");
+        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+        assert!(
+            exclusions.short_circuit_conditions.is_empty(),
+            "{exclusions:?}"
+        );
+        assert_eq!(exclusions.definition_exclusion(), None);
+        let catalog = backend(&side, &module).rule_catalog(None).unwrap();
+        let id = |label: &str| {
+            catalog
+                .iter()
+                .find(|rule| rule.label.as_deref() == Some(label))
+                .unwrap_or_else(|| panic!("{label}"))
+                .id
+                .clone()
+        };
+        let flagged = ["go", "fn", "at", "oe", "cond", "imp"];
+        assert_eq!(
+            exclusions.short_circuit_rules,
+            flagged
+                .iter()
+                .map(|label| id(&format!("SCRHS.{label}")))
+                .collect::<BTreeSet<_>>()
+        );
+        for label in flagged {
+            let symbol = format!("Lbl{label}");
+            let undefined = run(&side, &module, support::app(&symbol, vec![support::int(0)]));
+            let [leaf] = undefined.leaves() else {
+                panic!("{label}(0): one leaf")
+            };
+            assert_eq!(leaf.halt, HaltClass::Trivial, "{label}(0)");
+            assert!(leaf.contradicted_total.is_none(), "{label}(0)");
+            assert_eq!(
+                exclusions.run_exclusion(&undefined),
+                Some(Exclusion::ShortCircuitReading),
+                "{label}(0)"
+            );
+            let defined = run(&side, &module, support::app(&symbol, vec![support::int(1)]));
+            assert_eq!(exclusions.run_exclusion(&defined), None, "{label}(1)");
+        }
+        for label in ["rqa", "ctl", "gd"] {
+            let symbol = format!("Lbl{label}");
+            let execution = run(&side, &module, support::app(&symbol, vec![support::int(0)]));
+            assert_eq!(exclusions.run_exclusion(&execution), None, "{label}(0)");
+        }
+    });
+}
+
+/// Re-pin R0c-fix-1 deliverable 4: a condition that depends on the short-circuit reading leaves
+/// no leaf to read. `rq`'s condition `true orBool 10 /Int I >Int 0` is undefined on 0 in k-rust,
+/// so `rq(0)` is a Stuck leaf naming no rule, where a short-circuiting backend steps to
+/// `res(true)`; `vg` applies `g`, whose first equation has that condition, so `vg(0)` gives
+/// `num(2)` in k-rust and `num(1)` in the other reading, with complete leaves. Both rules are
+/// named, and every run on the definition is excluded.
+#[test]
+fn a_condition_that_depends_on_the_short_circuit_reading_excludes_the_definition() {
+    on_a_big_stack(|| {
+        let (side, module) = fixture("r0c", "screq");
+        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+        assert_eq!(
+            exclusions.definition_exclusion(),
+            Some(Exclusion::ShortCircuitReading)
+        );
+        let catalog = backend(&side, &module).rule_catalog(None).unwrap();
+        let named = |label: &str| {
+            let rule = catalog
+                .iter()
+                .find(|rule| rule.label.as_deref() == Some(label))
+                .unwrap_or_else(|| panic!("{label}"));
+            exclusions.short_circuit_conditions.contains(&rule.id)
+        };
+        assert!(named("SCREQ.rq") && named("SCREQ.vg"), "{exclusions:?}");
+        assert!(exclusions.short_circuit_symbols.contains("Lblg"));
+        let stuck = run(&side, &module, support::app("Lblrq", vec![support::int(0)]));
+        let [leaf] = stuck.leaves() else {
+            panic!("rq(0): one leaf")
+        };
+        assert_eq!(
+            (leaf.halt, leaf.undefined_rule.is_none()),
+            (HaltClass::Stuck, true)
+        );
+        assert_eq!(
+            exclusions.run_exclusion(&stuck),
+            Some(Exclusion::ShortCircuitReading)
+        );
+        let value = run(&side, &module, support::app("Lblvg", vec![support::int(0)]));
+        let [leaf] = value.leaves() else {
+            panic!("vg(0): one leaf")
+        };
+        assert_eq!(leaf.halt, HaltClass::Stuck);
+        assert!(leaf.branch.state.to_string().contains(r#""2""#));
+        assert_eq!(
+            exclusions.run_exclusion(&value),
+            Some(Exclusion::ShortCircuitReading)
+        );
+    });
+}
+
 /// Every testdata and example definition that compiles, by its definition-level exclusions
 /// (decision 1's census, the load's stack stops, C-10's role-rooted axioms). The census flags
 /// exactly the definitions whose own rules use an implementation-chosen hook: Float arithmetic
@@ -272,7 +614,9 @@ fn domains_md_leaves_these_hook_values_open() {
 ///
 /// Re-pin R0c: deliverable 8 rewrote the Bytes keys of `bytes-map` and both copies of
 /// `collstore` with `encodeBytes("UTF-8", ..)`, so R0b's three `String2Bytes` flags are gone;
-/// deliverable 2's domains.md additions flag no testdata or example definition.
+/// deliverable 2's domains.md additions flag no testdata or example definition. Re-pin
+/// R0c-fix-1's builtin-file additions, prelude rewrite rules and short-circuit reading flag none
+/// either.
 #[test]
 fn definition_exclusions_over_testdata() {
     on_a_big_stack(|| {
@@ -301,6 +645,7 @@ fn definition_exclusions_over_testdata() {
         }
         files.sort();
         let mut flagged = BTreeSet::new();
+        let mut short_circuit = BTreeSet::new();
         let mut compiled = 0;
         for path in files {
             let name = path.strip_prefix(root()).unwrap().display().to_string();
@@ -329,6 +674,18 @@ fn definition_exclusions_over_testdata() {
             .unwrap();
             assert_eq!(exclusions.load_stack_stops, 0, "{name}");
             assert!(exclusions.collections_trusted(), "{name}: {exclusions:?}");
+            assert!(
+                exclusions.short_circuit_conditions.is_empty(),
+                "{name}: {:?}",
+                exclusions.short_circuit_conditions
+            );
+            if !exclusions.short_circuit_rules.is_empty() {
+                eprintln!(
+                    "SHORT_CIRCUIT_RULES {name} {:?}",
+                    exclusions.short_circuit_rules
+                );
+                short_circuit.insert(name.clone());
+            }
             if !exclusions.implementation_chosen.is_empty() {
                 assert_eq!(
                     exclusions.definition_exclusion(),
@@ -346,6 +703,9 @@ fn definition_exclusions_over_testdata() {
             }
         }
         assert!(compiled > 70, "{compiled}");
+        // Re-pin R0c-fix-1: counting every rewrite rule whatever its source (deliverable 3) and
+        // the short-circuit reading (deliverable 4) flag no testdata or example definition.
+        assert!(short_circuit.is_empty(), "{short_circuit:?}");
         assert_eq!(
             flagged,
             [

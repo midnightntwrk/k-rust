@@ -24,14 +24,30 @@
 //! - [`Exclusion::ImplementationChosenHook`]: the definition references a hook for which k-rust
 //!   chooses a value the definition leaves open (re-pin decision 1, findings D-10, E-10, E-11):
 //!   kills are relative to the definition, not to k-rust's model of it. The hooks are k-rust's
-//!   own list and those whose value `domains.md` leaves to the backend, the implementation or the
-//!   environment ([`IMPLEMENTATION_CHOSEN_HOOKS`], [`DOMAINS_OPEN_HOOKS`]).
+//!   own list and those whose value k-rust's builtin files (`domains.md`, `substitution.md`,
+//!   `json.md`, `timer.md`, `ffi.md`, `unification.k`) leave to the backend, the implementation
+//!   or the environment ([`IMPLEMENTATION_CHOSEN_HOOKS`], [`DOMAINS_OPEN_HOOKS`],
+//!   [`BUILTIN_OPEN_HOOKS`]). The census reads the definition's own sentences and every rewrite
+//!   rule whatever its source: kompile copies the prelude's stream rules (`#getc`, `#write`,
+//!   `Float2String`) into a definition with stream cells, keeping their prelude source.
+//! - [`Exclusion::ShortCircuitReading`]: the run's result can depend on whether `andBool`,
+//!   `orBool`, `impliesBool`, `#if`, `andThenBool` or `orElseBool` skip an operand that may be
+//!   undefined
+//!   (re-pin decision 1 applied to domains.md lines 1115-1117 and 2314-2317; R0c review 1 minor):
+//!   k-rust evaluates every operand (an application is strict in all its arguments, k-rust
+//!   `deferred.rs`), so such a step is undefined where a short-circuiting backend gives a value.
+//!   A `Trivial` leaf of a rewrite rule whose right-hand side applies one makes the run
+//!   excluded; a rule whose condition depends on one, or whose right-hand side applies a
+//!   function whose condition does, gives no leaf signal (the rule is just not applied), so the
+//!   definition is excluded ([`DefinitionExclusions::short_circuit_conditions`]).
 //! - [`Exclusion::AllowanceRefusal`]: a leaf reports a hook left unevaluated whose refusal reads
 //!   the process's memory allowance (Execute promise exclusion, findings A-07, B-02, B-07): the
 //!   result is a function of the host, not of the inputs a key names.
 //!
-//! A contradicted claim is also mutant-wide: kink-campaign's status fold never kills a mutant one
-//! of whose runs it reads is `ContradictedClaim` (re-pin R0c, `kink_campaign::contradicts_a_claim`).
+//! Every exclusion is read per test: it makes that test's comparison unknown, and a kill by
+//! another test, whose runs it does not touch, stands (decision 2's scope, Sebastien,
+//! 2026-10-17: where a claim is false only at inputs the killing test never reaches, weakening
+//! it there gives a definition with models in which the killing test behaves the same).
 //!
 //! A definition that holds an axiom rooted at a collection role symbol is not excluded as a whole,
 //! but none of its collection terms is a terminal value (finding C-10,
@@ -46,8 +62,10 @@ use k_rust::kore::{
 };
 use k_rust::names::KoreAttribute;
 use k_rust_backend::{
-    confluence::ViolationKind, definition::BackendDefinition, rule::TermIndex,
-    term::CollectionMetadata,
+    confluence::ViolationKind,
+    definition::BackendDefinition,
+    rule::TermIndex,
+    term::{CollectionMetadata, FunctionType, SymbolType},
 };
 
 use crate::execution::{AdaptedExecution, AdaptedLeaf, HaltClass};
@@ -274,9 +292,158 @@ pub const DOMAINS_OPEN_HOOKS: &[(&str, &str, &str)] = &[
     ),
 ];
 
-/// Decision 1's census hooks: [`K_RUST_IMPLEMENTATION_CHOSEN_HOOKS`] and the hooks of
-/// [`DOMAINS_OPEN_HOOKS`], in that order (the kink-native test
-/// `implementation_chosen_hooks_are_k_rusts` checks that it is exactly their union).
+/// The hooks whose value k-rust's builtin files other than `domains.md`
+/// (`k-rust/builtin/*.md` and `unification.k` at 501f18b9) leave to the backend, the
+/// implementation or the environment: kink-side additions to decision 1's census from re-pin
+/// R0c-fix-1's sweep of every builtin file (R0c review 1 major 3). Each is given as its file, the
+/// lines and a phrase of them; the kink-native test `builtin_files_leave_these_hook_values_open`
+/// checks every phrase, pins every builtin file's digest, and checks that every hook those files
+/// declare `impure` is on the list or named below with the reason it is not.
+///
+/// - `substitution.md`: capture-avoiding substitution renames bound variables, and "the rewriter
+///   will automatically assign unique names" with "a unique integer suffix", which "might be
+///   different" depending on when rewriting halts; k-rust mints `{base}{n}` with its own counter
+///   (`FreshNames::mint`), so an alpha-equivalent result can differ in k-rust's suffix alone.
+/// - `unification.k`: seven hooks declared `impure` with no stated value (renaming, variable
+///   sets, freezing, unifiability); the file leaves every value to the implementation.
+/// - `json.md`: `JSON2String` names no layout of the JSON text it gives, and `String2JSON` no
+///   reading of a JSON number as an `Int` or a `Float`.
+/// - `timer.md`: `timerStart`/`timerStop` state no value; a timer reads the host's clock.
+/// - `ffi.md`: native calls, symbol and buffer addresses (`#address` is "unspecified" outside
+///   `#alloc`), allocated memory and native reads and writes are the host's.
+///
+/// Not added, because the file fixes the value: `FFI.free` ("returns `.K`"), the `RAT` hooks
+/// (rational arithmetic in a stated canonical form), `FLOAT.rat2float` (IEEE 754 rounding, as
+/// the other Float hooks), and the sort hooks of `kast.md` (`K.K`, `K.KItem`, no value). Fresh
+/// constants (`!X`, `kast.md` 172-176, and `freshKVar`) are not a hook: the definition's
+/// compiled `<generatedCounter>` cell and its `freshGenerator` rules fix them, so they are a
+/// premise about the compiled definition, not a value the backend chooses.
+pub const BUILTIN_OPEN_HOOKS: &[(&str, &str, &str, &str)] = &[
+    (
+        "substitution.md",
+        "SUBSTITUTION.substOne",
+        "83-88",
+        "the rewriter will automatically assign unique names",
+    ),
+    (
+        "substitution.md",
+        "SUBSTITUTION.substMany",
+        "83-88",
+        "the rewriter will automatically assign unique names",
+    ),
+    (
+        "unification.k",
+        "UNIFICATION.renameVariables",
+        "6-6",
+        "hook(UNIFICATION.renameVariables), impure",
+    ),
+    (
+        "unification.k",
+        "UNIFICATION.variables",
+        "8-8",
+        "hook(UNIFICATION.variables), impure",
+    ),
+    (
+        "unification.k",
+        "UNIFICATION.metaVariables",
+        "10-10",
+        "hook(UNIFICATION.metaVariables), impure",
+    ),
+    (
+        "unification.k",
+        "UNIFICATION.variablesMap",
+        "12-12",
+        "hook(UNIFICATION.variablesMap), impure",
+    ),
+    (
+        "unification.k",
+        "UNIFICATION.rename",
+        "14-14",
+        "hook(UNIFICATION.rename), impure",
+    ),
+    (
+        "unification.k",
+        "UNIFICATION.freezeVariables",
+        "16-16",
+        "hook(UNIFICATION.freezeVariables), impure",
+    ),
+    (
+        "unification.k",
+        "UNIFICATION.unifiable",
+        "18-18",
+        "hook(UNIFICATION.unifiable), impure",
+    ),
+    (
+        "json.md",
+        "JSON.json2string",
+        "34-37",
+        "can also be converted to a `String` using the `JSON2String` function",
+    ),
+    (
+        "json.md",
+        "JSON.string2json",
+        "8-12",
+        "utilizing K's syntax for strings,",
+    ),
+    (
+        "timer.md",
+        "TIMER.timerStart",
+        "7-7",
+        "[function, hook(TIMER.timerStart)]",
+    ),
+    (
+        "timer.md",
+        "TIMER.timerStop",
+        "9-9",
+        "[function, hook(TIMER.timerStop)]",
+    ),
+    (
+        "ffi.md",
+        "FFI.call",
+        "77-82",
+        "returns the return value of the function as a `Bytes`.",
+    ),
+    (
+        "ffi.md",
+        "FFI.call_variadic",
+        "90-97",
+        "type of the function, and returns the return value of the function as a",
+    ),
+    (
+        "ffi.md",
+        "FFI.address",
+        "125-126",
+        "a mechanism to look up any function symbol and return",
+    ),
+    (
+        "ffi.md",
+        "FFI.alloc",
+        "148-150",
+        "will allocate `Size` bytes with an alignment",
+    ),
+    (
+        "ffi.md",
+        "FFI.bytes_address",
+        "161-165",
+        "the return value is unspecified",
+    ),
+    (
+        "ffi.md",
+        "FFI.read",
+        "186-189",
+        "will read native memory at address `Addr` into `Mem`",
+    ),
+    (
+        "ffi.md",
+        "FFI.write",
+        "197-203",
+        "will write the contents of `Mem` to native memory at",
+    ),
+];
+
+/// Decision 1's census hooks: [`K_RUST_IMPLEMENTATION_CHOSEN_HOOKS`], the hooks of
+/// [`DOMAINS_OPEN_HOOKS`] and those of [`BUILTIN_OPEN_HOOKS`], in that order (the kink-native
+/// test `implementation_chosen_hooks_are_k_rusts` checks that it is exactly their union).
 pub const IMPLEMENTATION_CHOSEN_HOOKS: &[&str] = &[
     "MAP.keys_list",
     "MAP.values",
@@ -326,7 +493,50 @@ pub const IMPLEMENTATION_CHOSEN_HOOKS: &[&str] = &[
     "IO.system",
     "IO.mkstemp",
     "IO.remove",
+    "SUBSTITUTION.substOne",
+    "SUBSTITUTION.substMany",
+    "UNIFICATION.renameVariables",
+    "UNIFICATION.variables",
+    "UNIFICATION.metaVariables",
+    "UNIFICATION.variablesMap",
+    "UNIFICATION.rename",
+    "UNIFICATION.freezeVariables",
+    "UNIFICATION.unifiable",
+    "JSON.json2string",
+    "JSON.string2json",
+    "TIMER.timerStart",
+    "TIMER.timerStop",
+    "FFI.call",
+    "FFI.call_variadic",
+    "FFI.address",
+    "FFI.alloc",
+    "FFI.bytes_address",
+    "FFI.read",
+    "FFI.write",
 ];
+
+/// The hooks of the operators whose operands a backend may or may not skip (domains.md
+/// 1115-1117: `andBool` and `orBool` "may be short-circuited in concrete backends", and
+/// `impliesBool` is `notBool P orBool Q`, 1110-1111; 2314-2317: `#if` "does not short-circuit
+/// on symbolic backends"; 1115 calls `andThenBool` and `orElseBool` short-circuiting, but k-rust
+/// reads their skipped operand's definedness too, so a step through one over an undefined
+/// operand is undefined in k-rust where the text gives a value): re-pin decision 1 applied to the
+/// short-circuit reading ([`Exclusion::ShortCircuitReading`]). Each with the argument positions a
+/// backend may skip: both operands of a Boolean operator (a `[simplification]` such as
+/// `_ andBool false => false` skips the left one), the branches of `#if`.
+pub const SHORT_CIRCUIT_HOOKS: &[(&str, &[usize])] = &[
+    ("BOOL.and", &[0, 1]),
+    ("BOOL.or", &[0, 1]),
+    ("BOOL.implies", &[0, 1]),
+    ("BOOL.andThen", &[0, 1]),
+    ("BOOL.orElse", &[0, 1]),
+    ("KEQUAL.ite", &[1, 2]),
+];
+
+/// The conjunctions whose operands, at the top of a rule's condition, may be undefined without
+/// making the rule's applicability depend on the reading: a skipped operand makes the condition
+/// `false` where k-rust's reading makes it undefined, and the rule applies in neither.
+const CONJUNCTION_HOOKS: [&str; 2] = ["BOOL.and", "BOOL.andThen"];
 
 /// The hooks whose result size the process's memory allowance caps (k-rust `bytes.rs`, the only
 /// readers of `Allowance::of_process`): a refusal of one depends on the host.
@@ -339,6 +549,7 @@ pub enum Exclusion {
     LoadStackStop,
     ContradictedClaim,
     ImplementationChosenHook,
+    ShortCircuitReading,
     AllowanceRefusal,
 }
 
@@ -351,6 +562,7 @@ impl Exclusion {
             Self::LoadStackStop => "load-stack-stop",
             Self::ContradictedClaim => "contradicted-claim",
             Self::ImplementationChosenHook => "implementation-chosen-hook",
+            Self::ShortCircuitReading => "short-circuit-reading",
             Self::AllowanceRefusal => "allowance-refusal",
         }
     }
@@ -383,6 +595,20 @@ pub struct DefinitionExclusions {
     pub role_rooted_axioms: Vec<String>,
     /// The `UNIQUE_ID`s of the axioms written with `preserves-definedness`.
     pub preserves_definedness: BTreeSet<String>,
+    /// The rewrite rules (each as its id, label or position) whose applicability or result
+    /// depends on the short-circuit reading with no leaf to show it: a condition that, below its
+    /// top-level conjunction, applies a short-circuit operator over an operand that may be
+    /// undefined, or that applies a function whose value depends on the reading; or a right-hand
+    /// side that applies a function whose own condition does ([`Exclusion::ShortCircuitReading`]).
+    pub short_circuit_conditions: Vec<String>,
+    /// The `UNIQUE_ID`s of the rewrite rules whose right-hand side applies a short-circuit
+    /// operator over an operand that may be undefined, directly or through a function whose
+    /// equation does: a `Trivial` leaf of one is no evidence ([`Exclusion::ShortCircuitReading`]).
+    pub short_circuit_rules: BTreeSet<String>,
+    /// The function symbols whose value depends on the short-circuit reading (an equation's
+    /// condition or right-hand side does, directly or through another such symbol): a test's
+    /// initial state that applies one is no evidence.
+    pub short_circuit_symbols: BTreeSet<String>,
 }
 
 impl DefinitionExclusions {
@@ -471,7 +697,9 @@ impl DefinitionExclusions {
                         role_rooted_axioms.insert(sentence_name(attributes));
                     }
                 }
-                if !authored(attributes, builtin_prefixes) {
+                // A rewrite rule counts whatever its source says: the prelude's stream rules are
+                // copied into a definition with stream cells and keep their prelude source.
+                if !authored(attributes, builtin_prefixes) && !is_rewrite_axiom(sentence) {
                     continue;
                 }
                 let mut referenced = BTreeSet::new();
@@ -509,11 +737,50 @@ impl DefinitionExclusions {
                 ));
             }
         }
+        let mut short_circuit = ShortCircuitAnalysis::of(definition);
+        short_circuit.close_over(kore);
+        let mut short_circuit_conditions = BTreeSet::new();
+        let mut short_circuit_rules = BTreeSet::new();
+        for module in &kore.modules {
+            for sentence in &module.sentences {
+                let Sentence::Axiom {
+                    pattern,
+                    attributes,
+                    ..
+                } = sentence
+                else {
+                    continue;
+                };
+                let Some((conditions, left, right)) = rewrite_sides(pattern) else {
+                    continue;
+                };
+                if conditions
+                    .iter()
+                    .chain([&left])
+                    .any(|side| short_circuit.condition_side(side))
+                    || short_circuit.applies(right, &short_circuit.valued)
+                {
+                    short_circuit_conditions.insert(sentence_name(attributes));
+                }
+                if short_circuit.result(right)
+                    && let Some(id) = string_attribute(attributes, KoreAttribute::UniqueId)
+                {
+                    short_circuit_rules.insert(id.to_owned());
+                }
+            }
+        }
         Self {
             load_stack_stops,
             implementation_chosen: implementation_chosen.into_iter().collect(),
             role_rooted_axioms: role_rooted_axioms.into_iter().collect(),
             preserves_definedness,
+            short_circuit_conditions: short_circuit_conditions.into_iter().collect(),
+            short_circuit_rules,
+            short_circuit_symbols: short_circuit
+                .undefined
+                .union(&short_circuit.valued)
+                .cloned()
+                .collect(),
         }
     }
 
@@ -540,7 +807,8 @@ impl DefinitionExclusions {
 
     /// The facts of two loads of one definition taken together, each exclusion holding when it
     /// holds on either load (re-pin R0c): the load stack stops are added, and the census
-    /// references, the role-rooted axioms and the `preserves-definedness` ids are united. A run
+    /// references, the role-rooted axioms, the `preserves-definedness` ids and the short-circuit
+    /// rules, conditions and symbols are united. A run
     /// produced on one load and judged on another is judged under this (a baseline run a
     /// session reuses, kink-campaign `BaselineSession`).
     #[must_use]
@@ -562,17 +830,34 @@ impl DefinitionExclusions {
                 .union(&other.preserves_definedness)
                 .cloned()
                 .collect(),
+            short_circuit_conditions: union(
+                &self.short_circuit_conditions,
+                &other.short_circuit_conditions,
+            ),
+            short_circuit_rules: self
+                .short_circuit_rules
+                .union(&other.short_circuit_rules)
+                .cloned()
+                .collect(),
+            short_circuit_symbols: self
+                .short_circuit_symbols
+                .union(&other.short_circuit_symbols)
+                .cloned()
+                .collect(),
         }
     }
 
     /// The exclusion every run on this definition has, if any: a load stack stop first, then an
-    /// implementation-chosen hook.
+    /// implementation-chosen hook, then a rule whose condition or value depends on the
+    /// short-circuit reading.
     #[must_use]
     pub fn definition_exclusion(&self) -> Option<Exclusion> {
         if self.load_stack_stops > 0 {
             Some(Exclusion::LoadStackStop)
         } else if !self.implementation_chosen.is_empty() {
             Some(Exclusion::ImplementationChosenHook)
+        } else if !self.short_circuit_conditions.is_empty() {
+            Some(Exclusion::ShortCircuitReading)
         } else {
             None
         }
@@ -586,9 +871,10 @@ impl DefinitionExclusions {
     }
 
     /// The exclusion of `execution`, a run on this definition, if any (see the module
-    /// documentation): the definition's own, then a stack stop, a contradicted claim and an
-    /// allowance refusal, in that order. A timed-out run is a timeout before it is anything else,
-    /// and is not asked.
+    /// documentation): the definition's own, then a stack stop, a contradicted claim, an undefined
+    /// step of a rule whose result depends on the short-circuit reading, and an allowance
+    /// refusal, in that order. A timed-out run is a timeout before it is anything else, and is
+    /// not asked.
     #[must_use]
     pub fn run_exclusion(&self, execution: &AdaptedExecution) -> Option<Exclusion> {
         if let Some(exclusion) = self.definition_exclusion() {
@@ -600,6 +886,9 @@ impl DefinitionExclusions {
         let leaves = execution.leaves();
         if leaves.iter().any(|leaf| self.contradicts_a_claim(leaf)) {
             return Some(Exclusion::ContradictedClaim);
+        }
+        if leaves.iter().any(|leaf| self.short_circuit_step(leaf)) {
+            return Some(Exclusion::ShortCircuitReading);
         }
         if leaves.iter().any(allowance_refusal) {
             return Some(Exclusion::AllowanceRefusal);
@@ -618,6 +907,281 @@ impl DefinitionExclusions {
                     .undefined_rule
                     .as_ref()
                     .is_some_and(|rule| self.preserves_definedness.contains(&rule.id)))
+    }
+
+    /// Whether `leaf` is an undefined step of a rewrite rule whose right-hand side applies a
+    /// short-circuit operator over an operand that may be undefined (directly or through a
+    /// function): k-rust reads the step as undefined, a short-circuiting backend may not.
+    #[must_use]
+    pub fn short_circuit_step(&self, leaf: &AdaptedLeaf) -> bool {
+        leaf.halt == HaltClass::Trivial
+            && leaf
+                .undefined_rule
+                .as_ref()
+                .is_some_and(|rule| self.short_circuit_rules.contains(&rule.id))
+    }
+
+    /// Whether `state`, a test's initial state on `definition` (the definition these facts were
+    /// read from), applies a function whose value depends on the short-circuit reading, or a
+    /// short-circuit operator over an operand that may be undefined.
+    #[must_use]
+    pub fn state_depends_on_short_circuit(
+        &self,
+        definition: &BackendDefinition,
+        state: &Pattern,
+    ) -> bool {
+        let mut reading = ShortCircuitAnalysis::of(definition);
+        reading.undefined.clone_from(&self.short_circuit_symbols);
+        reading.applies(state, &self.short_circuit_symbols) || reading.direct(state)
+    }
+}
+
+/// The short-circuit reading of one loaded definition ([`Exclusion::ShortCircuitReading`]): its
+/// operators, its partial functions, and, once closed over the definition's equations, the
+/// functions whose value depends on the reading.
+struct ShortCircuitAnalysis {
+    /// Each short-circuit operator symbol with the argument positions a backend may skip.
+    operators: std::collections::BTreeMap<String, &'static [usize]>,
+    /// The conjunction operator symbols ([`CONJUNCTION_HOOKS`]).
+    conjunctions: BTreeSet<String>,
+    /// The function symbols not declared `total`: an application of one may be undefined.
+    partial: BTreeSet<String>,
+    /// Functions that can be undefined in k-rust's reading where a short-circuiting backend gives
+    /// a value: an equation's right-hand side skips an operand that may be undefined.
+    undefined: BTreeSet<String>,
+    /// Functions whose value can differ between the readings with no undefined step: an
+    /// equation's condition depends on the reading, so k-rust may apply another equation.
+    valued: BTreeSet<String>,
+    /// The functions of [`Self::undefined`], not of [`Self::valued`], every equation of which is
+    /// a conjunction (`andBool`, `andThenBool`) of terms that do not depend on the reading and of
+    /// calls of such functions: where k-rust's reading makes a call undefined, the other makes
+    /// it `false` (a skipped conjunct makes its conjunction `false`), and nowhere else do the
+    /// readings differ. At the top of a condition such a call, like a conjunct, makes the rule
+    /// inapplicable in both readings (a guard such as `lengthBytes(B) ==Int 1 andBool B[0] ==Int
+    /// 128`).
+    conjunctive: BTreeSet<String>,
+}
+
+impl ShortCircuitAnalysis {
+    fn of(definition: &BackendDefinition) -> Self {
+        let mut operators = std::collections::BTreeMap::new();
+        let mut conjunctions = BTreeSet::new();
+        let mut partial = BTreeSet::new();
+        for symbol in definition.symbols().values() {
+            let name = symbol.name.to_string();
+            if let Some(hook) = symbol.attributes.hook.as_deref() {
+                if let Some((_, positions)) = SHORT_CIRCUIT_HOOKS.iter().find(|(h, _)| *h == hook) {
+                    operators.insert(name.clone(), *positions);
+                }
+                if CONJUNCTION_HOOKS.contains(&hook) {
+                    conjunctions.insert(name.clone());
+                }
+            }
+            if symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Partial) {
+                partial.insert(name);
+            }
+        }
+        Self {
+            operators,
+            conjunctions,
+            partial,
+            undefined: BTreeSet::new(),
+            valued: BTreeSet::new(),
+            conjunctive: BTreeSet::new(),
+        }
+    }
+
+    /// Close [`Self::undefined`] and [`Self::valued`] over every equation of `kore`, whatever its
+    /// source (a prelude function can depend on the reading too).
+    fn close_over(&mut self, kore: &Definition) {
+        let equations = kore
+            .modules
+            .iter()
+            .flat_map(|module| &module.sentences)
+            .filter_map(|sentence| match sentence {
+                Sentence::Axiom { pattern, .. } => equation_parts(pattern),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        loop {
+            let mut changed = false;
+            for (head, condition, right) in &equations {
+                if !self.undefined.contains(*head) && self.result(right) {
+                    self.undefined.insert((*head).to_owned());
+                    changed = true;
+                }
+                if !self.valued.contains(*head)
+                    && (condition.is_some_and(|condition| self.condition_side(condition))
+                        || self.applies(right, &self.valued))
+                {
+                    self.valued.insert((*head).to_owned());
+                    changed = true;
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+        // The greatest set of conjunctive functions: start from every function that can be
+        // undefined and does not depend on the reading otherwise, and drop each one an equation
+        // of which is not a conjunction of reading-independent terms and conjunctive calls.
+        self.conjunctive = self.undefined.difference(&self.valued).cloned().collect();
+        loop {
+            let dropped = self
+                .conjunctive
+                .iter()
+                .filter(|function| {
+                    equations
+                        .iter()
+                        .any(|(head, _, right)| head == function && self.condition(right))
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            if dropped.is_empty() {
+                break;
+            }
+            for function in dropped {
+                self.conjunctive.remove(&function);
+            }
+        }
+    }
+
+    /// Whether `pattern` applies a symbol of `symbols`.
+    fn applies(&self, pattern: &Pattern, symbols: &BTreeSet<String>) -> bool {
+        let mut found = false;
+        walk::for_each_post_order(pattern, |node| {
+            if let Pattern::Application { symbol, .. } = node {
+                found |= symbols.contains(symbol.name.as_str());
+            }
+        });
+        found
+    }
+
+    /// Whether `pattern` may be undefined: it applies a partial function, or a function that can
+    /// be undefined in k-rust's reading.
+    fn may_be_undefined(&self, pattern: &Pattern) -> bool {
+        self.applies(pattern, &self.partial) || self.applies(pattern, &self.undefined)
+    }
+
+    /// Whether `pattern` applies a short-circuit operator with an operand a backend may skip
+    /// that may be undefined.
+    fn direct(&self, pattern: &Pattern) -> bool {
+        let mut found = false;
+        walk::for_each_post_order(pattern, |node| {
+            if !found
+                && let Pattern::Application { symbol, arguments } = node
+                && let Some(positions) = self.operators.get(symbol.name.as_str())
+            {
+                found = positions.iter().any(|position| {
+                    arguments
+                        .get(*position)
+                        .is_some_and(|argument| self.may_be_undefined(argument))
+                });
+            }
+        });
+        found
+    }
+
+    /// Whether a rule's or an equation's right-hand side `right` can be undefined in k-rust's
+    /// reading where a short-circuiting backend gives a value.
+    fn result(&self, right: &Pattern) -> bool {
+        self.direct(right) || self.applies(right, &self.undefined)
+    }
+
+    /// Whether a condition term (a `requires` clause, `Bool`) can be true in one reading and
+    /// not in the other: below its top-level conjunctions, it applies a short-circuit operator
+    /// over an operand that may be undefined, or a function that depends on the reading, other
+    /// than as a conjunctive call ([`Self::conjunctive`]). A top-level conjunct or conjunctive
+    /// call that is undefined in k-rust's reading is `false` or undefined in the other, and the
+    /// rule applies in neither.
+    fn condition(&self, condition: &Pattern) -> bool {
+        match condition {
+            // An equation's right-hand side `\and(term, ensures)`.
+            Pattern::And { arguments, .. } => {
+                arguments.iter().any(|argument| self.condition(argument))
+            }
+            Pattern::Application { symbol, arguments }
+                if self.conjunctions.contains(symbol.name.as_str()) =>
+            {
+                arguments.iter().any(|argument| self.condition(argument))
+            }
+            // A conjunctive call is `false` where k-rust's reading makes it undefined, as a
+            // conjunct is, so only its arguments can make the condition depend on the reading.
+            Pattern::Application { symbol, arguments }
+                if self.conjunctive.contains(symbol.name.as_str()) =>
+            {
+                arguments.iter().any(|argument| {
+                    self.direct(argument)
+                        || self.applies(argument, &self.undefined)
+                        || self.applies(argument, &self.valued)
+                })
+            }
+            _ => {
+                self.direct(condition)
+                    || self.applies(condition, &self.undefined)
+                    || self.applies(condition, &self.valued)
+            }
+        }
+    }
+
+    /// [`Self::condition`] of the side of an axiom that holds its condition: a rewrite rule's
+    /// left-hand side (its configuration and `\equals(requires, true)`), or an equation's
+    /// antecedent (`\equals(requires, true)` and its argument constraints). Any part other than
+    /// a `requires` clause counts as a whole.
+    fn condition_side(&self, side: &Pattern) -> bool {
+        match side {
+            Pattern::And { arguments, .. } => arguments
+                .iter()
+                .any(|argument| self.condition_side(argument)),
+            Pattern::Equals { left, right, .. } if is_true(right) => self.condition(left),
+            Pattern::Implies { left, right, .. } => {
+                self.condition_side(left) || self.condition_side(right)
+            }
+            Pattern::Top { .. } => false,
+            other => self.condition(other),
+        }
+    }
+}
+
+/// Whether `sentence` is a rewrite axiom ([`rewrite_sides`]).
+fn is_rewrite_axiom(sentence: &Sentence) -> bool {
+    matches!(sentence, Sentence::Axiom { pattern, .. } if rewrite_sides(pattern).is_some())
+}
+
+/// Whether `pattern` is the Bool domain value `true`.
+fn is_true(pattern: &Pattern) -> bool {
+    matches!(pattern, Pattern::DomainValue { value, .. } if value.as_bytes() == b"true")
+}
+
+/// A rewrite axiom's conditions (the antecedents of any `\implies` around it), left-hand side
+/// and right-hand side, under its binders; `None` for every other axiom.
+fn rewrite_sides(pattern: &Pattern) -> Option<(Vec<&Pattern>, &Pattern, &Pattern)> {
+    match pattern {
+        Pattern::Forall { body, .. } | Pattern::Exists { body, .. } => rewrite_sides(body),
+        Pattern::Implies { left, right, .. } => {
+            let (mut conditions, lhs, rhs) = rewrite_sides(right)?;
+            conditions.push(left);
+            Some((conditions, lhs, rhs))
+        }
+        Pattern::Rewrites { left, right, .. } => Some((Vec::new(), left, right)),
+        _ => None,
+    }
+}
+
+/// An equation axiom's head symbol, antecedent (its `requires` and argument constraints) and
+/// right-hand side, under its binders: `\implies(antecedent, \equals(head(..), right))` or
+/// `\equals(head(..), right)`; `None` for every other axiom.
+fn equation_parts(pattern: &Pattern) -> Option<(&str, Option<&Pattern>, &Pattern)> {
+    match pattern {
+        Pattern::Forall { body, .. } | Pattern::Exists { body, .. } => equation_parts(body),
+        Pattern::Implies { left, right, .. } => match &**right {
+            Pattern::Equals {
+                left: head, right, ..
+            } => Some((term_head(head)?, Some(&**left), &**right)),
+            _ => None,
+        },
+        Pattern::Equals { left, right, .. } => Some((term_head(left)?, None, &**right)),
+        _ => None,
     }
 }
 
