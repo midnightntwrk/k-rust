@@ -3,7 +3,7 @@
 //! name = "breadth-first search over configurations"
 //! sites = ["search_graph_using", "search_graph_collecting", "materialize_search_state"]
 //! variable = "n = distinct (depth, pattern, is_rewritable) keys at one depth; r = results retained"
-//! counters = ["SearchStatesDeduplicated"]
+//! counters = ["SearchStatesVisited", "SearchStatesDeduplicated"]
 //! span = "per problem"
 //! consumes = [{ type = "k_rust_backend::rewrite::RewriteResult", role = "rewrite result" }]
 //!
@@ -21,8 +21,7 @@
 //! name = "breadth-first enumeration of simple rewrite paths"
 //! sites = ["search_paths_using", "search_paths_collecting"]
 //! variable = "d = path depth; b = branching factor"
-//! counters = []
-//! no_counter = "path enumeration has no dedicated counter"
+//! counters = ["SearchStatesVisited"]
 //! span = "per problem"
 //! consumes = [{ type = "k_rust_backend::rewrite::RewriteResult", role = "rewrite result" }]
 //!
@@ -81,9 +80,10 @@
 //! name (`RequestNames::state_key`, a canonical numbering per state), O(distinct states per
 //! depth) rewrite steps, `Counter::SearchStatesDeduplicated`; breadth-first enumeration of
 //! simple paths with a per-path visited list of the same keys, exponential in branching plus
-//! O(depth) per pop; pattern search over the result set. A state result, and a pattern
-//! search's solution (`RequestNames::solution_key`), is retained once up to the same renaming,
-//! one key per result. `normalize_match_condition` is the
+//! O(depth) per pop; both count the states they take from their frontier
+//! (`Counter::SearchStatesVisited`); pattern search over the result set. A state result, and a
+//! pattern search's solution (`RequestNames::solution_key`), is retained once up to the same
+//! renaming, one key per result. `normalize_match_condition` is the
 //! output-restricted variant of substitution extraction, O(c^2 x t) for c constraints plus the
 //! definedness of each solved value that is not `ceil_free`, no counter.
 
@@ -804,6 +804,7 @@ fn search_graph_collecting(
             Ok(work) => work,
             Err(exhausted) => break SearchEnd::Exhausted(exhausted),
         };
+        measure::bump(Counter::SearchStatesVisited);
         // Publish a stop of the state's exploration as its `Stopped` entry; the search ends when
         // the stop ends every remaining state ([`stop_ends_search`]). Never falls through.
         macro_rules! publish_stop {
@@ -1649,6 +1650,7 @@ fn search_paths_collecting(
             Ok(path) => path,
             Err(exhausted) => break SearchEnd::Exhausted(exhausted),
         };
+        measure::bump(Counter::SearchStatesVisited);
         // Publish a stop of the path's exploration as its `Stopped` entry; the search ends when
         // the stop ends every remaining path ([`stop_ends_search`]). Never falls through.
         macro_rules! publish_stop {

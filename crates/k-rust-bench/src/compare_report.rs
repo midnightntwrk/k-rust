@@ -234,27 +234,41 @@ fn counter_differs(name: &str, a: Option<u64>, b: Option<u64>) -> bool {
     }
 }
 
-/// The unit of the cost per step: `rewrite.steps` where the run counts them, otherwise
-/// `rewrite.rules_applied`; `None` when neither side counted either.
+/// The unit of the cost per step and the counter of its merged arrivals: `rewrite.steps` (the
+/// execution loop's visited states, `execution.states_merged` of them merged) where the run
+/// counts them, otherwise `search.states_visited` (a breadth-first search's visited states,
+/// `search.states_deduplicated` of them dropped), otherwise `rewrite.rules_applied`. The first
+/// unit both sides counted is taken, so that the two per-unit costs divide by the same quantity
+/// when one binary predates a counter; failing that, the first either side counted. `None` when
+/// neither side counted any.
 fn cost_unit(point: &PointComparison) -> Option<(&'static str, Option<u64>, Option<u64>)> {
-    ["rewrite.steps", "rewrite.rules_applied"]
-        .into_iter()
-        .map(|name| {
-            (
-                name,
-                point.base_counters.get(name).copied(),
-                point.candidate_counters.get(name).copied(),
-            )
-        })
-        .find(|(_, a, b)| a.unwrap_or(0) > 0 || b.unwrap_or(0) > 0)
-        .map(|(name, a, b)| {
-            let unit = if name == "rewrite.steps" {
-                "steps"
-            } else {
-                "rules applied"
-            };
-            (unit, a, b)
-        })
+    let units = [
+        ("rewrite.steps", "steps"),
+        ("search.states_visited", "states visited"),
+        ("rewrite.rules_applied", "rules applied"),
+    ]
+    .map(|(name, unit)| {
+        (
+            unit,
+            point.base_counters.get(name).copied(),
+            point.candidate_counters.get(name).copied(),
+        )
+    });
+    let counted = |value: Option<u64>| value.unwrap_or(0) > 0;
+    units
+        .iter()
+        .find(|(_, a, b)| counted(*a) && counted(*b))
+        .or_else(|| units.iter().find(|(_, a, b)| counted(*a) || counted(*b)))
+        .copied()
+}
+
+/// The counter of the arrivals a cost unit's loop merged or dropped instead of expanding.
+fn merged_counter(unit: &str) -> Option<&'static str> {
+    match unit {
+        "steps" => Some("execution.states_merged"),
+        "states visited" => Some("search.states_deduplicated"),
+        _ => None,
+    }
 }
 
 /// Counters of a point that differ between the binaries beyond their run-to-run variation.
@@ -722,7 +736,7 @@ pub fn render(comparison: &Comparison) -> String {
         let _ = writeln!(out, "## Cost per step\n");
         let _ = writeln!(
             out,
-            "The unit is `rewrite.steps`, the states the execution loop visited (one rewrite step each; merged arrivals included, `execution.states_merged` of them), or, where the run takes no such step (a `--search` run's breadth-first search counts no visited states), `rewrite.rules_applied`, the successors that rule applications produced.\n\
+            "The unit is `rewrite.steps`, the states the execution loop visited (one rewrite step each; merged arrivals included, `execution.states_merged` of them); for a `--search` run, whose breadth-first search takes no such step, `search.states_visited`, the states it took from its frontier (deduplicated arrivals included, `search.states_deduplicated` of them); otherwise `rewrite.rules_applied`, the successors that rule applications produced. A unit only one binary counts is used only when no other unit is counted by both.\n\
              CPU per unit divides the median timed CPU by the count; allocations per unit divide `allocation.count`.\n"
         );
         let _ = writeln!(
@@ -735,11 +749,9 @@ pub fn render(comparison: &Comparison) -> String {
                 let Some((unit, units_a, units_b)) = cost_unit(point) else {
                     continue;
                 };
-                let merged_a = point.base_counters.get("execution.states_merged").copied();
-                let merged_b = point
-                    .candidate_counters
-                    .get("execution.states_merged")
-                    .copied();
+                let merged = merged_counter(unit);
+                let merged_a = merged.and_then(|name| point.base_counters.get(name).copied());
+                let merged_b = merged.and_then(|name| point.candidate_counters.get(name).copied());
                 let per_unit_a = per(point.base.cpu(), units_a, 1e6);
                 let per_unit_b = per(point.candidate.cpu(), units_b, 1e6);
                 #[allow(clippy::cast_precision_loss)]
@@ -1040,7 +1052,7 @@ mod tests {
     }
 
     #[test]
-    fn search_runs_cost_per_applied_rule() {
+    fn search_runs_cost_per_visited_state() {
         let mut point = PointComparison::default();
         point
             .base_counters
@@ -1049,8 +1061,40 @@ mod tests {
             .candidate_counters
             .insert("rewrite.rules_applied".to_owned(), 10);
         assert_eq!(cost_unit(&point).unwrap().0, "rules applied");
+        // A unit one side lacks gives way to one both sides count.
+        point
+            .candidate_counters
+            .insert("search.states_visited".to_owned(), 11);
+        assert_eq!(
+            cost_unit(&point),
+            Some(("rules applied", Some(10), Some(10)))
+        );
+        point
+            .base_counters
+            .insert("search.states_visited".to_owned(), 11);
+        assert_eq!(
+            cost_unit(&point),
+            Some(("states visited", Some(11), Some(11)))
+        );
+        assert_eq!(
+            merged_counter("states visited"),
+            Some("search.states_deduplicated")
+        );
         point.base_counters.insert("rewrite.steps".to_owned(), 7);
-        assert_eq!(cost_unit(&point), Some(("steps", Some(7), None)));
+        assert_eq!(
+            cost_unit(&point),
+            Some(("states visited", Some(11), Some(11)))
+        );
+        point
+            .candidate_counters
+            .insert("rewrite.steps".to_owned(), 7);
+        assert_eq!(cost_unit(&point), Some(("steps", Some(7), Some(7))));
+        // With no unit on both sides, the first one either side counted.
+        let mut one_sided = PointComparison::default();
+        one_sided
+            .base_counters
+            .insert("rewrite.steps".to_owned(), 7);
+        assert_eq!(cost_unit(&one_sided), Some(("steps", Some(7), None)));
         assert!(cost_unit(&PointComparison::default()).is_none());
     }
 

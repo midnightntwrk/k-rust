@@ -675,6 +675,12 @@ fn branching_search_deduplicates_the_state_both_rules_reach() {
     // Both rules take inc(N) to inc(N + 1); the second arrival at every depth is dropped.
     assert!(delta.get(Counter::SearchStatesDeduplicated) >= 1);
     assert!(delta.get(Counter::SearchStatesDeduplicated) <= DEDUPLICATED_4);
+    // The search takes every state it queues from its frontier: the initial state and one
+    // successor per applied rule (the rules leave no remainder), dropped arrivals included.
+    assert_eq!(
+        delta.get(Counter::SearchStatesVisited),
+        delta.get(Counter::RewriteRulesApplied) + 1
+    );
 }
 
 #[test]
@@ -689,7 +695,10 @@ fn branching_search_deduplication_grows_linearly_with_depth() {
         at_8.get(Counter::SearchStatesDeduplicated),
         at_4.get(Counter::SearchStatesDeduplicated)
     );
-    assert!(at_8.get(Counter::RewriteSteps) <= 2 * at_4.get(Counter::RewriteSteps) + LINEAR_SLACK);
+    assert!(
+        at_8.get(Counter::SearchStatesVisited)
+            <= 2 * at_4.get(Counter::SearchStatesVisited) + LINEAR_SLACK
+    );
 }
 
 // ---------- proof, unification ----------

@@ -1164,6 +1164,20 @@ symbol = "Counter::SearchStatesDeduplicated"
 
 [[node]]
 kind = "observation"
+id = "SearchStatesVisited"
+provenance = "table"
+area = "search"
+name = "SearchStatesVisited"
+table = "Counter::ALL"
+registry_name = "search.states_visited"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::SearchStatesVisited"
+
+[[node]]
+kind = "observation"
 id = "SimplifyAssumptionNodes"
 provenance = "table"
 area = "simplify"
@@ -2844,7 +2858,6 @@ provenance = "declared"
 area = "backend"
 name = "breadth-first enumeration of simple rewrite paths"
 variable = "d = path depth; b = branching factor"
-no_counter = "path enumeration has no dedicated counter"
 span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "BackendSearchPaths"
@@ -9957,9 +9970,21 @@ to = "SearchStatesDeduplicated"
 provenance = "declared"
 
 [[edge]]
+kind = "measured-by"
+from = "backend.search.configurations"
+to = "SearchStatesVisited"
+provenance = "declared"
+
+[[edge]]
 kind = "consumes"
 from = "backend.search.paths"
 to = "k_rust_backend::rewrite::RewriteResult [rewrite result]"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.search.paths"
+to = "SearchStatesVisited"
 provenance = "declared"
 
 [[edge]]
