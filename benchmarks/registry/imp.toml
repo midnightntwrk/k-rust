@@ -112,6 +112,19 @@ argv = [
   "--warnings", "none",
 ]
 
+[[prepare]]
+name = "imp-tutorial-haskell-definition"
+engine = "reference"
+creates = "${prepared}/imp-tutorial-haskell-definition/timestamp"
+argv = [
+  "kompile", "${k}/pyk/regression-new/imp-llvm/imp.k",
+  "--backend", "haskell",
+  "--main-module", "IMP",
+  "--syntax-module", "IMP-SYNTAX",
+  "--output-definition", "${prepared}/imp-tutorial-haskell-definition",
+  "--warnings", "none",
+]
+
 # KORE JSON-RPC requests built from a krust state.
 # scripts/algo-rpc-fixture.py runs `krust krun` to the final state, converts it to KORE JSON with
 # the reference kore-parser (found next to K_KOMPILE), and wraps it in a request.
@@ -869,6 +882,44 @@ stdout_squeezed = [
   'inj{SortId{},SortKItem{}}(\dv{SortId{}}("sum")),inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("5050"))',
   "Lbl'-LT-'k'-GT-'{}(dotk{}())",
 ]
+
+[[workload]]
+id = "imp/krun-tutorial-sum-haskell"
+semantics = "imp"
+operation = "execute"
+title = "Run the tutorial's sum loop for small n, paired with the reference Haskell backend"
+stresses = "Concrete execution through strict operators, compared interpreter to interpreter: the reference Haskell backend's krun takes 3 s at n = 5, 76 s at n = 10 and does not finish n = 20 in 300 s on 2026-10-16, so only small sizes pair."
+origin = "draft-personal/perf/wave1/measure.md, Haskell-backend pairings (the findings note's step 3)"
+tier = "quick"
+timeout_seconds = 600
+pins = ["k"]
+[workload.ladder]
+param = "n"
+values = [2, 4, 6, 8, 10]
+input = """
+int n, sum;
+n = ${n};
+sum = 0;
+while (!(n <= 0)) {
+  sum = sum + n;
+  n = n + -1;
+}
+"""
+[workload.krust]
+prepare = ["imp-tutorial-definition"]
+argv = ["krun", "--definition", "${prepared}/imp-tutorial-definition", "--sort", "Pgm", "${input}"]
+[workload.krust.check]
+expect = "n * (n + 1) // 2"
+stdout_squeezed = ['inj{SortId{},SortKItem{}}(\dv{SortId{}}("sum")),inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("${expect}"))']
+[workload.reference]
+status = "paired"
+backend = "haskell"
+note = "With the Haskell backend, collatz.imp (2..10) and sum.imp (1..100) do not finish within 600 s, and SIMPLE does not compile (`anywhere` rules are not supported), so this small ladder is the only interpreter-to-interpreter execution pairing (2026-10-16)."
+prepare = ["imp-tutorial-haskell-definition"]
+argv = ["krun", "--definition", "${prepared}/imp-tutorial-haskell-definition", "${input}"]
+[workload.reference.check]
+expect = "n * (n + 1) // 2"
+stdout_squeezed = ["sum|->${expect}"]
 
 # collatz.imp and primes.imp with a larger bound, so execution rather than startup sets the cost.
 [[workload]]
