@@ -100,6 +100,116 @@ pub fn concretize_cells_in_sentence(
     Ok((transformed, concretizer.generated))
 }
 
+/// The module whose cell model completes the cells of a sentence of `module`: the main module
+/// for a module of its import closure, else `module` itself.
+pub(crate) fn cell_model_module(definition: &ResolvedDefinition, module: ModuleId) -> ModuleId {
+    let main_id = definition.main_module_id();
+    if module == main_id || definition.transitive_imports(main_id).contains(&module) {
+        main_id
+    } else {
+        module
+    }
+}
+
+/// The cell model completion completes a module's sentences with, read for what completion
+/// makes of a sentence's cell-fragment variables ([`Self::fragment_variables`]).
+pub(crate) struct CellCompletion {
+    model: CellModel,
+}
+
+/// A cell-fragment variable of a rule or claim, as cell completion reads it.
+///
+/// It is a variable without a cell sort written directly in the body of a cell `<p>` with
+/// children: an item of the body, or a side of a rewrite item. Completion makes it stand for
+/// the children of `<p>` it may hold (every `multiplicity="*"` child, and each other child no
+/// item of the body is, less those another variable of the body takes), and builds:
+/// - at its occurrence in the body, the variable itself at the value sort of its one child, a
+///   fresh variable per child when it stands for several, and nothing when it stands for none;
+/// - for its sort predicate (`isBag(X)`, `isPCellFragment(X)`), the conjunction of the sort
+///   predicates of those parts;
+/// - at every other occurrence, the fragment term `<p>-fragment(..)` of its parts, with each
+///   other child at its unit.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct FragmentVariable {
+    /// The label of the fragment term.
+    pub(crate) fragment: Label,
+    /// The labels of the sort predicates completion reads as the variable's.
+    pub(crate) predicates: [Label; 2],
+    /// The value sort of each child the variable stands for.
+    pub(crate) parts: Vec<Sort>,
+}
+
+impl CellCompletion {
+    /// The cell model of `module` (see [`cell_model_module`]).
+    pub(crate) fn new(definition: &ResolvedDefinition, module: ModuleId) -> Result<Self, String> {
+        Ok(Self {
+            model: CellModel::new(&definition.views(), module)?,
+        })
+    }
+
+    /// Whether `label` is a cell with children, whose body completion completes.
+    pub(crate) fn is_parent(&self, label: &Label) -> bool {
+        self.model
+            .cell_for_label(label)
+            .is_some_and(|cell| !cell.children.is_empty())
+    }
+
+    /// Whether `sort` is a cell sort.
+    pub(crate) fn is_cell_sort(&self, sort: &Sort) -> bool {
+        self.model.cells.contains_key(sort)
+    }
+
+    /// Whether `sort` is the cell sort of a child of the cell `label`: completion places a term
+    /// of that sort written in its body in that child, as an instance of a
+    /// `multiplicity="*"` child's collection.
+    pub(crate) fn is_child(&self, label: &Label, sort: &Sort) -> bool {
+        self.model
+            .cell_for_label(label)
+            .is_some_and(|cell| cell.children.iter().any(|child| child.sort == *sort))
+    }
+
+    /// The cell-fragment variables of `sentence`, a rule or claim of `module` whose anonymous
+    /// variables are named, by name, as the completion of its cells finds them; or the error
+    /// completion stops the sentence at before it orders the children.
+    pub(crate) fn fragment_variables(
+        &self,
+        definition: &ResolvedDefinition,
+        module: ModuleId,
+        sentence: Sentence,
+    ) -> Result<BTreeMap<String, FragmentVariable>, String> {
+        let views = definition.views();
+        let productions = views.production_catalog(module);
+        let values = ValueFacts::new(definition, module);
+        let mut concretizer = Concretizer::new(&self.model, productions, &values);
+        let fragments = concretizer.fragment_variables(sentence)?;
+        Ok(fragments
+            .into_iter()
+            .map(|(name, info)| {
+                let parent = &self.model.cells[&info.parent];
+                let parts = info
+                    .split
+                    .keys()
+                    .map(|sort| {
+                        parent
+                            .children
+                            .iter()
+                            .find(|child| child.sort == *sort)
+                            .expect("fragment split sorts are parent children")
+                            .value_sort
+                            .clone()
+                    })
+                    .collect();
+                let variable = FragmentVariable {
+                    fragment: Label::new(format!("{}-fragment", parent.label.name)),
+                    predicates: fragment_predicates(&info.parent),
+                    parts,
+                };
+                (name, variable)
+            })
+            .collect())
+    }
+}
+
 /// Complete the configuration abstractions of rules, claims and contexts into fixed-arity cell
 /// applications.
 pub fn concretize_cells(definition: &Definition) -> Result<Definition, ConcretizeCellsError> {
@@ -936,25 +1046,91 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         if matches!(&sentence, Sentence::Claim { body, .. } if !contains_cell(body, self.model)) {
             return Ok(sentence);
         }
-        self.fresh = FreshNames::for_sentence(&sentence);
+        self.start(&sentence);
+        let concretized = self.concretize_sentence(sentence);
+        concretized.map_err(|message| self.with_moved_cells(message))
+    }
+
+    /// The cell-fragment variables completion finds in `sentence`, a rule or claim, with the
+    /// children each stands for: the analysis [`Self::sentence`] makes before it sorts the
+    /// sentence's cells, or the error it stops at there.
+    fn fragment_variables(
+        &mut self,
+        sentence: Sentence,
+    ) -> Result<BTreeMap<String, FragmentInfo>, String> {
+        if matches!(&sentence, Sentence::Claim { body, .. } if !contains_cell(body, self.model)) {
+            return Ok(BTreeMap::new());
+        }
+        self.start(&sentence);
+        let analyzed = match sentence {
+            Sentence::Rule {
+                body,
+                requires,
+                ensures,
+                attributes,
+            }
+            | Sentence::Claim {
+                body,
+                requires,
+                ensures,
+                attributes,
+            } => self.complete_rule_like([body, requires, ensures], &attributes),
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => return Ok(BTreeMap::new()),
+        };
+        match analyzed {
+            Ok(_) => Ok(std::mem::take(&mut self.fragments)),
+            Err(message) => Err(self.with_moved_cells(message)),
+        }
+    }
+
+    /// Reset the per-sentence state for `sentence`.
+    fn start(&mut self, sentence: &Sentence) {
+        self.fresh = FreshNames::for_sentence(sentence);
         self.generated.clear();
         self.fragments.clear();
         self.rest_sides.clear();
         self.under_right_side = false;
         self.conjoins_fragment = false;
         self.moved_cells.borrow_mut().clear();
-        self.concretize_sentence(sentence).map_err(|message| {
-            let moved = self.moved_cells.borrow();
-            // A placement error already names the moved cell it is about.
-            if moved.is_empty() || moved.iter().any(|moved| message.contains(moved.as_str())) {
-                message
-            } else {
-                format!(
-                    "{message} (after moving {} to where the configuration declares it)",
-                    moved.join(", ")
-                )
-            }
-        })
+    }
+
+    /// `message`, an error of the last sentence, naming the cells moved before it.
+    fn with_moved_cells(&self, message: String) -> String {
+        let moved = self.moved_cells.borrow();
+        // A placement error already names the moved cell it is about.
+        if moved.is_empty() || moved.iter().any(|moved| message.contains(moved.as_str())) {
+            message
+        } else {
+            format!(
+                "{message} (after moving {} to where the configuration declares it)",
+                moved.join(", ")
+            )
+        }
+    }
+
+    /// The body and conditions of a rule or claim with its cells completed to the
+    /// configuration's parents and closed, and its cell-fragment variables analyzed, before
+    /// [`Self::sort_cells`] orders the children.
+    fn complete_rule_like(
+        &mut self,
+        [body, requires, ensures]: [Term; 3],
+        attributes: &Attributes,
+    ) -> Result<[Term; 3], String> {
+        let [body, requires, ensures] = self.sort_one_cell_aliases([body, requires, ensures])?;
+        let body = self.concretize_body(body, skip_root_wrapping(attributes))?;
+        let requires = self.close(requires, false)?;
+        let ensures = self.close(ensures, false)?;
+        self.analyze_fragments([&body, &requires, &ensures])?;
+        Ok([body, requires, ensures])
     }
 
     fn concretize_sentence(&mut self, sentence: Sentence) -> Result<Sentence, String> {
@@ -966,11 +1142,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                 attributes,
             } => {
                 let [body, requires, ensures] =
-                    self.sort_one_cell_aliases([body, requires, ensures])?;
-                let body = self.concretize_body(body, skip_root_wrapping(&attributes))?;
-                let requires = self.close(requires, false)?;
-                let ensures = self.close(ensures, false)?;
-                self.analyze_fragments([&body, &requires, &ensures])?;
+                    self.complete_rule_like([body, requires, ensures], &attributes)?;
                 Ok(Sentence::Rule {
                     body: self.sort_cells(body)?,
                     requires: self.sort_cells(requires)?,
@@ -985,11 +1157,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                 attributes,
             } => {
                 let [body, requires, ensures] =
-                    self.sort_one_cell_aliases([body, requires, ensures])?;
-                let body = self.concretize_body(body, skip_root_wrapping(&attributes))?;
-                let requires = self.close(requires, false)?;
-                let ensures = self.close(ensures, false)?;
-                self.analyze_fragments([&body, &requires, &ensures])?;
+                    self.complete_rule_like([body, requires, ensures], &attributes)?;
                 Ok(Sentence::Claim {
                     body: self.sort_cells(body)?,
                     requires: self.sort_cells(requires)?,
@@ -3379,11 +3547,9 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                 if let [argument] = arguments.as_slice()
                     && let Term::Variable { name, .. } = argument.unannotated()
                     && let Some(info) = self.fragments.get(name)
-                    && (label.name
-                        == Label::sort_predicate(&Sort::new(format!("{}Fragment", info.parent)))
-                            .name
-                        || label.name
-                            == Label::sort_predicate(&Sort::frontend(FrontendSort::Bag)).name)
+                    && fragment_predicates(&info.parent)
+                        .iter()
+                        .any(|predicate| predicate.name == label.name)
                 {
                     self.conjoins_fragment |= info.split.len() > 1;
                     fragment_predicate(info, self.model)
@@ -4206,6 +4372,15 @@ fn collect_direct_fragment_variables(term: &Term, variables: &mut Vec<(String, O
             _ => {}
         }
     }
+}
+
+/// The sort predicates that test a cell-fragment variable of parent sort `parent`: its fragment
+/// sort's, and `isBag`, the fragment-membership test of semantic-cast resolution.
+fn fragment_predicates(parent: &Sort) -> [Label; 2] {
+    [
+        Label::sort_predicate(&Sort::new(format!("{parent}Fragment"))),
+        Label::sort_predicate(&Sort::frontend(FrontendSort::Bag)),
+    ]
 }
 
 fn fragment_replacement(info: &FragmentInfo, model: &CellModel) -> Result<Term, String> {

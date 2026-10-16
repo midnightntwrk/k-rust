@@ -19,7 +19,10 @@
 //! (`Walk::projected`). For N nodes, k of them above a rewrite, of height h, that is
 //! O(N x (P + S) + k x h) with the injector's P and S, plus the parametric instance searches
 //! and one semantic-cast resolution of the sentence; reading every path back out of the typing
-//! (`PathMap::iter`) costs O(N x h). `kompile.macros.expand` computes this view once per rewrite of a
+//! (`PathMap::iter`) costs O(N x h).
+//! A sentence with a variable in the body of a cell with children also costs its cell
+//! completion's analysis (`typing/cell_content.rs`), and the typer builds the cell model once
+//! per model module. `kompile.macros.expand` computes this view once per rewrite of a
 //! sentence when some macro rule has a parametric head.
 //!
 //! Building a typer computes the productions compilation adds to the module's closure, one scan
@@ -43,7 +46,7 @@ use crate::definition::{
 };
 use crate::kast::{InternalLabel, Sort, Term};
 use crate::kompile::passes::{
-    FunctionRuleWithContext, LambdaSorts, LocalFunction, ResolveSemanticCastsError,
+    CellCompletion, FunctionRuleWithContext, LambdaSorts, LocalFunction, ResolveSemanticCastsError,
     resolve_semantic_casts_in_sentence, semantic_cast_variable_sorts, with_kitem_subsorts,
 };
 use crate::kompile::view::View;
@@ -72,6 +75,9 @@ pub struct PositionTyping {
     pub sort: Option<Sort>,
     /// The sort the position requires of its term, or `None` where compilation places no sort
     /// requirement (a body without a rewrite, a child of a syntax-only term).
+    /// A cast's operand reports the cast's sort, a bound on the operand rather than a placement;
+    /// a cell-fragment variable's cast is not in the compiled term, and its operand reports the
+    /// requirement of the cast's position.
     pub required: Option<Sort>,
 }
 
@@ -105,6 +111,10 @@ pub struct SentenceTyping {
     /// enclosing sentence, and for a name only a local function's equation casts, in the first
     /// such equation (each equation is a scope of its own, which may cast a shadowing variable
     /// differently).
+    /// A cell-fragment variable has the sort cell concretization gives it instead: the value
+    /// sort of the one child it stands for, which it has in the compiled sentence; it has no
+    /// entry when it stands for none or several, since concretization replaces it by a fresh
+    /// variable per child.
     pub variables: BTreeMap<String, Sort>,
     /// The instance injection gives the label of each application of a parametric production,
     /// one entry per sort parameter (`None` where it leaves the parameter open). A path typed
@@ -330,6 +340,12 @@ pub enum SentenceTypingError {
         location: Option<String>,
         error: SortInjectionError,
     },
+    /// Cell completion rejects the sentence, or completes it in a way the view does not type;
+    /// `location` is the sentence's `source:line` when known.
+    CellCompletion {
+        location: Option<String>,
+        message: String,
+    },
 }
 
 impl fmt::Display for SentenceTypingError {
@@ -343,6 +359,12 @@ impl fmt::Display for SentenceTypingError {
                     write!(formatter, "{location}: ")?;
                 }
                 error.fmt(formatter)
+            }
+            Self::CellCompletion { location, message } => {
+                if let Some(location) = location {
+                    write!(formatter, "{location}: ")?;
+                }
+                formatter.write_str(message)
             }
         }
     }
@@ -406,15 +428,25 @@ pub fn sentence_typing(
 /// The injector runs after cell concretization, which a loaded sentence has not had; the view
 /// keeps the loaded shapes: `#cells`, `#dots` and `#noDots` have no sort and place no
 /// requirement, an authored cell `L(#dots|#noDots, body, #dots|#noDots)` has its production's
-/// sort and places its body at the cell's single content sort. A function rule with
-/// configuration context, `#withConfig(F, C)`, which compilation lowers to `F` with the context
-/// as the function's last argument, is typed as that rule: `F` is the rule body, the context `C`
-/// is a cell fragment of the left side typed as above, and the construct has no sort and places
-/// no requirement. It types in the order injection runs in, where every non-parser sort is
-/// declared below `KItem`.
+/// sort and places its body at the cell's single content sort (a body of its child's cell sort
+/// at that sort, which concretization places it in, as an instance for a collection).
+/// Cell concretization rewrites every occurrence of a cell-fragment variable (a variable
+/// without a cell sort written in the body of a cell with children), and the view types each
+/// as the term it builds there (`cell_content`): an occurrence in a cell body at the value sort
+/// of the one child the variable stands for, and without a sort when it stands for none or
+/// several; every other occurrence at the cell's fragment sort (`AccountsCellFragment`).
+/// A sentence concretization rejects returns its error, and so does one with a cell-fragment
+/// variable in the equation of a local function, which the view does not type.
+/// A function rule with configuration context, `#withConfig(F, C)`, which compilation lowers to
+/// `F` with the context as the function's last argument, is typed as that rule: `F` is the rule
+/// body, the context `C` is a cell fragment of the left side typed as above, and the construct
+/// has no sort and places no requirement. It types in the order injection runs in, where every
+/// non-parser sort is declared below `KItem`.
 ///
 /// The view does not infer: a variable nothing types reports no sort, though its position still
-/// reports its requirement. A cast's operand reports the cast's sort as its requirement.
+/// reports its requirement. A cast's operand reports the cast's sort as its requirement, except
+/// a cell-fragment variable's, which compilation replaces with no cast above it: it reports the
+/// requirement of the cast's position.
 pub struct SentenceTyper<'a> {
     injector: SortInjector<'a, 'a>,
     declared: PartialOrder<Sort>,
@@ -423,6 +455,9 @@ pub struct SentenceTyper<'a> {
     /// The injector of each module whose sentences' local functions were typed, as
     /// `kompile::passes::resolve_fun` builds it to compute their lambdas' sorts.
     lambda_injectors: std::cell::RefCell<BTreeMap<ModuleId, SortInjector<'a, 'a>>>,
+    /// The cell model of each module whose cell model completed a typed sentence
+    /// (`kompile::passes::cell_model_module`), or the error building it.
+    cell_completions: std::cell::RefCell<BTreeMap<ModuleId, Result<Arc<CellCompletion>, String>>>,
 }
 
 /// The production catalog compilation injects the sentences of `module`'s import closure with,
@@ -496,6 +531,7 @@ impl<'a> SentenceTyper<'a> {
             definition,
             module: module_id,
             lambda_injectors: std::cell::RefCell::default(),
+            cell_completions: std::cell::RefCell::default(),
         })
     }
 
@@ -656,42 +692,25 @@ impl<'a> SentenceTyper<'a> {
                     .map_err(SentenceTypingError::SemanticCasts)?;
                 (variables, resolved, Locals::new())
             };
-        // Cell completion gives a variable written as a cell's whole content the cell's content
-        // sort; the injector types the position as the compiled term has it.
-        let resolved = match resolved {
-            Sentence::Rule {
-                body,
-                requires,
-                ensures,
-                attributes,
-            } => Sentence::Rule {
-                body: cell_content::sort_cell_contents(body, &self.injector),
-                requires: cell_content::sort_cell_contents(requires, &self.injector),
-                ensures: cell_content::sort_cell_contents(ensures, &self.injector),
-                attributes,
-            },
-            Sentence::Claim {
-                body,
-                requires,
-                ensures,
-                attributes,
-            } => Sentence::Claim {
-                body: cell_content::sort_cell_contents(body, &self.injector),
-                requires: cell_content::sort_cell_contents(requires, &self.injector),
-                ensures: cell_content::sort_cell_contents(ensures, &self.injector),
-                attributes,
-            },
-            other @ (Sentence::SyntaxSort { .. }
-            | Sentence::SortSynonym { .. }
-            | Sentence::SyntaxLexical { .. }
-            | Sentence::Production { .. }
-            | Sentence::SyntaxAssociativity { .. }
-            | Sentence::SyntaxPriority { .. }
-            | Sentence::ContextAlias { .. }
-            | Sentence::Context { .. }
-            | Sentence::Configuration { .. }
-            | Sentence::Bubble { .. }) => other,
-        };
+        // Cell completion rewrites the occurrences of each cell-fragment variable; the injector
+        // types each as the term completion builds there.
+        let (mut variables, mut resolved, mut locals) = (variables, resolved, locals);
+        let completed = self
+            .complete_cells(&mut resolved, module, &mut locals)
+            .map_err(|message| SentenceTypingError::CellCompletion {
+                location: location.clone(),
+                message,
+            })?;
+        for (name, variable) in &completed.variables {
+            match variable.parts.as_slice() {
+                [part] => {
+                    variables.insert(name.clone(), part.clone());
+                }
+                _ => {
+                    variables.remove(name);
+                }
+            }
+        }
         let (Sentence::Rule {
             body: resolved_body,
             requires: resolved_requires,
@@ -711,10 +730,119 @@ impl<'a> SentenceTyper<'a> {
             [body, requires, ensures],
             [resolved_body, resolved_requires, resolved_ensures],
             &locals,
+            &completed,
             variables,
             top,
         )
         .map_err(|error| SentenceTypingError::Sort { location, error })
+    }
+
+    /// Give each occurrence of a cell-fragment variable of `resolved`, a resolved sentence of
+    /// `module`, and of the values its `locals` are applied to, the sort of the term cell
+    /// completion builds there ([`cell_content`]); or the error completion stops the sentence
+    /// at.
+    ///
+    /// A local function's equation is a scope of its own, typed apart from the sentence, and
+    /// the sentence's analysis does not see the cells written in a local function: a sentence
+    /// whose equation uses a cell-fragment variable (as a closure variable, which completion
+    /// passes to the lambda as its fragment term), whose local function stands as an item of a
+    /// cell body, or whose local function holds a candidate cell-fragment variable, is refused.
+    fn complete_cells(
+        &self,
+        resolved: &mut Sentence,
+        module: ModuleId,
+        locals: &mut Locals,
+    ) -> Result<cell_content::Completed, String> {
+        let (Sentence::Rule {
+            body,
+            requires,
+            ensures,
+            ..
+        }
+        | Sentence::Claim {
+            body,
+            requires,
+            ensures,
+            ..
+        }) = &*resolved
+        else {
+            return Ok(cell_content::Completed::default());
+        };
+        let mut has_cell = false;
+        for root in [body, requires, ensures] {
+            root.visit_preorder(&mut |term| {
+                if let Term::Apply { label, arguments } = term.unannotated() {
+                    has_cell |= self.injector.has_production(term, label)
+                        && is_authored_cell(&self.injector, term, label, arguments)
+                            .unwrap_or(false);
+                }
+            });
+        }
+        if !has_cell {
+            return Ok(cell_content::Completed::default());
+        }
+        let model_module = crate::kompile::passes::cell_model_module(self.definition, module);
+        let completion = self
+            .cell_completions
+            .borrow_mut()
+            .entry(model_module)
+            .or_insert_with(|| CellCompletion::new(self.definition, model_module).map(Arc::new))
+            .clone()?;
+        let values = locals
+            .values_mut()
+            .map(|local| &mut local.argument)
+            .collect();
+        let completed = cell_content::complete(
+            resolved,
+            values,
+            Arc::clone(&completion),
+            self.definition,
+            module,
+            &self.injector,
+        )?;
+        if completed.is_empty() {
+            return Ok(completed);
+        }
+        for (stand_in, local) in locals.iter() {
+            if completed.mentions(stand_in) {
+                return Err(
+                    "a local function is written as an item of the body of a cell with children, where cell completion places only cells and variables"
+                        .to_owned(),
+                );
+            }
+            let mut terms = vec![&local.argument];
+            match &local.equation {
+                local_functions::Equation::Split { pattern, body } => {
+                    terms.extend([pattern, body]);
+                }
+                local_functions::Equation::Whole(term) => terms.push(term),
+            }
+            if terms
+                .iter()
+                .any(|term| cell_content::has_body_variable(term, &completion))
+            {
+                return Err(
+                    "the typing view does not type a cell with a variable in its body inside a local function"
+                        .to_owned(),
+                );
+            }
+            let mut used = None;
+            for term in &terms[1..] {
+                term.visit_preorder(&mut |term| {
+                    if let Term::Variable { name, .. } = term.unannotated()
+                        && completed.mentions(name)
+                    {
+                        used.get_or_insert_with(|| name.clone());
+                    }
+                });
+            }
+            if let Some(name) = used {
+                return Err(format!(
+                    "the typing view does not type the cell fragment variable {name} in the equation of a local function, where cell completion passes it as its fragment term"
+                ));
+            }
+        }
+        Ok(completed)
     }
 
     fn typing_of(
@@ -722,6 +850,7 @@ impl<'a> SentenceTyper<'a> {
         loaded: [&Term; 3],
         resolved: [&Term; 3],
         locals: &Locals,
+        completed: &cell_content::Completed,
         variables: BTreeMap<String, Sort>,
         top: Option<&Sort>,
     ) -> Result<SentenceTyping, SortInjectionError> {
@@ -730,7 +859,8 @@ impl<'a> SentenceTyper<'a> {
         // Every term the walks type is a node of `resolved` or of a local function's parts in
         // `locals`, or a projection built for one and typed outside the memo, so the injector's
         // sort memo holds for the whole typing.
-        injector.memoized(|| self.typing_with_memo(loaded, resolved, locals, variables, top))
+        injector
+            .memoized(|| self.typing_with_memo(loaded, resolved, locals, completed, variables, top))
     }
 
     fn typing_with_memo(
@@ -738,6 +868,7 @@ impl<'a> SentenceTyper<'a> {
         loaded: [&Term; 3],
         resolved: [&Term; 3],
         locals: &Locals,
+        completed: &cell_content::Completed,
         variables: BTreeMap<String, Sort>,
         top: Option<&Sort>,
     ) -> Result<SentenceTyping, SortInjectionError> {
@@ -764,7 +895,14 @@ impl<'a> SentenceTyper<'a> {
             None => (loaded[0], resolved[0]),
         };
 
-        let mut conditions = Walk::new(injector, Branch::Only, &mut trie, &projections, locals);
+        let mut conditions = Walk::new(
+            injector,
+            Branch::Only,
+            &mut trie,
+            &projections,
+            locals,
+            completed,
+        );
         for (field, loaded, resolved) in
             [(1u32, loaded[1], resolved[1]), (2, loaded[2], resolved[2])]
         {
@@ -811,7 +949,14 @@ impl<'a> SentenceTyper<'a> {
         };
         let mut sorts = Vec::new();
         for branch in branches {
-            let mut walk = Walk::new(injector, *branch, &mut trie, &projections, locals);
+            let mut walk = Walk::new(
+                injector,
+                *branch,
+                &mut trie,
+                &projections,
+                locals,
+                completed,
+            );
             walk.types_equations = false;
             let mut path = body(walk.trie);
             sorts.extend(
@@ -827,7 +972,14 @@ impl<'a> SentenceTyper<'a> {
         let mut maps = Vec::new();
         let mut branch_instances = Vec::new();
         for branch in branches {
-            let mut walk = Walk::new(injector, *branch, &mut trie, &projections, locals);
+            let mut walk = Walk::new(
+                injector,
+                *branch,
+                &mut trie,
+                &projections,
+                locals,
+                completed,
+            );
             let mut path = body(walk.trie);
             let hint = position.clone().unwrap_or_else(|| top.clone());
             let slot = walk.visit(body_loaded, body_resolved, &mut path, &hint)?;
@@ -1049,6 +1201,8 @@ struct Walk<'a, 'view, 'definition, 't> {
     /// The sentence's local functions, by the stand-in variable that replaces each in the
     /// resolved terms.
     locals: &'t Locals,
+    /// The occurrences of cell-fragment variables cell completion re-sorts.
+    completed: &'t cell_content::Completed,
     positions: NodeValues<PositionTyping>,
     instances: NodeValues<Vec<Option<Sort>>>,
     /// The positions of a local function's equation that its two sides type differently.
@@ -1076,6 +1230,7 @@ impl<'a, 'view, 'definition, 't> Walk<'a, 'view, 'definition, 't> {
         trie: &'t mut PathTrie,
         projections: &'t Projections,
         locals: &'t Locals,
+        completed: &'t cell_content::Completed,
     ) -> Self {
         Self {
             injector,
@@ -1083,6 +1238,7 @@ impl<'a, 'view, 'definition, 't> Walk<'a, 'view, 'definition, 't> {
             trie,
             projections,
             locals,
+            completed,
             positions: Vec::new(),
             instances: Vec::new(),
             branches: Vec::new(),
@@ -1208,7 +1364,14 @@ impl<'a, 'view, 'definition, 't> Walk<'a, 'view, 'definition, 't> {
                 ),
                 _ => unreachable!("the lowering and the construct agree on its form"),
             };
-        let mut walk = Walk::new(injector, sides.0, &mut *self.trie, &projections, locals);
+        let mut walk = Walk::new(
+            injector,
+            sides.0,
+            &mut *self.trie,
+            &projections,
+            locals,
+            self.completed,
+        );
         walk.is_lhs = true;
         let mut cursor = extend(walk.trie, &pattern.2);
         let slot = walk.visit(pattern.0, pattern.1, &mut cursor, parameter)?;
@@ -1222,7 +1385,14 @@ impl<'a, 'view, 'definition, 't> Walk<'a, 'view, 'definition, 't> {
         };
         let top = injector.fresh_sort_parameter();
         let sort = {
-            let mut walk = Walk::new(injector, sides.1, &mut *self.trie, &projections, locals);
+            let mut walk = Walk::new(
+                injector,
+                sides.1,
+                &mut *self.trie,
+                &projections,
+                locals,
+                self.completed,
+            );
             walk.types_equations = false;
             let mut cursor = extend(walk.trie, &body_steps);
             walk.visit(loaded_body, resolved_body, &mut cursor, &top)?
@@ -1231,7 +1401,14 @@ impl<'a, 'view, 'definition, 't> Walk<'a, 'view, 'definition, 't> {
         let mut sorts = vec![result.clone()];
         sorts.extend(sort);
         let position = injector.least_upper_bound(&sorts, Some(&top))?;
-        let mut walk = Walk::new(injector, sides.1, &mut *self.trie, &projections, locals);
+        let mut walk = Walk::new(
+            injector,
+            sides.1,
+            &mut *self.trie,
+            &projections,
+            locals,
+            self.completed,
+        );
         let mut cursor = extend(walk.trie, &body_steps);
         let slot = walk.visit(loaded_body, resolved_body, &mut cursor, &position)?;
         walk.place(&cursor, &slot, &position)?;
@@ -1381,10 +1558,12 @@ impl<'a, 'view, 'definition, 't> Walk<'a, 'view, 'definition, 't> {
                         (argument.unannotated(), self.branch),
                         (Term::Rewrite { .. }, _) | (Term::As { .. }, Branch::Right)
                     );
-                if dropped {
+                if dropped || self.completed.contains(resolved) {
                     // The projection removes the rewrite or as-pattern the cast annotates, and
                     // the cast's own position with it (resolution put a rewrite's cast on each
-                    // side, which occupies the cast's position).
+                    // side, which occupies the cast's position). Cell completion replaces a
+                    // cell-fragment variable by a term of its own sort, and the compiled term
+                    // has no cast there either.
                     self.delegate(path, 0);
                 } else if let Some(operand) = self.trie.find_child(path.node(), 0)
                     && let Some(position) = self.position_mut(operand)
@@ -1471,6 +1650,14 @@ impl<'a, 'view, 'definition, 't> Walk<'a, 'view, 'definition, 't> {
     ) -> Result<Slot<'r>, SortInjectionError> {
         let injector = self.injector;
         let term = self.projected(resolved);
+        if matches!(resolved.unannotated(), Term::Variable { sort: None, .. })
+            && self.completed.contains(resolved)
+        {
+            // Cell completion writes no one term here (the variable's parts, or nothing), so
+            // nothing is placed.
+            self.record(path, None);
+            return Ok(Slot { term, sort: None });
+        }
         let sort = self.infer(&term, |term| injector.term_sort(term, Some(hint)))?;
         let (children_of, actual) = (&term, sort.clone());
         #[expect(
@@ -1601,7 +1788,9 @@ impl<'a, 'view, 'definition, 't> Walk<'a, 'view, 'definition, 't> {
     }
 
     /// An authored cell `L(#dots|#noDots, body, #dots|#noDots)`: the markers have no sort, and the
-    /// body is placed at the cell's single content sort when it has one.
+    /// body is placed at the cell's single content sort when it has one, or, when it is a term of
+    /// the cell sort of the cell's child, at that sort: completion places it in that child,
+    /// building a collection's element for an instance of a `multiplicity="*"` child.
     fn authored_cell<'r>(
         &mut self,
         loaded: &Term,
@@ -1642,7 +1831,21 @@ impl<'a, 'view, 'definition, 't> Walk<'a, 'view, 'definition, 't> {
         let body_hint = content.clone().unwrap_or_else(|| k_item.clone());
         let body = self.child(&arguments[1], &resolved_arguments[1], path, 1, &body_hint)?;
         if let Some(content) = &content {
-            self.place_child(path, 1, &body, content)?;
+            // Completion places a term of a child's cell sort in that child: in a collection's
+            // child, as an instance, which it builds the collection's element of.
+            let required = match &body.sort {
+                Some(sort)
+                    if self
+                        .completed
+                        .completion
+                        .as_ref()
+                        .is_some_and(|completion| completion.is_child(label, sort)) =>
+                {
+                    sort
+                }
+                Some(_) | None => content,
+            };
+            self.place_child(path, 1, &body, required)?;
         }
         self.child(&arguments[2], &resolved_arguments[2], path, 2, &k_item)?;
         self.record(path, reported(sort));
