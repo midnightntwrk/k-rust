@@ -771,21 +771,9 @@ fn factor_derivations(derivations: &mut BTreeSet<Derivation>) {
     derivations.extend(unspanned);
 }
 
+/// The span of `term` ([`PackedTerm::span`]).
 pub(super) fn packed_term_span(term: &PackedTerm) -> Option<TermSpan> {
-    crate::stack::guarded(|| match &term.node {
-        PackedNode::Production { metadata, .. }
-        | PackedNode::InstantiatedProduction { metadata, .. } => metadata.span,
-        PackedNode::Term(term) => term.metadata().and_then(|metadata| metadata.span),
-        PackedNode::Ambiguity(alternatives) => {
-            let mut spans = alternatives
-                .iter()
-                .map(|alternative| packed_term_span(alternative));
-            let span = spans.next().flatten()?;
-            spans
-                .all(|candidate| candidate == Some(span))
-                .then_some(span)
-        }
-    })
+    term.span()
 }
 
 #[allow(clippy::too_many_arguments)]
