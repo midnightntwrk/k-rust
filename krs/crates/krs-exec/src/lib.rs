@@ -22,7 +22,7 @@ mod report;
 mod stage;
 
 use std::collections::BTreeMap;
-use std::fmt;
+use std::{collections::HashMap, fmt};
 
 use k_rust::{
     backend::{
@@ -30,7 +30,12 @@ use k_rust::{
         PatternRequest, ProveRequest, SearchRequest, SearchResponse, SearchTypeArg, TraceEntry,
     },
     inner::{ParseError, ProgramError, ProgramParseError},
-    kast::{Sort as KastSort, convert::convert, json as kast_json, printer::Printer},
+    kast::{
+        Sort as KastSort,
+        convert::{Converter, sort_hooks},
+        json as kast_json,
+        printer::Printer,
+    },
     kore::{ast::Pattern, json as kore_json},
 };
 use krs_ir::{SourceFileId, measure::Timings};
@@ -375,6 +380,9 @@ impl From<BackendError> for ExecError {
 /// One compiled definition, ready to parse, configure, run, search, and prove.
 pub struct Semantics {
     backend: Backend,
+    /// The sort hooks of `backend`'s definition, by KAST sort name, with which its results are
+    /// converted to KAST (`result_sort_hooks`).
+    sort_hooks: HashMap<String, String>,
     unparser: krs_unparse::Unparser,
     configuration: Configuration,
     frontend_definition: NativeDefinition,
@@ -397,6 +405,8 @@ pub struct Semantics {
 /// One author spec module's compiled proof definition (KF-041).
 struct SpecProver {
     backend: Backend,
+    /// The sort hooks of `backend`'s definition (`result_sort_hooks`).
+    sort_hooks: HashMap<String, String>,
     claims: Vec<ClaimInfo>,
 }
 
@@ -456,7 +466,7 @@ impl Semantics {
                 .map(|unparser| unparser.with_program_grammar(&frontend_definition))
                 .map_err(|error| ExecError::Backend(error.to_string()))
         })?;
-        let backend = timings.try_span("exec.backend", |_| {
+        let mut backend = timings.try_span("exec.backend", |_| {
             Backend::new(
                 &definition_kore,
                 main_module.clone(),
@@ -464,6 +474,7 @@ impl Semantics {
             )
             .map_err(ExecError::from)
         })?;
+        let sort_hooks = result_sort_hooks(&mut backend)?;
         let user_sorts = user_sorts(definition, &frontend_definition);
         let console = console::ConsoleCells::of(definition);
         let mut origins = origin::Origins::new(sources);
@@ -482,6 +493,7 @@ impl Semantics {
         let spec_definition = (!spec_modules.is_empty()).then(|| Box::new(definition.clone()));
         Ok(Self {
             backend,
+            sort_hooks,
             unparser,
             configuration,
             frontend_definition,
@@ -523,15 +535,22 @@ impl Semantics {
         if !self.spec_modules.contains(&stage.module) {
             return Err(self.unknown_spec_module(&stage.module));
         }
-        let backend = Backend::new(
+        let mut backend = Backend::new(
             &stage.definition_kore,
             stage.module.clone(),
             BackendOptions::default(),
         )?;
+        let sort_hooks = result_sort_hooks(&mut backend)?;
         let claims =
             claims::spec_catalog(&stage.definition_kore, &stage.provenance, &mut self.origins)?;
-        self.spec_provers
-            .insert(stage.module, SpecProver { backend, claims });
+        self.spec_provers.insert(
+            stage.module,
+            SpecProver {
+                backend,
+                sort_hooks,
+                claims,
+            },
+        );
         Ok(())
     }
 
@@ -776,7 +795,7 @@ impl Semantics {
         } else {
             Vec::new()
         };
-        let state = term(&leaf.state)?;
+        let state = term(&leaf.state, &self.sort_hooks)?;
         let halt = Halt::from_backend(leaf.reason);
         let stdout = if self.console.stdout {
             console::stdout_buffer(state.kore())
@@ -804,7 +823,7 @@ impl Semantics {
     /// `1.5000000000000000e+00p53x11`).
     fn krun_floats(&self, state: Term) -> Result<Term, ExecError> {
         match self.unparser.llvm_floats(state.kore()) {
-            Some(kore) => Term::from_kore(kore),
+            Some(kore) => self.term(kore),
             None => Ok(state),
         }
     }
@@ -845,7 +864,7 @@ impl Semantics {
             .iter()
             .map(|solution| {
                 Ok(Solution {
-                    state: self.krun_floats(term(&solution.state)?)?,
+                    state: self.krun_floats(term(&solution.state, &self.sort_hooks)?)?,
                     depth: solution.depth,
                     trace: if options.trace {
                         self.steps(&solution.trace)
@@ -875,7 +894,12 @@ impl Semantics {
             if prover.claims.is_empty() {
                 return Err(ExecError::NoSpecClaims(module.clone()));
             }
-            return prove_claims(&mut prover.backend, &prover.claims, options);
+            return prove_claims(
+                &mut prover.backend,
+                &prover.sort_hooks,
+                &prover.claims,
+                options,
+            );
         }
         if self.claims.is_empty() {
             if !self.spec_modules.is_empty() {
@@ -887,7 +911,20 @@ impl Semantics {
             }
             return Err(ExecError::NoClaims);
         }
-        prove_claims(&mut self.backend, &self.claims, options)
+        prove_claims(&mut self.backend, &self.sort_hooks, &self.claims, options)
+    }
+
+    /// A term from a KORE pattern of this definition, with its KAST conversion, which renders
+    /// each domain value by its sort's hook.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecError::Result`] when the pattern has no KAST form.
+    pub fn term(&self, kore: Pattern) -> Result<Term, ExecError> {
+        let kast = Converter::new(&self.sort_hooks)
+            .convert(&kore)
+            .map_err(|error| ExecError::Result(error.to_string()))?;
+        Ok(Term::new(kore, kast))
     }
 
     /// Render a term.
@@ -973,6 +1010,7 @@ fn compile_spec_definition(
 /// Prove the selected claims of `catalog` on `backend`, one proof per claim, in selection order.
 fn prove_claims(
     backend: &mut Backend,
+    sort_hooks: &HashMap<String, String>,
     catalog: &[ClaimInfo],
     options: &ProveOptions,
 ) -> Result<Vec<ProofReport>, ExecError> {
@@ -1003,7 +1041,7 @@ fn prove_claims(
             verdict = verdict.weakest(disjunct);
             for leaf in &result.leaves {
                 leaves.push(ProofLeaf {
-                    state: term(&leaf.state)?,
+                    state: term(&leaf.state, sort_hooks)?,
                     depth: leaf.depth,
                     outcome: leaf.outcome.name().to_owned(),
                     detail: leaf.detail.clone(),
@@ -1048,24 +1086,30 @@ fn search_backend(
     Ok(backend.search(request)?)
 }
 
-impl Term {
-    /// A term from a KORE pattern, with its KAST conversion.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ExecError::Result`] when the pattern has no KAST form.
-    pub fn from_kore(kore: Pattern) -> Result<Self, ExecError> {
-        let kast = convert(&kore).map_err(|error| ExecError::Result(error.to_string()))?;
-        Ok(Self::new(kore, kast))
-    }
+/// The sort hooks of the definition `backend` runs, by KAST sort name: a result's domain value
+/// is a token whose text depends on its sort's hook (a `BYTES.Bytes` value is a byte string,
+/// not UTF-8 text, and a `STRING.String` value is quoted), and only the definition states them.
+fn result_sort_hooks(backend: &mut Backend) -> Result<HashMap<String, String>, ExecError> {
+    let definition = backend
+        .select_definition(None)
+        .map_err(|error| ExecError::Backend(error.to_string()))?;
+    Ok(sort_hooks(definition.sorts().iter().filter_map(
+        |(name, sort)| Some((name.as_ref(), sort.hook.as_deref()?)),
+    )))
 }
 
-fn term(value: &serde_json::Value) -> Result<Term, ExecError> {
+/// A backend result's term, converted to KAST with its definition's `sort_hooks`.
+fn term(
+    value: &serde_json::Value,
+    sort_hooks: &HashMap<String, String>,
+) -> Result<Term, ExecError> {
     let source =
         serde_json::to_string(value).map_err(|error| ExecError::Result(error.to_string()))?;
     let kore =
         kore_json::from_str(&source).map_err(|error| ExecError::Result(error.to_string()))?;
-    let kast = convert(&kore).map_err(|error| ExecError::Result(error.to_string()))?;
+    let kast = Converter::new(sort_hooks)
+        .convert(&kore)
+        .map_err(|error| ExecError::Result(error.to_string()))?;
     Ok(Term::new(kore, kast))
 }
 

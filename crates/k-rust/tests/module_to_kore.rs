@@ -6,7 +6,7 @@
 
 use indoc::indoc;
 use k_rust::definition::ResolvedDefinition;
-use k_rust::kast::convert::{Converter, convert, convert_sort};
+use k_rust::kast::convert::{ConversionError, Converter, convert_sort};
 use k_rust::kompile::{
     TermConverter, declaration_modules, declaration_modules_from_resolved_with_options,
     encode_kore_label, encode_kore_sort, module_to_kore,
@@ -24,6 +24,11 @@ use k_rust::{
 use k_rust::{kast, kast::Label, outer};
 use serde::Deserialize;
 use serde_json::json;
+
+/// The KAST conversion of a pattern that holds no domain value, which needs no sort hook.
+fn convert(pattern: &Pattern) -> Result<kast::Term, ConversionError> {
+    Converter::new(&std::collections::HashMap::new()).convert(pattern)
+}
 
 fn lowered(source: &str, main_module: &str) -> k_rust::definition::Definition {
     let parsed = outer::parse("declarations.k", source).expect("definition should parse");

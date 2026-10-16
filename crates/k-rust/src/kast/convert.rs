@@ -303,8 +303,22 @@ impl<'a> Converter<'a> {
     }
 }
 
-pub fn convert(pattern: &Pattern) -> Result<Term, ConversionError> {
-    Converter::new(&HashMap::new()).convert(pattern)
+/// The sort hooks of a definition as [`Converter::new`] takes them: the KAST name of each hooked
+/// sort with its hook, from the KORE name and hook of each sort declaration.
+///
+/// A domain value's KAST token depends on its sort's hook (a `BYTES.Bytes` payload is a byte
+/// string, not text), and only the definition states the hooks. A KORE sort name that does not
+/// decode names no sort a converted pattern can have, since the conversion of such a sort fails
+/// first, and is left out.
+pub fn sort_hooks<'a>(
+    kore_sorts: impl IntoIterator<Item = (&'a str, &'a str)>,
+) -> HashMap<String, String> {
+    kore_sorts
+        .into_iter()
+        .filter_map(|(name, hook)| {
+            Some((identifier::decode_sort_name(name).ok()?, hook.to_owned()))
+        })
+        .collect()
 }
 
 pub fn convert_sort(sort: &KoreSort) -> Result<Sort, ConversionError> {
@@ -317,7 +331,14 @@ mod tests {
 
     use crate::kore::parser::parse_pattern;
 
-    use super::{Converter, convert};
+    use super::{Converter, sort_hooks};
+
+    /// The conversion of a pattern that holds no domain value, which needs no sort hook.
+    fn convert(
+        pattern: &crate::kore::ast::Pattern,
+    ) -> Result<crate::kast::Term, super::ConversionError> {
+        Converter::new(&HashMap::new()).convert(pattern)
+    }
 
     #[test]
     fn converts_labels_sequences_and_rewrites() {
@@ -337,6 +358,36 @@ mod tests {
         let hooks = HashMap::from([("String".into(), "STRING.String".into())]);
         let term = Converter::new(&hooks).convert(&pattern).unwrap();
         assert_eq!(term.to_string(), r#"#token("\"hello\"","String")"#);
+    }
+
+    /// A Bytes domain value is a byte string, one byte per code point U+0000 to U+00FF, rendered
+    /// by its hook whether or not it is valid UTF-8; a String one is quoted. The hooks are read
+    /// from KORE sort declarations.
+    #[test]
+    fn converts_bytes_and_string_domain_values_with_the_definitions_hooks() {
+        let hooks = sort_hooks([
+            ("SortBytes", "BYTES.Bytes"),
+            ("SortString", "STRING.String"),
+            ("NotASort", "INT.Int"),
+        ]);
+        assert_eq!(
+            hooks,
+            HashMap::from([
+                ("Bytes".to_owned(), "BYTES.Bytes".to_owned()),
+                ("String".to_owned(), "STRING.String".to_owned()),
+            ])
+        );
+        let converter = Converter::new(&hooks);
+        let bytes = parse_pattern(r#"\dv{SortBytes{}}("\x80\xff")"#).unwrap();
+        assert_eq!(
+            converter.convert(&bytes).unwrap().to_string(),
+            r#"#token("b\"\\x80\\xff\"","Bytes")"#
+        );
+        let string = parse_pattern(r#"\dv{SortString{}}("a")"#).unwrap();
+        assert_eq!(
+            converter.convert(&string).unwrap().to_string(),
+            r#"#token("\"a\"","String")"#
+        );
     }
 
     #[test]

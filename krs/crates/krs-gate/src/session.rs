@@ -459,7 +459,7 @@ impl Session {
             }
             "pretty" => {
                 let pattern = parse_pattern(required_string(request, "kore")?)?;
-                let term = krs_exec::Term::from_kore(pattern)?;
+                let term = semantics.term(pattern)?;
                 semantics.unparse(&term, color)
             }
             other => return Err(format!("unknown unparse mode `{other}`").into()),
