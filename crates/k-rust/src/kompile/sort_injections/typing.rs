@@ -802,7 +802,7 @@ impl<'a> SentenceTyper<'a> {
             ..
         }) = &*resolved
         else {
-            return Ok(cell_content::Completed::default());
+            return Ok(cell_content::Completed::without_cells());
         };
         let mut has_cell = false;
         for root in [body, requires, ensures]
@@ -818,7 +818,7 @@ impl<'a> SentenceTyper<'a> {
             });
         }
         if !has_cell {
-            return Ok(cell_content::Completed::default());
+            return Ok(cell_content::Completed::without_cells());
         }
         let model_module = crate::kompile::passes::cell_model_module(self.definition, module);
         let completion = self
@@ -843,6 +843,33 @@ impl<'a> SentenceTyper<'a> {
                     .to_owned(),
             ));
         }
+        // The local functions applied in the sentence's own scope: in the sentence, or in the
+        // value of one applied there.
+        let mut enclosing = std::collections::BTreeSet::new();
+        let mut pending = Vec::new();
+        for root in cell_content::roots(resolved) {
+            root.visit_preorder(&mut |term| {
+                if let Term::Variable { name, .. } = term.unannotated()
+                    && locals.contains_key(name)
+                {
+                    pending.push(name.clone());
+                }
+            });
+        }
+        // Invariant: `enclosing` holds the stand-ins met so far, and `pending` those whose
+        // value is not walked yet; each stand-in enters `enclosing` once.
+        while let Some(stand_in) = pending.pop() {
+            if !enclosing.insert(stand_in.clone()) {
+                continue;
+            }
+            locals[&stand_in].argument.visit_preorder(&mut |term| {
+                if let Term::Variable { name, .. } = term.unannotated()
+                    && locals.contains_key(name)
+                {
+                    pending.push(name.clone());
+                }
+            });
+        }
         for (stand_in, local) in locals.iter() {
             let equation = match &local.equation {
                 local_functions::Equation::Split { pattern, body } => vec![pattern, body],
@@ -857,25 +884,32 @@ impl<'a> SentenceTyper<'a> {
                         .to_owned(),
                 ));
             }
-            if !completed.enclosing.contains(stand_in) {
+            if !enclosing.contains(stand_in.as_str()) {
                 continue;
             }
             for closure in &local.closure {
                 let Term::Variable { name, sort } = closure.unannotated() else {
                     continue;
                 };
-                let (Some(fragment), Some(variable)) = (
+                // The term compilation passes for the closure variable, and its sort: a
+                // fragment variable's fragment term, or an alias variable at its cell's sort.
+                let (term, found) = match (
                     completed.fragment_sorts.get(name),
                     completed.variables.get(name),
-                ) else {
-                    continue;
+                    completed.aliases.get(name),
+                ) {
+                    (Some(fragment), Some(variable), _) => {
+                        (format!("`{}`({name})", variable.fragment.name), fragment)
+                    }
+                    (_, _, Some(alias)) => (name.clone(), alias),
+                    _ => continue,
                 };
                 let parameter = sort
                     .clone()
                     .unwrap_or_else(|| Sort::builtin(BuiltinSort::K));
                 let placed = self
                     .injector
-                    .places(closure, fragment, &parameter)
+                    .places(closure, found, &parameter)
                     .map_err(|error| SentenceTypingError::Sort {
                         location: location.cloned(),
                         error,
@@ -884,8 +918,8 @@ impl<'a> SentenceTyper<'a> {
                     return Err(SentenceTypingError::Sort {
                         location: location.cloned(),
                         error: SortInjectionError::IllSortedTerm(Box::new(SortMismatch {
-                            term: format!("`{}`({name})", variable.fragment.name),
-                            found: fragment.clone(),
+                            term,
+                            found: found.clone(),
                             required: parameter,
                         })),
                     });
@@ -1689,7 +1723,9 @@ impl<'a, 'view, 'definition, 't> Walk<'a, 'view, 'definition, 't> {
             {
                 self.authored_cell(loaded, resolved, path)
             }
-            Term::As { pattern, alias } if self.is_authored_cell(pattern)? => {
+            Term::As { pattern, alias }
+                if self.completed.active && self.is_authored_cell(pattern)? =>
+            {
                 // `<c> .. </c> #as V`: the pattern is typed as an authored cell, and the alias,
                 // which completion gives that cell's sort, is placed at it.
                 let Term::As {

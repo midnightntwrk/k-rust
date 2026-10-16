@@ -59,6 +59,9 @@ use super::local_functions::Locals;
 /// the sentence (none for a sentence without an authored cell).
 #[derive(Default)]
 pub(super) struct Completed {
+    /// Whether the typing models cell completion at all; the macro-expansion typer's does not
+    /// (`SentenceTyper::for_macro_expansion`), and its walks type as before that model.
+    pub(super) active: bool,
     pub(super) completion: Option<Arc<CellCompletion>>,
     /// The address of each re-sorted occurrence, as a node of the resolved sentence or of a
     /// local function's value.
@@ -69,9 +72,6 @@ pub(super) struct Completed {
     pub(super) fragment_sorts: BTreeMap<String, Sort>,
     /// The cell sort of each one-cell alias variable.
     pub(super) aliases: BTreeMap<String, Sort>,
-    /// The local functions applied in the sentence's own scope (not in an equation), by
-    /// stand-in name.
-    pub(super) enclosing: BTreeSet<String>,
     /// Whether a local function is written as an item of the body of a cell with children.
     pub(super) local_in_body: bool,
     /// The re-sorted nodes a walk looked up, which must be all of them.
@@ -80,8 +80,17 @@ pub(super) struct Completed {
 }
 
 impl Completed {
+    /// The record of a sentence without an authored cell, typed with the model on.
+    pub(super) fn without_cells() -> Self {
+        Self {
+            active: true,
+            ..Self::default()
+        }
+    }
+
     fn new(completion: Arc<CellCompletion>) -> Self {
         Self {
+            active: true,
             completion: Some(completion),
             ..Self::default()
         }
@@ -216,7 +225,7 @@ pub(super) fn complete(
 }
 
 /// The body, requires and ensures of `sentence`, a rule or claim.
-fn roots(sentence: &Sentence) -> [&Term; 3] {
+pub(super) fn roots(sentence: &Sentence) -> [&Term; 3] {
     match sentence {
         Sentence::Rule {
             body,
@@ -514,7 +523,6 @@ impl Resort<'_, '_> {
             else {
                 unreachable!("the copy of a variable is a variable or a local function")
             };
-            self.completed.enclosing.insert(name.clone());
             self.completed.local_in_body |= matches!(place, Place::Parts);
             if let Some(value) = self.values.remove(name) {
                 self.term(value, &arguments[0]);

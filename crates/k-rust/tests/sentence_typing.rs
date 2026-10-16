@@ -2299,6 +2299,11 @@ fn a_cell_fragment_sentence_compilation_rejects_fails_typing() {
             "<k> go => #let Y = 1 #in fooK(A) ... </k> <accounts> A </accounts>",
             "AccountsCellFragment",
         ),
+        // An alias closure variable is passed at its cell's sort, here to a `Bag` parameter.
+        (
+            "<k> go => #let Y = 1 #in fooK(X) ... </k> <one> (<inner> 1 </inner> #as X) </one>",
+            "term X has sort InnerCell, which is not a subsort of the sort Bag",
+        ),
         // Completion places no local function in a cell body; the view refuses the shape.
         (
             "<k> go => .K ... </k> <accounts> _ => #let Y = 1 #in A </accounts> <tags> A </tags>",
@@ -2386,20 +2391,32 @@ fn macro_expansion_compiles_as_without_the_cell_completion_view() {
         format!("{}\n", axiom.trim_end()),
         include_str!("fixtures/sentence-typing/macro-instance-fragment.axiom")
     );
-    let loaded = load_main(
-        "macro-instance-undetermined.k",
-        include_str!("fixtures/sentence-typing/macro-instance-undetermined.k"),
-        "TEST",
-        None,
-    );
-    let error = compiled_kore(&loaded).unwrap_err();
-    assert!(
-        error.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
-            .contains("macro symbol that was not expanded")),
-        "{error} {:?}",
-        error.diagnostics
-    );
+    // `mm()` beside a sentence the view without the model does not type (a fragment variable
+    // at `Bag` in an `AccountCellMap` body, an as-pattern of an authored cell) has no instance.
+    for (name, source) in [
+        (
+            "macro-instance-undetermined.k",
+            include_str!("fixtures/sentence-typing/macro-instance-undetermined.k"),
+        ),
+        (
+            "macro-instance-alias-one.k",
+            include_str!("fixtures/sentence-typing/macro-instance-alias-one.k"),
+        ),
+        (
+            "macro-instance-alias-accounts.k",
+            include_str!("fixtures/sentence-typing/macro-instance-alias-accounts.k"),
+        ),
+    ] {
+        let loaded = load_main(name, source, "TEST", None);
+        let error = compiled_kore(&loaded).unwrap_err();
+        assert!(
+            error.diagnostics.iter().any(|diagnostic| diagnostic
+                .message
+                .contains("macro symbol that was not expanded")),
+            "{name}: {error} {:?}",
+            error.diagnostics
+        );
+    }
 }
 
 // The rule parser reads no collection-sorted variable as a cell's content.
