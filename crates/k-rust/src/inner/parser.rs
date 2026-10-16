@@ -4269,6 +4269,59 @@ impl inference::Lowering<Term> for InferredLowering<'_> {
     }
 }
 
+/// A node a production lowers to over its lowered children (`lower_term`): a [`Term`], or a
+/// term whose subterms are shared (`disambiguation::OneTerm`). Each constructor builds the node
+/// of the [`Term`] constructor of the same name over its arguments, so a node lowered over shared
+/// subterms stands for the term lowered over their terms.
+pub(super) trait LoweredNode: Sized {
+    /// The text of the node when it is a string token (`kstring_token`).
+    fn kstring_token(&self) -> Option<&str>;
+    fn token(token: String, sort: Sort) -> Self;
+    /// [`Term::sequence`]: the items, each sequence among them spliced.
+    fn sequence(items: Vec<Self>) -> Self;
+    fn rewrite(left: Self, right: Self) -> Self;
+    fn alias(pattern: Self, alias: Self) -> Self;
+    fn apply(label: Label, arguments: Vec<Self>) -> Self;
+    /// [`Term::with_metadata`].
+    fn with_metadata(self, metadata: TermMetadata) -> Self;
+}
+
+impl LoweredNode for Term {
+    fn kstring_token(&self) -> Option<&str> {
+        kstring_token(self)
+    }
+
+    fn token(token: String, sort: Sort) -> Self {
+        Term::Token { token, sort }
+    }
+
+    fn sequence(items: Vec<Self>) -> Self {
+        Term::sequence(items)
+    }
+
+    fn rewrite(left: Self, right: Self) -> Self {
+        Term::Rewrite {
+            left: Box::new(left),
+            right: Box::new(right),
+        }
+    }
+
+    fn alias(pattern: Self, alias: Self) -> Self {
+        Term::As {
+            pattern: Box::new(pattern),
+            alias: Box::new(alias),
+        }
+    }
+
+    fn apply(label: Label, arguments: Vec<Self>) -> Self {
+        Term::Apply { label, arguments }
+    }
+
+    fn with_metadata(self, metadata: TermMetadata) -> Self {
+        Term::with_metadata(self, metadata)
+    }
+}
+
 /// The term a completed production denotes over its lowered children.
 ///
 /// Fails only for a production labelled `#OuterCast` whose result sort has no sort projection;
@@ -4276,12 +4329,12 @@ impl inference::Lowering<Term> for InferredLowering<'_> {
 /// The KAST term of one node of `production` over its lowered `children`, which it takes over:
 /// a node is built from its children without copying them, so lowering a tree costs time in
 /// proportion to its size, whatever its height.
-fn lower_term(
+fn lower_term<T: LoweredNode>(
     production: &Production,
-    mut children: Vec<Term>,
+    mut children: Vec<T>,
     span: Option<TermSpan>,
     denotations: &SortDenotations,
-) -> Result<Term, ParseError> {
+) -> Result<T, ParseError> {
     if production.transparent || production.label.is_none() && children.len() == 1 {
         return Ok(children.swap_remove(0));
     }
@@ -4303,38 +4356,31 @@ fn lower_term(
     }
     if label.is(InternalLabel::KToken)
         && let [value, sort] = children.as_slice()
-        && let (Some(value), Some(sort)) = (kstring_token(value), kstring_token(sort))
+        && let (Some(value), Some(sort)) = (value.kstring_token(), sort.kstring_token())
         && let (Ok(value), Ok(sort)) = (
             crate::kast::string::unquote(value),
             crate::kast::string::unquote(sort),
         )
         && let Ok(sort) = crate::kast::parser::parse_sort_text(&sort)
     {
-        return Ok(Term::Token {
-            token: value,
-            sort: denotations.denote(&sort).clone(),
-        });
+        return Ok(T::token(value, denotations.denote(&sort).clone()));
     }
-    let pair = |children: Vec<Term>| -> [Box<Term>; 2] {
-        let [first, second] = <[Term; 2]>::try_from(children)
-            .unwrap_or_else(|_| unreachable!("the arm matched two children"));
-        [Box::new(first), Box::new(second)]
+    let pair = |children: Vec<T>| -> [T; 2] {
+        <[T; 2]>::try_from(children)
+            .unwrap_or_else(|_| unreachable!("the arm matched two children"))
     };
     Ok(match (InternalLabel::of(&label.name), children.len()) {
-        (Some(InternalLabel::EmptyK), 0) => Term::Sequence(Vec::new()),
-        (Some(InternalLabel::KSequence), _) => Term::sequence(children),
+        (Some(InternalLabel::EmptyK), 0) => T::sequence(Vec::new()),
+        (Some(InternalLabel::KSequence), _) => T::sequence(children),
         (Some(InternalLabel::KRewrite), 2) => {
             let [left, right] = pair(children);
-            Term::Rewrite { left, right }
+            T::rewrite(left, right)
         }
         (Some(InternalLabel::KAs), 2) => {
             let [pattern, alias] = pair(children);
-            Term::As { pattern, alias }
+            T::alias(pattern, alias)
         }
-        _ => Term::Apply {
-            label,
-            arguments: children,
-        },
+        _ => T::apply(label, children),
     })
 }
 
@@ -6052,6 +6098,71 @@ mod chart_tests {
             .expect("application resolution must not truncate a valid packed forest");
 
         assert_eq!(Grammar::ambiguity_count(&retained), 70);
+    }
+
+    /// Application resolution visits an ambiguity's alternatives in the order of their set, and
+    /// when none resolves reports the error of the least in structural order, as it did when it
+    /// visited them in that order: here the applications of unknown labels, whose set order
+    /// begins elsewhere.
+    #[test]
+    fn an_ambiguity_of_failing_applications_reports_its_least_alternatives_error() {
+        let mut grammar = Grammar::default();
+        grammar
+            .add(
+                Sort::new("K"),
+                vec![
+                    ProductionItem::NonTerminal {
+                        sort: Sort::new("KLabel"),
+                        name: None,
+                    },
+                    ProductionItem::NonTerminal {
+                        sort: Sort::new("KList"),
+                        name: None,
+                    },
+                ],
+                Some(Label::new("#KApply")),
+                false,
+                false,
+            )
+            .unwrap();
+        let application = |label: &str| {
+            PackedTerm::production(
+                0,
+                vec![
+                    PackedTerm::leaf(Term::Token {
+                        token: label.to_owned(),
+                        sort: Sort::new("KLabel"),
+                    }),
+                    PackedTerm::leaf(Term::variable("X")),
+                ],
+                TermMetadata::default(),
+            )
+        };
+        let alternatives = (0..64)
+            .map(|index| application(&format!("unknown{index}")))
+            .collect::<BTreeSet<_>>();
+        let least = alternatives
+            .iter()
+            .min_by(|left, right| cmp_packed_structurally(left, right))
+            .unwrap();
+        assert!(
+            !Rc::ptr_eq(least, alternatives.first().unwrap()),
+            "the set order must begin with another alternative for the test to tell them apart"
+        );
+        let PackedNode::Production { children, .. } = &least.node else {
+            unreachable!("an application")
+        };
+        let PackedNode::Term(Term::Token { token, .. }) = &children[0].node else {
+            unreachable!("a label token")
+        };
+        let expected = ParseError::UnknownApplication {
+            label: token.clone(),
+            arity: 1,
+        };
+
+        let resolved = grammar.resolve_packed_applications(PackedTerm::ambiguity(alternatives));
+
+        assert_eq!(resolved, Err(expected));
     }
 
     #[test]

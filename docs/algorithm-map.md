@@ -180,7 +180,7 @@ No phase contains these algorithms and no representation connects them to a comm
 - parser.chart.insert — O(D x W) with O(D log D) boundary factoring — at k-rust/inner/parser/chart.rs `Chart::add_with_status`
 - parser.diagnostic.ambiguity — O(A) — at k-rust/inner/parser.rs `AmbiguousParse`
 - parser.diagnostic.no_parse — O(B + K x log E) plus O(L) per scanner.winner… — at k-rust/inner/parser.rs `Grammar::no_parse`
-- parser.disambiguation.collapse_records — O(N + X x F) plus the structural ordering of each… — at k-rust/inner/parser/record.rs `Grammar::collapse_packed_record_productions`
+- parser.disambiguation.collapse_records — O(N + X x F) plus the structural ordering of the… — at k-rust/inner/parser/record.rs `Grammar::collapse_packed_record_productions`
 - parser.disambiguation.factor_packed — O(N x A), plus the structural ordering that… +1 mode — at k-rust/inner/parser/disambiguation.rs `Grammar::factor_pre_inference_packed_ambiguities`
 - parser.disambiguation.filter_overloads — O(R) to collect the sources of the prefer and… +1 mode — at k-rust/inner/parser/disambiguation.rs `Grammar::filter_packed_overloads_prefer_avoid`
 - parser.disambiguation.insert_empty_lists — O((N + E) x S x C), each node's result, wrapping… +1 mode — at k-rust/inner/parser/lists.rs `Grammar::add_packed_empty_lists`

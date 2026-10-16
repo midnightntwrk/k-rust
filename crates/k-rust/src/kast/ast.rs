@@ -218,6 +218,23 @@ impl TermMetadata {
     /// receipt: receipts are allocated only by the generating passes' recorder and by the
     /// provenance reader. There the receipts are both absent, which is "identical" by pointer as
     /// by value, so comparing receipts by identity changes no caller's verdict.
+    /// Replace each field of this metadata that `metadata` gives, as [`Term::with_metadata`]
+    /// annotates an annotated term.
+    pub(crate) fn overlay(&mut self, metadata: TermMetadata) {
+        if metadata.span.is_some() {
+            self.span = metadata.span;
+        }
+        if metadata.production.is_some() {
+            self.production = metadata.production;
+        }
+        if metadata.sort.is_some() {
+            self.sort = metadata.sort;
+        }
+        if metadata.origin.is_some() {
+            self.origin = metadata.origin;
+        }
+    }
+
     pub(crate) fn identical(&self, other: &Self) -> bool {
         measure::bump(Counter::KompileResolveMetadataCompares);
         self.span == other.span
@@ -533,18 +550,7 @@ impl Term {
                 term,
                 metadata: mut existing,
             } => {
-                if metadata.span.is_some() {
-                    existing.span = metadata.span;
-                }
-                if metadata.production.is_some() {
-                    existing.production = metadata.production;
-                }
-                if metadata.sort.is_some() {
-                    existing.sort = metadata.sort;
-                }
-                if metadata.origin.is_some() {
-                    existing.origin = metadata.origin;
-                }
+                existing.overlay(metadata);
                 Self::Annotated {
                     term,
                     metadata: existing,
