@@ -1779,6 +1779,7 @@ pub(super) fn execution_response<K: WireKore>(
             .collect(),
         coverage: result.coverage.map(Into::into),
         work: result.work,
+        expanded: result.expanded,
         stack_stops: result.stack_stops,
     })
 }

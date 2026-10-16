@@ -2713,6 +2713,8 @@ endmodule
         })
         .unwrap();
     assert_eq!(budgeted.work, 5);
+    // Every visited `loop` state is stepped; the state the budget stopped at is not.
+    assert_eq!(budgeted.expanded, 5);
     let reasons = budgeted
         .leaves
         .iter()
@@ -2729,6 +2731,7 @@ endmodule
     let output: serde_json::Value =
         serde_json::from_str(&backend.execute_json(request).unwrap()).unwrap();
     assert_eq!(output["work"], 5);
+    assert_eq!(output["expanded"], 5);
     assert_eq!(output["leaves"][0]["reason"], "work-bound");
 
     let finished = compile(SOURCE, "LOOP", "LOOP", "Pgm", "done(0)");
@@ -2737,6 +2740,7 @@ endmodule
         .execute(ExecuteRequest::new(finished.initial.clone()))
         .unwrap();
     assert_eq!(unbounded.work, 1);
+    assert_eq!(unbounded.expanded, 1, "the stuck state's step answered");
     assert_eq!(unbounded.leaves[0].reason, HaltReasonOutput::Stuck);
 }
 

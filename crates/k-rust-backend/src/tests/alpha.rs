@@ -1487,7 +1487,7 @@ impl AlphaComparable for ExecutionResult {
         if self.modality != other.modality {
             return Err("execution result modalities differ".into());
         }
-        if self.work != other.work {
+        if self.work != other.work || self.expanded != other.expanded {
             return Err("execution work counts differ".into());
         }
         if self.stack_stops != other.stack_stops {
@@ -1517,6 +1517,7 @@ impl AlphaComparable for ExecutionResult {
             discarded: self.discarded.clone(),
             coverage: self.coverage.clone(),
             work: self.work,
+            expanded: self.expanded,
             stack_stops: self.stack_stops,
             stopped: self.stopped.clone(),
         })
@@ -1565,6 +1566,7 @@ fn result_with_transition(name: &str) -> ExecutionResult {
     ExecutionResult {
         coverage: None,
         work: 0,
+        expanded: 0,
         stack_stops: 0,
         stopped: None,
         modality: crate::search::ResultModality::StateSet,
