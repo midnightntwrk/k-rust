@@ -10,7 +10,7 @@ use crate::compare::{Comparison, PointComparison, WorkloadComparison};
 use crate::report::{growth, mib, seconds};
 use crate::results::Samples;
 use crate::stats::{
-    Interval, MetricComparison, Verdict, compare_metric, judge_pooled, paired_ratios,
+    Interval, MIN_PAIRS, MetricComparison, Verdict, compare_metric, judge_pooled, paired_ratios,
 };
 
 const MIB: f64 = 1_048_576.0;
@@ -81,32 +81,35 @@ fn runs_summary(comparison: &Comparison) -> String {
     }
 }
 
-/// The number of CPU pairs `pooled_cpu` pools.
-fn pooled_pairs(workload: &WorkloadComparison) -> usize {
-    let completed: Vec<&PointComparison> = workload.point.iter().filter(|p| ok(p)).collect();
-    let above: Vec<&&PointComparison> = completed
+/// The points a workload's pooled CPU verdict uses: the completed points with at least
+/// `MIN_PAIRS` pairs (a point of one or two runs says nothing about noise) whose base CPU is
+/// at least `NOISE_FLOOR_SECONDS`, or all such points when none reaches it.
+fn pooled_points(workload: &WorkloadComparison) -> Vec<&PointComparison> {
+    let completed: Vec<&PointComparison> = workload
+        .point
         .iter()
-        .filter(|p| p.base.cpu().is_some_and(|c| c >= NOISE_FLOOR_SECONDS))
+        .filter(|p| ok(p))
+        .filter(|p| paired_ratios(&p.base.cpu_seconds, &p.candidate.cpu_seconds).len() >= MIN_PAIRS)
         .collect();
-    let count =
-        |p: &PointComparison| paired_ratios(&p.base.cpu_seconds, &p.candidate.cpu_seconds).len();
-    if above.is_empty() {
-        completed.iter().map(|p| count(p)).sum()
-    } else {
-        above.iter().map(|p| count(p)).sum()
-    }
-}
-
-/// The workload-level CPU verdict: the paired CPU ratios of every completed point whose base
-/// CPU is at least `NOISE_FLOOR_SECONDS` (of every completed point when none is), pooled.
-pub fn pooled_cpu(workload: &WorkloadComparison, comparison: &Comparison) -> MetricComparison {
-    let completed: Vec<&PointComparison> = workload.point.iter().filter(|p| ok(p)).collect();
     let above: Vec<&PointComparison> = completed
         .iter()
         .copied()
         .filter(|p| p.base.cpu().is_some_and(|c| c >= NOISE_FLOOR_SECONDS))
         .collect();
-    let pooled = if above.is_empty() { completed } else { above };
+    if above.is_empty() { completed } else { above }
+}
+
+/// The number of CPU pairs `pooled_cpu` pools.
+fn pooled_pairs(workload: &WorkloadComparison) -> usize {
+    pooled_points(workload)
+        .iter()
+        .map(|p| paired_ratios(&p.base.cpu_seconds, &p.candidate.cpu_seconds).len())
+        .sum()
+}
+
+/// The workload-level CPU verdict: the paired CPU ratios of `pooled_points`, pooled.
+pub fn pooled_cpu(workload: &WorkloadComparison, comparison: &Comparison) -> MetricComparison {
+    let pooled = pooled_points(workload);
     let ratios: Vec<f64> = pooled
         .iter()
         .flat_map(|p| paired_ratios(&p.base.cpu_seconds, &p.candidate.cpu_seconds))
@@ -995,6 +998,16 @@ mod tests {
         }
         // 10 % of 50 ms is 5 ms, under the 20 ms floor.
         assert!(render(&short).contains("- CPU per point: 0 better, 0 worse, 1 within noise"));
+    }
+
+    #[test]
+    fn single_runs_give_no_pooled_verdict() {
+        let mut once = comparison(1.5, "identical");
+        once.truncate_runs(1);
+        let text = render(&once);
+        assert!(text.contains(
+            "(pooled over its points): 0 better, 0 worse, 0 within noise, 1 without a verdict"
+        ));
     }
 
     #[test]
