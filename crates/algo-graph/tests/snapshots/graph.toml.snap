@@ -2797,6 +2797,16 @@ crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/search.rs"
 symbol = "materialize_search_state"
 
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/search.rs"
+symbol = "SearchFrontier::floor"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/search.rs"
+symbol = "forget_depths_below"
+
 [[node.cost]]
 mode = "one depth"
 bound = "O(n) rewrite steps plus O(r) pattern comparisons per retained result"
@@ -2804,6 +2814,10 @@ bound = "O(n) rewrite steps plus O(r) pattern comparisons per retained result"
 [[node.cost]]
 mode = "result or pattern bound reached"
 bound = "one extra rewrite step in state_may_expand"
+
+[[node.cost]]
+mode = "deduplication memory"
+bound = "the keys of the depths not below the lowest depth queued or being expanded (forget_depths_below): the depths the frontier spans, two unless remainders are queued behind deeper successors, rather than every depth visited"
 
 [[node.cost]]
 mode = "trace storage"

@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "backend.search.configurations"
 //! name = "breadth-first search over configurations"
-//! sites = ["search_graph_using", "search_graph_collecting", "materialize_search_state"]
+//! sites = ["search_graph_using", "search_graph_collecting", "materialize_search_state", "SearchFrontier::floor", "forget_depths_below"]
 //! variable = "n = distinct (depth, pattern, is_rewritable) keys at one depth; r = results retained"
 //! counters = ["SearchStatesVisited", "SearchStatesDeduplicated"]
 //! span = "per problem"
@@ -14,6 +14,10 @@
 //! [[cost]]
 //! mode = "result or pattern bound reached"
 //! bound = "one extra rewrite step in state_may_expand"
+//!
+//! [[cost]]
+//! mode = "deduplication memory"
+//! bound = "the keys of the depths not below the lowest depth queued or being expanded (forget_depths_below): the depths the frontier spans, two unless remainders are queued behind deeper successors, rather than every depth visited"
 //!
 //! [[cost]]
 //! mode = "trace storage"
@@ -93,7 +97,7 @@
 
 #![deny(clippy::wildcard_enum_match_arm)]
 
-use std::collections::{BTreeSet, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque, btree_map::Entry};
 
 use k_rust_kore::measure::{self, Algorithm, Counter};
 
@@ -742,12 +746,14 @@ fn search_graph_collecting(
     // step by the number of distinct states rather than by the number of interleavings that
     // reach them. Comparing the patterns by name instead would keep two branches that each
     // introduced a variable apart, since the request's counter names the two variables apart.
-    let mut expanded: HashSet<(u64, Pattern, bool)> = HashSet::new();
+    // The keys are held per depth: a key is only ever compared with keys of its own depth, and
+    // the depths below every state still to be popped are dropped (`forget_depths_below`).
+    let mut expanded: BTreeMap<u64, HashSet<(Pattern, bool)>> = BTreeMap::new();
 
     // The initial states, and those of them found to have no instance before any step.
     let initial_count = initial.len();
     let mut initial_without_instance = 0;
-    let mut pending = VecDeque::with_capacity(initial.len());
+    let mut pending = SearchFrontier::with_capacity(initial.len());
     // Invariant: `pending` holds, in input order, the initial states without a surviving macro or
     // alias symbol, and `incomplete` one entry per other initial state.
     for pattern in initial {
@@ -779,7 +785,7 @@ fn search_graph_collecting(
     // the first state, leaving the initial states unexplored.
     if options.max_breadth == Some(0)
         && let Some(exceeded) =
-            breadth_exceeded(&mut pending, &mut incomplete, options.max_breadth, |work| {
+            pending.breadth_exceeded(&mut incomplete, options.max_breadth, |work| {
                 work.materialize(&observation_log)
             })
     {
@@ -801,15 +807,16 @@ fn search_graph_collecting(
         };
     }
 
-    // `pending` is FIFO, so popped depths never decrease; `expanded` holds the key of every
-    // `(depth, simplified pattern)` expanded so far, so a state is expanded once per depth.
+    // `expanded` holds the key of every `(depth, simplified pattern)` expanded so far at a depth
+    // a state still to be popped can have, so a state is expanded once per depth.
     // Invariant: `pending` holds unexpanded states no deeper than `max_depth`; `states` only grows.
     let end = loop {
-        let work = match pop_or_exhausted(&mut pending) {
+        let work = match pending.pop_front() {
             Ok(work) => work,
             Err(exhausted) => break SearchEnd::Exhausted(exhausted),
         };
         measure::bump(Counter::SearchStatesVisited);
+        forget_depths_below(&mut expanded, pending.floor(work.state.depth));
         // Publish a stop of the state's exploration as its `Stopped` entry; the search ends when
         // the stop ends every remaining state ([`stop_ends_search`]). Never falls through.
         macro_rules! publish_stop {
@@ -996,8 +1003,7 @@ fn search_graph_collecting(
         };
         // A duplicate takes its own path's diagnostics with it: the state kept for this key
         // reports the path recorded first, like its trace.
-        if !expanded.insert((
-            state.depth,
+        if !expanded.entry(state.depth).or_default().insert((
             fresh_counter.request().state_key(&state.pattern),
             is_rewritable,
         )) {
@@ -1190,7 +1196,7 @@ fn search_graph_collecting(
                     observation,
                 ));
                 if let Some(exceeded) =
-                    breadth_exceeded(&mut pending, &mut incomplete, options.max_breadth, |work| {
+                    pending.breadth_exceeded(&mut incomplete, options.max_breadth, |work| {
                         work.materialize(&observation_log)
                     })
                 {
@@ -1235,7 +1241,7 @@ fn search_graph_collecting(
                     pending.push_back(remaining);
                 }
                 if let Some(exceeded) =
-                    breadth_exceeded(&mut pending, &mut incomplete, options.max_breadth, |work| {
+                    pending.breadth_exceeded(&mut incomplete, options.max_breadth, |work| {
                         work.materialize(&observation_log)
                     })
                 {
@@ -1251,6 +1257,86 @@ fn search_graph_collecting(
         incomplete,
         end,
         initial_bottom: initial_count != 0 && initial_without_instance == initial_count,
+    }
+}
+
+/// The configuration search's frontier: its queued work states in FIFO order, with the number
+/// of them queued at each depth.
+struct SearchFrontier {
+    pending: VecDeque<SearchWorkState>,
+    /// How many states of `pending` have each depth; a depth none has is absent.
+    depths: BTreeMap<u64, usize>,
+}
+
+impl SearchFrontier {
+    fn with_capacity(capacity: usize) -> Self {
+        Self {
+            pending: VecDeque::with_capacity(capacity),
+            depths: BTreeMap::new(),
+        }
+    }
+
+    fn push_back(&mut self, work: SearchWorkState) {
+        *self.depths.entry(work.state.depth).or_default() += 1;
+        self.pending.push_back(work);
+    }
+
+    fn pop_front(&mut self) -> Result<SearchWorkState, Exhausted> {
+        let work = pop_or_exhausted(&mut self.pending)?;
+        if let Entry::Occupied(mut queued) = self.depths.entry(work.state.depth) {
+            *queued.get_mut() -= 1;
+            if *queued.get() == 0 {
+                queued.remove();
+            }
+        }
+        Ok(work)
+    }
+
+    /// The lowest depth a state popped from now on can have, while a state of depth `expanding`
+    /// is being expanded: no lower than `expanding` nor than any queued state's depth, since a
+    /// step queues its state's successors one deeper (`next_state`) and its remainder at its own
+    /// depth (`remaining_state`), so every state popped later is queued now, or descends from a
+    /// queued state or from the one being expanded, and is no shallower than it.
+    ///
+    /// The popped depths themselves are not monotone: a remainder is queued behind the
+    /// successors, one deeper, of the states popped before it.
+    fn floor(&self, expanding: u64) -> u64 {
+        self.depths
+            .first_key_value()
+            .map_or(expanding, |(&queued, _)| queued.min(expanding))
+    }
+
+    /// [`breadth_exceeded`] over the queued states; a drained frontier has no depths either.
+    fn breadth_exceeded(
+        &mut self,
+        incomplete: &mut Vec<IncompleteSearch>,
+        max_breadth: Option<usize>,
+        materialize: impl FnMut(SearchWorkState) -> SearchState,
+    ) -> Option<BreadthExceeded> {
+        let exceeded = breadth_exceeded(&mut self.pending, incomplete, max_breadth, materialize);
+        if exceeded.is_some() {
+            self.depths.clear();
+        }
+        exceeded
+    }
+}
+
+impl retention::Frontier for SearchFrontier {
+    fn is_empty(&self) -> bool {
+        self.pending.is_empty()
+    }
+}
+
+/// Drop the deduplication keys of every depth below `floor`, the lowest depth a state still to
+/// be popped can have ([`SearchFrontier::floor`]). A key is only compared with the keys of its
+/// own depth, so no state will be compared with a dropped key: every deduplication decision,
+/// hence every state expanded and every result, is the one the search makes keeping every key,
+/// while the keys held are those of the depths the frontier spans rather than of every depth.
+fn forget_depths_below(expanded: &mut BTreeMap<u64, HashSet<(Pattern, bool)>>, floor: u64) {
+    while let Some(lowest) = expanded.first_entry()
+        && *lowest.key() < floor
+    {
+        lowest.remove();
     }
 }
 
@@ -3261,6 +3347,55 @@ mod tests {
             .expect("conditional-remainder search definition should internalize")
     }
 
+    /// Two states of depth 1 that differ only in their constraints, `X =/= 0` and `X =/= 1`,
+    /// each take one of two conditional rules and leave the same remainder, `X =/= 0` and
+    /// `X =/= 1`, at depth 1. Each remainder is queued behind the successor, at depth 2, of its
+    /// own state, so the search pops a state of depth 2 between the two remainders.
+    #[cfg(feature = "z3")]
+    fn rejoining_remainders_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module SEARCH-REMAINDERS
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                sort SortS{} []
+                symbol initial{}(SortInt{}) : SortS{} [constructor{}()]
+                symbol middle{}(SortInt{}) : SortS{} [constructor{}()]
+                symbol done{}() : SortS{} [constructor{}()]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(
+                        initial{}(X:SortInt{}),
+                        \not{SortS{}}(\equals{SortInt{}, SortS{}}(X:SortInt{}, \dv{SortInt{}}("0")))
+                    ),
+                    middle{}(X:SortInt{})
+                ) [label{}("initial-not-zero")]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(
+                        initial{}(X:SortInt{}),
+                        \not{SortS{}}(\equals{SortInt{}, SortS{}}(X:SortInt{}, \dv{SortInt{}}("1")))
+                    ),
+                    middle{}(X:SortInt{})
+                ) [label{}("initial-not-one")]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(
+                        middle{}(X:SortInt{}),
+                        \equals{SortInt{}, SortS{}}(X:SortInt{}, \dv{SortInt{}}("0"))
+                    ),
+                    done{}()
+                ) [label{}("middle-zero")]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(
+                        middle{}(X:SortInt{}),
+                        \equals{SortInt{}, SortS{}}(X:SortInt{}, \dv{SortInt{}}("1"))
+                    ),
+                    done{}()
+                ) [label{}("middle-one")]
+            endmodule []"#,
+        )
+        .expect("rejoining-remainders search definition should parse");
+        BackendDefinition::internalize(&syntax, "SEARCH-REMAINDERS")
+            .expect("rejoining-remainders search definition should internalize")
+    }
+
     fn search_bound_definition() -> BackendDefinition {
         let syntax = parse_definition(
             r#"[]
@@ -4604,6 +4739,85 @@ mod tests {
                 "{search_type:?}: {paths:#?}"
             );
         }
+    }
+
+    /// A remainder is compared with the keys of its own depth after the search has popped a
+    /// deeper state, so the keys of a depth are kept while a state of that depth is queued:
+    /// the second remainder is dropped as a duplicate of the first and reported once.
+    #[test]
+    #[cfg(feature = "z3")]
+    fn a_remainder_popped_after_a_deeper_state_is_deduplicated() {
+        let definition = rejoining_remainders_definition();
+        let initial = pattern(&definition, "initial{}(X:SortInt{})");
+        let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
+        let before = measure::snapshot();
+        let graph = search_graph_with_solver(
+            &definition,
+            initial,
+            SearchOptions {
+                search_type: SearchType::Final,
+                ..SearchOptions::default()
+            },
+            &solver,
+        );
+        let counted = measure::snapshot().delta(&before);
+        assert!(graph.incomplete.is_empty(), "{graph:#?}");
+        let remainders = graph
+            .states
+            .iter()
+            .filter(|state| {
+                state
+                    .trace
+                    .iter()
+                    .any(|entry| entry.kind == TraceKind::Remainder)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(remainders.len(), 1, "{graph:#?}");
+        assert_eq!(remainders[0].depth, 1);
+        // The initial state, its two successors, their two successors and their two remainders.
+        assert_eq!(counted.get(Counter::SearchStatesVisited), 7);
+        assert_eq!(counted.get(Counter::SearchStatesDeduplicated), 1);
+    }
+
+    /// The floor of a frontier holding a remainder behind deeper successors is the remainder's
+    /// depth, whatever the depth of the state being expanded; the keys below the floor go.
+    #[test]
+    fn the_floor_waits_for_a_remainder_queued_behind_deeper_successors() {
+        let definition = definition();
+        let work = |depth| SearchWorkState {
+            state: SearchState {
+                pattern: initial(&definition),
+                depth,
+                trace: Vec::new(),
+                branch: Vec::new(),
+                observations: Vec::new(),
+                diagnostics: Vec::new(),
+            },
+            trace: PathTrace::default(),
+            observation: None,
+            diagnostics: PathDiagnostics::new_request(),
+            kind: QueuedStateKind::Rewritable,
+        };
+        let mut frontier = SearchFrontier::with_capacity(4);
+        for depth in [1, 2, 1, 2] {
+            frontier.push_back(work(depth));
+        }
+        let popped = |frontier: &mut SearchFrontier| {
+            let depth = frontier.pop_front().ok().unwrap().state.depth;
+            (depth, frontier.floor(depth))
+        };
+        assert_eq!(popped(&mut frontier), (1, 1));
+        assert_eq!(popped(&mut frontier), (2, 1));
+        assert_eq!(popped(&mut frontier), (1, 1));
+        assert_eq!(popped(&mut frontier), (2, 2));
+        assert!(frontier.pop_front().is_err());
+
+        let mut expanded = BTreeMap::<u64, HashSet<(Pattern, bool)>>::new();
+        for depth in [1, 2, 3] {
+            expanded.entry(depth).or_default();
+        }
+        forget_depths_below(&mut expanded, 2);
+        assert_eq!(expanded.keys().copied().collect::<Vec<_>>(), [2, 3]);
     }
 
     #[test]
