@@ -17,6 +17,7 @@ mod exploration_merge;
 mod path_trace;
 mod predicates;
 mod recover;
+mod refutation_memo;
 mod roles;
 mod step;
 mod work;
@@ -1285,6 +1286,7 @@ pub(crate) fn rewrite_step_restricted(
         SubjectDefinedness::Where(defined_where),
         None,
         ground_halt,
+        None,
     )
 }
 
@@ -1338,6 +1340,7 @@ pub(crate) fn rewrite_step_sequential_tracking_dropped(
         None,
         false,
         Some(&mut determinism),
+        None,
     )?;
     Ok((result, determinism.dropped))
 }
@@ -1361,6 +1364,7 @@ pub(crate) fn rewrite_step_with_mode(
         SubjectDefinedness::of_assumption(assume_initial_defined),
         None,
         false,
+        None,
     )
 }
 
@@ -1378,6 +1382,7 @@ fn rewrite_step_with_optional_execution(
     subject_definedness: SubjectDefinedness<'_>,
     io: Option<&ExecutionIoState>,
     ground_halt: bool,
+    refutations: Option<&mut refutation_memo::RefutationMemo>,
 ) -> Stoppable<RewriteResult> {
     if let Some(symbol) = pattern.macro_or_alias_symbol() {
         return Ok(RewriteResult::Indeterminate {
@@ -1411,6 +1416,7 @@ fn rewrite_step_with_optional_execution(
             io,
             ground_halt,
             None,
+            refutations,
         ),
     }
 }

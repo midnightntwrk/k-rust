@@ -83,6 +83,7 @@ use crate::{
     },
 };
 
+use super::refutation_memo::RefutationMemo;
 use super::work::Work;
 use super::{
     AppliedRule, ExecutionBranchMode, ExecutionLeaf, ExecutionOptions, ExecutionResult, HaltReason,
@@ -201,6 +202,10 @@ struct Execution<'a> {
     stopped: Option<StopCause>,
     /// The states visited and the budget (`work::Work`).
     work: Work,
+    /// The refutations of rule attempts the sequential step reuses across the run's states
+    /// (`refutation_memo`): the run fixes the definition, the solver and the simplification
+    /// options every stored refutation was decided under.
+    refutations: RefutationMemo,
     /// The merge table of a state-set run that explores every branch; `None` otherwise.
     merge: Option<ExplorationMerge>,
     /// The state being expanded, as the merge table would record it once its expansion
@@ -308,6 +313,7 @@ impl<'a> Execution<'a> {
             bottom_initial_simplifications: 0,
             stopped: None,
             work,
+            refutations: RefutationMemo::default(),
             merge,
             arrival: None,
             merged_arrival: false,
@@ -940,6 +946,7 @@ impl<'a> Execution<'a> {
             state.io_enabled.then_some(&state.io),
             // Execution reads a variable-free configuration as one state.
             true,
+            Some(&mut self.refutations),
         )
     }
 

@@ -71,7 +71,9 @@ use super::{
     apply::{exclude_defined, restrict_to_undefined, undefined_successor_application},
     apply_rule,
     execute::normalize_successor,
-    extend_unique, predicates_truth, restricted_to,
+    extend_unique, predicates_truth,
+    refutation_memo::RefutationMemo,
+    restricted_to,
     roles::{DefinedSubcase, SequentialSubject},
     stuck, violates_finite_constructor_domain,
 };
@@ -911,6 +913,7 @@ pub(super) fn rewrite_step_any(
     io: Option<&ExecutionIoState>,
     ground_halt: bool,
     mut determinism: Option<&mut SequentialDeterminism>,
+    mut memo: Option<&mut RefutationMemo>,
 ) -> Stoppable<RewriteResult> {
     let _apart = crate::rule::ApartScope::enter();
     let _domain = crate::term::domain::DomainScope::enter(definition);
@@ -990,14 +993,14 @@ pub(super) fn rewrite_step_any(
             }
             break;
         }
-        let attempt = apply_rule(
+        let attempt = RefutationMemo::apply_rule(
+            memo.as_deref_mut(),
             definition,
             rule,
             remaining.pattern(),
             fresh_counter,
             simplification_options,
             solver,
-            false,
             io,
             ground_halt,
         )?;
