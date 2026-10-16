@@ -1175,6 +1175,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "k-rust-bench"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "serde",
+ "sha2 0.11.0",
+ "toml",
+]
+
+[[package]]
 name = "k-rust-kore"
 version = "0.5.0"
 dependencies = [

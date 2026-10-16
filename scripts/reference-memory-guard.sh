@@ -11,7 +11,7 @@ reference_job_guard_kind=
 # gate. The kompile invariant checkers are compiled only under debug assertions or the
 # `kompile-invariant-checks` feature, and the gates build release binaries, so without
 # the feature the checkers never see the corpus these gates compile. The checked
-# binary goes to its own target directory: scripts/benchmark.sh measures
+# binary goes to its own target directory: kbench measures
 # target/release/krust and scripts/profile.sh target/profiling/krust, and a gate must
 # never replace either with a binary that runs the checkers. KRUST_GATE_TARGET_DIR
 # moves that directory; KRUST_GATE_INVARIANT_CHECKS=0 builds without the feature.

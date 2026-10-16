@@ -2,9 +2,10 @@
 set -euo pipefail
 
 # Record a sampling profile of one representative krust workload with samply.
-# The workload commands mirror scripts/benchmark.sh so a profile explains the
-# numbers that harness reports; the helpers below are copied from it because
-# benchmark.sh is not written to be sourced.
+# The workload commands are the krust commands of the benchmark registry's
+# imp/compile, kevm/compile, and imp/execute-sum-loop workloads
+# (benchmarks/registry/imp.toml and kevm.toml), so a profile explains the
+# numbers kbench reports.
 
 # Every git call below names its repository with `git -C`, which only changes where git
 # discovers a repository: an inherited GIT_DIR, GIT_WORK_TREE or other repository-local
@@ -49,7 +50,7 @@ Requires: samply, jq, and python3 on PATH; KRUST_BIN (default
 target/profiling/krust, built with
   cargo build --profile profiling -p k-rust --bin krust --locked);
 the same K_CHECKOUT / IMP_SEMANTICS_CHECKOUT / EVM_SEMANTICS_CHECKOUT
-variables as scripts/benchmark.sh.
+variables as kbench (benchmarks/README.md).
 
 The result directory holds profile.json.gz, command.txt, metadata.json,
 krust (a copy of KRUST_BIN, so the profile stays symbolisable after
@@ -121,7 +122,7 @@ check_git_pin() {
 
 builtin_directory="$K_CHECKOUT/k-distribution/include/kframework/builtin"
 
-# Sets the workload's sources and modules; mirrors configure_suite in benchmark.sh.
+# Sets the workload's sources and modules, as the registry's imp and kevm workloads do.
 configure_workload() {
   include_dirs=()
   hook_namespaces=
@@ -169,7 +170,7 @@ append_source_args() {
   [[ -z "$markdown_selector" ]] || args+=(--md-selector "$markdown_selector")
 }
 
-# The compile of benchmark.sh's compile phase (run_compile, krust engine).
+# The krust command of the registry's imp/compile and kevm/compile.
 compile_args() {
   args=(
     "$KRUST_BIN" kcompile "$compile_source"
@@ -184,7 +185,7 @@ compile_args() {
   args+=(--trace "$out/trace.json")
 }
 
-# The two untimed preparations of benchmark.sh (prepare_krust_proof, run_spec_compile).
+# The two untimed preparations of the registry's imp/execute-* workloads (definition and spec bundle).
 prepare_definition_args() {
   args=(
     "$KRUST_BIN" kcompile "$compile_source"
@@ -210,7 +211,7 @@ prepare_specification_args() {
   append_source_args
 }
 
-# The proof of benchmark.sh's execute phase (run_execute) with its timings file.
+# The proof of the registry's imp/execute-sum-loop, with its timings file.
 prove_args() {
   args=(
     "$KRUST_BIN" kprove
@@ -366,7 +367,7 @@ done
 
 mkdir -p "$out"
 if [[ "$workload" == imp-prove ]]; then
-  # Prepared artifacts are reused across runs like benchmark.sh's work root: only by
+  # Prepared artifacts are reused across runs, as kbench's prepared roots are: only by
   # the binary that prepared them (its SHA-256 in krust-binary.sha256). Use a fresh
   # PROFILE_WORK_ROOT after a source or option change.
   mkdir -p "$work"

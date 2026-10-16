@@ -121,14 +121,15 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
-      - name: Check benchmark harness
-        run: |
-          bash -n scripts/benchmark.sh
-          scripts/benchmark.sh --list
-          scripts/benchmark.sh --dry-run --output target/benchmarks/ci-dry-run
-
       - name: Build native targets
         run: cargo build --workspace --all-targets --locked
+
+      # The registry must parse, and every cached reference measurement must still match its
+      # workload's reference command (a changed paired command needs `kbench reference` on a host).
+      - name: Check benchmark registry
+        run: |
+          cargo run --locked --quiet -p k-rust-bench -- validate
+          cargo run --locked --quiet -p k-rust-bench -- run --tier heavy --dry-run --no-history > /dev/null
 
       - name: Run Clippy with native Z3 inference
         run: cargo clippy --workspace --all-targets --locked -- -D warnings

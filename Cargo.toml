@@ -104,7 +104,7 @@ lto = "thin"
 
 # Release code with line tables so a sampling profiler resolves inlined frames.
 # lto stays at the release default so the profile measures what the
-# differential gates and scripts/benchmark.sh run.
+# differential gates and kbench (benchmarks/README.md) run.
 [profile.profiling]
 inherits = "release"
 debug = "line-tables-only"

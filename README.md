@@ -1,9 +1,10 @@
 # k-rust
 
-Performance comparisons against pinned canonical K/Haskell builds are documented in
-[`benchmarks/README.md`](benchmarks/README.md). The harness covers release-mode IMP and KEVM
-compilation and proving, performs correctness preflight, and records reproducible Hyperfine output
-and per-run process-tree peak memory with toolchain and machine metadata.
+Performance comparisons against pinned reference K builds are documented in
+[`benchmarks/README.md`](benchmarks/README.md). `kbench` runs the benchmark registry (IMP, FUN and
+the other tutorial languages, KEVM, KWASM, KMIR, KRS, and the programs that drove past
+optimizations) and prints a fixed-format report of wall time, CPU time, and process-tree peak memory
+against cached reference K measurements.
 
 `k-rust` is a Rust implementation of the [K Framework](https://kframework.org/). It parses K
 definitions and programs, runs the frontend checking and lowering pipeline, emits KORE artifacts,

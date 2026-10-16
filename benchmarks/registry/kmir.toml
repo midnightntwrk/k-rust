@@ -1,0 +1,194 @@
+version = 1
+
+# KMIR: the Rust MIR semantics at the `mir` pin (kmir.md, main module KMIR, syntax module KMIR-AST).
+# The execution workload runs scripts/reference-mir-execution-differential.sh's program: kmir's Python environment writes one raw initial KORE pattern from main-a-b-c.smir.json, and both sides execute that pattern on a concrete definition (`k & ! symbolic`).
+# The Python step reads the compiled.json of a reference kompile of the concrete definition, so that kompile is part of the same prepare step.
+# The [[gap]] entries at the end say why the other operations have no workload.
+
+[[prepare]]
+name = "kmir-concrete-definition"
+engine = "krust"
+argv = [
+  "kcompile", "${mir}/kmir/src/kmir/kdist/mir-semantics/kmir.md",
+  "--main-module", "KMIR",
+  "--syntax-module", "KMIR-AST",
+  "--backend", "llvm",
+  "--output-directory", "${prepared}/kmir-concrete-definition",
+  "-I", "${mir}/kmir/src/kmir/kdist",
+  "--md-selector", "k & ! symbolic",
+  "--builtin-directory", "${builtin}",
+]
+creates = "${prepared}/kmir-concrete-definition/definition.kore"
+timeout_seconds = 1800
+
+# The reference Haskell kompile of the concrete definition and kmir's Python step (the venv of the pinned mir-semantics checkout), which reads that kompile's compiled.json and writes the initial configuration of main-a-b-c.
+# Both sides name this one step, and each gets its own copy in its own prepared root; the reference side also executes on the definition it compiles.
+[[prepare]]
+name = "kmir-main-a-b-c-initial"
+engine = "command"
+argv = [
+  "bash", "-c",
+  """set -euo pipefail
+"${kbin}/kompile" "${mir}/kmir/src/kmir/kdist/mir-semantics/kmir.md" --backend haskell --main-module KMIR --syntax-module KMIR-AST --output-definition "${prepared}/kmir-reference-concrete-definition" --emit-json -I "${mir}/kmir/src/kmir/kdist" --md-selector 'k & ! symbolic' --warnings none
+"${mir}/kmir/.venv/bin/python" "${workspace}/scripts/reference-mir-initial.py" "${prepared}/kmir-reference-concrete-definition" "${mir}/kmir/src/tests/integration/data/exec-smir/main-a-b-c/main-a-b-c.smir.json" "${prepared}/kmir-main-a-b-c.initial.kore"
+""",
+]
+creates = "${prepared}/kmir-main-a-b-c.initial.kore"
+env = { K_OPTS = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1" }
+timeout_seconds = 3600
+
+[[prepare]]
+name = "kmir-proof-definition"
+engine = "krust"
+argv = [
+  "kcompile", "${mir}/kmir/src/kmir/kdist/mir-semantics/kmir.md",
+  "--main-module", "KMIR",
+  "--syntax-module", "KMIR-AST",
+  "--for-proving",
+  "--output-directory", "${prepared}/kmir-proof-definition",
+  "-I", "${mir}/kmir/src/kmir/kdist",
+  "--md-selector", "k & ! concrete",
+  "--builtin-directory", "${builtin}",
+]
+creates = "${prepared}/kmir-proof-definition/krust.json"
+timeout_seconds = 1800
+
+[[workload]]
+id = "kmir/compile"
+semantics = "kmir"
+operation = "compile"
+title = "Compile the KMIR semantics of Rust's MIR (kmir.md, KMIR) from source"
+stresses = "The frontend and execution-artifact writer on a large real semantics with many sorts, cells and function rules."
+origin = "scripts/reference-differential.toml mir (haskell/rust pairing); scripts/algo-workloads.toml mir-compile-rust"
+tier = "standard"
+memory_gib = 12
+timeout_seconds = 1800
+pins = ["k", "mir"]
+
+[workload.krust]
+argv = [
+  "kcompile", "${mir}/kmir/src/kmir/kdist/mir-semantics/kmir.md",
+  "--main-module", "KMIR",
+  "--backend", "rust",
+  "--output-directory", "${run}/compiled",
+  "--emit-json",
+  "-I", "${mir}/kmir/src/kmir/kdist",
+  "--md-selector", "k & ! concrete",
+  "--syntax-module", "KMIR-AST",
+  "--builtin-directory", "${builtin}",
+]
+[workload.krust.check]
+files = ["${run}/compiled/definition.kore", "${run}/compiled/execution.json"]
+
+[workload.reference]
+status = "paired"
+argv = [
+  "kompile", "${mir}/kmir/src/kmir/kdist/mir-semantics/kmir.md",
+  "--backend", "haskell",
+  "--main-module", "KMIR",
+  "--output-definition", "${run}/compiled",
+  "-I", "${mir}/kmir/src/kmir/kdist",
+  "--md-selector", "k & ! concrete",
+  "--syntax-module", "KMIR-AST",
+  "--emit-json",
+  "--warnings", "none",
+]
+[workload.reference.check]
+files = ["${run}/compiled/definition.kore", "${run}/compiled/compiled.json"]
+
+[[workload]]
+id = "kmir/load"
+semantics = "kmir"
+operation = "load"
+title = "Load KMIR's proof-ready definition into the prover without proving anything"
+stresses = "Reading and internalizing the symbolic KMIR definition, the fixed start-up cost a KMIR proof would pay."
+origin = "kbench"
+tier = "quick"
+memory_gib = 8
+pins = ["k", "mir"]
+
+[workload.krust]
+prepare = ["kmir-proof-definition"]
+argv = ["kprove", "--compiled-definition", "${prepared}/kmir-proof-definition", "--main-module", "KMIR", "--load-only"]
+[workload.krust.check]
+exit = 0
+
+[workload.reference]
+status = "unsupported"
+reason = "no-counterpart"
+note = "Reference kprove has no load-only mode."
+
+[[workload]]
+id = "kmir/execute-main-a-b-c"
+semantics = "kmir"
+operation = "execute"
+title = "Run KMIR on a small Rust program (main calls a, b and c) from its Stable MIR"
+stresses = "Concrete execution of a real MIR program through KMIR's function-call, stack-frame and local-variable rules, from one shared initial configuration."
+origin = "scripts/reference-mir-execution-differential.sh"
+tier = "heavy"
+memory_gib = 16
+timeout_seconds = 3600
+pins = ["k", "mir"]
+
+[workload.krust]
+prepare = ["kmir-concrete-definition", "kmir-main-a-b-c-initial"]
+argv = [
+  "kore-exec", "${prepared}/kmir-concrete-definition/definition.kore",
+  "--module", "KMIR",
+  "--pattern", "${prepared}/kmir-main-a-b-c.initial.kore",
+]
+# The program ran to its end: `<k>` holds only #EndProgram and main returned no value.
+[workload.krust.check]
+exit = 0
+stdout_squeezed = [
+  "Lbl'-LT-'k'-GT-'{}(kseq{}(Lbl'Hash'EndProgram'Unds'KMIR-CONTROL-FLOW'Unds'KItem{}(),dotk{}()))",
+  "Lbl'-LT-'retVal'-GT-'{}(LblnoReturn'Unds'KMIR-CONFIGURATION'Unds'RetVal{}())",
+]
+
+[workload.reference]
+status = "paired"
+backend = "haskell"
+prepare = ["kmir-main-a-b-c-initial"]
+argv = [
+  "krun", "${prepared}/kmir-main-a-b-c.initial.kore",
+  "--definition", "${prepared}/kmir-reference-concrete-definition",
+  "--term",
+  "--parser", "cat",
+  "--output", "kore",
+]
+[workload.reference.check]
+exit = 0
+stdout_squeezed = [
+  "Lbl'-LT-'k'-GT-'{}(kseq{}(Lbl'Hash'EndProgram'Unds'KMIR-CONTROL-FLOW'Unds'KItem{}(),dotk{}()))",
+]
+
+
+[[gap]]
+semantics = "kmir"
+operation = "parse"
+reason = "no-workload"
+note = "KMIR programs are Stable MIR JSON files that kmir's Python tooling turns into an initial configuration; no K parser reads them."
+
+[[gap]]
+semantics = "kmir"
+operation = "spec-compile"
+reason = "no-claims"
+note = "The pinned mir-semantics checkout holds no K spec files; kmir generates its proof claims in its Python pipeline."
+
+[[gap]]
+semantics = "kmir"
+operation = "prove"
+reason = "no-claims"
+note = "The pinned mir-semantics checkout holds no K spec files; kmir generates its proof claims in its Python pipeline."
+
+[[gap]]
+semantics = "kmir"
+operation = "search"
+reason = "no-workload"
+note = "KMIR execution of a MIR program is deterministic, and no branching KMIR program has been chosen for a search workload."
+
+[[gap]]
+semantics = "kmir"
+operation = "rpc"
+reason = "no-workload"
+note = "KMIR's RPC use runs through kmir's Python driver; no RPC request has been extracted into a workload."

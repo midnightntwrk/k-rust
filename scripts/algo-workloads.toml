@@ -594,7 +594,7 @@ in length (build ${n})
 stdout = ['"result"']
 files = ["${run}/response.json", "${run}/rpc-metrics.json"]
 
-# Heavy compiles: benchmark.sh's KEVM compile phase and the WASM and MIR cases of
+# Heavy compiles: the KEVM compile of kbench's kevm/compile and the WASM and MIR cases of
 # scripts/reference-differential.toml in both pairings. The haskell/rust pairing (--backend rust,
 # with --md-selector "k & ! concrete") peaked at 20.5 GiB (WASM) and 29.2 GiB (MIR) at 9c81f35b,
 # almost all of it while writing execution.json, so those two

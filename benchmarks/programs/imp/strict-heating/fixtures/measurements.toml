@@ -1,0 +1,48 @@
+# Guarded characterization of krust's collatz memory growth (imp-llvm, pl-tutorial/1_k/2_imp/lesson_4).
+# Every run: `systemd-run --user --scope -p MemoryMax=8G -p MemorySwapMax=0 -- measure.py --timeout 300 --
+# krust krun imp.k <program> --main-module IMP --syntax-module IMP-SYNTAX --sort Pgm ...` (release krust at
+# 8be7af0, imp.k of regression-new/imp-llvm). `scope-killed` means the 8 GiB scope terminated the run before
+# the 300 s timeout; `timeout` means measure.py killed it at 300 s. Programs are in this directory.
+date = "2026-09-06"
+head = "8be7af0"
+mechanism = "krun runs the backend with ExecutionBranchMode::ExploreAll (crates/k-rust/src/main.rs:2283-2285): every rewrite successor is enqueued (rewrite.rs enqueue_execution_states) and leaves are merged only at the end (merge_equal_final_leaves). A `strict` production with two unevaluated arguments (`Id + Id`: collatz `q+q`, `n+n+n`; sum.imp `sum + n`) has two heating orders, so the pending frontier doubles per such expression while the printed state stays one term of about 11-14 KB with no constraints. The reference LLVM backend takes one successor. Not the deferred per-run recompilation (about 2.7 s per run)."
+
+[[run]]
+program = "collatz.imp --depth N"
+depth = [1, 50, 100, 200, 400, 600, 650, 675, 687, 693, 700, 800, 1600, 3200]
+wall_seconds = [2.9, 2.9, 3.0, 3.0, 5.4, 44.1, 87.3, 119.1, 143.0, 156.0, "timeout", "timeout", "scope-killed", "scope-killed"]
+peak_rss_mib = [200, 200, 200, 201, 200, 652, 1296, 2562, 2577, 5072, "-", 4691, ">8192", ">8192"]
+note = "bisection: depth 693 finishes (156 s, 5.1 GiB), depth 700 does not within 300 s; wall and RSS double roughly every 40-50 steps past depth 400; the state printed at depth 600 is 14 KB, one disjunct, no constraints"
+
+[[run]]
+program = "collatz.imp (unbounded, RSS sampled every 2 s)"
+timeline = "collatz-unbounded.timeline"
+note = "0.2 GiB at t=0, 2.8 GiB at 40 s, 5.5 GiB at 80 s, 7.8 GiB at 115 s, then the scope killed it: about 70 MiB/s of wall time"
+
+[[run]]
+program = "sum.imp (100 iterations of `sum = sum + n`)"
+result = "scope-killed"
+
+[[run]]
+program = "sum-80.imp (80 iterations of `sum = sum + n`)"
+result = "scope-killed"
+
+[[run]]
+program = "loop-K.imp (K iterations of `n = n + -1; s = s + 1`, one unevaluated argument per `+`)"
+iterations = [5, 10, 20, 40, 80, 100]
+wall_seconds = [2.7, 2.7, 2.6, 2.7, 2.7, 2.7]
+peak_rss_mib = [200, 201, 201, 200, 201, 200]
+note = "about 1500 rewrite steps at K = 100 with no growth: step count alone is not the cause"
+
+[[run]]
+program = "strict2-K.imp (straight-line: `a = 1;` then K copies of `s = a + a;`)"
+copies = [4, 8, 12, 16, 20]
+wall_seconds = [2.6, 3.0, 7.7, 85.2, "scope-killed"]
+peak_rss_mib = [201, 201, 209, 2661, ">8192"]
+note = "exponential in K (12 -> 16: 11x wall, 13x RSS); the final state is the same single correct term (s = 2) in every finishing run; reduced fixture for the handoff"
+
+[[run]]
+program = "strict1-16.imp (16 copies of `s = a + 1;`, one unevaluated argument)"
+wall_seconds = 2.7
+peak_rss_mib = 201
+note = "control: one heating order per `+`, no growth"
