@@ -193,6 +193,36 @@ proptest! {
         prop_assert_eq!(&materialize(source), &expected);
     }
 
+    /// An equation source is the equality of the variable and the value at the variable's sort,
+    /// in the order given, whatever the value is.
+    #[test]
+    fn equation_sources_match_the_equality_in_their_order(
+        value in prop_oneof![
+            generators::term(),
+            prop_oneof![Just("true"), Just("false")]
+                .prop_map(|value| Term::raw_domain_value(Sort::builtin(BuiltinSort::Bool), value)),
+        ],
+        value_first in any::<bool>(),
+    ) {
+        let result_sort = Sort::simple("SortGeneratedTopCell");
+        let variable = Variable::new("Var'Unds'Gen0", Sort::builtin(BuiltinSort::Bool));
+        let (left, right) = (externalize::term(&Term::variable(variable.clone())), externalize::term(&value));
+        let (left, right) = if value_first { (right, left) } else { (left, right) };
+        let expected = kore::Pattern::Equals {
+            operand_sort: Box::new(sort(&variable.sort)),
+            result_sort: sort(&result_sort),
+            left: Box::new(left),
+            right: Box::new(right),
+        };
+        let source = External::Equation {
+            variable: &variable,
+            value: &value,
+            value_first,
+            sort: &result_sort,
+        };
+        prop_assert_eq!(&materialize(source), &expected);
+    }
+
     /// A connective source of term operands is the `conjunction`/`disjunction` of their trees in
     /// every shape, and flattening it at its sort returns the operands.
     #[test]

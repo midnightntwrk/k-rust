@@ -1082,6 +1082,15 @@ pub enum External<'t> {
         value: &'t Term,
         sort: &'t Sort,
     },
+    /// The equality at `sort` of the variable and the term, at the variable's sort, written in
+    /// the order given: the variable on the left, or the term when `value_first`. Unlike
+    /// [`Binding`](Self::Binding), the order does not depend on the value.
+    Equation {
+        variable: &'t Variable,
+        value: &'t Term,
+        value_first: bool,
+        sort: &'t Sort,
+    },
     /// The constrained pattern, as [`constrained_pattern`] writes it.
     Constrained(Apart<'t, Pattern>),
     /// The `\and` of the (at least two) constraints of the pattern, at the sort of its term.
@@ -1427,6 +1436,24 @@ impl<'t> PatternSource<'t> for External<'t> {
                 };
                 PatternNode::Equals {
                     operand_sort: Cow::Owned(sort(&operand_sort)),
+                    result_sort: Cow::Owned(sort(result_sort)),
+                    left,
+                    right,
+                }
+            }
+            Self::Equation {
+                variable,
+                value,
+                value_first,
+                sort: result_sort,
+            } => {
+                let (left, right) = if value_first {
+                    (Self::Term(value), Self::Variable(variable))
+                } else {
+                    (Self::Variable(variable), Self::Term(value))
+                };
+                PatternNode::Equals {
+                    operand_sort: Cow::Owned(sort(&variable.sort)),
                     result_sort: Cow::Owned(sort(result_sort)),
                     left,
                     right,

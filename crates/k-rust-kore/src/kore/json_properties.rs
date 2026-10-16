@@ -19,7 +19,11 @@ use proptest::{
 };
 use serde_json::{Value, json};
 
-use super::{from_str, source_to_string, to_string, to_string_pretty, to_value, to_value_source};
+use super::{
+    from_str, source_to_string, to_node_source, to_string, to_string_pretty, to_value,
+    to_value_source,
+};
+use crate::json_tree;
 use crate::kore::{
     ast::{Associativity, KoreString, Pattern, Sort, Symbol, Variable, VariableKind},
     node::{PatternNode, PatternSource},
@@ -466,6 +470,15 @@ fn check(pattern: &Pattern, tally: &RefCell<BTreeMap<String, usize>>) -> Result<
     // The streaming writer emits the compact text with sorted keys, byte for byte.
     prop_assert_eq!(&source_to_string(pattern), &compact);
     prop_assert_eq!(&source_to_string(Owned(pattern)), &compact);
+    // The key-ordered tree writes the text of the reference value, compact and pretty.
+    prop_assert_eq!(
+        &json_tree::to_string(&to_node_source(pattern), false),
+        &compact
+    );
+    prop_assert_eq!(
+        &json_tree::to_string(&to_node_source(Owned(pattern)), true),
+        &json_tree::to_string_pretty(&reference).unwrap()
+    );
 
     // The decoder reads the reference and every encoder's text back to the pattern.
     prop_assert_eq!(&from_str(&compact).unwrap(), pattern);
