@@ -35,7 +35,6 @@
 #[cfg(test)]
 use std::cell::Cell;
 use std::cell::RefCell;
-#[cfg(any(test, feature = "measure"))]
 use std::collections::HashSet;
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
@@ -311,39 +310,126 @@ impl Chart {
 /// states at this chart only at its own origin or earlier (a completion advances callers that
 /// started no later than the completed state) or at this chart's own position (a prediction).
 /// Popping the latest origin first therefore completes every shorter span ending here before a
-/// longer one reads it: a state over `origin..end` is popped again only when a same-span or empty
-/// child grows. In the order of queueing, a longer span could be popped before the shorter spans
-/// below it were complete and be popped once more for each of them as they grew, and every such
-/// pop builds a new version of its nodes for its callers, which do the same: the number of
+/// longer one reads it: a state over `origin..end` grows after its first pop only when a same-span
+/// or empty child grows. In the order of queueing, a longer span could be popped before the shorter
+/// spans below it were complete and be popped once more for each of them as they grew, and every
+/// such pop builds a new version of its nodes for its callers, which do the same: the number of
 /// versions multiplies along the spans, and the ambiguity a caller packs keeps every version
 /// beside the latest (an earlier version over a child that grew is not equal to the later one,
 /// so coverage does not remove it), so the forest of a highly ambiguous input grows with the
 /// number of versions rather than with the spans and splits it has.
+///
+/// Every growth of a state queues it once more, and a pop reads the state's derivations as they
+/// stand at the pop, not as they stood when that copy was queued. So when a state grows several
+/// times before it is popped, its first pop reads every derivation it gained, and the copies
+/// queued by the other growths reach the front with nothing new unless the state grew again after
+/// that pop. For a state queued with its growths tracked, a pop therefore reports whether the
+/// state grew since it was last popped (`Popped`), and the recognizer skips a pop of such a state
+/// that did not grow when its dispatch reads nothing else that can have grown since
+/// (`Grammar::recognize`; `Grammar::tracks_growth` decides which states are tracked). A pop of any
+/// other state reports a growth. The copies stay queued in their places, so the pops that do dispatch,
+/// and the order of every growth, are those of the agenda that dispatches every copy.
+///
+/// The first copy of a state, queued when the state is created, is its first pop, which always
+/// dispatches; only a later growth is recorded (`grown`), and the first pop clears that record,
+/// since it reads the growth. A state that grows once, as most do, is never looked up.
 #[derive(Clone, Debug, Default)]
-pub(super) struct Agenda(BTreeMap<usize, VecDeque<State>>);
+pub(super) struct Agenda {
+    by_origin: BTreeMap<usize, VecDeque<Queued>>,
+    // The tracked states that grew, after they were created, since they were last popped; each
+    // has a copy in `by_origin`.
+    grown: HashSet<State, BuildHasherDefault<IndexHasher>>,
+}
+
+/// A queued copy of a state, in the queue of the state's origin.
+#[derive(Clone, Copy, Debug)]
+struct Queued {
+    production: usize,
+    dot: usize,
+    copy: QueuedCopy,
+}
+
+/// What a queued copy of a state is.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum QueuedCopy {
+    /// A copy of a state whose growths are not tracked.
+    Untracked,
+    /// The copy queued when a tracked state was created.
+    Created,
+    /// A copy queued when a tracked state grew after it was created.
+    Grown,
+}
+
+/// A state taken from an [`Agenda`], and whether it may have grown since it was last popped:
+/// false only for a tracked state that did not.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct Popped {
+    pub(super) state: State,
+    pub(super) grown: bool,
+}
 
 impl Agenda {
-    pub(super) fn push(&mut self, state: State) {
-        self.0.entry(state.origin).or_default().push_back(state);
+    /// Queue `state`, which has just grown (been created when `created`), recording the growth
+    /// when `track` is set.
+    #[inline]
+    pub(super) fn push(&mut self, state: State, track: bool, created: bool) {
+        let copy = match (track, created) {
+            (false, _) => QueuedCopy::Untracked,
+            (true, true) => QueuedCopy::Created,
+            (true, false) => {
+                self.grown.insert(state);
+                QueuedCopy::Grown
+            }
+        };
+        self.by_origin
+            .entry(state.origin)
+            .or_default()
+            .push_back(Queued {
+                production: state.production,
+                dot: state.dot,
+                copy,
+            });
     }
 
-    pub(super) fn pop(&mut self) -> Option<State> {
-        let mut latest = self.0.last_entry()?;
-        let state = latest.get_mut().pop_front();
+    #[inline]
+    pub(super) fn pop(&mut self) -> Option<Popped> {
+        let mut latest = self.by_origin.last_entry()?;
+        let origin = *latest.key();
+        let Queued {
+            production,
+            dot,
+            copy,
+        } = latest.get_mut().pop_front()?;
         if latest.get().is_empty() {
             latest.remove();
         }
-        state
+        let state = State {
+            production,
+            dot,
+            origin,
+        };
+        let grown = match copy {
+            QueuedCopy::Untracked => true,
+            QueuedCopy::Created => {
+                if !self.grown.is_empty() {
+                    self.grown.remove(&state);
+                }
+                true
+            }
+            QueuedCopy::Grown => self.grown.remove(&state),
+        };
+        Some(Popped { state, grown })
     }
 
     #[cfg(test)]
     pub(super) fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.by_origin.is_empty()
     }
 
     #[cfg(test)]
     pub(super) fn clear(&mut self) {
-        self.0.clear();
+        self.by_origin.clear();
+        self.grown.clear();
     }
 }
 
@@ -507,19 +593,23 @@ impl Chart {
         }
     }
 
+    /// `add_with_status` with the state's growths tracked.
     #[cfg(test)]
     pub(super) fn add(
         &mut self,
         state: State,
         derivations: impl IntoIterator<Item = Derivation>,
     ) -> Result<bool, ParseError> {
-        self.add_with_status(state, derivations)
+        self.add_with_status(state, true, derivations)
             .map(|(changed, _new_state)| changed)
     }
 
+    /// Add `derivations` to `state`; when the state grows it is queued, with its growth recorded
+    /// when `track_growth` is set (`Agenda`).
     pub(super) fn add_with_status(
         &mut self,
         state: State,
+        track_growth: bool,
         derivations: impl IntoIterator<Item = Derivation>,
     ) -> Result<(bool, bool), ParseError> {
         measure::bump(Counter::ParserChartAddCalls);
@@ -542,17 +632,7 @@ impl Chart {
         if !changed {
             return Ok((false, new_state));
         }
-        measure::bump(Counter::ParserChartStateChanges);
-        #[cfg(test)]
-        update_chart_work_counters(|counters| {
-            if new_state {
-                counters.new_state_changes += 1;
-            } else {
-                counters.existing_state_growth_changes += 1;
-            }
-            counters.agenda_enqueues += 1;
-        });
-        self.agenda.push(state);
+        self.record_change(state, new_state, track_growth);
         Ok((true, new_state))
     }
 
@@ -565,6 +645,7 @@ impl Chart {
     pub(super) fn add_extensions_with_status(
         &mut self,
         state: State,
+        track_growth: bool,
         prefixes: &Derivations,
         last: Option<&Rc<PackedTerm>>,
     ) -> Result<(bool, bool), ParseError> {
@@ -593,6 +674,15 @@ impl Chart {
         if !changed {
             return Ok((false, new_state));
         }
+        self.record_change(state, new_state, track_growth);
+        Ok((true, new_state))
+    }
+}
+
+impl Chart {
+    /// Count a growth of `state` and queue it for dispatch.
+    #[inline]
+    fn record_change(&mut self, state: State, new_state: bool, track_growth: bool) {
         measure::bump(Counter::ParserChartStateChanges);
         #[cfg(test)]
         update_chart_work_counters(|counters| {
@@ -603,8 +693,7 @@ impl Chart {
             }
             counters.agenda_enqueues += 1;
         });
-        self.agenda.push(state);
-        Ok((true, new_state))
+        self.agenda.push(state, track_growth, new_state);
     }
 }
 
@@ -1130,7 +1219,7 @@ mod tests {
                 .add(state, [derivation(ambiguity(&["A", "B"]))])
                 .unwrap()
         );
-        assert_eq!(chart.agenda.pop(), Some(state));
+        assert_eq!(chart.agenda.pop().map(|popped| popped.state), Some(state));
 
         assert!(!chart.add(state, [derivation(variable("A"))]).unwrap());
         assert!(chart.agenda.is_empty());
@@ -1153,7 +1242,7 @@ mod tests {
                 .add(state, [derivation(ambiguity(&["A", "B"]))])
                 .unwrap()
         );
-        assert_eq!(chart.agenda.pop(), Some(state));
+        assert_eq!(chart.agenda.pop().map(|popped| popped.state), Some(state));
         assert!(chart.agenda.is_empty());
         assert_eq!(
             chart.states[&state]
@@ -1162,6 +1251,68 @@ mod tests {
                 .collect::<BTreeSet<_>>(),
             BTreeSet::from([derivation(ambiguity(&["A", "B"]))]),
         );
+    }
+
+    #[test]
+    fn a_pop_reports_whether_the_state_grew_since_its_last_pop() {
+        let state = State {
+            production: 0,
+            dot: 1,
+            origin: 0,
+        };
+        let popped = |grown| Some(Popped { state, grown });
+        let mut chart = Chart::default();
+        assert!(chart.add(state, [derivation(variable("A"))]).unwrap());
+        assert!(chart.add(state, [derivation(variable("B"))]).unwrap());
+
+        // The first pop reads both derivations; the second copy brings nothing new.
+        assert_eq!(chart.agenda.pop(), popped(true));
+        assert_eq!(chart.states[&state].len(), 2);
+        assert_eq!(chart.agenda.pop(), popped(false));
+        assert!(chart.agenda.is_empty());
+
+        // A growth after a pop is reported by the next copy popped, here the one it queued.
+        assert!(chart.add(state, [derivation(variable("C"))]).unwrap());
+        assert_eq!(chart.agenda.pop(), popped(true));
+        assert!(chart.agenda.is_empty());
+
+        // While an earlier copy is still queued, that copy reports it.
+        assert!(chart.add(state, [derivation(variable("D"))]).unwrap());
+        assert!(chart.add(state, [derivation(variable("E"))]).unwrap());
+        assert_eq!(chart.agenda.pop(), popped(true));
+        assert!(chart.add(state, [derivation(variable("F"))]).unwrap());
+        assert_eq!(chart.agenda.pop(), popped(true));
+        assert_eq!(chart.agenda.pop(), popped(false));
+        assert!(chart.agenda.is_empty());
+    }
+
+    #[test]
+    fn every_growth_keeps_its_place_in_the_agenda() {
+        let state = |production, origin| State {
+            production,
+            dot: 1,
+            origin,
+        };
+        let mut chart = Chart::default();
+        for (production, origin, name) in [(0, 0, "A"), (1, 0, "B"), (0, 0, "C"), (2, 1, "D")] {
+            assert!(
+                chart
+                    .add(state(production, origin), [derivation(variable(name))])
+                    .unwrap()
+            );
+        }
+        // The latest origin first, then the order of queueing within an origin.
+        let popped = |production, origin, grown| {
+            Some(Popped {
+                state: state(production, origin),
+                grown,
+            })
+        };
+        assert_eq!(chart.agenda.pop(), popped(2, 1, true));
+        assert_eq!(chart.agenda.pop(), popped(0, 0, true));
+        assert_eq!(chart.agenda.pop(), popped(1, 0, true));
+        assert_eq!(chart.agenda.pop(), popped(0, 0, false));
+        assert_eq!(chart.agenda.pop(), None);
     }
 
     #[test]
