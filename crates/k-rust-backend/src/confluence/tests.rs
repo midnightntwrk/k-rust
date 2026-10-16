@@ -2,6 +2,7 @@
 //! check on small definitions.
 
 use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
+use std::sync::Arc;
 
 use super::{
     PollBudgetRecord, UnjoinedReason,
@@ -537,13 +538,16 @@ fn discharging_before_the_check_is_caught() {
 /// `f(a) = s(b)` and `\ceil(f(b))`, as one conjunction over the variables named `a` and `b`.
 fn two_conjuncts(definition: &BackendDefinition, a: &str, b: &str) -> crate::rule::Predicate {
     use crate::rule::Predicate;
-    Predicate::And(vec![
-        Predicate::Equals(
-            term(definition, &format!("f{{}}({a}:SortNat{{}})")),
-            term(definition, &format!("s{{}}({b}:SortNat{{}})")),
-        ),
-        Predicate::Ceil(term(definition, &format!("f{{}}({b}:SortNat{{}})"))),
-    ])
+    Predicate::And(
+        vec![
+            Predicate::Equals(
+                term(definition, &format!("f{{}}({a}:SortNat{{}})")),
+                term(definition, &format!("s{{}}({b}:SortNat{{}})")),
+            ),
+            Predicate::Ceil(term(definition, &format!("f{{}}({b}:SortNat{{}})"))),
+        ]
+        .into(),
+    )
 }
 
 /// The memo's key identifies two conditions exactly when one is the other renamed injectively:
@@ -638,7 +642,7 @@ fn the_memo_stores_no_answer_a_renaming_could_capture_in() {
         "the refused answer is not stored, and the refusal is"
     );
     let bound = crate::term::Variable::new("Z", crate::term::Sort::simple("SortNat"));
-    let quantified = Predicate::Exists(bound, Box::new(Predicate::Ceil(other)));
+    let quantified = Predicate::Exists(bound, Arc::new(Predicate::Ceil(other)));
     let mut memo = Memo::default();
     let Lookup::Miss(canonical) = memo.lookup(&condition) else {
         panic!("an empty memo answers nothing");
@@ -653,7 +657,7 @@ fn the_memo_stores_no_answer_a_renaming_could_capture_in() {
     );
     assert!(matches!(memo.lookup(&condition), Lookup::AsWritten));
     // Keyed as written.
-    let with_binder = Predicate::And(vec![condition, quantified.clone()]);
+    let with_binder = Predicate::And(vec![condition, quantified.clone()].into());
     assert_eq!(Canonical::of(&with_binder).key, with_binder);
     let Lookup::Miss(canonical) = memo.lookup(&with_binder) else {
         panic!("an empty key answers nothing");

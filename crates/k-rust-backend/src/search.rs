@@ -4388,7 +4388,7 @@ mod tests {
         let definition = diamond_definition(false);
         let target = Pattern {
             term: Term::variable(result_variable()),
-            constraints: vec![Predicate::Not(Box::new(Predicate::Equals(
+            constraints: vec![Predicate::Not(Arc::new(Predicate::Equals(
                 pattern(&definition, "merged{}()").term,
                 Term::variable(result_variable()),
             )))],
@@ -5135,7 +5135,7 @@ mod tests {
         let result_variable = result_variable();
         let target = Pattern {
             term: Term::variable(result_variable.clone()),
-            constraints: vec![Predicate::Not(Box::new(Predicate::Equals(
+            constraints: vec![Predicate::Not(Arc::new(Predicate::Equals(
                 pattern(&definition, "final1{}()").term,
                 Term::variable(result_variable.clone()),
             )))],
@@ -5699,7 +5699,7 @@ mod tests {
     fn disjunction_matching_retains_predicates_without_an_smt_decision() {
         let definition = definition();
         let variable = Term::variable(Variable::new("X", Sort::simple("SortS")));
-        let unresolved = Predicate::Not(Box::new(Predicate::Equals(
+        let unresolved = Predicate::Not(Arc::new(Predicate::Equals(
             variable,
             pattern(&definition, "final1{}()").term,
         )));
@@ -5949,7 +5949,7 @@ mod tests {
         );
         let subject = Pattern {
             term: pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#).term,
-            constraints: vec![Predicate::Not(Box::new(Predicate::Ceil(
+            constraints: vec![Predicate::Not(Arc::new(Predicate::Ceil(
                 pattern(&definition, r#"g{}(X:SortInt{})"#).term,
             )))],
         };

@@ -185,7 +185,7 @@ impl<'a> Printer<'a> {
         }
         let Some(format) = self.data.format.get(name) else {
             self.problems.unprintable.insert(name.to_owned());
-            let text = crate::kast_text(&Node::App(app.clone()));
+            let text = crate::kast_text(&Node::App(app.clone()), &self.data.hooks);
             self.append(text.as_bytes());
             return;
         };

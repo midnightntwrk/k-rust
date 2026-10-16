@@ -10,6 +10,7 @@
 //! every instance is in exactly the one of the two the rule's match puts it in.
 
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use k_rust_kore::kore::{
     parser::{parse_definition, parse_pattern},
@@ -333,7 +334,7 @@ impl Closure {
                 let ceil = Predicate::Ceil(absence.joined().clone());
                 match absence.binder() {
                     Some(binder) => {
-                        self.entails_definedness(&Predicate::Exists(binder.clone(), Box::new(ceil)))
+                        self.entails_definedness(&Predicate::Exists(binder.clone(), Arc::new(ceil)))
                     }
                     None => self.entails_definedness(&ceil),
                 }
@@ -490,7 +491,7 @@ fn assert_complement(branch: &Pattern, remainder: &Pattern, configuration: &Vari
         body = inner;
     }
     let conjuncts = match body {
-        Predicate::And(conjuncts) => conjuncts.clone(),
+        Predicate::And(conjuncts) => conjuncts.to_vec(),
         single => vec![single.clone()],
     };
     assert_eq!(

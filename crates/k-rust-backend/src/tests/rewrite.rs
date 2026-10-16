@@ -1,6 +1,7 @@
 //! Crate-internal contracts of `crate::rewrite` (`pub(crate)` entry points).
 
 use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
+use std::sync::Arc;
 
 use crate::{
     definition::{BackendDefinition, constructor_head},
@@ -16,7 +17,7 @@ fn existential_equality(bound: &str, free: &str) -> Predicate {
     let bound = Variable::new(bound, sort.clone());
     Predicate::Exists(
         bound.clone(),
-        Box::new(Predicate::Equals(
+        Arc::new(Predicate::Equals(
             Term::variable(bound),
             Term::variable(Variable::new(free, sort)),
         )),
@@ -25,13 +26,13 @@ fn existential_equality(bound: &str, free: &str) -> Predicate {
 
 #[test]
 fn recognizes_alpha_equivalent_applicability_exclusions() {
-    let excluded = Predicate::Not(Box::new(existential_equality("Fresh!0", "State")));
-    let retried = Predicate::Not(Box::new(existential_equality("Fresh!1", "State")));
+    let excluded = Predicate::Not(Arc::new(existential_equality("Fresh!0", "State")));
+    let retried = Predicate::Not(Arc::new(existential_equality("Fresh!1", "State")));
     let different_free_variable =
-        Predicate::Not(Box::new(existential_equality("Fresh!1", "Other")));
+        Predicate::Not(Arc::new(existential_equality("Fresh!1", "Other")));
 
     assert!(conjunctively_contains_alpha_equivalent(
-        &[Predicate::And(vec![Predicate::True, excluded])],
+        &[Predicate::And(vec![Predicate::True, excluded].into())],
         &retried,
     ));
     assert!(!conjunctively_contains_alpha_equivalent(
@@ -130,7 +131,7 @@ fn rejects_exclusions_covering_a_finite_constructor_sort() {
             let constructor = definition
                 .internalize_term(&parse_pattern(&format!("{name}{{}}()")).unwrap(), &[])
                 .unwrap();
-            Predicate::Not(Box::new(Predicate::Equals(variable.clone(), constructor)))
+            Predicate::Not(Arc::new(Predicate::Equals(variable.clone(), constructor)))
         })
         .collect::<Vec<_>>();
 
@@ -156,7 +157,7 @@ fn omitted_constructor_prevents_a_finite_constructor_domain() {
     let definition =
         BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
     let variable = Term::variable(Variable::new("X", Sort::simple("SortS")));
-    let excluded = Predicate::Not(Box::new(Predicate::Equals(
+    let excluded = Predicate::Not(Arc::new(Predicate::Equals(
         variable,
         internal_term(&definition, "a{}()"),
     )));
@@ -336,15 +337,15 @@ fn rejects_exclusions_covering_parameterized_constructor_families() {
     let element = Variable::new("E0", Sort::simple("SortElement"));
     let tail = Variable::new("T1", Sort::simple("SortList"));
     let cons = internal_term(&definition, "cons{}(E0:SortElement{}, T1:SortList{})");
-    let excludes_nil = Predicate::Not(Box::new(Predicate::Equals(list.clone(), nil)));
-    let excludes_every_cons = Predicate::Not(Box::new(Predicate::Exists(
+    let excludes_nil = Predicate::Not(Arc::new(Predicate::Equals(list.clone(), nil)));
+    let excludes_every_cons = Predicate::Not(Arc::new(Predicate::Exists(
         element,
-        Box::new(Predicate::Exists(
+        Arc::new(Predicate::Exists(
             tail,
-            Box::new(Predicate::Equals(list.clone(), cons.clone())),
+            Arc::new(Predicate::Equals(list.clone(), cons.clone())),
         )),
     )));
-    let excludes_one_cons = Predicate::Not(Box::new(Predicate::Equals(list, cons)));
+    let excludes_one_cons = Predicate::Not(Arc::new(Predicate::Equals(list, cons)));
 
     assert!(!violates_finite_constructor_domain(
         &definition,
@@ -364,8 +365,8 @@ fn rejects_exclusions_covering_parameterized_constructor_families() {
         assert!(!violates_finite_constructor_domain(
             &definition,
             &[
-                Predicate::Not(Box::new(Predicate::Equals(list.clone(), nil.clone()))),
-                Predicate::Not(Box::new(Predicate::Equals(
+                Predicate::Not(Arc::new(Predicate::Equals(list.clone(), nil.clone()))),
+                Predicate::Not(Arc::new(Predicate::Equals(
                     list.clone(),
                     internal_term(&definition, one_cons),
                 ))),
@@ -381,12 +382,12 @@ fn rejects_exclusions_covering_parameterized_constructor_families() {
     assert!(violates_finite_constructor_domain(
         &definition,
         &[
-            Predicate::Not(Box::new(Predicate::Equals(unknown.clone(), nil))),
-            Predicate::Not(Box::new(Predicate::Exists(
+            Predicate::Not(Arc::new(Predicate::Equals(unknown.clone(), nil))),
+            Predicate::Not(Arc::new(Predicate::Exists(
                 element,
-                Box::new(Predicate::Exists(
+                Arc::new(Predicate::Exists(
                     tail,
-                    Box::new(Predicate::Equals(unknown, cons)),
+                    Arc::new(Predicate::Equals(unknown, cons)),
                 )),
             ))),
         ],
@@ -417,7 +418,7 @@ fn a_ground_constructor_value_does_not_exclude_its_constructor_head() {
 
     assert!(!violates_finite_constructor_domain(
         &definition,
-        &[Predicate::Not(Box::new(Predicate::Equals(left, right)))],
+        &[Predicate::Not(Arc::new(Predicate::Equals(left, right)))],
     ));
 }
 
@@ -519,7 +520,7 @@ fn requires_definedness_unless_the_configuration_is_assumed_defined() {
     );
     assert_eq!(
         remainder.pattern.constraints,
-        [Predicate::Not(Box::new(Predicate::Ceil(function.clone())))]
+        [Predicate::Not(Arc::new(Predicate::Ceil(function.clone())))]
     );
     assert_eq!(
         branch.substitution.values().collect::<Vec<_>>(),

@@ -32,6 +32,7 @@
 //! keys and set elements that grouping them by apartness skeleton does not decide, with one
 //! `FxHashSet` deduplication of the whole list; no counter.
 
+use std::sync::Arc;
 use std::{borrow::Cow, collections::HashSet};
 
 use k_rust_kore::measure::{self, Algorithm};
@@ -741,7 +742,7 @@ impl<'a, 't> KeyGroups<'a, 't> {
             // R-def: this list states both elements' definedness obligations, so an apart
             // pair's disequality is implied wherever the list holds.
             if !elements_are_apart(definition, left, right) {
-                after.push(Predicate::Not(Box::new(Predicate::Equals(
+                after.push(Predicate::Not(Arc::new(Predicate::Equals(
                     left.clone(),
                     right.clone(),
                 ))));
@@ -791,7 +792,7 @@ pub(crate) fn collection_disequalities(
         for (position, left) in keys.iter().enumerate() {
             for right in &keys[position + 1..] {
                 if !elements_are_apart(definition, left, right) {
-                    after.push(Predicate::Not(Box::new(Predicate::Equals(
+                    after.push(Predicate::Not(Arc::new(Predicate::Equals(
                         (*left).clone(),
                         (*right).clone(),
                     ))));
@@ -1026,7 +1027,7 @@ pub(crate) fn condition_definedness(
     let mut pending = rewritten.iter().collect::<Vec<_>>();
     while let Some(condition) = pending.pop() {
         if let Predicate::And(conjuncts) = condition {
-            pending.extend(conjuncts);
+            pending.extend(conjuncts.iter());
         }
         seen.insert(condition.clone());
     }
@@ -1251,7 +1252,7 @@ fn nested_condition_definedness(
     beside: Beside<'_>,
 ) -> Result<Predicate, DeferredOutcome> {
     let nested = |inner: &Predicate| {
-        nested_condition_definedness(definition, inner, known, beside).map(Box::new)
+        nested_condition_definedness(definition, inner, known, beside).map(Arc::new)
     };
     Ok(match predicate {
         Predicate::True
@@ -1273,16 +1274,16 @@ fn nested_condition_definedness(
                 return Ok(predicate.clone());
             }
             conjuncts.push(predicate.clone());
-            Predicate::And(conjuncts)
+            Predicate::And(conjuncts.into())
         }
         Predicate::Not(inner) => Predicate::Not(nested(inner)?),
         Predicate::Exists(variable, inner) => Predicate::Exists(
             variable.clone(),
-            Box::new(under_binder(definition, variable, inner, known, beside)?),
+            Arc::new(under_binder(definition, variable, inner, known, beside)?),
         ),
         Predicate::Forall(variable, inner) => Predicate::Forall(
             variable.clone(),
-            Box::new(under_binder(definition, variable, inner, known, beside)?),
+            Arc::new(under_binder(definition, variable, inner, known, beside)?),
         ),
         Predicate::And(inner) => Predicate::And(
             inner
@@ -1466,7 +1467,7 @@ fn faithful_equalities(
     predicate: &Predicate,
     beside: Beside<'_>,
 ) -> Result<Predicate, RequestDefinednessFailure> {
-    let nested = |inner: &Predicate| faithful_equalities(definition, inner, beside).map(Box::new);
+    let nested = |inner: &Predicate| faithful_equalities(definition, inner, beside).map(Arc::new);
     Ok(match predicate {
         Predicate::True
         | Predicate::False
@@ -1502,20 +1503,17 @@ fn faithful_equalities(
                 if members.len() == 1 {
                     members.pop().expect("one member")
                 } else {
-                    Predicate::And(members)
+                    Predicate::And(members.into())
                 }
             };
             let mut both_defined = left_defined.clone();
             both_defined.extend(right_defined.iter().cloned());
             both_defined.push(predicate.clone());
             let neither_defined = vec![
-                Predicate::Not(Box::new(conjunction(left_defined))),
-                Predicate::Not(Box::new(conjunction(right_defined))),
+                Predicate::Not(Arc::new(conjunction(left_defined))),
+                Predicate::Not(Arc::new(conjunction(right_defined))),
             ];
-            Predicate::Or(vec![
-                conjunction(both_defined),
-                conjunction(neither_defined),
-            ])
+            Predicate::Or(vec![conjunction(both_defined), conjunction(neither_defined)].into())
         }
         Predicate::Not(inner) => Predicate::Not(nested(inner)?),
         Predicate::Exists(variable, inner) | Predicate::Forall(variable, inner) => {
@@ -1529,7 +1527,7 @@ fn faithful_equalities(
                 position: usize::MAX,
                 outer: None,
             };
-            let inner = Box::new(faithful_equalities(definition, inner, Some(&link))?);
+            let inner = Arc::new(faithful_equalities(definition, inner, Some(&link))?);
             match predicate {
                 Predicate::Exists(..) => Predicate::Exists(variable.clone(), inner),
                 _ => Predicate::Forall(variable.clone(), inner),
@@ -1583,7 +1581,7 @@ fn ceil_predicate(
         }
         Predicate::And(inner) | Predicate::Or(inner) => {
             let mut obligations = Vec::new();
-            for predicate in inner {
+            for predicate in inner.iter() {
                 obligations.extend(ceil_predicate(definition, predicate)?);
             }
             obligations
@@ -1626,7 +1624,7 @@ fn not_in_collection(
     });
     application.map_or_else(
         || Absence::predicate(collection, element.clone(), rest.clone()),
-        |application| Predicate::Not(Box::new(Predicate::Term(application))),
+        |application| Predicate::Not(Arc::new(Predicate::Term(application))),
     )
 }
 
@@ -2080,11 +2078,14 @@ mod tests {
         assert_eq!(
             condition_definedness(
                 &definition,
-                vec![Predicate::And(vec![equals_x.clone()])],
+                vec![Predicate::And(vec![equals_x.clone()].into())],
                 &[]
             )
             .unwrap(),
-            vec![ceil_x.clone(), Predicate::And(vec![equals_x.clone()])]
+            vec![
+                ceil_x.clone(),
+                Predicate::And(vec![equals_x.clone()].into())
+            ]
         );
         // A known obligation, or one the condition already states, is not restated.
         assert_eq!(
@@ -2103,27 +2104,31 @@ mod tests {
         );
         // Under a negation or a disjunction the obligation is conjoined in place: hoisting it
         // would change the meaning, since `\not \equals(\bottom, v)` holds.
-        let negated = Predicate::Not(Box::new(equals_x.clone()));
+        let negated = Predicate::Not(Arc::new(equals_x.clone()));
         assert_eq!(
             condition_definedness(&definition, vec![negated], &[]).unwrap(),
-            vec![Predicate::Not(Box::new(Predicate::And(vec![
-                ceil_x.clone(),
-                equals_x.clone()
-            ])))]
+            vec![Predicate::Not(Arc::new(Predicate::And(
+                vec![ceil_x.clone(), equals_x.clone()].into()
+            )))]
         );
-        let disjunction = Predicate::Or(vec![equals_x.clone(), equals_y.clone()]);
+        let disjunction = Predicate::Or(vec![equals_x.clone(), equals_y.clone()].into());
         assert_eq!(
             condition_definedness(&definition, vec![disjunction], &[]).unwrap(),
-            vec![Predicate::Or(vec![
-                Predicate::And(vec![ceil_x.clone(), equals_x.clone()]),
-                Predicate::And(vec![ceil_y.clone(), equals_y.clone()]),
-            ])]
+            vec![Predicate::Or(
+                vec![
+                    Predicate::And(vec![ceil_x.clone(), equals_x.clone()].into()),
+                    Predicate::And(vec![ceil_y.clone(), equals_y.clone()].into()),
+                ]
+                .into()
+            )]
         );
         // A known fact about `X` is about the free `X`, not about the `X` a quantifier binds:
         // under `\exists X` the obligation is stated although the same text is known outside.
         let binder = crate::term::Variable::new("X", Sort::simple("SortS"));
-        let body = Box::new(equals_x.clone());
-        let stated = Box::new(Predicate::And(vec![ceil_x.clone(), equals_x.clone()]));
+        let body = Arc::new(equals_x.clone());
+        let stated = Arc::new(Predicate::And(
+            vec![ceil_x.clone(), equals_x.clone()].into(),
+        ));
         for (quantified, expected) in [
             (
                 Predicate::Exists(binder.clone(), body.clone()),
@@ -2305,7 +2310,7 @@ mod tests {
         assert_eq!(
             obligations,
             vec![
-                Predicate::Not(Box::new(Predicate::Equals(
+                Predicate::Not(Arc::new(Predicate::Equals(
                     internal(&definition, "A:SortKey{}"),
                     internal(&definition, "B:SortKey{}")
                 ))),
@@ -2331,7 +2336,7 @@ mod tests {
             "setConcat{}(setItem{}(K:SortKey{}), S:SortSet{})",
         );
         let not_member = |source: &str| {
-            Predicate::Not(Box::new(Predicate::Term(
+            Predicate::Not(Arc::new(Predicate::Term(
                 definition
                     .internalize_term(&parse_pattern(source).unwrap(), &[])
                     .unwrap(),
@@ -2471,7 +2476,7 @@ mod tests {
             &definition,
             &[
                 parent_ceil.clone(),
-                Predicate::Not(Box::new(child_ceil.clone())),
+                Predicate::Not(Arc::new(child_ceil.clone())),
             ],
             &[],
             SimplificationOptions::default(),
@@ -2554,7 +2559,7 @@ mod tests {
             panic!("one carried entry: {trivial:?}");
         };
         assert_eq!(entry.kind, crate::rewrite::TrivialKind::Carried);
-        assert_eq!(entry.undefined, Predicate::Not(Box::new(ceil.clone())));
+        assert_eq!(entry.undefined, Predicate::Not(Arc::new(ceil.clone())));
     }
 
     #[test]
@@ -2710,7 +2715,7 @@ mod tests {
             let conjunction = if once.len() == 1 {
                 once[0].clone()
             } else {
-                Predicate::And(once.clone())
+                Predicate::And(once.clone().into())
             };
             let again = condition_definedness(&definition, vec![conjunction.clone()], &[]).unwrap();
             assert_eq!(again, vec![conjunction], "{case}: as one conjunction");
@@ -2742,14 +2747,16 @@ mod tests {
         assert!(!defined.is_empty());
         let mut both = defined.clone();
         both.push(equality.clone());
-        let neither = Predicate::Not(Box::new(if defined.len() == 1 {
+        let neither = Predicate::Not(Arc::new(if defined.len() == 1 {
             defined[0].clone()
         } else {
-            Predicate::And(defined.clone())
+            Predicate::And(defined.clone().into())
         }));
         assert_eq!(
             request_definedness(&definition, vec![equality.clone()]).unwrap(),
-            vec![Predicate::Or(vec![Predicate::And(both), neither])]
+            vec![Predicate::Or(
+                vec![Predicate::And(both.into()), neither].into()
+            )]
         );
         assert_eq!(
             condition_definedness(&definition, vec![equality.clone()], &[]).unwrap(),
@@ -2778,7 +2785,7 @@ mod tests {
             let conjunction = if once.len() == 1 {
                 once[0].clone()
             } else {
-                Predicate::And(once.clone())
+                Predicate::And(once.clone().into())
             };
             let again = request_definedness(&definition, vec![conjunction.clone()]).unwrap();
             assert_eq!(again, vec![conjunction], "{case}: as one conjunction");

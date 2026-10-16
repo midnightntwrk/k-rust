@@ -797,7 +797,7 @@ impl<'a> Admitted<'a> {
         Ok(if predicates.len() == 1 {
             predicates.pop().expect("one predicate")
         } else {
-            crate::rule::Predicate::And(predicates)
+            crate::rule::Predicate::And(predicates.into())
         })
     }
 }

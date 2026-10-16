@@ -933,7 +933,7 @@ impl<'n, 'r> Pass<'n, 'r> {
                 self.term(absence.rest());
             }
             Predicate::Not(inner) => self.predicate(inner),
-            Predicate::And(inner) | Predicate::Or(inner) => self.predicates(inner),
+            Predicate::And(inner) | Predicate::Or(inner) => self.predicates(inner.iter()),
             Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
                 self.predicate(left);
                 self.predicate(right);
@@ -1271,18 +1271,20 @@ fn sort_operands(predicate: &mut Predicate) {
         | Predicate::In(..)
         | Predicate::Absent(_) => {}
         Predicate::Not(inner) | Predicate::Exists(_, inner) | Predicate::Forall(_, inner) => {
-            sort_operands(inner);
+            sort_operands(Arc::make_mut(inner));
         }
         Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
-            sort_operands(left);
-            sort_operands(right);
+            sort_operands(Arc::make_mut(left));
+            sort_operands(Arc::make_mut(right));
         }
         Predicate::And(operands) | Predicate::Or(operands) => {
-            for operand in operands.iter_mut() {
+            let mut sorted = operands.to_vec();
+            for operand in &mut sorted {
                 sort_operands(operand);
             }
-            operands.sort();
-            operands.dedup();
+            sorted.sort();
+            sorted.dedup();
+            *operands = sorted.into();
         }
     }
 }
@@ -1426,7 +1428,7 @@ mod tests {
             term: Term::variable(variable(free)),
             constraints: vec![Predicate::Exists(
                 variable(bound),
-                Box::new(Predicate::True),
+                Arc::new(Predicate::True),
             )],
         }
     }
@@ -1457,7 +1459,7 @@ mod tests {
             term: Term::variable(variable(term)),
             constraints: vec![Predicate::Exists(
                 variable("Ex#W!9"),
-                Box::new(Predicate::Equals(
+                Arc::new(Predicate::Equals(
                     Term::variable(variable(left)),
                     Term::variable(variable(right)),
                 )),
@@ -1789,7 +1791,7 @@ mod tests {
             };
             Pattern {
                 term: go(vec![element(first), element(second)]),
-                constraints: vec![Predicate::Not(Box::new(Predicate::Equals(left, right)))],
+                constraints: vec![Predicate::Not(Arc::new(Predicate::Equals(left, right)))],
             }
         };
         assert_eq!(
@@ -1831,15 +1833,17 @@ mod tests {
     fn reverse_operands(predicate: &mut Predicate) {
         match predicate {
             Predicate::And(operands) | Predicate::Or(operands) => {
-                operands.reverse();
-                operands.iter_mut().for_each(reverse_operands);
+                let mut reversed = operands.to_vec();
+                reversed.reverse();
+                reversed.iter_mut().for_each(reverse_operands);
+                *operands = reversed.into();
             }
             Predicate::Not(inner) | Predicate::Exists(_, inner) | Predicate::Forall(_, inner) => {
-                reverse_operands(inner);
+                reverse_operands(Arc::make_mut(inner));
             }
             Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
-                reverse_operands(left);
-                reverse_operands(right);
+                reverse_operands(Arc::make_mut(left));
+                reverse_operands(Arc::make_mut(right));
             }
             _ => {}
         }
@@ -1880,28 +1884,27 @@ mod tests {
                 Predicate::Floor(go(vec![element(key), element(value)]))
             }),
             ("or", &|key, value| {
-                Predicate::Or(vec![equals(key, value), Predicate::False])
+                Predicate::Or(vec![equals(key, value), Predicate::False].into())
             }),
             ("and", &|key, value| {
-                Predicate::And(vec![Predicate::True, equals(key, value)])
+                Predicate::And(vec![Predicate::True, equals(key, value)].into())
             }),
             ("not", &|key, value| {
-                Predicate::Not(Box::new(equals(key, value)))
+                Predicate::Not(Arc::new(equals(key, value)))
             }),
             ("implies", &|key, value| {
-                Predicate::Implies(Box::new(Predicate::True), Box::new(equals(key, value)))
+                Predicate::Implies(Arc::new(Predicate::True), Arc::new(equals(key, value)))
             }),
             ("iff", &|key, value| {
-                Predicate::Iff(Box::new(equals(key, value)), Box::new(Predicate::False))
+                Predicate::Iff(Arc::new(equals(key, value)), Arc::new(Predicate::False))
             }),
             ("forall", &|key, value| {
                 let bound = value.replace('V', "W");
                 Predicate::Forall(
                     variable(&bound),
-                    Box::new(Predicate::Or(vec![
-                        equals(key, value),
-                        Predicate::Ceil(element(&bound)),
-                    ])),
+                    Arc::new(Predicate::Or(
+                        vec![equals(key, value), Predicate::Ceil(element(&bound))].into(),
+                    )),
                 )
             }),
             ("absent key", &|key, value| {

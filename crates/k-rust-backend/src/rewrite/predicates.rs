@@ -5,6 +5,7 @@
 //! concreteness check of rule attributes. O(|predicates|) per call; no worklist beyond the binder
 //! peel. Predicate truth bumps `Counter::SimplifyPredicateNodesVisited` once per node it reads.
 
+use std::sync::Arc;
 use std::{
     collections::{BTreeMap, BTreeSet},
     hash::{Hash, Hasher},
@@ -35,7 +36,7 @@ fn conjoin(mut predicates: Vec<Predicate>) -> Predicate {
     match predicates.len() {
         0 => Predicate::True,
         1 => predicates.pop().unwrap(),
-        _ => Predicate::And(predicates),
+        _ => Predicate::And(predicates.into()),
     }
 }
 
@@ -66,7 +67,7 @@ pub(crate) fn quantify_introduced_variables(
         introduced.retain(|variable| !constraint_variables.contains(variable));
     }
     for variable in introduced.into_iter().rev() {
-        condition = Predicate::Exists(variable, Box::new(condition));
+        condition = Predicate::Exists(variable, Arc::new(condition));
     }
     condition
 }
@@ -98,14 +99,14 @@ fn alpha_normalize(predicate: &Predicate, next: &mut usize) -> Predicate {
                 .into_iter()
                 .collect();
             let inner = substitute_predicate(inner, &substitution);
-            let inner = Box::new(alpha_normalize(&inner, next));
+            let inner = Arc::new(alpha_normalize(&inner, next));
             if matches!(predicate, Predicate::Exists(..)) {
                 Predicate::Exists(normalized, inner)
             } else {
                 Predicate::Forall(normalized, inner)
             }
         }
-        Predicate::Not(inner) => Predicate::Not(Box::new(alpha_normalize(inner, next))),
+        Predicate::Not(inner) => Predicate::Not(Arc::new(alpha_normalize(inner, next))),
         Predicate::And(predicates) => Predicate::And(
             predicates
                 .iter()
@@ -119,12 +120,12 @@ fn alpha_normalize(predicate: &Predicate, next: &mut usize) -> Predicate {
                 .collect(),
         ),
         Predicate::Implies(left, right) => Predicate::Implies(
-            Box::new(alpha_normalize(left, next)),
-            Box::new(alpha_normalize(right, next)),
+            Arc::new(alpha_normalize(left, next)),
+            Arc::new(alpha_normalize(right, next)),
         ),
         Predicate::Iff(left, right) => Predicate::Iff(
-            Box::new(alpha_normalize(left, next)),
-            Box::new(alpha_normalize(right, next)),
+            Arc::new(alpha_normalize(left, next)),
+            Arc::new(alpha_normalize(right, next)),
         ),
         predicate => predicate.clone(),
     }
@@ -315,31 +316,31 @@ fn substitute_predicate(predicate: &Predicate, substitution: &Substitution) -> P
         ),
         Predicate::Absent(absence) => absence.map_terms(|term| substitute(term, substitution)),
         Predicate::Not(inner) => {
-            Predicate::Not(Box::new(substitute_predicate(inner, substitution)))
+            Predicate::Not(Arc::new(substitute_predicate(inner, substitution)))
         }
         Predicate::And(inner) => Predicate::And({
             #[expect(clippy::disallowed_methods, reason = "the function's own recursion")]
-            substitute_predicates(inner, substitution)
+            substitute_predicates(inner, substitution).into()
         }),
         Predicate::Or(inner) => Predicate::Or({
             #[expect(clippy::disallowed_methods, reason = "the function's own recursion")]
-            substitute_predicates(inner, substitution)
+            substitute_predicates(inner, substitution).into()
         }),
         Predicate::Implies(left, right) => Predicate::Implies(
-            Box::new(substitute_predicate(left, substitution)),
-            Box::new(substitute_predicate(right, substitution)),
+            Arc::new(substitute_predicate(left, substitution)),
+            Arc::new(substitute_predicate(right, substitution)),
         ),
         Predicate::Iff(left, right) => Predicate::Iff(
-            Box::new(substitute_predicate(left, substitution)),
-            Box::new(substitute_predicate(right, substitution)),
+            Arc::new(substitute_predicate(left, substitution)),
+            Arc::new(substitute_predicate(right, substitution)),
         ),
         Predicate::Exists(variable, inner) => {
             let (variable, inner) = substitute_under_binder(variable, inner, substitution);
-            Predicate::Exists(variable, Box::new(inner))
+            Predicate::Exists(variable, Arc::new(inner))
         }
         Predicate::Forall(variable, inner) => {
             let (variable, inner) = substitute_under_binder(variable, inner, substitution);
-            Predicate::Forall(variable, Box::new(inner))
+            Predicate::Forall(variable, Arc::new(inner))
         }
     }
 }
@@ -422,7 +423,7 @@ fn collect_constructor_exclusions(
     exclusions: &mut BTreeMap<Term, BTreeSet<ConstructorHead>>,
 ) {
     if let Predicate::And(predicates) = predicate {
-        for predicate in predicates {
+        for predicate in predicates.iter() {
             collect_constructor_exclusions(definition, predicate, exclusions);
         }
         return;

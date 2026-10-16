@@ -285,7 +285,7 @@ pub(super) fn negation(predicate: &Predicate) -> Predicate {
         Predicate::True => Predicate::False,
         Predicate::False => Predicate::True,
         Predicate::Not(inner) => (**inner).clone(),
-        predicate => Predicate::Not(Box::new(predicate.clone())),
+        predicate => Predicate::Not(Arc::new(predicate.clone())),
     }
 }
 
@@ -296,7 +296,7 @@ pub(super) fn conjoin_flat(predicates: impl IntoIterator<Item = Predicate>) -> P
     fn flatten(predicate: Predicate, conjuncts: &mut Vec<Predicate>) {
         match predicate {
             Predicate::And(inner) => {
-                for predicate in inner {
+                for predicate in inner.iter().cloned() {
                     flatten(predicate, conjuncts);
                 }
             }
@@ -337,7 +337,7 @@ fn conjunction(predicates: &[Predicate]) -> Predicate {
     match predicates {
         [] => Predicate::True,
         [predicate] => predicate.clone(),
-        predicates => Predicate::And(predicates.to_vec()),
+        predicates => Predicate::And(predicates.to_vec().into()),
     }
 }
 
@@ -1561,7 +1561,7 @@ fn validity_and_applicability(
     if *applicability.as_predicate() != Predicate::True
         && conjunctively_contains_alpha_equivalent(
             &pattern.constraints,
-            &Predicate::Not(Box::new(applicability.as_predicate().clone())),
+            &Predicate::Not(Arc::new(applicability.as_predicate().clone())),
         )
     {
         return Err(PhaseExit::Attempt(RuleAttempt::NotApplicable));

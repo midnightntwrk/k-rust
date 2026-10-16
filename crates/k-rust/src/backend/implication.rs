@@ -6,20 +6,25 @@ use std::{collections::BTreeSet, error::Error};
 
 use k_rust_backend::{
     definition::{Admission, DefinitionError},
-    externalize,
+    externalize::{self, ConjunctionShape, External, Printable, ResultSort},
     implication::{
         Bindings, ImplicationCondition, ImplicationError, ImplicationRequestError,
         ImplicationStatus, ImplicationVerdict, Side, SpecialConsequent, bottom_antecedent,
         check_implication_with_existentials_complete, check_negated_consequent,
         grade_bottom_consequent, special_consequent, validate_request,
     },
+    rule::Predicate,
     stop::Stoppable,
     substitution::Substitution,
     term::{Name, Sort, Term, TermKind, Variable},
 };
-use k_rust_kore::kore::{
-    ast::{Pattern as KorePattern, Pattern},
-    json as kore_json,
+use k_rust_kore::{
+    json_tree::{self, Node},
+    kore::{
+        ast::{Pattern as KorePattern, Pattern},
+        json as kore_json,
+        node::materialize,
+    },
 };
 
 use super::{Backend, BackendError, admit, error, simplification::stopped_operation};
@@ -200,6 +205,11 @@ fn check_kore(
 }
 
 /// Render the CLI implication contract while the surface retains only file and stdout handling.
+///
+/// The output is a JSON tree built, written, and dropped with explicit stacks, so its depth is
+/// bounded by memory rather than by the native stack. Every object's members are in key order
+/// at every level (`kore_json::to_node_source`, and the literal objects here), the order of a
+/// `serde_json::Value` object, and the tree is written with the project's one pretty layout.
 pub fn cli_output(
     antecedent: &KorePattern,
     consequent: &KorePattern,
@@ -216,15 +226,20 @@ pub fn cli_output(
         left: Box::new(antecedent.clone()),
         right: Box::new(consequent.clone()),
     };
-    let mut output = serde_json::json!({
-        "status": status,
-        "implication": kore_json::to_value(&implication)?,
-    });
+    let mut members = Vec::with_capacity(3);
     if let Some(condition) = verdict.into_condition() {
         let sides = ImplicationSides::new(antecedent, consequent);
-        output["condition"] = cli_condition_output(&condition, result_sort, &sides)?;
+        members.push((
+            "condition".to_owned(),
+            cli_condition_node(&condition, result_sort, &sides),
+        ));
     }
-    Ok(k_rust_kore::json_tree::to_string_pretty(&output)?)
+    members.push((
+        "implication".to_owned(),
+        kore_json::to_node_source(&implication),
+    ));
+    members.push(("status".to_owned(), Node::String(status.to_owned())));
+    Ok(json_tree::to_string(&Node::Object(members), true))
 }
 
 pub fn cli_condition_output(
@@ -232,28 +247,59 @@ pub fn cli_condition_output(
     result_sort: &Sort,
     sides: &ImplicationSides,
 ) -> Result<serde_json::Value, Box<dyn Error>> {
-    let substitution = condition_substitution(&condition.substitution, result_sort, sides)
-        .unwrap_or_else(|| KorePattern::Top {
-            sort: externalize::sort(result_sort),
-        });
-    let predicate = externalize::predicates_pattern(
-        &condition.predicates,
-        result_sort,
-        |predicate| externalize::predicate_pattern(predicate, result_sort),
-        externalize::ConjunctionShape::Flat,
-    )
-    .unwrap_or_else(|| KorePattern::Top {
-        sort: externalize::sort(result_sort),
-    });
-    let witnesses = condition_substitution(&condition.witnesses, result_sort, sides)
-        .unwrap_or_else(|| KorePattern::Top {
-            sort: externalize::sort(result_sort),
-        });
-    Ok(serde_json::json!({
-        "substitution": kore_json::to_value(&substitution)?,
-        "predicate": kore_json::to_value(&predicate)?,
-        "witnesses": kore_json::to_value(&witnesses)?,
-    }))
+    Ok(cli_condition_node(condition, result_sort, sides).into_value())
+}
+
+/// The condition's JSON object, its members in key order. Each member is encoded from
+/// [`External`] sources that read the backend's terms node by node, so no KORE pattern of the
+/// condition is materialized: the substitution and the witnesses as the left-nested conjunction
+/// of their equations (`condition_bindings`), the predicate as the flat conjunction of its
+/// predicates other than `\top`, each written as `externalize::predicate_pattern` writes it, and
+/// `\top` at the result sort for an empty one.
+fn cli_condition_node(
+    condition: &ImplicationCondition,
+    result_sort: &Sort,
+    sides: &ImplicationSides,
+) -> Node {
+    let sort = externalize::sort(result_sort);
+    let substitution = condition_bindings(&condition.substitution, sides);
+    let substitution = equation_sources(&substitution, result_sort);
+    let witnesses = condition_bindings(&condition.witnesses, sides);
+    let witnesses = equation_sources(&witnesses, result_sort);
+    let printable = condition
+        .predicates
+        .iter()
+        .filter(|predicate| !matches!(predicate, Predicate::True))
+        .map(Printable::predicate)
+        .collect::<Vec<_>>();
+    let predicates = printable
+        .iter()
+        .map(|predicate| External::Predicate {
+            predicate: predicate.source(),
+            sort: ResultSort::Given(result_sort),
+            preserve_terms: false,
+        })
+        .collect::<Vec<_>>();
+    let member = |operands: &[External<'_>], shape| {
+        kore_json::to_node_source(
+            externalize::connective_source(&sort, operands, shape, true)
+                .unwrap_or(External::Top(&sort)),
+        )
+    };
+    Node::Object(vec![
+        (
+            "predicate".to_owned(),
+            member(&predicates, ConjunctionShape::Flat),
+        ),
+        (
+            "substitution".to_owned(),
+            member(&substitution, ConjunctionShape::LeftNested),
+        ),
+        (
+            "witnesses".to_owned(),
+            member(&witnesses, ConjunctionShape::LeftNested),
+        ),
+    ])
 }
 
 /// What the printer of an implication's condition needs from the request's two sides.
@@ -329,49 +375,80 @@ impl ImplicationSides {
     }
 }
 
+/// One binding of an implication's condition as the condition prints it: the variable under the
+/// name it is printed with (`ImplicationSides`), its value, and whether the value is written on
+/// the left of the equation.
+struct ConditionBinding<'s> {
+    variable: Variable,
+    value: &'s Term,
+    value_first: bool,
+}
+
+/// The bindings of `substitution` as the condition prints them, ordered by variable name then
+/// sort.
+///
+/// A binding of a consequent existential is printed under the existential's own name when that
+/// name is free for it. When it binds that existential to the antecedent's variable, the
+/// equation is written with the antecedent's variable on the left, so it reads as the
+/// consequent's variable instantiated by the antecedent.
+fn condition_bindings<'s>(
+    substitution: &'s Substitution,
+    sides: &ImplicationSides,
+) -> Vec<ConditionBinding<'s>> {
+    let mut bindings = substitution.iter().collect::<Vec<_>>();
+    bindings.sort_by_key(|(variable, _)| (variable.name.clone(), variable.sort.clone()));
+    bindings
+        .into_iter()
+        .map(|(variable, value)| {
+            let mut output_variable = variable.clone();
+            let consequent_existential = sides.consequent_existential_name(variable);
+            if let Some(name) = consequent_existential {
+                output_variable.name = Name::from(name);
+            }
+            // A request variable keeps its KORE name inside the backend, so the names compare.
+            let value_first = consequent_existential.is_some()
+                && matches!(
+                    value.kind(),
+                    TermKind::Variable(value)
+                        if sides.antecedent_variable.as_deref() == Some(value.name.as_ref())
+                );
+            ConditionBinding {
+                variable: output_variable,
+                value,
+                value_first,
+            }
+        })
+        .collect()
+}
+
+/// The equation of each binding at `result_sort`, as a pattern source.
+fn equation_sources<'t>(
+    bindings: &'t [ConditionBinding<'_>],
+    result_sort: &'t Sort,
+) -> Vec<External<'t>> {
+    bindings
+        .iter()
+        .map(|binding| External::Equation {
+            variable: &binding.variable,
+            value: binding.value,
+            value_first: binding.value_first,
+            sort: result_sort,
+        })
+        .collect()
+}
+
+/// The left-nested conjunction at `result_sort` of the equations of the bindings of
+/// `substitution` (`condition_bindings`), or `None` when it has none.
 pub fn condition_substitution(
     substitution: &Substitution,
     result_sort: &Sort,
     sides: &ImplicationSides,
 ) -> Option<KorePattern> {
-    let mut bindings = substitution.iter().collect::<Vec<_>>();
-    bindings.sort_by_key(|(variable, _)| (variable.name.clone(), variable.sort.clone()));
-    let bindings = bindings.into_iter().map(|(variable, value)| {
-        let mut output_variable = variable.clone();
-        let consequent_existential = sides.consequent_existential_name(variable);
-        if let Some(name) = consequent_existential {
-            output_variable.name = Name::from(name);
-        }
-        // A request variable keeps its KORE name inside the backend, so the names compare.
-        let prefer_antecedent = consequent_existential.is_some()
-            && matches!(
-                value.kind(),
-                TermKind::Variable(value)
-                    if sides.antecedent_variable.as_deref() == Some(value.name.as_ref())
-            );
-        let (left, right) = if prefer_antecedent {
-            (
-                externalize::term(value),
-                externalize::term(&Term::variable(output_variable)),
-            )
-        } else {
-            (
-                externalize::term(&Term::variable(output_variable)),
-                externalize::term(value),
-            )
-        };
-        KorePattern::Equals {
-            operand_sort: Box::new(externalize::sort(&variable.sort)),
-            result_sort: externalize::sort(result_sort),
-            left: Box::new(left),
-            right: Box::new(right),
-        }
-    });
-    externalize::conjunction(
-        &externalize::sort(result_sort),
-        bindings.collect(),
-        externalize::ConjunctionShape::LeftNested,
-    )
+    let bindings = condition_bindings(substitution, sides);
+    let equations = equation_sources(&bindings, result_sort);
+    let sort = externalize::sort(result_sort);
+    externalize::connective_source(&sort, &equations, ConjunctionShape::LeftNested, true)
+        .map(materialize)
 }
 
 #[cfg(test)]
@@ -424,5 +501,120 @@ mod tests {
             "{error}"
         );
         assert!(implies(r"\bottom{S}()", consequent, Admission::Unverified).is_ok());
+    }
+
+    const CHAIN: &str = r#"[]
+        module MAIN
+            sort SortK{} []
+            symbol c{}(SortK{}) : SortK{} [constructor{}(), functional{}()]
+            symbol z{}() : SortK{} [constructor{}(), functional{}()]
+        endmodule []"#;
+
+    /// `c^depth(z{}())` as KORE text.
+    fn chain(depth: usize) -> String {
+        format!("{}z{{}}(){}", "c{}(".repeat(depth), ")".repeat(depth))
+    }
+
+    fn chain_implication(
+        antecedent: &str,
+        consequent: &str,
+    ) -> (KorePattern, KorePattern, ImplicationVerdict, Sort) {
+        let mut backend = Backend::new(CHAIN, "MAIN", BackendOptions::default())
+            .expect("the chain definition should internalize");
+        let antecedent = parse_pattern(antecedent).expect("antecedent should parse");
+        let consequent = parse_pattern(consequent).expect("consequent should parse");
+        let (verdict, sort) = backend
+            .implies_kore(None, &antecedent, &consequent, Admission::Verified)
+            .expect("the implication should be checked");
+        (antecedent, consequent, verdict, sort)
+    }
+
+    /// The CLI output as `serde_json` values would hold it, every object's members ordered by
+    /// key, written with the project's pretty layout: the text the JSON tree must reproduce.
+    fn value_output(
+        antecedent: &KorePattern,
+        consequent: &KorePattern,
+        sort: &Sort,
+        verdict: ImplicationVerdict,
+    ) -> String {
+        let status = match verdict.status() {
+            ImplicationStatus::Valid => "valid",
+            ImplicationStatus::Invalid => "invalid",
+            ImplicationStatus::Indeterminate => "unknown",
+        };
+        let top = || KorePattern::Top {
+            sort: externalize::sort(sort),
+        };
+        let value = |pattern: &KorePattern| kore_json::to_value(pattern).unwrap();
+        let implication = KorePattern::Implies {
+            sort: externalize::sort(sort),
+            left: Box::new(antecedent.clone()),
+            right: Box::new(consequent.clone()),
+        };
+        let mut output = serde_json::json!({
+            "status": status,
+            "implication": value(&implication),
+        });
+        if let Some(condition) = verdict.into_condition() {
+            let sides = ImplicationSides::new(antecedent, consequent);
+            let substitution = condition_substitution(&condition.substitution, sort, &sides);
+            let witnesses = condition_substitution(&condition.witnesses, sort, &sides);
+            let predicate = externalize::predicates_pattern(
+                &condition.predicates,
+                sort,
+                |predicate| externalize::predicate_pattern(predicate, sort),
+                ConjunctionShape::Flat,
+            );
+            output["condition"] = serde_json::json!({
+                "substitution": value(&substitution.unwrap_or_else(top)),
+                "predicate": value(&predicate.unwrap_or_else(top)),
+                "witnesses": value(&witnesses.unwrap_or_else(top)),
+            });
+        }
+        json_tree::to_string_pretty(&output).unwrap()
+    }
+
+    /// The CLI output is the text of the same output held as `serde_json` values, byte for byte:
+    /// with a substitution, with witnesses, with a renamed existential, and without a condition.
+    #[test]
+    fn the_cli_output_is_the_text_of_its_json_value() {
+        let cases = [
+            (chain(3), "X:SortK{}".to_owned()),
+            (
+                chain(2),
+                r"\exists{SortK{}}(Y:SortK{}, c{}(Y:SortK{}))".to_owned(),
+            ),
+            (
+                "X:SortK{}".to_owned(),
+                r"\exists{SortK{}}(Z:SortK{}, Z:SortK{})".to_owned(),
+            ),
+            (chain(1), chain(2)),
+        ];
+        for (antecedent, consequent) in cases {
+            let (antecedent, consequent, verdict, sort) =
+                chain_implication(&antecedent, &consequent);
+            let expected = value_output(&antecedent, &consequent, &sort, verdict.clone());
+            let output = cli_output(&antecedent, &consequent, &sort, verdict).unwrap();
+            assert_eq!(output, expected);
+        }
+    }
+
+    /// A condition binding a term 200,000 levels deep is written on an 8 MiB stack: the output is
+    /// built, written, and dropped without native recursion over the term.
+    #[test]
+    fn the_cli_output_of_a_deep_condition_takes_no_native_stack_per_level() {
+        const DEPTH: usize = 200_000;
+        let output = std::thread::Builder::new()
+            .stack_size(8 << 20)
+            .spawn(|| {
+                let (antecedent, consequent, verdict, sort) =
+                    chain_implication(&chain(DEPTH), "X:SortK{}");
+                cli_output(&antecedent, &consequent, &sort, verdict).unwrap()
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+        // The term is written twice: in the implication and in the condition's substitution.
+        assert_eq!(output.matches(r#""name": "c""#).count(), 2 * DEPTH);
     }
 }
