@@ -2807,6 +2807,11 @@ crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/search.rs"
 symbol = "forget_depths_below"
 
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/search.rs"
+symbol = "RetainedTrace::extend"
+
 [[node.cost]]
 mode = "one depth"
 bound = "O(n) rewrite steps plus O(r) pattern comparisons per retained result"
@@ -2821,7 +2826,7 @@ bound = "the keys of the depths not below the lowest depth queued or being expan
 
 [[node.cost]]
 mode = "trace storage"
-bound = "O(1) per fork and per appended entry: a queued state shares its path's trace with the states it forked from (rewrite::path_trace); O(entries) per reported state to materialise its trace"
+bound = "O(1) per fork and per appended entry: a queued state shares its path's trace with the states it forked from (rewrite::path_trace); O(entries) per reported state to materialise its trace; nothing when retain_trace is false (RetainedTrace drops every entry)"
 
 [[node]]
 kind = "algorithm"

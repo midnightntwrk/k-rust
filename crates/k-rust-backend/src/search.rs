@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "backend.search.configurations"
 //! name = "breadth-first search over configurations"
-//! sites = ["search_graph_using", "search_graph_collecting", "materialize_search_state", "SearchFrontier::floor", "forget_depths_below"]
+//! sites = ["search_graph_using", "search_graph_collecting", "materialize_search_state", "SearchFrontier::floor", "forget_depths_below", "RetainedTrace::extend"]
 //! variable = "n = distinct (depth, pattern, is_rewritable) keys at one depth; r = results retained"
 //! counters = ["SearchStatesVisited", "SearchStatesDeduplicated"]
 //! span = "per problem"
@@ -21,7 +21,7 @@
 //!
 //! [[cost]]
 //! mode = "trace storage"
-//! bound = "O(1) per fork and per appended entry: a queued state shares its path's trace with the states it forked from (rewrite::path_trace); O(entries) per reported state to materialise its trace"
+//! bound = "O(1) per fork and per appended entry: a queued state shares its path's trace with the states it forked from (rewrite::path_trace); O(entries) per reported state to materialise its trace; nothing when retain_trace is false (RetainedTrace drops every entry)"
 //! ```
 //!
 //! ```toml algorithm
@@ -185,6 +185,13 @@ pub struct SearchOptions {
     /// evaluation of the search sees it, the conditions of rules and equations and the matching
     /// of the target included.
     pub evaluation: EvaluationMode,
+    /// Whether every state the configuration search reports carries its path's trace
+    /// (`SearchState::trace`), as by default. A caller that reads no trace passes `false`: the
+    /// search then records no entry, and every state it reports has an empty trace. Nothing the
+    /// search decides reads a trace, so its states, results and every other field of what it
+    /// reports are the same either way. The path search keeps every witness's trace whatever
+    /// this says.
+    pub retain_trace: bool,
 }
 
 impl Default for SearchOptions {
@@ -197,6 +204,7 @@ impl Default for SearchOptions {
             max_simplification_iterations: DEFAULT_MAX_SIMPLIFICATION_ITERATIONS,
             request_names: RequestNames::default(),
             evaluation: EvaluationMode::Proof,
+            retain_trace: true,
         }
     }
 }
@@ -921,7 +929,7 @@ fn search_graph_collecting(
                     simplified.effects.iter().cloned(),
                     &mut observe,
                 );
-                trace.extend(
+                RetainedTrace::new(&mut trace, options.retain_trace).extend(
                     simplified
                         .applied_rules
                         .into_iter()
@@ -1020,6 +1028,7 @@ fn search_graph_collecting(
                 observation_head,
                 diagnostics.clone(),
                 options.max_simplification_iterations,
+                options.retain_trace,
                 solver,
                 &mut effects,
                 &mut observe,
@@ -1125,6 +1134,7 @@ fn search_graph_collecting(
                     observation_head,
                     diagnostics,
                     options.max_simplification_iterations,
+                    options.retain_trace,
                     solver,
                     &mut effects,
                     &mut observe,
@@ -1189,6 +1199,7 @@ fn search_graph_collecting(
                     definition,
                     state.depth,
                     trace,
+                    options.retain_trace,
                     observation_head,
                     diagnostics,
                     applied,
@@ -1214,6 +1225,7 @@ fn search_graph_collecting(
                         definition,
                         state.depth,
                         trace.clone(),
+                        options.retain_trace,
                         observation_head,
                         diagnostics.clone(),
                         applied,
@@ -1231,6 +1243,7 @@ fn search_graph_collecting(
                         definition,
                         state.depth,
                         trace,
+                        options.retain_trace,
                         observation_head,
                         diagnostics,
                         state.pattern,
@@ -1475,7 +1488,8 @@ const fn halts(rewrite: &RewriteResult) -> bool {
 }
 
 /// Externalise a search result in the simplifier's normal form
-/// (`rewrite::simplify_leaf_pattern`), materializing its observations.
+/// (`rewrite::simplify_leaf_pattern`), materializing its observations. The simplification's
+/// trace entries join the result's trace when `retain_trace` holds.
 ///
 /// The work state that continues the search keeps its loop-head constraints as path knowledge;
 /// only the reported copy is simplified. `Ok(None)` is a result whose constraints simplify to
@@ -1497,6 +1511,7 @@ fn externalise_result(
     mut observation: ObservationHead,
     mut diagnostics: PathDiagnostics,
     max_iterations: usize,
+    retain_trace: bool,
     solver: &dyn SmtSolver,
     effects: &mut Vec<BuiltinEffect>,
     observe: &mut impl FnMut(&BuiltinEffect),
@@ -1511,7 +1526,7 @@ fn externalise_result(
             max_iterations,
             solver,
             state.depth,
-            &mut state.trace,
+            &mut RetainedTrace::new(&mut state.trace, retain_trace),
             Some(&mut observation),
             observation_log,
             observation_options,
@@ -1556,6 +1571,7 @@ fn next_search_work_state(
     definition: &BackendDefinition,
     depth: u64,
     mut trace: PathTrace,
+    retain_trace: bool,
     observation: ObservationHead,
     mut diagnostics: PathDiagnostics,
     applied: AppliedRule,
@@ -1576,7 +1592,11 @@ fn next_search_work_state(
         );
     }
     let observation = observation_log.append_applied(observation, &applied, observation_options);
-    let state = next_state(depth, &mut trace, applied);
+    let state = next_state(
+        depth,
+        &mut RetainedTrace::new(&mut trace, retain_trace),
+        applied,
+    );
     SearchWorkState {
         state,
         trace,
@@ -1591,6 +1611,7 @@ fn remaining_search_work_state(
     definition: &BackendDefinition,
     depth: u64,
     mut trace: PathTrace,
+    retain_trace: bool,
     observation: ObservationHead,
     mut diagnostics: PathDiagnostics,
     before: Pattern,
@@ -1607,13 +1628,39 @@ fn remaining_search_work_state(
         observation_log,
         observation_options,
     );
-    let state = remaining_state(depth, &mut trace, remainder);
+    let state = remaining_state(
+        depth,
+        &mut RetainedTrace::new(&mut trace, retain_trace),
+        remainder,
+    );
     SearchWorkState {
         state,
         trace,
         observation,
         diagnostics,
         kind,
+    }
+}
+
+/// A path's trace that takes the entries appended to it only when the search retains traces
+/// (`SearchOptions::retain_trace`); otherwise it drops them unread, so a search whose caller reads
+/// no trace stores none.
+struct RetainedTrace<'t, T> {
+    trace: &'t mut T,
+    retain: bool,
+}
+
+impl<'t, T> RetainedTrace<'t, T> {
+    const fn new(trace: &'t mut T, retain: bool) -> Self {
+        Self { trace, retain }
+    }
+}
+
+impl<T: Extend<TraceEntry>> Extend<TraceEntry> for RetainedTrace<'_, T> {
+    fn extend<I: IntoIterator<Item = TraceEntry>>(&mut self, entries: I) {
+        if self.retain {
+            self.trace.extend(entries);
+        }
     }
 }
 
@@ -4588,6 +4635,69 @@ mod tests {
                 );
                 assert_eq!(state.trace, witness.trace, "{search_type:?} at {max_depth}");
             }
+        }
+    }
+
+    /// A search that retains no trace reports what one that retains them reports, with every
+    /// trace empty, and does the same work: nothing the search decides reads a trace.
+    #[test]
+    fn a_search_without_traces_differs_only_in_its_traces() {
+        fn clear(state: &mut SearchState) {
+            state.trace.clear();
+        }
+        fn without_traces(mut result: SearchResult) -> SearchResult {
+            result.states.iter_mut().for_each(clear);
+            for entry in &mut result.incomplete {
+                match entry {
+                    IncompleteSearch::BreadthBound(states) => states.iter_mut().for_each(clear),
+                    IncompleteSearch::DepthBound(state)
+                    | IncompleteSearch::Indeterminate { state, .. }
+                    | IncompleteSearch::Stopped { state, .. }
+                    | IncompleteSearch::Simplification { state, .. }
+                    | IncompleteSearch::Match { state, .. }
+                    | IncompleteSearch::Smt { state, .. } => clear(state),
+                }
+            }
+            result
+        }
+        let definition = interleaving_definition();
+        let initial = pattern(&definition, "state{}(a0{}(), b0{}(), c0{}())");
+        for (search_type, max_depth, max_breadth) in [
+            (SearchType::Star, u64::MAX, None),
+            (SearchType::Final, u64::MAX, None),
+            (SearchType::Final, 5, None),
+            (SearchType::Final, u64::MAX, Some(6)),
+        ] {
+            let options = SearchOptions {
+                search_type,
+                max_depth,
+                max_breadth,
+                ..SearchOptions::default()
+            };
+            let before = measure::snapshot();
+            let retained = search_graph(&definition, initial.clone(), options.clone());
+            let middle = measure::snapshot();
+            let discarded = search_graph(
+                &definition,
+                initial.clone(),
+                SearchOptions {
+                    retain_trace: false,
+                    ..options
+                },
+            );
+            let after = measure::snapshot();
+            // Some reported state, a result or an incomplete entry's, has a trace to drop.
+            assert_ne!(
+                without_traces(retained.clone()),
+                retained,
+                "{search_type:?}"
+            );
+            assert_eq!(
+                without_traces(retained.clone()),
+                discarded,
+                "{search_type:?} at {max_depth}, breadth {max_breadth:?}"
+            );
+            assert_eq!(middle.delta(&before), after.delta(&middle));
         }
     }
 
