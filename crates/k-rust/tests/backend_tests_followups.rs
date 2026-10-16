@@ -195,9 +195,9 @@ fn kast_batch_accepts_what_a_single_case_accepts() {
 
 /// `kcompile` a definition whose program `build(n, z)` builds the term `c^n(z)` in `n` rewrite
 /// steps and then evaluates the recursive function `size` on it, which descends `n` levels in the
-/// simplifier, and `krun` `build(levels, z)` on it with the process's address space limited to
-/// `limit_kib` KiB (`ulimit -v`).
-fn krun_deep_under_address_limit(levels: usize, limit_kib: usize) -> Output {
+/// simplifier, and `krun` `build(levels, z)` on it once for each limit of `limits_kib`, with the
+/// process's address space limited to that many KiB (`ulimit -v`).
+fn krun_deep_under_address_limits(levels: usize, limits_kib: &[usize]) -> Vec<Output> {
     const SOURCE: &str = r#"
 module DEEP
   imports INT
@@ -228,41 +228,55 @@ endmodule
         "{}",
         String::from_utf8_lossy(&compile.stderr)
     );
-    let output = Command::new("sh")
-        .arg("-c")
-        .arg(
-            r#"ulimit -v "$3"; exec "$0" krun --definition "$1" -s Pgm -e "build($2, z)" --io off"#,
-        )
-        .arg(env!("CARGO_BIN_EXE_krust"))
-        .arg(&compiled)
-        .arg(levels.to_string())
-        .arg(limit_kib.to_string())
-        .stdin(Stdio::null())
-        .output()
-        .unwrap();
+    let outputs = limits_kib
+        .iter()
+        .map(|limit_kib| {
+            Command::new("sh")
+                .arg("-c")
+                .arg(
+                    r#"ulimit -v "$3"; exec "$0" krun --definition "$1" -s Pgm -e "build($2, z)" --io off"#,
+                )
+                .arg(env!("CARGO_BIN_EXE_krust"))
+                .arg(&compiled)
+                .arg(levels.to_string())
+                .arg(limit_kib.to_string())
+                .stdin(Stdio::null())
+                .output()
+                .unwrap()
+        })
+        .collect();
     fs::remove_dir_all(root).unwrap();
-    output
+    outputs
 }
 
 /// A stop names the limit that stopped it. Under an address space of about 300 MB, far below the
 /// thread's 1 GiB stack budget, a recursion 200,000 levels deep (about 5 KiB of stack per level
-/// in a release build and more in the others, so several times the address space) is stopped by
-/// the system's refusal to map a segment: the run fails with a stop that names the refused
-/// mapping and does not claim that a recursion exhausted the thread's budget, which it did not
-/// reach. The `stacker` crate's own panic text for the refused mapping may print before the stop;
-/// it is accepted output of a fail-fast stop, so only the stop is asserted.
+/// in a release build and more in the others, so several times the address space) fails: the
+/// run does not succeed, and its stop never claims that a recursion exhausted the thread's
+/// budget, which it did not reach. The recursion maps 16 MiB stack segments while the heap grows
+/// by smaller steps, and which of the two requests the system refuses first depends on how far
+/// the last segment left the address space from its limit; when the heap's is refused the
+/// process aborts with the allocator's message instead of a stop. The limits below are spaced
+/// by less than a segment, so the remaining room after the last segment differs between them,
+/// and at least one run is stopped by the refusal to map a segment, with a stop that names it.
+/// The `stacker` crate's own panic text for the refused mapping may print before the stop; it is
+/// accepted output of a fail-fast stop, so only the stop is asserted.
 #[test]
 fn a_refused_stack_segment_stops_naming_the_refused_mapping() {
-    let output = krun_deep_under_address_limit(200_000, 300_000);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(!output.status.success(), "{stderr}");
-    let stop = stderr
-        .lines()
-        .find(|line| line.starts_with("error: "))
-        .unwrap_or_else(|| panic!("no error line: {stderr}"));
-    assert!(
-        stop.contains("simplification exhausted its native stack: the system refused to map"),
-        "{stderr}"
-    );
-    assert!(!stop.contains("a recursion went too deep"), "{stderr}");
+    let outputs = krun_deep_under_address_limits(200_000, &[300_000, 305_000, 310_000, 315_000]);
+    let mut named = 0;
+    for output in &outputs {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(!output.status.success(), "{stderr}");
+        let Some(stop) = stderr.lines().find(|line| line.starts_with("error: ")) else {
+            continue;
+        };
+        assert!(
+            stop.contains("simplification exhausted its native stack: the system refused to map"),
+            "{stderr}"
+        );
+        assert!(!stop.contains("a recursion went too deep"), "{stderr}");
+        named += 1;
+    }
+    assert!(named > 0, "no run was stopped by a refused segment");
 }
