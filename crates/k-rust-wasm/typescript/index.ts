@@ -359,8 +359,10 @@ export interface ExecutionResult {
   /** The states the run visited across all its paths, the unit `maxWork` bounds. */
   work: number
   /**
-   * The states the run expanded, those whose successors it computed; at most `work`
-   * (docs/compatibility.md, "Work budget").
+   * The visited states whose rewrite step ran and answered, whatever the answer (successors,
+   * a branch or cut-point report, or a verdict that ends the state such as stuck or trivial);
+   * at most `work`, and deterministic exactly where `work` is (docs/compatibility.md,
+   * "Work budget").
    */
   expanded: number
   /** Present exactly when the request set `collectCoverage`. */
