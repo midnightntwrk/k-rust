@@ -456,9 +456,10 @@ pub enum Counter {
     ParserChartAddCalls,
     /// Chart insertions that changed a state and re-enqueued it.
     ParserChartStateChanges,
-    /// Agenda pops of the Earley dispatch loop.
+    /// Agenda pops the Earley loop dispatches; a pop that would repeat the state's previous
+    /// dispatch is skipped and not counted.
     ParserChartAgendaPops,
-    /// Agenda pops of a state popped before (incremental ambiguity revisits).
+    /// Dispatched agenda pops of a state popped before (incremental ambiguity revisits).
     ParserChartRevisitPops,
     /// Derivations iterated per dispatched state.
     ParserChartDerivationsRead,
