@@ -1,0 +1,42 @@
+axiom{}
+    \rewrites{SortGeneratedTopCell{}}(
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'t'-GT-'{}(
+            Lbl'-LT-'k'-GT-'{}(kseq{}(Lbla'Unds'TEST'Unds'KItem{}(), Var'Unds'DotVar2:SortK{})),
+            Var'Unds'Gen3:SortAccountsCell{},
+            \and{SortTwoCell{}}(
+              Lbl'-LT-'two'-GT-'{}(VarA:SortAcc2CellMap{}, Lbl'-LT-'cnt'-GT-'{}(VarC:SortInt{})),
+              Var'Unds'Gen6:SortTwoCell{}
+            ),
+            Var'Unds'Gen4:SortPairCell{}
+          ),
+          Var'Unds'DotVar0:SortGeneratedCounterCell{}
+        ),
+        \top{SortGeneratedTopCell{}}()
+      ),
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'t'-GT-'{}(
+            Lbl'-LT-'k'-GT-'{}(
+              kseq{}(
+                LblfooK'LParUndsRParUnds'TEST'Unds'KItem'Unds'K{}(
+                  kseq{}(
+                    inj{SortTwoCellFragment{}, SortKItem{}}(
+                      Lbl'-LT-'two'-GT-'-fragment{}(VarA:SortAcc2CellMap{}, LblnoCntCell{}())
+                    ),
+                    dotk{}()
+                  )
+                ),
+                Var'Unds'DotVar2:SortK{}
+              )
+            ),
+            Var'Unds'Gen3:SortAccountsCell{},
+            Var'Unds'Gen6:SortTwoCell{},
+            Var'Unds'Gen4:SortPairCell{}
+          ),
+          Var'Unds'DotVar0:SortGeneratedCounterCell{}
+        ),
+        \top{SortGeneratedTopCell{}}()
+      )
+    )

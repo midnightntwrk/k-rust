@@ -46,6 +46,10 @@ pub(super) struct LoweredLocal {
     pub(super) sorts: LambdaSorts,
     /// The value the lambda is applied to, resolved in the enclosing scope.
     pub(super) argument: Term,
+    /// The closure variables `C1..Cn` the lambda is also applied to, each with the sort of its
+    /// lambda parameter when the lowering gives it one (else `K`), as the loaded equation
+    /// writes them (`closure_variables`).
+    pub(super) closure: Vec<Term>,
     /// The generated equation, resolved in its own scope.
     pub(super) equation: Equation,
 }
@@ -105,6 +109,7 @@ pub(super) fn lower(
         injector,
         next: 0,
         pending: BTreeMap::new(),
+        closures: BTreeMap::new(),
         equations: Vec::new(),
         error: None,
     };
@@ -146,7 +151,10 @@ pub(super) fn lower(
         return Err(LoweringError::Sort(error));
     }
     let Lowering {
-        pending, equations, ..
+        pending,
+        mut closures,
+        equations,
+        ..
     } = lowering;
 
     let mut variables =
@@ -250,12 +258,14 @@ pub(super) fn lower(
             let equation = parts
                 .remove(&name)
                 .expect("every local function has an equation");
+            let closure = closures.remove(&name).unwrap_or_default();
             (
                 name,
                 LoweredLocal {
                     local,
                     sorts,
                     argument,
+                    closure,
                     equation,
                 },
             )
@@ -273,6 +283,8 @@ struct Lowering<'i, 'v, 'd> {
     next: usize,
     /// Each local function and its lambda's sorts, by stand-in name.
     pending: BTreeMap<String, (LocalFunction, LambdaSorts)>,
+    /// The closure variables of each local function, by stand-in name.
+    closures: BTreeMap<String, Vec<Term>>,
     /// Each generated equation, `stand-in(P, C1..Cn) => B`, by stand-in name.
     equations: Vec<(String, Term)>,
     /// The first sort the injector could not compute.
@@ -345,6 +357,7 @@ impl Lowering<'_, '_, '_> {
             None => left,
         };
         self.equations.push((name.clone(), equation));
+        self.closures.insert(name.clone(), closure.clone());
         self.pending.insert(name, (local, sorts));
         let mut call = vec![value];
         call.extend(closure);

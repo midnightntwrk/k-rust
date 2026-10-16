@@ -1,4 +1,5 @@
-//! The sorts cell completion gives the cell-fragment variables of a typed sentence.
+//! The sorts cell completion gives the cell-fragment and one-cell alias variables of a typed
+//! sentence.
 //!
 //! Cell completion (`kompile::passes::concretize_cells`) runs before injection, and it rewrites
 //! every occurrence of a cell-fragment variable: a variable without a cell sort written directly
@@ -18,10 +19,16 @@
 //! - at every other occurrence, in the body, the requires or the ensures, the fragment term
 //!   `<p>-fragment(..)`, whose sort is the cell's fragment sort (`AccountsCellFragment`).
 //!
-//! [`complete`] reads the variables and their parts from completion's own analysis
-//! ([`CellCompletion::fragment_variables`]), on the resolved sentence with its anonymous
-//! variables named as compilation names them, and gives each occurrence the sort of the term
-//! completion builds there.
+//! Before that, it gives the variable `V` of each alias `P #as V` of one cell that cell's sort,
+//! at every occurrence (`sort_one_cell_aliases`).
+//!
+//! [`complete`] reads the alias sorts, the fragment variables and their parts from completion's
+//! own analysis ([`CellCompletion::alias_sorts`], [`CellCompletion::fragment_variables`]), and
+//! gives each occurrence the sort of the term completion builds there.
+//! Compilation lowers local functions first, so the analysis reads the sentence with each
+//! local function's stand-in replaced by the application compilation writes there, its value
+//! and its closure variables as arguments, and with its anonymous variables named as
+//! compilation names them; the values are re-sorted with the sentence, as terms of its scope.
 //! The term shape is unchanged (a variable stays a variable), so the loaded and resolved walks
 //! stay aligned.
 //! An occurrence in a body that completion replaces by its parts, or by none, is left without a
@@ -31,9 +38,9 @@
 //! The re-sorted variable keeps no cast: the walk reports the requirement of the position the
 //! cast stood at for it ([`Completed::contains`]).
 //!
-//! Cost: one walk of the sentence to find a variable in a cell body; and, when there is one, a
-//! copy of the sentence, compilation's completion of its cells up to that analysis, and one
-//! more walk of the sentence and of the copy.
+//! Cost: one walk of the sentence and its values for the alias sorts and one to find a variable
+//! in a cell body; and, when there is one, a copy of the sentence, compilation's completion of
+//! its cells up to that analysis, and one more walk of the sentence and of the copy.
 //! The cell model is built once per typer and model module.
 
 #![deny(clippy::wildcard_enum_match_arm)]
@@ -42,87 +49,122 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use crate::definition::{LabelHead, ModuleId, ResolvedDefinition, Sentence};
-use crate::kast::{InternalLabel, Sort, Term};
+use crate::kast::{InternalLabel, Label, Sort, Term};
 use crate::kompile::passes::{CellCompletion, FragmentVariable, resolve_anon_vars_in_sentence};
 
 use super::super::SortInjector;
+use super::local_functions::Locals;
 
-/// The occurrences of cell-fragment variables a typed sentence's completion re-sorts, and the
-/// cell model that completes the sentence (none for a sentence without an authored cell).
+/// The occurrences a typed sentence's completion re-sorts, and the cell model that completes
+/// the sentence (none for a sentence without an authored cell).
 #[derive(Default)]
 pub(super) struct Completed {
     pub(super) completion: Option<Arc<CellCompletion>>,
-    /// The address of each re-sorted occurrence, as a node of the resolved sentence.
+    /// The address of each re-sorted occurrence, as a node of the resolved sentence or of a
+    /// local function's value.
     nodes: BTreeSet<usize>,
     /// The cell-fragment variables with a name of their own in the typed sentence, by name.
     pub(super) variables: BTreeMap<String, FragmentVariable>,
+    /// The sort of the fragment term of each of them.
+    pub(super) fragment_sorts: BTreeMap<String, Sort>,
+    /// The cell sort of each one-cell alias variable.
+    pub(super) aliases: BTreeMap<String, Sort>,
+    /// The local functions applied in the sentence's own scope (not in an equation), by
+    /// stand-in name.
+    pub(super) enclosing: BTreeSet<String>,
+    /// Whether a local function is written as an item of the body of a cell with children.
+    pub(super) local_in_body: bool,
+    /// The re-sorted nodes a walk looked up, which must be all of them.
+    #[cfg(debug_assertions)]
+    looked_up: std::cell::RefCell<BTreeSet<usize>>,
 }
 
 impl Completed {
     fn new(completion: Arc<CellCompletion>) -> Self {
         Self {
             completion: Some(completion),
-            nodes: BTreeSet::new(),
-            variables: BTreeMap::new(),
+            ..Self::default()
         }
     }
 
-    /// Whether completion re-sorts no occurrence.
-    pub(super) fn is_empty(&self) -> bool {
-        self.nodes.is_empty()
-    }
-
-    /// Whether `name` is a cell-fragment variable of the typed sentence.
-    pub(super) fn mentions(&self, name: &str) -> bool {
-        self.variables.contains_key(name)
-    }
-
-    /// Whether `node`, a node of the resolved sentence, is an occurrence completion re-sorts:
-    /// it has no cast in the compiled term, so it occupies the position of a cast above it.
+    /// Whether `node`, a node of the resolved sentence or of a local function's value, is an
+    /// occurrence completion re-sorts: it has no cast in the compiled term, so it occupies the
+    /// position of a cast above it.
     pub(super) fn contains(&self, node: &Term) -> bool {
-        self.nodes.contains(&std::ptr::from_ref(node).addr())
+        let address = std::ptr::from_ref(node).addr();
+        let contained = self.nodes.contains(&address);
+        #[cfg(debug_assertions)]
+        if contained {
+            self.looked_up.borrow_mut().insert(address);
+        }
+        contained
+    }
+
+    /// Check, in a debug build, that the walks looked up every re-sorted node: a node that was
+    /// moved or copied after [`complete`] recorded it would keep a requirement it does not have.
+    pub(super) fn assert_all_looked_up(&self) {
+        #[cfg(debug_assertions)]
+        debug_assert_eq!(
+            *self.looked_up.borrow(),
+            self.nodes,
+            "a re-sorted occurrence was not met at its recorded address"
+        );
     }
 }
 
-/// Give each occurrence of a cell-fragment variable of `sentence`, a resolved rule or claim of
-/// `module`, and of `values`, the values its local functions are applied to in it, the sort of
-/// the term completion builds there; or completion's error for the sentence.
+/// Give each occurrence of a cell-fragment or one-cell alias variable of `sentence`, a resolved
+/// rule or claim of `module`, and of the values its `locals` are applied to, the sort of the
+/// term completion builds there; or completion's error for the sentence.
 ///
 /// The terms are changed in place, so the addresses [`Completed`] records are those of their
 /// nodes for as long as they are not moved.
 pub(super) fn complete(
     sentence: &mut Sentence,
-    values: Vec<&mut Term>,
+    locals: &mut Locals,
     completion: Arc<CellCompletion>,
     definition: &ResolvedDefinition,
     module: ModuleId,
     injector: &SortInjector<'_, '_>,
 ) -> Result<Completed, String> {
-    let (Sentence::Rule {
-        body,
-        requires,
-        ensures,
-        ..
-    }
-    | Sentence::Claim {
-        body,
-        requires,
-        ensures,
-        ..
-    }) = &*sentence
-    else {
-        return Ok(Completed::new(completion));
+    let mut completed = Completed::new(Arc::clone(&completion));
+    let aliases = {
+        let expanded = expanded(sentence, locals);
+        completion.alias_sorts(&roots(&expanded))?
     };
-    if ![body, requires, ensures]
+    completed.aliases.clone_from(&aliases);
+    if !aliases.is_empty() {
+        let (Sentence::Rule {
+            body,
+            requires,
+            ensures,
+            ..
+        }
+        | Sentence::Claim {
+            body,
+            requires,
+            ensures,
+            ..
+        }) = &mut *sentence
+        else {
+            return Ok(completed);
+        };
+        for term in [body, requires, ensures]
+            .into_iter()
+            .chain(locals.values_mut().map(|local| &mut local.argument))
+        {
+            sort_aliases(term, &aliases, &completion, &mut completed.nodes);
+        }
+    }
+    let named = resolve_anon_vars_in_sentence(expanded(sentence, locals)).0;
+    if !roots(&named)
         .into_iter()
         .any(|root| has_body_variable(root, &completion))
     {
-        return Ok(Completed::new(completion));
+        return Ok(completed);
     }
-    let (named, _) = resolve_anon_vars_in_sentence(sentence.clone());
     let fragments = completion.fragment_variables(definition, module, named.clone())?;
     if fragments.is_empty() {
-        return Ok(Completed::new(completion));
+        return Ok(completed);
     }
     let mut sorts = BTreeMap::new();
     for (name, variable) in &fragments {
@@ -139,12 +181,15 @@ pub(super) fn complete(
         };
         sorts.insert(name.clone(), sort.clone());
     }
-    let model = Arc::clone(&completion);
     let mut resort = Resort {
-        completion: &model,
+        completion: &completion,
         fragments: &fragments,
         sorts: &sorts,
-        completed: Completed::new(completion),
+        values: locals
+            .iter_mut()
+            .map(|(name, local)| (name.clone(), &mut local.argument))
+            .collect(),
+        completed,
     };
     let (
         Sentence::Rule {
@@ -159,32 +204,161 @@ pub(super) fn complete(
             ensures,
             ..
         },
-        Sentence::Rule {
-            body: named_body,
-            requires: named_requires,
-            ensures: named_ensures,
-            ..
-        }
-        | Sentence::Claim {
-            body: named_body,
-            requires: named_requires,
-            ensures: named_ensures,
-            ..
-        },
-    ) = (sentence, &named)
+        [named_body, named_requires, named_ensures],
+    ) = (sentence, roots(&named))
     else {
         unreachable!("naming anonymous variables keeps the sentence kind")
     };
     resort.term(body, named_body);
     resort.term(requires, named_requires);
     resort.term(ensures, named_ensures);
-    // A value is a term of the enclosing scope written outside its cells; its anonymous
-    // variables are none of the sentence's.
-    for value in values {
-        let named = value.clone();
-        resort.term(value, &named);
-    }
     Ok(resort.completed)
+}
+
+/// The body, requires and ensures of `sentence`, a rule or claim.
+fn roots(sentence: &Sentence) -> [&Term; 3] {
+    match sentence {
+        Sentence::Rule {
+            body,
+            requires,
+            ensures,
+            ..
+        }
+        | Sentence::Claim {
+            body,
+            requires,
+            ensures,
+            ..
+        } => [body, requires, ensures],
+        Sentence::SyntaxSort { .. }
+        | Sentence::SortSynonym { .. }
+        | Sentence::SyntaxLexical { .. }
+        | Sentence::Production { .. }
+        | Sentence::SyntaxAssociativity { .. }
+        | Sentence::SyntaxPriority { .. }
+        | Sentence::ContextAlias { .. }
+        | Sentence::Context { .. }
+        | Sentence::Configuration { .. }
+        | Sentence::Bubble { .. } => unreachable!("the typer completes rules and claims"),
+    }
+}
+
+/// A copy of `sentence`, a rule or claim, with each stand-in variable of `locals` replaced by
+/// the application compilation's lowering writes there: the stand-in label applied to the
+/// value and the closure variables.
+fn expanded(sentence: &Sentence, locals: &Locals) -> Sentence {
+    let mut copy = sentence.clone();
+    if locals.is_empty() {
+        return copy;
+    }
+    if let Sentence::Rule {
+        body,
+        requires,
+        ensures,
+        ..
+    }
+    | Sentence::Claim {
+        body,
+        requires,
+        ensures,
+        ..
+    } = &mut copy
+    {
+        for term in [body, requires, ensures] {
+            expand(term, locals);
+        }
+    }
+    copy
+}
+
+// Invariant: each call recurses into the direct subterms of `term`, and into the value of a
+// stand-in it replaces, which lowering built from a strict subterm of the loaded sentence; the
+// sentence's depth bounds the recursion.
+fn expand(term: &mut Term, locals: &Locals) {
+    if let Term::Variable { name, .. } = term.unannotated()
+        && let Some(local) = locals.get(name)
+    {
+        let mut value = local.argument.clone();
+        expand(&mut value, locals);
+        let mut arguments = vec![value];
+        arguments.extend(local.closure.iter().cloned());
+        *term = Term::Apply {
+            label: Label::new(name.clone()),
+            arguments,
+        };
+        return;
+    }
+    match unannotated_mut(term) {
+        Term::Apply { arguments, .. } => {
+            for argument in arguments {
+                expand(argument, locals);
+            }
+        }
+        Term::Rewrite { left, right } => {
+            expand(left, locals);
+            expand(right, locals);
+        }
+        Term::As { pattern, alias } => {
+            expand(pattern, locals);
+            expand(alias, locals);
+        }
+        Term::Sequence(items) => {
+            for item in items {
+                expand(item, locals);
+            }
+        }
+        Term::Variable { .. }
+        | Term::Token { .. }
+        | Term::InjectedLabel(_)
+        | Term::Annotated { .. } => {}
+    }
+}
+
+/// Give each variable of `term` that `aliases` sorts, and that completion does not read at a
+/// cell sort already, its alias sort, recording the node.
+// Invariant: each call recurses into the direct subterms of `term`; its depth bounds the
+// recursion.
+fn sort_aliases(
+    term: &mut Term,
+    aliases: &BTreeMap<String, Sort>,
+    completion: &CellCompletion,
+    nodes: &mut BTreeSet<usize>,
+) {
+    if let Term::Variable { name, .. } = term.unannotated()
+        && let Some(sort) = aliases.get(name)
+    {
+        if !completion.has_cell_sort(term) {
+            nodes.insert(std::ptr::from_ref::<Term>(term).addr());
+            if let Term::Variable { sort: own, .. } = unannotated_mut(term) {
+                *own = Some(sort.clone());
+            }
+        }
+        return;
+    }
+    match unannotated_mut(term) {
+        Term::Apply { arguments, .. } => {
+            for argument in arguments {
+                sort_aliases(argument, aliases, completion, nodes);
+            }
+        }
+        Term::Rewrite { left, right } => {
+            sort_aliases(left, aliases, completion, nodes);
+            sort_aliases(right, aliases, completion, nodes);
+        }
+        Term::As { pattern, alias } => {
+            sort_aliases(pattern, aliases, completion, nodes);
+            sort_aliases(alias, aliases, completion, nodes);
+        }
+        Term::Sequence(items) => {
+            for item in items {
+                sort_aliases(item, aliases, completion, nodes);
+            }
+        }
+        Term::Variable { .. }
+        | Term::Token { .. }
+        | Term::InjectedLabel(_)
+        | Term::Annotated { .. } => {}
+    }
 }
 
 /// Where completion meets an occurrence of a cell-fragment variable.
@@ -197,15 +371,17 @@ enum Place {
     Fragment,
 }
 
-struct Resort<'c> {
+struct Resort<'c, 'v> {
     completion: &'c CellCompletion,
     fragments: &'c BTreeMap<String, FragmentVariable>,
     /// The sort of each variable's fragment term.
     sorts: &'c BTreeMap<String, Sort>,
+    /// The value of each local function not met yet, by stand-in name.
+    values: BTreeMap<String, &'v mut Term>,
     completed: Completed,
 }
 
-impl Resort<'_> {
+impl Resort<'_, '_> {
     /// Re-sort the occurrences in `term`, a node of the typed sentence, whose copy with its
     /// anonymous variables named is `named`.
     // Invariant: each call recurses into the direct subterms of `term` and `named`, which have
@@ -331,7 +507,19 @@ impl Resort<'_> {
     /// it at `place`, when it is a cell-fragment variable.
     fn variable(&mut self, term: &mut Term, named: &Term, place: Place) {
         let Term::Variable { name, .. } = named.unannotated() else {
-            unreachable!("the copy of a variable is a variable")
+            // A stand-in variable, whose copy is the application compilation writes there: its
+            // value is a term of this scope.
+            let (Term::Variable { name, .. }, Term::Apply { arguments, .. }) =
+                (term.unannotated(), named.unannotated())
+            else {
+                unreachable!("the copy of a variable is a variable or a local function")
+            };
+            self.completed.enclosing.insert(name.clone());
+            self.completed.local_in_body |= matches!(place, Place::Parts);
+            if let Some(value) = self.values.remove(name) {
+                self.term(value, &arguments[0]);
+            }
+            return;
         };
         let Some(variable) = self.fragments.get(name) else {
             return;
@@ -369,6 +557,9 @@ impl Resort<'_> {
                         self.completed
                             .variables
                             .insert(name.clone(), variable.clone());
+                        self.completed
+                            .fragment_sorts
+                            .insert(name.clone(), self.sorts[name].clone());
                     }
                     return;
                 }

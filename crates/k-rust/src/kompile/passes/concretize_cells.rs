@@ -159,6 +159,19 @@ impl CellCompletion {
         self.model.cells.contains_key(sort)
     }
 
+    /// The cell sort completion gives, at every occurrence, the variable `V` of each alias
+    /// `P #as V` of one cell written in `roots` (a sentence's body and conditions), as
+    /// [`CellModel::one_cell_alias_sorts`] decides it; or its rejection of the sentence.
+    pub(crate) fn alias_sorts(&self, roots: &[&Term]) -> Result<BTreeMap<String, Sort>, String> {
+        self.model.one_cell_alias_sorts(roots)
+    }
+
+    /// Whether completion reads `term` as a term of a cell sort, which an alias sort leaves as
+    /// it is (`sort_one_cell_aliases`).
+    pub(crate) fn has_cell_sort(&self, term: &Term) -> bool {
+        self.model.sort_for_term(term).is_some()
+    }
+
     /// Whether `sort` is the cell sort of a child of the cell `label`: completion places a term
     /// of that sort written in its body in that child, as an instance of a
     /// `multiplicity="*"` child's collection.

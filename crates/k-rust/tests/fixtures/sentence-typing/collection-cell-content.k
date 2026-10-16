@@ -19,6 +19,7 @@ module TEST
                  | "keepAccounts" | "keepOne" | "dropMaybe" | "castBag" | "oneAccount" | "mapAnnotated"
                  | "mixed" | "two" | "pair" | "pairRead" | "zeroOne" | "anonymous" | "checked" | "tested"
                  | "castFragment" | "let" | "go" | fooK(K) | fooBag(Bag)
+                 | "closure" | "valueCell" | "applied" | "aliased" | "{" AccountsCellFragment "}"
   syntax Bool ::= pb(Bag) [function]
   rule pb(_) => true
   rule [clear]: <k> clear => .K ... </k> <accounts> _ => .Bag </accounts>
@@ -44,4 +45,8 @@ module TEST
   rule [cast-fragment]: <k> castFragment => fooK(A:AccountsCellFragment) ... </k> <accounts> A </accounts>
   rule [let]: <k> let => #let Y = fooK(A) #in Y ... </k> <accounts> A </accounts>
   rule [boxed]: box(<accounts> A </accounts>) => fooK(A)
+  rule [closure]: <k> closure => #let Y = 1 #in { A } ... </k> <accounts> A </accounts>
+  rule [value-cell]: <k> box(<accounts> A </accounts>) => #let Y = box(<accounts> A </accounts>) #in fooK(Y) ... </k>
+  rule [applied]: <k> applied => #fun(Z => fooK(Z))(A) ... </k> <accounts> A </accounts>
+  rule [aliased]: <k> aliased => fooK(X) ... </k> <accounts> (<account> <id> 1 </id> ... </account> #as X) </accounts>
 endmodule

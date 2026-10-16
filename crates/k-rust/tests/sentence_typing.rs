@@ -2212,6 +2212,17 @@ fn a_cell_fragment_variable_has_the_sorts_cell_completion_gives_it() {
     );
     // The sort predicate of the variable tests its one part.
     assert_eq!(sorts("tested", "A"), some(&["AccountCellMap"]));
+    // A local function's value is a term of the sentence's scope; a closure variable is
+    // written only in the equation, whose occurrences the helper does not walk, and its
+    // fragment term fits the parameter sort `AccountsCellFragment` the equation gives it.
+    assert_eq!(sorts("closure", "A"), some(&["AccountCellMap"]));
+    assert_eq!(sorts("value-cell", "A"), some(&["AccountCellMap"]));
+    assert_eq!(
+        sorts("applied", "A"),
+        some(&["AccountCellMap", "AccountsCellFragment"])
+    );
+    // The alias of one cell has that cell's sort wherever it occurs.
+    assert_eq!(sorts("aliased", "X"), some(&["AccountCell"]));
     // A variable of a cell sort is an item, not a fragment, wherever it occurs.
     assert_eq!(sorts("one-account", "X"), some(&["AccountCell"]));
     assert_eq!(sorts("map-annotated", "A"), some(&["AccountCell"]));
@@ -2231,6 +2242,10 @@ fn a_cell_fragment_variable_has_the_sorts_cell_completion_gives_it() {
         Some(&Sort::new("ItemCellList"))
     );
     assert_eq!(typing("pair").variables.get("P"), None);
+    assert_eq!(
+        typing("aliased").variables.get("X"),
+        Some(&Sort::new("AccountCell"))
+    );
 }
 
 /// `rule` added to the collection-cell-content fixture, loaded.
@@ -2278,6 +2293,17 @@ fn a_cell_fragment_sentence_compilation_rejects_fails_typing() {
             "<k> go => fooK(REST) ... </k> <account> <id> 1 </id> REST ... </account>",
             "as can the frame",
         ),
+        // A closure variable is passed to the lambda as its fragment term, at the parameter
+        // sort its occurrence in the equation gives it (`Bag` here).
+        (
+            "<k> go => #let Y = 1 #in fooK(A) ... </k> <accounts> A </accounts>",
+            "AccountsCellFragment",
+        ),
+        // Completion places no local function in a cell body; the view refuses the shape.
+        (
+            "<k> go => .K ... </k> <accounts> _ => #let Y = 1 #in A </accounts> <tags> A </tags>",
+            "cannot place",
+        ),
     ] {
         let loaded = with_rule(rule);
         let compiled = compiled_kore(&loaded)
@@ -2298,17 +2324,81 @@ fn a_cell_fragment_sentence_compilation_rejects_fails_typing() {
             .unwrap_or_else(|| panic!("{rule}: types"));
         assert!(error.to_string().contains(reason), "{rule}: {error}");
     }
-    // A closure variable of a local function is passed to the lambda as its fragment term, at
-    // the variable's `Bag` parameter: compilation rejects it, and the view refuses to type it.
-    let loaded = with_rule("<k> go => #let Y = 1 #in fooK(A) ... </k> <accounts> A </accounts>");
-    assert!(compiled_kore(&loaded).is_err());
-    let error = main_typer(&loaded)
-        .typing_in(labelled(loaded.definition(), "TEST.probe"), "TEST")
-        .unwrap_err();
+}
+
+/// The typing of the rule `TEST.probe` of `loaded`, in the main view.
+fn probe_typing(loaded: &LoadedDefinition) -> Result<SentenceTyping, SentenceTypingError> {
+    main_typer(loaded).typing_in(labelled(loaded.definition(), "TEST.probe"), "TEST")
+}
+
+// A local function's equation is a scope of its own: a variable its pattern binds is not the
+// enclosing cell-fragment variable of the same name, and these rules compile and type.
+#[test]
+fn a_local_functions_own_variable_is_no_cell_fragment() {
+    for rule in [
+        "<k> go => #fun(A => fooK(A))(1) ... </k> <accounts> A </accounts>",
+        "<k> go => #let A = 1 #in fooK(A) ... </k> <accounts> A </accounts>",
+    ] {
+        let loaded = with_rule(rule);
+        compiled_kore(&loaded).unwrap_or_else(|error| panic!("{rule}: {error}"));
+        let typing = probe_typing(&loaded).unwrap_or_else(|error| panic!("{rule}: {error}"));
+        assert_eq!(
+            typing.variables.get("A"),
+            Some(&Sort::new("AccountCellMap")),
+            "{rule}"
+        );
+    }
+}
+
+// The stated exception to compiles-implies-types: compilation completes the cells of a local
+// function's equation as a rule of its own, which the view does not, so it refuses an equation
+// with a variable in the body of a cell with children, although compilation accepts it.
+#[test]
+fn a_cell_with_a_variable_in_a_local_functions_equation_is_refused() {
+    let loaded = with_rule(
+        "<k> go => #fun(box(<accounts> B </accounts>) => fooK(B))(box(<accounts> A </accounts>)) ... </k> <accounts> A </accounts>",
+    );
+    compiled_kore(&loaded).unwrap_or_else(|error| panic!("{error}"));
+    let error = probe_typing(&loaded).unwrap_err();
     assert!(
         matches!(error, SentenceTypingError::CellCompletion { .. })
             && error.to_string().contains("equation of a local function"),
         "{error}"
+    );
+}
+
+// Macro expansion reads instances from a typing without the cell-completion re-sorting, so what
+// compiles is what compiled before the view modelled it. With it, `m(A)` beside
+// `<two> A <cnt> C </cnt> </two>` would have the instance `TwoCellFragment` instead of `Bag`, and
+// `mm()` beside `<accounts> A </accounts>` would have a known instance instead of none.
+#[test]
+fn macro_expansion_compiles_as_without_the_cell_completion_view() {
+    let loaded = load_main(
+        "macro-instance-fragment.k",
+        include_str!("fixtures/sentence-typing/macro-instance-fragment.k"),
+        "TEST",
+        None,
+    );
+    let kore = compiled_kore(&loaded).unwrap_or_else(|error| panic!("{error}"));
+    let axiom = sentence_of(&kore, "TEST.r");
+    let axiom = &axiom[..axiom.rfind("\n    [").expect("the axiom has attributes")];
+    assert_eq!(
+        format!("{}\n", axiom.trim_end()),
+        include_str!("fixtures/sentence-typing/macro-instance-fragment.axiom")
+    );
+    let loaded = load_main(
+        "macro-instance-undetermined.k",
+        include_str!("fixtures/sentence-typing/macro-instance-undetermined.k"),
+        "TEST",
+        None,
+    );
+    let error = compiled_kore(&loaded).unwrap_err();
+    assert!(
+        error.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("macro symbol that was not expanded")),
+        "{error} {:?}",
+        error.diagnostics
     );
 }
 

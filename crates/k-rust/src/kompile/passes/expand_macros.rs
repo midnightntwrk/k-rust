@@ -720,8 +720,11 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         let mut macro_typer = None;
         if parametric {
             // A typing view that cannot be built leaves every instance open.
-            macro_typer =
-                SentenceTyper::new(definition, &definition.module(macro_module).name).ok();
+            macro_typer = SentenceTyper::for_macro_expansion(
+                definition,
+                &definition.module(macro_module).name,
+            )
+            .ok();
             if macro_typer.is_some() {
                 for (rule, depth) in all.iter_mut().zip(&depths) {
                     rule.head_instance =
@@ -733,7 +736,11 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                         });
                 }
             }
-            typer = SentenceTyper::new(definition, &definition.module(term_module).name).ok();
+            typer = SentenceTyper::for_macro_expansion(
+                definition,
+                &definition.module(term_module).name,
+            )
+            .ok();
         }
         let mut all = all.into_iter().zip(priorities).collect::<Vec<_>>();
         all.sort_by_key(|(_, priority)| *priority);
