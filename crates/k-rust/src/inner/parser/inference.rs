@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "parser.inference.portable"
 //! name = "portable sort inference by bound propagation"
-//! sites = ["Grammar::infer_sorts_portable", "Grammar::infer_packed_sorts", "Grammar::infer_sorts", "Grammar::infer_ambiguous_sorts_portable", "Grammar::infer_ambiguous_sorts_portable_first"]
+//! sites = ["Grammar::infer_sorts_portable", "Grammar::infer_packed_sorts", "Grammar::infer_sorts", "Grammar::infer_ambiguous_sorts_portable", "Grammar::decide_ambiguous_sorts_portable", "Grammar::infer_ambiguous_sorts_portable_first"]
 //! variable = "V = sort-bound vertices (of a forest: variables); E = bound edges; S = concrete sorts among the bounds (of a forest: sorts of the subsort order); I = instances of an ambiguous forest, a node with one context its ancestors give it; a = largest arity; W = distinct typings of the trees of one instance; M = maximal typings; N = nodes of the forest of a typing group; P = nodes of the forest of a typing group two of whose trees are one reading and instantiate formal parameters differently"
 //! counters = ["ParserPortableInferences"]
 //! falls_back_to = ["parser.inference.z3"]
@@ -35,9 +35,11 @@
 //! over two incomparable sorts encodes satisfiability), so the decision's cost is polynomial in
 //! the forest times the number of distinct typings its nodes exhibit, which no bound on the
 //! forest alone gives. In the z3 build the
-//! portable decision is asked first and Z3 decides what it refuses or rejects
+//! portable decision is asked first and Z3 decides what it refuses or rejects, except that the
+//! lowering's rejection of a decided forest without sort unknowns is final
 //! (`Grammar::infer_ambiguous_sorts_portable_first`); checked mode runs both engines as oracles,
-//! comparing inferred trees on unambiguous forests and lowered terms on ambiguous ones. `Counter::ParserPortableInferences` counts portable inference attempts, one per unambiguous tree
+//! comparing inferred trees on unambiguous forests and lowered terms or rejections on
+//! ambiguous ones. `Counter::ParserPortableInferences` counts portable inference attempts, one per unambiguous tree
 //! and one per ambiguous forest.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -127,6 +129,49 @@ struct TypingGroup {
     /// productions differently (`parameter_instantiations`); `None` when all instantiate them
     /// alike.
     parameter_split: Option<BTreeSet<ParsedTerm>>,
+}
+
+/// What `Grammar::packed_z3_reasons` finds in a forest.
+#[derive(Default)]
+struct Z3Reasons {
+    /// The forest has an ambiguity node.
+    ambiguity: bool,
+    /// Some production or token of the forest has a parametric sort, which the portable
+    /// decision does not decide.
+    parametric_sorts: bool,
+    /// The forest has a sort unknown of Z3's encoding: a variable leaf, or a node of a
+    /// production with formal sort parameters (`Production::parametric_origin`).
+    #[cfg(feature = "z3-inference")]
+    sort_unknowns: bool,
+    /// The forest has a rewrite (`#KRewrite`) node.
+    #[cfg(feature = "z3-inference")]
+    rewrite: bool,
+}
+
+/// The portable decision of an ambiguous forest (`Grammar::decide_ambiguous_sorts_portable`).
+struct PortableDecision {
+    /// The kept trees, packed as the pre-inference forest was.
+    forest: Rc<PackedTerm>,
+    /// Whether a rejection by the lowering of `forest` is final: Z3 would keep the same trees
+    /// and so lower the same forest to the same rejection.
+    ///
+    /// It holds when the forest has no sort unknown and no rewrite (`Z3Reasons`) and is not
+    /// an explicit anywhere rule. Without a variable every tree has the one empty typing, so
+    /// that typing is the only maximal one and the portable decision keeps every well-sorted
+    /// tree: it drops a tree for a less specific overload only at the left-hand side of a
+    /// rewrite, and with no formal parameter no group has a parameter split. Z3's encoding of
+    /// the forest has no unknown either: its only model and its only parameter vector are
+    /// empty, and applying them keeps exactly the trees whose ground sort constraints hold, the
+    /// well-sorted trees. Its preferences (overloads, sort parameters, brackets) range over
+    /// unknowns and so choose nothing, and its anywhere encoding, which rejects an ambiguous
+    /// left-hand side of a top rewrite outright, applies only to an explicit anywhere rule or a
+    /// rewrite of a function left-hand side. Both engines pack the kept trees with
+    /// `Grammar::factor_pre_inference_packed_ambiguities`, and the lowering is a function of
+    /// the forest, so Z3 would end in the same rejection. Elsewhere the engines choose among
+    /// typings, parameter vectors and overloads by different means, which agree on what an
+    /// accepted parse lowers to; a rejection there is left to Z3.
+    #[cfg(feature = "z3-inference")]
+    final_rejection: bool,
 }
 
 /// A lowered parse result whose equality with another decides, when the trees of a forest are
@@ -407,8 +452,8 @@ impl Grammar {
     ///
     /// Both engines decide which trees of the forest are the parse: the well-sorted trees whose
     /// typing no other tree's typing strictly exceeds. The portable decision
-    /// (`Grammar::infer_ambiguous_sorts_portable`) keeps exactly those trees whenever it
-    /// returns a term, and returns `ParseError::Z3InferenceRequired` instead of deciding
+    /// (`Grammar::decide_ambiguous_sorts_portable`) keeps exactly those trees whenever it
+    /// decides, and returns `ParseError::Z3InferenceRequired` instead of deciding
     /// wherever its premises fail: a parametric forest, an anonymous variable without a span
     /// when more than one tree is well-sorted, incomparable typings, a parameter slot its context
     /// does not determine (`Grammar::decide_forest`), or a parameter split that does not lower to
@@ -416,11 +461,17 @@ impl Grammar {
     /// (`Grammar::factor_pre_inference_packed_ambiguities`) before the same post-inference
     /// passes (`lower`), so a term the portable decision returns is the term Z3's decision
     /// lowers to; checked mode compares the two on every forest the portable decision decides
-    /// (`Grammar::checked_ambiguous_parse`). Every portable rejection, a refusal or not, is
+    /// (`Grammar::checked_ambiguous_parse`).
+    ///
+    /// A rejection is Z3's unless Z3 cannot keep other trees than the portable decision: every
+    /// rejection of the decision itself, and a rejection by the lowering of the kept trees, are
     /// handed to Z3, so a rejected forest gets Z3's diagnostic and the order of the engines
-    /// never shows in a rejection. Both engines work on the forest with its subtrees shared, so
-    /// the order costs one portable decision on a forest Z3 still decides and saves the solver
-    /// on every other.
+    /// never shows in a rejection, except where the decided forest has no sort unknown
+    /// (`PortableDecision::final_rejection`). There both engines solve a problem without
+    /// unknowns, keep the same trees and lower the same forest, so Z3 would return the lowering's
+    /// rejection again and the portable one is returned. Both engines work on the forest with
+    /// its subtrees shared, so the order costs one portable decision on a forest Z3 still
+    /// decides and saves the solver on every other.
     #[cfg(feature = "z3-inference")]
     fn infer_ambiguous_sorts_portable_first<T>(
         &self,
@@ -430,9 +481,12 @@ impl Grammar {
         lower: &impl Lowering<T>,
     ) -> Result<T, ParseError> {
         if let Ok(decided) =
-            self.infer_ambiguous_sorts_portable(&term, top_sort, explicitly_anywhere, lower)
+            self.decide_ambiguous_sorts_portable(&term, top_sort, explicitly_anywhere, lower)
         {
-            return Ok(decided);
+            let lowered = lower.lower_forest(&decided.forest);
+            if lowered.is_ok() || decided.final_rejection {
+                return lowered;
+            }
         }
         let inferred = self.infer_packed_forest_z3(term, top_sort, explicitly_anywhere)?;
         lower.lower_forest(&inferred)
@@ -451,8 +505,10 @@ impl Grammar {
     /// Two inferred trees that differ only in a bracket production or in the instantiation of a
     /// formal sort parameter lower to one term, and the lowered term is what the rule means, so
     /// the comparison is on lowered terms, including their compiler metadata
-    /// (`Term::identical`), or on both being errors. Z3's lowered result is returned, so
-    /// checked mode does not change the z3 build's output.
+    /// (`Term::identical`), or on both being errors. A rejection the default path returns
+    /// without Z3 (`PortableDecision::final_rejection`) must be Z3's rejection exactly
+    /// (`checked_final_rejection`). Z3's lowered result is returned, so checked mode does not
+    /// change the z3 build's output.
     #[cfg(feature = "z3-inference")]
     pub(super) fn checked_ambiguous_parse(
         &self,
@@ -464,15 +520,19 @@ impl Grammar {
         if self.packed_sort_inference_supported(term) {
             return None;
         }
-        let portable =
-            self.infer_ambiguous_sorts_portable(term, top_sort, explicitly_anywhere, lower);
+        let decided =
+            self.decide_ambiguous_sorts_portable(term, top_sort, explicitly_anywhere, lower);
         let z3 = self
             .infer_packed_forest_z3(Rc::clone(term), top_sort, explicitly_anywhere)
             .and_then(|inferred| lower.lower_forest(&inferred));
-        if matches!(portable, Err(ParseError::Z3InferenceRequired { .. })) {
-            return Some(z3);
-        }
-        Some(checked_lowered_result(portable, z3))
+        Some(match decided {
+            Err(ParseError::Z3InferenceRequired { .. }) => z3,
+            Err(rejection) => checked_lowered_result(Err(rejection), z3),
+            Ok(decided) => match lower.lower_forest(&decided.forest) {
+                Err(rejection) if decided.final_rejection => checked_final_rejection(rejection, z3),
+                lowered => checked_lowered_result(lowered, z3),
+            },
+        })
     }
 
     /// Decide an ambiguous monomorphic forest without Z3 and lower the decision with `lower`.
@@ -524,6 +584,7 @@ impl Grammar {
     /// gives, the reading without the brackets (`docs/compatibility.md`, "Formal parameter
     /// preference"); the other instances would bound the parameters of what they enclose by a
     /// sort no text states.
+    #[cfg(any(test, not(feature = "z3-inference")))]
     pub(super) fn infer_ambiguous_sorts_portable<T>(
         &self,
         term: &Rc<PackedTerm>,
@@ -531,7 +592,27 @@ impl Grammar {
         explicitly_anywhere: bool,
         lower: &impl Lowering<T>,
     ) -> Result<T, ParseError> {
-        let (ambiguity, parametric_sorts) = self.packed_z3_reasons(term);
+        let decided =
+            self.decide_ambiguous_sorts_portable(term, top_sort, explicitly_anywhere, lower)?;
+        lower.lower_forest(&decided.forest)
+    }
+
+    /// The decision of `Grammar::infer_ambiguous_sorts_portable` before its lowering: the kept
+    /// trees packed into one forest, or the decision's rejection or refusal. `lower` lowers
+    /// each tree of a parameter split alone (`Lowering::lower_each_tree`).
+    fn decide_ambiguous_sorts_portable<T>(
+        &self,
+        term: &Rc<PackedTerm>,
+        top_sort: &Sort,
+        explicitly_anywhere: bool,
+        lower: &impl Lowering<T>,
+    ) -> Result<PortableDecision, ParseError> {
+        let reasons = self.packed_z3_reasons(term);
+        let Z3Reasons {
+            ambiguity,
+            parametric_sorts,
+            ..
+        } = reasons;
         let required = || ParseError::Z3InferenceRequired {
             ambiguity,
             parametric_sorts,
@@ -550,10 +631,14 @@ impl Grammar {
                 return Err(required());
             }
         }
-        let joined = self.factor_pre_inference_packed_ambiguities(PackedTerm::ambiguity(
+        let forest = self.factor_pre_inference_packed_ambiguities(PackedTerm::ambiguity(
             groups.into_iter().map(|group| group.term).collect(),
         ));
-        lower.lower_forest(&joined)
+        Ok(PortableDecision {
+            forest,
+            #[cfg(feature = "z3-inference")]
+            final_rejection: !reasons.sort_unknowns && !reasons.rewrite && !explicitly_anywhere,
+        })
     }
 
     /// The decision of `Grammar::infer_ambiguous_sorts_portable` computed tree by tree: every
@@ -567,7 +652,11 @@ impl Grammar {
         explicitly_anywhere: bool,
         lower: &impl Lowering<T>,
     ) -> Result<T, ParseError> {
-        let (ambiguity, parametric_sorts) = self.packed_z3_reasons(term);
+        let Z3Reasons {
+            ambiguity,
+            parametric_sorts,
+            ..
+        } = self.packed_z3_reasons(term);
         let required = || ParseError::Z3InferenceRequired {
             ambiguity,
             parametric_sorts,
@@ -959,44 +1048,54 @@ impl Grammar {
         supported(self, term, &mut HashSet::new())
     }
 
-    fn packed_z3_reasons(&self, term: &Rc<PackedTerm>) -> (bool, bool) {
+    /// Why a forest needs more than the unambiguous portable inference, and whether it has a
+    /// sort unknown (`Z3Reasons`), in one walk over its nodes.
+    fn packed_z3_reasons(&self, term: &Rc<PackedTerm>) -> Z3Reasons {
         fn reasons(
             grammar: &Grammar,
             term: &Rc<PackedTerm>,
             visited: &mut HashSet<*const PackedTerm>,
-        ) -> (bool, bool) {
+            found: &mut Z3Reasons,
+        ) {
             crate::stack::guarded(|| {
                 if !visited.insert(Rc::as_ptr(term)) {
-                    return (false, false);
+                    return;
                 }
                 match &term.node {
-                    PackedNode::Ambiguity(alternatives) => alternatives.iter().fold(
-                        (true, false),
-                        |(ambiguity, parametric), alternative| {
-                            let (child_ambiguity, child_parametric) =
-                                reasons(grammar, alternative, visited);
-                            (ambiguity || child_ambiguity, parametric || child_parametric)
-                        },
-                    ),
+                    PackedNode::Ambiguity(alternatives) => {
+                        found.ambiguity = true;
+                        for alternative in alternatives {
+                            reasons(grammar, alternative, visited, found);
+                        }
+                    }
                     PackedNode::Production {
                         production,
                         children,
                         ..
                     } => {
                         let descriptor = &grammar.productions[*production];
-                        let local = !signature_is_monomorphic(descriptor);
-                        children
-                            .iter()
-                            .fold((false, local), |(ambiguity, parametric), child| {
-                                let (child_ambiguity, child_parametric) =
-                                    reasons(grammar, child, visited);
-                                (ambiguity || child_ambiguity, parametric || child_parametric)
-                            })
+                        found.parametric_sorts |= !signature_is_monomorphic(descriptor);
+                        #[cfg(feature = "z3-inference")]
+                        {
+                            found.sort_unknowns |= descriptor.parametric_origin.is_some();
+                            found.rewrite |= descriptor
+                                .label
+                                .as_ref()
+                                .is_some_and(|label| label.is(InternalLabel::KRewrite));
+                        }
+                        for child in children {
+                            reasons(grammar, child, visited, found);
+                        }
                     }
-                    PackedNode::Term(term) => match term.unannotated() {
-                        Term::Token { sort, .. } => (false, !sort.parameters.is_empty()),
-                        _ => (false, false),
-                    },
+                    PackedNode::Term(leaf) => {
+                        #[cfg(feature = "z3-inference")]
+                        {
+                            found.sort_unknowns |= inferred_variable_name(leaf).is_some();
+                        }
+                        if let Term::Token { sort, .. } = leaf.unannotated() {
+                            found.parametric_sorts |= !sort.parameters.is_empty();
+                        }
+                    }
                     PackedNode::InstantiatedProduction { .. } => {
                         unreachable!("Z3 reasons are computed before inference")
                     }
@@ -1004,7 +1103,9 @@ impl Grammar {
             })
         }
 
-        reasons(self, term, &mut HashSet::new())
+        let mut found = Z3Reasons::default();
+        reasons(self, term, &mut HashSet::new(), &mut found);
+        found
     }
 
     pub(super) fn infer_sorts(
@@ -1970,6 +2071,20 @@ fn checked_lowered_result(
         (Ok(portable), Ok(z3)) if portable.identical(&z3) => Ok(z3),
         (Err(portable), Err(z3)) if rejections_agree(&portable, &z3) => Err(z3),
         (portable, z3) => Err(engine_disagreement(portable, z3, true)),
+    }
+}
+
+/// Checked mode on a rejection the default path returns without Z3
+/// (`PortableDecision::final_rejection`): Z3 must reject the forest with the same error,
+/// whatever its kind, since that error is the parse's diagnostic. Returns Z3's result.
+#[cfg(feature = "z3-inference")]
+fn checked_final_rejection(
+    portable: ParseError,
+    z3: Result<Term, ParseError>,
+) -> Result<Term, ParseError> {
+    match z3 {
+        Err(z3) if z3 == portable => Err(z3),
+        z3 => Err(engine_disagreement(Err(portable), z3, true)),
     }
 }
 
@@ -3523,6 +3638,109 @@ mod tests {
             })
             .expect("the portable engine decides the forest");
         assert_eq!(checked, Ok(Term::apply("s", Vec::new())));
+    }
+
+    /// `a` or `b`, two constants of sort `Small` read at `Big`: an ambiguous forest without a
+    /// variable, a formal sort parameter or a rewrite, whose two trees are well-sorted and
+    /// lower to two terms.
+    #[cfg(feature = "z3-inference")]
+    fn two_constants() -> (Grammar, Rc<PackedTerm>) {
+        let mut grammar = Grammar::default();
+        let mut constant = |label: &str| {
+            let index = grammar.productions.len();
+            grammar
+                .add(
+                    Sort::new("Small"),
+                    vec![ProductionItem::Terminal(label.into())],
+                    Some(Label::new(label)),
+                    false,
+                    false,
+                )
+                .unwrap();
+            index
+        };
+        let (a, b) = (constant("a"), constant("b"));
+        grammar.subsort_relations.extend([
+            (Sort::new("Small"), Sort::new("Big")),
+            (Sort::new("Big"), Sort::new("K")),
+        ]);
+        let forest = PackedTerm::ambiguity(BTreeSet::from([
+            packed_production(a, vec![]),
+            packed_production(b, vec![]),
+        ]));
+        (grammar, forest)
+    }
+
+    /// A forest without sort unknowns keeps the same trees under both engines, so the lowering's
+    /// rejection of the portable decision is returned without asking Z3, which would lower the
+    /// same forest a second time to the same rejection; checked mode confirms that it does.
+    #[cfg(feature = "z3-inference")]
+    #[test]
+    fn a_decided_forest_without_unknowns_is_rejected_without_z3() {
+        let (grammar, forest) = two_constants();
+        let top = Sort::new("Big");
+        let lowered = std::cell::Cell::new(0);
+        let lower = |tree| {
+            lowered.set(lowered.get() + 1);
+            grammar.lower_inferred(tree, &top)
+        };
+        let rejection = grammar.infer_packed_sorts(Rc::clone(&forest), &top, false, &lower);
+        assert!(
+            matches!(rejection, Err(ParseError::Ambiguous { .. })),
+            "{rejection:?}"
+        );
+        assert_eq!(lowered.get(), 1, "the decided forest was lowered again");
+        let checked = grammar
+            .checked_ambiguous_parse(&forest, &top, false, &lower)
+            .expect("checked mode decides every ambiguous forest");
+        assert_eq!(checked, rejection);
+    }
+
+    /// Where the forest has a variable, the engines choose among typings by different means, so
+    /// a rejection by the lowering of the portable decision is still Z3's to make: the forest
+    /// is decided and lowered again.
+    #[cfg(feature = "z3-inference")]
+    #[test]
+    fn a_decided_forest_with_a_variable_is_rejected_by_z3() {
+        let (grammar, forest) = independent_ambiguities(1);
+        let top = Sort::new("Good");
+        let lowered = std::cell::Cell::new(0);
+        let lower = |_: ParsedTerm| {
+            lowered.set(lowered.get() + 1);
+            Err::<Term, _>(inference_error("rejected by the lowering"))
+        };
+        assert!(
+            grammar
+                .decide_ambiguous_sorts_portable(&forest, &top, false, &lower)
+                .is_ok()
+        );
+        let rejection = grammar.infer_packed_sorts(forest, &top, false, &lower);
+        assert_eq!(rejection, Err(inference_error("rejected by the lowering")));
+        assert_eq!(lowered.get(), 2, "Z3 did not decide the forest");
+    }
+
+    /// Checked mode requires Z3's rejection of a forest the default path rejects without it to
+    /// be the same error, of whatever kind.
+    #[cfg(feature = "z3-inference")]
+    #[test]
+    fn checked_mode_compares_final_rejections_exactly() {
+        let rejection = || inference_error("rejected by the lowering");
+        assert_eq!(
+            checked_final_rejection(rejection(), Err(rejection())),
+            Err(rejection())
+        );
+        assert_eq!(
+            checked_final_rejection(rejection(), Err(inference_error("Z3 rejection"))),
+            Err(ParseError::InferenceEngineDisagreement {
+                portable: Err("rejected by the lowering".to_owned()),
+                z3: Err("Z3 rejection".to_owned()),
+                ambiguous_parse: true,
+            })
+        );
+        assert!(matches!(
+            checked_final_rejection(rejection(), Ok(Term::apply("s", Vec::new()))),
+            Err(ParseError::InferenceEngineDisagreement { .. })
+        ));
     }
 
     #[cfg(feature = "z3-inference")]
