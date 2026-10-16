@@ -1854,6 +1854,19 @@ impl Grammar {
         state.dot > 0
     }
 
+    /// The callers a pop of `state` advances when it is a completion: those waiting for its sort
+    /// at its origin.
+    fn completion_callers(charts: &[Chart], state: State, production: &Production) -> usize {
+        if state.dot == production.items.len() {
+            charts[state.origin]
+                .waiting
+                .get(&production.result_id)
+                .map_or(0, Vec::len)
+        } else {
+            0
+        }
+    }
+
     fn record_chart_addition(
         &self,
         chart: &mut Chart,
@@ -2523,6 +2536,11 @@ impl Grammar {
                 // completions of its sort here, and an empty completion advances its callers here
                 // with their derivations as they stand. (The agenda reports a pop without growth
                 // only for the states whose growths it tracks, `Grammar::tracks_growth`.)
+                //
+                // A skipped pop is still charged against the work limit what dispatching it
+                // would charge (its derivations and callers are those of its previous pop), so
+                // the limit counts the pops of the agenda that dispatches every copy, and whether
+                // a diagnostic recognition reaches its limit does not depend on the skip.
                 if !grown {
                     let canonical = *canonical_position.get_or_insert_with(|| {
                         self.canonical_position(input, position, scanner_cache)
@@ -2533,6 +2551,18 @@ impl Grammar {
                         Some(_) => false,
                     };
                     if !reads_this_chart {
+                        let Some(derivations) = charts[position].states.get(&state) else {
+                            continue;
+                        };
+                        let callers = Self::completion_callers(&charts, state, production);
+                        if !work.charge(1 + derivations.len() + callers) {
+                            return Ok(Recognition {
+                                charts,
+                                parses: BTreeSet::new(),
+                                first_violation: None,
+                                work_limit_reached: true,
+                            });
+                        }
                         continue;
                     }
                 }
@@ -2570,14 +2600,7 @@ impl Grammar {
                 };
                 // The work of this item: itself, the derivations it reads and, for a
                 // completion, the callers it advances.
-                let callers = if state.dot == production.items.len() {
-                    charts[state.origin]
-                        .waiting
-                        .get(&production.result_id)
-                        .map_or(0, Vec::len)
-                } else {
-                    0
-                };
+                let callers = Self::completion_callers(&charts, state, production);
                 if !work.charge(1 + derivations.len() + callers) {
                     return Ok(Recognition {
                         charts,
@@ -6642,6 +6665,80 @@ mod diagnostic_work_tests {
         assert!(unlimited[1] > 4 * unlimited[0], "{unlimited:?}");
         for pair in limited.windows(2) {
             assert!(pair[1] <= 3 * pair[0], "{limited:?}");
+        }
+    }
+
+    /// `S ::= "x" | S "+" S [non-assoc] | D`, `D ::= D D | "d"`: an ambiguous run of `d` before a
+    /// chain that breaks the relation.
+    fn sums_after_juxtaposition() -> Grammar {
+        let nonterminal = |name| ProductionItem::NonTerminal {
+            sort: Sort::new(name),
+            name: None,
+        };
+        let terminal = |text: &str| ProductionItem::Terminal(text.to_owned());
+        let mut grammar = Grammar::default();
+        for (result, items, label) in [
+            ("S", vec![terminal("x")], "x"),
+            (
+                "S",
+                vec![nonterminal("S"), terminal("+"), nonterminal("S")],
+                "plus",
+            ),
+            ("S", vec![nonterminal("D")], "fromD"),
+            ("D", vec![nonterminal("D"), nonterminal("D")], "cat"),
+            ("D", vec![terminal("d")], "d"),
+        ] {
+            grammar
+                .add(
+                    Sort::new(result),
+                    items,
+                    Some(Label::new(label)),
+                    false,
+                    false,
+                )
+                .unwrap();
+        }
+        grammar.add_left_associative("plus");
+        grammar.add_right_associative("plus");
+        grammar
+    }
+
+    /// A pop the agenda skips (KS-17) is charged what dispatching it charges, so the steps a
+    /// failed parse takes, and whether its diagnostic reaches the limit, are those of the agenda
+    /// that dispatches every copy. Here the `d` run makes completed states grow before their
+    /// pop, so their later copies are skipped; uncharged, the parse took 1,861 steps and its
+    /// diagnostic finished with the relation instead of reaching the limit.
+    #[test]
+    fn a_skipped_pop_is_charged_as_its_dispatch() {
+        let grammar = sums_after_juxtaposition();
+        let input =
+            |ds: usize, xs: usize| vec!["d"; ds].join(" ") + " + " + &vec!["x"; xs].join(" + ");
+        let (error, steps) = parse(&grammar, &input(4, 6), NO_FLOOR);
+        assert!(
+            matches!(
+                error,
+                ParseError::NoParse {
+                    work_limit: Some(_),
+                    ..
+                }
+            ),
+            "{error}"
+        );
+        assert_eq!(steps, 2439);
+        // Explained within the limit, with the steps every copy's dispatch charges.
+        for (ds, xs, expected) in [(2, 2, 451), (8, 6, 5679), (8, 8, 7544)] {
+            let (error, steps) = parse(&grammar, &input(ds, xs), NO_FLOOR);
+            assert!(
+                !matches!(
+                    error,
+                    ParseError::NoParse {
+                        work_limit: Some(_),
+                        ..
+                    }
+                ),
+                "{error}"
+            );
+            assert_eq!(steps, expected, "d x {ds}, x x {xs}");
         }
     }
 }
