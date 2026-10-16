@@ -69,8 +69,11 @@ use std::{
 /// kink changes what counts as a comparable result (for example when ground collections are
 /// admitted) or what a record holds, so that older records are recomputed rather than trusted.
 /// v3 (flow F-13): every record carries `wall_ms`, the wall time of the program's live baseline
-/// run, outside the key and the run digest.
-pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v3";
+/// run, outside the key and the run digest. v4 (re-pin R0b): a baseline run that is excluded
+/// (kink-native `exclusion`: stack stops, load stack stops, a contradicted claim, an
+/// implementation-chosen hook, an allowance refusal) is not comparable, and neither is a
+/// breadth-bound or role-axiom collection terminal, so a v3 `comparable` record may no longer be.
+pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v4";
 /// The `schema` field of a result record.
 pub const RECORD_SCHEMA: &str = "kink-flow-result";
 /// Domain of a run digest: the digest of the `run` part of a baseline row.

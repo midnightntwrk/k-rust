@@ -403,6 +403,7 @@ mod tests {
             candidate_diagnostics: Vec::new(),
             remainder_diagnostics: Vec::new(),
             undefined_rule: None,
+            contradicted_total: None,
         };
         let event = Event {
             index: 0,
@@ -451,6 +452,7 @@ mod tests {
                 leaves: vec![leaf],
                 effects: Vec::new(),
                 timed_out: false,
+                stack_stops: 0,
             },
             BridgedPaths {
                 paths: vec![path],

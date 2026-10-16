@@ -320,6 +320,32 @@ fn failure_cause(kind: ExecutionFailureKind, budget: Budget) -> String {
         ExecutionFailureKind::UnsupportedClaims => {
             "the mutant's run was not started: it writes a trusted claim".into()
         }
+        ExecutionFailureKind::StackStop => {
+            "stack-stop: the mutant's run met a stop for lack of native stack, so its result can \
+             depend on the host's threads"
+                .into()
+        }
+        ExecutionFailureKind::LoadStackStop => {
+            "load-stack-stop: loading the mutant's definition met a stop for lack of native \
+             stack, so its loaded theory can depend on the host's threads"
+                .into()
+        }
+        ExecutionFailureKind::ContradictedClaim => {
+            "contradicted-claim: the mutant's run takes an undefined step that falsifies a \
+             `total` or `preserves-definedness` claim, so the mutant is inconsistent there"
+                .into()
+        }
+        ExecutionFailureKind::ImplementationChosenHook => {
+            "implementation-chosen-hook: the mutant uses a hook whose value k-rust chooses \
+             where the definition leaves it open (choice, map and set listing order, \
+             mixed-format or NaN-sign Float, String2Bytes)"
+                .into()
+        }
+        ExecutionFailureKind::AllowanceRefusal => {
+            "allowance-refusal: a Bytes hook of the mutant's run was refused for the process's \
+             memory allowance, a property of the host"
+                .into()
+        }
     }
 }
 

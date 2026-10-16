@@ -93,6 +93,23 @@ pub const REPORT_FILE: &str = "report.json";
 /// The status of a mutation that does not resolve to a patch (README 5.5).
 pub const INVALID_MUTATION: &str = "invalid-mutation";
 
+/// Why tier 1 is off for a build of `profile`, or `None` when it may be used (re-pin decision 5,
+/// finding B-09). Under the Z3 profile a solver query can time out (k-rust's per-query timeout),
+/// and k-rust reports no per-run signal that one did, so a Z3 result is not a function of the
+/// inputs a key names and the Execute promise does not cover it: tier 1 then neither reads nor
+/// writes. The profile is the build's (`SolverProfile::BUILD`, kink-native's `z3` feature), so it
+/// follows workspace feature unification: a kink-flow linked with a Z3 kink-native has it off.
+pub const fn tier1_refusal(profile: SolverProfile) -> Option<&'static str> {
+    match profile {
+        SolverProfile::NoZ3 => None,
+        SolverProfile::Z3 => Some(
+            "tier 1 is disabled under the z3 profile: a solver query can time out and k-rust \
+             reports no per-run signal that one did, so no outcome is cached or read; every \
+             mutation runs live",
+        ),
+    }
+}
+
 /// The `killer_source` of a status decided by a valid tier-1 `killed` record.
 pub const SOURCE_OUTCOME_CACHE: &str = "outcome-cache";
 /// The `killer_source` of a kill found by the one-program call over the hinted program.
@@ -585,6 +602,9 @@ impl Search<'_> {
                         outcome,
                         slots: slots.to_vec(),
                         mutant_run_sha256: mutant_run_sha256(run, &test.test_id)?,
+                        allowance_bytes: Some(
+                            k_rust::k_rust_backend::allowance::Allowance::of_process().bytes(),
+                        ),
                     },
                 ))
             })
@@ -807,7 +827,8 @@ impl Search<'_> {
         let reason = last
             .plan
             .mutant_failure
-            .map(|failure| kebab(&format!("{failure:?}")));
+            .map(|failure| kebab(&format!("{failure:?}")))
+            .or_else(|| exclusion_reason(&report, &runs));
         // Step 7: the records of the live calls, then the hint. A program both calls ran has
         // one record, the second call's (the store keeps the last of equal program digests and
         // counts each program once).
@@ -1193,8 +1214,9 @@ pub fn run_with(
         }
     }
     let mut ok = update.ok();
-    let (tier1, tier1_reason) = match kink_build_identity() {
-        Ok(build) => (
+    let (tier1, tier1_reason) = match (tier1_refusal(SolverProfile::BUILD), kink_build_identity()) {
+        (Some(reason), _) => (None, Some(reason.to_owned())),
+        (None, Ok(build)) => (
             Some(OutcomeStore::new(
                 &cache,
                 outcome_context(
@@ -1205,7 +1227,7 @@ pub fn run_with(
             )),
             None,
         ),
-        Err(e) => (
+        (None, Err(e)) => (
             None,
             Some(format!(
                 "tier 1 is disabled: kink's build identity is unknown ({e}); every mutation runs \
@@ -1378,6 +1400,23 @@ fn verdict_row(
     }
     let source = killer.as_ref().and(source);
     finish(row, killer, source, calls, executed)
+}
+
+/// The reason of an `unknown` status when a live test of the mutation was excluded
+/// (kink-native `exclusion`: the run is no evidence, for example `implementation-chosen-hook`):
+/// the first such exclusion in run order.
+fn exclusion_reason(report: &MutantReport, runs: &[(Vec<usize>, MutantRun)]) -> Option<String> {
+    if report.status != MutantStatus::Unknown {
+        return None;
+    }
+    runs.iter()
+        .flat_map(|(_, run)| &run.plan.tests)
+        .find_map(|test| match test.run {
+            TestRun::Failed(kind) => kind
+                .exclusion()
+                .map(|exclusion| exclusion.name().to_owned()),
+            TestRun::Compared(_) | TestRun::SkippedAfterKill => None,
+        })
 }
 
 /// A row's `calls` and `call_wall_ms` (the same order).

@@ -6,6 +6,8 @@
 //! - [`step_events`] declares and classifies events over the configurations of each step.
 //! - [`observation`] retains branch-local execution states.
 //! - [`bridge`] maps adapted executions to kink-pattern paths and collection evidence.
+//! - [`exclusion`] names the runs that are no evidence for any comparison (stack stops, load
+//!   stack stops, contradicted claims, implementation-chosen hooks, allowance refusals).
 //! - [`feasibility`] decides solver-free leaf feasibility and payload relations with the
 //!   backend's definition and unifier ([`feasibility::BackendRelations`]).
 //!
@@ -13,6 +15,7 @@ pub mod bridge;
 pub mod census;
 pub mod coverage;
 mod equivalence;
+pub mod exclusion;
 pub mod execution;
 pub mod feasibility;
 pub mod observation;

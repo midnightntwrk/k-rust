@@ -194,6 +194,20 @@ fn row(
     };
     for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
         let result = run_campaign(&campaign, &generation, schedule);
+        // Re-pin R0b (decision 1, findings D-10, E-11): collstore.k's own `bytesKey` rule applies
+        // `String2Bytes`, which k-rust evaluates where domains.md leaves the value open (a code
+        // point above 255), so every run on it is excluded (`implementation-chosen-hook`) and its
+        // baseline is refused before any mutant runs. Before: C2 Survived [A, A], C3 Unknown
+        // [U, U].
+        if matches!(id, "C2" | "C3") {
+            let failure = result.expect_err("an implementation-chosen baseline is refused");
+            assert_eq!(failure.kind(), CampaignFailureKind::BaselineOracleFailed);
+            assert!(
+                failure.to_string().contains("implementation-chosen-hook"),
+                "{failure}"
+            );
+            continue;
+        }
         let Some((status, outcomes)) = &expected else {
             // Re-pin R0a (finding E-06; k-rust f07565265, 55a57846b, bc90d4226): at 927b9ce6 the
             // B1 baseline compiled and was refused by the baseline oracle (BaselineOracleFailed).

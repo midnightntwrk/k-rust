@@ -1053,11 +1053,13 @@ fn breadth_bound_absence_is_unknown_branch_limit() {
             .all(|leaf| (leaf.halt, leaf.feasibility)
                 == (HaltClass::BreadthBound, LeafFeasibility::Syntactic))
     );
+    // Re-pin R0b deliverable 4 (finding A-11): a breadth-bound leaf's path stops at
+    // `BackendLimit`, which vouches for no real prefix (was `BranchLimit`); still Unknown.
     let evaluation = assert_both(
         &mut run,
         &wl_after(&vocabulary),
         PatternOutcome::Unknown,
-        Some(PathStop::BranchLimit),
+        Some(PathStop::BackendLimit),
     );
     assert!(evaluation.witnesses.is_empty());
     assert_eq!(run.bridged.paths.len(), 1);
@@ -1065,7 +1067,7 @@ fn breadth_bound_absence_is_unknown_branch_limit() {
         run.bridged
             .paths
             .iter()
-            .all(|path| path.stop == PathStop::BranchLimit
+            .all(|path| path.stop == PathStop::BackendLimit
                 && !path.complete
                 && path.events.is_empty())
     );
@@ -2087,7 +2089,7 @@ struct ProfileRow {
 /// and so is when a solver `Sat` counts (SYM-3B-03, README 4.2); no Z3 cell is provisional.
 #[test]
 fn profile_table_rows() {
-    use PathStop::{BackendLimit, BranchLimit, DepthLimit, SolverUnknown, Terminal, UndefinedStep};
+    use PathStop::{BackendLimit, DepthLimit, SolverUnknown, Terminal, UndefinedStep};
     use PatternOutcome::{Match, NoMatch, Unknown};
     let depth = ExecutionBudget {
         max_depth: Some(1),
@@ -2218,10 +2220,12 @@ fn profile_table_rows() {
             program: p9,
             plan: wl_after,
             budget: breadth,
-            // README 6.4 merges these exact duplicate bounded prefixes.
-            stops: (&[BranchLimit], &[BranchLimit]),
-            structural: same((Unknown, Some(BranchLimit))),
-            decided: same((Unknown, Some(BranchLimit))),
+            // README 6.4 merges these exact duplicate bounded prefixes. Re-pin R0b (finding
+            // A-11): a breadth-bound leaf stops at BackendLimit, without a real prefix (was
+            // BranchLimit); still Unknown.
+            stops: (&[BackendLimit], &[BackendLimit]),
+            structural: same((Unknown, Some(BackendLimit))),
+            decided: same((Unknown, Some(BackendLimit))),
         },
         // G1/G2 under Z3 (SYM-3B-02): Z3 decides the `requires`, giving three `Stuck` leaves
         // whose predicates translate exactly and are `Sat`; guardedmem has no `ensures`, so
@@ -2410,7 +2414,7 @@ fn decided_by_both(run: &mut Run, plan: &PatternPlan, paths: &[PathInput]) -> [E
 /// paths, witnesses and assumptions included.
 #[test]
 fn z3_agrees_with_unifier_on_constructor_fragment() {
-    use PathStop::{BackendLimit, BranchLimit, DepthLimit};
+    use PathStop::{BackendLimit, DepthLimit};
     use PatternOutcome::{Match, NoMatch, Unknown};
     let depth = ExecutionBudget {
         max_depth: Some(1),
@@ -2542,7 +2546,8 @@ fn z3_agrees_with_unifier_on_constructor_fragment() {
             p9(),
             wl_after,
             breadth,
-            (Unknown, Some(BranchLimit)),
+            // Re-pin R0b (finding A-11): BackendLimit, no real prefix (was BranchLimit).
+            (Unknown, Some(BackendLimit)),
             vec![],
         ),
         // README 13.4: a non-free injective symbol is undecided in both builds.

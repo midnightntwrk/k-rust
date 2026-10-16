@@ -578,10 +578,25 @@ fn breadth_bound_ground_absence_is_unknown() {
             .iter()
             .all(|leaf| leaf.halt == HaltClass::BreadthBound)
     );
-    assert_eq!(run.bridged.collection.stop, CollectionStop::BranchLimit);
+    // Re-pin R0b deliverable 4 (finding A-11): a breadth-bound leaf's state was never
+    // normalised, so its path stops at `BackendLimit`, which vouches for no real prefix (was
+    // `BranchLimit`, which did). The transition into it may be undefined on every instance, so
+    // neither its event nor its term is evidence: a pattern over that transition is Unknown, not
+    // a Match.
+    assert_eq!(run.bridged.collection.stop, CollectionStop::BackendLimit);
+    assert!(
+        run.bridged
+            .paths
+            .iter()
+            .all(|path| !path.complete && !path.stop.has_real_prefix())
+    );
     let l2 = outcome(&run, &single_atom(&vocabulary, "l2", None));
     assert_eq!(l2.outcome, PatternOutcome::Unknown);
-    assert_eq!(l2.failure, Some(PathStop::BranchLimit));
+    assert_eq!(l2.failure, Some(PathStop::BackendLimit));
+    for event in ["left", "right"] {
+        let present = outcome(&run, &single_atom(&vocabulary, event, None));
+        assert_eq!(present.outcome, PatternOutcome::Unknown, "{event}");
+    }
 }
 
 /// Critique C2: a nonterminating run is cancelled by the watchdog and reported as timed out;

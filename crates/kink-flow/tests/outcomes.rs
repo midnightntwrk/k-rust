@@ -1619,10 +1619,18 @@ fn a_hinted_program_run_twice_is_listed_and_counted_once() {
 #[test]
 fn the_known_stack_gap_names_the_load_counts_beside_stack_stops() {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-    for readme in [manifest.join("../../README.md"), manifest.join("README.md")] {
+    // Re-pin R0b deliverable 10: the text says what closes the gap for execute comparisons and
+    // names the residuals (the Z3 profile, where tier 1 is off; the non-execute calls, B-13(a)).
+    for (readme, anchor) in [
+        (
+            manifest.join("../../README.md"),
+            "Stack dependence (k-rust KINK-06/4",
+        ),
+        (manifest.join("README.md"), "The Execute promise of k-rust"),
+    ] {
         let text = fs::read_to_string(&readme).unwrap();
         let start = text
-            .find("Known gap at the k-rust pin")
+            .find(anchor)
             .unwrap_or_else(|| panic!("{} names the known gap", readme.display()));
         let gap = &text[start..];
         let gap = &gap[..gap.find("\n\n").unwrap_or(gap.len())];
@@ -1633,7 +1641,10 @@ fn the_known_stack_gap_names_the_load_counts_beside_stack_stops() {
             "condition_stack_stops",
             "KINK-06/4",
             "KINK-06/5",
-            "RP-01",
+            "Z3",
+            "tier 1",
+            "B-13(a)",
+            "definition_facts",
         ] {
             assert!(
                 gap.contains(needle),
@@ -1641,5 +1652,136 @@ fn the_known_stack_gap_names_the_load_counts_beside_stack_stops() {
                 readme.display()
             );
         }
+    }
+}
+
+/// Re-pin R0b deliverable 9 (decision 5, finding B-09): tier 1 is off exactly under the Z3
+/// profile, which follows kink-native's `z3` feature (and so workspace feature unification): a
+/// Z3 build's run reads and writes no outcome and says why; a no-Z3 build's run writes records.
+#[test]
+fn tier_one_is_off_exactly_under_the_z3_profile() {
+    use kink_flow::search::tier1_refusal;
+    use kink_native::execution::SolverProfile;
+    assert_eq!(tier1_refusal(SolverProfile::NoZ3), None);
+    let reason = tier1_refusal(SolverProfile::Z3).expect("the z3 profile has no tier 1");
+    assert!(reason.contains("z3 profile"), "{reason}");
+    let dir = fixture("map-store", "tier-one-profile");
+    let manifest = dir.join("FLOW.toml");
+    let (document, ok) = search(&manifest, &dir.join("MUTATIONS.toml"), &[]);
+    assert!(ok, "{document:#}");
+    let cache = &document["outcome_cache"];
+    match SolverProfile::BUILD {
+        SolverProfile::NoZ3 => {
+            assert_eq!(cache["enabled"], true, "{cache:#}");
+            assert!(cache["records_written"].as_u64().unwrap() > 0, "{cache:#}");
+            assert!(cache_of(&manifest).join(OUTCOMES_DIRECTORY).exists());
+        }
+        SolverProfile::Z3 => {
+            assert_eq!(cache["enabled"], false, "{cache:#}");
+            assert_eq!(cache["reason"], json!(reason), "{cache:#}");
+            assert_eq!(cache["records_written"], 0, "{cache:#}");
+            assert!(!cache_of(&manifest).join(OUTCOMES_DIRECTORY).exists());
+        }
+    }
+}
+
+/// Re-pin R0b deliverables 7 and 9 (decision 1; finding B-02): a mutation that makes the
+/// specification apply `choice` to a map (an item domains.md does not name) is `unknown` with
+/// reason `implementation-chosen-hook`, whether its value would agree with the baseline's
+/// (`choice-agrees`, a survivor before R0b) or not (`choice-differs`, killed before R0b), and no
+/// outcome record is written for it; the other
+/// mutations keep their statuses and records, and each record carries the writing process's
+/// memory allowance outside its key and digest (decision 5, finding B-07).
+#[test]
+fn an_implementation_chosen_mutant_is_unknown_and_never_cached() {
+    let dir = fixture("map-store", "implementation-chosen");
+    let manifest = dir.join("FLOW.toml");
+    let mutations = dir.join("MUTATIONS.toml");
+    append(
+        &mutations,
+        r#"[[mutation]]
+id = "choice-agrees"
+  [[mutation.edit]]
+  rule = "store"
+  find = "M[K <- V]"
+  replace = "M[K <- choice(M (V |-> K))]"
+[[mutation]]
+id = "choice-differs"
+  [[mutation.edit]]
+  rule = "store"
+  find = "M[K <- V]"
+  replace = "M[K <- choice(M (K |-> V))]"
+"#,
+    );
+    let (document, ok) = search(&manifest, &mutations, &[]);
+    assert!(ok, "{document:#}");
+    for id in ["choice-agrees", "choice-differs"] {
+        let row = mutation(&document, id);
+        assert_eq!(
+            (row["status"].as_str(), row["reason"].as_str()),
+            (Some("unknown"), Some("implementation-chosen-hook")),
+            "{row:#}"
+        );
+        assert_eq!(
+            executed(&document, id),
+            [("store".to_owned(), "unknown".to_owned(), false)],
+            "{row:#}"
+        );
+        assert!(
+            row["executed"][0]["cause"]
+                .as_str()
+                .is_some_and(|cause| cause.starts_with("implementation-chosen-hook")),
+            "{row:#}"
+        );
+    }
+    assert_eq!(
+        statuses_of(&document, &["value-plus-one", "key-value-swap"]),
+        [
+            (
+                "value-plus-one".to_owned(),
+                "killed".to_owned(),
+                Some("store".to_owned())
+            ),
+            (
+                "key-value-swap".to_owned(),
+                "killed".to_owned(),
+                Some("store".to_owned())
+            ),
+        ]
+    );
+    if kink_native::execution::SolverProfile::BUILD == kink_native::execution::SolverProfile::NoZ3 {
+        for id in ["choice-agrees", "choice-differs"] {
+            assert!(!outcome_file(&manifest, &document, id).exists(), "{id}");
+        }
+        let file = read_json(&outcome_file(&manifest, &document, "value-plus-one"));
+        let record = file["records"]
+            .as_object()
+            .unwrap()
+            .values()
+            .next()
+            .unwrap()
+            .clone();
+        assert_eq!(
+            record["allowance_bytes"],
+            json!(k_rust::k_rust_backend::allowance::Allowance::of_process().bytes()),
+            "{record:#}"
+        );
+        assert!(file["context"].get("allowance_bytes").is_none(), "{file:#}");
+        // The allowance is outside the digest: the record seals without it.
+        let sealed = record_sha256(
+            file["context_sha256"].as_str().unwrap(),
+            file["mutation_identity"].as_str().unwrap(),
+            file["records"].as_object().unwrap().keys().next().unwrap(),
+            record["baseline_run_sha256"].as_str().unwrap(),
+            record["outcome"].as_str().unwrap(),
+            &record["slots"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|slot| slot.as_str().unwrap())
+                .collect::<Vec<_>>(),
+            record["mutant_run_sha256"].as_str().unwrap(),
+        );
+        assert_eq!(record["record_sha256"], json!(sealed.to_string()));
     }
 }

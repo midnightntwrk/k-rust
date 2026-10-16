@@ -20,10 +20,18 @@
 //!   terminal. Its exit stop is the class `UndefinedStep` without a code, and its final result
 //!   is its last configuration, the pre-step term, as for a stuck terminal.
 //! - A pattern oracle evaluates declared predicates of consecutive configurations.
-//!   Both sides use the baseline signature, evaluation context and solver, and link only the
-//!   test's initial variables. A witness and complete contrary coverage prove an observation
+//!   Both sides use the baseline signature, evaluation context, definition-independence checks
+//!   and event walk, and link only the test's initial variables; every feasibility and relation
+//!   query about a side's leaves is decided on that side's own definition and solver (re-pin
+//!   finding A-12). A witness and complete contrary coverage prove an observation
 //!   difference for some ground instance; an undecided presence, relation or discard is
 //!   Unknown. Bindings require complete coverage, ground terms and definition independence.
+//! - A run that is no evidence (kink-native `exclusion`: a counted stack stop, a load stack stop
+//!   of its side's definition, an undefined step that contradicts a trusted claim, an
+//!   implementation-chosen hook in its side's definition or initial state, an allowance refusal)
+//!   is `SideRun::Failed` with that exclusion, so no slot of its test is compared: a mutant's is
+//!   `Unknown`, and a baseline's makes admission refuse the campaign (`BaselineOracleFailed`).
+//!   The check runs whenever a run is judged, a baseline run a session reuses included.
 //!
 //! A test whose initial state has an element or set variable is symbolic: its verdict is a
 //! claim about every ground instance, and k-rust's answer supports that claim only while the
@@ -44,7 +52,8 @@
 //! A mutant is Killed only through a `Distinguish`: a state slot compares ground terminal
 //! sets, and a pattern slot compares declared functions of execution configurations.
 //! A pattern witness and complete contrary coverage prove that some ground instance has
-//! different observations. Both sides share the baseline signature and decider. Under
+//! different observations. Both sides share the baseline signature and definition-independence
+//! decider; each side's leaves are admitted under its own definition. Under
 //! k-rust variable identity v3, received names are read verbatim, printing is injective
 //! (VI-1..VI-5), and FreshCounter mints apart from received names within each request. Relation and
 //! leaf Unsat decisions rely on the definedness premise pinned by TB-01 and the TV-01
@@ -64,11 +73,14 @@ use kink_native::bridge::{
     validate_test_initial_state,
 };
 use kink_native::coverage::{RuleAuthors, TestCoverage};
+use kink_native::exclusion::{
+    DefinitionExclusions, Exclusion, state_references_implementation_chosen,
+};
 use kink_native::execution::{
     AdaptedExecution, ExecutionAdapter, ExecutionAdapterFailure, ExecutionBudget, HaltClass,
     SolverProfile, StepRunFailure, SteppedExecution,
 };
-use kink_native::feasibility::{BackendRelations, TestInitialState};
+use kink_native::feasibility::TestInitialState;
 use kink_native::representation::validate_representation;
 use kink_native::signature::{DefinitionFacts, definition_facts};
 use kink_native::step_events::{ObservationDecider, StepEventSpec, StepObservation};
@@ -849,12 +861,24 @@ pub fn run_campaign_multi_with(
                 .zip(&baseline_runs)
             {
                 let patterns = facts.as_ref().ok().map(|_| {
-                    runtime.step_sides(campaign, test, &observation, cache.stepped.as_ref())
+                    runtime.step_sides(campaign, test, &observation, cache.stepped.as_ref(), None)
                 });
                 replace_patterns(test, evidence, patterns.as_deref());
             }
         }
-        validate_baseline(admit(campaign.tests, &baseline_evidence))?;
+        let admission = admit(campaign.tests, &baseline_evidence);
+        if admission == BaselineAdmission::OracleFailed
+            && let Some((test_id, exclusion)) = baseline_exclusion(&baseline_evidence)
+        {
+            return Err(CampaignFailure::new(
+                CampaignFailureKind::BaselineOracleFailed,
+                format!(
+                    "the baseline run of test {test_id} is no evidence: {}",
+                    exclusion.name()
+                ),
+            ));
+        }
+        validate_baseline(admission)?;
         (baseline_evidence, baseline_coverage)
     };
     let paired = campaign
@@ -963,13 +987,29 @@ fn admission_failure(admission: BaselineAdmission) -> CampaignFailure {
     validate_baseline(admission).expect_err("a rejected admission")
 }
 
+/// The first baseline test whose run is excluded ([`kink_native::exclusion`]), with its exclusion.
+fn baseline_exclusion(evidence: &[TestEvidence]) -> Option<(&str, Exclusion)> {
+    evidence.iter().find_map(|evidence| match evidence.run {
+        SideRun::Failed(kind) => kind
+            .exclusion()
+            .map(|exclusion| (evidence.test_id.as_str(), exclusion)),
+        SideRun::Sides { .. } => None,
+    })
+}
+
 /// A baseline side that failed is `Error`; one that is bounded, unknown or a crash its
-/// declaration rejects is `OracleFailed`.
+/// declaration rejects is `OracleFailed`, and so is a baseline run that is excluded
+/// ([`kink_native::exclusion`]): it completed but is no evidence, as an unknown side.
 fn admit(tests: &[TestCase], evidence: &[TestEvidence]) -> BaselineAdmission {
     let mut admission = BaselineAdmission::Accepted;
     for (test, evidence) in tests.iter().zip(evidence) {
-        let SideRun::Sides { sides, .. } = &evidence.run else {
-            return BaselineAdmission::Error;
+        let sides = match &evidence.run {
+            SideRun::Sides { sides, .. } => sides,
+            SideRun::Failed(kind) if kind.exclusion().is_some() => {
+                admission = BaselineAdmission::OracleFailed;
+                continue;
+            }
+            SideRun::Failed(_) => return BaselineAdmission::Error,
         };
         for (declaration, side) in test.oracles.iter().zip(sides) {
             match side {
@@ -1300,6 +1340,16 @@ impl MutantSides {
         }
     }
 
+    /// The runtime a test runs on: the withdrawn side for a symbolic test when there is one,
+    /// otherwise the patched side; `None` for a symbolic test whose side is unsupported.
+    fn runtime_mut(&mut self, symbolic: bool) -> Option<&mut Runtime> {
+        match (&mut self.symbolic, symbolic) {
+            (SymbolicSide::Withdrawn(runtime), true) => Some(runtime),
+            (SymbolicSide::Unsupported, true) => None,
+            _ => Some(&mut self.patched),
+        }
+    }
+
     fn facts(&mut self, symbolic: bool) -> Result<DefinitionFacts, String> {
         match (&mut self.symbolic, symbolic) {
             (SymbolicSide::Withdrawn(runtime), true) => runtime.facts(),
@@ -1373,13 +1423,17 @@ fn run_tests(
         });
         let mut paired_baseline = baseline.clone();
         if signatures_match {
-            // Always use the baseline backend, and repeat its observation queries on hits.
-            // Besides preserving its mutable solver state, this keeps later uncached bytes exact.
+            // The baseline backend decides what both sides share (definition independence,
+            // terminal values, the event walk); the mutant's own backend decides every
+            // feasibility and relation query about the mutant's leaves (re-pin finding A-12).
+            // Repeat the queries on hits too, so both backends' solver state evolves as in a
+            // fresh call.
             let mutant_patterns = observations.runtime.step_sides(
                 campaign,
                 test,
                 &observations.observation,
                 cache.stepped.as_ref(),
+                sides.runtime_mut(symbolic),
             );
             if cached.is_none() {
                 replace_patterns(test, &mut mutant, Some(&mutant_patterns));
@@ -1486,6 +1540,10 @@ struct Runtime {
     facts: Option<Result<DefinitionFacts, String>>,
     /// The side's rule authors when its runs record coverage (the baseline only).
     coverage: Option<RuleAuthors>,
+    /// What the side's definition contributes to the exclusions of each of its runs, read from
+    /// its compiled KORE and from the definition its backend selected for the default module
+    /// (the only module a request names), on the thread that runs it (re-pin R0b).
+    exclusions: DefinitionExclusions,
 }
 
 impl Runtime {
@@ -1495,8 +1553,19 @@ impl Runtime {
         let parsed = parse_definition(&side.artifacts().definition_kore)
             .map_err(|_| Preparation::Infrastructure)?;
         let symbol_sorts = SymbolSorts::from_definition(&parsed);
-        let backend = Backend::from_definition(parsed, campaign.module, BackendOptions::default())
+        let mut backend =
+            Backend::from_definition(parsed.clone(), campaign.module, BackendOptions::default())
+                .map_err(|_| Preparation::Infrastructure)?;
+        // Selecting the default module loads it if the backend has not yet; its load counts and
+        // value-claim violations are then final (findings A-08, C-10).
+        let selected = backend
+            .select_definition(None)
             .map_err(|_| Preparation::Infrastructure)?;
+        let exclusions = DefinitionExclusions::of(
+            &parsed,
+            &selected,
+            &side.compile_options().builtin_source_prefixes,
+        );
         let context = EvaluationContext {
             test_id: String::new(),
             bounds: campaign.budget.bounds(),
@@ -1512,6 +1581,7 @@ impl Runtime {
             context,
             facts: None,
             coverage: None,
+            exclusions,
         })
     }
 
@@ -1599,6 +1669,7 @@ impl Runtime {
         test: &TestCase,
         executed: &Executed,
     ) -> TestEvidence {
+        let collections_trusted = self.exclusions.collections_trusted();
         let run = match &executed.execution {
             Err(failure) => SideRun::Failed(failure.into()),
             Ok(execution) if execution.timed_out() => {
@@ -1609,8 +1680,9 @@ impl Runtime {
                     definition,
                     solver,
                     TestInitialState::of_test(&test.initial_state),
-                );
-                Ok::<_, k_rust::backend::BackendError>(paths_from_execution_values(
+                )
+                .trusting_collections(collections_trusted);
+                let bridged = paths_from_execution_values(
                     execution,
                     &BridgeContext {
                         test_id: &test.id,
@@ -1618,22 +1690,36 @@ impl Runtime {
                         sorts: &self.context.symbol_sorts,
                     },
                     &|term| decider.terminal_value(term),
-                ))
+                );
+                let state_exclusion =
+                    state_references_implementation_chosen(definition, &test.initial_state)
+                        .then_some(Exclusion::ImplementationChosenHook);
+                Ok::<_, k_rust::backend::BackendError>((bridged, state_exclusion))
             }) {
                 Err(_) => SideRun::Sides {
                     sides: vec![OracleSide::Unknown; test.oracles.len()],
                 },
-                Ok(Err(failure)) => SideRun::Failed((&failure).into()),
-                Ok(Ok(bridged)) => SideRun::Sides {
-                    sides: test
-                        .oracles
-                        .iter()
-                        .map(|declaration| match declaration.projection() {
-                            Projection::State(projection) => state_side(projection, &bridged),
-                            Projection::Pattern { .. } => executed.pattern_failure.clone(),
-                        })
-                        .collect(),
-                },
+                Ok((Err(failure), _)) => SideRun::Failed((&failure).into()),
+                // A run that bridged is checked for its exclusions before any side is formed
+                // (re-pin R0b): an excluded run gives no side to any slot, on the baseline as on
+                // a mutant, live or reused from a baseline session.
+                Ok((Ok(bridged), state_exclusion)) => {
+                    match self.exclusions.run_exclusion(execution).or(state_exclusion) {
+                        Some(exclusion) => SideRun::Failed(exclusion.into()),
+                        None => SideRun::Sides {
+                            sides: test
+                                .oracles
+                                .iter()
+                                .map(|declaration| match declaration.projection() {
+                                    Projection::State(projection) => {
+                                        state_side(projection, &bridged)
+                                    }
+                                    Projection::Pattern { .. } => executed.pattern_failure.clone(),
+                                })
+                                .collect(),
+                        },
+                    }
+                }
             },
         };
         TestEvidence {
@@ -1642,83 +1728,100 @@ impl Runtime {
         }
     }
 
-    /// The pattern-slot sides of one side's stepped run, evaluated with this (the baseline's)
-    /// definition, solver and evaluation context.
+    /// The pattern-slot sides of one side's stepped run. This (the baseline's) definition and
+    /// evaluation context decide what both sides share: definition independence, terminal
+    /// values and the event walk. The definition that produced the leaves decides every
+    /// feasibility and relation query about them (re-pin finding A-12): this runtime's own for
+    /// its own run (`leaves` `None`), the mutant's `leaves` runtime for a mutant run.
     fn step_sides(
         &mut self,
         campaign: &Campaign<'_>,
         test: &TestCase,
         observation: &StepObservation,
         execution: Option<&SteppedExecution>,
+        leaves: Option<&mut Runtime>,
     ) -> Vec<OracleSide> {
         let mut context = self.context.clone();
         context.test_id.clone_from(&test.id);
-        self.backend
-            .with_solver(None, |definition, solver| {
-                let decider = ObservationDecider::new(
-                    definition,
-                    solver,
-                    TestInitialState::of_test(&test.initial_state),
-                );
-                let relations = BackendRelations::shared(
-                    definition,
-                    solver,
-                    TestInitialState::of_test(&test.initial_state),
-                );
-                let evaluate = |execution: Option<&SteppedExecution>| {
-                    let bridged = execution.and_then(|execution| {
-                        tree_from_steps(
-                            &BridgeContext {
-                                test_id: &test.id,
-                                classify: campaign.classify,
-                                sorts: &context.symbol_sorts,
-                            },
-                            execution,
-                            observation,
-                            &decider,
-                        )
-                        .ok()
-                    });
-                    test.oracles
-                        .iter()
-                        .map(|declaration| {
-                            let Projection::Pattern {
-                                plan,
-                                with_bindings,
-                            } = declaration.projection()
-                            else {
-                                return OracleSide::Unknown;
-                            };
-                            let Some(bridged) = &bridged else {
-                                return OracleSide::Unknown;
-                            };
-                            let evaluation = slot_evaluation(
-                                &context,
-                                plan,
-                                &bridged.tree,
-                                &bridged.collection,
-                                observation.vocabulary(),
-                                &relations,
-                            );
-                            if *with_bindings
-                                && evaluation.as_ref().is_ok_and(|evaluation| {
-                                    evaluation.witnesses.iter().any(|witness| {
-                                        witness.bindings.iter().any(|binding| {
-                                            !decider.definition_independent(&binding.term)
-                                        })
-                                    })
-                                })
-                            {
-                                OracleSide::Unknown
-                            } else {
-                                pattern_side(&evaluation, *with_bindings)
-                            }
+        let trusted = self.exclusions.collections_trusted()
+            && leaves
+                .as_ref()
+                .is_none_or(|leaves| leaves.exclusions.collections_trusted());
+        let evaluate = |decider: &ObservationDecider<'_>| {
+            let bridged = execution.and_then(|execution| {
+                tree_from_steps(
+                    &BridgeContext {
+                        test_id: &test.id,
+                        classify: campaign.classify,
+                        sorts: &context.symbol_sorts,
+                    },
+                    execution,
+                    observation,
+                    decider,
+                )
+                .ok()
+            });
+            test.oracles
+                .iter()
+                .map(|declaration| {
+                    let Projection::Pattern {
+                        plan,
+                        with_bindings,
+                    } = declaration.projection()
+                    else {
+                        return OracleSide::Unknown;
+                    };
+                    let Some(bridged) = &bridged else {
+                        return OracleSide::Unknown;
+                    };
+                    let evaluation = slot_evaluation(
+                        &context,
+                        plan,
+                        &bridged.tree,
+                        &bridged.collection,
+                        observation.vocabulary(),
+                        decider.relations(),
+                    );
+                    if *with_bindings
+                        && evaluation.as_ref().is_ok_and(|evaluation| {
+                            evaluation.witnesses.iter().any(|witness| {
+                                witness
+                                    .bindings
+                                    .iter()
+                                    .any(|binding| !decider.definition_independent(&binding.term))
+                            })
                         })
-                        .collect()
-                };
-                Ok::<_, k_rust::backend::BackendError>(evaluate(execution))
-            })
-            .unwrap_or_else(|_| vec![OracleSide::Unknown; test.oracles.len()])
+                    {
+                        OracleSide::Unknown
+                    } else {
+                        pattern_side(&evaluation, *with_bindings)
+                    }
+                })
+                .collect::<Vec<_>>()
+        };
+        let initial = || TestInitialState::of_test(&test.initial_state);
+        let sides = match leaves {
+            None => self.backend.with_solver(None, |definition, solver| {
+                let decider = ObservationDecider::new(definition, solver, initial())
+                    .trusting_collections(trusted);
+                Ok::<_, k_rust::backend::BackendError>(evaluate(&decider))
+            }),
+            Some(leaves) => self.backend.with_solver(None, |definition, _| {
+                leaves
+                    .backend
+                    .with_solver(None, |leaf_definition, leaf_solver| {
+                        let decider = ObservationDecider::for_leaves_of(
+                            definition,
+                            leaf_definition,
+                            leaf_solver,
+                            initial(),
+                        )
+                        .trusting_collections(trusted);
+                        Ok::<_, k_rust::backend::BackendError>(evaluate(&decider))
+                    })
+            }),
+        };
+        sides.unwrap_or_else(|_| vec![OracleSide::Unknown; test.oracles.len()])
     }
 }
 
@@ -2137,6 +2240,195 @@ mod tests {
                         session.stored_runs()
                     ),
                     (2, 2, 2)
+                );
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    /// Re-pin R0b deliverables 1, 2, 7 and 9: `judge` gives an excluded run no side for any
+    /// slot (`SideRun::Failed` with the exclusion), on a live run and on a run a baseline session
+    /// reuses alike, before any evidence leaves the runner: a run that counted a stack stop, a
+    /// run whose leaf reports an allowance refusal, and every run on a side whose load counted a
+    /// stack stop or whose definition references an implementation-chosen hook. The same
+    /// execution without the exclusion is judged a value. An excluded baseline run is admitted as
+    /// `OracleFailed`, never as evidence.
+    #[test]
+    fn an_excluded_run_gives_no_side_live_or_reused() {
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                use k_rust::backend::BackendDiagnosticOutput;
+                use kink_native::exclusion::HookReference;
+                use kink_native::feasibility::LeafFeasibility;
+                let validator = NativeValidator::bind(
+                    input_test_support::load_path(
+                        &std::path::Path::new(input_test_support::DIR).join("counter.k"),
+                        "COUNTER",
+                    ),
+                    k_rust::kompile::CompileOptions::default(),
+                );
+                let compiled = validator.compile_baseline().unwrap();
+                let classify: &dyn Fn(&Pattern) -> ExecutionTerminalKind =
+                    &|_| ExecutionTerminalKind::Normal;
+                let z = || input_test_support::app("Lblz", vec![]);
+                let test = TestCase {
+                    id: "t".into(),
+                    initial_state: input_test_support::initial_state(
+                        input_test_support::app(
+                            "Lblcounter",
+                            vec![z(), input_test_support::app("Lbls", vec![z()])],
+                        ),
+                        "SortCounter",
+                    ),
+                    oracles: vec![
+                        OracleDeclaration::new(
+                            CrashPolicy::Reject,
+                            Projection::State(StateProjection::WholeTerm),
+                        )
+                        .unwrap(),
+                    ],
+                };
+                let tests = [test];
+                let campaign = Campaign {
+                    validator: &validator,
+                    module: "COUNTER",
+                    observation: &[],
+                    classify,
+                    tests: &tests,
+                    budget: ExecutionBudget {
+                        time: std::time::Duration::from_secs(30),
+                        max_depth: None,
+                        max_simplification_iterations: 1000,
+                        max_breadth: None,
+                    },
+                };
+                let test = &tests[0];
+                let mut runtime = Runtime::prepare(&campaign, &compiled)
+                    .unwrap_or_else(|_| panic!("baseline runtime"));
+                assert_eq!(runtime.exclusions.definition_exclusion(), None);
+                let clean = runtime.execute(&campaign, test);
+                assert!(matches!(
+                    runtime.judge(&campaign, test, &clean).run,
+                    SideRun::Sides { ref sides } if matches!(sides.as_slice(), [OracleSide::Normal(_)])
+                ));
+                // The clean run's result as k-rust returns it, then with a counted stack stop or
+                // with an allowance refusal on its leaf.
+                let Ok(clean_execution) = &clean.execution else {
+                    panic!("the counter runs")
+                };
+                let raw = || k_rust::backend::ExecutionResult {
+                    modality: k_rust::backend::ResultModalityOutput::PathSet,
+                    leaves: clean_execution
+                        .leaves()
+                        .iter()
+                        .map(|leaf| {
+                            assert_eq!(leaf.halt, HaltClass::Stuck);
+                            k_rust::backend::ExecutionLeaf {
+                                state: leaf.branch.state.clone(),
+                                diagnostics: Vec::new(),
+                                candidates: None,
+                                remainder: None,
+                                depth: leaf.branch.depth,
+                                reason: k_rust::backend::HaltReasonOutput::Stuck,
+                                rule_id: None,
+                                rule_label: None,
+                                contradicted_total: None,
+                                cause: None,
+                                detail: None,
+                                trace: leaf.branch.trace.clone(),
+                                branch: leaf.branch.identity.clone(),
+                                effects: Vec::new(),
+                                observations: Vec::new(),
+                            }
+                        })
+                        .collect(),
+                    effects: Vec::new(),
+                    discarded: Vec::new(),
+                    coverage: None,
+                    work: 0,
+                    expanded: 0,
+                    stack_stops: 0,
+                };
+                let executed = |result: k_rust::backend::ExecutionResult| {
+                    let feasibility = vec![LeafFeasibility::Syntactic; result.leaves.len()];
+                    Executed {
+                        execution: Ok(ExecutionAdapter::adapt_result(
+                            result,
+                            false,
+                            &campaign.budget,
+                            feasibility,
+                        )
+                        .unwrap()),
+                        pattern_failure: OracleSide::Unknown,
+                        cache: RunCache::default(),
+                    }
+                };
+                let mut stopped = raw();
+                stopped.stack_stops = 1;
+                let mut refused = raw();
+                refused.leaves[0]
+                    .diagnostics
+                    .push(BackendDiagnosticOutput::UnsupportedHookUnevaluated {
+                        hook: "BYTES.padRight".into(),
+                        reason: "the result exceeds the allowance".into(),
+                    });
+                assert!(matches!(
+                    runtime.judge(&campaign, test, &executed(raw())).run,
+                    SideRun::Sides { .. }
+                ));
+                for (result, kind) in [
+                    (stopped, ExecutionFailureKind::StackStop),
+                    (refused, ExecutionFailureKind::AllowanceRefusal),
+                ] {
+                    let executed = executed(result);
+                    assert_eq!(
+                        runtime.judge(&campaign, test, &executed).run,
+                        SideRun::Failed(kind)
+                    );
+                    // A stored baseline run is judged again on the call's runtime.
+                    let mut session = BaselineSession::new(&validator);
+                    session.runs.push(StoredBaseline {
+                        key: BaselineKey {
+                            test_id: test.id.clone(),
+                            initial_state: test.initial_state.clone(),
+                            oracles: test.oracles.clone(),
+                            module: "COUNTER".into(),
+                            budget: campaign.budget,
+                            profile: SolverProfile::BUILD,
+                        },
+                        executed,
+                    });
+                    let (evidence, _) = session.baseline_run(&mut runtime, &campaign, test, true);
+                    assert_eq!(session.reused_runs(), 1);
+                    assert_eq!(evidence.run, SideRun::Failed(kind));
+                    assert_eq!(
+                        admit(&tests, std::slice::from_ref(&evidence)),
+                        BaselineAdmission::OracleFailed
+                    );
+                    assert_eq!(
+                        baseline_exclusion(std::slice::from_ref(&evidence))
+                            .map(|(id, exclusion)| (id.to_owned(), exclusion)),
+                        Some(("t".to_owned(), kind.exclusion().unwrap()))
+                    );
+                }
+                // Definition-level exclusions apply to every run on the side, a clean one too.
+                runtime.exclusions.load_stack_stops = 1;
+                assert_eq!(
+                    runtime.judge(&campaign, test, &clean).run,
+                    SideRun::Failed(ExecutionFailureKind::LoadStackStop)
+                );
+                runtime.exclusions.load_stack_stops = 0;
+                runtime.exclusions.implementation_chosen = vec![HookReference {
+                    module: "COUNTER".into(),
+                    sentence: "r".into(),
+                    symbol: "Lblchoice".into(),
+                    hook: "MAP.choice".into(),
+                }];
+                assert_eq!(
+                    runtime.judge(&campaign, test, &clean).run,
+                    SideRun::Failed(ExecutionFailureKind::ImplementationChosenHook)
                 );
             })
             .unwrap()

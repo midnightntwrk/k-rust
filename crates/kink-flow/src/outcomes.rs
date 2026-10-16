@@ -13,10 +13,23 @@
 //! call that ended in a corpus error or whose plan carries a mutant-scope failure are never
 //! written (decisions D14-2 and D14-3).
 //!
+//! The Execute promise (k-rust `docs/compatibility.md`, "Execute"; re-pin finding B-02) is what
+//! makes a cached outcome a function of its key, and it excludes runs: a token cancelled before
+//! return, a step timeout, a nonzero `stackStops`, a Bytes allowance refusal, a load stack stop,
+//! and in Z3 builds any run in which a query can time out. Each of them is excluded for the whole
+//! test, both sides and every slot, before anything here sees it: a cancelled run is a timeout;
+//! kink sets no step timeout; a stack stop, a load stack stop or an allowance refusal on either
+//! side makes that side's run `failed` (kink-native `exclusion`), so the test is not compared, and
+//! on the baseline the program is not comparable; and under the Z3 profile tier 1 is off
+//! (`search::tier1_refusal`).
+//!
 //! `<cache>/outcomes/<context digest>/<mutation identity>.json` holds one mutation's records:
 //! `{schema: "kink-flow-outcomes", version: 1, context, context_sha256, mutation_identity,
 //! mutation_id, records: {<program digest>: {program_id, baseline_run_sha256, outcome, slots,
-//! mutant_run_sha256, record_sha256}}}`. [`OutcomeStore::read`] returns only the records that
+//! mutant_run_sha256, allowance_bytes, record_sha256}}}`. `allowance_bytes` is k-rust's
+//! `Allowance::of_process().bytes()` of the process that wrote the record, for diagnosis only:
+//! it is neither in the key nor in the record digest (re-pin decision 5, finding B-07): an
+//! allowance only refuses Bytes results, a refused run is excluded, and no excluded run is cached. [`OutcomeStore::read`] returns only the records that
 //! pass every check that needs no corpus (schema, version, context, record digest, outcome
 //! consistent with its slots); the kill search then requires the program to be a current
 //! comparable candidate whose result record has the record's `baseline_run_sha256`. Anything
@@ -128,6 +141,9 @@ pub struct OutcomeRecord {
     /// The run digest of the mutant's evidence row for the program (results::run_digest of
     /// `CampaignReport::baseline_row` of the mutant's `TestEvidence`).
     pub mutant_run_sha256: String,
+    /// The writing process's memory allowance in bytes (k-rust `Allowance::of_process`), for
+    /// diagnosis only: outside the key and the record digest; `None` in a record without it.
+    pub allowance_bytes: Option<u64>,
 }
 
 impl OutcomeRecord {
@@ -165,6 +181,7 @@ impl OutcomeRecord {
             "outcome": self.outcome.as_str(),
             "slots": self.slot_names(),
             "mutant_run_sha256": self.mutant_run_sha256,
+            "allowance_bytes": self.allowance_bytes,
             "record_sha256": self
                 .digest(context_sha256, mutation_identity, program_digest)
                 .to_string(),
@@ -292,6 +309,7 @@ impl OutcomeStore {
             outcome,
             slots,
             mutant_run_sha256: field("mutant_run_sha256")?,
+            allowance_bytes: value.get("allowance_bytes").and_then(Value::as_u64),
         };
         let digest = record.digest(&self.context_sha256, &identity.to_string(), program);
         (field("record_sha256")? == digest.to_string()).then_some(record)

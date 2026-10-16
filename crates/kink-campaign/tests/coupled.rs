@@ -8504,25 +8504,20 @@ fn audit_vi_t12_hook_only_computations_agree() {
                 budget: BUDGET,
             };
             for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
-                let run = run_campaign(&campaign, &generation, mode)
-                    .expect("hook-only baseline admitted");
-                eprintln!(
-                    "TB03-HOOK {head} {mode:?}: {:?} {:?}",
-                    outcomes(&run),
-                    run.mutants[0].report.status
-                );
-                assert_eq!(outcomes(&run), vec![vec![A]], "T-REPR {head} {mode:?}");
-                assert_eq!(run.mutants[0].report.status, MutantStatus::Survived);
-                let expected =
-                    support::initial_state(app("done", vec![support::int(7)]), "SortProg");
-                assert_eq!(
-                    run.baseline[0].run,
-                    SideRun::Sides {
-                        sides: vec![OracleSide::Normal(OracleValue::FinalResult(
-                            FinalResult::WholeTerm([expected].into())
-                        ))]
-                    },
-                    "hook spellings agree, {head}"
+                // Re-pin R0b (decision 1, finding E-10): t12hook.k's own rules apply Float
+                // arithmetic and `signFloat` (FLOAT.mul, FLOAT.sub, FLOAT.sign), whose mixed-format
+                // destination and NaN sign k-rust chooses where domains.md leaves them open, so
+                // every run on it is excluded (`implementation-chosen-hook`) and the baseline is
+                // refused before the mutant runs. Before: admitted, the mutant Survived [A] and
+                // the baseline's whole term was done(7). The T-REPR spelling property is no
+                // longer reached through a campaign on this definition.
+                let failure = run_campaign(&campaign, &generation, mode)
+                    .expect_err("an implementation-chosen baseline is refused");
+                eprintln!("TB03-HOOK {head} {mode:?}: {failure}");
+                assert_eq!(failure.kind(), CampaignFailureKind::BaselineOracleFailed);
+                assert!(
+                    failure.to_string().contains("implementation-chosen-hook"),
+                    "{failure}"
                 );
             }
         }
@@ -8707,13 +8702,13 @@ fn audit_vi_t12_mutant_only_literal_is_unknown() {
         for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
             let result = ViResult::of(&campaign, &generation, mode);
             eprintln!("TB03 mutant-only {mode:?}: {result:?}");
+            // Re-pin R0b (decision 1, finding E-10): the baseline t12hook.k applies Float
+            // arithmetic in its own rules, so it is refused (`implementation-chosen-hook`) before
+            // the mutant is prepared. Before: Ran, the mutant Unknown (RepresentationRefused) with
+            // no test run.
             assert_eq!(
                 result,
-                ViResult::Ran {
-                    tests: vec![],
-                    status: MutantStatus::Unknown,
-                    killing: vec![]
-                }
+                ViResult::Refused(CampaignFailureKind::BaselineOracleFailed)
             );
         }
     });

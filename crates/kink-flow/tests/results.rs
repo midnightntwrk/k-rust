@@ -551,7 +551,8 @@ fn a_ground_map_is_comparable_and_covers_its_rule() {
     assert_eq!(document["rules"][0]["reached_by"], json!(["store"]));
 
     // U1: a v1 record is recomputed, never trusted under the v2 value rule.
-    assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v3");
+    // Re-pin R0b: v4, because the exclusions change what counts as comparable.
+    assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v4");
     record["key"]["schema_version"] = json!("kink-flow/result/v1");
     fs::write(&path, record.to_string()).unwrap();
     let (recomputed, status) = run(&manifest, false);
@@ -590,10 +591,14 @@ fn a_bytes_key_remains_unknown_with_the_runners_cause() {
     let (document, status) = run(&manifest, false);
     assert_eq!(status, EXIT_OK, "{document:#}");
     assert_eq!(rows(&document), expect(&[("store", "unknown", false)]));
+    // Re-pin R0b (decision 1, finding E-11): bytes-map's `store` rule applies `String2Bytes`,
+    // an implementation-chosen hook, so the runner refuses the baseline as no evidence and says
+    // why (before: the generic oracle-gate refusal of the Bytes-keyed Map). The class is unknown
+    // either way.
     assert_eq!(
         document["programs"][0]["cause"],
-        "the campaign runner refused the baseline run (BaselineOracleFailed: a baseline \
-         declaration-scoped oracle gate rejected); every path ended, but a final configuration \
+        "the campaign runner refused the baseline run (BaselineOracleFailed: the baseline run of \
+         test store is no evidence: implementation-chosen-hook); every path ended, but a final configuration \
          is not a value kink can compare (for example it holds a collection kink cannot compare, \
          such as one with a Bytes key, an unevaluated function or a symbolic term); leaves: stuck at depth 1"
     );

@@ -116,6 +116,25 @@ pub enum ExecutionFailureKind {
     /// definition did not compile. A symbolic verdict is a claim about every ground instance,
     /// which k-rust's answer supports only while the definition's trusted claims hold.
     UnsupportedClaims,
+    /// The run counted a stop for lack of native stack (`stackStops`): its result can depend on
+    /// the thread's stack and on other threads, so it is no evidence for any slot
+    /// ([`kink_native::exclusion::Exclusion::StackStop`]).
+    StackStop,
+    /// The load of the side's definition counted a stop for lack of stack (discharge or
+    /// critical-pair check), so the loaded theory is not a function of the definition
+    /// ([`kink_native::exclusion::Exclusion::LoadStackStop`]).
+    LoadStackStop,
+    /// A leaf is an undefined step that falsifies a trusted `total` or `preserves-definedness`
+    /// claim: the definition is inconsistent there (re-pin decision 2,
+    /// [`kink_native::exclusion::Exclusion::ContradictedClaim`]).
+    ContradictedClaim,
+    /// The definition, or the test's initial state, references a hook whose value k-rust
+    /// chooses where the definition leaves it open (re-pin decision 1,
+    /// [`kink_native::exclusion::Exclusion::ImplementationChosenHook`]).
+    ImplementationChosenHook,
+    /// A leaf reports a hook refused for the process's memory allowance, a host property
+    /// ([`kink_native::exclusion::Exclusion::AllowanceRefusal`]).
+    AllowanceRefusal,
 }
 
 impl ExecutionFailureKind {
@@ -123,11 +142,48 @@ impl ExecutionFailureKind {
     #[must_use]
     pub const fn status(self) -> MutantStatus {
         match self {
-            Self::Indeterminate | Self::ResourceLimit | Self::UnsupportedClaims => {
-                MutantStatus::Unknown
-            }
+            Self::Indeterminate
+            | Self::ResourceLimit
+            | Self::UnsupportedClaims
+            | Self::StackStop
+            | Self::LoadStackStop
+            | Self::ContradictedClaim
+            | Self::ImplementationChosenHook
+            | Self::AllowanceRefusal => MutantStatus::Unknown,
             Self::TimeLimit => MutantStatus::Timeout,
             Self::Infrastructure => MutantStatus::Error,
+        }
+    }
+
+    /// The exclusion this failure stands for, when it is one: the run completed, but it is no
+    /// evidence for any comparison.
+    #[must_use]
+    pub const fn exclusion(self) -> Option<kink_native::exclusion::Exclusion> {
+        use kink_native::exclusion::Exclusion;
+        Some(match self {
+            Self::StackStop => Exclusion::StackStop,
+            Self::LoadStackStop => Exclusion::LoadStackStop,
+            Self::ContradictedClaim => Exclusion::ContradictedClaim,
+            Self::ImplementationChosenHook => Exclusion::ImplementationChosenHook,
+            Self::AllowanceRefusal => Exclusion::AllowanceRefusal,
+            Self::Indeterminate
+            | Self::ResourceLimit
+            | Self::TimeLimit
+            | Self::Infrastructure
+            | Self::UnsupportedClaims => return None,
+        })
+    }
+}
+
+impl From<kink_native::exclusion::Exclusion> for ExecutionFailureKind {
+    fn from(exclusion: kink_native::exclusion::Exclusion) -> Self {
+        use kink_native::exclusion::Exclusion;
+        match exclusion {
+            Exclusion::StackStop => Self::StackStop,
+            Exclusion::LoadStackStop => Self::LoadStackStop,
+            Exclusion::ContradictedClaim => Self::ContradictedClaim,
+            Exclusion::ImplementationChosenHook => Self::ImplementationChosenHook,
+            Exclusion::AllowanceRefusal => Self::AllowanceRefusal,
         }
     }
 }

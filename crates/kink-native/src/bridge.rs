@@ -8,10 +8,13 @@
 //! (`PathStop::has_real_prefix`). A symbolic or constrained state may be infeasible. The leaf
 //! predicate carries every condition the path's steps relied on, including the definedness of
 //! the partial terms in their conditions, right-hand sides and simplified states, so an instance
-//! of a feasible leaf state follows the path. A bounded
+//! of a feasible leaf state follows the path. A depth-bound
 //! leaf keeps its limit stop when its state is one ground term without a path condition, or when
 //! the adapter showed it feasible ([`LeafFeasibility::Syntactic`], or
-//! [`LeafFeasibility::Solver`] with the Z3 profile); otherwise it is `SolverUnknown`.
+//! [`LeafFeasibility::Solver`] with the Z3 profile); otherwise it is `SolverUnknown`. A
+//! breadth-bound leaf is `BackendLimit` and is never discarded: k-rust drains the frontier into
+//! such leaves without normalising them, so the last step into one may be undefined on every
+//! instance (re-pin finding A-11).
 //!
 //! A stuck leaf is complete for a ground term without a path condition, or when its state is feasible: its `Stuck` halt says that no instance of its state has a successor.
 //! In either case its terminal term must have a definition-independent value (TV-01): free constructors, normal-form injections and domain values with trusted injective codecs, or ground natural collections canonicalized by [`ObservationDecider::terminal_value`] (T-COLL).
@@ -394,10 +397,11 @@ impl DiscardReason {
 pub fn discarded(leaf: &crate::execution::AdaptedLeaf) -> Option<DiscardReason> {
     let reason = match (leaf.halt, leaf.feasibility) {
         (HaltClass::Vacuous, _) => DiscardReason::Vacuous,
-        (
-            HaltClass::Stuck | HaltClass::Trivial | HaltClass::DepthBound | HaltClass::BreadthBound,
-            LeafFeasibility::Unsat,
-        ) => DiscardReason::Unsat,
+        // A breadth-bound leaf's state was never normalised (re-pin finding A-11): it is never
+        // discarded, so it always keeps its run incomplete.
+        (HaltClass::Stuck | HaltClass::Trivial | HaltClass::DepthBound, LeafFeasibility::Unsat) => {
+            DiscardReason::Unsat
+        }
         _ => return None,
     };
     (!diagnosed(leaf)).then_some(reason)
@@ -417,8 +421,9 @@ fn diagnosed(leaf: &crate::execution::AdaptedLeaf) -> bool {
 /// term, or when the adapter's evidence completes it (see the module documentation), and
 /// `SolverUnknown` otherwise, because a symbolic or constrained leaf may be infeasible.
 /// An `Indeterminate` leaf is `BackendLimit` here; [`indeterminate_stop`]
-/// refines it by its cause. A requested depth or breadth bound keeps its limit stop only
-/// for a decided or feasible state (see `decided_stop`). A vacuous leaf that is not discarded
+/// refines it by its cause. A requested depth bound keeps its limit stop only for a decided or
+/// feasible state (see `decided_stop`); a breadth-bound leaf is `BackendLimit`, without a real
+/// prefix, because its state was never normalised (re-pin finding A-11). A vacuous leaf that is not discarded
 /// is `SolverUnknown`.
 /// The adapter rejects unrequested bound halts. Exhaustive over `HaltClass`.
 pub const fn halt_stop(halt: HaltClass) -> Result<Option<PathStop>, BridgeFailure> {
@@ -429,7 +434,11 @@ pub const fn halt_stop(halt: HaltClass) -> Result<Option<PathStop>, BridgeFailur
             PathStop::BackendLimit
         }
         HaltClass::DepthBound => PathStop::DepthLimit,
-        HaltClass::BreadthBound => PathStop::BranchLimit,
+        // k-rust drains the pending frontier into breadth-bound leaves without normalising them
+        // (re-pin finding A-11, KINK-05): the last step into such a state may be undefined on
+        // every instance, so its path has no real prefix, and no slot takes a term or a witness
+        // from it. `BranchLimit` would vouch for a real prefix.
+        HaltClass::BreadthBound => PathStop::BackendLimit,
         // Until upstream tells cancellation from timeout.
         HaltClass::Cancelled => PathStop::Error,
         HaltClass::Branch
@@ -810,7 +819,7 @@ pub fn paths_from_steps(
         }
         if matches!(
             leaf.halt,
-            HaltClass::Stuck | HaltClass::Trivial | HaltClass::DepthBound | HaltClass::BreadthBound
+            HaltClass::Stuck | HaltClass::Trivial | HaltClass::DepthBound
         ) && feasibility == LeafFeasibility::Unsat
             && !diagnosed(leaf)
         {
@@ -1018,7 +1027,7 @@ pub fn tree_from_steps(
         }
         if matches!(
             leaf.halt,
-            HaltClass::Stuck | HaltClass::Trivial | HaltClass::DepthBound | HaltClass::BreadthBound
+            HaltClass::Stuck | HaltClass::Trivial | HaltClass::DepthBound
         ) && feasibility == LeafFeasibility::Unsat
             && !diagnosed(leaf)
         {
@@ -1542,6 +1551,7 @@ mod tests {
             candidate_diagnostics: Vec::new(),
             remainder_diagnostics: Vec::new(),
             undefined_rule: None,
+            contradicted_total: None,
         }
     }
 
@@ -1589,9 +1599,13 @@ mod tests {
             (H::DepthBound, CONSTRAINED, U, 1, Incomplete(P::SolverUnknown)),
             // A syntactic claim over a state that still splits off a path condition is ignored.
             (H::DepthBound, CONSTRAINED, F, 1, Incomplete(P::SolverUnknown)),
-            (H::BreadthBound, GROUND, U, 1, Incomplete(P::BranchLimit)),
-            (H::BreadthBound, SYMBOLIC, U, 1, Incomplete(P::SolverUnknown)),
-            (H::BreadthBound, SYMBOLIC, F, 1, Incomplete(P::BranchLimit)),
+            // Re-pin R0b deliverable 4 (finding A-11): a breadth-bound state was never normalised,
+            // so it gives no real prefix (no `Match` witness) and no term: `BackendLimit` whatever
+            // the adapter showed. Before: `BranchLimit` (a real prefix) when decided or feasible,
+            // `SolverUnknown` otherwise.
+            (H::BreadthBound, GROUND, U, 1, Incomplete(P::BackendLimit)),
+            (H::BreadthBound, SYMBOLIC, U, 1, Incomplete(P::BackendLimit)),
+            (H::BreadthBound, SYMBOLIC, F, 1, Incomplete(P::BackendLimit)),
             (H::Indeterminate, GROUND, U, 1, Incomplete(P::BackendLimit)),
             (H::Indeterminate, SYMBOLIC, F, 1, Incomplete(P::BackendLimit)),
             (H::UnsupportedHook, GROUND, U, 1, Incomplete(P::BackendLimit)),
@@ -1612,12 +1626,15 @@ mod tests {
             (H::Stuck, SYMBOLIC_CONSTRAINED, Z, 1, Complete(Normal, SYMBOLIC)),
             // A solver-feasible cut keeps its limit and real prefix; coverage is not needed.
             (H::DepthBound, CONSTRAINED, Z, 1, Incomplete(P::DepthLimit)),
-            (H::BreadthBound, SYMBOLIC_CONSTRAINED, Z, 1, Incomplete(P::BranchLimit)),
-            // A refuted predicate discards a stuck, trivial or cut leaf.
+            // Re-pin R0b (A-11): a breadth-bound leaf keeps no real prefix (was `BranchLimit`).
+            (H::BreadthBound, SYMBOLIC_CONSTRAINED, Z, 1, Incomplete(P::BackendLimit)),
+            // A refuted predicate discards a stuck, trivial or depth-bound leaf.
             (H::Stuck, CONSTRAINED, N, 1, Discarded(DiscardReason::Unsat)),
             (H::Stuck, CONSTRAINED, N, 0, Discarded(DiscardReason::Unsat)),
             (H::DepthBound, CONSTRAINED, N, 1, Discarded(DiscardReason::Unsat)),
-            (H::BreadthBound, CONSTRAINED, N, 1, Discarded(DiscardReason::Unsat)),
+            // Re-pin R0b (A-11): a refuted breadth-bound leaf is kept, so its run stays incomplete
+            // (was `Discarded(Unsat)`).
+            (H::BreadthBound, CONSTRAINED, N, 1, Incomplete(P::BackendLimit)),
             // Backend-limited leaves are kept; refuted trivial leaves are discarded.
             (H::Indeterminate, CONSTRAINED, N, 1, Incomplete(P::BackendLimit)),
             (H::Trivial, CONSTRAINED, N, 0, Discarded(DiscardReason::Unsat)),
@@ -1644,6 +1661,7 @@ mod tests {
                 leaves: vec![leaf(halt, state, feasibility, depth)],
                 effects: Vec::new(),
                 timed_out: false,
+                stack_stops: 0,
             };
             assert_eq!(
                 discarded(&execution.leaves[0]),
@@ -1748,6 +1766,7 @@ mod tests {
                 leaves: vec![diagnosed],
                 effects: Vec::new(),
                 timed_out: false,
+                stack_stops: 0,
             };
             assert_eq!(discarded(&execution.leaves[0]), None);
             let bridged =
@@ -1797,6 +1816,7 @@ mod tests {
                 leaves: vec![indeterminate],
                 effects: Vec::new(),
                 timed_out: false,
+                stack_stops: 0,
             };
             let bridged =
                 paths_from_execution(&execution, &bridge_context(&sorts), &independent).unwrap();
@@ -1819,6 +1839,7 @@ mod tests {
             leaves: vec![leaf(H::Stuck, GROUND, U, 1), vacuous],
             effects: Vec::new(),
             timed_out: false,
+            stack_stops: 0,
         };
         let bridged =
             paths_from_execution(&execution, &bridge_context(&sorts), &independent).unwrap();
@@ -1901,6 +1922,7 @@ mod tests {
             candidate_diagnostics: Vec::new(),
             remainder_diagnostics: Vec::new(),
             undefined_rule: None,
+            contradicted_total: None,
         };
         let diagnostic = BackendDiagnosticOutput::UnsupportedHookUnevaluated {
             hook: "TEST.hook".into(),
@@ -1921,6 +1943,7 @@ mod tests {
                 leaves: vec![clean.clone(), diagnosed],
                 effects: Vec::new(),
                 timed_out: false,
+                stack_stops: 0,
             };
             let bridged =
                 paths_from_execution(&execution, &bridge_context(&sorts), &independent).unwrap();
@@ -1946,6 +1969,7 @@ mod tests {
             ],
             effects: Vec::new(),
             timed_out: false,
+            stack_stops: 0,
         };
         assert_eq!(leaf_keys(&execution.leaves), ["leaf:0", "leaf:1", "leaf:2"]);
         let bridged =
@@ -1973,6 +1997,7 @@ mod tests {
             leaves: vec![leaf(H::Stuck, GROUND, U, 1)],
             effects: Vec::new(),
             timed_out: false,
+            stack_stops: 0,
         };
         let context = BridgeContext {
             test_id: "t",
@@ -1999,6 +2024,7 @@ mod tests {
                     candidate_diagnostics: Vec::new(),
                     remainder_diagnostics: Vec::new(),
                     undefined_rule: None,
+                    contradicted_total: None,
                 },
                 AdaptedLeaf {
                     halt: H::Stuck,
@@ -2009,10 +2035,12 @@ mod tests {
                     candidate_diagnostics: Vec::new(),
                     remainder_diagnostics: Vec::new(),
                     undefined_rule: None,
+                    contradicted_total: None,
                 },
             ],
             effects: Vec::new(),
             timed_out: false,
+            stack_stops: 0,
         };
         let bridged =
             paths_from_execution(&execution, &bridge_context(&sorts), &independent).unwrap();

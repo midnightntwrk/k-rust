@@ -19,9 +19,10 @@ use std::{
 
 use k_rust::backend::{
     BACKEND_SCHEMA_VERSION, Backend, BackendDiagnosticOutput, BackendError, CancelledResultOutput,
-    EffectOutput, ExecuteRequest, ExecutionLeaf, ExecutionResult, ExecutionStrategy,
-    HaltReasonOutput, ObservationEventOutput, ObservedRequest, ResultModalityOutput,
-    SearchFailureOutput, TraceEntry, TransitionClassOutput, TransitionIdOutput,
+    ContradictedTotalOutput, EffectOutput, ExecuteRequest, ExecutionLeaf, ExecutionResult,
+    ExecutionStrategy, HaltReasonOutput, ObservationEventOutput, ObservedRequest,
+    ResultModalityOutput, SearchFailureOutput, TraceEntry, TransitionClassOutput,
+    TransitionIdOutput,
 };
 use k_rust::kore::{ast::Pattern, codec};
 use k_rust_backend::stop::{CancellationToken, StopCause};
@@ -201,6 +202,11 @@ pub struct AdaptedLeaf {
     /// The rule responsible for the undefined step of a `Trivial` leaf, when k-rust names one;
     /// `None` for every other halt.
     pub undefined_rule: Option<UndefinedStepRule>,
+    /// The `total` (or `functional`) claim this leaf's undefined step contradicts, when k-rust
+    /// names one (`contradictedTotal`, a `Trivial` or `Vacuous` leaf): the definition is
+    /// inconsistent there, so the run is no evidence (re-pin decision 2, finding A-13;
+    /// [`crate::exclusion::Exclusion::ContradictedClaim`]).
+    pub contradicted_total: Option<ContradictedTotalOutput>,
 }
 
 /// The rule whose application a `Trivial` leaf's undefined step is: it applies to every
@@ -235,6 +241,9 @@ pub struct AdaptedExecution {
     pub(crate) leaves: Vec<AdaptedLeaf>,
     pub(crate) effects: Vec<EffectOutput>,
     pub(crate) timed_out: bool,
+    /// k-rust's count of the stops for lack of native stack the run met (`stackStops`), whether
+    /// or not a site dismissed them (re-pin finding A-06).
+    pub(crate) stack_stops: usize,
 }
 
 /// An observation-layer failure of a stepped run. The execution itself can still be used
@@ -261,6 +270,9 @@ pub struct UnobservedExecution {
     /// timeout and `leaves` is not its path set, whether the backend then returned leaves or an
     /// error (which leaves none).
     pub timed_out: bool,
+    /// k-rust's count of the run's stops for lack of native stack, as
+    /// [`AdaptedExecution::stack_stops`].
+    pub stack_stops: usize,
 }
 
 /// A path-set leaf after observation state is erased: every field of the backend leaf that
@@ -279,6 +291,7 @@ pub struct BaselineLeaf {
     /// unobserved execution does not compute them.
     pub branch: Vec<TransitionIdOutput>,
     pub undefined_rule: Option<UndefinedStepRule>,
+    pub contradicted_total: Option<ContradictedTotalOutput>,
 }
 
 impl AdaptedExecution {
@@ -300,6 +313,7 @@ impl AdaptedExecution {
                     remainder_diagnostics: leaf.remainder_diagnostics.clone(),
                     branch: branch.identity,
                     undefined_rule: leaf.undefined_rule.clone(),
+                    contradicted_total: leaf.contradicted_total.clone(),
                 }
             })
             .collect()
@@ -315,11 +329,19 @@ impl AdaptedExecution {
         &self.effects
     }
 
-    /// The watchdog cancelled the run. Its leaf states must not be decoded: a cancelled run
-    /// can leave an arbitrarily deep term.
+    /// The run timed out: the watchdog fired, or k-rust reports the run cancelled (an error whose
+    /// stop cause is `Cancelled`, or a `Cancelled` leaf). Its leaf states must not be decoded: a
+    /// cancelled run can leave an arbitrarily deep term.
     #[must_use]
     pub const fn timed_out(&self) -> bool {
         self.timed_out
+    }
+
+    /// k-rust's count of the run's stops for lack of native stack (`stackStops`). A run with any
+    /// is no evidence ([`crate::exclusion::Exclusion::StackStop`]).
+    #[must_use]
+    pub const fn stack_stops(&self) -> usize {
+        self.stack_stops
     }
 }
 
@@ -557,10 +579,15 @@ impl ExecutionAdapter {
                         .map_or_else(Vec::new, |remainder| remainder.diagnostics),
                     branch: leaf.branch,
                     undefined_rule: UndefinedStepRule::of(halt, leaf.rule_id, leaf.rule_label),
+                    contradicted_total: leaf.contradicted_total,
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(UnobservedExecution { leaves, timed_out })
+        Ok(UnobservedExecution {
+            leaves,
+            timed_out,
+            stack_stops: result.stack_stops,
+        })
     }
 
     fn adapt(
@@ -582,6 +609,7 @@ impl ExecutionAdapter {
                     halt,
                     feasibility,
                     undefined_rule: UndefinedStepRule::of(halt, leaf.rule_id, leaf.rule_label),
+                    contradicted_total: leaf.contradicted_total,
                     cause: leaf.cause,
                     diagnostics: leaf.diagnostics,
                     candidate_diagnostics: leaf
@@ -606,7 +634,21 @@ impl ExecutionAdapter {
             leaves,
             effects: result.effects,
             timed_out,
+            stack_stops: result.stack_stops,
         })
+    }
+
+    /// The adapted execution of a raw backend `result`, exactly as [`Self::execute`] adapts the
+    /// result of its run: every halt is checked against `budget`'s request, and `feasibility`
+    /// gives each leaf's state feasibility in leaf order. For tests and tools that hold a result
+    /// k-rust returned; a value built here is no more evidence than the result it is built from.
+    pub fn adapt_result(
+        result: ExecutionResult,
+        timed_out: bool,
+        budget: &ExecutionBudget,
+        feasibility: Vec<LeafFeasibility>,
+    ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
+        Self::adapt(result, timed_out, budget, feasibility)
     }
 }
 
@@ -639,25 +681,44 @@ fn execute_with_watchdog(
     // Stop the watchdog, then read whether it fired before the run ended.
     drop(done);
     watchdog.join().expect("watchdog thread does not panic");
-    let timed_out = fired.load(Ordering::Acquire);
-    let result = match outcome {
-        Ok(result) => result,
-        // Cancellation on the operation's entry poll can return an error rather than
-        // leaves. The fired watchdog still means Timeout; publish no completed state.
-        Err(_) if timed_out => ExecutionResult {
-            modality: ResultModalityOutput::PathSet,
-            leaves: Vec::new(),
-            effects: Vec::new(),
-            discarded: Vec::new(),
-            coverage: None,
-            work: 0,
-            expanded: 0,
-            stack_stops: 0,
-        },
-        Err(error) => return Err(ExecutionAdapterFailure::Backend(error.to_string())),
-    };
+    let (result, timed_out) = settle(outcome, fired.load(Ordering::Acquire))?;
     assert_eq!(result.modality, ResultModalityOutput::PathSet);
     Ok((result, timed_out))
+}
+
+/// How a run ended (re-pin finding A-04/A-05, answers section 2.3): a timeout exactly when kink's
+/// watchdog `fired`, or k-rust answers an error whose stop cause is `Cancelled` (the portable
+/// build answers a token already cancelled at entry that way, section_2_2_summary (5)), or an
+/// `Ok` result with a `Cancelled` leaf. A timed-out run publishes no completed state: after an
+/// error it has no leaves, and its leaves are never decoded. Every other error, a stack or
+/// deadline stop included, is an infrastructure failure, never a timeout.
+fn settle(
+    outcome: Result<ExecutionResult, BackendError>,
+    fired: bool,
+) -> Result<(ExecutionResult, bool), ExecutionAdapterFailure> {
+    match outcome {
+        Ok(result) => {
+            let cancelled = result
+                .leaves
+                .iter()
+                .any(|leaf| leaf.reason == HaltReasonOutput::Cancelled);
+            Ok((result, fired || cancelled))
+        }
+        Err(error) if fired || matches!(error.stop_cause(), Some(StopCause::Cancelled)) => Ok((
+            ExecutionResult {
+                modality: ResultModalityOutput::PathSet,
+                leaves: Vec::new(),
+                effects: Vec::new(),
+                discarded: Vec::new(),
+                coverage: None,
+                work: 0,
+                expanded: 0,
+                stack_stops: 0,
+            },
+            true,
+        )),
+        Err(error) => Err(ExecutionAdapterFailure::Backend(error.to_string())),
+    }
 }
 
 /// Mirror the ambiguity checks of k-rust's observation allow-list before a run, so a
@@ -997,6 +1058,80 @@ mod tests {
             0,
             "a cancellation at entry returns the error in both profiles"
         );
+    }
+
+    /// Re-pin R0b deliverable 3 (findings A-04, A-05; answers section 2.3): a run is a timeout
+    /// exactly when the watchdog fired, k-rust answers an error whose stop cause is `Cancelled`,
+    /// or an `Ok` result has a `Cancelled` leaf; every other error is an infrastructure failure.
+    /// The cancelled-at-entry error is real: a token already cancelled when the request enters
+    /// makes the backend answer `Err` with stop cause `Cancelled` in both profiles
+    /// (section_2_2_summary (5)), and it is a timeout even when kink's own watchdog did not fire.
+    #[test]
+    fn timeouts_are_exactly_cancellations() {
+        use k_rust::backend::BackendOptions;
+        let mut backend = Backend::new(
+            r"[]
+            module MAIN
+                sort SortS{} []
+                symbol Lbla{}() : SortS{} [constructor{}()]
+            endmodule []",
+            "MAIN",
+            BackendOptions::default(),
+        )
+        .expect("backend");
+        let state = Pattern::Application {
+            symbol: Symbol {
+                name: "Lbla".to_owned(),
+                sort_parameters: Vec::new(),
+            },
+            arguments: Vec::new(),
+        };
+        let budget = ExecutionBudget {
+            time: Duration::from_secs(10),
+            max_simplification_iterations: 10,
+            max_depth: None,
+            max_breadth: None,
+        };
+        // An `Err` whose stop cause is `Cancelled`, with the watchdog not fired: Timeout.
+        let token = CancellationToken::new();
+        token.cancel();
+        let cancelled = token.scope(|| backend.execute(request(state.clone(), budget)));
+        let error = cancelled
+            .as_ref()
+            .expect_err("a cancelled entry answers Err");
+        assert_eq!(error.stop_cause(), Some(&StopCause::Cancelled));
+        let (result, timed_out) = settle(cancelled, false).expect("a timeout");
+        assert!(timed_out && result.leaves.is_empty());
+        // An `Err` that is no stop at all (an unknown symbol), the watchdog not fired: an
+        // infrastructure failure, never a timeout; with the watchdog fired it is a timeout.
+        let unknown = Pattern::Application {
+            symbol: Symbol {
+                name: "Lblnowhere".to_owned(),
+                sort_parameters: Vec::new(),
+            },
+            arguments: Vec::new(),
+        };
+        let failed = backend.execute(request(unknown.clone(), budget));
+        let error = failed.as_ref().expect_err("an unknown symbol fails");
+        assert_eq!(error.stop_cause(), None);
+        assert!(matches!(
+            settle(failed, false),
+            Err(ExecutionAdapterFailure::Backend(_))
+        ));
+        assert!(settle(backend.execute(request(unknown, budget)), true).is_ok_and(|(_, t)| t));
+        // An `Ok` result: a timeout exactly when the watchdog fired or a leaf is `Cancelled`.
+        let complete = backend.execute(request(state.clone(), budget)).unwrap();
+        assert!(
+            complete
+                .leaves
+                .iter()
+                .all(|leaf| leaf.reason != HaltReasonOutput::Cancelled)
+        );
+        assert!(!settle(Ok(complete.clone()), false).unwrap().1);
+        assert!(settle(Ok(complete.clone()), true).unwrap().1);
+        let mut cancelled_leaf = complete;
+        cancelled_leaf.leaves[0].reason = HaltReasonOutput::Cancelled;
+        assert!(settle(Ok(cancelled_leaf), false).unwrap().1);
     }
 
     #[test]

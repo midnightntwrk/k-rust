@@ -343,8 +343,11 @@ pub(crate) fn leaf_feasibility(
     }
 }
 
-/// Leaf feasibility under the observation decider's definition-independent query policy.
-/// The baseline definition and solver are shared by both sides of a mutant pair.
+/// Leaf feasibility under the observation decider's definition-independent query policy, on
+/// `definition`, the definition whose run produced the leaf, and its solver: since k-rust
+/// 501f18b9 admission restates the admitted predicate's definedness from the admitting
+/// definition, so a mutant leaf is admitted under the mutant's definition, never the baseline's
+/// (re-pin finding A-12; [`crate::step_events::ObservationDecider::for_leaves_of`]).
 pub(crate) fn shared_leaf_feasibility(
     definition: &BackendDefinition,
     solver: &dyn SmtSolver,
@@ -683,8 +686,9 @@ pub struct BackendRelations<'a> {
 }
 
 impl<'a> BackendRelations<'a> {
-    /// Relations for pattern observations on both sides of a mutant pair, over the test's
-    /// initial state; only interpreted predicates may reach the solver.
+    /// Relations for pattern observations over the test's initial state, decided on
+    /// `definition`, the definition whose run produced the paths (each side's own, re-pin
+    /// finding A-12); only interpreted predicates may reach the solver.
     #[must_use]
     pub fn shared(
         definition: &'a BackendDefinition,

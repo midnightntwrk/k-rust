@@ -322,25 +322,71 @@ pub enum StepPresence {
     Undecided,
 }
 
+/// Decides what one side's leaves and steps show, with two definitions in two roles.
+///
+/// The shared definition (the baseline's, for both sides of a mutant pair) decides everything
+/// that must mean the same on both sides: definition independence and terminal values
+/// ([`Self::definition_independent`], [`Self::terminal_value`]) and the structural walk of event
+/// classification. The leaf definition, the one whose run produced the leaves, decides every
+/// feasibility and relation query about them: leaf feasibility and the relation and feasibility
+/// queries of event classification (re-pin finding A-12). Since 501f18b9, k-rust's admission
+/// restates the definedness of the admitted pattern from the admitting definition, so a mutant
+/// leaf admitted under the baseline would carry the baseline's definedness conditions: a mutant
+/// that makes a partial symbol defined could have a leaf refuted or a relation decided by the
+/// baseline's definedness. Deciding them on the leaf's own definition adds no premise.
 pub struct ObservationDecider<'a> {
     definition: &'a BackendDefinition,
-    solver: &'a dyn SmtSolver,
-    inhabitation: Inhabitation,
+    leaf_definition: &'a BackendDefinition,
+    leaf_solver: &'a dyn SmtSolver,
+    leaf_inhabitation: Inhabitation,
     relations: BackendRelations<'a>,
+    /// Whether a collection term can be a terminal value (re-pin finding C-10).
+    collections_trusted: bool,
 }
 
 impl<'a> ObservationDecider<'a> {
+    /// A decider for the leaves of a run on `definition` itself (a baseline run, or any side
+    /// judged on its own definition).
     pub fn new(
         definition: &'a BackendDefinition,
         solver: &'a dyn SmtSolver,
         initial_state: TestInitialState<'_>,
     ) -> Self {
+        Self::for_leaves_of(definition, definition, solver, initial_state)
+    }
+
+    /// A decider whose shared definition is `definition` (the baseline's) for the leaves of a run
+    /// on `leaf_definition` (the mutant's), whose `leaf_solver` decides their queries.
+    pub fn for_leaves_of(
+        definition: &'a BackendDefinition,
+        leaf_definition: &'a BackendDefinition,
+        leaf_solver: &'a dyn SmtSolver,
+        initial_state: TestInitialState<'_>,
+    ) -> Self {
         Self {
             definition,
-            solver,
-            inhabitation: Inhabitation::of(definition),
-            relations: BackendRelations::shared(definition, solver, initial_state),
+            leaf_definition,
+            leaf_solver,
+            leaf_inhabitation: Inhabitation::of(leaf_definition),
+            relations: BackendRelations::shared(leaf_definition, leaf_solver, initial_state),
+            collections_trusted: true,
         }
+    }
+
+    /// This decider, with no collection term a terminal value unless `trusted`: false when the
+    /// definition that produced the leaves (or the shared one) has an axiom rooted at a
+    /// collection role symbol ([`crate::exclusion::DefinitionExclusions::collections_trusted`]),
+    /// whose collection terms then need not denote what their structure shows (KINK-05).
+    #[must_use]
+    pub const fn trusting_collections(mut self, trusted: bool) -> Self {
+        self.collections_trusted = self.collections_trusted && trusted;
+        self
+    }
+
+    /// The relation decider of this decider's leaves (the leaf definition's), for pattern slots.
+    #[must_use]
+    pub const fn relations(&self) -> &BackendRelations<'a> {
+        &self.relations
     }
     /// Whether `term` is a value that no definition can change: variables, domain values with a
     /// trusted injective codec, free constructors, and sort injections in k-rust's normal form
@@ -374,9 +420,13 @@ impl<'a> ObservationDecider<'a> {
     /// element symbol's argument sort, and its Map keys or Set elements are distinct; it is
     /// rebuilt as k-rust externalizes collections, a right-nested concat of element
     /// applications (unit when empty), Map entries sorted by key and Set elements sorted.
+    /// With [`Self::trusting_collections`] off, no term with a collection symbol has a value.
     pub fn terminal_value(&self, term: &Pattern) -> Option<Pattern> {
         if !self.has_collection_symbol(term) {
             return self.definition_independent(term).then(|| term.clone());
+        }
+        if !self.collections_trusted {
+            return None;
         }
         self.value_at(term, None)
     }
@@ -538,14 +588,16 @@ impl<'a> ObservationDecider<'a> {
         }
     }
 
-    pub(crate) fn shared_leaf_feasibility(
+    /// The feasibility of a leaf state (KORE JSON) of the leaf definition's run, decided on the
+    /// leaf definition and its solver (re-pin finding A-12).
+    pub fn shared_leaf_feasibility(
         &self,
         state: &serde_json::Value,
     ) -> crate::feasibility::LeafFeasibility {
         crate::feasibility::shared_leaf_feasibility(
-            self.definition,
-            self.solver,
-            &self.inhabitation,
+            self.leaf_definition,
+            self.leaf_solver,
+            &self.leaf_inhabitation,
             state,
         )
     }

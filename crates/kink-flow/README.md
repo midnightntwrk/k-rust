@@ -97,7 +97,7 @@ Only comparable programs can kill a mutant; the others are reported and never co
 
 The cache is `.kink-flow/` next to `FLOW.toml` (or `--cache DIR`); deleting it is always safe.
 One JSON record per program, `results/<spec digest>/<program digest>.json`, holds its key
-(result schema version `kink-flow/result/v3`, the two digests and the budget), class and cause,
+(result schema version `kink-flow/result/v4`, the two digests and the budget), class and cause,
 the baseline row exactly as the campaign report encodes it with the digest of its `run` part
 (`run_sha256`, comparable programs only), the final configuration as KORE text, the rule
 coverage, and `wall_ms`, the wall time of the program's live baseline run (outside the key and
@@ -285,11 +285,21 @@ runs every program of O on each mutation, then each program that has a cached ou
 and compares every cached outcome (and the status the cache would have given) with the live ones.
 A difference gives the mutation status `error`, reason `outcome-mismatch:<program id>`, and an entry `{mutation, program, cached, live}`
 in the top-level `mismatches` (`program` null for a status difference); the run goes on and exits 1. It writes no outcome and no hint.
-Known gap at the k-rust pin: a result can depend on the stack of the loading or running thread and on other threads, because a
-stop for lack of stack is dismissed silently in the load's discharge of rewrite-rule definedness (k-rust KINK-06/4) and in a
-run's refinement of a result (KINK-06/5), for live and cached kills alike; `--verify` does not remove it. The re-pin (RP-01)
-closes it by making a comparison unknown when either run reports a nonzero `stackStops` or the load of either definition a
-nonzero `discharge_counts().stack_stops` or `value_claims().counts().condition_stack_stops` (root README, "Using kink-flow").
+The Execute promise of k-rust (`docs/compatibility.md`, "Execute") is what makes an outcome a function of its key, and it
+excludes some runs; each is excluded for the whole program (both sides, both slots) before a record could be written: a
+cancelled run is a timeout; kink sets no step timeout; a run with a nonzero `stackStops`, a run on a definition whose load
+counted a stack stop (`discharge_counts().stack_stops`, `value_claims().counts().condition_stack_stops`) and a run with a Bytes
+hook refused for the memory allowance are `unknown` (failure `stack-stop`, `load-stack-stop`, `allowance-refusal`; on the
+baseline the program is not comparable); and in a build with the Z3 profile tier 1 is off (`outcome_cache.enabled` false, with
+the reason: a solver query can time out and k-rust gives no per-run signal that one did). Each record carries
+`allowance_bytes`, the writing process's memory allowance, for diagnosis only: it is in neither the key nor the record digest.
+This closes the stack dependence of k-rust KINK-06/4 and KINK-06/5 for every comparison through `execute`, live and cached.
+What remains is kink's verdict-path calls outside `execute` (`definition_facts`, `BackendRelations` unification, the bridge's
+internalization; re-pin finding B-13(a)), which decide nothing for ground programs, and the Z3 profile, where tier 1 is off.
+A mutation whose specification uses a hook for which k-rust chooses a value the definition leaves open (`choice`, the order of
+`keys_list`, `values` or `Set2List`, mixed-format or NaN-sign Float, `String2Bytes`), or that undefinedly falsifies a `total`
+or `preserves-definedness` claim, is `unknown` with reason `implementation-chosen-hook` or `contradicted-claim` (root README,
+"What a kill trusts").
 
 | Status | Meaning | What to do |
 | --- | --- | --- |
