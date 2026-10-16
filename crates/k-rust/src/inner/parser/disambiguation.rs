@@ -172,6 +172,7 @@
 //! `Counter::ParserPackedPriorityComputations` counts priority memo misses. Portable and Z3
 //! inference paths remain independent oracles and must produce the same accepted tree.
 
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
@@ -184,12 +185,17 @@ use std::hash::{Hash, Hasher};
 use super::ParsedParts;
 use super::exclusion::{Exclusion, Side};
 use super::{
-    AmbiguityPlace, AmbiguousParse, Grammar, Item, LoweringSession, PackedNode, PackedNodeResults,
-    PackedTerm, ParseError, ParsedTerm, Production, StructuralOrder, lower_term,
+    AmbiguityPlace, AmbiguousParse, Grammar, Item, LoweredNode, LoweringSession, PackedNode,
+    PackedNodeResults, PackedTerm, ParseError, ParsedTerm, Production, StructuralOrder, lower_term,
 };
 use crate::kast::{
-    FrontendSort, InternalLabel, ProductionIdentity, Sort, Term, TermMetadata, TermSpan, string,
+    FrontendSort, InternalLabel, NodeHead, ProductionIdentity, Sort, Term, TermMetadata, TermSpan,
+    string,
 };
+
+mod one_term;
+
+use one_term::{OneTerm, View};
 
 use super::canonical_packed_error;
 
@@ -1892,7 +1898,10 @@ impl Grammar {
     pub(super) fn resolve_ambiguities_tree(&self, term: ParsedTerm) -> Result<Term, ParseError> {
         let mut sets = ReadingSets::default();
         match self.resolve_ambiguities_node(term, &mut sets)? {
-            Readings::One(term) => Ok(term),
+            Readings::One(term) => {
+                drop(sets);
+                Ok(term.into_term())
+            }
             readings @ Readings::Several(_) => Err(self.ambiguity_report(readings, &mut sets)?),
         }
     }
@@ -1907,8 +1916,9 @@ impl Grammar {
     /// readings of the others. Otherwise the report is a function of the set, so two packings of
     /// one set report alike (`ambiguity_report`). The readings of a node are a function of the
     /// node, computed once per session node (`Grammar::packed_readings`), so a node shared by
-    /// many trees costs one computation, and the only owned terms built are the one-reading
-    /// terms of the nodes, each once.
+    /// many trees costs one computation. A node of one reading has it as a [`OneTerm`], one
+    /// node over its children's, so the one-reading terms of all nodes together cost one node
+    /// per node; the only owned terms built are the result and the readings a report prints.
     pub(super) fn resolve_packed_ambiguities(
         &self,
         session: &mut LoweringSession,
@@ -1918,7 +1928,11 @@ impl Grammar {
         let mut sets = ReadingSets::default();
         let mut readings = PackedReadings::new(term);
         match self.packed_readings(term, &mut sets, &mut readings, &mut session.order)? {
-            Readings::One(term) => Ok(term),
+            Readings::One(term) => {
+                // The sets and the readings kept for other edges may still share its nodes.
+                drop((sets, readings));
+                Ok(term.into_term())
+            }
             readings @ Readings::Several(_) => Err(self.ambiguity_report(readings, &mut sets)?),
         }
     }
@@ -2122,7 +2136,8 @@ impl Grammar {
     /// node and kept in `readings` for the other edges that reach it, and each owned copy of the
     /// node has them.
     ///
-    /// A production node over children of one reading each is lowered as it stands. Over a
+    /// A production node over children of one reading each is lowered as it stands, its term a
+    /// [`OneTerm`] over its children's, which it shares. Over a
     /// child of several readings, its readings are the lowerings of every combination of its
     /// children's readings, kept as an expression over the children's sets:
     /// - where `lower_term` builds the node from its children unchanged, a product
@@ -2156,7 +2171,7 @@ impl Grammar {
             return Ok(known);
         }
         let result = crate::stack::guarded(|| match &term.node {
-            PackedNode::Term(leaf) => Ok(Readings::One(leaf.clone())),
+            PackedNode::Term(leaf) => Ok(Readings::One(OneTerm::owned(leaf.clone()))),
             PackedNode::Production {
                 production,
                 children,
@@ -2206,7 +2221,7 @@ impl Grammar {
         sets: &mut ReadingSets,
     ) -> Result<Readings, ParseError> {
         crate::stack::guarded(|| match term.into_parts() {
-            ParsedParts::Term(term) => Ok(Readings::One(term)),
+            ParsedParts::Term(term) => Ok(Readings::One(OneTerm::owned(term))),
             ParsedParts::Production {
                 production,
                 children,
@@ -2252,7 +2267,7 @@ impl Grammar {
         &self,
         production: usize,
         parameters: Option<Vec<Sort>>,
-        mut children: Vec<Readings>,
+        children: Vec<Readings>,
         metadata: crate::kast::TermMetadata,
         sets: &mut ReadingSets,
     ) -> Result<Readings, ParseError> {
@@ -2262,6 +2277,12 @@ impl Grammar {
         {
             return self.product_readings(production, parameters, metadata, children, sets);
         }
+        // The node's readings are a set over its children's, which holds them: share their
+        // terms.
+        let mut children = children
+            .into_iter()
+            .map(Readings::shared)
+            .collect::<Vec<_>>();
         let lowered = &self.productions[production];
         if lowered.transparent || lowered.label.is_none() && children.len() == 1 {
             // `lower_term` denotes the node by its first child.
@@ -2306,6 +2327,7 @@ impl Grammar {
             .iter()
             .all(|child| matches!(child, Readings::One(_)))
         {
+            // The node's term is built over its children's, which it shares.
             let children = children
                 .into_iter()
                 .map(|child| match child {
@@ -2522,7 +2544,7 @@ impl Grammar {
     /// one lowering per node of the term.
     fn build_least(&self, view: LeastView<'_>, sets: &ReadingSets) -> Result<Term, ParseError> {
         crate::stack::guarded(|| match sets.resolve(view) {
-            LeastView::Term(term) => Ok(term.clone()),
+            LeastView::Term(term) => Ok(term.to_term()),
             LeastView::Node(index) => {
                 let SetNode::Product {
                     production,
@@ -2594,13 +2616,15 @@ impl Grammar {
         texts.all(|text| text == first).then(|| first.to_owned())
     }
 
-    fn lower_production(
+    /// The node `production` lowers to over `children` (`lower_term`): a term over terms, or a
+    /// [`OneTerm`] over the `OneTerm`s it shares.
+    fn lower_production<T: LoweredNode>(
         &self,
         production: usize,
         parameters: Option<&[Sort]>,
-        children: Vec<Term>,
+        children: Vec<T>,
         mut metadata: crate::kast::TermMetadata,
-    ) -> Result<Term, ParseError> {
+    ) -> Result<T, ParseError> {
         #[cfg(test)]
         tests::LOWERINGS.with(|count| count.set(count.get() + 1));
         let production = &self.productions[production];
@@ -2615,7 +2639,7 @@ impl Grammar {
         } else {
             lower_term(production, children, span, &self.sort_denotations)?
         };
-        Ok(term.with_metadata(metadata))
+        Ok(LoweredNode::with_metadata(term, metadata))
     }
 
     /// Remove the nodes that only shaped the parse from an owned tree; see
@@ -4585,9 +4609,10 @@ impl Grammar {
 /// The readings `Grammar::packed_readings` computed for the nodes of one forest, each kept
 /// until the last edge that reaches it has taken it. A node's readings are computed once and
 /// taken once per edge (a child or an alternative of a node that reaches it, or the root's
-/// caller): a node only one edge reaches gives its parent the term it computed, which its parent
-/// takes over, as on its owned tree, and a node several edges reach gives each but the last a
-/// copy. So a tree's term is built in work proportional to its size, whatever its depth.
+/// caller): every edge receives the node's readings shared, not copied (`Readings::One`), and a
+/// parent builds its own readings over them, sharing them in turn. So the readings of a forest
+/// cost work and memory in proportion to its nodes, whatever its depth and however many edges
+/// reach a node.
 struct PackedReadings {
     /// The edges that are still to take each node's readings, of every node the root reaches.
     pending: HashMap<*const PackedTerm, usize>,
@@ -4663,9 +4688,12 @@ impl PackedReadings {
             .get_mut(&key)
             .expect("a computed node is reached");
         *edges -= 1;
-        if *edges > 0 {
-            self.known.insert(key, readings.clone());
+        if *edges == 0 {
+            return readings;
         }
+        // Another edge will take them: share the term before it has two holders.
+        let readings = readings.shared();
+        self.known.insert(key, readings.clone());
         readings
     }
 }
@@ -4674,9 +4702,22 @@ impl PackedReadings {
 /// nonempty set of terms, compared without their metadata.
 #[derive(Clone)]
 enum Readings {
-    One(Term),
+    /// The one term, its nodes shared with every edge, set and term that holds them: cloning
+    /// the readings of a node several edges reach, or building a parent's term over it, shares
+    /// it rather than copying it.
+    One(OneTerm),
     /// A node of `ReadingSets::nodes`, which has at least two readings.
     Several(usize),
+}
+
+impl Readings {
+    /// These readings with a one-reading term shared (`OneTerm::shared`), for a second holder.
+    fn shared(self) -> Self {
+        match self {
+            Self::One(term) => Self::One(term.shared()),
+            several @ Self::Several(_) => several,
+        }
+    }
 }
 
 /// An expression for a set of at least two readings over the readings of its children.
@@ -4763,7 +4804,7 @@ type Word = Rc<[Rc<Readings>]>;
 /// (`ReadingSets::compare`, `Grammar::build_least`).
 #[derive(Clone, Copy)]
 enum LeastView<'a> {
-    Term(&'a Term),
+    Term(View<'a>),
     /// The least of every reading of a node.
     Node(usize),
     /// The least sequence of a length (the second field) a concatenation has.
@@ -4879,7 +4920,7 @@ impl ReadingSets {
 
     fn readings_hash(&self, readings: &Readings) -> u64 {
         match readings {
-            Readings::One(term) => term_hash(term),
+            Readings::One(term) => term.hash(),
             Readings::Several(index) => self.hashes[*index],
         }
     }
@@ -4891,16 +4932,27 @@ impl ReadingSets {
         let mut nodes = HashSet::new();
         let mut terms = HashMap::<u64, Vec<usize>>::new();
         let mut add = |reading: Readings, flat: &mut Vec<Readings>, hashes: &mut Vec<u64>| {
+            // The union holds the reading: share its term.
+            let reading = reading.shared();
             match &reading {
                 Readings::One(term) => {
-                    let hash = term_hash(term);
+                    let hash = term.hash();
                     let same = terms.entry(hash).or_default();
                     if let Some(kept) = same.iter().copied().find(|index| match &flat[*index] {
-                        Readings::One(other) => other == term,
+                        Readings::One(other) => {
+                            other.ptr_eq(term) || other.view().cmp(term.view()).is_eq()
+                        }
                         Readings::Several(_) => false,
                     }) {
-                        if let Readings::One(kept) = &mut flat[kept] {
-                            widen_spans(kept, term);
+                        if let Readings::One(kept) = &mut flat[kept]
+                            && !kept.ptr_eq(term)
+                            && widens_spans(kept.view(), term.view())
+                        {
+                            // The kept term's nodes may be shared with other sets and terms:
+                            // widen a copy.
+                            let mut widened = kept.view().to_term();
+                            widen_spans(&mut widened, &term.view().to_term());
+                            *kept = OneTerm::whole(widened);
                         }
                         return;
                     }
@@ -4950,7 +5002,7 @@ impl ReadingSets {
 
     /// One term of `readings` when its readings are one word, so that every reading of it
     /// splices into a sequence alike.
-    fn one_word(&self, readings: &Readings) -> Option<Term> {
+    fn one_word(&self, readings: &Readings) -> Option<OneTerm> {
         let index = match readings {
             Readings::One(term) => return Some(term.clone()),
             Readings::Several(index) => *index,
@@ -4964,7 +5016,13 @@ impl ReadingSets {
         });
         let first = terms.next()??;
         for term in terms {
-            if word_items(term?) != word_items(first) {
+            let (items, first_items) = (term?.view().word_items(), first.view().word_items());
+            if items.len() != first_items.len()
+                || items
+                    .iter()
+                    .zip(&first_items)
+                    .any(|(item, first)| item.cmp(*first).is_ne())
+            {
                 return None;
             }
         }
@@ -4979,9 +5037,9 @@ impl ReadingSets {
         let mut items = Vec::with_capacity(children.len());
         for child in children {
             match child {
-                Readings::One(term) => match term.unannotated() {
-                    Term::Sequence(nested) => {
-                        items.extend(nested.iter().cloned().map(Readings::One));
+                Readings::One(term) => match term.view().head() {
+                    NodeHead::Sequence => {
+                        items.extend(term.arguments().into_iter().map(Readings::One));
                     }
                     _ => items.push(child.clone()),
                 },
@@ -5002,7 +5060,7 @@ impl ReadingSets {
     /// Whether some term of `readings` is a sequence.
     fn may_be_sequence(&self, readings: &Readings) -> bool {
         match readings {
-            Readings::One(term) => matches!(term.unannotated(), Term::Sequence(_)),
+            Readings::One(term) => matches!(term.view().head(), NodeHead::Sequence),
             Readings::Several(index) => match &self.nodes[*index] {
                 SetNode::Product { key, .. } => matches!(key, Key::Sequence(_)),
                 SetNode::Concat { .. } => true,
@@ -5015,7 +5073,7 @@ impl ReadingSets {
 
     /// The string tokens among the readings of `readings`, and the set of its other
     /// readings, when it has others.
-    fn split_string_tokens(&mut self, readings: &Readings) -> (Vec<Term>, Option<Readings>) {
+    fn split_string_tokens(&mut self, readings: &Readings) -> (Vec<OneTerm>, Option<Readings>) {
         let alternatives = match readings {
             Readings::Several(index) => match &self.nodes[*index] {
                 SetNode::Union(alternatives) => alternatives.to_vec(),
@@ -5027,7 +5085,7 @@ impl ReadingSets {
         let mut rest = Vec::new();
         for alternative in alternatives {
             match alternative {
-                Readings::One(term) if super::kstring_token(&term).is_some() => tokens.push(term),
+                Readings::One(term) if term.kstring_token().is_some() => tokens.push(term),
                 other => rest.push(other),
             }
         }
@@ -5048,7 +5106,7 @@ impl ReadingSets {
     fn keys(&self, readings: &Readings) -> Rc<[Key]> {
         crate::stack::guarded(|| {
             let index = match readings {
-                Readings::One(term) => return Rc::from([Key::of(term)]),
+                Readings::One(term) => return Rc::from([Key::of_view(term.view())]),
                 Readings::Several(index) => *index,
             };
             if let Some(keys) = self.keys.borrow().get(&index) {
@@ -5078,7 +5136,7 @@ impl ReadingSets {
     fn lengths(&self, readings: &Readings) -> Rc<[usize]> {
         crate::stack::guarded(|| {
             let index = match readings {
-                Readings::One(term) => return Rc::from([word_items(term).len()]),
+                Readings::One(term) => return Rc::from([term.view().word_items().len()]),
                 Readings::Several(index) => *index,
             };
             if let Some(lengths) = self.lengths.borrow().get(&index) {
@@ -5144,7 +5202,7 @@ impl ReadingSets {
     /// The least view of every reading of `readings`.
     fn view<'a>(&self, readings: &'a Readings) -> LeastView<'a> {
         match readings {
-            Readings::One(term) => LeastView::Term(term),
+            Readings::One(term) => LeastView::Term(term.view()),
             Readings::Several(index) => LeastView::Node(*index),
         }
     }
@@ -5165,7 +5223,7 @@ impl ReadingSets {
         text: &dyn Fn(ProductionIdentity) -> Option<&'t str>,
     ) -> LeastView<'a> {
         let index = match readings {
-            Readings::One(term) => return LeastView::Term(term),
+            Readings::One(term) => return LeastView::Term(term.view()),
             Readings::Several(index) => *index,
         };
         match &self.nodes[index] {
@@ -5287,9 +5345,10 @@ impl ReadingSets {
         crate::stack::guarded(|| {
             let index = match readings {
                 Readings::One(term) => {
-                    return word_items(term)
-                        .iter()
-                        .map(|item| Rc::new(Readings::One(item.clone())))
+                    return term
+                        .word_items()
+                        .into_iter()
+                        .map(|item| Rc::new(Readings::One(item)))
                         .collect();
                 }
                 Readings::Several(index) => *index,
@@ -5444,9 +5503,9 @@ impl ReadingSets {
     /// when it is an application.
     fn head<'a>(&'a self, view: LeastView<'a>) -> (u8, Option<&'a crate::kast::Label>) {
         match view {
-            LeastView::Term(term) => match term.unannotated() {
-                Term::Apply { label, .. } => (term_rank(term.unannotated()), Some(label)),
-                other => (term_rank(other), None),
+            LeastView::Term(term) => match term.head() {
+                head @ NodeHead::Apply(Cow::Borrowed(label)) => (head_rank(&head), Some(label)),
+                head => (head_rank(&head), None),
             },
             LeastView::Node(index) => match &self.nodes[index] {
                 SetNode::Product { key, .. } => match key {
@@ -5465,7 +5524,7 @@ impl ReadingSets {
     /// least word when it is one.
     fn arity(&self, view: LeastView<'_>, word: Option<&[Rc<Readings>]>) -> usize {
         match view {
-            LeastView::Term(term) => term_arguments(term).len(),
+            LeastView::Term(term) => term.arguments().len(),
             LeastView::Node(index) => self.node_children(index).len(),
             LeastView::Word(..) => word.expect("a word").len(),
         }
@@ -5480,7 +5539,7 @@ impl ReadingSets {
         position: usize,
     ) -> LeastView<'a> {
         match view {
-            LeastView::Term(term) => LeastView::Term(term_arguments(term)[position]),
+            LeastView::Term(term) => LeastView::Term(term.arguments()[position]),
             LeastView::Node(index) => self.view(&self.node_children(index)[position]),
             LeastView::Word(..) => self.view(&word.expect("a word")[position]),
         }
@@ -5492,7 +5551,7 @@ impl ReadingSets {
         crate::stack::guarded(|| {
             let index = match readings {
                 Readings::One(term) => {
-                    return Readings::One(term_arguments(term)[position].clone());
+                    return Readings::One(term.arguments().swap_remove(position));
                 }
                 Readings::Several(index) => *index,
             };
@@ -5544,7 +5603,9 @@ impl ReadingSets {
     fn item(&mut self, readings: &Readings, length: usize, position: usize) -> Readings {
         crate::stack::guarded(|| {
             let index = match readings {
-                Readings::One(term) => return Readings::One(word_items(term)[position].clone()),
+                Readings::One(term) => {
+                    return Readings::One(term.word_items().swap_remove(position));
+                }
                 Readings::Several(index) => *index,
             };
             if let Some(items) = self.items.get(&(index, length, position)) {
@@ -5601,7 +5662,7 @@ impl ReadingSets {
     /// cast inference added) covers the text of its arguments.
     fn span(&self, readings: &Readings) -> Option<TermSpan> {
         crate::stack::guarded(|| match readings {
-            Readings::One(term) => term_span(term),
+            Readings::One(term) => term.view().span(),
             Readings::Several(index) => match &self.nodes[*index] {
                 SetNode::Product { metadata, .. } | SetNode::Concat { metadata, .. } => {
                     metadata.span.or_else(|| {
@@ -5650,6 +5711,30 @@ pub(super) fn same_result(
 /// readings cover there; equal readings parsed from different text are one reading that covers
 /// the text of every copy, so whichever copy a union keeps, and however a forest packs the
 /// copies (one union of them, or unions below a node of each), a place covers them all.
+/// Whether `widen_spans` of the terms of `kept` and `copy` changes the first: whether some span
+/// of `copy` reaches beyond the span of the same subterm of `kept`, in the same source.
+fn widens_spans(kept: View<'_>, copy: View<'_>) -> bool {
+    crate::stack::guarded(|| {
+        if kept
+            .arguments()
+            .into_iter()
+            .zip(copy.arguments())
+            .any(|(kept, copy)| widens_spans(kept, copy))
+        {
+            return true;
+        }
+        let Some(other) = copy.span() else {
+            return false;
+        };
+        match kept.span() {
+            None => true,
+            Some(own) => {
+                own.source == other.source && !(own.start <= other.start && other.end <= own.end)
+            }
+        }
+    })
+}
+
 fn widen_spans(kept: &mut Term, copy: &Term) {
     crate::stack::guarded(|| {
         for (kept, copy) in term_arguments_mut(kept)
@@ -5702,66 +5787,12 @@ fn identical_children(left: &[Readings], right: &[Readings]) -> bool {
             .iter()
             .zip(right)
             .all(|(left, right)| match (left, right) {
-                (Readings::One(left), Readings::One(right)) => left.identical(right),
+                (Readings::One(left), Readings::One(right)) => {
+                    left.ptr_eq(right) || left.view().identical(right.view())
+                }
                 (Readings::Several(left), Readings::Several(right)) => left == right,
                 _ => false,
             })
-}
-
-/// The hash of `term` without its metadata, consistent with `Term`'s equality.
-fn term_hash(term: &Term) -> u64 {
-    let mut state = FxHasher::default();
-    hash_term(term, &mut state);
-    state.finish()
-}
-
-/// The items `term` contributes to a `~>` sequence it is spliced into: its own items when it
-/// is a sequence, and otherwise itself.
-fn word_items(term: &Term) -> &[Term] {
-    match term.unannotated() {
-        Term::Sequence(items) => items,
-        _ => std::slice::from_ref(term),
-    }
-}
-
-/// Hash `term` without its metadata, consistently with `Term`'s equality.
-fn hash_term(term: &Term, state: &mut FxHasher) {
-    crate::stack::guarded(|| {
-        let term = term.unannotated();
-        state.write_u8(term_rank(term));
-        match term {
-            Term::InjectedLabel(label) => hash_label(label, state),
-            Term::Rewrite { .. } | Term::As { .. } | Term::Sequence(_) | Term::Apply { .. } => {
-                if let Term::Apply { label, .. } = term {
-                    hash_label(label, state);
-                }
-                let arguments = term_arguments(term);
-                state.write_usize(arguments.len());
-                for argument in arguments {
-                    hash_term(argument, state);
-                }
-            }
-            Term::Variable { name, sort } => {
-                name.hash(state);
-                if let Some(sort) = sort {
-                    hash_sort(sort, state);
-                }
-            }
-            Term::Token { token, sort } => {
-                token.hash(state);
-                hash_sort(sort, state);
-            }
-            Term::Annotated { .. } => unreachable!("an unannotated term"),
-        }
-    });
-}
-
-fn hash_label(label: &crate::kast::Label, state: &mut FxHasher) {
-    label.name.hash(state);
-    state.write_usize(label.parameters.len());
-    for parameter in &label.parameters {
-        hash_sort(parameter, state);
-    }
 }
 
 fn hash_sort(sort: &Sort, state: &mut FxHasher) {
@@ -5788,6 +5819,19 @@ fn term_rank(term: &Term) -> u8 {
     }
 }
 
+/// The rank of the kind of a term of head `head` in `Term::cmp` (`term_rank`).
+fn head_rank(head: &NodeHead<'_>) -> u8 {
+    match head {
+        NodeHead::InjectedLabel(_) => 0,
+        NodeHead::Rewrite => 1,
+        NodeHead::As => 2,
+        NodeHead::Variable(..) => 3,
+        NodeHead::Sequence => 4,
+        NodeHead::Apply(_) => 5,
+        NodeHead::Token(..) => 6,
+    }
+}
+
 /// The root key of a term: its head and arity, or the term itself when it has no arguments of
 /// its own. Two terms with one key differ only in their arguments.
 #[derive(Clone, Eq, Ord, PartialEq, PartialOrd)]
@@ -5810,6 +5854,22 @@ impl Key {
                 Self::Leaf(leaf.clone())
             }
             Term::Annotated { .. } => unreachable!("an unannotated term"),
+        }
+    }
+
+    /// The key of the term `view` stands for.
+    fn of_view(view: View<'_>) -> Self {
+        if let Some(term) = view.as_term() {
+            return Self::of(term);
+        }
+        match view.head() {
+            NodeHead::Rewrite => Self::Rewrite,
+            NodeHead::As => Self::As,
+            NodeHead::Sequence => Self::Sequence(view.arguments().len()),
+            NodeHead::Apply(label) => Self::Apply(label.into_owned(), view.arguments().len()),
+            NodeHead::InjectedLabel(_) | NodeHead::Variable(..) | NodeHead::Token(..) => {
+                unreachable!("a shared node is a term with arguments")
+            }
         }
     }
 
