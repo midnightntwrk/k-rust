@@ -1,9 +1,10 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
-    env, fs,
+    env, fs, io,
     path::Path,
-    process::Command,
-    time::{SystemTime, UNIX_EPOCH},
+    process::{Command, Output},
+    thread,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use k_rust::kore::{
@@ -7014,22 +7015,14 @@ fn constraint_pairing_aligns_constraint_only_variables_onto_the_reference_names(
     fs::write(&needle, aligned_variable).unwrap();
     let oracle = directory.join("aligned-only-krust");
     // Valid only when both sides carry the reference's Map variable name.
-    fs::write(
+    write_executable(
         &oracle,
-        format!(
+        &format!(
             "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >>{calls}\nwhile (($#)); do case $1 in --antecedent) a=$2;; --consequent) c=$2;; esac; shift; done\nif grep -qFf {needle} \"$a\" && grep -qFf {needle} \"$c\"; then printf '{{\"status\":\"valid\"}}\\n'; else printf '{{\"status\":\"invalid\"}}\\n'; fi\n",
             calls = calls.display(),
             needle = needle.display(),
         ),
-    )
-    .unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut permissions = fs::metadata(&oracle).unwrap().permissions();
-        permissions.set_mode(0o755);
-        fs::set_permissions(&oracle, permissions).unwrap();
-    }
+    );
     let definition = directory.join("definition.kore");
     fs::write(&definition, "[]").unwrap();
     let result = compare_execution_modulo_implication(
@@ -7070,28 +7063,17 @@ fn execution_comparator_drops_a_reference_disjunct_only_when_the_reference_searc
     let calls = directory.join("calls");
     let kore_exec = directory.join("kore-exec");
     let krust = directory.join("krust");
-    fs::write(
+    write_executable(
         &kore_exec,
-        format!(
+        &format!(
             "#!/usr/bin/env bash\nwhile (($#)); do case $1 in --pattern) p=$2;; --output) o=$2;; esac; shift; done\ncat \"$p\" >>{calls}; printf '\\n' >>{calls}\nif grep -q 'empty{{}}' \"$p\"; then printf '\\\\bottom{{S{{}}}}()\\n' >\"$o\"; else cat \"$p\" >\"$o\"; fi\n",
             calls = calls.display()
         ),
-    )
-    .unwrap();
-    fs::write(
+    );
+    write_executable(
         &krust,
         "#!/usr/bin/env bash\nprintf '{\"status\":\"valid\"}\\n'\n",
-    )
-    .unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        for path in [&kore_exec, &krust] {
-            let mut permissions = fs::metadata(path).unwrap().permissions();
-            permissions.set_mode(0o755);
-            fs::set_permissions(path, permissions).unwrap();
-        }
-    }
+    );
     let definition = directory.join("definition.kore");
     fs::write(&definition, "[]").unwrap();
     let with_reference = ImplicationOracle {
@@ -7150,28 +7132,17 @@ fn implication_fallback_checks_both_directions_and_requires_valid() {
     let calls = directory.join("calls");
     let valid = directory.join("valid-krust");
     let invalid = directory.join("invalid-krust");
-    fs::write(
+    write_executable(
         &valid,
-        format!(
+        &format!(
             "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >>{}\nprintf '{{\"status\":\"valid\"}}\\n'\n",
             calls.display()
         ),
-    )
-    .unwrap();
-    fs::write(
+    );
+    write_executable(
         &invalid,
         "#!/usr/bin/env bash\nprintf '{\"status\":\"indeterminate\"}\\n'\n",
-    )
-    .unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        for path in [&valid, &invalid] {
-            let mut permissions = fs::metadata(path).unwrap().permissions();
-            permissions.set_mode(0o755);
-            fs::set_permissions(path, permissions).unwrap();
-        }
-    }
+    );
     let reference = normalize_execution_pattern(
         parse_pattern(r"\and{S{}}(f{}(Var'Unds'X1:S{}), \top{S{}}())").unwrap(),
     );
@@ -7223,21 +7194,13 @@ fn execution_comparator_never_asks_the_port_simplifier_to_drop_disjuncts() {
     fs::create_dir(&directory).unwrap();
     let calls = directory.join("calls");
     let krust = directory.join("krust");
-    fs::write(
+    write_executable(
         &krust,
-        format!(
+        &format!(
             "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >>{calls}\n[[ $1 == kore-simplify ]] || exit 3\nprintf '\\\\bottom{{S{{}}}}()\\n'\n",
             calls = calls.display(),
         ),
-    )
-    .unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut permissions = fs::metadata(&krust).unwrap().permissions();
-        permissions.set_mode(0o755);
-        fs::set_permissions(&krust, permissions).unwrap();
-    }
+    );
     let definition = directory.join("definition.kore");
     fs::write(&definition, "[]").unwrap();
     let oracle = ImplicationOracle {
@@ -8748,24 +8711,25 @@ fn reference_finds_no_instance(
         };
         fs::write(&target_path, target.to_string())
             .map_err(|error| format!("write emptiness target: {error}"))?;
-        let output = Command::new(kore_exec)
-            .env("GHCRTS", "-N1")
-            .arg(definition)
-            .arg("--module")
-            .arg(module)
-            .arg("--pattern")
-            .arg(&disjunct_path)
-            .arg("--search")
-            .arg(&target_path)
-            .arg("--searchType")
-            .arg("STAR")
-            .arg("--depth")
-            .arg("0")
-            .arg("--output")
-            .arg(&output_path)
-            .stdin(std::process::Stdio::null())
-            .output()
-            .map_err(|error| format!("run {} for emptiness: {error}", kore_exec.display()))?;
+        let output = output_of(
+            Command::new(kore_exec)
+                .env("GHCRTS", "-N1")
+                .arg(definition)
+                .arg("--module")
+                .arg(module)
+                .arg("--pattern")
+                .arg(&disjunct_path)
+                .arg("--search")
+                .arg(&target_path)
+                .arg("--searchType")
+                .arg("STAR")
+                .arg("--depth")
+                .arg("0")
+                .arg("--output")
+                .arg(&output_path)
+                .stdin(std::process::Stdio::null()),
+        )
+        .map_err(|error| format!("run {} for emptiness: {error}", kore_exec.display()))?;
         if !output.status.success() {
             return Err(format!(
                 "reference emptiness search failed: {}",
@@ -8844,17 +8808,18 @@ fn prove_implication(
     module: &str,
     direction: &str,
 ) -> Result<(), String> {
-    let output = Command::new(krust)
-        .arg("kore-implies")
-        .arg(definition)
-        .arg("--module")
-        .arg(module)
-        .arg("--antecedent")
-        .arg(antecedent)
-        .arg("--consequent")
-        .arg(consequent)
-        .output()
-        .map_err(|error| format!("run {} for {direction}: {error}", krust.display()))?;
+    let output = output_of(
+        Command::new(krust)
+            .arg("kore-implies")
+            .arg(definition)
+            .arg("--module")
+            .arg(module)
+            .arg("--antecedent")
+            .arg(antecedent)
+            .arg("--consequent")
+            .arg(consequent),
+    )
+    .map_err(|error| format!("run {} for {direction}: {error}", krust.display()))?;
     if !output.status.success() {
         return Err(format!(
             "constraint implication {direction} failed: {}",
@@ -8876,6 +8841,181 @@ fn prove_implication(
         ));
     }
     Ok(())
+}
+
+/// Writes `text` to `path` as a program its owner may execute.
+/// A test that stands a fake program in for a tool writes it with this function,
+/// and the code under test spawns it through [`output_of`],
+/// which tolerates the transient refusal described at [`retry_while_executable_busy`].
+fn write_executable(path: &Path, text: &str) {
+    fs::write(path, text).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+}
+
+/// Runs `command` to completion, as [`Command::output`] does,
+/// and retries the spawn as [`retry_while_executable_busy`] describes.
+/// Every spawn of a program a test may have just written goes through this function.
+fn output_of(command: &mut Command) -> io::Result<Output> {
+    retry_while_executable_busy(|| command.output(), thread::sleep)
+}
+
+/// The number of spawn attempts [`retry_while_executable_busy`] makes.
+const BUSY_EXECUTABLE_ATTEMPTS: usize = 40;
+
+/// The delay before the second attempt; each later delay doubles, up to [`BUSY_EXECUTABLE_MAX_DELAY`].
+const BUSY_EXECUTABLE_FIRST_DELAY: Duration = Duration::from_millis(1);
+
+/// The longest delay between two attempts.
+/// With [`BUSY_EXECUTABLE_ATTEMPTS`], the delays total about 4.2 seconds.
+const BUSY_EXECUTABLE_MAX_DELAY: Duration = Duration::from_millis(128);
+
+/// Calls `spawn` until it returns anything other than an [`io::ErrorKind::ExecutableFileBusy`] error,
+/// at most [`BUSY_EXECUTABLE_ATTEMPTS`] times,
+/// and returns the last result.
+/// Between two attempts it calls `wait` with the delay to wait,
+/// starting at [`BUSY_EXECUTABLE_FIRST_DELAY`] and doubling up to [`BUSY_EXECUTABLE_MAX_DELAY`].
+///
+/// `execve` fails with `ETXTBSY` while any process holds the program's file open for writing.
+/// A test closes the file it writes before it spawns it,
+/// but another thread of the test process may fork while that write descriptor is open.
+/// The forked child holds a copy of the descriptor until its own `execve` closes it,
+/// because `O_CLOEXEC` takes effect only at `execve`.
+/// Until then, spawning the written program fails although its writer has closed it.
+/// Renaming the file, or reaching it through a hard or symbolic link, does not help:
+/// the copied descriptor refers to the same inode.
+/// The refusal is transient: it ends once every such child has executed its own program or exited,
+/// so the spawn must be retried and must not be reported as the program's failure.
+///
+/// A retry cannot repeat a side effect.
+/// `execve` checks for writers before it replaces the child's image,
+/// so a refused attempt has run nothing of the program,
+/// and [`Command`] reports the refusal as a spawn error with no child left running.
+/// Every other result, a spawn error of another kind included, is returned at once.
+fn retry_while_executable_busy<T>(
+    mut spawn: impl FnMut() -> io::Result<T>,
+    mut wait: impl FnMut(Duration),
+) -> io::Result<T> {
+    let mut delay = BUSY_EXECUTABLE_FIRST_DELAY;
+    for _ in 1..BUSY_EXECUTABLE_ATTEMPTS {
+        match spawn() {
+            Err(error) if error.kind() == io::ErrorKind::ExecutableFileBusy => {
+                wait(delay);
+                delay = (delay * 2).min(BUSY_EXECUTABLE_MAX_DELAY);
+            }
+            result => return result,
+        }
+    }
+    spawn()
+}
+
+#[test]
+fn busy_executable_spawns_are_retried_with_a_doubling_delay_until_one_succeeds() {
+    let mut attempts = 0;
+    let mut delays = Vec::new();
+    let result = retry_while_executable_busy(
+        || {
+            attempts += 1;
+            if attempts <= 3 {
+                Err(io::Error::from(io::ErrorKind::ExecutableFileBusy))
+            } else {
+                Ok(attempts)
+            }
+        },
+        |delay| delays.push(delay),
+    );
+    assert_eq!(result.unwrap(), 4);
+    assert_eq!(
+        delays,
+        [1, 2, 4].map(Duration::from_millis),
+        "one wait between two attempts"
+    );
+}
+
+#[test]
+fn spawn_errors_other_than_a_busy_executable_are_returned_without_a_retry() {
+    let mut attempts = 0;
+    let mut waits = 0;
+    let error = retry_while_executable_busy(
+        || -> io::Result<()> {
+            attempts += 1;
+            Err(io::Error::from(io::ErrorKind::NotFound))
+        },
+        |_| waits += 1,
+    )
+    .unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::NotFound);
+    assert_eq!((attempts, waits), (1, 0));
+}
+
+#[test]
+fn a_persistently_busy_executable_is_reported_after_a_bounded_number_of_attempts() {
+    let mut attempts = 0;
+    let mut delays = Vec::new();
+    let error = retry_while_executable_busy(
+        || -> io::Result<()> {
+            attempts += 1;
+            Err(io::Error::from(io::ErrorKind::ExecutableFileBusy))
+        },
+        |delay| delays.push(delay),
+    )
+    .unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::ExecutableFileBusy);
+    assert_eq!(attempts, BUSY_EXECUTABLE_ATTEMPTS);
+    assert_eq!(delays.len(), BUSY_EXECUTABLE_ATTEMPTS - 1);
+    assert_eq!(delays.iter().max(), Some(&BUSY_EXECUTABLE_MAX_DELAY));
+    assert_eq!(
+        delays.iter().sum::<Duration>(),
+        Duration::from_millis(4223),
+        "{delays:?}"
+    );
+}
+
+/// A real `ETXTBSY`: the test holds the program open for writing, so the first spawn is refused;
+/// the first wait closes the descriptor, and a later attempt runs the program exactly once.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_program_held_open_for_writing_is_spawned_once_its_writer_closes_it() {
+    use std::{io::Write, os::unix::fs::PermissionsExt};
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let directory = env::temp_dir().join(format!(
+        "k-rust-busy-executable-{}-{nonce}",
+        std::process::id()
+    ));
+    fs::create_dir(&directory).unwrap();
+    let program = directory.join("program");
+    let runs = directory.join("runs");
+    let mut writer = Some(fs::File::create(&program).unwrap());
+    let file = writer.as_mut().unwrap();
+    file.write_all(b"#!/bin/sh\nprintf 'ran\\n' >>\"$1\"\n")
+        .unwrap();
+    file.set_permissions(fs::Permissions::from_mode(0o755))
+        .unwrap();
+    let mut command = Command::new(&program);
+    command.arg(&runs);
+    let mut waits = 0;
+    let output = retry_while_executable_busy(
+        || command.output(),
+        |delay| {
+            waits += 1;
+            writer = None;
+            thread::sleep(delay);
+        },
+    )
+    .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert!(
+        waits >= 1,
+        "the first spawn is refused while the writer holds the program"
+    );
+    assert_eq!(fs::read_to_string(&runs).unwrap(), "ran\n");
+    fs::remove_dir_all(directory).unwrap();
 }
 
 fn parse_macro_sentences(source: &str) -> Definition {
