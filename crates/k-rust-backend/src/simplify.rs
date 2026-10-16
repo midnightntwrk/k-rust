@@ -5166,7 +5166,13 @@ type RootResult = (
 /// `simplify_children` simplifies their deciding operand first and only the operand it selects,
 /// and the hook states the definedness of the operand it discards as deferred atoms
 /// (`hook_argument_definedness`, `crate::deferred`), which no evaluation decides.
+///
+/// Not inlined: `simplify_on_stack` recurses once per level of nested evaluation through
+/// `simplify_children`, and calls this function only after that call has returned, so none of
+/// its locals is live across the recursion; inlined, they would be part of every one of those
+/// frames.
 #[allow(clippy::too_many_arguments)]
+#[inline(never)]
 fn simplify_root(
     definition: &BackendDefinition,
     term: &Term,
