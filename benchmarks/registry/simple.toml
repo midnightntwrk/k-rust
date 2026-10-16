@@ -1,0 +1,242 @@
+# SIMPLE (untyped) tutorial programs from the CB-12 conformance throughput runs and the RUNTIME-01
+# collatz.simple follow-up. Programs come from the K checkout: ${k}/pyk/regression-new/pl-tutorial/2_languages/1_simple/1_untyped/tests/.
+# Each program reads its `.in` file on standard input and writes the console output its `.out` file holds.
+version = 1
+
+[[prepare]]
+name = "simple-untyped-tutorial"
+engine = "krust"
+creates = "${prepared}/simple-untyped-tutorial/runtime.json"
+argv = [
+  "kcompile", "${k}/pyk/regression-new/pl-tutorial/2_languages/1_simple/1_untyped/simple-untyped.md",
+  "--main-module", "SIMPLE-UNTYPED",
+  "--syntax-module", "SIMPLE-UNTYPED-SYNTAX",
+  "--output-directory", "${prepared}/simple-untyped-tutorial",
+  "--builtin-directory", "${builtin}",
+  "-I", "${k}/pyk/regression-new/pl-tutorial/2_languages/1_simple/1_untyped",
+]
+
+[[prepare]]
+name = "simple-untyped-tutorial-llvm"
+engine = "reference"
+creates = "${prepared}/simple-untyped-tutorial-llvm/timestamp"
+argv = [
+  "kompile", "${k}/pyk/regression-new/pl-tutorial/2_languages/1_simple/1_untyped/simple-untyped.md",
+  "--backend", "llvm", "--enable-search",
+  "--main-module", "SIMPLE-UNTYPED",
+  "--syntax-module", "SIMPLE-UNTYPED-SYNTAX",
+  "--output-definition", "${prepared}/simple-untyped-tutorial-llvm",
+  "-I", "${k}/pyk/regression-new/pl-tutorial/2_languages/1_simple/1_untyped",
+]
+
+[[workload]]
+id = "simple/krun-sortings"
+semantics = "simple"
+operation = "execute"
+title = "Run SIMPLE's sortings.simple (five array sorts with console IO)"
+stresses = "Arrays in the store, function calls and console input and output; the slowest SIMPLE tutorial program in the CB-12 runs (6.2 s at b64e130, 0.9 s on 2026-10-16)."
+origin = "CB-12 conformance case pl-tutorial/2_languages/1_simple/1_untyped (scripts/conformance/expectations.toml, CB-12-5 run at b64e130)"
+tier = "quick"
+pins = ["k"]
+[workload.krust]
+prepare = ["simple-untyped-tutorial"]
+stdin = "${k}/pyk/regression-new/pl-tutorial/2_languages/1_simple/1_untyped/tests/diverse/sortings.simple.in"
+argv = [
+  "krun", "--definition", "${prepared}/simple-untyped-tutorial", "--sort", "Stmt",
+  "--io", "on", "--output", "none",
+  "${k}/pyk/regression-new/pl-tutorial/2_languages/1_simple/1_untyped/tests/diverse/sortings.simple",
+]
+[workload.krust.check]
+stdout = ["The original unsorted array is:\n71 23 43 23 91 \n", "Sorting the array using heap sort ... Done!\nThe resulting array is:\n23 23 43 71 91 \n"]
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["simple-untyped-tutorial-llvm"]
+stdin = "${k}/pyk/regression-new/pl-tutorial/2_languages/1_simple/1_untyped/tests/diverse/sortings.simple.in"
+argv = [
+  "krun", "--definition", "${prepared}/simple-untyped-tutorial-llvm", "--output", "none",
+  "${k}/pyk/regression-new/pl-tutorial/2_languages/1_simple/1_untyped/tests/diverse/sortings.simple",
+]
+[workload.reference.check]
+stdout = ["The original unsorted array is:\n71 23 43 23 91 \n", "Sorting the array using heap sort ... Done!\nThe resulting array is:\n23 23 43 71 91 \n"]
+
+[[workload]]
+id = "simple/krun-matrix"
+semantics = "simple"
+operation = "execute"
+title = "Run SIMPLE's matrix.simple (matrix input, transpose and product)"
+stresses = "Nested arrays and loops with console input read token by token (2.8 s at b64e130, 1.2 s on 2026-10-16)."
+origin = "CB-12 conformance case pl-tutorial/2_languages/1_simple/1_untyped (scripts/conformance/expectations.toml, CB-12-5 and CB-15-6 runs)"
+tier = "quick"
+pins = ["k"]
+[workload.krust]
+prepare = ["simple-untyped-tutorial"]
+stdin = "${k}/pyk/regression-new/pl-tutorial/2_languages/1_simple/1_untyped/tests/diverse/matrix.simple.in"
+argv = [
+  "krun", "--definition", "${prepared}/simple-untyped-tutorial", "--sort", "Stmt",
+  "--io", "on", "--output", "none",
+  "${k}/pyk/regression-new/pl-tutorial/2_languages/1_simple/1_untyped/tests/diverse/matrix.simple",
+]
+[workload.krust.check]
+stdout = ["Line 1 (4 elements): 730 32 61 89\nLine 2 (4 elements): 32 26 37 43\nLine 3 (4 elements): 61 37 53 62\nLine 4 (4 elements): 89 43 62 73\n"]
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["simple-untyped-tutorial-llvm"]
+stdin = "${k}/pyk/regression-new/pl-tutorial/2_languages/1_simple/1_untyped/tests/diverse/matrix.simple.in"
+argv = [
+  "krun", "--definition", "${prepared}/simple-untyped-tutorial-llvm", "--output", "none",
+  "${k}/pyk/regression-new/pl-tutorial/2_languages/1_simple/1_untyped/tests/diverse/matrix.simple",
+]
+[workload.reference.check]
+stdout = ["Line 1 (4 elements): 730 32 61 89\nLine 2 (4 elements): 32 26 37 43\nLine 3 (4 elements): 61 37 53 62\nLine 4 (4 elements): 89 43 62 73\n"]
+
+[[workload]]
+id = "simple/krun-threads-12"
+semantics = "simple"
+operation = "execute"
+title = "Run SIMPLE's threads_12.simple (five threads with locks and rendezvous)"
+stresses = "Thread creation, lock acquisition and rendezvous synchronization under plain execution, which follows one interleaving."
+origin = "CB-12 conformance case pl-tutorial/2_languages/1_simple/1_untyped (scripts/conformance/expectations.toml)"
+tier = "quick"
+pins = ["k"]
+[workload.krust]
+prepare = ["simple-untyped-tutorial"]
+argv = [
+  "krun", "--definition", "${prepared}/simple-untyped-tutorial", "--sort", "Stmt",
+  "--io", "on", "--output", "none",
+  "${k}/pyk/regression-new/pl-tutorial/2_languages/1_simple/1_untyped/tests/threads/threads_12.simple",
+]
+[workload.krust.check]
+stdout = ["120\n"]
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["simple-untyped-tutorial-llvm"]
+argv = [
+  "krun", "--definition", "${prepared}/simple-untyped-tutorial-llvm", "--output", "none",
+  "${k}/pyk/regression-new/pl-tutorial/2_languages/1_simple/1_untyped/tests/threads/threads_12.simple",
+]
+[workload.reference.check]
+stdout = ["120\n"]
+
+[[workload]]
+id = "simple/krun-collatz-input"
+semantics = "simple"
+operation = "execute"
+title = "Run SIMPLE's collatz.simple on every number up to m"
+stresses = "Function calls, a growing store of locals and console output in a loop whose step count grows faster than m (0.8 s at m = 20, 7.6 s at m = 80 on 2026-10-16)."
+origin = "RUNTIME-01 (draft/compiler-optimization/follow-ups/implementation/runtime/, collatz.simple timed out at the 60 s guard until plain krun followed one successor)"
+tier = "standard"
+pins = ["k"]
+[workload.ladder]
+param = "m"
+values = [10, 20, 40, 80, 160]
+input = "${m}\n"
+[workload.krust]
+prepare = ["simple-untyped-tutorial"]
+stdin = "${input}"
+argv = [
+  "krun", "--definition", "${prepared}/simple-untyped-tutorial", "--sort", "Stmt",
+  "--io", "on", "--output", "none",
+  "${k}/pyk/regression-new/pl-tutorial/2_languages/1_simple/1_untyped/tests/diverse/collatz.simple",
+]
+[workload.krust.check]
+expect = "m"
+stdout = ["Testing Collatz' conjecture for n = ${expect} ... Done!", "Done.  It appears to hold.\n"]
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["simple-untyped-tutorial-llvm"]
+stdin = "${input}"
+argv = [
+  "krun", "--definition", "${prepared}/simple-untyped-tutorial-llvm", "--output", "none",
+  "${k}/pyk/regression-new/pl-tutorial/2_languages/1_simple/1_untyped/tests/diverse/collatz.simple",
+]
+[workload.reference.check]
+expect = "m"
+stdout = ["Testing Collatz' conjecture for n = ${expect} ... Done!", "Done.  It appears to hold.\n"]
+
+[[workload]]
+id = "simple/search-collatz-input"
+semantics = "simple"
+operation = "search"
+title = "Search every final output of SIMPLE's collatz.simple up to m"
+stresses = "Exploring every successor of collatz.simple, which RUNTIME-01 recorded branching on an unmatched `anywhere` application before main was called; the search ends in one final output, but its cost grows steeply with m (2.3 s at m = 20, 26.5 s at m = 40, over 300 s at m = 80 on 2026-10-16, against 3.2 s for the reference at m = 80)."
+origin = "RUNTIME-01 (draft/compiler-optimization/follow-ups/implementation/runtime/status.toml: the all-paths run reached the 60 s guard at depth 5)"
+tier = "standard"
+pins = ["k"]
+[workload.ladder]
+param = "m"
+values = [5, 10, 20, 30, 40]
+input = "${m}\n"
+[workload.krust]
+prepare = ["simple-untyped-tutorial"]
+stdin = "${input}"
+argv = [
+  "krun", "--definition", "${prepared}/simple-untyped-tutorial", "--sort", "Stmt",
+  "--search-final", "--io", "off",
+  "--pattern", "<output> ListItem(_) ListItem(_) ListItem(#buffer(Out:String)) </output>",
+  "${k}/pyk/regression-new/pl-tutorial/2_languages/1_simple/1_untyped/tests/diverse/collatz.simple",
+]
+[workload.krust.check]
+expect = "m"
+stdout = ["Testing Collatz' conjecture for n = ${expect} ... Done!", "Done.  It appears to hold.\\n"]
+stdout_absent = ['\or{']
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["simple-untyped-tutorial-llvm"]
+stdin = "${input}"
+argv = [
+  "krun", "--definition", "${prepared}/simple-untyped-tutorial-llvm", "--search",
+  "--pattern", "<output> ListItem(_) ListItem(_) ListItem(#buffer(Out:String)) </output>",
+  "${k}/pyk/regression-new/pl-tutorial/2_languages/1_simple/1_untyped/tests/diverse/collatz.simple",
+]
+[workload.reference.check]
+expect = "m"
+stdout = ["Testing Collatz' conjecture for n = ${expect} ... Done!", "Done.  It appears to hold.\\n"]
+stdout_absent = ["#Or"]
+
+[[workload]]
+id = "simple/search-collatz-input-heavy"
+semantics = "simple"
+operation = "search"
+title = "Search every final output of SIMPLE's collatz.simple at m = 60 and 80"
+stresses = "The large end of the collatz.simple search, which did not finish within 300 s at m = 80 on 2026-10-16 (the reference takes 3.2 s)."
+origin = "RUNTIME-01 (draft/compiler-optimization/follow-ups/implementation/runtime/status.toml: the all-paths run reached the 60 s guard at depth 5)"
+tier = "heavy"
+timeout_seconds = 3600
+pins = ["k"]
+[workload.ladder]
+param = "m"
+values = [60, 80]
+stop_seconds = 1800
+input = "${m}\n"
+[workload.krust]
+prepare = ["simple-untyped-tutorial"]
+stdin = "${input}"
+argv = [
+  "krun", "--definition", "${prepared}/simple-untyped-tutorial", "--sort", "Stmt",
+  "--search-final", "--io", "off",
+  "--pattern", "<output> ListItem(_) ListItem(_) ListItem(#buffer(Out:String)) </output>",
+  "${k}/pyk/regression-new/pl-tutorial/2_languages/1_simple/1_untyped/tests/diverse/collatz.simple",
+]
+[workload.krust.check]
+expect = "m"
+stdout = ["Testing Collatz' conjecture for n = ${expect} ... Done!", "Done.  It appears to hold.\\n"]
+stdout_absent = ['\or{']
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["simple-untyped-tutorial-llvm"]
+stdin = "${input}"
+argv = [
+  "krun", "--definition", "${prepared}/simple-untyped-tutorial-llvm", "--search",
+  "--pattern", "<output> ListItem(_) ListItem(_) ListItem(#buffer(Out:String)) </output>",
+  "${k}/pyk/regression-new/pl-tutorial/2_languages/1_simple/1_untyped/tests/diverse/collatz.simple",
+]
+[workload.reference.check]
+expect = "m"
+stdout = ["Testing Collatz' conjecture for n = ${expect} ... Done!", "Done.  It appears to hold.\\n"]
+stdout_absent = ["#Or"]

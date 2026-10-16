@@ -1,0 +1,417 @@
+# Toy workloads from scripts/algo-workloads.toml: compiles of small K regression definitions and
+# the shared-branch fixture (crates/k-rust/tests/fixtures/reference/shared-branch.k).
+# shared-branch rewrites dup(n) to a, doubling the tree in <s> at each of the n steps
+# (pair(T, T), one shared subterm in the backend), then branches: a => b and a => c.
+# capture(n) builds the same tree and then writes "done" to the stdout stream.
+version = 1
+
+[[prepare]]
+name = "shared-branch"
+engine = "krust"
+creates = "${prepared}/shared-branch/runtime.json"
+argv = [
+  "kcompile", "${workspace}/crates/k-rust/tests/fixtures/reference/shared-branch.k",
+  "--main-module", "SHARED-BRANCH",
+  "--syntax-module", "SHARED-BRANCH",
+  "--output-directory", "${prepared}/shared-branch",
+  "--builtin-directory", "${builtin}",
+]
+
+[[prepare]]
+name = "shared-branch-llvm-definition"
+engine = "reference"
+creates = "${prepared}/shared-branch-llvm-definition/timestamp"
+argv = [
+  "kompile", "${workspace}/crates/k-rust/tests/fixtures/reference/shared-branch.k",
+  "--backend", "llvm",
+  "--enable-search",
+  "--main-module", "SHARED-BRANCH",
+  "--syntax-module", "SHARED-BRANCH",
+  "--output-definition", "${prepared}/shared-branch-llvm-definition",
+  "--warnings", "none",
+]
+
+# KORE JSON-RPC requests (see imp.toml for what scripts/algo-rpc-fixture.py does).
+# shared-rpc-execute holds the initial state dup(n); shared-rpc-simplify holds the state after
+# n steps, whose <s> is the full tree. Both depend on the ladder value through ${n} and ${input}.
+[[prepare]]
+name = "shared-rpc-execute"
+engine = "command"
+prepare = ["shared-branch"]
+creates = "${prepared}/shared-rpc-execute-initial-${n}/request.json"
+env = { K_KOMPILE = "${kbin}/kompile" }
+argv = [
+  "python3", "${workspace}/scripts/algo-rpc-fixture.py",
+  "--krust", "${krust}",
+  "--definition", "${prepared}/shared-branch",
+  "--module", "SHARED-BRANCH",
+  "--sort", "State",
+  "--program-file", "${input}",
+  "--state-depth", "0",
+  "--method", "execute",
+  "--max-depth", "22",
+  "--output", "${prepared}/shared-rpc-execute-initial-${n}/request.json",
+]
+
+[[prepare]]
+name = "shared-rpc-simplify"
+engine = "command"
+prepare = ["shared-branch"]
+creates = "${prepared}/shared-rpc-simplify-${n}/request.json"
+env = { K_KOMPILE = "${kbin}/kompile" }
+argv = [
+  "python3", "${workspace}/scripts/algo-rpc-fixture.py",
+  "--krust", "${krust}",
+  "--definition", "${prepared}/shared-branch",
+  "--module", "SHARED-BRANCH",
+  "--sort", "State",
+  "--program-file", "${input}",
+  "--state-depth", "${n}",
+  "--method", "simplify",
+  "--output", "${prepared}/shared-rpc-simplify-${n}/request.json",
+]
+
+# The observed-execute example (crates/k-rust/examples/observed-execute.rs), built with the
+# `measure` feature as scripts/algo-receipt.sh documents; a fresh target directory takes about
+# two minutes.
+# It is built from the checkout's sources, not from the measured krust binary, and the step is
+# skipped while the binary exists, so after a source change delete it to rebuild.
+[[prepare]]
+name = "observed-execute-binary"
+engine = "command"
+creates = "${workspace}/target/profiling/examples/observed-execute"
+timeout_seconds = 3600
+argv = [
+  "with-z3-static-4.16.0", "cargo", "build",
+  "--manifest-path", "${workspace}/Cargo.toml",
+  "--profile", "profiling",
+  "-p", "k-rust",
+  "--no-default-features",
+  "--features", "cli,measure",
+  "--example", "observed-execute",
+  "--locked",
+]
+
+# ---------------------------------------------------------------------------------------------
+# Compiles of small definitions.
+# krust's default backend writes an execution-ready definition; the reference counterpart is
+# kompile --backend haskell, the pairing the haskell/rust compile differential uses.
+
+[[workload]]
+id = "toy/compile-append"
+semantics = "toy"
+operation = "compile"
+title = "Compile the append regression definition"
+stresses = "The fixed cost of a compile: prelude loading, a tiny module, and artifact writing."
+origin = "scripts/algo-workloads.toml compile-append"
+tier = "quick"
+pins = ["k"]
+[workload.krust]
+argv = [
+  "kcompile", "${k}/k-distribution/tests/regression-new/append/test.k",
+  "--main-module", "TEST",
+  "--output-directory", "${run}/compiled",
+  "--builtin-directory", "${builtin}",
+]
+[workload.krust.check]
+files = ["${run}/compiled/definition.kore", "${run}/compiled/runtime.json"]
+[workload.reference]
+status = "paired"
+backend = "haskell"
+argv = [
+  "kompile", "${k}/k-distribution/tests/regression-new/append/test.k",
+  "--backend", "haskell",
+  "--main-module", "TEST",
+  "--output-definition", "${run}/compiled",
+  "--warnings", "none",
+]
+[workload.reference.check]
+files = ["${run}/compiled/definition.kore"]
+
+[[workload]]
+id = "toy/compile-cell-map"
+semantics = "toy"
+operation = "compile"
+title = "Compile the cell_map regression definition"
+stresses = "Configuration processing with a multiplicity-* cell collection, which generates the cell-map sorts, functions and rules."
+origin = "scripts/algo-workloads.toml compile-cell-map"
+tier = "quick"
+pins = ["k"]
+[workload.krust]
+argv = [
+  "kcompile", "${k}/k-distribution/tests/regression-new/cell_map/test.k",
+  "--main-module", "TEST",
+  "--output-directory", "${run}/compiled",
+  "--builtin-directory", "${builtin}",
+]
+[workload.krust.check]
+files = ["${run}/compiled/definition.kore", "${run}/compiled/runtime.json"]
+[workload.reference]
+status = "paired"
+backend = "haskell"
+argv = [
+  "kompile", "${k}/k-distribution/tests/regression-new/cell_map/test.k",
+  "--backend", "haskell",
+  "--main-module", "TEST",
+  "--output-definition", "${run}/compiled",
+  "--warnings", "none",
+]
+[workload.reference.check]
+files = ["${run}/compiled/definition.kore"]
+
+[[workload]]
+id = "toy/compile-owise-functions"
+semantics = "toy"
+operation = "compile"
+title = "Compile a definition of functions with owise rules"
+stresses = "Compiling `owise` function rules, whose emitted equations must exclude the cases their competing rules cover."
+origin = "scripts/algo-workloads.toml compile-owise-functions"
+tier = "quick"
+pins = ["k"]
+[workload.krust]
+argv = [
+  "kcompile", "${workspace}/crates/k-rust/tests/fixtures/reference/owise-functions.k",
+  "--main-module", "OWISE-FUNCTIONS",
+  "--output-directory", "${run}/compiled",
+  "--builtin-directory", "${builtin}",
+]
+[workload.krust.check]
+files = ["${run}/compiled/definition.kore", "${run}/compiled/runtime.json"]
+[workload.reference]
+status = "paired"
+backend = "haskell"
+argv = [
+  "kompile", "${workspace}/crates/k-rust/tests/fixtures/reference/owise-functions.k",
+  "--backend", "haskell",
+  "--main-module", "OWISE-FUNCTIONS",
+  "--output-definition", "${run}/compiled",
+  "--warnings", "none",
+]
+[workload.reference.check]
+files = ["${run}/compiled/definition.kore"]
+
+# ---------------------------------------------------------------------------------------------
+# shared-branch ladders.
+# The tree in <s> has 2^n leaves; krust keeps it as n shared nodes, while its KORE text has 2^n
+# leaves (545 MB for the two --search-final results at n = 20 on 2026-10-16).
+
+[[workload]]
+id = "toy/shared-branch-digest"
+semantics = "toy"
+operation = "execute"
+title = "Double a shared tree n times, stop at the first branch, print nothing"
+stresses = "Rewriting with a subterm that each step stores twice, then detecting the branch, with no output: the cost must stay linear in n although the tree's text size is 2^n."
+origin = "scripts/algo-workloads.toml shared-branch-digest"
+tier = "quick"
+pins = ["k"]
+[workload.ladder]
+param = "n"
+values = [8, 12, 16, 18, 20]
+stop_seconds = 120
+input = "dup(${n})\n"
+[workload.krust]
+prepare = ["shared-branch"]
+argv = ["krun", "--definition", "${prepared}/shared-branch", "--sort", "State", "--io", "off", "--strategy", "all", "--execute-to-branch", "--output", "none", "${input}"]
+# --output none prints nothing; the exit status is the check.
+[workload.krust.check]
+exit = 0
+[workload.reference]
+status = "unsupported"
+reason = "no-counterpart"
+note = "Reference krun has neither --execute-to-branch nor a mode that runs without rendering the result."
+
+[[workload]]
+id = "toy/shared-branch-plain"
+semantics = "toy"
+operation = "execute"
+title = "Double a shared tree n times, then print the final configuration"
+stresses = "Printing a configuration whose 2^n-leaf tree is n shared nodes in memory: the printer must stream the text rather than build it."
+origin = "scripts/algo-workloads.toml shared-branch-plain"
+tier = "quick"
+pins = ["k"]
+[workload.ladder]
+param = "n"
+values = [8, 12, 16, 18, 20]
+stop_seconds = 120
+input = "dup(${n})\n"
+[workload.krust]
+prepare = ["shared-branch"]
+argv = ["krun", "--definition", "${prepared}/shared-branch", "--sort", "State", "--io", "off", "${input}"]
+[workload.krust.check]
+stdout_squeezed = ["Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortState{},SortKItem{}}(Lblb'Unds'SHARED-BRANCH'Unds'State{}()),dotk{}()))"]
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["shared-branch-llvm-definition"]
+argv = ["krun", "--definition", "${prepared}/shared-branch-llvm-definition", "--output", "kore", "${input}"]
+[workload.reference.check]
+stdout_squeezed = ["Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortState{},SortKItem{}}(Lblb'Unds'SHARED-BRANCH'Unds'State{}()),dotk{}()))"]
+
+[[workload]]
+id = "toy/shared-branch-captured"
+semantics = "toy"
+operation = "execute"
+title = "Double a shared tree n times, then print only the program's output"
+stresses = "The same shared tree as shared-branch-plain, but only the stdout stream (\"done\") is printed, so the run measures rewriting without rendering the tree."
+origin = "scripts/algo-workloads.toml shared-branch-captured"
+tier = "quick"
+pins = ["k"]
+[workload.ladder]
+param = "n"
+values = [8, 12, 16, 18, 20]
+stop_seconds = 120
+input = "capture(${n})\n"
+[workload.krust]
+prepare = ["shared-branch"]
+argv = ["krun", "--definition", "${prepared}/shared-branch", "--sort", "State", "--io", "off", "--output", "captured", "${input}"]
+[workload.krust.check]
+stdout = ["done"]
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["shared-branch-llvm-definition"]
+note = "Reference krun writes the stream to stdout as the program runs and renders no result with --output none."
+argv = ["krun", "--definition", "${prepared}/shared-branch-llvm-definition", "--output", "none", "${input}"]
+[workload.reference.check]
+stdout = ["done"]
+
+[[workload]]
+id = "toy/shared-branch-search-final"
+semantics = "toy"
+operation = "search"
+title = "Double a shared tree n times, then search both final branches"
+stresses = "Search over states that share a 2^n-leaf tree: state hashing and deduplication must work on the shared form, and both final states b and c must be printed."
+origin = "scripts/algo-workloads.toml shared-branch-search-final"
+tier = "quick"
+pins = ["k"]
+[workload.ladder]
+param = "n"
+values = [8, 12, 16, 18, 20]
+stop_seconds = 120
+input = "dup(${n})\n"
+[workload.krust]
+prepare = ["shared-branch"]
+argv = ["krun", "--definition", "${prepared}/shared-branch", "--sort", "State", "--io", "off", "--search-final", "${input}"]
+[workload.krust.check]
+stdout_squeezed = [
+  "Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortState{},SortKItem{}}(Lblb'Unds'SHARED-BRANCH'Unds'State{}()),dotk{}()))",
+  "Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortState{},SortKItem{}}(Lblc'Unds'SHARED-BRANCH'Unds'State{}()),dotk{}()))",
+]
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["shared-branch-llvm-definition"]
+note = "At n = 20 the reference took 87 s with a 6.0 GiB peak and printed 830 MB (2026-10-16)."
+argv = ["krun", "--definition", "${prepared}/shared-branch-llvm-definition", "--search-final", "--output", "kore", "${input}"]
+[workload.reference.check]
+stdout_squeezed = [
+  "Lbl'-LT-'k'-GT-'{}(kseq{}(/*Inj:*/inj{SortState{},SortKItem{}}(Lblb'Unds'SHARED-BRANCH'Unds'State{}()),dotk{}()))",
+  "Lbl'-LT-'k'-GT-'{}(kseq{}(/*Inj:*/inj{SortState{},SortKItem{}}(Lblc'Unds'SHARED-BRANCH'Unds'State{}()),dotk{}()))",
+]
+
+# ---------------------------------------------------------------------------------------------
+# KORE JSON-RPC and the observed backend on shared-branch.
+# The RPC workloads measure scripts/algo-rpc-request.py, which serves one request with
+# `krust kore-rpc`; imp.toml's RPC section describes it.
+
+[[workload]]
+id = "toy/shared-rpc-execute"
+semantics = "toy"
+operation = "rpc"
+title = "RPC execute: dup(n) to the branch"
+stresses = "An `execute` request that doubles the shared tree n times and returns the branching state, whose JSON encoding has 2^n leaves."
+origin = "scripts/algo-workloads.toml shared-rpc-execute"
+tier = "quick"
+pins = ["k"]
+[workload.ladder]
+param = "n"
+values = [8, 12, 16]
+stop_seconds = 120
+input = "dup(${n})\n"
+[workload.krust]
+prepare = ["shared-branch", "shared-rpc-execute"]
+engine = "command"
+argv = [
+  "python3", "${workspace}/scripts/algo-rpc-request.py",
+  "--krust", "${krust}",
+  "--definition", "${prepared}/shared-branch/definition.kore",
+  "--module", "SHARED-BRANCH",
+  "--request", "${prepared}/shared-rpc-execute-initial-${n}/request.json",
+  "--response", "${run}/response.json",
+  "--metrics", "${run}/rpc-metrics.json",
+]
+[workload.krust.check]
+stdout = ['"result"']
+files = ["${run}/response.json", "${run}/rpc-metrics.json"]
+[workload.reference]
+status = "untested"
+note = "The counterpart is kore-rpc-booster on a reference definition with the same request sent by kore-rpc-client; it needs a step that starts the server and stops it after the response."
+
+# The standalone driver (crates/k-rust/examples/observed-execute.rs) calls
+# Backend::execute_observed on the initial state with depth n, so every duplication transition is
+# observed, including the last one whose before and after patterns hold the large shared tree.
+# It is a separate example binary, not a krust subcommand; the prepare step
+# observed-execute-binary builds it.
+[[workload]]
+id = "toy/shared-observed-execute"
+semantics = "toy"
+operation = "rpc"
+title = "Observed execute: dup(n) with every transition reported"
+stresses = "The observed-execution path that reports each transition's before and after patterns, which hold the shared tree."
+origin = "scripts/algo-workloads.toml shared-observed-execute"
+tier = "quick"
+pins = ["k"]
+[workload.ladder]
+param = "n"
+values = [8, 12, 16]
+stop_seconds = 120
+input = "dup(${n})\n"
+[workload.krust]
+prepare = ["observed-execute-binary", "shared-branch", "shared-rpc-execute"]
+engine = "command"
+argv = [
+  "${workspace}/target/profiling/examples/observed-execute",
+  "--definition", "${prepared}/shared-branch/definition.kore",
+  "--module", "SHARED-BRANCH",
+  "--request", "${prepared}/shared-rpc-execute-initial-${n}/request.json",
+  "--depth", "${n}",
+]
+[workload.krust.check]
+stdout = ['"observations"', '"transition"']
+[workload.reference]
+status = "unsupported"
+reason = "no-counterpart"
+note = "Observed execution is a krust backend interface with no reference command."
+
+[[workload]]
+id = "toy/shared-rpc-simplify"
+semantics = "toy"
+operation = "rpc"
+title = "RPC simplify: the state after doubling the tree n times"
+stresses = "Decoding, internalizing, simplifying and re-encoding a request whose JSON state has 2^n leaves that krust can share."
+origin = "scripts/algo-workloads.toml shared-rpc-simplify"
+tier = "quick"
+pins = ["k"]
+[workload.ladder]
+param = "n"
+values = [8, 10, 12, 14, 16]
+stop_seconds = 120
+input = "dup(${n})\n"
+[workload.krust]
+prepare = ["shared-branch", "shared-rpc-simplify"]
+engine = "command"
+argv = [
+  "python3", "${workspace}/scripts/algo-rpc-request.py",
+  "--krust", "${krust}",
+  "--definition", "${prepared}/shared-branch/definition.kore",
+  "--module", "SHARED-BRANCH",
+  "--request", "${prepared}/shared-rpc-simplify-${n}/request.json",
+  "--response", "${run}/response.json",
+  "--metrics", "${run}/rpc-metrics.json",
+]
+[workload.krust.check]
+stdout = ['"result"']
+files = ["${run}/response.json", "${run}/rpc-metrics.json"]
+[workload.reference]
+status = "untested"
+note = "The counterpart is kore-rpc-booster on a reference definition with the same request sent by kore-rpc-client; it needs a step that starts the server and stops it after the response."

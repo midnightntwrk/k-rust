@@ -1,0 +1,355 @@
+version = 1
+
+# KRS: the Rust-shaped K authoring language in krs/, and its ports of KEVM, KMIR and KWasm in krs/semantics.
+# The ports read only the Rust sources in krs/semantics, so no external checkout is pinned.
+# The `krs/build-*` and `krs/prove-*` workloads measure the `krs` tool end to end (engine `command`): Cargo's check of the already built port collector, running the collector, lowering, and the in-process k-rust frontend or prover.
+# Every `krs` workload passes `--no-reuse`, so a run does not restore the previous result of an unchanged port.
+# All three ports share one Cargo target in the prepared root, which their `krs-emit-*` prepare steps build, so the timed region holds no cold Rust compilation.
+# The `krs/frontend-*` workloads measure krust compiling the K that a port emits, the k-rust frontend part of `krs build` on its own.
+# The KEVM port has no `krs prove` workload: `krs prove` of its 8 claims exits 1 with `error[krs::exec::result]: domain value of sort Bytes is not valid UTF-8` (2026-10-16, any --output format).
+# The emitted K is much smaller than the semantics it ports (KEVM about 2,400 lines, KMIR about 1,400, KWasm about 80), so no KRS row compares with kevm/compile, kmir/compile or kwasm/compile.
+
+# Builds the `krs` tool and writes the wrapper `${prepared}/krs-tool/krs`, the argv[0] of every krs workload.
+# The tool links the Nix Z3 4.12.5 library (krs/AGENTS.local.md): the step takes it from KRS_Z3_LIB, or else from the one `*-z3-4.12.5-lib/lib` directory of the Nix store, and the wrapper exports it for the tool and the Cargo builds it starts.
+[[prepare]]
+name = "krs-tool"
+engine = "command"
+argv = [
+  "bash", "-c",
+  '''set -euo pipefail
+z3=$(printenv KRS_Z3_LIB || ls -d /nix/store/*-z3-4.12.5-lib/lib | head -n 1)
+test -d "$z3"
+export LIBRARY_PATH="$z3" LD_LIBRARY_PATH="$z3" CARGO_TARGET_DIR="${prepared}/krs-tool/target"
+cargo +stable build --release --locked --offline --manifest-path "${workspace}/Cargo.toml" -p krs-cli --bin krs
+printf '#!/bin/sh\nexport LIBRARY_PATH=%s LD_LIBRARY_PATH=%s\nexec %s "$@"\n' "$z3" "$z3" "${prepared}/krs-tool/target/release/krs" >"${prepared}/krs-tool/krs.partial"
+chmod +x "${prepared}/krs-tool/krs.partial"
+mv "${prepared}/krs-tool/krs.partial" "${prepared}/krs-tool/krs"
+''',
+]
+creates = "${prepared}/krs-tool/krs"
+timeout_seconds = 3600
+
+# Builds the KEVM port's collector in the shared Cargo target, runs it, and writes the emitted K.
+[[prepare]]
+name = "krs-emit-kevm"
+engine = "command"
+prepare = ["krs-tool"]
+argv = [
+  "${prepared}/krs-tool/krs", "emit-k",
+  "--manifest-path", "${workspace}/krs/semantics/Cargo.toml",
+  "--package", "krs-kevm-semantics",
+  "--definition", "main",
+  "--output", "${prepared}/krs-emit-kevm",
+]
+creates = "${prepared}/krs-emit-kevm/definition.k"
+env = { CARGO_TARGET_DIR = "${prepared}/krs-semantics-target", CARGO_NET_OFFLINE = "true", RUSTUP_TOOLCHAIN = "stable" }
+timeout_seconds = 3600
+
+# Builds the KMIR port's collector in the shared Cargo target, runs it, and writes the emitted K.
+[[prepare]]
+name = "krs-emit-kmir"
+engine = "command"
+prepare = ["krs-tool"]
+argv = [
+  "${prepared}/krs-tool/krs", "emit-k",
+  "--manifest-path", "${workspace}/krs/semantics/Cargo.toml",
+  "--package", "krs-kmir-semantics",
+  "--definition", "main",
+  "--output", "${prepared}/krs-emit-kmir",
+]
+creates = "${prepared}/krs-emit-kmir/definition.k"
+env = { CARGO_TARGET_DIR = "${prepared}/krs-semantics-target", CARGO_NET_OFFLINE = "true", RUSTUP_TOOLCHAIN = "stable" }
+timeout_seconds = 3600
+
+# Builds the KWasm port's collector in the shared Cargo target, runs it, and writes the emitted K.
+[[prepare]]
+name = "krs-emit-kwasm"
+engine = "command"
+prepare = ["krs-tool"]
+argv = [
+  "${prepared}/krs-tool/krs", "emit-k",
+  "--manifest-path", "${workspace}/krs/semantics/Cargo.toml",
+  "--package", "krs-kwasm-semantics",
+  "--definition", "main",
+  "--output", "${prepared}/krs-emit-kwasm",
+]
+creates = "${prepared}/krs-emit-kwasm/definition.k"
+env = { CARGO_TARGET_DIR = "${prepared}/krs-semantics-target", CARGO_NET_OFFLINE = "true", RUSTUP_TOOLCHAIN = "stable" }
+timeout_seconds = 3600
+
+[[workload]]
+id = "krs/build-kevm-port"
+semantics = "krs"
+operation = "compile"
+title = "Build KRS's KEVM port to KORE with `krs build`"
+stresses = "The whole KRS pipeline on its largest port: collecting about 1,100 rule and syntax descriptors from the Rust sources, lowering them, and compiling the result with the k-rust frontend."
+origin = "krs/tests/perf (krs-build stage, no-op scenario with --no-reuse)"
+tier = "standard"
+memory_gib = 8
+pins = []
+
+[workload.krust]
+engine = "command"
+prepare = ["krs-emit-kevm"]
+argv = [
+  "${prepared}/krs-tool/krs", "build",
+  "--manifest-path", "${workspace}/krs/semantics/Cargo.toml",
+  "--package", "krs-kevm-semantics",
+  "--definition", "main",
+  "--output", "${run}/out",
+  "--no-reuse",
+]
+env = { CARGO_TARGET_DIR = "${prepared}/krs-semantics-target", CARGO_NET_OFFLINE = "true", RUSTUP_TOOLCHAIN = "stable" }
+[workload.krust.check]
+stdout = ["built definition.kore, syntaxDefinition.kore, macros.kore"]
+files = ["${run}/out/definition.kore", "${run}/out/syntaxDefinition.kore"]
+
+[workload.reference]
+status = "unsupported"
+reason = "no-counterpart"
+note = "Reference K has no Rust authoring frontend; the krs/frontend-kevm-port row times the K-to-KORE part that reference kompile could pair with."
+
+[[workload]]
+id = "krs/build-kmir-port"
+semantics = "krs"
+operation = "compile"
+title = "Build KRS's KMIR port to KORE with `krs build`"
+stresses = "The whole KRS pipeline on the KMIR port: collector run, lowering, and the k-rust frontend."
+origin = "krs/tests/perf (krs-build stage, no-op scenario with --no-reuse)"
+tier = "quick"
+memory_gib = 8
+pins = []
+
+[workload.krust]
+engine = "command"
+prepare = ["krs-emit-kmir"]
+argv = [
+  "${prepared}/krs-tool/krs", "build",
+  "--manifest-path", "${workspace}/krs/semantics/Cargo.toml",
+  "--package", "krs-kmir-semantics",
+  "--definition", "main",
+  "--output", "${run}/out",
+  "--no-reuse",
+]
+env = { CARGO_TARGET_DIR = "${prepared}/krs-semantics-target", CARGO_NET_OFFLINE = "true", RUSTUP_TOOLCHAIN = "stable" }
+[workload.krust.check]
+stdout = ["built definition.kore, syntaxDefinition.kore, macros.kore"]
+files = ["${run}/out/definition.kore", "${run}/out/syntaxDefinition.kore"]
+
+[workload.reference]
+status = "unsupported"
+reason = "no-counterpart"
+note = "Reference K has no Rust authoring frontend; the krs/frontend-kmir-port row times the K-to-KORE part that reference kompile could pair with."
+
+[[workload]]
+id = "krs/build-kwasm-port"
+semantics = "krs"
+operation = "compile"
+title = "Build KRS's KWasm port to KORE with `krs build`"
+stresses = "The whole KRS pipeline on its smallest port, where the fixed costs (Cargo's up-to-date check, collector start-up) dominate."
+origin = "krs/tests/perf (krs-build stage, no-op scenario with --no-reuse)"
+tier = "quick"
+memory_gib = 8
+pins = []
+
+[workload.krust]
+engine = "command"
+prepare = ["krs-emit-kwasm"]
+argv = [
+  "${prepared}/krs-tool/krs", "build",
+  "--manifest-path", "${workspace}/krs/semantics/Cargo.toml",
+  "--package", "krs-kwasm-semantics",
+  "--definition", "main",
+  "--output", "${run}/out",
+  "--no-reuse",
+]
+env = { CARGO_TARGET_DIR = "${prepared}/krs-semantics-target", CARGO_NET_OFFLINE = "true", RUSTUP_TOOLCHAIN = "stable" }
+[workload.krust.check]
+stdout = ["built definition.kore, syntaxDefinition.kore, macros.kore"]
+files = ["${run}/out/definition.kore", "${run}/out/syntaxDefinition.kore"]
+
+[workload.reference]
+status = "unsupported"
+reason = "no-counterpart"
+note = "Reference K has no Rust authoring frontend; the krs/frontend-kwasm-port row times the K-to-KORE part that reference kompile could pair with."
+
+[[workload]]
+id = "krs/frontend-kevm-port"
+semantics = "krs"
+operation = "compile"
+title = "k-rust frontend only: compile the K that KRS's KEVM port emits (about 2,400 lines of generated K) with krust"
+stresses = "The k-rust frontend on machine-generated K, separated from the Rust collector and lowering that krs/build-kevm-port also times."
+origin = "krs/tests/gates.sh kevm (the emitted K its --java-reference mode kompiles)"
+tier = "quick"
+memory_gib = 8
+pins = []
+
+[workload.krust]
+prepare = ["krs-emit-kevm"]
+argv = [
+  "kcompile", "${prepared}/krs-emit-kevm/definition.k",
+  "--main-module", "KRS-KEVM",
+  "--syntax-module", "KRS-KEVM-SYNTAX",
+  "--backend", "llvm",
+  "--output-directory", "${run}/compiled",
+  "--hook-namespaces", "KRYPTO",
+  "--builtin-directory", "${builtin}",
+]
+[workload.krust.check]
+files = ["${run}/compiled/definition.kore", "${run}/compiled/syntaxDefinition.kore"]
+
+[workload.reference]
+status = "untested"
+note = "The KRS gates' --java-reference mode kompiles this emitted K with reference K (Haskell backend); no pairing has been written here."
+
+[[workload]]
+id = "krs/frontend-kmir-port"
+semantics = "krs"
+operation = "compile"
+title = "k-rust frontend only: compile the K that KRS's KMIR port emits (about 1,400 lines of generated K) with krust"
+stresses = "The k-rust frontend on machine-generated K, separated from the Rust collector and lowering that krs/build-kmir-port also times."
+origin = "krs/tests/gates.sh kmir (the emitted K its --java-reference mode kompiles)"
+tier = "quick"
+memory_gib = 8
+pins = []
+
+[workload.krust]
+prepare = ["krs-emit-kmir"]
+argv = [
+  "kcompile", "${prepared}/krs-emit-kmir/definition.k",
+  "--main-module", "KRS-KMIR",
+  "--syntax-module", "KRS-KMIR-SYNTAX",
+  "--backend", "llvm",
+  "--output-directory", "${run}/compiled",
+  "--builtin-directory", "${builtin}",
+]
+[workload.krust.check]
+files = ["${run}/compiled/definition.kore", "${run}/compiled/syntaxDefinition.kore"]
+
+[workload.reference]
+status = "untested"
+note = "The KRS gates' --java-reference mode kompiles this emitted K with reference K (Haskell backend); no pairing has been written here."
+
+[[workload]]
+id = "krs/frontend-kwasm-port"
+semantics = "krs"
+operation = "compile"
+title = "k-rust frontend only: compile the K that KRS's KWasm port emits (about 80 lines of generated K) with krust"
+stresses = "The k-rust frontend on machine-generated K, separated from the Rust collector and lowering that krs/build-kwasm-port also times."
+origin = "krs/tests/gates.sh kwasm (the emitted K its --java-reference mode kompiles)"
+tier = "quick"
+memory_gib = 8
+pins = []
+
+[workload.krust]
+prepare = ["krs-emit-kwasm"]
+argv = [
+  "kcompile", "${prepared}/krs-emit-kwasm/definition.k",
+  "--main-module", "KRS-KWASM",
+  "--syntax-module", "KRS-KWASM-SYNTAX",
+  "--backend", "llvm",
+  "--output-directory", "${run}/compiled",
+  "--builtin-directory", "${builtin}",
+]
+[workload.krust.check]
+files = ["${run}/compiled/definition.kore", "${run}/compiled/syntaxDefinition.kore"]
+
+[workload.reference]
+status = "untested"
+note = "The KRS gates' --java-reference mode kompiles this emitted K with reference K (Haskell backend); no pairing has been written here."
+
+[[workload]]
+id = "krs/prove-kmir-port"
+semantics = "krs"
+operation = "prove"
+title = "Prove the claim of KRS's KMIR port with `krs prove` (list-add-switch-return)"
+stresses = "The whole KRS proof route: collector run, lowering, compiling the definition and its spec module with the k-rust frontend, and proving one claim in process."
+origin = "krs/README.md (`krs prove`); the port's #[k::claim]"
+tier = "quick"
+memory_gib = 8
+pins = []
+
+[workload.krust]
+engine = "command"
+prepare = ["krs-emit-kmir"]
+argv = [
+  "${prepared}/krs-tool/krs", "prove",
+  "--manifest-path", "${workspace}/krs/semantics/Cargo.toml",
+  "--package", "krs-kmir-semantics",
+  "--definition", "main",
+  "--no-reuse",
+]
+env = { CARGO_TARGET_DIR = "${prepared}/krs-semantics-target", CARGO_NET_OFFLINE = "true", RUSTUP_TOOLCHAIN = "stable", KRS_STAGE_CACHE_DIR = "${prepared}/krs-stage-cache" }
+[workload.krust.check]
+exit = 0
+stdout = ["KRS-KMIR-SPEC.list-add-switch-return: proven"]
+
+[workload.reference]
+status = "untested"
+note = "The KRS gates' --java-reference mode proves the port's emitted spec with reference kprove; no pairing has been written here."
+
+[[workload]]
+id = "krs/prove-kwasm-port"
+semantics = "krs"
+operation = "prove"
+title = "Prove the claim of KRS's KWasm port with `krs prove` (simple-addition)"
+stresses = "The whole KRS proof route: collector run, lowering, compiling the definition and its spec module with the k-rust frontend, and proving one claim in process."
+origin = "krs/README.md (`krs prove`); the port's #[k::claim]"
+tier = "quick"
+memory_gib = 8
+pins = []
+
+[workload.krust]
+engine = "command"
+prepare = ["krs-emit-kwasm"]
+argv = [
+  "${prepared}/krs-tool/krs", "prove",
+  "--manifest-path", "${workspace}/krs/semantics/Cargo.toml",
+  "--package", "krs-kwasm-semantics",
+  "--definition", "main",
+  "--no-reuse",
+]
+env = { CARGO_TARGET_DIR = "${prepared}/krs-semantics-target", CARGO_NET_OFFLINE = "true", RUSTUP_TOOLCHAIN = "stable", KRS_STAGE_CACHE_DIR = "${prepared}/krs-stage-cache" }
+[workload.krust.check]
+exit = 0
+stdout = ["KRS-KWASM-SPEC.simple-addition: proven"]
+
+[workload.reference]
+status = "untested"
+note = "The KRS gates' --java-reference mode proves the port's emitted spec with reference kprove; no pairing has been written here."
+
+[[gap]]
+semantics = "krs"
+operation = "parse"
+reason = "no-workload"
+note = "`krs parse` exists, but the ports' corpus programs are a few tokens each; no parse input worth timing has been chosen."
+
+[[gap]]
+semantics = "krs"
+operation = "spec-compile"
+reason = "no-workload"
+note = "`krs prove` compiles a port's spec module in the same run, so KRS has no separate spec-compile step."
+
+[[gap]]
+semantics = "krs"
+operation = "load"
+reason = "no-workload"
+note = "KRS has no load-only mode."
+
+[[gap]]
+semantics = "krs"
+operation = "execute"
+reason = "no-workload"
+note = "`krs run` exists, but the ports' corpus programs run a few steps each; no program worth timing has been chosen."
+
+[[gap]]
+semantics = "krs"
+operation = "search"
+reason = "no-workload"
+note = "`krs search` exists, but no branching port program has been chosen for a search workload."
+
+[[gap]]
+semantics = "krs"
+operation = "rpc"
+reason = "no-workload"
+note = "KRS has no RPC interface."

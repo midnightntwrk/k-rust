@@ -76,8 +76,10 @@ def main():
             "server_peak_rss_kib": peak_rss_kib(server.pid),
         }, indent=2) + "\n")
     finally:
+        terminated = False
         if server.poll() is None:
             server.send_signal(signal.SIGTERM)
+            terminated = True
             # The measured server's signal handler sets a flag; a connection releases accept.
             deadline = time.monotonic() + 15
             while server.poll() is None and time.monotonic() < deadline:
@@ -95,7 +97,8 @@ def main():
         stderr = server.stderr.read()
         if stderr:
             sys.stderr.buffer.write(stderr)
-        if server.returncode:
+        # A release build has no SIGTERM handler and ends by the signal it was sent.
+        if server.returncode and not (terminated and server.returncode == -signal.SIGTERM):
             raise RuntimeError(f"KORE JSON-RPC server exited {server.returncode}")
 
 

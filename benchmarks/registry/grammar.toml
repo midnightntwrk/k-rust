@@ -1,0 +1,222 @@
+# Parser and compile stress shapes rescued from the deep-inputs, fu-compile-scaling, perf-wave-3
+# and w8-oom units of the main checkout's draft/. Generators and definitions:
+# benchmarks/programs/toy/compile-shapes/ (README.md there names each origin).
+# Compile workloads pair with `kompile --backend haskell`, whose artifact (KORE without native code)
+# is the comparable output of `kcompile`.
+version = 1
+
+[[prepare]]
+name = "grammar-dn-llvm"
+engine = "reference"
+creates = "${prepared}/grammar-dn-llvm/timestamp"
+argv = ["kompile", "${programs}/toy/compile-shapes/dn.k", "--backend", "llvm", "--main-module", "DN", "--syntax-module", "DN-SYNTAX", "--output-definition", "${prepared}/grammar-dn-llvm"]
+
+[[workload]]
+id = "toy/compile-kseq-against-rewrite"
+semantics = "toy"
+operation = "compile"
+title = "Compile a rule whose left side is a flat `~>` sequence of N items"
+stresses = "Every `~>` can begin a sequence, so each completion meets a waiting caller for every item before it; the callers must be decided once per production and dot (925 billion instructions at 1,000 items before 1c78e912)."
+origin = "draft/open-issues-2026-10/units/fu-compile-scaling.md decision 1 (owner question P5; fix 1c78e912); shape reconstructed in gen4.py"
+tier = "quick"
+pins = ["k"]
+[workload.ladder]
+param = "n"
+values = [1000, 2000, 4000, 8000, 16000]
+generator = ["python3", "-I", "${programs}/toy/compile-shapes/gen4.py", "kseqrule", "${n}"]
+[workload.krust]
+argv = ["kcompile", "${input}", "--main-module", "MAIN", "--syntax-module", "MAIN", "--output-directory", "${run}/compiled", "--builtin-directory", "${builtin}"]
+[workload.krust.check]
+files = ["${run}/compiled/definition.kore"]
+[workload.reference]
+status = "unsupported"
+reason = "ref-fails"
+note = "kompile --backend haskell ran out of its 4 GiB Java heap after 241 s at 1,000 items."
+
+[[workload]]
+id = "toy/compile-plus-chain-beside-kseq"
+semantics = "toy"
+operation = "compile"
+title = "Parse a rule whose left side is a `+Int` chain of N operands beside a second `~>`"
+stresses = "A chain written against a rewrite next to a second sequence keeps doomed readings alive during recognition; the compile then refuses the rule (a function on the left-hand side), so the measured work is the parse (367 billion instructions at 1,000 operands before 1c78e912)."
+origin = "draft/open-issues-2026-10/units/fu-compile-scaling.md decision 1 and fu-compile-scaling-review-1.md; shape reconstructed in gen4.py"
+tier = "quick"
+pins = ["k"]
+[workload.ladder]
+param = "n"
+values = [1000, 2000, 4000, 8000, 16000]
+generator = ["python3", "-I", "${programs}/toy/compile-shapes/gen4.py", "pluskseq", "${n}"]
+[workload.krust]
+argv = ["kcompile", "${input}", "--main-module", "MAIN", "--syntax-module", "MAIN", "--output-directory", "${run}/compiled", "--builtin-directory", "${builtin}"]
+[workload.krust.check]
+exit = 1
+[workload.reference]
+status = "unsupported"
+reason = "ref-fails"
+note = "kompile --backend haskell ran out of its 4 GiB Java heap after 213 s at 1,000 operands."
+
+[[workload]]
+id = "toy/compile-list-literal"
+semantics = "toy"
+operation = "compile"
+title = "Compile a rule with an N-element `List{Int, \",\"}` literal argument"
+stresses = "The generic application syntax also reads every way of cutting the literal into elements, a real ambiguity resolved after parsing; a documented cost (5.2 s and 1.5 GB at 200 elements on 2026-10-16)."
+origin = "draft/open-issues-2026-10/units/fu-compile-scaling.md decision 2 (fix ed339867); shape reconstructed in gen4.py"
+tier = "standard"
+memory_gib = 8
+pins = ["k"]
+[workload.ladder]
+param = "n"
+values = [25, 50, 100, 200]
+generator = ["python3", "-I", "${programs}/toy/compile-shapes/gen4.py", "listlit", "${n}"]
+[workload.krust]
+argv = ["kcompile", "${input}", "--main-module", "MAIN", "--syntax-module", "MAIN", "--output-directory", "${run}/compiled", "--builtin-directory", "${builtin}"]
+[workload.krust.check]
+files = ["${run}/compiled/definition.kore"]
+[workload.reference]
+status = "paired"
+note = "kompile --backend haskell takes 3.7 s at 25 elements and 3.6 s at 200."
+backend = "haskell"
+argv = ["kompile", "${input}", "--backend", "haskell", "--main-module", "MAIN", "--syntax-module", "MAIN", "--output-definition", "${run}/compiled"]
+[workload.reference.check]
+files = ["${run}/compiled/definition.kore"]
+
+[[workload]]
+id = "toy/compile-injected-nesting"
+semantics = "toy"
+operation = "compile"
+title = "Compile a rule whose right side nests N levels, each through a subsort injection"
+stresses = "Sort injection at every level of a deep term; each level once copied the whole subterm below it per wrapper tried (174 s and 11.4 GB at 16,000 before 6705e983, 3.4 s on 2026-10-16)."
+origin = "draft/open-issues-2026-10/units/fu-compile-scaling.md decision 5 (deep-inputs review 4 F5; fix 6705e983); shape as in crates/k-rust/tests/kompile_depth.rs"
+tier = "quick"
+pins = ["k"]
+[workload.ladder]
+param = "n"
+values = [2000, 4000, 8000, 16000]
+generator = ["python3", "-I", "${programs}/toy/compile-shapes/gen4.py", "inj", "${n}"]
+[workload.krust]
+argv = ["kcompile", "${input}", "--main-module", "MAIN", "--syntax-module", "MAIN", "--output-directory", "${run}/compiled", "--builtin-directory", "${builtin}"]
+[workload.krust.check]
+files = ["${run}/compiled/definition.kore"]
+[workload.reference]
+status = "unsupported"
+reason = "ref-fails"
+note = "kompile --backend haskell stops with an internal StackOverflowError after 4 s at 2,000 levels."
+
+[[workload]]
+id = "toy/compile-import-chain"
+semantics = "toy"
+operation = "compile"
+title = "Compile a definition whose main module sits atop a chain of N imports"
+stresses = "Each module's view of the visible sentences is built per module; transitive imports must be derived once (10.5 s at 4,000 modules on 2026-10-16, about n^1.6, a documented cost)."
+origin = "draft/open-issues-2026-10/units/fu-compile-scaling.md decision 4 (fix d21ab66f); gen3.py modchain from units/stack-cases-probes"
+tier = "standard"
+pins = ["k"]
+[workload.ladder]
+param = "n"
+values = [500, 1000, 2000, 4000]
+generator = ["python3", "-I", "${programs}/toy/compile-shapes/gen3.py", "modchain", "${n}"]
+[workload.krust]
+argv = ["kcompile", "${input}", "--main-module", "MAIN", "--syntax-module", "MAIN-SYNTAX", "--output-directory", "${run}/compiled", "--builtin-directory", "${builtin}"]
+[workload.krust.check]
+files = ["${run}/compiled/definition.kore"]
+[workload.reference]
+status = "paired"
+note = "kompile --backend haskell takes 3.9 s at 500 modules and stops with an internal StackOverflowError at 4,000."
+backend = "haskell"
+argv = ["kompile", "${input}", "--backend", "haskell", "--main-module", "MAIN", "--syntax-module", "MAIN-SYNTAX", "--output-definition", "${run}/compiled"]
+[workload.reference.check]
+files = ["${run}/compiled/definition.kore"]
+
+[[workload]]
+id = "toy/compile-subsort-chain"
+semantics = "toy"
+operation = "compile"
+title = "Compile a chain of N subsorts"
+stresses = "Each sort's no-junk axiom lists every strict subsort, quadratic for a chain; a documented cost (9.6 s at 1,000 sorts on 2026-10-16)."
+origin = "draft/open-issues-2026-10/units/fu-compile-scaling.md decision 7; gen3.py subsorts from units/stack-cases-probes"
+tier = "standard"
+pins = ["k"]
+[workload.ladder]
+param = "n"
+values = [125, 250, 500, 1000]
+generator = ["python3", "-I", "${programs}/toy/compile-shapes/gen3.py", "subsorts", "${n}"]
+[workload.krust]
+argv = ["kcompile", "${input}", "--main-module", "MAIN", "--syntax-module", "MAIN-SYNTAX", "--output-directory", "${run}/compiled", "--builtin-directory", "${builtin}"]
+[workload.krust.check]
+files = ["${run}/compiled/definition.kore"]
+[workload.reference]
+status = "paired"
+note = "kompile --backend haskell takes 4.8 s at 125 sorts and 269 s and 5 GB at 1,000."
+backend = "haskell"
+argv = ["kompile", "${input}", "--backend", "haskell", "--main-module", "MAIN", "--syntax-module", "MAIN-SYNTAX", "--output-definition", "${run}/compiled"]
+[workload.reference.check]
+files = ["${run}/compiled/definition.kore"]
+
+[[workload]]
+id = "toy/compile-flat-cells"
+semantics = "toy"
+operation = "compile"
+title = "Compile a configuration of N flat cells"
+stresses = "The no-junk axiom and injection witnesses scan every production per sort, and sentence generation once rebuilt its equivalence index per sentence (10.9 s at 2,000 cells on 2026-10-16)."
+origin = "draft/open-issues-2026-10/units/fu-compile-scaling.md decision 3 (fix 7ea4872a); gen3.py cells from units/stack-cases-probes"
+tier = "standard"
+memory_gib = 8
+pins = ["k"]
+[workload.ladder]
+param = "n"
+values = [250, 500, 1000, 2000]
+generator = ["python3", "-I", "${programs}/toy/compile-shapes/gen3.py", "cells", "${n}"]
+[workload.krust]
+argv = ["kcompile", "${input}", "--main-module", "MAIN", "--syntax-module", "MAIN-SYNTAX", "--output-directory", "${run}/compiled", "--builtin-directory", "${builtin}"]
+[workload.krust.check]
+files = ["${run}/compiled/definition.kore"]
+[workload.reference]
+status = "unsupported"
+reason = "ref-fails"
+note = "kompile --backend haskell ran out of its 4 GiB Java heap after 80 s at 250 cells."
+
+[[workload]]
+id = "toy/compile-nullable-cycle"
+semantics = "toy"
+operation = "compile"
+title = "Refuse a rule over a grammar whose sort derives itself through empty items"
+stresses = "`Exp ::= Opt Exp Opt` with a nullable `Opt` makes every span an infinite forest; recognition must detect the cycle and stop (it never terminated before 51b179ea)."
+origin = "draft/perf-wave-3/repro/null1.k.slow (perf/w3-parser-nullable, fix 51b179ea; report reports/parser-nullable.md)"
+tier = "quick"
+pins = ["k"]
+[workload.krust]
+argv = ["kcompile", "${programs}/toy/compile-shapes/null1.k", "--main-module", "NULL1", "--syntax-module", "NULL1", "--output-directory", "${run}/compiled", "--builtin-directory", "${builtin}"]
+[workload.krust.check]
+exit = 1
+[workload.reference]
+status = "unsupported"
+reason = "ref-fails"
+note = "kompile --backend haskell stops with an internal StackOverflowError after 4 s instead of reporting the cycle."
+
+[[workload]]
+id = "toy/parse-dn-ambiguous"
+semantics = "toy"
+operation = "parse"
+title = "Parse and refuse `d d ... d` (n tokens) in a grammar with exponentially many trees"
+stresses = "`S ::= S S | S \"d\" | \"d\"` with nothing ordering the two binary productions has exponentially many trees for d^n; the packed forest and its ambiguity report must stay polynomial (8.7 s and 1.9 GB at n = 60 on 2026-10-16)."
+origin = "draft/open-issues-2026-10/units/w8-oom.md (the parser property test that reached 40 GB at c4c420ef) and units/w8-forest.md"
+tier = "standard"
+memory_gib = 8
+pins = ["k"]
+[workload.ladder]
+param = "n"
+values = [10, 20, 30, 40, 50, 60]
+generator = ["python3", "-I", "-c", "import sys; print(' '.join(['d'] * int(sys.argv[1])))", "${n}"]
+[workload.krust]
+argv = ["kast", "-m", "DN", "-s", "S", "${programs}/toy/compile-shapes/dn.k", "${input}"]
+[workload.krust.check]
+exit = 1
+[workload.reference]
+status = "paired"
+backend = "llvm"
+note = "kast reports the ambiguity with exit status 113 (0.8 s at n = 20)."
+prepare = ["grammar-dn-llvm"]
+argv = ["kast", "--definition", "${prepared}/grammar-dn-llvm", "${input}"]
+[workload.reference.check]
+exit = 113

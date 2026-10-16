@@ -1,0 +1,523 @@
+version = 1
+
+# KWasm: the WebAssembly semantics at the `wasm` pin.
+# Programs are the sentences of upstream's test language (test.md, WASM-TEST, parsed with WASM-TEST-SYNTAX) in tests/simple.
+# Proofs are upstream's tests/proofs specs, proved against the KWASM-LEMMAS definition (kwasm-lemmas.md, syntax module WASM-TEXT-SYNTAX), the definition upstream's kdist target `kwasm-lemmas` builds for them.
+# A successful program ends in the empty configuration of scripts/wasm-execution-gate.success.kore: `<k>` and `<instrs>` empty, every stack, map and store empty.
+# The execution checks compare the whole terminal configuration with that file, whitespace removed.
+# The [[gap]] entries at the end say why the other operations have no workload.
+
+[[prepare]]
+name = "kwasm-execution-definition"
+engine = "krust"
+argv = [
+  "kcompile", "${wasm}/pykwasm/src/pykwasm/kdist/wasm-semantics/test.md",
+  "--main-module", "WASM-TEST",
+  "--syntax-module", "WASM-TEST-SYNTAX",
+  "--backend", "rust",
+  "--output-directory", "${prepared}/kwasm-execution-definition",
+  "--builtin-directory", "${builtin}",
+]
+creates = "${prepared}/kwasm-execution-definition/execution.json"
+timeout_seconds = 1800
+
+[[prepare]]
+name = "kwasm-lemmas-definition"
+engine = "krust"
+argv = [
+  "kcompile", "${wasm}/pykwasm/src/pykwasm/kdist/wasm-semantics/kwasm-lemmas.md",
+  "--main-module", "KWASM-LEMMAS",
+  "--syntax-module", "WASM-TEXT-SYNTAX",
+  "--for-proving",
+  "--output-directory", "${prepared}/kwasm-lemmas-definition",
+  "--builtin-directory", "${builtin}",
+]
+creates = "${prepared}/kwasm-lemmas-definition/krust.json"
+timeout_seconds = 1800
+
+[[prepare]]
+name = "kwasm-loops-specification"
+engine = "krust"
+prepare = ["kwasm-lemmas-definition"]
+argv = [
+  "kcompile", "${wasm}/tests/proofs/loops-spec.k",
+  "--compiled-definition", "${prepared}/kwasm-lemmas-definition",
+  "--main-module", "LOOPS-SPEC",
+  "--definition-module", "KWASM-LEMMAS",
+  "--for-proving",
+  "--output-directory", "${prepared}/kwasm-loops-specification",
+  "-I", "${wasm}/pykwasm/src/pykwasm/kdist/wasm-semantics",
+  "--builtin-directory", "${builtin}",
+]
+creates = "${prepared}/kwasm-loops-specification/krust.json"
+timeout_seconds = 1800
+
+[[prepare]]
+name = "kwasm-lemmas-reference-definition"
+engine = "reference"
+argv = [
+  "kompile", "${wasm}/pykwasm/src/pykwasm/kdist/wasm-semantics/kwasm-lemmas.md",
+  "--backend", "haskell",
+  "--main-module", "KWASM-LEMMAS",
+  "--syntax-module", "WASM-TEXT-SYNTAX",
+  "--output-definition", "${prepared}/kwasm-lemmas-reference-definition",
+  "--warnings", "none",
+]
+creates = "${prepared}/kwasm-lemmas-reference-definition/definition.kore"
+timeout_seconds = 3600
+
+[[workload]]
+id = "kwasm/compile"
+semantics = "kwasm"
+operation = "compile"
+title = "Compile the KWasm test-language definition (test.md, WASM-TEST) from source"
+stresses = "The frontend and execution-artifact writer on a mid-sized real semantics with float, integer and memory instructions."
+origin = "scripts/reference-differential.toml wasm (haskell/rust pairing); scripts/algo-workloads.toml wasm-compile-rust"
+tier = "standard"
+memory_gib = 12
+timeout_seconds = 1800
+pins = ["k", "wasm"]
+
+[workload.krust]
+argv = [
+  "kcompile", "${wasm}/pykwasm/src/pykwasm/kdist/wasm-semantics/test.md",
+  "--main-module", "WASM-TEST",
+  "--backend", "rust",
+  "--output-directory", "${run}/compiled",
+  "--emit-json",
+  "--md-selector", "k & ! concrete",
+  "--builtin-directory", "${builtin}",
+]
+[workload.krust.check]
+files = ["${run}/compiled/definition.kore", "${run}/compiled/execution.json"]
+
+[workload.reference]
+status = "paired"
+argv = [
+  "kompile", "${wasm}/pykwasm/src/pykwasm/kdist/wasm-semantics/test.md",
+  "--backend", "haskell",
+  "--main-module", "WASM-TEST",
+  "--output-definition", "${run}/compiled",
+  "--md-selector", "k & ! concrete",
+  "--emit-json",
+  "--warnings", "none",
+]
+[workload.reference.check]
+files = ["${run}/compiled/definition.kore", "${run}/compiled/compiled.json"]
+
+[[workload]]
+id = "kwasm/parse-address-c"
+semantics = "kwasm"
+operation = "parse"
+title = "Parse KWasm's address-c.wast test program (591 lines) with the test-language grammar"
+stresses = "The program parser on a long WebAssembly text program; krust kast also builds the grammar from test.md in the same run."
+origin = "wasm-semantics tests/simple/address-c.wast"
+tier = "quick"
+memory_gib = 8
+pins = ["k", "wasm"]
+
+[workload.krust]
+argv = [
+  "kast", "${wasm}/pykwasm/src/pykwasm/kdist/wasm-semantics/test.md",
+  "--module", "WASM-TEST-SYNTAX",
+  "--sort", "Stmts",
+  "--builtin-directory", "${builtin}",
+  "${wasm}/tests/simple/address-c.wast",
+]
+[workload.krust.check]
+stdout = [
+  '`___WASM-COMMON-SYNTAX_Stmts_Stmt_Stmts`(`(module__)_WASM-TEXT-COMMON-SYNTAX_ModuleDecl_OptionalId_Defns`',
+  '`.List{"___WASM-COMMON-SYNTAX_Stmts_Stmt_Stmts"}_Stmts`(.KList)',
+]
+
+[workload.reference]
+status = "untested"
+note = "Reference kast parses with an already kompiled definition, while krust kast builds the grammar from source in the same run; no pairing has been written."
+
+[[workload]]
+id = "kwasm/execute-simple-corpus"
+semantics = "kwasm"
+operation = "execute"
+title = "Run the 27 passing KWasm test programs of tests/simple one after another"
+stresses = "Concrete execution across the whole instruction set (integers, floats, memory, tables, modules), each program a separate krun on one prepared definition."
+origin = "scripts/wasm-execution-gate.sh (its 28 programs minus simple/fconversions-c, a known upstream failure)"
+tier = "standard"
+memory_gib = 8
+pins = ["k", "wasm"]
+
+# Standard output is the concatenation of all 27 runs, so each run matches its result against a pattern instead.
+# A program that ends with an empty `<k>`, `<instrs>` and value stack prints the match; any other result prints `\bottom` for the failed match, which the check rejects.
+# Upstream's test programs check their own results with assertions, so a failed assertion leaves `<k>` or `<instrs>` non-empty.
+[workload.krust]
+prepare = ["kwasm-execution-definition"]
+steps = [
+  ["krun", "--definition", "${prepared}/kwasm-execution-definition", "--sort", "Stmts", "--pattern", "<k> .K </k> <instrs> .K </instrs> <valstack> .ValStack </valstack>", "${wasm}/tests/simple/address-c.wast"],
+  ["krun", "--definition", "${prepared}/kwasm-execution-definition", "--sort", "Stmts", "--pattern", "<k> .K </k> <instrs> .K </instrs> <valstack> .ValStack </valstack>", "${wasm}/tests/simple/arithmetic.wast"],
+  ["krun", "--definition", "${prepared}/kwasm-execution-definition", "--sort", "Stmts", "--pattern", "<k> .K </k> <instrs> .K </instrs> <valstack> .ValStack </valstack>", "${wasm}/tests/simple/bitwise.wast"],
+  ["krun", "--definition", "${prepared}/kwasm-execution-definition", "--sort", "Stmts", "--pattern", "<k> .K </k> <instrs> .K </instrs> <valstack> .ValStack </valstack>", "${wasm}/tests/simple/branching.wast"],
+  ["krun", "--definition", "${prepared}/kwasm-execution-definition", "--sort", "Stmts", "--pattern", "<k> .K </k> <instrs> .K </instrs> <valstack> .ValStack </valstack>", "${wasm}/tests/simple/comments.wast"],
+  ["krun", "--definition", "${prepared}/kwasm-execution-definition", "--sort", "Stmts", "--pattern", "<k> .K </k> <instrs> .K </instrs> <valstack> .ValStack </valstack>", "${wasm}/tests/simple/comparison.wast"],
+  ["krun", "--definition", "${prepared}/kwasm-execution-definition", "--sort", "Stmts", "--pattern", "<k> .K </k> <instrs> .K </instrs> <valstack> .ValStack </valstack>", "${wasm}/tests/simple/constants.wast"],
+  ["krun", "--definition", "${prepared}/kwasm-execution-definition", "--sort", "Stmts", "--pattern", "<k> .K </k> <instrs> .K </instrs> <valstack> .ValStack </valstack>", "${wasm}/tests/simple/control-flow.wast"],
+  ["krun", "--definition", "${prepared}/kwasm-execution-definition", "--sort", "Stmts", "--pattern", "<k> .K </k> <instrs> .K </instrs> <valstack> .ValStack </valstack>", "${wasm}/tests/simple/conversion.wast"],
+  ["krun", "--definition", "${prepared}/kwasm-execution-definition", "--sort", "Stmts", "--pattern", "<k> .K </k> <instrs> .K </instrs> <valstack> .ValStack </valstack>", "${wasm}/tests/simple/data.wast"],
+  ["krun", "--definition", "${prepared}/kwasm-execution-definition", "--sort", "Stmts", "--pattern", "<k> .K </k> <instrs> .K </instrs> <valstack> .ValStack </valstack>", "${wasm}/tests/simple/desugaring.wast"],
+  ["krun", "--definition", "${prepared}/kwasm-execution-definition", "--sort", "Stmts", "--pattern", "<k> .K </k> <instrs> .K </instrs> <valstack> .ValStack </valstack>", "${wasm}/tests/simple/f64-cs.wast"],
+  ["krun", "--definition", "${prepared}/kwasm-execution-definition", "--sort", "Stmts", "--pattern", "<k> .K </k> <instrs> .K </instrs> <valstack> .ValStack </valstack>", "${wasm}/tests/simple/f64_bitwise-cs.wast"],
+  ["krun", "--definition", "${prepared}/kwasm-execution-definition", "--sort", "Stmts", "--pattern", "<k> .K </k> <instrs> .K </instrs> <valstack> .ValStack </valstack>", "${wasm}/tests/simple/f64_cmp-cs.wast"],
+  ["krun", "--definition", "${prepared}/kwasm-execution-definition", "--sort", "Stmts", "--pattern", "<k> .K </k> <instrs> .K </instrs> <valstack> .ValStack </valstack>", "${wasm}/tests/simple/functions_call.wast"],
+  ["krun", "--definition", "${prepared}/kwasm-execution-definition", "--sort", "Stmts", "--pattern", "<k> .K </k> <instrs> .K </instrs> <valstack> .ValStack </valstack>", "${wasm}/tests/simple/i64.wast"],
+  ["krun", "--definition", "${prepared}/kwasm-execution-definition", "--sort", "Stmts", "--pattern", "<k> .K </k> <instrs> .K </instrs> <valstack> .ValStack </valstack>", "${wasm}/tests/simple/identifiers.wast"],
+  ["krun", "--definition", "${prepared}/kwasm-execution-definition", "--sort", "Stmts", "--pattern", "<k> .K </k> <instrs> .K </instrs> <valstack> .ValStack </valstack>", "${wasm}/tests/simple/imports.wast"],
+  ["krun", "--definition", "${prepared}/kwasm-execution-definition", "--sort", "Stmts", "--pattern", "<k> .K </k> <instrs> .K </instrs> <valstack> .ValStack </valstack>", "${wasm}/tests/simple/integers.wast"],
+  ["krun", "--definition", "${prepared}/kwasm-execution-definition", "--sort", "Stmts", "--pattern", "<k> .K </k> <instrs> .K </instrs> <valstack> .ValStack </valstack>", "${wasm}/tests/simple/memory.wast"],
+  ["krun", "--definition", "${prepared}/kwasm-execution-definition", "--sort", "Stmts", "--pattern", "<k> .K </k> <instrs> .K </instrs> <valstack> .ValStack </valstack>", "${wasm}/tests/simple/modules.wast"],
+  ["krun", "--definition", "${prepared}/kwasm-execution-definition", "--sort", "Stmts", "--pattern", "<k> .K </k> <instrs> .K </instrs> <valstack> .ValStack </valstack>", "${wasm}/tests/simple/polymorphic.wast"],
+  ["krun", "--definition", "${prepared}/kwasm-execution-definition", "--sort", "Stmts", "--pattern", "<k> .K </k> <instrs> .K </instrs> <valstack> .ValStack </valstack>", "${wasm}/tests/simple/start.wast"],
+  ["krun", "--definition", "${prepared}/kwasm-execution-definition", "--sort", "Stmts", "--pattern", "<k> .K </k> <instrs> .K </instrs> <valstack> .ValStack </valstack>", "${wasm}/tests/simple/table.wast"],
+  ["krun", "--definition", "${prepared}/kwasm-execution-definition", "--sort", "Stmts", "--pattern", "<k> .K </k> <instrs> .K </instrs> <valstack> .ValStack </valstack>", "${wasm}/tests/simple/text2abstract.wast"],
+  ["krun", "--definition", "${prepared}/kwasm-execution-definition", "--sort", "Stmts", "--pattern", "<k> .K </k> <instrs> .K </instrs> <valstack> .ValStack </valstack>", "${wasm}/tests/simple/unicode.wast"],
+  ["krun", "--definition", "${prepared}/kwasm-execution-definition", "--sort", "Stmts", "--pattern", "<k> .K </k> <instrs> .K </instrs> <valstack> .ValStack </valstack>", "${wasm}/tests/simple/variables.wast"],
+]
+[workload.krust.check]
+exit = 0
+stdout = ["\\and{SortGeneratedTopCell{}}"]
+stdout_absent = ['\bottom']
+[workload.reference]
+status = "unsupported"
+reason = "missing-hook"
+backend = "haskell"
+note = "The pinned Haskell backend has no evaluator for FLOAT.round, a hook of KWasm's float instructions. The pinned LLVM backend compiles and runs these programs (scripts/reference-differential.toml, [[excluded]] wasm-execution), but no LLVM pairing has been written here."
+
+[[workload]]
+id = "kwasm/execute-address-c"
+semantics = "kwasm"
+operation = "execute"
+title = "Run KWasm's address-c.wast test program: 591 lines of memory loads and stores at many addresses"
+stresses = "The longest program of the corpus: many integer and float memory accesses through KWasm's byte-map memory."
+origin = "scripts/wasm-execution-gate.sh simple/address-c"
+tier = "quick"
+memory_gib = 8
+pins = ["k", "wasm"]
+
+[workload.krust]
+prepare = ["kwasm-execution-definition"]
+argv = ["krun", "--definition", "${prepared}/kwasm-execution-definition", "--sort", "Stmts", "${wasm}/tests/simple/address-c.wast"]
+[workload.krust.check]
+exit = 0
+stdout_squeezed = ['''Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'wasm-test'-GT-'{}(Lbl'-LT-'k'-GT-'{}(dotk{}()),Lbl'-LT-'wasm'-GT-'{}(Lbl'-LT-'instrs'-GT-'{}(dotk{}()),Lbl'-LT-'valstack'-GT-'{}(Lbl'Stop'ValStack{}()),Lbl'-LT-'curFrame'-GT-'{}(Lbl'-LT-'locals'-GT-'{}(Lbl'Stop'Map{}()),Lbl'-LT-'curModIdx'-GT-'{}(Lbl'Stop'Int{}())),Lbl'-LT-'moduleRegistry'-GT-'{}(Lbl'Stop'Map{}()),Lbl'-LT-'moduleIds'-GT-'{}(Lbl'Stop'Map{}()),Lbl'-LT-'moduleInstances'-GT-'{}(Lbl'Stop'ModuleInstCellMap{}()),Lbl'-LT-'nextModuleIdx'-GT-'{}(\dv{SortInt{}}("0")),Lbl'-LT-'mainStore'-GT-'{}(Lbl'-LT-'funcs'-GT-'{}(Lbl'Stop'FuncDefCellMap{}()),Lbl'-LT-'nextFuncAddr'-GT-'{}(\dv{SortInt{}}("0")),Lbl'-LT-'tabs'-GT-'{}(Lbl'Stop'TabInstCellMap{}()),Lbl'-LT-'nextTabAddr'-GT-'{}(\dv{SortInt{}}("0")),Lbl'-LT-'mems'-GT-'{}(Lbl'Stop'MemInstCellMap{}()),Lbl'-LT-'nextMemAddr'-GT-'{}(\dv{SortInt{}}("0")),Lbl'-LT-'globals'-GT-'{}(Lbl'Stop'GlobalInstCellMap{}()),Lbl'-LT-'nextGlobAddr'-GT-'{}(\dv{SortInt{}}("0")),Lbl'-LT-'elems'-GT-'{}(Lbl'Stop'ElemInstCellMap{}()),Lbl'-LT-'nextElemAddr'-GT-'{}(\dv{SortInt{}}("0"))),Lbl'-LT-'deterministicMemoryGrowth'-GT-'{}(\dv{SortBool{}}("true")))),Lbl'-LT-'generatedCounter'-GT-'{}(\dv{SortInt{}}("0")))''']
+
+[workload.reference]
+status = "unsupported"
+reason = "missing-hook"
+backend = "haskell"
+note = "The pinned Haskell backend has no evaluator for FLOAT.round, a hook of KWasm's float instructions, which this program's f32 and f64 loads reach. The pinned LLVM backend runs it, but no LLVM pairing has been written here."
+
+[[workload]]
+id = "kwasm/spec-compile"
+semantics = "kwasm"
+operation = "spec-compile"
+title = "Compile KWasm's loops-spec.k claims against an already compiled KWASM-LEMMAS definition"
+stresses = "Spec compilation on top of prepared semantics for a spec with a loop invariant over WebAssembly locals."
+origin = "wasm-semantics tests/proofs/loops-spec.k"
+tier = "quick"
+memory_gib = 8
+pins = ["k", "wasm"]
+
+[workload.krust]
+prepare = ["kwasm-lemmas-definition"]
+argv = [
+  "kcompile", "${wasm}/tests/proofs/loops-spec.k",
+  "--compiled-definition", "${prepared}/kwasm-lemmas-definition",
+  "--main-module", "LOOPS-SPEC",
+  "--definition-module", "KWASM-LEMMAS",
+  "--for-proving",
+  "--output-directory", "${run}/specification",
+  "-I", "${wasm}/pykwasm/src/pykwasm/kdist/wasm-semantics",
+  "--builtin-directory", "${builtin}",
+]
+[workload.krust.check]
+files = ["${run}/specification/definition.kore", "${run}/specification/krust.json"]
+
+[workload.reference]
+status = "unsupported"
+reason = "no-counterpart"
+note = "Reference kprove compiles a spec only as part of proving it, so it has no separate spec-compile step."
+
+[[workload]]
+id = "kwasm/load"
+semantics = "kwasm"
+operation = "load"
+title = "Load KWasm's proof-ready definition and loops-spec.k claims into the prover without proving anything"
+stresses = "Reading and internalizing the KWASM-LEMMAS proof bundle: the fixed start-up cost of every KWasm proof."
+origin = "wasm-semantics tests/proofs/loops-spec.k"
+tier = "quick"
+memory_gib = 8
+pins = ["k", "wasm"]
+
+[workload.krust]
+prepare = ["kwasm-loops-specification"]
+argv = ["kprove", "--compiled-definition", "${prepared}/kwasm-loops-specification", "--main-module", "LOOPS-SPEC", "--load-only"]
+[workload.krust.check]
+exit = 0
+
+[workload.reference]
+status = "unsupported"
+reason = "no-counterpart"
+note = "Reference kprove has no load-only mode."
+
+[[workload]]
+id = "kwasm/prove-functions"
+semantics = "kwasm"
+operation = "prove"
+title = "Prove KWasm's functions-spec.k: 28 claims about byte-map helper functions"
+stresses = "Many one-step claims about KWasm's memory helper functions, each needing lemma simplification and SMT checks."
+origin = "scripts/wasm-execution-gate.sh proofs/functions"
+tier = "quick"
+memory_gib = 8
+timeout_seconds = 1200
+pins = ["k", "wasm"]
+
+[workload.krust]
+prepare = ["kwasm-lemmas-definition"]
+argv = [
+  "kprove", "${wasm}/tests/proofs/functions-spec.k",
+  "--compiled-definition", "${prepared}/kwasm-lemmas-definition",
+  "--main-module", "FUNCTIONS-SPEC",
+  "--definition-module", "KWASM-LEMMAS",
+  "-I", "${wasm}/pykwasm/src/pykwasm/kdist/wasm-semantics",
+  "--builtin-directory", "${builtin}",
+]
+# The verdict lines scripts/wasm-execution-gate.toml records for this spec.
+[workload.krust.check]
+exit = 0
+stdout = [
+  "claim #1: proven (2 states, 0 unexplored)",
+  "claim #2: proven (2 states, 0 unexplored)",
+  "claim #3: proven (2 states, 0 unexplored)",
+  "claim #4: proven (2 states, 0 unexplored)",
+  "claim #5: proven (2 states, 0 unexplored)",
+  "claim #6: proven (2 states, 0 unexplored)",
+  "claim #7: proven (2 states, 0 unexplored)",
+  "claim #8: proven (2 states, 0 unexplored)",
+  "claim #9: proven (2 states, 0 unexplored)",
+  "claim #10: proven (2 states, 0 unexplored)",
+  "claim #11: proven (2 states, 0 unexplored)",
+  "claim #12: proven (2 states, 0 unexplored)",
+  "claim #13: proven (2 states, 0 unexplored)",
+  "claim #14: proven (2 states, 0 unexplored)",
+  "claim #15: proven (2 states, 0 unexplored)",
+  "claim #16: proven (2 states, 0 unexplored)",
+  "claim #17: proven (2 states, 0 unexplored)",
+  "claim #18: proven (2 states, 0 unexplored)",
+  "claim #19: proven (2 states, 0 unexplored)",
+  "claim #20: proven (2 states, 0 unexplored)",
+  "claim #21: proven (2 states, 0 unexplored)",
+  "claim #22: proven (2 states, 0 unexplored)",
+  "claim #23: proven (2 states, 0 unexplored)",
+  "claim #24: proven (2 states, 0 unexplored)",
+  "claim #25: proven (2 states, 0 unexplored)",
+  "claim #26: proven (2 states, 0 unexplored)",
+  "claim #27: proven (2 states, 0 unexplored)",
+  "claim #28: proven (2 states, 0 unexplored)",
+]
+
+[workload.reference]
+status = "paired"
+backend = "haskell"
+prepare = ["kwasm-lemmas-reference-definition"]
+argv = [
+  "kprove", "${wasm}/tests/proofs/functions-spec.k",
+  "--definition", "${prepared}/kwasm-lemmas-reference-definition",
+  "--spec-module", "FUNCTIONS-SPEC",
+  "--output", "none",
+  "--warnings", "none",
+  "-I", "${wasm}/pykwasm/src/pykwasm/kdist/wasm-semantics",
+]
+[workload.reference.check]
+exit = 0
+
+[[workload]]
+id = "kwasm/prove-locals"
+semantics = "kwasm"
+operation = "prove"
+title = "Prove KWasm's locals-spec.k: reading a local and writing it back changes nothing (3 claims)"
+stresses = "Small symbolic claims over the locals map; the per-proof cost is mostly loading KWASM-LEMMAS and compiling the spec."
+origin = "scripts/wasm-execution-gate.sh proofs/locals"
+tier = "quick"
+memory_gib = 8
+timeout_seconds = 1200
+pins = ["k", "wasm"]
+
+[workload.krust]
+prepare = ["kwasm-lemmas-definition"]
+argv = [
+  "kprove", "${wasm}/tests/proofs/locals-spec.k",
+  "--compiled-definition", "${prepared}/kwasm-lemmas-definition",
+  "--main-module", "LOCALS-SPEC",
+  "--definition-module", "KWASM-LEMMAS",
+  "-I", "${wasm}/pykwasm/src/pykwasm/kdist/wasm-semantics",
+  "--builtin-directory", "${builtin}",
+]
+# The verdict lines scripts/wasm-execution-gate.toml records for this spec.
+[workload.krust.check]
+exit = 0
+stdout = [
+  "claim #1: proven (3 states, 0 unexplored)",
+  "claim #2: proven (3 states, 0 unexplored)",
+  "claim #3: proven (3 states, 0 unexplored)",
+]
+
+[workload.reference]
+status = "paired"
+backend = "haskell"
+prepare = ["kwasm-lemmas-reference-definition"]
+argv = [
+  "kprove", "${wasm}/tests/proofs/locals-spec.k",
+  "--definition", "${prepared}/kwasm-lemmas-reference-definition",
+  "--spec-module", "LOCALS-SPEC",
+  "--output", "none",
+  "--warnings", "none",
+  "-I", "${wasm}/pykwasm/src/pykwasm/kdist/wasm-semantics",
+]
+[workload.reference.check]
+exit = 0
+
+[[workload]]
+id = "kwasm/prove-loops"
+semantics = "kwasm"
+operation = "prove"
+title = "Prove KWasm's loops-spec.k: a counting loop sums 1..I, with the loop body as its own invariant (2 claims)"
+stresses = "The deepest KWasm proof: 22 symbolic states per claim around a WebAssembly loop, with nonlinear arithmetic side conditions."
+origin = "scripts/wasm-execution-gate.sh proofs/loops"
+tier = "quick"
+memory_gib = 8
+timeout_seconds = 1200
+pins = ["k", "wasm"]
+
+[workload.krust]
+prepare = ["kwasm-lemmas-definition"]
+argv = [
+  "kprove", "${wasm}/tests/proofs/loops-spec.k",
+  "--compiled-definition", "${prepared}/kwasm-lemmas-definition",
+  "--main-module", "LOOPS-SPEC",
+  "--definition-module", "KWASM-LEMMAS",
+  "-I", "${wasm}/pykwasm/src/pykwasm/kdist/wasm-semantics",
+  "--builtin-directory", "${builtin}",
+]
+# The verdict lines scripts/wasm-execution-gate.toml records for this spec.
+[workload.krust.check]
+exit = 0
+stdout = [
+  "claim #1: proven (22 states, 0 unexplored)",
+  "claim #2: proven (22 states, 0 unexplored)",
+]
+
+[workload.reference]
+status = "untested"
+note = "Upstream wasm-semantics lists this spec in tests/failing.proofs; no reference run has been recorded at the pins."
+
+[[workload]]
+id = "kwasm/prove-memory"
+semantics = "kwasm"
+operation = "prove"
+title = "Prove KWasm's memory-spec.k: a load followed by a store to the same address leaves memory unchanged (2 claims)"
+stresses = "Symbolic memory accesses: 15 states per claim through KWasm's byte-map memory with range side conditions."
+origin = "scripts/wasm-execution-gate.sh proofs/memory"
+tier = "quick"
+memory_gib = 8
+timeout_seconds = 1200
+pins = ["k", "wasm"]
+
+[workload.krust]
+prepare = ["kwasm-lemmas-definition"]
+argv = [
+  "kprove", "${wasm}/tests/proofs/memory-spec.k",
+  "--compiled-definition", "${prepared}/kwasm-lemmas-definition",
+  "--main-module", "MEMORY-SPEC",
+  "--definition-module", "KWASM-LEMMAS",
+  "-I", "${wasm}/pykwasm/src/pykwasm/kdist/wasm-semantics",
+  "--builtin-directory", "${builtin}",
+]
+# The verdict lines scripts/wasm-execution-gate.toml records for this spec.
+[workload.krust.check]
+exit = 0
+stdout = [
+  "claim #1: proven (15 states, 0 unexplored)",
+  "claim #2: proven (15 states, 0 unexplored)",
+]
+
+[workload.reference]
+status = "paired"
+backend = "haskell"
+prepare = ["kwasm-lemmas-reference-definition"]
+argv = [
+  "kprove", "${wasm}/tests/proofs/memory-spec.k",
+  "--definition", "${prepared}/kwasm-lemmas-reference-definition",
+  "--spec-module", "MEMORY-SPEC",
+  "--output", "none",
+  "--warnings", "none",
+  "-I", "${wasm}/pykwasm/src/pykwasm/kdist/wasm-semantics",
+]
+[workload.reference.check]
+exit = 0
+
+[[workload]]
+id = "kwasm/prove-simple-arithmetic"
+semantics = "kwasm"
+operation = "prove"
+title = "Prove KWasm's simple-arithmetic-spec.k: integer constants are pushed in their unsigned range (5 claims)"
+stresses = "Symbolic integer constants under range side conditions, discharged by KWasm's arithmetic lemmas and the SMT solver."
+origin = "scripts/wasm-execution-gate.sh proofs/simple-arithmetic"
+tier = "quick"
+memory_gib = 8
+timeout_seconds = 1200
+pins = ["k", "wasm"]
+
+[workload.krust]
+prepare = ["kwasm-lemmas-definition"]
+argv = [
+  "kprove", "${wasm}/tests/proofs/simple-arithmetic-spec.k",
+  "--compiled-definition", "${prepared}/kwasm-lemmas-definition",
+  "--main-module", "SIMPLE-ARITHMETIC-SPEC",
+  "--definition-module", "KWASM-LEMMAS",
+  "-I", "${wasm}/pykwasm/src/pykwasm/kdist/wasm-semantics",
+  "--builtin-directory", "${builtin}",
+]
+# The verdict lines scripts/wasm-execution-gate.toml records for this spec.
+[workload.krust.check]
+exit = 0
+stdout = [
+  "claim #1: proven (3 states, 0 unexplored)",
+  "claim #2: proven (3 states, 0 unexplored)",
+  "claim #3: proven (6 states, 0 unexplored)",
+  "claim #4: proven (3 states, 0 unexplored)",
+  "claim #5: proven (3 states, 0 unexplored)",
+]
+
+[workload.reference]
+status = "paired"
+backend = "haskell"
+prepare = ["kwasm-lemmas-reference-definition"]
+argv = [
+  "kprove", "${wasm}/tests/proofs/simple-arithmetic-spec.k",
+  "--definition", "${prepared}/kwasm-lemmas-reference-definition",
+  "--spec-module", "SIMPLE-ARITHMETIC-SPEC",
+  "--output", "none",
+  "--warnings", "none",
+  "-I", "${wasm}/pykwasm/src/pykwasm/kdist/wasm-semantics",
+]
+[workload.reference.check]
+exit = 0
+
+[[gap]]
+semantics = "kwasm"
+operation = "search"
+reason = "no-workload"
+note = "KWasm test programs are deterministic, and no branching KWasm program has been chosen for a search workload."
+
+[[gap]]
+semantics = "kwasm"
+operation = "rpc"
+reason = "no-workload"
+note = "No RPC client of KWasm exists in the pinned checkouts, and no RPC request has been extracted into a workload."

@@ -1,0 +1,125 @@
+# FUN scaling workloads rescued from the CB-20 evidence (draft/conformance-backlog/workers/CB-20-evidence/)
+# and the CB-12 conformance throughput programs. Notes: benchmarks/programs/fun/scaling/README.md.
+version = 1
+
+[[workload]]
+id = "fun/krun-tail-recursion"
+semantics = "fun"
+operation = "execute"
+title = "Run the tutorial's tail-recursion.fun (1,000 iterations without the tail-call rule)"
+stresses = "Each iteration leaves one `setEnv` item behind the head of `<k>`, so the cost per step must not grow with the length of `<k>` (123.7 s before CB-20-B, 1.1 s on 2026-10-16)."
+origin = "CB-20 cohort B (draft/conformance-backlog/workers/CB-20.md; fix CB-20-B at af43672)"
+tier = "quick"
+pins = ["k"]
+[workload.krust]
+prepare = ["fun-untyped"]
+argv = [
+  "krun", "--definition", "${prepared}/fun-untyped", "--sort", "Exp",
+  "--pattern", "<k> V:K </k>",
+  "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/programs/tail-recursion.fun",
+]
+[workload.krust.check]
+expect_out = "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/1_untyped/1_environment/tests/tail-recursion.fun.out"
+stdout_squeezed = ['\equals{SortK{},SortGeneratedTopCell{}}(VarV:SortK{},kseq{}(inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("${expect}")),dotk{}()))']
+stdout_absent = ['\or{']
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["fun-untyped-llvm-definition"]
+argv = [
+  "krun", "--definition", "${prepared}/fun-untyped-llvm-definition",
+  "--pattern", "<k> V:K </k>",
+  "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/programs/tail-recursion.fun",
+]
+[workload.reference.check]
+stdout_squeezed = ["V:K#Equals0~>.K"]
+
+[[workload]]
+id = "fun/krun-tail-recursion-ladder"
+semantics = "fun"
+operation = "execute"
+title = "Run tail-recursion.fun with n iterations"
+stresses = "The `<k>` cell grows by one `setEnv` item per iteration; the cost per iteration must stay flat in n (it grew linearly, so the total quadratically, before CB-20-B)."
+origin = "draft/conformance-backlog/workers/CB-20-evidence/runs/e-tr-n*.fun (CB-20 cohort B scaling, bac3841)"
+tier = "standard"
+pins = ["k"]
+[workload.ladder]
+param = "n"
+values = [1000, 2000, 4000, 8000, 16000]
+input = "datatype nothing = Nothing let n = ref ${n} in letrec f Nothing = if @n>0 then n := @n - 1; f Nothing else 0 in f Nothing\n"
+[workload.krust]
+prepare = ["fun-untyped"]
+argv = ["krun", "--definition", "${prepared}/fun-untyped", "--sort", "Exp", "--pattern", "<k> V:K </k>", "${input}"]
+[workload.krust.check]
+stdout_squeezed = ['\equals{SortK{},SortGeneratedTopCell{}}(VarV:SortK{},kseq{}(inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("0")),dotk{}()))']
+stdout_absent = ['\or{']
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["fun-untyped-llvm-definition"]
+argv = ["krun", "--definition", "${prepared}/fun-untyped-llvm-definition", "--pattern", "<k> V:K </k>", "${input}"]
+[workload.reference.check]
+stdout_squeezed = ["V:K#Equals0~>.K"]
+
+[[workload]]
+id = "fun/krun-callcc-loop-ladder"
+semantics = "fun"
+operation = "execute"
+title = "Run a callcc loop of n iterations (constant-state control)"
+stresses = "The control of the tail-recursion ladder: the continuation restores `<k>` on every jump, so the configuration stays the same size and the cost is linear in n."
+origin = "draft/conformance-backlog/workers/CB-20-evidence/runs/e-loop-n*.fun (CB-20, the constant-state control)"
+tier = "standard"
+pins = ["k"]
+[workload.ladder]
+param = "n"
+values = [1000, 2000, 4000, 8000, 16000]
+input = "let goto = ref (fun x -> x) and n = ref 0 in callcc (fun exit -> callcc (fun k -> goto := k; 0); if @n < ${n} then n := @n + 1 else exit @n; @goto 0)\n"
+[workload.krust]
+prepare = ["fun-untyped"]
+argv = ["krun", "--definition", "${prepared}/fun-untyped", "--sort", "Exp", "--pattern", "<k> V:K </k>", "${input}"]
+[workload.krust.check]
+expect = "n"
+stdout_squeezed = ['\equals{SortK{},SortGeneratedTopCell{}}(VarV:SortK{},kseq{}(inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("${expect}")),dotk{}()))']
+stdout_absent = ['\or{']
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["fun-untyped-llvm-definition"]
+argv = ["krun", "--definition", "${prepared}/fun-untyped-llvm-definition", "--pattern", "<k> V:K </k>", "${input}"]
+[workload.reference.check]
+expect = "n"
+stdout_squeezed = ["V:K#Equals${expect}~>.K"]
+
+[[workload]]
+id = "fun/krun-constructor-bst-sorting"
+semantics = "fun"
+operation = "execute"
+title = "Run the tutorial's constructor-bst-sorting.fun (tree sort of 22 numbers)"
+stresses = "Constructor pattern matching and closures over a growing store; the slowest FUN tutorial program (50-99 s of CPU at 927b9ce6, 1.1 s on 2026-10-16)."
+origin = "CB-20 / CB-12 conformance case pl-tutorial/2_languages/3_fun/1_untyped/1_environment (scripts/conformance/expectations.toml; draft/open-issues-2026-10/units/apart-perf.md)"
+tier = "quick"
+pins = ["k"]
+[workload.krust]
+prepare = ["fun-untyped"]
+argv = [
+  "krun", "--definition", "${prepared}/fun-untyped", "--sort", "Exp",
+  "--pattern", "<k> V:K </k>",
+  "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/programs/constructor-bst-sorting.fun",
+]
+# The expected value is the sorted list [0, 0, 1, 1, ..., 10, 10, .Bottoms], as KORE.
+[workload.krust.check]
+stdout_squeezed = [
+  "\\equals{SortK{},SortGeneratedTopCell{}}(VarV:SortK{},kseq{}(inj{SortVal{},SortKItem{}}(Lbl'LSqBUndsRSqBUnds'FUN-UNTYPED-COMMON'Unds'Val'Unds'Vals{}(Lbl'UndsCommUndsUnds'FUN-UNTYPED-COMMON'Unds'Vals'Unds'Val'Unds'Vals{}(inj{SortInt{},SortVal{}}(\\dv{SortInt{}}(\"0\")),Lbl'UndsCommUndsUnds'FUN-UNTYPED-COMMON'Unds'Vals'Unds'Val'Unds'Vals{}(inj{SortInt{},SortVal{}}(\\dv{SortInt{}}(\"0\")),Lbl'UndsCommUndsUnds'FUN-UNTYPED-COMMON'Unds'Vals'Unds'Val'Unds'Vals{}(inj{SortInt{},SortVal{}}(\\dv{SortInt{}}(\"1\")),Lbl'UndsCommUndsUnds'FUN-UNTYPED-COMMON'Unds'Vals'Unds'Val'Unds'Vals{}(inj{SortInt{},SortVal{}}(\\dv{SortInt{}}(\"1\")),Lbl'UndsCommUndsUnds'FUN-UNTYPED-COMMON'Unds'Vals'Unds'Val'Unds'Vals{}(inj{SortInt{},SortVal{}}(\\dv{SortInt{}}(\"2\")),Lbl'UndsCommUndsUnds'FUN-UNTYPED-COMMON'Unds'Vals'Unds'Val'Unds'Vals{}(inj{SortInt{},SortVal{}}(\\dv{SortInt{}}(\"2\")),Lbl'UndsCommUndsUnds'FUN-UNTYPED-COMMON'Unds'Vals'Unds'Val'Unds'Vals{}(inj{SortInt{},SortVal{}}(\\dv{SortInt{}}(\"3\")),Lbl'UndsCommUndsUnds'FUN-UNTYPED-COMMON'Unds'Vals'Unds'Val'Unds'Vals{}(inj{SortInt{},SortVal{}}(\\dv{SortInt{}}(\"3\")),Lbl'UndsCommUndsUnds'FUN-UNTYPED-COMMON'Unds'Vals'Unds'Val'Unds'Vals{}(inj{SortInt{},SortVal{}}(\\dv{SortInt{}}(\"4\")),Lbl'UndsCommUndsUnds'FUN-UNTYPED-COMMON'Unds'Vals'Unds'Val'Unds'Vals{}(inj{SortInt{},SortVal{}}(\\dv{SortInt{}}(\"4\")),Lbl'UndsCommUndsUnds'FUN-UNTYPED-COMMON'Unds'Vals'Unds'Val'Unds'Vals{}(inj{SortInt{},SortVal{}}(\\dv{SortInt{}}(\"5\")),Lbl'UndsCommUndsUnds'FUN-UNTYPED-COMMON'Unds'Vals'Unds'Val'Unds'Vals{}(inj{SortInt{},SortVal{}}(\\dv{SortInt{}}(\"5\")),Lbl'UndsCommUndsUnds'FUN-UNTYPED-COMMON'Unds'Vals'Unds'Val'Unds'Vals{}(inj{SortInt{},SortVal{}}(\\dv{SortInt{}}(\"6\")),Lbl'UndsCommUndsUnds'FUN-UNTYPED-COMMON'Unds'Vals'Unds'Val'Unds'Vals{}(inj{SortInt{},SortVal{}}(\\dv{SortInt{}}(\"6\")),Lbl'UndsCommUndsUnds'FUN-UNTYPED-COMMON'Unds'Vals'Unds'Val'Unds'Vals{}(inj{SortInt{},SortVal{}}(\\dv{SortInt{}}(\"7\")),Lbl'UndsCommUndsUnds'FUN-UNTYPED-COMMON'Unds'Vals'Unds'Val'Unds'Vals{}(inj{SortInt{},SortVal{}}(\\dv{SortInt{}}(\"7\")),Lbl'UndsCommUndsUnds'FUN-UNTYPED-COMMON'Unds'Vals'Unds'Val'Unds'Vals{}(inj{SortInt{},SortVal{}}(\\dv{SortInt{}}(\"8\")),Lbl'UndsCommUndsUnds'FUN-UNTYPED-COMMON'Unds'Vals'Unds'Val'Unds'Vals{}(inj{SortInt{},SortVal{}}(\\dv{SortInt{}}(\"8\")),Lbl'UndsCommUndsUnds'FUN-UNTYPED-COMMON'Unds'Vals'Unds'Val'Unds'Vals{}(inj{SortInt{},SortVal{}}(\\dv{SortInt{}}(\"9\")),Lbl'UndsCommUndsUnds'FUN-UNTYPED-COMMON'Unds'Vals'Unds'Val'Unds'Vals{}(inj{SortInt{},SortVal{}}(\\dv{SortInt{}}(\"9\")),Lbl'UndsCommUndsUnds'FUN-UNTYPED-COMMON'Unds'Vals'Unds'Val'Unds'Vals{}(inj{SortInt{},SortVal{}}(\\dv{SortInt{}}(\"10\")),Lbl'UndsCommUndsUnds'FUN-UNTYPED-COMMON'Unds'Vals'Unds'Val'Unds'Vals{}(inj{SortInt{},SortVal{}}(\\dv{SortInt{}}(\"10\")),inj{SortBottoms{},SortVals{}}(Lbl'Stop'List'LBraQuotUndsCommUndsUnds'FUN-UNTYPED-COMMON'Unds'Bottoms'Unds'Bottom'Unds'Bottoms'QuotRBraUnds'Bottoms{}()))))))))))))))))))))))))),dotk{}()))",
+]
+stdout_absent = ['\or{']
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["fun-untyped-llvm-definition"]
+argv = [
+  "krun", "--definition", "${prepared}/fun-untyped-llvm-definition",
+  "--pattern", "<k> V:K </k>",
+  "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/programs/constructor-bst-sorting.fun",
+]
+[workload.reference.check]
+stdout_squeezed = ["V:K#Equals[0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,.Bottoms]~>.K"]

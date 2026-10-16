@@ -1,0 +1,150 @@
+# KOOL (untyped) tutorial workloads: the CB-12 conformance throughput programs and the
+# kool-load-and-typing growth reproducer. Programs come from the K checkout:
+# ${k}/pyk/regression-new/pl-tutorial/2_languages/2_kool/1_untyped/tests/.
+version = 1
+
+[[prepare]]
+name = "kool-untyped-tutorial"
+engine = "krust"
+creates = "${prepared}/kool-untyped-tutorial/runtime.json"
+argv = [
+  "kcompile", "${k}/pyk/regression-new/pl-tutorial/2_languages/2_kool/1_untyped/kool-untyped.md",
+  "--main-module", "KOOL-UNTYPED",
+  "--syntax-module", "KOOL-UNTYPED-SYNTAX",
+  "--output-directory", "${prepared}/kool-untyped-tutorial",
+  "--builtin-directory", "${builtin}",
+  "-I", "${k}/pyk/regression-new/pl-tutorial/2_languages/2_kool/1_untyped",
+]
+
+[[prepare]]
+name = "kool-untyped-tutorial-llvm"
+engine = "reference"
+creates = "${prepared}/kool-untyped-tutorial-llvm/timestamp"
+argv = [
+  "kompile", "${k}/pyk/regression-new/pl-tutorial/2_languages/2_kool/1_untyped/kool-untyped.md",
+  "--backend", "llvm",
+  "--main-module", "KOOL-UNTYPED",
+  "--syntax-module", "KOOL-UNTYPED-SYNTAX",
+  "--output-definition", "${prepared}/kool-untyped-tutorial-llvm",
+  "-I", "${k}/pyk/regression-new/pl-tutorial/2_languages/2_kool/1_untyped",
+]
+
+[[workload]]
+id = "kool/compile-untyped"
+semantics = "kool"
+operation = "compile"
+title = "Compile KOOL (untyped) from the K tutorial"
+stresses = "A mid-sized definition whose rule bubbles go through type inference, a few of them to Z3 (22 bubbles to Z3 and 212 to the portable engine at 934d29e7)."
+origin = "draft/open-issues-2026-10/tickets/repro/perf/kool-load-and-typing.sh (FOLLOWUPS 2.3, the light stand-in for WASM's Z3 rule typing)"
+tier = "quick"
+pins = ["k"]
+[workload.krust]
+argv = [
+  "kcompile", "${k}/pyk/regression-new/pl-tutorial/2_languages/2_kool/1_untyped/kool-untyped.md",
+  "--main-module", "KOOL-UNTYPED",
+  "--syntax-module", "KOOL-UNTYPED-SYNTAX",
+  "--output-directory", "${run}/compiled",
+  "--builtin-directory", "${builtin}",
+  "-I", "${k}/pyk/regression-new/pl-tutorial/2_languages/2_kool/1_untyped",
+]
+[workload.krust.check]
+files = ["${run}/compiled/definition.kore", "${run}/compiled/runtime.json"]
+[workload.reference]
+status = "paired"
+backend = "llvm"
+note = "The Haskell backend refuses KOOL's `anywhere` rules, so the pairing is the LLVM kompile, which also generates and compiles the native interpreter (8 s)."
+argv = [
+  "kompile", "${k}/pyk/regression-new/pl-tutorial/2_languages/2_kool/1_untyped/kool-untyped.md",
+  "--backend", "llvm",
+  "--main-module", "KOOL-UNTYPED",
+  "--syntax-module", "KOOL-UNTYPED-SYNTAX",
+  "--output-definition", "${run}/compiled",
+  "-I", "${k}/pyk/regression-new/pl-tutorial/2_languages/2_kool/1_untyped",
+]
+[workload.reference.check]
+files = ["${run}/compiled/definition.kore"]
+
+[[workload]]
+id = "kool/krun-empty-class"
+semantics = "kool"
+operation = "execute"
+title = "Load KOOL and run an empty main class"
+stresses = "Loading the prepared KOOL definition (rule internalization and its relevance analysis) with almost no execution after it."
+origin = "draft/open-issues-2026-10/tickets/repro/perf/kool-load-and-typing.sh (FOLLOWUPS 2.3, the relevance pass cloning a BTreeSet per variable)"
+tier = "quick"
+pins = ["k"]
+[workload.krust]
+prepare = ["kool-untyped-tutorial"]
+argv = ["krun", "--definition", "${prepared}/kool-untyped-tutorial", "--sort", "Stmt", "--io", "off", "${programs}/kool/empty-class/empty.kool"]
+[workload.krust.check]
+# The main thread finishes and the store holds the Main object.
+stdout_squeezed = ["Lbl'-LT-'threads'-GT-'{}(Lbl'Stop'ThreadCellSet{}())", "LblobjectClosure'LParUndsCommUndsRParUnds'KOOL-UNTYPED'Unds'Val'Unds'Id'Unds'List{}(\\dv{SortId{}}(\"Main\")"]
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["kool-untyped-tutorial-llvm"]
+argv = ["krun", "--definition", "${prepared}/kool-untyped-tutorial-llvm", "${programs}/kool/empty-class/empty.kool"]
+[workload.reference.check]
+stdout_squeezed = ["<threads>.ThreadCellSet</threads>", "objectClosure(Main,"]
+
+[[workload]]
+id = "kool/krun-sorting"
+semantics = "kool"
+operation = "execute"
+title = "Run KOOL's sorting.kool (sorting objects with console IO)"
+stresses = "Objects, dynamic dispatch and arrays in the store; the slowest KOOL tutorial program in the CB-12 runs (11.7 s at b64e130, 2.0 s on 2026-10-16)."
+origin = "CB-12 conformance case pl-tutorial/2_languages/2_kool/1_untyped (scripts/conformance/expectations.toml, CB-12-5 run at b64e130)"
+tier = "quick"
+pins = ["k"]
+[workload.krust]
+prepare = ["kool-untyped-tutorial"]
+stdin = "${k}/pyk/regression-new/pl-tutorial/2_languages/2_kool/1_untyped/tests/sorting.kool.in"
+argv = [
+  "krun", "--definition", "${prepared}/kool-untyped-tutorial", "--sort", "Stmt",
+  "--io", "on", "--output", "none",
+  "${k}/pyk/regression-new/pl-tutorial/2_languages/2_kool/1_untyped/tests/sorting.kool",
+]
+[workload.krust.check]
+stdout = ["Sorting the array using heap sort ... Done!\nThe resulting array is:\n1 2 4 5 \n"]
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["kool-untyped-tutorial-llvm"]
+stdin = "${k}/pyk/regression-new/pl-tutorial/2_languages/2_kool/1_untyped/tests/sorting.kool.in"
+argv = [
+  "krun", "--definition", "${prepared}/kool-untyped-tutorial-llvm", "--output", "none",
+  "${k}/pyk/regression-new/pl-tutorial/2_languages/2_kool/1_untyped/tests/sorting.kool",
+]
+[workload.reference.check]
+stdout = ["Sorting the array using heap sort ... Done!\nThe resulting array is:\n1 2 4 5 \n"]
+
+[[workload]]
+id = "kool/krun-matrix"
+semantics = "kool"
+operation = "execute"
+title = "Run KOOL's matrix.kool (matrix objects with console IO)"
+stresses = "Objects holding nested arrays, method calls in loops and token-by-token console input (8.5 s at b64e130, 1.8 s on 2026-10-16)."
+origin = "CB-12 conformance case pl-tutorial/2_languages/2_kool/1_untyped (scripts/conformance/expectations.toml, CB-12-5 run at b64e130)"
+tier = "quick"
+pins = ["k"]
+[workload.krust]
+prepare = ["kool-untyped-tutorial"]
+stdin = "${k}/pyk/regression-new/pl-tutorial/2_languages/2_kool/1_untyped/tests/matrix.kool.in"
+argv = [
+  "krun", "--definition", "${prepared}/kool-untyped-tutorial", "--sort", "Stmt",
+  "--io", "on", "--output", "none",
+  "${k}/pyk/regression-new/pl-tutorial/2_languages/2_kool/1_untyped/tests/matrix.kool",
+]
+[workload.krust.check]
+stdout = ["Line 2 (3 elements): 22 29 36\nLine 3 (3 elements): 27 36 45\nDone.\n"]
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["kool-untyped-tutorial-llvm"]
+stdin = "${k}/pyk/regression-new/pl-tutorial/2_languages/2_kool/1_untyped/tests/matrix.kool.in"
+argv = [
+  "krun", "--definition", "${prepared}/kool-untyped-tutorial-llvm", "--output", "none",
+  "${k}/pyk/regression-new/pl-tutorial/2_languages/2_kool/1_untyped/tests/matrix.kool",
+]
+[workload.reference.check]
+stdout = ["Line 2 (3 elements): 22 29 36\nLine 3 (3 elements): 27 36 45\nDone.\n"]

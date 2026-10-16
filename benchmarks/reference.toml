@@ -1,0 +1,2672 @@
+# Cached reference K measurements, written by `kbench reference`.
+# A measurement is reused while its key (command, prepare steps, runtime options, pins) matches;
+# reference K is not re-measured otherwise (benchmarks/README.md, "Reference cache").
+
+version = 1
+
+[[measurement]]
+workload = "fun/krun-ackermann"
+key = "262ad1ffdefcb9659d9839e72e65a31d27f0b6e6d493625bcb58ec8a3a48a634"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:43:39Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.8409118370000002, 1.74458275, 1.89070688, 1.836956928, 1.9366850759999998]
+cpu_seconds = [5.317046, 5.053299, 5.427411, 5.216181, 5.506945]
+peak_bytes = [207695872, 202268672, 204484608, 212746240, 207134720]
+
+[[measurement]]
+workload = "fun/krun-build-list-length"
+param = 10
+key = "a77b0deb997522fdb0838d11c5fc977b300d95ec82bddd5cc8e15d46afe67806"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:51:28Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.823355048]
+cpu_seconds = [5.042029]
+peak_bytes = [205082624]
+
+[[measurement]]
+workload = "fun/krun-build-list-length"
+param = 30
+key = "a77b0deb997522fdb0838d11c5fc977b300d95ec82bddd5cc8e15d46afe67806"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:51:28Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.9752817729999999]
+cpu_seconds = [5.361755]
+peak_bytes = [215592960]
+
+[[measurement]]
+workload = "fun/krun-build-list-length"
+param = 100
+key = "a77b0deb997522fdb0838d11c5fc977b300d95ec82bddd5cc8e15d46afe67806"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:51:28Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [3.090692465]
+cpu_seconds = [6.512606]
+peak_bytes = [207577088]
+
+[[measurement]]
+workload = "fun/krun-build-list-length"
+param = 300
+key = "a77b0deb997522fdb0838d11c5fc977b300d95ec82bddd5cc8e15d46afe67806"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:51:28Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [17.818432085]
+cpu_seconds = [21.548328]
+peak_bytes = [1718992896]
+
+[[measurement]]
+workload = "fun/krun-build-list-length"
+param = 1000
+key = "a77b0deb997522fdb0838d11c5fc977b300d95ec82bddd5cc8e15d46afe67806"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:51:28Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [383.639506084]
+cpu_seconds = [346.390451]
+peak_bytes = [17179869184]
+
+[[measurement]]
+workload = "fun/krun-build-list-length-plain"
+param = 10
+key = "e073040d9ea9e7567b5a19792ce5452f777d7c26858163ee862dcc34a0d76655"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:51:36Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [5.725978394]
+cpu_seconds = [2.686956]
+peak_bytes = [332496896]
+
+[[measurement]]
+workload = "fun/krun-build-list-length-plain"
+param = 30
+key = "e073040d9ea9e7567b5a19792ce5452f777d7c26858163ee862dcc34a0d76655"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:51:36Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.810179837]
+cpu_seconds = [2.454513]
+peak_bytes = [203288576]
+
+[[measurement]]
+workload = "fun/krun-build-list-length-plain"
+param = 100
+key = "e073040d9ea9e7567b5a19792ce5452f777d7c26858163ee862dcc34a0d76655"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:51:36Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.756540143]
+cpu_seconds = [2.310296]
+peak_bytes = [201601024]
+
+[[measurement]]
+workload = "fun/krun-build-list-length-plain"
+param = 300
+key = "e073040d9ea9e7567b5a19792ce5452f777d7c26858163ee862dcc34a0d76655"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:51:36Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.827776713]
+cpu_seconds = [2.384544]
+peak_bytes = [194670592]
+
+[[measurement]]
+workload = "fun/krun-callcc-loop-ladder"
+param = 1000
+key = "914dcaf839da1052dc328355b4e001c36e8ef71a72d14fd106a0bce4c692c8af"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:51:45Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.845292496]
+cpu_seconds = [5.235228]
+peak_bytes = [214491136]
+
+[[measurement]]
+workload = "fun/krun-callcc-loop-ladder"
+param = 2000
+key = "914dcaf839da1052dc328355b4e001c36e8ef71a72d14fd106a0bce4c692c8af"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:51:45Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.836451425]
+cpu_seconds = [5.112364]
+peak_bytes = [206770176]
+
+[[measurement]]
+workload = "fun/krun-callcc-loop-ladder"
+param = 4000
+key = "914dcaf839da1052dc328355b4e001c36e8ef71a72d14fd106a0bce4c692c8af"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:51:45Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.810614932]
+cpu_seconds = [5.250564]
+peak_bytes = [216829952]
+
+[[measurement]]
+workload = "fun/krun-callcc-loop-ladder"
+param = 8000
+key = "914dcaf839da1052dc328355b4e001c36e8ef71a72d14fd106a0bce4c692c8af"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:51:45Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.815591754]
+cpu_seconds = [5.339939]
+peak_bytes = [216293376]
+
+[[measurement]]
+workload = "fun/krun-callcc-loop-ladder"
+param = 16000
+key = "914dcaf839da1052dc328355b4e001c36e8ef71a72d14fd106a0bce4c692c8af"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:51:45Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.8524166229999999]
+cpu_seconds = [5.197086]
+peak_bytes = [216371200]
+
+[[measurement]]
+workload = "fun/krun-constructor-bst-sorting"
+key = "06f887c372eb91be1333c2924f864b30142219d55fc3087b0e63c64c47dfacb7"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:52:00Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [2.664069654, 2.306783228, 2.509328818, 2.625867667, 2.476854729]
+cpu_seconds = [6.431432, 5.887293, 5.960975, 6.311756, 5.926047]
+peak_bytes = [214847488, 218820608, 216113152, 212709376, 213327872]
+
+[[measurement]]
+workload = "fun/krun-constructor-list-length"
+key = "35f1c54d80c0d69f6eeab3cfa0e776e5f7395c851dfc3b078ebd28bbe93bb79a"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:52:11Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.7764596369999999, 1.778723398, 1.8023266, 1.812190236, 1.803990204]
+cpu_seconds = [5.155101, 4.906022, 5.161761, 5.077349, 5.285404]
+peak_bytes = [209989632, 212267008, 209199104, 209272832, 221687808]
+
+[[measurement]]
+workload = "fun/krun-factorial"
+key = "e878c04a52e80aeecd4d3ee637c0fbf736dc75e20aa8b81a19dcd66549793cea"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:52:22Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.787572819, 1.827247589, 1.7721591399999999, 1.709086871, 1.780642729]
+cpu_seconds = [5.162766, 5.306547, 5.043528, 4.941129, 5.081583]
+peak_bytes = [215175168, 214831104, 209821696, 215252992, 211050496]
+
+[[measurement]]
+workload = "fun/krun-list-1"
+key = "5a7484f9677ed86cf1963e29f964fd89e4bbe7cf2f170f4843322e5850f62dbc"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:52:33Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.828701241, 1.7314895799999999, 1.90338947, 1.716989534, 1.779799323]
+cpu_seconds = [5.083782, 4.903138, 5.483801, 4.737498, 5.033458]
+peak_bytes = [214122496, 207216640, 216342528, 208187392, 211505152]
+
+[[measurement]]
+workload = "fun/krun-list-nth"
+key = "915d22fdda5edf536677f24c4bfb019ec5815f5b41ee067ea801267c24c70f50"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:52:44Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.91223169, 1.7138745659999999, 1.8364425340000001, 1.843743814, 1.9140967899999999]
+cpu_seconds = [5.458568, 5.035195, 5.240715, 5.294632, 5.657687]
+peak_bytes = [205869056, 214708224, 212643840, 223150080, 212639744]
+
+[[measurement]]
+workload = "fun/krun-references-2"
+key = "37a563fbe811620aa2984f487912a6db17afb7db172b98a60282cc9e6a8a4484"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:52:55Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.856207403, 1.7479116810000002, 1.9335322069999998, 1.7508152369999999, 1.806673493]
+cpu_seconds = [5.179685, 5.052465, 5.279362, 5.029509, 5.029855]
+peak_bytes = [210264064, 206364672, 205832192, 215986176, 213663744]
+
+[[measurement]]
+workload = "fun/krun-tail-recursion"
+key = "56c92be7fddd67d322d28ca069e4faaa6c6b4c7e64d382ae3724c6f83827fad5"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:53:06Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.804098267, 1.773477425, 1.842344006, 1.824123661, 2.073728712]
+cpu_seconds = [5.100727, 5.024457, 5.132846, 5.094441, 5.255156]
+peak_bytes = [214700032, 214073344, 206336000, 216084480, 211632128]
+
+[[measurement]]
+workload = "fun/krun-tail-recursion-ladder"
+param = 1000
+key = "f24b66a472e617279caed6ec1ab72a8b4c63a24b5e846e558853e0cd8defb203"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:53:17Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [2.713796336]
+cpu_seconds = [6.239187]
+peak_bytes = [205398016]
+
+[[measurement]]
+workload = "fun/krun-tail-recursion-ladder"
+param = 2000
+key = "f24b66a472e617279caed6ec1ab72a8b4c63a24b5e846e558853e0cd8defb203"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:53:17Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [2.083863936]
+cpu_seconds = [5.875703]
+peak_bytes = [211578880]
+
+[[measurement]]
+workload = "fun/krun-tail-recursion-ladder"
+param = 4000
+key = "f24b66a472e617279caed6ec1ab72a8b4c63a24b5e846e558853e0cd8defb203"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:53:17Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.807427695]
+cpu_seconds = [4.956486]
+peak_bytes = [208064512]
+
+[[measurement]]
+workload = "fun/krun-tail-recursion-ladder"
+param = 8000
+key = "f24b66a472e617279caed6ec1ab72a8b4c63a24b5e846e558853e0cd8defb203"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:53:17Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.978494867]
+cpu_seconds = [5.491989]
+peak_bytes = [220409856]
+
+[[measurement]]
+workload = "fun/krun-tail-recursion-ladder"
+param = 16000
+key = "f24b66a472e617279caed6ec1ab72a8b4c63a24b5e846e558853e0cd8defb203"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:53:17Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.8869914749999999]
+cpu_seconds = [5.29114]
+peak_bytes = [209420288]
+
+[[measurement]]
+workload = "imp/compile"
+key = "b4c3b7135a5c56d55b3621108355d26f68cc3b63fd6d324bd43ba37ca33bae96"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-09-25T12:17:35Z"
+source = "scripts/benchmark.sh --measure-canonical, result set 20260925-current-d4a50b3f (imp/compile), imported"
+host = "arch-native"
+method = "cgroup v2 memory.peak of a fresh per-run cgroup that holds the whole process tree of the command"
+outcome = "ok"
+wall_seconds = [4.9193218491, 5.2497897611, 4.5058615321]
+peak_bytes = [938856448, 940916736, 970805248]
+
+[[measurement]]
+workload = "imp/krun-strict-heating"
+param = 1000
+key = "bd9afb9b7b9fcc59838cb428d6923b61b84a227e1d511b3cafe189be418b0959"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:41:43Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.074672233]
+cpu_seconds = [0.072886]
+peak_bytes = [31252480]
+
+[[measurement]]
+workload = "imp/krun-strict-heating"
+param = 4000
+key = "bd9afb9b7b9fcc59838cb428d6923b61b84a227e1d511b3cafe189be418b0959"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:41:43Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.113498458]
+cpu_seconds = [0.110156]
+peak_bytes = [44580864]
+
+[[measurement]]
+workload = "imp/krun-strict-heating"
+param = 16000
+key = "bd9afb9b7b9fcc59838cb428d6923b61b84a227e1d511b3cafe189be418b0959"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:41:43Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = 'check: exit status 139, expected 0 (stderr: …/store/lziz9j67lsvfi5mmcflh88h9p5dpgb50-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/bin-unwrapped/../lib/kframework/k-util.sh: line 114: 386046 Segmentation fault      (core dumped) "$@" ⏎ [Error] krun: kore-expand-macros  ⏎ /home/sebastiengllmt/worktrees/k-rust-kbench/target/kbench/prepared/reference-v7 ⏎ .1.337/imp-llvm-tutorial-llvm  ⏎ /tmp/.krun-2026-10-16-20-41-43-WvdbDrPWtf/tmp.in.lCuvqClAJz)'
+wall_seconds = []
+
+[[measurement]]
+workload = "imp/krun-strict-heating"
+param = 64000
+key = "bd9afb9b7b9fcc59838cb428d6923b61b84a227e1d511b3cafe189be418b0959"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:41:43Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "not run: the ladder stopped at a smaller size"
+wall_seconds = []
+
+[[measurement]]
+workload = "imp/krun-sum"
+param = 10
+key = "79ae1765c29182253c44d3a94e5dff0b152a4629602000ebe17a740d09b2502d"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:41:56Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.44275186]
+cpu_seconds = [4.212621]
+peak_bytes = [195633152]
+
+[[measurement]]
+workload = "imp/krun-sum"
+param = 100
+key = "79ae1765c29182253c44d3a94e5dff0b152a4629602000ebe17a740d09b2502d"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:41:56Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.361251488]
+cpu_seconds = [3.891537]
+peak_bytes = [174444544]
+
+[[measurement]]
+workload = "imp/krun-sum"
+param = 1000
+key = "79ae1765c29182253c44d3a94e5dff0b152a4629602000ebe17a740d09b2502d"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:41:56Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.384387225]
+cpu_seconds = [4.016584]
+peak_bytes = [191361024]
+
+[[measurement]]
+workload = "imp/krun-sum"
+param = 3000
+key = "79ae1765c29182253c44d3a94e5dff0b152a4629602000ebe17a740d09b2502d"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:41:56Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.399021829]
+cpu_seconds = [3.878928]
+peak_bytes = [183296000]
+
+[[measurement]]
+workload = "imp/krun-sum"
+param = 10000
+key = "79ae1765c29182253c44d3a94e5dff0b152a4629602000ebe17a740d09b2502d"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:41:56Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.403363654]
+cpu_seconds = [3.964824]
+peak_bytes = [186073088]
+
+[[measurement]]
+workload = "imp/krun-sumto10"
+key = "1d8d93035ad9fa6029e2dafd74590ef274ea0a95a198bb5a4ab631c8420f9e7f"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:42:04Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.370901348, 1.327238396, 1.426478537, 1.321726296, 1.390298251]
+cpu_seconds = [3.877349, 3.650454, 3.926893, 3.690982, 4.001804]
+peak_bytes = [194277376, 176291840, 178851840, 177823744, 189960192]
+
+[[measurement]]
+workload = "imp/krun-tutorial-collatz"
+key = "4f2e143c0632fb90b022c097eeb84c329daf9cf7426e81737aa69cecf2873818"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:42:13Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.770914028, 0.705794187, 0.716046547, 0.722940545, 0.686277237]
+cpu_seconds = [2.185351, 1.931054, 1.962469, 2.005464, 1.952268]
+peak_bytes = [185851904, 169766912, 167428096, 166162432, 172060672]
+
+[[measurement]]
+workload = "imp/krun-tutorial-collatz-300"
+key = "4b6f2b39efa72348205f58108c64af26a3c3139fab3fa8a346941ab08f678981"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:42:15Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.732465692, 0.790754206, 0.751742231]
+cpu_seconds = [2.094053, 2.152198, 2.013017]
+peak_bytes = [181456896, 177504256, 171675648]
+
+[[measurement]]
+workload = "imp/krun-tutorial-primes"
+key = "a96afdfafcfcda5d6137ff32def68529f538cfa354bebf1e4321a40295ac96a3"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:42:19Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.813261096, 0.721841571, 0.716819035, 0.714052079, 0.702684169]
+cpu_seconds = [2.268119, 2.103235, 2.028556, 2.059234, 1.955296]
+peak_bytes = [170676224, 173780992, 173305856, 167624704, 168714240]
+
+[[measurement]]
+workload = "imp/krun-tutorial-primes-1000"
+key = "438782f62c548237ae0eb68a634044ae2c357a967293ec6abc23492647b9d686"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:42:22Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.807951592, 0.82301137, 0.782952709]
+cpu_seconds = [2.044844, 2.17155, 2.052783]
+peak_bytes = [166780928, 174903296, 170844160]
+
+[[measurement]]
+workload = "imp/krun-tutorial-sum"
+key = "9bfbe70561b6f8fcb2ea559215d7ecc7833c961b0ad58025a309012a4aabb171"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:42:26Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.693007538, 0.749210054, 0.734507998, 0.750756481, 0.69623607]
+cpu_seconds = [1.947884, 2.070274, 2.186296, 2.13987, 1.905192]
+peak_bytes = [174804992, 177410048, 185483264, 182087680, 168333312]
+
+[[measurement]]
+workload = "imp/parse-statements-100"
+key = "b9b48618dc883a6e5e8c9d73b6162ad67776981a99897e84a2f639450fcda716"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:41:33Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [6.648445907, 6.6590117, 6.305945582, 6.333305608, 6.239450999]
+cpu_seconds = [19.783059, 19.627975, 20.051328, 20.396689, 18.319131]
+peak_bytes = [1858969600, 2128404480, 2096652288, 1922011136, 1843408896]
+
+[[measurement]]
+workload = "imp/parse-sumto10"
+key = "221438cb1928ffffd00a36a394bcf7115e8c8a31f77f4230a27b3d3b6e5e0942"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:41:37Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.645461279, 0.664389355, 0.684223862, 0.683541843, 0.658226552]
+cpu_seconds = [1.857779, 1.916485, 1.917463, 1.929205, 1.922967]
+peak_bytes = [184942592, 183525376, 170643456, 176680960, 180371456]
+
+[[measurement]]
+workload = "imp/prove-addition-var"
+key = "ee7c48d59614bcf7a98c6a8c3295b570d0c07d9e727923f61cf4f8a3ff042226"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-09-25T12:18:05Z"
+source = "scripts/benchmark.sh --measure-canonical, result set 20260925-current-d4a50b3f (imp/prove-addition-var), imported"
+host = "arch-native"
+method = "cgroup v2 memory.peak of a fresh per-run cgroup that holds the whole process tree of the command"
+outcome = "ok"
+wall_seconds = [2.8975055115400004, 2.4384953295400003, 1.89271528254, 1.9995958665399998, 2.1641422285400003]
+peak_bytes = [908718080, 904695808, 916246528, 928526336, 928272384]
+
+[[measurement]]
+workload = "imp/prove-branching-program"
+key = "044e321b13f8f04636d02e505fed756018dc90020b8c2f0ffd63b35b16978b10"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-09-25T12:18:26Z"
+source = "scripts/benchmark.sh --measure-canonical, result set 20260925-current-d4a50b3f (imp/prove-branching-program), imported"
+host = "arch-native"
+method = "cgroup v2 memory.peak of a fresh per-run cgroup that holds the whole process tree of the command"
+outcome = "ok"
+wall_seconds = [1.85446817876, 1.96770754676, 2.06296225176, 2.39182040576, 2.87145562476]
+peak_bytes = [982859776, 974434304, 961703936, 957571072, 967970816]
+
+[[measurement]]
+workload = "imp/prove-sum-loop"
+key = "5557ffa2a33520b426ff5da49e75bc1c26f7bc411e5caf834af153efb5e49528"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-09-25T12:18:45Z"
+source = "scripts/benchmark.sh --measure-canonical, result set 20260925-current-d4a50b3f (imp/prove-sum-loop), imported"
+host = "arch-native"
+method = "cgroup v2 memory.peak of a fresh per-run cgroup that holds the whole process tree of the command"
+outcome = "ok"
+wall_seconds = [2.4606011892799997, 2.64833454828, 2.2621496952799998, 2.06796716228, 2.46559764228]
+peak_bytes = [1312694272, 1320296448, 1325666304, 1348714496, 1336918016]
+
+[[measurement]]
+workload = "imp/search-kink-collatz"
+param = 5
+key = "de866ec87cc6ba4ae2b89bd1d98488fcae595fddd5dcfb39f3961b60cb689d9c"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:42:33Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.245563192]
+cpu_seconds = [0.238355]
+peak_bytes = [56451072]
+
+[[measurement]]
+workload = "imp/search-kink-collatz"
+param = 10
+key = "de866ec87cc6ba4ae2b89bd1d98488fcae595fddd5dcfb39f3961b60cb689d9c"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:42:33Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.241756292]
+cpu_seconds = [0.236107]
+peak_bytes = [43114496]
+
+[[measurement]]
+workload = "imp/search-kink-collatz"
+param = 20
+key = "de866ec87cc6ba4ae2b89bd1d98488fcae595fddd5dcfb39f3961b60cb689d9c"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:42:33Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.245451911]
+cpu_seconds = [0.237751]
+peak_bytes = [43692032]
+
+[[measurement]]
+workload = "imp/search-kink-collatz"
+param = 40
+key = "de866ec87cc6ba4ae2b89bd1d98488fcae595fddd5dcfb39f3961b60cb689d9c"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:42:33Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.277072775]
+cpu_seconds = [0.271273]
+peak_bytes = [43864064]
+
+[[measurement]]
+workload = "imp/search-kink-primes"
+param = 10
+key = "4dc2f00627f4b13e62d3a6ebd99ea752043dbf42bbeabca6a2516da7454f7056"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:42:34Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.239486035]
+cpu_seconds = [0.232231]
+peak_bytes = [44769280]
+
+[[measurement]]
+workload = "imp/search-kink-primes"
+param = 20
+key = "4dc2f00627f4b13e62d3a6ebd99ea752043dbf42bbeabca6a2516da7454f7056"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:42:34Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.216137081]
+cpu_seconds = [0.213047]
+peak_bytes = [43905024]
+
+[[measurement]]
+workload = "imp/search-kink-primes"
+param = 40
+key = "4dc2f00627f4b13e62d3a6ebd99ea752043dbf42bbeabca6a2516da7454f7056"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:42:34Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.266063444]
+cpu_seconds = [0.263083]
+peak_bytes = [44298240]
+
+[[measurement]]
+workload = "imp/search-kink-primes"
+param = 80
+key = "4dc2f00627f4b13e62d3a6ebd99ea752043dbf42bbeabca6a2516da7454f7056"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:42:34Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.260485129]
+cpu_seconds = [0.250793]
+peak_bytes = [43298816]
+
+[[measurement]]
+workload = "imp/search-kink-sum"
+param = 125
+key = "3dc8ef7114a050727cb71df711f409b36b9f96bf594637227f01e6f2a03b7288"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:42:36Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.205826851]
+cpu_seconds = [0.205047]
+peak_bytes = [43794432]
+
+[[measurement]]
+workload = "imp/search-kink-sum"
+param = 250
+key = "3dc8ef7114a050727cb71df711f409b36b9f96bf594637227f01e6f2a03b7288"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:42:36Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.308905107]
+cpu_seconds = [0.30092]
+peak_bytes = [43180032]
+
+[[measurement]]
+workload = "imp/search-kink-sum"
+param = 500
+key = "3dc8ef7114a050727cb71df711f409b36b9f96bf594637227f01e6f2a03b7288"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:42:36Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.246121674]
+cpu_seconds = [0.2371]
+peak_bytes = [43978752]
+
+[[measurement]]
+workload = "imp/search-kink-sum"
+param = 1000
+key = "3dc8ef7114a050727cb71df711f409b36b9f96bf594637227f01e6f2a03b7288"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:42:36Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.226366548]
+cpu_seconds = [0.218516]
+peak_bytes = [44105728]
+
+[[measurement]]
+workload = "imp/search-kink-sum"
+param = 2000
+key = "3dc8ef7114a050727cb71df711f409b36b9f96bf594637227f01e6f2a03b7288"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:42:36Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.274213505]
+cpu_seconds = [0.265376]
+peak_bytes = [44683264]
+
+[[measurement]]
+workload = "imp/search-kink-sum-heavy"
+param = 3000
+key = "3dc8ef7114a050727cb71df711f409b36b9f96bf594637227f01e6f2a03b7288"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:41:54Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.313777797]
+cpu_seconds = [0.294861]
+peak_bytes = [135061504]
+
+[[measurement]]
+workload = "imp/search-kink-sum-heavy"
+param = 4000
+key = "3dc8ef7114a050727cb71df711f409b36b9f96bf594637227f01e6f2a03b7288"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:41:54Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.297601891]
+cpu_seconds = [0.293995]
+peak_bytes = [43495424]
+
+[[measurement]]
+workload = "imp/search-kink-sum-heavy"
+param = 6000
+key = "3dc8ef7114a050727cb71df711f409b36b9f96bf594637227f01e6f2a03b7288"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:41:54Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.314055582]
+cpu_seconds = [0.308752]
+peak_bytes = [44195840]
+
+[[measurement]]
+workload = "imp/search-kink-wide8"
+param = 32
+key = "6275a85af2bfdac8322a09cfba5488b6be259770e39c27b17a3c4ca5ce4b5e57"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:42:41Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.259865909]
+cpu_seconds = [0.254405]
+peak_bytes = [43352064]
+
+[[measurement]]
+workload = "imp/search-kink-wide8"
+param = 64
+key = "6275a85af2bfdac8322a09cfba5488b6be259770e39c27b17a3c4ca5ce4b5e57"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:42:41Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.344109016]
+cpu_seconds = [0.339174]
+peak_bytes = [43778048]
+
+[[measurement]]
+workload = "imp/search-kink-wide8"
+param = 128
+key = "6275a85af2bfdac8322a09cfba5488b6be259770e39c27b17a3c4ca5ce4b5e57"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:42:41Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.432640933]
+cpu_seconds = [0.422181]
+peak_bytes = [43384832]
+
+[[measurement]]
+workload = "imp/search-kink-wide8"
+param = 256
+key = "6275a85af2bfdac8322a09cfba5488b6be259770e39c27b17a3c4ca5ce4b5e57"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:42:41Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.12765725]
+cpu_seconds = [1.119892]
+peak_bytes = [43409408]
+
+[[measurement]]
+workload = "imp/search-kink-wide8"
+param = 512
+key = "6275a85af2bfdac8322a09cfba5488b6be259770e39c27b17a3c4ca5ce4b5e57"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:42:41Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [3.686483882]
+cpu_seconds = [3.664342]
+peak_bytes = [44744704]
+
+[[measurement]]
+workload = "imp/search-spawn-interleavings"
+key = "f16656fd81d256559aa09bb91275fb77990dcd8ee211941eaa6d48ff1be2aaf0"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:42:55Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.02711369, 1.010272755, 1.080106116, 1.111007547, 1.02946997]
+cpu_seconds = [2.944184, 2.85715, 3.036848, 3.057482, 2.951515]
+peak_bytes = [203804672, 204533760, 205443072, 200957952, 202670080]
+
+[[measurement]]
+workload = "imp/search-strict-heating"
+param = 256
+key = "29a2fefaa6ec086df179dd91e6d03e6ad261300d81895e558a4491556a69bb87"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:43:01Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.153312644]
+cpu_seconds = [0.150458]
+peak_bytes = [27828224]
+
+[[measurement]]
+workload = "imp/search-strict-heating"
+param = 512
+key = "29a2fefaa6ec086df179dd91e6d03e6ad261300d81895e558a4491556a69bb87"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:43:01Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.226413466]
+cpu_seconds = [0.22464]
+peak_bytes = [27000832]
+
+[[measurement]]
+workload = "imp/search-strict-heating"
+param = 1024
+key = "29a2fefaa6ec086df179dd91e6d03e6ad261300d81895e558a4491556a69bb87"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:43:01Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.348893266]
+cpu_seconds = [0.346415]
+peak_bytes = [27705344]
+
+[[measurement]]
+workload = "imp/search-strict-heating"
+param = 2048
+key = "29a2fefaa6ec086df179dd91e6d03e6ad261300d81895e558a4491556a69bb87"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:43:01Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.929962828]
+cpu_seconds = [0.924904]
+peak_bytes = [31531008]
+
+[[measurement]]
+workload = "imp/search-strict-heating"
+param = 4096
+key = "29a2fefaa6ec086df179dd91e6d03e6ad261300d81895e558a4491556a69bb87"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:43:01Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [3.59826422]
+cpu_seconds = [3.57927]
+peak_bytes = [44376064]
+
+[[measurement]]
+workload = "imp/search-strict-heating-control"
+param = 256
+key = "6d3cc5f46657781b36e5d7ffd358f3e9263b664a633e7334c091bfa7de1a793c"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:43:02Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.148919106]
+cpu_seconds = [0.146897]
+peak_bytes = [27561984]
+
+[[measurement]]
+workload = "imp/search-strict-heating-control"
+param = 512
+key = "6d3cc5f46657781b36e5d7ffd358f3e9263b664a633e7334c091bfa7de1a793c"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:43:02Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.150982873]
+cpu_seconds = [0.148497]
+peak_bytes = [27119616]
+
+[[measurement]]
+workload = "imp/search-strict-heating-control"
+param = 1024
+key = "6d3cc5f46657781b36e5d7ffd358f3e9263b664a633e7334c091bfa7de1a793c"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:43:02Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.14520405]
+cpu_seconds = [0.141653]
+peak_bytes = [28487680]
+
+[[measurement]]
+workload = "imp/search-strict-heating-control"
+param = 2048
+key = "6d3cc5f46657781b36e5d7ffd358f3e9263b664a633e7334c091bfa7de1a793c"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:43:02Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.172360822]
+cpu_seconds = [0.167011]
+peak_bytes = [28909568]
+
+[[measurement]]
+workload = "imp/search-strict-heating-control"
+param = 4096
+key = "6d3cc5f46657781b36e5d7ffd358f3e9263b664a633e7334c091bfa7de1a793c"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:43:02Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.211415923]
+cpu_seconds = [0.205008]
+peak_bytes = [35110912]
+
+[[measurement]]
+workload = "imp/search-sum"
+param = 10
+key = "99003917045fb5a194fc8a3df2594fb15374ad0d703f679ad1c4d7817edbb7dd"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:43:09Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.515093831]
+cpu_seconds = [4.053413]
+peak_bytes = [185700352]
+
+[[measurement]]
+workload = "imp/search-sum"
+param = 100
+key = "99003917045fb5a194fc8a3df2594fb15374ad0d703f679ad1c4d7817edbb7dd"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:43:09Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.46963337]
+cpu_seconds = [3.948984]
+peak_bytes = [185241600]
+
+[[measurement]]
+workload = "imp/search-sum"
+param = 1000
+key = "99003917045fb5a194fc8a3df2594fb15374ad0d703f679ad1c4d7817edbb7dd"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:43:09Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.469292842]
+cpu_seconds = [3.805098]
+peak_bytes = [181473280]
+
+[[measurement]]
+workload = "imp/search-sum"
+param = 3000
+key = "99003917045fb5a194fc8a3df2594fb15374ad0d703f679ad1c4d7817edbb7dd"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:43:09Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.61740153]
+cpu_seconds = [4.087947]
+peak_bytes = [183492608]
+
+[[measurement]]
+workload = "imp/search-sum"
+param = 10000
+key = "99003917045fb5a194fc8a3df2594fb15374ad0d703f679ad1c4d7817edbb7dd"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:43:09Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.54623684]
+cpu_seconds = [3.979912]
+peak_bytes = [180256768]
+
+[[measurement]]
+workload = "imp/search-sumto10"
+key = "353882732f1022738c4680c77f00f362d5370c0c16438d686d089ac19a27cf1f"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:43:19Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.5310255160000001, 1.559645405, 1.475367073, 1.513732215, 1.6024505100000002]
+cpu_seconds = [4.099211, 4.239127, 3.982317, 4.238058, 4.407656]
+peak_bytes = [185962496, 178393088, 181510144, 183791616, 184074240]
+
+[[measurement]]
+workload = "kevm/compile"
+key = "1c34cc6fa98ee3a0872b8d6bdc812e69cbd02b990e0d0ca9892a97532f055940"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-09-25T12:20:34Z"
+source = "scripts/benchmark.sh --measure-canonical, result set 20260925-current-d4a50b3f (kevm/compile), imported"
+host = "arch-native"
+method = "cgroup v2 memory.peak of a fresh per-run cgroup that holds the whole process tree of the command"
+outcome = "ok"
+wall_seconds = [54.40255850809999]
+peak_bytes = [2845884416]
+
+[[measurement]]
+workload = "kevm/compile-optimizations"
+key = "ef8813c1be67dd3ea7c2b81c5e79f9f9458a783a527ea0fb43f40cf33e98afd2"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:14:26Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [42.197832589, 33.681931459, 35.362535976]
+cpu_seconds = [65.946208, 56.006985, 57.143048]
+peak_bytes = [2551640064, 2412744704, 2416353280]
+
+[[measurement]]
+workload = "kevm/prove-infinite-gas"
+key = "cc0b2f8fae39cc6e6d46c3bf1da2a619590523f4cd36ed533e8233d739a8ae1b"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:16:01Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [16.586256136, 17.268356926, 17.215591916]
+cpu_seconds = [32.225393, 33.558748, 31.172768]
+peak_bytes = [2259128320, 2297438208, 2237149184]
+
+[[measurement]]
+workload = "kevm/prove-trivial-claim"
+key = "753ad97eebd4028b9719cc3aeed559989923c2520b4031f40371becbd13db473"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-09-25T12:24:39Z"
+source = "scripts/benchmark.sh --measure-canonical, result set 20260925-current-d4a50b3f (kevm/prove-gfob-min), imported"
+host = "arch-native"
+method = "cgroup v2 memory.peak of a fresh per-run cgroup that holds the whole process tree of the command"
+outcome = "ok"
+wall_seconds = [17.51640423494, 24.26998825294, 17.44347194194]
+peak_bytes = [2354491392, 2419818496, 2330128384]
+
+[[measurement]]
+workload = "kmir/compile"
+key = "5bc7e63941b03b215f5a585022ecc4d5e34c99fa76db29ac555dbab9e0e9f087"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:22:09Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [26.96753563, 23.822096209, 25.360371459]
+cpu_seconds = [48.279781, 43.187995, 45.99545]
+peak_bytes = [2341912576, 2449162240, 2618286080]
+
+[[measurement]]
+workload = "kmir/execute-main-a-b-c"
+key = "55fc0b463436277a35d767cddb6cc94263867d05fffc005812210bdd5115f1e2"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:42:22Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.964789741]
+cpu_seconds = [0.97076]
+peak_bytes = [1104158720]
+
+[[measurement]]
+workload = "kool/compile-untyped"
+key = "8c7c672c5c3b74b9874f4b2cf50ec5079475ba88c3ba88a7fa938a2f2d890392"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:54:42Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [7.331708014, 7.490691852, 7.405357447, 7.289684389, 7.284569433]
+cpu_seconds = [23.15347, 23.690058, 22.622828, 22.741252, 22.948535]
+peak_bytes = [928337920, 942018560, 976334848, 904368128, 881258496]
+
+[[measurement]]
+workload = "kool/krun-empty-class"
+key = "0144cd521f4d2c8088d0bf3e682f5552ec5705b345885ec567ee22480d7d14a6"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:54:54Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.799540808, 0.787046224, 0.760495689, 0.765729408, 0.727630114]
+cpu_seconds = [2.132842, 2.143082, 2.011172, 2.083245, 1.960022]
+peak_bytes = [200335360, 198070272, 198860800, 196669440, 197128192]
+
+[[measurement]]
+workload = "kool/krun-matrix"
+key = "7c5ef5fc2379ad747b97cf65806b23208fd7f7d40ab78ad556a156fd602e0596"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:55:00Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.950195371, 0.981371146, 0.975590524, 0.960825795, 1.023175141]
+cpu_seconds = [3.133185, 3.222247, 3.271129, 3.301917, 3.449694]
+peak_bytes = [293326848, 290664448, 296370176, 298147840, 311705600]
+
+[[measurement]]
+workload = "kool/krun-sorting"
+key = "2f78e02a3ad14dd47e3eb700afab71cd760f8da2f7a5ac537e8c4a52d1448e1f"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:55:07Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.194546426, 1.075123141, 1.084870529, 1.146713689, 1.076682653]
+cpu_seconds = [4.387077, 4.091834, 4.091845, 3.973692, 4.131273]
+peak_bytes = [334221312, 319254528, 319401984, 314257408, 319590400]
+
+[[measurement]]
+workload = "kwasm/compile"
+key = "b230ddfb7433a5c96818a3e2e5e2dd1e6b1cdb9a2517b844965484daa130778a"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:17:32Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [31.372181856, 30.079441344, 29.5572881]
+cpu_seconds = [52.354772, 50.526046, 51.08554]
+peak_bytes = [2215161856, 2388705280, 2418454528]
+
+[[measurement]]
+workload = "kwasm/prove-functions"
+key = "931fbff7a634456c0b64c87b6f03d61e689f741b7f157c0a3b41f88954fb777e"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:18:45Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [7.424722397, 7.372646977, 7.627413098, 7.216595368, 7.161467008]
+cpu_seconds = [19.25461, 18.436311, 19.338565, 18.24016, 18.450155]
+peak_bytes = [1999978496, 1941213184, 2026377216, 1971159040, 1916125184]
+
+[[measurement]]
+workload = "kwasm/prove-locals"
+key = "317c59b276e88423969a5550c17a98c32fbe5937c2406e76149a31ec5db50d3e"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:19:19Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [5.707997786, 5.540728322, 5.5173565799999995, 5.541625027, 5.960718963]
+cpu_seconds = [16.407308, 16.067097, 16.271412, 15.840653, 15.763222]
+peak_bytes = [1929035776, 1975279616, 1983655936, 1904017408, 1970491392]
+
+[[measurement]]
+workload = "kwasm/prove-memory"
+key = "c3ff4c7d3296c35849991bd7f4b2f96f0faaaa284c7ad0b9c8aa27ecabd4744d"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:20:04Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [7.109663439, 7.298019274, 7.436197449, 8.54665921, 6.832779898]
+cpu_seconds = [18.571719, 18.314245, 18.084646, 20.245615, 17.205657]
+peak_bytes = [2000949248, 1992388608, 2001698816, 2213969920, 2001776640]
+
+[[measurement]]
+workload = "kwasm/prove-simple-arithmetic"
+key = "bfb047cdd69c385ad7198b4797292865f0dd8c8529f38438e7c569f9ba82c65f"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:20:53Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [6.189943626, 9.169957556, 11.379257106, 7.823439412, 6.770672108]
+cpu_seconds = [16.553977, 20.375336, 23.441886, 21.087681, 18.70919]
+peak_bytes = [1978429440, 2117607424, 2081456128, 1972613120, 2087698432]
+
+[[measurement]]
+workload = "simple/krun-collatz-input"
+param = 10
+key = "f9fcb307ac894788cb278ef02ec49e8d348977433f37ad10a69d394b52cfe812"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:53:39Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.750949174]
+cpu_seconds = [2.130292]
+peak_bytes = [207552512]
+
+[[measurement]]
+workload = "simple/krun-collatz-input"
+param = 20
+key = "f9fcb307ac894788cb278ef02ec49e8d348977433f37ad10a69d394b52cfe812"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:53:39Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.845226158]
+cpu_seconds = [2.297823]
+peak_bytes = [218587136]
+
+[[measurement]]
+workload = "simple/krun-collatz-input"
+param = 40
+key = "f9fcb307ac894788cb278ef02ec49e8d348977433f37ad10a69d394b52cfe812"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:53:39Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.769852074]
+cpu_seconds = [2.258047]
+peak_bytes = [212090880]
+
+[[measurement]]
+workload = "simple/krun-collatz-input"
+param = 80
+key = "f9fcb307ac894788cb278ef02ec49e8d348977433f37ad10a69d394b52cfe812"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:53:39Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.801356951]
+cpu_seconds = [2.266131]
+peak_bytes = [215687168]
+
+[[measurement]]
+workload = "simple/krun-collatz-input"
+param = 160
+key = "f9fcb307ac894788cb278ef02ec49e8d348977433f37ad10a69d394b52cfe812"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:53:39Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.895526663]
+cpu_seconds = [2.482541]
+peak_bytes = [222269440]
+
+[[measurement]]
+workload = "simple/krun-matrix"
+key = "b1c39a2c2e3f694063542cae977bd772d47f310baa4cd07b3f9e0a192e4adef1"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:53:45Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.825409169, 0.860680296, 0.927196901, 0.883583457, 0.886326524]
+cpu_seconds = [2.586356, 2.673354, 2.785222, 2.724163, 2.911592]
+peak_bytes = [212832256, 214020096, 216129536, 208789504, 224890880]
+
+[[measurement]]
+workload = "simple/krun-sortings"
+key = "e0401cf72bd2588983b02f3e038ccf59a33c41e907e71f3b2149a4b03e9164cf"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:53:51Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.049848462, 1.084233515, 1.051296624, 1.054704726, 1.098595532]
+cpu_seconds = [3.991357, 4.245787, 4.273127, 3.884094, 4.122956]
+peak_bytes = [412938240, 352026624, 334127104, 406429696, 350892032]
+
+[[measurement]]
+workload = "simple/krun-threads-12"
+key = "937c3d119138f337af161d5eae77af397b599c451a9b5b3ce217a152f78b700b"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:53:56Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.771182398, 0.75319232, 0.789501926, 0.718822904, 0.776281301]
+cpu_seconds = [2.276738, 2.172781, 2.242807, 2.146601, 2.232191]
+peak_bytes = [215654400, 211267584, 211345408, 219373568, 214355968]
+
+[[measurement]]
+workload = "simple/search-collatz-input"
+param = 5
+key = "79cd459f1a50645dfe8a474cff3d24b013b54dece7ad68000951b3c9f4d6c1fe"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:54:06Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.9225669459999999]
+cpu_seconds = [5.50502]
+peak_bytes = [221765632]
+
+[[measurement]]
+workload = "simple/search-collatz-input"
+param = 10
+key = "79cd459f1a50645dfe8a474cff3d24b013b54dece7ad68000951b3c9f4d6c1fe"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:54:06Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.849192975]
+cpu_seconds = [5.182447]
+peak_bytes = [226430976]
+
+[[measurement]]
+workload = "simple/search-collatz-input"
+param = 20
+key = "79cd459f1a50645dfe8a474cff3d24b013b54dece7ad68000951b3c9f4d6c1fe"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:54:06Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.895835925]
+cpu_seconds = [5.36435]
+peak_bytes = [221626368]
+
+[[measurement]]
+workload = "simple/search-collatz-input"
+param = 30
+key = "79cd459f1a50645dfe8a474cff3d24b013b54dece7ad68000951b3c9f4d6c1fe"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:54:06Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.953821885]
+cpu_seconds = [5.207382]
+peak_bytes = [211300352]
+
+[[measurement]]
+workload = "simple/search-collatz-input"
+param = 40
+key = "79cd459f1a50645dfe8a474cff3d24b013b54dece7ad68000951b3c9f4d6c1fe"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:54:06Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [2.005080817]
+cpu_seconds = [5.469582]
+peak_bytes = [223776768]
+
+[[measurement]]
+workload = "simple/search-collatz-input-heavy"
+param = 60
+key = "79cd459f1a50645dfe8a474cff3d24b013b54dece7ad68000951b3c9f4d6c1fe"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:41:59Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [2.12452197]
+cpu_seconds = [5.36735]
+peak_bytes = [238149632]
+
+[[measurement]]
+workload = "simple/search-collatz-input-heavy"
+param = 80
+key = "79cd459f1a50645dfe8a474cff3d24b013b54dece7ad68000951b3c9f4d6c1fe"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:41:59Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [2.4674483289999998]
+cpu_seconds = [6.032841]
+peak_bytes = [216989696]
+
+[[measurement]]
+workload = "toy/compile-append"
+key = "bf9cc93332914f2008895a6897ca7319b897de7db994ff46956002d7ad8706dc"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:58:37Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [3.602648985, 3.5803697, 3.676422879, 3.811673321, 4.682561257]
+cpu_seconds = [8.810362, 8.529564, 8.874908, 9.328843, 10.698427]
+peak_bytes = [435707904, 420470784, 428257280, 421486592, 421486592]
+
+[[measurement]]
+workload = "toy/compile-cell-map"
+key = "377b8beb803c85c667af4d025cdda3f86495ab841b9d2059c6a5200f8bf197a1"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:58:59Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [4.5840448259999995, 3.714907204, 4.178490209, 6.242479738, 3.811087218]
+cpu_seconds = [11.315539, 9.807291, 10.792884, 12.626904, 9.863378]
+peak_bytes = [1187885056, 1168338944, 1174364160, 1193127936, 1170108416]
+
+[[measurement]]
+workload = "toy/compile-import-chain"
+param = 500
+key = "0ba5a07372e5c698590606dcefb92dd0ba95851c5531d3ba7322ec6a49386c08"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:59:24Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [3.602328567]
+cpu_seconds = [10.367266]
+peak_bytes = [794497024]
+
+[[measurement]]
+workload = "toy/compile-import-chain"
+param = 1000
+key = "0ba5a07372e5c698590606dcefb92dd0ba95851c5531d3ba7322ec6a49386c08"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:59:24Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [4.542345451]
+cpu_seconds = [12.481601]
+peak_bytes = [977092608]
+
+[[measurement]]
+workload = "toy/compile-import-chain"
+param = 2000
+key = "0ba5a07372e5c698590606dcefb92dd0ba95851c5531d3ba7322ec6a49386c08"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:59:24Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [10.346045003]
+cpu_seconds = [20.267199]
+peak_bytes = [1950081024]
+
+[[measurement]]
+workload = "toy/compile-import-chain"
+param = 4000
+key = "0ba5a07372e5c698590606dcefb92dd0ba95851c5531d3ba7322ec6a49386c08"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:59:24Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "check: exit status 1, expected 0 (stderr: …[Error] Internal: Uncaught exception thrown of type StackOverflowError. ⏎ Please rerun your program with the --debug flag to generate a stack trace, and ⏎ file a bug report at https://github.com/runtimeverification/k/issues ⏎ (StackOverflowError: null))"
+wall_seconds = []
+
+[[measurement]]
+workload = "toy/compile-list-literal"
+param = 25
+key = "e9375322cd6f663e260145444b477451295993746b81b09e93bb6a2d8f9ec8e3"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:59:43Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [5.983799359]
+cpu_seconds = [12.648901]
+peak_bytes = [592924672]
+
+[[measurement]]
+workload = "toy/compile-list-literal"
+param = 50
+key = "e9375322cd6f663e260145444b477451295993746b81b09e93bb6a2d8f9ec8e3"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:59:43Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [4.5126515860000005]
+cpu_seconds = [9.390945]
+peak_bytes = [575516672]
+
+[[measurement]]
+workload = "toy/compile-list-literal"
+param = 100
+key = "e9375322cd6f663e260145444b477451295993746b81b09e93bb6a2d8f9ec8e3"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:59:43Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [4.163371364]
+cpu_seconds = [8.736133]
+peak_bytes = [601804800]
+
+[[measurement]]
+workload = "toy/compile-list-literal"
+param = 200
+key = "e9375322cd6f663e260145444b477451295993746b81b09e93bb6a2d8f9ec8e3"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:59:43Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [4.201799168]
+cpu_seconds = [9.776206]
+peak_bytes = [621273088]
+
+[[measurement]]
+workload = "toy/compile-owise-functions"
+key = "b6e0763e2e76c540105889a0b53352bec61afae0a457644800ad91f647889594"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:00:04Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [4.564753976, 4.593505966, 4.3149871619999995, 3.37543351, 3.855950284]
+cpu_seconds = [9.788449, 9.648194, 8.73765, 8.361803, 8.217841]
+peak_bytes = [557338624, 570798080, 565874688, 578801664, 590856192]
+
+[[measurement]]
+workload = "toy/compile-subsort-chain"
+param = 125
+key = "647a006a90a6cc6cf3a4b3d2a7c2c21b1f8210793c540d800197bbd7fdc53bc7"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:05:42Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [4.743479484]
+cpu_seconds = [10.800706]
+peak_bytes = [1566109696]
+
+[[measurement]]
+workload = "toy/compile-subsort-chain"
+param = 250
+key = "647a006a90a6cc6cf3a4b3d2a7c2c21b1f8210793c540d800197bbd7fdc53bc7"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:05:42Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [8.015996185]
+cpu_seconds = [16.723399]
+peak_bytes = [1835237376]
+
+[[measurement]]
+workload = "toy/compile-subsort-chain"
+param = 500
+key = "647a006a90a6cc6cf3a4b3d2a7c2c21b1f8210793c540d800197bbd7fdc53bc7"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:05:42Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [54.562377442]
+cpu_seconds = [71.548822]
+peak_bytes = [2760916992]
+
+[[measurement]]
+workload = "toy/compile-subsort-chain"
+param = 1000
+key = "647a006a90a6cc6cf3a4b3d2a7c2c21b1f8210793c540d800197bbd7fdc53bc7"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:05:42Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [270.226318195]
+cpu_seconds = [339.020757]
+peak_bytes = [6547771392]
+
+[[measurement]]
+workload = "toy/growth-ambiguous-chain"
+param = 25
+key = "f61c0c59a4da23484debce568216bf53317982fdfdfbe2b3906a76dbecf45154"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:56:58Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.993200737]
+cpu_seconds = [4.451902]
+peak_bytes = [398909440]
+
+[[measurement]]
+workload = "toy/growth-ambiguous-chain"
+param = 50
+key = "f61c0c59a4da23484debce568216bf53317982fdfdfbe2b3906a76dbecf45154"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:56:58Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [3.041795459]
+cpu_seconds = [8.982832]
+peak_bytes = [1244704768]
+
+[[measurement]]
+workload = "toy/growth-ambiguous-chain"
+param = 100
+key = "f61c0c59a4da23484debce568216bf53317982fdfdfbe2b3906a76dbecf45154"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:56:58Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [50.126413798]
+cpu_seconds = [168.805531]
+peak_bytes = [4676972544]
+
+[[measurement]]
+workload = "toy/growth-ambiguous-chain"
+param = 200
+key = "f61c0c59a4da23484debce568216bf53317982fdfdfbe2b3906a76dbecf45154"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:56:58Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "check: exit status 1, expected 113 (stderr: …[Error] Internal: Uncaught exception thrown of type OutOfMemoryError. ⏎ Please rerun your program with the --debug flag to generate a stack trace, and ⏎ file a bug report at https://github.com/runtimeverification/k/issues ⏎ (OutOfMemoryError: Java heap space))"
+wall_seconds = []
+
+[[measurement]]
+workload = "toy/growth-ambiguous-chain-control"
+param = 25
+key = "e9575fc1a74642f5fa9a223e03664e4fe2072cf5b3a59b11c44f6f62f1ed670b"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:58:03Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.815480384]
+cpu_seconds = [2.980073]
+peak_bytes = [204382208]
+
+[[measurement]]
+workload = "toy/growth-ambiguous-chain-control"
+param = 50
+key = "e9575fc1a74642f5fa9a223e03664e4fe2072cf5b3a59b11c44f6f62f1ed670b"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:58:03Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.263640472]
+cpu_seconds = [5.498682]
+peak_bytes = [573526016]
+
+[[measurement]]
+workload = "toy/growth-ambiguous-chain-control"
+param = 100
+key = "e9575fc1a74642f5fa9a223e03664e4fe2072cf5b3a59b11c44f6f62f1ed670b"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:58:03Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [5.536752109]
+cpu_seconds = [17.273551]
+peak_bytes = [1815941120]
+
+[[measurement]]
+workload = "toy/growth-ambiguous-chain-control"
+param = 200
+key = "e9575fc1a74642f5fa9a223e03664e4fe2072cf5b3a59b11c44f6f62f1ed670b"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:58:03Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "check: exit status 1, expected 0 (stderr: …[Error] Internal: Uncaught exception thrown of type OutOfMemoryError. ⏎ Please rerun your program with the --debug flag to generate a stack trace, and ⏎ file a bug report at https://github.com/runtimeverification/k/issues ⏎ (OutOfMemoryError: Java heap space: failed reallocation of scalar replaced ⏎ objects))"
+wall_seconds = []
+
+[[measurement]]
+workload = "toy/growth-fn-recursion"
+param = 25000
+key = "baca70d162c5057618f306139a67adc2609cdd218c2818a985d7c9486e4c2cd4"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:10:37Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.950079497]
+cpu_seconds = [2.335059]
+peak_bytes = [170352640]
+
+[[measurement]]
+workload = "toy/growth-fn-recursion"
+param = 50000
+key = "baca70d162c5057618f306139a67adc2609cdd218c2818a985d7c9486e4c2cd4"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:10:37Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.908709369]
+cpu_seconds = [2.472367]
+peak_bytes = [188203008]
+
+[[measurement]]
+workload = "toy/growth-fn-recursion"
+param = 100000
+key = "baca70d162c5057618f306139a67adc2609cdd218c2818a985d7c9486e4c2cd4"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:10:37Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.778899708]
+cpu_seconds = [2.010613]
+peak_bytes = [171433984]
+
+[[measurement]]
+workload = "toy/growth-fn-recursion"
+param = 200000
+key = "baca70d162c5057618f306139a67adc2609cdd218c2818a985d7c9486e4c2cd4"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:10:37Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "check: exit status 255, expected 0 (stderr: …-1  ⏎ /tmp/.krun-2026-10-16-21-09-29-LJBDfFVNIi/result.kore ⏎ Syntax error at /tmp/.krun-2026-10-16-21-09-29-LJBDfFVNIi/result.kore:1.1: Expected: [<id>, <string>] Actual: <EOF> ⏎ [Error] krun: kore-print --definition  ⏎ /home/sebastiengllmt/worktrees/k-rust-kbench/target/kbench/prepared/reference-v7 ⏎ .1.337/growth-fn-llvm --output pretty  ⏎ /tmp/.krun-2026-10-16-21-09-29-LJBDfFVNIi/result.kore --color off)"
+wall_seconds = []
+
+[[measurement]]
+workload = "toy/growth-fn-recursion-control"
+param = 25000
+key = "d8ae83d95adec4dff5980e8538777835381677489a3cfc08c40d0d1071d4823a"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:10:44Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.669904271]
+cpu_seconds = [1.76878]
+peak_bytes = [176340992]
+
+[[measurement]]
+workload = "toy/growth-fn-recursion-control"
+param = 50000
+key = "d8ae83d95adec4dff5980e8538777835381677489a3cfc08c40d0d1071d4823a"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:10:44Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.666185797]
+cpu_seconds = [1.722394]
+peak_bytes = [171659264]
+
+[[measurement]]
+workload = "toy/growth-fn-recursion-control"
+param = 100000
+key = "d8ae83d95adec4dff5980e8538777835381677489a3cfc08c40d0d1071d4823a"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:10:44Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.682868479]
+cpu_seconds = [1.791033]
+peak_bytes = [180932608]
+
+[[measurement]]
+workload = "toy/growth-fn-recursion-control"
+param = 200000
+key = "d8ae83d95adec4dff5980e8538777835381677489a3cfc08c40d0d1071d4823a"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:10:44Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.118412524]
+cpu_seconds = [2.348957]
+peak_bytes = [172544000]
+
+[[measurement]]
+workload = "toy/growth-map-update"
+param = 16000
+key = "9ace7f2e2be2a744cb9f412bb60a964127c14ce099c65dd0b6d76573cdc7d89f"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:10:56Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.10619987]
+cpu_seconds = [2.749805]
+peak_bytes = [184504320]
+
+[[measurement]]
+workload = "toy/growth-map-update"
+param = 32000
+key = "9ace7f2e2be2a744cb9f412bb60a964127c14ce099c65dd0b6d76573cdc7d89f"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:10:56Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.168379445]
+cpu_seconds = [2.560986]
+peak_bytes = [174841856]
+
+[[measurement]]
+workload = "toy/growth-map-update"
+param = 64000
+key = "9ace7f2e2be2a744cb9f412bb60a964127c14ce099c65dd0b6d76573cdc7d89f"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:10:56Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.514515559]
+cpu_seconds = [2.909594]
+peak_bytes = [170344448]
+
+[[measurement]]
+workload = "toy/growth-map-update"
+param = 128000
+key = "9ace7f2e2be2a744cb9f412bb60a964127c14ce099c65dd0b6d76573cdc7d89f"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:10:56Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.110847816]
+cpu_seconds = [2.542735]
+peak_bytes = [169472000]
+
+[[measurement]]
+workload = "toy/growth-map-update"
+param = 256000
+key = "9ace7f2e2be2a744cb9f412bb60a964127c14ce099c65dd0b6d76573cdc7d89f"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:10:56Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [2.13511632]
+cpu_seconds = [3.380873]
+peak_bytes = [174444544]
+
+[[measurement]]
+workload = "toy/growth-map-update-control"
+param = 16000
+key = "b02e91f042b301119c5190cb5c31f7b67f6126e539b10f7008da7873edd1a5eb"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:11:04Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.716762796]
+cpu_seconds = [1.865059]
+peak_bytes = [168796160]
+
+[[measurement]]
+workload = "toy/growth-map-update-control"
+param = 32000
+key = "b02e91f042b301119c5190cb5c31f7b67f6126e539b10f7008da7873edd1a5eb"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:11:04Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.707468875]
+cpu_seconds = [1.844297]
+peak_bytes = [175955968]
+
+[[measurement]]
+workload = "toy/growth-map-update-control"
+param = 64000
+key = "b02e91f042b301119c5190cb5c31f7b67f6126e539b10f7008da7873edd1a5eb"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:11:04Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.725244349]
+cpu_seconds = [1.81123]
+peak_bytes = [177430528]
+
+[[measurement]]
+workload = "toy/growth-map-update-control"
+param = 128000
+key = "b02e91f042b301119c5190cb5c31f7b67f6126e539b10f7008da7873edd1a5eb"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:11:04Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.711560568]
+cpu_seconds = [1.868398]
+peak_bytes = [177414144]
+
+[[measurement]]
+workload = "toy/growth-map-update-control"
+param = 256000
+key = "b02e91f042b301119c5190cb5c31f7b67f6126e539b10f7008da7873edd1a5eb"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:11:04Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.769419078]
+cpu_seconds = [1.995874]
+peak_bytes = [181575680]
+
+[[measurement]]
+workload = "toy/growth-owise-competitors"
+param = 4000
+key = "a475f6d0803ae902ebd1c9cf49913089b773383d513d365fb9c14a03607bc1eb"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:09:20Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [18.29140915]
+cpu_seconds = [31.122101]
+peak_bytes = [2178400256]
+
+[[measurement]]
+workload = "toy/growth-owise-competitors"
+param = 8000
+key = "a475f6d0803ae902ebd1c9cf49913089b773383d513d365fb9c14a03607bc1eb"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:09:20Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [45.546755269]
+cpu_seconds = [72.916989]
+peak_bytes = [2827059200]
+
+[[measurement]]
+workload = "toy/growth-owise-competitors"
+param = 16000
+key = "a475f6d0803ae902ebd1c9cf49913089b773383d513d365fb9c14a03607bc1eb"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:09:20Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [154.271972884]
+cpu_seconds = [210.777886]
+peak_bytes = [4134391808]
+
+[[measurement]]
+workload = "toy/growth-owise-competitors"
+param = 32000
+key = "a475f6d0803ae902ebd1c9cf49913089b773383d513d365fb9c14a03607bc1eb"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:09:20Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "not run: the ladder stopped at a smaller size"
+wall_seconds = []
+
+[[measurement]]
+workload = "toy/parse-dn-ambiguous"
+param = 10
+key = "924a92ff93cc44c9580614164f6656d1253854ef3ef3132026f33cd95348c8aa"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:58:17Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.669125415]
+cpu_seconds = [2.085084]
+peak_bytes = [184430592]
+
+[[measurement]]
+workload = "toy/parse-dn-ambiguous"
+param = 20
+key = "924a92ff93cc44c9580614164f6656d1253854ef3ef3132026f33cd95348c8aa"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:58:17Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.821028895]
+cpu_seconds = [3.194856]
+peak_bytes = [252764160]
+
+[[measurement]]
+workload = "toy/parse-dn-ambiguous"
+param = 30
+key = "924a92ff93cc44c9580614164f6656d1253854ef3ef3132026f33cd95348c8aa"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:58:17Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.017597937]
+cpu_seconds = [4.041545]
+peak_bytes = [436015104]
+
+[[measurement]]
+workload = "toy/parse-dn-ambiguous"
+param = 40
+key = "924a92ff93cc44c9580614164f6656d1253854ef3ef3132026f33cd95348c8aa"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:58:17Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.577229408]
+cpu_seconds = [5.396319]
+peak_bytes = [670494720]
+
+[[measurement]]
+workload = "toy/parse-dn-ambiguous"
+param = 50
+key = "924a92ff93cc44c9580614164f6656d1253854ef3ef3132026f33cd95348c8aa"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:58:17Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [2.373571414]
+cpu_seconds = [6.780682]
+peak_bytes = [1023078400]
+
+[[measurement]]
+workload = "toy/parse-dn-ambiguous"
+param = 60
+key = "924a92ff93cc44c9580614164f6656d1253854ef3ef3132026f33cd95348c8aa"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T11:58:17Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [4.402835243]
+cpu_seconds = [9.957914]
+peak_bytes = [1176420352]
+
+[[measurement]]
+workload = "toy/shared-branch-captured"
+param = 8
+key = "1251fcd5a3c5bcb293432e1bf0d838caae79bfad2c1b3521d0101f4ffb264f8f"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:11:15Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.932257813]
+cpu_seconds = [2.579875]
+peak_bytes = [218460160]
+
+[[measurement]]
+workload = "toy/shared-branch-captured"
+param = 12
+key = "1251fcd5a3c5bcb293432e1bf0d838caae79bfad2c1b3521d0101f4ffb264f8f"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:11:15Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.110785417]
+cpu_seconds = [2.970298]
+peak_bytes = [201777152]
+
+[[measurement]]
+workload = "toy/shared-branch-captured"
+param = 16
+key = "1251fcd5a3c5bcb293432e1bf0d838caae79bfad2c1b3521d0101f4ffb264f8f"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:11:15Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [0.877308825]
+cpu_seconds = [2.407264]
+peak_bytes = [213970944]
+
+[[measurement]]
+workload = "toy/shared-branch-captured"
+param = 18
+key = "1251fcd5a3c5bcb293432e1bf0d838caae79bfad2c1b3521d0101f4ffb264f8f"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:11:15Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.194174155]
+cpu_seconds = [3.094417]
+peak_bytes = [210690048]
+
+[[measurement]]
+workload = "toy/shared-branch-captured"
+param = 20
+key = "1251fcd5a3c5bcb293432e1bf0d838caae79bfad2c1b3521d0101f4ffb264f8f"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:11:15Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.199851404]
+cpu_seconds = [3.111263]
+peak_bytes = [204992512]
+
+[[measurement]]
+workload = "toy/shared-branch-plain"
+param = 8
+key = "5c448d0b25a3833b24098ce1a95901f34a49892e01e461ff9485e64baa39a420"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:11:23Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.525630136]
+cpu_seconds = [3.751719]
+peak_bytes = [199016448]
+
+[[measurement]]
+workload = "toy/shared-branch-plain"
+param = 12
+key = "5c448d0b25a3833b24098ce1a95901f34a49892e01e461ff9485e64baa39a420"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:11:23Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.463817639]
+cpu_seconds = [3.625569]
+peak_bytes = [205053952]
+
+[[measurement]]
+workload = "toy/shared-branch-plain"
+param = 16
+key = "5c448d0b25a3833b24098ce1a95901f34a49892e01e461ff9485e64baa39a420"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:11:23Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.5092743849999999]
+cpu_seconds = [3.64763]
+peak_bytes = [200736768]
+
+[[measurement]]
+workload = "toy/shared-branch-plain"
+param = 18
+key = "5c448d0b25a3833b24098ce1a95901f34a49892e01e461ff9485e64baa39a420"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:11:23Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.3275032900000001]
+cpu_seconds = [3.306642]
+peak_bytes = [195125248]
+
+[[measurement]]
+workload = "toy/shared-branch-plain"
+param = 20
+key = "5c448d0b25a3833b24098ce1a95901f34a49892e01e461ff9485e64baa39a420"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:11:23Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.743077246]
+cpu_seconds = [3.769371]
+peak_bytes = [266080256]
+
+[[measurement]]
+workload = "toy/shared-branch-search-final"
+param = 8
+key = "a0cba53a30c10b6c50130792986a1e60ea4da0e91315ec47a714deb5e03eeb79"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:12:35Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [2.328308261]
+cpu_seconds = [4.263556]
+peak_bytes = [185868288]
+
+[[measurement]]
+workload = "toy/shared-branch-search-final"
+param = 12
+key = "a0cba53a30c10b6c50130792986a1e60ea4da0e91315ec47a714deb5e03eeb79"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:12:35Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [1.9646332279999998]
+cpu_seconds = [4.057081]
+peak_bytes = [204644352]
+
+[[measurement]]
+workload = "toy/shared-branch-search-final"
+param = 16
+key = "a0cba53a30c10b6c50130792986a1e60ea4da0e91315ec47a714deb5e03eeb79"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:12:35Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [5.029155111]
+cpu_seconds = [7.239972]
+peak_bytes = [486088704]
+
+[[measurement]]
+workload = "toy/shared-branch-search-final"
+param = 18
+key = "a0cba53a30c10b6c50130792986a1e60ea4da0e91315ec47a714deb5e03eeb79"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:12:35Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [12.740169123]
+cpu_seconds = [14.570096]
+peak_bytes = [2137313280]
+
+[[measurement]]
+workload = "toy/shared-branch-search-final"
+param = 20
+key = "a0cba53a30c10b6c50130792986a1e60ea4da0e91315ec47a714deb5e03eeb79"
+k_version = "v7.1.337"
+k_opts = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1"
+measured_at = "2026-10-16T12:12:35Z"
+source = "kbench 0.1.0"
+host = "arch-native"
+method = "cgroup v2: a fresh cgroup per run holds the whole process tree; peak is its memory.peak, CPU is its cpu.stat user + system time"
+outcome = "ok"
+wall_seconds = [48.910535468]
+cpu_seconds = [49.29679]
+peak_bytes = [7199956992]

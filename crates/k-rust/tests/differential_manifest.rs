@@ -50,7 +50,7 @@ fn shell_command_at(script: &str, start: usize) -> &str {
 /// `kompile-invariant-checks` feature, so every gate that builds or runs `krust` must pass the
 /// gate cargo arguments of `reference-memory-guard.sh`: the feature, and a target directory of
 /// its own so the checked binary never replaces the `target/release/krust` that
-/// `scripts/benchmark.sh` measures. A gate that builds `krust` executes the binary those
+/// `kbench` measures (benchmarks/README.md). A gate that builds `krust` executes the binary those
 /// arguments write, never one under `CARGO_TARGET_DIR`.
 #[test]
 fn every_gate_builds_krust_with_the_gate_cargo_arguments() {
@@ -4959,56 +4959,6 @@ rm -f "$log"
         lines[1], "helper 1 none",
         "the helper reported the caller's listener as the server's port: {stdout}{stderr}"
     );
-}
-
-/// `scripts/benchmark.sh` measures the reference under the GHC runtime options its recorded
-/// canonical figures carry, so those options are part of the measurement: they come from the
-/// benchmark's own `REFERENCE_GHCRTS` (empty by default), and a caller's `GHCRTS` never reaches
-/// the reference it times.
-#[test]
-fn benchmark_gives_the_reference_its_own_ghc_runtime_options_not_the_callers() {
-    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let fixture = environment_fixture("benchmark-ghcrts");
-    let kompile = fixture.join("kompile");
-    write_environment_probe(&kompile, "kompile", "");
-    let work = fixture.join("work");
-    fs::create_dir(&work).expect("create benchmark work directory");
-    let calls = fixture.join("calls");
-    let mut failures = Vec::new();
-    for (description, stated, expected) in [
-        ("no REFERENCE_GHCRTS", None, "kompile|<empty>"),
-        ("REFERENCE_GHCRTS=-N2", Some("-N2"), "kompile|-N2"),
-    ] {
-        fs::write(&calls, "").expect("clear call log");
-        let mut command = Command::new("bash");
-        command
-            .arg(workspace.join("scripts/benchmark.sh"))
-            .args(["__run", "compile", "canonical-haskell", "imp"])
-            .arg(&work)
-            .env("GHCRTS", "-N4")
-            .env("ENVIRONMENT_CALLS", &calls)
-            .env("BENCHMARK_WORK_ROOT", &fixture)
-            .env("K_KOMPILE", &kompile)
-            .env("IMP_SEMANTICS_CHECKOUT", fixture.join("imp-semantics"))
-            .env_remove("REFERENCE_GHCRTS")
-            .stdin(std::process::Stdio::null());
-        if let Some(stated) = stated {
-            command.env("REFERENCE_GHCRTS", stated);
-        }
-        let output = command
-            .output()
-            .expect("run the benchmark's reference compile");
-        let log = fs::read_to_string(&calls).unwrap_or_default();
-        if !output.status.success() || log.trim_end() != expected {
-            failures.push(format!(
-                "{description}, caller GHCRTS=-N4: exit {:?}, reference saw {log:?}, not {expected:?}: {}",
-                output.status.code(),
-                String::from_utf8_lossy(&output.stderr)
-            ));
-        }
-    }
-    fs::remove_dir_all(&fixture).expect("remove benchmark fixture");
-    assert!(failures.is_empty(), "{failures:#?}");
 }
 
 /// A caller that leaks into what a gate starts: it exports `GHCRTS` and holds a listening socket

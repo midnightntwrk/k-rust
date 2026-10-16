@@ -1,0 +1,110 @@
+# KEVM storage loop (VMTests through the KEVM driver), rescued from the open-issues 2026-10 round.
+# Generator and notes: benchmarks/programs/kevm/storage-loop/.
+version = 1
+
+[[prepare]]
+name = "kevm-storage-driver"
+engine = "krust"
+creates = "${prepared}/kevm-storage-driver/runtime.json"
+timeout_seconds = 1800
+argv = [
+  "kcompile", "${evm}/kevm-pyk/src/kevm_pyk/kproj/evm-semantics/driver.md",
+  "--main-module", "ETHEREUM-SIMULATION",
+  "--syntax-module", "ETHEREUM-SIMULATION",
+  "-I", "${evm}/kevm-pyk/src/kevm_pyk/kproj/plugin",
+  "--md-selector", "k & ! concrete",
+  "--hook-namespaces", "JSON KRYPTO",
+  "--backend", "rust",
+  "--output-directory", "${prepared}/kevm-storage-driver",
+  "--builtin-directory", "${builtin}",
+]
+
+[[workload]]
+id = "kevm/storage-loop"
+semantics = "kevm"
+operation = "execute"
+title = "Run a VMTests contract that stores N distinct storage slots"
+stresses = "Each iteration adds one entry to the account's storage Map and the accessed-storage Set and matches lookups against them, so the cost per update must not grow with the collection."
+origin = "draft/open-issues-2026-10/units/w2-collections.md (storage loop, measure.md K22) with units/w4-k22m-tools/gen.py and units/w8-tree-*/sl.sh"
+tier = "standard"
+memory_gib = 8
+pins = ["k", "kevm", "kevm-plugin"]
+[workload.ladder]
+param = "slots"
+values = [128, 256, 512, 1024]
+generator = ["python3", "-I", "${programs}/kevm/storage-loop/gen.py", "${slots}"]
+[workload.krust]
+prepare = ["kevm-storage-driver"]
+argv = [
+  "krun", "--definition", "${prepared}/kevm-storage-driver", "${input}",
+  "--sort", "EthereumSimulation",
+  "-c", "MODE=VMTESTS", "-c", "SCHEDULE=LONDON", "-c", "CHAINID=1", "-c", "USEGAS=true",
+  "--io", "off",
+]
+# The driver compares the final storage with the test's `post` state: a match ends in SUCCESS, a mismatch exits 1.
+[workload.krust.check]
+stdout_squeezed = ["Lbl'-LT-'mode'-GT-'{}(LblSUCCESS'Unds'ETHEREUM-SIMULATION-PURE'Unds'Mode{}())"]
+[workload.reference]
+status = "untested"
+backend = "llvm"
+note = "The comparable path is KEVM's LLVM interpreter (kompile --backend llvm with the plugin's native crypto libraries linked); building it needs the kevm-plugin C dependencies, which nobody has wired into a prepare step."
+
+[[workload]]
+id = "kevm/storage-loop-control"
+semantics = "kevm"
+operation = "execute"
+title = "Run the storage-loop contract rewriting one slot N times (control)"
+stresses = "The same steps as the storage loop on a one-entry storage Map, separating the per-step cost from the cost that grows with the collection."
+origin = "draft/open-issues-2026-10/units/w2-collections.md (storage loop control) with units/w4-k22m-tools/gen.py N control"
+tier = "standard"
+memory_gib = 8
+pins = ["k", "kevm", "kevm-plugin"]
+[workload.ladder]
+param = "slots"
+values = [128, 256, 512, 1024]
+generator = ["python3", "-I", "${programs}/kevm/storage-loop/gen.py", "${slots}", "control"]
+[workload.krust]
+prepare = ["kevm-storage-driver"]
+argv = [
+  "krun", "--definition", "${prepared}/kevm-storage-driver", "${input}",
+  "--sort", "EthereumSimulation",
+  "-c", "MODE=VMTESTS", "-c", "SCHEDULE=LONDON", "-c", "CHAINID=1", "-c", "USEGAS=true",
+  "--io", "off",
+]
+[workload.krust.check]
+stdout_squeezed = ["Lbl'-LT-'mode'-GT-'{}(LblSUCCESS'Unds'ETHEREUM-SIMULATION-PURE'Unds'Mode{}())"]
+[workload.reference]
+status = "untested"
+backend = "llvm"
+note = "As for kevm/storage-loop: KEVM's LLVM interpreter needs the kevm-plugin native libraries."
+
+[[workload]]
+id = "kevm/storage-loop-heavy"
+semantics = "kevm"
+operation = "execute"
+title = "Run the storage-loop contract at 2,048 to 16,384 distinct slots"
+stresses = "The large end of the storage loop, where retained versions of the storage Map once took 3.56 GB at 16,384 slots."
+origin = "draft/open-issues-2026-10/units/w2-collections.md and units/w8-tree-5a/sl.txt (16,384 slots: 215 s, 1.47 GB at the w8-tree-5a heads)"
+tier = "heavy"
+memory_gib = 16
+timeout_seconds = 3600
+pins = ["k", "kevm", "kevm-plugin"]
+[workload.ladder]
+param = "slots"
+values = [2048, 4096, 8192, 16384]
+stop_seconds = 1200
+generator = ["python3", "-I", "${programs}/kevm/storage-loop/gen.py", "${slots}"]
+[workload.krust]
+prepare = ["kevm-storage-driver"]
+argv = [
+  "krun", "--definition", "${prepared}/kevm-storage-driver", "${input}",
+  "--sort", "EthereumSimulation",
+  "-c", "MODE=VMTESTS", "-c", "SCHEDULE=LONDON", "-c", "CHAINID=1", "-c", "USEGAS=true",
+  "--io", "off",
+]
+[workload.krust.check]
+stdout_squeezed = ["Lbl'-LT-'mode'-GT-'{}(LblSUCCESS'Unds'ETHEREUM-SIMULATION-PURE'Unds'Mode{}())"]
+[workload.reference]
+status = "untested"
+backend = "llvm"
+note = "As for kevm/storage-loop: KEVM's LLVM interpreter needs the kevm-plugin native libraries."

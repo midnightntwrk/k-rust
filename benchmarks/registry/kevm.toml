@@ -1,0 +1,422 @@
+version = 1
+
+# KEVM: the Ethereum virtual machine semantics at the `kevm` pin, with the blockchain-k-plugin at the `kevm-plugin` pin.
+# The proof workloads use KEVM's verification definition, the `VERIFICATION` module of a functional spec file, compiled with the `k & ! concrete` Markdown selector.
+# The compile and trivial-claim prove argv of both sides are exactly those of scripts/benchmark.sh's kevm suite, so the canonical figures recorded for it attach to these ids.
+# kevm/execute-trivial-claim keeps scripts/benchmark.sh's phase name, but it proves a claim, so its operation is `prove`.
+# Concrete KEVM execution is in kevm-storage.toml.
+# The [[gap]] entries at the end say why the other operations have no workload.
+
+# The krust verification definition of slot-updates-spec.k, shared by spec-compile and the trivial-claim proof.
+[[prepare]]
+name = "kevm-definition"
+engine = "krust"
+argv = [
+  "kcompile", "${evm}/tests/specs/functional/slot-updates-spec.k",
+  "--main-module", "VERIFICATION",
+  "--syntax-module", "VERIFICATION",
+  "--for-proving",
+  "--output-directory", "${prepared}/kevm-definition",
+  "--builtin-directory", "${builtin}",
+  "-I", "${evm}/kevm-pyk/src/kevm_pyk/kproj/evm-semantics",
+  "-I", "${evm}/kevm-pyk/src/kevm_pyk/kproj/plugin",
+  "--hook-namespaces", "JSON,KRYPTO",
+  "--md-selector", "k & ! concrete",
+]
+creates = "${prepared}/kevm-definition/krust.json"
+timeout_seconds = 1800
+
+# The proof-ready bundle of SLOT-UPDATES-SPEC: the definition and the spec's claims in one KORE file.
+[[prepare]]
+name = "kevm-specification"
+engine = "krust"
+prepare = ["kevm-definition"]
+argv = [
+  "kcompile", "${evm}/tests/specs/functional/slot-updates-spec.k",
+  "--compiled-definition", "${prepared}/kevm-definition",
+  "--main-module", "SLOT-UPDATES-SPEC",
+  "--definition-module", "VERIFICATION",
+  "--for-proving",
+  "--output-directory", "${prepared}/kevm-specification",
+  "--builtin-directory", "${builtin}",
+  "-I", "${evm}/kevm-pyk/src/kevm_pyk/kproj/evm-semantics",
+  "-I", "${evm}/kevm-pyk/src/kevm_pyk/kproj/plugin",
+  "--hook-namespaces", "JSON,KRYPTO",
+  "--md-selector", "k & ! concrete",
+]
+creates = "${prepared}/kevm-specification/krust.json"
+timeout_seconds = 1800
+
+# The reference Haskell definition of slot-updates-spec.k, as scripts/benchmark.sh prepares it for its proofs.
+[[prepare]]
+name = "kevm-reference-definition"
+engine = "reference"
+argv = [
+  "kompile", "${evm}/tests/specs/functional/slot-updates-spec.k",
+  "--backend", "haskell",
+  "--main-module", "VERIFICATION",
+  "--syntax-module", "VERIFICATION",
+  "--output-definition", "${prepared}/kevm-reference-definition",
+  "--warnings", "none",
+  "-I", "${evm}/kevm-pyk/src/kevm_pyk/kproj/evm-semantics",
+  "-I", "${evm}/kevm-pyk/src/kevm_pyk/kproj/plugin",
+  "--hook-namespaces", "JSON,KRYPTO",
+  "--md-selector", "k & ! concrete",
+]
+creates = "${prepared}/kevm-reference-definition/definition.kore"
+timeout_seconds = 3600
+
+# infinite-gas-spec.k declares its own VERIFICATION module (INFINITE-GAS, LEMMAS and EVM), so its proofs need their own definition.
+[[prepare]]
+name = "kevm-infinite-gas-definition"
+engine = "krust"
+argv = [
+  "kcompile", "${evm}/tests/specs/functional/infinite-gas-spec.k",
+  "--main-module", "VERIFICATION",
+  "--syntax-module", "VERIFICATION",
+  "--for-proving",
+  "--output-directory", "${prepared}/kevm-infinite-gas-definition",
+  "--builtin-directory", "${builtin}",
+  "-I", "${evm}/kevm-pyk/src/kevm_pyk/kproj/evm-semantics",
+  "-I", "${evm}/kevm-pyk/src/kevm_pyk/kproj/plugin",
+  "--hook-namespaces", "JSON,KRYPTO",
+  "--md-selector", "k & ! concrete",
+]
+creates = "${prepared}/kevm-infinite-gas-definition/krust.json"
+timeout_seconds = 1800
+
+[[prepare]]
+name = "kevm-infinite-gas-reference-definition"
+engine = "reference"
+argv = [
+  "kompile", "${evm}/tests/specs/functional/infinite-gas-spec.k",
+  "--backend", "haskell",
+  "--main-module", "VERIFICATION",
+  "--syntax-module", "VERIFICATION",
+  "--output-definition", "${prepared}/kevm-infinite-gas-reference-definition",
+  "--warnings", "none",
+  "-I", "${evm}/kevm-pyk/src/kevm_pyk/kproj/evm-semantics",
+  "-I", "${evm}/kevm-pyk/src/kevm_pyk/kproj/plugin",
+  "--hook-namespaces", "JSON,KRYPTO",
+  "--md-selector", "k & ! concrete",
+]
+creates = "${prepared}/kevm-infinite-gas-reference-definition/definition.kore"
+timeout_seconds = 3600
+
+[[workload]]
+id = "kevm/compile"
+semantics = "kevm"
+operation = "compile"
+title = "Compile KEVM's verification definition (slot-updates-spec.k, VERIFICATION) from source"
+stresses = "The whole frontend on a large real semantics: parsing KEVM's Markdown modules and lemmas, macro and function compilation, and writing proof-ready KORE."
+origin = "scripts/benchmark.sh kevm compile"
+tier = "standard"
+memory_gib = 12
+timeout_seconds = 1800
+pins = ["k", "kevm", "kevm-plugin"]
+
+[workload.krust]
+argv = [
+  "kcompile", "${evm}/tests/specs/functional/slot-updates-spec.k",
+  "--main-module", "VERIFICATION",
+  "--syntax-module", "VERIFICATION",
+  "--for-proving",
+  "--output-directory", "${run}/compiled",
+  "--builtin-directory", "${builtin}",
+  "-I", "${evm}/kevm-pyk/src/kevm_pyk/kproj/evm-semantics",
+  "-I", "${evm}/kevm-pyk/src/kevm_pyk/kproj/plugin",
+  "--hook-namespaces", "JSON,KRYPTO",
+  "--md-selector", "k & ! concrete",
+]
+[workload.krust.check]
+files = ["${run}/compiled/definition.kore", "${run}/compiled/krust.json"]
+
+[workload.reference]
+status = "paired"
+argv = [
+  "kompile", "${evm}/tests/specs/functional/slot-updates-spec.k",
+  "--backend", "haskell",
+  "--main-module", "VERIFICATION",
+  "--syntax-module", "VERIFICATION",
+  "--output-definition", "${run}/compiled",
+  "--warnings", "none",
+  "-I", "${evm}/kevm-pyk/src/kevm_pyk/kproj/evm-semantics",
+  "-I", "${evm}/kevm-pyk/src/kevm_pyk/kproj/plugin",
+  "--hook-namespaces", "JSON,KRYPTO",
+  "--md-selector", "k & ! concrete",
+]
+[workload.reference.check]
+files = ["${run}/compiled/definition.kore"]
+
+[[workload]]
+id = "kevm/compile-optimizations"
+semantics = "kevm"
+operation = "compile"
+title = "Compile KEVM with its gas-saving shortcut rules (optimizations.md, EVM-OPTIMIZATIONS) for execution"
+stresses = "The execution-backend compile of KEVM including the hand-written optimized opcode rules, which adds execution.json output to the frontend work."
+origin = "scripts/reference-differential.toml evm-equivalence (haskell/rust pairing)"
+tier = "standard"
+memory_gib = 12
+timeout_seconds = 1800
+pins = ["k", "kevm", "kevm-plugin"]
+
+[workload.krust]
+argv = [
+  "kcompile", "${evm}/kevm-pyk/src/kevm_pyk/kproj/evm-semantics/optimizations.md",
+  "--main-module", "EVM-OPTIMIZATIONS",
+  "--backend", "rust",
+  "--output-directory", "${run}/compiled",
+  "--emit-json",
+  "-I", "${evm}/kevm-pyk/src/kevm_pyk/kproj/plugin",
+  "--md-selector", "k & ! concrete",
+  "--hook-namespaces", "JSON,KRYPTO",
+  "--builtin-directory", "${builtin}",
+]
+[workload.krust.check]
+files = ["${run}/compiled/definition.kore", "${run}/compiled/execution.json"]
+
+[workload.reference]
+status = "paired"
+argv = [
+  "kompile", "${evm}/kevm-pyk/src/kevm_pyk/kproj/evm-semantics/optimizations.md",
+  "--backend", "haskell",
+  "--main-module", "EVM-OPTIMIZATIONS",
+  "--output-definition", "${run}/compiled",
+  "-I", "${evm}/kevm-pyk/src/kevm_pyk/kproj/plugin",
+  "--md-selector", "k & ! concrete",
+  "--hook-namespaces", "JSON,KRYPTO",
+  "--emit-json",
+  "--warnings", "none",
+]
+[workload.reference.check]
+files = ["${run}/compiled/definition.kore", "${run}/compiled/compiled.json"]
+
+[[workload]]
+id = "kevm/spec-compile"
+semantics = "kevm"
+operation = "spec-compile"
+title = "Compile slot-updates-spec.k's claims against an already compiled KEVM definition"
+stresses = "Spec compilation on top of prepared semantics: the definition is not reparsed, but the combined definition and claims still pass through the compiler."
+origin = "scripts/benchmark.sh kevm spec-compile"
+tier = "standard"
+memory_gib = 8
+timeout_seconds = 1800
+pins = ["k", "kevm", "kevm-plugin"]
+
+[workload.krust]
+prepare = ["kevm-definition"]
+argv = [
+  "kcompile", "${evm}/tests/specs/functional/slot-updates-spec.k",
+  "--compiled-definition", "${prepared}/kevm-definition",
+  "--main-module", "SLOT-UPDATES-SPEC",
+  "--definition-module", "VERIFICATION",
+  "--for-proving",
+  "--output-directory", "${run}/specification",
+  "--builtin-directory", "${builtin}",
+  "-I", "${evm}/kevm-pyk/src/kevm_pyk/kproj/evm-semantics",
+  "-I", "${evm}/kevm-pyk/src/kevm_pyk/kproj/plugin",
+  "--hook-namespaces", "JSON,KRYPTO",
+  "--md-selector", "k & ! concrete",
+]
+[workload.krust.check]
+files = ["${run}/specification/definition.kore", "${run}/specification/krust.json"]
+
+[workload.reference]
+status = "unsupported"
+reason = "no-counterpart"
+note = "Reference kprove compiles a spec only as part of proving it, so it has no separate spec-compile step."
+
+[[workload]]
+id = "kevm/load"
+semantics = "kevm"
+operation = "load"
+title = "Load KEVM's proof-ready definition and claims into the prover without proving anything"
+stresses = "Reading and internalizing a large proof-ready KORE file: the fixed start-up cost every KEVM proof pays."
+origin = "scripts/benchmark.sh kevm load"
+tier = "quick"
+memory_gib = 8
+pins = ["k", "kevm", "kevm-plugin"]
+
+[workload.krust]
+prepare = ["kevm-specification"]
+argv = [
+  "kprove",
+  "--compiled-definition", "${prepared}/kevm-specification",
+  "--main-module", "SLOT-UPDATES-SPEC",
+  "--load-only",
+]
+[workload.krust.check]
+exit = 0
+
+[workload.reference]
+status = "unsupported"
+reason = "no-counterpart"
+note = "Reference kprove has no load-only mode."
+
+[[workload]]
+id = "kevm/execute-trivial-claim"
+semantics = "kevm"
+operation = "prove"
+title = "Prove a one-step KEVM claim (#getFirstOneBit(0) = -1) from a prepared proof bundle: definition-loading overhead"
+stresses = "The claim needs one rewrite step, so the run measures loading the prepared KEVM bundle and setting up the solver, not proof search."
+origin = "scripts/benchmark.sh kevm gfob-min"
+tier = "quick"
+memory_gib = 8
+pins = ["k", "kevm", "kevm-plugin"]
+
+[workload.krust]
+prepare = ["kevm-specification"]
+argv = [
+  "kprove",
+  "--compiled-definition", "${prepared}/kevm-specification",
+  "--main-module", "SLOT-UPDATES-SPEC",
+  "--claim", "SLOT-UPDATES-SPEC.gfob-min",
+  "--depth", "100",
+]
+[workload.krust.check]
+stdout = ["claim SLOT-UPDATES-SPEC.gfob-min: proven"]
+
+[workload.reference]
+status = "unsupported"
+reason = "no-counterpart"
+note = "Reference kprove always compiles the spec before proving, so it has no proof from a prepared bundle; kevm/prove-trivial-claim is the paired comparison."
+
+[[workload]]
+id = "kevm/prove-trivial-claim"
+semantics = "kevm"
+operation = "prove"
+title = "Prove a one-step KEVM claim (#getFirstOneBit(0) = -1): definition-loading overhead"
+stresses = "The claim is proved in one step, so the run measures compiling slot-updates-spec.k against the prepared KEVM definition and loading the result, the fixed cost of any KEVM proof."
+origin = "scripts/benchmark.sh kevm gfob-min"
+tier = "standard"
+memory_gib = 8
+timeout_seconds = 1800
+pins = ["k", "kevm", "kevm-plugin"]
+
+[workload.krust]
+prepare = ["kevm-definition"]
+argv = [
+  "kprove", "${evm}/tests/specs/functional/slot-updates-spec.k",
+  "--compiled-definition", "${prepared}/kevm-definition",
+  "--main-module", "SLOT-UPDATES-SPEC",
+  "--definition-module", "VERIFICATION",
+  "--claim", "SLOT-UPDATES-SPEC.gfob-min",
+  "--depth", "100",
+  "--builtin-directory", "${builtin}",
+  "-I", "${evm}/kevm-pyk/src/kevm_pyk/kproj/evm-semantics",
+  "-I", "${evm}/kevm-pyk/src/kevm_pyk/kproj/plugin",
+]
+[workload.krust.check]
+stdout = ["claim SLOT-UPDATES-SPEC.gfob-min: proven"]
+
+[workload.reference]
+status = "paired"
+backend = "haskell"
+prepare = ["kevm-reference-definition"]
+argv = [
+  "kprove", "${evm}/tests/specs/functional/slot-updates-spec.k",
+  "--definition", "${prepared}/kevm-reference-definition",
+  "--spec-module", "SLOT-UPDATES-SPEC",
+  "--claims", "SLOT-UPDATES-SPEC.gfob-min",
+  "--depth", "100",
+  "--output", "none",
+  "--warnings", "none",
+  "-I", "${evm}/kevm-pyk/src/kevm_pyk/kproj/evm-semantics",
+  "-I", "${evm}/kevm-pyk/src/kevm_pyk/kproj/plugin",
+]
+[workload.reference.check]
+exit = 0
+
+[[workload]]
+id = "kevm/prove-infinite-gas"
+semantics = "kevm"
+operation = "prove"
+title = "Prove all 53 claims of KEVM's infinite-gas-spec.k (gas arithmetic simplifications)"
+stresses = "A whole functional spec file of symbolic gas-arithmetic claims, each discharged by KEVM's simplification lemmas and the SMT solver."
+origin = "KINK-10/4 census of KEVM functional specs (9 files, 399 of 454 claim runs proven); infinite-gas-spec.k is the largest file whose claims all prove"
+tier = "standard"
+memory_gib = 8
+timeout_seconds = 1800
+pins = ["k", "kevm", "kevm-plugin"]
+
+[workload.krust]
+prepare = ["kevm-infinite-gas-definition"]
+argv = [
+  "kprove", "${evm}/tests/specs/functional/infinite-gas-spec.k",
+  "--compiled-definition", "${prepared}/kevm-infinite-gas-definition",
+  "--main-module", "INFINITE-GAS-SPEC",
+  "--definition-module", "VERIFICATION",
+  "--depth", "100",
+  "--builtin-directory", "${builtin}",
+  "-I", "${evm}/kevm-pyk/src/kevm_pyk/kproj/evm-semantics",
+  "-I", "${evm}/kevm-pyk/src/kevm_pyk/kproj/plugin",
+]
+# krust exits 0 only when every claim is proven; the first and last claims of the file show the whole file ran.
+[workload.krust.check]
+exit = 0
+stdout = [
+  "claim INFINITE-GAS-SPEC.gas.arith.0: proven",
+  "claim INFINITE-GAS-SPEC.gas.comp.30: proven",
+]
+stdout_absent = [": failed", ": depth bound", ": stuck"]
+
+[workload.reference]
+status = "paired"
+backend = "haskell"
+prepare = ["kevm-infinite-gas-reference-definition"]
+argv = [
+  "kprove", "${evm}/tests/specs/functional/infinite-gas-spec.k",
+  "--definition", "${prepared}/kevm-infinite-gas-reference-definition",
+  "--spec-module", "INFINITE-GAS-SPEC",
+  "--depth", "100",
+  "--output", "none",
+  "--warnings", "none",
+  "-I", "${evm}/kevm-pyk/src/kevm_pyk/kproj/evm-semantics",
+  "-I", "${evm}/kevm-pyk/src/kevm_pyk/kproj/plugin",
+]
+[workload.reference.check]
+exit = 0
+
+[[workload]]
+id = "kevm/parse-add-json"
+semantics = "kevm"
+operation = "parse"
+title = "Parse KEVM's 300 KB add.json Ethereum test with the concrete KEVM grammar"
+stresses = "The program parser on a large JSON input in a big grammar; krust kast also builds that grammar from the KEVM sources in the same run."
+origin = "evm-semantics tests/interactive/add.json"
+tier = "standard"
+memory_gib = 8
+pins = ["k", "kevm", "kevm-plugin"]
+
+[workload.krust]
+argv = [
+  "kast", "${evm}/kevm-pyk/src/kevm_pyk/kproj/evm-semantics/driver.md",
+  "--module", "ETHEREUM-SIMULATION",
+  "--sort", "EthereumSimulation",
+  "-I", "${evm}/kevm-pyk/src/kevm_pyk/kproj/plugin",
+  "--md-selector", "k & ! symbolic",
+  "--builtin-directory", "${builtin}",
+  "${evm}/tests/interactive/add.json",
+]
+[workload.krust.check]
+stdout = [
+  '`JSONObject`(`JSONs`(`JSONEntry`(#token("\"add_d0g0v0_Berlin\"","String")',
+  '#token("\"add_d0g0v0_Shanghai\"","String")',
+]
+
+[workload.reference]
+status = "untested"
+note = "Reference kast parses with an already kompiled definition, while krust kast builds the grammar from source in the same run; no pairing has been written."
+
+
+[[gap]]
+semantics = "kevm"
+operation = "search"
+reason = "no-workload"
+note = "KEVM proofs explore branches as claims; no KEVM search query has been chosen for a workload."
+
+[[gap]]
+semantics = "kevm"
+operation = "rpc"
+reason = "no-workload"
+note = "KEVM's RPC use runs through KEVM's Python driver and its booster; no RPC request has been extracted into a workload."

@@ -1,0 +1,17 @@
+[package]
+name = "k-rust-bench"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+publish = false
+description = "Runs the krust benchmark registry and renders the fixed-format comparison report against cached reference K measurements."
+
+[[bin]]
+name = "kbench"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+serde.workspace = true
+sha2.workspace = true
+toml.workspace = true

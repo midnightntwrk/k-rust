@@ -1,0 +1,483 @@
+# FUN (untyped) workloads from scripts/algo-workloads.toml: the K tutorial's FUN programs, the
+# build-list-length ladders, and the RPC ladders.
+# Programs and expected outputs come from the K checkout:
+# ${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/.
+# The reference side is the LLVM backend's krun; `--pattern` with the LLVM backend needs a
+# definition compiled with --enable-search.
+version = 1
+
+[[prepare]]
+name = "fun-untyped"
+engine = "krust"
+creates = "${prepared}/fun-untyped/runtime.json"
+argv = [
+  "kcompile", "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/1_untyped/1_environment/fun-untyped.md",
+  "--main-module", "FUN-UNTYPED",
+  "--output-directory", "${prepared}/fun-untyped",
+  "--builtin-directory", "${builtin}",
+  "-I", "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/1_untyped/1_environment",
+]
+
+[[prepare]]
+name = "fun-untyped-llvm-definition"
+engine = "reference"
+creates = "${prepared}/fun-untyped-llvm-definition/timestamp"
+argv = [
+  "kompile", "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/1_untyped/1_environment/fun-untyped.md",
+  "--backend", "llvm",
+  "--enable-search",
+  "--main-module", "FUN-UNTYPED",
+  "--output-definition", "${prepared}/fun-untyped-llvm-definition",
+  "--warnings", "none",
+  "-I", "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/1_untyped/1_environment",
+]
+
+# KORE JSON-RPC requests built from the final state of the ladder's program (see imp.toml for
+# what scripts/algo-rpc-fixture.py does). They depend on the ladder value through ${n} and ${input}.
+[[prepare]]
+name = "fun-rpc-execute"
+engine = "command"
+prepare = ["fun-untyped"]
+creates = "${prepared}/fun-rpc-execute-${n}/request.json"
+env = { K_KOMPILE = "${kbin}/kompile" }
+argv = [
+  "python3", "${workspace}/scripts/algo-rpc-fixture.py",
+  "--krust", "${krust}",
+  "--definition", "${prepared}/fun-untyped",
+  "--module", "FUN-UNTYPED",
+  "--sort", "Exp",
+  "--program-file", "${input}",
+  "--method", "execute",
+  "--max-depth", "1",
+  "--output", "${prepared}/fun-rpc-execute-${n}/request.json",
+]
+
+[[prepare]]
+name = "fun-rpc-simplify"
+engine = "command"
+prepare = ["fun-untyped"]
+creates = "${prepared}/fun-rpc-simplify-${n}/request.json"
+env = { K_KOMPILE = "${kbin}/kompile" }
+argv = [
+  "python3", "${workspace}/scripts/algo-rpc-fixture.py",
+  "--krust", "${krust}",
+  "--definition", "${prepared}/fun-untyped",
+  "--module", "FUN-UNTYPED",
+  "--sort", "Exp",
+  "--program-file", "${input}",
+  "--method", "simplify",
+  "--output", "${prepared}/fun-rpc-simplify-${n}/request.json",
+]
+
+# ---------------------------------------------------------------------------------------------
+# Tutorial programs.
+# Each check requires the one result to bind V to the integer of the tutorial's expected output.
+# The reference prints injections with a `/*Inj:*/` comment, which stays in the squeezed text.
+
+[[workload]]
+id = "fun/krun-ackermann"
+semantics = "fun"
+operation = "execute"
+title = "Run the tutorial's ackermann.fun"
+stresses = "Deep recursion through closures and environment lookups in a small program."
+origin = "scripts/algo-workloads.toml fun-ackermann"
+tier = "quick"
+pins = ["k"]
+[workload.krust]
+prepare = ["fun-untyped"]
+argv = [
+  "krun",
+  "--definition", "${prepared}/fun-untyped",
+  "--sort", "Exp",
+  "--pattern", "<k> V:K </k>",
+  "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/programs/ackermann.fun",
+]
+[workload.krust.check]
+expect_out = "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/1_untyped/1_environment/tests/ackermann.fun.out"
+stdout_squeezed = ['\equals{SortK{},SortGeneratedTopCell{}}(VarV:SortK{},kseq{}(inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("${expect}")),dotk{}()))']
+stdout_absent = ['\or{']
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["fun-untyped-llvm-definition"]
+argv = [
+  "krun",
+  "--definition", "${prepared}/fun-untyped-llvm-definition",
+  "--pattern", "<k> V:K </k>",
+  "--output", "kore",
+  "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/programs/ackermann.fun",
+]
+[workload.reference.check]
+expect_out = "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/1_untyped/1_environment/tests/ackermann.fun.out"
+stdout_squeezed = ['\equals{SortK{},SortGeneratedTopCell{}}(VarV:SortK{},kseq{}(/*Inj:*/inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("${expect}")),dotk{}()))']
+stdout_absent = ['\or{']
+
+[[workload]]
+id = "fun/krun-list-nth"
+semantics = "fun"
+operation = "execute"
+title = "Run the tutorial's list-nth.fun"
+stresses = "List construction and pattern-matching function clauses on a short list."
+origin = "scripts/algo-workloads.toml fun-list-nth"
+tier = "quick"
+pins = ["k"]
+[workload.krust]
+prepare = ["fun-untyped"]
+argv = [
+  "krun",
+  "--definition", "${prepared}/fun-untyped",
+  "--sort", "Exp",
+  "--pattern", "<k> V:K </k>",
+  "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/programs/list-nth.fun",
+]
+[workload.krust.check]
+expect_out = "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/1_untyped/1_environment/tests/list-nth.fun.out"
+stdout_squeezed = ['\equals{SortK{},SortGeneratedTopCell{}}(VarV:SortK{},kseq{}(inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("${expect}")),dotk{}()))']
+stdout_absent = ['\or{']
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["fun-untyped-llvm-definition"]
+argv = [
+  "krun",
+  "--definition", "${prepared}/fun-untyped-llvm-definition",
+  "--pattern", "<k> V:K </k>",
+  "--output", "kore",
+  "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/programs/list-nth.fun",
+]
+[workload.reference.check]
+expect_out = "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/1_untyped/1_environment/tests/list-nth.fun.out"
+stdout_squeezed = ['\equals{SortK{},SortGeneratedTopCell{}}(VarV:SortK{},kseq{}(/*Inj:*/inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("${expect}")),dotk{}()))']
+stdout_absent = ['\or{']
+
+[[workload]]
+id = "fun/krun-list-1"
+semantics = "fun"
+operation = "execute"
+title = "Run the tutorial's list-1.fun"
+stresses = "List literals and the built-in list functions of FUN on a short list."
+origin = "scripts/algo-workloads.toml fun-list-1"
+tier = "quick"
+pins = ["k"]
+[workload.krust]
+prepare = ["fun-untyped"]
+argv = [
+  "krun",
+  "--definition", "${prepared}/fun-untyped",
+  "--sort", "Exp",
+  "--pattern", "<k> V:K </k>",
+  "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/programs/list-1.fun",
+]
+[workload.krust.check]
+expect_out = "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/1_untyped/1_environment/tests/list-1.fun.out"
+stdout_squeezed = ['\equals{SortK{},SortGeneratedTopCell{}}(VarV:SortK{},kseq{}(inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("${expect}")),dotk{}()))']
+stdout_absent = ['\or{']
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["fun-untyped-llvm-definition"]
+argv = [
+  "krun",
+  "--definition", "${prepared}/fun-untyped-llvm-definition",
+  "--pattern", "<k> V:K </k>",
+  "--output", "kore",
+  "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/programs/list-1.fun",
+]
+[workload.reference.check]
+expect_out = "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/1_untyped/1_environment/tests/list-1.fun.out"
+stdout_squeezed = ['\equals{SortK{},SortGeneratedTopCell{}}(VarV:SortK{},kseq{}(/*Inj:*/inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("${expect}")),dotk{}()))']
+stdout_absent = ['\or{']
+
+[[workload]]
+id = "fun/krun-constructor-list-length"
+semantics = "fun"
+operation = "execute"
+title = "Run the tutorial's constructor-list-length.fun"
+stresses = "A user datatype and a recursive function that pattern-matches on its constructors."
+origin = "scripts/algo-workloads.toml fun-constructor-list-length"
+tier = "quick"
+pins = ["k"]
+[workload.krust]
+prepare = ["fun-untyped"]
+argv = [
+  "krun",
+  "--definition", "${prepared}/fun-untyped",
+  "--sort", "Exp",
+  "--pattern", "<k> V:K </k>",
+  "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/programs/constructor-list-length.fun",
+]
+[workload.krust.check]
+expect_out = "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/1_untyped/1_environment/tests/constructor-list-length.fun.out"
+stdout_squeezed = ['\equals{SortK{},SortGeneratedTopCell{}}(VarV:SortK{},kseq{}(inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("${expect}")),dotk{}()))']
+stdout_absent = ['\or{']
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["fun-untyped-llvm-definition"]
+argv = [
+  "krun",
+  "--definition", "${prepared}/fun-untyped-llvm-definition",
+  "--pattern", "<k> V:K </k>",
+  "--output", "kore",
+  "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/programs/constructor-list-length.fun",
+]
+[workload.reference.check]
+expect_out = "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/1_untyped/1_environment/tests/constructor-list-length.fun.out"
+stdout_squeezed = ['\equals{SortK{},SortGeneratedTopCell{}}(VarV:SortK{},kseq{}(/*Inj:*/inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("${expect}")),dotk{}()))']
+stdout_absent = ['\or{']
+
+[[workload]]
+id = "fun/krun-factorial"
+semantics = "fun"
+operation = "execute"
+title = "Run the tutorial's factorial.fun"
+stresses = "Recursion with arbitrary-precision integer multiplication (the result has 24 digits)."
+origin = "scripts/algo-workloads.toml fun-factorial"
+tier = "quick"
+pins = ["k"]
+[workload.krust]
+prepare = ["fun-untyped"]
+argv = [
+  "krun",
+  "--definition", "${prepared}/fun-untyped",
+  "--sort", "Exp",
+  "--pattern", "<k> V:K </k>",
+  "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/programs/factorial.fun",
+]
+[workload.krust.check]
+expect_out = "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/1_untyped/1_environment/tests/factorial.fun.out"
+stdout_squeezed = ['\equals{SortK{},SortGeneratedTopCell{}}(VarV:SortK{},kseq{}(inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("${expect}")),dotk{}()))']
+stdout_absent = ['\or{']
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["fun-untyped-llvm-definition"]
+argv = [
+  "krun",
+  "--definition", "${prepared}/fun-untyped-llvm-definition",
+  "--pattern", "<k> V:K </k>",
+  "--output", "kore",
+  "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/programs/factorial.fun",
+]
+[workload.reference.check]
+expect_out = "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/1_untyped/1_environment/tests/factorial.fun.out"
+stdout_squeezed = ['\equals{SortK{},SortGeneratedTopCell{}}(VarV:SortK{},kseq{}(/*Inj:*/inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("${expect}")),dotk{}()))']
+stdout_absent = ['\or{']
+
+[[workload]]
+id = "fun/krun-references-2"
+semantics = "fun"
+operation = "execute"
+title = "Run the tutorial's references-2.fun"
+stresses = "Mutable references: allocation in the store and updates through `:=`."
+origin = "scripts/algo-workloads.toml fun-references-2"
+tier = "quick"
+pins = ["k"]
+[workload.krust]
+prepare = ["fun-untyped"]
+argv = [
+  "krun",
+  "--definition", "${prepared}/fun-untyped",
+  "--sort", "Exp",
+  "--pattern", "<k> V:K </k>",
+  "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/programs/references-2.fun",
+]
+[workload.krust.check]
+expect_out = "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/1_untyped/1_environment/tests/references-2.fun.out"
+stdout_squeezed = ['\equals{SortK{},SortGeneratedTopCell{}}(VarV:SortK{},kseq{}(inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("${expect}")),dotk{}()))']
+stdout_absent = ['\or{']
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["fun-untyped-llvm-definition"]
+argv = [
+  "krun",
+  "--definition", "${prepared}/fun-untyped-llvm-definition",
+  "--pattern", "<k> V:K </k>",
+  "--output", "kore",
+  "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/programs/references-2.fun",
+]
+[workload.reference.check]
+expect_out = "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/1_untyped/1_environment/tests/references-2.fun.out"
+stdout_squeezed = ['\equals{SortK{},SortGeneratedTopCell{}}(VarV:SortK{},kseq{}(/*Inj:*/inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("${expect}")),dotk{}()))']
+stdout_absent = ['\or{']
+
+# ---------------------------------------------------------------------------------------------
+# build-list-length: constructor-list-length with the list built by the program.
+# length (build n) is n, and the list of n constructors is the growing input.
+# The result carries the whole <store>, every closure the run allocated; the closures share their
+# environments in the backend term, and the KORE text writes each shared subterm at every use, so
+# the text grows much faster than the term (on 2026-10-16 krust printed 1.2 GB for the --pattern
+# run at n = 1,000 and 109 MB for the plain run at n = 300).
+
+[[workload]]
+id = "fun/krun-build-list-length"
+semantics = "fun"
+operation = "execute"
+title = "Build a list of n constructors and take its length, printing the matched result"
+stresses = "Closure allocation and environment sharing as n grows, and printing a result whose KORE text is far larger than the shared term behind it."
+origin = "scripts/algo-workloads.toml fun-build-list-length"
+tier = "quick"
+timeout_seconds = 900
+pins = ["k"]
+[workload.ladder]
+param = "n"
+values = [10, 30, 100, 300, 1000]
+stop_seconds = 120
+input = """
+datatype 'a mylist = Nil | Cons('a, 'a mylist)
+
+letrec build = fun 0 -> Nil | n -> Cons(n, build (n - 1))
+and length = fun Nil -> 0 | Cons(h,t) -> 1 + length t
+in length (build ${n})
+"""
+[workload.krust]
+prepare = ["fun-untyped"]
+argv = [
+  "krun",
+  "--definition", "${prepared}/fun-untyped",
+  "--sort", "Exp",
+  "--pattern", "<k> V:K </k>",
+  "${input}",
+]
+[workload.krust.check]
+expect = "n"
+stdout_squeezed = ['\equals{SortK{},SortGeneratedTopCell{}}(VarV:SortK{},kseq{}(inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("${expect}")),dotk{}()))']
+stdout_absent = ['\or{']
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["fun-untyped-llvm-definition"]
+note = "The reference's pattern match runs outside the LLVM interpreter; at n = 1,000 it took 470 s with a 9.2 GiB peak (2026-10-16)."
+argv = [
+  "krun",
+  "--definition", "${prepared}/fun-untyped-llvm-definition",
+  "--pattern", "<k> V:K </k>",
+  "--output", "kore",
+  "${input}",
+]
+[workload.reference.check]
+expect = "n"
+stdout_squeezed = ['\equals{SortK{},SortGeneratedTopCell{}}(VarV:SortK{},kseq{}(/*Inj:*/inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("${expect}")),dotk{}()))']
+stdout_absent = ['\or{']
+
+# The same program without --pattern: the complete final configuration is printed.
+[[workload]]
+id = "fun/krun-build-list-length-plain"
+semantics = "fun"
+operation = "execute"
+title = "Build a list of n constructors and take its length, printing the whole configuration"
+stresses = "Printing a large configuration whose subterms are shared, without the pattern match narrowing the output."
+origin = "scripts/algo-workloads.toml fun-build-list-length-plain"
+tier = "quick"
+pins = ["k"]
+[workload.ladder]
+param = "n"
+values = [10, 30, 100, 300]
+stop_seconds = 120
+input = """
+datatype 'a mylist = Nil | Cons('a, 'a mylist)
+
+letrec build = fun 0 -> Nil | n -> Cons(n, build (n - 1))
+and length = fun Nil -> 0 | Cons(h,t) -> 1 + length t
+in length (build ${n})
+"""
+[workload.krust]
+prepare = ["fun-untyped"]
+argv = ["krun", "--definition", "${prepared}/fun-untyped", "--sort", "Exp", "${input}"]
+[workload.krust.check]
+expect = "n"
+stdout = ["Lbl'-LT-'generatedTop'-GT-'"]
+stdout_squeezed = ["Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortInt{},SortKItem{}}(\\dv{SortInt{}}(\"${expect}\")),dotk{}()))"]
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["fun-untyped-llvm-definition"]
+argv = ["krun", "--definition", "${prepared}/fun-untyped-llvm-definition", "--output", "kore", "${input}"]
+[workload.reference.check]
+expect = "n"
+stdout = ["Lbl'-LT-'generatedTop'-GT-'"]
+stdout_squeezed = ["Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortInt{},SortKItem{}}(\\dv{SortInt{}}(\"${expect}\")),dotk{}()))"]
+
+# ---------------------------------------------------------------------------------------------
+# KORE JSON-RPC on the build-list-length program's final state, which holds the store of closures.
+# The measured command is scripts/algo-rpc-request.py, which serves one request with
+# `krust kore-rpc`; imp.toml's RPC section describes it.
+
+[[workload]]
+id = "fun/rpc-execute"
+semantics = "fun"
+operation = "rpc"
+title = "RPC execute: the final state of build-list-length"
+stresses = "Decoding and internalizing a request whose state grows with n (35 MB of JSON at n = 40), looking for a step, and encoding the result."
+origin = "scripts/algo-workloads.toml fun-rpc-execute"
+tier = "quick"
+pins = ["k"]
+[workload.ladder]
+param = "n"
+values = [10, 15, 20, 30, 40]
+stop_seconds = 120
+input = """
+datatype 'a mylist = Nil | Cons('a, 'a mylist)
+
+letrec build = fun 0 -> Nil | n -> Cons(n, build (n - 1))
+and length = fun Nil -> 0 | Cons(h,t) -> 1 + length t
+in length (build ${n})
+"""
+[workload.krust]
+prepare = ["fun-untyped", "fun-rpc-execute"]
+engine = "command"
+argv = [
+  "python3", "${workspace}/scripts/algo-rpc-request.py",
+  "--krust", "${krust}",
+  "--definition", "${prepared}/fun-untyped/definition.kore",
+  "--module", "FUN-UNTYPED",
+  "--request", "${prepared}/fun-rpc-execute-${n}/request.json",
+  "--response", "${run}/response.json",
+  "--metrics", "${run}/rpc-metrics.json",
+]
+[workload.krust.check]
+stdout = ['"result"']
+files = ["${run}/response.json", "${run}/rpc-metrics.json"]
+[workload.reference]
+status = "untested"
+note = "The counterpart is kore-rpc-booster on a reference definition with the same request sent by kore-rpc-client; it needs a step that starts the server and stops it after the response."
+
+[[workload]]
+id = "fun/rpc-simplify"
+semantics = "fun"
+operation = "rpc"
+title = "RPC simplify: the final state of build-list-length"
+stresses = "Decoding, simplifying and re-encoding a state that grows with n."
+origin = "scripts/algo-workloads.toml fun-rpc-simplify"
+tier = "quick"
+pins = ["k"]
+[workload.ladder]
+param = "n"
+values = [10, 15, 20, 30, 40]
+stop_seconds = 120
+input = """
+datatype 'a mylist = Nil | Cons('a, 'a mylist)
+
+letrec build = fun 0 -> Nil | n -> Cons(n, build (n - 1))
+and length = fun Nil -> 0 | Cons(h,t) -> 1 + length t
+in length (build ${n})
+"""
+[workload.krust]
+prepare = ["fun-untyped", "fun-rpc-simplify"]
+engine = "command"
+argv = [
+  "python3", "${workspace}/scripts/algo-rpc-request.py",
+  "--krust", "${krust}",
+  "--definition", "${prepared}/fun-untyped/definition.kore",
+  "--module", "FUN-UNTYPED",
+  "--request", "${prepared}/fun-rpc-simplify-${n}/request.json",
+  "--response", "${run}/response.json",
+  "--metrics", "${run}/rpc-metrics.json",
+]
+[workload.krust.check]
+stdout = ['"result"']
+files = ["${run}/response.json", "${run}/rpc-metrics.json"]
+[workload.reference]
+status = "untested"
+note = "The counterpart is kore-rpc-booster on a reference definition with the same request sent by kore-rpc-client; it needs a step that starts the server and stops it after the response."

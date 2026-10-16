@@ -1,0 +1,405 @@
+# IMP scaling workloads rescued from draft-only measurements: strict heating, kink's IMP corpus,
+# and IMP++ thread interleavings. Programs and generators: benchmarks/programs/imp/.
+version = 1
+
+[[prepare]]
+name = "imp-llvm-tutorial-llvm"
+engine = "reference"
+creates = "${prepared}/imp-llvm-tutorial-llvm/timestamp"
+argv = [
+  "kompile", "${k}/pyk/regression-new/imp-llvm/imp.k",
+  "--backend", "llvm", "--enable-search", "--gen-glr-bison-parser",
+  "--main-module", "IMP",
+  "--syntax-module", "IMP-SYNTAX",
+  "--output-definition", "${prepared}/imp-llvm-tutorial-llvm",
+]
+
+# K tutorial IMP lesson 4 (`pl-tutorial/1_k/2_imp/lesson_4/imp.k`), kink's `examples/imp/imp.k`.
+[[prepare]]
+name = "imp-lesson4-tutorial"
+engine = "krust"
+creates = "${prepared}/imp-lesson4-tutorial/runtime.json"
+argv = [
+  "kcompile", "${k}/pyk/regression-new/pl-tutorial/1_k/2_imp/lesson_4/imp.k",
+  "--main-module", "IMP",
+  "--syntax-module", "IMP-SYNTAX",
+  "--output-directory", "${prepared}/imp-lesson4-tutorial",
+  "--builtin-directory", "${builtin}",
+]
+
+[[prepare]]
+name = "imp-lesson4-tutorial-llvm"
+engine = "reference"
+creates = "${prepared}/imp-lesson4-tutorial-llvm/timestamp"
+argv = [
+  "kompile", "${k}/pyk/regression-new/pl-tutorial/1_k/2_imp/lesson_4/imp.k",
+  "--backend", "llvm", "--enable-search", "--gen-glr-bison-parser",
+  "--main-module", "IMP",
+  "--syntax-module", "IMP-SYNTAX",
+  "--output-definition", "${prepared}/imp-lesson4-tutorial-llvm",
+]
+
+# K tutorial IMP++ (`pl-tutorial/1_k/4_imp++/lesson_7/imp.k`).
+[[prepare]]
+name = "imp-lesson7-tutorial"
+engine = "krust"
+creates = "${prepared}/imp-lesson7-tutorial/runtime.json"
+argv = [
+  "kcompile", "${k}/pyk/regression-new/pl-tutorial/1_k/4_imp++/lesson_7/imp.k",
+  "--main-module", "IMP",
+  "--syntax-module", "IMP-SYNTAX",
+  "--output-directory", "${prepared}/imp-lesson7-tutorial",
+  "--builtin-directory", "${builtin}",
+]
+
+[[prepare]]
+name = "imp-lesson7-tutorial-llvm"
+engine = "reference"
+creates = "${prepared}/imp-lesson7-tutorial-llvm/timestamp"
+argv = [
+  "kompile", "${k}/pyk/regression-new/pl-tutorial/1_k/4_imp++/lesson_7/imp.k",
+  "--backend", "llvm", "--enable-search", "--gen-glr-bison-parser",
+  "--main-module", "IMP",
+  "--syntax-module", "IMP-SYNTAX",
+  "--output-definition", "${prepared}/imp-lesson7-tutorial-llvm",
+]
+
+# ---------------------------------------------------------------------------------------------
+# Strict heating (fixtures/collatz-memory, 2026-09-06).
+
+[[workload]]
+id = "imp/krun-strict-heating"
+semantics = "imp"
+operation = "execute"
+title = "Run N copies of `s = s + a;` (two unevaluated operands per `+`)"
+stresses = "Plain execution of a strict production with two heating orders, which once doubled the pending states per statement and must stay linear in N."
+origin = "draft/fable51-review/conformance-host/fixtures/collatz-memory/ (strict2-K.imp at 8be7af0: 85 s and 2.6 GiB at K = 16, where K is the copy count); fixed by plain krun following one successor"
+tier = "standard"
+pins = ["k"]
+[workload.ladder]
+param = "stmts"
+values = [1000, 4000, 16000, 64000]
+generator = ["python3", "-I", "${programs}/imp/strict-heating/gen.py", "two", "${stmts}"]
+[workload.krust]
+prepare = ["imp-tutorial-definition"]
+argv = ["krun", "--definition", "${prepared}/imp-tutorial-definition", "--sort", "Pgm", "${input}"]
+[workload.krust.check]
+expect = "stmts"
+stdout_squeezed = ['inj{SortId{},SortKItem{}}(\dv{SortId{}}("s")),inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("${expect}"))']
+stdout_absent = ['\or{']
+[workload.reference]
+status = "paired"
+backend = "llvm"
+note = "Reference krun works up to N = 4,000 (0.2 s); at N = 16,000 its kore-expand-macros step crashes with a segmentation fault, so the reference side of the ladder ends there."
+prepare = ["imp-llvm-tutorial-llvm"]
+argv = ["krun", "--definition", "${prepared}/imp-llvm-tutorial-llvm", "${input}"]
+[workload.reference.check]
+expect = "stmts"
+stdout_squeezed = ["s|->${expect}"]
+
+[[workload]]
+id = "imp/search-strict-heating"
+semantics = "imp"
+operation = "search"
+title = "Search the final states of N copies of `s = s + a;`"
+stresses = "A search explores both heating orders of every strict `+`; the orders rejoin into one final state, and the cost of keeping or rejoining them grows faster than the statement count (0.7 s at 1,024, 21 s at 4,096 on 2026-10-16)."
+origin = "draft/fable51-review/conformance-host/fixtures/collatz-memory/ (strict2-K.imp); search variant added when the plain-krun case became linear"
+tier = "standard"
+pins = ["k"]
+[workload.ladder]
+param = "stmts"
+values = [256, 512, 1024, 2048, 4096]
+generator = ["python3", "-I", "${programs}/imp/strict-heating/gen.py", "two", "${stmts}"]
+[workload.krust]
+prepare = ["imp-tutorial-definition"]
+argv = ["krun", "--definition", "${prepared}/imp-tutorial-definition", "--sort", "Pgm", "--search-final", "${input}"]
+[workload.krust.check]
+expect = "stmts"
+stdout_squeezed = ['inj{SortId{},SortKItem{}}(\dv{SortId{}}("s")),inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("${expect}"))']
+stdout_absent = ['\or{']
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["imp-llvm-tutorial-llvm"]
+argv = ["krun", "--definition", "${prepared}/imp-llvm-tutorial-llvm", "--search", "${input}"]
+[workload.reference.check]
+expect = "stmts"
+stdout_squeezed = ["s|->${expect}"]
+stdout_absent = ["#Or"]
+
+[[workload]]
+id = "imp/search-strict-heating-control"
+semantics = "imp"
+operation = "search"
+title = "Search the final states of N copies of `s = s + 1;` (control)"
+stresses = "The same search with one unevaluated operand per `+`, so one heating order: the baseline the two-order search is compared with."
+origin = "draft/fable51-review/conformance-host/fixtures/collatz-memory/strict1-16.imp (the control of strict2-K.imp)"
+tier = "standard"
+pins = ["k"]
+[workload.ladder]
+param = "stmts"
+values = [256, 512, 1024, 2048, 4096]
+generator = ["python3", "-I", "${programs}/imp/strict-heating/gen.py", "one", "${stmts}"]
+[workload.krust]
+prepare = ["imp-tutorial-definition"]
+argv = ["krun", "--definition", "${prepared}/imp-tutorial-definition", "--sort", "Pgm", "--search-final", "${input}"]
+[workload.krust.check]
+stdout_squeezed = ['inj{SortId{},SortKItem{}}(\dv{SortId{}}("s")),inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("${stmts}"))']
+stdout_absent = ['\or{']
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["imp-llvm-tutorial-llvm"]
+argv = ["krun", "--definition", "${prepared}/imp-llvm-tutorial-llvm", "--search", "${input}"]
+[workload.reference.check]
+stdout_squeezed = ["s|->${stmts}"]
+stdout_absent = ["#Or"]
+
+# ---------------------------------------------------------------------------------------------
+# kink's IMP corpus (KINK-16/2 measurement, k-in-k2 905bddc): the K tutorial's lesson 4 programs
+# with the loop bound as the ladder parameter, run as kink runs them: every final state.
+
+[[workload]]
+id = "imp/search-kink-sum"
+semantics = "imp"
+operation = "search"
+title = "Search the final states of the tutorial's sum.imp, summing 1..n"
+stresses = "Every iteration evaluates `sum + n` and `n + -1` through strict heating in both orders; the explored states grow faster than n (5.9 s at n = 1,000, 31 s at 2,000, 124 s at 3,000 on 2026-10-16)."
+origin = "draft/kink-handoff-2026-10-15/workers/KINK-16-2-measurement.md (kink examples/imp/programs/sum.imp; raw data /var/tmp/kink26-measure-16-2/)"
+tier = "standard"
+pins = ["k"]
+[workload.ladder]
+param = "n"
+values = [125, 250, 500, 1000, 2000]
+input = """
+int n, sum;
+n = ${n};
+sum = 0;
+while (!(n <= 0)) {
+  sum = sum + n;
+  n = n + -1;
+}
+"""
+[workload.krust]
+prepare = ["imp-lesson4-tutorial"]
+argv = ["krun", "--definition", "${prepared}/imp-lesson4-tutorial", "--sort", "Pgm", "--search-final", "${input}"]
+[workload.krust.check]
+expect = "n * (n + 1) // 2"
+stdout_squeezed = ['inj{SortId{},SortKItem{}}(\dv{SortId{}}("sum")),inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("${expect}"))']
+stdout_absent = ['\or{']
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["imp-lesson4-tutorial-llvm"]
+argv = ["krun", "--definition", "${prepared}/imp-lesson4-tutorial-llvm", "--search", "${input}"]
+[workload.reference.check]
+expect = "n * (n + 1) // 2"
+stdout_squeezed = ["sum|->${expect}"]
+stdout_absent = ["#Or"]
+
+[[workload]]
+id = "imp/search-kink-sum-heavy"
+semantics = "imp"
+operation = "search"
+title = "Search the final states of sum.imp at large n"
+stresses = "The large end of the sum.imp search ladder, where the growth is steepest (124 s at n = 3,000 on 2026-10-16)."
+origin = "draft/kink-handoff-2026-10-15/workers/KINK-16-2-measurement.md (kink examples/imp/programs/sum.imp)"
+tier = "heavy"
+pins = ["k"]
+[workload.ladder]
+param = "n"
+values = [3000, 4000, 6000]
+stop_seconds = 900
+input = """
+int n, sum;
+n = ${n};
+sum = 0;
+while (!(n <= 0)) {
+  sum = sum + n;
+  n = n + -1;
+}
+"""
+[workload.krust]
+prepare = ["imp-lesson4-tutorial"]
+argv = ["krun", "--definition", "${prepared}/imp-lesson4-tutorial", "--sort", "Pgm", "--search-final", "${input}"]
+[workload.krust.check]
+expect = "n * (n + 1) // 2"
+stdout_squeezed = ['inj{SortId{},SortKItem{}}(\dv{SortId{}}("sum")),inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("${expect}"))']
+stdout_absent = ['\or{']
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["imp-lesson4-tutorial-llvm"]
+argv = ["krun", "--definition", "${prepared}/imp-lesson4-tutorial-llvm", "--search", "${input}"]
+[workload.reference.check]
+expect = "n * (n + 1) // 2"
+stdout_squeezed = ["sum|->${expect}"]
+stdout_absent = ["#Or"]
+
+[[workload]]
+id = "imp/search-kink-primes"
+semantics = "imp"
+operation = "search"
+title = "Search the final states of the tutorial's primes.imp, counting primes up to m"
+stresses = "Nested loops of strict divisions, additions and comparisons, all heated in every order (0.8 s at m = 40, 101 s at m = 150 on 2026-10-16)."
+origin = "draft/kink-handoff-2026-10-15/workers/KINK-16-2-measurement.md (kink examples/imp/programs/primes.imp)"
+tier = "standard"
+pins = ["k"]
+[workload.ladder]
+param = "m"
+values = [10, 20, 40, 80]
+input = """
+int i, m, n, q, r, s, t, x, y, z;
+m = ${m};  n = 2;
+while (n <= m) {
+  i = 2;  q = n/i;  t = 1;
+  while (i<=q && 1<=t) {
+    x = i;
+    y = q;
+    z = 0;
+    while (!(x <= 0)) {
+      q = x/2;
+      r = q+q+1;
+      if (r <= x) { z = z+y; } else {}
+      x = q;
+      y = y+y;
+    }
+    if (n <= z) { t = 0; } else { i = i+1;  q = n/i; }
+  }
+  if (1 <= t) { s = s+1; } else {}
+  n = n+1;
+}
+"""
+[workload.krust]
+prepare = ["imp-lesson4-tutorial"]
+argv = ["krun", "--definition", "${prepared}/imp-lesson4-tutorial", "--sort", "Pgm", "--search-final", "${input}"]
+# The prime count has no closed form in m; the loop ends with n = m + 1.
+[workload.krust.check]
+expect = "m + 1"
+stdout_squeezed = ['inj{SortId{},SortKItem{}}(\dv{SortId{}}("n")),inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("${expect}"))']
+stdout_absent = ['\or{']
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["imp-lesson4-tutorial-llvm"]
+argv = ["krun", "--definition", "${prepared}/imp-lesson4-tutorial-llvm", "--search", "${input}"]
+[workload.reference.check]
+expect = "m + 1"
+stdout_squeezed = ["n|->${expect}"]
+stdout_absent = ["#Or"]
+
+[[workload]]
+id = "imp/search-kink-collatz"
+semantics = "imp"
+operation = "search"
+title = "Search the final states of the tutorial's collatz.imp, for all numbers up to m"
+stresses = "Collatz steps through strict `+` and `/` heated in every order; the work per number varies, so growth in m is irregular (12.8 s at m = 40 on 2026-10-16)."
+origin = "draft/kink-handoff-2026-10-15/workers/KINK-16-2-measurement.md (kink examples/imp/programs/collatz.imp)"
+tier = "standard"
+pins = ["k"]
+[workload.ladder]
+param = "m"
+values = [5, 10, 20, 40]
+input = """
+int m, n, q, r, s;
+m = ${m};
+while (!(m<=2)) {
+  n = m;
+  m = m + -1;
+  while (!(n<=1)) {
+    s = s+1;
+    q = n/2;
+    r = q+q+1;
+    if (r<=n) {
+      n = n+n+n+1;
+    } else {n=q;}
+  }
+}
+"""
+[workload.krust]
+prepare = ["imp-lesson4-tutorial"]
+argv = ["krun", "--definition", "${prepared}/imp-lesson4-tutorial", "--sort", "Pgm", "--search-final", "${input}"]
+# The step total has no closed form in m; every number ends at n = 1 and the outer loop at m = 2.
+[workload.krust.check]
+stdout_squeezed = [
+  'inj{SortId{},SortKItem{}}(\dv{SortId{}}("m")),inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("2"))',
+  'inj{SortId{},SortKItem{}}(\dv{SortId{}}("n")),inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("1"))',
+]
+stdout_absent = ['\or{']
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["imp-lesson4-tutorial-llvm"]
+argv = ["krun", "--definition", "${prepared}/imp-lesson4-tutorial-llvm", "--search", "${input}"]
+[workload.reference.check]
+stdout_squeezed = ["m|->2", "n|->1"]
+stdout_absent = ["#Or"]
+
+[[workload]]
+id = "imp/search-kink-wide8"
+semantics = "imp"
+operation = "search"
+title = "Search the final states of r copies of an eight-operand strict sum"
+stresses = "Each statement heats seven `+` in every order, so many explored states rejoin; growth in r is superlinear (1.5 s at r = 128, 44 s at r = 512 on 2026-10-16)."
+origin = "draft/kink-handoff-2026-10-15/workers/KINK-16-2-measurement.md (synthetic wide8r*.imp in /var/tmp/kink26-measure-16-2/synth/)"
+tier = "standard"
+pins = ["k"]
+[workload.ladder]
+param = "r"
+values = [32, 64, 128, 256, 512]
+generator = ["python3", "-I", "${programs}/imp/kink-corpus/gen-wide.py", "8", "${r}"]
+[workload.krust]
+prepare = ["imp-lesson4-tutorial"]
+argv = ["krun", "--definition", "${prepared}/imp-lesson4-tutorial", "--sort", "Pgm", "--search-final", "${input}"]
+[workload.krust.check]
+stdout_squeezed = ['inj{SortId{},SortKItem{}}(\dv{SortId{}}("x")),inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("20"))']
+stdout_absent = ['\or{']
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["imp-lesson4-tutorial-llvm"]
+argv = ["krun", "--definition", "${prepared}/imp-lesson4-tutorial-llvm", "--search", "${input}"]
+[workload.reference.check]
+stdout_squeezed = ["x|->20"]
+stdout_absent = ["#Or"]
+
+# ---------------------------------------------------------------------------------------------
+# IMP++ thread interleavings (CB-12 conformance recipe of pl-tutorial/1_k/4_imp++/lesson_7).
+
+[[workload]]
+id = "imp/search-spawn-interleavings"
+semantics = "imp"
+operation = "search"
+title = "Search every interleaving of IMP++'s spawn.imp (two threads updating x)"
+stresses = "Thread interleavings must recombine instead of being expanded once per path; this recipe once reached 8 GiB."
+origin = "CB-12 conformance case pl-tutorial/1_k/4_imp++/lesson_7 (scripts/conformance/expectations.toml: 10.2 s, 233 MiB at 234c20d)"
+tier = "quick"
+pins = ["k"]
+[workload.krust]
+prepare = ["imp-lesson7-tutorial"]
+stdin = "${k}/pyk/regression-new/pl-tutorial/1_k/4_imp++/lesson_7/tests/spawn.imp.in"
+argv = [
+  "krun", "--definition", "${prepared}/imp-lesson7-tutorial", "--sort", "Stmts",
+  "--search-final", "--io", "off",
+  "--pattern", "<output> ListItem(_) ListItem(_) ListItem(#buffer(Out:String)) </output>",
+  "${k}/pyk/regression-new/pl-tutorial/1_k/4_imp++/lesson_7/tests/spawn.imp",
+]
+[workload.krust.check]
+stdout_squeezed = [
+  'VarOut:SortString{},\dv{SortString{}}("x=11\n")',
+  'VarOut:SortString{},\dv{SortString{}}("x=16\n")',
+  'VarOut:SortString{},\dv{SortString{}}("x=21\n")',
+  'VarOut:SortString{},\dv{SortString{}}("x=33\n")',
+]
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["imp-lesson7-tutorial-llvm"]
+stdin = "${k}/pyk/regression-new/pl-tutorial/1_k/4_imp++/lesson_7/tests/spawn.imp.in"
+argv = [
+  "krun", "--definition", "${prepared}/imp-lesson7-tutorial-llvm", "--search",
+  "--pattern", "<output> ListItem(_) ListItem(_) ListItem(#buffer(Out:String)) </output>",
+  "${k}/pyk/regression-new/pl-tutorial/1_k/4_imp++/lesson_7/tests/spawn.imp",
+]
+[workload.reference.check]
+stdout_squeezed = ['"x=11\n"', '"x=16\n"', '"x=21\n"', '"x=33\n"']

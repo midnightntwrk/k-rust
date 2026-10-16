@@ -1,0 +1,1043 @@
+# IMP workloads: imp-semantics (the pinned `${imp}` checkout) and the K tutorial's IMP.
+# The compile, spec-compile, load, execute and prove workloads are the IMP cases of the former
+# scripts/benchmark.sh; their reference argv is the command that script ran, so the figures it
+# recorded in scripts/benchmark-canonical.json belong to the same ids.
+# The krun, search, parse and RPC workloads come from scripts/algo-workloads.toml or are new.
+# Tracked inputs: benchmarks/programs/imp/.
+version = 1
+
+# ---------------------------------------------------------------------------------------------
+# Prepared definitions.
+
+# imp-semantics compiled for proving: the semantics prove and spec-compile start from.
+[[prepare]]
+name = "imp-proof-definition"
+engine = "krust"
+creates = "${prepared}/imp-proof-definition/parsed.provenance.json"
+argv = [
+  "kcompile", "${imp}/src/kimp/kdist/imp-semantics/imp.k",
+  "--main-module", "IMP",
+  "--syntax-module", "IMP-SYNTAX",
+  "--for-proving",
+  "--output-directory", "${prepared}/imp-proof-definition",
+  "--builtin-directory", "${builtin}",
+  "-I", "${imp}/src/kimp/kdist/imp-semantics",
+]
+
+# imp-simple-spec.k compiled against the prepared semantics: the bundle load and execute read.
+[[prepare]]
+name = "imp-specification"
+engine = "krust"
+prepare = ["imp-proof-definition"]
+creates = "${prepared}/imp-specification/krust.json"
+argv = [
+  "kcompile", "${imp}/examples/specs/imp-simple-spec.k",
+  "--compiled-definition", "${prepared}/imp-proof-definition",
+  "--main-module", "IMP-SIMPLE-SPEC",
+  "--definition-module", "IMP-VERIFICATION",
+  "--for-proving",
+  "--output-directory", "${prepared}/imp-specification",
+  "--builtin-directory", "${builtin}",
+  "-I", "${imp}/src/kimp/kdist/imp-semantics",
+]
+
+# imp-semantics compiled for execution (krun and kore-rpc).
+[[prepare]]
+name = "imp-definition"
+engine = "krust"
+creates = "${prepared}/imp-definition/runtime.json"
+argv = [
+  "kcompile", "${imp}/src/kimp/kdist/imp-semantics/imp.k",
+  "--main-module", "IMP",
+  "--syntax-module", "IMP-SYNTAX",
+  "--output-directory", "${prepared}/imp-definition",
+  "--builtin-directory", "${builtin}",
+  "-I", "${imp}/src/kimp/kdist/imp-semantics",
+]
+
+# The reference Haskell definition that scripts/benchmark.sh prepared for its proofs.
+[[prepare]]
+name = "imp-haskell-definition"
+engine = "reference"
+creates = "${prepared}/imp-haskell-definition/timestamp"
+argv = [
+  "kompile", "${imp}/src/kimp/kdist/imp-semantics/imp.k",
+  "--backend", "haskell",
+  "--main-module", "IMP",
+  "--syntax-module", "IMP-SYNTAX",
+  "--output-definition", "${prepared}/imp-haskell-definition",
+  "--warnings", "none",
+  "-I", "${imp}/src/kimp/kdist/imp-semantics",
+]
+
+# The reference LLVM definition for concrete execution and search (search needs --enable-search).
+[[prepare]]
+name = "imp-llvm-definition"
+engine = "reference"
+creates = "${prepared}/imp-llvm-definition/timestamp"
+argv = [
+  "kompile", "${imp}/src/kimp/kdist/imp-semantics/imp.k",
+  "--backend", "llvm",
+  "--enable-search",
+  "--main-module", "IMP",
+  "--syntax-module", "IMP-SYNTAX",
+  "--output-definition", "${prepared}/imp-llvm-definition",
+  "--warnings", "none",
+  "-I", "${imp}/src/kimp/kdist/imp-semantics",
+]
+
+# The K tutorial's IMP (`int` declarations, strict operators, a `<state>` map).
+[[prepare]]
+name = "imp-tutorial-definition"
+engine = "krust"
+creates = "${prepared}/imp-tutorial-definition/runtime.json"
+argv = [
+  "kcompile", "${k}/pyk/regression-new/imp-llvm/imp.k",
+  "--main-module", "IMP",
+  "--syntax-module", "IMP-SYNTAX",
+  "--output-directory", "${prepared}/imp-tutorial-definition",
+  "--builtin-directory", "${builtin}",
+]
+
+[[prepare]]
+name = "imp-tutorial-llvm-definition"
+engine = "reference"
+creates = "${prepared}/imp-tutorial-llvm-definition/timestamp"
+argv = [
+  "kompile", "${k}/pyk/regression-new/imp-llvm/imp.k",
+  "--backend", "llvm",
+  "--main-module", "IMP",
+  "--syntax-module", "IMP-SYNTAX",
+  "--output-definition", "${prepared}/imp-tutorial-llvm-definition",
+  "--warnings", "none",
+]
+
+# KORE JSON-RPC requests built from a krust state.
+# scripts/algo-rpc-fixture.py runs `krust krun` to the final state, converts it to KORE JSON with
+# the reference kore-parser (found next to K_KOMPILE), and wraps it in a request.
+[[prepare]]
+name = "imp-rpc-execute-control"
+engine = "command"
+prepare = ["imp-definition"]
+creates = "${prepared}/imp-rpc-execute-control/request.json"
+env = { K_KOMPILE = "${kbin}/kompile" }
+argv = [
+  "python3", "${workspace}/scripts/algo-rpc-fixture.py",
+  "--krust", "${krust}",
+  "--definition", "${prepared}/imp-definition",
+  "--module", "IMP",
+  "--sort", "Stmt",
+  "--program-file", "${workspace}/crates/k-rust/tests/fixtures/reference/rpc/imp-control.imp",
+  "--config", "ENV=.Map",
+  "--method", "execute",
+  "--max-depth", "1",
+  "--output", "${prepared}/imp-rpc-execute-control/request.json",
+]
+
+[[prepare]]
+name = "imp-rpc-simplify-control"
+engine = "command"
+prepare = ["imp-definition"]
+creates = "${prepared}/imp-rpc-simplify-control/request.json"
+env = { K_KOMPILE = "${kbin}/kompile" }
+argv = [
+  "python3", "${workspace}/scripts/algo-rpc-fixture.py",
+  "--krust", "${krust}",
+  "--definition", "${prepared}/imp-definition",
+  "--module", "IMP",
+  "--sort", "Stmt",
+  "--program-file", "${workspace}/crates/k-rust/tests/fixtures/reference/rpc/imp-control.imp",
+  "--config", "ENV=.Map",
+  "--method", "simplify",
+  "--output", "${prepared}/imp-rpc-simplify-control/request.json",
+]
+
+# ---------------------------------------------------------------------------------------------
+# Compile, spec-compile, load, execute, prove (scripts/benchmark.sh --suite imp).
+
+[[workload]]
+id = "imp/compile"
+semantics = "imp"
+operation = "compile"
+title = "Compile IMP for proving"
+stresses = "The whole frontend on a small semantics: parsing, type inference, compiler passes and artifact writing, from source to a proof-ready definition."
+origin = "scripts/benchmark.sh --suite imp --phase compile"
+tier = "quick"
+pins = ["k", "imp"]
+[workload.krust]
+argv = [
+  "kcompile", "${imp}/src/kimp/kdist/imp-semantics/imp.k",
+  "--main-module", "IMP",
+  "--syntax-module", "IMP-SYNTAX",
+  "--for-proving",
+  "--output-directory", "${run}/compiled",
+  "--builtin-directory", "${builtin}",
+  "-I", "${imp}/src/kimp/kdist/imp-semantics",
+]
+[workload.krust.check]
+files = ["${run}/compiled/definition.kore", "${run}/compiled/krust.json"]
+[workload.reference]
+status = "paired"
+backend = "haskell"
+argv = [
+  "kompile", "${imp}/src/kimp/kdist/imp-semantics/imp.k",
+  "--backend", "haskell",
+  "--main-module", "IMP",
+  "--syntax-module", "IMP-SYNTAX",
+  "--output-definition", "${run}/compiled",
+  "--warnings", "none",
+  "-I", "${imp}/src/kimp/kdist/imp-semantics",
+]
+[workload.reference.check]
+files = ["${run}/compiled/definition.kore"]
+
+[[workload]]
+id = "imp/spec-compile"
+semantics = "imp"
+operation = "spec-compile"
+title = "Compile the IMP specification against prepared semantics"
+stresses = "Compiling a new spec module on top of an already parsed semantics: the semantics' source parse is skipped, but the compiler passes run again on the combined definition."
+origin = "scripts/benchmark.sh --suite imp --phase spec-compile"
+tier = "quick"
+pins = ["k", "imp"]
+[workload.krust]
+prepare = ["imp-proof-definition"]
+argv = [
+  "kcompile", "${imp}/examples/specs/imp-simple-spec.k",
+  "--compiled-definition", "${prepared}/imp-proof-definition",
+  "--main-module", "IMP-SIMPLE-SPEC",
+  "--definition-module", "IMP-VERIFICATION",
+  "--for-proving",
+  "--output-directory", "${run}/specification",
+  "--builtin-directory", "${builtin}",
+  "-I", "${imp}/src/kimp/kdist/imp-semantics",
+]
+[workload.krust.check]
+files = ["${run}/specification/definition.kore", "${run}/specification/krust.json"]
+[workload.reference]
+status = "unsupported"
+reason = "no-counterpart"
+note = "Reference kprove compiles the specification as part of every proof and has no separate spec-compile step; imp/prove-* compares the combined cost."
+
+[[workload]]
+id = "imp/load"
+semantics = "imp"
+operation = "load"
+title = "Load the prepared IMP proof bundle"
+stresses = "Reading and parsing the proof-ready KORE and internalizing the backend, with no solver and no proof: the fixed cost under every execute workload."
+origin = "scripts/benchmark.sh --suite imp --phase load"
+tier = "quick"
+pins = ["k", "imp"]
+[workload.krust]
+prepare = ["imp-specification"]
+argv = [
+  "kprove",
+  "--compiled-definition", "${prepared}/imp-specification",
+  "--main-module", "IMP-SIMPLE-SPEC",
+  "--load-only",
+]
+# --load-only prints nothing; the exit status is the check.
+[workload.krust.check]
+exit = 0
+[workload.reference]
+status = "unsupported"
+reason = "no-counterpart"
+note = "Reference kprove has no load-only mode."
+
+[[workload]]
+id = "imp/execute-addition-var"
+semantics = "imp"
+operation = "prove"
+title = "Prove addition-var from the prepared bundle (symbolic addition)"
+stresses = "Loading the proof bundle, starting the solver and proving a two-state symbolic claim, with the spec compile already done."
+origin = "scripts/benchmark.sh --suite imp --phase execute --claim IMP-SIMPLE-SPEC.addition-var"
+tier = "quick"
+pins = ["k", "imp"]
+[workload.krust]
+prepare = ["imp-specification"]
+argv = [
+  "kprove",
+  "--compiled-definition", "${prepared}/imp-specification",
+  "--main-module", "IMP-SIMPLE-SPEC",
+  "--claim", "IMP-SIMPLE-SPEC.addition-var",
+  "--depth", "100",
+]
+[workload.krust.check]
+stdout = ["claim IMP-SIMPLE-SPEC.addition-var: proven"]
+[workload.reference]
+status = "unsupported"
+reason = "no-counterpart"
+note = "Reference kprove always compiles the specification before proving; imp/prove-addition-var is the paired comparison."
+
+[[workload]]
+id = "imp/execute-branching-program"
+semantics = "imp"
+operation = "prove"
+title = "Prove branching-program from the prepared bundle (symbolic if/else)"
+stresses = "A claim whose execution splits on a symbolic condition, so the prover explores and closes both branches (11 states)."
+origin = "scripts/benchmark.sh --suite imp --phase execute --claim IMP-SIMPLE-SPEC.branching-program"
+tier = "quick"
+pins = ["k", "imp"]
+[workload.krust]
+prepare = ["imp-specification"]
+argv = [
+  "kprove",
+  "--compiled-definition", "${prepared}/imp-specification",
+  "--main-module", "IMP-SIMPLE-SPEC",
+  "--claim", "IMP-SIMPLE-SPEC.branching-program",
+  "--depth", "100",
+]
+[workload.krust.check]
+stdout = ["claim IMP-SIMPLE-SPEC.branching-program: proven"]
+[workload.reference]
+status = "unsupported"
+reason = "no-counterpart"
+note = "Reference kprove always compiles the specification before proving; imp/prove-branching-program is the paired comparison."
+
+[[workload]]
+id = "imp/execute-sum-loop"
+semantics = "imp"
+operation = "prove"
+title = "Prove sum-loop from the prepared bundle (the loop is its own invariant)"
+stresses = "A loop claim proved by circularity: the prover must reach the loop head again and discharge it against the claim itself (36 states)."
+origin = "scripts/benchmark.sh --suite imp --phase execute --claim IMP-SIMPLE-SPEC.sum-loop"
+tier = "quick"
+pins = ["k", "imp"]
+[workload.krust]
+prepare = ["imp-specification"]
+argv = [
+  "kprove",
+  "--compiled-definition", "${prepared}/imp-specification",
+  "--main-module", "IMP-SIMPLE-SPEC",
+  "--claim", "IMP-SIMPLE-SPEC.sum-loop",
+  "--depth", "100",
+]
+[workload.krust.check]
+stdout = ["claim IMP-SIMPLE-SPEC.sum-loop: proven"]
+[workload.reference]
+status = "unsupported"
+reason = "no-counterpart"
+note = "Reference kprove always compiles the specification before proving; imp/prove-sum-loop is the paired comparison."
+
+# The reference side prints nothing with --output none; kprove exits nonzero when a claim fails,
+# so its exit status is the check.
+[[workload]]
+id = "imp/prove-addition-var"
+semantics = "imp"
+operation = "prove"
+title = "Prove addition-var from source spec (symbolic addition)"
+stresses = "The end-to-end command a user runs: compile the spec against prepared semantics, load, and prove a two-state symbolic claim."
+origin = "scripts/benchmark.sh --suite imp --phase prove --claim IMP-SIMPLE-SPEC.addition-var"
+tier = "quick"
+pins = ["k", "imp"]
+[workload.krust]
+prepare = ["imp-proof-definition"]
+argv = [
+  "kprove", "${imp}/examples/specs/imp-simple-spec.k",
+  "--compiled-definition", "${prepared}/imp-proof-definition",
+  "--main-module", "IMP-SIMPLE-SPEC",
+  "--definition-module", "IMP-VERIFICATION",
+  "--claim", "IMP-SIMPLE-SPEC.addition-var",
+  "--depth", "100",
+  "--builtin-directory", "${builtin}",
+  "-I", "${imp}/src/kimp/kdist/imp-semantics",
+]
+[workload.krust.check]
+stdout = ["claim IMP-SIMPLE-SPEC.addition-var: proven"]
+[workload.reference]
+status = "paired"
+backend = "haskell"
+prepare = ["imp-haskell-definition"]
+argv = [
+  "kprove", "${imp}/examples/specs/imp-simple-spec.k",
+  "--definition", "${prepared}/imp-haskell-definition",
+  "--spec-module", "IMP-SIMPLE-SPEC",
+  "--claims", "IMP-SIMPLE-SPEC.addition-var",
+  "--depth", "100",
+  "--output", "none",
+  "--warnings", "none",
+  "-I", "${imp}/src/kimp/kdist/imp-semantics",
+]
+[workload.reference.check]
+exit = 0
+
+[[workload]]
+id = "imp/prove-branching-program"
+semantics = "imp"
+operation = "prove"
+title = "Prove branching-program from source spec (symbolic if/else)"
+stresses = "Spec compile plus a proof that splits on a symbolic condition and closes both branches."
+origin = "scripts/benchmark.sh --suite imp --phase prove --claim IMP-SIMPLE-SPEC.branching-program"
+tier = "quick"
+pins = ["k", "imp"]
+[workload.krust]
+prepare = ["imp-proof-definition"]
+argv = [
+  "kprove", "${imp}/examples/specs/imp-simple-spec.k",
+  "--compiled-definition", "${prepared}/imp-proof-definition",
+  "--main-module", "IMP-SIMPLE-SPEC",
+  "--definition-module", "IMP-VERIFICATION",
+  "--claim", "IMP-SIMPLE-SPEC.branching-program",
+  "--depth", "100",
+  "--builtin-directory", "${builtin}",
+  "-I", "${imp}/src/kimp/kdist/imp-semantics",
+]
+[workload.krust.check]
+stdout = ["claim IMP-SIMPLE-SPEC.branching-program: proven"]
+[workload.reference]
+status = "paired"
+backend = "haskell"
+prepare = ["imp-haskell-definition"]
+argv = [
+  "kprove", "${imp}/examples/specs/imp-simple-spec.k",
+  "--definition", "${prepared}/imp-haskell-definition",
+  "--spec-module", "IMP-SIMPLE-SPEC",
+  "--claims", "IMP-SIMPLE-SPEC.branching-program",
+  "--depth", "100",
+  "--output", "none",
+  "--warnings", "none",
+  "-I", "${imp}/src/kimp/kdist/imp-semantics",
+]
+[workload.reference.check]
+exit = 0
+
+[[workload]]
+id = "imp/prove-sum-loop"
+semantics = "imp"
+operation = "prove"
+title = "Prove sum-loop from source spec (the loop is its own invariant)"
+stresses = "Spec compile plus a loop proof by circularity, the IMP claim with the most states and solver queries."
+origin = "scripts/benchmark.sh --suite imp --phase prove --claim IMP-SIMPLE-SPEC.sum-loop"
+tier = "quick"
+pins = ["k", "imp"]
+[workload.krust]
+prepare = ["imp-proof-definition"]
+argv = [
+  "kprove", "${imp}/examples/specs/imp-simple-spec.k",
+  "--compiled-definition", "${prepared}/imp-proof-definition",
+  "--main-module", "IMP-SIMPLE-SPEC",
+  "--definition-module", "IMP-VERIFICATION",
+  "--claim", "IMP-SIMPLE-SPEC.sum-loop",
+  "--depth", "100",
+  "--builtin-directory", "${builtin}",
+  "-I", "${imp}/src/kimp/kdist/imp-semantics",
+]
+[workload.krust.check]
+stdout = ["claim IMP-SIMPLE-SPEC.sum-loop: proven"]
+[workload.reference]
+status = "paired"
+backend = "haskell"
+prepare = ["imp-haskell-definition"]
+argv = [
+  "kprove", "${imp}/examples/specs/imp-simple-spec.k",
+  "--definition", "${prepared}/imp-haskell-definition",
+  "--spec-module", "IMP-SIMPLE-SPEC",
+  "--claims", "IMP-SIMPLE-SPEC.sum-loop",
+  "--depth", "100",
+  "--output", "none",
+  "--warnings", "none",
+  "-I", "${imp}/src/kimp/kdist/imp-semantics",
+]
+[workload.reference.check]
+exit = 0
+
+# ---------------------------------------------------------------------------------------------
+# Parse (kast).
+# krust kast reads the source definition and builds its parser in the run; reference kast reads
+# the prepared Haskell definition. Both print KAST JSON.
+
+[[workload]]
+id = "imp/parse-sumto10"
+semantics = "imp"
+operation = "parse"
+title = "Parse sumto10.imp to KAST"
+stresses = "Program parsing end to end on a small input, so the cost is mostly building the parser from the grammar and starting the tool."
+origin = "scripts/reference-differential.toml [[kast]] imp, entry sumto10.imp"
+tier = "quick"
+pins = ["k", "imp"]
+[workload.krust]
+argv = [
+  "kast", "${imp}/src/kimp/kdist/imp-semantics/imp.k",
+  "--module", "IMP-SYNTAX",
+  "--sort", "Stmt",
+  "--output", "json",
+  "--backend", "rust",
+  "-I", "${imp}/src/kimp/kdist/imp-semantics",
+  "--builtin-directory", "${builtin}",
+  "${imp}/examples/sumto10.imp",
+]
+[workload.krust.check]
+stdout_squeezed = ['"name":"while(_)__IMP-SYNTAX_Stmt_Expr_Stmt"', '"name":"_<=__EXPR-SYNTAX_Expr_Expr_Expr"']
+[workload.reference]
+status = "paired"
+prepare = ["imp-haskell-definition"]
+argv = [
+  "kast",
+  "--definition", "${prepared}/imp-haskell-definition",
+  "--module", "IMP-SYNTAX",
+  "--sort", "Stmt",
+  "--output", "json",
+  "--warnings", "none",
+  "${imp}/examples/sumto10.imp",
+]
+[workload.reference.check]
+stdout_squeezed = ['"name":"while(_)__IMP-SYNTAX_Stmt_Expr_Stmt"', '"name":"_<=__EXPR-SYNTAX_Expr_Expr_Expr"']
+
+# The statement sequence `Stmt Stmt` has no associativity, so a long program is ambiguous.
+[[workload]]
+id = "imp/parse-statements-100"
+semantics = "imp"
+operation = "parse"
+title = "Parse a program of 100 assignments to KAST"
+stresses = "A sequence of 100 statements whose `Stmt Stmt` grouping is ambiguous, so the parser's handling of ambiguity, not tool startup, sets the cost."
+origin = "new (benchmarks/programs/imp/statements.py 100)"
+tier = "quick"
+pins = ["k", "imp"]
+[workload.krust]
+argv = [
+  "kast", "${imp}/src/kimp/kdist/imp-semantics/imp.k",
+  "--module", "IMP-SYNTAX",
+  "--sort", "Stmt",
+  "--output", "json",
+  "--backend", "rust",
+  "-I", "${imp}/src/kimp/kdist/imp-semantics",
+  "--builtin-directory", "${builtin}",
+  "${programs}/imp/statements-100.imp",
+]
+[workload.krust.check]
+stdout_squeezed = ['"token":"x100"', '"token":"x99"']
+[workload.reference]
+status = "paired"
+prepare = ["imp-haskell-definition"]
+note = "7 s and 1.9 GiB at 100 statements (2026-10-16); at 300 statements reference kast exhausts its 4 GiB heap, so imp/parse-statements is not paired."
+argv = [
+  "kast",
+  "--definition", "${prepared}/imp-haskell-definition",
+  "--module", "IMP-SYNTAX",
+  "--sort", "Stmt",
+  "--output", "json",
+  "--warnings", "none",
+  "${programs}/imp/statements-100.imp",
+]
+[workload.reference.check]
+stdout_squeezed = ['"token":"x100"', '"token":"x99"']
+
+[[workload]]
+id = "imp/parse-statements"
+semantics = "imp"
+operation = "parse"
+title = "Parse programs of n assignments to KAST"
+stresses = "Parse cost as the ambiguous statement sequence grows; the growth exponent shows whether ambiguity handling stays linear in the program length."
+origin = "new (benchmarks/programs/imp/statements.py)"
+tier = "quick"
+pins = ["k", "imp"]
+[workload.ladder]
+param = "n"
+values = [10, 100, 1000, 3000, 10000]
+stop_seconds = 120
+generator = ["python3", "-I", "${programs}/imp/statements.py", "${n}"]
+[workload.krust]
+argv = [
+  "kast", "${imp}/src/kimp/kdist/imp-semantics/imp.k",
+  "--module", "IMP-SYNTAX",
+  "--sort", "Stmt",
+  "--output", "json",
+  "--backend", "rust",
+  "-I", "${imp}/src/kimp/kdist/imp-semantics",
+  "--builtin-directory", "${builtin}",
+  "${input}",
+]
+[workload.krust.check]
+stdout_squeezed = ['"token":"x${n}"']
+[workload.reference]
+status = "unsupported"
+reason = "ref-fails"
+note = "Reference kast (4 GiB heap) parses 100 statements in 7 s and fails with OutOfMemoryError at 300 (82 s) and 1,000 (520 s) statements (2026-10-16); imp/parse-statements-100 is the paired point."
+
+# ---------------------------------------------------------------------------------------------
+# Concrete execution (krun) of imp-semantics.
+# The reference side is the LLVM backend's krun with KORE output.
+# krust prints the cell map as nested `_Map_` applications and the reference as one
+# `\left-assoc`, so each check names one binding, which both forms contain once whitespace is removed.
+
+[[workload]]
+id = "imp/krun-sumto10"
+semantics = "imp"
+operation = "execute"
+title = "Run sumto10.imp (sum of 0..10)"
+stresses = "Concrete execution of a short loop, so the cost is mostly loading the definition and starting the tool."
+origin = "scripts/reference-differential.toml [[execution]] imp (sumto10.imp)"
+tier = "quick"
+pins = ["k", "imp"]
+[workload.krust]
+prepare = ["imp-definition"]
+argv = [
+  "krun",
+  "--definition", "${prepared}/imp-definition",
+  "--sort", "Stmt",
+  "-c", "ENV=.Map",
+  "${imp}/examples/sumto10.imp",
+]
+[workload.krust.check]
+stdout_squeezed = [
+  'inj{SortId{},SortKItem{}}(\dv{SortId{}}("sum")),inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("55"))',
+  "Lbl'-LT-'k'-GT-'{}(dotk{}())",
+]
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["imp-llvm-definition"]
+argv = [
+  "krun",
+  "--definition", "${prepared}/imp-llvm-definition",
+  "-cENV=.Map",
+  "--output", "kore",
+  "${imp}/examples/sumto10.imp",
+]
+[workload.reference.check]
+stdout_squeezed = [
+  'inj{SortId{},SortKItem{}}(\dv{SortId{}}("sum")),inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("55"))',
+  "Lbl'-LT-'k'-GT-'{}(dotk{}())",
+]
+
+# The loop runs n + 1 times and the result binds sum to n(n + 1)/2.
+[[workload]]
+id = "imp/krun-sum"
+semantics = "imp"
+operation = "execute"
+title = "Run a loop summing 0..n"
+stresses = "Concrete rewriting throughput on a while loop with map lookups and updates; the growth exponent should stay near 1."
+origin = "scripts/algo-workloads.toml imp-krun-sum"
+tier = "quick"
+pins = ["k", "imp"]
+[workload.ladder]
+param = "n"
+values = [10, 100, 1000, 3000, 10000]
+stop_seconds = 120
+input = """
+sum = 0;
+n = ${n};
+k = 0;
+while (k <= n) {
+  sum = sum + k;
+  k = k + 1;
+}
+"""
+[workload.krust]
+prepare = ["imp-definition"]
+argv = [
+  "krun",
+  "--definition", "${prepared}/imp-definition",
+  "--sort", "Stmt",
+  "-c", "ENV=.Map",
+  "${input}",
+]
+[workload.krust.check]
+expect = "n * (n + 1) // 2"
+stdout_squeezed = ['inj{SortId{},SortKItem{}}(\dv{SortId{}}("sum")),inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("${expect}"))']
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["imp-llvm-definition"]
+argv = [
+  "krun",
+  "--definition", "${prepared}/imp-llvm-definition",
+  "-cENV=.Map",
+  "--output", "kore",
+  "${input}",
+]
+[workload.reference.check]
+expect = "n * (n + 1) // 2"
+stdout_squeezed = ['inj{SortId{},SortKItem{}}(\dv{SortId{}}("sum")),inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("${expect}"))']
+
+# ---------------------------------------------------------------------------------------------
+# Search of imp-semantics.
+# The reference search output annotates injections with `/*Inj:*/` comments, which stay in the
+# squeezed text; its checks name the binding in that form.
+
+[[workload]]
+id = "imp/search-sumto10"
+semantics = "imp"
+operation = "search"
+title = "Search the final states of sumto10.imp"
+stresses = "Search mode on a deterministic program: every reachable state is kept and checked for successors, and exactly one final state must come out."
+origin = "scripts/reference-differential.toml [[execution.search]] imp (sumto10.imp)"
+tier = "quick"
+pins = ["k", "imp"]
+[workload.krust]
+prepare = ["imp-definition"]
+argv = [
+  "krun",
+  "--definition", "${prepared}/imp-definition",
+  "--sort", "Stmt",
+  "-c", "ENV=.Map",
+  "--search-final",
+  "${imp}/examples/sumto10.imp",
+]
+[workload.krust.check]
+stdout_squeezed = [
+  'inj{SortId{},SortKItem{}}(\dv{SortId{}}("sum")),inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("55"))',
+  "Lbl'-LT-'k'-GT-'{}(dotk{}())",
+]
+stdout_absent = ['\or{']
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["imp-llvm-definition"]
+argv = [
+  "krun",
+  "--definition", "${prepared}/imp-llvm-definition",
+  "-cENV=.Map",
+  "--search-final",
+  "--output", "kore",
+  "${imp}/examples/sumto10.imp",
+]
+[workload.reference.check]
+stdout_squeezed = [
+  '\dv{SortId{}}("sum")),/*Inj:*/inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("55"))',
+  "Lbl'-LT-'k'-GT-'{}(dotk{}())",
+]
+stdout_absent = ['\or{']
+
+[[workload]]
+id = "imp/search-sum"
+semantics = "imp"
+operation = "search"
+title = "Search the final states of a loop summing 0..n"
+stresses = "Search-mode bookkeeping (visited states, successor sets) on a long deterministic run; it should cost a constant factor over plain execution, not more."
+origin = "new (the imp/krun-sum ladder under --search-final)"
+tier = "quick"
+pins = ["k", "imp"]
+[workload.ladder]
+param = "n"
+values = [10, 100, 1000, 3000, 10000]
+stop_seconds = 120
+input = """
+sum = 0;
+n = ${n};
+k = 0;
+while (k <= n) {
+  sum = sum + k;
+  k = k + 1;
+}
+"""
+[workload.krust]
+prepare = ["imp-definition"]
+argv = [
+  "krun",
+  "--definition", "${prepared}/imp-definition",
+  "--sort", "Stmt",
+  "-c", "ENV=.Map",
+  "--search-final",
+  "${input}",
+]
+[workload.krust.check]
+expect = "n * (n + 1) // 2"
+stdout_squeezed = ['inj{SortId{},SortKItem{}}(\dv{SortId{}}("sum")),inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("${expect}"))']
+stdout_absent = ['\or{']
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["imp-llvm-definition"]
+argv = [
+  "krun",
+  "--definition", "${prepared}/imp-llvm-definition",
+  "-cENV=.Map",
+  "--search-final",
+  "--output", "kore",
+  "${input}",
+]
+[workload.reference.check]
+expect = "n * (n + 1) // 2"
+stdout_squeezed = ['\dv{SortId{}}("sum")),/*Inj:*/inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("${expect}"))']
+stdout_absent = ['\or{']
+
+# ---------------------------------------------------------------------------------------------
+# Concrete execution of the K tutorial's IMP programs (collatz.imp, primes.imp, sum.imp).
+# Each check names the variable the program's closing comment gives the value of.
+
+[[workload]]
+id = "imp/krun-tutorial-collatz"
+semantics = "imp"
+operation = "execute"
+title = "Run the tutorial's collatz.imp (Collatz steps for 2..10)"
+stresses = "Concrete execution through strict operators: every `+`, `/` and `<=` heats its arguments, so plain execution must follow one heating order."
+origin = "K tutorial (pyk/regression-new/imp-llvm); scripts/conformance/expectations.toml case imp-llvm"
+tier = "quick"
+pins = ["k"]
+[workload.krust]
+prepare = ["imp-tutorial-definition"]
+argv = [
+  "krun",
+  "--definition", "${prepared}/imp-tutorial-definition",
+  "--sort", "Pgm",
+  "${k}/pyk/regression-new/imp-llvm/collatz.imp",
+]
+[workload.krust.check]
+stdout_squeezed = [
+  'inj{SortId{},SortKItem{}}(\dv{SortId{}}("s")),inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("66"))',
+  "Lbl'-LT-'k'-GT-'{}(dotk{}())",
+]
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["imp-tutorial-llvm-definition"]
+argv = [
+  "krun",
+  "--definition", "${prepared}/imp-tutorial-llvm-definition",
+  "--output", "kore",
+  "${k}/pyk/regression-new/imp-llvm/collatz.imp",
+]
+[workload.reference.check]
+stdout_squeezed = [
+  'inj{SortId{},SortKItem{}}(\dv{SortId{}}("s")),inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("66"))',
+  "Lbl'-LT-'k'-GT-'{}(dotk{}())",
+]
+
+[[workload]]
+id = "imp/krun-tutorial-primes"
+semantics = "imp"
+operation = "execute"
+title = "Run the tutorial's primes.imp (count primes up to 10)"
+stresses = "Nested loops of strict arithmetic and comparisons over ten variables in the state map."
+origin = "K tutorial (pyk/regression-new/imp-llvm); scripts/conformance/expectations.toml case imp-llvm"
+tier = "quick"
+pins = ["k"]
+[workload.krust]
+prepare = ["imp-tutorial-definition"]
+argv = [
+  "krun",
+  "--definition", "${prepared}/imp-tutorial-definition",
+  "--sort", "Pgm",
+  "${k}/pyk/regression-new/imp-llvm/primes.imp",
+]
+[workload.krust.check]
+stdout_squeezed = [
+  'inj{SortId{},SortKItem{}}(\dv{SortId{}}("s")),inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("4"))',
+  "Lbl'-LT-'k'-GT-'{}(dotk{}())",
+]
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["imp-tutorial-llvm-definition"]
+argv = [
+  "krun",
+  "--definition", "${prepared}/imp-tutorial-llvm-definition",
+  "--output", "kore",
+  "${k}/pyk/regression-new/imp-llvm/primes.imp",
+]
+[workload.reference.check]
+stdout_squeezed = [
+  'inj{SortId{},SortKItem{}}(\dv{SortId{}}("s")),inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("4"))',
+  "Lbl'-LT-'k'-GT-'{}(dotk{}())",
+]
+
+[[workload]]
+id = "imp/krun-tutorial-sum"
+semantics = "imp"
+operation = "execute"
+title = "Run the tutorial's sum.imp (sum of 1..100)"
+stresses = "A single strict loop of 100 iterations, the smallest of the three tutorial programs."
+origin = "K tutorial (pyk/regression-new/imp-llvm); scripts/conformance/expectations.toml case imp-llvm"
+tier = "quick"
+pins = ["k"]
+[workload.krust]
+prepare = ["imp-tutorial-definition"]
+argv = [
+  "krun",
+  "--definition", "${prepared}/imp-tutorial-definition",
+  "--sort", "Pgm",
+  "${k}/pyk/regression-new/imp-llvm/sum.imp",
+]
+[workload.krust.check]
+stdout_squeezed = [
+  'inj{SortId{},SortKItem{}}(\dv{SortId{}}("sum")),inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("5050"))',
+  "Lbl'-LT-'k'-GT-'{}(dotk{}())",
+]
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["imp-tutorial-llvm-definition"]
+argv = [
+  "krun",
+  "--definition", "${prepared}/imp-tutorial-llvm-definition",
+  "--output", "kore",
+  "${k}/pyk/regression-new/imp-llvm/sum.imp",
+]
+[workload.reference.check]
+stdout_squeezed = [
+  'inj{SortId{},SortKItem{}}(\dv{SortId{}}("sum")),inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("5050"))',
+  "Lbl'-LT-'k'-GT-'{}(dotk{}())",
+]
+
+# collatz.imp and primes.imp with a larger bound, so execution rather than startup sets the cost.
+[[workload]]
+id = "imp/krun-tutorial-collatz-300"
+semantics = "imp"
+operation = "execute"
+title = "Run collatz.imp for 2..300 (14,166 Collatz steps)"
+stresses = "Sustained concrete rewriting through strict operators: about 14,000 inner-loop iterations, each heating and cooling several arithmetic operands."
+origin = "new (the tutorial's collatz.imp with m = 300; benchmarks/programs/imp/collatz-300.imp)"
+tier = "standard"
+pins = ["k"]
+[workload.krust]
+prepare = ["imp-tutorial-definition"]
+argv = [
+  "krun",
+  "--definition", "${prepared}/imp-tutorial-definition",
+  "--sort", "Pgm",
+  "${programs}/imp/collatz-300.imp",
+]
+[workload.krust.check]
+stdout_squeezed = [
+  'inj{SortId{},SortKItem{}}(\dv{SortId{}}("s")),inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("14166"))',
+  "Lbl'-LT-'k'-GT-'{}(dotk{}())",
+]
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["imp-tutorial-llvm-definition"]
+argv = [
+  "krun",
+  "--definition", "${prepared}/imp-tutorial-llvm-definition",
+  "--output", "kore",
+  "${programs}/imp/collatz-300.imp",
+]
+[workload.reference.check]
+stdout_squeezed = [
+  'inj{SortId{},SortKItem{}}(\dv{SortId{}}("s")),inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("14166"))',
+  "Lbl'-LT-'k'-GT-'{}(dotk{}())",
+]
+
+[[workload]]
+id = "imp/krun-tutorial-primes-1000"
+semantics = "imp"
+operation = "execute"
+title = "Run primes.imp up to 1,000 (168 primes)"
+stresses = "Sustained concrete rewriting in triply nested loops with a ten-variable state map."
+origin = "new (the tutorial's primes.imp with m = 1000; benchmarks/programs/imp/primes-1000.imp)"
+tier = "standard"
+pins = ["k"]
+[workload.krust]
+prepare = ["imp-tutorial-definition"]
+argv = [
+  "krun",
+  "--definition", "${prepared}/imp-tutorial-definition",
+  "--sort", "Pgm",
+  "${programs}/imp/primes-1000.imp",
+]
+[workload.krust.check]
+stdout_squeezed = [
+  'inj{SortId{},SortKItem{}}(\dv{SortId{}}("s")),inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("168"))',
+  "Lbl'-LT-'k'-GT-'{}(dotk{}())",
+]
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["imp-tutorial-llvm-definition"]
+argv = [
+  "krun",
+  "--definition", "${prepared}/imp-tutorial-llvm-definition",
+  "--output", "kore",
+  "${programs}/imp/primes-1000.imp",
+]
+[workload.reference.check]
+stdout_squeezed = [
+  'inj{SortId{},SortKItem{}}(\dv{SortId{}}("s")),inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("168"))',
+  "Lbl'-LT-'k'-GT-'{}(dotk{}())",
+]
+
+# ---------------------------------------------------------------------------------------------
+# KORE JSON-RPC (scripts/algo-workloads.toml).
+# `krust kore-rpc` is a server and takes no request file, so the measured command is
+# scripts/algo-rpc-request.py, as in scripts/algo-receipt.sh: it starts
+# `krust kore-rpc <definition> --module M --server-port P`, sends the one request, writes the
+# response and metrics files, prints the response, and stops the server.
+# The timed region therefore includes the server's startup and its definition load.
+# The script names the krust binary itself, so the argv passes ${krust}, the measured binary.
+# The script stops the server with SIGTERM; a release build ends by that signal, and a build with
+# the `measure` feature handles it and exits 0.
+
+[[workload]]
+id = "imp/rpc-implies-smoke"
+semantics = "imp"
+operation = "rpc"
+title = "RPC implies: one IMP implication check"
+stresses = "One `implies` request through the JSON-RPC server: JSON decoding, KORE internalization, matching and the solver call behind the verdict."
+origin = "scripts/algo-workloads.toml imp-rpc-implies-smoke"
+tier = "quick"
+pins = ["k", "imp"]
+[workload.krust]
+prepare = ["imp-definition"]
+engine = "command"
+argv = [
+  "python3", "${workspace}/scripts/algo-rpc-request.py",
+  "--krust", "${krust}",
+  "--definition", "${prepared}/imp-definition/definition.kore",
+  "--module", "IMP",
+  "--request", "${workspace}/crates/k-rust/tests/fixtures/reference/rpc/imp-implies-request.json",
+  "--response", "${run}/response.json",
+  "--metrics", "${run}/rpc-metrics.json",
+]
+[workload.krust.check]
+stdout = ['"status":"valid"']
+files = ["${run}/response.json", "${run}/rpc-metrics.json"]
+[workload.reference]
+status = "untested"
+note = "The counterpart is kore-rpc-booster on the reference Haskell definition with the same request sent by kore-rpc-client; it needs a step that starts the server and stops it after the response."
+
+[[workload]]
+id = "imp/rpc-execute-control"
+semantics = "imp"
+operation = "rpc"
+title = "RPC execute: one step from a final IMP state"
+stresses = "The fixed cost of an `execute` request (decode, internalize, look for a step, encode) on a state that is already final."
+origin = "scripts/algo-workloads.toml imp-rpc-execute-control"
+tier = "quick"
+pins = ["k", "imp"]
+[workload.krust]
+prepare = ["imp-definition", "imp-rpc-execute-control"]
+engine = "command"
+argv = [
+  "python3", "${workspace}/scripts/algo-rpc-request.py",
+  "--krust", "${krust}",
+  "--definition", "${prepared}/imp-definition/definition.kore",
+  "--module", "IMP",
+  "--request", "${prepared}/imp-rpc-execute-control/request.json",
+  "--response", "${run}/response.json",
+  "--metrics", "${run}/rpc-metrics.json",
+]
+[workload.krust.check]
+stdout = ['"result"', '"reason":"stuck"']
+files = ["${run}/response.json", "${run}/rpc-metrics.json"]
+[workload.reference]
+status = "untested"
+note = "The counterpart is kore-rpc-booster on the reference Haskell definition with the same request sent by kore-rpc-client; it needs a step that starts the server and stops it after the response."
+
+[[workload]]
+id = "imp/rpc-simplify-control"
+semantics = "imp"
+operation = "rpc"
+title = "RPC simplify: one final IMP state"
+stresses = "The fixed cost of a `simplify` request on a small concrete configuration."
+origin = "scripts/algo-workloads.toml imp-rpc-simplify-control"
+tier = "quick"
+pins = ["k", "imp"]
+[workload.krust]
+prepare = ["imp-definition", "imp-rpc-simplify-control"]
+engine = "command"
+argv = [
+  "python3", "${workspace}/scripts/algo-rpc-request.py",
+  "--krust", "${krust}",
+  "--definition", "${prepared}/imp-definition/definition.kore",
+  "--module", "IMP",
+  "--request", "${prepared}/imp-rpc-simplify-control/request.json",
+  "--response", "${run}/response.json",
+  "--metrics", "${run}/rpc-metrics.json",
+]
+[workload.krust.check]
+stdout = ['"result"']
+files = ["${run}/response.json", "${run}/rpc-metrics.json"]
+[workload.reference]
+status = "untested"
+note = "The counterpart is kore-rpc-booster on the reference Haskell definition with the same request sent by kore-rpc-client; it needs a step that starts the server and stops it after the response."

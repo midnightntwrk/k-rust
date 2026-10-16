@@ -1,0 +1,566 @@
+# Growth reproducers rescued from draft/open-issues-2026-10/tickets/repro/perf/ (FOLLOWUPS 2.3),
+# each with its growth figures at 934d29e7 in its README. Toy definitions and generators:
+# benchmarks/programs/toy/growth/ (and toy/compile-shapes/gen3.py for the owise reproducer).
+# kore-simplify, kore-implies and kore-get-model are the CLI forms of the RPC methods, so they use operation "rpc".
+version = 1
+
+[[prepare]]
+name = "growth-map-build"
+engine = "krust"
+creates = "${prepared}/growth-map-build/runtime.json"
+argv = ["kcompile", "${programs}/toy/growth/map-update/map-build.k", "--main-module", "MAP-BUILD", "--syntax-module", "MAP-BUILD", "--output-directory", "${prepared}/growth-map-build", "--builtin-directory", "${builtin}"]
+
+[[prepare]]
+name = "growth-map-build-llvm"
+engine = "reference"
+creates = "${prepared}/growth-map-build-llvm/timestamp"
+argv = ["kompile", "${programs}/toy/growth/map-update/map-build.k", "--backend", "llvm", "--main-module", "MAP-BUILD", "--syntax-module", "MAP-BUILD", "--output-definition", "${prepared}/growth-map-build-llvm"]
+
+[[prepare]]
+name = "growth-map-control"
+engine = "krust"
+creates = "${prepared}/growth-map-control/runtime.json"
+argv = ["kcompile", "${programs}/toy/growth/map-update/control.k", "--main-module", "CTL", "--syntax-module", "CTL", "--output-directory", "${prepared}/growth-map-control", "--builtin-directory", "${builtin}"]
+
+[[prepare]]
+name = "growth-map-control-llvm"
+engine = "reference"
+creates = "${prepared}/growth-map-control-llvm/timestamp"
+argv = ["kompile", "${programs}/toy/growth/map-update/control.k", "--backend", "llvm", "--main-module", "CTL", "--syntax-module", "CTL", "--output-definition", "${prepared}/growth-map-control-llvm"]
+
+[[prepare]]
+name = "growth-fn"
+engine = "krust"
+creates = "${prepared}/growth-fn/runtime.json"
+argv = ["kcompile", "${programs}/toy/growth/fn-recursion/fn.k", "--main-module", "FN", "--syntax-module", "FN-SYNTAX", "--output-directory", "${prepared}/growth-fn", "--builtin-directory", "${builtin}"]
+
+[[prepare]]
+name = "growth-fn-llvm"
+engine = "reference"
+creates = "${prepared}/growth-fn-llvm/timestamp"
+argv = ["kompile", "${programs}/toy/growth/fn-recursion/fn.k", "--backend", "llvm", "--main-module", "FN", "--syntax-module", "FN-SYNTAX", "--output-definition", "${prepared}/growth-fn-llvm"]
+
+[[prepare]]
+name = "growth-fn-control"
+engine = "krust"
+creates = "${prepared}/growth-fn-control/runtime.json"
+argv = ["kcompile", "${programs}/toy/growth/fn-recursion/fn-control.k", "--main-module", "FN", "--syntax-module", "FN-SYNTAX", "--output-directory", "${prepared}/growth-fn-control", "--builtin-directory", "${builtin}"]
+
+[[prepare]]
+name = "growth-fn-control-llvm"
+engine = "reference"
+creates = "${prepared}/growth-fn-control-llvm/timestamp"
+argv = ["kompile", "${programs}/toy/growth/fn-recursion/fn-control.k", "--backend", "llvm", "--main-module", "FN", "--syntax-module", "FN-SYNTAX", "--output-definition", "${prepared}/growth-fn-control-llvm"]
+
+[[prepare]]
+name = "growth-amb-llvm"
+engine = "reference"
+creates = "${prepared}/growth-amb-llvm/timestamp"
+argv = ["kompile", "${programs}/toy/growth/ambiguous-chain/amb.k", "--backend", "llvm", "--main-module", "AMB", "--syntax-module", "AMB-SYNTAX", "--output-definition", "${prepared}/growth-amb-llvm"]
+
+[[prepare]]
+name = "growth-diamonds"
+engine = "krust"
+creates = "${prepared}/growth-diamonds/definition.kore"
+argv = ["kcompile", "${programs}/toy/growth/import-diamonds/main.k", "--main-module", "MAIN", "--syntax-module", "MAIN", "--output-directory", "${prepared}/growth-diamonds", "--builtin-directory", "${builtin}"]
+
+# Per ladder value: the compiled definition followed by the generated diamonds.
+[[prepare]]
+name = "growth-diamonds-joined"
+engine = "command"
+prepare = ["growth-diamonds"]
+creates = "${prepared}/growth-diamonds-${d}/definition.kore"
+argv = ["sh", "-c", "mkdir -p \"$(dirname \"$3\")\" && cat \"$1\" \"$2\" > \"$3\"", "sh", "${prepared}/growth-diamonds/definition.kore", "${input}", "${prepared}/growth-diamonds-${d}/definition.kore"]
+
+[[prepare]]
+name = "growth-pred-chains"
+engine = "krust"
+creates = "${prepared}/growth-pred-chains/definition.kore"
+argv = ["kcompile", "${programs}/toy/growth/predicate-chains/pred.k", "--main-module", "PRED", "--syntax-module", "PRED", "--output-directory", "${prepared}/growth-pred-chains", "--builtin-directory", "${builtin}"]
+
+[[prepare]]
+name = "growth-pred-plain"
+engine = "krust"
+creates = "${prepared}/growth-pred-plain/definition.kore"
+argv = ["kcompile", "${programs}/toy/growth/fill-placeholders/pred.k", "--main-module", "PRED", "--syntax-module", "PRED", "--output-directory", "${prepared}/growth-pred-plain", "--builtin-directory", "${builtin}"]
+
+# ---------------------------------------------------------------------------------------------
+# map-update.sh
+
+[[workload]]
+id = "toy/growth-map-update"
+semantics = "toy"
+operation = "execute"
+title = "Build an N-entry map by N map updates"
+stresses = "One `M[N <- N]` per step on a Map that grows by one entry per step; each update must cost about the same at any size (3.3-3.9 times per doubling at 934d29e7)."
+origin = "draft/open-issues-2026-10/tickets/repro/perf/map-update.sh (FOLLOWUPS 2.3)"
+tier = "standard"
+pins = ["k"]
+[workload.ladder]
+param = "n"
+values = [16000, 32000, 64000, 128000, 256000]
+input = "${n}\n"
+[workload.krust]
+prepare = ["growth-map-build"]
+argv = ["krun", "--definition", "${prepared}/growth-map-build", "--sort", "Int", "${input}"]
+[workload.krust.check]
+stdout_squeezed = ["Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortInt{},SortKItem{}}(\\dv{SortInt{}}(\"-${n}\")),dotk{}()))", "Lbl'-LT-'m'-GT-'{}(Lbl'Stop'Map{}())"]
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["growth-map-build-llvm"]
+argv = ["krun", "--definition", "${prepared}/growth-map-build-llvm", "${input}"]
+[workload.reference.check]
+stdout_squeezed = ["<k>-${n}~>.K</k>", "<m>.Map</m>"]
+
+[[workload]]
+id = "toy/growth-map-update-control"
+semantics = "toy"
+operation = "execute"
+title = "Count N steps on an Int cell (control of the map build)"
+stresses = "The map build's steps without the Map, the linear baseline its growth is compared with."
+origin = "draft/open-issues-2026-10/tickets/repro/perf/map-update.sh (FOLLOWUPS 2.3, the control)"
+tier = "standard"
+pins = ["k"]
+[workload.ladder]
+param = "n"
+values = [16000, 32000, 64000, 128000, 256000]
+input = "${n}\n"
+[workload.krust]
+prepare = ["growth-map-control"]
+argv = ["krun", "--definition", "${prepared}/growth-map-control", "--sort", "Int", "${input}"]
+[workload.krust.check]
+stdout_squeezed = ["Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortInt{},SortKItem{}}(\\dv{SortInt{}}(\"-${n}\")),dotk{}()))", "Lbl'-LT-'m'-GT-'{}(\\dv{SortInt{}}(\"0\"))"]
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["growth-map-control-llvm"]
+argv = ["krun", "--definition", "${prepared}/growth-map-control-llvm", "${input}"]
+[workload.reference.check]
+stdout_squeezed = ["<k>-${n}~>.K</k>", "<m>0</m>"]
+
+# ---------------------------------------------------------------------------------------------
+# fn-recursion.sh
+
+[[workload]]
+id = "toy/growth-fn-recursion"
+semantics = "toy"
+operation = "execute"
+title = "Evaluate size(c^N(z)) by non-tail recursion"
+stresses = "A function call N levels deep; the cost per level must not grow with the depth (3.0-3.6 times per doubling at 934d29e7)."
+origin = "draft/open-issues-2026-10/tickets/repro/perf/fn-recursion.sh (FOLLOWUPS 2.3; fn.k from units/stack-cases-probes)"
+tier = "standard"
+pins = ["k"]
+[workload.ladder]
+param = "n"
+values = [25000, 50000, 100000, 200000]
+# At 400,000 levels krust stops with "simplification exhausted its native stack" (2026-10-16), a depth limit rather than a cost.
+input = "go(${n})\n"
+[workload.krust]
+prepare = ["growth-fn"]
+argv = ["krun", "--definition", "${prepared}/growth-fn", "--sort", "KItem", "--io", "off", "${input}"]
+[workload.krust.check]
+stdout_squeezed = ["Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortInt{},SortKItem{}}(\\dv{SortInt{}}(\"${n}\")),dotk{}()))"]
+[workload.reference]
+status = "paired"
+backend = "llvm"
+note = "The reference runs 25,000 levels in 0.7 s; at 200,000 levels its result could not be printed (kore-print read an empty result after 52 s), so the reference side of the ladder ends before that value."
+prepare = ["growth-fn-llvm"]
+argv = ["krun", "--definition", "${prepared}/growth-fn-llvm", "${input}"]
+[workload.reference.check]
+stdout_squeezed = ["<k>${n}~>.K</k>"]
+
+[[workload]]
+id = "toy/growth-fn-recursion-control"
+semantics = "toy"
+operation = "execute"
+title = "Build c^N(z) and drop it (control of the recursion)"
+stresses = "The same N steps building the term without the deep function evaluation, the baseline of the recursion's growth."
+origin = "draft/open-issues-2026-10/tickets/repro/perf/fn-recursion.sh (FOLLOWUPS 2.3, the control)"
+tier = "standard"
+pins = ["k"]
+[workload.ladder]
+param = "n"
+values = [25000, 50000, 100000, 200000]
+input = "go(${n})\n"
+[workload.krust]
+prepare = ["growth-fn-control"]
+argv = ["krun", "--definition", "${prepared}/growth-fn-control", "--sort", "KItem", "--io", "off", "${input}"]
+[workload.krust.check]
+stdout_squeezed = ["Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortInt{},SortKItem{}}(\\dv{SortInt{}}(\"0\")),dotk{}()))"]
+[workload.reference]
+status = "paired"
+backend = "llvm"
+prepare = ["growth-fn-control-llvm"]
+argv = ["krun", "--definition", "${prepared}/growth-fn-control-llvm", "${input}"]
+[workload.reference.check]
+stdout_squeezed = ["<k>0~>.K</k>"]
+
+# ---------------------------------------------------------------------------------------------
+# ambiguous-chain.sh
+
+[[workload]]
+id = "toy/growth-ambiguous-chain"
+semantics = "toy"
+operation = "parse"
+title = "Parse and refuse an ambiguous chain of N `+` and `-` operands"
+stresses = "The packed forest of every bracketing between two unrelated left-associative operators is built and typed before the ambiguity is reported; cubic, a documented cost (15.7 s and 4.3 GB at 200 operands on 2026-10-16)."
+origin = "draft/open-issues-2026-10/tickets/repro/perf/ambiguous-chain.sh (FOLLOWUPS 2.3)"
+tier = "standard"
+memory_gib = 12
+pins = ["k"]
+[workload.ladder]
+param = "n"
+values = [25, 50, 100, 200]
+generator = ["python3", "-I", "${programs}/toy/growth/ambiguous-chain/gen.py", "amb", "${n}"]
+[workload.krust]
+argv = ["kast", "-m", "AMB", "-s", "Exp", "${programs}/toy/growth/ambiguous-chain/amb.k", "${input}"]
+[workload.krust.check]
+exit = 1
+[workload.reference]
+status = "paired"
+backend = "llvm"
+note = "kast reports the ambiguity with exit status 113 (3.2 s and 1.2 GB at 50 operands); at 200 operands it runs out of its 4 GiB Java heap."
+prepare = ["growth-amb-llvm"]
+argv = ["kast", "--definition", "${prepared}/growth-amb-llvm", "${input}"]
+[workload.reference.check]
+exit = 113
+
+[[workload]]
+id = "toy/growth-ambiguous-chain-control"
+semantics = "toy"
+operation = "parse"
+title = "Parse an unambiguous chain of N `+` operands (control)"
+stresses = "The same grammar and chain length with one operator only, so the parse is unambiguous: the startup and linear-chain baseline."
+origin = "draft/open-issues-2026-10/tickets/repro/perf/ambiguous-chain.sh (FOLLOWUPS 2.3, the control)"
+tier = "quick"
+pins = ["k"]
+[workload.ladder]
+param = "n"
+values = [25, 50, 100, 200]
+generator = ["python3", "-I", "${programs}/toy/growth/ambiguous-chain/gen.py", "ctl", "${n}"]
+[workload.krust]
+argv = ["kast", "-m", "AMB", "-s", "Exp", "${programs}/toy/growth/ambiguous-chain/amb.k", "${input}"]
+[workload.krust.check]
+expect = "n - 1"
+stdout = ["#token(\"${expect}\",\"Int\")"]
+[workload.reference]
+status = "paired"
+note = "At 200 operands reference kast runs out of its 4 GiB Java heap even on the unambiguous chain."
+backend = "llvm"
+prepare = ["growth-amb-llvm"]
+argv = ["kast", "--definition", "${prepared}/growth-amb-llvm", "${input}"]
+[workload.reference.check]
+expect = "n - 1"
+stdout = ["${expect}"]
+
+# ---------------------------------------------------------------------------------------------
+# import-diamonds.sh
+
+[[workload]]
+id = "toy/growth-import-diamonds"
+semantics = "toy"
+operation = "load"
+title = "Load a KORE definition with D import diamonds above its main module"
+stresses = "The number of import paths doubles per diamond while the modules stay the same; loading must visit each module once (4 times per two diamonds at 934d29e7)."
+origin = "draft/open-issues-2026-10/tickets/repro/perf/import-diamonds.sh (FOLLOWUPS 2.3)"
+tier = "quick"
+pins = ["k"]
+[workload.ladder]
+param = "d"
+values = [16, 64, 256, 1024, 4096]
+generator = ["python3", "-I", "${programs}/toy/growth/import-diamonds/gen.py", "${d}"]
+[workload.krust]
+prepare = ["growth-diamonds-joined"]
+argv = ["kore-simplify", "-m", "TOP", "-p", "${programs}/toy/growth/import-diamonds/pattern.kore", "${prepared}/growth-diamonds-${d}/definition.kore"]
+[workload.krust.check]
+stdout_squeezed = ["\\dv{SortInt{}}(\"2\")"]
+[workload.reference]
+status = "unsupported"
+reason = "no-counterpart"
+note = "The reference has no one-shot command that loads a KORE definition and simplifies a pattern; its backends load definitions only inside kore-exec runs or an RPC server."
+
+# ---------------------------------------------------------------------------------------------
+# kore-implies-memory.sh
+
+[[workload]]
+id = "toy/growth-kore-implies"
+semantics = "toy"
+operation = "rpc"
+title = "Check c^N(z) implies X and write the substitution as JSON"
+stresses = "Implication and JSON output of a term N levels deep; memory once grew 3.2-3.9 times per doubling from the JSON indentation (11.1 GB at 20,000 at 934d29e7)."
+origin = "draft/open-issues-2026-10/tickets/repro/perf/kore-implies-memory.sh (FOLLOWUPS 2.3)"
+tier = "quick"
+pins = ["k"]
+[workload.ladder]
+param = "n"
+# At 160,000 levels kore-implies aborts on a stack overflow of its worker thread (2026-10-16); 120,000 passes.
+values = [10000, 20000, 40000, 80000]
+generator = ["python3", "-I", "${programs}/toy/growth/kore-implies-memory/gen.py", "${n}"]
+[workload.krust]
+prepare = ["growth-fn"]
+argv = [
+  "kore-implies", "-m", "FN",
+  "--antecedent", "${input}",
+  "--consequent", "${programs}/toy/growth/kore-implies-memory/consequent.kore",
+  "-o", "${run}/result.json",
+  "${prepared}/growth-fn/definition.kore",
+]
+# The result goes to a file (60 MB at 40,000); the check requires it, not its content.
+[workload.krust.check]
+files = ["${run}/result.json"]
+[workload.reference]
+status = "unsupported"
+reason = "no-counterpart"
+note = "The reference answers implication only through its RPC server (kore-rpc implies); it has no one-shot command."
+
+# ---------------------------------------------------------------------------------------------
+# predicate-chains.sh
+
+[[workload]]
+id = "toy/growth-predicate-not-chain"
+semantics = "toy"
+operation = "rpc"
+title = "Simplify a chain of D negations over a definedness predicate (control)"
+stresses = "The linear control of the predicate chains: double negations cancel level by level (1.7 times per doubling at 934d29e7)."
+origin = "draft/open-issues-2026-10/tickets/repro/perf/predicate-chains.sh (FOLLOWUPS 2.3, backend-perf-review-1 F1-F3)"
+tier = "quick"
+pins = ["k"]
+[workload.ladder]
+param = "d"
+values = [4000, 8000, 16000, 32000, 64000]
+generator = ["python3", "-I", "${programs}/toy/growth/predicate-chains/gen.py", "not", "${d}"]
+[workload.krust]
+prepare = ["growth-pred-chains"]
+argv = ["kore-simplify", "-m", "PRED", "-p", "${input}", "${prepared}/growth-pred-chains/definition.kore"]
+# An even number of negations simplifies to the bare \ceil.
+[workload.krust.check]
+stdout_squeezed = ["\\and{SortInt{}}(X:SortInt{},\\and{SortInt{}}(\\floor{SortInt{},SortInt{}}(Lblf'LParUndsRParUnds'PRED'Unds'Int'Unds'Int{}(X:SortInt{})),\\ceil{SortInt{},SortInt{}}(Lblf'LParUndsRParUnds'PRED'Unds'Int'Unds'Int{}(X:SortInt{}))))"]
+stdout_absent = ["\\not{"]
+[workload.reference]
+status = "unsupported"
+reason = "no-counterpart"
+note = "The reference simplifies patterns only through its RPC server (kore-rpc simplify); it has no one-shot command."
+
+[[workload]]
+id = "toy/growth-predicate-exists-chain"
+semantics = "toy"
+operation = "rpc"
+title = "Simplify a chain of D existential binders over a definedness predicate"
+stresses = "Simplification under D nested binders, which renames rules apart per binder; it grew 4 times per doubling at 934d29e7."
+origin = "draft/open-issues-2026-10/tickets/repro/perf/predicate-chains.sh (FOLLOWUPS 2.3, backend-perf-review-1 F1-F3)"
+tier = "quick"
+pins = ["k"]
+[workload.ladder]
+param = "d"
+values = [4000, 8000, 16000, 32000, 64000]
+generator = ["python3", "-I", "${programs}/toy/growth/predicate-chains/gen.py", "exists", "${d}"]
+[workload.krust]
+prepare = ["growth-pred-chains"]
+argv = ["kore-simplify", "-m", "PRED", "-p", "${input}", "${prepared}/growth-pred-chains/definition.kore"]
+[workload.krust.check]
+expect = "d - 1"
+stdout_squeezed = ["\\exists{SortInt{}}(Y${expect}:SortInt{},\\ceil{SortInt{},SortInt{}}(Lblf'LParUndsRParUnds'PRED'Unds'Int'Unds'Int{}(X:SortInt{})))"]
+[workload.reference]
+status = "unsupported"
+reason = "no-counterpart"
+note = "The reference simplifies patterns only through its RPC server (kore-rpc simplify); it has no one-shot command."
+
+[[workload]]
+id = "toy/growth-predicate-forall-chain"
+semantics = "toy"
+operation = "rpc"
+title = "Simplify a chain of D universal binders over a definedness predicate"
+stresses = "Simplification under D nested universal binders; it grew 4 times per doubling at 934d29e7."
+origin = "draft/open-issues-2026-10/tickets/repro/perf/predicate-chains.sh (FOLLOWUPS 2.3, backend-perf-review-1 F1-F3)"
+tier = "quick"
+pins = ["k"]
+[workload.ladder]
+param = "d"
+values = [4000, 8000, 16000, 32000, 64000]
+generator = ["python3", "-I", "${programs}/toy/growth/predicate-chains/gen.py", "forall", "${d}"]
+[workload.krust]
+prepare = ["growth-pred-chains"]
+argv = ["kore-simplify", "-m", "PRED", "-p", "${input}", "${prepared}/growth-pred-chains/definition.kore"]
+[workload.krust.check]
+expect = "d - 1"
+stdout_squeezed = ["\\forall{SortInt{}}(Y${expect}:SortInt{},\\ceil{SortInt{},SortInt{}}(Lblf'LParUndsRParUnds'PRED'Unds'Int'Unds'Int{}(X:SortInt{})))"]
+[workload.reference]
+status = "unsupported"
+reason = "no-counterpart"
+note = "The reference simplifies patterns only through its RPC server (kore-rpc simplify); it has no one-shot command."
+
+[[workload]]
+id = "toy/growth-predicate-implies-chain"
+semantics = "toy"
+operation = "rpc"
+title = "Simplify a chain of D implications over definedness predicates"
+stresses = "Simplification of D nested implications, each with a partial-function premise; still superlinear on 2026-10-16 (0.07 s at 4,000, 0.67 s at 16,000)."
+origin = "draft/open-issues-2026-10/tickets/repro/perf/predicate-chains.sh (FOLLOWUPS 2.3, backend-perf-review-1 F1-F3)"
+tier = "quick"
+pins = ["k"]
+[workload.ladder]
+param = "d"
+values = [4000, 8000, 16000, 32000, 64000]
+generator = ["python3", "-I", "${programs}/toy/growth/predicate-chains/gen.py", "implies", "${d}"]
+[workload.krust]
+prepare = ["growth-pred-chains"]
+argv = ["kore-simplify", "-m", "PRED", "-p", "${input}", "${prepared}/growth-pred-chains/definition.kore"]
+[workload.krust.check]
+stdout_squeezed = ["\\implies{SortInt{}}(\\ceil{SortInt{},SortInt{}}(Lblg'LParUndsRParUnds'PRED'Unds'Int'Unds'Int{}(X:SortInt{})),\\ceil{SortInt{},SortInt{}}(Lblf'LParUndsRParUnds'PRED'Unds'Int'Unds'Int{}(X:SortInt{})))"]
+[workload.reference]
+status = "unsupported"
+reason = "no-counterpart"
+note = "The reference simplifies patterns only through its RPC server (kore-rpc simplify); it has no one-shot command."
+
+[[workload]]
+id = "toy/growth-predicate-ornot-chain"
+semantics = "toy"
+operation = "rpc"
+title = "Simplify a chain of D disjunctions of negations over definedness predicates"
+stresses = "Simplification of D nested `\\or`/`\\not` levels, which are rewritten into conjunctions; quadratic on 2026-10-16 (0.21 s at 2,000, 3.4 s at 8,000)."
+origin = "draft/open-issues-2026-10/tickets/repro/perf/predicate-chains.sh (FOLLOWUPS 2.3, backend-perf-review-1 F1-F3)"
+tier = "standard"
+pins = ["k"]
+[workload.ladder]
+param = "d"
+values = [1000, 2000, 4000, 8000, 16000]
+generator = ["python3", "-I", "${programs}/toy/growth/predicate-chains/gen.py", "ornot", "${d}"]
+[workload.krust]
+prepare = ["growth-pred-chains"]
+argv = ["kore-simplify", "-m", "PRED", "-p", "${input}", "${prepared}/growth-pred-chains/definition.kore"]
+[workload.krust.check]
+stdout_squeezed = ["\\and{SortInt{}}(\\not{SortInt{}}(\\ceil{SortInt{},SortInt{}}(Lblg'LParUndsRParUnds'PRED'Unds'Int'Unds'Int{}(X:SortInt{}))),\\ceil{SortInt{},SortInt{}}(Lblf'LParUndsRParUnds'PRED'Unds'Int'Unds'Int{}(X:SortInt{})))"]
+[workload.reference]
+status = "unsupported"
+reason = "no-counterpart"
+note = "The reference simplifies patterns only through its RPC server (kore-rpc simplify); it has no one-shot command."
+
+# ---------------------------------------------------------------------------------------------
+# segment-churn.sh
+
+[[workload]]
+id = "toy/growth-segment-churn"
+semantics = "toy"
+operation = "parse"
+title = "Parse M copies of a term 20,000 levels deep"
+stresses = "Each copy's guarded recursions cross onto extra stack segments and return; segments should be reused rather than mapped afresh per copy (30 maps per copy at 934d29e7)."
+origin = "draft/open-issues-2026-10/tickets/repro/perf/segment-churn.sh (FOLLOWUPS 2.3)"
+tier = "standard"
+memory_gib = 8
+pins = ["k"]
+[workload.ladder]
+param = "m"
+values = [1, 2, 4, 8, 16, 32]
+generator = ["python3", "-I", "${programs}/toy/growth/segment-churn/gen.py", "${m}"]
+[workload.krust]
+argv = ["kast", "-m", "SEG", "-s", "T", "${programs}/toy/growth/segment-churn/seg.k", "${input}"]
+[workload.krust.check]
+stdout = ["`c(_)_SEG-SYNTAX_T_T`(`a_SEG-SYNTAX_T`(.KList))"]
+[workload.reference]
+status = "unsupported"
+reason = "ref-fails"
+note = "Reference kast runs out of its 4 GiB Java heap on one copy (m = 1)."
+
+# ---------------------------------------------------------------------------------------------
+# unspecified-records.sh
+
+[[workload]]
+id = "toy/growth-unspecified-records"
+semantics = "toy"
+operation = "execute"
+title = "Compile and run the substrString ring definition at level T"
+stresses = "Equation attempts grow about threefold per level, each with a two-conjunct condition left unspecified; the cost per attempt must stay flat (212 s at T = 10 at 8d566c2d, 6.2 s on 2026-10-16)."
+origin = "draft/open-issues-2026-10/tickets/repro/perf/unspecified-records.sh (FOLLOWUPS 2.3, hooks-b-review-6's wrapand{T}.k)"
+tier = "standard"
+pins = ["k"]
+[workload.ladder]
+param = "t"
+values = [6, 7, 8, 9, 10, 11]
+generator = ["python3", "-I", "${programs}/toy/growth/unspecified-records/gen.py", "${t}"]
+[workload.krust]
+argv = ["krun", "${input}", "-m", "RING", "--sort", "Pgm", "--io", "off", "-e", "a"]
+[workload.krust.check]
+stdout_squeezed = ["(\\dv{SortString{}}(\"abc\"),\\dv{SortInt{}}(\"${t}\"),\\dv{SortInt{}}(\"0\"))"]
+[workload.reference]
+status = "untested"
+backend = "llvm"
+note = "The definition changes with T, so the reference side is a kompile and a krun timed together; nobody has written those steps."
+
+# ---------------------------------------------------------------------------------------------
+# fill-placeholders.sh
+
+[[workload]]
+id = "toy/growth-fill-placeholders"
+semantics = "toy"
+operation = "rpc"
+title = "Get a model of absInt^N(X) >=Int 0"
+stresses = "Every level of absInt is filled into its SMT list template, so the translation must not copy each argument per level (4.1-4.5 times per doubling at 934d29e7); Z3 dominates the run."
+origin = "draft/open-issues-2026-10/tickets/repro/perf/fill-placeholders.sh (FOLLOWUPS 2.3)"
+tier = "standard"
+pins = ["k"]
+[workload.ladder]
+param = "n"
+# From 8,000 levels Z3 answers Unknown within krust's default resource limits (2026-10-16), so the ladder stops at 4,000.
+values = [500, 1000, 2000, 4000]
+generator = ["python3", "-I", "${programs}/toy/growth/fill-placeholders/gen.py", "abs", "${n}"]
+[workload.krust]
+prepare = ["growth-pred-plain"]
+argv = ["kore-get-model", "-m", "PRED", "-p", "${input}", "${prepared}/growth-pred-plain/definition.kore"]
+[workload.krust.check]
+stdout_squeezed = ["\"satisfiable\":\"Sat\""]
+[workload.reference]
+status = "unsupported"
+reason = "no-counterpart"
+note = "The reference computes models only through its RPC server (kore-rpc get-model); it has no one-shot command."
+
+[[workload]]
+id = "toy/growth-fill-placeholders-control"
+semantics = "toy"
+operation = "rpc"
+title = "Get a model of X +Int 1 ... +Int 1 >=Int 0 (control)"
+stresses = "The same depth through `_+Int_`, whose SMT hook is an atom with no template to fill."
+origin = "draft/open-issues-2026-10/tickets/repro/perf/fill-placeholders.sh (FOLLOWUPS 2.3, the control)"
+tier = "quick"
+pins = ["k"]
+[workload.ladder]
+param = "n"
+values = [1000, 2000, 4000, 8000, 16000]
+generator = ["python3", "-I", "${programs}/toy/growth/fill-placeholders/gen.py", "plus", "${n}"]
+[workload.krust]
+prepare = ["growth-pred-plain"]
+argv = ["kore-get-model", "-m", "PRED", "-p", "${input}", "${prepared}/growth-pred-plain/definition.kore"]
+[workload.krust.check]
+stdout_squeezed = ["\"satisfiable\":\"Sat\""]
+[workload.reference]
+status = "unsupported"
+reason = "no-counterpart"
+note = "The reference computes models only through its RPC server (kore-rpc get-model); it has no one-shot command."
+
+# ---------------------------------------------------------------------------------------------
+# owise-competitors.sh
+
+[[workload]]
+id = "toy/growth-owise-competitors"
+semantics = "toy"
+operation = "compile"
+title = "Compile N function rules beside one [owise] rule"
+stresses = "Every concrete rule competes with the `[owise]` rule, whose negated conditions must not make the compile superlinear (recorded 6.7 / 12.9 / 51.8 s at 4k / 8k / 16k; linear at 934d29e7)."
+origin = "draft/open-issues-2026-10/tickets/repro/perf/owise-competitors.sh (FOLLOWUPS 2.3; gen3.py from units/stack-cases-probes)"
+tier = "standard"
+pins = ["k"]
+[workload.ladder]
+param = "n"
+values = [4000, 8000, 16000, 32000]
+generator = ["python3", "-I", "${programs}/toy/compile-shapes/gen3.py", "owise", "${n}"]
+[workload.krust]
+argv = ["kcompile", "${input}", "--main-module", "MAIN", "--syntax-module", "MAIN-SYNTAX", "--output-directory", "${run}/compiled", "--builtin-directory", "${builtin}"]
+[workload.krust.check]
+files = ["${run}/compiled/definition.kore"]
+[workload.reference]
+status = "paired"
+backend = "haskell"
+note = "kompile --backend haskell took 14.4 s at n = 4,000 and did not finish within 300 s at n = 32,000."
+argv = ["kompile", "${input}", "--backend", "haskell", "--main-module", "MAIN", "--syntax-module", "MAIN-SYNTAX", "--output-definition", "${run}/compiled"]
+[workload.reference.check]
+files = ["${run}/compiled/definition.kore"]
