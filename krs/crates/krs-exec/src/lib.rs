@@ -26,8 +26,9 @@ use std::{collections::HashMap, fmt};
 
 use k_rust::{
     backend::{
-        Backend, BackendOptions, EffectOutput, ExecuteRequest, ExecutionResult, ExecutionStrategy,
-        PatternRequest, ProveRequest, SearchRequest, SearchResponse, SearchTypeArg, TraceEntry,
+        Backend, BackendOptions, EffectOutput, ExecuteRequest, ExecutionLeaf, ExecutionResult,
+        ExecutionStrategy, HaltReasonOutput, PatternRequest, ProveRequest, SearchRequest,
+        SearchResponse, SearchTypeArg, TraceEntry,
     },
     inner::{ParseError, ProgramError, ProgramParseError},
     kast::{
@@ -778,18 +779,13 @@ impl Semantics {
     ///
     /// # Errors
     ///
-    /// Returns [`ExecError::Backend`] when the backend fails, or [`ExecError::Result`] when it does not return exactly one leaf.
+    /// Returns [`ExecError::Backend`] when the backend fails, or [`ExecError::Result`] when more than one leaf has a defined state.
     pub fn run(&mut self, state: &State, options: RunOptions) -> Result<RunReport, ExecError> {
         let mut request = ExecuteRequest::new(state.0.clone());
         request.strategy = ExecutionStrategy::Any;
         request.max_depth = options.depth;
         let ExecutionResult { leaves, .. } = self.backend.execute(request)?;
-        let [leaf] = <[_; 1]>::try_from(leaves).map_err(|leaves: Vec<_>| {
-            ExecError::Result(format!(
-                "a run must end in exactly one state; the backend returned {}",
-                leaves.len()
-            ))
-        })?;
+        let leaf = one_path(leaves)?;
         let trace = if options.trace {
             self.steps(&leaf.trace)
         } else {
@@ -1072,6 +1068,38 @@ fn log_lines(effects: &[EffectOutput]) -> Vec<String> {
             EffectOutput::UserLog { message } => message.clone(),
         })
         .collect()
+}
+
+/// The leaf that is the path of a one-path run.
+///
+/// A `trivial` or `vacuous` leaf denotes no configuration: its result or its path condition is
+/// `#Bottom`, as where a partial function is applied outside its domain.
+/// Where the backend splits on whether a result is defined, it returns the leaf under that
+/// definedness and such an undefined leaf beside it; their disjunction is the defined leaf alone,
+/// so that leaf is the path.
+/// The run is undefined only when every leaf is.
+fn one_path(leaves: Vec<ExecutionLeaf>) -> Result<ExecutionLeaf, ExecError> {
+    let (undefined, defined): (Vec<_>, Vec<_>) = leaves.into_iter().partition(|leaf| {
+        matches!(
+            leaf.reason,
+            HaltReasonOutput::Trivial | HaltReasonOutput::Vacuous
+        )
+    });
+    if defined.is_empty() {
+        return undefined.into_iter().next().ok_or_else(|| {
+            ExecError::Result(
+                "a run must end in exactly one state; the backend returned none".to_owned(),
+            )
+        });
+    }
+    <[_; 1]>::try_from(defined)
+        .map(|[leaf]| leaf)
+        .map_err(|defined: Vec<_>| {
+            ExecError::Result(format!(
+                "a run must end in exactly one state; the backend returned {} defined states",
+                defined.len()
+            ))
+        })
 }
 
 fn search_backend(

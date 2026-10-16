@@ -2,7 +2,8 @@ use std::collections::BTreeMap;
 
 use k_rust::{
     backend::{
-        Backend, BackendOptions, EffectOutput, ExecuteRequest, ExecutionStrategy, HaltReasonOutput,
+        Backend, BackendOptions, EffectOutput, ExecuteRequest, ExecutionLeaf, ExecutionStrategy,
+        HaltReasonOutput,
     },
     kast::Sort as KastSort,
     kore::parser::parse_pattern,
@@ -11,7 +12,7 @@ use k_rust::{
 
 use super::{
     ConfigVariable, ExecError, Halt, SearchMode, SearchOptions, config_variables, log_lines,
-    result_sort_hooks, search_backend, term,
+    one_path, result_sort_hooks, search_backend, term,
 };
 
 /// A raw KORE definition with one initial state and two rules leaving it.
@@ -300,4 +301,65 @@ fn log_lines_keep_each_user_log_message_in_order() {
     });
     assert_eq!(log_lines(&effects), ["first", "second"]);
     assert!(log_lines(&[]).is_empty());
+}
+
+/// A raw KORE definition whose one rule rewrites to an application of a partial function with
+/// no equations, so the backend splits on whether the result is defined.
+fn partial_backend() -> Backend {
+    let definition = r#"[]
+        module MAIN
+            sort SortState{} []
+            symbol initial{}() : SortState{} [constructor{}()]
+            symbol wrap{}(SortState{}) : SortState{} [constructor{}()]
+            symbol undef{}() : SortState{} [function{}()]
+            symbol empty{}() : SortState{} [constructor{}()]
+            axiom{} \rewrites{SortState{}}(
+                \and{SortState{}}(initial{}(), \top{SortState{}}()), wrap{}(undef{}())
+            ) [label{}("wrap")]
+            axiom{} \rewrites{SortState{}}(
+                \and{SortState{}}(empty{}(), \top{SortState{}}()), \bottom{SortState{}}()
+            ) [label{}("empty")]
+        endmodule []"#;
+    Backend::new(definition, "MAIN", BackendOptions::default()).unwrap()
+}
+
+fn leaves(backend: &mut Backend, state: &str, strategy: ExecutionStrategy) -> Vec<ExecutionLeaf> {
+    let mut request = ExecuteRequest::new(parse_pattern(state).unwrap());
+    request.strategy = strategy;
+    backend.execute(request).unwrap().leaves
+}
+
+#[test]
+fn a_run_follows_the_defined_leaf_of_a_definedness_split() {
+    let mut backend = partial_backend();
+    let hooks = result_sort_hooks(&mut backend).unwrap();
+    let split = leaves(&mut backend, "initial{}()", ExecutionStrategy::Any);
+    let mut reasons = split.iter().map(|leaf| leaf.reason).collect::<Vec<_>>();
+    reasons.sort_by_key(|reason| format!("{reason:?}"));
+    assert_eq!(
+        reasons,
+        [HaltReasonOutput::Stuck, HaltReasonOutput::Trivial]
+    );
+
+    let leaf = one_path(split).unwrap();
+    assert_eq!(Halt::from_backend(leaf.reason), Halt::Stuck);
+    assert_eq!(leaf.depth, 1);
+    assert_eq!(
+        term(&leaf.state, &hooks).unwrap().kore().to_string(),
+        "wrap{}(undef{}())"
+    );
+}
+
+#[test]
+fn a_run_is_undefined_only_when_every_leaf_is() {
+    let mut backend = partial_backend();
+    let leaf = one_path(leaves(&mut backend, "empty{}()", ExecutionStrategy::Any)).unwrap();
+    assert_eq!(Halt::from_backend(leaf.reason), Halt::Undefined);
+
+    let mut backend = branching_backend();
+    let error = one_path(leaves(&mut backend, "initial{}()", ExecutionStrategy::All)).unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "a run must end in exactly one state; the backend returned 2 defined states"
+    );
 }
