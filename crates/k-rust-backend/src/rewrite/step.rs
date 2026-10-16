@@ -1201,7 +1201,24 @@ pub(super) fn rewrite_step_any(
                         remaining.block(application.remainder.clone());
                         trivial.push(application);
                     }
+                    // A subject narrowed to a `False` conjunct has no instance left, and nothing
+                    // after this reads more of it than that: the next group and the next rule stop
+                    // on `predicates_truth` (the determinism tracker reads the remaining pattern
+                    // only for an attempt that applied), `close_priority` returns early, the
+                    // remainder is `Unsat` and no branch is built from it, so neither its other
+                    // conjuncts nor `remaining_diagnostics` are read again. Simplifying it can
+                    // only restate `False` (the simplifier makes a conjunction with a false
+                    // conjunct `False`) after resimplifying the conjuncts before it, or fail on
+                    // one of them, a failure about instances the step no longer has; so it is
+                    // skipped, as `close_priority` skips it for the same reason. This is the
+                    // subject every application with applicability `True` leaves: its remainder
+                    // is `False`, which the narrowing adds as a conjunct. The test reads the
+                    // conjuncts for that literal `False` instead of evaluating their truth, so a
+                    // narrowing that leaves the subject satisfiable pays no evaluation (and no
+                    // `Counter::SimplifyPredicateNodesVisited`) beyond the simplification it
+                    // already made; a subject false for another reason is simplified as before.
                     if narrowed
+                        && !remaining.pattern().constraints.contains(&Predicate::False)
                         && let Err(error) = simplify_remaining(
                             definition,
                             pattern,
