@@ -874,13 +874,17 @@ pub struct ExecutionResult {
     /// The states the run visited across all its paths, the unit
     /// [`ExecutionOptions::max_work`] bounds; reported whether or not a budget was set.
     pub work: u64,
-    /// The states the run expanded: those whose successors it computed (their rewrite step
-    /// answered, with successors, a branch, a stuck or an undefined-step verdict, or a failure
-    /// the step reported). At most [`ExecutionResult::work`]: a visited state that ended before
-    /// or instead of its step (a state-set arrival merged into an expanded state of its depth,
-    /// a state at the depth bound, a vacuous or remainder state, a state a stop interrupted
-    /// before its step answered) is not expanded, and the state a work budget stopped at is
-    /// neither visited nor expanded. Reported whether or not a budget was set.
+    /// The visited states whose rewrite step ran and answered, whatever the answer (successors, a
+    /// branch or cut-point report, or a stuck, trivial, vacuous, indeterminate or
+    /// simplification-failure verdict); at most [`ExecutionResult::work`]. The step's guards
+    /// answer a state whose constraints are `\bottom` (vacuous) or that carries a surviving
+    /// macro or alias (indeterminate) without matching a rule, and such a state is expanded too;
+    /// so is a depth-0 state whose contradiction only the input substitution exposes, which is
+    /// stepped from its unsimplified pattern. A visited state whose step does not run (the run
+    /// ended it before the step, or it is a remainder, decided by its parent's step) or does not
+    /// answer (a stop interrupted it) is not expanded, and the state a work budget stopped at is
+    /// neither visited nor expanded. Reported whether or not a budget was set, and deterministic
+    /// exactly where `work` is (docs/compatibility.md, "Work budget").
     pub expanded: u64,
     /// The stops for lack of native stack the run met in the states it explored (a state-set run
     /// skips a state equal to one of its depth already expanded, and the stops of its subtree):

@@ -535,7 +535,8 @@ impl<'a> Execution<'a> {
                 ));
             }
         };
-        // The step answered: the run computed this state's successors (`work`).
+        // The step answered, whatever its answer: the state is expanded (`Work::expand`). A stop
+        // inside the step returned above without an answer; a remainder takes no step.
         if let ExecutionStateKind::Rewritable = state.kind {
             self.work.expand();
         }
@@ -3998,6 +3999,10 @@ mod tests {
             "{result:#?}"
         );
         assert_eq!(result.leaves[1].pattern.term, term("probe{}(X:SortInt{})"));
+        // The states visited are the chain's nine (`s0`, `l0`, `s1`, `l1`, `s2`, `r1`, `s2`
+        // merged, `r0`, `s1` merged) and `probe`. The chain's seven unmerged states are stepped; `probe`'s step is interrupted by the cancellation it
+        // raises, so it has no answer and is not expanded.
+        assert_eq!((result.work, result.expanded), (10, 7), "{result:#?}");
     }
 
     /// A solver that raises a passed step deadline at its `nth` query (counting from 1), once,
@@ -4189,10 +4194,30 @@ mod tests {
                         assert_eq!(merged, 1, "query {nth}: {result:#?}");
                         continue;
                     }
-                    ("m", _) => stopped_in_the_step = true,
+                    // The stop interrupted the first `m(X)`'s step, which has no answer: that
+                    // `m(X)` is visited but not expanded, as the merged second `m(X)` of the
+                    // unstopped run is, and the second one, expanded instead, has the first
+                    // one's unstopped subtree. So both counts are the unstopped run's.
+                    ("m", _) => {
+                        stopped_in_the_step = true;
+                        assert_eq!(
+                            (result.work, result.expanded),
+                            (unstopped.work, unstopped.expanded),
+                            "query {nth}: {result:#?}"
+                        );
+                    }
                     // A terminal successor is normalised by the expansion of the `m(X)` it
-                    // succeeds.
-                    ("t", true) => stopped_after_the_step = true,
+                    // succeeds. The stop came after the first `m(X)`'s step answered, so that
+                    // `m(X)` is expanded, and the second one is expanded instead of merged: one
+                    // more expanded state than the unstopped run, over as many visits.
+                    ("t", true) => {
+                        stopped_after_the_step = true;
+                        assert_eq!(
+                            (result.work, result.expanded),
+                            (unstopped.work, unstopped.expanded + 1),
+                            "query {nth}: {result:#?}"
+                        );
+                    }
                     // Otherwise `t(f(X))` is a state of its own, and the stop is in its own
                     // expansion: the first `m(X)` was recorded and the second merged into it.
                     ("t", false) => {
