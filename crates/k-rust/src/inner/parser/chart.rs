@@ -34,7 +34,7 @@
 
 #[cfg(test)]
 use std::cell::Cell;
-use std::cell::RefCell;
+use std::cell::{OnceCell, RefCell};
 use std::collections::HashSet;
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
@@ -243,6 +243,13 @@ pub(super) struct CompletedNodes {
     pub(super) cycle: Option<ParseError>,
 }
 
+/// The items of one input position.
+///
+/// A recognition has a chart for every position of its input, most of which (inside a token,
+/// or in layout) never hold an item. What only the dispatch of a position reads, its agenda and
+/// its memos, is therefore allocated when first used and released once the position is
+/// saturated, so every chart, used or not, keeps only its three maps, its layout start and two
+/// pointers.
 #[derive(Clone, Debug, Default)]
 pub(super) struct Chart {
     pub(super) states: IndexMap<State, Derivations>,
@@ -253,22 +260,61 @@ pub(super) struct Chart {
     // it is kept only where something reads it.
     #[cfg(any(test, feature = "measure"))]
     pub(super) popped: StateSet,
-    // One completed node for each stable (sort, origin, end) chart boundary: every parse of a
-    // sort over one span fits wherever that sort is expected over that span, so the parses share
-    // one packed node. Read only while this position is dispatched and, at a position whose
-    // remaining input is layout, by the root collection; `Grammar::recognize` releases it
-    // elsewhere once the position is saturated, as it does `cycle_nodes` and the agenda.
-    pub(super) completed_nodes: RefCell<IndexMap<CompletedNodeKey, Rc<CompletedNodes>>>,
-    // The nodes ending here that productions flagged by `SameSpanCycles` built, each with the
-    // building production; the entry keeps its node alive so the address stays unique.
-    pub(super) cycle_nodes: RefCell<IndexMap<*const PackedTerm, (Rc<PackedTerm>, usize)>>,
+    memos: OnceCell<Box<ChartMemos>>,
     // Where the layout before this position starts, when layout precedes it: the end of the token
     // the scanner read last, or the start of the input. Set when items move here past layout, and
     // at the first chart of an input that starts with layout (`Chart::text_span`).
     pub(super) layout_start: Option<usize>,
 }
 
+#[derive(Clone, Debug, Default)]
+struct ChartMemos {
+    // One completed node for each stable (sort, origin, end) chart boundary: every parse of a
+    // sort over one span fits wherever that sort is expected over that span, so the parses share
+    // one packed node. Read only while this position is dispatched and, at a position whose
+    // remaining input is layout, by the root collection; `Grammar::recognize` releases it
+    // elsewhere once the position is saturated, with `cycle_nodes`.
+    completed_nodes: RefCell<IndexMap<CompletedNodeKey, Rc<CompletedNodes>>>,
+    // The nodes ending here that productions flagged by `SameSpanCycles` built, each with the
+    // building production; the entry keeps its node alive so the address stays unique.
+    cycle_nodes: RefCell<IndexMap<*const PackedTerm, (Rc<PackedTerm>, usize)>>,
+}
+
 impl Chart {
+    fn memos(&self) -> &ChartMemos {
+        self.memos.get_or_init(Box::default)
+    }
+
+    /// The completed nodes memoized at this chart (`completed_nodes`).
+    pub(super) fn completed_nodes(
+        &self,
+    ) -> &RefCell<IndexMap<CompletedNodeKey, Rc<CompletedNodes>>> {
+        &self.memos().completed_nodes
+    }
+
+    /// The nodes ending here that productions flagged by `SameSpanCycles` built
+    /// (`check_same_span_repetition`).
+    pub(super) fn cycle_nodes(
+        &self,
+    ) -> &RefCell<IndexMap<*const PackedTerm, (Rc<PackedTerm>, usize)>> {
+        &self.memos().cycle_nodes
+    }
+
+    /// Whether the memos are allocated.
+    #[cfg(test)]
+    pub(super) fn has_memos(&self) -> bool {
+        self.memos.get().is_some()
+    }
+
+    /// Release what only the dispatch of this position reads: its agenda and, unless the root
+    /// collection reads them (`keep_memos`), its memos.
+    pub(super) fn release_dispatch(&mut self, keep_memos: bool) {
+        self.agenda = Agenda::default();
+        if !keep_memos {
+            self.memos = OnceCell::new();
+        }
+    }
+
     /// The span of the text of a node completed at this chart's position `end` from `origin`:
     /// from the start of its first token to the end of its last, as input offsets.
     ///
@@ -334,7 +380,10 @@ impl Chart {
 /// dispatches; only a later growth is recorded (`grown`), and the first pop clears that record,
 /// since it reads the growth. A state that grows once, as most do, is never looked up.
 #[derive(Clone, Debug, Default)]
-pub(super) struct Agenda {
+pub(super) struct Agenda(Option<Box<Queues>>);
+
+#[derive(Clone, Debug, Default)]
+struct Queues {
     by_origin: BTreeMap<usize, VecDeque<Queued>>,
     // The tracked states that grew, after they were created, since they were last popped; each
     // has a copy in `by_origin`.
@@ -373,15 +422,17 @@ impl Agenda {
     /// when `track` is set.
     #[inline]
     pub(super) fn push(&mut self, state: State, track: bool, created: bool) {
+        let queues = self.0.get_or_insert_default();
         let copy = match (track, created) {
             (false, _) => QueuedCopy::Untracked,
             (true, true) => QueuedCopy::Created,
             (true, false) => {
-                self.grown.insert(state);
+                queues.grown.insert(state);
                 QueuedCopy::Grown
             }
         };
-        self.by_origin
+        queues
+            .by_origin
             .entry(state.origin)
             .or_default()
             .push_back(Queued {
@@ -393,7 +444,8 @@ impl Agenda {
 
     #[inline]
     pub(super) fn pop(&mut self) -> Option<Popped> {
-        let mut latest = self.by_origin.last_entry()?;
+        let queues = self.0.as_mut()?;
+        let mut latest = queues.by_origin.last_entry()?;
         let origin = *latest.key();
         let Queued {
             production,
@@ -411,25 +463,32 @@ impl Agenda {
         let grown = match copy {
             QueuedCopy::Untracked => true,
             QueuedCopy::Created => {
-                if !self.grown.is_empty() {
-                    self.grown.remove(&state);
+                if !queues.grown.is_empty() {
+                    queues.grown.remove(&state);
                 }
                 true
             }
-            QueuedCopy::Grown => self.grown.remove(&state),
+            QueuedCopy::Grown => queues.grown.remove(&state),
         };
         Some(Popped { state, grown })
     }
 
     #[cfg(test)]
     pub(super) fn is_empty(&self) -> bool {
-        self.by_origin.is_empty()
+        self.0
+            .as_ref()
+            .is_none_or(|queues| queues.by_origin.is_empty())
+    }
+
+    /// Whether the queues are not allocated.
+    #[cfg(test)]
+    pub(super) fn is_released(&self) -> bool {
+        self.0.is_none()
     }
 
     #[cfg(test)]
     pub(super) fn clear(&mut self) {
-        self.by_origin.clear();
-        self.grown.clear();
+        self.0 = None;
     }
 }
 
@@ -580,7 +639,10 @@ impl IntoIterator for Derivations {
 
 impl Chart {
     pub(super) fn invalidate_completed_node(&mut self, sort_id: usize, origin: usize) {
-        let removed = self.completed_nodes.get_mut().remove(&(sort_id, origin));
+        let removed = self
+            .memos
+            .get_mut()
+            .and_then(|memos| memos.completed_nodes.get_mut().remove(&(sort_id, origin)));
         measure::add(
             Counter::ParserCompletedNodesInvalidated,
             u64::from(removed.is_some()),
@@ -803,7 +865,7 @@ pub(super) fn completed_nodes(
     #[cfg(test)]
     update_chart_work_counters(|counters| counters.completed_nodes_calls += 1);
     let key = (sort_id, origin);
-    if let Some(completed) = chart.completed_nodes.borrow().get(&key) {
+    if let Some(completed) = chart.completed_nodes().borrow().get(&key) {
         measure::bump(Counter::ParserCompletedNodesHits);
         #[cfg(test)]
         update_chart_work_counters(|counters| counters.completed_nodes_hits += 1);
@@ -880,7 +942,7 @@ pub(super) fn completed_nodes(
         cycle,
     });
     chart
-        .completed_nodes
+        .completed_nodes()
         .borrow_mut()
         .insert(key, Rc::clone(&completed));
     completed

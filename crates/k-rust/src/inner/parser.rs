@@ -2980,16 +2980,13 @@ impl Grammar {
             }
             // The position is saturated: no later step adds an item to it, so what only its own
             // dispatch reads is released here rather than held, for every position, until the
-            // recognition ends. Its emptied agenda still holds a node. Its memo of completed
+            // recognition ends. Its emptied agenda still holds its queues. Its memo of completed
             // nodes and the same-span nodes its completions built are read only while it is
             // dispatched, except at a position whose remaining input is layout, where the root
             // collection below reads them again; a position that dispatched nothing has neither.
-            let chart = &mut charts[position];
-            chart.agenda = Agenda::default();
-            if canonical_position.is_some_and(|canonical| canonical != input.len()) {
-                *chart.completed_nodes.get_mut() = IndexMap::default();
-                *chart.cycle_nodes.get_mut() = IndexMap::default();
-            }
+            charts[position].release_dispatch(
+                canonical_position.is_none_or(|canonical| canonical == input.len()),
+            );
         }
 
         // Root collection phase: keep completed start productions whose suffix is layout only.
@@ -4966,6 +4963,62 @@ mod chart_tests {
         assert!(counters.revisit_derivations_read > 0);
         assert!(counters.completion_revisit_derivations_read > 0);
         assert!(counters.primary_completion_candidates > 0);
+    }
+
+    /// A saturated position keeps its items but not what only its dispatch read, except where
+    /// the remaining input is layout, whose memos the root collection reads.
+    #[test]
+    fn recognition_releases_what_only_a_dispatch_reads() {
+        let mut grammar = Grammar::default();
+        grammar
+            .add(
+                Sort::new("Start"),
+                vec![
+                    ProductionItem::Terminal("abcdef".to_owned()),
+                    ProductionItem::Terminal("ghijkl".to_owned()),
+                ],
+                Some(Label::new("start")),
+                false,
+                false,
+            )
+            .unwrap();
+        let input = "abcdef   ghijkl  ";
+        let start_id = grammar.sort_id(&Sort::new("Start")).unwrap();
+        let mut scanner_cache = vec![None; input.len() + 1];
+        let recognition = grammar
+            .recognize(
+                start_id,
+                0,
+                input,
+                ParseProvenance {
+                    source: SourceId(0),
+                    base_offset: 0,
+                },
+                PredictionMode::Filtered,
+                PriorityFilter::Enforced,
+                None,
+                false,
+                &mut false,
+                &mut WorkMeter::unlimited(),
+                &mut scanner_cache,
+                &RefCell::new(PackedPriorityMemos::default()),
+            )
+            .unwrap();
+        assert_eq!(recognition.parses.len(), 1);
+        let with_items = recognition
+            .charts
+            .iter()
+            .enumerate()
+            .filter(|(_, chart)| !chart.states.is_empty())
+            .map(|(position, _)| position)
+            .collect::<Vec<_>>();
+        // The start, the end of the first token, the start of the second past the layout, and
+        // the end of the second, before the trailing layout.
+        assert_eq!(with_items, vec![0, 6, 9, 15]);
+        for (position, chart) in recognition.charts.iter().enumerate() {
+            assert!(chart.agenda.is_released(), "agenda at {position}");
+            assert_eq!(chart.has_memos(), position == 15, "memos at {position}");
+        }
     }
 
     /// `S ::= S S | S d | d` over `d^n`: a completed state over a span grows only from shorter
