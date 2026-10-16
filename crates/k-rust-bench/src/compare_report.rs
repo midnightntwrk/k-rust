@@ -23,13 +23,34 @@ fn peaks(samples: &Samples) -> Vec<f64> {
     samples.peak_bytes.iter().map(|b| *b as f64).collect()
 }
 
+/// A better or worse verdict on a time whose change is under `min_seconds` is within noise:
+/// a few milliseconds of process start and exit are not a change of the program's cost.
+fn with_time_floor(
+    mut metric: MetricComparison,
+    base_seconds: Option<f64>,
+    min_seconds: f64,
+) -> MetricComparison {
+    let change = match (metric.ratio, base_seconds) {
+        (Some(ratio), Some(base)) => (ratio - 1.0).abs() * base,
+        _ => return metric,
+    };
+    if matches!(metric.verdict, Verdict::Better | Verdict::Worse) && change < min_seconds {
+        metric.verdict = Verdict::WithinNoise;
+    }
+    metric
+}
+
 /// The three metrics of a point, in report order: CPU, wall, peak.
 pub fn metrics(point: &PointComparison, comparison: &Comparison) -> [MetricComparison; 3] {
     let compare =
         |a: &[f64], b: &[f64]| compare_metric(a, b, comparison.level, comparison.min_effect);
+    let time = |a: &[f64], b: &[f64]| {
+        let metric = compare(a, b);
+        with_time_floor(metric, metric.base, comparison.min_seconds)
+    };
     [
-        compare(&point.base.cpu_seconds, &point.candidate.cpu_seconds),
-        compare(&point.base.wall_seconds, &point.candidate.wall_seconds),
+        time(&point.base.cpu_seconds, &point.candidate.cpu_seconds),
+        time(&point.base.wall_seconds, &point.candidate.wall_seconds),
         compare(&peaks(&point.base), &peaks(&point.candidate)),
     ]
 }
@@ -90,7 +111,17 @@ pub fn pooled_cpu(workload: &WorkloadComparison, comparison: &Comparison) -> Met
         .iter()
         .flat_map(|p| paired_ratios(&p.base.cpu_seconds, &p.candidate.cpu_seconds))
         .collect();
-    judge_pooled(&ratios, comparison.level, comparison.min_effect)
+    let typical = crate::results::median(
+        &pooled
+            .iter()
+            .filter_map(|p| p.base.cpu())
+            .collect::<Vec<f64>>(),
+    );
+    with_time_floor(
+        judge_pooled(&ratios, comparison.level, comparison.min_effect),
+        typical,
+        comparison.min_seconds,
+    )
 }
 
 fn ok(point: &PointComparison) -> bool {
@@ -338,10 +369,11 @@ pub fn render(comparison: &Comparison) -> String {
     let _ = writeln!(out, "| Method | {} |", comparison.method);
     let _ = writeln!(
         out,
-        "| Statistics | {} timed runs per binary and point, interleaved A B, B A, …; B/A is the ratio of the medians; the interval is the sign-test interval of the median of the paired ratios B/A (at least {:.0} % coverage where the run count allows); better or worse needs the whole interval on one side of 1 and B/A beyond ±{:.0} % |",
+        "| Statistics | {} timed runs per binary and point, interleaved A B, B A, …; B/A is the ratio of the medians; the interval is the sign-test interval of the median of the paired ratios B/A (at least {:.0} % coverage where the run count allows); better or worse needs the whole interval on one side of 1, B/A beyond ±{:.0} %, and for CPU and wall a change of at least {} s |",
         runs_summary(comparison),
         comparison.level * 100.0,
-        comparison.min_effect * 100.0
+        comparison.min_effect * 100.0,
+        comparison.min_seconds
     );
     let _ = writeln!(out);
     let _ = writeln!(
@@ -892,6 +924,7 @@ mod tests {
             selection: vec!["set:test".to_owned()],
             runs: 5,
             min_effect: 0.03,
+            min_seconds: 0.02,
             level: 0.9,
             full_ladders: false,
             commit: "0123456789abcdef".to_owned(),
@@ -945,6 +978,23 @@ mod tests {
         assert!(slower.contains("- CPU per point: 0 better, 1 worse, 0 within noise"));
         assert!(slower.contains("(pooled over its points): 0 better, 1 worse"));
         assert!(slower.contains("| 1.100 |"));
+    }
+
+    #[test]
+    fn a_change_of_a_few_milliseconds_is_within_noise() {
+        let mut short = comparison(1.1, "identical");
+        let point = &mut short.workload[0].point[0];
+        for samples in [&mut point.base, &mut point.candidate] {
+            for value in samples
+                .cpu_seconds
+                .iter_mut()
+                .chain(&mut samples.wall_seconds)
+            {
+                *value *= 0.05;
+            }
+        }
+        // 10 % of 50 ms is 5 ms, under the 20 ms floor.
+        assert!(render(&short).contains("- CPU per point: 0 better, 0 worse, 1 within noise"));
     }
 
     #[test]

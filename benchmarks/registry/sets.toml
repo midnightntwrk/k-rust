@@ -4,13 +4,13 @@
 # `ladder_max` caps a ladder for `kbench compare` only, so a compare of the set fits its time
 # budget at the default five runs per binary; `kbench run --set` and `compare --full-ladders`
 # run every registry value. The budgets are wall time on a host at load 5-10, measured with
-# the release krust of 2026-10-16 (draft-personal/perf/krust-slowness-2026-10-16.md).
+# the release krust of 2026-10-16 (draft-personal/perf/wave1/measure.md).
 
 version = 1
 
 [[set]]
 name = "slowness-concrete"
-description = "Concrete execution with a high cost per rewrite step: the long IMP, SIMPLE, and FUN runs and their ladders (compare: about 8 minutes)."
+description = "Concrete execution with a high cost per rewrite step: the long IMP, SIMPLE, and FUN runs and their ladders (compare: 8 minutes)."
 workloads = [
   "imp/krun-tutorial-collatz-300",
   "imp/krun-tutorial-primes-1000",
@@ -26,7 +26,7 @@ ladder_max = { "simple/krun-collatz-input" = 40, "fun/krun-tail-recursion-ladder
 
 [[set]]
 name = "slowness-search"
-description = "`krun --search-final` on strict-heated semantics, superlinear in the program size, with its linear controls (compare: about 10 minutes at 8 runs)."
+description = "`krun --search-final` on strict-heated semantics, superlinear in the program size, with its linear controls (compare: 10 minutes at 8 runs)."
 workloads = [
   "imp/search-kink-sum",
   "imp/search-strict-heating",
@@ -47,7 +47,7 @@ runs = 8
 
 [[set]]
 name = "slowness-frontend"
-description = "Parsing and compilation shapes that grow superlinearly in time or memory: ambiguous parses, list literals, many statements (compare: about 3 minutes)."
+description = "Parsing and compilation shapes that grow superlinearly in time or memory: ambiguous parses, list literals, many statements (compare: 3 minutes)."
 workloads = [
   "toy/parse-dn-ambiguous",
   "toy/compile-list-literal",
@@ -58,7 +58,7 @@ ladder_max = { "toy/parse-dn-ambiguous" = 50, "toy/growth-ambiguous-chain" = 100
 
 [[set]]
 name = "slowness-simplifier"
-description = "Predicate chains and the shared-tree simplify, superlinear in the predicate or tree size (compare: about 2 minutes)."
+description = "Predicate chains and the shared-tree simplify, superlinear in the predicate or tree size (compare: 2 minutes)."
 workloads = [
   "toy/growth-predicate-ornot-chain",
   "toy/growth-predicate-implies-chain",
@@ -68,12 +68,12 @@ ladder_max = { "toy/growth-predicate-ornot-chain" = 8000, "toy/growth-predicate-
 
 [[set]]
 name = "slowness"
-description = "Every workload of the 2026-10-16 slowness findings: concrete execution, search, frontend, and simplifier (compare: about 23 minutes; search at 8 runs)."
+description = "Every workload of the 2026-10-16 slowness findings: concrete execution, search, frontend, and simplifier (compare: 22 minutes; search at 8 runs)."
 sets = ["slowness-concrete", "slowness-search", "slowness-frontend", "slowness-simplifier"]
 
 [[set]]
 name = "regression"
-description = "A broad, fast cross-section (parse, compile, spec-compile, load, execute, search, prove, rpc on IMP, FUN, SIMPLE, KOOL, KEVM, KWASM, KMIR) that shows a change does not slow anything else (compare: about 13 minutes)."
+description = "A broad, fast cross-section (parse, compile, spec-compile, load, execute, search, prove, rpc on IMP, FUN, SIMPLE, KOOL, KEVM, KWASM, KMIR) that shows a change does not slow anything else (compare: 14 minutes)."
 workloads = [
   "imp/parse-sumto10",
   "imp/parse-statements-100",

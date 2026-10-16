@@ -21,6 +21,13 @@ pub const COMPARE_SCHEMA: &str = "kbench-compare/1";
 pub const DEFAULT_RUNS: u32 = 5;
 /// Default minimum relevant change, as a fraction (3 %).
 pub const DEFAULT_MIN_EFFECT: f64 = 0.03;
+/// Default minimum relevant change of CPU or wall time in seconds: process start and exit
+/// vary by a few milliseconds whatever the run's length.
+pub const DEFAULT_MIN_SECONDS: f64 = 0.02;
+
+fn default_min_seconds() -> f64 {
+    DEFAULT_MIN_SECONDS
+}
 /// The marker a `measure` build of krust carries: the format name of its `KRUST_COUNTERS` dump.
 const MEASURE_MARKER: &[u8] = b"krust-counters";
 /// Outputs up to this size are normalized before hashing; larger ones are hashed as they are.
@@ -100,6 +107,9 @@ pub struct Comparison {
     /// `--runs`, or the default where neither it nor a set gives a workload its runs.
     pub runs: u32,
     pub min_effect: f64,
+    /// The smallest change of CPU or wall time, in seconds, that a verdict calls a change.
+    #[serde(default = "default_min_seconds")]
+    pub min_seconds: f64,
     pub level: f64,
     pub full_ladders: bool,
     /// The k-rust checkout whose registry was used.

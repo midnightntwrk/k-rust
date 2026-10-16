@@ -92,7 +92,8 @@ cargo run --release -p k-rust-bench -- compare --base /var/tmp/cmp/base --candid
 What it does:
 
 - **Same work for both.** Each binary prepares its own definitions (its prepared root is keyed by its SHA-256, so a `kcompile` change reaches the execution workloads too); both read the same generated inputs and the same `${run}` directory.
-- **Interleaved runs.** Every point (a plain workload, or one ladder value) runs A B, then B A, and so on, `--runs` times each (default 5), so a change in host load affects both alike; run `i` of A and run `i` of B form a pair.
+- **Interleaved runs.** Every point (a plain workload, or one ladder value) runs A B, then B A, and so on, `--runs` times each, so a change in host load affects both alike; run `i` of A and run `i` of B form a pair.
+  The default is 5, or the `runs` of a set that names the workload (`slowness-search`: 8); `--runs` overrides both.
   A plain quick-tier workload first runs its usual warmup pair.
 - **Identical output.** Every timed run's output (standard output and the files its check names, with each binary's own prepared root and path replaced by placeholders) is hashed; all digests of a point, of A and of B, must be equal.
   A difference is reported at the top of the report (**Output: DIFFERS**) and makes the exit status 1.
@@ -105,19 +106,26 @@ What it does:
 - **Counters.** With `--counters`, each binary also runs once per point with `KRUST_COUNTERS` set, outside the timed runs (counting costs time).
   Both binaries must be `measure` builds (`cargo build --profile profiling -p k-rust --features cli,measure --bin krust`); `kbench` refuses otherwise.
   To time release builds and count with measure builds, name the latter with `--counters-base` and `--counters-candidate` (either implies `--counters`).
-  The report shows every counter side by side at each workload's summary point, lists every counter that differs at any point (an unexpected difference is a behaviour change), and derives the cost per step: `rewrite.steps` (the states the execution loop visited, one rewrite step each; in a search, merged arrivals included), `execution.states_merged`, microseconds of CPU per step, and allocations per step.
+  The report shows every counter side by side at each workload's summary point, lists every counter that differs at any point (an unexpected difference is a behaviour change), and derives the cost per unit of work: microseconds of CPU and allocations per `rewrite.steps` (the states the execution loop visited, one rewrite step each, merged arrivals included), or, for a `--search` run, whose breadth-first search counts no visited states, per `rewrite.rules_applied`.
+  Every counter is identical between two runs of the same binary except `allocation.count` and `allocation.bytes`, which vary by up to 6e-5; their differences below 0.1 % are not flagged.
 
 ### Verdicts and the noise band
 
 The interval is the sign-test confidence interval of the median of the paired ratios B/A: with n pairs it runs from the k-th smallest to the k-th largest ratio, with the largest k whose coverage is at least 90 % (at 5 runs, the smallest to the largest ratio, 93.8 %).
 It assumes nothing about the distribution of run times, which on a loaded host is skewed: a run that collides with another job is slow, never fast.
-A metric is **better** (or **worse**) when the whole interval lies below (above) 1 and B/A moves by more than `--min-effect` (default 3 %); otherwise it is **within noise**.
-The threshold keeps a tiny steady difference from being called a change, and the interval keeps one noisy run from being called one.
+A metric is **better** (or **worse**) when the whole interval lies below (above) 1, B/A moves by more than `--min-effect` (default 3 %), and, for CPU and wall, the median moves by at least `--min-seconds` (default 0.02 s); otherwise it is **within noise**.
+The thresholds keep a tiny steady difference (two copies of one binary differ by about 1 %, and process start and exit by a few milliseconds) from being called a change, and the interval keeps one noisy run from being called one.
+Each point gets a verdict per metric, and each workload a **pooled CPU verdict**: the paired CPU ratios of all its points with a base CPU of at least 0.2 s, judged together (their median and its interval).
+Pooling a ladder's four or five sizes gives 20 to 40 pairs, so one run that collided with another job no longer hides a change; it assumes the change is a similar factor at each pooled size, so read the per-point rows for a change in growth.
+The workload's pooled verdict is the one to decide on; the per-point verdicts show where along a ladder the change acts.
 The report's Noise band section gives, per workload, the widest interval half-width: a change larger than it plus the threshold gets a verdict.
 
-NOISE-VALIDATION
+Validation (2026-10-16, load 5 to 10; `draft-personal/perf/wave1/measure.md` has the reports): the release krust compared with a copy of itself got no better or worse verdict on any of the 60 workloads of `slowness` and `regression`, pooled, nor per point except two short points (0.3 and 0.8 s) of `slowness-frontend` and `slowness-simplifier`.
+The pooled CPU interval of a `slowness` workload has a half-width of 0.7 to 4 % (9.4 % for `toy/shared-rpc-simplify`), so a 10 % change is decided; a copy made 10 % slower (it burns a tenth of krust's CPU time after krust exits) got a pooled CPU B/A of 1.096 to 1.112 and **worse** on all 7 `slowness-concrete` workloads.
+Search CPU time varies by 20 to 40 % with the load of other jobs at equal work (every counter but the allocation ones identical); at five runs two identical binaries still got two false pooled verdicts there, at eight none, hence `runs = 8` for `slowness-search`.
+`regression` workloads are single points of five pairs with half-widths of 1 to 27 %: it catches a large slowdown; check a **worse** there with `--only ID --runs 10` before believing or dismissing it.
 
-`kbench compare-report RESULTS [--min-effect PCT] [--first N]` renders a results file again, optionally judged with another threshold or with only the first N pairs, which shows what fewer runs would have concluded.
+`kbench compare-report RESULTS [--min-effect PCT] [--min-seconds S] [--first N]` renders a results file again, optionally judged with other thresholds or with only the first N pairs, which shows what fewer runs would have concluded.
 
 ### Output
 
@@ -129,16 +137,16 @@ A workload whose measured command does not run the krust binary (the KRS tools) 
 ### Sets
 
 Named sets live in [`registry/sets.toml`](registry/sets.toml); `kbench sets` lists them.
-The budgets are for a compare at the default five runs on a host at load 5 to 10.
+The budgets were measured on 2026-10-16 with the release krust at load 5 to 10, at five runs (eight for `slowness-search`), each binary's definitions already prepared.
 
 | Set | Contents | Compare budget |
 |:--|:--|--:|
-| `slowness-concrete` | the long concrete runs: `imp/krun-tutorial-collatz-300`, `imp/krun-tutorial-primes-1000`, `imp/krun-sum`, `simple/krun-collatz-input` (to m = 80), `fun/krun-tail-recursion-ladder` and `fun/krun-callcc-loop-ladder` (to n = 4000), `toy/growth-map-update-control` | about 9 min |
-| `slowness-search` | `krun --search-final` on strict-heated semantics: `imp/search-kink-sum` (to n = 1000), `imp/search-strict-heating` (to 2048), `imp/search-strict-heating-control`, `imp/search-kink-wide8` (to r = 256), `imp/search-kink-collatz`, `imp/search-kink-primes`, `simple/search-collatz-input` (to m = 30), `imp/search-sum` (to n = 3000) | about 8 min |
-| `slowness-frontend` | `toy/parse-dn-ambiguous` (to n = 50), `toy/compile-list-literal`, `toy/growth-ambiguous-chain` (to n = 100), `imp/parse-statements` | about 3 min |
-| `slowness-simplifier` | `toy/growth-predicate-ornot-chain` (to d = 8000), `toy/growth-predicate-implies-chain` (to d = 32,000), `toy/shared-rpc-simplify` | about 2 min |
-| `slowness` | the four above | about 22 min |
-| `regression` | 38 fast workloads: parse, compile, spec-compile, load, execute, search, prove, and rpc on IMP, FUN, SIMPLE, KOOL, KEVM, KWASM, and KMIR | about 13 min |
+| `slowness-concrete` | the long concrete runs: `imp/krun-tutorial-collatz-300`, `imp/krun-tutorial-primes-1000`, `imp/krun-sum`, `simple/krun-collatz-input` (to m = 40), `fun/krun-tail-recursion-ladder` and `fun/krun-callcc-loop-ladder` (to n = 4000), `toy/growth-map-update-control` | 8 min |
+| `slowness-search` | `krun --search-final` on strict-heated semantics: `imp/search-kink-sum` (to n = 1000), `imp/search-strict-heating` (to 2048), `imp/search-strict-heating-control`, `imp/search-kink-wide8` (to r = 256), `imp/search-kink-collatz`, `imp/search-kink-primes`, `simple/search-collatz-input` (to m = 20), `imp/search-sum` (to n = 3000); 8 runs | 10 min |
+| `slowness-frontend` | `toy/parse-dn-ambiguous` (to n = 50), `toy/compile-list-literal`, `toy/growth-ambiguous-chain` (to n = 100), `imp/parse-statements` | 3 min |
+| `slowness-simplifier` | `toy/growth-predicate-ornot-chain` (to d = 8000), `toy/growth-predicate-implies-chain` (to d = 32,000), `toy/shared-rpc-simplify` | 2 min |
+| `slowness` | the four above | 22 min |
+| `regression` | 38 fast workloads: parse, compile, spec-compile, load, execute, search, prove, and rpc on IMP, FUN, SIMPLE, KOOL, KEVM, KWASM, and KMIR (the registry has no KEVM, KWASM, or KMIR `rpc` workload yet) | 14 min |
 
 The caps drop the values that cost 15 to 35 s per run and keep at least three sizes above 0.05 s for each growth exponent; `--full-ladders` runs the registry's ladders.
 A change is decided on its topic's set and shown harmless on `regression`.

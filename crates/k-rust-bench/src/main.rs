@@ -132,6 +132,10 @@ enum Commands {
         /// The smallest change, in percent, that a verdict calls better or worse.
         #[arg(long, default_value_t = compare::DEFAULT_MIN_EFFECT * 100.0)]
         min_effect: f64,
+        /// The smallest change of CPU or wall time, in seconds, that a verdict calls better or
+        /// worse.
+        #[arg(long, default_value_t = compare::DEFAULT_MIN_SECONDS)]
+        min_seconds: f64,
         /// Run every ladder value, ignoring the sets' compare caps (`ladder_max`).
         #[arg(long)]
         full_ladders: bool,
@@ -151,6 +155,10 @@ enum Commands {
         /// Judge with this minimum change in percent instead of the recorded one.
         #[arg(long)]
         min_effect: Option<f64>,
+        /// Judge with this minimum change of CPU or wall time in seconds instead of the
+        /// recorded one.
+        #[arg(long)]
+        min_seconds: Option<f64>,
         /// Keep only the first N timed runs of each binary (the first N pairs), to see what a
         /// compare with fewer runs would have concluded.
         #[arg(long)]
@@ -526,11 +534,15 @@ fn execute(cli: Cli) -> Result<ExitCode, String> {
         Commands::CompareReport {
             results,
             min_effect,
+            min_seconds,
             first,
         } => {
             let mut comparison = compare::Comparison::load(&results)?;
             if let Some(percent) = min_effect {
                 comparison.min_effect = percent / 100.0;
+            }
+            if let Some(seconds) = min_seconds {
+                comparison.min_seconds = seconds;
             }
             if let Some(first) = first {
                 comparison.truncate_runs(first);
@@ -548,6 +560,7 @@ fn execute(cli: Cli) -> Result<ExitCode, String> {
             counters_base,
             counters_candidate,
             min_effect,
+            min_seconds,
             full_ladders,
             output,
             dry_run,
@@ -675,6 +688,7 @@ fn execute(cli: Cli) -> Result<ExitCode, String> {
                 selection,
                 runs: runs.unwrap_or(compare::DEFAULT_RUNS),
                 min_effect: min_effect / 100.0,
+                min_seconds,
                 level: stats::LEVEL,
                 full_ladders,
                 commit: git(&workspace, &["rev-parse", "HEAD"]).unwrap_or_default(),
