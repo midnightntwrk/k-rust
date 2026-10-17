@@ -327,6 +327,31 @@ pub(crate) fn nan_sign(hook: &str, arguments: &[Term]) -> Option<String> {
     })
 }
 
+/// Whether `minFloat` or `maxFloat` (`hook`) is applied to `+0.0` and `-0.0`, in either order,
+/// of one format the backend computes. Their `smt-hook`s `fp.min` and `fp.max` leave the result
+/// on the two zeros unspecified, so the value is one the definition leaves open
+/// (`super::chosen_value`, `SignedZero`); the evaluator's `-0.0` for `minFloat` and `+0.0` for
+/// `maxFloat` are k-rust's. Two zeros of one sign, and a zero beside a NaN (the other operand),
+/// are determined, and two formats are the mixed-format destination ([`mixed_destination`]).
+pub(crate) fn signed_zeros(hook: &str, arguments: &[Term]) -> bool {
+    if !matches!(hook, "FLOAT.min" | "FLOAT.max") {
+        return false;
+    }
+    let Ok(Some((Operand::Computed(left), Operand::Computed(right)))) =
+        read_operands(hook, arguments)
+    else {
+        return false;
+    };
+    let zero = |value: KFloat| match value {
+        KFloat::Binary32(value) => value == 0.0,
+        KFloat::Binary64(value) => value == 0.0,
+    };
+    left.format() == right.format()
+        && zero(left)
+        && zero(right)
+        && left.is_sign_negative() != right.is_sign_negative()
+}
+
 #[derive(Clone, Copy)]
 enum Comparison {
     Less,

@@ -342,39 +342,194 @@ pub(crate) fn bounded_floor(floor: u64) -> u64 {
     result_bound().map_or(floor, |bound| bound.min(floor))
 }
 
-/// Why the definition admits several values of `term`, a hooked application whose evaluator
-/// computes one, so that the value is k-rust's choice rather than a consequence of the
-/// definition; `None` when every value the definition admits is the same.
+/// A class of hook values the definition leaves open: the hook's written contract, or the
+/// `smt-hook` that constrains its value where it is defined, admits two models that give one
+/// application two values (`docs/compatibility.md`, "Implementation-chosen hook values").
 ///
-/// `keys_list(M)` and `values(M)` of a closed map with two or more bindings whose keys are all
-/// constructor-like, and `Set2List(S)` of a closed set of two or more constructor-like elements,
-/// are some listing of the items: domains.md fixes no order, so every order of the items is a
-/// value some model gives. With zero or one item every listing is the same. `choice(M)` and
-/// `choice(S)` of the same collections are some key (element) of them, which domains.md does not
-/// name either: every item is the value some model gives, and k-rust's is the item its listing
-/// puts first. The condition is the one under which the evaluators list the items
-/// (`map::ordered_entries`, `set::concrete_set`), read on the argument, not on the result: a
-/// `choice` value is one item and carries no count. An application this names is defined exactly
-/// when its argument is: a closed map with distinct constructor-like keys is defined when its
-/// values are, a set of such elements is defined, and each has a listing and, being non-empty,
-/// an item to choose.
+/// An under-specified contract that k-rust reads one way is not a class: the reading is part of
+/// the definition as k-rust reads it, on every route. So are the lowercase hex of the digest
+/// hooks, the byte-per-code-point `String2Bytes` and `Bytes2String`, IEEE 754 roundTiesToEven
+/// rounding, the ECDSA failure values, the undefinedness of a partial hook outside its described
+/// domain, and the one NaN of each format (every spelling of `NaN` in one format names it). Also
+/// no class: `minFloat` and `maxFloat` with one NaN operand (`fp.min` gives the other operand),
+/// the raw digests and the BN128 hooks (their contract fixes every value), `encodeBytes` and
+/// `decodeBytes` (they name their encoding), `IO.getc`, `IO.putc` and `IO.write` (a function of
+/// the request's console), and a hook without an evaluator, which leaves its application
+/// unevaluated and so chooses no value.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
+#[non_exhaustive]
+pub enum ChosenClass {
+    /// The order in which `keys_list`, `values` and `Set2List` list two or more items.
+    Order,
+    /// The item `choice` gives of a map or set of two or more items.
+    Item,
+    /// The result format of a Float operation over a binary32 and a binary64 operand.
+    FloatDestination,
+    /// The sign bit of a format's one NaN (`signFloat`).
+    NanSign,
+    /// The case of `Base2String`'s letter digits (one case per model, "consistently").
+    LetterCase,
+    /// `minFloat` and `maxFloat` of `+0.0` and `-0.0`, which `fp.min` and `fp.max` leave open.
+    SignedZero,
+    /// The names of the binders `substOne` traverses, which `substitution.md` does not fix.
+    FreshName,
+    /// How many characters a `#read` that returned two or more characters returns.
+    ReadCount,
+    /// Whether a decided `andBool`, `orBool`, `impliesBool` or `#if` performs the effects of the
+    /// operand it makes irrelevant. Not a value, so [`chosen_value`] never returns it.
+    EffectOrder,
+}
+
+impl ChosenClass {
+    /// The class's name in `docs/compatibility.md`.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Order => "order",
+            Self::Item => "item",
+            Self::FloatDestination => "float-destination",
+            Self::NanSign => "nan-sign",
+            Self::LetterCase => "letter-case",
+            Self::SignedZero => "signed-zero",
+            Self::FreshName => "fresh-name",
+            Self::ReadCount => "read-count",
+            Self::EffectOrder => "effect-order",
+        }
+    }
+}
+
+/// An evaluated hook application whose value is one of several the definition admits.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ChosenValue {
+    /// The hook applied.
+    pub hook: Arc<str>,
+    /// What the definition leaves open.
+    pub class: ChosenClass,
+    /// Whether an evaluation outside an execution leaves the application unevaluated, as the
+    /// defined value it is, rather than take k-rust's value.
+    pub withheld_in_proof: bool,
+}
+
+/// Whether the application of `hook` to `arguments`, whose evaluator's value is `value` when it
+/// is known, has a value the definition leaves open, and of which class; `None` when every model
+/// gives it the same value. The fold and the evaluation entry read it; a class that needs the
+/// value (`LetterCase`, `ReadCount`) does not fire without it.
 ///
-/// `+Float`, `-Float`, `*Float`, `/Float`, `minFloat` and `maxFloat` over a binary32 and a
-/// binary64 operand are the exact result rounded to some destination format, which domains.md
-/// does not name ([`float::mixed_destination`], the same reading of the arguments the evaluator
-/// widens): every model rounds it to some format, so the application is defined, and only its
-/// value is open.
+/// - `Order`: `keys_list(M)` and `values(M)` of a closed map with two or more bindings whose
+///   keys are all constructor-like, and `Set2List(S)` of a closed set of two or more
+///   constructor-like elements, are some listing of the items: no order is fixed, so every order
+///   of the items is a value some model gives. With zero or one item every listing is the same.
+///   The condition is the one under which the evaluators list the items
+///   (`map::ordered_entries`, `set::concrete_set`), read on the argument.
+/// - `Item`: `choice(M)` and `choice(S)` of the same collections are some key (element) of them,
+///   which the contract does not name: every item is the value some model gives, and k-rust's is
+///   the item its listing puts first. It is read on the argument: a `choice` value is one item and
+///   carries no count.
+/// - `FloatDestination`: `+Float`, `-Float`, `*Float`, `/Float`, `minFloat` and `maxFloat` over a
+///   binary32 and a binary64 operand are the exact result rounded to some destination format,
+///   which no text names (`float::mixed_destination`, the reading the evaluator widens).
+/// - `NanSign`: `signFloat` of a NaN, of any format, reads a sign bit no text gives
+///   (`float::nan_sign`).
+/// - `LetterCase`: `Base2String` with a radix above 10 whose result holds a letter digit; the
+///   case "is determined by the backend", one case for every application in a model.
+/// - `SignedZero`: `minFloat` and `maxFloat` of `+0.0` and `-0.0` in either order, one format,
+///   which their `smt-hook`s `fp.min` and `fp.max` leave unspecified (`float::signed_zeros`).
+/// - `FreshName`: `substOne` whenever the term it substitutes into holds an application of a
+///   `binder` production, renamed or not: KORE terms are not quotiented by renaming and the
+///   contract fixes no names (`substitution::substitutes_under_a_binder`).
+/// - `ReadCount`: `#read` that returned two or more characters, which could have returned
+///   fewer; one character could be fewer only by being none, which states end of file.
 ///
-/// `signFloat` of a NaN, of any format, reads a sign bit the `NaN` literal does not state
-/// ([`float::nan_sign`]): every value of an IEEE-like format has one, so the application is
-/// defined, and only its value is open.
-///
-/// In each case the value exists by the hook's own description, read on the arguments, and the
-/// description leaves open only which value it is. So the application is defined whether or not
-/// its symbol is declared `total`, and this function does not read the declaration. An
-/// application to which the description gives no value is not named here: it is defined only
-/// where its symbol is declared `total`, which its evaluator reads (`mint::no_width`,
-/// `STRING.string2token`).
+/// The application is defined in every class but `FreshName` and `ReadCount` whatever its
+/// symbol's declaration says: a defined collection has a listing and, when non-empty, an item; a
+/// Float operation has a result in some format; a NaN has a sign bit; `Base2String` and
+/// `minFloat`/`maxFloat` have a value on these arguments. `withheld_in_proof` is set for the
+/// classes an evaluation outside an execution leaves unevaluated: `Order`, `Item`,
+/// `FloatDestination` and `NanSign`.
+pub fn chosen_value(hook: &str, arguments: &[Term], value: Option<&Term>) -> Option<ChosenValue> {
+    let fires = |class: ChosenClass, fires: bool| fires.then_some(class);
+    let class = match hook {
+        "MAP.keys_list" | "MAP.values" => {
+            fires(ChosenClass::Order, map::lists_several_items(arguments))
+        }
+        "SET.set2list" => fires(ChosenClass::Order, set::lists_several_items(arguments)),
+        "MAP.choice" => fires(ChosenClass::Item, map::lists_several_items(arguments)),
+        "SET.choice" => fires(ChosenClass::Item, set::lists_several_items(arguments)),
+        "STRING.base2string" => fires(
+            ChosenClass::LetterCase,
+            string::writes_a_letter_digit(arguments, peel_injection(value?)),
+        ),
+        "SUBSTITUTION.substOne" => fires(
+            ChosenClass::FreshName,
+            substitution::substitutes_under_a_binder(arguments),
+        ),
+        "IO.read" => fires(
+            ChosenClass::ReadCount,
+            string::read_string(peel_injection(value?))
+                .is_some_and(|read| read.chars().nth(1).is_some()),
+        ),
+        _ if float::mixed_destination(hook, arguments).is_some() => {
+            Some(ChosenClass::FloatDestination)
+        }
+        _ if float::nan_sign(hook, arguments).is_some() => Some(ChosenClass::NanSign),
+        _ => fires(
+            ChosenClass::SignedZero,
+            float::signed_zeros(hook, arguments),
+        ),
+    }?;
+    Some(ChosenValue {
+        hook: hook.into(),
+        class,
+        withheld_in_proof: matches!(
+            class,
+            ChosenClass::Order
+                | ChosenClass::Item
+                | ChosenClass::FloatDestination
+                | ChosenClass::NanSign
+        ),
+    })
+}
+
+/// `value` without the injection into its declared sort a hook value of a strict subsort of
+/// that sort carries.
+fn peel_injection(value: &Term) -> &Term {
+    match value.kind() {
+        TermKind::Injection { term, .. } => term,
+        _ => value,
+    }
+}
+
+/// The detail of the `Unspecified` outcome of an application whose value the evaluation does not
+/// take, of class `chosen`.
+fn chosen_detail(chosen: &ChosenValue, arguments: &[Term]) -> String {
+    let hook = &*chosen.hook;
+    let several = |what: &str| {
+        format!(
+            "{hook} of two or more items {what} domains.md does not fix, which only an execution \
+             chooses"
+        )
+    };
+    match chosen.class {
+        ChosenClass::Order => several("lists them in an order"),
+        ChosenClass::Item => several("gives one of them, which"),
+        ChosenClass::FloatDestination => float::mixed_destination(hook, arguments)
+            .map(|pair| pair.detail(hook))
+            .unwrap_or_default(),
+        ChosenClass::NanSign => float::nan_sign(hook, arguments).unwrap_or_default(),
+        class => format!(
+            "{hook} has a value the definition leaves open ({}), which only an execution \
+             chooses",
+            class.name()
+        ),
+    }
+}
+
+/// [`chosen_value`] of `term`, a hooked application whose evaluator computes a value, as the
+/// detail of its `Unspecified` outcome, when an evaluation outside an execution withholds it
+/// (`withheld_in_proof`); `None` otherwise. In each such class the value exists by the hook's
+/// own description, read on the arguments, so the application is defined whether or not its
+/// symbol is declared `total`. An application to which the description gives no value is not
+/// named here: it is defined only where its symbol is declared `total`, which its evaluator reads
+/// (`mint::no_width`, `STRING.string2token`).
 pub(crate) fn implementation_chosen(term: &Term) -> Option<String> {
     let TermKind::Application {
         symbol, arguments, ..
@@ -382,40 +537,10 @@ pub(crate) fn implementation_chosen(term: &Term) -> Option<String> {
     else {
         return None;
     };
-    implementation_chosen_in(symbol.attributes.hook.as_deref()?, arguments)
-}
-
-/// [`implementation_chosen`] of an application of `hook` to `arguments`.
-fn implementation_chosen_in(hook: &str, arguments: &[Term]) -> Option<String> {
-    let (several, what) = match hook {
-        "MAP.keys_list" | "MAP.values" => (
-            map::lists_several_items(arguments),
-            "lists them in an order",
-        ),
-        "SET.set2list" => (
-            set::lists_several_items(arguments),
-            "lists them in an order",
-        ),
-        "MAP.choice" => (
-            map::lists_several_items(arguments),
-            "gives one of them, which",
-        ),
-        "SET.choice" => (
-            set::lists_several_items(arguments),
-            "gives one of them, which",
-        ),
-        _ => {
-            return float::mixed_destination(hook, arguments)
-                .map(|pair| pair.detail(hook))
-                .or_else(|| float::nan_sign(hook, arguments));
-        }
-    };
-    several.then(|| {
-        format!(
-            "{hook} of two or more items {what} domains.md does not fix, which only an \
-             execution chooses"
-        )
-    })
+    let hook = symbol.attributes.hook.as_deref()?;
+    chosen_value(hook, arguments, None)
+        .filter(|chosen| chosen.withheld_in_proof)
+        .map(|chosen| chosen_detail(&chosen, arguments))
 }
 
 /// Evaluate a hook candidate with buffered execution state available.
@@ -511,6 +636,7 @@ fn evaluate_composed(
     // With a definition's declarations, every domain value the hook builds is recorded with the
     // kind it is built with, for the checks below.
     let built = facts.map(|_| BuiltDomainValues::record());
+    let has_console = loaded.execution.is_some();
     let result = evaluate_hook_with_context(
         hook,
         arguments,
@@ -551,22 +677,27 @@ fn evaluate_composed(
     if let BuiltinResult::Value(value) = &result {
         debug_assert_value_of_sort(hook, value, result_sort);
     }
-    if let BuiltinResult::Value(_) = &result {
-        // A value the definition leaves to the implementation (the order of `keys_list`,
-        // `values` and `Set2List` of two or more items, the result format of a Float operation
-        // over a binary32 and a binary64 operand, the sign of a NaN) is computed only inside an
-        // execution, which runs a program and may take any value the definition admits.
-        // Elsewhere a verdict that read it would hold only in k-rust's choice, not in every model
-        // of the definition, so the application stays unevaluated as the defined value it is
-        // (`crate::evaluation`). The outcome is `Unsupported`, not `NotApplicable`, so that a
-        // simplifier records no normal-form certificate for it: its value claim would let
-        // apartness tell it from a written list.
-        if mode == Some(EvaluationMode::Proof)
-            && let Some(detail) = implementation_chosen_in(hook, arguments)
-        {
+    if let BuiltinResult::Value(value) = &result
+        && let Some(chosen) = chosen_value(hook, arguments, Some(value))
+    {
+        // A `#read` count exists only where a run's console answered the read.
+        debug_assert!(
+            chosen.class != ChosenClass::ReadCount || has_console,
+            "{hook} read characters without a console"
+        );
+        // A value the definition leaves to the implementation of a withheld class (the order of
+        // `keys_list`, `values` and `Set2List` of two or more items, the item `choice` gives,
+        // the result format of a Float operation over a binary32 and a binary64 operand, the
+        // sign of a NaN) is computed only inside an execution, which runs a program and may take
+        // any value the definition admits. Elsewhere a verdict that read it would hold only in
+        // k-rust's choice, not in every model of the definition, so the application stays
+        // unevaluated as the defined value it is (`crate::evaluation`). The outcome is
+        // `Unsupported`, not `NotApplicable`, so that a simplifier records no normal-form
+        // certificate for it: its value claim would let apartness tell it from a written list.
+        if mode == Some(EvaluationMode::Proof) && chosen.withheld_in_proof {
             return Ok(BuiltinResult::Unsupported(
                 UnsupportedHookReason::Unspecified {
-                    detail,
+                    detail: chosen_detail(&chosen, arguments),
                     // The hook's description gives the application a value, whichever it is, so
                     // it is defined whatever its symbol's declaration says
                     // (`implementation_chosen`).
@@ -4164,5 +4295,175 @@ mod tests {
             }
         }
         assert!(answers.iter().all(|&count| count > 0), "{answers:?}");
+    }
+
+    /// The value `hook` gives `arguments` in the context-free evaluation, which computes the
+    /// evaluator's own value in every class.
+    fn evaluator_value(hook: &str, arguments: &[Term]) -> Term {
+        match evaluate_hook(hook, arguments) {
+            Ok(Ok(BuiltinResult::Value(value))) => value,
+            other => panic!("{hook} is evaluated: {other:?}"),
+        }
+    }
+
+    /// The class [`chosen_value`] names for the evaluator's value of `hook` on `arguments`.
+    fn chosen_class(hook: &str, arguments: &[Term]) -> Option<ChosenClass> {
+        let value = evaluator_value(hook, arguments);
+        chosen_value(hook, arguments, Some(&value)).map(|chosen| chosen.class)
+    }
+
+    /// `Base2String` writes its letter digits in a case the definition leaves to the backend
+    /// (`domains.md`: "determined by the backend"), so a result that holds a letter digit is
+    /// `letter-case`; a radix of 10 or below has no letter digits, and a result of decimal digits
+    /// only is the same in either case.
+    #[test]
+    fn base_to_string_with_a_letter_digit_is_letter_case() {
+        assert_eq!(
+            chosen_class("STRING.base2string", &[Term::int(255), Term::int(16)]),
+            Some(ChosenClass::LetterCase)
+        );
+        assert_eq!(
+            chosen_class("STRING.base2string", &[Term::int(-10), Term::int(36)]),
+            Some(ChosenClass::LetterCase)
+        );
+        for (value, radix) in [(9, 16), (255, 10), (-9, 36), (5, 2)] {
+            assert_eq!(
+                chosen_class("STRING.base2string", &[Term::int(value), Term::int(radix)]),
+                None,
+                "Base2String({value}, {radix})"
+            );
+        }
+    }
+
+    /// `minFloat` and `maxFloat` of `+0.0` and `-0.0`, in either order and one format, are left
+    /// unspecified by their `smt-hook`s `fp.min` and `fp.max`: `signed-zero`. Two zeros of one
+    /// sign, a zero beside another value, and a NaN beside a zero (the other operand) are
+    /// determined; two formats are `float-destination`.
+    #[test]
+    fn min_and_max_of_the_two_zeros_are_signed_zero() {
+        for (hook, left, right) in [
+            ("FLOAT.min", "0.0", "-0.0"),
+            ("FLOAT.min", "-0.0", "0.0"),
+            ("FLOAT.max", "-0.0", "0.0"),
+            ("FLOAT.max", "0.0", "-0.0"),
+            ("FLOAT.min", "0.0f", "-0.0f"),
+            ("FLOAT.max", "-0.0f", "0.0f"),
+        ] {
+            assert_eq!(
+                chosen_class(hook, &[float_term(left), float_term(right)]),
+                Some(ChosenClass::SignedZero),
+                "{hook}({left}, {right})"
+            );
+        }
+        for (hook, left, right) in [
+            ("FLOAT.min", "1.0", "-0.0"),
+            ("FLOAT.min", "NaN", "0.0"),
+            ("FLOAT.max", "0.0", "0.0"),
+            ("FLOAT.max", "-0.0", "-0.0"),
+            ("FLOAT.add", "0.0", "-0.0"),
+        ] {
+            assert_eq!(
+                chosen_class(hook, &[float_term(left), float_term(right)]),
+                None,
+                "{hook}({left}, {right})"
+            );
+        }
+        assert_eq!(
+            chosen_class("FLOAT.min", &[float_term("0.0f"), float_term("-0.0")]),
+            Some(ChosenClass::FloatDestination)
+        );
+    }
+
+    /// A `#read` that returned two or more characters could have returned fewer
+    /// (`domains.md`: "may be fewer characters than requested"): `read-count`. One character
+    /// could only be fewer by being none, which states end of file, and none is end of file, so
+    /// both are determined. The value is read through the injection into the declared sort.
+    #[test]
+    fn a_read_of_two_or_more_characters_is_read_count() {
+        let arguments = [Term::int(0), Term::int(4)];
+        let class = |value: Term| {
+            chosen_value("IO.read", &arguments, Some(&value)).map(|chosen| chosen.class)
+        };
+        assert_eq!(class(Term::string("AB")), Some(ChosenClass::ReadCount));
+        assert_eq!(
+            class(Term::injection(
+                Sort::builtin(BuiltinSort::String),
+                Sort::simple("SortIOString"),
+                Term::string("ABC"),
+            )),
+            Some(ChosenClass::ReadCount)
+        );
+        assert_eq!(class(Term::string("A")), None);
+        assert_eq!(class(Term::string("")), None);
+        assert_eq!(chosen_value("IO.read", &arguments, None), None);
+    }
+
+    /// The existing classes keep their firing, and only they are withheld outside an execution
+    /// until proofs withhold the new ones too.
+    #[test]
+    fn only_the_order_item_destination_and_nan_sign_classes_are_withheld_in_proofs() {
+        let mixed = [float_term("0.1f"), float_term("2.0")];
+        let mixed_value = evaluator_value("FLOAT.div", &mixed);
+        let destination = chosen_value("FLOAT.div", &mixed, Some(&mixed_value)).unwrap();
+        assert_eq!(destination.class, ChosenClass::FloatDestination);
+        assert!(destination.withheld_in_proof);
+        let nan = [float_term("NaN")];
+        let sign = chosen_value("FLOAT.sign", &nan, None).unwrap();
+        assert_eq!(sign.class, ChosenClass::NanSign);
+        assert!(sign.withheld_in_proof);
+        let letter = [Term::int(255), Term::int(16)];
+        let letter_value = evaluator_value("STRING.base2string", &letter);
+        assert!(
+            !chosen_value("STRING.base2string", &letter, Some(&letter_value))
+                .unwrap()
+                .withheld_in_proof
+        );
+        let zeros = [float_term("0.0"), float_term("-0.0")];
+        let zero_value = evaluator_value("FLOAT.min", &zeros);
+        assert!(
+            !chosen_value("FLOAT.min", &zeros, Some(&zero_value))
+                .unwrap()
+                .withheld_in_proof
+        );
+        let read = chosen_value(
+            "IO.read",
+            &[Term::int(0), Term::int(2)],
+            Some(&Term::string("AB")),
+        )
+        .unwrap();
+        assert!(!read.withheld_in_proof);
+        assert_eq!(
+            chosen_value("FLOAT.sign", &[float_term("-0.0")], None),
+            None
+        );
+        assert_eq!(
+            chosen_value("FLOAT.div", &[float_term("1.0"), float_term("2.0")], None),
+            None
+        );
+        assert_eq!(
+            [
+                ChosenClass::Order,
+                ChosenClass::Item,
+                ChosenClass::FloatDestination,
+                ChosenClass::NanSign,
+                ChosenClass::LetterCase,
+                ChosenClass::SignedZero,
+                ChosenClass::FreshName,
+                ChosenClass::ReadCount,
+                ChosenClass::EffectOrder,
+            ]
+            .map(ChosenClass::name),
+            [
+                "order",
+                "item",
+                "float-destination",
+                "nan-sign",
+                "letter-case",
+                "signed-zero",
+                "fresh-name",
+                "read-count",
+                "effect-order",
+            ]
+        );
     }
 }

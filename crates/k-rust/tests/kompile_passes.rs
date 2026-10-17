@@ -4269,6 +4269,86 @@ module MAIN
     assert!(folded.is_empty(), "{folded:#?}");
 }
 
+/// The right-hand sides of the `res(...)` rules of `source`, printed, before the fold (`false`)
+/// or after it (`true`).
+fn right_hand_sides(source: &str, fold: bool) -> Vec<String> {
+    let loaded = load_fixture("open-values.k", source, "MAIN");
+    let resolved = resolve_semantic_casts(loaded.definition()).unwrap();
+    let definition = if fold {
+        constant_fold(&resolved).unwrap()
+    } else {
+        resolved
+    };
+    definition
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match &**sentence {
+            Sentence::Rule { body, .. } => match body.unannotated() {
+                Term::Rewrite { right, .. } => Some(Printer::new().print_term(right)),
+                _ => None,
+            },
+            _ => None,
+        })
+        .filter(|right| right.starts_with("res("))
+        .collect()
+}
+
+/// A definition whose rules apply hooks to literals where the definition leaves the value open
+/// (`c0` to `c3`: `Base2String` with a letter digit, `minFloat` and `maxFloat` of the two zeros)
+/// and where it determines it (`d0` to `d4`).
+const OPEN_VALUES: &str = r#"
+module MAIN-SYNTAX
+  syntax Op ::= "c0" [symbol(c0)] | "c1" [symbol(c1)] | "c2" [symbol(c2)] | "c3" [symbol(c3)]
+              | "d0" [symbol(d0)] | "d1" [symbol(d1)] | "d2" [symbol(d2)] | "d3" [symbol(d3)]
+              | "d4" [symbol(d4)]
+endmodule
+module MAIN
+  imports MAIN-SYNTAX
+  imports DOMAINS
+  imports FLOAT
+  configuration <k> $PGM:Op </k>
+  syntax KItem ::= res(K) [symbol(res)]
+  rule c0 => res(Base2String(255, 16))
+  rule c1 => res(minFloat(0.0, -0.0))
+  rule c2 => res(maxFloat(-0.0, 0.0))
+  rule c3 => res(Base2String(-35, 36))
+  rule d0 => res(Base2String(9, 10))
+  rule d1 => res(Base2String(9, 16))
+  rule d2 => res(minFloat(1.0, -0.0))
+  rule d3 => res(maxFloat(0.0, 0.0))
+  rule d4 => res(Base2String(255, 10))
+endmodule
+"#;
+
+/// The fold writes a token only where the token denotes the application's value in every model
+/// of the source definition. A value the definition leaves open (the letter case of
+/// `Base2String`, `minFloat` and `maxFloat` of `+0.0` and `-0.0`) is one of several, and a token
+/// for k-rust's would give the emitted definition fewer models than the source, so the fold
+/// leaves those applications as written, while the determined neighbours fold.
+#[test]
+fn leaves_values_the_definition_leaves_open_unfolded() {
+    let folded = right_hand_sides(OPEN_VALUES, true);
+    let written = right_hand_sides(OPEN_VALUES, false);
+    assert_eq!(folded.len(), 9, "{folded:?}");
+    // The applications of `c0` to `c3` are emitted exactly as written.
+    assert_eq!(folded[..4], written[..4]);
+    for open in &folded[..4] {
+        assert!(!open.starts_with("res(#token("), "{open}");
+    }
+    assert_eq!(
+        folded[4..],
+        [
+            r#"res(#token("\"9\"","String"))"#,
+            r#"res(#token("\"9\"","String"))"#,
+            r#"res(#token("-0e+00p53x11","Float"))"#,
+            r#"res(#token("0e+00p53x11","Float"))"#,
+            r#"res(#token("\"255\"","String"))"#,
+        ]
+    );
+}
+
 /// `A ^%Int B C` with a 131,072-bit exponent and modulus is a square-and-multiply of 131,072
 /// steps on 131,072-bit numbers, far more work than one product of two values of the fold's
 /// bound, so the fold leaves it as written at once, while its folded operands are written.

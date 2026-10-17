@@ -8872,9 +8872,12 @@ const FOLDED_HOOK_CASES: &[FoldedHookCase] = &[
     ),
     (
         "STRING.base2string",
+        // A result with a letter digit has a case the definition leaves open, which the fold
+        // does not write (`leaves_values_the_definition_leaves_open_unfolded` in
+        // kompile_passes.rs); these results have none.
         &["Int", "Int"],
         "String",
-        &[&["255", "16"], &["-35", "36"], &["0", "2"]],
+        &[&["255", "10"], &["-9", "36"], &["0", "2"]],
     ),
     (
         "STRING.chr",
