@@ -228,8 +228,9 @@ fn resume(
         return Err(StoreError::Invalid("indexed report differs".into()));
     }
     // A report written under other mutant admission algorithms (claim removal, the consistency
-    // check, the compiled reading of an edit's effect) at the same k-rust pin is not resumed:
-    // its statuses may rest on mutants this build refuses (re-pin R0c-fix-4).
+    // check, the compiled reading of an edit's effect) or other definition exclusions at the same
+    // k-rust pin is not resumed: its statuses may rest on mutants this build refuses (re-pin
+    // R0c-fix-4) or on comparisons it excludes (re-pin R0-tail).
     if !kink_campaign::same_admission(&report["manifest"]) {
         return Err(StoreError::Invalid(
             "the indexed report was written under other mutant admission algorithms".into(),

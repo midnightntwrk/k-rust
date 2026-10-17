@@ -483,52 +483,83 @@ fn conflicting_stored_input_is_refused_before_campaign_publication() {
 /// Re-pin R0c-fix-4 (R0c-fix-3 review minor 5): a store whose report a build with other mutant
 /// admission algorithms wrote at the same k-rust pin (here one before R0c-fix-4, whose campaign
 /// manifest names no admission algorithm, its digests and index entry rewritten to agree) is
-/// refused on resume, and its summary is refused too.
+/// refused on resume, and its summary is refused too. Re-pin R0-tail (R0c-fix-4 review minor 4):
+/// so is one a build with another definition-exclusion algorithm wrote: a build before R0-tail
+/// (1ee9955), whose manifest names the three admission algorithms but no exclusion version, and a
+/// build with another exclusion version.
 #[test]
 fn a_report_from_another_admission_build_is_refused() {
     with_stack(|| {
-        let manifest = decode(&clean());
-        let store = store("stale-admission");
-        let outcome = run_definition(&workspace(), &manifest, "clean", &store).unwrap();
-        let entry = outcome.campaign.unwrap();
-        let root = store.profile_path(manifest.digest(), profile());
-        let current = root.join("campaigns").join(format!(
-            "{}.json",
-            entry["manifest_sha256"].as_str().unwrap()
-        ));
-        let mut report: Value =
-            serde_json::from_str(&fs::read_to_string(&current).unwrap()).unwrap();
-        let kink = report["manifest"]["kink"].as_object_mut().unwrap();
-        for key in ["claim_removal", "mutant_consistency", "mutant_effect"] {
-            assert!(kink.remove(key).is_some(), "{key}");
+        // (store, keys removed from the manifest's `kink` member, exclusion version written)
+        let stale: [(&str, &[&str], Option<&str>); 3] = [
+            (
+                "stale-admission",
+                &[
+                    "claim_removal",
+                    "mutant_consistency",
+                    "mutant_effect",
+                    "definition_exclusion",
+                ],
+                None,
+            ),
+            ("stale-exclusion", &["definition_exclusion"], None),
+            (
+                "other-exclusion",
+                &[],
+                Some("kink-native/definition-exclusion/v0"),
+            ),
+        ];
+        for (name, removed, version) in stale {
+            let manifest = decode(&clean());
+            let store = store(name);
+            let outcome = run_definition(&workspace(), &manifest, "clean", &store).unwrap();
+            let entry = outcome.campaign.unwrap();
+            let root = store.profile_path(manifest.digest(), profile());
+            let current = root.join("campaigns").join(format!(
+                "{}.json",
+                entry["manifest_sha256"].as_str().unwrap()
+            ));
+            let mut report: Value =
+                serde_json::from_str(&fs::read_to_string(&current).unwrap()).unwrap();
+            let kink = report["manifest"]["kink"].as_object_mut().unwrap();
+            for key in removed {
+                assert!(kink.remove(*key).is_some(), "{name}: {key}");
+            }
+            if let Some(version) = version {
+                assert!(
+                    kink.insert("definition_exclusion".into(), json!(version))
+                        .is_some(),
+                    "{name}"
+                );
+            }
+            let digest = kink_patch::payload_digest(
+                kink_patch::CAMPAIGN_MANIFEST_DOMAIN,
+                canonical_json(&report["manifest"]).as_bytes(),
+            )
+            .to_string();
+            report["manifest_sha256"] = json!(digest);
+            let text = canonical_json(&report);
+            store
+                .write_text(&root.join(format!("campaigns/{digest}.json")), &text)
+                .unwrap();
+            let mut index = store.read_index(manifest.digest(), profile()).unwrap();
+            index["clean"]["manifest_sha256"] = json!(digest);
+            index["clean"]["report_sha256"] = json!(sha256(text.as_bytes()).to_string());
+            store.write_json(&root.join("index.json"), &index).unwrap();
+            let Err(refused) = run_definition(&workspace(), &manifest, "clean", &store) else {
+                panic!("{name}: the stale report is not resumed")
+            };
+            assert!(
+                refused.to_string().contains("admission algorithms"),
+                "{name}: {refused}"
+            );
+            let Err(summary) = summarize(&store, &manifest.digest().to_string(), profile()) else {
+                panic!("{name}: the stale report is not summarized")
+            };
+            assert!(
+                summary.to_string().contains("admission algorithms"),
+                "{name}: {summary}"
+            );
         }
-        let digest = kink_patch::payload_digest(
-            kink_patch::CAMPAIGN_MANIFEST_DOMAIN,
-            canonical_json(&report["manifest"]).as_bytes(),
-        )
-        .to_string();
-        report["manifest_sha256"] = json!(digest);
-        let text = canonical_json(&report);
-        store
-            .write_text(&root.join(format!("campaigns/{digest}.json")), &text)
-            .unwrap();
-        let mut index = store.read_index(manifest.digest(), profile()).unwrap();
-        index["clean"]["manifest_sha256"] = json!(digest);
-        index["clean"]["report_sha256"] = json!(sha256(text.as_bytes()).to_string());
-        store.write_json(&root.join("index.json"), &index).unwrap();
-        let Err(refused) = run_definition(&workspace(), &manifest, "clean", &store) else {
-            panic!("the stale report is not resumed")
-        };
-        assert!(
-            refused.to_string().contains("admission algorithms"),
-            "{refused}"
-        );
-        let Err(summary) = summarize(&store, &manifest.digest().to_string(), profile()) else {
-            panic!("the stale report is not summarized")
-        };
-        assert!(
-            summary.to_string().contains("admission algorithms"),
-            "{summary}"
-        );
     });
 }

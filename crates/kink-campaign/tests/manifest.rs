@@ -489,7 +489,8 @@ fn check_manifest(manifest: &CampaignManifest) {
         &value["k_rust"],
         &["revision", "provenance_format", "provenance_version"],
     );
-    // Re-pin R0c-fix-4: the manifest names the mutant admission algorithms.
+    // Re-pin R0c-fix-4: the manifest names the mutant admission algorithms. Re-pin R0-tail
+    // (R0c-fix-4 review minor 4): and the definition-exclusion algorithm.
     keys(
         &value["kink"],
         &[
@@ -499,6 +500,7 @@ fn check_manifest(manifest: &CampaignManifest) {
             "claim_removal",
             "mutant_consistency",
             "mutant_effect",
+            "definition_exclusion",
         ],
     );
     keys(

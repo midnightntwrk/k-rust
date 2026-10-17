@@ -1,8 +1,14 @@
 //! Exact k-rust provenance artifacts at the loaded stage.
 //!
-//! Round-trip equality and a canonical fixed point are k-rust properties measured
-//! over 35/35 definitions at revision 927b9ce6. Load diagnostics are not part of
-//! this artifact (SI-T03); reading supplies no files or diagnostics.
+//! Round-trip equality and a canonical fixed point are k-rust properties. The
+//! semantic-input measurement M1 found them over the 35 `testdata/k` definitions of
+//! the time at revision 927b9ce6. At the pin 501f18b9 the kink-patch test
+//! `corpus_round_trip_is_canonical` asserts both on every run, over every top-level
+//! `testdata/k` definition (69 at re-pin R0-tail): equal artifacts, definitions and
+//! source tables after a read, and equal authored-sentence fingerprints. Whatever the
+//! corpus, `read` refuses a text that is not its own fixed point (`NonCanonical`).
+//! Load diagnostics are not part of this artifact (SI-T03); reading supplies no files
+//! or diagnostics.
 
 use crate::{Baseline, Sha256Digest, sha256};
 use k_rust::{

@@ -53,7 +53,11 @@
 //!   that equates two terms (K `{ A #Equals B }`), which k-rust 501f18b9 names as a gap of its own
 //!   answers when the terms may be undefined ("Two gaps remain", `docs/compatibility.md`): such
 //!   a definition is excluded (re-pin R0c-fix-3, R0c-fix-2 review minor 3). Since re-pin
-//!   R0c-fix-4 every axiom's antecedents and `ensures` are read, whatever its left-hand side.
+//!   R0c-fix-4 every axiom's antecedents and `ensures` are read, whatever its left-hand side, and
+//!   since re-pin R0-tail a rewrite rule's `ensures` under the `\exists` kompile emits for an
+//!   existential variable of its right-hand side too (every `\equals` of a rewrite rule's
+//!   right-hand side is read). The algorithm is named by [`DEFINITION_EXCLUSION_VERSION`] in the
+//!   campaign manifest.
 //!
 //! Every exclusion is read per test: it makes that test's comparison unknown, and a kill by
 //! another test, whose runs it does not touch, stands (decision 2's scope, Sebastien,
@@ -80,6 +84,15 @@ use k_rust_backend::{
 };
 
 use crate::execution::{AdaptedExecution, AdaptedLeaf, HaltClass};
+
+/// The version of the definition exclusions ([`DefinitionExclusions`], with the hook lists and
+/// the scans it reads): whether a comparison is made at all depends on it, so a store of mutant
+/// outcomes names it (the campaign manifest's `kink` member, which kink-corpus resume and its
+/// summary compare; kink-flow's tier-1 key holds the executable's hash instead). Bump it whenever
+/// this module changes what it excludes. v1 (re-pin R0-tail, R0c-fix-4 review minor 4): the first
+/// named version, with the `ensures` of a rewrite rule read under the `\exists` of its existential
+/// variables.
+pub const DEFINITION_EXCLUSION_VERSION: &str = "kink-native/definition-exclusion/v1";
 
 /// The hooks for which k-rust 501f18b9 says it may compute a value the definition leaves open,
 /// exactly the hooks for which its `implementation_chosen_in` (`k-rust-backend/src/builtin.rs`)
@@ -1277,16 +1290,31 @@ fn rewrite_sides(pattern: &Pattern) -> Option<(Vec<&Pattern>, &Pattern, &Pattern
 /// left-hand side is (an application, `#Ceil` or another predicate): every antecedent of an
 /// `\implies` around its conclusion (an equation's or lemma's `requires` and argument
 /// constraints), a rewrite rule's left-hand side (which holds its `requires`), and the `ensures`
-/// of either kind, the last conjunct of the right-hand side `\and(rhs, ensures)` kompile emits.
-/// The `\equals` that states the equation or lemma, its left-hand side (the term or predicate the
-/// lemma rewrites) and its right-hand side term are not conditions (a predicate lemma of the
-/// prelude rewrites one equality into another). Re-pin R0c-fix-4, R0c-fix-3 review minor 6:
-/// R0c-fix-3 read only rewrite rules and application-headed equations, and no `ensures`.
+/// of either kind.
+///
+/// - An equation's or lemma's `ensures` is every conjunct after the first of the right-hand side
+///   `\and(rhs, ensures)` kompile emits, under any binder. The `\equals` that states the
+///   equation or lemma, its left-hand side (the term or predicate the lemma rewrites) and its
+///   right-hand side term are not conditions (a predicate lemma of the prelude rewrites one
+///   equality into another).
+/// - A rewrite rule's whole right-hand side is read. Its conclusion is `\rewrites`, not an
+///   `\equals`, so every `\equals` in its right-hand side is a condition of the step: kompile
+///   emits `\and(rhs, ensures)`, wrapped in `\exists ?Y` for each existential variable of the
+///   right-hand side (k-rust 501f18b9 `module_to_kore/equations.rs` 197-207) and, under a module
+///   reachability attribute, in a `weakExistsFinally` or `weakAlwaysFinally` application
+///   (208-220). Reading every `\equals` there, the result term's included, reads the `ensures`
+///   whatever wraps it.
+///
+/// Re-pin R0c-fix-4, R0c-fix-3 review minor 6: R0c-fix-3 read only rewrite rules and
+/// application-headed equations, and no `ensures`. Re-pin R0-tail, R0c-fix-4 review minor 1:
+/// R0c-fix-4 read the `ensures` only as the last conjunct of an `\and` at the top of the
+/// right-hand side, so a rewrite rule with an existential variable was not read.
 fn holds_condition_equality(pattern: &Pattern) -> bool {
-    fn ensures(right: &Pattern) -> Option<&Pattern> {
+    fn ensures(right: &Pattern) -> bool {
         match right {
-            Pattern::And { arguments, .. } if arguments.len() >= 2 => arguments.last(),
-            _ => None,
+            Pattern::Forall { body, .. } | Pattern::Exists { body, .. } => ensures(body),
+            Pattern::And { arguments, .. } => arguments.iter().skip(1).any(holds_term_equality),
+            _ => false,
         }
     }
     match pattern {
@@ -1296,9 +1324,9 @@ fn holds_condition_equality(pattern: &Pattern) -> bool {
         Pattern::Implies { left, right, .. } => {
             holds_term_equality(left) || holds_condition_equality(right)
         }
-        Pattern::Equals { right, .. } => ensures(right).is_some_and(holds_term_equality),
+        Pattern::Equals { right, .. } => ensures(right),
         Pattern::Rewrites { left, right, .. } => {
-            holds_term_equality(left) || ensures(right).is_some_and(holds_term_equality)
+            holds_term_equality(left) || holds_term_equality(right)
         }
         _ => false,
     }

@@ -212,7 +212,8 @@ reason `inconsistent-mutant`, and its row's `inconsistent_pairs` names the pairs
 are those whose compiled equations the edit changes or reaches (a `#let` or `#fun` lambda included), with kink-patch's
 source reading as a fail-closed cross-check (re-pin R0c-fix-4): a sentence the edit touches that compiles to an
 equation of a function the source reading does not redefine makes the mutation `unknown` with reason
-`unsupported-claims` (removed-claims key `unread-equation`).
+`unsupported-claims`, and the row's `removed_claims.unsupported` names each such equation (key `unread-equation`,
+value `{head, equation}`; re-pin R0-tail).
 
 A mutation that fails any check is `invalid-mutation`, with the offending edit (`edit[i]`) when one is at fault,
 a reason and a detail; it is never compiled. Reasons:
@@ -396,7 +397,7 @@ A mutation row is `{id, note, digest, identity, removed_claims, inconsistent_pai
 | --- | --- |
 | `digest` | The patch digest; null for an `invalid-mutation`, which also has `edit` (the offending edit's index or null) and `detail`. |
 | `identity` | The mutation's position-free identity (tier 1's file name); null when it has none (the mutation then always runs). |
-| `removed_claims` | `{removed, unsupported}`: the trusted claims the edit leaves unbacked. `removed` are absent from the mutant every program ran on (a `simplification` claim is a deleted lemma); `unsupported` are those no removal takes away, which make the mutation `unknown` (`unsupported-claims`). Each is `{module, index, label, key, value}` (`label` null for a production) or `{inserted, key, value}` for a sentence the edit inserts. Absent on an `invalid-mutation`. |
+| `removed_claims` | `{removed, unsupported}`: the trusted claims the edit leaves unbacked. `removed` are absent from the mutant every program ran on (a `simplification` claim is a deleted lemma); `unsupported` are those no removal takes away, which make the mutation `unknown` (`unsupported-claims`), and each compiled equation the source reading does not explain (key `unread-equation`). Each is `{module, index, label, key, value}` (`label` null for a production) or `{inserted, key, value}` for a sentence the edit inserts. The row reads them from the deciding call's plan when it records claims (since re-pin R0-tail; the cross-check's `unread-equation` claims are known only there), and otherwise from kink-patch's withdrawal of the mutation's patch, which gives the same claims. Absent on an `invalid-mutation`. |
 | `inconsistent_pairs` | `[{first, second, position, reason}]`: the pairs of equations (each named by its rule label, written position or id; `position` the overlap's argument path, empty for the root) that k-rust's critical-pair check does not show to join, which make the mutation `invalid` (`inconsistent-mutant`); empty otherwise. Absent on an `invalid-mutation`. |
 | `status`, `reason` | The status (see the run section) and the runner's or the flow's reason. |
 | `killer`, `killer_source`, `killer_from_cache` | The first killing program of a `killed` mutation; where the kill came from: `outcome-cache` (tier 1, no call), `hint` (the hinted program's one-program call) or `search` (the call over the remaining programs); `killer_from_cache` is true for the first two. Null, null and false otherwise. |

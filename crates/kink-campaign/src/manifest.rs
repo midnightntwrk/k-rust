@@ -335,7 +335,8 @@ pub fn campaign_manifest_multi_with_budget(
 
 /// The manifest's `kink` member: the domains of kink's identities and the versions of the
 /// algorithms that admit a mutant (claim removal, the consistency check and the compiled reading
-/// of an edit's effect, re-pin R0c-fix-4). A mutant's status depends on these algorithms, so a
+/// of an edit's effect, re-pin R0c-fix-4) and of the definition exclusions, which decide whether a
+/// comparison is made at all (re-pin R0-tail). A mutant's status depends on these algorithms, so a
 /// report or store written by a build with other versions has another manifest digest: replay
 /// regenerates the manifest and refuses it, and kink-corpus refuses to resume it
 /// ([`same_admission`]).
@@ -347,12 +348,14 @@ fn kink_identity() -> Value {
         "claim_removal": kink_patch::CLAIM_REMOVAL_VERSION,
         "mutant_consistency": kink_native::consistency::MUTANT_CONSISTENCY_VERSION,
         "mutant_effect": kink_native::consistency::MUTANT_EFFECT_VERSION,
+        "definition_exclusion": kink_native::exclusion::DEFINITION_EXCLUSION_VERSION,
     })
 }
 
 /// Whether the campaign manifest `manifest` (a report's `manifest` member) names this build's
-/// identity domains and mutant admission algorithms. A report from a build before re-pin
-/// R0c-fix-4, which names no admission algorithm, does not.
+/// identity domains, mutant admission algorithms and definition exclusions. A report from a build
+/// before re-pin R0c-fix-4, which names no admission algorithm, does not, and neither does one
+/// from a build before re-pin R0-tail, which names no definition-exclusion version.
 #[must_use]
 pub fn same_admission(manifest: &Value) -> bool {
     manifest["kink"] == kink_identity()

@@ -848,6 +848,9 @@ impl Search<'_> {
             .mutant_failure
             .map(|failure| kebab(&format!("{failure:?}")))
             .or_else(|| exclusion_reason(&report, &runs));
+        verdict_claims(&mut row, &last.plan.claims, |claims| {
+            claims_value(self.spec.validator.baseline(), claims)
+        });
         // Step 7: the records of the live calls, then the hint. A program both calls ran has
         // one record, the second call's (the store keeps the last of equal program digests and
         // counts each program once).
@@ -1003,6 +1006,9 @@ impl Search<'_> {
             .plan
             .mutant_failure
             .map(|failure| kebab(&format!("{failure:?}")));
+        verdict_claims(&mut row, &cold.plan.claims, |claims| {
+            claims_value(self.spec.validator.baseline(), claims)
+        });
         let source = (cold.report.status == MutantStatus::Killed).then_some(SOURCE_SEARCH);
         (
             verdict_row(row, &cold.report, reason, source, calls, executed),
@@ -1406,6 +1412,23 @@ fn invalid(mut row: Map<String, Value>, invalid: InvalidMutation, digest: Value)
     finish(row, None, None, RowCalls::default(), Vec::new())
 }
 
+/// Fills the row's `removed_claims` from the deciding call's plan (re-pin R0-tail, R0c-fix-4
+/// review minor 2), as `inconsistent_pairs` is filled from its report. The runner records there
+/// the claims the mutant ran without and those that refuse it, among them each compiled equation
+/// the source reading does not explain (`unsupported`, key `unread-equation`), which the row's own
+/// reading before the call (`ClaimSupport::withdraw`) cannot know. Otherwise both readings come
+/// from the same withdrawal of the same patch. A plan that records no claim (a refusal before
+/// claim removal, such as `equivalent-compilation`) leaves the row's own reading.
+fn verdict_claims(
+    row: &mut Map<String, Value>,
+    claims: &Withdrawal,
+    value: impl FnOnce(&Withdrawal) -> Value,
+) {
+    if *claims != Withdrawal::default() {
+        row.insert("removed_claims".into(), value(claims));
+    }
+}
+
 /// The row of a verdict: the report's status, its first killing program as the killer, the
 /// killer's source, the deciding call's mutant-scope failure as the reason.
 fn verdict_row(
@@ -1627,4 +1650,41 @@ pub fn mutation_list_refused(detail: &str) -> Value {
 /// The path of the run document of the cache `cache` (or the manifest's default cache).
 pub fn report_path(manifest: &FlowManifest, cache: Option<&Path>) -> PathBuf {
     cache_directory(manifest, cache).join(REPORT_FILE)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kink_patch::{Claim, SentenceOrigin, UNREAD_EQUATION_CLAIM};
+
+    /// Re-pin R0-tail (R0c-fix-4 review minor 2): a refusal the compiled reading's cross-check
+    /// gives is named in the row's `removed_claims`, from the plan's claims. No input is known to
+    /// reach that refusal through the binary (R0c-fix-4 and its review), so this pins the fill
+    /// rule itself: a plan with claims replaces the row's reading, and a plan without leaves it.
+    #[test]
+    fn the_deciding_plans_claims_fill_the_row() {
+        let reading = json!({"removed": [], "unsupported": []});
+        let mut row = Map::new();
+        row.insert("removed_claims".into(), reading.clone());
+        verdict_claims(&mut row, &Withdrawal::default(), |_| {
+            panic!("a plan without claims is not read")
+        });
+        assert_eq!(row["removed_claims"], reading);
+        let mut claims = Withdrawal::default();
+        claims.unsupported.push(Claim {
+            origin: SentenceOrigin::Inserted { edit: 0 },
+            key: UNREAD_EQUATION_CLAIM.to_owned(),
+            value: json!({"head": "Lblf", "equation": "f"}),
+        });
+        verdict_claims(&mut row, &claims, |claims| {
+            json!(
+                claims
+                    .unsupported
+                    .iter()
+                    .map(|claim| claim.key.clone())
+                    .collect::<Vec<_>>()
+            )
+        });
+        assert_eq!(row["removed_claims"], json!(["unread-equation"]));
+    }
 }

@@ -203,8 +203,14 @@ fn the_premise_k_rust_documents_is_pinned() {
 /// needs a function symbol below the root of a left-hand side, which k-rust refuses to compile
 /// (`r0c/inner.k`), and every other inner pair in a definition without an equation head or a
 /// withdrawable overloaded symbol has an equation indexed at a constructor, an injection, a
-/// collection or a variable, a precondition row k-rust reports before its early return (and that
-/// kink reads as refusing, `check`).
+/// collection or a variable, a precondition row k-rust reports before its early return. kink
+/// reads such a row as refusing (`check`) when its equation is checked or the row names no
+/// equation, and an `IndexedAt` row always; a constructor-headed or injection-headed row of an
+/// unchecked equation does not refuse. k-rust classifies no overlap of such an equation
+/// (`confluence.rs` `check_detached`), so one below the root of a checked equation's left-hand
+/// side would be neither classified nor refused: a residual k-rust reading, like the unverified
+/// DomainValue/And index (R0c-fix-4 deviations 2), which no K source is known to give (re-pin
+/// R0-tail, R0c-fix-4 review minor 3).
 #[test]
 fn the_probe_head_makes_k_rust_classify_self_pairs() {
     on_a_big_stack(|| {

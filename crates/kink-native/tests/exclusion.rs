@@ -989,6 +989,38 @@ fn an_equality_in_a_lemma_or_an_ensures_excludes_the_definition() {
     });
 }
 
+/// Re-pin R0-tail (R0c-fix-4 review minor 1, `r0c/eqexists.k`): a rewrite rule with an
+/// existential variable has its right-hand side under `\exists ?Y`, and the scan reads its
+/// `ensures` there too. `go`'s `{ ?Y #Equals 10 /Int I }` and `gy`'s two equalities are each
+/// listed, and `plain` is not. At 1ee9955 the scan read only an `\and` at the top of the right-hand
+/// side, and this definition was compared (the reviewer's probe: `equals_conditions []`).
+#[test]
+fn an_equality_in_an_existential_ensures_excludes_the_definition() {
+    on_a_big_stack(|| {
+        let (side, module) = fixture("r0c", "eqexists");
+        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+        let catalog = backend(&side, &module).rule_catalog(None).unwrap();
+        let id = |label: &str| {
+            catalog
+                .iter()
+                .find(|rule| rule.label.as_deref() == Some(label))
+                .unwrap_or_else(|| panic!("{label}"))
+                .id
+                .clone()
+        };
+        let mut expected = ["EQEXISTS.go", "EQEXISTS.gy"].map(id).to_vec();
+        expected.sort();
+        let mut found = exclusions.equals_conditions.clone();
+        found.sort();
+        assert_eq!(found, expected);
+        assert!(!found.contains(&id("EQEXISTS.plain")));
+        assert_eq!(
+            exclusions.definition_exclusion(),
+            Some(Exclusion::EqualsCondition)
+        );
+    });
+}
+
 /// Re-pin R0c-fix-1 deliverable 4: a condition that depends on the short-circuit reading leaves
 /// no leaf to read. `rq`'s condition `true orBool 10 /Int I >Int 0` is undefined on 0 in k-rust,
 /// so `rq(0)` is a Stuck leaf naming no rule, where a short-circuiting backend steps to

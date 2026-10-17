@@ -23,9 +23,13 @@
 //! refused, or the join runs out of its budget. Each of these, for a pair with an equation of a
 //! checked head, refuses the mutant, naming the pair; so do k-rust's reports of a checked
 //! equation the evaluator never applies as written, and a precondition row that puts an
-//! equation outside the check (an equation indexed at a collection or a bare variable, an
-//! overload equation of another shape, a family with no least common overload, an equation
-//! headed by a constructor, and a pinned injective symbol). k-rust's premise, which this check
+//! equation outside the check (an equation indexed at a collection or a bare variable, whatever
+//! its head; an overload equation of another shape, a family with no least common overload and a
+//! pinned injective symbol, of a checked symbol; an equation headed by a constructor or an
+//! injection, when that equation is checked or the row names none). A constructor-headed or
+//! injection-headed equation that is not checked refuses nothing, and k-rust classifies none of
+//! its overlaps, so one below the root of a checked left-hand side is a residual k-rust reading
+//! that no K source is known to give (re-pin R0-tail, R0c-fix-4 review minor 3). k-rust's premise, which this check
 //! adds to kink's trust list: "M_NF is a model of the definition when evaluation terminates, which
 //! every evaluation assumes, and the critical pairs of the executable equations join, which the
 //! backend checks"; that is, k-rust's critical-pair checker decides joinability correctly.
