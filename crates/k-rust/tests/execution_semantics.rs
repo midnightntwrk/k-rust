@@ -3087,3 +3087,113 @@ fn a_state_set_run_of_a_strict_loop_is_linear_in_its_iterations() {
         );
     }
 }
+
+/// The undecided-answer count: `go` steps to `try(?X, ?Y, ?Z)` over symbolic integers, and
+/// `try` to `found` where `X^3 + Y^3 + Z^3 = 33` with `X > 0`, a nonlinear condition no solver
+/// decides in practice (its least solution has 16-digit integers); `sign` steps to `pos` or
+/// `nonpos` on the sign of a symbolic integer, which a solver decides; `done` takes no step.
+const SMT_UNKNOWNS: &str = r#"
+module SMT-UNKNOWNS
+  imports INT
+  imports BOOL
+  syntax Pgm ::= "go" | try(Int, Int, Int) | "found" | "sign" | at(Int) | "pos" | "nonpos" | "done"
+  rule go => try(?_X:Int, ?_Y:Int, ?_Z:Int)
+  rule try(X, Y, Z) => found
+    requires X *Int X *Int X +Int Y *Int Y *Int Y +Int Z *Int Z *Int Z ==Int 33
+     andBool X >Int 0
+  rule sign => at(?_N:Int)
+  rule at(N) => pos requires N >Int 0
+  rule at(N) => nonpos requires N <=Int 0
+endmodule
+"#;
+
+fn smt_unknowns_run(
+    backend: &mut Backend,
+    initial: &Pattern,
+) -> (ExecutionResult, serde_json::Value) {
+    let result = backend
+        .execute(ExecuteRequest::new(initial.clone()))
+        .unwrap();
+    let json = serde_json::from_str(
+        &backend
+            .execute_json(ExecuteRequest::new(initial.clone()))
+            .unwrap(),
+    )
+    .unwrap();
+    (result, json)
+}
+
+/// A run that never asks the solver counts no undecided answer, and its JSON has no
+/// `smtUnknowns` member; in the portable build, which runs no solver, the nonlinear request
+/// counts none either (its step is indeterminate there, whatever the time).
+#[test]
+fn a_run_that_receives_no_undecided_answer_reports_no_smt_unknowns() {
+    let concrete = compile(SMT_UNKNOWNS, "SMT-UNKNOWNS", "SMT-UNKNOWNS", "Pgm", "done");
+    let mut backend =
+        Backend::new(&concrete.kore, "SMT-UNKNOWNS", BackendOptions::default()).unwrap();
+    assert!(backend.capabilities().smt_unknowns);
+    let (result, json) = smt_unknowns_run(&mut backend, &concrete.initial);
+    assert_eq!(result.smt_unknowns, 0);
+    assert!(json.get("smtUnknowns").is_none(), "{json}");
+
+    #[cfg(not(feature = "z3-inference"))]
+    {
+        let nonlinear = compile(SMT_UNKNOWNS, "SMT-UNKNOWNS", "SMT-UNKNOWNS", "Pgm", "go");
+        let (result, json) = smt_unknowns_run(&mut backend, &nonlinear.initial);
+        assert_eq!(result.smt_unknowns, 0);
+        assert!(json.get("smtUnknowns").is_none(), "{json}");
+    }
+}
+
+/// With a 50 ms timeout and no retry, Z3 leaves the nonlinear condition undecided, and the run
+/// counts it. The prelude check runs only the first time a query answers `unsat`; no query of
+/// this run does, and the backend is built for this test alone, so a timed-out prelude check
+/// (a `SolverPrelude` error that depends on time) cannot reach it from another request.
+#[cfg(feature = "z3-inference")]
+#[test]
+fn a_run_that_receives_an_undecided_answer_counts_it() {
+    let compiled = compile(SMT_UNKNOWNS, "SMT-UNKNOWNS", "SMT-UNKNOWNS", "Pgm", "go");
+    let mut backend = Backend::new(
+        &compiled.kore,
+        "SMT-UNKNOWNS",
+        BackendOptions {
+            smt_timeout_ms: 50,
+            smt_retry_limit: 0,
+        },
+    )
+    .unwrap();
+    let (result, json) = smt_unknowns_run(&mut backend, &compiled.initial);
+    // The two counts come from two runs, and a query decided in one may time out in the other
+    // on a loaded host, so each is required positive rather than equal.
+    assert!(result.smt_unknowns > 0, "{json}");
+    assert!(
+        json["smtUnknowns"].as_u64().is_some_and(|count| count > 0),
+        "{json}"
+    );
+}
+
+/// A run whose every solver answer is decided counts none, and it gives one result: twice on one
+/// `Backend`, whose cache then answers the second run, and once on a fresh one.
+#[cfg(feature = "z3-inference")]
+#[test]
+fn a_run_whose_answers_are_all_decided_gives_one_result_on_any_backend() {
+    let compiled = compile(SMT_UNKNOWNS, "SMT-UNKNOWNS", "SMT-UNKNOWNS", "Pgm", "sign");
+    let mut reused =
+        Backend::new(&compiled.kore, "SMT-UNKNOWNS", BackendOptions::default()).unwrap();
+    let mut fresh =
+        Backend::new(&compiled.kore, "SMT-UNKNOWNS", BackendOptions::default()).unwrap();
+    let request = || ExecuteRequest::new(compiled.initial.clone());
+    let texts = [
+        reused.execute_json(request()).unwrap(),
+        reused.execute_json(request()).unwrap(),
+        fresh.execute_json(request()).unwrap(),
+    ];
+    for text in &texts {
+        let json: serde_json::Value = serde_json::from_str(text).unwrap();
+        assert!(json.get("smtUnknowns").is_none(), "{json}");
+        assert_eq!(json["leaves"].as_array().unwrap().len(), 2, "{json}");
+    }
+    assert_eq!(texts[0], texts[1]);
+    assert_eq!(texts[0], texts[2]);
+    assert_eq!(reused.execute(request()).unwrap().smt_unknowns, 0);
+}

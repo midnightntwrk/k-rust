@@ -607,17 +607,25 @@ pub struct ExecutionOptions {
     /// [`ExecutionResult::work`]. The run takes states in a fixed order, so it stops at the same
     /// state, with the same leaves finished before it, wherever its result is the same: within
     /// the execution determinism contract and its exclusions (docs/compatibility.md,
-    /// "Determinism and concurrency", "Execute"), which leave out, among others, a run in which
-    /// an SMT query timed out. When a state remains after `max_work` states, that state becomes
-    /// the one [`HaltReason::WorkBound`] leaf, the last of the result, and the other pending
-    /// states are dropped unexplored; a budget at least the unbounded run's count changes
-    /// nothing, and a budget of 0 makes the first initial state, as given, that leaf.
+    /// "Determinism and concurrency", "Execute"), which leave out, among others, in a build with
+    /// Z3, a run whose result reports a nonzero [`ExecutionResult::smt_unknowns`]. When a state
+    /// remains after `max_work` states, that state becomes the one [`HaltReason::WorkBound`]
+    /// leaf, the last of the result, and the other pending states are dropped unexplored; a
+    /// budget at least the unbounded run's count changes nothing, and a budget of 0 makes the
+    /// first initial state, as given, that leaf.
     ///
     /// The budget bounds the states, the leaves and the worklist; it does not bound the work of
     /// one state's step (a ground function evaluation runs to its value), the size of values, or
     /// the length of traces. Under `StateSet` a leaf finished before the stop carries the
     /// diagnostics of the paths merged into it before the stop only, so they may differ from the
     /// same leaf's in a run with a larger budget.
+    ///
+    /// Every leaf finished before the [`HaltReason::WorkBound`] leaf is a leaf of every run of the
+    /// same request with a larger budget or none, at the same position: the result without its
+    /// `WorkBound` leaf is a prefix of theirs. Under `PathSet` the leaf is the same in every
+    /// field; under `StateSet` it is the same in every field but its diagnostics, which are among
+    /// the larger run's (a later path merged into it adds its own). This holds within the determinism contract above (docs/compatibility.md,
+    /// "Work budget").
     pub max_work: Option<u64>,
     /// Build no result after a stop that ends the run (a cancellation, a failed solver prelude),
     /// for a caller that will not read a stopped run's leaves (`false`, the default: the leaves
@@ -897,6 +905,20 @@ pub struct ExecutionResult {
     /// `nesting::with_simplification_stack_budget`, and on the stack other threads of the process
     /// hold, so a run's result is a function of its inputs only when this is zero.
     pub stack_stops: usize,
+    /// The undecided answers the solver delivered to the run's decisions: an `Unknown` from
+    /// [`SmtSolver::is_sat`] or [`SmtSolver::check_predicates`] (a timeout, the
+    /// solver's resource limit, or its incompleteness), and an `Unknown` model other than the one
+    /// that reports an approximate translation, each counted once as the run received it, after
+    /// the solver's retries. A run reads such an answer as an over-approximation, so another run
+    /// of the same request in which the query was decided may give another result. A decided
+    /// answer is a function of the query and the build, and the solver's cache holds only decided
+    /// answers, so a run whose count is zero took every decision from a fact about its queries:
+    /// within the execution determinism contract it gives one result on a fresh solver and on a
+    /// reused one (docs/compatibility.md, "Determinism and concurrency"). A failure (`Err`: no
+    /// solver in the build, a query that does not translate) and a stop are not counted, so a run
+    /// without a solver counts zero. A state-set run does not ask the queries of a subtree it does
+    /// not explore.
+    pub smt_unknowns: usize,
     /// The cause of the stop that ended the run (a cancellation or a failed solver prelude), if
     /// one did; `None` when the run ended by itself, by a bound or by its work budget, unless,
     /// under [`ExecutionOptions::discard_stopped`], a pass after the exploration (the breadth

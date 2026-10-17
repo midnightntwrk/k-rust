@@ -7,8 +7,8 @@
 //! states in a fixed order (depth first, successors pushed to the front), so the state at which
 //! the count reaches a bound, and every leaf finished before it, are as deterministic as the
 //! result: within the execution determinism contract and its exclusions (docs/compatibility.md,
-//! "Determinism and concurrency", "Execute"), which leave out, among others, a run in which an
-//! SMT query timed out.
+//! "Determinism and concurrency", "Execute"), which leave out, among others, in a build with Z3,
+//! a run whose result reports a nonzero `ExecutionResult::smt_unknowns`.
 //!
 //! It also counts the states expanded, the visited states whose rewrite step ran and answered
 //! ([`Work`]), which the result reports beside the states visited.

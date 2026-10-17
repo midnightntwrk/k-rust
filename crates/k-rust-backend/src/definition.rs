@@ -232,7 +232,10 @@ pub const fn execution_role(attribute: KoreAttribute) -> ExecutionRole {
 /// the canonical form changes, including a change of the compact KORE printer or the parser
 /// that moves the pinned digest (which then gets a new row in the pin test); a digest is never
 /// compared across versions. A change of what the backend does with a definition does not
-/// change it: the build identity, another component of a cache key, covers that.
+/// change it: the build identity, another component of a cache key, covers that. Neither does
+/// a change of the KORE that compiling one source gives, which gives that source another
+/// digest under the same version, so a digest over k-rust output is comparable only under one
+/// k-rust revision ("Format versions" in `docs/compatibility.md`).
 pub const EXECUTION_DIGEST_VERSION: u32 = 1;
 
 /// The execution digest of a KORE definition ([`execution_digest`], whose rustdoc states what

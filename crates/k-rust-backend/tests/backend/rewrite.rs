@@ -3187,7 +3187,7 @@ fn cascades_a_remainder_through_every_lower_priority_group() {
     assert_be08_capture(
         "T1 complete ExecutionResult",
         &result,
-        "343273aa34d998219d35ebf8a377371bde2bdb4f3d086382b2a4706babe7324e",
+        "11bcdca1c8fb48806bc58df458262bb3ac30c1c888d6ad5a6a16008649837378",
     );
 }
 
@@ -3228,7 +3228,7 @@ fn stopped_branch_reports_lower_groups_before_the_first_productive_group() {
     assert_be08_capture(
         "T2 complete ExecutionResult",
         &result,
-        "8249e14a6e7ad1359d507fa29d793085f26d6c1933833db57b372ebac5baad33",
+        "8e5020b280c5e2333d521202e77848791f919bdbb864c67adac4df518622ae06",
     );
 }
 
@@ -3285,7 +3285,7 @@ fn cascade_keeps_the_remainder_when_lower_groups_are_stuck() {
     assert_be08_capture(
         "T7 complete ExecutionResult",
         &result,
-        "3545f09d12d7620963faee625ce6e2f55b60cab31dbf3c400d353355b3492a0f",
+        "063dfa37cae1a021eb5dbdbd7a890a6e5a6571b4301f2b7f8e1c538d0bcc9d1a",
     );
 }
 
@@ -3346,7 +3346,7 @@ fn any_mode_stopped_branch_uses_the_steps_remainder() {
     assert_be08_capture(
         "T15 complete ExecutionResult",
         &result,
-        "0e66f977b2f3877e86a45ba345cfe31f74190584d763e85e39a5a6218055a5e1",
+        "5018e5460ab87728d8e07486f12eef20d678072424efd354fc18616f7969e222",
     );
 }
 
@@ -3419,7 +3419,7 @@ fn later_group_simplification_error_is_reported_on_the_remainder() {
     assert_be08_capture(
         "T8 result and solver transcript",
         &(&result, &transcript),
-        "f940583cfedf309ead32406bbc1bda39196745de1bab6f625e1c810770ee20db",
+        "8a9298ee04d559f9b504645dbf1304b4d2667f49dbbd56d4c82f3e934a03ab39",
     );
 }
 
@@ -3489,7 +3489,7 @@ fn cancellation_during_lower_group_work_is_observed_after_the_step() {
     assert_be08_capture(
         "T9 result and solver transcript",
         &(&result, &transcript),
-        "25208971a279cf43ce6b6b78026a556f88cfd1ca3c1ed8b07d79c04b8db3ed01",
+        "c6f2dc553f418407d71ca508a879246ab1506e881e9912049e0560a4797f76de",
     );
     assert_eq!(leaf.halt_reason, HaltReason::Stopped(StopCause::Cancelled));
     assert!(result.discarded.is_empty(), "{result:#?}");
@@ -3639,7 +3639,7 @@ fn lower_group_budget_exhaustion_keeps_partial_successors_under_diagnostic_colle
     assert_be08_capture(
         "T12 result, diagnostics, and solver transcript",
         &(&result, &diagnostics, &transcript),
-        "d86d8bfac5a235c795166078a01ab95ea39511ceb9f3359791dd40af6036cd0c",
+        "f7d9eb695b4c9c6c8115f59ce158d9a4946757d444f36134357caa917de24619",
     );
 }
 
@@ -3703,7 +3703,7 @@ fn complete_step_classifies_effects_from_every_group() {
     assert_be08_capture(
         "T13 result and solver transcript",
         &(&result, &transcript),
-        "9820cc99ff81e6a99cbd7e8a5517302b62d04ec34f2a8338e3f46d6aa4c0368e",
+        "f2f3716bfda36cb5eff17aeb435038da9cbfad9916ce2e8b6d5c1f97a030c716",
     );
 }
 
@@ -3765,7 +3765,7 @@ fn ground_io_candidates_are_rejected_without_touching_the_retained_cursor_across
     assert_be08_capture(
         "T14 result and solver transcript",
         &(&result, &transcript),
-        "56347d08f8ccf25a7651caa1cb4b8526bf38758bdb806ef6ffc608220e06a6cd",
+        "7e6e8026dace500ee6d205a752e309c055bce13a9d6a74cc7c1084f4e449f12e",
     );
 }
 
@@ -3822,7 +3822,7 @@ fn cut_point_and_terminal_rules_after_a_cascade_that_leaves_one_survivor() {
             &terminal,
             &*terminal_solver.transcript.borrow(),
         ),
-        "125f01e5e80b7c2ed92e17557aa0d423942623018431191469e7786588201442",
+        "2368c10f1d24061f935e5b6e1eb23ba1ed19b4498407f49dd42474c39c84db5e",
     );
     assert!(cut_solver.answers.borrow().is_empty());
     assert!(cut_solver.validity.borrow().is_empty());
@@ -5166,7 +5166,7 @@ fn concrete_chain(definition: &BackendDefinition, depth: usize) -> Term {
 /// `start => held(g(a))` (and `start => b` when `branching`), with the simplification equation
 /// `g(X) = g(g(X))`: simplifying any `g` application exhausts every budget, and nothing else
 /// in the definition simplifies.
-fn growing_equation_definition(branching: bool) -> BackendDefinition {
+pub(crate) fn growing_equation_definition(branching: bool) -> BackendDefinition {
     let right_rule = if branching {
         r#"
                 axiom{} \rewrites{SortS{}}(
@@ -7860,7 +7860,11 @@ fn path_set_keeps_each_converging_path_with_its_own_observations() {
 /// depth-bound leaf says only that `d`'s subtree was not explored, so it does not stand for the
 /// stuck leaf, which says the subtree is `d` alone: when the bound leaf comes first both are kept.
 /// A stuck leaf says everything about `d`'s subtree, so when it comes first it absorbs the bound
-/// leaf. Depth-first order follows rule declaration order.
+/// leaf. Depth-first order follows rule declaration order. An absorbed leaf's diagnostics stay
+/// with the stuck leaf that absorbs it: `c` is stuck at depth 1 (`to-c`) and reached at the depth
+/// bound 2 through `b`, whose rule builds `norm(a)`, which `norm-c` evaluates to `c` on a condition
+/// whose simplification exhausts the budget; the state-set leaf is the stuck one, with the bound
+/// leaf's diagnostics.
 #[test]
 fn a_stuck_leaf_absorbs_a_later_bound_leaf_of_its_configuration_but_not_the_reverse() {
     let rule = |label: &str, from: &str, to: &str| {
@@ -7909,6 +7913,54 @@ fn a_stuck_leaf_absorbs_a_later_bound_leaf_of_its_configuration_but_not_the_reve
             expected
         );
     }
+
+    let definition = search_definition(
+        &[
+            crate::support::rule("to-c", "start{}()", "c{}()"),
+            crate::support::rule("to-b", "start{}()", "b{}()"),
+            crate::support::rule("b-norm", "b{}()", "norm{}(a{}())"),
+        ]
+        .concat(),
+    );
+    let start = Pattern {
+        term: internal_term(&definition, "start{}()"),
+        constraints: Vec::new(),
+    };
+    let c = internal_term(&definition, "c{}()");
+    let condition = condition_exhausted(&definition, "norm-c", 3);
+    let run = |result_modality| {
+        execute(
+            &definition,
+            start.clone(),
+            ExecutionOptions {
+                max_depth: 2,
+                max_simplification_iterations: 3,
+                result_modality,
+                ..ExecutionOptions::default()
+            },
+        )
+    };
+    let read = |leaf: &ExecutionLeaf| {
+        assert_eq!(leaf.pattern.term, c, "{leaf:#?}");
+        (
+            leaf.depth,
+            leaf.halt_reason.clone(),
+            leaf.diagnostics.clone(),
+        )
+    };
+    let path_set = run(ResultModality::PathSet);
+    assert_eq!(
+        path_set.leaves.iter().map(read).collect::<Vec<_>>(),
+        [
+            (1, HaltReason::Stuck, Vec::new()),
+            (2, HaltReason::DepthBound, condition.to_vec()),
+        ]
+    );
+    let state_set = run(ResultModality::StateSet);
+    assert_eq!(
+        state_set.leaves.iter().map(read).collect::<Vec<_>>(),
+        [(1, HaltReason::Stuck, condition.to_vec())]
+    );
 }
 
 /// Two paths end in the one configuration `c`: `start => c` (`to-c`), and `start => norm(a)`

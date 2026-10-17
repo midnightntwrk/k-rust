@@ -108,19 +108,22 @@ pub(super) fn execute_using(
     observe: impl FnMut(&BuiltinEffect),
 ) -> (ExecutionResult, InitialSimplificationStatus) {
     // Every stack stop of the run is counted, those that end a state and those a refinement
-    // dismisses alike (`ExecutionResult::stack_stops`).
+    // dismisses alike (`ExecutionResult::stack_stops`), and so is every undecided answer the
+    // solver delivers to a decision of the run (`ExecutionResult::smt_unknowns`).
+    let counting = crate::smt::UndecidedCounting::new(solver);
     let ((mut result, status), stack_stops) = crate::stop::counting_stack_stops(|| {
         execute_counted(
             definition,
             initial,
             options,
-            solver,
+            &counting,
             initial_io,
             observation,
             observe,
         )
     });
     result.stack_stops = stack_stops;
+    result.smt_unknowns = counting.undecided();
     (result, status)
 }
 
@@ -339,6 +342,7 @@ impl<'a> Execution<'a> {
                 work: self.work.visited(),
                 expanded: self.work.expanded(),
                 stack_stops: 0,
+                smt_unknowns: 0,
                 stopped: self.stopped,
             },
             InitialSimplificationStatus {
@@ -1886,6 +1890,7 @@ impl<'a> Execution<'a> {
                 work: self.work.visited(),
                 expanded: self.work.expanded(),
                 stack_stops: 0,
+                smt_unknowns: 0,
                 stopped: self.stopped,
             },
             InitialSimplificationStatus {
@@ -1988,6 +1993,20 @@ fn final_leaves(
 /// terminal), and is kept beside any other equal leaf. A later leaf merges into the first retained
 /// leaf of its configuration that may absorb it, and is otherwise retained itself, so a state-set
 /// result may show one configuration more than once, each with a different meaning.
+///
+/// Absorbing a later unexplored or undecided leaf into an earlier stuck leaf loses no
+/// configuration: the stuck halt is decided from the configuration (its term, constraints, effects
+/// and console), so the later leaf's subtree is that configuration alone, which the stuck leaf
+/// reports. Console availability and the state's kind, which the key leaves out, do not change a
+/// stuck verdict: a stuck step performs no console operation (a rule's condition is not evaluated
+/// with the console, so a console hook there is the unsupported-hook failure with the console on
+/// or off, and the console is read only while a successor is built), so a step that reaches a
+/// console hook with the console off ends as a simplification failure, not stuck; and a
+/// remainder's stuck verdict is its parent step's over every priority. A result whose bound and
+/// undecided leaves were all absorbed this way is complete (docs/compatibility.md, "Search
+/// results"). When an unexplored or undecided leaf absorbs another, the key's omission of console
+/// availability loses no configuration either, as the kept leaf is not complete, but its halt
+/// describes its own path's console.
 ///
 /// A retained leaf is the first of the leaves merged into it, the witness: it keeps its own
 /// pattern, depth, halt reason, trace, branch, observations, effects, and console transcript, which
@@ -2142,7 +2161,9 @@ fn merge_class(halt: &HaltReason) -> MergeClass {
 ///   configuration but a terminal-rule one, including one that marks the subtree unexplored or
 ///   undecided. Two such leaves differ only where the configuration's step came out differently
 ///   on two paths (a solver that answered one query differently, as when it timed out), and the
-///   first then stands for both.
+///   first then stands for both. Absorbing an unexplored or undecided leaf loses no configuration:
+///   its subtree is the configuration alone, which the absorbing leaf reports, whatever the
+///   console availability or the kind of the later leaf's state ([`merge_equal_final_leaves`]).
 /// - A leaf that marks its configuration's subtree unexplored or undecided (a bound, a stop local
 ///   to the state, an undecided step, a failed simplification) stands only for another such leaf:
 ///   it does not say what the subtree holds, so it does not stand for a later stuck, branching or

@@ -537,6 +537,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
+    use crate::allowance::AllowanceSource;
     use crate::term::{Sort, Symbol, Variable};
 
     fn constructor(name: &str, sort: &str) -> Term {
@@ -808,6 +809,65 @@ mod tests {
             Ok(8 << 30)
         );
         assert!(bounded_length(&(BigInt::from(8_u64 << 30) + 1), &cap).is_err());
+    }
+
+    /// Of the allowance, only its bytes decide whether one application refuses: a `padRightBytes`
+    /// and an `Int2Bytes` application whose result fits an allowance of `L` bytes give the same
+    /// term under `L` and `2 * L` and are refused under `L / 4`; and two allowances with equal
+    /// bytes and different sources compute the same result and refuse with details that differ
+    /// only in the named limit. This is a property of one application, the premise of the
+    /// equal-bytes rule for runs (docs/compatibility.md, "Determinism and concurrency",
+    /// "Execute"); it says nothing about a run under more bytes, where a refusal dropped with an
+    /// undone attempt can have decided the result.
+    #[test]
+    fn only_the_allowances_bytes_decide_a_refusal() {
+        const L: u64 = 64 << 10;
+        // A result of half of `L`, the cap at the peak factor of 2.
+        let length = L / BYTES_RESULT_PEAK_FACTOR;
+        let little = constructor("LbllittleEndianBytes", "SortEndianness");
+        let pad_right = |allowance: &Allowance| {
+            super::pad(
+                &[bytes_term(b"abc"), int_term(length.into()), integer(7)],
+                false,
+                allowance,
+            )
+        };
+        let int2bytes = |allowance: &Allowance| {
+            super::int_to_bytes(
+                &[int_term(length.into()), integer(-2), little.clone()],
+                allowance,
+            )
+        };
+        for hook in [&pad_right as &dyn Fn(&Allowance) -> _, &int2bytes] {
+            let at_l = hook(&Allowance::given(L));
+            assert!(matches!(at_l, Ok(BuiltinResult::Value(_))), "{at_l:?}");
+            assert!(hook(&Allowance::given(2 * L)) == at_l);
+            assert!(refused(hook(&Allowance::given(L / 4))));
+
+            let cgroup = AllowanceSource::CgroupMemoryMax {
+                cgroup: "/user.slice/run-1.scope".to_owned(),
+            };
+            let physical = AllowanceSource::PhysicalMemory;
+            assert!(
+                hook(&Allowance::with_source(L, cgroup.clone())) == at_l
+                    && hook(&Allowance::with_source(L, physical.clone())) == at_l
+            );
+            let detail = |source: &AllowanceSource| {
+                let Ok(BuiltinResult::Unsupported(UnsupportedHookReason::ResultTooLarge {
+                    detail,
+                })) = hook(&Allowance::with_source(L / 4, source.clone()))
+                else {
+                    panic!("refused under a quarter of the allowance");
+                };
+                detail.replace(&source.to_string(), "<limit>")
+            };
+            assert_eq!(detail(&cgroup), detail(&physical));
+            assert_ne!(
+                Allowance::with_source(L, cgroup.clone()),
+                Allowance::with_source(L, physical),
+                "equality compares the source too, so a host compares bytes()"
+            );
+        }
     }
 
     /// Padding to a length the input already reaches yields the input, which the run already

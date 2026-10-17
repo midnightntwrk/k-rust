@@ -91,7 +91,14 @@
 //!    result is the same (docs/compatibility.md, "Work budget").
 //!
 //! With the `z3-inference` feature, a solver whose prelude failed stops every operation that uses
-//! it, as `Err(e)` with a `SolverPrelude` cause, at the boundary or during the run.
+//! it, as `Err(e)` with a `SolverPrelude` cause, at the boundary or during the run. A prelude
+//! whose check timed out (`PreludeFailure::Unknown`; the check runs under the solver's timeout
+//! the first time a query answers `unsat`) fails for a reason of time, not of the definition: the
+//! error is not a fact to cache, and since the `Backend` keeps the failure, a host rebuilds it.
+//! An execution's [`ExecutionResult::smt_unknowns`] counts the undecided solver answers (a
+//! timeout among them) the run took decisions from; a run that reports none gives the same
+//! result on a fresh and on a reused `Backend` (docs/compatibility.md, "Determinism and
+//! concurrency").
 //!
 //! An execution cancelled by a watchdog thread, with names from `k_rust` alone:
 //!
@@ -247,6 +254,10 @@ pub struct BackendCapabilities {
     /// `execute` and `execute_observed` report the stack stops the run met
     /// ([`ExecutionResult::stack_stops`]).
     pub stack_stops: bool,
+    /// `execute` and `execute_observed` report the undecided solver answers the run's decisions
+    /// were taken from ([`ExecutionResult::smt_unknowns`]); in a build without a solver the count
+    /// is always zero.
+    pub smt_unknowns: bool,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -309,8 +320,9 @@ pub struct ExecuteRequest {
     /// it stops at the same state, with the same leaves finished before it, wherever its result
     /// is the same: within the execution determinism contract and its exclusions
     /// (docs/compatibility.md, "Determinism and concurrency", "Execute"), which leave out, among
-    /// others, a run in which an SMT query timed out in a build with Z3 (docs/compatibility.md,
-    /// "Work budget"). When a state remains after `max_work` states, it becomes the one
+    /// others, in a build with Z3, a run whose result reports a nonzero
+    /// [`ExecutionResult::smt_unknowns`] (wire `smtUnknowns`; docs/compatibility.md, "Work
+    /// budget"). When a state remains after `max_work` states, it becomes the one
     /// `work-bound` leaf ([`HaltReasonOutput::WorkBound`]), the last of the result, and the other
     /// pending states are not explored or reported; a budget at least the unbounded run's `work`
     /// changes nothing, and a budget of 0 makes the first initial state, as the request gave it,
@@ -321,6 +333,13 @@ pub struct ExecuteRequest {
     /// length of traces, so a host keeps its own time and memory limits. Under `state-set` a leaf
     /// finished before the stop carries the diagnostics of the paths merged into it before the
     /// stop only, so they may differ from the same leaf's in a run with a larger budget.
+    ///
+    /// Every leaf finished before the `work-bound` leaf is a leaf of every run of the same
+    /// request with a larger budget or none, at the same position: the result without its
+    /// `work-bound` leaf is a prefix of theirs. Under `path-set` the leaf is the same in every
+    /// field; under `state-set` it is the same in every field but its diagnostics, which are among
+    /// the larger run's (a later path merged into it adds its own). This holds within the determinism contract above
+    /// (docs/compatibility.md, "Work budget").
     #[serde(default)]
     pub max_work: Option<u64>,
     /// Whether each leaf carries its path's trace ([`ExecutionLeaf::trace`]), O(depth) entries
@@ -414,6 +433,17 @@ pub struct ExecutionResult<K = Value> {
     /// (docs/compatibility.md, "Determinism and concurrency").
     #[serde(skip_serializing_if = "is_zero")]
     pub stack_stops: usize,
+    /// The undecided answers the solver delivered to the run's decisions (wire `smtUnknowns`):
+    /// each `unknown` of a satisfiability or validity query (a timeout, by default after 125 ms
+    /// with retries, the solver's resource limit, or its incompleteness), counted once after
+    /// retries (`k_rust_backend::rewrite::ExecutionResult::smt_unknowns`); absent when zero. A
+    /// run whose count is zero took every decision from a decided answer, which is a fact about
+    /// the query, and the solver's cache holds only decided answers, so within the execution
+    /// determinism contract it gives one result on a fresh `Backend` and on a reused one; a run
+    /// whose count is nonzero may differ (docs/compatibility.md, "Determinism and concurrency").
+    /// A build without a solver always reports zero.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub smt_unknowns: usize,
 }
 
 /// The rules and equations an execution used, by `UNIQUE_ID`, each list sorted and without
@@ -731,6 +761,10 @@ impl ImplicationFailureOutput {
     ];
 }
 
+/// The version of the implication result schema, the `schemaVersion` of an
+/// [`ImplicationResult`]. It moves only when that schema changes; a change of which verdict,
+/// condition or failure an implication computes leaves it as it is, and the k-rust revision
+/// covers that ("Format versions" in `docs/compatibility.md`).
 pub const IMPLICATION_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Clone, Debug, Serialize)]
@@ -1102,6 +1136,7 @@ impl Backend {
             observation: true,
             coverage: true,
             stack_stops: true,
+            smt_unknowns: true,
         }
     }
 
@@ -1207,8 +1242,8 @@ impl Backend {
     /// `Backend` and on this one after other requests, in any process and on any thread, outside
     /// the exclusions of docs/compatibility.md, "Determinism and concurrency" (cancellation, step
     /// timeouts, a result whose `stack_stops` is nonzero, a `Bytes` hook the memory allowance
-    /// made refuse a result, a load-time check or discharge stopped for lack of stack, and SMT
-    /// timeouts in builds with Z3).
+    /// made refuse a result, a load-time check or discharge stopped for lack of stack, and in
+    /// builds with Z3 a result whose `smt_unknowns` is nonzero).
     ///
     /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::execute_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
     ///
@@ -2386,6 +2421,43 @@ mod tests {
                 .collect();
             assert_eq!(&actual, expected, "{path} {interface}.{field}");
         }
+    }
+
+    /// Each package's TypeScript declaration of `interface` has the member line `member`.
+    fn assert_typescript_member(interface: &str, member: &str) {
+        for package in ["k-rust-napi", "k-rust-wasm"] {
+            let path = format!(
+                "{}/../{package}/typescript/index.ts",
+                env!("CARGO_MANIFEST_DIR")
+            );
+            let declaration = std::fs::read_to_string(&path).unwrap();
+            let body = declaration
+                .split_once(&format!("export interface {interface} {{\n"))
+                .unwrap()
+                .1;
+            let body = body.split_once("\n}\n").unwrap().0;
+            assert!(
+                body.lines().any(|line| line == format!("  {member}")),
+                "{path} {interface} lacks `{member}`"
+            );
+        }
+    }
+
+    /// The undecided-answer count is declared where the facade writes it: an optional number on
+    /// the execution result (absent at zero) and a capability flag, true in every build.
+    #[test]
+    fn the_undecided_answer_count_matches_typescript_declarations() {
+        assert_typescript_member("ExecutionResult", "smtUnknowns?: number");
+        assert_typescript_member("BackendCapabilities", "smtUnknowns: boolean");
+        let backend = Backend::new(
+            r#"[] module MAIN sort SortK{} [] endmodule []"#,
+            "MAIN",
+            BackendOptions::default(),
+        )
+        .unwrap();
+        let capabilities = serde_json::to_value(backend.capabilities()).unwrap();
+        assert_eq!(capabilities["smtUnknowns"], true);
+        assert_eq!(capabilities["stackStops"], true);
     }
 
     #[test]
