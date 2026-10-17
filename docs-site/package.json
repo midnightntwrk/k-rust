@@ -10,7 +10,7 @@
     "check:types": "tsc --noEmit",
     "build:lesson-worker": "bun install --cwd ../krs/browser/worker --frozen-lockfile && bun build ../krs/browser/worker/src/worker.ts --target=browser --format=esm --minify --outfile=public/browser-lesson/worker.js",
     "check:twoslash": "node scripts/check-rust-twoslash.mjs",
-    "build": "bun run check && bun run check:types && node scripts/check-rust-twoslash.mjs --if-enabled && bun run build:lesson-worker && vocs build",
+    "build": "bun run check && python3 scripts/record-outputs.py --verify && bun run check:types && node scripts/check-rust-twoslash.mjs --if-enabled && bun run build:lesson-worker && vocs build",
     "preview": "vocs preview",
     "sync:coverage": "python3 scripts/sync-port-coverage.py --write",
     "sync:compatibility": "python3 scripts/sync-compatibility.py --write",
