@@ -1003,6 +1003,102 @@ fn the_load_names_an_argument_pair_at_a_hooked_overloaded_symbol() {
     assert!(differences.is_empty(), "{differences:?}");
 }
 
+/// Constructors `b`, `c`, `d1`, `d2` whose overload relations (`d1` and `d2` each over `b` and
+/// `c`) ride on equations of unrelated functions `q1` to `q4`: nothing can be withdrawn and no
+/// executable equation is rooted at a gate symbol, so the load takes its shortcut; `b` and `c`
+/// have two minimal common overloads.
+const OVERLOAD_DIAMOND: &str = r#"[] module MAIN
+        sort SortNat{} []
+        sort SortS{} []
+        sort SortE{} []
+        sort SortN{} []
+        symbol inj{From, To}(From) : To [sortInjection{}(), injective{}()]
+        axiom{R} \exists{R}(V:SortE{}, \equals{SortE{}, R}(V:SortE{}, inj{SortN{}, SortE{}}(F:SortN{}))) [subsort{SortN{}, SortE{}}()]
+        symbol z{}() : SortNat{} [constructor{}(), functional{}(), injective{}()]
+        symbol m{}(SortNat{}) : SortS{} [constructor{}(), functional{}(), injective{}()]
+        symbol n0{}() : SortN{} [constructor{}(), functional{}(), injective{}()]
+        symbol b{}(SortNat{}) : SortS{} [constructor{}(), functional{}(), injective{}()]
+        symbol c{}(SortNat{}) : SortS{} [constructor{}(), functional{}(), injective{}()]
+        symbol d1{}(SortNat{}) : SortS{} [constructor{}(), functional{}(), injective{}()]
+        symbol d2{}(SortNat{}) : SortS{} [constructor{}(), functional{}(), injective{}()]
+        
+        symbol q1{}(SortNat{}) : SortNat{} [function{}()]
+        symbol q2{}(SortNat{}) : SortNat{} [function{}()]
+        symbol q3{}(SortNat{}) : SortNat{} [function{}()]
+        symbol q4{}(SortNat{}) : SortNat{} [function{}()]
+        axiom{R} \equals{SortNat{}, R}(q1{}(K0:SortNat{}), z{}()) [symbol-overload{}(d1{}(), b{}())]
+        axiom{R} \equals{SortNat{}, R}(q2{}(K0:SortNat{}), z{}()) [symbol-overload{}(d1{}(), c{}())]
+        axiom{R} \equals{SortNat{}, R}(q3{}(K0:SortNat{}), z{}()) [symbol-overload{}(d2{}(), b{}())]
+        axiom{R} \equals{SortNat{}, R}(q4{}(K0:SortNat{}), z{}()) [symbol-overload{}(d2{}(), c{}())]
+endmodule []"#;
+
+/// The precondition rows of the overload families read no pair, so the load reports them as
+/// `CheckScope::All` does, also where it classifies no pair.
+#[test]
+fn the_load_reports_the_overload_rows_where_it_classifies_no_pair() {
+    use super::{CheckScope, ViolationKind};
+    let definition =
+        internalized(&parse_definition(OVERLOAD_DIAMOND).expect("the definition parses"));
+    let kinds = |claims: &super::ValueClaims| {
+        claims
+            .violations()
+            .iter()
+            .map(|violation| format!("{:?}", violation.kind))
+            .collect::<Vec<_>>()
+    };
+    let load = definition.value_claims();
+    assert_eq!(load.counts().pairs, 0);
+    assert!(
+        load.violations()
+            .iter()
+            .any(|violation| matches!(violation.kind, ViolationKind::NoLeastCommonOverload(..))),
+        "{:?}",
+        load.violations()
+    );
+    let all = definition.value_claims_in_scope(CheckScope::All);
+    assert_eq!(kinds(load), kinds(&all));
+}
+
+/// A free-constructor overload family, `cE` over `cN`, with its overload equation and
+/// `gg(cE(inj(n0))) = z`: the overload equation is rooted at an overloaded symbol, so the load
+/// classifies the argument pair at `gg` (which joins: `cE(inj(n0))` and `cN(n0)` are one value)
+/// as `CheckScope::All` does.
+#[test]
+fn the_load_classifies_an_argument_pair_at_a_free_constructor_overload() {
+    use super::CheckScope;
+    let definition = internalized(&parse_definition(r#"[] module MAIN
+        sort SortNat{} []
+        sort SortS{} []
+        sort SortE{} []
+        sort SortN{} []
+        symbol inj{From, To}(From) : To [sortInjection{}(), injective{}()]
+        axiom{R} \exists{R}(V:SortE{}, \equals{SortE{}, R}(V:SortE{}, inj{SortN{}, SortE{}}(F:SortN{}))) [subsort{SortN{}, SortE{}}()]
+        symbol z{}() : SortNat{} [constructor{}(), functional{}(), injective{}()]
+        symbol m{}(SortNat{}) : SortS{} [constructor{}(), functional{}(), injective{}()]
+        symbol n0{}() : SortN{} [constructor{}(), functional{}(), injective{}()]
+        symbol cE{}(SortE{}) : SortS{} [constructor{}(), functional{}(), injective{}()]
+        symbol cN{}(SortN{}) : SortS{} [constructor{}(), functional{}(), injective{}()]
+        axiom{R} \equals{SortS{}, R}(cE{}(inj{SortN{}, SortE{}}(K0:SortN{})), cN{}(K0:SortN{}))
+            [symbol-overload{}(cE{}(), cN{}())]
+        symbol gg{}(SortS{}) : SortNat{} [function{}()]
+        axiom{R} \implies{R}(
+            \and{R}(\top{R}(), \and{R}(\in{SortS{}, R}(X0:SortS{}, cE{}(inj{SortN{}, SortE{}}(n0{}()))), \top{R}())),
+            \equals{SortNat{}, R}(gg{}(X0:SortS{}), \and{SortNat{}}(z{}(), \top{SortNat{}}()))
+        ) [UNIQUE'Unds'ID{}("gg")]
+endmodule []"#).expect("the definition parses"));
+    let load = definition.value_claims();
+    assert_eq!(
+        (load.counts().pairs, load.counts().families),
+        (1, 1),
+        "{:?}",
+        load.counts()
+    );
+    assert!(load.unjoined().is_empty(), "{:?}", load.unjoined());
+    let all = definition.value_claims_in_scope(CheckScope::All);
+    let differences = load.claim_differences(&all, &definition);
+    assert!(differences.is_empty(), "{differences:?}");
+}
+
 mod review_one;
 mod review_two;
 mod scope;

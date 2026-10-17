@@ -1491,17 +1491,6 @@ pub(super) fn check_axioms(
     tally
 }
 
-/// Whether some claim of `backend` can be withdrawn by a pair: it declares an equation head, or
-/// an overloaded symbol that is neither a free constructor nor hooked. Otherwise the check
-/// classifies no pair, since none can change a claim (`docs/compatibility.md`, "Anywhere
-/// rules").
-fn claims_rest_on_pairs(backend: &BackendDefinition) -> bool {
-    backend
-        .symbols()
-        .values()
-        .any(|symbol| claimable(backend, symbol))
-}
-
 /// Whether no executable equation of `definition` can match any application in the ground term
 /// `term`, by the backend's own matcher: `term` is then a normal form whether or not the backend
 /// claims it as a value. An equation indexed at a collection or a bare variable could match
@@ -1599,11 +1588,12 @@ fn normal_form(definition: &BackendDefinition, term: &Term) -> Option<String> {
     })
 }
 
-/// Whether the full check accepts `backend`: it classifies pairs, and names none and no
-/// violated precondition row.
+/// Whether the full check accepts `backend`: it names no pair and no violated precondition row.
+/// `CheckScope::All` classifies every pair of every definition, also one with no claim a pair
+/// could withdraw.
 fn accepted(backend: &BackendDefinition) -> bool {
     let full = backend.value_claims_in_scope(crate::confluence::CheckScope::All);
-    claims_rest_on_pairs(backend) && full.unjoined().is_empty() && full.violations().is_empty()
+    full.unjoined().is_empty() && full.violations().is_empty()
 }
 
 /// Equation order: a definition the full check accepts gives every ground term one normal form
@@ -1663,10 +1653,7 @@ fn check_claims(
         .find(|contradiction| contradiction.claim_free)
     {
         let full = backend.value_claims_in_scope(crate::confluence::CheckScope::All);
-        if claims_rest_on_pairs(backend)
-            && full.unjoined().is_empty()
-            && full.violations().is_empty()
-        {
+        if full.unjoined().is_empty() && full.violations().is_empty() {
             tally.failures.push(format!(
                 "{}; it rests on no claim, so the definition has no model, but the check names no pair",
                 proof.text

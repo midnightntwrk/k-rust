@@ -51,7 +51,8 @@
 //!    at an equation head or an overloaded symbol is classified under every scope: not joined,
 //!    it states that `e1` is not shown consistent with `e2`, a finding the load reports whatever
 //!    claims it withdraws ([`UnjoinedPair::in_argument`]);
-//! 5. each overlap is separated by priority (a root pair of different priority groups), refuted
+//! 5. each overlap is separated (it has no instance whose variables are normal forms: a variable
+//!    ranges over a sort with no normal form), refuted
 //!    (the conjunction of both `requires` simplifies to `\bottom` with every claim withheld),
 //!    joined (both sides reach one term by steps valid on every instance, `join.rs`), or not
 //!    joined;
@@ -220,21 +221,44 @@ pub enum CheckScope {
     /// The contract a client relies on:
     ///
     /// - every candidate pair of every definition is classified (`counts().skipped == 0`),
-    ///   whatever the definition declares, except that `[symbolic]` function equations are
+    ///   whatever the definition declares. Executable function and anywhere equations are
+    ///   paired; `[symbolic]` function equations, simplification equations and rewrite rules are
     ///   paired by no check;
-    /// - root candidates are formed within one index and priority group, and two groups are
-    ///   never paired: a lower group is read as holding only where no equation of a higher
-    ///   group applies (`docs/compatibility.md`, the priority reading of `M_NF`);
-    /// - `separated`, `refuted` and `joined` are sound: a separated overlap has no instance; a
+    /// - root pairs are formed within one index and priority group: two groups of one index are
+    ///   never paired at the root, since every equation is read with the priority antecedent (it
+    ///   holds only where no equation of a higher group applies; the evaluator and the join read
+    ///   it so too, `docs/compatibility.md`, the priority reading of `M_NF`). Inner pairs pair an
+    ///   equation with the equations of every priority group offered at a subterm's index, at
+    ///   the other members of its overload family and at the bare-variable index;
+    /// - a client must read [`ValueClaims::violations`] too: an equation a precondition row
+    ///   reports (rooted at a free constructor or an injection, indexed at a collection or a bare
+    ///   variable, or a misshapen overload equation) is outside the check's reasoning, and its
+    ///   overlaps with equations at other indexes are not formed. [`ValueClaims::unjoined`] also
+    ///   lists per-equation reports ([`UnjoinedReason::describes_one_equation`]), which are not
+    ///   pairs;
+    /// - `separated`, `refuted` and `joined` are sound: a separated overlap has no instance
+    ///   whose variables are normal forms (a variable ranges over a sort with no normal form); a
     ///   refuted one has both `requires` holding on no instance in any model; a joined one has
     ///   both reducts reaching one term by innermost steps valid on every instance. A model of
-    ///   the definition follows from the pairs only if evaluation terminates;
-    /// - a non-joined pair is not shown to join, and may be spurious: its conditions may be
-    ///   undecided by the solver-free condition reader, the join or a simplification may stop
-    ///   on its budget, or its reducts may be equal in every model without the join showing it;
-    /// - the check reads the definition's `total` and `functional` declarations and its
-    ///   simplification and ceil lemmas as axioms (they decide which terms are `ceil_free` and
-    ///   what `condition_definedness` states), so its verdicts rest on them.
+    ///   the definition's equations, read with the priority antecedent, follows from the pairs
+    ///   only if evaluation terminates;
+    /// - a non-joined pair is not shown to join, and may be spurious, for example: its
+    ///   conditions are undecided by the solver-free condition reader
+    ///   ([`UnjoinedReason::ConditionOpen`]), a simplification stopped on its budget of polls,
+    ///   the join ran out of its steps ([`UnjoinedReason::JoinBudget`]), the join refused a step whose definedness it could not
+    ///   show ([`UnjoinedReason::JoinRefused`]), the unifier met a shape it does not solve
+    ///   ([`UnjoinedReason::Unresolved`]), the two `ensures` differ syntactically
+    ///   ([`UnjoinedReason::EnsuresDiffer`]), a right-hand side is not read
+    ///   ([`UnjoinedReason::UnsupportedRightHandSide`]), or the reducts are equal in every model
+    ///   without the join showing it;
+    /// - the verdicts rest on the definition's declarations and axioms, read as true: the
+    ///   `total` and `functional` declarations and the simplification and ceil lemmas (they
+    ///   decide which terms are `ceil_free` and what `condition_definedness` states), the
+    ///   constructor and `injective` declarations (the unifier separates distinct constructor
+    ///   roots), the hooks' semantics (a refutation of `X >Int 0` beside `X <=Int 0` reads the
+    ///   `INT` hooks), the sorts' inhabitation by normal forms (separation), and the subsort and
+    ///   overload axioms. Only the backend's value claims are withheld while the check runs
+    ///   (`ValueClaims::withheld`).
     All,
 }
 
@@ -559,7 +583,8 @@ pub struct CheckCounts {
     pub pairs: usize,
     /// Overlaps found (unifiers of candidate pairs).
     pub overlaps: usize,
-    /// Overlaps separated by priority.
+    /// Overlaps separated: no instance whose variables are normal forms (a variable ranges over a
+    /// sort with no normal form).
     pub separated: usize,
     /// Overlaps refuted by their conditions.
     pub refuted: usize,
@@ -1956,50 +1981,15 @@ fn check_detached(
         })
         .collect::<Vec<_>>();
 
-    let withdrawable = definition
-        .symbols()
-        .values()
-        .any(|symbol| closure::taintable(symbol) && certified_root(definition, symbol));
-    let rooted_at_gate_symbol = equations.iter().any(|equation| {
-        matches!(&equation.index, TermIndex::Symbol(name) if gate_symbol(definition, name))
-    });
-    if scope == CheckScope::Gate && !withdrawable && !rooted_at_gate_symbol {
-        // The load's shortcut, valid only where no pair it would classify can change a claim or
-        // be named. No symbol the gate is asked about (`certified_root`, the union of the sites'
-        // symbol classes) can be tainted by any closure (`closure::taintable`): there is no
-        // equation head, hooked or not, and every overloaded symbol is a free constructor or
-        // hooked. So no pair changes a claim, and the collection claims read only equations
-        // indexed at a collection or a bare variable, which the rows above taint. No executable
-        // equation is rooted at a gate symbol either, so no inner pair rewrites an argument
-        // (`UnjoinedPair::in_argument`), the one kind of pair the load names whatever it
-        // withdraws. Classifying a pair reads neither the gate nor relevance, so
-        // `CheckScope::All` classifies every pair of such a definition all the same.
-        checked.counts.unjoined = unjoined.len();
-        checked.unjoined = unjoined;
-        return ValueClaims(Arc::new(Verdict::Checked(Box::new(checked))));
-    }
-
-    let mut context = Context {
-        definition,
-        families: Families::of(definition),
-        sorts: symbols::Sorts::of(definition),
-        groups,
-        renamed: FxHashMap::default(),
-        memo: (memo == ConditionMemo::On && !switches::active().no_condition_memo)
-            .then(memo::Memo::default),
-        fresh: 0,
-        counts: CheckCounts::default(),
-    };
-    context.counts.equations = checked.counts.equations;
-    context.counts.families = context.families.len();
-
-    // P5 rows of the overload families.
-    let mut family_violations = vec![false; context.families.len()];
+    let families = Families::of(definition);
+    // P5 rows of the overload families. They read no pair, so every scope computes them, the
+    // load's shortcut below included.
+    let mut family_violations = vec![false; families.len()];
     for equation in &equations {
         let TermIndex::Symbol(name) = &equation.index else {
             continue;
         };
-        let Some(family) = context.families.family(name) else {
+        let Some(family) = families.family(name) else {
             continue;
         };
         if definition.overloads().overloaded_by(name).is_empty() {
@@ -2016,7 +2006,7 @@ fn check_detached(
         }
     }
     for (family, violated) in family_violations.iter_mut().enumerate() {
-        let members = context.families.members(family).to_vec();
+        let members = families.members(family).to_vec();
         for (index, left) in members.iter().enumerate() {
             for right in &members[index + 1..] {
                 let common = definition.overloads().common_overloads(left, right);
@@ -2045,6 +2035,45 @@ fn check_detached(
             }
         }
     }
+
+    let withdrawable = definition
+        .symbols()
+        .values()
+        .any(|symbol| closure::taintable(symbol) && certified_root(definition, symbol));
+    let rooted_at_gate_symbol = equations.iter().any(|equation| {
+        matches!(&equation.index, TermIndex::Symbol(name) if gate_symbol(definition, name))
+    });
+    if scope == CheckScope::Gate && !withdrawable && !rooted_at_gate_symbol {
+        // The load's shortcut, valid only where no pair it would classify can change a claim or
+        // be named. No symbol the gate is asked about (`certified_root`, the union of the sites'
+        // symbol classes) can be tainted by any closure (`closure::taintable`): there is no
+        // equation head, hooked or not, and every overloaded symbol is a free constructor or
+        // hooked. So no pair changes a claim, and the collection claims read only equations
+        // indexed at a collection or a bare variable, which the rows above taint. No executable
+        // equation is rooted at a gate symbol either, so no inner pair rewrites an argument
+        // (`UnjoinedPair::in_argument`), the one kind of pair the load names whatever it
+        // withdraws; `rooted_at_gate_symbol` over-approximates "some inner pair can rewrite an
+        // argument at a gate symbol". The precondition rows are computed above, whatever the
+        // scope. Classifying a pair reads neither the gate nor relevance, so `CheckScope::All`
+        // classifies every pair of such a definition all the same.
+        checked.counts.unjoined = unjoined.len();
+        checked.unjoined = unjoined;
+        return ValueClaims(Arc::new(Verdict::Checked(Box::new(checked))));
+    }
+
+    let mut context = Context {
+        definition,
+        families,
+        sorts: symbols::Sorts::of(definition),
+        groups,
+        renamed: FxHashMap::default(),
+        memo: (memo == ConditionMemo::On && !switches::active().no_condition_memo)
+            .then(memo::Memo::default),
+        fresh: 0,
+        counts: CheckCounts::default(),
+    };
+    context.counts.equations = checked.counts.equations;
+    context.counts.families = context.families.len();
 
     // Self pairs: an equation whose left-hand side matches one subject in several ways is a
     // root peak with itself (R2.2). It joins when its right-hand side and `ensures` read only
@@ -2190,8 +2219,9 @@ fn check_detached(
                 // A pair at an argument whose second equation is rooted at a symbol a gate site
                 // is asked about (an equation head or an overloaded symbol) is reported whatever
                 // its relevance (`UnjoinedPair::in_argument`), so it is classified under every
-                // scope. Such an equation's closure reaches its own root, so the pair is relevant
-                // too; the disjunct states the class instead of relying on that.
+                // scope. When that root is taintable, its closure reaches it and the pair is
+                // relevant too; a hooked or free-constructor root is not taintable, which is why
+                // the disjunct is needed.
                 let rewrites_argument = argument_position(&equation.rule.lhs, &position)
                     && matches!(
                         term_index(&second.lhs),

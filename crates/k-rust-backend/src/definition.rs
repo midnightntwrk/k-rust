@@ -2914,11 +2914,14 @@ impl BackendDefinition {
     /// ([`crate::confluence::ValueClaims::claim_differences`]).
     ///
     /// Under [`crate::confluence::CheckScope::All`] every candidate pair of the definition is
-    /// classified, whatever it declares (`counts().skipped == 0`), except that `[symbolic]`
-    /// function equations are paired by no check; pairs are formed within one index and
-    /// priority group. `separated`, `refuted` and `joined` are sound, a non-joined pair is not
-    /// shown to join and may be spurious, and the verdicts rest on the definition's `total`,
-    /// `functional`, simplification and ceil axioms: the contract is stated at
+    /// classified, whatever it declares (`counts().skipped == 0`); `[symbolic]` function
+    /// equations, simplification equations and rewrite rules are paired by no check. Root pairs
+    /// are formed within one index and priority group; inner pairs pair an equation with the
+    /// equations of every priority group offered at a subterm's index, its overload family and
+    /// the bare-variable index. The precondition rows ([`crate::confluence::ValueClaims::violations`])
+    /// name the equations outside the check's reasoning. `separated`, `refuted` and `joined` are
+    /// sound, a non-joined pair is not shown to join and may be spurious, and the verdicts rest
+    /// on the definition's declarations and axioms: the contract is stated at
     /// [`crate::confluence::CheckScope::All`].
     #[must_use]
     pub fn value_claims_in_scope(
