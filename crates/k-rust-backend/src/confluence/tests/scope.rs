@@ -275,8 +275,8 @@ fn the_load_withdraws_an_overloaded_function_a_pair_reaches() {
 }
 
 /// Review 1, F5: without an equation head the check still classifies the pairs that can
-/// withdraw a certificate of an overloaded function; it skips stage 2 only when no symbol the
-/// gate is asked about can be tainted.
+/// withdraw a certificate of an overloaded function; the load skips stage 2 only when no symbol
+/// the gate is asked about can be tainted and no executable equation is rooted at one.
 #[test]
 fn an_overloaded_function_is_withdrawn_without_an_equation_head() {
     let definition = overloaded_function(false);
