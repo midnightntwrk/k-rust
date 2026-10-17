@@ -83,6 +83,86 @@
     "inputs": "6e755f3b6fb7493d786db246adee49a646eb008bdf29e863102e2fc0507a6d9a",
     "output": "740704ff1ebbac60582248ab95f758075dca1c8961adeef03c1c5e62e9360840"
   },
+  "story-a-t1": {
+    "inputs": "addc0cc0f2a6cf630fc25f31eca33c6a1c0558af282455209779be6e6248a816",
+    "output": "02046ccfb4879ede82dbf2d99f6fdc81b4d82c1c3611168069338bdf976d6892"
+  },
+  "story-a-t2": {
+    "inputs": "1469c4eb6faca1e0e7be285bbf8fbcee9da0fcbfa05f865449410dc0bbda84e3",
+    "output": "b1aa1b6b8691650bd6f6b3a9f889816c6ead2ce58b51bb99d23d24ba1dfc8e81"
+  },
+  "story-a-t3": {
+    "inputs": "0d2a366ede2d17860b7c508f1fb4a30a2c01afd4e381d43d1a649852f55cdc14",
+    "output": "6f3adf353c6a733e41bddcdd6d207030d4f921dcbd32328fc93f356077b225d1"
+  },
+  "story-a-t4": {
+    "inputs": "50b7fbf35cc8389e42e757db301bc8d60bca1189be9fb2768d136b72cb844f1e",
+    "output": "f228a1a5fead99fddfad626411c266f2418e80f81c82b1d3970e3727901b4023"
+  },
+  "story-b-t1": {
+    "inputs": "861c7f90a4695bdea055ff4521f3c98cc222823e79d85d070a12a07408f1bbb7",
+    "output": "02964e1ddf493c76933ccb418790257ea6e7414d3ab98046aced486e0046af75"
+  },
+  "story-b-t2": {
+    "inputs": "332d77ee2187c14a8440f99a3dba2827135e93bc35fe8218f28d1da82202ec86",
+    "output": "d5b2615bd9258d63cb326897dfaf35d787499ca7b7462ba080f8c5120ebb25e7"
+  },
+  "story-b-t3": {
+    "inputs": "874da0749a311734c75cb684e7d15fce32c2aea94aff24e85cbcc14025f16838",
+    "output": "e5243a06300a71a72065992618146bd12283d1986b65e0dc0a2d5a9e1bfc2137"
+  },
+  "story-b-t4": {
+    "inputs": "be134a2c5dcf487a833eae1decbc391fb60254d3ca729b3405d9c0ebbe28f327",
+    "output": "15a1a375d284e17e591438919773c0b4175fa2a76116f95532267553d3deb82a"
+  },
+  "story-base-t1": {
+    "inputs": "a7dfda44ddd4fd13bb241488232d4ef31a5cdb32106e7a7f5974472f1e97696a",
+    "output": "0bd3e02c3d086d65b1c5bbd45731ba14d540d1e081cdf4383fb18a15e552d3fe"
+  },
+  "story-base-t2": {
+    "inputs": "01ef85c22f0aebf663ae27b1fdce7d9d97a768a5dab0c3573931daf83bf9a72a",
+    "output": "4adfee238bbe381229230602d77788136707b59e175bc6e06c38081a51b80ab5"
+  },
+  "story-base-t3": {
+    "inputs": "318d6bb765b72768f204a2648d03385fa2d692c5bae5ebe44db06492e31d4c7f",
+    "output": "84fa2beae88657cfc497bafbc222f8b352aa7a05fa209c9c059eb5d019867bbe"
+  },
+  "story-base-t4": {
+    "inputs": "a5ecefd6a9b0e40241e3cadc8e70233eea823900eb1eb8910cef33380ac88cfe",
+    "output": "18286279fb35b8ba7a0903707eadeb98aec159cffc387fe2cf60ffe4700efb8c"
+  },
+  "story-c-t1": {
+    "inputs": "cbfc6ca640ca7f14065cacabf1ccafc864eb2a5764f666c581956d435c5b6df2",
+    "output": "e557cc6ef249c60aa8fa2355db010cff4a974e7d5b567f0bae83ae7d9c9d6aa2"
+  },
+  "story-c-t2": {
+    "inputs": "5d3373f262c71cdd530208ac76e37cc22e1a971d80402c0ffbf3d46ecefe338c",
+    "output": "03fc9239e950a8f6a0254b9b0a7d6901ad7bb5254c368cae1f846c3e36dd1aba"
+  },
+  "story-c-t3": {
+    "inputs": "4a69884cb8b6f305391bbfb06d3ed602dd842b52a129a52c7f42caff1e8a830d",
+    "output": "cdf0ccec8893c65faec0f8a834b84fbd280916ef475b2b2e610cc45d90ab1ef8"
+  },
+  "story-c-t4": {
+    "inputs": "7cfa1cc2d905f50552cc57cfb0ceeb22b0a872169b93e44f3c8feeae9ef5626b",
+    "output": "46a4add9e8a5bd87273d9dd6bb44ef5a9b366e9d7844e7e9e04da886eee74020"
+  },
+  "story-check": {
+    "inputs": "3587ee9151205c30bacb76c4e5688d324cb4835621d3ae087e9048ebf2d6801b",
+    "output": "24cd61b9680e34d74ce4c1c1c11e91b94c313e8b19046f5ffb04fb164f7bab33"
+  },
+  "story-emit-k": {
+    "inputs": "6f0d421a06f048ac1f065866d28e7fb417570eaf47a3440724c453c3eaec082c",
+    "output": "71da37c3dd5d5e0446640f6d97f3945ed825c700dfd23f9529fac04c4072cc8c"
+  },
+  "story-parse": {
+    "inputs": "07b198a0cc36f6eacb741aaa99b2d0c2019daf9c3a852f04f31f907786ff4194",
+    "output": "6b7604b9e12b3d6ffc910dd2e29f184266cb79a20ceae678d4839bf9e98e9d0f"
+  },
+  "story-search": {
+    "inputs": "2b5bd947b73efde9f9d8fe36301354059c54d97cb1ba3bc5ccb0d34316578604",
+    "output": "bf78c947c8de9d24bfc6e73fe7ed214b1542e64230f66b416ff85293ca46179f"
+  },
   "tour-minimal-depth-0": {
     "inputs": "cd1c26d46c0fe38afde6537fbf67525b08423a44c6e95af01e5c7710ab8b1b8e",
     "output": "c8b4fdb588880c24c568efce9f52ae211c92bacb20ce704ac5ef87746e1b109f"

@@ -189,17 +189,6 @@ def main() -> None:
             f"expected topic_status_sha256 = {status_digest!r}"
         )
 
-    for synthesis in ledger.rows("synthesis"):
-        synthesis_id = synthesis.get("id")
-        if synthesis.get("status") not in {"deferred", "published"}:
-            fail(f"{synthesis_id}: synthesis status must be deferred or published")
-        for topic_id in synthesis.get("requires", []):
-            if topic_id not in topic_by_id:
-                fail(f"{synthesis_id}: unknown synthesis requirement {topic_id!r}")
-            gloss = topic_by_id[topic_id].get("gloss")
-            if not isinstance(gloss, str) or not gloss.strip():
-                fail(f"{synthesis_id}: requirement {topic_id!r} needs a gloss")
-
     browser_lessons = ledger.rows("browser_lesson")
     require_unique("browser lesson IDs", [lesson.get("id") for lesson in browser_lessons])
     for lesson in browser_lessons:

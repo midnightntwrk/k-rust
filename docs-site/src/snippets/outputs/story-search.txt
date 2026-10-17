@@ -1,0 +1,6 @@
+$ krs search --package story-plus --definition main programs/t3.nat
+<k>
+  s(s(zero)) ~> .K
+</k>
+solution 1: depth 0
+krs search: 1 solution

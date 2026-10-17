@@ -45,28 +45,6 @@ status = "published"
 fixture = "tests/tour-minimal/src/lib.rs"
 seed = "../docs-site/src/snippets/tour-minimal.rs"
 
-[[synthesis]]
-id = "five-minute-theory"
-route = "/start/five-minute-theory"
-status = "published"
-requires = [
-    "host-object-split",
-    "symbolic-terms",
-    "declarative-relational-rules",
-    "open-sorts",
-    "subsort-membership",
-    "framework-sorts",
-    "core-builtins",
-    "constructor-families",
-    "syntax-templates",
-    "precedence-associativity",
-    "fixed-configurations",
-    "configuration-init",
-    "single-item-sequence",
-    "rule-tables",
-]
-note = "Publish only after every required concept has a canonical destination and the page's hover/focus glosses and links are generated from this ledger rather than maintained as a second glossary."
-
 # Parts in reading order; the KRS side track is linked from L01, L03 and L10.
 
 [[part]]

@@ -1,21 +1,116 @@
 ---
-title: KRS language tour
-description: Learn to define, inspect, and verify programming-language semantics in Rust.
+title: Introduction
+description: Write an executable specification in Rust, and use it to measure and grow the tests your AI writes.
 ---
 
-# Define languages, not interpreters
+import { Climb } from '../components/story/Climb'
+import { Corpus } from '../components/story/Corpus'
+import { EveryTool } from '../components/story/EveryTool'
+import { MutateTheSpec } from '../components/story/MutateTheSpec'
+import { MutationReputation } from '../components/story/MutationReputation'
+import { PastFullCoverage } from '../components/story/PastFullCoverage'
+import { RewriteMachine } from '../components/story/RewriteMachine'
+import { SpecCoverage } from '../components/story/SpecCoverage'
+import { SpecIsRust } from '../components/story/SpecIsRust'
+import { StandingOnK } from '../components/story/StandingOnK'
+import { TestsThatCheckNothing } from '../components/story/TestsThatCheckNothing'
+import { WhyTests } from '../components/story/WhyTests'
+import { WriteItDown } from '../components/story/WriteItDown'
 
-KRS is a declarative language for writing programming-language semantics in Rust.
-You declare syntax, machine state, rewrite rules, static semantics, and verification claims; KRS checks and lowers that definition for the K toolchain.
+# Measure the tests your AI writes
 
-The dependency-ordered tour grows IMP, a small imperative language with expressions, variables, and control flow, then explains lowering, verification, large state configurations, composition, and current boundaries.
-Its final five-minute synthesis compresses the model back to one rewrite—`foo` becomes `bar`—with generated explanations for direct readers.
+KRS lets you write a specification of your program in Rust, run it, and use it to grade and grow the test suite an AI writes for you.
+k-rust, a Rust implementation of the K Framework, runs it.
 
-[Start with what KRS defines →](/start/what-krs-defines)
+Each scene below starts in a readable state; press Play to animate it, or step through it.
+From the second scene on, every scene follows one small example, a `plus` function on natural numbers, and every result shown as output is one that `krs` printed for it.
 
-This site also documents [k-rust](/k-rust), the Rust implementation of K that KRS lowers through.
+## The problem
 
-:::info
-The tour documents the current implementation.
-Qualified features are labeled with their exact boundary, and proposed syntax is kept on the boundaries pages rather than presented as usable KRS.
-:::
+### Tests that check nothing
+
+<TestsThatCheckNothing />
+
+## A specification you can run
+
+### Write down what it means
+
+Before any code, write down what `plus` means.
+
+<WriteItDown />
+
+### Your specification is Rust
+
+The same specification in KRS.
+KRS is real Rust, written in a particular style: the specification is a crate, Cargo builds it, and rustc checks it.
+
+<SpecIsRust />
+
+### One specification, every tool
+
+From that one crate, `krs` gives you a parser, an interpreter, and a search over every possible result; later lessons add symbolic execution and proofs.
+
+<EveryTool />
+
+### The rewrite machine
+
+How `run` computes: a rule's pattern finds a subterm it fits, binds its variables, and the subterm is replaced using those bindings.
+
+<RewriteMachine />
+
+## Why a test corpus
+
+### Why tests, now
+
+<WhyTests />
+
+### A test corpus
+
+A test is a program, and its expected result is whatever the specification computes for it.
+Nobody guesses expected values, and nobody copies them from the implementation under test.
+
+<Corpus />
+
+### Coverage of the specification
+
+Because the specification runs, you can see which of its rules each test makes fire.
+That is coverage of the specification itself, not of one implementation's code.
+
+<SpecCoverage />
+
+### Past 100%
+
+<PastFullCoverage />
+
+## Mutation testing, done right
+
+### Why people avoid mutation testing
+
+<MutationReputation />
+
+### Mutate the specification
+
+Mutating the specification instead of the code changes the experience.
+The specification is small, so there are few places to edit, and an AI proposes only edits that would be real misunderstandings of its meaning.
+The mutation tool is in development; these scenes apply the same edits by hand, and every result is one that `krs` recorded.
+
+<MutateTheSpec />
+
+### Let the AI climb
+
+Climbing is growing the corpus.
+Each surviving edit becomes a new test, and the tool remembers which test catches which edit, so it never has to search for it again.
+
+<Climb />
+
+## Standing on K
+
+Your KRS crate is a definition in the K Framework, a mature system for language semantics with large published definitions, such as the EVM, WebAssembly and Rust's MIR.
+Each KRS item becomes a K sentence you can read, and k-rust is a reimplementation of K in Rust.
+
+<StandingOnK />
+
+## Where to go next
+
+The tour teaches K from first principles, starting with [a definition that compiles into tools](/tour/definitions-compile-into-tools).
+[k-rust](/k-rust) describes the implementation and its compatibility contract.

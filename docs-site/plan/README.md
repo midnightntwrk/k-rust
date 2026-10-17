@@ -4,7 +4,7 @@ This directory is the planning source for the site's language tour.
 
 - [`tour.toml`](tour.toml) is the machine-readable curriculum and feature-status ledger.
   Its evidence, fixture, and seed paths are relative to `../../krs/`.
-- [`ledger.py`](ledger.py) loads it for the checks and `scripts/sync-concepts.py`, and decides each topic's destination.
+- [`ledger.py`](ledger.py) loads it for the checks and decides each topic's destination.
 
 The ledger has five kinds of rows:
 
@@ -15,10 +15,10 @@ The ledger has five kinds of rows:
 - a topic is one implemented construct or semantic distinction: the checklist that makes the tour comprehensive.
   It belongs to a concept, a side-track lesson, or (for reference and limitation topics) a kept page.
 
-A topic's destination, where pages and glosses link for it, is its lesson's route once the lesson is accepted, and its `page` until then.
+A topic's destination, where pages link for it, is its lesson's route once the lesson is accepted, and its `page` until then.
 Every published page and written lesson declares exactly the topics whose destination it is in a `tour-concepts` marker.
-- [`check.py`](check.py) enforces the ledger's identities, dependencies, classifications, evidence paths, and synthesis gloss requirements.
-- [`check-pages.py`](check-pages.py) enforces canonical pages, concept declarations, navigation order, complete routes and anchors, synthesis publication state, and reviewed public-surface reference coverage.
+- [`check.py`](check.py) enforces the ledger's identities, dependencies, classifications, and evidence paths.
+- [`check-pages.py`](check-pages.py) enforces canonical pages, concept declarations, navigation order, complete routes and anchors, and reviewed public-surface reference coverage.
 
 `bun run check` runs both checks. To run them alone, from `docs-site/`:
 
