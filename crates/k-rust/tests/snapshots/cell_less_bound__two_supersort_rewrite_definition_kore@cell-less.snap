@@ -1,8 +1,0 @@
----
-source: crates/k-rust/tests/cell_less_bound.rs
-description: "definition.kore of `rule [ab]: a(X) => b(X)` where A and B have the common supersorts C and D, with the embedded prelude, rust backend"
----
-ArtifactDigest {
-    bytes: 179571,
-    sha256: "787696004cb4ecd869176e8424ffa21e1cba89039216d5b8293a92da1877354f",
-}

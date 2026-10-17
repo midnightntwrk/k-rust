@@ -1460,10 +1460,12 @@ impl Grammar {
     /// is not determined by the node and keeps the parser's inferred instantiation. A parameter
     /// with bounds must have a unique least upper bound; otherwise no one instantiation is the
     /// least that holds them. The rewrite production (`#KRewrite`) is the exception: the lowered
-    /// rewrite carries no sort, and compilation places each side at the position it builds for
-    /// it, so a parameter of the rewrite whose bounds have several minimal upper bounds (sides of
-    /// sorts `A` and `B` under two common supersorts) keeps the parser's inferred instantiation,
-    /// which holds both sides.
+    /// rewrite carries no sort, so a parameter of the rewrite whose bounds have several minimal
+    /// upper bounds (sides of sorts `A` and `B` under two common supersorts) keeps the parser's
+    /// inferred instantiation, which holds both sides. A rule's sides are placed at the position
+    /// compilation builds for each; where a later stage joins the sides (a cell-less claim, an
+    /// `#as` or or-pattern, an argument of another parametric production), that stage computes
+    /// their bound and rejects a sentence without a unique one.
     /// Returns the instantiated nonterminal sorts and the instantiated result sort.
     /// The node has `arity` children; `child_sort(index, expected)` is the list sort of the
     /// child at `index` at the sort its position expects, `None` where that sort mentions a
