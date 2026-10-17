@@ -50,6 +50,38 @@ fn reading(
     )
 }
 
+/// The prefix contract of the leaves finished before a stop: each is the leaf at its position in
+/// the larger run, by its reading, with the same diagnostics under `PathSet` and diagnostics
+/// among the larger leaf's under `StateSet`, where a later path merged into it adds its own.
+fn assert_prefix(
+    modality: ResultModality,
+    before: &[ExecutionLeaf],
+    larger: &[ExecutionLeaf],
+    context: &str,
+) {
+    assert!(larger.len() >= before.len(), "{context}");
+    for (position, (leaf, larger)) in before.iter().zip(larger).enumerate() {
+        assert_eq!(reading(leaf), reading(larger), "{context}, leaf {position}");
+        match modality {
+            ResultModality::PathSet => {
+                assert_eq!(
+                    leaf.diagnostics, larger.diagnostics,
+                    "{context}, leaf {position}"
+                );
+            }
+            ResultModality::StateSet => {
+                for diagnostic in &leaf.diagnostics {
+                    assert!(
+                        larger.diagnostics.contains(diagnostic),
+                        "{context}, leaf {position}: {diagnostic:?} not among {:?}",
+                        larger.diagnostics
+                    );
+                }
+            }
+        }
+    }
+}
+
 fn work_bound_leaves(result: &ExecutionResult) -> usize {
     result
         .leaves
@@ -170,7 +202,11 @@ fn node(definition: &BackendDefinition, name: &str) -> Pattern {
 
 /// Test 1: on a run without end, every budget stops the run at the same state: one `WorkBound`
 /// leaf, last, after exactly `k` states, and the leaves before it are the first leaves of the
-/// same request with a larger budget; the same budget gives identical results.
+/// same request with a larger budget, diagnostics included (equal under `PathSet`, among the
+/// larger leaf's under `StateSet`); the same budget gives identical results. The comb's leaves
+/// carry no diagnostic, so the comparison of diagnostics also runs on a branching run whose one
+/// branch exhausts the simplification budget (`growing_equation_definition` in `rewrite.rs`),
+/// at every budget below its count.
 #[test]
 fn a_work_budget_stops_a_branching_run_at_the_same_state() {
     let definition = comb();
@@ -197,18 +233,49 @@ fn a_work_budget_stops_a_branching_run_at_the_same_state() {
             );
             assert_eq!(larger.work, k + 1000);
             assert!(larger.leaves.len() > before.len());
-            assert_eq!(
-                before.iter().map(reading).collect::<Vec<_>>(),
-                larger.leaves[..before.len()]
-                    .iter()
-                    .map(reading)
-                    .collect::<Vec<_>>(),
-                "{modality:?} k = {k}"
+            assert_prefix(
+                modality,
+                before,
+                &larger.leaves,
+                &format!("{modality:?} k = {k}"),
             );
 
             let again = execute(&definition, initial.clone(), options(modality, Some(k)));
             assert_eq!(again, bounded, "{modality:?} k = {k}");
         }
+    }
+
+    let definition = crate::rewrite::growing_equation_definition(true);
+    let initial = pattern(&definition, "start{}()");
+    let growing = |modality, max_work| ExecutionOptions {
+        max_simplification_iterations: 3,
+        ..options(modality, max_work)
+    };
+    for modality in MODALITIES {
+        let unbounded = execute(&definition, initial.clone(), growing(modality, None));
+        assert_eq!(work_bound_leaves(&unbounded), 0, "{modality:?}");
+        let mut diagnosed_before_a_stop = false;
+        for k in 0..unbounded.work {
+            let bounded = execute(&definition, initial.clone(), growing(modality, Some(k)));
+            let (last, before) = bounded.leaves.split_last().expect("a leaf");
+            assert_eq!(
+                last.halt_reason,
+                HaltReason::WorkBound,
+                "{modality:?} k = {k}"
+            );
+            diagnosed_before_a_stop |= before.iter().any(|leaf| !leaf.diagnostics.is_empty());
+            assert_prefix(
+                modality,
+                before,
+                &unbounded.leaves,
+                &format!("growing {modality:?} k = {k}"),
+            );
+        }
+        assert!(
+            diagnosed_before_a_stop,
+            "{modality:?}: some budget stops the run after the diagnosed branch's leaf: \
+             {unbounded:#?}"
+        );
     }
 }
 

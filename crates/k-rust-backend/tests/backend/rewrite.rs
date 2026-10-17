@@ -5166,7 +5166,7 @@ fn concrete_chain(definition: &BackendDefinition, depth: usize) -> Term {
 /// `start => held(g(a))` (and `start => b` when `branching`), with the simplification equation
 /// `g(X) = g(g(X))`: simplifying any `g` application exhausts every budget, and nothing else
 /// in the definition simplifies.
-fn growing_equation_definition(branching: bool) -> BackendDefinition {
+pub(crate) fn growing_equation_definition(branching: bool) -> BackendDefinition {
     let right_rule = if branching {
         r#"
                 axiom{} \rewrites{SortS{}}(

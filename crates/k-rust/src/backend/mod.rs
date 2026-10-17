@@ -321,6 +321,14 @@ pub struct ExecuteRequest {
     /// length of traces, so a host keeps its own time and memory limits. Under `state-set` a leaf
     /// finished before the stop carries the diagnostics of the paths merged into it before the
     /// stop only, so they may differ from the same leaf's in a run with a larger budget.
+    ///
+    /// Every leaf finished before the `work-bound` leaf is a leaf of every run of the same
+    /// request with a larger budget or none, at the same position: the result without its
+    /// `work-bound` leaf is a prefix of theirs. Under `path-set` the leaf is the same in every
+    /// field; under `state-set` it has the same state, depth, halt reason, rule, trace, branch,
+    /// effects and console, and its diagnostics are among the larger run's (a later path merged
+    /// into it adds its own). This holds within the determinism contract above
+    /// (docs/compatibility.md, "Work budget").
     #[serde(default)]
     pub max_work: Option<u64>,
     /// Whether each leaf carries its path's trace ([`ExecutionLeaf::trace`]), O(depth) entries
