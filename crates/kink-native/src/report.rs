@@ -453,6 +453,9 @@ mod tests {
                 effects: Vec::new(),
                 timed_out: false,
                 stack_stops: 0,
+                modality: crate::execution::ResultModality::PathSet,
+                work: 0,
+                coverage: None,
             },
             BridgedPaths {
                 paths: vec![path],

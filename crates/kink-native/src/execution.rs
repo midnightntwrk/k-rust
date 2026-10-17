@@ -1,6 +1,17 @@
-//! Observed, time-bounded path-set execution through the public k-rust facade.
-//! Each explored path retains its own halt, observations, effects, and diagnostics.
-//! A watchdog cancels execution when the time budget expires.
+//! Time-bounded execution through the public k-rust facade (re-pin lane 1, L1-1).
+//!
+//! A result run ([`ExecutionAdapter::execute`], [`ExecutionAdapter::execute_result`]) is one
+//! unobserved run whose leaves are, by default, k-rust's state set: structurally equal final
+//! configurations merged ([`ResultModality::StateSet`]). A state set whose leaves include an
+//! undefined step (`Trivial`), a `Vacuous` leaf or a contradicted `total` claim is replaced by the
+//! path set of the same request, because under StateSet such a leaf's rule is witness metadata
+//! and its multiplicity differs (k-rust section_2_2_summary (4)), while kink's exclusions read
+//! that rule ([`crate::exclusion`]). A stepped run ([`ExecutionAdapter::execute_steps`]) stays an
+//! observed path set: one leaf per path, each with its own configuration sequence.
+//! Every run carries no trace and collects k-rust's run coverage ([`RunCoverage`]), and a
+//! cancelled run answers an error, so a timed-out run publishes no leaf. A watchdog cancels
+//! execution when the time budget expires; a result run may also carry a work budget
+//! (`max_work`), whose `work-bound` leaf makes the run incomplete.
 //! Each leaf also records whether its state is shown feasible or infeasible, and an
 //! indeterminate leaf its structured cause; the execution records the definition facts the
 //! bridge needs to use them ([`crate::feasibility`]).
@@ -21,8 +32,8 @@ use k_rust::backend::{
     BACKEND_SCHEMA_VERSION, Backend, BackendDiagnosticOutput, BackendError, CancelledResultOutput,
     ContradictedTotalOutput, EffectOutput, ExecuteRequest, ExecutionLeaf, ExecutionResult,
     ExecutionStrategy, HaltReasonOutput, ObservationEventOutput, ObservedRequest,
-    ResultModalityOutput, SearchFailureOutput, TraceEntry, TransitionClassOutput,
-    TransitionIdOutput,
+    ResultModalityOutput, RunCoverageOutput, SearchFailureOutput, TraceEntry,
+    TransitionClassOutput, TransitionIdOutput,
 };
 use k_rust::kore::{ast::Pattern, codec};
 use k_rust_backend::stop::{CancellationToken, StopCause};
@@ -47,8 +58,9 @@ pub enum HaltClass {
     SimplificationError,
     Timeout,
     Cancelled,
-    /// k-rust's `work-bound` halt (`max_work` reached). kink sends no `max_work`, so the
-    /// adapter never admits it: a leaf of this class is a contract violation (fail-closed).
+    /// k-rust's `work-bound` halt (`max_work` reached): the state as taken from the worklist,
+    /// unexpanded and unnormalised, and the pending states dropped. The adapter admits it only
+    /// for a request that set `max_work` ([`HaltClass::admitted_by`]); it never completes a run.
     WorkBound,
 }
 
@@ -70,24 +82,34 @@ impl HaltClass {
         Self::WorkBound,
     ];
 
-    /// Whether the adapter's request can yield this halt under `budget`.
+    /// Whether the adapter's request can yield this halt under `budget`, for a request without
+    /// a work budget (every stepped run, and a result run without `max_work`).
     #[must_use]
     pub const fn adapter_admits(self, budget: &ExecutionBudget) -> bool {
+        self.admitted_by(budget, None)
+    }
+
+    /// Whether the adapter's request can yield this halt under `budget` and `max_work`. A
+    /// `Cancelled` leaf never: every request answers a cancellation with an error
+    /// (`cancelled_result: error`, re-pin finding A-03). A `work-bound` leaf exactly when the
+    /// request set `max_work`.
+    #[must_use]
+    pub const fn admitted_by(self, budget: &ExecutionBudget, max_work: Option<u64>) -> bool {
         match self {
             Self::Stuck
             | Self::Trivial
             | Self::Vacuous
             | Self::Indeterminate
             | Self::UnsupportedHook
-            | Self::SimplificationError
-            | Self::Cancelled => true,
+            | Self::SimplificationError => true,
             Self::DepthBound => budget.max_depth.is_some(),
             Self::BreadthBound => budget.max_breadth.is_some(),
+            Self::WorkBound => max_work.is_some(),
             Self::Branch
             | Self::CutPoint
             | Self::TerminalRule
             | Self::Timeout
-            | Self::WorkBound => false,
+            | Self::Cancelled => false,
         }
     }
 
@@ -159,7 +181,7 @@ impl SolverProfile {
 /// Limits of one execution.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ExecutionBudget {
-    /// Wall-clock budget for the PathSet run.
+    /// Wall-clock budget of one run (the watchdog's).
     pub time: Duration,
     /// Simplifier iterations per rewrite step. Exhaustion is a backend diagnostic.
     pub max_simplification_iterations: usize,
@@ -178,6 +200,71 @@ impl ExecutionBudget {
             time_ms: Some(u64::try_from(self.time.as_millis()).unwrap_or(u64::MAX)),
             branches: self.max_breadth.map(|breadth| breadth.get() as u64),
             results: None,
+        }
+    }
+}
+
+/// The result modality of a result run (k-rust `result_modality`).
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum ResultModality {
+    /// One leaf per explored path.
+    PathSet,
+    /// Structurally equal final configurations merged, each distinct state of a depth expanded
+    /// once (k-rust's default). Its complete results have exactly the distinct final
+    /// configurations of the path set of the same request, diagnostics included (re-pin
+    /// decision 3: k-rust executes the definition correctly, its merge included).
+    #[default]
+    StateSet,
+}
+
+impl ResultModality {
+    const fn output(self) -> ResultModalityOutput {
+        match self {
+            Self::PathSet => ResultModalityOutput::PathSet,
+            Self::StateSet => ResultModalityOutput::StateSet,
+        }
+    }
+
+    /// The report name: `"path-set"` or `"state-set"`.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::PathSet => "path-set",
+            Self::StateSet => "state-set",
+        }
+    }
+}
+
+/// How a result run is requested besides its [`ExecutionBudget`]: its modality and its work
+/// budget (k-rust `max_work`: the most states the run may visit across all its paths). The
+/// default is a state set without a work budget.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub struct ResultRun {
+    pub modality: ResultModality,
+    pub max_work: Option<u64>,
+}
+
+/// k-rust's run coverage of one run (`collect_coverage`, `RunCoverageOutput`), by `UNIQUE_ID`:
+/// every rule and equation the run applied, every one whose condition it began to decide
+/// (`matched`, a superset), and the rewrite rules among `applied`: those for which a step built
+/// a successor or found the step undefined (the rule coverage kink schedules by,
+/// [`crate::coverage::TestCoverage`]). It covers every state the run explored, including leaves
+/// a state set merges away. Coverage is a scheduling and report input only.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct RunCoverage {
+    pub applied: BTreeSet<String>,
+    pub matched: BTreeSet<String>,
+    pub applied_rewrites: BTreeSet<String>,
+}
+
+impl RunCoverage {
+    fn of(output: RunCoverageOutput, rewrites: &BTreeSet<String>) -> Self {
+        let applied = output.applied.into_iter().collect::<BTreeSet<_>>();
+        let applied_rewrites = applied.intersection(rewrites).cloned().collect();
+        Self {
+            applied,
+            matched: output.matched.into_iter().collect(),
+            applied_rewrites,
         }
     }
 }
@@ -235,7 +322,8 @@ impl UndefinedStepRule {
     }
 }
 
-/// The adapted leaves of one execution. Built only by [`ExecutionAdapter::execute`].
+/// The adapted leaves of one execution. Built only by [`ExecutionAdapter::execute`] and its
+/// siblings.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AdaptedExecution {
     pub(crate) leaves: Vec<AdaptedLeaf>,
@@ -244,6 +332,14 @@ pub struct AdaptedExecution {
     /// k-rust's count of the stops for lack of native stack the run met (`stackStops`), whether
     /// or not a site dismissed them (re-pin finding A-06).
     pub(crate) stack_stops: usize,
+    /// The modality of `leaves`: the request's, or `PathSet` when a state set was replaced by
+    /// the path set of the same request ([`ExecutionAdapter::execute_result`]).
+    pub(crate) modality: ResultModality,
+    /// k-rust's count of the states the run visited (`work`, the unit `max_work` bounds); 0 for
+    /// a timed-out run, which reports no result.
+    pub(crate) work: u64,
+    /// k-rust's run coverage; `None` for a timed-out run.
+    pub(crate) coverage: Option<RunCoverage>,
 }
 
 /// An observation-layer failure of a stepped run. The execution itself can still be used
@@ -273,6 +369,8 @@ pub struct UnobservedExecution {
     /// k-rust's count of the run's stops for lack of native stack, as
     /// [`AdaptedExecution::stack_stops`].
     pub stack_stops: usize,
+    /// k-rust's run coverage, as [`AdaptedExecution::coverage`].
+    pub coverage: Option<RunCoverage>,
 }
 
 /// A path-set leaf after observation state is erased: every field of the backend leaf that
@@ -343,6 +441,24 @@ impl AdaptedExecution {
     pub const fn stack_stops(&self) -> usize {
         self.stack_stops
     }
+
+    /// The modality the leaves were computed under.
+    #[must_use]
+    pub const fn modality(&self) -> ResultModality {
+        self.modality
+    }
+
+    /// The states the run visited (k-rust `work`); 0 for a timed-out run.
+    #[must_use]
+    pub const fn work(&self) -> u64 {
+        self.work
+    }
+
+    /// k-rust's run coverage; `None` for a timed-out run.
+    #[must_use]
+    pub const fn coverage(&self) -> Option<&RunCoverage> {
+        self.coverage.as_ref()
+    }
 }
 
 /// Execution adapter failure. No adapted execution is returned.
@@ -360,23 +476,33 @@ pub enum ExecutionAdapterFailure {
     UninhabitedVariable(k_rust::kore::ast::Variable),
 }
 
-/// The bounded PathSet request. Strategy `all` is what makes the leaves the whole path set: every
-/// instance's every successor is followed, so a `Trivial` leaf is an undefined step for each of
-/// its instances and the leaves cover the initial state. Under `any` a step gives an instance one
-/// successor, from the first rule of its highest applicable priority that is defined there
-/// (k-rust KK-73), so the events of the other successors are missing; and it follows one
-/// collection candidate per rule, so an instance matched only through another candidate may have
-/// a defined successor although its leaf is `Trivial`. Stop-at-branch, cut-point and terminal
-/// rules are off, so no leaf stops at a branch or a designated rule.
+/// The bounded request of one run. Strategy `all` is what makes the leaves the whole path set (or,
+/// merged, the whole state set): every instance's every successor is followed, so a `Trivial`
+/// leaf is an undefined step for each of its instances and the leaves cover the initial state.
+/// Under `any` a step gives an instance one successor, from the first rule of its highest
+/// applicable priority that is defined there (k-rust KK-73), so the events of the other
+/// successors are missing; and it follows one collection candidate per rule, so an instance
+/// matched only through another candidate may have a defined successor although its leaf is
+/// `Trivial`. Stop-at-branch, cut-point and terminal rules are off, so no leaf stops at a branch or
+/// a designated rule.
 ///
 /// The request is a full struct literal with no struct-update base (no defaults taken from
 /// `ExecuteRequest::new`), so a field k-rust adds at a later pin is a compile error that forces a
-/// decision here instead of a silent wire default (re-pin findings D-05, D-07). The four fields k-rust 501f18b9 added keep the
-/// behaviour kink had at 927b9ce6, chosen explicitly: `trace` on, a cancelled run answers its
-/// `Partial` leaves (the watchdog's `timed_out` flag, not leaf presence, makes it Timeout), no
-/// `max_work` (so a `work-bound` leaf is a contract violation, [`HaltClass::WorkBound`]), and no
-/// coverage. Lane 1 of the re-pin changes them (F-11 rewrite).
-fn request(state: Pattern, budget: ExecutionBudget) -> ExecuteRequest {
+/// decision here instead of a silent wire default (re-pin findings D-05, D-07). The four fields
+/// k-rust 501f18b9 added are chosen for re-pin lane 1 (L1-1):
+/// - `trace: false`: kink reads no trace; rule coverage and the leaf census read `coverage`
+///   instead (findings A-02, D-04), and k-rust changes no other field of the result;
+/// - `collect_coverage: true` on every run, so coverage is never empty where a run returns a
+///   result; collecting changes no other field of the result;
+/// - `cancelled_result: error`: a cancelled run answers `Err` with stop cause `Cancelled`, which
+///   [`settle`] makes a timeout, and k-rust builds none of the leaves a timed-out run's caller
+///   never reads (finding A-03);
+/// - `max_work`: `run.max_work` (none for a stepped run and by default); its `work-bound` leaf
+///   is admitted exactly then ([`HaltClass::admitted_by`]).
+///
+/// Step timeouts stay off: a step deadline is host-dependent, which an Execute-promise run must
+/// not be (finding A-03).
+fn request(state: Pattern, budget: ExecutionBudget, run: ResultRun) -> ExecuteRequest {
     ExecuteRequest {
         state,
         module_name: None,
@@ -390,13 +516,30 @@ fn request(state: Pattern, budget: ExecutionBudget) -> ExecuteRequest {
         step_timeout_ms: None,
         moving_average_timeout: false,
         assume_state_defined: false,
-        result_modality: ResultModalityOutput::PathSet,
-        collect_coverage: false,
-        max_work: None,
-        trace: true,
-        cancelled_result: CancelledResultOutput::Partial,
+        result_modality: run.modality.output(),
+        collect_coverage: true,
+        max_work: run.max_work,
+        trace: false,
+        cancelled_result: CancelledResultOutput::Error,
         schema_version: BACKEND_SCHEMA_VERSION,
     }
+}
+
+/// The request of a stepped run: an observed path set without a work budget.
+const STEPPED: ResultRun = ResultRun {
+    modality: ResultModality::PathSet,
+    max_work: None,
+};
+
+/// Whether a state-set leaf is one whose rule or multiplicity kink's exclusions read, which
+/// k-rust's state set reports only as witness metadata (k-rust section_2_2_summary (4); KINK-01
+/// criterion 2: Trivial and Vacuous leaves agree with the path set as sets of (depth, state,
+/// obligation), their rule ids as witness metadata): an undefined step (decision 2's
+/// `preserves-definedness` check and the short-circuit check read its rule), a vacuous leaf, or a
+/// leaf naming a contradicted `total` claim.
+fn path_set_leaf(leaf: &AdaptedLeaf) -> bool {
+    matches!(leaf.halt, HaltClass::Trivial | HaltClass::Vacuous)
+        || leaf.contradicted_total.is_some()
 }
 
 /// Event-free and stepped execution in one expected solver profile.
@@ -433,30 +576,92 @@ impl ExecutionAdapter {
         }
     }
 
-    /// Executes `state` from the backend's default module as one observed PathSet run.
+    /// Executes `state` from the backend's default module as one result run with the default
+    /// [`ResultRun`]: a state set without a work budget ([`Self::execute_result`]).
     pub fn execute(
         &self,
         backend: &mut Backend,
         state: &Pattern,
         budget: ExecutionBudget,
     ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
+        self.execute_result(backend, state, budget, ResultRun::default())
+    }
+
+    /// Executes `state` from the backend's default module as one unobserved result run under
+    /// `run`. A state set none of whose leaves is an undefined step, a vacuous leaf or a
+    /// contradicted claim ([`path_set_leaf`]) is returned as it is; otherwise the path set of the
+    /// same request replaces it, so every such leaf kink's exclusions read has its own rule and
+    /// multiplicity. A timed-out state set is returned as it is: it publishes no leaf.
+    pub fn execute_result(
+        &self,
+        backend: &mut Backend,
+        state: &Pattern,
+        budget: ExecutionBudget,
+        run: ResultRun,
+    ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
         self.check_profile(backend)?;
-        let encoded = state.clone();
-        let inhabitation = with_definition(backend, |definition| {
+        let (inhabitation, rewrites) = with_definition(backend, |definition| {
             let inhabitation = Inhabitation::of(definition);
             match uninhabited_variable(definition, &inhabitation, state) {
-                Ok(None) => Ok(inhabitation),
+                Ok(None) => Ok((inhabitation, rewrite_unique_ids(definition))),
                 Ok(Some(variable)) => Err(ExecutionAdapterFailure::UninhabitedVariable(variable)),
                 Err(error) => Err(ExecutionAdapterFailure::InvalidState(error)),
             }
         })?;
+        let execution = self.result_once(backend, state, budget, run, &inhabitation, &rewrites)?;
+        if run.modality == ResultModality::StateSet
+            && !execution.timed_out
+            && execution.leaves.iter().any(path_set_leaf)
+        {
+            return self.result_once(
+                backend,
+                state,
+                budget,
+                ResultRun {
+                    modality: ResultModality::PathSet,
+                    ..run
+                },
+                &inhabitation,
+                &rewrites,
+            );
+        }
+        Ok(execution)
+    }
+
+    /// One result run under `run` exactly as k-rust answers it, without replacing a state set
+    /// whose leaves the exclusions read by its path set (`execute_result` does that). For the
+    /// modality differential (re-pin decision 3, finding A-01) and for tools; never a verdict's
+    /// run.
+    pub fn execute_once(
+        &self,
+        backend: &mut Backend,
+        state: &Pattern,
+        budget: ExecutionBudget,
+        run: ResultRun,
+    ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
+        self.check_profile(backend)?;
+        let (inhabitation, rewrites) = with_definition(backend, |definition| {
+            let inhabitation = Inhabitation::of(definition);
+            match uninhabited_variable(definition, &inhabitation, state) {
+                Ok(None) => Ok((inhabitation, rewrite_unique_ids(definition))),
+                Ok(Some(variable)) => Err(ExecutionAdapterFailure::UninhabitedVariable(variable)),
+                Err(error) => Err(ExecutionAdapterFailure::InvalidState(error)),
+            }
+        })?;
+        self.result_once(backend, state, budget, run, &inhabitation, &rewrites)
+    }
+
+    fn result_once(
+        &self,
+        backend: &mut Backend,
+        state: &Pattern,
+        budget: ExecutionBudget,
+        run: ResultRun,
+        inhabitation: &Inhabitation,
+        rewrites: &BTreeSet<String>,
+    ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
         let (result, timed_out) =
-            execute_with_watchdog(backend, encoded, budget, |backend, request| {
-                backend.execute_observed(ObservedRequest {
-                    request,
-                    rules: Some(Vec::new()),
-                })
-            })?;
+            execute_with_watchdog(backend, state.clone(), budget, run, Backend::execute)?;
         let feasibility = if timed_out {
             vec![LeafFeasibility::Unknown; result.leaves.len()]
         } else {
@@ -465,18 +670,24 @@ impl ExecutionAdapter {
                     result
                         .leaves
                         .iter()
-                        .map(|leaf| {
-                            leaf_feasibility(definition, solver, &inhabitation, &leaf.state)
-                        })
+                        .map(|leaf| leaf_feasibility(definition, solver, inhabitation, &leaf.state))
                         .collect(),
                 )
             })?
         };
-        Self::adapt(result, timed_out, &budget, feasibility)
+        Self::adapt(
+            result,
+            timed_out,
+            &budget,
+            run.max_work,
+            feasibility,
+            rewrites,
+        )
     }
 
-    /// Execute once with every rewrite transition observed, retaining the states of each step.
-    /// An observation failure is returned separately from an execution failure.
+    /// Execute once with every rewrite transition observed, retaining the states of each step:
+    /// an observed path set without a work budget. An observation failure is returned
+    /// separately from an execution failure.
     pub fn execute_steps(
         &self,
         backend: &mut Backend,
@@ -485,10 +696,14 @@ impl ExecutionAdapter {
     ) -> Result<Result<SteppedExecution, StepRunFailure>, ExecutionAdapterFailure> {
         self.check_profile(backend)?;
         let encoded = state.clone();
-        let (inhabitation, ids) = with_definition(backend, |definition| {
+        let (inhabitation, ids, rewrites) = with_definition(backend, |definition| {
             let inhabitation = Inhabitation::of(definition);
             match uninhabited_variable(definition, &inhabitation, state) {
-                Ok(None) => Ok((inhabitation, rewrite_ids(definition))),
+                Ok(None) => Ok((
+                    inhabitation,
+                    rewrite_ids(definition),
+                    rewrite_unique_ids(definition),
+                )),
                 Ok(Some(variable)) => Err(ExecutionAdapterFailure::UninhabitedVariable(variable)),
                 Err(error) => Err(ExecutionAdapterFailure::InvalidState(error)),
             }
@@ -498,7 +713,7 @@ impl ExecutionAdapter {
             Err(failure) => return Ok(Err(failure)),
         };
         let (result, timed_out) =
-            execute_with_watchdog(backend, encoded, budget, |backend, request| {
+            execute_with_watchdog(backend, encoded, budget, STEPPED, |backend, request| {
                 backend.execute_observed(ObservedRequest {
                     request,
                     rules: Some(ids),
@@ -511,7 +726,7 @@ impl ExecutionAdapter {
                 leaf.observations.clear();
             }
             return Ok(Ok(SteppedExecution {
-                adapted: Self::adapt(result, true, &budget, feasibility)?,
+                adapted: Self::adapt(result, true, &budget, None, feasibility, &rewrites)?,
                 states: Vec::new(),
             }));
         }
@@ -538,11 +753,11 @@ impl ExecutionAdapter {
         for leaf in &mut result.leaves {
             leaf.observations.clear();
         }
-        let adapted = Self::adapt(result, false, &budget, feasibility)?;
+        let adapted = Self::adapt(result, false, &budget, None, feasibility, &rewrites)?;
         Ok(Ok(SteppedExecution { adapted, states }))
     }
 
-    /// Executes the same PathSet request without observation rules.
+    /// Executes the stepped run's path-set request without observation rules.
     pub fn execute_unobserved(
         &self,
         backend: &mut Backend,
@@ -550,9 +765,10 @@ impl ExecutionAdapter {
         budget: ExecutionBudget,
     ) -> Result<UnobservedExecution, ExecutionAdapterFailure> {
         self.check_profile(backend)?;
+        let rewrites = with_definition(backend, |definition| Ok(rewrite_unique_ids(definition)))?;
         let encoded = state.clone();
         let (result, timed_out) =
-            execute_with_watchdog(backend, encoded, budget, Backend::execute)?;
+            execute_with_watchdog(backend, encoded, budget, STEPPED, Backend::execute)?;
         let leaves = result
             .leaves
             .into_iter()
@@ -587,6 +803,9 @@ impl ExecutionAdapter {
             leaves,
             timed_out,
             stack_stops: result.stack_stops,
+            coverage: result
+                .coverage
+                .map(|coverage| RunCoverage::of(coverage, &rewrites)),
         })
     }
 
@@ -594,15 +813,21 @@ impl ExecutionAdapter {
         result: ExecutionResult,
         timed_out: bool,
         budget: &ExecutionBudget,
+        max_work: Option<u64>,
         feasibility: Vec<LeafFeasibility>,
+        rewrites: &BTreeSet<String>,
     ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
+        let modality = match result.modality {
+            ResultModalityOutput::PathSet => ResultModality::PathSet,
+            ResultModalityOutput::StateSet => ResultModality::StateSet,
+        };
         let leaves = result
             .leaves
             .into_iter()
             .zip(feasibility)
             .map(|(leaf, feasibility)| {
                 let halt = HaltClass::from_output(leaf.reason);
-                if !halt.adapter_admits(budget) {
+                if !halt.admitted_by(budget, max_work) {
                     return Err(ExecutionAdapterFailure::ContractViolation(halt));
                 }
                 Ok(AdaptedLeaf {
@@ -635,20 +860,34 @@ impl ExecutionAdapter {
             effects: result.effects,
             timed_out,
             stack_stops: result.stack_stops,
+            modality,
+            work: result.work,
+            coverage: result
+                .coverage
+                .map(|coverage| RunCoverage::of(coverage, rewrites)),
         })
     }
 
     /// The adapted execution of a raw backend `result`, exactly as [`Self::execute`] adapts the
-    /// result of its run: every halt is checked against `budget`'s request, and `feasibility`
-    /// gives each leaf's state feasibility in leaf order. For tests and tools that hold a result
-    /// k-rust returned; a value built here is no more evidence than the result it is built from.
+    /// result of its run: every halt is checked against `budget`'s request (without a work
+    /// budget), and `feasibility` gives each leaf's state feasibility in leaf order. Coverage, if
+    /// the result carries any, has no rewrite rules named (`applied_rewrites` is empty). For
+    /// tests and tools that hold a result k-rust returned; a value built here is no more
+    /// evidence than the result it is built from.
     pub fn adapt_result(
         result: ExecutionResult,
         timed_out: bool,
         budget: &ExecutionBudget,
         feasibility: Vec<LeafFeasibility>,
     ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
-        Self::adapt(result, timed_out, budget, feasibility)
+        Self::adapt(
+            result,
+            timed_out,
+            budget,
+            None,
+            feasibility,
+            &BTreeSet::new(),
+        )
     }
 }
 
@@ -656,6 +895,7 @@ fn execute_with_watchdog(
     backend: &mut Backend,
     state: Pattern,
     budget: ExecutionBudget,
+    run: ResultRun,
     execute: impl FnOnce(&mut Backend, ExecuteRequest) -> Result<ExecutionResult, BackendError>,
 ) -> Result<(ExecutionResult, bool), ExecutionAdapterFailure> {
     let token = CancellationToken::new();
@@ -677,24 +917,27 @@ fn execute_with_watchdog(
             }
         })
     };
-    let outcome = token.scope(|| execute(backend, request(state, budget)));
+    let outcome = token.scope(|| execute(backend, request(state, budget, run)));
     // Stop the watchdog, then read whether it fired before the run ended.
     drop(done);
     watchdog.join().expect("watchdog thread does not panic");
-    let (result, timed_out) = settle(outcome, fired.load(Ordering::Acquire))?;
-    assert_eq!(result.modality, ResultModalityOutput::PathSet);
+    let (result, timed_out) = settle(outcome, fired.load(Ordering::Acquire), run.modality)?;
+    assert_eq!(result.modality, run.modality.output());
     Ok((result, timed_out))
 }
 
 /// How a run ended (re-pin finding A-04/A-05, answers section 2.3): a timeout exactly when kink's
-/// watchdog `fired`, or k-rust answers an error whose stop cause is `Cancelled` (the portable
-/// build answers a token already cancelled at entry that way, section_2_2_summary (5)), or an
-/// `Ok` result with a `Cancelled` leaf. A timed-out run publishes no completed state: after an
-/// error it has no leaves, and its leaves are never decoded. Every other error, a stack or
-/// deadline stop included, is an infrastructure failure, never a timeout.
+/// watchdog `fired`, or k-rust answers an error whose stop cause is `Cancelled` (every request
+/// sets `cancelled_result: error`, so this is how k-rust answers a cancellation, and the
+/// portable build answers a token already cancelled at entry that way, section_2_2_summary
+/// (5)), or an `Ok` result with a `Cancelled` leaf (which the request excludes; the adapter then
+/// refuses the leaf, [`HaltClass::admitted_by`]). A timed-out run publishes no completed state:
+/// after an error it has no leaves, and its leaves are never decoded. Every other error, a stack
+/// or deadline stop included, is an infrastructure failure, never a timeout.
 fn settle(
     outcome: Result<ExecutionResult, BackendError>,
     fired: bool,
+    modality: ResultModality,
 ) -> Result<(ExecutionResult, bool), ExecutionAdapterFailure> {
     match outcome {
         Ok(result) => {
@@ -706,7 +949,7 @@ fn settle(
         }
         Err(error) if fired || matches!(error.stop_cause(), Some(StopCause::Cancelled)) => Ok((
             ExecutionResult {
-                modality: ResultModalityOutput::PathSet,
+                modality: modality.output(),
                 leaves: Vec::new(),
                 effects: Vec::new(),
                 discarded: Vec::new(),
@@ -719,6 +962,20 @@ fn settle(
         )),
         Err(error) => Err(ExecutionAdapterFailure::Backend(error.to_string())),
     }
+}
+
+/// The `UNIQUE_ID`s of the definition's rewrite rules: the ids [`RunCoverage::applied_rewrites`]
+/// keeps.
+fn rewrite_unique_ids(
+    definition: &k_rust_backend::definition::BackendDefinition,
+) -> BTreeSet<String> {
+    definition
+        .rewrite_theory()
+        .values()
+        .flat_map(|priorities| priorities.values())
+        .flatten()
+        .map(|rule| rule.rule.attributes.unique_id.clone())
+        .collect()
 }
 
 /// Mirror the ambiguity checks of k-rust's observation allow-list before a run, so a
@@ -1095,12 +1352,14 @@ mod tests {
         // An `Err` whose stop cause is `Cancelled`, with the watchdog not fired: Timeout.
         let token = CancellationToken::new();
         token.cancel();
-        let cancelled = token.scope(|| backend.execute(request(state.clone(), budget)));
+        let cancelled =
+            token.scope(|| backend.execute(request(state.clone(), budget, ResultRun::default())));
         let error = cancelled
             .as_ref()
             .expect_err("a cancelled entry answers Err");
         assert_eq!(error.stop_cause(), Some(&StopCause::Cancelled));
-        let (result, timed_out) = settle(cancelled, false).expect("a timeout");
+        let (result, timed_out) =
+            settle(cancelled, false, ResultModality::StateSet).expect("a timeout");
         assert!(timed_out && result.leaves.is_empty());
         // An `Err` that is no stop at all (an unknown symbol), the watchdog not fired: an
         // infrastructure failure, never a timeout; with the watchdog fired it is a timeout.
@@ -1111,27 +1370,97 @@ mod tests {
             },
             arguments: Vec::new(),
         };
-        let failed = backend.execute(request(unknown.clone(), budget));
+        let failed = backend.execute(request(unknown.clone(), budget, ResultRun::default()));
         let error = failed.as_ref().expect_err("an unknown symbol fails");
         assert_eq!(error.stop_cause(), None);
         assert!(matches!(
-            settle(failed, false),
+            settle(failed, false, ResultModality::StateSet),
             Err(ExecutionAdapterFailure::Backend(_))
         ));
-        assert!(settle(backend.execute(request(unknown, budget)), true).is_ok_and(|(_, t)| t));
+        assert!(
+            settle(
+                backend.execute(request(unknown, budget, ResultRun::default())),
+                true,
+                ResultModality::StateSet
+            )
+            .is_ok_and(|(_, t)| t)
+        );
         // An `Ok` result: a timeout exactly when the watchdog fired or a leaf is `Cancelled`.
-        let complete = backend.execute(request(state.clone(), budget)).unwrap();
+        let complete = backend
+            .execute(request(state.clone(), budget, ResultRun::default()))
+            .unwrap();
         assert!(
             complete
                 .leaves
                 .iter()
                 .all(|leaf| leaf.reason != HaltReasonOutput::Cancelled)
         );
-        assert!(!settle(Ok(complete.clone()), false).unwrap().1);
-        assert!(settle(Ok(complete.clone()), true).unwrap().1);
+        let state_set = ResultModality::StateSet;
+        assert!(!settle(Ok(complete.clone()), false, state_set).unwrap().1);
+        assert!(settle(Ok(complete.clone()), true, state_set).unwrap().1);
         let mut cancelled_leaf = complete;
         cancelled_leaf.leaves[0].reason = HaltReasonOutput::Cancelled;
-        assert!(settle(Ok(cancelled_leaf), false).unwrap().1);
+        assert!(
+            settle(Ok(cancelled_leaf.clone()), false, state_set)
+                .unwrap()
+                .1
+        );
+        // Re-pin L1-1 (finding A-03): the request answers a cancellation with an error, so a
+        // `Cancelled` leaf is outside its contract and the adapter refuses it.
+        assert_eq!(
+            ExecutionAdapter::adapt_result(
+                cancelled_leaf,
+                true,
+                &budget,
+                vec![LeafFeasibility::Unknown]
+            ),
+            Err(ExecutionAdapterFailure::ContractViolation(
+                HaltClass::Cancelled
+            ))
+        );
+    }
+
+    /// Re-pin L1-1: the request kink sends, field by field. Every run collects coverage and
+    /// carries no trace, a cancellation answers an error, step timeouts stay off, and the result
+    /// run's modality and work budget are the caller's.
+    #[test]
+    fn the_request_sets_the_lane_1_options() {
+        let state = Pattern::Application {
+            symbol: Symbol {
+                name: "Lbla".to_owned(),
+                sort_parameters: Vec::new(),
+            },
+            arguments: Vec::new(),
+        };
+        let budget = ExecutionBudget {
+            time: Duration::from_secs(1),
+            max_simplification_iterations: 7,
+            max_depth: Some(3),
+            max_breadth: None,
+        };
+        for run in [
+            ResultRun::default(),
+            STEPPED,
+            ResultRun {
+                modality: ResultModality::StateSet,
+                max_work: Some(11),
+            },
+        ] {
+            let request = request(state.clone(), budget, run);
+            assert_eq!(request.result_modality, run.modality.output());
+            assert_eq!(request.max_work, run.max_work);
+            assert!(request.collect_coverage);
+            assert!(!request.trace);
+            assert_eq!(request.cancelled_result, CancelledResultOutput::Error);
+            assert_eq!(request.step_timeout_ms, None);
+            assert!(!request.moving_average_timeout);
+            assert_eq!(request.max_depth, Some(3));
+            assert_eq!(request.max_simplification_iterations, 7);
+        }
+        assert_eq!(ResultRun::default().modality, ResultModality::StateSet);
+        assert_eq!(ResultRun::default().max_work, None);
+        assert_eq!(STEPPED.modality, ResultModality::PathSet);
+        assert_eq!(STEPPED.max_work, None);
     }
 
     #[test]
@@ -1145,10 +1474,11 @@ mod tests {
         assert!(!HaltClass::DepthBound.adapter_admits(&budget));
     }
 
-    /// Re-pin R0a (findings E-02, E-05): kink sends no `max_work` (`request`), so a `work-bound`
-    /// leaf is never admitted. Whatever the budget and whatever leaves surround it, the adapter
-    /// answers `ContractViolation` and publishes no leaf, so the run has no operand and can never
-    /// Distinguish (the campaign maps the failure to Infrastructure, oracles.rs
+    /// Re-pin R0a (findings E-02, E-05), L1-1: a request without `max_work` (every stepped run,
+    /// and a result run without a work budget) never admits a `work-bound` leaf: whatever the
+    /// budget and whatever leaves surround it, the adapter answers `ContractViolation` and
+    /// publishes no leaf. A request with `max_work` admits it, and the bridge makes its path
+    /// incomplete without a real prefix (bridge `halt_stop`; oracles.rs
     /// `work_bound_leaf_never_yields_distinguish`).
     #[test]
     fn work_bound_leaf_is_a_contract_violation_under_every_budget() {
@@ -1201,6 +1531,10 @@ mod tests {
                 max_breadth,
             };
             assert!(!HaltClass::WorkBound.adapter_admits(&budget), "{budget:?}");
+            assert!(
+                HaltClass::WorkBound.admitted_by(&budget, Some(1)),
+                "{budget:?}"
+            );
             for leaves in [
                 vec![leaf(HaltReasonOutput::WorkBound)],
                 vec![
@@ -1215,12 +1549,27 @@ mod tests {
                             result(leaves.clone()),
                             timed_out,
                             &budget,
-                            feasibility.clone()
+                            None,
+                            feasibility.clone(),
+                            &BTreeSet::new(),
                         ),
                         Err(ExecutionAdapterFailure::ContractViolation(
                             HaltClass::WorkBound
                         )),
                         "{budget:?} timed_out={timed_out}"
+                    );
+                    let admitted = ExecutionAdapter::adapt(
+                        result(leaves.clone()),
+                        timed_out,
+                        &budget,
+                        Some(1),
+                        feasibility.clone(),
+                        &BTreeSet::new(),
+                    )
+                    .expect("a work budget admits its leaf");
+                    assert_eq!(
+                        admitted.leaves().last().map(|leaf| leaf.halt),
+                        Some(HaltClass::WorkBound)
                     );
                 }
             }

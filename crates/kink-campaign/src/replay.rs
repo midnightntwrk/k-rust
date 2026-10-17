@@ -265,6 +265,7 @@ fn replay_checked(
             schedule: declaration.schedule,
             selection: declaration.selection,
             share_evidence: true,
+            run: crate::RunOptions::default(),
         },
     )
     .map_err(|e| ReplayRefusal::Campaign(e.to_string()))?;

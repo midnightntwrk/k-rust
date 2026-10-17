@@ -505,13 +505,11 @@ fn a_timed_out_run_with_a_contradiction_never_distinguishes() {
             )
             .unwrap();
         assert!(execution.timed_out());
-        assert!(
-            execution
-                .leaves()
-                .iter()
-                .any(|leaf| leaf.contradicted_total.is_some()),
-            "{execution:?}"
-        );
+        // Re-pin L1-1 (finding A-03): every request answers a cancellation with an error, so the
+        // timed-out run publishes no leaf at all, the contradicted one included. Before, under
+        // `cancelled_result: partial`, it returned the leaves finished before the cancel, one of
+        // them naming the contradicted `total` claim; either way the run is never compared.
+        assert!(execution.leaves().is_empty(), "{execution:?}");
 
         let validator = r0c_validator("tdivloop");
         let generation = one_to_zero(validator.baseline(), "TDIVLOOP.tdeq");

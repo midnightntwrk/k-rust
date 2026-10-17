@@ -11,6 +11,12 @@ syntax_module = "IMP-SYNTAX"
 # is kept small.
 time_ms = 10000
 max_depth = 100000
+# A mutant's run of a program may visit at most 4 times the states the program's
+# baseline run visited, plus 10000 (re-pin L1-1): a mutant that loops where the
+# baseline ends is unknown on that program in well under a second instead of
+# running out the time bound. Factor 1 already keeps every status and killer of
+# this list (README.md).
+work_factor = 4
 
 # The lesson's three programs, with the loop bounds reduced so that a run ends.
 

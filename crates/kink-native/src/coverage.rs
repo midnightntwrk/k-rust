@@ -8,10 +8,17 @@
 //! On a mutant side each address is mapped back to the baseline sentence it came from through
 //! the mutant's sentence origins; an inserted sentence has no baseline author.
 //!
-//! [`TestCoverage`] collects the rule identities of one run's leaves: the branch identities
-//! (the ids inside a `remainder:` entry included), the `rewrite` and `remainder` trace entries
-//! and the rule of an undefined step. Equations that decide a rule's condition are not in the
-//! trace, so an equation edit is never covered by any test (ticket CS-T09).
+//! [`TestCoverage`] collects the rewrite rules one run applied. Since re-pin lane 1 (L1-1) every
+//! run collects k-rust's run coverage (`collect_coverage`) and carries no trace, so the rule ids
+//! are the rewrite rules among the coverage's `applied` ids
+//! ([`crate::execution::RunCoverage::applied_rewrites`]): every rewrite rule for which a step
+//! built a successor or found the step undefined, over every state the run explored, the states
+//! a state-set result merges away included. That is what the leaves' branch identities, their
+//! `rewrite` and `remainder` trace entries and the rule of an undefined step gave before, which
+//! is still the reading of an execution that carries no coverage ([`TestCoverage::of_execution`]
+//! of a hand-built result). Equations (coverage's other `applied` ids) are left out, as before,
+//! so an equation edit is still never covered by any test (ticket CS-T09; lane 2's L2-1 changes
+//! that, with a new [`COVERAGE_DOMAIN`]).
 //!
 //! Coverage is a scheduling input only. No oracle, fold, status or score reads it: rule
 //! identity enters scheduling, never an observation (SO-D1 = a).
@@ -177,8 +184,8 @@ impl RuleAuthors {
 pub struct TestCoverage {
     pub test_id: String,
     /// The run did not time out and every leaf is `Stuck`, `Trivial` or `Vacuous` with no
-    /// diagnostic (leaf, candidate or remainder) and no trace entry of an unknown kind. A run
-    /// that is not complete covers only what it explored.
+    /// diagnostic (leaf, candidate or remainder) and, for a run read from its trace, no trace
+    /// entry of an unknown kind. A run that is not complete covers only what it explored.
     pub complete: bool,
     /// The committed rule identities (README corpus-scale 4.5).
     pub rule_ids: BTreeSet<String>,
@@ -244,13 +251,35 @@ fn insert_ids(ids: &mut BTreeSet<String>, entry: &str) {
 }
 
 impl TestCoverage {
-    /// The coverage of an observed or stepped run (for a stepped run, its `adapted` leaves).
+    /// The coverage of a result or stepped run (for a stepped run, its `adapted` leaves): the
+    /// rewrite rules of k-rust's run coverage when the run carries it, as every adapter run does;
+    /// otherwise what its leaves' branches and traces name.
     #[must_use]
     pub fn of_execution(
         test_id: &str,
         execution: &AdaptedExecution,
         authors: &RuleAuthors,
     ) -> Self {
+        let leaves = execution.leaves().iter().map(LeafView::adapted);
+        match execution.coverage() {
+            Some(coverage) => Self::of_run(
+                test_id,
+                execution.timed_out(),
+                leaves,
+                &coverage.applied_rewrites,
+                authors,
+            ),
+            None => Self::of_leaves(test_id, execution.timed_out(), leaves, authors),
+        }
+    }
+
+    /// The coverage an execution's leaves name, ignoring its run coverage: branch identities
+    /// (a stepped run's), `rewrite` and `remainder` trace entries, and the rule of an undefined
+    /// step. This is the reading before re-pin L1-1; it is kept for the coverage differential
+    /// (equal rule ids from a stepped path set's branches and from a run's coverage) until lane
+    /// 2's L2-1 retires it.
+    #[must_use]
+    pub fn of_branches(test_id: &str, execution: &AdaptedExecution, authors: &RuleAuthors) -> Self {
         Self::of_leaves(
             test_id,
             execution.timed_out(),
@@ -259,20 +288,46 @@ impl TestCoverage {
         )
     }
 
-    /// The coverage of an unobserved run: its leaves carry no branch identity, so it reads the
-    /// trace alone, which lists the same rewrite and remainder ids (M-C4).
+    /// The coverage of an unobserved run, as [`Self::of_execution`]; without run coverage its
+    /// leaves carry no branch identity, so it reads the trace alone, which lists the same
+    /// rewrite and remainder ids (M-C4).
     #[must_use]
     pub fn of_unobserved(
         test_id: &str,
         execution: &UnobservedExecution,
         authors: &RuleAuthors,
     ) -> Self {
-        Self::of_leaves(
-            test_id,
-            execution.timed_out,
-            execution.leaves.iter().map(LeafView::unobserved),
-            authors,
-        )
+        let leaves = execution.leaves.iter().map(LeafView::unobserved);
+        match &execution.coverage {
+            Some(coverage) => Self::of_run(
+                test_id,
+                execution.timed_out,
+                leaves,
+                &coverage.applied_rewrites,
+                authors,
+            ),
+            None => Self::of_leaves(test_id, execution.timed_out, leaves, authors),
+        }
+    }
+
+    /// The coverage of a run that collected k-rust's run coverage: `rule_ids` are the rewrite
+    /// rules it applied, and the run is complete as [`Self::of_leaves`] reads it from its halts
+    /// and diagnostics (it has no trace to read).
+    fn of_run<'a>(
+        test_id: &str,
+        timed_out: bool,
+        leaves: impl Iterator<Item = LeafView<'a>>,
+        rule_ids: &BTreeSet<String>,
+        authors: &RuleAuthors,
+    ) -> Self {
+        if timed_out {
+            return Self::failed(test_id);
+        }
+        let mut complete = true;
+        for leaf in leaves {
+            complete &= leaf.complete();
+        }
+        Self::mapped(test_id, complete, rule_ids.clone(), authors)
     }
 
     /// A run that produced no execution (an adapter failure): incomplete, nothing covered.
@@ -318,6 +373,16 @@ impl TestCoverage {
                 insert_ids(&mut rule_ids, &rule.id);
             }
         }
+        Self::mapped(test_id, complete, rule_ids, authors)
+    }
+
+    /// `rule_ids` with the baseline sentences behind them.
+    fn mapped(
+        test_id: &str,
+        complete: bool,
+        rule_ids: BTreeSet<String>,
+        authors: &RuleAuthors,
+    ) -> Self {
         let mut sentences = BTreeSet::new();
         let mut unmapped = BTreeMap::new();
         for id in &rule_ids {

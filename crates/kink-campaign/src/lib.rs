@@ -39,7 +39,8 @@ pub use oracle::{
 };
 pub use runner::{
     BaselineRecording, BaselineSession, CallRecording, Campaign, CampaignOptions, CampaignRun,
-    LeafCensus, MutantRun, OracleDeclaration, Projection, RunRecording, RunStop, SideRun,
-    StateProjection, Tally, TestCase, TestEvidence, pattern_side, run_campaign, run_campaign_multi,
-    run_campaign_multi_with, run_campaign_with, slot_outcome, state_side, tally,
+    LeafCensus, MutantRun, OracleDeclaration, Projection, RunOptions, RunRecording, RunStop,
+    SideRun, StateProjection, Tally, TestCase, TestEvidence, WorkBudget, pattern_side,
+    run_campaign, run_campaign_multi, run_campaign_multi_with, run_campaign_with, slot_outcome,
+    state_side, tally,
 };

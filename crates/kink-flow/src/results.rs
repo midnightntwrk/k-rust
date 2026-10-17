@@ -307,6 +307,7 @@ impl<'a> BaselineRunner<'a> {
             schedule: ScheduleMode::FirstKill,
             selection: kink_campaign::SelectionPolicy::None,
             share_evidence: true,
+            run: kink_campaign::RunOptions::default(),
         };
         let result = self.call(std::slice::from_ref(&test), &self.generations, &options);
         let recording = self.last_call();

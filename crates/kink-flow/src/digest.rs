@@ -159,8 +159,14 @@ pub fn outcome_context(
     execution: ExecutionDigest,
     budget: Budget,
 ) -> Value {
-    // The budget object of the result key, so both keys name the same bounds.
-    let budget = result_key(execution.digest, execution.digest, budget)["budget"].clone();
+    // The budget object of the result key, so both keys name the same bounds, and the mutants'
+    // work budget, which bounds only mutant runs (re-pin L1-1; absent without one, so a
+    // context without a work budget is unchanged).
+    let work_factor = budget.work_factor;
+    let mut budget = result_key(execution.digest, execution.digest, budget)["budget"].clone();
+    if let Some(factor) = work_factor {
+        budget["work"] = json!({"factor": factor, "floor": crate::manifest::WORK_FLOOR});
+    }
     json!({
         "outcome_schema": OUTCOME_SCHEMA_VERSION,
         "result_schema": RESULT_SCHEMA_VERSION,

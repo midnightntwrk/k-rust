@@ -20,3 +20,6 @@ toml = { version = "=0.9.12", default-features = false, features = ["parse", "se
 [[bin]]
 name = "kink-flow"
 path = "src/main.rs"
+
+[dev-dependencies]
+kink-pattern.workspace = true

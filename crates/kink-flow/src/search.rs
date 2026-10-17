@@ -359,6 +359,10 @@ impl Search<'_> {
             schedule: ScheduleMode::FirstKill,
             selection: kink_campaign::SelectionPolicy::None,
             share_evidence: false,
+            run: kink_campaign::RunOptions {
+                work: self.manifest.budget.work(),
+                ..kink_campaign::RunOptions::default()
+            },
         };
         let mut run = self
             .runner

@@ -188,6 +188,7 @@ fn options(schedule: ScheduleMode) -> CampaignOptions {
         schedule,
         selection: PRIORITIZE,
         share_evidence: true,
+        run: kink_campaign::RunOptions::default(),
     }
 }
 
@@ -854,6 +855,7 @@ fn cs07_check_theorem(
                     schedule,
                     selection: policy,
                     share_evidence: true,
+                    run: kink_campaign::RunOptions::default(),
                 },
             )
             .expect("CS07 Theorem 2: an admitted none fixture stays admitted");
@@ -1013,6 +1015,7 @@ fn prioritize_preserves_every_representative_campaign() {
                         schedule,
                         selection: SelectionPolicy::None,
                         share_evidence: true,
+                        run: kink_campaign::RunOptions::default(),
                     },
                 )
             };

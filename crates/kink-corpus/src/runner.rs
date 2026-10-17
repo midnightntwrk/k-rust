@@ -125,6 +125,7 @@ pub fn run_definition(
             schedule: config.schedule,
             selection: config.selection,
             share_evidence: true,
+            run: kink_campaign::RunOptions::default(),
         },
     ) {
         Ok(run) => run,

@@ -185,6 +185,7 @@ fn options(schedule: ScheduleMode, share_evidence: bool) -> CampaignOptions {
         schedule,
         selection: Selection::None,
         share_evidence,
+        run: kink_campaign::RunOptions::default(),
     }
 }
 

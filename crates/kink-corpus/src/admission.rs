@@ -439,6 +439,7 @@ fn baseline_only(
         schedule: manifest.campaign.schedule,
         selection: manifest.campaign.selection,
         share_evidence: true,
+        run: kink_campaign::RunOptions::default(),
     };
     run_campaign_multi(&campaign, &[generation], &options)
         .map(|run| {

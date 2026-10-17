@@ -238,6 +238,7 @@ fn sampled_campaigns_remain_unscored_and_replay_requires_the_declared_budget() {
                     schedule,
                     selection: SelectionPolicy::None,
                     share_evidence: true,
+                    run: kink_campaign::RunOptions::default(),
                 },
             )
             .unwrap();

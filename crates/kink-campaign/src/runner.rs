@@ -7,10 +7,17 @@
 //! `match` that never turns incomplete evidence into a value:
 //!
 //! - A state oracle (exit stop or final result) needs every path complete and a
-//!   collection that stopped for lack of work. The PathSet run
-//!   qualifies, because k-rust's merging of converging branches keeps every distinct final
-//!   state. Any other stop is `Error` for an error or a cancelled leaf (until upstream tells
-//!   cancellation from timeout), and `Unknown` otherwise, including a backend diagnostic.
+//!   collection that stopped for lack of work. A test without a pattern oracle runs as a
+//!   state-set result run (re-pin L1-1, [`RunOptions`]): k-rust merges equal final
+//!   configurations, and a complete state set has exactly the distinct final configurations of
+//!   the path set of the same request, diagnostics included (re-pin decision 3; kink-flow
+//!   `tests/modality.rs` checks it on the corpus). A state set with an undefined step, a vacuous
+//!   leaf or a contradicted claim is replaced by its path set, whose leaves name their own rules
+//!   for the exclusions. A test with a pattern oracle runs as a stepped path set on both sides.
+//!   A run the time bound cancelled is `Failed(TimeLimit)` (k-rust answers a cancellation with an
+//!   error and publishes no leaf), a mutant's run its work budget stopped ([`WorkBudget`]) ends in
+//!   a `work-bound` leaf, and every other incomplete run is `Unknown`, including a backend
+//!   diagnostic.
 //! - A single crash terminal is a `SemanticCrash` side carrying its terminal term; a
 //!   crash among several terminals is `Unknown`.
 //! - A terminal term with a free variable is `Unknown`. A symbolic run's complete stuck leaf
@@ -94,7 +101,7 @@ use kink_native::coverage::{RuleAuthors, TestCoverage};
 use kink_native::exclusion::{DefinitionExclusions, Exclusion};
 use kink_native::execution::{
     AdaptedExecution, ExecutionAdapter, ExecutionAdapterFailure, ExecutionBudget, HaltClass,
-    SolverProfile, StepRunFailure, SteppedExecution,
+    ResultModality, ResultRun, SolverProfile, StepRunFailure, SteppedExecution,
 };
 use kink_native::feasibility::TestInitialState;
 use kink_native::representation::validate_representation;
@@ -258,6 +265,57 @@ pub struct CampaignOptions {
     pub selection: SelectionPolicy,
     /// Reuse evidence of identical compiled sides within this campaign.
     pub share_evidence: bool,
+    /// How the runs are requested besides the campaign's budget (re-pin lane 1, L1-1).
+    pub run: RunOptions,
+}
+
+/// How a campaign requests its runs besides the campaign's [`ExecutionBudget`] (re-pin lane 1,
+/// L1-1). The default is a state set for every result run and no work budget, which is what
+/// [`run_campaign`] and [`run_campaign_multi`]'s callers in kink use unless they choose otherwise.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct RunOptions {
+    /// The modality of every result run: the run of a test with no pattern oracle, on the
+    /// baseline and on every mutant (k-rust's state set by default). A test with a pattern oracle
+    /// runs as a stepped path set on both sides, and its fallback run when stepping fails is a
+    /// path set too, so within one test both sides always use one modality. A state set whose
+    /// leaves include an undefined step, a vacuous leaf or a contradicted claim is replaced by
+    /// the path set of the same request (kink-native `ExecutionAdapter::execute_result`).
+    /// `PathSet` is today's reading at 1ee9955, kept for the modality differential.
+    pub result_modality: ResultModality,
+    /// The work budget of every mutant result run ([`WorkBudget`]).
+    pub work: WorkBudget,
+}
+
+/// The work budget (k-rust `max_work`: the most states a run may visit across all its paths) of
+/// a mutant's result runs, calibrated per test from the baseline's run of that test, which used
+/// the same request shape (re-pin lane 1, L1-1; k-rust answers section 4.6). A budget only stops a
+/// run: a run it does not stop is the unbounded run (k-rust KINK-16 criterion 2), and a run it
+/// stops ends in a `work-bound` leaf, which makes the side incomplete, so every slot of that test
+/// is `Unknown`. It never applies to a baseline run, and never to a stepped run (a pattern test's
+/// observed path set): a bounded stepped run would expose the paths it finished where the
+/// unbounded run timed out, and a pattern slot can take a witness from them, which would move a
+/// `Timeout` toward `Killed`.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum WorkBudget {
+    /// No work budget: runs are bounded by the campaign's budget only.
+    #[default]
+    Unbounded,
+    /// `max_work = factor * W + floor`, where `W` is the work of the baseline's run of the test.
+    Calibrated { factor: u64, floor: u64 },
+}
+
+impl WorkBudget {
+    /// The `max_work` of a mutant's result run of a test whose baseline run visited
+    /// `baseline_work` states; `None` without a budget.
+    #[must_use]
+    pub const fn limit(self, baseline_work: u64) -> Option<u64> {
+        match self {
+            Self::Unbounded => None,
+            Self::Calibrated { factor, floor } => {
+                Some(baseline_work.saturating_mul(factor).saturating_add(floor))
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -374,6 +432,7 @@ pub fn run_campaign(
             schedule,
             selection: SelectionPolicy::None,
             share_evidence: true,
+            run: RunOptions::default(),
         },
     )
 }
@@ -423,6 +482,8 @@ struct BaselineKey {
     budget: ExecutionBudget,
     /// The adapter's expected solver profile (`Runtime::prepare`); one per build.
     profile: SolverProfile,
+    /// The modality of the result run (`Runtime::execute`; re-pin L1-1).
+    modality: ResultModality,
 }
 
 /// A stored live baseline run, under its key.
@@ -470,20 +531,23 @@ pub enum RunStop {
 }
 
 /// The leaves one execution returned, read from its `AdaptedExecution`: leaves per halt class,
-/// the deepest leaf's depth, the rule ids their branches and traces name, and how the run
-/// ended. After a cancellation k-rust may return some leaves (the paths that had ended, and
-/// cancelled ones) or none. Unlike rule coverage (kink-native `TestCoverage`, which lists
-/// nothing for a timed-out run because where the watchdog stopped it depends on the host), the
-/// census keeps what a stopped run returned: it is a hint for a reader, never a key.
+/// the deepest leaf's depth, the rewrite rules the run applied, the states it visited, and how
+/// the run ended. Every request answers a cancellation with an error (re-pin L1-1), so a stopped
+/// run returns no leaves and no coverage, and its census says so. The census is a hint for a
+/// reader, never a key.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LeafCensus {
     pub stop: RunStop,
     pub leaves: BTreeMap<HaltClass, usize>,
     /// The depth of the deepest leaf; `None` without leaves.
     pub deepest: Option<u64>,
-    /// The compiled rule ids (`UNIQUE_ID`s) the leaves' branch transitions and `rewrite` or
-    /// `remainder` trace entries name, as rule coverage reads them.
+    /// The compiled rule ids (`UNIQUE_ID`s) of the rewrite rules the run applied, as rule
+    /// coverage reads them: k-rust's run coverage (every run collects it, re-pin L1-1), or, for
+    /// an execution without coverage, its leaves' branch transitions and `rewrite` or
+    /// `remainder` trace entries.
     pub rule_ids: BTreeSet<String>,
+    /// The states the run visited (k-rust `work`); `None` for a failed or timed-out run.
+    pub work: Option<u64>,
 }
 
 impl LeafCensus {
@@ -494,6 +558,7 @@ impl LeafCensus {
                 leaves: BTreeMap::new(),
                 deepest: None,
                 rule_ids: BTreeSet::new(),
+                work: None,
             };
         };
         let mut leaves = BTreeMap::new();
@@ -509,6 +574,9 @@ impl LeafCensus {
         };
         for leaf in execution.leaves() {
             *leaves.entry(leaf.halt).or_insert(0) += 1;
+            if execution.coverage().is_some() {
+                continue;
+            }
             for transition in &leaf.branch.identity {
                 insert(&transition.rule);
             }
@@ -517,6 +585,9 @@ impl LeafCensus {
                     insert(&entry.unique_id);
                 }
             }
+        }
+        if let Some(coverage) = execution.coverage() {
+            rule_ids.clone_from(&coverage.applied_rewrites);
         }
         Self {
             stop: if execution.timed_out() {
@@ -531,6 +602,7 @@ impl LeafCensus {
                 .map(|leaf| leaf.branch.depth)
                 .max(),
             rule_ids,
+            work: (!execution.timed_out()).then(|| execution.work()),
         }
     }
 
@@ -757,6 +829,7 @@ impl<'v> BaselineSession<'v> {
             module: campaign.module.to_owned(),
             budget: campaign.budget,
             profile: SolverProfile::BUILD,
+            modality: runtime.modality,
         };
         if let Some(stored) = self.runs.iter().find(|stored| stored.key == key) {
             let (evidence, cache) = match &stored.run {
@@ -778,7 +851,7 @@ impl<'v> BaselineSession<'v> {
             self.record_baseline(&cache, true);
             return (evidence, cache);
         }
-        let (evidence, executed) = runtime.run_keeping(campaign, test);
+        let (evidence, executed) = runtime.run_keeping(campaign, test, None);
         let cache = executed.cache.clone();
         self.record_baseline(&cache, false);
         self.live += 1;
@@ -872,6 +945,7 @@ pub fn run_campaign_multi_with(
     let mut runtime = Runtime::prepare(campaign, &baseline)
         .map_err(|_| admission_failure(BaselineAdmission::Error))?;
     runtime.coverage = Some(RuleAuthors::of(&baseline));
+    runtime.modality = options.run.result_modality;
     // The baseline's compiled equations, which every mutant's are read against (re-pin
     // R0c-fix-4). A baseline that does not internalize again leaves every mutant unchecked.
     let admission = MutantAdmission {
@@ -904,11 +978,16 @@ pub fn run_campaign_multi_with(
                 format!("{failure:?}"),
             )
         })?;
-    let (baseline_evidence, baseline_coverage) = {
+    let (baseline_evidence, baseline_coverage, baseline_work) = {
         let baseline_runs = campaign
             .tests
             .iter()
             .map(|test| session.baseline_run(&mut runtime, campaign, test, memoise))
+            .collect::<Vec<_>>();
+        // The work of each baseline run, which calibrates the mutants' work budget of its test.
+        let baseline_work = baseline_runs
+            .iter()
+            .map(|(_, cache)| cache.work)
             .collect::<Vec<_>>();
         let baseline_coverage = baseline_runs
             .iter()
@@ -950,12 +1029,13 @@ pub fn run_campaign_multi_with(
             ));
         }
         validate_baseline(admission)?;
-        (baseline_evidence, baseline_coverage)
+        (baseline_evidence, baseline_coverage, baseline_work)
     };
     let paired = campaign
         .tests
         .iter()
-        .map(|test| {
+        .zip(&baseline_work)
+        .map(|(test, work)| {
             let baseline = baseline_evidence
                 .iter()
                 .find(|e| e.test_id == test.id)
@@ -970,6 +1050,7 @@ pub fn run_campaign_multi_with(
                     test,
                     baseline,
                     coverage,
+                    mutant_max_work: work.and_then(|work| options.run.work.limit(work)),
                 },
             )
         })
@@ -1172,6 +1253,9 @@ struct PairedTest<'a> {
     test: &'a TestCase,
     baseline: &'a TestEvidence,
     coverage: &'a TestCoverage,
+    /// The work budget of every mutant's result run of this test ([`WorkBudget::limit`] of the
+    /// baseline run's work; `None` without a budget or without a baseline count).
+    mutant_max_work: Option<u64>,
 }
 
 struct MutantExecution {
@@ -1224,6 +1308,7 @@ fn run_mutant(
             }
         }
         Ok((mut sides, claims)) => {
+            sides.runtime.modality = options.run.result_modality;
             let selection = mutant_selection(
                 campaign,
                 paired,
@@ -1529,9 +1614,12 @@ fn run_tests(
                     stepped: cached.stepped.clone(),
                     coverage: None,
                     recording: None,
+                    work: None,
                 },
             ),
-            None => sides.runtime.run(campaign, test),
+            None => sides
+                .runtime
+                .run_bounded(campaign, test, pair.mutant_max_work),
         };
         if let Some(recording) = &cache.recording {
             recordings.push(recording.clone());
@@ -1643,6 +1731,9 @@ struct RunCache {
     stepped: Option<SteppedExecution>,
     coverage: Option<TestCoverage>,
     recording: Option<RunRecording>,
+    /// The states the run visited (k-rust `work`) when it returned a result in time; on the
+    /// baseline it calibrates the mutants' work budget of the test ([`WorkBudget`]).
+    work: Option<u64>,
 }
 
 fn step_failure_side(failure: &StepRunFailure) -> OracleSide {
@@ -1677,6 +1768,8 @@ struct Runtime {
     facts: Option<Result<DefinitionFacts, String>>,
     /// The side's rule authors when its runs record coverage (the baseline only).
     coverage: Option<RuleAuthors>,
+    /// The modality of the side's result runs ([`RunOptions::result_modality`]).
+    modality: ResultModality,
     /// What the side's definition contributes to the exclusions of each of its runs, read from
     /// its compiled KORE and from the definition its backend selected for the default module
     /// (the only module a request names), on the thread that runs it (re-pin R0b).
@@ -1718,6 +1811,7 @@ impl Runtime {
             context,
             facts: None,
             coverage: None,
+            modality: ResultModality::default(),
             exclusions,
         })
     }
@@ -1732,19 +1826,31 @@ impl Runtime {
     }
 
     fn run(&mut self, campaign: &Campaign<'_>, test: &TestCase) -> (TestEvidence, RunCache) {
-        let (evidence, executed) = self.run_keeping(campaign, test);
+        self.run_bounded(campaign, test, None)
+    }
+
+    /// [`Runtime::run`] with a work budget for a result run (`max_work`; a mutant's,
+    /// [`WorkBudget`]).
+    fn run_bounded(
+        &mut self,
+        campaign: &Campaign<'_>,
+        test: &TestCase,
+        max_work: Option<u64>,
+    ) -> (TestEvidence, RunCache) {
+        let (evidence, executed) = self.run_keeping(campaign, test, max_work);
         (evidence, executed.cache)
     }
 
-    /// [`Runtime::run`], also returning the classifier-independent part of the run (the
+    /// [`Runtime::run_bounded`], also returning the classifier-independent part of the run (the
     /// execution and its run cache), which a [`BaselineSession`] stores.
     fn run_keeping(
         &mut self,
         campaign: &Campaign<'_>,
         test: &TestCase,
+        max_work: Option<u64>,
     ) -> (TestEvidence, Executed) {
         let started = Instant::now();
-        let mut executed = self.execute(campaign, test);
+        let mut executed = self.execute(campaign, test, max_work);
         let evidence = self.judge(campaign, test, &executed);
         // Recording only (flow F-13): read from the execution the run already has.
         executed.cache.recording = Some(RunRecording {
@@ -1756,9 +1862,21 @@ impl Runtime {
     }
 
     /// The execution of one test and what is read from it alone: the stepped evidence when a
-    /// pattern oracle needs it, and the rule coverage. Nothing here reads the campaign's
-    /// classifier or its oracle declarations other than whether one is a pattern oracle.
-    fn execute(&mut self, campaign: &Campaign<'_>, test: &TestCase) -> Executed {
+    /// pattern oracle needs it, the rule coverage and the work count. Nothing here reads the
+    /// campaign's classifier or its oracle declarations other than whether one is a pattern
+    /// oracle.
+    ///
+    /// The request is a function of the test (re-pin L1-1): a test with a pattern oracle runs as
+    /// a stepped path set, and when stepping fails its run is a path-set result run, so both
+    /// sides of such a test are path sets; any other test runs as a result run in this side's
+    /// modality, which is the campaign's. `max_work` bounds result runs only, never a stepped run
+    /// ([`WorkBudget`]).
+    fn execute(
+        &mut self,
+        campaign: &Campaign<'_>,
+        test: &TestCase,
+        max_work: Option<u64>,
+    ) -> Executed {
         let mut cache = RunCache::default();
         let has_pattern = test
             .oracles
@@ -1778,19 +1896,38 @@ impl Runtime {
                 }
                 Ok(Err(failure)) => {
                     pattern_failure = step_failure_side(&failure);
-                    self.adapter
-                        .execute(&mut self.backend, &test.initial_state, campaign.budget)
+                    self.adapter.execute_result(
+                        &mut self.backend,
+                        &test.initial_state,
+                        campaign.budget,
+                        ResultRun {
+                            modality: ResultModality::PathSet,
+                            max_work,
+                        },
+                    )
                 }
                 Err(failure) => Err(failure),
             }
         } else {
-            self.adapter
-                .execute(&mut self.backend, &test.initial_state, campaign.budget)
+            self.adapter.execute_result(
+                &mut self.backend,
+                &test.initial_state,
+                campaign.budget,
+                ResultRun {
+                    modality: self.modality,
+                    max_work,
+                },
+            )
         };
         cache.coverage = self.coverage.as_ref().map(|authors| match &execution {
             Ok(execution) => TestCoverage::of_execution(&test.id, execution, authors),
             Err(_) => TestCoverage::failed(&test.id),
         });
+        cache.work = execution
+            .as_ref()
+            .ok()
+            .filter(|execution| !execution.timed_out())
+            .map(AdaptedExecution::work);
         Executed {
             execution,
             pattern_failure,
@@ -2488,7 +2625,7 @@ mod tests {
                 let mut runtime = Runtime::prepare(&campaign, &compiled)
                     .unwrap_or_else(|_| panic!("baseline runtime"));
                 assert_eq!(runtime.exclusions.definition_exclusion(), None);
-                let clean = runtime.execute(&campaign, test);
+                let clean = runtime.execute(&campaign, test, None);
                 assert!(matches!(
                     runtime.judge(&campaign, test, &clean).run,
                     SideRun::Sides { ref sides } if matches!(sides.as_slice(), [OracleSide::Normal(_)])
@@ -2577,6 +2714,7 @@ mod tests {
                             module: "COUNTER".into(),
                             budget: campaign.budget,
                             profile: SolverProfile::BUILD,
+                            modality: ResultModality::default(),
                         },
                         run: StoredRun::Executed {
                             executed: Box::new(executed),
@@ -2885,6 +3023,7 @@ mod tests {
                         test,
                         baseline: &baseline,
                         coverage: &coverage,
+                        mutant_max_work: None,
                     },
                 )]);
                 // The total definition as the mutant side.
@@ -3047,6 +3186,7 @@ mod tests {
                                     test,
                                     baseline,
                                     coverage,
+                                    mutant_max_work: None,
                                 },
                             )
                         })

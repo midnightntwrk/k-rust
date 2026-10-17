@@ -18,6 +18,10 @@ pub const DEFAULT_TIME_MS: u64 = 10_000;
 /// Default rewrite-depth bound of one program run. Every run is bounded (NEXT-PLAN 2.2
 /// forbids unbounded runs), so the bound is never absent.
 pub const DEFAULT_MAX_DEPTH: u64 = 100_000;
+/// The fixed floor of a calibrated work budget (`[budget] work_factor`): a mutant's result run of
+/// a program whose baseline run visited `W` states may visit `work_factor * W + WORK_FLOOR`
+/// (kink-campaign `WorkBudget::Calibrated`; re-pin lane 1, L1-1).
+pub const WORK_FLOOR: u64 = 10_000;
 /// Default include directories: the manifest's directory.
 pub const DEFAULT_INCLUDE_DIRS: [&str; 1] = ["."];
 /// Default Markdown code-block selector.
@@ -48,6 +52,12 @@ pub struct SpecSection {
 pub struct Budget {
     pub time_ms: u64,
     pub max_depth: u64,
+    /// `work_factor`: the work budget of a mutant's run of a program, as a multiple of the
+    /// states the program's baseline run visited, plus [`WORK_FLOOR`] (re-pin lane 1, L1-1).
+    /// Absent: no work budget (a mutant's run is bounded by `time_ms` and `max_depth` only). A
+    /// work-bound run is never complete, so its program is `unknown` for that mutant, never a
+    /// kill; the budget never applies to a baseline run.
+    pub work_factor: Option<u64>,
 }
 
 impl Default for Budget {
@@ -55,6 +65,21 @@ impl Default for Budget {
         Self {
             time_ms: DEFAULT_TIME_MS,
             max_depth: DEFAULT_MAX_DEPTH,
+            work_factor: None,
+        }
+    }
+}
+
+impl Budget {
+    /// The campaign work budget of the mutants' runs.
+    #[must_use]
+    pub const fn work(self) -> kink_campaign::WorkBudget {
+        match self.work_factor {
+            None => kink_campaign::WorkBudget::Unbounded,
+            Some(factor) => kink_campaign::WorkBudget::Calibrated {
+                factor,
+                floor: WORK_FLOOR,
+            },
         }
     }
 }
@@ -280,10 +305,14 @@ fn spec(value: &Value) -> Result<SpecSection, ManifestError> {
 
 fn budget(value: &Value) -> Result<Budget, ManifestError> {
     let budget = table(value, "budget")?;
-    known_keys(budget, "budget", &["time_ms", "max_depth"])?;
+    known_keys(budget, "budget", &["time_ms", "max_depth", "work_factor"])?;
     Ok(Budget {
         time_ms: positive(budget, "budget", "time_ms", DEFAULT_TIME_MS)?,
         max_depth: positive(budget, "budget", "max_depth", DEFAULT_MAX_DEPTH)?,
+        work_factor: budget
+            .contains_key("work_factor")
+            .then(|| positive(budget, "budget", "work_factor", 1))
+            .transpose()?,
     })
 }
 

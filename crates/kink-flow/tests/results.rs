@@ -808,6 +808,7 @@ fn run_together(
             schedule: ScheduleMode::FirstKill,
             selection: kink_campaign::SelectionPolicy::None,
             share_evidence: true,
+            run: kink_campaign::RunOptions::default(),
         },
     )
     .unwrap();

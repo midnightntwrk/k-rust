@@ -36,7 +36,33 @@ kink-flow run FLOW.toml MUTATIONS.toml
   where a mutant that loops forever shows one cancelled leaf tens of thousands of steps deep.
 - Every rule is targeted by some mutation except the two unlabelled rules on lines 55 and 65 (`untargeted_rules` in the report).
 
+## Results at k-rust 501f18b9 with state-set runs (re-pin lane 1, L1-1)
+
+Since re-pin L1-1 every program run is one unobserved k-rust state-set run: k-rust merges equal
+configurations and expands each distinct state of a depth once, so the evaluation orders of the
+`strict` operators meet again instead of multiplying (k-rust KINK-01). A complete state set has
+exactly the distinct final configurations of the path set (re-pin decision 3; kink-flow
+`tests/modality.rs` checks it on this corpus, every program under both modalities). A mutant's
+run may also carry a work budget (`[budget] work_factor`, set to 4 above).
+
+A cold `run` in corpus order (`--order corpus`, release binary, under the 24 GiB scope, host
+load 18-20): 20.7 s and 0.11 GiB peak, against 140.1 s and 10.2 GiB at 1ee9955 (path sets, load
+4-6). Without `work_factor`: 32.4 s and 0.32 GiB. Every status equals the path-set run's (20
+killed, `add-commuted` survives). Two things change, both because runs now finish inside
+`time_ms`:
+- `collatz` is `comparable` (its baseline takes 10 ms; as a path set it took 34.6 s, past the 10 s
+  bound, so it was `timeout`), so every mutation's call also runs it. It kills nothing; the
+  calls are otherwise those of the path-set run.
+- `and-false-returns-rhs` is killed by `primes`, whose mutant run ended as a path set only at the
+  time bound (still not after 120 s), instead of by `and`.
+Five mutant runs that ran out the time bound before now end in the work bound, within about
+0.2 s (`unknown` on that program, where it was `timeout`; the cause names the budget and the
+census says `work-bound 1`), and so do three of the new `collatz` runs; none of these programs
+kills its mutant. `work_factor = 1` keeps every status and killer too (22.8 s); 4 is the margin.
+
 ## Cost: strict operators multiply the paths
+
+The measurements in this section are from the path-set runs before re-pin L1-1.
 
 kink compares the set of final configurations, so it explores every evaluation order.
 IMP's `+` and `/` are `strict`, and k-rust does not merge equal intermediate states

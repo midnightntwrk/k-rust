@@ -422,9 +422,9 @@ fn diagnosed(leaf: &crate::execution::AdaptedLeaf) -> bool {
 /// `SolverUnknown` otherwise, because a symbolic or constrained leaf may be infeasible.
 /// An `Indeterminate` leaf is `BackendLimit` here; [`indeterminate_stop`]
 /// refines it by its cause. A requested depth bound keeps its limit stop only for a decided or
-/// feasible state (see `decided_stop`); a breadth-bound leaf is `BackendLimit`, without a real
-/// prefix, because its state was never normalised (re-pin finding A-11). A vacuous leaf that is not discarded
-/// is `SolverUnknown`.
+/// feasible state (see `decided_stop`); a breadth-bound or work-bound leaf is `BackendLimit`,
+/// without a real prefix, because its state was never normalised (re-pin findings A-11, A-05). A
+/// vacuous leaf that is not discarded is `SolverUnknown`.
 /// The adapter rejects unrequested bound halts. Exhaustive over `HaltClass`.
 pub const fn halt_stop(halt: HaltClass) -> Result<Option<PathStop>, BridgeFailure> {
     Ok(Some(match halt {
@@ -439,13 +439,19 @@ pub const fn halt_stop(halt: HaltClass) -> Result<Option<PathStop>, BridgeFailur
         // every instance, so its path has no real prefix, and no slot takes a term or a witness
         // from it. `BranchLimit` would vouch for a real prefix.
         HaltClass::BreadthBound => PathStop::BackendLimit,
-        // Until upstream tells cancellation from timeout.
-        HaltClass::Cancelled => PathStop::Error,
+        // A work-bound leaf is the state as k-rust took it from its worklist, unexpanded and
+        // unnormalised, with the pending states dropped (re-pin findings A-05, A-11; L1-1): as
+        // for a breadth-bound leaf, its last step may be undefined on every instance, so its
+        // path has no real prefix and no slot takes a term or a witness from it. The adapter
+        // admits it only for a request that set `max_work`.
+        HaltClass::WorkBound => PathStop::BackendLimit,
+        // Every request answers a cancellation with an error (`cancelled_result: error`, re-pin
+        // L1-1, finding A-03), so a cancelled leaf is outside the contract, as the adapter says.
         HaltClass::Branch
         | HaltClass::CutPoint
         | HaltClass::TerminalRule
         | HaltClass::Timeout
-        | HaltClass::WorkBound => {
+        | HaltClass::Cancelled => {
             return Err(BridgeFailure::ContractViolation(halt));
         }
     }))
@@ -1579,7 +1585,7 @@ mod tests {
         use Expected::{Complete, Discarded, Incomplete, Violation};
         use LeafFeasibility::{Solver as Z, Unsat as N};
         #[rustfmt::skip]
-        let rows: [Row; 47] = [
+        let rows: [Row; 50] = [
             // Halts without solver facts.
             (H::Stuck, GROUND, U, 1, Complete(Normal, GROUND)),
             (H::Stuck, CRASH, U, 1, Complete(SemanticCrash, CRASH)),
@@ -1612,9 +1618,16 @@ mod tests {
             (H::SimplificationError, GROUND, U, 1, Incomplete(P::BackendLimit)),
             (H::Timeout, GROUND, U, 1, Violation),
             (H::Timeout, CONSTRAINED, U, 1, Violation),
-            (H::Cancelled, GROUND, U, 1, Incomplete(P::Error)),
-            // kink sends no max_work: a work-bound leaf is a contract violation (re-pin probe).
-            (H::WorkBound, GROUND, U, 1, Violation),
+            // Re-pin L1-1 (finding A-03): every request answers a cancellation with an error, so
+            // a cancelled leaf is a contract violation. Before: `Error` (incomplete).
+            (H::Cancelled, GROUND, U, 1, Violation),
+            // Re-pin L1-1 (findings A-05, A-11): a work-bound leaf (admitted only for a request
+            // with `max_work`) is unnormalised: no real prefix, no term, never discarded, whatever
+            // the adapter showed. Before: a contract violation (kink sent no max_work).
+            (H::WorkBound, GROUND, U, 1, Incomplete(P::BackendLimit)),
+            (H::WorkBound, GROUND, F, 1, Incomplete(P::BackendLimit)),
+            (H::WorkBound, SYMBOLIC, F, 1, Incomplete(P::BackendLimit)),
+            (H::WorkBound, CONSTRAINED, N, 1, Incomplete(P::BackendLimit)),
             (H::Vacuous, BOTTOM, U, 1, Discarded(DiscardReason::Vacuous)),
             // A `Stuck` halt holds for every instance of its state, in both profiles. A
             // constrained or symbolic stuck leaf completes when its state was shown feasible
@@ -1662,6 +1675,9 @@ mod tests {
                 effects: Vec::new(),
                 timed_out: false,
                 stack_stops: 0,
+                modality: crate::execution::ResultModality::PathSet,
+                work: 0,
+                coverage: None,
             };
             assert_eq!(
                 discarded(&execution.leaves[0]),
@@ -1767,6 +1783,9 @@ mod tests {
                 effects: Vec::new(),
                 timed_out: false,
                 stack_stops: 0,
+                modality: crate::execution::ResultModality::PathSet,
+                work: 0,
+                coverage: None,
             };
             assert_eq!(discarded(&execution.leaves[0]), None);
             let bridged =
@@ -1817,6 +1836,9 @@ mod tests {
                 effects: Vec::new(),
                 timed_out: false,
                 stack_stops: 0,
+                modality: crate::execution::ResultModality::PathSet,
+                work: 0,
+                coverage: None,
             };
             let bridged =
                 paths_from_execution(&execution, &bridge_context(&sorts), &independent).unwrap();
@@ -1840,6 +1862,9 @@ mod tests {
             effects: Vec::new(),
             timed_out: false,
             stack_stops: 0,
+            modality: crate::execution::ResultModality::PathSet,
+            work: 0,
+            coverage: None,
         };
         let bridged =
             paths_from_execution(&execution, &bridge_context(&sorts), &independent).unwrap();
@@ -1870,10 +1895,12 @@ mod tests {
             max_breadth: Some(std::num::NonZeroUsize::new(1).unwrap()),
             ..unbounded
         };
-        let excluded = |budget: &ExecutionBudget| {
+        // Re-pin L1-1: a work budget is a request option beside the budget (`ResultRun`), and
+        // every request answers a cancellation with an error.
+        let excluded = |budget: &ExecutionBudget, max_work: Option<u64>| {
             HaltClass::ALL
                 .into_iter()
-                .filter(|halt| !halt.adapter_admits(budget))
+                .filter(|halt| !halt.admitted_by(budget, max_work))
                 .collect::<std::collections::BTreeSet<_>>()
         };
         let always_excluded = [
@@ -1881,12 +1908,12 @@ mod tests {
             H::CutPoint,
             H::TerminalRule,
             H::Timeout,
-            H::WorkBound,
+            H::Cancelled,
         ]
         .into_iter()
         .collect::<std::collections::BTreeSet<_>>();
         assert_eq!(
-            excluded(&unbounded),
+            excluded(&unbounded, None),
             [
                 H::Branch,
                 H::CutPoint,
@@ -1894,12 +1921,19 @@ mod tests {
                 H::DepthBound,
                 H::BreadthBound,
                 H::Timeout,
+                H::Cancelled,
                 H::WorkBound,
             ]
             .into_iter()
             .collect()
         );
-        assert_eq!(excluded(&bounded), always_excluded);
+        for halt in HaltClass::ALL {
+            assert_eq!(
+                halt.adapter_admits(&unbounded),
+                halt.admitted_by(&unbounded, None)
+            );
+        }
+        assert_eq!(excluded(&bounded, Some(1)), always_excluded);
         assert_eq!(
             HaltClass::ALL
                 .into_iter()
@@ -1944,6 +1978,9 @@ mod tests {
                 effects: Vec::new(),
                 timed_out: false,
                 stack_stops: 0,
+                modality: crate::execution::ResultModality::PathSet,
+                work: 0,
+                coverage: None,
             };
             let bridged =
                 paths_from_execution(&execution, &bridge_context(&sorts), &independent).unwrap();
@@ -1970,6 +2007,9 @@ mod tests {
             effects: Vec::new(),
             timed_out: false,
             stack_stops: 0,
+            modality: crate::execution::ResultModality::PathSet,
+            work: 0,
+            coverage: None,
         };
         assert_eq!(leaf_keys(&execution.leaves), ["leaf:0", "leaf:1", "leaf:2"]);
         let bridged =
@@ -1998,6 +2038,9 @@ mod tests {
             effects: Vec::new(),
             timed_out: false,
             stack_stops: 0,
+            modality: crate::execution::ResultModality::PathSet,
+            work: 0,
+            coverage: None,
         };
         let context = BridgeContext {
             test_id: "t",
@@ -2041,6 +2084,9 @@ mod tests {
             effects: Vec::new(),
             timed_out: false,
             stack_stops: 0,
+            modality: crate::execution::ResultModality::PathSet,
+            work: 0,
+            coverage: None,
         };
         let bridged =
             paths_from_execution(&execution, &bridge_context(&sorts), &independent).unwrap();

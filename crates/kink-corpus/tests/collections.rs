@@ -295,6 +295,7 @@ fn external(imp: bool) {
                     schedule,
                     selection: kink_campaign::SelectionPolicy::None,
                     share_evidence: true,
+                    run: kink_campaign::RunOptions::default(),
                 };
                 let run =
                     run_campaign_multi(&campaign, std::slice::from_ref(&generation), &options)

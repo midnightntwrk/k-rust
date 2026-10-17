@@ -417,9 +417,16 @@ fn slot_cause(outcome: OracleOutcome, mutant: Option<&OracleSide>, budget: Budge
         ),
         Some(OracleSide::Unknown) => format!(
             "the mutant's run did not end in a value kink can compare (a path stopped at \
-             max_depth = {} or ended undecided, or a final configuration holds a collection kink \
+             max_depth = {} or ended undecided{}, or a final configuration holds a collection kink \
              cannot compare, such as one with a Bytes key, an unevaluated function or a symbolic term)",
-            budget.max_depth
+            budget.max_depth,
+            // Re-pin L1-1: the work budget of the mutant's run, when the manifest sets one (the
+            // run's census then says `work-bound 1`).
+            budget
+                .work_factor
+                .map_or_else(String::new, |factor| format!(
+                    ", the run reached its work budget (work_factor = {factor})"
+                ))
         ),
         Some(OracleSide::Error) => "the backend failed while running the mutant".into(),
         Some(OracleSide::SemanticCrash(_)) => {

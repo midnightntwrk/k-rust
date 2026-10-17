@@ -28,6 +28,7 @@ md_selector = "k"             # optional
 [budget]                      # optional
 time_ms = 10000
 max_depth = 100000
+work_factor = 4               # optional; no work budget when absent
 
 [[program]]
 id = "add"
@@ -49,6 +50,7 @@ Defaults:
 | `spec.md_selector` | `"k"` | |
 | `budget.time_ms` | `10000` | Wall-clock bound of one program run; must be positive. |
 | `budget.max_depth` | `100000` | Rewrite-depth bound of one program run; must be positive. A run is never unbounded. |
+| `budget.work_factor` | absent | The work budget of a mutant's run of a program: at most `work_factor * W + 10000` states visited (k-rust `max_work`), where `W` is the states the program's baseline run visited; must be positive. A mutant that runs past it is `unknown` on that program (never killed by it), long before `time_ms` would stop it. Absent: no work budget. It never bounds a baseline run. |
 | `program.start_sort` | the sort of `$PGM` | |
 | `program.variables` | none | Every configuration variable other than `$PGM` must be given; streams default to empty. |
 
@@ -116,11 +118,11 @@ written to disk, so every command runs the baselines it needs live again; the do
 
 When the zero-mutant campaign refuses a baseline, the class and the cause come from this command's
 live run of it if that run stopped on time: the class is `timeout` and the cause continues with the
-run's leaf census, read from what k-rust returned when the bound fired, for example
-`the run did not finish within time_ms = 500; when the bound fired k-rust returned 1 leaf
-(cancelled 1), the deepest at depth 17407; those leaves had applied 1 of the 5 rules a run can
-observe` (or `k-rust returned no leaves, ...` when it returned none). Many ended leaves and a shallow
-deepest leaf suggest path explosion; few leaves and a deep one non-termination. No second run is
+run's leaf census. k-rust answers a cancelled run with an error and returns no leaves (re-pin L1-1,
+`cancelled_result: error`), so the census reads `the run did not finish within time_ms = 500; when
+the bound fired k-rust returned no leaves, so neither the paths nor the depth reached are known`; a
+census with leaves, depths and applied rules is given for runs that ended otherwise (a depth bound,
+a work bound, an undecided end). No second run is
 made. For any other refusal (an `unknown` or `error` run) one diagnostic run of the initial state
 supplies the class, the cause, the final states and the coverage (`diagnostic` counts them). Only
 the campaign admitting a baseline makes a program `comparable`.
@@ -133,7 +135,7 @@ rewritten by `--verify`; delete a mismatching record (or the cache) to recompute
 The document lists every program `{id, digest, class, cause, cached, verify, wall_ms}`, every authored
 rule `{module, index, label, file, start_line, end_line, status, reached_by}` with status
 `uncovered` (no comparable program reaches it: the next program to write) first, then
-`covered`, then `not-observable` (equations: a run's trace names rewrite steps only), the
+`covered`, then `not-observable` (equations: a run's rule coverage names rewrite rules only), the
 mismatches, a summary, `baseline_runs` (`results --verify` runs every program live:
 `live` is the number of programs, `reused` 0) and `untargeted_rules`.
 
@@ -344,7 +346,7 @@ Besides `results/` and `report.json` (the last run's document, also written when
 - `outcomes/<context digest>/<mutation identity>.json`, tier 1:
   `{schema: "kink-flow-outcomes", version: 1, context, context_sha256, mutation_identity, mutation_id, removed_claims, records: {<program digest>: {program_id, baseline_run_sha256, outcome, slots, mutant_run_sha256, allowance_bytes, record_sha256}}}`.
   `removed_claims` is the row's (below), for the reader only: it is read back by nothing and is in no digest.
-  The context is `{outcome_schema: "kink-flow/outcome/v1", result_schema, kink_build, k_rust_revision, profile, execution_digest: {kind, digest}, budget, oracles, classifier, schedule, claim_removal, mutant_consistency, mutant_effect}`:
+  The context is `{outcome_schema: "kink-flow/outcome/v1", result_schema, kink_build, k_rust_revision, profile, execution_digest: {kind, digest}, budget, oracles, classifier, schedule, claim_removal, mutant_consistency, mutant_effect}` (with `work_factor` set, `budget` also holds `work: {factor, floor}`):
   `claim_removal` is kink-patch's `CLAIM_REMOVAL_VERSION`, since the mutant every record ran on depends on the claim-removal algorithm (v2 since re-pin R0c-fix-3: the reach follows the overload and unit axioms; v3 since R0c-fix-4: a rule with configuration context is an equation of its head);
   `mutant_consistency` is kink-native's `MUTANT_CONSISTENCY_VERSION`, since a mutant runs (and a record exists) only when its equations are shown consistent (v2 since R0c-fix-4: the check's guard reads the equation and skipped-pair counts);
   `mutant_effect` is kink-native's `MUTANT_EFFECT_VERSION`, since the symbols the check reads, and the cross-check of kink-patch's source reading, come from the compiled definitions (re-pin R0c-fix-4);

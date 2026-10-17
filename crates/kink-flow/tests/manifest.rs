@@ -38,7 +38,8 @@ fn a_minimal_manifest_takes_every_default() {
         manifest.budget,
         Budget {
             time_ms: 10_000,
-            max_depth: 100_000
+            max_depth: 100_000,
+            work_factor: None,
         }
     );
     assert_eq!((DEFAULT_TIME_MS, DEFAULT_MAX_DEPTH), (10_000, 100_000));
@@ -73,6 +74,7 @@ md_selector = "k | concrete"
 [budget]
 time_ms = 250
 max_depth = 7
+work_factor = 3
 
 [[program]]
 id = "from-file"
@@ -94,8 +96,22 @@ text = "1 + 2"
         manifest.budget,
         Budget {
             time_ms: 250,
-            max_depth: 7
+            max_depth: 7,
+            work_factor: Some(3),
         }
+    );
+    // Re-pin L1-1: `work_factor` calibrates the mutants' work budget from each program's
+    // baseline work; absent, there is none.
+    assert_eq!(
+        manifest.budget.work(),
+        kink_campaign::WorkBudget::Calibrated {
+            factor: 3,
+            floor: kink_flow::manifest::WORK_FLOOR
+        }
+    );
+    assert_eq!(
+        Budget::default().work(),
+        kink_campaign::WorkBudget::Unbounded
     );
     assert_eq!(
         manifest.programs,
@@ -267,6 +283,16 @@ fn required_keys_types_and_bounds_are_checked() {
     assert_error(
         &format!("{SPEC}[budget]\ntime_ms = \"10\"\n"),
         "budget.time_ms",
+        "expected an integer",
+    );
+    assert_error(
+        &format!("{SPEC}[budget]\nwork_factor = 0\n"),
+        "budget.work_factor",
+        "must be positive",
+    );
+    assert_error(
+        &format!("{SPEC}[budget]\nwork_factor = 1.5\n"),
+        "budget.work_factor",
         "expected an integer",
     );
     assert_error(

@@ -744,7 +744,10 @@ fn e6_failures_never_distinguish() {
     let backend = ExecutionFailureKind::from(&ExecutionAdapterFailure::Backend("lost".to_owned()));
     #[rustfmt::skip]
     let rows: [(&str, Result<OracleSide, ExecutionFailureKind>, Expected); 6] = [
-        ("cancelled-leaf-is-error", Ok(leaf(HaltClass::Cancelled)), Expected::Side(OracleSide::Error, MutantStatus::Error)),
+        // Re-pin L1-1 (finding A-03): every request answers a cancellation with an error, so a
+        // cancelled leaf is a contract violation (Infrastructure); before, an `Error` side. Both
+        // give the status Error.
+        ("cancelled-leaf-is-infrastructure", halt_side(&StateProjection::WholeTerm, HaltClass::Cancelled), Expected::Failed(ExecutionFailureKind::Infrastructure, MutantStatus::Error)),
         ("backend-error-is-infrastructure", Err(backend), Expected::Failed(ExecutionFailureKind::Infrastructure, MutantStatus::Error)),
         ("solver-indeterminate", Ok(leaf(HaltClass::Indeterminate)), Expected::Side(OracleSide::Unknown, MutantStatus::Unknown)),
         ("missing-output-bytes", Ok(state_side(&exit, &single(Normal, constant("done")))), Expected::Side(OracleSide::Error, MutantStatus::Error)),
@@ -796,17 +799,20 @@ fn e6_failures_never_distinguish() {
     );
 }
 
-/// Re-pin R0a (findings E-02, E-05): a `work-bound` leaf can never yield Distinguish. kink sends
-/// no `max_work`, so the bridge answers a contract violation, the runner an infrastructure
-/// failure with no operand, and the mutant's status is Error, on its own or beside a test that
-/// agrees. (kink-native execution.rs `work_bound_leaf_is_a_contract_violation_under_every_budget`
-/// pins the adapter's refusal.)
+/// Re-pin R0a (findings E-02, E-05), L1-1 (findings A-05, A-11): a `work-bound` leaf can never
+/// yield Distinguish. A request without `max_work` never admits one: the adapter answers a
+/// contract violation, the runner an infrastructure failure with no operand, and the mutant's
+/// status is Error (kink-native execution.rs
+/// `work_bound_leaf_is_a_contract_violation_under_every_budget`). A request with `max_work`
+/// admits it, and the bridge maps it to `BackendLimit`: an incomplete path without a real prefix
+/// and without a term, so every state slot is Unknown, on its own or beside a complete leaf.
 #[test]
 fn work_bound_leaf_never_yields_distinguish() {
-    assert!(matches!(
+    assert_eq!(
         halt_stop(HaltClass::WorkBound),
-        Err(BridgeFailure::ContractViolation(HaltClass::WorkBound))
-    ));
+        Ok(Some(PathStop::BackendLimit))
+    );
+    assert!(!PathStop::BackendLimit.has_real_prefix());
     let failure = ExecutionAdapterFailure::ContractViolation(HaltClass::WorkBound);
     assert_eq!(
         ExecutionFailureKind::from(&failure),
@@ -818,7 +824,18 @@ fn work_bound_leaf_never_yields_distinguish() {
     ] {
         assert_eq!(
             halt_side(&projection, HaltClass::WorkBound),
-            Err(ExecutionFailureKind::Infrastructure)
+            Ok(OracleSide::Unknown)
+        );
+        // A complete leaf beside the work-bound one does not complete the run.
+        assert_eq!(
+            state_side(
+                &projection,
+                &run(vec![
+                    terminal(0, Normal, configuration("done", "1")),
+                    incomplete(1, PathStop::BackendLimit),
+                ])
+            ),
+            OracleSide::Unknown
         );
     }
     assert_eq!(
@@ -1005,10 +1022,12 @@ fn runner_mapping_is_exhaustive() {
         (H::UnsupportedHook, Ok(OracleSide::Unknown)),
         (H::SimplificationError, Ok(OracleSide::Unknown)),
         (H::Timeout, infrastructure.clone()),
-        // Until upstream tells cancellation from timeout.
-        (H::Cancelled, Ok(OracleSide::Error)),
-        // kink sends no max_work, so a work-bound leaf is a contract violation (re-pin probe).
-        (H::WorkBound, infrastructure.clone()),
+        // Re-pin L1-1 (finding A-03): every request answers a cancellation with an error, so a
+        // cancelled leaf is a contract violation. Before: an `Error` side.
+        (H::Cancelled, infrastructure.clone()),
+        // Re-pin L1-1: admitted only under `max_work`, and then an incomplete path without a
+        // real prefix (`BackendLimit`). Before: a contract violation (kink sent no max_work).
+        (H::WorkBound, Ok(OracleSide::Unknown)),
     ];
     assert_eq!(
         halts.iter().map(|(halt, _)| *halt).collect::<Vec<_>>(),
