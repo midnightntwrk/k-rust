@@ -166,6 +166,13 @@ fn compare(name: &str, list: &str, workers: &[usize]) -> Vec<String> {
 
 #[test]
 fn compile_workers_change_no_row_record_or_hint() {
+    if std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get) < 2 {
+        // Review L1-3-1 D3: the workers are capped at the host's parallelism.
+        eprintln!(
+            "this host allows one compile worker: every worker count runs the sequential path, \
+             so the comparison is vacuous here"
+        );
+    }
     let collstore = compare("collections/collstore", "MUTATIONS.toml", &[1, 2, 4]);
     assert_eq!(collstore.len(), 9);
     let calc = compare("calc", "MUTATIONS-statuses.toml", &[1, 4]);

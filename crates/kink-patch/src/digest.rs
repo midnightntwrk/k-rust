@@ -70,6 +70,28 @@ pub fn canonical_json(value: &serde_json::Value) -> String {
     serde_json::to_string(value).expect("JSON values encode")
 }
 
+/// Parses one JSON document, as `serde_json::from_str` does, but without serde_json's limit of
+/// 128 nested arrays and objects (re-pin L1-3-fix-1).
+///
+/// kink's own JSON (a canonical patch, a campaign report, k-rust's KAST JSON of an edited term
+/// or sentence) nests as deep as the terms it holds: KAST JSON takes two levels per term level,
+/// so the limit refused every mutation of a rule more than about 55 terms deep as invalid, a
+/// valid mutation hidden from the score by an implementation limit (review L1-3-1). Without it
+/// the nesting is bounded by the calling thread's stack: kink's commands run on a 256 MiB thread
+/// (kink-corpus `DEFINITION_STACK_BYTES`), on which the term was already loaded, typed and
+/// compiled. Every document the limit accepted parses to the same value, so no encoding, digest
+/// or key changes.
+///
+/// # Errors
+/// Returns serde_json's error for text that is not one JSON document.
+pub fn parse_json(text: &str) -> Result<serde_json::Value, serde_json::Error> {
+    let mut deserializer = serde_json::Deserializer::from_str(text);
+    deserializer.disable_recursion_limit();
+    let value = serde::Deserialize::deserialize(&mut deserializer)?;
+    deserializer.end()?;
+    Ok(value)
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum StructureError {
     ContextAlias,

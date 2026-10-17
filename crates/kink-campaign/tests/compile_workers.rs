@@ -35,10 +35,13 @@ fn compare_workers(
     generations: &[CandidateGeneration<'_>],
     seen: &mut Seen,
 ) -> [Result<CampaignRun, CampaignFailure>; 2] {
-    assert!(
-        campaign.validator.compile_workers(2) >= 2,
-        "the test host allows two compile workers"
-    );
+    if campaign.validator.compile_workers(2) < 2 {
+        // Review L1-3-1 D3: one CPU, or a memory allowance too small for two workers.
+        eprintln!(
+            "this host allows one compile worker: every worker count runs the sequential path, \
+             so the comparison is vacuous here"
+        );
+    }
     [ScheduleMode::Full, ScheduleMode::FirstKill].map(|schedule| {
         let runs = WORKERS.map(|compile_workers| {
             run_campaign_multi(

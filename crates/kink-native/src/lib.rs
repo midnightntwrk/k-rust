@@ -40,7 +40,10 @@ pub use coverage::{
     Authorship, COVERAGE_DOMAIN, RuleAuthors, TestCoverage, coverage_digest, coverage_text,
 };
 pub use equivalence::equivalent_compilation;
-pub use validator::{MutantRejection, NativeFailure, NativeValidator, ValidatedDefinition};
+pub use validator::{
+    AHEAD_PER_WORKER, AheadChunk, KEPT_PER_WORKER, MutantRejection, NativeFailure, NativeValidator,
+    ValidatedDefinition,
+};
 
 /// k-rust revision pinned by upstream/k-rust.toml.
 pub const K_RUST_REVISION: &str = "501f18b9bde3cba800924a0efef932b440e66bf0";

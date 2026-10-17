@@ -61,8 +61,8 @@ pub use claims::{
 pub use codec::CodecError;
 pub use digest::{
     CAMPAIGN_MANIFEST_DOMAIN, CANONICAL_PATCH_DOMAIN, COMPILED_KORE_DOMAIN, OBSERVATION_DOMAIN,
-    Sha256Digest, StructureError, TEST_MANIFEST_DOMAIN, canonical_json, payload_digest, sha256,
-    structure_sha256,
+    Sha256Digest, StructureError, TEST_MANIFEST_DOMAIN, canonical_json, parse_json, payload_digest,
+    sha256, structure_sha256,
 };
 pub use failure::{PatchFailure, PatchFailureKind};
 pub use fingerprint::{

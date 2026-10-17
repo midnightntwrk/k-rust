@@ -460,6 +460,7 @@ name = "kink-patch"
 version = "0.1.0"
 dependencies = [
  "k-rust",
+ "serde",
  "serde_json",
 ]
 

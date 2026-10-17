@@ -90,13 +90,16 @@
 //! leaf Unsat decisions rely on the definedness premise pinned by TB-01 and the TV-01
 //! initial-state admission guard. Undecided evidence stays Unknown.
 //!
-//! Only compiling runs on several threads (re-pin L1-3, [`CampaignOptions::compile_workers`]).
-//! The candidates are taken in chunks; each chunk's mutants (each candidate's patch and its
-//! withdrawing patch, [`mutant_compiles`]) are compiled ahead on worker threads
-//! ([`NativeValidator::compile_ahead`]), every worker is joined, and then the chunk runs exactly
-//! as with one worker: one candidate at a time, in candidate order, on the calling thread. k-rust
-//! documents compiling, and nothing after it, as independent of the thread and of what other
-//! threads do (its `docs/compatibility.md`, "Concurrency"). The consistency check, every backend
+//! Only relinking and compiling run on several threads (re-pin L1-3 and L1-3-fix-1,
+//! [`CampaignOptions::compile_workers`]). The candidates are taken in chunks; each chunk's
+//! mutants (each candidate's patch and its withdrawing patch, [`mutant_compiles`]) are compiled
+//! ahead ([`NativeValidator::compile_ahead`]: each patch applied on the calling thread, then
+//! relinked and compiled on worker threads), every worker is joined, and then the chunk runs
+//! exactly as with one worker: one candidate at a time, in candidate order, on the calling
+//! thread. k-rust documents relinking and compiling, and nothing else kink runs, as independent
+//! of the thread and of what other threads do (its `docs/compatibility.md`, "Concurrency");
+//! applying a patch types its edited rules through a recursion with no stack guard, so it stays
+//! on the calling thread (review L1-3-1 D1). The consistency check, every backend
 //! build ([`Backend::from_definition`]: the load's critical-pair check and definedness discharge)
 //! and every execution run the simplifier, whose stack stops depend on the running thread's
 //! stack and on the stack other threads hold of its process-wide budget ("Execute"); a stop there
@@ -290,18 +293,18 @@ pub struct CampaignOptions {
     pub share_evidence: bool,
     /// How the runs are requested besides the campaign's budget (re-pin lane 1, L1-1).
     pub run: RunOptions,
-    /// How many threads compile mutants ahead of their turn (re-pin L1-3; at most
+    /// How many threads relink and compile mutants ahead of their turn (re-pin L1-3; at most
     /// [`NativeValidator::compile_workers`] of it). 1 (or 0) compiles each mutant when its turn
     /// comes, on the calling thread: the sequential path. More compiles each chunk of
-    /// [`AHEAD_PER_WORKER`] times as many candidates ahead, then runs the chunk as with 1. The run
-    /// and its report are the same for every value; only wall time and peak memory differ.
+    /// [`AHEAD_PER_WORKER`] times as many candidates ahead (their patches applied on the calling
+    /// thread), then runs the chunk as with 1. The run and its report are the same for every
+    /// value; only wall time and peak memory differ.
     pub compile_workers: usize,
 }
 
 /// How many candidates per compile worker one chunk compiles ahead
-/// ([`CampaignOptions::compile_workers`]): enough to keep the workers busy when compile times
-/// differ, few enough that a chunk's compiled definitions stay a small multiple of the workers'.
-pub const AHEAD_PER_WORKER: usize = 4;
+/// ([`CampaignOptions::compile_workers`]; kink-native's constant).
+pub use kink_native::AHEAD_PER_WORKER;
 
 /// How a campaign requests its runs besides the campaign's [`ExecutionBudget`] (re-pin lane 1,
 /// L1-1). The default is a state set for every result run and no work budget, which is what
@@ -1194,8 +1197,8 @@ pub fn run_campaign_multi_with(
     let mut ahead = None;
     for (index, candidate) in candidates.iter().copied().enumerate() {
         if options.compile_workers > 1 && index % chunk == 0 {
-            // Drop what the last chunk left, then compile this chunk ahead; every worker is
-            // joined before the chunk's first candidate runs below.
+            // Drop what the last chunk left of its own, then compile this chunk ahead; every
+            // worker is joined before the chunk's first candidate runs below.
             drop(ahead.take());
             let patches = candidates[index..candidates.len().min(index + chunk)]
                 .iter()
@@ -1207,10 +1210,11 @@ pub fn run_campaign_multi_with(
                     )
                 })
                 .collect::<Vec<_>>();
-            campaign
-                .validator
-                .compile_ahead(&patches, options.compile_workers);
-            ahead = Some(DiscardAhead(campaign.validator));
+            ahead = Some(
+                campaign
+                    .validator
+                    .compile_ahead(&patches, options.compile_workers),
+            );
         }
         stage_log::note(campaign, stage_log::Stage::Mutant(index));
         let identity = mutant_identity(
@@ -1291,16 +1295,6 @@ pub fn mutant_compiles(baseline: &Baseline, support: &ClaimSupport, patch: &Patc
         .filter(Withdrawal::trusted)
         .and_then(|claims| claims.patch().cloned());
     std::iter::once(patch.clone()).chain(withdrawing).collect()
-}
-
-/// Drops a validator's mutants compiled ahead when the chunk that compiled them ends, on every
-/// way out of the candidate loop.
-struct DiscardAhead<'v>(&'v NativeValidator);
-
-impl Drop for DiscardAhead<'_> {
-    fn drop(&mut self) {
-        self.0.discard_ahead();
-    }
 }
 
 /// Where the steps after compile run (re-pin L1-3), recorded in unit tests only: each candidate's
@@ -4067,10 +4061,14 @@ mod tests {
                         max_breadth: None,
                     },
                 };
-                assert!(
-                    validator.compile_workers(4) >= 2,
-                    "the host allows two workers"
-                );
+                if validator.compile_workers(4) < 2 {
+                    // Review L1-3-1 D3: one CPU, or a memory allowance too small for two.
+                    eprintln!(
+                        "skipped: this host allows one compile worker, so 4 would run the \
+                         sequential path"
+                    );
+                    return;
+                }
                 let address = std::ptr::from_ref(&campaign).addr();
                 let thread = std::thread::current().id();
                 let steps = |workers| {

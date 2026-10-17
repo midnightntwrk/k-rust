@@ -131,7 +131,7 @@ fn replay_checked(
     budget: Option<&BudgetMutants>,
     run: RunOptions,
 ) -> Result<ReplayOutcome, ReplayRefusal> {
-    let value: Value = serde_json::from_str(report).map_err(|_| ReplayRefusal::Schema)?;
+    let value: Value = kink_patch::parse_json(report).map_err(|_| ReplayRefusal::Schema)?;
     if value["schema"] != "kink-campaign-report" || value["version"] != CAMPAIGN_REPORT_VERSION {
         return Err(ReplayRefusal::Schema);
     }

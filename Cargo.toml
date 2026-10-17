@@ -24,7 +24,10 @@ kink-corpus = { path = "crates/kink-corpus" }
 kink-flow = { path = "crates/kink-flow" }
 kink-patch = { path = "crates/kink-patch" }
 kink-pattern = { path = "crates/kink-pattern" }
-serde_json = "1.0.149"
+# `unbounded_depth`: kink-patch's `parse_json` reads kink's own JSON, which nests as deep as the
+# terms it holds, without serde_json's limit of 128 (re-pin L1-3-fix-1).
+serde = "1.0.229"
+serde_json = { version = "1.0.149", features = ["unbounded_depth"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

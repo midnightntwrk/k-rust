@@ -240,3 +240,47 @@ fn unpinned_and_context_alias_are_refused() {
     .unwrap();
     assert_eq!(patch.canonical_json(), Err(CodecError::ContextAlias));
 }
+
+/// Re-pin L1-3-fix-1: a patch whose terms are 60, 200 or 1500 levels deep encodes, decodes and
+/// re-encodes byte-equally, as a shallow one does. serde_json's recursion limit of 128 nested
+/// values used to refuse every term more than about 55 levels deep (KAST JSON takes two levels
+/// per term level), so kink-flow reported a valid mutation of a deep rule as invalid-mutation
+/// (review L1-3-1). On a 256 MiB thread, as kink's commands run.
+#[test]
+fn deep_terms_round_trip_past_serde_jsons_recursion_limit() {
+    std::thread::Builder::new()
+        .stack_size(256 << 20)
+        .spawn(|| {
+            let baseline = support::load("counter.k");
+            let at = support::rule(&baseline, "COUNTER.increment");
+            let target = TermRef::new(at.clone(), [1]);
+            for depth in [60, 200, 1500] {
+                let mut deep = Term::apply("z", vec![]);
+                for _ in 0..depth {
+                    deep = Term::apply("s", vec![deep]);
+                }
+                let mut sentence = baseline.sentence(&at).unwrap().clone();
+                let Sentence::Rule { requires, .. } = &mut sentence else {
+                    panic!("a rule");
+                };
+                *requires = deep.clone();
+                for edit in [
+                    Edit::ReplaceTerm {
+                        at: target.clone(),
+                        expected: baseline.term(&target).unwrap().clone(),
+                        replacement: deep.clone(),
+                    },
+                    Edit::ReplaceSentence {
+                        at: at.clone(),
+                        replacement: sentence.clone(),
+                    },
+                ] {
+                    let patch = Patch::new(vec![edit]).unwrap().pinned(&baseline).unwrap();
+                    round_trip(&patch);
+                }
+            }
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}

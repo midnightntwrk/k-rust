@@ -54,13 +54,17 @@
 //! document lists the rules no resolving mutation of the list targets. None of these enters an
 //! evidence row, a digest, a key, an outcome record or a hint.
 //!
-//! Threads (re-pin L1-3): only compiling runs on several threads ([`RunOptions::compile_workers`]).
-//! The selected mutations are taken in chunks; each chunk's mutants that would make a live call
-//! are compiled ahead (kink-native `NativeValidator::compile_ahead`) and every worker is joined
-//! before the chunk's first mutation runs, so every step above runs as with one worker: one
-//! mutation at a time, in list order, every load, consistency check and execution on the calling
-//! thread (their stack stops depend on the thread and on the other threads' stack, k-rust
-//! `docs/compatibility.md`, "Execute"; compiling does not, "Concurrency").
+//! Threads (re-pin L1-3, L1-3-fix-1): only relinking and compiling run on several threads
+//! ([`RunOptions::compile_workers`]). The selected mutations are taken in chunks; each chunk's
+//! mutants that would make a live call are compiled ahead (kink-native
+//! `NativeValidator::compile_ahead`: each patch applied on the calling thread, then relinked and
+//! compiled on a worker) and every worker is joined before the chunk's first mutation runs, so
+//! every step above runs as with one worker: one mutation at a time, in list order, every
+//! resolution, patch application, load, consistency check and execution on the calling thread
+//! (the loads', checks' and executions' stack stops depend on the thread and on the other
+//! threads' stack, k-rust `docs/compatibility.md`, "Execute"; applying types edited rules
+//! through a recursion with no stack guard, review L1-3-1 D1; relinking and compiling depend on
+//! neither, "Concurrency").
 //!
 //! `run --verify` ([`RunMode::Verify`]) decides nothing from tier 1: it runs the cold call over
 //! O for every mutation, then one call per valid record whose program the cold call did not
@@ -1441,17 +1445,19 @@ pub fn run_with(
     let workers = spec
         .validator
         .compile_workers(options.compile_workers.unwrap_or(DEFAULT_COMPILE_WORKERS));
-    let chunk = workers * kink_campaign::AHEAD_PER_WORKER;
+    let chunk = workers * kink_native::AHEAD_PER_WORKER;
     // The document as last written to the report file, if it was.
     let mut written = None;
+    // The chunk compiled ahead; dropping it drops what its mutations did not take.
+    let mut ahead = None;
     for (position, &(mutation, resolution)) in selected.iter().enumerate() {
         if workers > 1 && position % chunk == 0 {
-            spec.validator.discard_ahead();
+            drop(ahead.take());
             let patches = selected[position..selected.len().min(position + chunk)]
                 .iter()
                 .flat_map(|(_, resolution)| search.live_compiles(resolution))
                 .collect::<Vec<_>>();
-            spec.validator.compile_ahead(&patches, workers);
+            ahead = Some(spec.validator.compile_ahead(&patches, workers));
         }
         let (mut row, corpus_error) = search.search_one(mutation, resolution);
         if corpus_error {
@@ -1496,7 +1502,7 @@ pub fn run_with(
             break;
         }
     }
-    spec.validator.discard_ahead();
+    drop(ahead);
     if !search.mismatches.is_empty() {
         ok = false;
     }

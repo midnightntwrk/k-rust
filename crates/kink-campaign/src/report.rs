@@ -73,10 +73,10 @@ fn reference(at: &SentenceRef) -> Value {
     json!({"module":at.module,"index":at.index})
 }
 fn term(term: &Term) -> Result<Value, ReportError> {
-    serde_json::from_str(&k_rust::kast::json::to_string(term).map_err(encode)?).map_err(encode)
+    kink_patch::parse_json(&k_rust::kast::json::to_string(term).map_err(encode)?).map_err(encode)
 }
 fn nsent(sentence: &Sentence) -> Result<Value, ReportError> {
-    serde_json::from_str(&fingerprint_payload(sentence).map_err(encode)?).map_err(encode)
+    kink_patch::parse_json(&fingerprint_payload(sentence).map_err(encode)?).map_err(encode)
 }
 fn kore(pattern: &Pattern) -> Result<Value, ReportError> {
     to_value(pattern).map_err(encode)

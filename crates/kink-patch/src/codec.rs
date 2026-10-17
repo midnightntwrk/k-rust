@@ -1,8 +1,12 @@
 //! Canonical patch v1, using metadata-free k-rust KAST values.
+//!
+//! Terms of any depth encode and decode: k-rust's KAST JSON of an edited term or sentence, and
+//! a canonical patch's text, are read with [`parse_json`], which has no nesting limit (re-pin
+//! L1-3-fix-1; serde_json's limit of 128 refused every term more than about 55 levels deep).
 
 use crate::{
     CANONICAL_PATCH_DOMAIN, Edit, InsertPosition, Patch, PatchModelError, SentenceFingerprint,
-    SentenceRef, Sha256Digest, TermRef, canonical_json, payload_digest,
+    SentenceRef, Sha256Digest, TermRef, canonical_json, parse_json, payload_digest,
 };
 use k_rust::{
     definition::{Attributes, Definition, FlatModule, Sentence},
@@ -50,8 +54,7 @@ impl Patch {
         ))
     }
     pub fn from_canonical_json(text: &str) -> Result<Self, CodecError> {
-        let value: Value =
-            serde_json::from_str(text).map_err(|e| CodecError::Decode(e.to_string()))?;
+        let value: Value = parse_json(text).map_err(|e| CodecError::Decode(e.to_string()))?;
         exact(&value, &["version", "edits", "pins"])?;
         if value["version"].as_u64() != Some(1) {
             return Err(decode("unknown patch version"));
@@ -92,7 +95,7 @@ fn position(at: &InsertPosition) -> Value {
 fn term(term: &Term) -> Result<Value, CodecError> {
     let text =
         k_rust::kast::json::to_string(term).map_err(|e| CodecError::Encode(e.to_string()))?;
-    serde_json::from_str(&text).map_err(|e| CodecError::Encode(e.to_string()))
+    parse_json(&text).map_err(|e| CodecError::Encode(e.to_string()))
 }
 fn sentence(sentence: &Sentence) -> Result<Value, CodecError> {
     if matches!(sentence, Sentence::ContextAlias { .. }) {
@@ -110,7 +113,7 @@ fn sentence(sentence: &Sentence) -> Result<Value, CodecError> {
     };
     let text = k_rust::definition::json::to_string(&definition)
         .map_err(|e| CodecError::Encode(e.to_string()))?;
-    serde_json::from_str(&text).map_err(|e| CodecError::Encode(e.to_string()))
+    parse_json(&text).map_err(|e| CodecError::Encode(e.to_string()))
 }
 fn encode_edit(edit: &Edit) -> Result<Value, CodecError> {
     Ok(match edit {

@@ -7,19 +7,27 @@
 //! without Z3 the prelude does not load.
 //!
 //! Compiling ahead (re-pin L1-3, [`NativeValidator::compile_ahead`]) is the only stage of kink
-//! that runs on several threads. Relinking and compiling are the only steps k-rust documents
-//! as independent of the thread: they read only their arguments and no process-wide input,
-//! several threads may run them at once on one shared loaded definition, each call returns what
-//! the same call returns alone on one thread, and every compile stage runs on a stack sized from
-//! the definition, so the artifacts do not depend on the calling thread's stack (k-rust 501f18b9
-//! `docs/compatibility.md`, "Concurrency"; `crates/k-rust/tests/compile_concurrency.rs`). A
-//! compile refusal can depend on the calling thread's stack (a pass that needs a segment past
-//! the stack limit, "Compile"), so only a successful compile is taken ahead: every refusal comes
-//! from the calling thread, as without compiling ahead. Everything after compile that loads a
-//! definition or runs the simplifier (the consistency check, every backend build, every
-//! execution) depends on the stack of the thread that runs it and on what other threads hold of
-//! the simplifier's process-wide stack budget ("Execute"), and stays on the calling thread, one
-//! mutant at a time: callers compile a chunk ahead and join every worker before any of it runs.
+//! that runs on several threads, and a worker thread runs exactly two steps: relinking the
+//! applied mutant ([`Mutant::to_loaded`], k-rust's `LoadedDefinition::with_definition`) and
+//! compiling it (`compile_loaded_definition`). They are the only steps k-rust documents as
+//! independent of the thread: they read only their arguments and no process-wide input, several
+//! threads may run them at once on one shared loaded definition, each call returns what the same
+//! call returns alone on one thread, and every compile stage runs on a stack sized from the
+//! definition, so the artifacts do not depend on the calling thread's stack (k-rust 501f18b9
+//! `docs/compatibility.md`, "Concurrency"; `crates/k-rust/tests/compile_concurrency.rs`).
+//! Applying the patch (kink-patch [`apply`]) is not among them and runs on the calling thread, in
+//! the order the patches are given: it types each edited rule with k-rust's
+//! `SentenceTyper::typing_in`, whose recursion over the rule's terms is not stack-guarded and
+//! which "Concurrency" does not cover, so on a worker's default stack a deep edited rule would
+//! overflow it and abort the process where the calling thread's large stack succeeds (review
+//! L1-3-1 D1). A compile refusal can depend on the calling thread's stack (a pass that needs a
+//! segment past the stack limit, "Compile"), so only a successful compile is taken ahead: every
+//! refusal comes from the calling thread, as without compiling ahead. Everything after compile
+//! that loads a definition or runs the simplifier (the consistency check, every backend build,
+//! every execution) depends on the stack of the thread that runs it and on what other threads
+//! hold of the simplifier's process-wide stack budget ("Execute"), and stays on the calling
+//! thread, one mutant at a time: callers compile a chunk ahead and join every worker before any
+//! of it runs.
 
 use std::{
     collections::BTreeMap,
@@ -28,7 +36,7 @@ use std::{
     panic::{AssertUnwindSafe, catch_unwind},
     sync::{
         Mutex, OnceLock, PoisonError,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicU64, AtomicUsize, Ordering},
     },
 };
 
@@ -37,7 +45,7 @@ use k_rust::{
     kompile::{CompileError, CompileOptions, CompiledKoreArtifacts, compile_loaded_definition},
     outer::{LoadError, LoadedDefinition},
 };
-use kink_patch::{Baseline, Patch, PatchFailure, SentenceOrigin, SentenceRef, apply};
+use kink_patch::{Baseline, Mutant, Patch, PatchFailure, SentenceOrigin, SentenceRef, apply};
 
 /// Typed failure to compile the native baseline. No staged output is published.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -72,6 +80,7 @@ pub struct NativeValidator {
     options: CompileOptions,
     compiled_baseline: OnceLock<Result<ValidatedDefinition, NativeFailure>>,
     ahead: Mutex<Vec<Ahead>>,
+    next_chunk: AtomicU64,
 }
 
 impl Clone for NativeValidator {
@@ -81,25 +90,74 @@ impl Clone for NativeValidator {
             options: self.options.clone(),
             compiled_baseline: self.compiled_baseline.clone(),
             ahead: Mutex::new(Vec::new()),
+            next_chunk: AtomicU64::new(0),
         }
     }
 }
 
 /// A mutant compiled ahead of its turn ([`NativeValidator::compile_ahead`]): its patch, its
-/// compiled definition and how many more [`NativeValidator::validate`] calls take it.
+/// compiled definition and, for each chunk that asked for it, how many more
+/// [`NativeValidator::validate`] calls that chunk counts on taking it.
 #[derive(Debug)]
 struct Ahead {
     patch: Patch,
     compiled: ValidatedDefinition,
-    uses: usize,
+    uses: Vec<(u64, usize)>,
 }
 
-/// The native stack and heap one compile is estimated to take besides its definition, for the
-/// memory cap of [`NativeValidator::compile_workers`].
+impl Ahead {
+    fn add_uses(&mut self, chunk: u64, uses: usize) {
+        if let Some((_, count)) = self.uses.iter_mut().find(|(owner, _)| *owner == chunk) {
+            *count += uses;
+        } else {
+            self.uses.push((chunk, uses));
+        }
+    }
+}
+
+/// The mutants one [`NativeValidator::compile_ahead`] call keeps, for as long as this value
+/// lives. Dropping it drops the uses its call added and every mutant no other chunk still counts
+/// on; what other chunks (another caller's, say) keep stays kept.
+#[must_use = "dropping the chunk drops its mutants compiled ahead"]
+#[derive(Debug)]
+pub struct AheadChunk<'v> {
+    validator: &'v NativeValidator,
+    id: u64,
+}
+
+impl Drop for AheadChunk<'_> {
+    fn drop(&mut self) {
+        self.validator.discard_chunk(self.id);
+    }
+}
+
+/// How many candidates per compile worker a caller compiles ahead at once
+/// ([`NativeValidator::compile_ahead`]; kink-campaign's runner and kink-flow chunk their
+/// candidates and mutations by this): enough to keep the workers busy when compile times differ,
+/// few enough that what a chunk keeps stays a small multiple of the workers.
+pub const AHEAD_PER_WORKER: usize = 4;
+
+/// The most mutants compiled ahead that one worker's share of the memory cap
+/// ([`NativeValidator::compile_workers`]) holds: the patch and the claim-withdrawing patch of each
+/// of its [`AHEAD_PER_WORKER`] candidates. [`NativeValidator::compile_ahead`] keeps no more than
+/// this many per worker, whatever it is given.
+pub const KEPT_PER_WORKER: usize = 2 * AHEAD_PER_WORKER;
+
+/// The native stack and heap one compile in flight is estimated to take besides its definition,
+/// for the memory cap of [`NativeValidator::compile_workers`].
 const COMPILE_BASE_BYTES: u64 = 64 << 20;
 
-/// The bytes one compile is estimated to take per byte of the baseline's `definition.kore`.
+/// The bytes one compile in flight is estimated to take per byte of the baseline's
+/// `definition.kore`.
 const COMPILE_BYTES_PER_KORE_BYTE: u64 = 32;
+
+/// The bytes one mutant compiled ahead and kept is estimated to take besides its definition: its
+/// applied mutant while it compiles, then its compiled definition (the relinked definition and
+/// its KORE texts).
+const KEPT_BASE_BYTES: u64 = 8 << 20;
+
+/// The bytes one kept mutant is estimated to take per byte of the baseline's `definition.kore`.
+const KEPT_BYTES_PER_KORE_BYTE: u64 = 8;
 
 impl NativeValidator {
     /// Captures `baseline`; its caller owns prelude policy.
@@ -109,6 +167,7 @@ impl NativeValidator {
             options,
             compiled_baseline: OnceLock::new(),
             ahead: Mutex::new(Vec::new()),
+            next_chunk: AtomicU64::new(0),
         }
     }
 
@@ -136,14 +195,20 @@ impl NativeValidator {
     /// for: at most `requested`, the host's available parallelism, and the memory cap, and at
     /// least 1.
     ///
-    /// The memory cap gives compiles half of the process's allowance (k-rust's
+    /// The memory cap gives compiling ahead half of the process's allowance (k-rust's
     /// `Allowance::of_process`: the smallest of the cgroup's `memory.max`, `RLIMIT_AS` or
-    /// `RLIMIT_DATA` and physical memory), at an estimated 64 MiB plus 32 bytes per byte of the
-    /// baseline's `definition.kore` for each compile. That is about twice what one more worker
-    /// was measured to take (re-pin L1-3: 12 MiB plus about 25 bytes per byte, 31 MiB on
-    /// `examples/imp`) and matches k-rust's 0.55-1.5 GiB per KEVM compile. k-rust promises no
-    /// wall time or peak memory under concurrency, so the cap bounds memory; it never changes
-    /// a result. A baseline that does not compile gets 1.
+    /// `RLIMIT_DATA` and physical memory), and counts for each worker what its share of a chunk
+    /// holds at once: one compile in flight, at an estimated 64 MiB plus 32 bytes per byte of the
+    /// baseline's `definition.kore`, and the [`KEPT_PER_WORKER`] mutants compiled ahead that
+    /// [`NativeValidator::compile_ahead`] keeps at most per worker, at an estimated 8 MiB plus 8
+    /// bytes per byte each (the applied mutant while it compiles, then the compiled definition
+    /// until its turn). The compile estimate is about twice what one more worker was measured to
+    /// take (re-pin L1-3: 12 MiB plus about 25 bytes per byte, 31 MiB on `examples/imp`) and
+    /// matches k-rust's 0.55-1.5 GiB per KEVM compile; the kept estimate is two to three times
+    /// what a kept mutant was measured to take (re-pin L1-3-fix-1: 4.4 to 5.7 MiB, about 4 MiB
+    /// plus 2.4 bytes per byte, on `examples/imp` and three flow fixtures; not measured on a large
+    /// definition). k-rust promises no wall time or peak memory under concurrency, so the cap
+    /// bounds memory; it never changes a result. A baseline that does not compile gets 1.
     pub fn compile_workers(&self, requested: usize) -> usize {
         if requested <= 1 {
             return 1;
@@ -158,60 +223,96 @@ impl NativeValidator {
         let per_compile = COMPILE_BYTES_PER_KORE_BYTE
             .saturating_mul(kore)
             .saturating_add(COMPILE_BASE_BYTES);
+        let per_kept = KEPT_BYTES_PER_KORE_BYTE
+            .saturating_mul(kore)
+            .saturating_add(KEPT_BASE_BYTES);
+        let per_worker = per_kept
+            .saturating_mul(KEPT_PER_WORKER as u64)
+            .saturating_add(per_compile);
         let allowance = k_rust::k_rust_backend::allowance::Allowance::of_process().bytes();
-        let cap = usize::try_from(allowance / 2 / per_compile).unwrap_or(usize::MAX);
+        let cap = usize::try_from(allowance / 2 / per_worker).unwrap_or(usize::MAX);
         let threads = std::thread::available_parallelism().map_or(1, NonZeroUsize::get);
         requested.min(threads).min(cap).max(1)
     }
 
-    /// Applies, relinks and compiles `patches` on up to
+    /// Compiles `patches` ahead of their [`NativeValidator::validate`] calls on up to
     /// [`compile_workers(workers)`](NativeValidator::compile_workers) threads, joins them all,
-    /// and keeps each mutant that compiles for the
-    /// [`NativeValidator::validate`] calls of an equal patch (one per time the patch is given;
-    /// a patch already kept gains those calls without compiling again).
+    /// and keeps each mutant that compiles for the `validate` calls of an equal patch (one per
+    /// time the patch is given; a patch already kept gains those calls without compiling again)
+    /// until they take it or the returned chunk is dropped.
     ///
-    /// With one worker it does nothing: every mutant then compiles in its `validate` call, as
-    /// without compiling ahead. A patch that is refused (by kink-patch, at relinking or by the
-    /// compiler) is not kept, and neither is one whose compile panics: its `validate` call
-    /// compiles it again on the calling thread, which then gives today's refusal (or panic) at
-    /// today's point. What is kept equals what `validate` would compile on the calling thread
-    /// (see the module documentation), so compiling ahead changes no artifact, status or
-    /// report; the premise is the one [`NativeValidator::compile_baseline`] and replay take.
+    /// Each patch is applied on the calling thread, in the order given; a worker thread only
+    /// relinks and compiles an applied mutant (see the module documentation). With one worker it
+    /// does nothing: every mutant then compiles in its `validate` call, as without compiling
+    /// ahead. A patch that is refused (by kink-patch, at relinking or by the compiler) is not
+    /// kept, and neither is one whose application or compile panics: its `validate` call applies
+    /// and compiles it again on the calling thread, which then gives today's refusal (or panic)
+    /// at today's point. What is kept equals what `validate` would compile on the calling thread,
+    /// so compiling ahead changes no artifact, status or report; the premise is the one
+    /// [`NativeValidator::compile_baseline`] and replay take.
     ///
-    /// Memory grows with what is kept: callers compile a bounded chunk ahead, validate it, and
-    /// drop the rest with [`NativeValidator::discard_ahead`].
-    pub fn compile_ahead(&self, patches: &[Patch], workers: usize) {
+    /// At most [`KEPT_PER_WORKER`] times the workers' count of mutants are kept at once, counting
+    /// those other chunks still keep: the patches past that are not compiled ahead, and compile
+    /// in their `validate` call. That is what the memory cap of `compile_workers` counts.
+    pub fn compile_ahead(&self, patches: &[Patch], workers: usize) -> AheadChunk<'_> {
         let workers = self.compile_workers(workers);
+        self.compile_ahead_on(patches, workers, workers.saturating_mul(KEPT_PER_WORKER))
+    }
+
+    /// [`NativeValidator::compile_ahead`] with exactly `workers` threads (at most one per patch)
+    /// keeping at most `kept` mutants at once.
+    fn compile_ahead_on(&self, patches: &[Patch], workers: usize, kept: usize) -> AheadChunk<'_> {
+        let chunk = AheadChunk {
+            validator: self,
+            id: self.next_chunk.fetch_add(1, Ordering::Relaxed),
+        };
         if workers <= 1 {
-            return;
+            return chunk;
         }
         let mut distinct: Vec<(&Patch, usize)> = Vec::new();
         {
             let mut held = self.ahead.lock().unwrap_or_else(PoisonError::into_inner);
             for patch in patches {
                 if let Some(kept) = held.iter_mut().find(|kept| kept.patch == *patch) {
-                    kept.uses += 1;
+                    kept.add_uses(chunk.id, 1);
                 } else if let Some((_, uses)) = distinct.iter_mut().find(|(p, _)| *p == patch) {
                     *uses += 1;
                 } else {
                     distinct.push((patch, 1));
                 }
             }
+            distinct.truncate(kept.saturating_sub(held.len()));
         }
+        // Applying types each edited rule through a recursion with no stack guard: it stays on
+        // the calling thread, in the order given.
+        let applied = distinct
+            .iter()
+            .map(|(patch, _)| {
+                catch_unwind(AssertUnwindSafe(|| apply(&self.baseline, patch)))
+                    .ok()
+                    .and_then(Result::ok)
+            })
+            .collect::<Vec<Option<Mutant>>>();
+        let jobs = applied
+            .iter()
+            .enumerate()
+            .filter_map(|(index, mutant)| mutant.as_ref().map(|mutant| (index, mutant)))
+            .collect::<Vec<_>>();
         let compiled = distinct
             .iter()
             .map(|_| OnceLock::new())
             .collect::<Vec<OnceLock<ValidatedDefinition>>>();
         let next = AtomicUsize::new(0);
         std::thread::scope(|scope| {
-            for _ in 0..workers.min(distinct.len()) {
+            for _ in 0..workers.min(jobs.len()) {
                 scope.spawn(|| {
                     loop {
-                        let index = next.fetch_add(1, Ordering::Relaxed);
-                        let Some((patch, _)) = distinct.get(index) else {
+                        let job = next.fetch_add(1, Ordering::Relaxed);
+                        let Some(&(index, mutant)) = jobs.get(job) else {
                             break;
                         };
-                        if let Ok(Ok(side)) = catch_unwind(AssertUnwindSafe(|| self.compile(patch)))
+                        if let Ok(Ok(side)) =
+                            catch_unwind(AssertUnwindSafe(|| self.compile_mutant(mutant)))
                         {
                             let _ = compiled[index].set(side);
                         }
@@ -219,32 +320,40 @@ impl NativeValidator {
                 });
             }
         });
+        drop(applied);
         let mut held = self.ahead.lock().unwrap_or_else(PoisonError::into_inner);
         for ((patch, uses), side) in distinct.into_iter().zip(compiled) {
             if let Some(compiled) = side.into_inner() {
                 held.push(Ahead {
                     patch: patch.clone(),
                     compiled,
-                    uses,
+                    uses: vec![(chunk.id, uses)],
                 });
             }
         }
+        chunk
     }
 
-    /// Drops every mutant compiled ahead that no `validate` call has taken yet.
-    pub fn discard_ahead(&self) {
-        self.ahead
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clear();
+    /// Drops the uses chunk `id` added, and every kept mutant no chunk counts on any more.
+    fn discard_chunk(&self, id: u64) {
+        let mut held = self.ahead.lock().unwrap_or_else(PoisonError::into_inner);
+        held.retain_mut(|kept| {
+            kept.uses.retain(|(owner, _)| *owner != id);
+            !kept.uses.is_empty()
+        });
     }
 
-    /// The mutant of an equal patch compiled ahead, if one is kept, counting this use.
+    /// The mutant of an equal patch compiled ahead, if one is kept, counting this use against
+    /// the earliest chunk that still counts on one.
     fn take_ahead(&self, patch: &Patch) -> Option<ValidatedDefinition> {
         let mut held = self.ahead.lock().unwrap_or_else(PoisonError::into_inner);
         let at = held.iter().position(|kept| kept.patch == *patch)?;
-        held[at].uses -= 1;
-        Some(if held[at].uses == 0 {
+        let uses = &mut held[at].uses;
+        uses[0].1 -= 1;
+        if uses[0].1 == 0 {
+            uses.remove(0);
+        }
+        Some(if uses.is_empty() {
             held.remove(at).compiled
         } else {
             held[at].compiled.clone()
@@ -289,6 +398,11 @@ impl NativeValidator {
     /// Applies `patch` to the baseline, relinks and compiles the mutant, on this thread.
     fn compile(&self, patch: &Patch) -> Result<ValidatedDefinition, MutantRejection> {
         let mutant = apply(&self.baseline, patch).map_err(MutantRejection::Patch)?;
+        self.compile_mutant(&mutant)
+    }
+
+    /// Relinks and compiles an applied mutant: the two steps a compile-ahead worker runs.
+    fn compile_mutant(&self, mutant: &Mutant) -> Result<ValidatedDefinition, MutantRejection> {
         let loaded = mutant
             .to_loaded(&self.baseline)
             .map_err(MutantRejection::Relink)?;
@@ -390,20 +504,38 @@ mod tests {
     };
     use kink_patch::{Edit, TermRef};
 
+    /// Each kept patch with the uses every chunk still counts on.
     fn held(validator: &NativeValidator) -> Vec<(Patch, usize)> {
         validator
             .ahead
             .lock()
             .unwrap()
             .iter()
-            .map(|kept| (kept.patch.clone(), kept.uses))
+            .map(|kept| (kept.patch.clone(), kept.uses.iter().map(|(_, n)| n).sum()))
             .collect()
     }
 
-    /// Re-pin L1-3: a mutant compiled ahead is the mutant its `validate` call compiles alone, a
-    /// patch given twice is compiled once and taken twice, a refused patch is not kept (its
-    /// `validate` call gives the refusal from the calling thread), one worker keeps nothing,
-    /// `discard_ahead` drops what is left, and a clone starts with nothing kept.
+    /// `rule`'s `requires` clause replaced by `token`, as a whole-sentence edit.
+    fn requires(baseline: &Baseline, rule: &str, token: &str) -> Patch {
+        let at = support::rule(baseline, rule);
+        let mut replacement = baseline.sentence(&at).unwrap().clone();
+        let Sentence::Rule { requires, .. } = &mut replacement else {
+            panic!("a rule");
+        };
+        *requires = Term::Token {
+            token: token.into(),
+            sort: Sort::new("Bool"),
+        };
+        Patch::new(vec![Edit::ReplaceSentence { at, replacement }]).unwrap()
+    }
+
+    /// Re-pin L1-3 and L1-3-fix-1: a mutant compiled ahead is the mutant its `validate` call
+    /// compiles alone, a patch given twice is compiled once and taken twice, a refused patch is
+    /// not kept (its `validate` call gives the refusal from the calling thread), one worker keeps
+    /// nothing, a chunk dropped drops only the uses it added (review L1-3-1 D4), no more than
+    /// the kept bound is compiled ahead (review D2), and a clone starts with nothing kept. The
+    /// worker count is forced, so a host that allows one compile worker still runs two threads
+    /// (review D3).
     #[test]
     fn compiled_ahead_mutants_are_their_own_compiles_and_refusals_are_not_kept() {
         std::thread::Builder::new()
@@ -412,44 +544,39 @@ mod tests {
                 let validator =
                     NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
                 let baseline = validator.baseline();
-                let at = support::rule(baseline, "COUNTER.branch");
+                let compiles = requires(baseline, "COUNTER.branch", "false");
+                let other = requires(baseline, "COUNTER.branch", "true");
                 let false_term = Term::Token {
                     token: "false".into(),
                     sort: Sort::new("Bool"),
                 };
-                let mut replacement = baseline.sentence(&at).unwrap().clone();
-                let Sentence::Rule { requires, .. } = &mut replacement else {
-                    panic!("a rule");
-                };
-                *requires = false_term.clone();
-                let compiles = Patch::new(vec![Edit::ReplaceSentence {
-                    at: at.clone(),
-                    replacement,
-                }])
-                .unwrap();
                 // The requires clause is `B`, not `false`: kink-patch refuses the edit.
                 let refused = Patch::new(vec![Edit::ReplaceTerm {
-                    at: TermRef::new(at, [1]),
+                    at: TermRef::new(support::rule(baseline, "COUNTER.branch"), [1]),
                     expected: false_term.clone(),
                     replacement: false_term,
                 }])
                 .unwrap();
                 let alone = validator.validate(&compiles);
+                let other_alone = validator.validate(&other);
                 let refusal = validator.validate(&refused);
                 assert!(alone.is_ok(), "{alone:?}");
+                assert!(other_alone.is_ok(), "{other_alone:?}");
                 assert!(refusal.is_err());
+                let bound = 3 * KEPT_PER_WORKER;
 
-                validator.compile_ahead(std::slice::from_ref(&compiles), 1);
+                let none = validator.compile_ahead_on(std::slice::from_ref(&compiles), 1, bound);
                 assert!(
                     held(&validator).is_empty(),
                     "one worker compiles nothing ahead"
                 );
-                assert!(
-                    validator.compile_workers(3) >= 2,
-                    "the test host allows two compile workers"
-                );
+                drop(none);
 
-                validator.compile_ahead(&[compiles.clone(), refused.clone(), compiles.clone()], 3);
+                let chunk = validator.compile_ahead_on(
+                    &[compiles.clone(), refused.clone(), compiles.clone()],
+                    3,
+                    bound,
+                );
                 assert_eq!(held(&validator), vec![(compiles.clone(), 2)]);
                 assert_eq!(validator.validate(&compiles), alone);
                 assert_eq!(held(&validator), vec![(compiles.clone(), 1)]);
@@ -462,17 +589,99 @@ mod tests {
                 );
                 assert_eq!(validator.validate(&compiles), alone);
                 assert!(held(&validator).is_empty());
+                drop(chunk);
 
-                validator.compile_ahead(std::slice::from_ref(&compiles), 3);
-                validator.compile_ahead(std::slice::from_ref(&compiles), 3);
+                let first = validator.compile_ahead_on(std::slice::from_ref(&compiles), 3, bound);
+                let second = validator.compile_ahead_on(std::slice::from_ref(&compiles), 3, bound);
                 assert_eq!(
                     held(&validator),
                     vec![(compiles.clone(), 2)],
                     "kept, not recompiled"
                 );
-                validator.discard_ahead();
+                drop(second);
+                assert_eq!(
+                    held(&validator),
+                    vec![(compiles.clone(), 1)],
+                    "a chunk drops only the uses it added"
+                );
+                drop(first);
                 assert!(held(&validator).is_empty());
                 assert_eq!(validator.validate(&compiles), alone);
+
+                let bounded = validator.compile_ahead_on(&[compiles.clone(), other.clone()], 3, 1);
+                assert_eq!(
+                    held(&validator),
+                    vec![(compiles.clone(), 1)],
+                    "no more than the bound is kept"
+                );
+                assert_eq!(validator.validate(&other), other_alone);
+                assert_eq!(validator.validate(&compiles), alone);
+                drop(bounded);
+
+                // The capped entry point gives the same mutants with whatever the host allows.
+                let capped = validator.compile_ahead(&[compiles.clone(), other.clone()], 3);
+                assert_eq!(validator.validate(&other), other_alone);
+                assert_eq!(validator.validate(&compiles), alone);
+                drop(capped);
+                assert!(held(&validator).is_empty());
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    /// Re-pin L1-3-fix-1 (review L1-3-1 D1): a patch of a rule 3000 terms deep, compiled ahead
+    /// with 4 workers on their default stacks, gives what `validate` gives on the calling thread,
+    /// with no abort. The patch is applied (and its edited rule typed, a recursion without a
+    /// stack guard) on the calling thread; a worker only relinks and compiles, which k-rust runs
+    /// on stacks sized from the definition. Before the fix the workers applied the patch, and
+    /// every depth of 1500 or more overflowed a worker's stack and aborted the process.
+    #[test]
+    fn a_deep_edited_rule_compiles_ahead_as_on_the_calling_thread() {
+        const DEPTH: usize = 3000;
+        std::thread::Builder::new()
+            .stack_size(256 << 20)
+            .spawn(|| {
+                let text = format!(
+                    "module DEEP-SYNTAX\n  imports INT-SYNTAX\n  syntax Exp ::= Int\n               \
+                     | \"go\" \"(\" Int \")\"\n               > left:\n                 Exp \"+\" \
+                     Exp [strict, symbol(add)]\nendmodule\n\nmodule DEEP\n  imports \
+                     DEEP-SYNTAX\n  imports INT\n  configuration <k> $PGM:Exp </k>\n  syntax \
+                     KResult ::= Int\n  syntax Peano ::= \"z\" | s(Peano)\n  syntax Exp ::= \
+                     deep(Peano)\n  rule [add]: I1:Int + I2:Int => I1 +Int I2\n  rule [big]: \
+                     go(I:Int) => deep({}z{}) requires I >Int 100\nendmodule\n",
+                    "s(".repeat(DEPTH),
+                    ")".repeat(DEPTH)
+                );
+                let mut resolver = |_: &str, required: &str| {
+                    k_rust::builtin::embedded(required)
+                        .ok_or_else(|| format!("{required} is not embedded"))
+                };
+                let baseline = Baseline::load(
+                    k_rust::outer::ResolvedSource::new("deep.k", text),
+                    "DEEP",
+                    None,
+                    &mut resolver,
+                    &support::options(),
+                )
+                .unwrap();
+                let validator = NativeValidator::bind(baseline, CompileOptions::default());
+                let patch = requires(validator.baseline(), "DEEP.big", "true");
+                let alone = validator.validate(&patch);
+                assert!(alone.is_ok(), "{alone:?}");
+                let chunk = validator.compile_ahead_on(
+                    &[patch.clone(), patch.clone()],
+                    4,
+                    4 * KEPT_PER_WORKER,
+                );
+                assert_eq!(
+                    held(&validator),
+                    vec![(patch.clone(), 2)],
+                    "a worker relinked and compiled the deep mutant"
+                );
+                assert_eq!(validator.validate(&patch), alone);
+                assert_eq!(validator.validate(&patch), alone);
+                drop(chunk);
             })
             .unwrap()
             .join()
