@@ -419,7 +419,7 @@ fn assert_w_h_keeps_its_obligation(definition: &BackendDefinition) {
 /// obligations beside it (the arguments' own, where their heads are withdrawn too).
 fn assert_obligation_kept(simplified: &Predicate, kept: &Predicate, query: &str) {
     let conjuncts = match simplified {
-        Predicate::And(conjuncts) => conjuncts.clone(),
+        Predicate::And(conjuncts) => conjuncts.to_vec(),
         other => vec![other.clone()],
     };
     assert!(

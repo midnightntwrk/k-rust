@@ -254,7 +254,7 @@ pub(super) fn check_same_span_repetition(
     };
     let span = metadata.span;
     let top_label = grammar.packed_top_parse_label(term);
-    let built = chart.cycle_nodes.borrow();
+    let built = chart.cycle_nodes().borrow();
     // `path[i]` is a visited node and the index of the node it was reached from (`0` is `term`).
     let mut path: Vec<(&PackedTerm, usize)> = vec![(term, 0)];
     let mut visited = HashSet::new();
@@ -309,7 +309,7 @@ pub(super) fn check_same_span_repetition(
     }
     drop(built);
     chart
-        .cycle_nodes
+        .cycle_nodes()
         .borrow_mut()
         .insert(Rc::as_ptr(term), (Rc::clone(term), production));
     Ok(())

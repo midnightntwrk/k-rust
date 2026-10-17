@@ -1213,6 +1213,9 @@ fn run_backend_in_execution(
                 max_simplification_iterations: options.max_simplification_iterations,
                 request_names: target.request_names.clone(),
                 evaluation: EvaluationMode::Execution,
+                // The output below reads each match's substitution, constraints, pattern, depth
+                // and diagnostics, and an incomplete entry's description; none reads a trace.
+                retain_trace: false,
             },
             solver,
         );

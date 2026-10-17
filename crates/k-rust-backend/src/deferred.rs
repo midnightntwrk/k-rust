@@ -177,6 +177,11 @@ pub(crate) fn is_impure_application(definition: &BackendDefinition, application:
     let TermKind::Application { symbol, .. } = application.kind() else {
         return false;
     };
+    is_impure_symbol(definition, symbol)
+}
+
+/// Whether an application of `symbol` performs an effect ([`is_impure_application`]).
+pub(crate) fn is_impure_symbol(definition: &BackendDefinition, symbol: &Symbol) -> bool {
     definition.is_impure(&symbol.name)
         || symbol
             .attributes
@@ -229,7 +234,8 @@ fn console_domain(application: &Term) -> Option<bool> {
 }
 
 /// The immediate subterms of `term`.
-fn children(term: &Term) -> Vec<&Term> {
+/// The immediate subterms of `term`.
+pub(crate) fn children(term: &Term) -> Vec<&Term> {
     match term.kind() {
         TermKind::Application { arguments, .. } => arguments.iter().collect(),
         TermKind::And(left, right) => vec![left, right],
@@ -807,7 +813,7 @@ fn fold_predicate(
         Predicate::Not(inner) => fold_predicate(definition, inner, siblings)?.map(|value| !value),
         Predicate::And(conjuncts) => {
             let mut all = Some(true);
-            for conjunct in conjuncts {
+            for conjunct in conjuncts.iter() {
                 match fold_predicate(definition, conjunct, siblings)? {
                     Some(false) => return Ok(Some(false)),
                     Some(true) => {}
@@ -1009,7 +1015,7 @@ fn ceil_equation(
 fn flatten_conjuncts(predicate: Predicate, into: &mut Vec<Predicate>) {
     match predicate {
         Predicate::And(conjuncts) => {
-            for conjunct in conjuncts {
+            for conjunct in conjuncts.iter().cloned() {
                 flatten_conjuncts(conjunct, into);
             }
         }
@@ -1226,7 +1232,7 @@ pub(crate) fn resumed_constraints(
     for constraint in constraints {
         match resumed_predicate(definition, constraint)? {
             Predicate::And(conjuncts) => {
-                for conjunct in conjuncts {
+                for conjunct in conjuncts.iter().cloned() {
                     if !read.contains(&conjunct) {
                         read.push(conjunct);
                     }
@@ -1258,7 +1264,9 @@ fn resumed_predicate(
     definition: &BackendDefinition,
     predicate: Predicate,
 ) -> Result<Predicate, DeferredOutcome> {
-    let recurse = |inner: Box<Predicate>| resumed_predicate(definition, *inner).map(Box::new);
+    let recurse = |inner: Arc<Predicate>| {
+        resumed_predicate(definition, Arc::unwrap_or_clone(inner)).map(Arc::new)
+    };
     Ok(match predicate {
         // A subject without a function application has nothing to evaluate: its ordinary
         // `\ceil` is decided by its collections' key conditions over constructors and values
@@ -1269,19 +1277,21 @@ fn resumed_predicate(
             match atoms.len() {
                 0 => Predicate::True,
                 1 => atoms.pop().expect("one atom"),
-                _ => Predicate::And(atoms),
+                _ => Predicate::And(atoms.into()),
             }
         }
         Predicate::Not(inner) => Predicate::Not(recurse(inner)?),
         Predicate::And(inner) => Predicate::And(
             inner
-                .into_iter()
+                .iter()
+                .cloned()
                 .map(|inner| resumed_predicate(definition, inner))
                 .collect::<Result<_, _>>()?,
         ),
         Predicate::Or(inner) => Predicate::Or(
             inner
-                .into_iter()
+                .iter()
+                .cloned()
                 .map(|inner| resumed_predicate(definition, inner))
                 .collect::<Result<_, _>>()?,
         ),

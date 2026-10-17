@@ -64,7 +64,7 @@ fn bound_names_of(predicate: &Predicate, names: &mut BTreeSet<String>) {
         | Predicate::Absent(_) => {}
         Predicate::Not(inner) => bound_names_of(inner, names),
         Predicate::And(inner) | Predicate::Or(inner) => {
-            for predicate in inner {
+            for predicate in inner.iter() {
                 bound_names_of(predicate, names);
             }
         }

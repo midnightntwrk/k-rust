@@ -82,7 +82,7 @@ use std::rc::Rc;
 
 use k_rust_kore::measure::{self, Algorithm, Counter};
 
-use crate::kast::{FrontendSort, Sort, Term, TermMetadata};
+use crate::kast::{FrontendSort, Sort, Term, TermMetadata, TermSpan};
 
 #[cfg(test)]
 use super::{PACKED_STRUCTURAL_COMPARISONS, UNPACKED_NODES};
@@ -367,6 +367,10 @@ pub(super) enum PackedNode {
 pub(super) struct PackedTerm {
     pub(super) fingerprint: u64,
     pub(super) node: PackedNode,
+    /// For an ambiguity, whether its alternatives all have one span ([`PackedTerm::span`]);
+    /// false for every other node. A node's alternatives never change once it is built, so this
+    /// is decided when it is built (`PackedTerm::new`).
+    shared_span: bool,
 }
 
 impl PartialEq for PackedTerm {
@@ -448,13 +452,50 @@ impl PackedNode {
 }
 
 impl PackedTerm {
+    fn new(fingerprint: u64, node: PackedNode) -> Self {
+        let shared_span = match &node {
+            PackedNode::Ambiguity(alternatives) => {
+                let mut spans = alternatives.iter().map(|alternative| alternative.span());
+                spans
+                    .next()
+                    .flatten()
+                    .is_some_and(|span| spans.all(|candidate| candidate == Some(span)))
+            }
+            PackedNode::Production { .. }
+            | PackedNode::InstantiatedProduction { .. }
+            | PackedNode::Term(_) => false,
+        };
+        Self {
+            fingerprint,
+            node,
+            shared_span,
+        }
+    }
+
+    /// The span of the text this node stands for: a production's or a term's own, and for an
+    /// ambiguity the span every alternative has, when they all have the same one.
+    ///
+    /// An ambiguity's answer was decided when it was built, so this reads one alternative per
+    /// level of directly nested ambiguities rather than every alternative.
+    pub(super) fn span(&self) -> Option<TermSpan> {
+        match &self.node {
+            PackedNode::Production { metadata, .. }
+            | PackedNode::InstantiatedProduction { metadata, .. } => metadata.span,
+            PackedNode::Term(term) => term.metadata().and_then(|metadata| metadata.span),
+            PackedNode::Ambiguity(alternatives) => {
+                if self.shared_span {
+                    crate::stack::guarded(|| alternatives.first()?.span())
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
     pub(super) fn leaf(term: Term) -> Rc<Self> {
         let mut fingerprint = Fingerprint::new(2);
         fingerprint.write(term.to_string().as_bytes());
-        Rc::new(Self {
-            fingerprint: fingerprint.finish(),
-            node: PackedNode::Term(term),
-        })
+        Rc::new(Self::new(fingerprint.finish(), PackedNode::Term(term)))
     }
 
     pub(super) fn production(
@@ -468,14 +509,14 @@ impl PackedTerm {
         for child in &children {
             fingerprint.write_u64(child.fingerprint);
         }
-        Rc::new(Self {
-            fingerprint: fingerprint.finish(),
-            node: PackedNode::Production {
+        Rc::new(Self::new(
+            fingerprint.finish(),
+            PackedNode::Production {
                 production,
                 children,
                 metadata,
             },
-        })
+        ))
     }
 
     pub(super) fn instantiated_production(
@@ -493,15 +534,15 @@ impl PackedTerm {
         for child in &children {
             fingerprint.write_u64(child.fingerprint);
         }
-        Rc::new(Self {
-            fingerprint: fingerprint.finish(),
-            node: PackedNode::InstantiatedProduction {
+        Rc::new(Self::new(
+            fingerprint.finish(),
+            PackedNode::InstantiatedProduction {
                 production,
                 parameters,
                 children,
                 metadata,
             },
-        })
+        ))
     }
 
     pub(super) fn ambiguity(alternatives: BTreeSet<Rc<Self>>) -> Rc<Self> {
@@ -523,10 +564,10 @@ impl PackedTerm {
         for alternative in &alternatives {
             fingerprint.write_u64(alternative.fingerprint);
         }
-        Rc::new(Self {
-            fingerprint: fingerprint.finish(),
-            node: PackedNode::Ambiguity(alternatives),
-        })
+        Rc::new(Self::new(
+            fingerprint.finish(),
+            PackedNode::Ambiguity(alternatives),
+        ))
     }
 
     /// The packed form of an owned tree, sharing nothing.
@@ -1309,13 +1350,84 @@ mod tests {
                 PackedNode::Ambiguity(alternatives.into_iter().map(pack_test_tree).collect())
             }
         };
-        Rc::new(PackedTerm {
-            fingerprint: 0,
-            node,
+        Rc::new(PackedTerm::new(0, node))
+    }
+
+    /// A node over an optional one-byte span, a leaf without one, or an ambiguity kept as built.
+    #[derive(Clone, Debug)]
+    enum SpanTree {
+        Spanned(u8, Option<u8>),
+        Leaf,
+        Ambiguity(Vec<SpanTree>),
+    }
+
+    fn span_tree() -> impl Strategy<Value = SpanTree> {
+        prop_oneof![
+            (0u8..3, prop::option::of(0u8..2))
+                .prop_map(|(production, start)| SpanTree::Spanned(production, start)),
+            Just(SpanTree::Leaf),
+        ]
+        .prop_recursive(4, 48, 4, |inner| {
+            prop::collection::vec(inner, 0..4).prop_map(SpanTree::Ambiguity)
         })
     }
 
+    fn pack_span_tree(tree: SpanTree) -> Rc<PackedTerm> {
+        match tree {
+            SpanTree::Spanned(production, start) => PackedTerm::production(
+                usize::from(production),
+                Vec::new(),
+                TermMetadata {
+                    span: start.map(|start| TermSpan {
+                        source: crate::provenance::SourceId(0),
+                        start: usize::from(start),
+                        end: usize::from(start) + 1,
+                    }),
+                    ..TermMetadata::default()
+                },
+            ),
+            SpanTree::Leaf => PackedTerm::leaf(Term::Variable {
+                name: "X".to_owned(),
+                sort: None,
+            }),
+            SpanTree::Ambiguity(alternatives) => {
+                PackedTerm::alternatives(alternatives.into_iter().map(pack_span_tree).collect())
+            }
+        }
+    }
+
+    /// The span every alternative of an ambiguity has, found by reading all of them.
+    fn walked_span(term: &PackedTerm) -> Option<TermSpan> {
+        match &term.node {
+            PackedNode::Ambiguity(alternatives) => {
+                let mut spans = alternatives
+                    .iter()
+                    .map(|alternative| walked_span(alternative));
+                let span = spans.next().flatten()?;
+                spans
+                    .all(|candidate| candidate == Some(span))
+                    .then_some(span)
+            }
+            _ => term.span(),
+        }
+    }
+
+    fn assert_spans_walked(term: &PackedTerm) -> Result<(), TestCaseError> {
+        prop_assert_eq!(term.span(), walked_span(term));
+        if let PackedNode::Ambiguity(alternatives) = &term.node {
+            for alternative in alternatives {
+                assert_spans_walked(alternative)?;
+            }
+        }
+        Ok(())
+    }
+
     proptest! {
+        #[test]
+        fn an_ambiguity_has_the_span_all_its_alternatives_share(tree in span_tree()) {
+            assert_spans_walked(&pack_span_tree(tree))?;
+        }
+
         #[test]
         fn packed_structural_comparison_is_a_total_order(
             left in test_tree(),
@@ -1492,14 +1604,8 @@ mod tests {
     fn packed_fingerprint_collisions_fall_back_to_complete_structure() {
         let left = derivation(variable("left")).pop().unwrap().node.clone();
         let right = derivation(variable("right")).pop().unwrap().node.clone();
-        let left = PackedTerm {
-            fingerprint: 0,
-            node: left,
-        };
-        let right = PackedTerm {
-            fingerprint: 0,
-            node: right,
-        };
+        let left = PackedTerm::new(0, left);
+        let right = PackedTerm::new(0, right);
 
         assert_ne!(left.cmp(&right), std::cmp::Ordering::Equal);
         assert_ne!(left, right);

@@ -2908,16 +2908,6 @@ impl MapRemainder {
         self.entries.symbolic_keys()
     }
 
-    /// The number of entries whose key is constructor-like.
-    pub(super) fn concrete(&self) -> usize {
-        self.entries.len() - self.symbolic()
-    }
-
-    /// The first entry, in the map's order, whose key is not constructor-like.
-    pub(super) fn first_symbolic(&self) -> Option<&(Term, Term)> {
-        self.entries.symbolic_keyed().next()
-    }
-
     pub(super) fn is_empty(&self) -> bool {
         self.entries.is_empty() && self.rest.is_none()
     }
@@ -2925,6 +2915,56 @@ impl MapRemainder {
     /// The map of these entries and this rest: the tree is kept as it is.
     pub(super) fn to_term(&self, definition: Arc<MapDefinition>) -> Term {
         Term::map_of_items(definition, self.entries.clone(), self.rest.clone())
+    }
+}
+
+/// The pattern's side of [`MapRemainder`]: the pattern entries whose key the subject does not
+/// bind syntactically, in the map's order, and the pattern's rest. They are the few entries a
+/// pattern names, read one by one, so they stay a vector: most matches only pair them with the
+/// subject's entries, and a map tree, whose summary clones every variable of the entries, is
+/// built only when they are handed on as a term ([`Self::to_term`]).
+pub(super) struct PatternMapRemainder {
+    pub(super) entries: Vec<(Term, Term)>,
+    pub(super) rest: Option<Term>,
+    symbolic: usize,
+}
+
+impl PatternMapRemainder {
+    /// `entries` must be in the map's order with pairwise different keys.
+    pub(super) fn new(entries: Vec<(Term, Term)>, rest: Option<Term>) -> Self {
+        let symbolic = entries
+            .iter()
+            .filter(|(key, _)| !key.attributes().constructor_like)
+            .count();
+        Self {
+            entries,
+            rest,
+            symbolic,
+        }
+    }
+
+    /// The number of entries whose key is not constructor-like.
+    pub(super) fn symbolic(&self) -> usize {
+        self.symbolic
+    }
+
+    /// The number of entries whose key is constructor-like.
+    pub(super) fn concrete(&self) -> usize {
+        self.entries.len() - self.symbolic
+    }
+
+    /// The first entry, in the map's order, whose key is not constructor-like.
+    pub(super) fn first_symbolic(&self) -> Option<&(Term, Term)> {
+        self.entries
+            .iter()
+            .find(|(key, _)| !key.attributes().constructor_like)
+    }
+
+    /// The map of these entries and this rest. The entries are in the map's order with distinct
+    /// keys already, so `Term::map` keeps their order and builds the tree of
+    /// [`MapRemainder::to_term`].
+    pub(super) fn to_term(&self, definition: Arc<MapDefinition>) -> Term {
+        Term::map(definition, self.entries.clone(), self.rest.clone())
     }
 }
 
@@ -3000,6 +3040,58 @@ mod tests {
             } else {
                 assert!(values.is_empty(), "key {probe}");
                 assert_eq!(values_of(&pattern_only), [probe], "key {probe}");
+            }
+        }
+    }
+
+    /// The pattern's remainder held as a vector reads as the tree it replaced: the same counts
+    /// of constructor-like and other keys, the same first symbolic entry, and the same map term,
+    /// with and without a rest, so the pairs and deferrals built from it are the same.
+    #[test]
+    fn a_pattern_remainder_vector_reads_as_its_map_tree() {
+        use crate::term::{CollectionSymbols, Sort, Variable};
+        let definition = Arc::new(MapDefinition {
+            symbols: CollectionSymbols {
+                unit: "mapUnit".into(),
+                element: "mapElement".into(),
+                concat: "mapConcat".into(),
+            },
+            key_sort: Sort::simple("MapKey"),
+            value_sort: Sort::simple("MapValue"),
+            map_sort: "MapSort".into(),
+        });
+        let key = |name: &str| Term::raw_domain_value(Sort::simple("MapKey"), name);
+        let key_variable = |name: &str| Term::variable(Variable::new(name, Sort::simple("MapKey")));
+        let value = |name: &str| Term::variable(Variable::new(name, Sort::simple("MapValue")));
+        let rest = Term::variable(Variable::new("REST", Sort::simple("MapSort")));
+        let mut entries = [
+            (key("a"), value("V1")),
+            (key_variable("K1"), value("V2")),
+            (key("b"), value("V3")),
+            (key_variable("K2"), value("V4")),
+        ];
+        entries.sort_by(|left, right| left.0.cmp(&right.0));
+        for length in 0..=entries.len() {
+            for rest in [None, Some(rest.clone())] {
+                let entries = entries[..length].to_vec();
+                let vector = PatternMapRemainder::new(entries.clone(), rest.clone());
+                let tree = MapRemainder::new(Items::from_vec(entries), rest);
+                assert_eq!(vector.symbolic(), tree.symbolic(), "{length}");
+                assert_eq!(
+                    vector.concrete(),
+                    tree.entries.len() - tree.symbolic(),
+                    "{length}"
+                );
+                assert_eq!(
+                    vector.first_symbolic(),
+                    tree.entries.symbolic_keyed().next(),
+                    "{length}"
+                );
+                assert_eq!(
+                    vector.to_term(definition.clone()),
+                    tree.to_term(definition.clone()),
+                    "{length}"
+                );
             }
         }
     }

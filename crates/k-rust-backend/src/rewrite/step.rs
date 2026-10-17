@@ -71,7 +71,9 @@ use super::{
     apply::{exclude_defined, restrict_to_undefined, undefined_successor_application},
     apply_rule,
     execute::normalize_successor,
-    extend_unique, predicates_truth, restricted_to,
+    extend_unique, predicates_truth,
+    refutation_memo::RefutationMemo,
+    restricted_to,
     roles::{DefinedSubcase, SequentialSubject},
     stuck, violates_finite_constructor_domain,
 };
@@ -911,6 +913,7 @@ pub(super) fn rewrite_step_any(
     io: Option<&ExecutionIoState>,
     ground_halt: bool,
     mut determinism: Option<&mut SequentialDeterminism>,
+    mut memo: Option<&mut RefutationMemo>,
 ) -> Stoppable<RewriteResult> {
     let _apart = crate::rule::ApartScope::enter();
     let _domain = crate::term::domain::DomainScope::enter(definition);
@@ -990,14 +993,14 @@ pub(super) fn rewrite_step_any(
             }
             break;
         }
-        let attempt = apply_rule(
+        let attempt = RefutationMemo::apply_rule(
+            memo.as_deref_mut(),
             definition,
             rule,
             remaining.pattern(),
             fresh_counter,
             simplification_options,
             solver,
-            false,
             io,
             ground_halt,
         )?;
@@ -1201,7 +1204,24 @@ pub(super) fn rewrite_step_any(
                         remaining.block(application.remainder.clone());
                         trivial.push(application);
                     }
+                    // A subject narrowed to a `False` conjunct has no instance left, and nothing
+                    // after this reads more of it than that: the next group and the next rule stop
+                    // on `predicates_truth` (the determinism tracker reads the remaining pattern
+                    // only for an attempt that applied), `close_priority` returns early, the
+                    // remainder is `Unsat` and no branch is built from it, so neither its other
+                    // conjuncts nor `remaining_diagnostics` are read again. Simplifying it can
+                    // only restate `False` (the simplifier makes a conjunction with a false
+                    // conjunct `False`) after resimplifying the conjuncts before it, or fail on
+                    // one of them, a failure about instances the step no longer has; so it is
+                    // skipped, as `close_priority` skips it for the same reason. This is the
+                    // subject every application with applicability `True` leaves: its remainder
+                    // is `False`, which the narrowing adds as a conjunct. The test reads the
+                    // conjuncts for that literal `False` instead of evaluating their truth, so a
+                    // narrowing that leaves the subject satisfiable pays no evaluation (and no
+                    // `Counter::SimplifyPredicateNodesVisited`) beyond the simplification it
+                    // already made; a subject false for another reason is simplified as before.
                     if narrowed
+                        && !remaining.pattern().constraints.contains(&Predicate::False)
                         && let Err(error) = simplify_remaining(
                             definition,
                             pattern,

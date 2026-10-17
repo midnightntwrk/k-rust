@@ -2089,6 +2089,8 @@ fn bounded_search_options(
         // `search`, `search_paths` and `search_pattern*` explore the runs of a program, so they
         // list collections in k-rust's order.
         evaluation: EvaluationMode::Execution,
+        // The responses carry each reported state's trace.
+        retain_trace: true,
     }
 }
 

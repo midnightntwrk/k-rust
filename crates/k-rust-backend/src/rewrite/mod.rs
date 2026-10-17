@@ -14,9 +14,10 @@
 mod apply;
 mod execute;
 mod exploration_merge;
-mod path_trace;
+pub(crate) mod path_trace;
 mod predicates;
 mod recover;
+mod refutation_memo;
 mod roles;
 mod step;
 mod work;
@@ -767,7 +768,7 @@ fn false_constraint(pattern: &Pattern) -> Predicate {
     match pattern.constraints.as_slice() {
         [] => Predicate::False,
         [constraint] => constraint.clone(),
-        constraints => Predicate::And(constraints.to_vec()),
+        constraints => Predicate::And(constraints.to_vec().into()),
     }
 }
 
@@ -1042,10 +1043,10 @@ pub(crate) fn initial_definedness(
     }
     let all_hold = match open.as_slice() {
         [obligation] => obligation.clone(),
-        _ => Predicate::And(open.clone()),
+        _ => Predicate::And(open.clone().into()),
     };
     let mut undefined = pattern.constraints.clone();
-    undefined.push(Predicate::Not(Box::new(all_hold)));
+    undefined.push(Predicate::Not(Arc::new(all_hold)));
     if matches!(
         solver.is_sat(&undefined, &Substitution::new())?,
         Ok(Satisfiability::Unsat)
@@ -1285,6 +1286,7 @@ pub(crate) fn rewrite_step_restricted(
         SubjectDefinedness::Where(defined_where),
         None,
         ground_halt,
+        None,
     )
 }
 
@@ -1338,6 +1340,7 @@ pub(crate) fn rewrite_step_sequential_tracking_dropped(
         None,
         false,
         Some(&mut determinism),
+        None,
     )?;
     Ok((result, determinism.dropped))
 }
@@ -1361,6 +1364,7 @@ pub(crate) fn rewrite_step_with_mode(
         SubjectDefinedness::of_assumption(assume_initial_defined),
         None,
         false,
+        None,
     )
 }
 
@@ -1378,6 +1382,7 @@ fn rewrite_step_with_optional_execution(
     subject_definedness: SubjectDefinedness<'_>,
     io: Option<&ExecutionIoState>,
     ground_halt: bool,
+    refutations: Option<&mut refutation_memo::RefutationMemo>,
 ) -> Stoppable<RewriteResult> {
     if let Some(symbol) = pattern.macro_or_alias_symbol() {
         return Ok(RewriteResult::Indeterminate {
@@ -1411,6 +1416,7 @@ fn rewrite_step_with_optional_execution(
             io,
             ground_halt,
             None,
+            refutations,
         ),
     }
 }

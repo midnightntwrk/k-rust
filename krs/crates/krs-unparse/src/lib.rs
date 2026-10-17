@@ -40,7 +40,7 @@ mod format;
 mod node;
 mod program;
 
-use std::fmt;
+use std::{collections::BTreeMap, fmt};
 
 use k_rust::kore::{
     ast::{Definition, Pattern, Sentence},
@@ -314,12 +314,18 @@ impl Unparser {
     }
 }
 
-/// The KAST text of a node, or its KORE text when it has no KAST form.
-pub(crate) fn kast_text(node: &Node) -> String {
+/// The KAST text of a node, or its KORE text when it has no KAST form. `hooks` are the
+/// definition's sort hooks by KORE sort name, by which a domain value's token is rendered.
+pub(crate) fn kast_text(node: &Node, hooks: &BTreeMap<String, String>) -> String {
     let Some(pattern) = to_pattern(node) else {
         return node.key();
     };
-    match k_rust::kast::convert::convert(&pattern) {
+    let hooks = k_rust::kast::convert::sort_hooks(
+        hooks
+            .iter()
+            .map(|(sort, hook)| (sort.as_str(), hook.as_str())),
+    );
+    match k_rust::kast::convert::Converter::new(&hooks).convert(&pattern) {
         Ok(term) => k_rust::kast::printer::Printer::new().print_term(&term),
         Err(_) => pattern.to_string(),
     }

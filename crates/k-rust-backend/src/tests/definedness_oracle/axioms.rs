@@ -440,7 +440,7 @@ fn decide(definition: &BackendDefinition, predicates: Vec<Predicate>) -> Option<
         let _deadline = deadline();
         match simplify_predicate_with_solver(
             definition,
-            &Predicate::And(predicates),
+            &Predicate::And(predicates.into()),
             &[],
             SimplificationOptions {
                 max_iterations: 64,

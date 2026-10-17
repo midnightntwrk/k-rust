@@ -11,7 +11,7 @@ use k_rust::{
 
 use super::{
     ConfigVariable, ExecError, Halt, SearchMode, SearchOptions, config_variables, log_lines,
-    search_backend, term,
+    result_sort_hooks, search_backend, term,
 };
 
 /// A raw KORE definition with one initial state and two rules leaving it.
@@ -35,6 +35,7 @@ fn branching_backend() -> Backend {
 #[test]
 fn search_returns_both_final_states() {
     let mut backend = branching_backend();
+    let hooks = result_sort_hooks(&mut backend).unwrap();
     let response = search_backend(
         &mut backend,
         parse_pattern("initial{}()").unwrap(),
@@ -45,7 +46,7 @@ fn search_returns_both_final_states() {
     let mut states = response
         .states
         .iter()
-        .map(|state| term(&state.state).unwrap().kore().to_string())
+        .map(|state| term(&state.state, &hooks).unwrap().kore().to_string())
         .collect::<Vec<_>>();
     states.sort();
     assert_eq!(states, ["left{}()", "right{}()"]);
@@ -88,10 +89,13 @@ fn search_bounds_solutions_and_depth() {
     .unwrap();
     assert_eq!(depth_zero.states.len(), 1);
     assert_eq!(
-        term(&depth_zero.states[0].state)
-            .unwrap()
-            .kore()
-            .to_string(),
+        term(
+            &depth_zero.states[0].state,
+            &result_sort_hooks(&mut backend).unwrap()
+        )
+        .unwrap()
+        .kore()
+        .to_string(),
         "initial{}()"
     );
 }
@@ -116,8 +120,42 @@ fn strategy_any_follows_one_path_and_depth_zero_stays_put() {
         Halt::DepthBound
     );
     assert_eq!(
-        term(&result.leaves[0].state).unwrap().kore().to_string(),
+        term(
+            &result.leaves[0].state,
+            &result_sort_hooks(&mut backend).unwrap()
+        )
+        .unwrap()
+        .kore()
+        .to_string(),
         "initial{}()"
+    );
+}
+
+/// A result's domain values are rendered by their sorts' hooks in the definition: a Bytes value
+/// is a byte string, whether or not its bytes are UTF-8, and a String value is quoted.
+#[test]
+fn results_render_domain_values_with_the_definitions_sort_hooks() {
+    let definition = r#"[]
+        module MAIN
+            hooked-sort SortBytes{} [hook{}("BYTES.Bytes"), hasDomainValues{}()]
+            hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
+            sort SortState{} []
+            symbol initial{}() : SortState{} [constructor{}()]
+            symbol done{}(SortBytes{}, SortString{}) : SortState{} [constructor{}()]
+            axiom{} \rewrites{SortState{}}(
+                \and{SortState{}}(initial{}(), \top{SortState{}}()),
+                done{}(\dv{SortBytes{}}("\x80\xff"), \dv{SortString{}}("a"))
+            ) [label{}("done")]
+        endmodule []"#;
+    let mut backend = Backend::new(definition, "MAIN", BackendOptions::default()).unwrap();
+    let hooks = result_sort_hooks(&mut backend).unwrap();
+    let result = backend
+        .execute(ExecuteRequest::new(parse_pattern("initial{}()").unwrap()))
+        .unwrap();
+    let state = term(&result.leaves[0].state, &hooks).unwrap();
+    assert_eq!(
+        k_rust::kast::printer::Printer::new().print_term(state.kast()),
+        r#"done(#token("b\"\\x80\\xff\"","Bytes"),#token("\"a\"","String"))"#
     );
 }
 
@@ -206,6 +244,7 @@ fn terms_serialize_as_the_kast_json_envelope() {
             .unwrap(),
         )
         .unwrap(),
+        &std::collections::HashMap::new(),
     )
     .unwrap();
     let json = serde_json::to_value(&value).unwrap();

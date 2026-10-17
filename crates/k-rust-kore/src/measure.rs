@@ -18,7 +18,7 @@
 //! rename or removal is a contract change and bumps the dump's `version`.
 
 /// Schema version of the `KRUST_COUNTERS` document.
-pub const COUNTER_SCHEMA_VERSION: u64 = 19;
+pub const COUNTER_SCHEMA_VERSION: u64 = 20;
 
 macro_rules! algorithms {
     ($(#[$doc:meta] $variant:ident => $id:literal),+ $(,)?) => {
@@ -456,9 +456,10 @@ pub enum Counter {
     ParserChartAddCalls,
     /// Chart insertions that changed a state and re-enqueued it.
     ParserChartStateChanges,
-    /// Agenda pops of the Earley dispatch loop.
+    /// Agenda pops the Earley loop dispatches; a pop that would repeat the state's previous
+    /// dispatch is skipped and not counted.
     ParserChartAgendaPops,
-    /// Agenda pops of a state popped before (incremental ambiguity revisits).
+    /// Dispatched agenda pops of a state popped before (incremental ambiguity revisits).
     ParserChartRevisitPops,
     /// Derivations iterated per dispatched state.
     ParserChartDerivationsRead,
@@ -560,6 +561,9 @@ pub enum Counter {
     ObservationJsonDistinctNodes,
     /// Observation JSON bytes written.
     ObservationJsonBytesWritten,
+    /// States a breadth-first search took from its frontier, the ones its per-depth visited set
+    /// then drops included: the configuration search's states and the path search's path ends.
+    SearchStatesVisited,
     /// Search states dropped by the per-depth visited set.
     SearchStatesDeduplicated,
     /// Proof states explored.
@@ -582,7 +586,7 @@ pub enum Counter {
 
 impl Counter {
     /// Number of counters.
-    pub const COUNT: usize = 97;
+    pub const COUNT: usize = 98;
 
     /// Every counter in declaration order, which is also the dump's key order.
     pub const ALL: [Counter; Self::COUNT] = [
@@ -675,6 +679,7 @@ impl Counter {
         Counter::ObservationJsonNodesWritten,
         Counter::ObservationJsonDistinctNodes,
         Counter::ObservationJsonBytesWritten,
+        Counter::SearchStatesVisited,
         Counter::SearchStatesDeduplicated,
         Counter::ProofStatesExplored,
         Counter::ProofImplicationChecks,
@@ -779,6 +784,7 @@ impl Counter {
             Counter::ObservationJsonNodesWritten => "output.observation_json.nodes_written",
             Counter::ObservationJsonDistinctNodes => "output.observation_json.distinct_nodes",
             Counter::ObservationJsonBytesWritten => "output.observation_json.bytes_written",
+            Counter::SearchStatesVisited => "search.states_visited",
             Counter::SearchStatesDeduplicated => "search.states_deduplicated",
             Counter::ProofStatesExplored => "proof.states_explored",
             Counter::ProofImplicationChecks => "proof.implication_checks",

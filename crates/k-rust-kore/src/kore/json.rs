@@ -221,11 +221,17 @@ pub fn from_str_unbounded(input: &str) -> Result<Pattern, Error> {
 }
 
 pub fn to_string(pattern: &Pattern) -> Result<String, Error> {
-    Ok(json_tree::to_string(&source_to_node(pattern), false))
+    Ok(json_tree::to_string(
+        &source_to_node(pattern, MemberOrder::Schema),
+        false,
+    ))
 }
 
 pub fn to_string_pretty(pattern: &Pattern) -> Result<String, Error> {
-    Ok(json_tree::to_string(&source_to_node(pattern), true))
+    Ok(json_tree::to_string(
+        &source_to_node(pattern, MemberOrder::Schema),
+        true,
+    ))
 }
 
 pub fn to_value(pattern: &Pattern) -> Result<serde_json::Value, Error> {
@@ -234,7 +240,16 @@ pub fn to_value(pattern: &Pattern) -> Result<serde_json::Value, Error> {
 
 /// Encode a pattern one node at a time, without materializing its KORE tree.
 pub fn to_value_source<'a, S: PatternSource<'a>>(source: S) -> Result<serde_json::Value, Error> {
-    Ok(source_to_node(source).into_value())
+    Ok(source_to_node(source, MemberOrder::Schema).into_value())
+}
+
+/// The JSON tree of the envelope of `source`, every object's members ordered by key: the members
+/// and order of the [`serde_json::Value`] that [`to_value_source`] returns, whose objects order
+/// their members by key. Writing the tree with [`json_tree::to_string`] therefore gives the text
+/// that writing that value gives, while building, writing, and dropping the tree use explicit
+/// stacks at any depth.
+pub fn to_node_source<'a, S: PatternSource<'a>>(source: S) -> Node {
+    source_to_node(source, MemberOrder::Key)
 }
 
 enum EncodeTask<'a, S> {
@@ -600,18 +615,30 @@ fn pattern_fields<'a, S: PatternSource<'a>>(node: PatternNode<'a, S>) -> EncodeF
     }
 }
 
-fn source_to_node<'a, S: PatternSource<'a>>(source: S) -> Node {
+/// The order of an object's members in a tree [`source_to_node`] builds.
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum MemberOrder {
+    /// The order in which the schema lists them.
+    Schema,
+    /// By key.
+    Key,
+}
+
+fn source_to_node<'a, S: PatternSource<'a>>(source: S, order: MemberOrder) -> Node {
     enum Build<'a, S> {
         Enter(EncodeTask<'a, S>),
         Array(usize),
         Object(SmallVec<[&'static str; 5]>),
     }
 
-    fn push_node_object<'a, S>(fields: EncodeFields<'a, S>, tasks: &mut Vec<Build<'a, S>>) {
+    let push_node_object = |mut fields: EncodeFields<'a, S>, tasks: &mut Vec<Build<'a, S>>| {
+        if order == MemberOrder::Key {
+            fields.sort_by(|left, right| left.0.cmp(right.0));
+        }
         let (keys, children): (SmallVec<[_; 5]>, SmallVec<[_; 5]>) = fields.into_iter().unzip();
         tasks.push(Build::Object(keys));
         tasks.extend(children.into_iter().rev().map(Build::Enter));
-    }
+    };
 
     let mut tasks = Vec::new();
     push_node_object(envelope_fields(source), &mut tasks);

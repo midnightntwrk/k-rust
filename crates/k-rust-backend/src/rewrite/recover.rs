@@ -961,7 +961,7 @@ pub(super) fn recover_map_not_in_keys_matches(
     for (map_key, _) in entries {
         extend_unique(
             &mut conditions,
-            [Predicate::Not(Box::new(Predicate::Equals(
+            [Predicate::Not(Arc::new(Predicate::Equals(
                 key.clone(),
                 map_key.clone(),
             )))],
@@ -1108,7 +1108,7 @@ pub(super) fn recover_equality_matches(
     let condition = if split.value {
         equality
     } else {
-        Predicate::Not(Box::new(equality))
+        Predicate::Not(Arc::new(equality))
     };
     let conditions = match predicates_truth(std::slice::from_ref(&condition)) {
         Truth::False => return Some(Vec::new()),

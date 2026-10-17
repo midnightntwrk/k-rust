@@ -1249,7 +1249,10 @@ fn labelled_bracket_stays_out_of_the_backend_constructor_domain() {
             )
             .internalize_term()
             .unwrap();
-        Predicate::Not(Box::new(Predicate::Equals(color.clone(), constructor)))
+        Predicate::Not(std::sync::Arc::new(Predicate::Equals(
+            color.clone(),
+            constructor,
+        )))
     };
 
     // `red` and `blue` are every term of `Color`; the bracket `shade` adds none.

@@ -357,13 +357,16 @@ impl TranslationState {
             )),
             Predicate::And(inner) => self.translate_predicates("and", inner),
             Predicate::Or(inner) => self.translate_predicates("or", inner),
-            Predicate::Implies(left, right) => Ok(SExpr::application(
-                "=>",
-                vec![
-                    self.translate_predicate(left)?,
-                    self.translate_predicate(right)?,
-                ],
-            )),
+            Predicate::Implies(left, right) if !matches!(**right, Predicate::Implies(..)) => {
+                Ok(SExpr::application(
+                    "=>",
+                    vec![
+                        self.translate_predicate(left)?,
+                        self.translate_predicate(right)?,
+                    ],
+                ))
+            }
+            Predicate::Implies(..) => self.translate_implication_spine(predicate),
             Predicate::Iff(left, right) => Ok(SExpr::application(
                 "=",
                 vec![
@@ -391,6 +394,36 @@ impl TranslationState {
                 self.translate_quantifier("forall", variable, inner)
             }
         }
+    }
+
+    /// Translates a right-nested implication spine `l1 => (l2 => ... => (ln => r))`, n >= 2, as
+    /// the one disjunction `(or (not l1) ... (not ln) r)`.
+    ///
+    /// `a => b` is `¬a ∨ b`, so the spine is `¬l1 ∨ (¬l2 ∨ (... ∨ (¬ln ∨ r)))`, and `∨` is
+    /// associative: `a ⇒ (b ⇒ c) ≡ ¬a ∨ ¬b ∨ c`. The flat formula is the same Boolean function
+    /// of the same atoms, so an assertion containing it has exactly the models it had. The
+    /// operands are translated in the order the nested translation visits them (l1, ..., ln,
+    /// then r), so the abstraction constants get the same names and declarations, the first
+    /// untranslatable operand is the same, and so is the exactness of the query.
+    ///
+    /// A single implication keeps its `=>` text. The nested text of a longer spine made the
+    /// solver's construction of the assertion quadratic in n; the flat text is linear, and the
+    /// loop below walks the spine without native recursion.
+    fn translate_implication_spine(
+        &mut self,
+        spine: &Predicate,
+    ) -> Result<SExpr, TranslationError> {
+        let mut disjuncts = Vec::new();
+        let mut rest = spine;
+        while let Predicate::Implies(premise, conclusion) = rest {
+            disjuncts.push(SExpr::application(
+                "not",
+                vec![self.translate_predicate(premise)?],
+            ));
+            rest = conclusion;
+        }
+        disjuncts.push(self.translate_predicate(rest)?);
+        Ok(SExpr::application("or", disjuncts))
     }
 
     fn translate_quantifier(
@@ -1718,7 +1751,7 @@ mod tests {
         let variable = Variable::new("X", Sort::simple("SortInt"));
         let predicate = Predicate::Exists(
             variable.clone(),
-            Box::new(Predicate::Equals(Term::variable(variable), integer("1"))),
+            Arc::new(Predicate::Equals(Term::variable(variable), integer("1"))),
         );
 
         assert_eq!(
@@ -1727,6 +1760,40 @@ mod tests {
                 .unwrap()
                 .to_string(),
             "(exists ((SMT-1 Int)) (= SMT-1 1))"
+        );
+    }
+
+    /// A right-nested implication spine is one disjunction of the negated premises and the
+    /// conclusion, its operands named in the order the nested form names them; a single
+    /// implication, and an implication in a premise, keep their `=>`.
+    #[test]
+    fn translates_an_implication_spine_as_one_flat_disjunction() {
+        let int = Sort::simple("SortInt");
+        let atom = |name: &str| {
+            Predicate::Equals(
+                Term::variable(Variable::new(name, int.clone())),
+                integer("0"),
+            )
+        };
+        let implies =
+            |left: Predicate, right: Predicate| Predicate::Implies(Arc::new(left), Arc::new(right));
+        let translate = |predicate: &Predicate| {
+            TranslationState::new()
+                .translate_predicate(predicate)
+                .unwrap()
+                .to_string()
+        };
+
+        assert_eq!(
+            translate(&implies(atom("A"), atom("B"))),
+            "(=> (= SMT-1 0) (= SMT-2 0))"
+        );
+        assert_eq!(
+            translate(&implies(
+                atom("A"),
+                implies(implies(atom("B"), atom("C")), implies(atom("D"), atom("A")))
+            )),
+            "(or (not (= SMT-1 0)) (not (=> (= SMT-2 0) (= SMT-3 0))) (not (= SMT-4 0)) (= SMT-1 0))"
         );
     }
 
@@ -1750,9 +1817,9 @@ mod tests {
             Exactness::Approximate
         );
         assert_eq!(
-            translation_exactness(&[Predicate::Not(Box::new(Predicate::Exists(
+            translation_exactness(&[Predicate::Not(Arc::new(Predicate::Exists(
                 variable,
-                Box::new(Predicate::Or(vec![equality(uninterpreted)])),
+                Arc::new(Predicate::Or(vec![equality(uninterpreted)].into())),
             )))]),
             Exactness::Approximate
         );
@@ -1771,17 +1838,17 @@ mod tests {
         };
 
         assert_eq!(
-            translation_exactness(&[Predicate::Forall(nat.clone(), Box::new(body(&nat)))]),
+            translation_exactness(&[Predicate::Forall(nat.clone(), Arc::new(body(&nat)))]),
             Exactness::Approximate
         );
         assert_eq!(
-            translation_exactness(&[Predicate::Exists(nat, Box::new(Predicate::True))]),
+            translation_exactness(&[Predicate::Exists(nat, Arc::new(Predicate::True))]),
             Exactness::Approximate
         );
         assert_eq!(
             translation_exactness(&[Predicate::Exists(
                 int.clone(),
-                Box::new(Predicate::Equals(Term::variable(int), integer("1"))),
+                Arc::new(Predicate::Equals(Term::variable(int), integer("1"))),
             )]),
             Exactness::Exact
         );
@@ -1877,7 +1944,7 @@ mod tests {
         let element = Term::variable(Variable::new("X", Sort::simple("SortElement")));
         let pattern = Term::variable(Variable::new("P", Sort::simple("SortElement")));
         let membership = Predicate::In(element, pattern);
-        let negated = Predicate::Not(Box::new(membership.clone()));
+        let negated = Predicate::Not(Arc::new(membership.clone()));
         let mut translation = TranslationState::new();
 
         assert_eq!(

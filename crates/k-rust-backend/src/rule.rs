@@ -92,13 +92,13 @@ pub enum Predicate {
     Ceil(Term),
     Floor(Term),
     In(Term, Term),
-    Not(Box<Predicate>),
-    And(Vec<Predicate>),
-    Or(Vec<Predicate>),
-    Implies(Box<Predicate>, Box<Predicate>),
-    Iff(Box<Predicate>, Box<Predicate>),
-    Exists(Variable, Box<Predicate>),
-    Forall(Variable, Box<Predicate>),
+    Not(Arc<Predicate>),
+    And(Arc<[Predicate]>),
+    Or(Arc<[Predicate]>),
+    Implies(Arc<Predicate>, Arc<Predicate>),
+    Iff(Arc<Predicate>, Arc<Predicate>),
+    Exists(Variable, Arc<Predicate>),
+    Forall(Variable, Arc<Predicate>),
     /// A key's absence from the keys of a map, or an element's from a set ([`Absence`]).
     Absent(Absence),
     /// A deferred-definedness atom: `\ceil(t)`, stated for an operand of `KEQUAL.ite`,
@@ -341,7 +341,7 @@ impl Predicate {
                 inner.visit_terms(visitor);
             }
             Self::And(inner) | Self::Or(inner) => {
-                for predicate in inner {
+                for predicate in inner.iter() {
                     predicate.visit_terms(visitor);
                 }
             }
@@ -2600,12 +2600,13 @@ fn internalize_predicates(
             .collect::<Result<Vec<_>, _>>()
             .map(|predicates| predicates.into_iter().flatten().collect()),
         kore::Pattern::Or { arguments, .. } => Ok(vec![Predicate::Or(
-            arguments
+            (arguments
                 .iter()
                 .map(|argument| {
                     internalize_predicate(definition, argument, sort_parameters, injection_role)
                 })
-                .collect::<Result<Vec<_>, _>>()?,
+                .collect::<Result<Vec<_>, _>>()?)
+            .into(),
         )]),
         _ => Ok(vec![internalize_predicate(
             definition,
@@ -2641,8 +2642,8 @@ pub(crate) fn internalize_predicate(
             Ok(Predicate::Equals(term(left)?, term(right)?))
         }
         kore::Pattern::Equals { left, right, .. } => Ok(Predicate::Iff(
-            Box::new(predicate(left)?),
-            Box::new(predicate(right)?),
+            Arc::new(predicate(left)?),
+            Arc::new(predicate(right)?),
         )),
         kore::Pattern::Ceil { argument, .. } => {
             let argument = term(argument)?;
@@ -2663,38 +2664,40 @@ pub(crate) fn internalize_predicate(
                 right => Ok(Predicate::In(left, right?)),
             }
         }
-        kore::Pattern::Not { argument, .. } => Ok(Predicate::Not(Box::new(predicate(argument)?))),
+        kore::Pattern::Not { argument, .. } => Ok(Predicate::Not(Arc::new(predicate(argument)?))),
         kore::Pattern::And { arguments, .. } => Ok(Predicate::And(
-            arguments
+            (arguments
                 .iter()
                 .map(predicate)
-                .collect::<Result<Vec<_>, _>>()?,
+                .collect::<Result<Vec<_>, _>>()?)
+            .into(),
         )),
         kore::Pattern::Or { arguments, .. } => Ok(Predicate::Or(
-            arguments
+            (arguments
                 .iter()
                 .map(predicate)
-                .collect::<Result<Vec<_>, _>>()?,
+                .collect::<Result<Vec<_>, _>>()?)
+            .into(),
         )),
         kore::Pattern::Implies { left, right, .. } => Ok(Predicate::Implies(
-            Box::new(predicate(left)?),
-            Box::new(predicate(right)?),
+            Arc::new(predicate(left)?),
+            Arc::new(predicate(right)?),
         )),
         kore::Pattern::Iff { left, right, .. } => Ok(Predicate::Iff(
-            Box::new(predicate(left)?),
-            Box::new(predicate(right)?),
+            Arc::new(predicate(left)?),
+            Arc::new(predicate(right)?),
         )),
         kore::Pattern::Exists { variable, body, .. } => {
             let variable = definition.internalize_variable(variable, sort_parameters)?;
             let body = predicate(body)?;
             Ok(match Absence::from_bound_ceil(&variable, &body) {
                 Some(absence) if reads_absence => Predicate::Absent(absence),
-                _ => Predicate::Exists(variable, Box::new(body)),
+                _ => Predicate::Exists(variable, Arc::new(body)),
             })
         }
         kore::Pattern::Forall { variable, body, .. } => Ok(Predicate::Forall(
             definition.internalize_variable(variable, sort_parameters)?,
-            Box::new(predicate(body)?),
+            Arc::new(predicate(body)?),
         )),
         pattern if is_term_pattern(pattern) => Ok(Predicate::Term(term(pattern)?)),
         kore::Pattern::Next { .. } => Err(DefinitionError::RulePattern(
@@ -2744,38 +2747,38 @@ pub(crate) fn internalize_model_predicate(
                 .into_iter()
                 .flatten()
                 .collect::<Vec<_>>();
-            (!predicates.is_empty()).then_some(Predicate::And(predicates))
+            (!predicates.is_empty()).then_some(Predicate::And(predicates.into()))
         }
         kore::Pattern::Or { arguments, .. } => {
             let predicates = arguments
                 .iter()
                 .map(recurse)
                 .collect::<Result<Option<Vec<_>>, _>>()?;
-            predicates.map(Predicate::Or)
+            predicates.map(|predicates| Predicate::Or(predicates.into()))
         }
         kore::Pattern::Not { argument, .. } => {
-            recurse(argument)?.map(|inner| Predicate::Not(Box::new(inner)))
+            recurse(argument)?.map(|inner| Predicate::Not(Arc::new(inner)))
         }
         kore::Pattern::Implies { left, right, .. } => match (recurse(left)?, recurse(right)?) {
-            (Some(left), Some(right)) => Some(Predicate::Implies(Box::new(left), Box::new(right))),
+            (Some(left), Some(right)) => Some(Predicate::Implies(Arc::new(left), Arc::new(right))),
             _ => None,
         },
         kore::Pattern::Iff { left, right, .. } => match (recurse(left)?, recurse(right)?) {
-            (Some(left), Some(right)) => Some(Predicate::Iff(Box::new(left), Box::new(right))),
+            (Some(left), Some(right)) => Some(Predicate::Iff(Arc::new(left), Arc::new(right))),
             _ => None,
         },
         kore::Pattern::Exists { variable, body, .. } => recurse(body)?
             .map(|inner| {
                 definition
                     .internalize_variable(variable, sort_parameters)
-                    .map(|variable| Predicate::Exists(variable, Box::new(inner)))
+                    .map(|variable| Predicate::Exists(variable, Arc::new(inner)))
             })
             .transpose()?,
         kore::Pattern::Forall { variable, body, .. } => recurse(body)?
             .map(|inner| {
                 definition
                     .internalize_variable(variable, sort_parameters)
-                    .map(|variable| Predicate::Forall(variable, Box::new(inner)))
+                    .map(|variable| Predicate::Forall(variable, Arc::new(inner)))
             })
             .transpose()?,
         _ => None,
@@ -3201,22 +3204,22 @@ fn rename_predicate(
             Predicate::In(rename_term(left, rename), rename_term(right, rename))
         }
         Predicate::Absent(absence) => absence.map_terms(|term| rename_term(term, rename)),
-        Predicate::Not(inner) => Predicate::Not(Box::new(rename_predicate(inner, rename))),
-        Predicate::And(inner) => Predicate::And(rename_predicates(inner, rename)),
-        Predicate::Or(inner) => Predicate::Or(rename_predicates(inner, rename)),
+        Predicate::Not(inner) => Predicate::Not(Arc::new(rename_predicate(inner, rename))),
+        Predicate::And(inner) => Predicate::And(rename_predicates(inner, rename).into()),
+        Predicate::Or(inner) => Predicate::Or(rename_predicates(inner, rename).into()),
         Predicate::Implies(left, right) => Predicate::Implies(
-            Box::new(rename_predicate(left, rename)),
-            Box::new(rename_predicate(right, rename)),
+            Arc::new(rename_predicate(left, rename)),
+            Arc::new(rename_predicate(right, rename)),
         ),
         Predicate::Iff(left, right) => Predicate::Iff(
-            Box::new(rename_predicate(left, rename)),
-            Box::new(rename_predicate(right, rename)),
+            Arc::new(rename_predicate(left, rename)),
+            Arc::new(rename_predicate(right, rename)),
         ),
         Predicate::Exists(variable, inner) => {
-            Predicate::Exists(rename(variable), Box::new(rename_predicate(inner, rename)))
+            Predicate::Exists(rename(variable), Arc::new(rename_predicate(inner, rename)))
         }
         Predicate::Forall(variable, inner) => {
-            Predicate::Forall(rename(variable), Box::new(rename_predicate(inner, rename)))
+            Predicate::Forall(rename(variable), Arc::new(rename_predicate(inner, rename)))
         }
     }
 }
@@ -3655,7 +3658,7 @@ fn collect_binders(predicate: &Predicate, variables: &mut BTreeSet<Variable>) {
         }
         Predicate::Not(inner) => collect_binders(inner, variables),
         Predicate::And(inner) | Predicate::Or(inner) => {
-            for predicate in inner {
+            for predicate in inner.iter() {
                 collect_binders(predicate, variables);
             }
         }
@@ -5077,7 +5080,7 @@ mod tests {
         let lhs = Predicate::Equals(Term::variable(x.clone()), Term::variable(x.clone()));
         let rhs = vec![Predicate::Exists(
             z.clone(),
-            Box::new(Predicate::Equals(
+            Arc::new(Predicate::Equals(
                 Term::variable(y.clone()),
                 Term::variable(z.clone()),
             )),
@@ -5106,7 +5109,7 @@ mod tests {
         assert_eq!(rule.variables.unbound, BTreeSet::from([y.clone()]));
         assert!(rename_predicate_rule_apart(&rule, &Predicate::True, &[]).is_none());
 
-        let subject = Predicate::Forall(z.clone(), Box::new(Predicate::True));
+        let subject = Predicate::Forall(z.clone(), Arc::new(Predicate::True));
         let (renamed, renaming) = rename_predicate_rule_apart(&rule, &subject, &[])
             .expect("a subject binder is in scope");
         assert_eq!(renaming.keys().collect::<Vec<_>>(), [&z]);
