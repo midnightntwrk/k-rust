@@ -34,6 +34,10 @@ const DEFINITION: &str = r#"
     hooked-sort SortMInt{S} [hook{}("MINT.MInt"), hasDomainValues{}()]
     sort Sort8{} []
     hooked-symbol ultMInt{}(SortMInt{Sort8{}}, SortMInt{Sort8{}}) : SortBool{} [function{}(), total{}(), hook{}("MINT.ult")]
+    hooked-symbol sltMInt{}(SortMInt{Sort8{}}, SortMInt{Sort8{}}) : SortBool{} [function{}(), total{}(), hook{}("MINT.slt")]
+    hooked-sort SortMyInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+    hooked-symbol gtMyInt{}(SortMyInt{}, SortMyInt{}) : SortBool{} [function{}(), total{}(), hook{}("INT.gt")]
+    hooked-symbol leMyInt{}(SortMyInt{}, SortMyInt{}) : SortBool{} [function{}(), total{}(), hook{}("INT.le")]
     hooked-sort SortMap{}
         [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
     hooked-symbol mapUnit{}() : SortMap{} [function{}(), total{}(), hook{}("MAP.unit")]
@@ -161,12 +165,16 @@ impl Conjunct {
     }
 }
 
+/// The assignments brute force tries: `[-5, 5]^3`. The generated literals are `-1` to `1` and the
+/// offsets `-2` to `2`, so every bound a conjunct states lies in `[-4, 4]` and a conjunction
+/// satisfiable over the integers has a witness here, also one bounded on one side only
+/// (`X +Int -2 >Int 1` is `X >= 4`).
 fn assignments() -> impl Iterator<Item = [i64; 3]> {
-    (-3..=3).flat_map(|x| (-3..=3).flat_map(move |y| (-3..=3).map(move |z| [x, y, z])))
+    (-5..=5).flat_map(|x| (-5..=5).flat_map(move |y| (-5..=5).map(move |z| [x, y, z])))
 }
 
 /// Checks one conjunction against brute force: `contradictory` only when no assignment in
-/// `[-3, 3]^3` satisfies it, and each equality `equalities` returns holds in every assignment
+/// `[-5, 5]^3` satisfies it, and each equality `equalities` returns holds in every assignment
 /// that does. Returns the failure.
 fn check(definition: &BackendDefinition, conjuncts: &[Conjunct]) -> Option<String> {
     let predicates = conjuncts
@@ -576,26 +584,51 @@ fn comparisons_of_one_term_with_literals_are_refuted_by_their_bounds() {
         required(d, "gtInt", &shifted_quotient, &int("5"), true),
         required(d, "ltInt", quotient, &int("3"), true),
     ]));
-    // A machine-integer or a string comparison bounds no integer: these are not read, although as
-    // integers they would be.
+    // A machine-integer or a string comparison bounds no integer. Each conjunction below is
+    // satisfiable in its own sort and empty if its values were read as integers: the signed
+    // `255p8` is -1, below 1; the string "10" is below "9".
     let word = |value: &str| format!(r#"\dv{{SortMInt{{Sort8{{}}}}}}("{value}")"#);
     assert!(!refuted(&[
-        required(d, "ultMInt", "W:SortMInt{Sort8{}}", &word("1p8"), true),
-        Predicate::Equals(term(d, "W:SortMInt{Sort8{}}"), term(d, &word("5p8"))),
+        required(d, "sltMInt", "W:SortMInt{Sort8{}}", &word("1p8"), true),
+        Predicate::Equals(term(d, "W:SortMInt{Sort8{}}"), term(d, &word("255p8"))),
     ]));
     assert!(!refuted(&[
         required(
             d,
             "ltString",
             "S:SortString{}",
-            r#"\dv{SortString{}}("b")"#,
+            r#"\dv{SortString{}}("9")"#,
             true
         ),
         Predicate::Equals(
             term(d, "S:SortString{}"),
-            term(d, r#"\dv{SortString{}}("c")"#)
+            term(d, r#"\dv{SortString{}}("10")"#)
         ),
     ]));
+}
+
+/// A sort hooked `INT.Int` holds the integers whatever its name, and its literals are read as
+/// integers: `X >Int 5` beside `X <=Int 0` over it is refuted.
+#[test]
+fn comparisons_over_a_sort_hooked_int_are_bounded() {
+    let definition = definition();
+    let d = &definition;
+    let my_int = |value: &str| format!(r#"\dv{{SortMyInt{{}}}}("{value}")"#);
+    let key = "X:SortMyInt{}";
+    assert!(contradictory(
+        d,
+        &[
+            required(d, "gtMyInt", key, &my_int("5"), true),
+            required(d, "leMyInt", key, &my_int("0"), true),
+        ]
+    ));
+    assert!(!contradictory(
+        d,
+        &[
+            required(d, "gtMyInt", key, &my_int("5"), true),
+            required(d, "leMyInt", key, &my_int("6"), true),
+        ]
+    ));
 }
 
 /// A `\not` of a comparison also holds where its key is undefined, so it bounds a partial key only
@@ -618,4 +651,23 @@ fn a_negated_comparison_bounds_a_partial_term_only_where_it_is_shown_defined() {
     shown.push(required(d, "gtInt", quotient, &int("7"), true));
     assert!(contradictory(d, &shown));
     assert!(contradictory(d, &negated(KEY)));
+    // The same with the shape the simplifier leaves for a `notBool` guard, `\not` of the
+    // Bool-sorted comparison itself.
+    let negated_term = |key: &str| {
+        ["gtInt", "ltInt"]
+            .into_iter()
+            .zip(["5", "6"])
+            .map(|(operator, bound)| {
+                Predicate::Not(std::sync::Arc::new(Predicate::Term(term(
+                    d,
+                    &format!("{operator}{{}}({key}, {})", int(bound)),
+                ))))
+            })
+            .collect::<Vec<_>>()
+    };
+    assert!(!contradictory(d, &negated_term(quotient)));
+    let mut shown = negated_term(quotient);
+    shown.push(required(d, "gtInt", quotient, &int("7"), true));
+    assert!(contradictory(d, &shown));
+    assert!(contradictory(d, &negated_term(KEY)));
 }

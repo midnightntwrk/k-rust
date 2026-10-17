@@ -27,7 +27,10 @@
 //!   is exact; over the integers it is empty exactly when the interval is empty, or finite with
 //!   every point excluded. The conjunction is refuted when one key's set is empty. Keys are
 //!   decided independently, and a comparison of two non-literal terms bounds neither: sound, not
-//!   complete for related keys (`X <Int Y` beside `Y <Int X` is not refuted).
+//!   complete for related keys (`X <Int Y` beside `Y <Int X` is not refuted). An integer
+//!   literal is a domain value of a sort whose domain kind is the integers (`SortInt`, or a sort
+//!   hooked `INT.Int`), read as the integer it denotes: the `INT` hooks interpret their operands
+//!   as integers whatever the sort is named.
 //!
 //! Definedness of a key: a conjunct requiring a comparison atom true or false (`\equals(b, true)`,
 //! `\equals(b, false)`, or `b` itself) holds only where `b` is defined, hence where the key is;
@@ -187,30 +190,40 @@ impl Relation {
     }
 }
 
+/// The integer an integer literal denotes: a domain value of a sort whose domain kind in
+/// `definition` is the integers, whose canonical text is its decimal (`DomainKind::Int`).
+fn integer(definition: &BackendDefinition, term: &Term) -> Option<BigInt> {
+    match term.kind() {
+        TermKind::DomainValue { sort, value }
+            if definition.domain_kind(sort) == Some(DomainKind::Int) =>
+        {
+            value.as_utf8().ok()?.parse().ok()
+        }
+        _ => None,
+    }
+}
+
 /// `term` as `key + offset`, peeling `+Int` with an integer literal on either side and `-Int`
 /// with one on the right (both total, so the sum is defined exactly where `key` is); `None` for
 /// an integer literal, which has no key.
-fn shifted(term: &Term) -> Option<(Term, BigInt)> {
-    if crate::builtin::read_int(term).is_some() {
+fn shifted(definition: &BackendDefinition, term: &Term) -> Option<(Term, BigInt)> {
+    if integer(definition, term).is_some() {
         return None;
     }
     let peeled = match hooked(term) {
-        Some(("INT.add", [left, right])) => match (
-            crate::builtin::read_int(left),
-            crate::builtin::read_int(right),
-        ) {
-            (None, Some(value)) => Some((left, value)),
-            (Some(value), None) => Some((right, value)),
-            _ => None,
-        },
-        Some(("INT.sub", [left, right])) => {
-            crate::builtin::read_int(right).map(|value| (left, -value))
+        Some(("INT.add", [left, right])) => {
+            match (integer(definition, left), integer(definition, right)) {
+                (None, Some(value)) => Some((left, value)),
+                (Some(value), None) => Some((right, value)),
+                _ => None,
+            }
         }
+        Some(("INT.sub", [left, right])) => integer(definition, right).map(|value| (left, -value)),
         _ => None,
     };
     match peeled {
         Some((inner, offset)) => {
-            let (key, inner_offset) = shifted(inner)?;
+            let (key, inner_offset) = shifted(definition, inner)?;
             Some((key, inner_offset + offset))
         }
         None => Some((term.clone(), BigInt::from(0))),
@@ -219,17 +232,19 @@ fn shifted(term: &Term) -> Option<(Term, BigInt)> {
 
 /// `left <relation> right` as `key <relation'> literal`, when one side is an integer literal and
 /// the other a shifted key; `None` when both or neither are literals.
-fn compared(left: &Term, relation: Relation, right: &Term) -> Option<(Term, Relation, BigInt)> {
-    match (
-        crate::builtin::read_int(left),
-        crate::builtin::read_int(right),
-    ) {
+fn compared(
+    definition: &BackendDefinition,
+    left: &Term,
+    relation: Relation,
+    right: &Term,
+) -> Option<(Term, Relation, BigInt)> {
+    match (integer(definition, left), integer(definition, right)) {
         (None, Some(value)) => {
-            let (key, offset) = shifted(left)?;
+            let (key, offset) = shifted(definition, left)?;
             Some((key, relation, value - offset))
         }
         (Some(value), None) => {
-            let (key, offset) = shifted(right)?;
+            let (key, offset) = shifted(definition, right)?;
             Some((key, relation.mirrored(), value - offset))
         }
         _ => None,
@@ -252,7 +267,8 @@ fn integer_constraint(
                 (Some(value), None) => (right.clone(), value),
                 (None, Some(value)) => (left.clone(), value),
                 (None, None) => {
-                    let (key, relation, value) = compared(left, Relation::Equal, right)?;
+                    let (key, relation, value) =
+                        compared(definition, left, Relation::Equal, right)?;
                     return Some((key, relation, value, true));
                 }
                 (Some(_), Some(_)) => return None,
@@ -284,7 +300,7 @@ fn integer_constraint(
     } else {
         relation.negated()
     };
-    let (key, relation, value) = compared(left, relation, right)?;
+    let (key, relation, value) = compared(definition, left, relation, right)?;
     Some((key, relation, value, true))
 }
 
