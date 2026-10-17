@@ -250,8 +250,10 @@ pub(crate) fn evaluate_in_definition(
 ///   value of the application's sort), and gives it at the declared sort: itself when it is of
 ///   exactly that sort, its injection when its sort is a strict subsort of it, and no value
 ///   otherwise;
-/// - in [`EvaluationMode::Proof`], leaves unevaluated a value the definition leaves to the
-///   implementation (`implementation_chosen`), which only an execution computes.
+/// - in [`EvaluationMode::Proof`], leaves unevaluated a value of a class withheld in proofs
+///   ([`ChosenValue::withheld_in_proof`]), which only an execution computes. A caller that writes
+///   the value into a definition, such as the frontend's constant fold, also checks
+///   [`chosen_value`], which names every class the definition leaves open, withheld or not.
 ///
 /// So a caller that computes an application here, such as the frontend's constant fold, gets
 /// the outcome an evaluation of the same application in the loaded definition gets. That holds
@@ -399,6 +401,7 @@ impl ChosenClass {
 
 /// An evaluated hook application whose value is one of several the definition admits.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub struct ChosenValue {
     /// The hook applied.
     pub hook: Arc<str>,
@@ -410,8 +413,9 @@ pub struct ChosenValue {
 }
 
 /// Whether the application of `hook` to `arguments`, whose evaluator's value is `value` when it
-/// is known, has a value the definition leaves open, and of which class; `None` when every model
-/// gives it the same value. The fold and the evaluation entry read it; a class that needs the
+/// is known, may have one of several values the definition admits, and of which class: `Some`
+/// when it may (an over-approximation for `values(M)` of bindings with equal values, whose
+/// listing is the same in every order), `None` when every model gives it the same value. The fold and the evaluation entry read it; a class that needs the
 /// value (`LetterCase`, `ReadCount`) does not fire without it.
 ///
 /// - `Order`: `keys_list(M)` and `values(M)` of a closed map with two or more bindings whose

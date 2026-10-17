@@ -4297,12 +4297,14 @@ fn right_hand_sides(source: &str, fold: bool) -> Vec<String> {
 
 /// A definition whose rules apply hooks to literals where the definition leaves the value open
 /// (`c0` to `c3`: `Base2String` with a letter digit, `minFloat` and `maxFloat` of the two zeros)
-/// and where it determines it (`d0` to `d4`).
+/// and where it determines it (`d0` to `d4`); `n0` and `n1` reach an open application only after
+/// their arguments fold, and `n2` and `n3` apply a determined hook to an open argument.
 const OPEN_VALUES: &str = r#"
 module MAIN-SYNTAX
   syntax Op ::= "c0" [symbol(c0)] | "c1" [symbol(c1)] | "c2" [symbol(c2)] | "c3" [symbol(c3)]
               | "d0" [symbol(d0)] | "d1" [symbol(d1)] | "d2" [symbol(d2)] | "d3" [symbol(d3)]
-              | "d4" [symbol(d4)]
+              | "d4" [symbol(d4)] | "n0" [symbol(n0)] | "n1" [symbol(n1)] | "n2" [symbol(n2)]
+              | "n3" [symbol(n3)]
 endmodule
 module MAIN
   imports MAIN-SYNTAX
@@ -4319,6 +4321,10 @@ module MAIN
   rule d2 => res(minFloat(1.0, -0.0))
   rule d3 => res(maxFloat(0.0, 0.0))
   rule d4 => res(Base2String(255, 10))
+  rule n0 => res(Base2String(255 +Int 0, 16))
+  rule n1 => res(minFloat(0.0, --Float 0.0))
+  rule n2 => res(lengthString(Base2String(255, 16)))
+  rule n3 => res(maxFloat(0.0, -0.0) ==Float 0.0)
 endmodule
 "#;
 
@@ -4331,14 +4337,14 @@ endmodule
 fn leaves_values_the_definition_leaves_open_unfolded() {
     let folded = right_hand_sides(OPEN_VALUES, true);
     let written = right_hand_sides(OPEN_VALUES, false);
-    assert_eq!(folded.len(), 9, "{folded:?}");
+    assert_eq!(folded.len(), 13, "{folded:?}");
     // The applications of `c0` to `c3` are emitted exactly as written.
     assert_eq!(folded[..4], written[..4]);
     for open in &folded[..4] {
         assert!(!open.starts_with("res(#token("), "{open}");
     }
     assert_eq!(
-        folded[4..],
+        folded[4..9],
         [
             r#"res(#token("\"9\"","String"))"#,
             r#"res(#token("\"9\"","String"))"#,
@@ -4346,6 +4352,60 @@ fn leaves_values_the_definition_leaves_open_unfolded() {
             r#"res(#token("0e+00p53x11","Float"))"#,
             r#"res(#token("\"255\"","String"))"#,
         ]
+    );
+    // After their arguments fold, `n0` and `n1` are the open applications over the folded
+    // tokens, and are not folded themselves.
+    assert_eq!(folded[9], folded[0], "{folded:?}");
+    for nested in &folded[10..] {
+        assert!(!nested.starts_with("res(#token("), "{nested}");
+    }
+    assert!(
+        folded[10].contains(r#"#token("0.0","Float")"#)
+            && folded[10].contains(r#"#token("-0e+00p53x11","Float")"#),
+        "{}",
+        folded[10]
+    );
+    // A determined hook over an open argument reads only literal arguments, so it is not folded
+    // either, although its value is the same in every model.
+    assert_eq!(folded[11..], written[11..]);
+}
+
+/// The emitted KORE of the open applications is the application over the folded tokens:
+/// `Base2String(255 +Int 0, 16)` is emitted as `Base2String` of the domain values 255 and 16.
+#[cfg(feature = "z3-inference")]
+#[test]
+fn emits_open_values_as_applications_over_their_folded_arguments() {
+    let artifacts = compile_fixture("open-values.k", OPEN_VALUES, "MAIN");
+    let axiom = |rule: &str| {
+        artifacts
+            .definition_kore
+            .split("  axiom")
+            .find(|axiom| {
+                axiom.contains("\\rewrites")
+                    && axiom.contains(&format!("Lbl{rule}{{}}()"))
+                    && axiom.contains("Lblres{}(")
+            })
+            .unwrap_or_else(|| panic!("the rule for {rule} is emitted"))
+            .split_whitespace()
+            .collect::<String>()
+    };
+    for rule in ["c0", "n0"] {
+        let axiom = axiom(rule);
+        assert!(
+            axiom.contains("LblBase2String")
+                && axiom.contains(r#"{}(\dv{SortInt{}}("255"),\dv{SortInt{}}("16"))"#),
+            "{axiom}"
+        );
+    }
+    let n1 = axiom("n1");
+    assert!(
+        n1.contains(r#"\dv{SortFloat{}}("-0e+00p53x11")"#) && n1.contains("LblminFloat"),
+        "{n1}"
+    );
+    let n2 = axiom("n2");
+    assert!(
+        n2.contains("LbllengthString") && n2.contains("LblBase2String"),
+        "{n2}"
     );
 }
 
