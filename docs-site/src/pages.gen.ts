@@ -14,6 +14,8 @@ type Page =
   | { path: '/imp/machine-rules'; render: 'static' }
   | { path: '/imp/sorts-and-values'; render: 'static' }
   | { path: '/'; render: 'static' }
+  | { path: '/k-rust/compatibility'; render: 'static' }
+  | { path: '/k-rust'; render: 'static' }
   | { path: '/lessons/tour-minimal'; render: 'static' }
   | { path: '/reference/boundaries'; render: 'static' }
   | { path: '/reference/language'; render: 'static' }
@@ -22,8 +24,11 @@ type Page =
   | { path: '/semantics/lowering'; render: 'static' }
   | { path: '/semantics/static-semantics'; render: 'static' }
   | { path: '/start/definition-package'; render: 'static' }
-  | { path: '/start/five-minute-theory'; render: 'static' }
   | { path: '/start/what-krs-defines'; render: 'static' }
+  | { path: '/tour/definitions-compile-into-tools'; render: 'static' }
+  | { path: '/tour/functions-defined-by-rules'; render: 'static' }
+  | { path: '/tour/patterns-and-substitution'; render: 'static' }
+  | { path: '/tour/sorts-and-constructors'; render: 'static' }
   | { path: '/verification/reachability-claims'; render: 'static' }
 
 // prettier-ignore
