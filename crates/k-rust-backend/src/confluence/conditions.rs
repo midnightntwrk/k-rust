@@ -2,7 +2,14 @@
 //! conjunction with every claim withheld.
 //!
 //! The simplifier refutes a conjunction it evaluates to `\bottom`. Two propositional facts it does
-//! not use are decided here, on the conjuncts it leaves:
+//! not use are decided here, on the conjuncts it leaves. A conjunct states a Boolean literal when
+//! it requires a term equal to a domain value of a sort whose domain kind is the Booleans
+//! (`\equals(b, true)`), its negation, or a Bool-sorted term itself. A sort of that kind
+//! (`SortBool`, or a sort hooked `BOOL.Bool`; `DomainKind::of_declared_sort`) has exactly the
+//! domain values `true` and `false`, so a term of it equal to neither is no value, and the two
+//! requirements on one term are complementary. A domain value of any other sort is never read as
+//! a Boolean, whatever its spelling: a token or a `String` spelled `"true"` is one value of its
+//! sort among others.
 //!
 //! - **complementary literals**: a Boolean atom required true by one conjunct and false by another
 //!   (`N >Int M` beside `N <=Int M`, `notBool B` beside `B`). Comparisons are read up to their
@@ -19,9 +26,10 @@
 use rustc_hash::FxHashMap;
 
 use crate::{
+    definition::BackendDefinition,
     rule::Predicate,
     substitution::{Substitution, substitute},
-    term::{Term, TermKind},
+    term::{DomainKind, Term, TermKind},
 };
 
 /// A Boolean atom up to the arithmetic identities above.
@@ -35,11 +43,11 @@ enum Atom {
 }
 
 /// Whether the conjuncts are contradictory by complementary literals or by an atom required false
-/// that holds wherever it is defined.
-pub(super) fn contradictory(conjuncts: &[Predicate]) -> bool {
+/// that holds wherever it is defined, the domain kinds of their sorts read in `definition`.
+pub(super) fn contradictory(definition: &BackendDefinition, conjuncts: &[Predicate]) -> bool {
     let mut seen = FxHashMap::<Atom, bool>::default();
     for conjunct in conjuncts {
-        let Some((term, polarity)) = literal(conjunct) else {
+        let Some((term, polarity)) = literal(definition, conjunct) else {
             continue;
         };
         let (atom, polarity) = atom(&term, polarity);
@@ -90,27 +98,38 @@ pub(super) fn equalities(conjuncts: &[Predicate]) -> Substitution {
 }
 
 /// The Boolean term a conjunct requires, and whether it requires it true.
-fn literal(conjunct: &Predicate) -> Option<(Term, bool)> {
+fn literal(definition: &BackendDefinition, conjunct: &Predicate) -> Option<(Term, bool)> {
     match conjunct {
-        Predicate::Equals(left, right) => match (boolean(left), boolean(right)) {
-            (Some(value), None) => Some((right.clone(), value)),
-            (None, Some(value)) => Some((left.clone(), value)),
-            _ => None,
-        },
+        Predicate::Equals(left, right) => {
+            match (boolean(definition, left), boolean(definition, right)) {
+                (Some(value), None) => Some((right.clone(), value)),
+                (None, Some(value)) => Some((left.clone(), value)),
+                _ => None,
+            }
+        }
         Predicate::Term(term) => Some((term.clone(), true)),
-        Predicate::Not(inner) => literal(inner).map(|(term, polarity)| (term, !polarity)),
+        Predicate::Not(inner) => {
+            literal(definition, inner).map(|(term, polarity)| (term, !polarity))
+        }
         _ => None,
     }
 }
 
-/// The value of a Boolean domain value.
-fn boolean(term: &Term) -> Option<bool> {
+/// The value of a Boolean literal: a domain value of a sort whose domain kind in `definition` is
+/// [`DomainKind::Bool`], which has exactly the values `true` and `false`. A domain value of any
+/// other sort is one value of that sort whatever its spelling (a token or a `String` may read
+/// `"true"`), so it is not a literal, and a conjunct comparing a term with it states no Boolean.
+fn boolean(definition: &BackendDefinition, term: &Term) -> Option<bool> {
     match term.kind() {
-        TermKind::DomainValue { value, .. } => match value.as_bytes() {
-            b"true" => Some(true),
-            b"false" => Some(false),
-            _ => None,
-        },
+        TermKind::DomainValue { sort, value }
+            if definition.domain_kind(sort) == Some(DomainKind::Bool) =>
+        {
+            match value.as_bytes() {
+                b"true" => Some(true),
+                b"false" => Some(false),
+                _ => None,
+            }
+        }
         _ => None,
     }
 }

@@ -1306,7 +1306,9 @@ impl<'d> Context<'d> {
         let mut conjuncts = BTreeSet::new();
         flatten(simplified, &mut conjuncts);
         let conjuncts = conjuncts.into_iter().collect::<Vec<_>>();
-        if conjuncts.contains(&Predicate::False) || conditions::contradictory(&conjuncts) {
+        if conjuncts.contains(&Predicate::False)
+            || conditions::contradictory(self.definition, &conjuncts)
+        {
             return Conditions::Refuted;
         }
         Conditions::Open(conditions::equalities(&conjuncts))
