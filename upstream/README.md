@@ -36,4 +36,6 @@ Requests that KRS already tracks against k-rust are listed under `[[krs_owned]]`
 
 k-rust is consumed as an on-disk path dependency through a read-only `git archive` export of the pinned commit.
 Run `cargo test --workspace` against that export, then re-screen every `open` and `partial` request at the new commit and update `status_basis` and `[reference_pin]`.
+Record the former pin in `[retired_pins]` with the reason it was retired.
+A row whose status was replaced keeps its former value in git history; an `update_YYYY_MM_DD` field says what the move found.
 kink-native's `every_halt_variant_is_classified_exhaustively` maps the closed `HaltReasonOutput` enum to `HaltClass` and checks every variant. A new upstream variant requires an exhaustive Rust match update (`execution-leaf-completeness`).
