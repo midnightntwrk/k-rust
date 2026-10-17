@@ -11013,6 +11013,36 @@ fn console_getc_consumes_sequential_reads_in_term_order() {
     assert_eq!(result.leaves[0].io.cursor(), 2);
 }
 
+/// An execution with the default options runs in `EvaluationMode::Proof`, and still reads the
+/// console: a `#read` that returns two or more characters (class `read-count`) is not withheld
+/// there, because a proof route has no console and so never meets one; only the order of a run
+/// of a program with a console decides how many characters a read returns.
+#[test]
+fn a_default_options_execution_reads_two_or_more_console_characters() {
+    assert_eq!(
+        ExecutionOptions::default().evaluation,
+        k_rust_backend::evaluation::EvaluationMode::Proof
+    );
+    let definition = console_io_definition("");
+    let result = execute_with_io_state(
+        &definition,
+        console_pattern(
+            &definition,
+            r#"read{}(\dv{SortInt{}}("0"), \dv{SortInt{}}("2"))"#,
+        ),
+        ExecutionOptions::default(),
+        ExecutionIoState::new(b"ABC".to_vec()),
+    );
+    let TermKind::Injection { term, .. } = result.leaves[0].pattern.term.kind() else {
+        panic!("read result was not injected: {result:#?}");
+    };
+    assert!(
+        matches!(term.kind(), TermKind::DomainValue { value, .. } if value.as_utf8() == Ok("AB")),
+        "{result:#?}"
+    );
+    assert_eq!(result.leaves[0].io.cursor(), 2);
+}
+
 #[test]
 fn console_read_preserves_arbitrary_short_reads_and_utf8_boundaries() {
     let definition = console_io_definition("");

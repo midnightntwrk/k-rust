@@ -443,12 +443,16 @@ pub struct ChosenValue {
 /// - `ReadCount`: `#read` that returned two or more characters, which could have returned
 ///   fewer; one character could be fewer only by being none, which states end of file.
 ///
-/// The application is defined in every class but `FreshName` and `ReadCount` whatever its
-/// symbol's declaration says: a defined collection has a listing and, when non-empty, an item; a
-/// Float operation has a result in some format; a NaN has a sign bit; `Base2String` and
-/// `minFloat`/`maxFloat` have a value on these arguments. `withheld_in_proof` is set for the
-/// classes an evaluation outside an execution leaves unevaluated: `Order`, `Item`,
-/// `FloatDestination` and `NanSign`.
+/// The application is defined in every class whatever its symbol's declaration says: a defined
+/// collection has a listing and, when non-empty, an item; a Float operation has a result in some
+/// format; a NaN has a sign bit; `Base2String` and `minFloat`/`maxFloat` have a value on these
+/// arguments; a substitution the evaluator computes has a result under some naming of the
+/// binders; a read that returned characters returned some count of them. `withheld_in_proof` is
+/// set for every class but `ReadCount`: an evaluation outside an execution leaves those
+/// applications unevaluated. A proof route (`kprove`, implication, the RPC `implies`, the
+/// analyses at load) has no console, so `ReadCount` never arises there, and the backend's own
+/// executions, which run in `Proof` unless their options ask for an execution, keep reading the
+/// console they are given.
 pub fn chosen_value(hook: &str, arguments: &[Term], value: Option<&Term>) -> Option<ChosenValue> {
     let fires = |class: ChosenClass, fires: bool| fires.then_some(class);
     let class = match hook {
@@ -483,13 +487,9 @@ pub fn chosen_value(hook: &str, arguments: &[Term], value: Option<&Term>) -> Opt
     Some(ChosenValue {
         hook: hook.into(),
         class,
-        withheld_in_proof: matches!(
-            class,
-            ChosenClass::Order
-                | ChosenClass::Item
-                | ChosenClass::FloatDestination
-                | ChosenClass::NanSign
-        ),
+        // Every class that is a value but `ReadCount`: a proof route has no console, and an
+        // execution of the backend that runs in `Proof` by default reads the console it is given.
+        withheld_in_proof: class != ChosenClass::ReadCount,
     })
 }
 
@@ -689,13 +689,17 @@ fn evaluate_composed(
             chosen.class != ChosenClass::ReadCount || has_console,
             "{hook} read characters without a console"
         );
-        // A value the definition leaves to the implementation of a withheld class (the order of
-        // `keys_list`, `values` and `Set2List` of two or more items, the item `choice` gives,
-        // the result format of a Float operation over a binary32 and a binary64 operand, the
-        // sign of a NaN) is computed only inside an execution, which runs a program and may take
-        // any value the definition admits. Elsewhere a verdict that read it would hold only in
-        // k-rust's choice, not in every model of the definition, so the application stays
-        // unevaluated as the defined value it is (`crate::evaluation`). The outcome is
+        // A value the definition leaves to the implementation (every class of `chosen_value`
+        // but `ReadCount`: the order of `keys_list`, `values` and `Set2List` of two or more
+        // items, the item `choice` gives, the result format of a Float operation over a binary32
+        // and a binary64 operand, the sign of a NaN, `Base2String`'s letter case, `minFloat` and
+        // `maxFloat` of the two zeros, the names `substOne` gives) is computed only inside an
+        // execution, which runs a program and may take any value the definition admits.
+        // Elsewhere a verdict that read it would hold only in k-rust's choice, not in every model
+        // of the definition, so the application stays unevaluated as the defined value it is
+        // (`crate::evaluation`). A `#read`'s count is not withheld: a proof route has no console,
+        // so it never meets one, and an execution that runs in `Proof` by default (the backend's
+        // own `execute*` with default options) must keep reading its console. The outcome is
         // `Unsupported`, not `NotApplicable`, so that a simplifier records no normal-form
         // certificate for it: its value claim would let apartness tell it from a written list.
         if mode == Some(EvaluationMode::Proof) && chosen.withheld_in_proof {
@@ -4402,10 +4406,11 @@ mod tests {
         assert_eq!(chosen_value("IO.read", &arguments, None), None);
     }
 
-    /// The existing classes keep their firing, and only they are withheld outside an execution
-    /// until proofs withhold the new ones too.
+    /// Every class that is a value is withheld outside an execution except `read-count`, which
+    /// no proof route meets (it has no console) and which a default-options execution must keep
+    /// reading.
     #[test]
-    fn only_the_order_item_destination_and_nan_sign_classes_are_withheld_in_proofs() {
+    fn every_class_but_read_count_is_withheld_in_proofs() {
         let mixed = [float_term("0.1f"), float_term("2.0")];
         let mixed_value = evaluator_value("FLOAT.div", &mixed);
         let destination = chosen_value("FLOAT.div", &mixed, Some(&mixed_value)).unwrap();
@@ -4418,14 +4423,14 @@ mod tests {
         let letter = [Term::int(255), Term::int(16)];
         let letter_value = evaluator_value("STRING.base2string", &letter);
         assert!(
-            !chosen_value("STRING.base2string", &letter, Some(&letter_value))
+            chosen_value("STRING.base2string", &letter, Some(&letter_value))
                 .unwrap()
                 .withheld_in_proof
         );
         let zeros = [float_term("0.0"), float_term("-0.0")];
         let zero_value = evaluator_value("FLOAT.min", &zeros);
         assert!(
-            !chosen_value("FLOAT.min", &zeros, Some(&zero_value))
+            chosen_value("FLOAT.min", &zeros, Some(&zero_value))
                 .unwrap()
                 .withheld_in_proof
         );
