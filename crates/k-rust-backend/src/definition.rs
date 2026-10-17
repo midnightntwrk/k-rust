@@ -1478,6 +1478,18 @@ pub enum DefinitionError {
         failure: PriorityConjunctFailure,
     },
     RulePattern(RulePatternError),
+    /// An axiom whose condition holds an `\equals` with an operand that is a matching-logic
+    /// connective over terms ([`equates_a_term_read_as_predicate`]), such as
+    /// `\equals{Bool, R}(\and{Bool}(B1, B2), false)` or `\equals{Int, R}(X, \or{Int}(1, 2))`:
+    /// such an operand denotes a set of values, which no predicate the backend reads states, so
+    /// the equality would be read with a meaning it does not have. A condition floated from a
+    /// term position (`t #And {P}`) is searched with every operand read as written. Carries the
+    /// axiom's name and position ([`RuleAttributes::diagnostic_name`](crate::rule::RuleAttributes::diagnostic_name))
+    /// and its sentence.
+    AxiomReadsTermAsPredicate {
+        axiom: String,
+        sentence: Box<SentenceKey>,
+    },
     Claim(ClaimError),
     Verification(crate::verify::VerificationError),
     /// A request's predicate whose definedness the backend cannot state as an equivalent
@@ -1503,16 +1515,20 @@ pub enum UnstatedDefinedness {
     TermReadAsPredicate,
 }
 
-/// Whether an `\equals` of a predicate `P` and the Boolean `true`, the form in which k-rust's
-/// compiler emits a K `requires P` or `ensures P` whose `P` is an ML predicate
-/// (`{ A #Equals B }`, `#Not(..)`), counts as an equality that reads a term as a predicate.
+/// Whether an `\equals` of a predicate `P` and the Boolean `true`, the form in which a K
+/// `requires P` or `ensures P` whose `P` is an ML predicate (`{ A #Equals B }`, `#Not(..)`) is
+/// emitted, counts as an equality that reads a term as a predicate.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum HoldsEncoding {
     /// A request's predicates: such an equality is refused like any other.
     Refused,
-    /// A claim's constraints, which the compiler writes: such an equality is the encoding of
-    /// "`P` holds", and its internalized reading, the `\iff` of `P` and `true = true`, is `P`, so
-    /// it is read faithfully; only `P` itself is searched.
+    /// A claim's or an axiom's constraints, which the compiler writes: such an equality reached
+    /// from the pattern's root through connectives (`\and`, `\or`, `\not`, `\implies`,
+    /// `\iff`, `\exists`, `\forall`) is the encoding of "`P` holds" at a condition's root, and
+    /// its internalized reading, the `\iff` of `P` and `true = true`, is `P`, so it is read
+    /// faithfully. Only there: `P` itself, and the operands of every other `\equals`, are
+    /// searched as [`Self::Refused`] searches them, since an `\equals(P, true)` inside them is
+    /// an author's equality whose operand `P` is a term position.
     Holds,
 }
 
@@ -1521,10 +1537,13 @@ pub(crate) enum HoldsEncoding {
 /// `\equals{Bool, R}(B, \top{Bool}())`. Such an equality is internalized as the `\iff` of its
 /// operands read as predicates, with a term read as `t = true`, which is not its meaning:
 /// `B1 /\ B2` of two Boolean values is their intersection, `\bottom` where they differ, and
-/// `B = \top` is false, since a sort with two elements is not a singleton. The operands are
-/// searched through the connectives that read their arguments as predicates, not below
-/// `\equals`, `\ceil`, `\floor` or `\in`, whose arguments are terms. `pattern` has its aliases
-/// unfolded.
+/// `B = \top` is false, since a sort with two elements is not a singleton. An `\equals` of two
+/// predicate-shaped patterns (no term read as a predicate) is their `\iff` literally, since a
+/// predicate is all of its sort or empty, and is not one. With [`HoldsEncoding::Holds`], the
+/// encoding `\equals(P, true)` reached from the root through connectives is not one either
+/// ([`HoldsEncoding::Holds`]). The operands are searched through the connectives that read their
+/// arguments as predicates and through the operands of `\equals`, not below an application,
+/// `\ceil`, `\floor` or `\in`, whose arguments are terms. `pattern` has its aliases unfolded.
 pub(crate) fn equates_a_term_read_as_predicate(
     pattern: &kore::Pattern,
     holds: HoldsEncoding,
@@ -1553,7 +1572,11 @@ pub(crate) fn equates_a_term_read_as_predicate(
             } if name == "SortBool" && arguments.is_empty() && value.as_utf8().ok() == Some("true")
         )
     }
+    // Through a connective the walk stays at the condition's root; below an `\equals` it reads
+    // operands, where no equality is the encoding.
     let walk = |pattern: &kore::Pattern| equates_a_term_read_as_predicate(pattern, holds);
+    let operand =
+        |pattern: &kore::Pattern| equates_a_term_read_as_predicate(pattern, HoldsEncoding::Refused);
     use kore::Pattern as P;
     match pattern {
         P::Equals { left, right, .. }
@@ -1562,14 +1585,16 @@ pub(crate) fn equates_a_term_read_as_predicate(
                     || (is_true(left) && !crate::rule::is_term_pattern(right))) =>
         {
             if is_true(right) {
-                walk(left)
+                operand(left)
             } else {
-                walk(right)
+                operand(right)
             }
         }
         P::Equals { left, right, .. } => {
             let terms = crate::rule::is_term_pattern(left) && crate::rule::is_term_pattern(right);
-            (!terms && (reads_a_term(left) || reads_a_term(right))) || walk(left) || walk(right)
+            (!terms && (reads_a_term(left) || reads_a_term(right)))
+                || operand(left)
+                || operand(right)
         }
         P::And { arguments, .. } | P::Or { arguments, .. } => arguments.iter().any(walk),
         P::Not { argument, .. } => walk(argument),
@@ -1870,6 +1895,16 @@ impl fmt::Display for DefinitionError {
                 )
             }
             Self::RulePattern(error) => write!(formatter, "Invalid pattern: {error}"),
+            Self::AxiomReadsTermAsPredicate { axiom, sentence } => {
+                let (module, index) = sentence.as_ref();
+                write!(
+                    formatter,
+                    "Axiom {axiom} (sentence {index} of module {module}) has an equality whose \
+                     operand is a matching-logic connective over terms; such an operand denotes \
+                     a set of values, which the backend does not read; write the connective at \
+                     the root of the condition, or use a Bool operation"
+                )
+            }
             Self::Claim(error) => write!(formatter, "Invalid claim: {error}"),
             Self::Verification(error) => write!(formatter, "{error}"),
             Self::UnstatedDefinedness(UnstatedDefinedness::Impure { hook, detail }) => write!(
@@ -6688,11 +6723,14 @@ mod tests {
             .expect("the chain should load");
         let pattern = parse_pattern("drop{}(al0{}(a{}()))").unwrap();
         assert!(definition.internalize_pattern(&pattern, &[]).is_ok());
-        // `\exists{S{}}(X:S{}, X:S{})` is no term, which internalization refuses once unfolded.
+        // `\exists{S{}}(X:S{}, X:S{})` is no term, and its body, a term of sort `S`, is no
+        // predicate, which internalization refuses once unfolded.
         let pattern = parse_pattern("shadow{}(al0{}(a{}()))").unwrap();
         assert!(matches!(
             definition.internalize_pattern(&pattern, &[]),
-            Err(DefinitionError::RulePattern(RulePatternError::MissingTerm))
+            Err(DefinitionError::RulePattern(
+                RulePatternError::NonBoolTermAsPredicate { .. }
+            ))
         ));
     }
 

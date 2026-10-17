@@ -67,7 +67,10 @@ use k_rust_kore::names::{
 
 use crate::{
     condition::Condition,
-    definition::{BackendDefinition, DefinitionError, UnlicensedInjectionSite},
+    definition::{
+        BackendDefinition, DefinitionError, HoldsEncoding, UnlicensedInjectionSite,
+        equates_a_term_read_as_predicate,
+    },
     substitution::{Substitution, substitute},
     term::{
         AlgebraicAxioms, HeadRole, MapDefinition, Name, SetDefinition, Sort, Term, TermKind,
@@ -695,6 +698,26 @@ pub enum RulePatternError {
     NegatedConfiguration {
         sentence: Box<SentenceKey>,
     },
+    /// A component of a rewrite left-hand side, after alias unfolding, that is a
+    /// matching-logic connective (`connective`, other than `\not`, which
+    /// [`Self::NegatedConfiguration`] reports) with a term pattern in a predicate position
+    /// ([`has_term_in_predicate_position`]), such as the `\implies{SortInt{}}(3, 4)` of
+    /// `\and{SortInt{}}(\implies{SortInt{}}(3, 4), V)`. Over terms a connective denotes a set of
+    /// values of their sort (`(Int ∖ {3}) ∪ {4}`), not a condition: reading it as a predicate
+    /// would read each of its terms as `t = true`. Carries the sentence of the refused axiom.
+    TermConnectiveInConjunction {
+        connective: &'static str,
+        sentence: Box<SentenceKey>,
+    },
+    /// A term of another sort than `SortBool{}` (`sort`, in its KORE form) where a predicate is
+    /// read: a term read as a predicate states that it is `true`, which has a meaning only for a
+    /// Boolean term. When the term is in a definition's axiom, carries the axiom's name and
+    /// position ([`RuleAttributes::diagnostic_name`]) and its sentence.
+    NonBoolTermAsPredicate {
+        sort: Box<kore::Sort>,
+        axiom: Option<String>,
+        sentence: Option<Box<SentenceKey>>,
+    },
     /// An executable function or anywhere equation whose right-hand side gives no term, only
     /// `\top` or predicates (`#Top`, `#Top` with an `ensures`, `#Ceil(X)`). Such a right-hand
     /// side denotes every value of its sort or none, so the equation states that the application
@@ -738,6 +761,36 @@ impl std::fmt::Display for RulePatternError {
                  states that",
                 sentence.1, sentence.0
             ),
+            Self::TermConnectiveInConjunction {
+                connective,
+                sentence,
+            } => write!(
+                formatter,
+                "the left-hand side of the rewrite at sentence index {} (zero-based) of module {} \
+                 conjoins a \\{connective} with a term in a predicate position, which over \
+                 terms denotes a set of values of their sort, not a condition, and the backend \
+                 reads no predicate from it",
+                sentence.1, sentence.0
+            ),
+            Self::NonBoolTermAsPredicate {
+                sort,
+                axiom,
+                sentence,
+            } => {
+                write!(
+                    formatter,
+                    "a term of sort {sort} is read as a predicate, which states that the term is \
+                     true and has a meaning only for a term of sort SortBool{{}}"
+                )?;
+                match (axiom, sentence) {
+                    (Some(axiom), Some(sentence)) => write!(
+                        formatter,
+                        ", in the axiom {axiom} (sentence index {} of module {})",
+                        sentence.1, sentence.0
+                    ),
+                    _ => Ok(()),
+                }
+            }
             Self::TopFunctionEquation { axiom, head, .. } => write!(
                 formatter,
                 "the function equation {axiom} of {head} gives no term as its right-hand side, \
@@ -1636,6 +1689,12 @@ pub fn internalize_axiom(
     axiom: &ClassifiedAxiom,
     sentence: &SentenceKey,
 ) -> Result<Vec<InternalizedRule>, DefinitionError> {
+    if axiom_reads_term_as_predicate(axiom) {
+        return Err(DefinitionError::AxiomReadsTermAsPredicate {
+            axiom: axiom.attributes().diagnostic_name(str::to_owned),
+            sentence: Box::new(sentence.clone()),
+        });
+    }
     let injection_role = UnlicensedInjectionSite::InAxiom;
     let internalize = || match axiom {
         ClassifiedAxiom::Rewrite {
@@ -1717,18 +1776,32 @@ pub fn internalize_axiom(
             ..
         } => {
             if !is_term_pattern(lhs) {
-                let Some(lhs) = live_matched(internalize_predicate(
+                // A left-hand side that conjoins terms (`t1 #And t2 => t3`) rewrites a term-level
+                // conjunction, and its sides' terms are its conjuncts, of any sort.
+                let atoms = if is_term_conjunction(lhs) {
+                    TermAtom::Conjunct
+                } else {
+                    TermAtom::Holds
+                };
+                let Some(lhs) = live_matched(internalize_predicate_reading(
                     definition,
                     lhs,
                     sort_parameters,
                     UnlicensedInjectionSite::InAxiomMatched,
+                    atoms,
                 ))?
                 else {
                     return Ok(vec![]);
                 };
                 let requires =
                     internalize_predicates(definition, requires, sort_parameters, injection_role)?;
-                let rhs = internalize_predicates(definition, rhs, sort_parameters, injection_role)?;
+                let rhs = internalize_predicates_reading(
+                    definition,
+                    rhs,
+                    sort_parameters,
+                    injection_role,
+                    atoms,
+                )?;
                 let rename =
                     |variable: &Variable| variable.with_provenance(VariableProvenance::Equation);
                 let mut lhs = rename_predicates(&[lhs], rename);
@@ -1993,20 +2066,31 @@ fn definition_spellings(variables: &BTreeSet<Variable>) -> Vec<String> {
         .collect()
 }
 
+/// `error`, found internalizing the axiom with `attributes` at `sentence`, with the axiom named
+/// where the error is about what the axiom writes: an injection with no subsort path, and a term
+/// of another sort than Bool read as a predicate.
 pub(crate) fn written_injection_error(
     error: DefinitionError,
     attributes: &RuleAttributes,
     sentence: &SentenceKey,
 ) -> DefinitionError {
-    let DefinitionError::NotSubsort { source, target } = error else {
-        return error;
-    };
-    let axiom = attributes.diagnostic_name(str::to_owned);
-    DefinitionError::UnlicensedInjection {
-        source,
-        target,
-        axiom,
-        sentence: Box::new(sentence.clone()),
+    match error {
+        DefinitionError::NotSubsort { source, target } => DefinitionError::UnlicensedInjection {
+            source,
+            target,
+            axiom: attributes.diagnostic_name(str::to_owned),
+            sentence: Box::new(sentence.clone()),
+        },
+        DefinitionError::RulePattern(RulePatternError::NonBoolTermAsPredicate {
+            sort,
+            axiom: None,
+            ..
+        }) => DefinitionError::RulePattern(RulePatternError::NonBoolTermAsPredicate {
+            sort,
+            axiom: Some(attributes.diagnostic_name(str::to_owned)),
+            sentence: Some(Box::new(sentence.clone())),
+        }),
+        error => error,
     }
 }
 
@@ -2503,6 +2587,18 @@ fn internalize_rule_pattern_with_position(
                 },
             ));
         }
+        // A connective with a term in a predicate position is a connective over terms, a set of
+        // values, and not a condition the rule could state.
+        if let Some(connective) = term_connective(&predicate) {
+            let (_, sentence) =
+                defer_written_conditions_for.expect("written conditions were deferred");
+            return Err(DefinitionError::RulePattern(
+                RulePatternError::TermConnectiveInConjunction {
+                    connective,
+                    sentence: Box::new(sentence.clone()),
+                },
+            ));
+        }
         predicates.extend(
             internalize_predicates(definition, &predicate, sort_parameters, injection_role)
                 .map_err(|error| {
@@ -2583,37 +2679,89 @@ fn contains_strict_bottom(pattern: &kore::Pattern) -> bool {
     }
 }
 
+/// How a term pattern in a predicate position is read.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TermAtom {
+    /// As the predicate that the term is `true` ([`Predicate::Term`]), which has a meaning only
+    /// for a term of sort Bool, so a term of another sort is refused
+    /// ([`RulePatternError::NonBoolTermAsPredicate`]).
+    Holds,
+    /// As a conjunct of the term-level conjunction that a predicate simplification with
+    /// conjoined terms on its left-hand side rewrites (`t1 #And t2 => t3`,
+    /// [`is_term_conjunction`]): there [`Predicate::Term`] holds the conjunct, of any sort.
+    Conjunct,
+}
+
+/// Whether `pattern` is a conjunction (`\and`, nested or not) of term patterns and `\top`, with
+/// at least one term: a term-level conjunction, which a simplification with it as its left-hand
+/// side rewrites.
+fn is_term_conjunction(pattern: &kore::Pattern) -> bool {
+    fn conjuncts(pattern: &kore::Pattern, terms: &mut bool) -> bool {
+        match pattern {
+            kore::Pattern::And { arguments, .. } => {
+                arguments.iter().all(|argument| conjuncts(argument, terms))
+            }
+            kore::Pattern::Top { .. } => true,
+            pattern if is_term_pattern(pattern) => {
+                *terms = true;
+                true
+            }
+            _ => false,
+        }
+    }
+    let mut terms = false;
+    matches!(pattern, kore::Pattern::And { .. }) && conjuncts(pattern, &mut terms) && terms
+}
+
 fn internalize_predicates(
     definition: &BackendDefinition,
     pattern: &kore::Pattern,
     sort_parameters: &[Name],
     injection_role: UnlicensedInjectionSite,
 ) -> Result<Vec<Predicate>, DefinitionError> {
+    internalize_predicates_reading(
+        definition,
+        pattern,
+        sort_parameters,
+        injection_role,
+        TermAtom::Holds,
+    )
+}
+
+fn internalize_predicates_reading(
+    definition: &BackendDefinition,
+    pattern: &kore::Pattern,
+    sort_parameters: &[Name],
+    injection_role: UnlicensedInjectionSite,
+    atoms: TermAtom,
+) -> Result<Vec<Predicate>, DefinitionError> {
+    let predicate = |pattern: &kore::Pattern| {
+        internalize_predicate_reading(definition, pattern, sort_parameters, injection_role, atoms)
+    };
     match pattern {
         kore::Pattern::Top { .. } => Ok(Vec::new()),
         kore::Pattern::Bottom { .. } => Ok(vec![Predicate::False]),
         kore::Pattern::And { arguments, .. } => arguments
             .iter()
             .map(|argument| {
-                internalize_predicates(definition, argument, sort_parameters, injection_role)
+                internalize_predicates_reading(
+                    definition,
+                    argument,
+                    sort_parameters,
+                    injection_role,
+                    atoms,
+                )
             })
             .collect::<Result<Vec<_>, _>>()
             .map(|predicates| predicates.into_iter().flatten().collect()),
         kore::Pattern::Or { arguments, .. } => Ok(vec![Predicate::Or(
             (arguments
                 .iter()
-                .map(|argument| {
-                    internalize_predicate(definition, argument, sort_parameters, injection_role)
-                })
+                .map(predicate)
                 .collect::<Result<Vec<_>, _>>()?)
             .into(),
         )]),
-        _ => Ok(vec![internalize_predicate(
-            definition,
-            pattern,
-            sort_parameters,
-            injection_role,
-        )?]),
+        _ => Ok(vec![predicate(pattern)?]),
     }
 }
 
@@ -2623,11 +2771,27 @@ pub(crate) fn internalize_predicate(
     sort_parameters: &[Name],
     injection_role: UnlicensedInjectionSite,
 ) -> Result<Predicate, DefinitionError> {
+    internalize_predicate_reading(
+        definition,
+        pattern,
+        sort_parameters,
+        injection_role,
+        TermAtom::Holds,
+    )
+}
+
+fn internalize_predicate_reading(
+    definition: &BackendDefinition,
+    pattern: &kore::Pattern,
+    sort_parameters: &[Name],
+    injection_role: UnlicensedInjectionSite,
+    atoms: TermAtom,
+) -> Result<Predicate, DefinitionError> {
     let term = |pattern: &kore::Pattern| {
         definition.internalize_term_with_validation(pattern, sort_parameters, injection_role)
     };
     let predicate = |pattern: &kore::Pattern| {
-        internalize_predicate(definition, pattern, sort_parameters, injection_role)
+        internalize_predicate_reading(definition, pattern, sort_parameters, injection_role, atoms)
     };
     // The written form of an absence is the absence (`Absence`), except in the left-hand side
     // of a predicate simplification, which is matched as written: there a `\ceil` of a set
@@ -2699,7 +2863,22 @@ pub(crate) fn internalize_predicate(
             definition.internalize_variable(variable, sort_parameters)?,
             Arc::new(predicate(body)?),
         )),
-        pattern if is_term_pattern(pattern) => Ok(Predicate::Term(term(pattern)?)),
+        // A term read as a predicate states that it is `true`, which says something only of a
+        // Boolean term.
+        pattern if is_term_pattern(pattern) => {
+            let term = term(pattern)?;
+            let sort = term.sort();
+            if atoms == TermAtom::Holds && !sort.is_builtin(k_rust_kore::names::BuiltinSort::Bool) {
+                return Err(DefinitionError::RulePattern(
+                    RulePatternError::NonBoolTermAsPredicate {
+                        sort: Box::new(crate::externalize::sort(&sort)),
+                        axiom: None,
+                        sentence: None,
+                    },
+                ));
+            }
+            Ok(Predicate::Term(term))
+        }
         kore::Pattern::Next { .. } => Err(DefinitionError::RulePattern(
             RulePatternError::UnsupportedPredicate("next"),
         )),
@@ -2800,6 +2979,92 @@ pub(crate) fn flatten_and<'a>(pattern: &'a kore::Pattern, output: &mut Vec<&'a k
 /// not one.
 fn negates_configuration(component: &kore::Pattern) -> bool {
     matches!(component, kore::Pattern::Not { argument, .. } if has_term_in_predicate_position(argument))
+}
+
+/// The connective of `component` when it is a matching-logic connective with a term pattern in a
+/// predicate position ([`has_term_in_predicate_position`]), so a connective over terms (such as
+/// `\implies{SortInt{}}(3, 4)`) rather than over predicates (such as `\not(\equals(..))`).
+fn term_connective(component: &kore::Pattern) -> Option<&'static str> {
+    let connective = match component {
+        kore::Pattern::Not { .. } => "not",
+        kore::Pattern::And { .. } => "and",
+        kore::Pattern::Or { .. } => "or",
+        kore::Pattern::Implies { .. } => "implies",
+        kore::Pattern::Iff { .. } => "iff",
+        kore::Pattern::Exists { .. } => "exists",
+        kore::Pattern::Forall { .. } => "forall",
+        _ => return None,
+    };
+    has_term_in_predicate_position(component).then_some(connective)
+}
+
+/// Whether a condition of `axiom` holds an `\equals` whose operand is a matching-logic
+/// connective over terms ([`equates_a_term_read_as_predicate`]): its `requires`, its sides (a
+/// rewrite's `requires` and `ensures` are conjuncts of its sides), and the conditions conjoined
+/// to a term inside them (`t #And {P}`). At a side's root the encoding `\equals{Bool, R}(P,
+/// true)` of a whole condition `P` is read as `P` ([`HoldsEncoding::Holds`]); a condition
+/// conjoined to a term is no condition root, so there every equality is read as written. The
+/// axiom has its aliases unfolded.
+fn axiom_reads_term_as_predicate(axiom: &ClassifiedAxiom) -> bool {
+    let patterns = match axiom {
+        ClassifiedAxiom::Rewrite { lhs, rhs, .. } => vec![lhs, rhs],
+        ClassifiedAxiom::Function {
+            requires, lhs, rhs, ..
+        }
+        | ClassifiedAxiom::Simplification {
+            requires, lhs, rhs, ..
+        }
+        | ClassifiedAxiom::Ceil {
+            requires, lhs, rhs, ..
+        } => vec![requires, lhs, rhs],
+    };
+    patterns.into_iter().any(|pattern| {
+        equates_a_term_read_as_predicate(pattern, HoldsEncoding::Holds)
+            || conjoined_condition_reads_term_as_predicate(pattern, false)
+    })
+}
+
+/// Whether a condition conjoined to a term inside `pattern` (a conjunct of a term-level `\and`
+/// that has no term component) holds an `\equals` whose operand is a matching-logic connective
+/// over terms, every equality read as written ([`HoldsEncoding::Refused`]). `in_term` says
+/// whether `pattern` is in a term position (an argument of an application, or an operand of
+/// `\equals`, `\ceil`, `\floor` or `\in`).
+fn conjoined_condition_reads_term_as_predicate(pattern: &kore::Pattern, in_term: bool) -> bool {
+    let within =
+        |pattern: &kore::Pattern| conjoined_condition_reads_term_as_predicate(pattern, in_term);
+    let term = |pattern: &kore::Pattern| conjoined_condition_reads_term_as_predicate(pattern, true);
+    match pattern {
+        kore::Pattern::Application { arguments, .. }
+        | kore::Pattern::AssociativeApplication { arguments, .. } => arguments.iter().any(term),
+        kore::Pattern::And { arguments, .. } if in_term => arguments.iter().any(|argument| {
+            (!contains_term_component(argument)
+                && equates_a_term_read_as_predicate(argument, HoldsEncoding::Refused))
+                || term(argument)
+        }),
+        kore::Pattern::And { arguments, .. } | kore::Pattern::Or { arguments, .. } => {
+            arguments.iter().any(within)
+        }
+        kore::Pattern::Not { argument, .. } => within(argument),
+        kore::Pattern::Implies { left, right, .. } | kore::Pattern::Iff { left, right, .. } => {
+            within(left) || within(right)
+        }
+        kore::Pattern::Exists { body, .. } | kore::Pattern::Forall { body, .. } => within(body),
+        kore::Pattern::Equals { left, right, .. } | kore::Pattern::In { left, right, .. } => {
+            term(left) || term(right)
+        }
+        kore::Pattern::Ceil { argument, .. } | kore::Pattern::Floor { argument, .. } => {
+            term(argument)
+        }
+        kore::Pattern::String(_)
+        | kore::Pattern::Variable(_)
+        | kore::Pattern::DomainValue { .. }
+        | kore::Pattern::Top { .. }
+        | kore::Pattern::Bottom { .. }
+        | kore::Pattern::Next { .. }
+        | kore::Pattern::Rewrites { .. }
+        | kore::Pattern::Mu { .. }
+        | kore::Pattern::Nu { .. } => false,
+    }
 }
 
 /// Whether `pattern` has a term pattern in a predicate position: `pattern` itself, or reached

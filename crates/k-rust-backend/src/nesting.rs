@@ -1368,10 +1368,24 @@ mod tests {
                     if *entry == "implication pattern" {
                         continue;
                     }
-                    definition
+                    let outcome = definition
                         .with_stack_for(&[&pattern], || run(&definition, entry, &pattern))
-                        .unwrap()
-                        .unwrap_or_else(|error| panic!("{entry}: {error}"));
+                        .unwrap();
+                    // A term of sort `S` is no predicate: the predicate entry internalizes it,
+                    // on the stack it was given, and then refuses it.
+                    if *entry == "predicate" {
+                        assert!(
+                            matches!(
+                                outcome,
+                                Err(DefinitionError::RulePattern(
+                                    crate::rule::RulePatternError::NonBoolTermAsPredicate { .. }
+                                ))
+                            ),
+                            "{entry}: {outcome:?}"
+                        );
+                    } else {
+                        outcome.unwrap_or_else(|error| panic!("{entry}: {error}"));
+                    }
                 }
             }
         });
