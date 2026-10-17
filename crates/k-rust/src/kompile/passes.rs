@@ -44,9 +44,11 @@ mod resolve_strict;
 mod subsort_kitem;
 
 pub(crate) use super::retarget::retarget_production_identities;
-pub(crate) use add_implicit_computation_cell::add_implicit_computation_cell_pass;
 pub use add_implicit_computation_cell::{
     AddImplicitComputationCellError, add_implicit_computation_cell,
+};
+pub(crate) use add_implicit_computation_cell::{
+    ComputationCells, add_implicit_computation_cell_pass,
 };
 pub(crate) use check_simplification::check_simplification_rules_pass;
 pub use check_simplification::{CheckSimplificationError, check_simplification_rules};

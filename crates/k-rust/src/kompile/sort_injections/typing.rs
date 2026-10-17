@@ -431,6 +431,12 @@ pub fn sentence_typing(
 /// requirement, an authored cell `L(#dots|#noDots, body, #dots|#noDots)` has its production's
 /// sort and places its body at the cell's single content sort (a body of its child's cell sort
 /// at that sort, which concretization places it in, as an instance for a collection).
+/// A rule compilation wraps in the computation cell before it injects (a cell-free rule that is
+/// not a function, macro-like, `anywhere` or simplification rule, whose body is one item with no
+/// cell on a top rewrite side, in a definition with one main cell) is typed as the content of
+/// that cell, as the authored `<k> body ... </k>` is: the body, or each side of its rewrite, is
+/// placed at the cell's content sort, and no least upper bound of the sides is computed. The
+/// paths are those of the loaded rule, which has no cell node.
 /// Cell concretization rewrites every occurrence of a cell-fragment variable (a variable
 /// without a cell sort written in the body of a cell with children), and the view types each
 /// as the term it builds there (`cell_content`): an occurrence in a cell body at the value sort
@@ -467,6 +473,12 @@ pub struct SentenceTyper<'a> {
     /// (`cell_content`). Compilation's own typer ([`Self::for_macro_expansion`]) does not, so
     /// the instances macro expansion reads are those of the typing without that step.
     completes_cells: bool,
+    /// Whether a rule compilation wraps in the computation cell is typed as that cell's content
+    /// (`computation_cell_content`). Compilation's own typer ([`Self::for_macro_expansion`])
+    /// does not: macro expansion runs before the wrapping, on the rule as written.
+    places_computation_cell: bool,
+    /// The cells of the typer's module that decide the wrapping, computed on first use.
+    computation_cells: std::cell::OnceCell<crate::kompile::passes::ComputationCells>,
 }
 
 /// The production catalog compilation injects the sentences of `module`'s import closure with,
@@ -542,18 +554,24 @@ impl<'a> SentenceTyper<'a> {
             lambda_injectors: std::cell::RefCell::default(),
             cell_completions: std::cell::RefCell::default(),
             completes_cells: true,
+            places_computation_cell: true,
+            computation_cells: std::cell::OnceCell::new(),
         })
     }
 
     /// The typer macro expansion reads instances from during compilation: [`Self::new`]'s,
-    /// without the re-sorting of cell-fragment variables, so that what compilation accepts and
-    /// emits does not depend on that view.
+    /// without the re-sorting of cell-fragment variables and without placing a rule in the
+    /// computation cell, so that what compilation accepts and emits does not depend on that view.
+    /// Macro expansion runs before compilation wraps a cell-free rule in the computation cell, so
+    /// this typer types such a rule's body at the least upper bound of its sides, and a
+    /// parametric macro there takes its instance from that bound.
     pub(crate) fn for_macro_expansion(
         definition: &'a ResolvedDefinition,
         module: &str,
     ) -> Result<Self, SentenceTypingError> {
         Ok(Self {
             completes_cells: false,
+            places_computation_cell: false,
             ..Self::new(definition, module)?
         })
     }
@@ -751,6 +769,13 @@ impl<'a> SentenceTyper<'a> {
         else {
             unreachable!("resolution keeps the sentence kind")
         };
+        // Compilation wraps a cell-free rule in the computation cell before it injects, so the
+        // body of such a rule is typed as that cell's content.
+        let computation = if self.places_computation_cell && top.is_none() {
+            self.computation_cell_content_at(sentence, module)
+        } else {
+            None
+        };
         let typing = self
             .typing_of(
                 [body, requires, ensures],
@@ -759,10 +784,57 @@ impl<'a> SentenceTyper<'a> {
                 &completed,
                 variables,
                 top,
+                computation.as_ref(),
             )
             .map_err(|error| SentenceTypingError::Sort { location, error })?;
         completed.assert_all_looked_up();
         Ok(typing)
+    }
+
+    /// The content sort of the computation cell compilation wraps the body of `sentence`, a
+    /// loaded rule or claim that `module` declares, in before it injects, or `None` when
+    /// compilation leaves the body as written or stops for want of one main cell: the sort
+    /// [`Self::typing_in`] places the body (or each side of its rewrite) at. The decision is the
+    /// computation-cell pass's own, with the cells of the typer's module.
+    pub fn computation_cell_content(
+        &self,
+        sentence: &Sentence,
+        module: &str,
+    ) -> Result<Option<Sort>, SentenceTypingError> {
+        let module = self
+            .definition
+            .module_id(module)
+            .ok_or_else(|| SentenceTypingError::MissingModule(module.to_owned()))?;
+        Ok(self.computation_cell_content_at(sentence, module))
+    }
+
+    /// [`Self::computation_cell_content`] of a sentence of the module `module`.
+    ///
+    /// The pass decides on the sentence after the passes before it (local functions, function
+    /// rules with configuration context, semantic casts, constant folding, or-pattern guards and
+    /// macro expansion), and this decides on the loaded sentence with its macro attribute
+    /// propagated. The decision reads the left side's head, the number of body items and the
+    /// cells the body holds, which none of those passes changes for a sentence typed here, except
+    /// a function rule with configuration context, `#withConfig(F, C)`: compilation lowers it to
+    /// the function rule `F`, which is not wrapped.
+    fn computation_cell_content_at(&self, sentence: &Sentence, module: ModuleId) -> Option<Sort> {
+        if let Sentence::Rule { body, .. } | Sentence::Claim { body, .. } = sentence
+            && FunctionRuleWithContext::of(body).is_some()
+        {
+            return None;
+        }
+        let productions = self.definition.production_catalog(module);
+        let configuration = self.definition.production_catalog(self.module);
+        let cells = self
+            .computation_cells
+            .get_or_init(|| crate::kompile::passes::ComputationCells::of(&configuration));
+        let mut marked = sentence.clone();
+        crate::kompile::passes::propagate_macro_attribute(&mut marked, &productions);
+        cells
+            .wrapping(&marked, &productions, &configuration)
+            .ok()
+            .flatten()
+            .and_then(|cell| cell.content.cloned())
     }
 
     /// Give each occurrence of a cell-fragment or one-cell alias variable of `resolved`, a
@@ -929,6 +1001,10 @@ impl<'a> SentenceTyper<'a> {
         Ok(completed)
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the sentence's terms, their scopes and the position its body is placed at"
+    )]
     fn typing_of(
         &self,
         loaded: [&Term; 3],
@@ -937,16 +1013,30 @@ impl<'a> SentenceTyper<'a> {
         completed: &cell_content::Completed,
         variables: BTreeMap<String, Sort>,
         top: Option<&Sort>,
+        computation: Option<&Sort>,
     ) -> Result<SentenceTyping, SortInjectionError> {
         let injector = &self.injector;
         injector.next_sort_parameter.set(0);
         // Every term the walks type is a node of `resolved` or of a local function's parts in
         // `locals`, or a projection built for one and typed outside the memo, so the injector's
         // sort memo holds for the whole typing.
-        injector
-            .memoized(|| self.typing_with_memo(loaded, resolved, locals, completed, variables, top))
+        injector.memoized(|| {
+            self.typing_with_memo(
+                loaded,
+                resolved,
+                locals,
+                completed,
+                variables,
+                top,
+                computation,
+            )
+        })
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the sentence's terms, their scopes and the position its body is placed at"
+    )]
     fn typing_with_memo(
         &self,
         loaded: [&Term; 3],
@@ -955,6 +1045,7 @@ impl<'a> SentenceTyper<'a> {
         completed: &cell_content::Completed,
         variables: BTreeMap<String, Sort>,
         top: Option<&Sort>,
+        computation: Option<&Sort>,
     ) -> Result<SentenceTyping, SortInjectionError> {
         let injector = &self.injector;
         let top = top
@@ -1031,8 +1122,11 @@ impl<'a> SentenceTyper<'a> {
             }
             path
         };
+        // A body compilation wraps in the computation cell is that cell's content: each side
+        // is placed at the content sort, as the body of the authored cell is, and no bound of
+        // the sides is computed (`computation`).
         let mut sorts = Vec::new();
-        for branch in branches {
+        for branch in branches.iter().filter(|_| computation.is_none()) {
             let mut walk = Walk::new(
                 injector,
                 *branch,
@@ -1049,6 +1143,7 @@ impl<'a> SentenceTyper<'a> {
             );
         }
         let position = match branches {
+            _ if computation.is_some() => computation.cloned(),
             [Branch::Only] => sorts.first().cloned(),
             _ if sorts.is_empty() => None,
             _ => Some(injector.least_upper_bound(&sorts, Some(&top))?),
@@ -1067,7 +1162,7 @@ impl<'a> SentenceTyper<'a> {
             let mut path = body(walk.trie);
             let hint = position.clone().unwrap_or_else(|| top.clone());
             let slot = walk.visit(body_loaded, body_resolved, &mut path, &hint)?;
-            if *branch != Branch::Only
+            if (*branch != Branch::Only || computation.is_some())
                 && let Some(position) = &position
             {
                 walk.place(&path, &slot, position)?;
