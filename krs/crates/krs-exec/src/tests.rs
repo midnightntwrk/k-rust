@@ -285,6 +285,47 @@ fn k_head_prints_the_first_item_or_reports_an_empty_cell() {
 }
 
 #[test]
+fn k_head_kore_is_the_first_item_of_the_flattened_sequence() {
+    use k_rust::kast::Term as KastTerm;
+    let head = |content: &str| {
+        let state = super::Term::new(
+            parse_pattern(&format!(
+                "Lbl'-LT-'generatedTop'-GT-'{{}}(Lbl'-LT-'k'-GT-'{{}}({content}))"
+            ))
+            .unwrap(),
+            KastTerm::Sequence(Vec::new()),
+        );
+        state
+            .k_head_kore()
+            .map(|item| item.map(ToString::to_string))
+    };
+    let wrap = r#"inj{SortObject{}, SortKItem{}}(Lblwrap{}(Lblbar{}(), \dv{SortInt{}}("3")))"#;
+    assert_eq!(
+        head(&format!("kseq{{}}({wrap}, dotk{{}}())")),
+        Some(Some(parse_pattern(wrap).unwrap().to_string()))
+    );
+    assert_eq!(
+        head(&format!(
+            "append{{}}(dotk{{}}(), kseq{{}}({wrap}, Rest:SortK{{}}))"
+        )),
+        Some(Some(parse_pattern(wrap).unwrap().to_string()))
+    );
+    assert_eq!(
+        head("Rest:SortK{}"),
+        Some(Some(parse_pattern("Rest:SortK{}").unwrap().to_string()))
+    );
+    assert_eq!(head("dotk{}()"), Some(None));
+    assert_eq!(
+        super::Term::new(
+            parse_pattern("dotk{}()").unwrap(),
+            KastTerm::Sequence(Vec::new())
+        )
+        .k_head_kore(),
+        None
+    );
+}
+
+#[test]
 fn parse_positions_name_the_line_and_column() {
     assert_eq!(
         super::located("prog.imp", "int x;\nfooo", Some(10)),

@@ -3,7 +3,8 @@
 use k_rust::{
     backend::HaltReasonOutput,
     kast::{Term as KastTerm, json as kast_json, printer::Printer},
-    kore::ast::Pattern,
+    kore::{ast::Pattern, walk},
+    names::WellKnownSymbol,
 };
 use serde::{Serialize, Serializer};
 
@@ -63,6 +64,31 @@ impl Term {
         None
     }
 
+    /// The first item of the `<k>` cell as a KORE pattern, the subterm [`Term::k_head`] prints:
+    /// `Some(None)` when `<k>` is empty, `None` without a `<k>` cell.
+    ///
+    /// Nested `kseq` and `append` applications are one flat sequence, as in KAST, so the first
+    /// item is the leftmost pattern that is neither of them nor `dotk`.
+    #[must_use]
+    pub fn k_head_kore(&self) -> Option<Option<&Pattern>> {
+        let mut stack = vec![&self.kore];
+        while let Some(pattern) = stack.pop() {
+            if let Pattern::Application { symbol, arguments }
+            | Pattern::AssociativeApplication {
+                symbol, arguments, ..
+            } = pattern
+                && krs_unparse::label_name(&symbol.name) == "<k>"
+            {
+                let [content] = arguments.as_slice() else {
+                    return None;
+                };
+                return Some(first_item(content));
+            }
+            stack.extend(walk::children(pattern).into_iter().rev());
+        }
+        None
+    }
+
     /// The KAST JSON envelope text.
     ///
     /// # Errors
@@ -70,6 +96,24 @@ impl Term {
     /// Returns an error when the term cannot be encoded.
     pub fn kast_json(&self) -> Result<String, kast_json::Error> {
         kast_json::to_string(&self.kast)
+    }
+}
+
+/// The first item of a K sequence, `None` when it is empty.
+fn first_item(sequence: &Pattern) -> Option<&Pattern> {
+    match sequence {
+        Pattern::Application { symbol, arguments }
+        | Pattern::AssociativeApplication {
+            symbol, arguments, ..
+        } if symbol.name == WellKnownSymbol::KSeq.as_str()
+            || symbol.name == WellKnownSymbol::Append.as_str() =>
+        {
+            arguments.iter().find_map(first_item)
+        }
+        Pattern::Application { symbol, .. } if symbol.name == WellKnownSymbol::DotK.as_str() => {
+            None
+        }
+        item => Some(item),
     }
 }
 
