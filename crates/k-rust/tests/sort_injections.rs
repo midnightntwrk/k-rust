@@ -3294,20 +3294,60 @@ endmodule
     }
 
     /// Macro and simplification sentences are not checked: a macro's right side is checked by
-    /// injection where it is expanded, and a structured simplification compiles as written.
+    /// injection where it is expanded, and a structured simplification compiles as written. A
+    /// rule headed by a macro-like production is a macro rule, `anywhere` or not, and the view
+    /// decides on its propagated macro attribute, as compilation does. Each edit splices `b(X)`
+    /// into a rule that would otherwise state an equation at `A`.
     #[test]
     fn macro_and_simplification_right_sides_are_compiled_as_before() {
         for (name, head, rule) in [
             ("simplification", FUNCTION, "a(X) => a2(X) [simplification]"),
             (
-                "macro",
+                "anywhere macro",
                 "syntax A ::= a(Int) [symbol(a), macro]",
-                "a(X) => a2(X)",
+                "a(X) => a2(X) [anywhere]",
+            ),
+            (
+                "anywhere alias",
+                "syntax A ::= a(Int) [symbol(a), alias]",
+                "a(X) => a2(X) [anywhere]",
             ),
         ] {
             let loaded = load("eq.k", &source(head, SUPERSORT, rule));
             let edited = spliced(&loaded, "EQ.bb");
             compiled(&edited).unwrap_or_else(|error| panic!("{name}: {error}"));
+            let typer = SentenceTyper::for_compilation(edited.resolved()).unwrap();
+            typer
+                .typing_in(labelled(&edited, "EQ.e"), "EQ")
+                .unwrap_or_else(|error| panic!("{name}: the view types the edit: {error}"));
+        }
+    }
+
+    /// Injection checks an equation after macro expansion: a right side `mac(X)` whose macro is
+    /// declared at `C` but expands to `a2(X)`, below `A`, compiles to a well-sorted equation, and
+    /// the view, which does not expand macros, does not refuse it.
+    #[test]
+    fn an_equation_whose_right_side_is_a_macro_is_checked_after_expansion() {
+        let macro_declarations = "syntax C ::= mac(Int) [symbol(mac), macro]
+  rule mac(X) => a2(X)
+  syntax C ::= fc(Int) [symbol(fc), function]
+  rule [fcr]: fc(X) => mac(X)";
+        for (name, head, rule) in [
+            ("function rule", FUNCTION, "a(X) => a2(X)"),
+            (
+                "anywhere constructor",
+                CONSTRUCTOR,
+                "a(X) => a2(X) [anywhere]",
+            ),
+        ] {
+            let head = format!("{head}\n  {macro_declarations}");
+            let loaded = load("eq.k", &source(&head, SUPERSORT, rule));
+            let edited = spliced(&loaded, "EQ.fcr");
+            compiled(&edited).unwrap_or_else(|error| panic!("{name}: {error}"));
+            let typer = SentenceTyper::for_compilation(edited.resolved()).unwrap();
+            typer
+                .typing_in(labelled(&edited, "EQ.e"), "EQ")
+                .unwrap_or_else(|error| panic!("{name}: the view types the edit: {error}"));
         }
     }
 }

@@ -1087,6 +1087,13 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
     /// rule, or a rule whose top rewrite's left side is a function application. A macro-like or
     /// simplification rule is not one: a macro's right side is injected where it is expanded,
     /// and a simplification is compiled as written.
+    ///
+    /// The function test is the computation-cell pass's `is_function`, read with this
+    /// injector's catalog (the main module's, at the injection stage), which the typing view
+    /// also uses; the pass reads it with the declaring module's catalog at its own stage. The
+    /// two can differ only where a label has no resolvable production and one candidate, and
+    /// there the difference can only skip the check, never add a refusal: a body the pass wraps
+    /// has no top rewrite here.
     pub(crate) fn places_right_side_at_left_sort(
         &self,
         body: &Term,

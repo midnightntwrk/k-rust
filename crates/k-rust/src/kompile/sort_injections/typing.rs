@@ -782,7 +782,8 @@ impl<'a> SentenceTyper<'a> {
         };
         // An `anywhere` or function-headed rule states an equation at its left side's sort,
         // which injection checks; a function rule with configuration context is its function
-        // rule there.
+        // rule there. Injection decides on the sentence with its macro attribute propagated, so
+        // a rule headed by a macro-like production is a macro rule and states no equation.
         let equation = self.places_computation_cell
             && top.is_none()
             && computation.is_none()
@@ -792,7 +793,7 @@ impl<'a> SentenceTyper<'a> {
                     Some(Ok(function)) => function.rule,
                     _ => body,
                 },
-                sentence.attributes(),
+                self.with_macro_attribute(sentence, module).attributes(),
             );
         let placement = match &computation {
             Some(content) => BodyPlacement::Content(content),
@@ -850,6 +851,7 @@ impl<'a> SentenceTyper<'a> {
         // The pass reads the head of the rule with the catalog of the declaring module at its
         // stage, which holds the sort predicates and projections compilation declares before it:
         // a rule headed by one of them is a function rule there.
+        let marked = self.with_macro_attribute(sentence, module);
         let mut catalogs = self.declaring_catalogs.borrow_mut();
         let productions = catalogs
             .entry(module)
@@ -858,13 +860,25 @@ impl<'a> SentenceTyper<'a> {
         let cells = self
             .computation_cells
             .get_or_init(|| crate::kompile::passes::ComputationCells::of(&configuration));
-        let mut marked = sentence.clone();
-        crate::kompile::passes::propagate_macro_attribute(&mut marked, productions);
         cells
             .wrapping(&marked, productions, &configuration)
             .ok()
             .flatten()
             .and_then(|cell| cell.content.cloned())
+    }
+
+    /// `sentence`, a loaded sentence of `module`, with the macro attribute compilation's
+    /// `propagate macro attributes` stage gives it: a rule whose left side is headed by a
+    /// macro-like production of the catalog compilation sees in `module` is marked with that
+    /// production's attribute.
+    fn with_macro_attribute(&self, sentence: &Sentence, module: ModuleId) -> Sentence {
+        let mut catalogs = self.declaring_catalogs.borrow_mut();
+        let productions = catalogs
+            .entry(module)
+            .or_insert_with(|| compilation_catalog(self.definition, module));
+        let mut marked = sentence.clone();
+        crate::kompile::passes::propagate_macro_attribute(&mut marked, productions);
+        marked
     }
 
     /// Give each occurrence of a cell-fragment or one-cell alias variable of `resolved`, a
@@ -1179,8 +1193,12 @@ impl<'a> SentenceTyper<'a> {
             _ => Some(injector.least_upper_bound(&sorts, Some(&top))?),
         };
         // As `SortInjector::check_equation_right_side`: an equation's right side lies at or
-        // below its left side's sort, which is then the bound of the two.
+        // below its left side's sort, which is then the bound of the two. Injection checks the
+        // body after macro expansion, which the view does not perform, so a body holding an
+        // application of a macro-like production is not checked here: its expansion can have
+        // another sort than the macro's declared one.
         if equation
+            && !holds_macro_application(body_resolved, &injector.productions)
             && let [Some(left), Some(right)] = branch_sorts.as_slice()
             && let Some(position) = &position
             && left != position
@@ -1250,6 +1268,22 @@ impl<'a> SentenceTyper<'a> {
             instances: PathMap::over(trie, instances),
         })
     }
+}
+
+/// Whether `term` holds an application of a production of `productions` with a macro-like
+/// attribute, which macro expansion replaces.
+fn holds_macro_application(term: &Term, productions: &ProductionCatalog<'_>) -> bool {
+    let mut found = false;
+    term.visit_preorder(&mut |term| {
+        if let Term::Apply { label, .. } = term.unannotated()
+            && productions
+                .attributes_for(&LabelHead::from(label))
+                .is_some_and(|attributes| attributes.has_any(&AttributeKey::MACRO_LIKE))
+        {
+            found = true;
+        }
+    });
+    found
 }
 
 /// Where compilation places a rule's body, as the typer models it.
