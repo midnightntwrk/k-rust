@@ -772,6 +772,13 @@ fn emitted_kore_matches_the_reference_frontend() {
          variable (N45): {lifted_cells} in {} axioms",
         lifted.len()
     );
+    let divergent = divergent_axioms_from_environment();
+    let removed = remove_divergent_axioms(&mut reference, &mut actual, &divergent)
+        .unwrap_or_else(|error| panic!("{error}"));
+    println!(
+        "axioms that state different things on the two sides, recorded as divergences and left \
+         out: {removed} pairs"
+    );
     compare_definitions(reference, actual);
 }
 
@@ -2019,6 +2026,89 @@ fn lifted_cells_from_environment() -> Vec<LiftedCell> {
         .collect()
 }
 
+/// The `divergent-axioms` entries of a compile case (UNIQUE'Unds'ID strings) the compile gate
+/// passes in `K_DIFFERENTIAL_DIVERGENT_AXIOMS`, a JSON array; none when the variable is unset or
+/// empty.
+fn divergent_axioms_from_environment() -> Vec<String> {
+    let Ok(json) = env::var("K_DIFFERENTIAL_DIVERGENT_AXIOMS") else {
+        return Vec::new();
+    };
+    if json.trim().is_empty() {
+        return Vec::new();
+    }
+    let entries: serde_json::Value = serde_json::from_str(&json)
+        .unwrap_or_else(|error| panic!("K_DIFFERENTIAL_DIVERGENT_AXIOMS is not JSON: {error}"));
+    entries
+        .as_array()
+        .expect("K_DIFFERENTIAL_DIVERGENT_AXIOMS is a JSON array")
+        .iter()
+        .map(|entry| {
+            entry
+                .as_str()
+                .filter(|id| !id.is_empty())
+                .unwrap_or_else(|| {
+                    panic!("divergent-axioms entry {entry} must be a UNIQUE'Unds'ID")
+                })
+                .to_owned()
+        })
+        .collect()
+}
+
+/// Leave out of the comparison the axioms a compile case records as divergent: axioms the two
+/// frontends write differently because they state different things, so no normalization may
+/// identify them. Each listed UNIQUE'Unds'ID must name exactly one axiom on each side, and the
+/// two must differ; an entry whose axioms agree (or are missing) is stale and refused. Returns
+/// the number of pairs removed.
+fn remove_divergent_axioms(
+    reference: &mut Definition,
+    actual: &mut Definition,
+    ids: &[String],
+) -> Result<usize, String> {
+    let locate = |definition: &Definition, id: &str| {
+        definition
+            .modules
+            .iter()
+            .enumerate()
+            .flat_map(|(module, declarations)| {
+                declarations
+                    .sentences
+                    .iter()
+                    .enumerate()
+                    .map(move |(index, sentence)| (module, index, sentence))
+            })
+            .filter(|(_, _, sentence)| {
+                matches!(sentence, Sentence::Axiom { .. })
+                    && sentence_attribute(sentence, "UNIQUE'Unds'ID").as_deref() == Some(id)
+            })
+            .map(|(module, index, _)| (module, index))
+            .collect::<Vec<_>>()
+    };
+    for id in ids {
+        let [(reference_module, reference_index)] = locate(reference, id)[..] else {
+            return Err(format!(
+                "divergent-axioms: the reference must state exactly one axiom {id}"
+            ));
+        };
+        let [(actual_module, actual_index)] = locate(actual, id)[..] else {
+            return Err(format!(
+                "divergent-axioms: k-rust must state exactly one axiom {id}"
+            ));
+        };
+        if reference.modules[reference_module].sentences[reference_index]
+            == actual.modules[actual_module].sentences[actual_index]
+        {
+            return Err(format!(
+                "divergent-axioms: the two sides state axiom {id} alike, so the entry is stale"
+            ));
+        }
+        reference.modules[reference_module]
+            .sentences
+            .remove(reference_index);
+        actual.modules[actual_module].sentences.remove(actual_index);
+    }
+    Ok(ids.len())
+}
+
 /// N45: compare an axiom whose rule writes a cell inside a cell that does not contain it in the
 /// configuration against the reference axiom in which that cell is absent. For each entry, the
 /// axiom labelled `rule` must exist exactly once on each side; the two axioms are walked in
@@ -2610,6 +2700,49 @@ fn lifted_cell_entry(rule: &str, cell: &str) -> [LiftedCell; 1] {
         rule: rule.into(),
         cell: cell.into(),
     }]
+}
+
+/// A recorded divergence removes exactly the listed pair of axioms; an entry naming an axiom one
+/// side lacks, or whose two axioms agree, is refused.
+#[test]
+fn divergent_axioms_remove_exactly_the_listed_differing_pair() {
+    let definition = |condition: &str| {
+        parse_definition(&format!(
+            r#"[] module TEST
+            sort SortInt{{}} []
+            sort SortBool{{}} []
+            symbol Lblh{{}}(SortInt{{}}) : SortBool{{}} [function{{}}()]
+            axiom{{R}} \implies{{R}}({condition}, \equals{{SortBool{{}}, R}}(Lblh{{}}(VarX:SortInt{{}}), \dv{{SortBool{{}}}}("true"))) [UNIQUE'Unds'ID{{}}("d")]
+            axiom{{R}} \implies{{R}}(\top{{R}}(), \equals{{SortBool{{}}, R}}(Lblh{{}}(\dv{{SortInt{{}}}}("0")), \dv{{SortBool{{}}}}("false"))) [UNIQUE'Unds'ID{{}}("k")]
+            endmodule []"#
+        ))
+        .unwrap()
+    };
+    let literal = r#"\equals{SortBool{}, R}(\exists{SortBool{}}(VarY:SortInt{}, Lblh{}(VarY:SortInt{})), \dv{SortBool{}}("true"))"#;
+    let predicate = r#"\exists{R}(VarY:SortInt{}, \equals{SortBool{}, R}(Lblh{}(VarY:SortInt{}), \dv{SortBool{}}("true")))"#;
+    let ids = |ids: &[&str]| ids.iter().map(|id| (*id).to_owned()).collect::<Vec<_>>();
+
+    let (mut reference, mut actual) = (definition(literal), definition(predicate));
+    assert_eq!(
+        remove_divergent_axioms(&mut reference, &mut actual, &ids(&["d"])),
+        Ok(1)
+    );
+    assert_eq!(reference.modules[0].sentences.len(), 4);
+    assert_eq!(reference, actual);
+
+    let (mut reference, mut actual) = (definition(literal), definition(predicate));
+    assert_eq!(
+        remove_divergent_axioms(&mut reference, &mut actual, &[]),
+        Ok(0)
+    );
+    assert_ne!(reference, actual);
+
+    let (mut reference, mut actual) = (definition(literal), definition(literal));
+    let error = remove_divergent_axioms(&mut reference, &mut actual, &ids(&["d"])).unwrap_err();
+    assert!(error.contains("stale"), "{error}");
+    let error =
+        remove_divergent_axioms(&mut reference, &mut actual, &ids(&["missing"])).unwrap_err();
+    assert!(error.contains("exactly one axiom missing"), "{error}");
 }
 
 /// N45 accepts the lifted shape: with the port's `<stack>` applications replaced by the

@@ -49,6 +49,10 @@
 //! A panic during a cell (a kompile invariant in the test profile, a backend assertion) never
 //! conforms.
 //!
+//! Independently of PENDING, the compiled KORE of every `Accept` cell must write each condition
+//! as the predicate it states: no `\equals{SortBool{}, R}(P, ..)` whose operand P is a
+//! matching-logic pattern (the root encoding of a whole condition as one Bool term).
+//!
 //! # PENDING
 //!
 //! [`PENDING`] lists the cells that deviate from their expectation at the base of the ML lane
@@ -951,12 +955,39 @@ fn prove(backend: &mut Backend, claim: &str) -> Result<String, String> {
     }
 }
 
-fn observe(cell: &CellSpec) -> Outcome {
-    let result = guarded(|| observe_unguarded(cell));
-    result.unwrap_or_else(Outcome::Panic)
+/// The cell's outcome, and the first condition its compiled KORE writes in the root encoding
+/// (see [`root_encoding`]) when it compiles.
+fn observe(cell: &CellSpec) -> (Outcome, Option<String>) {
+    let mut encoded = None;
+    let result = guarded(|| observe_unguarded(cell, &mut encoded));
+    (result.unwrap_or_else(Outcome::Panic), encoded)
 }
 
-fn observe_unguarded(cell: &CellSpec) -> Outcome {
+/// The first `\equals{SortBool{}, R}(P, ..)` of `kore` whose left operand P is a matching-logic
+/// pattern: a condition whose root is a connective written as one Bool term, which as a pattern
+/// states something else than the condition (a predicate at sort Bool is all of Bool or empty,
+/// never `{true}`). The compiler writes each condition as the predicate it states, so no
+/// Rust-target definition holds one.
+fn root_encoding(kore: &str) -> Option<String> {
+    let kore = kore.split_whitespace().collect::<Vec<_>>().join(" ");
+    let prefix = "\\equals{SortBool{}, ";
+    let mut from = 0;
+    while let Some(at) = kore[from..].find(prefix) {
+        let start = from + at;
+        let rest = &kore[start + prefix.len()..];
+        let operand = rest.find("}(").map(|close| rest[close + 2..].trim_start());
+        if let Some(operand) = operand
+            && operand.starts_with('\\')
+            && !operand.starts_with("\\dv{")
+        {
+            return Some(kore[start..].chars().take(240).collect());
+        }
+        from = start + prefix.len();
+    }
+    None
+}
+
+fn observe_unguarded(cell: &CellSpec, encoded: &mut Option<String>) -> Outcome {
     let loaded = match load(cell) {
         Ok(loaded) => loaded,
         Err(message) => return Outcome::LoadRefused(message),
@@ -981,6 +1012,7 @@ fn observe_unguarded(cell: &CellSpec) -> Outcome {
             };
         }
     };
+    *encoded = root_encoding(&artifacts.definition_kore);
     let main = if cell.route == Route::Kprove {
         "P-SPEC"
     } else {
@@ -1412,8 +1444,15 @@ fn run_shard(shard: &str, cells: Vec<CellSpec>) {
     let mut lines = Vec::new();
     let mut counts = BTreeMap::new();
     for cell in &cells {
-        let outcome = observe(cell);
+        let (outcome, encoded) = observe(cell);
         let verdict = conforms(cell, build, &outcome);
+        if let (Expect::Accept { .. }, Some(snippet)) = (&cell.expect, &encoded) {
+            failures.push(format!(
+                "{} ({}) compiles a condition in the root encoding: {snippet}",
+                cell.name,
+                build.name()
+            ));
+        }
         let status = if verdict.is_ok() {
             "conforms"
         } else {

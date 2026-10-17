@@ -49,6 +49,8 @@ pub(super) struct RuleEmissionContext<'a, 'definition> {
     pub default_reachability: Option<ReachabilityMode>,
     /// The claims of every production of `productions`; the equation-head check reads them.
     pub roles: &'a SymbolRoles,
+    /// How the target writes conditions.
+    pub condition_form: ConditionForm,
 }
 
 pub(super) fn emit_rule_or_claim(
@@ -65,6 +67,7 @@ pub(super) fn emit_rule_or_claim(
         module_rules,
         default_reachability,
         roles,
+        condition_form,
     } = context;
     let (injected, sort_variables) = injector.inject_sentence_bound(sentence)?;
     let converter = converter.with_sort_variables(&sort_variables);
@@ -144,6 +147,7 @@ pub(super) fn emit_rule_or_claim(
             module_rules,
             owise_competitors,
             &sort_variables,
+            *condition_form,
         );
     }
     if is_macro_rule(&injected) {
@@ -183,8 +187,8 @@ pub(super) fn emit_rule_or_claim(
     let result_sort = converter.convert_sort(&body_sort)?;
     let left = converter.convert(left)?;
     let right = converter.convert(right)?;
-    let requires = side_condition(requires, &result_sort, converter)?;
-    let ensures = side_condition(ensures, &result_sort, converter)?;
+    let requires = side_condition(requires, &result_sort, converter, *condition_form)?;
+    let ensures = side_condition(ensures, &result_sort, converter, *condition_form)?;
     // `concrete` and `symbolic` carry lists of free variables, not string
     // values.  For rewrite rules and claims K resolves those names against
     // the left-hand side and its requires condition only (variables that are
@@ -461,6 +465,7 @@ fn emit_equation(
     module_rules: &[Sentence],
     owise_competitors: &mut OwiseCompetitors,
     sort_variables: &SentenceSortVariables,
+    condition_form: ConditionForm,
 ) -> Result<KoreSentence, ModuleToKoreError> {
     let parameters = std::iter::once("R")
         .chain(sort_variables.names())
@@ -469,8 +474,8 @@ fn emit_equation(
     let predicate_sort = KoreSort::Variable("R".into());
     let result_sort = converter.convert_sort(&equation.result_sort)?;
     let avoid_variables = variable_names([left, requires]);
-    let requires = side_condition(requires, &predicate_sort, converter)?;
-    let ensures = side_condition(ensures, &result_sort, converter)?;
+    let requires = side_condition(requires, &predicate_sort, converter, condition_form)?;
+    let ensures = side_condition(ensures, &result_sort, converter, condition_form)?;
     let right = Pattern::And {
         sort: result_sort.clone(),
         arguments: vec![converter.convert(right)?, ensures],
@@ -494,6 +499,7 @@ fn emit_equation(
             owise_competitors,
             sort_variables,
             &avoid_variables,
+            condition_form,
         );
     }
     let equals = if equation.direct || claim {
@@ -590,6 +596,7 @@ fn emit_owise_equation(
     owise_competitors: &mut OwiseCompetitors,
     sort_variables: &SentenceSortVariables,
     avoid_variables: &BTreeSet<String>,
+    condition_form: ConditionForm,
 ) -> Result<KoreSentence, ModuleToKoreError> {
     owise_competitors.scan_once(module_rules, injector, productions);
     let (candidates, failure) = owise_competitors.candidates(&equation);
@@ -664,7 +671,12 @@ fn emit_owise_equation(
                 kind: "non-application function competitor for owise".into(),
             });
         };
-        let condition = side_condition(&refreshed_requires, &predicate_sort, converter)?;
+        let condition = side_condition(
+            &refreshed_requires,
+            &predicate_sort,
+            converter,
+            condition_form,
+        )?;
         let matches = equation_matches(
             &variables,
             competitor_children,
@@ -1114,10 +1126,32 @@ pub(super) fn substitute_equation_sort(sort: &Sort, substitution: &BTreeMap<Sort
     })
 }
 
+/// How a sentence's `requires` and `ensures` are written in the emitted KORE.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum ConditionForm {
+    /// The predicate the condition states ([`predicate_at`]): the Rust target, whose backend
+    /// reads a condition as a predicate.
+    Predicate,
+    /// The whole condition as one Bool term, `\equals{SortBool{}, R}(c, true)`: the LLVM
+    /// target, whose interpreter evaluates a side condition as a Bool term. A predicate condition
+    /// has no evaluation there in either form, so that target keeps its output.
+    BoolTerm,
+}
+
+impl ConditionForm {
+    pub(super) fn for_backend(backend: CompilationBackend) -> Self {
+        match backend {
+            CompilationBackend::Llvm => ConditionForm::BoolTerm,
+            _ => ConditionForm::Predicate,
+        }
+    }
+}
+
 fn side_condition(
     condition: &Term,
     result_sort: &KoreSort,
     converter: &TermConverter<'_, '_>,
+    form: ConditionForm,
 ) -> Result<Pattern, TermConversionError> {
     if is_true(condition) {
         return Ok(Pattern::Top {
@@ -1125,15 +1159,133 @@ fn side_condition(
         });
     }
     let bool_sort = encode_kore_sort(&Sort::builtin(BuiltinSort::Bool));
-    Ok(Pattern::Equals {
+    let converted = converter.convert(condition)?;
+    Ok(match form {
+        ConditionForm::Predicate => predicate_at(&converted, result_sort, &bool_sort),
+        ConditionForm::BoolTerm => bool_leaf(converted, result_sort, &bool_sort),
+    })
+}
+
+/// `\equals{SortBool{}, R}(term, \dv{SortBool{}}("true"))`: the predicate "term is true".
+fn bool_leaf(term: Pattern, result_sort: &KoreSort, bool_sort: &KoreSort) -> Pattern {
+    Pattern::Equals {
         operand_sort: Box::new(bool_sort.clone()),
         result_sort: result_sort.clone(),
-        left: Box::new(converter.convert(condition)?),
+        left: Box::new(term),
         right: Box::new(Pattern::DomainValue {
-            sort: bool_sort,
+            sort: bool_sort.clone(),
             value: "true".into(),
         }),
-    })
+    }
+}
+
+/// A condition as the predicate it states, at the sentence's sort `result_sort`.
+///
+/// A condition is a matching-logic spine over Bool terms. The spine's connectives (`\top`,
+/// `\bottom`, `\and`, `\or`, `\not`, `\implies`, `\iff`, `\exists`, `\forall`) are predicate
+/// connectives, re-sorted at `result_sort` with their operands rebuilt the same way; its atoms
+/// (`\equals`, `\ceil`, `\floor`, `\in`) keep their operand sort and operands and take
+/// `result_sort`; any other pattern directly below the spine is a Bool term t, which stands for
+/// the predicate `t = true` ([`bool_leaf`]). Writing the whole condition as one Bool term
+/// instead would state something else whenever its root is a connective: a predicate at sort
+/// Bool is all of Bool or empty, never `{true}`, and `\exists{Bool}(Y, t)` and
+/// `\implies{Bool}(a, b)` are sets of Bool values, not the conditions `exists Y. t` and
+/// `a implies b`. A plain Bool condition is one leaf, written as before.
+///
+/// The operands of an atom are terms and are not rebuilt: a connective there is a set
+/// operation on values, which the definition checks refuse.
+pub(crate) fn predicate_at(
+    pattern: &Pattern,
+    result_sort: &KoreSort,
+    bool_sort: &KoreSort,
+) -> Pattern {
+    let at = |pattern: &Pattern| predicate_at(pattern, result_sort, bool_sort);
+    let sort = result_sort.clone();
+    match pattern {
+        Pattern::Top { .. } => Pattern::Top { sort },
+        Pattern::Bottom { .. } => Pattern::Bottom { sort },
+        Pattern::And { arguments, .. } => Pattern::And {
+            sort,
+            arguments: arguments.iter().map(at).collect(),
+        },
+        Pattern::Or { arguments, .. } => Pattern::Or {
+            sort,
+            arguments: arguments.iter().map(at).collect(),
+        },
+        Pattern::Not { argument, .. } => Pattern::Not {
+            sort,
+            argument: Box::new(at(argument)),
+        },
+        Pattern::Implies { left, right, .. } => Pattern::Implies {
+            sort,
+            left: Box::new(at(left)),
+            right: Box::new(at(right)),
+        },
+        Pattern::Iff { left, right, .. } => Pattern::Iff {
+            sort,
+            left: Box::new(at(left)),
+            right: Box::new(at(right)),
+        },
+        Pattern::Exists { variable, body, .. } => Pattern::Exists {
+            sort,
+            variable: variable.clone(),
+            body: Box::new(at(body)),
+        },
+        Pattern::Forall { variable, body, .. } => Pattern::Forall {
+            sort,
+            variable: variable.clone(),
+            body: Box::new(at(body)),
+        },
+        Pattern::Equals {
+            operand_sort,
+            left,
+            right,
+            ..
+        } => Pattern::Equals {
+            operand_sort: operand_sort.clone(),
+            result_sort: sort,
+            left: left.clone(),
+            right: right.clone(),
+        },
+        Pattern::Ceil {
+            operand_sort,
+            argument,
+            ..
+        } => Pattern::Ceil {
+            operand_sort: operand_sort.clone(),
+            result_sort: sort,
+            argument: argument.clone(),
+        },
+        Pattern::Floor {
+            operand_sort,
+            argument,
+            ..
+        } => Pattern::Floor {
+            operand_sort: operand_sort.clone(),
+            result_sort: sort,
+            argument: argument.clone(),
+        },
+        Pattern::In {
+            operand_sort,
+            left,
+            right,
+            ..
+        } => Pattern::In {
+            operand_sort: operand_sort.clone(),
+            result_sort: sort,
+            left: left.clone(),
+            right: right.clone(),
+        },
+        term @ (Pattern::String(_)
+        | Pattern::Variable(_)
+        | Pattern::Application { .. }
+        | Pattern::AssociativeApplication { .. }
+        | Pattern::DomainValue { .. }
+        | Pattern::Next { .. }
+        | Pattern::Rewrites { .. }
+        | Pattern::Mu { .. }
+        | Pattern::Nu { .. }) => bool_leaf(term.clone(), result_sort, bool_sort),
+    }
 }
 
 fn is_true(term: &Term) -> bool {
@@ -1264,6 +1416,122 @@ mod tests {
             resolve_equation_production(&ambiguous, &label, &catalog),
             Err(ModuleToKoreError::AmbiguousEquationProduction { productions: 2, .. })
         ));
+    }
+
+    /// `predicate_at` of a KORE pattern written at sort Bool, at sort `R`.
+    fn predicate(condition: &str) -> String {
+        let pattern = crate::kore::parser::parse_pattern(condition).unwrap();
+        let bool_sort = encode_kore_sort(&Sort::builtin(BuiltinSort::Bool));
+        let predicate = predicate_at(&pattern, &KoreSort::Variable("R".into()), &bool_sort);
+        crate::kore::printer::Printer::compact().print_pattern(&predicate)
+    }
+
+    fn printed(pattern: &str) -> String {
+        crate::kore::printer::Printer::compact()
+            .print_pattern(&crate::kore::parser::parse_pattern(pattern).unwrap())
+    }
+
+    const A: &str = r#"Lbla{}(VarX:SortInt{})"#;
+    const B: &str = r#"Lblb{}(VarX:SortInt{})"#;
+
+    fn leaf_at_r(term: &str) -> String {
+        format!(r#"\equals{{SortBool{{}}, R}}({term}, \dv{{SortBool{{}}}}("true"))"#)
+    }
+
+    #[test]
+    fn predicate_at_reads_a_bool_term_as_one_leaf() {
+        assert_eq!(predicate(A), printed(&leaf_at_r(A)));
+    }
+
+    #[test]
+    fn predicate_at_resorts_every_connective_of_the_spine() {
+        let (a, b) = (leaf_at_r(A), leaf_at_r(B));
+        for (condition, expected) in [
+            (r"\top{SortBool{}}()".to_owned(), r"\top{R}()".to_owned()),
+            (
+                r"\bottom{SortBool{}}()".to_owned(),
+                r"\bottom{R}()".to_owned(),
+            ),
+            (
+                format!(r"\and{{SortBool{{}}}}({A}, {B})"),
+                format!(r"\and{{R}}({a}, {b})"),
+            ),
+            (
+                format!(r"\or{{SortBool{{}}}}({A}, {B})"),
+                format!(r"\or{{R}}({a}, {b})"),
+            ),
+            (
+                format!(r"\not{{SortBool{{}}}}({A})"),
+                format!(r"\not{{R}}({a})"),
+            ),
+            (
+                format!(r"\implies{{SortBool{{}}}}({A}, {B})"),
+                format!(r"\implies{{R}}({a}, {b})"),
+            ),
+            (
+                format!(r"\iff{{SortBool{{}}}}({A}, {B})"),
+                format!(r"\iff{{R}}({a}, {b})"),
+            ),
+            (
+                format!(r"\exists{{SortBool{{}}}}(VarX:SortInt{{}}, {A})"),
+                format!(r"\exists{{R}}(VarX:SortInt{{}}, {a})"),
+            ),
+            (
+                format!(r"\forall{{SortBool{{}}}}(VarX:SortInt{{}}, {A})"),
+                format!(r"\forall{{R}}(VarX:SortInt{{}}, {a})"),
+            ),
+        ] {
+            assert_eq!(predicate(&condition), printed(&expected), "{condition}");
+        }
+    }
+
+    #[test]
+    fn predicate_at_resorts_atoms_and_keeps_their_operands() {
+        for (condition, expected) in [
+            (
+                r#"\equals{SortInt{}, SortBool{}}(VarX:SortInt{}, \dv{SortInt{}}("1"))"#,
+                r#"\equals{SortInt{}, R}(VarX:SortInt{}, \dv{SortInt{}}("1"))"#,
+            ),
+            (
+                r"\ceil{SortInt{}, SortBool{}}(Lblf{}(VarX:SortInt{}))",
+                r"\ceil{SortInt{}, R}(Lblf{}(VarX:SortInt{}))",
+            ),
+            (
+                r"\floor{SortInt{}, SortBool{}}(Lblf{}(VarX:SortInt{}))",
+                r"\floor{SortInt{}, R}(Lblf{}(VarX:SortInt{}))",
+            ),
+            (
+                r"\in{SortInt{}, SortBool{}}(VarX:SortInt{}, Lblf{}(VarX:SortInt{}))",
+                r"\in{SortInt{}, R}(VarX:SortInt{}, Lblf{}(VarX:SortInt{}))",
+            ),
+        ] {
+            assert_eq!(predicate(condition), printed(expected), "{condition}");
+        }
+    }
+
+    #[test]
+    fn predicate_at_rebuilds_a_nested_spine_and_quantified_leaves() {
+        let condition = format!(
+            r#"\not{{SortBool{{}}}}(\or{{SortBool{{}}}}(\exists{{SortBool{{}}}}(VarY:SortInt{{}}, {A}), \ceil{{SortInt{{}}, SortBool{{}}}}(Lblf{{}}(VarY:SortInt{{}}))))"#
+        );
+        let expected = format!(
+            r#"\not{{R}}(\or{{R}}(\exists{{R}}(VarY:SortInt{{}}, {}), \ceil{{SortInt{{}}, R}}(Lblf{{}}(VarY:SortInt{{}}))))"#,
+            leaf_at_r(A)
+        );
+        assert_eq!(predicate(&condition), printed(&expected));
+    }
+
+    /// A connective inside an atom's operand is a set operation on values, not part of the
+    /// spine: it is left as written.
+    #[test]
+    fn predicate_at_leaves_a_connective_inside_an_atom_operand() {
+        let operand = format!(r"\or{{SortBool{{}}}}({A}, {B})");
+        let condition = format!(
+            r#"\equals{{SortBool{{}}, SortBool{{}}}}({operand}, \dv{{SortBool{{}}}}("true"))"#
+        );
+        let expected =
+            format!(r#"\equals{{SortBool{{}}, R}}({operand}, \dv{{SortBool{{}}}}("true"))"#);
+        assert_eq!(predicate(&condition), printed(&expected));
     }
 
     #[test]
@@ -1400,6 +1668,7 @@ mod tests {
             &mut cache,
             &SentenceSortVariables::default(),
             &BTreeSet::from(["X".into()]),
+            ConditionForm::Predicate,
         )
         .unwrap();
         let KoreSentence::Axiom { parameters, .. } = &emitted else {
