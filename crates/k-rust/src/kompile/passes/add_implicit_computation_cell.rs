@@ -284,7 +284,9 @@ fn plain_error(message: impl Into<String>) -> Diagnostic {
     }
 }
 
-fn is_function(term: &Term, productions: &ProductionCatalog<'_>) -> bool {
+/// Whether `term`, a rule body, is a function application or a rewrite whose left side is one: a
+/// function rule's body, which compilation emits as an equation rather than in a cell.
+pub(crate) fn is_function(term: &Term, productions: &ProductionCatalog<'_>) -> bool {
     #[expect(
         clippy::wildcard_enum_match_arm,
         reason = "Term is syntax; only the listed variants are special here"

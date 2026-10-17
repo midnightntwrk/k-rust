@@ -48,7 +48,7 @@ pub use add_implicit_computation_cell::{
     AddImplicitComputationCellError, add_implicit_computation_cell,
 };
 pub(crate) use add_implicit_computation_cell::{
-    ComputationCells, add_implicit_computation_cell_pass,
+    ComputationCells, add_implicit_computation_cell_pass, is_function as is_function_rule_body,
 };
 pub(crate) use check_simplification::check_simplification_rules_pass;
 pub use check_simplification::{CheckSimplificationError, check_simplification_rules};

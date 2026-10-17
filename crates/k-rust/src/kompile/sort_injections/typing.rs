@@ -780,6 +780,24 @@ impl<'a> SentenceTyper<'a> {
         } else {
             None
         };
+        // An `anywhere` or function-headed rule states an equation at its left side's sort,
+        // which injection checks; a function rule with configuration context is its function
+        // rule there.
+        let equation = self.places_computation_cell
+            && top.is_none()
+            && computation.is_none()
+            && matches!(sentence, Sentence::Rule { .. })
+            && self.injector.places_right_side_at_left_sort(
+                match FunctionRuleWithContext::of(body) {
+                    Some(Ok(function)) => function.rule,
+                    _ => body,
+                },
+                sentence.attributes(),
+            );
+        let placement = match &computation {
+            Some(content) => BodyPlacement::Content(content),
+            None => BodyPlacement::Bound { equation },
+        };
         let typing = self
             .typing_of(
                 [body, requires, ensures],
@@ -788,7 +806,7 @@ impl<'a> SentenceTyper<'a> {
                 &completed,
                 variables,
                 top,
-                computation.as_ref(),
+                placement,
             )
             .map_err(|error| SentenceTypingError::Sort { location, error })?;
         completed.assert_all_looked_up();
@@ -1025,7 +1043,7 @@ impl<'a> SentenceTyper<'a> {
         completed: &cell_content::Completed,
         variables: BTreeMap<String, Sort>,
         top: Option<&Sort>,
-        computation: Option<&Sort>,
+        placement: BodyPlacement<'_>,
     ) -> Result<SentenceTyping, SortInjectionError> {
         let injector = &self.injector;
         injector.next_sort_parameter.set(0);
@@ -1034,13 +1052,7 @@ impl<'a> SentenceTyper<'a> {
         // sort memo holds for the whole typing.
         injector.memoized(|| {
             self.typing_with_memo(
-                loaded,
-                resolved,
-                locals,
-                completed,
-                variables,
-                top,
-                computation,
+                loaded, resolved, locals, completed, variables, top, placement,
             )
         })
     }
@@ -1057,7 +1069,7 @@ impl<'a> SentenceTyper<'a> {
         completed: &cell_content::Completed,
         variables: BTreeMap<String, Sort>,
         top: Option<&Sort>,
-        computation: Option<&Sort>,
+        placement: BodyPlacement<'_>,
     ) -> Result<SentenceTyping, SortInjectionError> {
         let injector = &self.injector;
         let top = top
@@ -1137,7 +1149,12 @@ impl<'a> SentenceTyper<'a> {
         // A body compilation wraps in the computation cell is that cell's content: each side
         // is placed at the content sort, as the body of the authored cell is, and no bound of
         // the sides is computed (`computation`).
+        let (computation, equation) = match placement {
+            BodyPlacement::Content(content) => (Some(content), false),
+            BodyPlacement::Bound { equation } => (None, equation),
+        };
         let mut sorts = Vec::new();
+        let mut branch_sorts = Vec::new();
         for branch in branches.iter().filter(|_| computation.is_none()) {
             let mut walk = Walk::new(
                 injector,
@@ -1149,10 +1166,11 @@ impl<'a> SentenceTyper<'a> {
             );
             walk.types_equations = false;
             let mut path = body(walk.trie);
-            sorts.extend(
-                walk.visit(body_loaded, body_resolved, &mut path, &top)?
-                    .sort,
-            );
+            let sort = walk
+                .visit(body_loaded, body_resolved, &mut path, &top)?
+                .sort;
+            branch_sorts.push(sort.clone());
+            sorts.extend(sort);
         }
         let position = match branches {
             _ if computation.is_some() => computation.cloned(),
@@ -1160,6 +1178,21 @@ impl<'a> SentenceTyper<'a> {
             _ if sorts.is_empty() => None,
             _ => Some(injector.least_upper_bound(&sorts, Some(&top))?),
         };
+        // As `SortInjector::check_equation_right_side`: an equation's right side lies at or
+        // below its left side's sort, which is then the bound of the two.
+        if equation
+            && let [Some(left), Some(right)] = branch_sorts.as_slice()
+            && let Some(position) = &position
+            && left != position
+            && !super::mentions_sort_parameter(left)
+            && !super::mentions_sort_parameter(position)
+        {
+            return Err(SortInjectionError::IllSortedTerm(Box::new(SortMismatch {
+                term: render_term(&rewrite_projection(body_resolved, true, &injector.subsorts)),
+                found: right.clone(),
+                required: left.clone(),
+            })));
+        }
         let mut maps = Vec::new();
         let mut branch_instances = Vec::new();
         for branch in branches {
@@ -1217,6 +1250,17 @@ impl<'a> SentenceTyper<'a> {
             instances: PathMap::over(trie, instances),
         })
     }
+}
+
+/// Where compilation places a rule's body, as the typer models it.
+#[derive(Clone, Copy)]
+enum BodyPlacement<'s> {
+    /// At its sides' least upper bound (its own sort, without a rewrite); when `equation`, the
+    /// rule states an equation at its left side's sort, and a right side not at or below that
+    /// sort is an error (`SortInjector::places_right_side_at_left_sort`).
+    Bound { equation: bool },
+    /// At the content sort of the computation cell compilation wraps it in.
+    Content(&'s Sort),
 }
 
 /// Values by trie node.
