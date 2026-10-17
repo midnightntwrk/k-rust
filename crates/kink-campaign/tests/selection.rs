@@ -730,7 +730,7 @@ fn prioritize_replay_recomputes_coverage_and_order_in_both_schedules() {
                 );
                 assert_eq!(
                     report.value()["manifest"]["selection"],
-                    json!({"prioritize":{"key":"compiled-rule-ids","coupled":"union","coverage":"kink/coverage/v2"}})
+                    json!({"prioritize":{"key":"compiled-rule-ids","coupled":"union","coverage":"kink/coverage/v3"}})
                 );
                 assert_eq!(
                     report.value()["mutants"][0]["selection"]["order"],

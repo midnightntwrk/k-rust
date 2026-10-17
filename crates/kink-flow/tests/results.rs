@@ -748,6 +748,60 @@ fn rules_no_comparable_program_reaches_are_listed_first() {
     );
 }
 
+/// Re-pin L2-1-tail (review L2-1-1, D1): a `non-executable` rule is one k-rust never runs, so no
+/// program can reach it. It has no coverage signal, with its own reason, and is never listed
+/// `uncovered`, the group of the next program to write.
+#[test]
+fn a_non_executable_rule_has_no_coverage_signal() {
+    let dir = fixture("loop", "rules-non-executable");
+    let source = dir.join("loop.k");
+    let text = fs::read_to_string(&source).unwrap();
+    let equation = "  rule double(I) => I *Int 2\n";
+    assert!(text.contains(equation));
+    fs::write(
+        &source,
+        text.replace(
+            equation,
+            &format!("{equation}  rule [neDouble]: double(I) => I +Int I [non-executable]\n"),
+        ),
+    )
+    .unwrap();
+    let (document, status) = run(&dir.join("FLOW.toml"), false);
+    assert_eq!(status, EXIT_OK, "{document:#}");
+    let rules = document["rules"].as_array().unwrap();
+    let listed = rules
+        .iter()
+        .map(|r| (r["label"].clone(), r["status"].clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        listed,
+        [
+            (json!("LOOP.spin"), json!("uncovered")),
+            (json!("LOOP.unused"), json!("uncovered")),
+            (json!(null), json!("covered")),
+            (json!("LOOP.countdown"), json!("covered")),
+            (json!("LOOP.done"), json!("covered")),
+            (json!("LOOP.twice"), json!("covered")),
+            (json!("LOOP.neDouble"), json!("no-coverage-signal")),
+        ]
+    );
+    let row = rules.last().unwrap();
+    assert_eq!(row["start_line"], 20);
+    assert_eq!(
+        (&row["reached_by"], &row["fired_by"]),
+        (&json!([]), &json!([]))
+    );
+    assert_eq!(
+        row["reason"],
+        "a non-executable rule: k-rust never runs it, so no program can reach it"
+    );
+    assert_eq!(
+        document["summary"],
+        json!({"programs": 2, "comparable": 2, "computed": 2, "rules": 7, "uncovered": 2,
+               "covered": 4, "no_coverage_signal": 1, "mismatches": 0})
+    );
+}
+
 #[test]
 fn a_record_is_used_only_under_its_own_key() {
     let manifest = fixture("calc", "keys").join("FLOW.toml");

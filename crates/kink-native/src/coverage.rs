@@ -10,8 +10,8 @@
 //!
 //! [`TestCoverage`] is the coverage of one run, read from k-rust's run coverage
 //! (`collect_coverage`, [`crate::execution::RunCoverage`]), which every adapter run collects. Since
-//! re-pin lane 2 (L2-1, [`COVERAGE_DOMAIN`] `kink/coverage/v2`) it holds every compiled id k-rust
-//! records, rewrite rules and equations alike:
+//! re-pin lane 2 (L2-1, [`COVERAGE_DOMAIN`] `kink/coverage/v2`; v3 since L2-1-tail) it holds
+//! every compiled id k-rust records, rewrite rules and equations alike:
 //! - `rule_ids` (reached) are k-rust's `matched` ids, which include `applied`: every rule and
 //!   equation whose condition the run began to decide for an instance whose left-hand side
 //!   matched, whatever the verdict, and every one the run applied;
@@ -25,8 +25,9 @@
 //! result has one) now has no coverage signal: it is incomplete and lists nothing.
 //!
 //! Some compiled ids have no recording site in k-rust, so no run ever names them: `smt-lemma`
-//! axioms, macro and alias rules (`macros_kore`), and claims; builtin hooks are not axioms at all
-//! (k-rust `coverage::RunCoverage`). [`coverage_domain`] is the set of ids that do have one. A
+//! axioms, `non-executable` axioms (k-rust internalizes executable axioms only; re-pin
+//! L2-1-tail), macro and alias rules (`macros_kore`), and claims; builtin hooks are not axioms at
+//! all (k-rust `coverage::RunCoverage`). [`coverage_domain`] is the set of ids that do have one. A
 //! rule none of whose ids is in it has no coverage signal and is never reported as uncovered.
 //!
 //! The sets are no over-approximation of what can affect a result: a higher-priority rule or
@@ -57,8 +58,12 @@ use crate::execution::{
 /// is read. Coverage orders the schedule, so under `FirstKill` it can decide which test kills;
 /// kink's semantics identity names it (kink-campaign `identity`). v2 (re-pin L2-1): `rule_ids`
 /// are k-rust's `matched` ids, equations included, and `applied_ids` its `applied` ids; v1's
-/// `rule_ids` were the rewrite rules among `applied`.
-pub const COVERAGE_DOMAIN: &str = "kink/coverage/v2";
+/// `rule_ids` were the rewrite rules among `applied`. v3 (re-pin L2-1-tail): kink-campaign's
+/// `selection` witnesses a rewrite rule edit of its `requires` and its right-hand side by
+/// `matched` (v2: by `applied`), so under `FirstKill` such a mutant's first killing test can
+/// differ from v2's; [`coverage_domain`] leaves out `non-executable` axioms; kink-flow orders its
+/// programs by the edit's witness.
+pub const COVERAGE_DOMAIN: &str = "kink/coverage/v3";
 
 /// Unmapped reason of an id whose every author is a sentence the mutant's patch inserted.
 pub const UNMAPPED_INSERTED: &str = "inserted";
@@ -373,27 +378,52 @@ impl TestCoverage {
 }
 
 /// The coverage domain of a compiled side: the ids of its axioms that k-rust's run coverage can
-/// name, which are every `UNIQUE_ID` axiom of `definition_kore` except `smt-lemma` axioms. A
-/// claim, a macro or alias rule (`macros_kore`) and an `smt-lemma` axiom have no recording site
-/// (k-rust `coverage::RunCoverage`). Unparsable KORE gives the empty set, so every rule then has
-/// no coverage signal rather than being uncovered.
+/// name, which are every `UNIQUE_ID` axiom of `definition_kore` except `smt-lemma` and
+/// `non-executable` axioms. A claim, a macro or alias rule (`macros_kore`), an `smt-lemma` axiom
+/// and a `non-executable` axiom have no recording site (k-rust `coverage::RunCoverage`; k-rust
+/// internalizes only executable axioms, so no run matches or applies a `non-executable` one;
+/// re-pin L2-1-tail). Unparsable KORE gives the empty set, so every rule then has no coverage
+/// signal rather than being uncovered.
 #[must_use]
 pub fn coverage_domain(validated: &ValidatedDefinition) -> BTreeSet<String> {
+    axiom_ids(validated, |attributes| {
+        !attributes.iter().any(|attribute| {
+            named(attribute, KoreAttribute::SmtLemma)
+                || named(attribute, KoreAttribute::NonExecutable)
+        })
+    })
+}
+
+/// The ids of the `non-executable` axioms of a compiled side's `definition_kore`: k-rust never
+/// runs them, so they are outside [`coverage_domain`] (re-pin L2-1-tail). Unparsable KORE gives
+/// the empty set.
+#[must_use]
+pub fn non_executable_ids(validated: &ValidatedDefinition) -> BTreeSet<String> {
+    axiom_ids(validated, |attributes| {
+        attributes
+            .iter()
+            .any(|attribute| named(attribute, KoreAttribute::NonExecutable))
+    })
+}
+
+fn named(pattern: &Pattern, attribute: KoreAttribute) -> bool {
+    matches!(pattern, Pattern::Application { symbol, .. } if symbol.name == attribute.as_str())
+}
+
+/// The `UNIQUE_ID` of every axiom of `definition_kore` whose attributes `keep` accepts.
+fn axiom_ids(
+    validated: &ValidatedDefinition,
+    keep: impl Fn(&[Pattern]) -> bool,
+) -> BTreeSet<String> {
     let Ok(definition) = parse_definition(&validated.artifacts().definition_kore) else {
         return BTreeSet::new();
     };
-    let named = |pattern: &Pattern, attribute: KoreAttribute| matches!(pattern, Pattern::Application { symbol, .. } if symbol.name == attribute.as_str());
     definition
         .modules
         .iter()
         .flat_map(|module| &module.sentences)
         .filter_map(|sentence| match sentence {
-            Sentence::Axiom { attributes, .. }
-                if !attributes
-                    .0
-                    .iter()
-                    .any(|attribute| named(attribute, KoreAttribute::SmtLemma)) =>
-            {
+            Sentence::Axiom { attributes, .. } if keep(&attributes.0) => {
                 attributes.0.iter().find_map(|attribute| match attribute {
                     Pattern::Application { symbol, arguments }
                         if symbol.name == KoreAttribute::UniqueId.as_str() =>

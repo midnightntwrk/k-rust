@@ -142,18 +142,21 @@ The document (version 2 since re-pin L2-1) lists every program `{id, digest, cla
 rule `{module, index, label, file, start_line, end_line, status, reached_by, fired_by}` with status
 `uncovered` (no comparable program reaches it: the next program to write) first, then
 `covered`, then `no-coverage-signal` (none of the rule's compiled ids can appear in a run's coverage: it
-compiles to no axiom, or it is a macro, alias or `smt-lemma` rule; `reason` says which), the
+compiles to no axiom, or it is a `non-executable`, macro, alias or `smt-lemma` rule; `reason` says which), the
 mismatches, a summary, `baseline_runs` (`results --verify` runs every program live:
 `live` is the number of programs, `reused` 0) and `untargeted_rules`.
 
 A rule's coverage is k-rust's run coverage of each comparable program's baseline run (kink-native
-`coverage`, `kink/coverage/v2` since re-pin L2-1), rewrite rules and equations alike: `reached_by` lists the
+`coverage`, `kink/coverage/v2` since re-pin L2-1, v3 since L2-1-tail), rewrite rules and equations alike: `reached_by` lists the
 programs that began to decide one of the rule's conditions for an instance whose left-hand side matched, or
 applied it (k-rust `matched`), and `fired_by` those that applied it (`applied`: a rewrite step built a successor,
 or an equation's instance gave a result). Neither is an over-approximation of what can change a result: a
 higher-priority rule whose left-hand side never matched is not reached, although its failure is what lets a
 lower-priority or `owise` rule fire. The record holds the reached and fired sentences (`coverage.sentences`,
 `coverage.applied_sentences`).
+A `non-executable` rule is one k-rust never runs (it internalizes executable axioms only), so no program can reach it:
+since re-pin L2-1-tail it has status `no-coverage-signal` with reason `a non-executable rule: k-rust never runs it, so no
+program can reach it`, never `uncovered`; before, it was listed `uncovered`, as a next program to write.
 
 `untargeted_rules` is the mutation-side analogue of rule coverage: with `--mutations MUTATIONS.toml`,
 every authored rule that no mutation of that list targets (only mutations that resolve count; an
@@ -271,15 +274,17 @@ is there a program of the corpus whose result the mutation changes?
    is run once more (a timeout depends on the host's load):
    its record is replaced only when the class or the run digest changes, and the row says `"rerun": "timeout"`.
 2. The mutation is resolved into one patch (see `MUTATIONS.toml`); an `invalid-mutation` stops there.
-3. The programs are ordered (O): those whose cached coverage reaches an edited rule (rewrite rule or equation, k-rust
-   `matched`) first, then the rest;
+3. The programs are ordered (O): those whose cached coverage witnesses an edited rule's edit (rewrite rule or equation) first, then the rest.
+   An edit that changes the rule's `requires` is witnessed by a program that reached the rule (k-rust `matched`: it began to decide the condition); every other edit (a right-hand side, an `ensures`, a left-hand side, an attribute, a deletion) by one that fired it (`applied`), since a program that only refuted the rule's guard never runs what the rule does (re-pin L2-1-tail).
+   The edit is read from the rule's text before and after it, before the mutant compiles, so this is kink-campaign's reading of a site-local edit (README.md, trust section), except that an equation edit kink-campaign leaves in manifest order (its left-hand side, an attribute, an `owise`, `smt-lemma`, `concrete` or `symbolic` equation, a deleted equation) still puts first the programs that fired the equation, or reached it for a `requires` edit;
    inside each group cheapest first, by the result record's `wall_ms` (the program's baseline run time), then the manifest's order
    (`--order corpus`: the manifest's order only, F-05's order, for a reproducible search).
    Under the cost order the measured times decide, so the killer found first (and hinted) and the set of outcomes cached
    (first-kill caches nothing for the programs after the kill) can differ between hosts and runs; the content of every
    cached outcome cannot, and with `--order corpus` the outcomes and hints written are reproducible byte for byte.
-   The order never changes a status: a kill outranks every other outcome under first-kill, and a mutant that fails as a whole
+   In the no-Z3 profile (the default build) the order never changes a status: a kill outranks every other outcome under first-kill, and a mutant that fails as a whole
    fails before any program runs; it changes which killing program is found first (the reported killer and the hint) and the cost.
+   That needs each program's outcome to be independent of the programs run before it in the same call. Under Z3 it is not: a solver query can time out, and the mutant's backend, reused for every program of a call, caches satisfiability answers, so the order can move a status between `killed` and `unknown` (never to a false kill: a kill is still a proved difference); tier 1 is off under Z3 for the same reason.
    Existing hints are kept; deleting `hints.json` and `outcomes/` re-runs the cold searches in the new order.
 4. **Outcome cache, tier 1.** Each program of O may have a cached outcome for this mutation: `killed` (a proved difference) or `agree`.
    A cached outcome is used only when its key is exactly the current one (see "The cache directory" below) and the program's
@@ -344,7 +349,7 @@ comparable.
 | Status | Meaning | What to do |
 | --- | --- | --- |
 | `killed` | A program's result differs on the mutant; `killer` names the first such program. | Nothing. |
-| `survived` | Every program ran to a comparable result and agreed. | Write a program that reaches the edited rule and whose result the edit changes (`reaching` lists the programs that reach it now). |
+| `survived` | Every program ran to a comparable result and agreed. | Write a program that reaches the edited rule and whose result the edit changes (`reaching` lists the programs whose coverage witnesses the edit now: they fired the rule, or reached it for an edit of its `requires`). |
 | `equivalent` | The mutant compiles to the baseline's executable definition. | Nothing can kill it; drop or change the mutation. |
 | `invalid` | The mutant does not compile (`reason` is the runner's failure, for example `rejected`). | Fix the mutation. |
 | `timeout` | No program killed it, and a program did not finish on the mutant within `budget.time_ms`. | Write a program that terminates under the mutant and shows a different result. |
@@ -426,7 +431,7 @@ A mutation row is `{id, note, digest, identity, removed_claims, inconsistent_pai
 | `status`, `reason` | The status (see the run section) and the runner's or the flow's reason. |
 | `killer`, `killer_source`, `killer_from_cache` | The first killing program of a `killed` mutation; where the kill came from: `outcome-cache` (tier 1, no call), `hint` (the hinted program's one-program call) or `search` (the call over the remaining programs); `killer_from_cache` is true for the first two. Null, null and false otherwise. |
 | `unusable_killer` | `{program, class, cause, source}` when a cached kill (`source` `outcome-cache`) or the hint (`hint`) names a program of the corpus that is not comparable now; else null. |
-| `reaching` | The comparable programs whose cached coverage reaches an edited rule, in the order they were tried. |
+| `reaching` | The comparable programs whose cached coverage witnesses an edited rule's edit (step 3: reached for an edit of the rule's `requires`, fired for any other edit), in the order they were tried. |
 | `executed` | `{program, outcome, slots | failure, cause, cached, wall_ms, baseline_ms, baseline_reused}` for every program whose outcome decided the status: first the cached ones (`cached: true`, in the order of step 3), then each program the mutant ran on in this command, in the runner's order, each listed once (a hinted program that did not kill and ran again in the next call is listed with that later run; `calls` lists every call). `outcome` is `distinguish`, `agree`, `timeout`, `unknown`, `incomparable` or `error`; `failure` names a run that produced no value (`time-limit`, `resource-limit`, `indeterminate`, `infrastructure`). `slots` is below. `cause` is null when the outcome is `agree` or `distinguish`, else what the runner's evidence says stopped the comparison, per slot (`exit-stop, whole-term: ...`), with the budget values, followed by the mutant run's leaf census for a time limit (`; when the bound fired k-rust returned ...`) or an unknown or timed-out slot (`; the mutant's run: k-rust returned 1 leaf (depth-bound 1), the deepest at depth 200`), which tells a depth bound from an undecided end. `wall_ms` is the mutant's run of the program, `baseline_ms` the program's live baseline run in this command and `baseline_reused` whether this call reused it; all three are null on a cached entry. |
 | `calls` | `{programs, status}` of each runner call: `[]` when tier 1 decided, `[[hint]]` when the hinted program killed, `[[hint], [rest]]` when it did not, `[[rest]]` without a usable hint. |
 | `call_wall_ms` | The wall time of each call of `calls`, in the same order (the mutant's compile and every run of the call). |

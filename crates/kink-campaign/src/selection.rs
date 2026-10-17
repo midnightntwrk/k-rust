@@ -2,14 +2,26 @@
 //!
 //! A mutant's tests run in two groups: first the tests whose baseline run's coverage witnesses an
 //! edited site ([`coverage_selected`]), then the rest, each group in manifest order. No test is
-//! ever left out (`deselected` is always empty), so the order decides only which killing test is
-//! found first under `FirstKill` and what the run costs, never a status.
+//! ever left out (`deselected` is always empty), so in the no-Z3 profile the order decides only
+//! which killing test is found first under `FirstKill` and what the run costs, never a status.
+//! That premise is that each test's outcome does not depend on the tests run before it, which
+//! k-rust's Execute promise gives without Z3 only. Under Z3 an SMT query can time out, and the
+//! mutant's backend and the baseline's are reused for every test in schedule order and keep a
+//! cache of satisfiability answers across requests (k-rust `docs/compatibility.md`, Execute), so
+//! a test may get an answer after another test warmed the cache where it times out when run
+//! first: the order can move a status between `Killed` and `Unknown`. It never makes a false
+//! kill, since a kill is still a proved `Distinguish` (re-pin L2-1-tail, review L2-1-1 D4;
+//! `tests/selection.rs`'s Theorem 2 assumes that no wall-clock bound fires, and a Z3 query
+//! timeout is one).
 //!
 //! What witnesses an edit ([`CompiledEdit::between`], re-pin L2-1, findings D-01 and D-03):
-//! - a rewrite rule edit: a run that applied the rule (k-rust `applied`), or, when only the
-//!   rule's `requires` changed, one that began to decide its condition (`matched`);
-//! - an equation edit confined to its `requires`: a run that matched the equation; confined to
-//!   its right-hand side or `ensures`: a run that applied it;
+//! - a rewrite rule edit: a run that applied the rule (k-rust `applied`), or, when the rule's
+//!   `requires` changed (alone or with its right-hand side or `ensures`), one that began to
+//!   decide its condition (`matched`, which contains `applied`; re-pin L2-1-tail, review L2-1-1
+//!   D3);
+//! - an equation edit confined to its `requires`, or to its `requires` and its right-hand side
+//!   or `ensures`: a run that matched the equation; confined to its right-hand side or
+//!   `ensures`: a run that applied it;
 //! - every other edit selects every test (`global`, the fallback order): an equation edit of its
 //!   left-hand side, of an attribute (priority, owise, concrete/symbolic, simplification, ...),
 //!   of an `smt-lemma` axiom or of an equation that carries `owise`, `concrete` or `symbolic`
@@ -292,9 +304,13 @@ fn site_local(
             .any(|axiom| !axiom.rewrite);
         if !equation {
             // A rewrite rule edit stays site-local whatever it changed (witnessed by `applied`),
-            // and a `requires`-only one is witnessed by `matched`.
+            // and one that changed its `requires`, alone or with its right-hand side, is
+            // witnessed by `matched`, as an equation's (re-pin L2-1-tail, review L2-1-1 D3).
             if let Some((old_axiom, new_axiom)) = pair
-                && change(old_axiom, new_axiom) == Change::Condition
+                && matches!(
+                    change(old_axiom, new_axiom),
+                    Change::Condition | Change::Both
+                )
             {
                 condition.insert(old[0].to_owned());
             }
@@ -546,17 +562,29 @@ mod tests {
     const ECOND: &str = r#"\equals{SortBool{},R}(c{}(), \dv{SortBool{}}("true"))"#;
 
     #[test]
-    fn a_changed_rewrite_is_site_local_and_a_requires_only_change_is_witnessed_by_matched() {
+    fn a_changed_rewrite_is_site_local_and_a_requires_change_is_witnessed_by_matched() {
         assert_eq!(
             local(&rewrite("old", "b{}()", TOP), &rewrite("new", "c{}()", TOP)),
-            Some(BTreeSet::new())
+            Some(BTreeSet::new()),
+            "right-hand side: applied"
         );
         assert_eq!(
             local(
                 &rewrite("old", "b{}()", TOP),
                 &rewrite("new", "b{}()", COND)
             ),
-            Some(ids(&["old"]))
+            Some(ids(&["old"])),
+            "requires: matched"
+        );
+        // Re-pin L2-1-tail (review L2-1-1, D3): the requires and the right-hand side both
+        // changed is witnessed by matched, as for an equation.
+        assert_eq!(
+            local(
+                &rewrite("old", "b{}()", TOP),
+                &rewrite("new", "c{}()", COND)
+            ),
+            Some(ids(&["old"])),
+            "both: matched"
         );
         let declaration = kore(&rewrite("new", "c{}()", TOP))
             .replace("module M", "module M\nsymbol z{}(): S{} []");

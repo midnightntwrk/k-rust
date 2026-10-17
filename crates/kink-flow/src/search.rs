@@ -5,9 +5,12 @@
 //!
 //! 1. Resolve it into one pinned patch (F-04); an `invalid-mutation` ends there.
 //! 2. Choose the programs O: the comparable programs of the up-to-date result cache, the ones
-//!    whose cached coverage reaches an edited rule first, then the rest, each group cheapest
+//!    whose cached coverage witnesses an edited rule's edit first (reached for an edit of its
+//!    `requires`, fired for any other edit; re-pin L2-1-tail), then the rest, each group cheapest
 //!    first (the record's `wall_ms`, then corpus order; [`ProgramOrder`], README 6.4). The order
-//!    changes which killing program is found first and the cost, never a status.
+//!    changes which killing program is found first and the cost, never a status in the no-Z3
+//!    profile (under Z3 a reused backend's cache of solver answers can make it move one between
+//!    killed and unknown, never to a false kill).
 //! 3. Tier 1 (README 7.5.3): the valid outcome records of the programs of O, under a key that
 //!    names every input of the outcome (kink's build, the k-rust revision, the solver profile,
 //!    the specification's execution digest, the budget, the oracles, the mutation's identity,
@@ -156,12 +159,17 @@ pub struct RunOptions {
 }
 
 /// How the kill search orders the programs inside each tier of O (the programs whose coverage
-/// reaches an edited rule, then the rest; README 5.6 step 2 and 6.4).
+/// witnesses an edited rule's edit, then the rest; README 5.6 step 2 and 6.4).
 ///
-/// The order never changes a status (README 6.4): under FirstKill a Killed status comes from
-/// any killing test and ranks above every other status, and a mutant-scope failure arises
-/// before any test runs (F-05 review 1), so the order changes only which killing program is
-/// found first (and hence becomes the hint and the reported killer) and what the search costs.
+/// The order never changes a status in the no-Z3 profile (README 6.4): under FirstKill a Killed
+/// status comes from any killing test and ranks above every other status, and a mutant-scope
+/// failure arises before any test runs (F-05 review 1), so the order changes only which killing
+/// program is found first (and hence becomes the hint and the reported killer) and what the
+/// search costs. That needs each program's outcome to be independent of the programs run before
+/// it in the same call, which k-rust's Execute promise gives without Z3 only: under Z3 a solver
+/// query can time out and the mutant's reused backend caches satisfiability answers across
+/// programs, so the order can move a status between killed and unknown (never to a false kill:
+/// a kill is still a proved distinction; re-pin L2-1-tail, review L2-1-1 D4).
 ///
 /// Under [`ProgramOrder::Cost`] the order comes from measured wall times, so the killer found
 /// first, the hint, and the SET of tier-1 records written (under FirstKill the programs after
@@ -209,8 +217,12 @@ struct Candidate<'r> {
     run_sha256: Option<&'r str>,
     /// The cached record's `wall_ms`: the cost key of [`ProgramOrder::Cost`].
     wall_ms: Option<u64>,
-    /// The `(module, index)` of every baseline sentence its cached coverage reaches.
+    /// The `(module, index)` of every baseline sentence its cached coverage reaches (k-rust
+    /// `matched`, the record's `coverage.sentences`).
     reaches: BTreeSet<(String, u64)>,
+    /// The `(module, index)` of every baseline sentence its cached coverage fires (k-rust
+    /// `applied`, the record's `coverage.applied_sentences`; re-pin L2-1-tail).
+    fires: BTreeSet<(String, u64)>,
 }
 
 fn candidate<'r>(index: usize, id: &'r str, row: &'r ProgramRow) -> Option<Candidate<'r>> {
@@ -218,24 +230,27 @@ fn candidate<'r>(index: usize, id: &'r str, row: &'r ProgramRow) -> Option<Candi
         return None;
     }
     let record = row.record.as_ref()?;
-    let reaches = record["coverage"]["sentences"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|sentence| {
-            Some((
-                sentence["module"].as_str()?.to_owned(),
-                sentence["index"].as_u64()?,
-            ))
-        })
-        .collect();
+    let sentences = |key: &str| {
+        record["coverage"][key]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|sentence| {
+                Some((
+                    sentence["module"].as_str()?.to_owned(),
+                    sentence["index"].as_u64()?,
+                ))
+            })
+            .collect()
+    };
     Some(Candidate {
         index,
         id,
         digest: row.digest?,
         run_sha256: record["run_sha256"].as_str(),
         wall_ms: record["wall_ms"].as_u64(),
-        reaches,
+        reaches: sentences("sentences"),
+        fires: sentences("applied_sentences"),
     })
 }
 
@@ -1536,18 +1551,28 @@ fn finish(
     Value::Object(row)
 }
 
+/// Whether the candidate's cached coverage witnesses the edit of an edited rule (re-pin
+/// L2-1-tail, review L2-1-1 D2): an edit that changes the rule's `requires` is witnessed by a
+/// program that reached the rule (k-rust `matched`: it began to decide the condition), every
+/// other edit (a right-hand side, an `ensures`, a left-hand side, an attribute, a deletion) by
+/// one that fired it (`applied`). A program that only matched a rule whose guard it refuted
+/// cannot witness a change of what the rule does once it applies.
 fn reaches(candidate: &Candidate<'_>, resolved: &ResolvedMutation) -> bool {
     resolved.rules.iter().any(|rule| {
-        candidate
-            .reaches
-            .contains(&(rule.at.module.clone(), u64::from(rule.at.index)))
+        let witnesses = if rule.requires_edited {
+            &candidate.reaches
+        } else {
+            &candidate.fires
+        };
+        witnesses.contains(&(rule.at.module.clone(), u64::from(rule.at.index)))
     })
 }
 
 /// The chosen order O (README 5.6 step 2, 6.4): the comparable programs whose cached coverage
-/// reaches an edited rule, then the rest; inside each tier by cost (the record's `wall_ms`
-/// ascending, then corpus order) or in corpus order ([`ProgramOrder`]). The order changes only
-/// which killing program is found first and the cost, never a status (README 6.4).
+/// witnesses an edited rule's edit ([`reaches`]), then the rest; inside each tier by cost (the
+/// record's `wall_ms` ascending, then corpus order) or in corpus order ([`ProgramOrder`]). The
+/// order changes only which killing program is found first and the cost, never a status in the
+/// no-Z3 profile (README 6.4; under Z3 see README.md's coverage paragraph).
 fn order(
     candidates: &[Candidate<'_>],
     resolved: &ResolvedMutation,

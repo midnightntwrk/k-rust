@@ -9,7 +9,9 @@
 //!   sliced from the file's K view by the sentence's span (F-04's [`EditedRule`], F-10's view),
 //!   so no K printer is involved and the text is exactly what the specification and the
 //!   mutation list say;
-//! - `reaching`: the comparable programs whose cached coverage reaches an edited rule;
+//! - `reaching`: the comparable programs whose cached coverage witnesses an edited rule's edit:
+//!   programs that reached the rule (k-rust `matched`) for an edit of its `requires`, programs
+//!   that fired it (`applied`) for any other edit (re-pin L2-1-tail);
 //! - `executed`: each program the mutant ran on, with its outcome and, when the outcome is
 //!   neither `agree` nor `distinguish`, a `cause` read from the runner's evidence for that run;
 //! - `action`: what the status asks of the LLM.

@@ -49,7 +49,7 @@ use kink_corpus::{
 };
 use kink_native::{
     K_RUST_REVISION,
-    coverage::{RuleAuthors, TestCoverage, coverage_domain},
+    coverage::{RuleAuthors, TestCoverage, coverage_domain, non_executable_ids},
     execution::{ExecutionAdapter, ExecutionBudget, HaltClass, SolverProfile},
 };
 use kink_patch::{
@@ -1075,8 +1075,9 @@ fn program_row(
 /// Every authored rule of the specification, with the comparable programs whose coverage
 /// reaches it (`reached_by`, k-rust `matched`) and fires it (`fired_by`, `applied`): uncovered
 /// rules first, then covered rules, then the rules with no coverage signal (no compiled id in
-/// kink-native's `coverage_domain`: a rule that compiles to no axiom, a macro or alias rule, an
-/// `smt-lemma`; re-pin L2-1, before which every equation was `not-observable`).
+/// kink-native's `coverage_domain`: a rule that compiles to no axiom, a `non-executable` rule
+/// (re-pin L2-1-tail: k-rust never runs one, so no program can reach it), a macro or alias rule,
+/// an `smt-lemma`; re-pin L2-1, before which every equation was `not-observable`).
 fn rules(spec: &AdmittedSpec, manifest: &FlowManifest, rows: &[ProgramRow]) -> Vec<Value> {
     let mut reached = BTreeMap::<(String, u64), Vec<&str>>::new();
     let mut fired = BTreeMap::<(String, u64), Vec<&str>>::new();
@@ -1103,6 +1104,7 @@ fn rules(spec: &AdmittedSpec, manifest: &FlowManifest, rows: &[ProgramRow]) -> V
         }
     }
     let domain = coverage_domain(&spec.compiled);
+    let non_executable = non_executable_ids(&spec.compiled);
     let authors = RuleAuthors::of(&spec.compiled);
     let mut groups: [Vec<Value>; 3] = Default::default();
     for (at, sentence) in spec.loaded.baseline.authored_sentences() {
@@ -1126,6 +1128,8 @@ fn rules(spec: &AdmittedSpec, manifest: &FlowManifest, rows: &[ProgramRow]) -> V
         if status == NO_COVERAGE_SIGNAL {
             value["reason"] = json!(if ids.is_empty() {
                 "compiles to no rule"
+            } else if ids.iter().all(|id| non_executable.contains(*id)) {
+                "a non-executable rule: k-rust never runs it, so no program can reach it"
             } else {
                 "a macro, alias or smt-lemma rule: k-rust's run coverage has no recording site for it"
             });

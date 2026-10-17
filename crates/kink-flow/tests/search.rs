@@ -1290,3 +1290,58 @@ fn a_syntax_module_rule_outside_the_main_closure_is_an_equivalent_mutation() {
         "edited-load-failed"
     );
 }
+
+/// Re-pin L2-1-tail (review L2-1-1, D2): the first tier of O and the row's `reaching` are the
+/// programs whose coverage witnesses the edit. `by-zero` (`1 / 0`) matches the division rule
+/// and refutes its guard, so it reached the rule without firing it: it witnesses an edit of the
+/// `requires` (alone or with the right-hand side), never one of the right-hand side alone.
+#[test]
+fn the_first_tier_is_the_programs_whose_coverage_witnesses_the_edit() {
+    let dir = fixture("divide", "witness");
+    let mutations = dir.join("MUTATIONS-witness.toml");
+    fs::write(
+        &mutations,
+        r#"
+[[mutation]]
+id = "guard-dropped"
+note = "requires"
+  [[mutation.edit]]
+  rule = "div"
+  find = " requires I2 =/=Int 0"
+  replace = ""
+
+[[mutation]]
+id = "operands-swapped"
+note = "right-hand side"
+  [[mutation.edit]]
+  rule = "div"
+  find = "I1 /Int I2"
+  replace = "I2 /Int I1"
+
+[[mutation]]
+id = "both"
+note = "requires and right-hand side"
+  [[mutation.edit]]
+  rule = "div"
+  find = "I1 /Int I2 requires I2 =/=Int 0"
+  replace = "I2 /Int I1 requires I1 =/=Int 0"
+"#,
+    )
+    .unwrap();
+    let (document, _) = search(&dir.join("FLOW.toml"), &mutations, &[]);
+    for (id, reaching) in [
+        ("guard-dropped", json!(["quotient", "by-zero"])),
+        ("operands-swapped", json!(["quotient"])),
+        ("both", json!(["quotient", "by-zero"])),
+    ] {
+        assert_eq!(mutation(&document, id)["reaching"], reaching, "{id}");
+    }
+    assert_eq!(
+        verdicts(&document),
+        expect(&[
+            ("guard-dropped", "killed", Some("by-zero"), false),
+            ("operands-swapped", "killed", Some("quotient"), false),
+            ("both", "killed", Some("quotient"), false),
+        ])
+    );
+}

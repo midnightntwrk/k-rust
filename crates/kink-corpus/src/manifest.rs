@@ -344,10 +344,21 @@ fn campaign(v: &Value) -> Result<CorpusCampaign, ManifestError> {
     } else {
         let tagged = object(&map["selection"], &["prioritize"])?;
         let s = object(&tagged["prioritize"], &["key", "coupled", "coverage"])?;
-        if s["key"] != "compiled-rule-ids"
-            || s["coverage"] != kink_native::coverage::COVERAGE_DOMAIN
-        {
+        if s["key"] != "compiled-rule-ids" {
             return Err(schema("selection"));
+        }
+        let coverage = kink_native::coverage::COVERAGE_DOMAIN;
+        if s["coverage"] != coverage {
+            // Re-pin L2-1-tail (review L2-1-1, D6): say why, since an older declaration names a
+            // coverage reading that is retired rather than malformed (v1 before L2-1, v2 before
+            // L2-1-tail).
+            return Err(schema(match s["coverage"].as_str() {
+                Some(declared @ ("kink/coverage/v1" | "kink/coverage/v2")) => format!(
+                    "selection: coverage {declared} is retired; this build reads only \
+                     {coverage}, so declare \"coverage\": \"{coverage}\""
+                ),
+                _ => format!("selection: coverage must be {coverage}"),
+            }));
         }
         let coupled = match s["coupled"].as_str() {
             Some("union") => Coupled::Union,

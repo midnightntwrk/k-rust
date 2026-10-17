@@ -29,8 +29,9 @@
 //! - the bridged state-slot inputs (each path's completeness, stop and classified terminal, and
 //!   the collection stop) as sets: equal, or, where a leaf was absorbed, equal complete terminals
 //!   and the state set's paths a subset of the path set's;
-//! - the rule coverage from both runs, and on the flow corpus's and the fixtures' baselines equal
-//!   to what a stepped path set's branches name (the reading before L1-1).
+//! - the rule coverage from both runs, reached and fired ids and sentences, and on the flow
+//!   corpus's and the fixtures' baselines k-rust's applied rewrite rules equal to what a stepped
+//!   path set's branches name (the reading before L1-1).
 //!
 //! On the flow corpus it also runs the campaign runner over the baseline and every mutation with
 //! `RunOptions::result_modality` `PathSet` and `StateSet`, and asserts equal baseline evidence,
@@ -391,12 +392,19 @@ fn compare_side(
             );
             assert!(state_paths.is_subset(path_paths), "{id}: state-slot inputs");
         }
-        // Rule coverage: equal from both runs, and on a baseline k-rust's applied rewrite rules
-        // equal what a stepped path set's branches name (an independent check of k-rust's
-        // coverage, which re-pin L2-1 kept when it retired `TestCoverage::of_branches`).
+        // Rule coverage: equal from both runs, reached and fired (re-pin L2-1-tail, review
+        // L2-1-1 D5: the fired set orders kink-campaign's right-hand-side edits and kink-flow's
+        // programs, and is the results document's `fired_by`), and on a baseline k-rust's
+        // applied rewrite rules equal what a stepped path set's branches name (an independent
+        // check of k-rust's coverage, which re-pin L2-1 kept when it retired
+        // `TestCoverage::of_branches`).
         let coverage = |execution: &AdaptedExecution| {
             let coverage = TestCoverage::of_execution(program, execution, &authors);
-            (coverage.complete, coverage.rule_ids, coverage.sentences)
+            (
+                coverage.complete,
+                (coverage.rule_ids, coverage.applied_ids),
+                (coverage.sentences, coverage.applied_sentences),
+            )
         };
         let (path_coverage, state_coverage) = (coverage(&path_set), coverage(&state_set));
         if absorbed.is_empty() {
@@ -611,7 +619,7 @@ fn differential(
                 run.baseline,
                 run.baseline_coverage
                     .into_iter()
-                    .map(|coverage| (coverage.complete, coverage.rule_ids))
+                    .map(|coverage| (coverage.complete, coverage.rule_ids, coverage.applied_ids))
                     .collect::<Vec<_>>(),
                 run.mutants
                     .into_iter()
