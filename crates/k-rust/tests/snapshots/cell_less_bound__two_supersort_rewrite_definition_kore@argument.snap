@@ -1,0 +1,8 @@
+---
+source: crates/k-rust/tests/cell_less_bound.rs
+description: "definition.kore of `syntax E ::= C | D\n  syntax F ::= e(E) [symbol(e)]\n  rule [ab]: <k> e(a(X) => b(X)) ... </k>` where A and B have the common supersorts C and D, with the embedded prelude, rust backend"
+---
+ArtifactDigest {
+    bytes: 185733,
+    sha256: "0161dd3a409335a669f78e87424fbd179944ae54748bfbb9da18242ef7a42e1a",
+}
