@@ -1989,6 +1989,15 @@ fn final_leaves(
 /// leaf of its configuration that may absorb it, and is otherwise retained itself, so a state-set
 /// result may show one configuration more than once, each with a different meaning.
 ///
+/// Absorbing a later unexplored or undecided leaf into an earlier stuck leaf loses no
+/// configuration: the stuck halt is decided from the configuration (its term, constraints, effects
+/// and console), so the later leaf's subtree is that configuration alone, which the stuck leaf
+/// reports. Console availability and the state's kind, which the key leaves out, do not change a
+/// stuck verdict: with the console off a step that reaches a console hook is an error, not stuck,
+/// and a remainder's stuck verdict is its parent step's over every priority. A result whose bound
+/// and undecided leaves were all absorbed this way is complete (docs/compatibility.md, "Search
+/// results").
+///
 /// A retained leaf is the first of the leaves merged into it, the witness: it keeps its own
 /// pattern, depth, halt reason, trace, branch, observations, effects, and console transcript, which
 /// describe the one path it reports. Its diagnostics become those of every leaf merged into it, its
@@ -2142,7 +2151,9 @@ fn merge_class(halt: &HaltReason) -> MergeClass {
 ///   configuration but a terminal-rule one, including one that marks the subtree unexplored or
 ///   undecided. Two such leaves differ only where the configuration's step came out differently
 ///   on two paths (a solver that answered one query differently, as when it timed out), and the
-///   first then stands for both.
+///   first then stands for both. Absorbing an unexplored or undecided leaf loses no configuration:
+///   its subtree is the configuration alone, which the absorbing leaf reports, whatever the
+///   console availability or the kind of the later leaf's state ([`merge_equal_final_leaves`]).
 /// - A leaf that marks its configuration's subtree unexplored or undecided (a bound, a stop local
 ///   to the state, an undecided step, a failed simplification) stands only for another such leaf:
 ///   it does not say what the subtree holds, so it does not stand for a later stuck, branching or

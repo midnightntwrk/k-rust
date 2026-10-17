@@ -7860,7 +7860,11 @@ fn path_set_keeps_each_converging_path_with_its_own_observations() {
 /// depth-bound leaf says only that `d`'s subtree was not explored, so it does not stand for the
 /// stuck leaf, which says the subtree is `d` alone: when the bound leaf comes first both are kept.
 /// A stuck leaf says everything about `d`'s subtree, so when it comes first it absorbs the bound
-/// leaf. Depth-first order follows rule declaration order.
+/// leaf. Depth-first order follows rule declaration order. An absorbed leaf's diagnostics stay
+/// with the stuck leaf that absorbs it: `c` is stuck at depth 1 (`to-c`) and reached at the depth
+/// bound 2 through `b`, whose rule builds `norm(a)`, which `norm-c` evaluates to `c` on a condition
+/// whose simplification exhausts the budget; the state-set leaf is the stuck one, with the bound
+/// leaf's diagnostics.
 #[test]
 fn a_stuck_leaf_absorbs_a_later_bound_leaf_of_its_configuration_but_not_the_reverse() {
     let rule = |label: &str, from: &str, to: &str| {
@@ -7909,6 +7913,54 @@ fn a_stuck_leaf_absorbs_a_later_bound_leaf_of_its_configuration_but_not_the_reve
             expected
         );
     }
+
+    let definition = search_definition(
+        &[
+            crate::support::rule("to-c", "start{}()", "c{}()"),
+            crate::support::rule("to-b", "start{}()", "b{}()"),
+            crate::support::rule("b-norm", "b{}()", "norm{}(a{}())"),
+        ]
+        .concat(),
+    );
+    let start = Pattern {
+        term: internal_term(&definition, "start{}()"),
+        constraints: Vec::new(),
+    };
+    let c = internal_term(&definition, "c{}()");
+    let condition = condition_exhausted(&definition, "norm-c", 3);
+    let run = |result_modality| {
+        execute(
+            &definition,
+            start.clone(),
+            ExecutionOptions {
+                max_depth: 2,
+                max_simplification_iterations: 3,
+                result_modality,
+                ..ExecutionOptions::default()
+            },
+        )
+    };
+    let read = |leaf: &ExecutionLeaf| {
+        assert_eq!(leaf.pattern.term, c, "{leaf:#?}");
+        (
+            leaf.depth,
+            leaf.halt_reason.clone(),
+            leaf.diagnostics.clone(),
+        )
+    };
+    let path_set = run(ResultModality::PathSet);
+    assert_eq!(
+        path_set.leaves.iter().map(read).collect::<Vec<_>>(),
+        [
+            (1, HaltReason::Stuck, Vec::new()),
+            (2, HaltReason::DepthBound, condition.to_vec()),
+        ]
+    );
+    let state_set = run(ResultModality::StateSet);
+    assert_eq!(
+        state_set.leaves.iter().map(read).collect::<Vec<_>>(),
+        [(1, HaltReason::Stuck, condition.to_vec())]
+    );
 }
 
 /// Two paths end in the one configuration `c`: `start => c` (`to-c`), and `start => norm(a)`

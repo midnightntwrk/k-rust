@@ -6,7 +6,10 @@
 //!
 //! The fixture is a run in which two paths reach one configuration (`d(4)`) at different depths,
 //! so that under `maxDepth` 4 one path ends `stuck` and the other at the depth bound, and the
-//! `state-set` merge absorbs the later leaf into the earlier one.
+//! `state-set` merge absorbs the later leaf into the earlier one. The same fixture pins the
+//! completeness of such a `state-set` result (`docs/compatibility.md`, "Search results"): an
+//! earlier `stuck` leaf stands for a later bound leaf of its configuration, whatever the
+//! console's availability on either path.
 
 use k_rust::{
     backend::{
@@ -88,6 +91,20 @@ struct Shape {
     max_breadth: Option<usize>,
     /// Run through `execute_observed` with every rule observed.
     observed: bool,
+}
+
+fn run(
+    backend: &mut Backend,
+    initial: &Pattern,
+    modality: ResultModalityOutput,
+    max_depth: Option<u64>,
+    max_work: Option<u64>,
+) -> ExecutionResult {
+    let shape = Shape {
+        max_depth,
+        ..Shape::default()
+    };
+    run_shaped(backend, initial, modality, shape, max_work)
 }
 
 fn run_shaped(
@@ -324,4 +341,165 @@ fn a_clean_stuck_leaf_that_applies_a_function_is_not_a_final_configuration() {
             "{modality:?}: {text}"
         );
     }
+}
+
+/// A leaf as the absorb tests read it: halt reason, depth and the compact KORE of its state.
+fn shape(result: &ExecutionResult) -> Vec<(HaltReasonOutput, u64, String)> {
+    result
+        .leaves
+        .iter()
+        .map(|leaf| {
+            let state = codec::from_value(&leaf.state).unwrap();
+            (
+                leaf.reason,
+                leaf.depth,
+                Printer::compact().print_pattern(&state),
+            )
+        })
+        .collect()
+}
+
+/// An earlier `stuck` leaf absorbs a later bound leaf of its configuration, so the `state-set`
+/// result is complete where the `path-set` result of the same bounds is not
+/// (`docs/compatibility.md`, "Search results"). Under `maxDepth` 4, `d(4)` is stuck at depth 3
+/// through `b` and at the depth bound at depth 4 through `c` and `e`: the path set holds both,
+/// the state set only the stuck leaf, and both runs visit 7 states and expand 6 (the bound state
+/// is visited, not stepped). With `a`'s rule to `c` declared first the bound leaf comes first and
+/// is kept beside the stuck one. Without a depth bound each state set is one stuck `d(4)`.
+#[test]
+fn a_stuck_leaf_absorbs_a_later_bound_leaf_and_the_state_set_is_complete() {
+    for (variant, a_rules) in [
+        ("b first", "rule a(K) => b(K)\n  rule a(K) => c(K)"),
+        ("c first", "rule a(K) => c(K)\n  rule a(K) => b(K)"),
+    ] {
+        let (kore, initial) = compile(&ABSORB.replace("{A_RULES}", a_rules), "ABSORB", "s(3)");
+        let mut backend = Backend::new(&kore, "ABSORB", BackendOptions::default()).unwrap();
+        let path_set = run(
+            &mut backend,
+            &initial,
+            ResultModalityOutput::PathSet,
+            Some(4),
+            None,
+        );
+        let state_set = run(
+            &mut backend,
+            &initial,
+            ResultModalityOutput::StateSet,
+            Some(4),
+            None,
+        );
+        let path_shape = shape(&path_set);
+        assert!(
+            path_shape
+                .iter()
+                .all(|(_, _, state)| state == &path_shape[0].2),
+            "{variant}: every leaf is d(4): {path_shape:#?}"
+        );
+        assert!(
+            path_shape[0].2.contains("Lbld'"),
+            "{variant}: {path_shape:#?}"
+        );
+        let reasons = |result: &ExecutionResult| {
+            shape(result)
+                .into_iter()
+                .map(|(reason, depth, _)| (reason, depth))
+                .collect::<Vec<_>>()
+        };
+        let stuck = (HaltReasonOutput::Stuck, 3);
+        let bound = (HaltReasonOutput::DepthBound, 4);
+        let (expected_path, expected_state) = match variant {
+            "b first" => (vec![stuck, bound], vec![stuck]),
+            _ => (vec![bound, stuck], vec![bound, stuck]),
+        };
+        assert_eq!(reasons(&path_set), expected_path, "{variant}");
+        assert_eq!(reasons(&state_set), expected_state, "{variant}");
+        for result in [&path_set, &state_set] {
+            assert_eq!((result.work, result.expanded), (7, 6), "{variant}");
+        }
+
+        // Without a depth bound both paths end stuck in `d(4)`; the state set keeps the first.
+        let first_depth = if variant == "b first" { 3 } else { 4 };
+        for modality in MODALITIES {
+            let unbounded = run(&mut backend, &initial, modality, None, None);
+            let expected = match modality {
+                ResultModalityOutput::PathSet => vec![
+                    (HaltReasonOutput::Stuck, first_depth),
+                    (HaltReasonOutput::Stuck, 7 - first_depth),
+                ],
+                ResultModalityOutput::StateSet => vec![(HaltReasonOutput::Stuck, first_depth)],
+            };
+            assert_eq!(reasons(&unbounded), expected, "{variant}, {modality:?}");
+            assert!(
+                shape(&unbounded)
+                    .iter()
+                    .all(|(_, _, state)| state == &path_shape[0].2),
+                "{variant}, {modality:?}"
+            );
+        }
+    }
+}
+
+/// Console availability is not part of a final leaf's identity, and it does not change a stuck
+/// verdict. From `go`, one path passes through `sym(?X)`, a state with a variable, so the console
+/// is off on it from there on, and reaches `fin` at depth 2; the other stays ground, with the
+/// console on, and reaches `fin` at depth 3. Both leaves are `stuck` in the path set, and the
+/// state set holds one `stuck` leaf `fin`, the first path's.
+#[test]
+fn a_stuck_leaf_reached_with_the_console_off_absorbs_one_reached_with_it_on() {
+    use k_rust_backend::{
+        definition::BackendDefinition,
+        rewrite::{ExecutionOptions, HaltReason, execute_with_io_state},
+        search::ResultModality,
+        transition::ExecutionIoState,
+    };
+    const CONSOLE: &str = r#"
+module CONSOLE
+  imports INT
+  syntax Pgm ::= "go" | sym(Int) | gnd() | gnd2() | "fin"
+  rule go => sym(?_X:Int)
+  rule go => gnd()
+  rule sym(_) => fin
+  rule gnd() => gnd2()
+  rule gnd2() => fin
+endmodule
+"#;
+    let (kore, initial) = compile(CONSOLE, "CONSOLE", "go");
+    let syntax = k_rust::kore::parser::parse_definition(&kore).unwrap();
+    let definition = BackendDefinition::internalize(&syntax, "CONSOLE").unwrap();
+    let initial = definition
+        .admit_unverified(&initial, &[])
+        .internalize_pattern()
+        .unwrap();
+    let run = |result_modality| {
+        execute_with_io_state(
+            &definition,
+            initial.clone(),
+            ExecutionOptions {
+                result_modality,
+                ..ExecutionOptions::default()
+            },
+            ExecutionIoState::default(),
+        )
+    };
+    let path_set = run(ResultModality::PathSet);
+    let state_set = run(ResultModality::StateSet);
+    let read = |leaf: &k_rust_backend::rewrite::ExecutionLeaf| {
+        (leaf.halt_reason.clone(), leaf.depth, leaf.pattern.clone())
+    };
+    let [first, second] = path_set.leaves.as_slice() else {
+        panic!("two path-set leaves expected: {:#?}", path_set.leaves);
+    };
+    assert_eq!(first.halt_reason, HaltReason::Stuck, "{first:#?}");
+    assert_eq!(second.halt_reason, HaltReason::Stuck, "{second:#?}");
+    assert_eq!(first.pattern, second.pattern);
+    assert_eq!(
+        (first.depth, second.depth),
+        (2, 3),
+        "the path through the symbolic state comes first"
+    );
+    assert_eq!(first.io.observable(), second.io.observable());
+    let [merged] = state_set.leaves.as_slice() else {
+        panic!("one state-set leaf expected: {:#?}", state_set.leaves);
+    };
+    assert_eq!(read(merged), read(first));
 }
