@@ -327,6 +327,17 @@ pub struct RunOptions {
 /// budget), never from a complete mutant run (its two-sided comparison already distinguishes when
 /// such a leaf exists). The mutant's side stays `Unknown`: only the slot's outcome becomes
 /// `Distinguish`.
+///
+/// Contradicted claims are read per path (Sebastien, 2026-10-17; re-pin L1-2-fix-1; root README,
+/// "What a kill trusts"): correcting a false kept claim to "true except where it fails" leaves
+/// the baseline's complete set and the leaf's path unchanged unless that path used the claim
+/// where it fails, so a contradiction on another path of the mutant run, explored or not, does
+/// not void the leaf, and one on its own path does (the leaf is `Stuck`, carries no
+/// contradicted claim and is a decided value). An explored contradicted leaf still makes the run
+/// no evidence (decision 2's per-test rule, applied first), which is stricter than the principle
+/// needs. The rule adds no execution premise; the two-sided per-test rule is a conservative
+/// over-approximation of the per-path one, so a work budget can kill where the unbounded run is
+/// `Unknown` (`testdata/k/l1/l12ct.k`, `l12cs.k`).
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum OneSided {
     /// No one-sided kill.

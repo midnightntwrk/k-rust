@@ -10,12 +10,22 @@
 //! occurs where the unbounded run agrees. It also checks that each bounded run did end at its
 //! work budget, and counts the one-sided kills (a `distinguish` whose mutant side is `unknown`).
 //!
+//! Pairs whose unbounded run does not compare (re-pin L1-2-fix-1, L1-2 review minor 2) are run
+//! too. When that run finished without a bound (no timeout, every leaf stuck, an undefined step
+//! or vacuous), the same ladder runs, every bounded slot must be `unknown` or `distinguish`, and
+//! every one-sided kill must be explained: the unbounded run is unknown only because of a
+//! contradicted claim or a terminal that is not a value on a leaf other than the killing one
+//! (`testdata/k/one_sided_support.rs`; the per-path principle, root README "What a kill
+//! trusts"); anything else fails the test. Any other undecided pair (a timeout, a depth bound) is
+//! re-run once under the manifest's own work budget, when it sets one (kink-flow's run), and must
+//! not kill there: its unbounded run is itself bounded, so nothing can explain a kill.
+//!
 //! The campaign is kink-flow's: the fixed oracles (exit stop without a cell, whole term), the
 //! all-normal classifier, state-set result runs, and the work budget `Calibrated { factor: 0,
 //! floor: b }`, i.e. `max_work = b` on every mutant run.
 //!
 //! Both are `#[ignore]`d for their cost (every run compiles its mutant) and run and recorded in the
-//! L1-2 handoff; the gate runs the exhaustive differential of the fixture `testdata/k/l1/onesided.k`
+//! L1-2 and L1-2-fix-1 handoffs; the gate runs the exhaustive differential of the fixture `testdata/k/l1/onesided.k`
 //! (kink-campaign `tests/one_sided.rs`), where one-sided kills do occur:
 //! - the flow corpus (every `testdata/flow` manifest and its mutation lists), budgets `w - 1` and
 //!   `w / 2` (about three minutes; at L1-2: 129 pairs compared, 174 bounded runs, 5 one-sided
@@ -28,6 +38,9 @@
 //! In the gate, `a_work_bound_mutant_run_kills_one_sidedly_through_the_flow` runs the rule end to
 //! end through `kink-flow run` on a corpus built from that fixture: kink-flow turns the rule on,
 //! reports the kill with `sides: null`, and caches it under the work budget's outcome key.
+
+#[path = "../../../testdata/k/one_sided_support.rs"]
+mod one_sided_support;
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -46,6 +59,7 @@ use kink_flow::{
     results::{execution_budget, fixed_oracles},
 };
 use kink_native::execution::{HaltClass, ResultModality};
+use kink_patch::{ClaimSupport, Withdrawal};
 use serde_json::Value;
 
 fn repository() -> PathBuf {
@@ -124,9 +138,15 @@ struct Tally {
     distinguished: usize,
     /// (mutation, program) pairs whose unbounded run agreed on every slot.
     agreed: usize,
-    /// Pairs the unbounded run did not compare (timeout, unknown, failure), with its census. Each
-    /// is re-run once under the manifest's own work budget, when it sets one (kink-flow's run).
+    /// Pairs the unbounded run did not compare (timeout, unknown, failure), with its census. A
+    /// pair whose unbounded run finished without a bound runs the ladder (`unclean`); every other
+    /// one is re-run once under the manifest's own work budget, when it sets one (kink-flow's run).
     undecided: Vec<String>,
+    /// Undecided pairs whose unbounded run finished without a bound, and so ran the ladder.
+    unclean: Vec<String>,
+    /// One-sided kills on an `unclean` pair, each with its explanation (offending and killing
+    /// leaves of the unbounded run).
+    explained: Vec<String>,
     /// One-sided kills on an undecided pair, which no two-sided verdict confirms.
     unconfirmed: Vec<String>,
     /// Bounded runs made.
@@ -281,11 +301,85 @@ fn differential(manifest_path: &Path, time: Option<Duration>, ladder: Ladder, ta
                     _ => None,
                 };
                 let Some((expected, work)) = decided else {
+                    let finished = census.as_ref().and_then(|census| {
+                        (census.stop == kink_campaign::RunStop::Finished
+                            && census.leaves.keys().all(|halt| {
+                                matches!(
+                                    halt,
+                                    HaltClass::Stuck | HaltClass::Trivial | HaltClass::Vacuous
+                                )
+                            }))
+                        .then_some(census.work?)
+                        .filter(|work| *work > 0)
+                    });
                     tally.undecided.push(format!(
                         "{pair}: {:?}; census {:?}",
                         plan.run,
                         census.map(|census| (census.leaves, census.deepest, census.work))
                     ));
+                    if let Some(work) = finished {
+                        tally.unclean.push(pair.clone());
+                        let compiled = ClaimSupport::new(baseline)
+                            .withdraw(baseline, &mutation.patch)
+                            .ok()
+                            .filter(Withdrawal::trusted)
+                            .and_then(|withdrawal| {
+                                spec.validator
+                                    .validate(withdrawal.patch().unwrap_or(&mutation.patch))
+                                    .ok()
+                            })
+                            .expect("a mutant that ran its tests builds claim-free");
+                        for limit in ladder.budgets(work) {
+                            let bounded = run_campaign_multi_with(
+                                &campaign(std::slice::from_ref(test)),
+                                generations,
+                                &options(WorkBudget::Calibrated {
+                                    factor: 0,
+                                    floor: limit,
+                                }),
+                                &mut session,
+                            )
+                            .unwrap();
+                            tally.bounded_runs += 1;
+                            let at = format!("{pair} budget {limit} (work {work})");
+                            let TestRun::Compared(outcomes) = &bounded.mutants[0].plan.tests[0].run
+                            else {
+                                continue;
+                            };
+                            for (slot, outcome) in outcomes.iter().enumerate() {
+                                match outcome {
+                                    OracleOutcome::Unknown => {}
+                                    OracleOutcome::Distinguish => {
+                                        match one_sided_support::explain_one_sided_kill(
+                                            &compiled,
+                                            &module,
+                                            &test.initial_state,
+                                            budget,
+                                            limit,
+                                            (&plan.run, slot),
+                                            &all_normal,
+                                        ) {
+                                            Ok(explanation) => {
+                                                tally.one_sided_kills.push(format!(
+                                                    "{at} slot {slot} (unclean)"
+                                                ));
+                                                tally.explained.push(format!(
+                                                    "{at} slot {slot}: {explanation:?}"
+                                                ));
+                                            }
+                                            Err(why) => tally
+                                                .failed
+                                                .push(format!("{at} slot {slot}: unexplained: {why}")),
+                                        }
+                                    }
+                                    other => tally.failed.push(format!(
+                                        "{at} slot {slot}: {other:?} beside an unclean unbounded run"
+                                    )),
+                                }
+                            }
+                        }
+                        continue;
+                    }
                     let WorkBudget::Calibrated { .. } = manifest.budget.work() else {
                         continue;
                     };

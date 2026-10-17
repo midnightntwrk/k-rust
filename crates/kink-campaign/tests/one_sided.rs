@@ -10,9 +10,20 @@
 //! Each test pins the verdict with the rule off and on, and checks it against the two-sided
 //! verdict of the unbounded run: a one-sided kill only where the unbounded run distinguishes, and
 //! no other verdict than the unbounded one or `Unknown` under any budget.
+//!
+//! The principle is per path (Sebastien, 2026-10-17; root README, "What a kill trusts"): a
+//! contradicted claim or a terminal that is not a value on another path of the mutant run does
+//! not void the killing leaf, one on its own path does. The L1-2 review's probes
+//! `testdata/k/l1/l12ct.k` and `l12cs.k` pin it (re-pin L1-2-fix-1): their unbounded mutant runs
+//! are `Unknown` (a contradicted claim, a non-value terminal on the late branch), and the
+//! one-sided rule kills them from the early branch, each kill explained leaf by leaf
+//! (`testdata/k/one_sided_support.rs`). The fixture differential runs them too.
 
 #[path = "../../../testdata/k/support.rs"]
 mod support;
+
+#[path = "../../../testdata/k/one_sided_support.rs"]
+mod one_sided_support;
 
 use std::path::Path;
 use std::time::Duration;
@@ -21,16 +32,16 @@ use k_rust::kast::{Sort, Term};
 use k_rust::kompile::CompileOptions;
 use k_rust::kore::{ast::Pattern, walk};
 use kink_campaign::{
-    BaselineSession, Campaign, CampaignOptions, CampaignRun, CrashPolicy, MutantId, MutantStatus,
-    OneSided, OracleDeclaration, OracleOutcome, OracleSide, Projection, RunOptions, ScheduleMode,
-    SelectionPolicy as Sel, SideRun, StateProjection, TestCase, TestRun, WorkBudget,
-    run_campaign_multi_with,
+    BaselineSession, Campaign, CampaignOptions, CampaignRun, CrashPolicy, ExecutionFailureKind,
+    MutantId, MutantStatus, OneSided, OracleDeclaration, OracleOutcome, OracleSide, Projection,
+    RunOptions, ScheduleMode, SelectionPolicy as Sel, SideRun, StateProjection, TestCase, TestRun,
+    WorkBudget, run_campaign_multi_with,
 };
-use kink_native::NativeValidator;
 use kink_native::execution::{ExecutionBudget, ResultModality};
+use kink_native::{NativeValidator, ValidatedDefinition};
 use kink_patch::{
-    Baseline, CandidateGeneration, Edit, Patch, SelectionPolicy, SiteSelector, TermRef,
-    derive_sites, select,
+    Baseline, CandidateGeneration, ClaimSupport, Edit, Patch, SelectionPolicy, SiteSelector,
+    TermRef, derive_sites, select,
 };
 use kink_pattern::ExecutionTerminalKind;
 
@@ -83,8 +94,16 @@ fn path_to(term: &Pattern, symbol: &str) -> Option<Vec<u32>> {
 }
 
 fn validator() -> NativeValidator {
+    validator_of("onesided", "ONESIDED")
+}
+
+/// The validator of `testdata/k/l1/<name>.k`, main module `module`.
+fn validator_of(name: &str, module: &str) -> NativeValidator {
     NativeValidator::bind(
-        support::load_path(&Path::new(support::DIR).join("l1/onesided.k"), "ONESIDED"),
+        support::load_path(
+            &Path::new(support::DIR).join(format!("l1/{name}.k")),
+            module,
+        ),
         CompileOptions::default(),
     )
 }
@@ -123,9 +142,18 @@ fn campaign<'a>(
     tests: &'a [TestCase],
     classify: &'a dyn Fn(&Pattern) -> ExecutionTerminalKind,
 ) -> Campaign<'a> {
+    campaign_of("ONESIDED", validator, tests, classify)
+}
+
+fn campaign_of<'a>(
+    module: &'a str,
+    validator: &'a NativeValidator,
+    tests: &'a [TestCase],
+    classify: &'a dyn Fn(&Pattern) -> ExecutionTerminalKind,
+) -> Campaign<'a> {
     Campaign {
         validator,
-        module: "ONESIDED",
+        module,
         observation: &[],
         classify,
         tests,
@@ -140,6 +168,38 @@ fn replace<'b>(
     from: &str,
     to: &str,
 ) -> CandidateGeneration<'b> {
+    let patch = token_patch(baseline, rule, from, to);
+    let discovery = derive_sites(
+        baseline,
+        rule,
+        &[
+            SiteSelector::RuleLabel(rule.into()),
+            SiteSelector::Path(vec![0]),
+        ],
+    )
+    .unwrap();
+    select(&discovery, SelectionPolicy::Each, 1)
+        .unwrap()
+        .fold(rule, |_| patch.clone())
+        .unwrap()
+}
+
+/// The claim-free mutant of `patch`, as the campaign runner builds it (kink-patch
+/// `ClaimSupport::withdraw`), with the claims it withdrew.
+fn claim_free(validator: &NativeValidator, patch: &Patch) -> (ValidatedDefinition, usize) {
+    let baseline = validator.baseline();
+    let withdrawal = ClaimSupport::new(baseline)
+        .withdraw(baseline, patch)
+        .unwrap();
+    assert!(withdrawal.trusted(), "{withdrawal:?}");
+    let compiled = validator
+        .validate(withdrawal.patch().unwrap_or(patch))
+        .unwrap();
+    (compiled, withdrawal.withdrawn.len())
+}
+
+/// The patch that replaces the only Int token `from` of `rule` by `to`.
+fn token_patch(baseline: &Baseline, rule: &str, from: &str, to: &str) -> Patch {
     fn tokens(
         baseline: &Baseline,
         at: &kink_patch::SentenceRef,
@@ -174,7 +234,7 @@ fn replace<'b>(
         .collect::<Vec<_>>()
         .try_into()
         .unwrap_or_else(|found: Vec<_>| panic!("{rule}: {} tokens {from}", found.len()));
-    let patch = Patch::new(vec![Edit::ReplaceTerm {
+    Patch::new(vec![Edit::ReplaceTerm {
         expected: baseline.term(&at).unwrap().clone(),
         at,
         replacement: Term::Token {
@@ -182,20 +242,7 @@ fn replace<'b>(
             sort: Sort::new("Int"),
         },
     }])
-    .unwrap();
-    let discovery = derive_sites(
-        baseline,
-        rule,
-        &[
-            SiteSelector::RuleLabel(rule.into()),
-            SiteSelector::Path(vec![0]),
-        ],
-    )
-    .unwrap();
-    select(&discovery, SelectionPolicy::Each, 1)
-        .unwrap()
-        .fold(rule, |_| patch.clone())
-        .unwrap()
+    .unwrap()
 }
 
 /// A state-set run with the mutants' work budget `max_work` (none: unbounded) and the rule on or
@@ -440,6 +487,212 @@ fn every_one_sided_kill_agrees_with_the_unbounded_verdict() {
                 .map(|(_, budget, slot)| (*budget, *slot)),
             Some((2, 1))
         );
+    });
+}
+
+/// The review's probes (re-pin L1-2-fix-1): the mutant, init's 7 becomes 6, and the unbounded
+/// verdict of its run of `start(10)`, which does not compare, with the leaf that makes it so.
+const PROBES: [(&str, &str, &str, Expected, &str); 2] = [
+    // f(0) on the late branch: k-rust names the contradicted `total` of f, so the test is no
+    // evidence (decision 2, per test).
+    (
+        "l12ct",
+        "L12CT",
+        "L12CT.init",
+        Expected::Failed(ExecutionFailureKind::ContradictedClaim),
+        "contradicted",
+    ),
+    // f(-1) on the late branch: no equation applies and k-rust names nothing, so the stuck
+    // configuration done(f(-1)) is not a value and both slots are unknown.
+    (
+        "l12cs",
+        "L12CS",
+        "L12CS.init",
+        Expected::Compared([Unknown, Unknown]),
+        "not a value",
+    ),
+];
+
+#[derive(Clone, Copy)]
+enum Expected {
+    Failed(ExecutionFailureKind),
+    Compared([OracleOutcome; 2]),
+}
+
+impl Expected {
+    fn run(self) -> TestRun {
+        match self {
+            Self::Failed(kind) => TestRun::Failed(kind),
+            Self::Compared(outcomes) => TestRun::Compared(outcomes.to_vec()),
+        }
+    }
+}
+
+/// The differential beyond clean unbounded runs (L1-2 review minor 2): on the probes, whose
+/// unbounded run does not compare, every budget below the mutant's work gives `Unknown` on every
+/// slot or a one-sided `Distinguish`, and every one-sided kill is explained: the unbounded run is
+/// unknown only because of a contradicted claim or a non-value terminal on a leaf other than the
+/// killing one (`one_sided_support::explain_one_sided_kill`); anything else fails the test.
+#[test]
+fn every_one_sided_kill_beside_an_unclean_unbounded_run_is_explained() {
+    on_a_big_stack(|| {
+        for (name, module, rule, expected, _) in PROBES {
+            let validator = validator_of(name, module);
+            let tests = flow_slots();
+            let campaign = campaign_of(module, &validator, &tests, &normal);
+            let patch = token_patch(validator.baseline(), rule, "7", "6");
+            let generation = replace(validator.baseline(), rule, "7", "6");
+            let (compiled, _) = claim_free(&validator, &patch);
+            let encoded = k_rust::kast::identifier::encode(module);
+            let (unbounded, work) = run(
+                &campaign,
+                &generation,
+                ScheduleMode::Full,
+                options(None, ON),
+            );
+            let reference = verdict(&unbounded).0;
+            assert_eq!(reference, expected.run(), "{name}");
+            let work = work.expect("the mutant's work");
+            let mut kills = Vec::new();
+            for budget in 0..work {
+                let (on, _) = run(
+                    &campaign,
+                    &generation,
+                    ScheduleMode::Full,
+                    options(Some(budget), ON),
+                );
+                let TestRun::Compared(outcomes) = verdict(&on).0 else {
+                    panic!("{name} budget {budget}: compares")
+                };
+                for (slot, outcome) in outcomes.iter().enumerate() {
+                    match outcome {
+                        Unknown => {}
+                        Distinguish => {
+                            let explanation = one_sided_support::explain_one_sided_kill(
+                                &compiled,
+                                &encoded,
+                                &initial(START),
+                                BUDGET,
+                                budget,
+                                (&reference, slot),
+                                &normal,
+                            )
+                            .unwrap_or_else(|why| {
+                                panic!("{name} budget {budget} slot {slot}: unexplained: {why}")
+                            });
+                            eprintln!("{name} budget {budget} slot {slot}: {explanation:?}");
+                            kills.push((budget, slot));
+                        }
+                        other => panic!("{name} budget {budget} slot {slot}: {other:?}"),
+                    }
+                }
+            }
+            // start(10), go(10, 6), done(16): the early branch is finished from budget 3 on, and
+            // only the whole-term slot can see it (its exit stop is the baseline's).
+            assert_eq!(
+                kills,
+                (3..work).map(|budget| (budget, 1)).collect::<Vec<_>>(),
+                "{name}"
+            );
+        }
+    });
+}
+
+/// The per-path principle on the review's probes (Sebastien, 2026-10-17, "Land per-path, on";
+/// re-pin L1-2-fix-1). The mutant's claim-free definition keeps f's false `total` (the edit is
+/// in a rewrite rule, which removes no claim of f). Unbounded, the two-sided per-test rule makes
+/// the test unknown: l12ct's late branch contradicts the claim (the test is no evidence), l12cs's
+/// ends in done(f(-1)), which is not a value. Under the work budgets 14, 7 and 3 (the mutant's
+/// work is 15) the run has finished the early branch, done(16), which the baseline's complete set
+/// lacks, and the rule kills one-sidedly in both schedules; with it off the test is `Unknown`, as
+/// at budget 2, where done(16) is not yet reached. The killing leaf's own path carries no
+/// contradiction: it is a clean stuck leaf of the unbounded run, distinct from the late branch's
+/// offending leaf, which is the only one. So the two-sided per-test rule is the conservative one
+/// here: a budget gives `Killed` where the unbounded run gives `Unknown`.
+#[test]
+fn a_contradiction_on_another_path_does_not_void_the_killing_leaf() {
+    on_a_big_stack(|| {
+        for (name, module, rule, expected, offence) in PROBES {
+            let validator = validator_of(name, module);
+            let tests = flow_slots();
+            let campaign = campaign_of(module, &validator, &tests, &normal);
+            let patch = token_patch(validator.baseline(), rule, "7", "6");
+            let generation = replace(validator.baseline(), rule, "7", "6");
+            let (compiled, withdrawn) = claim_free(&validator, &patch);
+            assert_eq!(withdrawn, 0, "{name}: f keeps its `total`");
+            for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                let (unbounded, work) = run(&campaign, &generation, schedule, options(None, ON));
+                assert_eq!(
+                    verdict(&unbounded),
+                    (expected.run(), MutantStatus::Unknown),
+                    "{name}"
+                );
+                assert_eq!(work, Some(15), "{name}");
+                assert_eq!(
+                    run(&campaign, &generation, schedule, options(None, OFF)).0,
+                    unbounded
+                );
+                for budget in [14, 7, 3] {
+                    let (on, _) = run(&campaign, &generation, schedule, options(Some(budget), ON));
+                    assert_eq!(
+                        verdict(&on),
+                        (
+                            TestRun::Compared(vec![Unknown, Distinguish]),
+                            MutantStatus::Killed
+                        ),
+                        "{name} budget {budget}"
+                    );
+                    assert_eq!(
+                        on.mutants[0].evidence[0].run,
+                        SideRun::Sides {
+                            sides: vec![OracleSide::Unknown, OracleSide::Unknown]
+                        },
+                        "{name} budget {budget}: the mutant's sides stay unknown"
+                    );
+                    assert_eq!(on.baseline, unbounded.baseline);
+                    let (off, _) =
+                        run(&campaign, &generation, schedule, options(Some(budget), OFF));
+                    assert_eq!(
+                        verdict(&off),
+                        (
+                            TestRun::Compared(vec![Unknown, Unknown]),
+                            MutantStatus::Unknown
+                        ),
+                        "{name} budget {budget} off"
+                    );
+                }
+                let (early, _) = run(&campaign, &generation, schedule, options(Some(2), ON));
+                assert_eq!(
+                    verdict(&early),
+                    (
+                        TestRun::Compared(vec![Unknown, Unknown]),
+                        MutantStatus::Unknown
+                    ),
+                    "{name} budget 2"
+                );
+            }
+            let encoded = k_rust::kast::identifier::encode(module);
+            for budget in [14, 7, 3] {
+                let explanation = one_sided_support::explain_one_sided_kill(
+                    &compiled,
+                    &encoded,
+                    &initial(START),
+                    BUDGET,
+                    budget,
+                    (&expected.run(), 1),
+                    &normal,
+                )
+                .unwrap_or_else(|why| panic!("{name} budget {budget}: {why}"));
+                let [offender] = explanation.offenders.as_slice() else {
+                    panic!("{name}: one offending leaf: {explanation:?}")
+                };
+                assert!(offender.contains(offence), "{name}: {offender}");
+                let [killing] = explanation.killing.as_slice() else {
+                    panic!("{name}: one killing leaf: {explanation:?}")
+                };
+                assert!(!offender.starts_with(&format!("{killing} ")), "{name}");
+            }
+        }
     });
 }
 

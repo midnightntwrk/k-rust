@@ -806,7 +806,9 @@ pub fn paths_from_execution_values(
 /// no free variable) with a definition-independent value (`value`, against this execution's own
 /// definition, TV-01), classified `Normal` or `Stuck`. Its configuration is reached by the run's
 /// initial state and final in every model of the definition, so it is a final configuration of
-/// every completion of the run.
+/// every completion of the run. These are the leaf's own-path conditions of the per-path
+/// principle for claims (re-pin L1-2-fix-1: a contradiction on the leaf's own path voids it, one
+/// on another path does not; kink-campaign `OneSided`).
 #[must_use]
 pub fn work_bound_stuck_terminals(
     execution: &AdaptedExecution,
