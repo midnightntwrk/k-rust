@@ -1,5 +1,5 @@
 // Flow fixture (F-03): programs that end, one that never ends, a rule no
-// program reaches and a function equation that coverage cannot observe.
+// program reaches and a function equation, which `twice` reaches (re-pin L2-1, coverage v2).
 module LOOP-SYNTAX
   imports INT-SYNTAX
   syntax Exp ::= Int

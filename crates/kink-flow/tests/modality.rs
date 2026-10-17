@@ -391,8 +391,9 @@ fn compare_side(
             );
             assert!(state_paths.is_subset(path_paths), "{id}: state-slot inputs");
         }
-        // Rule coverage: equal from both runs, and on a baseline equal to what a stepped path
-        // set's branches name.
+        // Rule coverage: equal from both runs, and on a baseline k-rust's applied rewrite rules
+        // equal what a stepped path set's branches name (an independent check of k-rust's
+        // coverage, which re-pin L2-1 kept when it retired `TestCoverage::of_branches`).
         let coverage = |execution: &AdaptedExecution| {
             let coverage = TestCoverage::of_execution(program, execution, &authors);
             (coverage.complete, coverage.rule_ids, coverage.sentences)
@@ -417,10 +418,26 @@ fn compare_side(
             && let Ok(Ok(stepped)) = adapter.execute_steps(&mut backend, state, budget)
             && !stepped.adapted.timed_out()
         {
-            let branches = TestCoverage::of_branches(program, &stepped.adapted, &authors);
+            let branches = stepped
+                .adapted
+                .leaves()
+                .iter()
+                .flat_map(|leaf| {
+                    leaf.branch
+                        .identity
+                        .iter()
+                        .map(|transition| transition.rule.as_str())
+                        .chain(leaf.undefined_rule.iter().map(|rule| rule.id.as_str()))
+                })
+                .flat_map(|ids| ids.split(','))
+                .filter(|id| !id.is_empty())
+                .map(str::to_owned)
+                .collect::<BTreeSet<_>>();
             assert_eq!(
-                branches.rule_ids,
-                coverage(&state_set).1,
+                Some(&branches),
+                state_set
+                    .coverage()
+                    .map(|coverage| &coverage.applied_rewrites),
                 "{id}: coverage from k-rust and from the branches"
             );
         }

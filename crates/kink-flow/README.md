@@ -138,12 +138,22 @@ a different `run_sha256`, or a record whose `run_sha256` is not the digest of it
 row is a mismatch. Mismatches are listed (program, record path, detail) and records are never
 rewritten by `--verify`; delete a mismatching record (or the cache) to recompute it.
 
-The document lists every program `{id, digest, class, cause, cached, verify, wall_ms}`, every authored
-rule `{module, index, label, file, start_line, end_line, status, reached_by}` with status
+The document (version 2 since re-pin L2-1) lists every program `{id, digest, class, cause, cached, verify, wall_ms}`, every authored
+rule `{module, index, label, file, start_line, end_line, status, reached_by, fired_by}` with status
 `uncovered` (no comparable program reaches it: the next program to write) first, then
-`covered`, then `not-observable` (equations: a run's rule coverage names rewrite rules only), the
+`covered`, then `no-coverage-signal` (none of the rule's compiled ids can appear in a run's coverage: it
+compiles to no axiom, or it is a macro, alias or `smt-lemma` rule; `reason` says which), the
 mismatches, a summary, `baseline_runs` (`results --verify` runs every program live:
 `live` is the number of programs, `reused` 0) and `untargeted_rules`.
+
+A rule's coverage is k-rust's run coverage of each comparable program's baseline run (kink-native
+`coverage`, `kink/coverage/v2` since re-pin L2-1), rewrite rules and equations alike: `reached_by` lists the
+programs that began to decide one of the rule's conditions for an instance whose left-hand side matched, or
+applied it (k-rust `matched`), and `fired_by` those that applied it (`applied`: a rewrite step built a successor,
+or an equation's instance gave a result). Neither is an over-approximation of what can change a result: a
+higher-priority rule whose left-hand side never matched is not reached, although its failure is what lets a
+lower-priority or `owise` rule fire. The record holds the reached and fired sentences (`coverage.sentences`,
+`coverage.applied_sentences`).
 
 `untargeted_rules` is the mutation-side analogue of rule coverage: with `--mutations MUTATIONS.toml`,
 every authored rule that no mutation of that list targets (only mutations that resolve count; an
@@ -261,7 +271,8 @@ is there a program of the corpus whose result the mutation changes?
    is run once more (a timeout depends on the host's load):
    its record is replaced only when the class or the run digest changes, and the row says `"rerun": "timeout"`.
 2. The mutation is resolved into one patch (see `MUTATIONS.toml`); an `invalid-mutation` stops there.
-3. The programs are ordered (O): those whose cached coverage reaches an edited rule first, then the rest;
+3. The programs are ordered (O): those whose cached coverage reaches an edited rule (rewrite rule or equation, k-rust
+   `matched`) first, then the rest;
    inside each group cheapest first, by the result record's `wall_ms` (the program's baseline run time), then the manifest's order
    (`--order corpus`: the manifest's order only, F-05's order, for a reproducible search).
    Under the cost order the measured times decide, so the killer found first (and hinted) and the set of outcomes cached

@@ -15,8 +15,8 @@ use k_rust_backend::{
     definition::BackendDefinition,
 };
 use kink_native::census::{
-    CensusClass, CensusVerdict, DeclarationCensus, EXCLUDED_REFERENCE_MODULES, FOLDED_HOOKS,
-    REFERENCE_FILES, declaration_census, internalize, reference_prelude,
+    CensusClass, CensusVerdict, DeclarationCensus, EXCLUDED_REFERENCE_MODULES, REFERENCE_FILES,
+    declaration_census, internalize, reference_prelude,
 };
 use kink_native::{NativeFailure, NativeValidator, ValidatedDefinition};
 use kink_patch::Baseline;
@@ -264,19 +264,90 @@ fn census_reference_prelude_is_natural() {
     );
 }
 
+/// The hook-name arms of k-rust 927b9ce6's constant folding (kompile/passes/constant_folding.rs
+/// :286-395), which kink-native's census kept out of `inert_hook` until re-pin L2-1 (finding C-07).
+/// That exclusion was dead: a hook with a reference declaration goes to rule H before `inert_hook`
+/// is asked. It stays dead only while every one of these hooks has a reference declaration, which
+/// this list guards; rule H itself is unchanged.
+#[rustfmt::skip]
+const FORMER_FOLDED_HOOKS: &[&str] = &[
+    "BOOL.not",
+    "BOOL.and",
+    "BOOL.andThen",
+    "BOOL.xor",
+    "BOOL.or",
+    "BOOL.orElse",
+    "BOOL.implies",
+    "BOOL.eq",
+    "BOOL.ne",
+    "INT.not",
+    "INT.pow",
+    "INT.powmod",
+    "INT.mul",
+    "INT.tdiv",
+    "INT.tmod",
+    "INT.ediv",
+    "INT.emod",
+    "INT.add",
+    "INT.sub",
+    "INT.shr",
+    "INT.shl",
+    "INT.and",
+    "INT.xor",
+    "INT.or",
+    "INT.min",
+    "INT.max",
+    "INT.abs",
+    "INT.log2",
+    "INT.bitRange",
+    "INT.signExtendBitRange",
+    "INT.lt",
+    "INT.gt",
+    "INT.le",
+    "INT.ge",
+    "INT.eq",
+    "INT.ne",
+    "STRING.concat",
+    "STRING.length",
+    "STRING.chr",
+    "STRING.ord",
+    "STRING.substr",
+    "STRING.find",
+    "STRING.rfind",
+    "STRING.findChar",
+    "STRING.rfindChar",
+    "STRING.string2int",
+    "STRING.int2string",
+    "STRING.string2base",
+    "STRING.base2string",
+    "STRING.replaceAll",
+    "STRING.replace",
+    "STRING.replaceFirst",
+    "STRING.countAllOccurrences",
+    "STRING.eq",
+    "STRING.ne",
+    "STRING.lt",
+    "STRING.gt",
+    "STRING.le",
+    "STRING.ge",
+    "STRING.token2string",
+    "STRING.string2token",
+    "STRING.string2float",
+];
+
 #[test]
 fn census_fold_table_has_reference_declarations() {
     let backend = reference_backend();
-    for hook in FOLDED_HOOKS {
+    for hook in FORMER_FOLDED_HOOKS {
         assert!(
             backend
                 .symbols()
                 .values()
                 .any(|s| s.attributes.hook.as_deref() == Some(hook)),
-            "folded hook {hook} has no reference declaration"
+            "former fold hook {hook} has no reference declaration"
         );
     }
-    assert_eq!(FOLDED_HOOKS.len(), 62);
+    assert_eq!(FORMER_FOLDED_HOOKS.len(), 62);
 }
 
 #[test]

@@ -543,9 +543,18 @@ fn a_ground_map_is_comparable_and_covers_its_rule() {
         text.contains("Lbl'UndsPipe'-'-GT-Unds'") && text.contains("\\dv{SortInt{}}(\"2\")"),
         "{text}"
     );
-    assert_eq!(
-        record["coverage"]["sentences"][0]["label"],
-        "MAP-STORE.store"
+    // Re-pin L2-1 (coverage v2): the run also reaches the prelude's map equations, so the rule
+    // is one of the reached sentences rather than the only one.
+    let reached = |key: &str| {
+        record["coverage"][key]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|sentence| sentence["label"] == "MAP-STORE.store")
+    };
+    assert!(
+        reached("sentences") && reached("applied_sentences"),
+        "{record:#}"
     );
     assert_eq!(document["rules"][0]["status"], "covered");
     assert_eq!(document["rules"][0]["reached_by"], json!(["store"]));
@@ -689,25 +698,26 @@ fn rules_no_comparable_program_reaches_are_listed_first() {
             reached.iter().map(|p| (*p).to_owned()).collect::<Vec<_>>(),
         )
     };
+    // Re-pin L2-1 (coverage v2): the `double` equation, which `twice` evaluates, is reached and
+    // fired like a rewrite rule; before, every equation was `not-observable`.
     assert_eq!(
         listed,
         [
             rule("LOOP.spin", 20, "uncovered", &[]),
             rule("LOOP.unused", 24, "uncovered", &[]),
+            rule("-", 19, "covered", &["twice"]),
             rule("LOOP.countdown", 21, "covered", &["countdown"]),
             rule("LOOP.done", 22, "covered", &["countdown"]),
             rule("LOOP.twice", 23, "covered", &["twice"]),
-            rule("-", 19, "not-observable", &[]),
         ]
     );
-    assert_eq!(
-        document["rules"][5]["reason"],
-        "equation: coverage sees rewrite steps only"
-    );
+    assert_eq!(document["rules"][2]["fired_by"], json!(["twice"]));
+    assert!(document["rules"][2]["reason"].is_null());
+    assert_eq!(document["version"], 2);
     assert_eq!(
         document["summary"],
         json!({"programs": 2, "comparable": 2, "computed": 2, "rules": 6, "uncovered": 2,
-               "covered": 3, "not_observable": 1, "mismatches": 0})
+               "covered": 4, "no_coverage_signal": 0, "mismatches": 0})
     );
     // calc: every rule is covered, the unlabelled one by `sub` alone.
     let (calc, _) = run(&fixture("calc", "rules-calc").join("FLOW.toml"), false);

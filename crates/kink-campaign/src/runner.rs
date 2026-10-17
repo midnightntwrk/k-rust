@@ -658,10 +658,9 @@ pub struct LeafCensus {
     pub leaves: BTreeMap<HaltClass, usize>,
     /// The depth of the deepest leaf; `None` without leaves.
     pub deepest: Option<u64>,
-    /// The compiled rule ids (`UNIQUE_ID`s) of the rewrite rules the run applied, as rule
-    /// coverage reads them: k-rust's run coverage (every run collects it, re-pin L1-1), or, for
-    /// an execution without coverage, its leaves' branch transitions and `rewrite` or
-    /// `remainder` trace entries.
+    /// The compiled ids (`UNIQUE_ID`s) of the rules and equations the run applied: k-rust's run
+    /// coverage's `applied` (every run collects it, re-pin L1-1; equations included since L2-1,
+    /// as kink-native `TestCoverage::applied_ids`); empty for an execution without coverage.
     pub rule_ids: BTreeSet<String>,
     /// The states the run visited (k-rust `work`); `None` for a failed or timed-out run.
     pub work: Option<u64>,
@@ -679,33 +678,13 @@ impl LeafCensus {
             };
         };
         let mut leaves = BTreeMap::new();
-        let mut rule_ids = BTreeSet::new();
-        let mut insert = |entry: &str| {
-            let entry = entry.strip_prefix("remainder:").unwrap_or(entry);
-            rule_ids.extend(
-                entry
-                    .split(',')
-                    .filter(|id| !id.is_empty())
-                    .map(str::to_owned),
-            );
-        };
         for leaf in execution.leaves() {
             *leaves.entry(leaf.halt).or_insert(0) += 1;
-            if execution.coverage().is_some() {
-                continue;
-            }
-            for transition in &leaf.branch.identity {
-                insert(&transition.rule);
-            }
-            for entry in &leaf.branch.trace {
-                if matches!(entry.kind.as_str(), "rewrite" | "remainder") {
-                    insert(&entry.unique_id);
-                }
-            }
         }
-        if let Some(coverage) = execution.coverage() {
-            rule_ids.clone_from(&coverage.applied_rewrites);
-        }
+        let rule_ids = execution
+            .coverage()
+            .map(|coverage| coverage.applied.clone())
+            .unwrap_or_default();
         Self {
             stop: if execution.timed_out() {
                 RunStop::Time

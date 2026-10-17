@@ -239,7 +239,9 @@ fn complete_coverage() -> TestCoverage {
         test_id: "uncovered".into(),
         complete: true,
         rule_ids: BTreeSet::new(),
+        applied_ids: BTreeSet::new(),
         sentences: BTreeSet::new(),
+        applied_sentences: BTreeSet::new(),
         unmapped: BTreeMap::new(),
     }
 }
@@ -263,11 +265,17 @@ fn assert_global(validator: &NativeValidator, patch: &Patch, row: &str) {
     eprintln!("CS07_GLOBAL {row} removed={:?}", edit.removed_rule_ids);
 }
 
+/// Re-pin L2-1: an equation's right-hand side edit is no longer global (it is witnessed by
+/// `applied`, [`equation_edits_are_ordered_by_the_tests_that_reach_them`]); a removed equation, an
+/// inserted rule and a production attribute still select every test.
 #[test]
 fn equations_insertions_and_production_attributes_are_global() {
     with_stack(|| {
         let validator =
             NativeValidator::bind(support::load("guardedeq.k"), CompileOptions::default());
+        let norm = support::rule(validator.baseline(), "GUARDEDEQ.norm");
+        let deleted = Patch::new(vec![Edit::DeleteSentence { at: norm }]).expect("deletion");
+        assert_global(&validator, &deleted, "removed equation");
         let equation = replace(
             validator.baseline(),
             "GUARDEDEQ.norm",
@@ -277,7 +285,15 @@ fn equations_insertions_and_production_attributes_are_global() {
                 sort: KastSort::new("Int"),
             },
         );
-        assert_global(&validator, &equation, "equation");
+        let baseline = validator.compile_baseline().expect("baseline compile");
+        let side = validator.validate(&equation).expect("mutant compile");
+        let edit = CompiledEdit::between(&baseline, &side);
+        assert!(
+            !edit.global,
+            "an equation's right-hand side edit is site-local"
+        );
+        assert!(edit.condition_ids.is_empty());
+        assert_eq!(edit.removed_rule_ids.len(), 1);
 
         let validator =
             NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
@@ -336,6 +352,213 @@ fn equations_insertions_and_production_attributes_are_global() {
         }])
         .expect("production attribute");
         assert_global(&validator, &attr, "production attribute");
+    });
+}
+
+fn coveq_test(id: &str, op: &str, address: i64) -> TestCase {
+    TestCase {
+        id: id.into(),
+        initial_state: support::initial_state(
+            support::app(
+                "Lblseq",
+                vec![
+                    support::app(
+                        op,
+                        vec![
+                            support::app("Lbladdr", vec![support::int(address)]),
+                            support::int(0),
+                        ],
+                    ),
+                    support::app("Lblhalt", vec![]),
+                ],
+            ),
+            "SortProg",
+        ),
+        oracles: vec![whole_term()],
+    }
+}
+
+/// Re-pin L2-1 (deliverable 4; findings D-01, D-03), on the GUARDEDEQ-style fixture
+/// `l2/coveq.k`: coverage v2 covers the equation `norm` (the `pos` run applies it, the `neg` run
+/// matches it and refutes its condition, `store` reaches neither), so an edit of `norm`'s
+/// right-hand side, global before L2-1, is ordered by the runs that applied it (`pos` first, which
+/// kills it, so `FirstKill` runs one test where manifest order ran two), and an edit of its
+/// `requires` by the runs that matched it. Every status and Full killing set is `none`'s.
+#[test]
+fn equation_edits_are_ordered_by_the_tests_that_reach_them() {
+    with_stack(|| {
+        let validator = NativeValidator::bind(
+            support::load_path(
+                &std::path::Path::new(support::DIR).join("l2/coveq.k"),
+                "COVEQ",
+            ),
+            CompileOptions::default(),
+        );
+        let b = validator.baseline();
+        let tests = vec![
+            coveq_test("store", "Lblstore", 1),
+            coveq_test("pos", "Lblload", 1),
+            coveq_test("neg", "Lblload", -1),
+        ];
+        let campaign = Campaign {
+            validator: &validator,
+            module: "COVEQ",
+            observation: &[],
+            classify: &normal,
+            tests: &tests,
+            budget: BUDGET,
+        };
+        let int = |token: &str| Term::Token {
+            token: token.into(),
+            sort: KastSort::new("Int"),
+        };
+        let rhs = replace(b, "COVEQ.norm", &[0, 1], int("7"));
+        let requires = replace(b, "COVEQ.norm", &[1], bool_token("false"));
+        let generations = [
+            fixed(b, "COVEQ.norm", &[0, 1], &rhs),
+            fixed(b, "COVEQ.norm", &[1], &requires),
+        ];
+        let compiled = validator.compile_baseline().expect("baseline");
+        let authors = kink_native::coverage::RuleAuthors::of(&compiled);
+        let ids = |label: &str| {
+            authors
+                .ids_of(&support::rule(b, label))
+                .map(str::to_owned)
+                .collect::<BTreeSet<_>>()
+        };
+        let (norm, norm_neg) = (ids("COVEQ.norm"), ids("COVEQ.normNeg"));
+        assert_eq!(norm.len(), 1);
+        for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+            let run_with = |selection| {
+                kink_campaign::run_campaign_multi(
+                    &campaign,
+                    &generations,
+                    &CampaignOptions {
+                        schedule,
+                        selection,
+                        share_evidence: true,
+                        run: kink_campaign::RunOptions::default(),
+                    },
+                )
+                .expect("campaign")
+            };
+            let (none, run) = (run_with(SelectionPolicy::None), run_with(PRIORITIZE));
+            let [store, pos, neg] = &run.baseline_coverage[..] else {
+                panic!("three tests");
+            };
+            assert!(store.complete && pos.complete && neg.complete);
+            assert!(store.rule_ids.is_disjoint(&norm) && store.rule_ids.is_disjoint(&norm_neg));
+            assert!(norm.is_subset(&pos.applied_ids) && norm.is_subset(&pos.rule_ids));
+            assert!(norm.is_subset(&neg.rule_ids) && neg.applied_ids.is_disjoint(&norm));
+            assert!(norm_neg.is_subset(&neg.applied_ids));
+            assert!(pos.sentences.contains(&support::rule(b, "COVEQ.norm")));
+            let [rhs, requires] = &run.mutants[..] else {
+                panic!("two mutants");
+            };
+            for (mutant, order) in [
+                (rhs, ["pos", "store", "neg"]),
+                (requires, ["pos", "neg", "store"]),
+            ] {
+                let selection = mutant.plan.selection.as_ref().expect("selection");
+                assert!(!selection.global, "{order:?}");
+                assert_eq!(selection.removed_rule_ids, norm);
+                assert_eq!(selection.order, order);
+                assert!(selection.deselected.is_empty());
+            }
+            for (original, mutant) in none.mutants.iter().zip(&run.mutants) {
+                assert_eq!(original.report.status, mutant.report.status);
+                if schedule == ScheduleMode::Full {
+                    assert_eq!(
+                        original.report.killing_test_ids,
+                        mutant.report.killing_test_ids
+                    );
+                }
+            }
+            assert_eq!(rhs.report.status, MutantStatus::Killed);
+            if schedule == ScheduleMode::FirstKill {
+                assert_eq!(rhs.report.executed_test_ids, ["pos"]);
+                assert_eq!(none.mutants[0].report.executed_test_ids, ["store", "pos"]);
+            }
+            eprintln!(
+                "L21_COVEQ {schedule:?} rhs={:?} {:?} requires={:?} {:?} none_executed={:?}",
+                rhs.report.status,
+                rhs.report.executed_test_ids,
+                requires.report.status,
+                requires.report.executed_test_ids,
+                none.mutants
+                    .iter()
+                    .map(|m| m.report.executed_test_ids.clone())
+                    .collect::<Vec<_>>()
+            );
+        }
+    });
+}
+
+/// Re-pin L2-1 (findings D-02's missing test): a test whose baseline coverage is complete and
+/// empty witnesses no edit, so when every test's is, the selection falls back to manifest order
+/// and every status, killing set and executed set equals `SelectionPolicy::None`'s.
+#[test]
+fn empty_complete_coverage_gives_the_statuses_of_selection_none() {
+    with_stack(|| {
+        let validator =
+            NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
+        let specs = step_support::counter(true);
+        let selected = |id: &str, value: &str| TestCase {
+            id: id.into(),
+            initial_state: support::initial_state(
+                support::app(
+                    "Lblselected",
+                    vec![Pattern::DomainValue {
+                        sort: k_rust::kompile::initial_configuration::kore_sort("SortBool"),
+                        value: value.into(),
+                    }],
+                ),
+                "SortControl",
+            ),
+            oracles: vec![whole_term()],
+        };
+        let tests = [selected("true", "true"), selected("false", "false")];
+        let campaign = counter_campaign(&validator, &specs, &tests, BUDGET);
+        let generations = [
+            branch_generation(validator.baseline()),
+            replay_generation(validator.baseline(), true),
+        ];
+        for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+            let run_with = |selection| {
+                kink_campaign::run_campaign_multi(
+                    &campaign,
+                    &generations,
+                    &CampaignOptions {
+                        schedule,
+                        selection,
+                        share_evidence: true,
+                        run: kink_campaign::RunOptions::default(),
+                    },
+                )
+                .expect("campaign")
+            };
+            let (none, run) = (run_with(SelectionPolicy::None), run_with(PRIORITIZE));
+            for coverage in &run.baseline_coverage {
+                assert!(coverage.complete, "{coverage:?}");
+                assert!(coverage.rule_ids.is_empty() && coverage.applied_ids.is_empty());
+            }
+            assert_eq!(none.mutants.len(), run.mutants.len());
+            assert_eq!(none.score, run.score);
+            for (original, mutant) in none.mutants.iter().zip(&run.mutants) {
+                let selection = mutant.plan.selection.as_ref().expect("selection");
+                assert!(!selection.global);
+                assert_eq!(selection.order, ["true", "false"]);
+                assert_eq!(original.report.status, mutant.report.status);
+                assert_eq!(
+                    original.report.killing_test_ids,
+                    mutant.report.killing_test_ids
+                );
+                assert_eq!(
+                    original.report.executed_test_ids,
+                    mutant.report.executed_test_ids
+                );
+            }
+        }
     });
 }
 
@@ -507,7 +730,7 @@ fn prioritize_replay_recomputes_coverage_and_order_in_both_schedules() {
                 );
                 assert_eq!(
                     report.value()["manifest"]["selection"],
-                    json!({"prioritize":{"key":"compiled-rule-ids","coupled":"union","coverage":"kink/coverage/v1"}})
+                    json!({"prioritize":{"key":"compiled-rule-ids","coupled":"union","coverage":"kink/coverage/v2"}})
                 );
                 assert_eq!(
                     report.value()["mutants"][0]["selection"]["order"],

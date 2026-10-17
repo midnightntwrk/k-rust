@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 
 use k_rust::{
+    backend::{ExecutionRole, execution_role},
     kore::{
         ast::{Attributes, Definition, Pattern, Sentence},
         parser::{ParseError, parse_definition},
@@ -15,9 +16,13 @@ use crate::ValidatedDefinition;
 /// Whether two sides have identical executable compiler output.
 ///
 /// The comparison retains every distinct emitted sentence, its first occurrence order, its `UNIQUE_ID`,
-/// and every attribute except KORE `Source`, `Location`, and rule `label`.
-/// Those attributes identify written origins for diagnostics; they do not change backend execution. Identical `UNIQUE_ID`
-/// axioms are counted once, as the backend collapses equal executable copies.
+/// and every attribute except the origin attributes (k-rust `execution_role(..) ==
+/// ExecutionRole::Origin`: `Source` and `Location` at the pinned revision; re-pin L2-1, finding
+/// C-06) and the `label` of an axiom with a `UNIQUE_ID`.
+/// Those attributes identify written origins for diagnostics; they do not change backend execution
+/// (k-rust's `ExecutionRole` contract, which also lets a rule's label go where a `UNIQUE_ID` is its
+/// id). Identical `UNIQUE_ID` axioms are counted once, as the backend collapses equal executable
+/// copies; this dedup is narrower than the contract's, which drops any exact duplicate axiom.
 /// The check also retains syntax and macro KORE, configuration variable sorts,
 /// the source rewrite order, and compile options.
 /// Diagnostic messages and the input-address relation describe compilation
@@ -114,13 +119,63 @@ fn rule_identity(attributes: &Attributes) -> Option<Vec<u8>> {
     })
 }
 
+/// Removes every attribute whose execution role is [`ExecutionRole::Origin`].
 fn strip_origin_attributes(attributes: &mut Attributes) {
     attributes.0.retain(|attribute| {
         !matches!(
             attribute,
             Pattern::Application { symbol, .. }
-                if symbol.name == KoreAttribute::Source.as_str()
-                    || symbol.name == KoreAttribute::Location.as_str()
+                if KoreAttribute::ALL.iter().any(|origin| {
+                    execution_role(*origin) == ExecutionRole::Origin
+                        && symbol.name == origin.as_str()
+                })
         )
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn kore(body: &str) -> String {
+        format!("[]\nmodule M\n{body}\nendmodule []")
+    }
+
+    /// Re-pin L2-1 (finding C-06): the stripped set is k-rust's Origin role, which is exactly
+    /// `Source` and `Location` at the pinned revision; two definitions that differ only there are
+    /// equal, two whose axiom without a `UNIQUE_ID` differs in its label are not, and a label on
+    /// an axiom with one is stripped.
+    #[test]
+    fn origin_attributes_are_the_execution_role_origin_and_only_they_and_ided_labels_go() {
+        let origins = KoreAttribute::ALL
+            .into_iter()
+            .filter(|attribute| execution_role(*attribute) == ExecutionRole::Origin)
+            .collect::<Vec<_>>();
+        assert_eq!(origins, [KoreAttribute::Source, KoreAttribute::Location]);
+        let source = KoreAttribute::Source.as_str();
+        let location = KoreAttribute::Location.as_str();
+        let label = KoreAttribute::Label.as_str();
+        let id = KoreAttribute::UniqueId.as_str();
+        let axiom = |attributes: &str| {
+            kore(&format!(
+                r#"axiom{{}} \rewrites{{S{{}}}}(a{{}}(), b{{}}()) [{attributes}]"#
+            ))
+        };
+        let normal = |text: &str| normalized_kore(text).expect("KORE parses");
+        let at = |file: &str, line: u32| {
+            format!(r#"{source}{{}}("{file}"), {location}{{}}("({line},1,{line},9)")"#)
+        };
+        assert_eq!(
+            normal(&axiom(&format!(r#"{id}{{}}("r"), {}"#, at("a.k", 1)))),
+            normal(&axiom(&format!(r#"{id}{{}}("r"), {}"#, at("b.k", 7))))
+        );
+        assert_eq!(
+            normal(&axiom(&format!(r#"{id}{{}}("r"), {label}{{}}("one")"#))),
+            normal(&axiom(&format!(r#"{id}{{}}("r"), {label}{{}}("two")"#)))
+        );
+        assert_ne!(
+            normal(&axiom(&format!(r#"{label}{{}}("one"), {}"#, at("a.k", 1)))),
+            normal(&axiom(&format!(r#"{label}{{}}("two"), {}"#, at("a.k", 1))))
+        );
+    }
 }

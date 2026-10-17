@@ -449,6 +449,13 @@ fn the_identity_is_an_object_of_its_components() {
     before.as_object_mut().unwrap().remove("one_sided");
     assert_eq!(identity_difference(&before).as_deref(), Some("one_sided"));
     assert_eq!(identity_difference(&identity), None);
+    // Re-pin L2-1: coverage v2 (equations, matched and applied) is another coverage reading, so
+    // an identity written under v1 (f0fc3a1: every other component equal) differs at it, and
+    // every store keyed on the identity misses or refuses it.
+    assert_eq!(identity["coverage"], "kink/coverage/v2");
+    let mut v1 = identity.clone();
+    v1["coverage"] = json!("kink/coverage/v1");
+    assert_eq!(identity_difference(&v1).as_deref(), Some("coverage"));
     for component in KINK_IDENTITY {
         let mut changed = identity.clone();
         changed[component.key] = json!(format!("{}-other", component.value));

@@ -210,9 +210,10 @@ fn a_work_budget_stops_a_run_and_never_completes_it() {
 }
 
 /// Every run collects k-rust's run coverage and carries no trace. A result run is unobserved
-/// (no branch identity), and its rule coverage names the rewrite rules it applied; a stepped run
-/// keeps its branch identities, which name the same rules (`TestCoverage::of_branches`, the
-/// reading before L1-1).
+/// (no branch identity), and its rule coverage names the rules it reached and applied; a stepped
+/// run keeps its branch identities, which name the same rewrite rules as k-rust's
+/// `applied_rewrites` (the reading before L1-1, kept here as an independent check of k-rust's
+/// coverage since re-pin L2-1 retired `TestCoverage::of_branches`).
 #[test]
 fn every_run_collects_coverage_and_carries_no_trace() {
     on_a_big_stack(|| {
@@ -250,10 +251,27 @@ fn every_run_collects_coverage_and_carries_no_trace() {
             assert!(leaf.branch.trace.is_empty());
             assert!(!leaf.branch.identity.is_empty());
         }
+        let named = stepped
+            .adapted
+            .leaves()
+            .iter()
+            .flat_map(|leaf| {
+                leaf.branch
+                    .identity
+                    .iter()
+                    .map(|transition| transition.rule.as_str())
+                    .chain(leaf.undefined_rule.iter().map(|rule| rule.id.as_str()))
+            })
+            .flat_map(|ids| ids.split(','))
+            .filter(|id| !id.is_empty())
+            .map(str::to_owned)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(named, coverage.applied_rewrites);
         assert_eq!(
-            TestCoverage::of_branches("count", &stepped.adapted, &authors).rule_ids,
-            rules.rule_ids
+            stepped.adapted.coverage().map(|c| &c.applied_rewrites),
+            Some(&named)
         );
+        assert!(coverage.applied_rewrites.is_subset(&rules.applied_ids));
         assert_eq!(
             TestCoverage::of_execution("count", &stepped.adapted, &authors),
             rules

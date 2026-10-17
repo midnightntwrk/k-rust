@@ -211,9 +211,12 @@ fn canonical_sort_hook(sort: BuiltinSort) -> Option<&'static str> {
     }
 }
 
+/// A hook absent from the reference prelude that k-rust leaves unimplemented. Only such hooks
+/// reach here: a reference hook goes to rule H first, whatever its name, so the constant-folding
+/// hooks of k-rust 927b9ce6 (every one a reference hook) need no exclusion here (re-pin L2-1,
+/// finding C-07, which removed the dead `FOLDED_HOOKS` clause).
 fn inert_hook(hook: &str) -> bool {
     !hook.starts_with("IO.")
-        && !FOLDED_HOOKS.contains(&hook)
         && matches!(
             std::panic::catch_unwind(|| evaluate_hook(hook, &[])),
             Ok(Ok(Ok(BuiltinResult::Unsupported(
@@ -798,69 +801,3 @@ fn declaration_attributes(
     }
     Ok(declarations)
 }
-
-/// Hook-name arms of k-rust 927b9ce6, kompile/passes/constant_folding.rs:286-395.
-pub const FOLDED_HOOKS: &[&str] = &[
-    "BOOL.not",
-    "BOOL.and",
-    "BOOL.andThen",
-    "BOOL.xor",
-    "BOOL.or",
-    "BOOL.orElse",
-    "BOOL.implies",
-    "BOOL.eq",
-    "BOOL.ne",
-    "INT.not",
-    "INT.pow",
-    "INT.powmod",
-    "INT.mul",
-    "INT.tdiv",
-    "INT.tmod",
-    "INT.ediv",
-    "INT.emod",
-    "INT.add",
-    "INT.sub",
-    "INT.shr",
-    "INT.shl",
-    "INT.and",
-    "INT.xor",
-    "INT.or",
-    "INT.min",
-    "INT.max",
-    "INT.abs",
-    "INT.log2",
-    "INT.bitRange",
-    "INT.signExtendBitRange",
-    "INT.lt",
-    "INT.gt",
-    "INT.le",
-    "INT.ge",
-    "INT.eq",
-    "INT.ne",
-    "STRING.concat",
-    "STRING.length",
-    "STRING.chr",
-    "STRING.ord",
-    "STRING.substr",
-    "STRING.find",
-    "STRING.rfind",
-    "STRING.findChar",
-    "STRING.rfindChar",
-    "STRING.string2int",
-    "STRING.int2string",
-    "STRING.string2base",
-    "STRING.base2string",
-    "STRING.replaceAll",
-    "STRING.replace",
-    "STRING.replaceFirst",
-    "STRING.countAllOccurrences",
-    "STRING.eq",
-    "STRING.ne",
-    "STRING.lt",
-    "STRING.gt",
-    "STRING.le",
-    "STRING.ge",
-    "STRING.token2string",
-    "STRING.string2token",
-    "STRING.string2float",
-];

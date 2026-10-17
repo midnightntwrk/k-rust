@@ -252,10 +252,11 @@ pub struct ResultRun {
 
 /// k-rust's run coverage of one run (`collect_coverage`, `RunCoverageOutput`), by `UNIQUE_ID`:
 /// every rule and equation the run applied, every one whose condition it began to decide
-/// (`matched`, a superset), and the rewrite rules among `applied`: those for which a step built
-/// a successor or found the step undefined (the rule coverage kink schedules by,
-/// [`crate::coverage::TestCoverage`]). It covers every state the run explored, including leaves
-/// a state set merges away. Coverage is a scheduling and report input only.
+/// (`matched`, a superset; the two are what kink schedules by, [`crate::coverage::TestCoverage`]),
+/// and the rewrite rules among `applied`: those for which a step built a successor or found the
+/// step undefined, which a stepped path set's branch identities also name (the L1-1 differential
+/// compares them). It covers every state the run explored, including leaves a state set merges
+/// away. Coverage is a scheduling and report input only.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct RunCoverage {
     pub applied: BTreeSet<String>,

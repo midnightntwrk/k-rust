@@ -344,7 +344,9 @@ fn campaign(v: &Value) -> Result<CorpusCampaign, ManifestError> {
     } else {
         let tagged = object(&map["selection"], &["prioritize"])?;
         let s = object(&tagged["prioritize"], &["key", "coupled", "coverage"])?;
-        if s["key"] != "compiled-rule-ids" || s["coverage"] != "kink/coverage/v1" {
+        if s["key"] != "compiled-rule-ids"
+            || s["coverage"] != kink_native::coverage::COVERAGE_DOMAIN
+        {
             return Err(schema("selection"));
         }
         let coupled = match s["coupled"].as_str() {

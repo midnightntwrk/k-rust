@@ -36,12 +36,7 @@ use crate::{
 };
 use k_rust::{
     definition::{AttributeKey, Sentence},
-    kore::{
-        ast::{Pattern, Sentence as KoreSentence},
-        codec::from_value,
-        parser::parse_definition,
-    },
-    names::KoreAttribute,
+    kore::codec::from_value,
 };
 use kink_campaign::{
     BaselineSession, CallRecording, Campaign, CampaignFailure, CampaignFailureKind,
@@ -54,7 +49,7 @@ use kink_corpus::{
 };
 use kink_native::{
     K_RUST_REVISION,
-    coverage::{RuleAuthors, TestCoverage},
+    coverage::{RuleAuthors, TestCoverage, coverage_domain},
     execution::{ExecutionAdapter, ExecutionBudget, HaltClass, SolverProfile},
 };
 use kink_patch::{
@@ -525,10 +520,11 @@ pub fn timeout_cause(
     )
 }
 
-/// The compiled ids of each authored rule of the specification that compiles to a rewrite rule
-/// (the rules a run's coverage can see).
+/// The compiled ids of each authored rule of the specification with an id in the coverage domain
+/// (kink-native `coverage_domain`: the rules and equations a run's coverage can name; re-pin
+/// L2-1, before which only rewrite rules counted).
 fn observable_rules(spec: &AdmittedSpec, authors: &RuleAuthors) -> Vec<BTreeSet<String>> {
-    let rewrites = rewrite_rule_ids(&spec.compiled.artifacts().definition_kore);
+    let rewrites = coverage_domain(&spec.compiled);
     spec.loaded
         .baseline
         .authored_sentences()
@@ -582,14 +578,20 @@ pub fn sentence_value(spec: &AdmittedSpec, at: &SentenceRef) -> Value {
     })
 }
 
+/// A record's coverage (kink-native `TestCoverage`, coverage v2 since re-pin L2-1): `sentences`
+/// are the baseline sentences the run reached (k-rust `matched`), `applied_sentences` those it
+/// fired (`applied`).
 fn coverage_value(spec: &AdmittedSpec, coverage: &TestCoverage) -> Value {
-    json!({
-        "complete": coverage.complete,
-        "sentences": coverage
-            .sentences
+    let sentences = |sentences: &BTreeSet<SentenceRef>| {
+        sentences
             .iter()
             .map(|at| sentence_value(spec, at))
-            .collect::<Vec<_>>(),
+            .collect::<Vec<_>>()
+    };
+    json!({
+        "complete": coverage.complete,
+        "sentences": sentences(&coverage.sentences),
+        "applied_sentences": sentences(&coverage.applied_sentences),
     })
 }
 
@@ -1071,10 +1073,13 @@ fn program_row(
 }
 
 /// Every authored rule of the specification, with the comparable programs whose coverage
-/// reaches it: uncovered rules first, then covered rules, then the rules no run can observe
-/// (equations and rules that compile to no rewrite rule; coverage sees only rewrite steps).
+/// reaches it (`reached_by`, k-rust `matched`) and fires it (`fired_by`, `applied`): uncovered
+/// rules first, then covered rules, then the rules with no coverage signal (no compiled id in
+/// kink-native's `coverage_domain`: a rule that compiles to no axiom, a macro or alias rule, an
+/// `smt-lemma`; re-pin L2-1, before which every equation was `not-observable`).
 fn rules(spec: &AdmittedSpec, manifest: &FlowManifest, rows: &[ProgramRow]) -> Vec<Value> {
     let mut reached = BTreeMap::<(String, u64), Vec<&str>>::new();
+    let mut fired = BTreeMap::<(String, u64), Vec<&str>>::new();
     for (program, row) in manifest.programs.iter().zip(rows) {
         let Some(record) = &row.record else {
             continue;
@@ -1082,19 +1087,22 @@ fn rules(spec: &AdmittedSpec, manifest: &FlowManifest, rows: &[ProgramRow]) -> V
         if record["class"] != ResultClass::Comparable.as_str() {
             continue;
         }
-        let sentences = record["coverage"]["sentences"].as_array();
-        for sentence in sentences.into_iter().flatten() {
-            if let (Some(module), Some(index)) =
-                (sentence["module"].as_str(), sentence["index"].as_u64())
-            {
-                reached
-                    .entry((module.to_owned(), index))
-                    .or_default()
-                    .push(&program.id);
+        for (key, into) in [
+            ("sentences", &mut reached),
+            ("applied_sentences", &mut fired),
+        ] {
+            for sentence in record["coverage"][key].as_array().into_iter().flatten() {
+                if let (Some(module), Some(index)) =
+                    (sentence["module"].as_str(), sentence["index"].as_u64())
+                {
+                    into.entry((module.to_owned(), index))
+                        .or_default()
+                        .push(&program.id);
+                }
             }
         }
     }
-    let rewrites = rewrite_rule_ids(&spec.compiled.artifacts().definition_kore);
+    let domain = coverage_domain(&spec.compiled);
     let authors = RuleAuthors::of(&spec.compiled);
     let mut groups: [Vec<Value>; 3] = Default::default();
     for (at, sentence) in spec.loaded.baseline.authored_sentences() {
@@ -1103,12 +1111,10 @@ fn rules(spec: &AdmittedSpec, manifest: &FlowManifest, rows: &[ProgramRow]) -> V
         }
         let ids = authors.ids_of(&at).collect::<Vec<_>>();
         let mut value = sentence_value(spec, &at);
-        let programs = reached
-            .get(&(at.module.clone(), u64::from(at.index)))
-            .cloned()
-            .unwrap_or_default();
-        let (group, status) = if !ids.iter().any(|id| rewrites.contains(*id)) {
-            (2, "not-observable")
+        let key = (at.module.clone(), u64::from(at.index));
+        let programs = reached.get(&key).cloned().unwrap_or_default();
+        let (group, status) = if !ids.iter().any(|id| domain.contains(*id)) {
+            (2, NO_COVERAGE_SIGNAL)
         } else if programs.is_empty() {
             (0, "uncovered")
         } else {
@@ -1116,11 +1122,12 @@ fn rules(spec: &AdmittedSpec, manifest: &FlowManifest, rows: &[ProgramRow]) -> V
         };
         value["status"] = json!(status);
         value["reached_by"] = json!(programs);
-        if status == "not-observable" {
+        value["fired_by"] = json!(fired.get(&key).cloned().unwrap_or_default());
+        if status == NO_COVERAGE_SIGNAL {
             value["reason"] = json!(if ids.is_empty() {
                 "compiles to no rule"
             } else {
-                "equation: coverage sees rewrite steps only"
+                "a macro, alias or smt-lemma rule: k-rust's run coverage has no recording site for it"
             });
         }
         groups[group].push(value);
@@ -1128,40 +1135,9 @@ fn rules(spec: &AdmittedSpec, manifest: &FlowManifest, rows: &[ProgramRow]) -> V
     groups.into_iter().flatten().collect()
 }
 
-/// The `UNIQUE_ID`s of the rewrite axioms of compiled KORE: the rules a run's trace can
-/// name. Equations (`\equals` axioms of functions, `anywhere` and macro rules) never appear in
-/// a trace (kink-native coverage.rs, ticket CS-T09). Unparsable KORE gives no id, so every rule
-/// is then reported as not observable rather than as uncovered.
-fn rewrite_rule_ids(kore: &str) -> BTreeSet<String> {
-    let Ok(definition) = parse_definition(kore) else {
-        return BTreeSet::new();
-    };
-    definition
-        .modules
-        .iter()
-        .flat_map(|module| &module.sentences)
-        .filter_map(|sentence| match sentence {
-            KoreSentence::Axiom {
-                pattern,
-                attributes,
-                ..
-            } if matches!(pattern.as_ref(), Pattern::Rewrites { .. }) => {
-                attributes.0.iter().find_map(|attribute| match attribute {
-                    Pattern::Application { symbol, arguments }
-                        if symbol.name == KoreAttribute::UniqueId.as_str() =>
-                    {
-                        match arguments.as_slice() {
-                            [Pattern::String(id)] => id.as_utf8().ok().map(str::to_owned),
-                            _ => None,
-                        }
-                    }
-                    _ => None,
-                })
-            }
-            _ => None,
-        })
-        .collect()
-}
+/// The status of a rule none of whose compiled ids k-rust's run coverage can name: never
+/// `uncovered`, since no program can reach it in coverage's sense.
+const NO_COVERAGE_SIGNAL: &str = "no-coverage-signal";
 
 fn document(
     record: &AdmissionRecord,
@@ -1180,12 +1156,15 @@ fn document(
         "rules": rules.len(),
         "uncovered": count("uncovered"),
         "covered": count("covered"),
-        "not_observable": count("not-observable"),
+        "no_coverage_signal": count(NO_COVERAGE_SIGNAL),
         "mismatches": mismatches.len(),
     });
     json!({
         "schema": "kink-flow-results",
-        "version": 1,
+        // 2 since re-pin L2-1: a rule's status `no-coverage-signal` (summary
+        // `no_coverage_signal`) replaced `not-observable`, equations are covered, and every rule
+        // carries `fired_by`.
+        "version": 2,
         "k_rust_revision": K_RUST_REVISION,
         "profile": SolverProfile::BUILD.name(),
         "result_schema_version": RESULT_SCHEMA_VERSION,

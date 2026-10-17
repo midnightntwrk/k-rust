@@ -193,9 +193,11 @@ fn coverage_pins() {
             assert!(symbolic.observed.complete);
             assert_eq!(symbolic.observed.sentences, refs("COUNTER", &[1, 2]));
         } else {
-            // Indeterminate at depth 0: nothing committed, incomplete.
+            // Indeterminate at depth 0: nothing applied, incomplete; `branch`'s condition was
+            // begun, so coverage v2 reaches it (re-pin L2-1).
             assert!(!symbolic.observed.complete);
-            assert!(symbolic.observed.rule_ids.is_empty());
+            assert!(symbolic.observed.applied_ids.is_empty());
+            assert_eq!(symbolic.observed.rule_ids, ids_of(&authors, &branch));
         }
 
         let (validator, guardeddiv) = compile("guardeddiv.k");
@@ -212,22 +214,24 @@ fn coverage_pins() {
             .collect()
         );
 
-        // The `norm` equation decides load's condition but is not traced (M-C3, CS-T09): a
-        // known under-approximation of coverage.
+        // k-rust's GUARDEDEQ reproducer (HANDOFF KINK-04; re-pin L2-1, findings D-01): the
+        // `norm` equation decides load's condition, so coverage v2 reaches and fires it (before
+        // L2-1 it was left out, M-C3, CS-T09).
         let (validator, guardedeq) = compile("guardedeq.k");
         let eq_authors = RuleAuthors::of(&guardedeq);
         let load = runs(&guardedeq, "GUARDEDEQ", "load", &load_state());
         assert!(load.observed.complete);
-        assert_eq!(load.observed.sentences, refs("GUARDEDEQ", &[5]));
-        assert_eq!(
-            support::rule(validator.baseline(), "GUARDEDEQ.load"),
-            SentenceRef::new("GUARDEDEQ", 5)
-        );
+        let load_rule = support::rule(validator.baseline(), "GUARDEDEQ.load");
+        assert_eq!(load_rule, SentenceRef::new("GUARDEDEQ", 5));
         let norm = support::rule(validator.baseline(), "GUARDEDEQ.norm");
         let norm_ids = ids_of(&eq_authors, &norm);
         assert!(!norm_ids.is_empty(), "the norm equation has a compiled id");
-        assert!(load.observed.rule_ids.is_disjoint(&norm_ids));
-        assert!(!load.observed.sentences.contains(&norm));
+        assert!(norm_ids.is_subset(&load.observed.applied_ids));
+        assert!(load.observed.applied_ids.is_subset(&load.observed.rule_ids));
+        assert!(load.observed.sentences.contains(&norm));
+        assert!(load.observed.applied_sentences.contains(&norm));
+        assert!(load.observed.applied_sentences.contains(&load_rule));
+        eprintln!("COVERAGE_GUARDEDEQ_LOAD {}", load.observed.value());
 
         // M-C4: the observed, unobserved and stepped runs cover the same ids.
         for (name, run) in [
@@ -453,12 +457,15 @@ fn strict_heating_and_cooling_ids_map_to_the_production() {
         assert!(run.observed.complete);
         // A heating and a cooling rule for each of the two strict arguments.
         assert_eq!(generated.len(), 4);
-        // `2` is already a result, so only the first argument heats and cools.
+        // `2` is already a result, so only the first argument heats and cools; the second
+        // argument's heating rule matches, and its condition (`isKResult`) is refuted, so coverage
+        // v2 reaches it without firing it (re-pin L2-1).
         assert_eq!(
-            generated.intersection(&run.observed.rule_ids).count(),
+            generated.intersection(&run.observed.applied_ids).count(),
             2,
             "the first argument's heating and cooling ids"
         );
+        assert_eq!(generated.intersection(&run.observed.rule_ids).count(), 3);
         let add = support::rule(baseline, "STRICTHEAT.add");
         let inc = support::rule(baseline, "STRICTHEAT.inc");
         assert_eq!(

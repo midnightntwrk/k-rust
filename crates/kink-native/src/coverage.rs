@@ -8,37 +8,57 @@
 //! On a mutant side each address is mapped back to the baseline sentence it came from through
 //! the mutant's sentence origins; an inserted sentence has no baseline author.
 //!
-//! [`TestCoverage`] collects the rewrite rules one run applied. Since re-pin lane 1 (L1-1) every
-//! run collects k-rust's run coverage (`collect_coverage`) and carries no trace, so the rule ids
-//! are the rewrite rules among the coverage's `applied` ids
-//! ([`crate::execution::RunCoverage::applied_rewrites`]): every rewrite rule for which a step
-//! built a successor or found the step undefined, over every state the run explored, the states
-//! a state-set result merges away included. That is what the leaves' branch identities, their
-//! `rewrite` and `remainder` trace entries and the rule of an undefined step gave before, which
-//! is still the reading of an execution that carries no coverage ([`TestCoverage::of_execution`]
-//! of a hand-built result). Equations (coverage's other `applied` ids) are left out, as before,
-//! so an equation edit is still never covered by any test (ticket CS-T09; lane 2's L2-1 changes
-//! that, with a new [`COVERAGE_DOMAIN`]).
+//! [`TestCoverage`] is the coverage of one run, read from k-rust's run coverage
+//! (`collect_coverage`, [`crate::execution::RunCoverage`]), which every adapter run collects. Since
+//! re-pin lane 2 (L2-1, [`COVERAGE_DOMAIN`] `kink/coverage/v2`) it holds every compiled id k-rust
+//! records, rewrite rules and equations alike:
+//! - `rule_ids` (reached) are k-rust's `matched` ids, which include `applied`: every rule and
+//!   equation whose condition the run began to decide for an instance whose left-hand side
+//!   matched, whatever the verdict, and every one the run applied;
+//! - `applied_ids` (fired) are k-rust's `applied` ids: every rule for which a step built a
+//!   successor or found the step undefined, and every equation whose instance gave a result.
 //!
-//! Coverage is a scheduling input only. No oracle, fold, status or score reads it: rule
-//! identity enters scheduling, never an observation (SO-D1 = a).
+//! Both cover every state the run explored, the states a state-set result merges away included.
+//! Before L2-1 (`kink/coverage/v1`) the rule ids were the rewrite rules among `applied` only, so
+//! an equation edit was never covered (ticket CS-T09), and an execution without run coverage was
+//! read from its leaves' branch identities and traces. Such an execution (only a hand-built
+//! result has one) now has no coverage signal: it is incomplete and lists nothing.
+//!
+//! Some compiled ids have no recording site in k-rust, so no run ever names them: `smt-lemma`
+//! axioms, macro and alias rules (`macros_kore`), and claims; builtin hooks are not axioms at all
+//! (k-rust `coverage::RunCoverage`). [`coverage_domain`] is the set of ids that do have one. A
+//! rule none of whose ids is in it has no coverage signal and is never reported as uncovered.
+//!
+//! The sets are no over-approximation of what can affect a result: a higher-priority rule or
+//! equation whose left-hand side did not match is absent, though its failure is what lets a lower
+//! one fire, and an equation behind one that applies is never scanned (findings D-03). Coverage is
+//! a scheduling and report input only. No oracle, fold, status or score reads it: rule identity
+//! enters scheduling, never an observation (SO-D1 = a). Scheduling only orders tests; it never
+//! leaves one out (kink-campaign `selection`).
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use k_rust::backend::{BackendDiagnosticOutput, TraceEntry, TransitionIdOutput};
+use k_rust::backend::BackendDiagnosticOutput;
+use k_rust::kore::{
+    ast::{Pattern, Sentence},
+    parser::parse_definition,
+};
+use k_rust::names::KoreAttribute;
 use k_rust::provenance::InputSpace;
 use kink_patch::{SentenceOrigin, SentenceRef, Sha256Digest};
 use serde_json::{Value, json};
 
 use crate::ValidatedDefinition;
 use crate::execution::{
-    AdaptedExecution, AdaptedLeaf, BaselineLeaf, HaltClass, UndefinedStepRule, UnobservedExecution,
+    AdaptedExecution, AdaptedLeaf, BaselineLeaf, HaltClass, RunCoverage, UnobservedExecution,
 };
 
 /// Domain of the canonical coverage list and its payload digest, and the version of how coverage
 /// is read. Coverage orders the schedule, so under `FirstKill` it can decide which test kills;
-/// kink's semantics identity names it (kink-campaign `identity`).
-pub const COVERAGE_DOMAIN: &str = "kink/coverage/v1";
+/// kink's semantics identity names it (kink-campaign `identity`). v2 (re-pin L2-1): `rule_ids`
+/// are k-rust's `matched` ids, equations included, and `applied_ids` its `applied` ids; v1's
+/// `rule_ids` were the rewrite rules among `applied`.
+pub const COVERAGE_DOMAIN: &str = "kink/coverage/v2";
 
 /// Unmapped reason of an id whose every author is a sentence the mutant's patch inserted.
 pub const UNMAPPED_INSERTED: &str = "inserted";
@@ -186,210 +206,112 @@ impl RuleAuthors {
 pub struct TestCoverage {
     pub test_id: String,
     /// The run did not time out and every leaf is `Stuck`, `Trivial` or `Vacuous` with no
-    /// diagnostic (leaf, candidate or remainder) and, for a run read from its trace, no trace
-    /// entry of an unknown kind. A run that is not complete covers only what it explored.
+    /// diagnostic (leaf, candidate or remainder). A run that is not complete (a work-bound,
+    /// depth-bound or undecided leaf, a diagnostic) covers only what it explored before it
+    /// stopped, which depends on where it stopped.
     pub complete: bool,
-    /// The committed rule identities (README corpus-scale 4.5).
+    /// The reached compiled ids (README corpus-scale 4.5): k-rust's `matched`, which includes
+    /// `applied`.
     pub rule_ids: BTreeSet<String>,
+    /// The fired compiled ids: k-rust's `applied`, a subset of `rule_ids`.
+    pub applied_ids: BTreeSet<String>,
     /// The baseline sentences behind `rule_ids`.
     pub sentences: BTreeSet<SentenceRef>,
+    /// The baseline sentences behind `applied_ids`.
+    pub applied_sentences: BTreeSet<SentenceRef>,
     /// The ids of `rule_ids` with no baseline sentence, with the reason (generating pass or an
     /// `UNMAPPED_*` value).
     pub unmapped: BTreeMap<String, String>,
 }
 
-/// The fields of one leaf that coverage reads, for observed and unobserved leaves alike.
-struct LeafView<'a> {
+/// Whether one leaf leaves its run complete, for observed and unobserved leaves alike.
+fn leaf_complete(
     halt: HaltClass,
-    branch: &'a [TransitionIdOutput],
-    trace: &'a [TraceEntry],
-    undefined_rule: Option<&'a UndefinedStepRule>,
-    diagnostics: [&'a [BackendDiagnosticOutput]; 2],
-    candidate_diagnostics: &'a [Vec<BackendDiagnosticOutput>],
+    diagnostics: [&[BackendDiagnosticOutput]; 2],
+    candidate_diagnostics: &[Vec<BackendDiagnosticOutput>],
+) -> bool {
+    matches!(
+        halt,
+        HaltClass::Stuck | HaltClass::Trivial | HaltClass::Vacuous
+    ) && diagnostics.iter().all(|list| list.is_empty())
+        && candidate_diagnostics.iter().all(Vec::is_empty)
 }
 
-impl<'a> LeafView<'a> {
-    fn adapted(leaf: &'a AdaptedLeaf) -> Self {
-        Self {
-            halt: leaf.halt,
-            branch: &leaf.branch.identity,
-            trace: &leaf.branch.trace,
-            undefined_rule: leaf.undefined_rule.as_ref(),
-            diagnostics: [&leaf.diagnostics, &leaf.remainder_diagnostics],
-            candidate_diagnostics: &leaf.candidate_diagnostics,
-        }
-    }
-
-    fn unobserved(leaf: &'a BaselineLeaf) -> Self {
-        Self {
-            halt: leaf.halt,
-            branch: &leaf.branch,
-            trace: &leaf.trace,
-            undefined_rule: leaf.undefined_rule.as_ref(),
-            diagnostics: [&leaf.diagnostics, &leaf.remainder_diagnostics],
-            candidate_diagnostics: &leaf.candidate_diagnostics,
-        }
-    }
-
-    fn complete(&self) -> bool {
-        matches!(
-            self.halt,
-            HaltClass::Stuck | HaltClass::Trivial | HaltClass::Vacuous
-        ) && self.diagnostics.iter().all(|list| list.is_empty())
-            && self.candidate_diagnostics.iter().all(Vec::is_empty)
-    }
+fn adapted_complete(leaf: &AdaptedLeaf) -> bool {
+    leaf_complete(
+        leaf.halt,
+        [&leaf.diagnostics, &leaf.remainder_diagnostics],
+        &leaf.candidate_diagnostics,
+    )
 }
 
-/// Inserts the ids of one branch or trace entry: a `remainder:` entry lists the rules whose
-/// negated conditions define the branch, joined by `,`.
-fn insert_ids(ids: &mut BTreeSet<String>, entry: &str) {
-    let entry = entry.strip_prefix("remainder:").unwrap_or(entry);
-    ids.extend(
-        entry
-            .split(',')
-            .filter(|id| !id.is_empty())
-            .map(str::to_owned),
-    );
+fn unobserved_complete(leaf: &BaselineLeaf) -> bool {
+    leaf_complete(
+        leaf.halt,
+        [&leaf.diagnostics, &leaf.remainder_diagnostics],
+        &leaf.candidate_diagnostics,
+    )
 }
 
 impl TestCoverage {
-    /// The coverage of a result or stepped run (for a stepped run, its `adapted` leaves): the
-    /// rewrite rules of k-rust's run coverage when the run carries it, as every adapter run does;
-    /// otherwise what its leaves' branches and traces name.
+    /// The coverage of a result or stepped run (for a stepped run, its `adapted` leaves), from
+    /// k-rust's run coverage, which every adapter run carries. An execution without it has no
+    /// coverage signal ([`Self::failed`]).
     #[must_use]
     pub fn of_execution(
         test_id: &str,
         execution: &AdaptedExecution,
         authors: &RuleAuthors,
     ) -> Self {
-        let leaves = execution.leaves().iter().map(LeafView::adapted);
-        match execution.coverage() {
-            Some(coverage) => Self::of_run(
-                test_id,
-                execution.timed_out(),
-                leaves,
-                &coverage.applied_rewrites,
-                authors,
-            ),
-            None => Self::of_leaves(test_id, execution.timed_out(), leaves, authors),
-        }
-    }
-
-    /// The coverage an execution's leaves name, ignoring its run coverage: branch identities
-    /// (a stepped run's), `rewrite` and `remainder` trace entries, and the rule of an undefined
-    /// step. This is the reading before re-pin L1-1; it is kept for the coverage differential
-    /// (equal rule ids from a stepped path set's branches and from a run's coverage) until lane
-    /// 2's L2-1 retires it.
-    #[must_use]
-    pub fn of_branches(test_id: &str, execution: &AdaptedExecution, authors: &RuleAuthors) -> Self {
-        Self::of_leaves(
+        Self::of_run(
             test_id,
             execution.timed_out(),
-            execution.leaves().iter().map(LeafView::adapted),
+            execution.leaves().iter().all(adapted_complete),
+            execution.coverage(),
             authors,
         )
     }
 
-    /// The coverage of an unobserved run, as [`Self::of_execution`]; without run coverage its
-    /// leaves carry no branch identity, so it reads the trace alone, which lists the same
-    /// rewrite and remainder ids (M-C4).
+    /// The coverage of an unobserved run, as [`Self::of_execution`].
     #[must_use]
     pub fn of_unobserved(
         test_id: &str,
         execution: &UnobservedExecution,
         authors: &RuleAuthors,
     ) -> Self {
-        let leaves = execution.leaves.iter().map(LeafView::unobserved);
-        match &execution.coverage {
-            Some(coverage) => Self::of_run(
-                test_id,
-                execution.timed_out,
-                leaves,
-                &coverage.applied_rewrites,
-                authors,
-            ),
-            None => Self::of_leaves(test_id, execution.timed_out, leaves, authors),
-        }
+        Self::of_run(
+            test_id,
+            execution.timed_out,
+            execution.leaves.iter().all(unobserved_complete),
+            execution.coverage.as_ref(),
+            authors,
+        )
     }
 
-    /// The coverage of a run that collected k-rust's run coverage: `rule_ids` are the rewrite
-    /// rules it applied, and the run is complete as [`Self::of_leaves`] reads it from its halts
-    /// and diagnostics (it has no trace to read).
-    fn of_run<'a>(
+    /// A timed-out run is incomplete and lists nothing: k-rust answers its cancellation with an
+    /// error, so it carries no coverage, and where the watchdog stopped it depends on the host.
+    /// A run without run coverage lists nothing either.
+    fn of_run(
         test_id: &str,
         timed_out: bool,
-        leaves: impl Iterator<Item = LeafView<'a>>,
-        rule_ids: &BTreeSet<String>,
-        authors: &RuleAuthors,
-    ) -> Self {
-        if timed_out {
-            return Self::failed(test_id);
-        }
-        let mut complete = true;
-        for leaf in leaves {
-            complete &= leaf.complete();
-        }
-        Self::mapped(test_id, complete, rule_ids.clone(), authors)
-    }
-
-    /// A run that produced no execution (an adapter failure): incomplete, nothing covered.
-    #[must_use]
-    pub fn failed(test_id: &str) -> Self {
-        Self {
-            test_id: test_id.to_owned(),
-            complete: false,
-            rule_ids: BTreeSet::new(),
-            sentences: BTreeSet::new(),
-            unmapped: BTreeMap::new(),
-        }
-    }
-
-    /// A timed-out run is incomplete and lists nothing: its leaves are not its path set, and
-    /// where the watchdog stopped it depends on the host, so no id of it is recorded.
-    fn of_leaves<'a>(
-        test_id: &str,
-        timed_out: bool,
-        leaves: impl Iterator<Item = LeafView<'a>>,
-        authors: &RuleAuthors,
-    ) -> Self {
-        if timed_out {
-            return Self::failed(test_id);
-        }
-        let mut complete = true;
-        let mut rule_ids = BTreeSet::new();
-        for leaf in leaves {
-            complete &= leaf.complete();
-            for transition in leaf.branch {
-                insert_ids(&mut rule_ids, &transition.rule);
-            }
-            for entry in leaf.trace {
-                match entry.kind.as_str() {
-                    "rewrite" | "remainder" => insert_ids(&mut rule_ids, &entry.unique_id),
-                    // Simplifications and claims are not rule coverage; equations deciding a
-                    // condition are not traced at all (CS-T09).
-                    "simplification" | "claim" => {}
-                    _ => complete = false,
-                }
-            }
-            if let Some(rule) = leaf.undefined_rule {
-                insert_ids(&mut rule_ids, &rule.id);
-            }
-        }
-        Self::mapped(test_id, complete, rule_ids, authors)
-    }
-
-    /// `rule_ids` with the baseline sentences behind them.
-    fn mapped(
-        test_id: &str,
         complete: bool,
-        rule_ids: BTreeSet<String>,
+        coverage: Option<&RunCoverage>,
         authors: &RuleAuthors,
     ) -> Self {
+        let Some(coverage) = coverage.filter(|_| !timed_out) else {
+            return Self::failed(test_id);
+        };
         let mut sentences = BTreeSet::new();
+        let mut applied_sentences = BTreeSet::new();
         let mut unmapped = BTreeMap::new();
-        for id in &rule_ids {
+        for id in &coverage.matched {
             match authors.get(id) {
-                Some(Authorship::Sentences(authors)) => sentences.extend(authors.iter().cloned()),
+                Some(Authorship::Sentences(authors)) => {
+                    sentences.extend(authors.iter().cloned());
+                    if coverage.applied.contains(id) {
+                        applied_sentences.extend(authors.iter().cloned());
+                    }
+                }
                 Some(Authorship::Unmapped(reason)) => {
                     unmapped.insert(id.clone(), reason.clone());
                 }
@@ -401,25 +323,46 @@ impl TestCoverage {
         Self {
             test_id: test_id.to_owned(),
             complete,
-            rule_ids,
+            rule_ids: coverage.matched.clone(),
+            applied_ids: coverage.applied.clone(),
             sentences,
+            applied_sentences,
             unmapped,
         }
     }
 
-    /// The canonical value: `{"test_id","complete","rule_ids","sentences","unmapped"}`, every
-    /// list sorted.
+    /// A run that produced no execution (an adapter failure), or no coverage signal: incomplete,
+    /// nothing covered.
+    #[must_use]
+    pub fn failed(test_id: &str) -> Self {
+        Self {
+            test_id: test_id.to_owned(),
+            complete: false,
+            rule_ids: BTreeSet::new(),
+            applied_ids: BTreeSet::new(),
+            sentences: BTreeSet::new(),
+            applied_sentences: BTreeSet::new(),
+            unmapped: BTreeMap::new(),
+        }
+    }
+
+    /// The canonical value: `{"test_id","complete","rule_ids","applied_ids","sentences",
+    /// "applied_sentences","unmapped"}`, every list sorted.
     #[must_use]
     pub fn value(&self) -> Value {
+        let sentences = |sentences: &BTreeSet<SentenceRef>| {
+            sentences
+                .iter()
+                .map(|at| json!({"module": at.module, "index": at.index}))
+                .collect::<Vec<_>>()
+        };
         json!({
             "test_id": self.test_id,
             "complete": self.complete,
             "rule_ids": self.rule_ids,
-            "sentences": self
-                .sentences
-                .iter()
-                .map(|at| json!({"module": at.module, "index": at.index}))
-                .collect::<Vec<_>>(),
+            "applied_ids": self.applied_ids,
+            "sentences": sentences(&self.sentences),
+            "applied_sentences": sentences(&self.applied_sentences),
             "unmapped": self
                 .unmapped
                 .iter()
@@ -427,6 +370,45 @@ impl TestCoverage {
                 .collect::<Vec<_>>(),
         })
     }
+}
+
+/// The coverage domain of a compiled side: the ids of its axioms that k-rust's run coverage can
+/// name, which are every `UNIQUE_ID` axiom of `definition_kore` except `smt-lemma` axioms. A
+/// claim, a macro or alias rule (`macros_kore`) and an `smt-lemma` axiom have no recording site
+/// (k-rust `coverage::RunCoverage`). Unparsable KORE gives the empty set, so every rule then has
+/// no coverage signal rather than being uncovered.
+#[must_use]
+pub fn coverage_domain(validated: &ValidatedDefinition) -> BTreeSet<String> {
+    let Ok(definition) = parse_definition(&validated.artifacts().definition_kore) else {
+        return BTreeSet::new();
+    };
+    let named = |pattern: &Pattern, attribute: KoreAttribute| matches!(pattern, Pattern::Application { symbol, .. } if symbol.name == attribute.as_str());
+    definition
+        .modules
+        .iter()
+        .flat_map(|module| &module.sentences)
+        .filter_map(|sentence| match sentence {
+            Sentence::Axiom { attributes, .. }
+                if !attributes
+                    .0
+                    .iter()
+                    .any(|attribute| named(attribute, KoreAttribute::SmtLemma)) =>
+            {
+                attributes.0.iter().find_map(|attribute| match attribute {
+                    Pattern::Application { symbol, arguments }
+                        if symbol.name == KoreAttribute::UniqueId.as_str() =>
+                    {
+                        match arguments.as_slice() {
+                            [Pattern::String(id)] => id.as_utf8().ok().map(str::to_owned),
+                            _ => None,
+                        }
+                    }
+                    _ => None,
+                })
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 /// Canonical JSON of a coverage list, in the given (manifest) order.
@@ -437,7 +419,7 @@ pub fn coverage_text(coverage: &[TestCoverage]) -> String {
     ))
 }
 
-/// `payload_digest("kink/coverage/v1", coverage_text(coverage))`.
+/// `payload_digest(COVERAGE_DOMAIN, coverage_text(coverage))`.
 #[must_use]
 pub fn coverage_digest(coverage: &[TestCoverage]) -> Sha256Digest {
     kink_patch::payload_digest(COVERAGE_DOMAIN, coverage_text(coverage).as_bytes())
