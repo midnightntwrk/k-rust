@@ -61,11 +61,11 @@ fn bytes_to_string(arguments: &[Term]) -> HookResult<BuiltinResult> {
     Ok(BuiltinResult::Value(string_term(decode_8_bit(&bytes))))
 }
 
-/// `String2Bytes` is the inverse of `Bytes2String`: each code point `b` in `0..255` maps to the
+/// `String2Bytes` is the inverse of `Bytes2String`: each code point `b` in `0..=255` maps to the
 /// byte `b`. That is k-rust's stated reading of `domains.md`'s "the resulting value is a copy of
 /// the original" over the strings the module supports, those of the initial 256 code points: a
 /// copy keeps each item, and on those strings every item on either side is a number in
-/// `0..255`, so both `total` conversions are total and mutually inverse there (`encodeBytes` and
+/// `0..=255`, so both `total` conversions are total and mutually inverse there (`encodeBytes` and
 /// `decodeBytes`, which name their encoding, are the conversions that encode). The hook is
 /// `total`, so on a string holding a code point above 255, which is the copy of no byte
 /// sequence, its value is not given by the definition and the application is left unevaluated.

@@ -298,10 +298,12 @@ pub(crate) fn mixed_destination(hook: &str, arguments: &[Term]) -> Option<MixedP
 /// argument is a NaN of any format; `None` otherwise.
 ///
 /// `signFloat` is "the value of the sign bit" of a `Float`, a value of an IEEE-like format, in
-/// which every value, a NaN included, has a sign bit. A format has one NaN: the literal syntax
-/// writes signed zeros and infinities but one unsigned `NaN` per format, and `Float2String`
-/// round-trips every `Float` through that syntax, so no value is a second NaN of the format.
-/// The description does not say which sign bit that NaN has, so it gives the application a
+/// which every value, a NaN included, has a sign bit. k-rust reads every spelling of `NaN` in one
+/// format as the one NaN of that format, as the canonical text stores it (payloads are not
+/// modelled); the literal syntax writes one unsigned `NaN` lexeme per format beside signed zeros
+/// and infinities, and `Float2String` round-trips every `Float` through that syntax, which that
+/// reading makes one NaN per format. The description does not say which sign bit that NaN has,
+/// so only the sign bit is open: it gives the application a
 /// Bool value in every model, whatever its declaration says, but which one the definition does
 /// not determine (class `nan-sign`): the evaluator's `false` is k-rust's reading, applied only
 /// in an execution (`super::implementation_chosen`). The argument is read exactly as the
