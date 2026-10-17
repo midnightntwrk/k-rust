@@ -350,13 +350,17 @@ fn campaign(v: &Value) -> Result<CorpusCampaign, ManifestError> {
         let coverage = kink_native::coverage::COVERAGE_DOMAIN;
         if s["coverage"] != coverage {
             // Re-pin L2-1-tail (review L2-1-1, D6): say why, since an older declaration names a
-            // coverage reading that is retired rather than malformed (v1 before L2-1, v2 before
-            // L2-1-tail).
+            // coverage reading that is retired rather than malformed (kink-native's
+            // RETIRED_COVERAGE_DOMAINS beside COVERAGE_DOMAIN; review L2-1-tail-1 D4).
             return Err(schema(match s["coverage"].as_str() {
-                Some(declared @ ("kink/coverage/v1" | "kink/coverage/v2")) => format!(
-                    "selection: coverage {declared} is retired; this build reads only \
-                     {coverage}, so declare \"coverage\": \"{coverage}\""
-                ),
+                Some(declared)
+                    if kink_native::coverage::RETIRED_COVERAGE_DOMAINS.contains(&declared) =>
+                {
+                    format!(
+                        "selection: coverage {declared} is retired; this build reads only \
+                         {coverage}, so declare \"coverage\": \"{coverage}\""
+                    )
+                }
                 _ => format!("selection: coverage must be {coverage}"),
             }));
         }

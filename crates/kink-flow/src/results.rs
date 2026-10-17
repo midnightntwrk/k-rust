@@ -317,6 +317,7 @@ impl<'a> BaselineRunner<'a> {
             selection: kink_campaign::SelectionPolicy::None,
             share_evidence: true,
             run: kink_campaign::RunOptions::default(),
+            compile_workers: 1,
         };
         let result = self.call(std::slice::from_ref(&test), &self.generations, &options);
         let recording = self.last_call();

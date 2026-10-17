@@ -263,7 +263,7 @@ a reason and a detail; it is never compiled. Reasons:
 | `no-change` | The edited rule equals the original up to formatting. |
 | `no-usable-span`, `patch-rejected` | Defensive: a rule's offsets and location name different text of its K view, or kink-patch refused the patch for a reason other than typing (a stale pin, a patch that does not resolve); not expected on rules k-rust loaded. No typing error refuses a mutation (re-pin L2-2-fix-1): a mutant is valid when it compiles, so compilation decides, and kink-patch records the edited rules' errors in compilation's typing view (`SentenceTyper::for_compilation` with `typing_in`) as the row's `typing_diagnostics`. k-rust documents that view's errors as errors compilation stops at, but at 501f18b9 it refuses shapes compilation accepts: a local function with a variable in a cell with children (`CellCompletion`), and a rule `a(X) => b(X)` whose sorts `A` and `B` have a second common supersort in the main module (a non-unique least upper bound). |
 
-## `kink-flow run FLOW.toml MUTATIONS.toml [--only ID]... [--verify] [--order cost|corpus] [--cache DIR]`
+## `kink-flow run FLOW.toml MUTATIONS.toml [--only ID]... [--verify] [--order cost|corpus] [--compile-workers N] [--cache DIR]`
 
 Runs the kill search: for each mutation of the list (in file order; with `--only`, only the named ones),
 is there a program of the corpus whose result the mutation changes?
@@ -276,15 +276,15 @@ is there a program of the corpus whose result the mutation changes?
 2. The mutation is resolved into one patch (see `MUTATIONS.toml`); an `invalid-mutation` stops there.
 3. The programs are ordered (O): those whose cached coverage witnesses an edited rule's edit (rewrite rule or equation) first, then the rest.
    An edit that changes the rule's `requires` is witnessed by a program that reached the rule (k-rust `matched`: it began to decide the condition); every other edit (a right-hand side, an `ensures`, a left-hand side, an attribute, a deletion) by one that fired it (`applied`), since a program that only refuted the rule's guard never runs what the rule does (re-pin L2-1-tail).
-   The edit is read from the rule's text before and after it, before the mutant compiles, so this is kink-campaign's reading of a site-local edit (README.md, trust section), except that an equation edit kink-campaign leaves in manifest order (its left-hand side, an attribute, an `owise`, `smt-lemma`, `concrete` or `symbolic` equation, a deleted equation) still puts first the programs that fired the equation, or reached it for a `requires` edit;
+   The edit is read from the rule's text before and after it, before the mutant compiles, so this is kink-campaign's reading of a site-local edit (README.md, trust section), except that an equation edit kink-campaign leaves in manifest order (its left-hand side, an attribute, an `owise`, `smt-lemma`, `concrete` or `symbolic` equation, a deleted equation) still puts first the programs that fired the equation, or reached it for a `requires` edit, and that a rewrite rule edit changing the `requires` together with the left-hand side or an attribute is witnessed by `matched` here and by `applied` in kink-campaign (review L2-1-tail-1 D3);
    inside each group cheapest first, by the result record's `wall_ms` (the program's baseline run time), then the manifest's order
    (`--order corpus`: the manifest's order only, F-05's order, for a reproducible search).
    Under the cost order the measured times decide, so the killer found first (and hinted) and the set of outcomes cached
    (first-kill caches nothing for the programs after the kill) can differ between hosts and runs; the content of every
    cached outcome cannot, and with `--order corpus` the outcomes and hints written are reproducible byte for byte.
-   In the no-Z3 profile (the default build) the order never changes a status: a kill outranks every other outcome under first-kill, and a mutant that fails as a whole
+   In the no-Z3 profile (the default build), while no `budget.time_ms` bound fires, the order never changes a status: a kill outranks every other outcome under first-kill, and a mutant that fails as a whole
    fails before any program runs; it changes which killing program is found first (the reported killer and the hint) and the cost.
-   That needs each program's outcome to be independent of the programs run before it in the same call. Under Z3 it is not: a solver query can time out, and the mutant's backend, reused for every program of a call, caches satisfiability answers, so the order can move a status between `killed` and `unknown` (never to a false kill: a kill is still a proved difference); tier 1 is off under Z3 for the same reason.
+   That needs each program's outcome to be independent of the programs run before it in the same call. Under Z3 it is not: a solver query can time out, and the mutant's backend, reused for every program of a call, caches satisfiability answers, so the order can move a status between `killed`, `unknown` and `survived`: a timed-out query makes a program `unknown`, and an answer an earlier program cached can turn it into a kill or an agreement, so with no kill the status is `survived` in one order and `unknown` in the other (never a false kill: a kill is still a proved difference); tier 1 is off under Z3 for the same reason. A run near its `budget.time_ms` bound can likewise time out in one order, while caches are cold, and finish in another, in either profile; a `timeout` is host- and timing-dependent anyway (review L2-1-tail-1 D1, D2).
    Existing hints are kept; deleting `hints.json` and `outcomes/` re-runs the cold searches in the new order.
 4. **Outcome cache, tier 1.** Each program of O may have a cached outcome for this mutation: `killed` (a proved difference) or `agree`.
    A cached outcome is used only when its key is exactly the current one (see "The cache directory" below) and the program's
@@ -312,6 +312,12 @@ is there a program of the corpus whose result the mutation changes?
    a failed or skipped run, and every outcome of a call whose mutant failed as a whole are never cached.
    A `killed` mutation's first killing program becomes its hint; any other status removes it, and so does a hint that names no comparable program.
    The hints file and the run document are written after every mutation (a corpus error included), so an interrupted run keeps its finished work.
+
+**Compile workers.** `--compile-workers N` (4 by default) compiles mutants ahead of their turn on up to N threads, capped at the host's parallelism and at half the process's memory allowance (kink-native `NativeValidator::compile_workers`; re-pin L1-3).
+The mutations are taken in chunks of 4 N; for each chunk the mutants of the mutations that would make a live call given the stores at the chunk's start (each mutant and, when claims are removed, its claim-free definition) are compiled, every worker is joined, and then the chunk's mutations run exactly as with one worker, one at a time in list order, every load, consistency check and execution on the calling thread.
+A mutant compiled ahead is the mutant its call would compile (k-rust documents compiling, and nothing after it, as independent of the thread: `docs/compatibility.md`, "Concurrency"); a refused or panicking compile is not kept, so its call compiles it again on the calling thread.
+A guess that a mutation would call costs a compile when it does not, and the call compiles as usual when it does not guess, so no row, outcome, hint or report depends on N (`tests/compile_workers.rs`, cold and warm, 1, 2 and 4 workers).
+On `examples/imp`, cold, mutant compiles are about 28 % of the run's wall time; a warm run, which tier 1 decides, compiles nothing.
 
 **Trust.** With identical inputs, a cached proved difference stands without being re-run in this command.
 This rests on k-rust's compile and execution determinism, on the key naming every input the outcome depends on,

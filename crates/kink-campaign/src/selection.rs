@@ -2,14 +2,18 @@
 //!
 //! A mutant's tests run in two groups: first the tests whose baseline run's coverage witnesses an
 //! edited site ([`coverage_selected`]), then the rest, each group in manifest order. No test is
-//! ever left out (`deselected` is always empty), so in the no-Z3 profile the order decides only
-//! which killing test is found first under `FirstKill` and what the run costs, never a status.
+//! ever left out (`deselected` is always empty), so in the no-Z3 profile, while no wall-clock
+//! bound fires, the order decides only which killing test is found first under `FirstKill` and
+//! what the run costs, never a status (a run near its time bound can time out in one order and
+//! finish in another: review L2-1-tail-1 D2).
 //! That premise is that each test's outcome does not depend on the tests run before it, which
 //! k-rust's Execute promise gives without Z3 only. Under Z3 an SMT query can time out, and the
 //! mutant's backend and the baseline's are reused for every test in schedule order and keep a
 //! cache of satisfiability answers across requests (k-rust `docs/compatibility.md`, Execute), so
 //! a test may get an answer after another test warmed the cache where it times out when run
-//! first: the order can move a status between `Killed` and `Unknown`. It never makes a false
+//! first: the order can move a status between `Killed`, `Unknown` and `Survived` (the warmed
+//! answer can make the test kill or agree, and with no kill the fold reads `Survived` where the
+//! timeout reads `Unknown`; review L2-1-tail-1 D1). It never makes a false
 //! kill, since a kill is still a proved `Distinguish` (re-pin L2-1-tail, review L2-1-1 D4;
 //! `tests/selection.rs`'s Theorem 2 assumes that no wall-clock bound fires, and a Z3 query
 //! timeout is one).

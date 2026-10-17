@@ -81,6 +81,7 @@ fn run_campaign(
             selection: SelectionPolicy::None,
             share_evidence: true,
             run: kink_campaign::RunOptions::default(),
+            compile_workers: 1,
         },
     )
 }
@@ -326,6 +327,7 @@ fn duplicate_spec_across_generations_counts_once_in_global_score() {
                 selection: SelectionPolicy::None,
                 share_evidence: true,
                 run: kink_campaign::RunOptions::default(),
+                compile_workers: 1,
             };
             let alone = run_campaign_with(&campaign, &generations[0], &options).unwrap();
             let duplicated = run_campaign_multi(&campaign, &generations, &options).unwrap();
@@ -374,6 +376,7 @@ fn sharing_preserves_every_representative_campaign() {
                     selection: SelectionPolicy::None,
                     share_evidence: true,
                     run: kink_campaign::RunOptions::default(),
+                    compile_workers: 1,
                 },
             );
             representative::check_expected(case, &full, &first_kill);

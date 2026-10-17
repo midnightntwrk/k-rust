@@ -290,6 +290,7 @@ fn replay_checked(
             selection: declaration.selection,
             share_evidence: true,
             run,
+            compile_workers: 1,
         },
     )
     .map_err(|e| ReplayRefusal::Campaign(e.to_string()))?;

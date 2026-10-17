@@ -173,6 +173,7 @@ pub fn run_definition(
             selection: config.selection,
             share_evidence: true,
             run: options,
+            compile_workers: 1,
         },
     ) {
         Ok(run) => run,

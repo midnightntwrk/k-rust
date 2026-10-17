@@ -612,6 +612,7 @@ fn differential(
                     result_modality,
                     ..RunOptions::default()
                 },
+                compile_workers: 1,
             },
         )
         .map(|run| {

@@ -192,6 +192,7 @@ fn run(
                 result_modality,
                 ..RunOptions::default()
             },
+            compile_workers: 1,
         },
     )
     .map_err(|failure| failure.kind())

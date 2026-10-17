@@ -75,6 +75,7 @@ fn search(manifest: &Path, mutations: &Path, order: ProgramOrder) -> Value {
             only: Vec::new(),
             cache: None,
             order,
+            compile_workers: None,
         },
     );
     assert!(ok, "{document:#}");
@@ -779,6 +780,7 @@ fn results_and_the_report_list_the_rules_no_mutation_targets() {
             only: vec!["countdown-escapes".into()],
             cache: None,
             order: ProgramOrder::Corpus,
+            compile_workers: None,
         },
     );
     assert!(ok, "{only:#}");

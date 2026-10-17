@@ -65,6 +65,11 @@ use crate::execution::{
 /// programs by the edit's witness.
 pub const COVERAGE_DOMAIN: &str = "kink/coverage/v3";
 
+/// Every earlier [`COVERAGE_DOMAIN`], oldest first: a declaration naming one is refused as
+/// retired rather than malformed (kink-corpus manifests). A bump moves the old domain here; a
+/// unit test requires `v1` up to the version before the current one (review L2-1-tail-1 D4).
+pub const RETIRED_COVERAGE_DOMAINS: [&str; 2] = ["kink/coverage/v1", "kink/coverage/v2"];
+
 /// Unmapped reason of an id whose every author is a sentence the mutant's patch inserted.
 pub const UNMAPPED_INSERTED: &str = "inserted";
 /// Unmapped reason of an id the side's sentence provenance does not list.
@@ -453,4 +458,23 @@ pub fn coverage_text(coverage: &[TestCoverage]) -> String {
 #[must_use]
 pub fn coverage_digest(coverage: &[TestCoverage]) -> Sha256Digest {
     kink_patch::payload_digest(COVERAGE_DOMAIN, coverage_text(coverage).as_bytes())
+}
+
+#[cfg(test)]
+mod retired_tests {
+    use super::{COVERAGE_DOMAIN, RETIRED_COVERAGE_DOMAINS};
+
+    /// Review L2-1-tail-1 D4: the retired coverage domains are `v1` up to the version before
+    /// [`COVERAGE_DOMAIN`], so a bump that forgets to retire the old domain fails here.
+    #[test]
+    fn every_earlier_coverage_domain_is_retired() {
+        let current = COVERAGE_DOMAIN
+            .strip_prefix("kink/coverage/v")
+            .and_then(|n| n.parse::<usize>().ok())
+            .expect("kink/coverage/v<N>");
+        let earlier = (1..current)
+            .map(|n| format!("kink/coverage/v{n}"))
+            .collect::<Vec<_>>();
+        assert_eq!(RETIRED_COVERAGE_DOMAINS.as_slice(), earlier.as_slice());
+    }
 }

@@ -139,6 +139,7 @@ fn search_mode(manifest: &Path, mutations: &Path, only: &[&str], mode: RunMode) 
             // F-05's corpus order, so that the pinned calls and killers do not depend on host
             // timing (F-13's cost order: tests/usability.rs).
             order: ProgramOrder::Corpus,
+            compile_workers: None,
         },
         mode,
     )

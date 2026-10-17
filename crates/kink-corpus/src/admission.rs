@@ -440,6 +440,7 @@ fn baseline_only(
         selection: manifest.campaign.selection,
         share_evidence: true,
         run: crate::runner::corpus_run_options(),
+        compile_workers: 1,
     };
     run_campaign_multi(&campaign, &[generation], &options)
         .map(|run| {

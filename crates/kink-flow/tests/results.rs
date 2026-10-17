@@ -1057,6 +1057,7 @@ fn run_together(
             selection: kink_campaign::SelectionPolicy::None,
             share_evidence: true,
             run: kink_campaign::RunOptions::default(),
+            compile_workers: 1,
         },
     )
     .unwrap();

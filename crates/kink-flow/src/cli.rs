@@ -28,7 +28,8 @@ pub const EXIT_USAGE: u8 = 2;
 pub const USAGE: &str = "usage: kink-flow check FLOW.toml | kink-flow results FLOW.toml \
                          [--verify] [--mutations MUTATIONS.toml] [--cache DIR] | kink-flow run \
                          FLOW.toml MUTATIONS.toml [--only ID]... [--verify] [--order cost|corpus] \
-                         [--cache DIR] | kink-flow report FLOW.toml [--cache DIR]";
+                         [--compile-workers N] [--cache DIR] | kink-flow report FLOW.toml \
+                         [--cache DIR]";
 
 /// Run one command; returns the process exit status.
 pub fn execute(args: Vec<OsString>) -> u8 {
@@ -173,6 +174,18 @@ fn run_options(args: &[String]) -> Result<(RunOptions, RunMode), String> {
                     _ => return Err(format!("--order {value:?}: expected cost or corpus")),
                 });
                 options.order = order.unwrap_or_default();
+            }
+            "--compile-workers" if options.compile_workers.is_none() => {
+                let value = args.next().ok_or("--compile-workers needs a number")?;
+                options.compile_workers = Some(
+                    value
+                        .parse::<usize>()
+                        .ok()
+                        .filter(|workers| *workers >= 1)
+                        .ok_or_else(|| {
+                            format!("--compile-workers {value:?}: expected a positive integer")
+                        })?,
+                );
             }
             "--only" => {
                 let id = args.next().ok_or("--only needs a mutation id")?;

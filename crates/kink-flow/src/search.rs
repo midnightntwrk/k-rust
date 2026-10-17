@@ -9,8 +9,9 @@
 //!    `requires`, fired for any other edit; re-pin L2-1-tail), then the rest, each group cheapest
 //!    first (the record's `wall_ms`, then corpus order; [`ProgramOrder`], README 6.4). The order
 //!    changes which killing program is found first and the cost, never a status in the no-Z3
-//!    profile (under Z3 a reused backend's cache of solver answers can make it move one between
-//!    killed and unknown, never to a false kill).
+//!    profile while no `budget.time_ms` bound fires (under Z3 a reused backend's cache of solver
+//!    answers can make it move one between killed, unknown and survived, never to a false kill;
+//!    review L2-1-tail-1 D1, D2).
 //! 3. Tier 1 (README 7.5.3): the valid outcome records of the programs of O, under a key that
 //!    names every input of the outcome (kink's build, the k-rust revision, the solver profile,
 //!    the specification's execution digest, the budget, the oracles, the mutation's identity,
@@ -53,6 +54,14 @@
 //! document lists the rules no resolving mutation of the list targets. None of these enters an
 //! evidence row, a digest, a key, an outcome record or a hint.
 //!
+//! Threads (re-pin L1-3): only compiling runs on several threads ([`RunOptions::compile_workers`]).
+//! The selected mutations are taken in chunks; each chunk's mutants that would make a live call
+//! are compiled ahead (kink-native `NativeValidator::compile_ahead`) and every worker is joined
+//! before the chunk's first mutation runs, so every step above runs as with one worker: one
+//! mutation at a time, in list order, every load, consistency check and execution on the calling
+//! thread (their stack stops depend on the thread and on the other threads' stack, k-rust
+//! `docs/compatibility.md`, "Execute"; compiling does not, "Concurrency").
+//!
 //! `run --verify` ([`RunMode::Verify`]) decides nothing from tier 1: it runs the cold call over
 //! O for every mutation, then one call per valid record whose program the cold call did not
 //! execute, and reports every record (and the cached path's status) that differs from the live
@@ -82,7 +91,7 @@ use kink_campaign::{
 };
 use kink_corpus::{Store, admission::AdmissionRecord};
 use kink_native::{K_RUST_REVISION, execution::SolverProfile};
-use kink_patch::{CandidateGeneration, ClaimSupport, SentenceRef, Sha256Digest, Withdrawal};
+use kink_patch::{CandidateGeneration, ClaimSupport, Patch, SentenceRef, Sha256Digest, Withdrawal};
 use serde_json::{Map, Value, json};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -156,20 +165,36 @@ pub struct RunOptions {
     pub cache: Option<PathBuf>,
     /// How the programs are ordered inside each tier of the kill search.
     pub order: ProgramOrder,
+    /// How many threads compile mutants ahead of their turn (`--compile-workers`; `None`:
+    /// [`DEFAULT_COMPILE_WORKERS`]). 1 compiles each mutant in its own campaign call, on the
+    /// calling thread. Every run document, outcome record and hint is the same for every value
+    /// (re-pin L1-3; [`run_with`]).
+    pub compile_workers: Option<usize>,
 }
+
+/// The compile workers of a `run` that names none ([`RunOptions::compile_workers`]). On
+/// `examples/imp`'s 21 mutants (re-pin L1-3), 4 workers compile in 1.7 s what 1 compiles in
+/// 4.2-4.9 s, and 6 or 8 gain little more while taking more of a shared host. At most the
+/// validator's memory cap and the host's parallelism are used
+/// ([`kink_native::NativeValidator::compile_workers`]).
+pub const DEFAULT_COMPILE_WORKERS: usize = 4;
 
 /// How the kill search orders the programs inside each tier of O (the programs whose coverage
 /// witnesses an edited rule's edit, then the rest; README 5.6 step 2 and 6.4).
 ///
-/// The order never changes a status in the no-Z3 profile (README 6.4): under FirstKill a Killed
+/// The order never changes a status in the no-Z3 profile while no wall-clock bound
+/// (`budget.time_ms`) fires (README 6.4; a run near the bound can time out in one order and
+/// finish in another, review L2-1-tail-1 D2): under FirstKill a Killed
 /// status comes from any killing test and ranks above every other status, and a mutant-scope
 /// failure arises before any test runs (F-05 review 1), so the order changes only which killing
 /// program is found first (and hence becomes the hint and the reported killer) and what the
 /// search costs. That needs each program's outcome to be independent of the programs run before
 /// it in the same call, which k-rust's Execute promise gives without Z3 only: under Z3 a solver
 /// query can time out and the mutant's reused backend caches satisfiability answers across
-/// programs, so the order can move a status between killed and unknown (never to a false kill:
-/// a kill is still a proved distinction; re-pin L2-1-tail, review L2-1-1 D4).
+/// programs, so the order can move a status between killed, unknown and survived (a timed-out
+/// query is unknown, a warmed answer can kill or agree, and with no kill the fold reads survived;
+/// never a false kill: a kill is still a proved distinction; re-pin L2-1-tail, review L2-1-1 D4,
+/// review L2-1-tail-1 D1).
 ///
 /// Under [`ProgramOrder::Cost`] the order comes from measured wall times, so the killer found
 /// first, the hint, and the SET of tier-1 records written (under FirstKill the programs after
@@ -382,6 +407,8 @@ impl Search<'_> {
                 one_sided: kink_campaign::OneSided::NoCrashClassifier,
                 ..kink_campaign::RunOptions::default()
             },
+            // The command compiles ahead across mutations ([`run_with`]); a call holds one.
+            compile_workers: 1,
         };
         let mut run = self
             .runner
@@ -654,6 +681,44 @@ impl Search<'_> {
 
     /// The kill search for one mutation: its row of the run document, and whether it ended in
     /// a corpus error (the run then stops, and nothing is written to tier 1 for it).
+    /// The mutants [`Search::search_one`] would compile for `resolution` given the stores now
+    /// (re-pin L1-3, for compiling ahead): none when the mutation resolves to no generation, no
+    /// program is in O, or tier 1 decides it with no call (a valid killed record, or a valid
+    /// agreement for every program of O); otherwise each candidate's patch and its withdrawing
+    /// patch ([`kink_campaign::mutant_compiles`]). A guess that differs from what the search
+    /// then does costs a compile, never a row.
+    fn live_compiles(&self, resolution: &Result<ResolvedMutation, InvalidMutation>) -> Vec<Patch> {
+        let Ok(resolved) = resolution else {
+            return Vec::new();
+        };
+        let baseline = self.spec.validator.baseline();
+        let Ok(generation) = resolved.generation(baseline) else {
+            return Vec::new();
+        };
+        let order = order(&self.candidates, resolved, self.order);
+        if order.is_empty() {
+            return Vec::new();
+        }
+        if self.mode == RunMode::Search {
+            let identity = mutation_identity(&self.spec.loaded.baseline, &resolved.patch);
+            let records = self.valid_records(identity, &order, &mut Map::new());
+            if records.len() == order.len()
+                || records
+                    .iter()
+                    .any(|(_, record)| record.outcome == CachedOutcome::Killed)
+            {
+                return Vec::new();
+            }
+        }
+        generation
+            .candidates()
+            .iter()
+            .flat_map(|candidate| {
+                kink_campaign::mutant_compiles(baseline, &self.support, &candidate.patch)
+            })
+            .collect()
+    }
+
     fn search_one(
         &mut self,
         mutation: &Mutation,
@@ -1364,10 +1429,30 @@ pub fn run_with(
         .mutations
         .iter()
         .zip(&resolutions)
-        .filter(|(mutation, _)| options.only.is_empty() || options.only.contains(&mutation.id));
+        .filter(|(mutation, _)| options.only.is_empty() || options.only.contains(&mutation.id))
+        .collect::<Vec<_>>();
+    // Re-pin L1-3: compile ahead, a chunk at a time, the mutants of the chunk's mutations that
+    // would make a live call given the stores at the chunk's start; every worker is joined
+    // before the chunk's first mutation runs, and each mutation then runs as with one worker,
+    // in list order, one campaign call at a time. A mutant compiled ahead is the one its call
+    // would compile (kink-native `NativeValidator::compile_ahead`), and a mutation that turns
+    // out not to call (or one that calls after all) costs only a compile, so no row depends on
+    // the worker count.
+    let workers = spec
+        .validator
+        .compile_workers(options.compile_workers.unwrap_or(DEFAULT_COMPILE_WORKERS));
+    let chunk = workers * kink_campaign::AHEAD_PER_WORKER;
     // The document as last written to the report file, if it was.
     let mut written = None;
-    for (mutation, resolution) in selected {
+    for (position, &(mutation, resolution)) in selected.iter().enumerate() {
+        if workers > 1 && position % chunk == 0 {
+            spec.validator.discard_ahead();
+            let patches = selected[position..selected.len().min(position + chunk)]
+                .iter()
+                .flat_map(|(_, resolution)| search.live_compiles(resolution))
+                .collect::<Vec<_>>();
+            spec.validator.compile_ahead(&patches, workers);
+        }
         let (mut row, corpus_error) = search.search_one(mutation, resolution);
         if corpus_error {
             stopped = Some(json!({"mutation": mutation.id, "reason": row["reason"]}));
@@ -1411,6 +1496,7 @@ pub fn run_with(
             break;
         }
     }
+    spec.validator.discard_ahead();
     if !search.mismatches.is_empty() {
         ok = false;
     }

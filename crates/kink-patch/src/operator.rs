@@ -5,6 +5,14 @@
 //! the builtin `#cells`, `#dots` and `#noDots` productions in kast.md, which the
 //! pinned typer treats as syntax without a placed sort. The constructor and codec
 //! both enforce this refusal, before discovery can derive any site.
+//!
+//! Validity (decisions log 2026-10-18, STRUCT-SORT parked): an operator edits the term tree, not
+//! text, so its mutant is held only to compilation, not to K's rule parser. [`Action::ReplaceHead`]
+//! and [`Action::Wrap`], every operator of `catalogue_v1`, and every [`Patch`] a library caller
+//! builds from terms can therefore build a mutant that no K text yields; at main an ill-sorted one
+//! fails closed (a compile refusal or an infrastructure error), and none has been found Killed.
+//! kink-flow takes only text edits, which K's parser checks; a catalogue proposal for the flow is
+//! rendered as K text first.
 
 use crate::{
     Baseline, CandidateFailure, CandidateGeneration, CodecError, Edit, Patch, PatchOrigin,

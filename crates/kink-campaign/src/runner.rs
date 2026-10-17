@@ -89,6 +89,21 @@
 //! (VI-1..VI-5), and FreshCounter mints apart from received names within each request. Relation and
 //! leaf Unsat decisions rely on the definedness premise pinned by TB-01 and the TV-01
 //! initial-state admission guard. Undecided evidence stays Unknown.
+//!
+//! Only compiling runs on several threads (re-pin L1-3, [`CampaignOptions::compile_workers`]).
+//! The candidates are taken in chunks; each chunk's mutants (each candidate's patch and its
+//! withdrawing patch, [`mutant_compiles`]) are compiled ahead on worker threads
+//! ([`NativeValidator::compile_ahead`]), every worker is joined, and then the chunk runs exactly
+//! as with one worker: one candidate at a time, in candidate order, on the calling thread. k-rust
+//! documents compiling, and nothing after it, as independent of the thread and of what other
+//! threads do (its `docs/compatibility.md`, "Concurrency"). The consistency check, every backend
+//! build ([`Backend::from_definition`]: the load's critical-pair check and definedness discharge)
+//! and every execution run the simplifier, whose stack stops depend on the running thread's
+//! stack and on the stack other threads hold of its process-wide budget ("Execute"); a stop there
+//! refuses a mutant or excludes a run, so on several threads a status, or a mutant's place in the
+//! score, would depend on the schedule. They stay sequential, outside any compile, and every
+//! backend is built before and outside the watchdog. With one worker nothing is compiled ahead:
+//! today's path.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant};
@@ -275,7 +290,18 @@ pub struct CampaignOptions {
     pub share_evidence: bool,
     /// How the runs are requested besides the campaign's budget (re-pin lane 1, L1-1).
     pub run: RunOptions,
+    /// How many threads compile mutants ahead of their turn (re-pin L1-3; at most
+    /// [`NativeValidator::compile_workers`] of it). 1 (or 0) compiles each mutant when its turn
+    /// comes, on the calling thread: the sequential path. More compiles each chunk of
+    /// [`AHEAD_PER_WORKER`] times as many candidates ahead, then runs the chunk as with 1. The run
+    /// and its report are the same for every value; only wall time and peak memory differ.
+    pub compile_workers: usize,
 }
+
+/// How many candidates per compile worker one chunk compiles ahead
+/// ([`CampaignOptions::compile_workers`]): enough to keep the workers busy when compile times
+/// differ, few enough that a chunk's compiled definitions stay a small multiple of the workers'.
+pub const AHEAD_PER_WORKER: usize = 4;
 
 /// How a campaign requests its runs besides the campaign's [`ExecutionBudget`] (re-pin lane 1,
 /// L1-1). The default is a state set for every result run and no work budget, which is what
@@ -550,6 +576,7 @@ pub fn run_campaign(
             selection: SelectionPolicy::None,
             share_evidence: true,
             run: RunOptions::default(),
+            compile_workers: 1,
         },
     )
 }
@@ -1163,7 +1190,29 @@ pub fn run_campaign_multi_with(
         .collect::<Vec<_>>();
     let mut runs: Vec<MutantRun> = Vec::with_capacity(candidates.len());
     let mut identities: Vec<Option<MutantIdentity>> = Vec::with_capacity(candidates.len());
-    for (index, candidate) in candidates.into_iter().enumerate() {
+    let chunk = options.compile_workers.max(1) * AHEAD_PER_WORKER;
+    let mut ahead = None;
+    for (index, candidate) in candidates.iter().copied().enumerate() {
+        if options.compile_workers > 1 && index % chunk == 0 {
+            // Drop what the last chunk left, then compile this chunk ahead; every worker is
+            // joined before the chunk's first candidate runs below.
+            drop(ahead.take());
+            let patches = candidates[index..candidates.len().min(index + chunk)]
+                .iter()
+                .flat_map(|candidate| {
+                    mutant_compiles(
+                        campaign.validator.baseline(),
+                        &admission.support,
+                        &candidate.patch,
+                    )
+                })
+                .collect::<Vec<_>>();
+            campaign
+                .validator
+                .compile_ahead(&patches, options.compile_workers);
+            ahead = Some(DiscardAhead(campaign.validator));
+        }
+        stage_log::note(campaign, stage_log::Stage::Mutant(index));
         let identity = mutant_identity(
             campaign.validator.baseline(),
             &candidate.patch,
@@ -1213,6 +1262,7 @@ pub fn run_campaign_multi_with(
             evidence: execution.evidence,
         });
     }
+    drop(ahead);
     let statuses = runs
         .iter()
         .filter(|run| run.same_as.is_none())
@@ -1228,6 +1278,61 @@ pub fn run_campaign_multi_with(
             .all(CandidateGeneration::scored)
             .then(|| score(&statuses)),
     })
+}
+
+/// The patches the runner's mutant preparation compiles for `patch`: the patch itself and, when
+/// [`ClaimSupport::withdraw`] gives a trusted withdrawal that removes claims, its withdrawing
+/// patch (re-pin L1-3: what a caller compiles ahead, [`NativeValidator::compile_ahead`]). A patch
+/// that does not apply gives only itself.
+pub fn mutant_compiles(baseline: &Baseline, support: &ClaimSupport, patch: &Patch) -> Vec<Patch> {
+    let withdrawing = support
+        .withdraw(baseline, patch)
+        .ok()
+        .filter(Withdrawal::trusted)
+        .and_then(|claims| claims.patch().cloned());
+    std::iter::once(patch.clone()).chain(withdrawing).collect()
+}
+
+/// Drops a validator's mutants compiled ahead when the chunk that compiled them ends, on every
+/// way out of the candidate loop.
+struct DiscardAhead<'v>(&'v NativeValidator);
+
+impl Drop for DiscardAhead<'_> {
+    fn drop(&mut self) {
+        self.0.discard_ahead();
+    }
+}
+
+/// Where the steps after compile run (re-pin L1-3), recorded in unit tests only: each candidate's
+/// turn, each consistency check, backend build and execution, with the campaign and the thread.
+mod stage_log {
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub enum Stage {
+        Mutant(usize),
+        Consistency,
+        Backend,
+        Execute,
+    }
+
+    /// `(campaign address, stage, thread)`, in the order the steps ran.
+    #[cfg(test)]
+    pub static LOG: std::sync::Mutex<Vec<(usize, Stage, std::thread::ThreadId)>> =
+        std::sync::Mutex::new(Vec::new());
+
+    #[cfg(test)]
+    pub fn note(campaign: &super::Campaign<'_>, stage: Stage) {
+        LOG.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push((
+                std::ptr::from_ref(campaign).addr(),
+                stage,
+                std::thread::current().id(),
+            ));
+    }
+
+    #[cfg(not(test))]
+    #[inline(always)]
+    pub const fn note(_: &super::Campaign<'_>, _: Stage) {}
 }
 
 fn admission_failure(admission: BaselineAdmission) -> CampaignFailure {
@@ -1574,6 +1679,7 @@ fn prepare_mutant(
     validate_representation(&side).map_err(|_| {
         MutantRefusal::new(MutantScopeFailure::RepresentationRefused, claims.clone())
     })?;
+    stage_log::note(campaign, stage_log::Stage::Consistency);
     let admitted = match &admission.equations {
         Ok(equations) => kink_native::consistency::admit_mutant(equations, &side, &effect),
         Err(why) => Err(MutantFailure::Inconsistent(
@@ -1908,6 +2014,7 @@ impl Runtime {
         let parsed = parse_definition(&side.artifacts().definition_kore)
             .map_err(|_| Preparation::Infrastructure)?;
         let symbol_sorts = SymbolSorts::from_definition(&parsed);
+        stage_log::note(campaign, stage_log::Stage::Backend);
         let mut backend =
             Backend::from_definition(parsed.clone(), campaign.module, BackendOptions::default())
                 .map_err(|_| Preparation::Infrastructure)?;
@@ -2006,6 +2113,7 @@ impl Runtime {
         test: &TestCase,
         max_work: Option<u64>,
     ) -> Executed {
+        stage_log::note(campaign, stage_log::Stage::Execute);
         let mut cache = RunCache::default();
         let has_pattern = test
             .oracles
@@ -3857,5 +3965,195 @@ mod tests {
             assert_eq!(after[0], before[0]);
             assert_eq!(after[1], OracleSide::Unknown);
         }
+    }
+
+    /// Re-pin L1-3 deliverable 3: with compile workers, every consistency check, backend build
+    /// and execution of a campaign runs on the calling thread, each candidate's after its turn
+    /// begins and before the next one's, in candidate order, and the steps are the sequential
+    /// run's, in the same order, with the same run. Two generations of the same pair of patches
+    /// (structurally equal, so every candidate after the first is `same_as` an earlier one).
+    #[test]
+    fn only_compiling_leaves_the_calling_thread_and_candidates_keep_their_order() {
+        use k_rust::{
+            definition::Sentence,
+            kast::{Sort, Term},
+        };
+        use kink_patch::{Discovery, Edit, SiteSelector, TermRef, derive_sites, select};
+        use stage_log::Stage;
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                let validator = NativeValidator::bind(
+                    input_test_support::load("counter.k"),
+                    k_rust::kompile::CompileOptions::default(),
+                );
+                let baseline = validator.baseline();
+                let at = input_test_support::rule(baseline, "COUNTER.branch");
+                let term_at = TermRef::new(at.clone(), [1]);
+                let false_term = Term::Token {
+                    token: "false".into(),
+                    sort: Sort::new("Bool"),
+                };
+                let mut replacement = baseline.sentence(&at).unwrap().clone();
+                let Sentence::Rule { requires, .. } = &mut replacement else {
+                    panic!("rule");
+                };
+                *requires = false_term.clone();
+                let mut discovery = Discovery::empty(baseline, false, false);
+                for path in [vec![0], vec![1]] {
+                    discovery = discovery
+                        .union(
+                            &derive_sites(
+                                baseline,
+                                "site",
+                                &[
+                                    SiteSelector::RuleLabel("COUNTER.branch".into()),
+                                    SiteSelector::Path(path),
+                                ],
+                            )
+                            .unwrap(),
+                        )
+                        .unwrap();
+                }
+                let generation = || {
+                    select(&discovery, kink_patch::SelectionPolicy::Each, 2)
+                        .unwrap()
+                        .fold("duplicates", |origin| {
+                            Patch::new(vec![if origin.site_tuple[0].path.0 == [0] {
+                                Edit::ReplaceSentence {
+                                    at: at.clone(),
+                                    replacement: replacement.clone(),
+                                }
+                            } else {
+                                Edit::ReplaceTerm {
+                                    at: term_at.clone(),
+                                    expected: baseline.term(&term_at).unwrap().clone(),
+                                    replacement: false_term.clone(),
+                                }
+                            }])
+                            .unwrap()
+                        })
+                        .unwrap()
+                };
+                let generations = [generation(), generation()];
+                let z = |b: &str| Pattern::DomainValue {
+                    sort: k_rust::kompile::initial_configuration::kore_sort("SortBool"),
+                    value: b.into(),
+                };
+                let tests = ["true", "false"].map(|b| TestCase {
+                    id: format!("choose-{b}"),
+                    initial_state: input_test_support::initial_state(
+                        input_test_support::app("Lblchoose", vec![z(b)]),
+                        "SortControl",
+                    ),
+                    oracles: vec![
+                        OracleDeclaration::new(
+                            CrashPolicy::CompareIdentity,
+                            Projection::State(StateProjection::WholeTerm),
+                        )
+                        .unwrap(),
+                    ],
+                });
+                let campaign = Campaign {
+                    validator: &validator,
+                    module: "COUNTER",
+                    observation: &[],
+                    classify: &|_| ExecutionTerminalKind::Normal,
+                    tests: &tests,
+                    budget: ExecutionBudget {
+                        time: std::time::Duration::from_secs(30),
+                        max_depth: Some(32),
+                        max_simplification_iterations: 1000,
+                        max_breadth: None,
+                    },
+                };
+                assert!(
+                    validator.compile_workers(4) >= 2,
+                    "the host allows two workers"
+                );
+                let address = std::ptr::from_ref(&campaign).addr();
+                let thread = std::thread::current().id();
+                let steps = |workers| {
+                    let start = stage_log::LOG.lock().unwrap().len();
+                    let run = run_campaign_multi(
+                        &campaign,
+                        &generations,
+                        &CampaignOptions {
+                            schedule: ScheduleMode::Full,
+                            selection: SelectionPolicy::None,
+                            share_evidence: false,
+                            run: RunOptions::default(),
+                            compile_workers: workers,
+                        },
+                    )
+                    .unwrap();
+                    let log = stage_log::LOG.lock().unwrap()[start..]
+                        .iter()
+                        .filter(|(at, _, _)| *at == address)
+                        .copied()
+                        .collect::<Vec<_>>();
+                    assert!(
+                        log.iter().all(|(_, _, on)| *on == thread),
+                        "{workers} workers: a step left the calling thread: {log:?}"
+                    );
+                    (
+                        run,
+                        log.into_iter()
+                            .map(|(_, stage, _)| stage)
+                            .collect::<Vec<_>>(),
+                    )
+                };
+                let (sequential, sequential_steps) = steps(1);
+                let (ahead, ahead_steps) = steps(4);
+                assert_eq!(ahead, sequential);
+                assert_eq!(ahead_steps, sequential_steps);
+                assert_eq!(
+                    ahead.mutants.iter().map(|m| m.same_as).collect::<Vec<_>>(),
+                    [
+                        None,
+                        Some(MutantId(0)),
+                        Some(MutantId(0)),
+                        Some(MutantId(0))
+                    ]
+                );
+                // The baseline's steps, then each candidate's turn in candidate order, each
+                // with its own consistency check, backend build and executions.
+                let turns = ahead_steps
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(at, stage)| match stage {
+                        Stage::Mutant(index) => Some((at, *index)),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    turns.iter().map(|(_, index)| *index).collect::<Vec<_>>(),
+                    [0, 1, 2, 3]
+                );
+                assert!(
+                    ahead_steps[..turns[0].0].contains(&Stage::Backend)
+                        && ahead_steps[..turns[0].0].contains(&Stage::Execute),
+                    "the baseline is built and run first"
+                );
+                for (n, (at, _)) in turns.iter().enumerate() {
+                    let end = turns
+                        .get(n + 1)
+                        .map_or(ahead_steps.len(), |(next, _)| *next);
+                    let own = &ahead_steps[at + 1..end];
+                    assert_eq!(
+                        own,
+                        [
+                            Stage::Consistency,
+                            Stage::Backend,
+                            Stage::Execute,
+                            Stage::Execute
+                        ],
+                        "candidate {n}"
+                    );
+                }
+            })
+            .unwrap()
+            .join()
+            .unwrap();
     }
 }

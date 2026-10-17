@@ -230,6 +230,7 @@ fn confirm() {
                     result_modality,
                     ..RunOptions::default()
                 },
+                compile_workers: 1,
             },
         )
         .unwrap();

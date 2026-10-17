@@ -167,6 +167,7 @@ fn mixed_generations_equal_single_runs_and_replay_manifest_specs() {
                 selection: SelectionPolicy::None,
                 share_evidence: true,
                 run: kink_campaign::RunOptions::default(),
+                compile_workers: 1,
             };
             let run = run_campaign_multi(&campaign, &generations, &options).unwrap();
             assert!(generations.iter().all(CandidateGeneration::scored));
@@ -344,6 +345,7 @@ fn empty_capped_and_foreign_generations_do_not_claim_global_scores() {
                 selection: SelectionPolicy::None,
                 share_evidence: true,
                 run: kink_campaign::RunOptions::default(),
+                compile_workers: 1,
             };
             for extra in [
                 generate(validator.baseline(), &universe, &empty, usize::MAX).unwrap(),
@@ -428,6 +430,7 @@ fn flagged_census_records_without_refusing_the_campaign() {
                     selection: SelectionPolicy::None,
                     share_evidence: true,
                     run: kink_campaign::RunOptions::default(),
+                    compile_workers: 1,
                 },
             )
             .expect_err("the baseline oracle refuses the undefined baseline");

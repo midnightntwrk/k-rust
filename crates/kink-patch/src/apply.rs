@@ -1,4 +1,10 @@
 //! Atomic application of a [`Patch`] to a [`Baseline`].
+//!
+//! [`apply`] checks that each edit applies and resolves, not that some K text parses to the
+//! edited sentence: a structural edit (an operator's `ReplaceHead` or `Wrap`, a catalogue
+//! operator, a `Patch` built from terms) is held only to compilation afterwards, so it can build
+//! a mutant no K text yields (decisions log 2026-10-18, STRUCT-SORT parked; README.md, "What a
+//! kill trusts"). kink-flow's text edits are parsed by K's parser before they become a patch.
 
 use crate::failure::{PatchFailure, PatchFailureKind};
 use crate::typing::CompilationTyping;

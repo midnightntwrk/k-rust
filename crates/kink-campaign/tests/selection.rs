@@ -189,6 +189,7 @@ fn options(schedule: ScheduleMode) -> CampaignOptions {
         selection: PRIORITIZE,
         share_evidence: true,
         run: kink_campaign::RunOptions::default(),
+        compile_workers: 1,
     }
 }
 
@@ -438,6 +439,7 @@ fn equation_edits_are_ordered_by_the_tests_that_reach_them() {
                         selection,
                         share_evidence: true,
                         run: kink_campaign::RunOptions::default(),
+                        compile_workers: 1,
                     },
                 )
                 .expect("campaign")
@@ -533,6 +535,7 @@ fn empty_complete_coverage_gives_the_statuses_of_selection_none() {
                         selection,
                         share_evidence: true,
                         run: kink_campaign::RunOptions::default(),
+                        compile_workers: 1,
                     },
                 )
                 .expect("campaign")
@@ -1079,6 +1082,7 @@ fn cs07_check_theorem(
                     selection: policy,
                     share_evidence: true,
                     run: kink_campaign::RunOptions::default(),
+                    compile_workers: 1,
                 },
             )
             .expect("CS07 Theorem 2: an admitted none fixture stays admitted");
@@ -1239,6 +1243,7 @@ fn prioritize_preserves_every_representative_campaign() {
                         selection: SelectionPolicy::None,
                         share_evidence: true,
                         run: kink_campaign::RunOptions::default(),
+                        compile_workers: 1,
                     },
                 )
             };

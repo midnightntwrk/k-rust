@@ -170,6 +170,7 @@ const fn options(work: WorkBudget) -> CampaignOptions {
             work,
             one_sided: OneSided::NoCrashClassifier,
         },
+        compile_workers: 1,
     }
 }
 
@@ -553,6 +554,7 @@ fn search(manifest: &Path) -> Value {
             only: Vec::new(),
             cache: None,
             order: ProgramOrder::Corpus,
+            compile_workers: None,
         },
     );
     assert!(ok, "{document:#}");

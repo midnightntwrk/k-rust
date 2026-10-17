@@ -277,6 +277,7 @@ fn run(
             selection: Sel::None,
             share_evidence: true,
             run,
+            compile_workers: 1,
         },
         &mut session,
     )

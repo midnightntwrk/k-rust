@@ -72,6 +72,7 @@ fn search(manifest: &Path) -> Value {
             only: Vec::new(),
             cache: None,
             order: ProgramOrder::Corpus,
+            compile_workers: None,
         },
     );
     assert!(ok, "{document:#}");
