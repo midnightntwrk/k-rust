@@ -223,7 +223,8 @@ pub const KORE_CAP: usize = 4000;
 /// ["undefined-step"]}`), for `whole-term` each side's number of final configurations and,
 /// when `killer_terms` (the killing program's entry), the mutant's final configurations as
 /// KORE text, each capped at [`KORE_CAP`] characters (`{"text", "truncated"}`). `sides` is
-/// null when the evidence is not at hand (a cached outcome).
+/// null when the evidence is not at hand (a cached outcome), and for a one-sided kill, whose
+/// mutant side is `Unknown` (re-pin L1-2: the mutant's run reached its work budget).
 pub fn slots_value(
     outcomes: &[OracleOutcome],
     baseline: Option<&SideRun>,
@@ -246,8 +247,8 @@ pub fn slots_value(
     Value::Object(slots)
 }
 
-/// The two sides of a distinguishing slot (both are values: a `Distinguish` needs two normal
-/// sides); null when either is missing.
+/// The two sides of a distinguishing slot (both are values, except for a one-sided kill, whose
+/// mutant side is `Unknown`: re-pin L1-2); null when either is missing or not a value.
 fn slot_sides(
     baseline: Option<OracleSide>,
     mutant: Option<OracleSide>,

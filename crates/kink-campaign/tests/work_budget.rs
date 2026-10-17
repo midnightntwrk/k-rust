@@ -17,8 +17,8 @@ use k_rust::kompile::CompileOptions;
 use k_rust::kore::ast::Pattern;
 use kink_campaign::{
     Campaign, CampaignOptions, CampaignRun, CrashPolicy, ExecutionFailureKind, MutantStatus,
-    OracleDeclaration, OracleOutcome, Projection, RunOptions, ScheduleMode, SelectionPolicy as Sel,
-    StateProjection, TestCase, TestRun, WorkBudget, run_campaign_with,
+    OneSided, OracleDeclaration, OracleOutcome, Projection, RunOptions, ScheduleMode,
+    SelectionPolicy as Sel, StateProjection, TestCase, TestRun, WorkBudget, run_campaign_with,
 };
 use kink_native::NativeValidator;
 use kink_native::execution::{ExecutionBudget, ResultModality};
@@ -171,6 +171,7 @@ const fn calibrated(factor: u64, floor: u64) -> RunOptions {
     RunOptions {
         result_modality: ResultModality::StateSet,
         work: WorkBudget::Calibrated { factor, floor },
+        one_sided: OneSided::Off,
     }
 }
 
@@ -253,6 +254,7 @@ fn a_work_budget_decides_only_how_many_mutants_are_unknown() {
         let path_set = RunOptions {
             result_modality: ResultModality::PathSet,
             work: WorkBudget::Unbounded,
+            one_sided: OneSided::Off,
         };
         for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
             for options in [

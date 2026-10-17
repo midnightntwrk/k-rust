@@ -17,7 +17,9 @@
 //!   A run the time bound cancelled is `Failed(TimeLimit)` (k-rust answers a cancellation with an
 //!   error and publishes no leaf), a mutant's run its work budget stopped ([`WorkBudget`]) ends in
 //!   a `work-bound` leaf, and every other incomplete run is `Unknown`, including a backend
-//!   diagnostic.
+//!   diagnostic. A work-bound mutant side is `Unknown` too, but its slot can still distinguish
+//!   one-sidedly from a clean, ground, stuck leaf outside the baseline's complete set (re-pin
+//!   L1-2, decision 6; [`OneSided`], off by default).
 //! - A single crash terminal is a `SemanticCrash` side carrying its terminal term; a
 //!   crash among several terminals is `Unknown`. This counts terminal leaves, not distinct
 //!   configurations: a path set with two paths to one crash configuration is `Unknown`, and the
@@ -77,7 +79,9 @@
 //! baseline, and only a complete, nonempty generation is scored.
 //!
 //! A mutant is Killed only through a `Distinguish`: a state slot compares ground terminal
-//! sets, and a pattern slot compares declared functions of execution configurations.
+//! sets (or, one-sidedly, finds a final configuration of a work-bound mutant run outside the
+//! baseline's complete set, [`OneSided`]), and a pattern slot compares declared functions of
+//! execution configurations.
 //! A pattern witness and complete contrary coverage prove that some ground instance has
 //! different observations. Both sides share the baseline signature and definition-independence
 //! decider; each side's leaves are admitted under its own definition. Under
@@ -97,7 +101,7 @@ use k_rust::kore::{
 };
 use kink_native::bridge::{
     BridgeContext, BridgeFailure, BridgedPaths, paths_from_execution_values, tree_from_steps,
-    validate_test_initial_state,
+    validate_test_initial_state, work_bound_stuck_terminals,
 };
 use kink_native::consistency::{CompiledEquations, MutantFailure, UnjoinedEquations};
 use kink_native::coverage::{RuleAuthors, TestCoverage};
@@ -293,6 +297,49 @@ pub struct RunOptions {
     pub result_modality: ResultModality,
     /// The work budget of every mutant result run ([`WorkBudget`]).
     pub work: WorkBudget,
+    /// Whether a work-bound mutant run can kill one-sidedly ([`OneSided`]; re-pin L1-2).
+    pub one_sided: OneSided,
+}
+
+/// The one-sided early kill (re-pin L1-2: decision 6, finding A-15). Off by default: a state slot
+/// distinguishes only two complete sides.
+///
+/// With [`OneSided::NoCrashClassifier`], a state slot whose mutant run ended at its work budget
+/// ([`WorkBudget`]) distinguishes when the run's explored part holds a final configuration whose
+/// projection the baseline's complete set lacks. Every completion of the mutant run has that
+/// configuration among its finals, so the mutant's projected set differs from the baseline's
+/// whatever the unexplored part holds. Exactly when (every condition required):
+/// - the baseline side of the slot is a value (`OracleSide::Normal`): a complete run, free of
+///   every exclusion, all of whose terminals are ground values;
+/// - the test is ground (its initial state has no free variable);
+/// - the mutant run was judged into sides (it is not an error, not timed out, and no exclusion
+///   applies to it), and its only incompleteness is its last, `work-bound` leaf
+///   ([`kink_native::bridge::work_bound_stuck_terminals`]: no stack stop, no diagnostic on any
+///   leaf, every other leaf stuck, trivial or vacuous, every other path complete, no crash);
+/// - a leaf of it is `Stuck`, clean, with a decided ground value (one term, no path predicate, no
+///   free variable, definition-independent on the mutant's definition), and the slot's
+///   projection of it is not in the baseline's projected set;
+/// - the slot projects the whole term or the exit stop without an exit-code cell, which are
+///   defined on every final configuration (a failed projection makes a two-sided slot `Error`,
+///   and the unexplored part cannot be read).
+///
+/// Never from a cancelled or timed-out run, never on a pattern slot (stepped runs carry no work
+/// budget), never from a complete mutant run (its two-sided comparison already distinguishes when
+/// such a leaf exists). The mutant's side stays `Unknown`: only the slot's outcome becomes
+/// `Distinguish`.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum OneSided {
+    /// No one-sided kill.
+    #[default]
+    Off,
+    /// One-sided kills, for a campaign whose classifier never answers
+    /// `ExecutionTerminalKind::SemanticCrash` (as kink-flow's and kink-corpus's `all_normal`). The
+    /// state slot does not model a mutant set that mixes crash and normal terminals, and a crash
+    /// against a normal baseline is no set difference under any crash policy, so a crash terminal
+    /// in the part of the mutant run its work budget left unexplored could change the two-sided
+    /// verdict away from `Distinguish`. The runner cannot read a classifier's range, so the caller
+    /// states it; the explored terminals are checked anyway.
+    NoCrashClassifier,
 }
 
 /// The work budget (k-rust `max_work`: the most states a run may visit across all its paths) of
@@ -300,10 +347,10 @@ pub struct RunOptions {
 /// the same request shape (re-pin lane 1, L1-1; k-rust answers section 4.6). A budget only stops a
 /// run: a run it does not stop is the unbounded run (k-rust KINK-16 criterion 2), and a run it
 /// stops ends in a `work-bound` leaf, which makes the side incomplete, so every slot of that test
-/// is `Unknown`. It never applies to a baseline run, and never to a stepped run (a pattern test's
-/// observed path set): a bounded stepped run would expose the paths it finished where the
-/// unbounded run timed out, and a pattern slot can take a witness from them, which would move a
-/// `Timeout` toward `Killed`.
+/// is `Unknown`, unless it distinguishes one-sidedly ([`OneSided`], re-pin L1-2). It never
+/// applies to a baseline run, and never to a stepped run (a pattern test's observed path set): a
+/// bounded stepped run would expose the paths it finished where the unbounded run timed out, and
+/// a pattern slot can take a witness from them, which would move a `Timeout` toward `Killed`.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum WorkBudget {
     /// No work budget: runs are bounded by the campaign's budget only.
@@ -1256,6 +1303,8 @@ struct CachedEvidence {
     signatures_match: bool,
     // Replaying baseline observation queries preserves its solver/prelude mutations on hits.
     stepped: Option<SteppedExecution>,
+    /// The run's one-sided evidence ([`RunCache::one_sided`]), so a hit judges as the live run.
+    one_sided: Vec<ExecutionTerminal>,
 }
 
 struct PairedTest<'a> {
@@ -1318,6 +1367,7 @@ fn run_mutant(
         }
         Ok((mut sides, claims)) => {
             sides.runtime.modality = options.run.result_modality;
+            sides.runtime.one_sided = options.run.one_sided;
             let selection = mutant_selection(
                 campaign,
                 paired,
@@ -1624,6 +1674,7 @@ fn run_tests(
                     coverage: None,
                     recording: None,
                     work: None,
+                    one_sided: cached.one_sided.clone(),
                 },
             ),
             None => sides
@@ -1681,6 +1732,7 @@ fn run_tests(
                     evidence: mutant.clone(),
                     signatures_match,
                     stepped: cache.stepped,
+                    one_sided: cache.one_sided.clone(),
                 },
             );
         }
@@ -1705,7 +1757,21 @@ fn run_tests(
                         {
                             OracleOutcome::Unknown
                         } else {
-                            slot_outcome(declaration, baseline, mutant)
+                            match slot_outcome(declaration, baseline, mutant) {
+                                // Re-pin L1-2 (decision 6): a work-bound mutant run's clean ground
+                                // stuck leaf outside the baseline's complete set.
+                                OracleOutcome::Unknown
+                                    if one_sided_distinguishes(
+                                        declaration,
+                                        baseline,
+                                        mutant,
+                                        &cache.one_sided,
+                                    ) =>
+                                {
+                                    OracleOutcome::Distinguish
+                                }
+                                outcome => outcome,
+                            }
                         }
                     })
                     .collect(),
@@ -1743,6 +1809,13 @@ struct RunCache {
     /// The states the run visited (k-rust `work`) when it returned a result in time; on the
     /// baseline it calibrates the mutants' work budget of the test ([`WorkBudget`]).
     work: Option<u64>,
+    /// The one-sided evidence of a mutant run (re-pin L1-2, [`OneSided`]): the clean, ground,
+    /// stuck terminals of a work-bound run judged into sides, of a ground test, read with the
+    /// campaign's classifier and the mutant's own definition
+    /// ([`kink_native::bridge::work_bound_stuck_terminals`]). Empty for every other run, and for
+    /// every run of a side whose option is off (a baseline's always). Classifier-dependent, unlike
+    /// the rest of the cache: a baseline session never reads it.
+    one_sided: Vec<ExecutionTerminal>,
 }
 
 fn step_failure_side(failure: &StepRunFailure) -> OracleSide {
@@ -1779,6 +1852,9 @@ struct Runtime {
     coverage: Option<RuleAuthors>,
     /// The modality of the side's result runs ([`RunOptions::result_modality`]).
     modality: ResultModality,
+    /// Whether the side's runs collect one-sided evidence ([`RunOptions::one_sided`]; a mutant's
+    /// only).
+    one_sided: OneSided,
     /// What the side's definition contributes to the exclusions of each of its runs, read from
     /// its compiled KORE and from the definition its backend selected for the default module
     /// (the only module a request names), on the thread that runs it (re-pin R0b).
@@ -1821,6 +1897,7 @@ impl Runtime {
             facts: None,
             coverage: None,
             modality: ResultModality::default(),
+            one_sided: OneSided::Off,
             exclusions,
         })
     }
@@ -1860,7 +1937,8 @@ impl Runtime {
     ) -> (TestEvidence, Executed) {
         let started = Instant::now();
         let mut executed = self.execute(campaign, test, max_work);
-        let evidence = self.judge(campaign, test, &executed);
+        let (evidence, one_sided) = self.judge_with(campaign, test, &executed, None);
+        executed.cache.one_sided = one_sided;
         // Recording only (flow F-13): read from the execution the run already has.
         executed.cache.recording = Some(RunRecording {
             test_id: test.id.clone(),
@@ -1948,6 +2026,7 @@ impl Runtime {
 
     /// The evidence of one executed test: its execution bridged with the campaign's classifier
     /// and decided with this side's definition and solver, one side per oracle declaration.
+    #[cfg(test)]
     fn judge(
         &mut self,
         campaign: &Campaign<'_>,
@@ -1974,6 +2053,22 @@ impl Runtime {
         executed: &Executed,
         producing: Option<&DefinitionExclusions>,
     ) -> TestEvidence {
+        self.judge_with(campaign, test, executed, producing).0
+    }
+
+    /// [`Runtime::judge_on`], and the run's one-sided evidence ([`RunCache::one_sided`]): read
+    /// only when this side's option is on, the test is ground, and the run is judged into sides
+    /// (no failure, no timeout, no exclusion), with the same classifier and decider as its sides.
+    fn judge_with(
+        &mut self,
+        campaign: &Campaign<'_>,
+        test: &TestCase,
+        executed: &Executed,
+        producing: Option<&DefinitionExclusions>,
+    ) -> (TestEvidence, Vec<ExecutionTerminal>) {
+        let one_sided =
+            self.one_sided != OneSided::Off && test.initial_state.free_variables().is_empty();
+        let mut terminals = Vec::new();
         let combined;
         let exclusions = match producing {
             Some(producing) => {
@@ -1995,17 +2090,21 @@ impl Runtime {
                     TestInitialState::of_test(&test.initial_state),
                 )
                 .trusting_collections(collections_trusted);
-                let bridged = paths_from_execution_values(
-                    execution,
-                    &BridgeContext {
-                        test_id: &test.id,
-                        classify: campaign.classify,
-                        sorts: &self.context.symbol_sorts,
-                    },
-                    &|term| decider.terminal_value(term),
-                );
+                let context = BridgeContext {
+                    test_id: &test.id,
+                    classify: campaign.classify,
+                    sorts: &self.context.symbol_sorts,
+                };
+                let value = |term: &Pattern| decider.terminal_value(term);
+                let bridged = paths_from_execution_values(execution, &context, &value);
                 let state_exclusion = exclusions.state_exclusion(definition, &test.initial_state);
-                Ok::<_, k_rust::backend::BackendError>((bridged, state_exclusion))
+                // Re-pin L1-2: kept below only when the run is judged into sides.
+                let one_sided = if one_sided {
+                    work_bound_stuck_terminals(execution, &context, &value)
+                } else {
+                    Vec::new()
+                };
+                Ok::<_, k_rust::backend::BackendError>((bridged, state_exclusion, one_sided))
             }) {
                 // No decider: every slot is unknown, unless the run is excluded, which is read
                 // from its leaves and from the test's initial state on the selected definition
@@ -2027,33 +2126,41 @@ impl Runtime {
                         }
                     },
                 },
-                Ok((Err(failure), _)) => SideRun::Failed((&failure).into()),
+                Ok((Err(failure), ..)) => SideRun::Failed((&failure).into()),
                 // A run that bridged is checked for its exclusions before any side is formed
                 // (re-pin R0b): an excluded run gives no side to any slot, on the baseline as on
                 // a mutant, live or reused from a baseline session.
-                Ok((Ok(bridged), state_exclusion)) => {
+                Ok((Ok(bridged), state_exclusion, one_sided)) => {
                     match exclusions.run_exclusion(execution).or(state_exclusion) {
                         Some(exclusion) => SideRun::Failed(exclusion.into()),
-                        None => SideRun::Sides {
-                            sides: test
-                                .oracles
-                                .iter()
-                                .map(|declaration| match declaration.projection() {
-                                    Projection::State(projection) => {
-                                        state_side(projection, &bridged)
-                                    }
-                                    Projection::Pattern { .. } => executed.pattern_failure.clone(),
-                                })
-                                .collect(),
-                        },
+                        None => {
+                            terminals = one_sided;
+                            SideRun::Sides {
+                                sides: test
+                                    .oracles
+                                    .iter()
+                                    .map(|declaration| match declaration.projection() {
+                                        Projection::State(projection) => {
+                                            state_side(projection, &bridged)
+                                        }
+                                        Projection::Pattern { .. } => {
+                                            executed.pattern_failure.clone()
+                                        }
+                                    })
+                                    .collect(),
+                            }
+                        }
                     }
                 }
             },
         };
-        TestEvidence {
-            test_id: test.id.clone(),
-            run,
-        }
+        (
+            TestEvidence {
+                test_id: test.id.clone(),
+                run,
+            },
+            terminals,
+        )
     }
 
     /// The pattern-slot sides of one side's stepped run. This (the baseline's) definition and
@@ -2229,6 +2336,46 @@ pub fn slot_outcome(
         mutant,
     )
     .unwrap_or(OracleOutcome::Error)
+}
+
+/// Whether a state slot that compared `Unknown` distinguishes one-sidedly (re-pin L1-2,
+/// [`OneSided`]): the baseline side is a value, the mutant side is `Unknown`, the slot projects
+/// the whole term or the exit stop without an exit-code cell, and the projection of one of the
+/// mutant run's one-sided `terminals` ([`RunCache::one_sided`], empty unless the run qualifies) is
+/// not in the baseline's projected set. The projection is the slot's own ([`project`]) applied
+/// to that one terminal, and a projected set is the set of its terminals' projections, so the
+/// mutant's projected set, which holds it in every completion of the run, differs from the
+/// baseline's.
+fn one_sided_distinguishes(
+    declaration: &OracleDeclaration,
+    baseline: &OracleSide,
+    mutant: &OracleSide,
+    terminals: &[ExecutionTerminal],
+) -> bool {
+    let (Projection::State(projection), OracleSide::Normal(baseline), OracleSide::Unknown) =
+        (declaration.projection(), baseline, mutant)
+    else {
+        return false;
+    };
+    if !matches!(
+        projection,
+        StateProjection::WholeTerm
+            | StateProjection::ExitStop {
+                exit_code_cell: None
+            }
+    ) {
+        return false;
+    }
+    terminals.iter().any(
+        |terminal| match (project(projection, &[terminal]), baseline) {
+            (Some(OracleValue::ExitStop(leaf)), OracleValue::ExitStop(set)) => !leaf.is_subset(set),
+            (
+                Some(OracleValue::FinalResult(FinalResult::WholeTerm(leaf))),
+                OracleValue::FinalResult(FinalResult::WholeTerm(set)),
+            ) => !leaf.is_subset(set),
+            _ => false,
+        },
+    )
 }
 
 /// The failed side of the most severe incomplete stop: error, then timeout, then unknown.
@@ -2766,6 +2913,155 @@ mod tests {
             .unwrap()
             .join()
             .unwrap();
+    }
+
+    /// Re-pin L1-2 (decision 6, finding A-15): a run's one-sided evidence is read only on a side
+    /// whose option is on, of a ground test, from a run judged into sides: a counted stack stop
+    /// makes the run no evidence at all, and a diagnostic on its stuck leaf, a symbolic test or
+    /// the option off leaves it without one-sided evidence.
+    #[test]
+    fn one_sided_evidence_needs_the_option_a_ground_test_and_a_clean_unstopped_run() {
+        with_one_test(
+            "l1/onesided.k",
+            "ONESIDED",
+            input_test_support::app("Lblstart", vec![input_test_support::int(10)]),
+            "SortProg",
+            |_, compiled, campaign| {
+                use k_rust::backend::{
+                    BackendDiagnosticOutput, ExecutionLeaf, ExecutionResult, HaltReasonOutput,
+                };
+                let test = &campaign.tests[0];
+                let mut runtime =
+                    Runtime::prepare(campaign, compiled).unwrap_or_else(|_| panic!("the runtime"));
+                runtime.one_sided = OneSided::NoCrashClassifier;
+                // start(10), done(17), then three states of the loop: the fourth is work-bound.
+                let max_work = Some(5);
+                let bounded = runtime.execute(campaign, test, max_work);
+                let unknown = SideRun::Sides {
+                    sides: vec![OracleSide::Unknown],
+                };
+                let (evidence, terminals) = runtime.judge_with(campaign, test, &bounded, None);
+                assert_eq!(evidence.run, unknown);
+                let [terminal] = terminals.as_slice() else {
+                    panic!("one terminal: {terminals:?}")
+                };
+                assert_eq!(terminal.kind, ExecutionTerminalKind::Normal);
+                assert!(
+                    terminal
+                        .state
+                        .to_string()
+                        .contains(r#"Lbldone{}(\dv{SortInt{}}("17"))"#),
+                    "{}",
+                    terminal.state
+                );
+                runtime.one_sided = OneSided::Off;
+                assert_eq!(
+                    runtime.judge_with(campaign, test, &bounded, None),
+                    (evidence.clone(), Vec::new())
+                );
+                runtime.one_sided = OneSided::NoCrashClassifier;
+
+                // The run's result as k-rust returns it, then with a counted stack stop or with a
+                // diagnostic on its stuck leaf.
+                let Ok(execution) = &bounded.execution else {
+                    panic!("the run returns")
+                };
+                let raw = || ExecutionResult {
+                    modality: k_rust::backend::ResultModalityOutput::StateSet,
+                    leaves: execution
+                        .leaves()
+                        .iter()
+                        .map(|leaf| ExecutionLeaf {
+                            state: leaf.branch.state.clone(),
+                            diagnostics: Vec::new(),
+                            candidates: None,
+                            remainder: None,
+                            depth: leaf.branch.depth,
+                            reason: match leaf.halt {
+                                HaltClass::Stuck => HaltReasonOutput::Stuck,
+                                HaltClass::WorkBound => HaltReasonOutput::WorkBound,
+                                halt => panic!("{halt:?}"),
+                            },
+                            rule_id: None,
+                            rule_label: None,
+                            contradicted_total: None,
+                            cause: None,
+                            detail: None,
+                            trace: leaf.branch.trace.clone(),
+                            branch: leaf.branch.identity.clone(),
+                            effects: Vec::new(),
+                            observations: Vec::new(),
+                        })
+                        .collect(),
+                    effects: Vec::new(),
+                    discarded: Vec::new(),
+                    coverage: None,
+                    work: execution.work(),
+                    expanded: 0,
+                    stack_stops: 0,
+                };
+                let feasibility = execution
+                    .leaves()
+                    .iter()
+                    .map(|leaf| leaf.feasibility)
+                    .collect::<Vec<_>>();
+                let executed = |result: ExecutionResult| Executed {
+                    execution: Ok(ExecutionAdapter::adapt_bounded_result(
+                        result,
+                        false,
+                        &campaign.budget,
+                        max_work,
+                        feasibility.clone(),
+                    )
+                    .unwrap()),
+                    pattern_failure: OracleSide::Unknown,
+                    cache: RunCache::default(),
+                };
+                assert_eq!(
+                    runtime.judge_with(campaign, test, &executed(raw()), None),
+                    (evidence, terminals.clone())
+                );
+                let mut stopped = raw();
+                stopped.stack_stops = 1;
+                assert_eq!(
+                    runtime.judge_with(campaign, test, &executed(stopped), None),
+                    (
+                        TestEvidence {
+                            test_id: "t".into(),
+                            run: SideRun::Failed(ExecutionFailureKind::StackStop),
+                        },
+                        Vec::new()
+                    )
+                );
+                let mut diagnosed = raw();
+                assert_eq!(diagnosed.leaves[0].reason, HaltReasonOutput::Stuck);
+                diagnosed.leaves[0].diagnostics.push(
+                    BackendDiagnosticOutput::UnsupportedHookUnevaluated {
+                        hook: "TEST.hook".into(),
+                        reason: "unavailable".into(),
+                    },
+                );
+                let (evidence, terminals) =
+                    runtime.judge_with(campaign, test, &executed(diagnosed), None);
+                assert_eq!((evidence.run, terminals), (unknown.clone(), Vec::new()));
+
+                // A symbolic test: start(N) for every Int N.
+                let symbolic = TestCase {
+                    id: "t".into(),
+                    initial_state: input_test_support::initial_state(
+                        input_test_support::app(
+                            "Lblstart",
+                            vec![input_test_support::var("N", "SortInt")],
+                        ),
+                        "SortProg",
+                    ),
+                    oracles: test.oracles.clone(),
+                };
+                let bounded = runtime.execute(campaign, &symbolic, max_work);
+                let (_, terminals) = runtime.judge_with(campaign, &symbolic, &bounded, None);
+                assert_eq!(terminals, Vec::new());
+            },
+        );
     }
 
     /// One state-oracle test `t` of `program` (sort `SortProg` unless `sort` says otherwise) on

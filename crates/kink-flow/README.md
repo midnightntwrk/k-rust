@@ -50,7 +50,7 @@ Defaults:
 | `spec.md_selector` | `"k"` | |
 | `budget.time_ms` | `10000` | Wall-clock bound of one program run; must be positive. A run whose state set kink replaces by its path set (an undefined step, a vacuous leaf or a contradicted claim) is two runs, each with this bound, so it can take up to twice as long. |
 | `budget.max_depth` | `100000` | Rewrite-depth bound of one program run; must be positive. A run is never unbounded. |
-| `budget.work_factor` | absent | The work budget of a mutant's run of a program: at most `work_factor * W + 10000` states visited (k-rust `max_work`), where `W` is the states the program's baseline run visited; must be positive. A mutant that runs past it is `unknown` on that program (never killed by it), long before `time_ms` would stop it. Absent: no work budget. It never bounds a baseline run. |
+| `budget.work_factor` | absent | The work budget of a mutant's run of a program: at most `work_factor * W + 10000` states visited (k-rust `max_work`), where `W` is the states the program's baseline run visited; must be positive. A mutant that runs past it is `unknown` on that program, long before `time_ms` would stop it, unless the part it ran already holds a final configuration the baseline's program never ends in: then the program kills it one-sidedly (re-pin L1-2, decision 6; the root README, "What a kill trusts"). Absent: no work budget. It never bounds a baseline run. |
 | `program.start_sort` | the sort of `$PGM` | |
 | `program.variables` | none | Every configuration variable other than `$PGM` must be given; streams default to empty. |
 
@@ -427,7 +427,7 @@ A distinguishing slot also has `sides`: for `exit-stop`, each side's exit-stop k
 (the flow's classifier makes every ended run `normal`; `undefined-step` is a rule whose result is undefined, such as a division by zero);
 for `whole-term`, each side's number of final configurations, `{"baseline": {"final_configurations": 1}, "mutant": {"final_configurations": 1, "kore": [{"text", "truncated"}]}}`,
 where `kore`, on the killing program's entry only, holds the mutant's final configurations as KORE text, each cut to 4000 characters (`truncated: true` when cut).
-A cached entry has no evidence at hand: its distinguishing slot has `sides: null`.
+A cached entry has no evidence at hand: its distinguishing slot has `sides: null`. So has a one-sided kill (the mutant's run reached its work budget, `budget.work_factor`), whose mutant side is `unknown`, not a value.
 No timing, census or side value enters an evidence row, a digest, a key, an outcome record or a hint.
 
 A row may also carry `stale_killer` (the hint named a program that is not comparable; it was removed) and `cache_error`.

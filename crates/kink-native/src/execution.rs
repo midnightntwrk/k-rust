@@ -903,11 +903,24 @@ impl ExecutionAdapter {
         budget: &ExecutionBudget,
         feasibility: Vec<LeafFeasibility>,
     ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
+        Self::adapt_bounded_result(result, timed_out, budget, None, feasibility)
+    }
+
+    /// [`Self::adapt_result`] of a result whose request set `max_work`, so a `work-bound` leaf is
+    /// admitted exactly when `max_work` is set ([`HaltClass::admitted_by`]; re-pin L1-2: tests of
+    /// the one-sided kill hold a work-bound result).
+    pub fn adapt_bounded_result(
+        result: ExecutionResult,
+        timed_out: bool,
+        budget: &ExecutionBudget,
+        max_work: Option<u64>,
+        feasibility: Vec<LeafFeasibility>,
+    ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
         Self::adapt(
             result,
             timed_out,
             budget,
-            None,
+            max_work,
             feasibility,
             &BTreeSet::new(),
         )

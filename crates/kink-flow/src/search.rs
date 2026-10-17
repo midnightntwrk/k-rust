@@ -361,6 +361,10 @@ impl Search<'_> {
             share_evidence: false,
             run: kink_campaign::RunOptions {
                 work: self.manifest.budget.work(),
+                // Re-pin L1-2 (decision 6): a work-bound mutant run can kill one-sidedly. Every
+                // campaign call of the flow classifies with `all_normal` (`BaselineRunner::call`),
+                // which never answers a semantic crash.
+                one_sided: kink_campaign::OneSided::NoCrashClassifier,
                 ..kink_campaign::RunOptions::default()
             },
         };

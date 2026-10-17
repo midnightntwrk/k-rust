@@ -789,6 +789,93 @@ pub fn paths_from_execution_values(
     Ok(paths.finish())
 }
 
+/// The clean, ground, stuck terminals of a work-bound run (re-pin L1-2, decision 6, finding
+/// A-15): the leaves a one-sided kill may read. Empty unless the run is a complete run cut short
+/// by its work budget and nothing else:
+/// - it did not time out (decision 6 rejects cancelled runs) and counted no stack stop;
+/// - its last leaf, and only that one, is `WorkBound` (k-rust checks the budget before it expands
+///   a state, so every earlier leaf is a state whose own expansion finished);
+/// - every other leaf is `Stuck`, `Trivial` or `Vacuous`, no leaf carries a diagnostic, and every
+///   path but the work-bound leaf's is complete (a depth, breadth or undecided stop, a diagnosed
+///   leaf or a stuck term that is not a value makes the run more than work-bound);
+/// - no complete terminal is a semantic crash.
+///
+/// A terminal is one leaf's: halt `Stuck` (no rule applies to it: k-rust decides the halt after
+/// normalising the state, and an applied candidate whose result is undefined gives a `Trivial`
+/// leaf instead), no contradicted claim, and a state that is decided (one term, no path predicate,
+/// no free variable) with a definition-independent value (`value`, against this execution's own
+/// definition, TV-01), classified `Normal` or `Stuck`. Its configuration is reached by the run's
+/// initial state and final in every model of the definition, so it is a final configuration of
+/// every completion of the run.
+#[must_use]
+pub fn work_bound_stuck_terminals(
+    execution: &AdaptedExecution,
+    context: &BridgeContext<'_>,
+    value: &dyn Fn(&Pattern) -> Option<Pattern>,
+) -> Vec<ExecutionTerminal> {
+    let leaves = &execution.leaves;
+    let Some((last, explored)) = leaves.split_last() else {
+        return Vec::new();
+    };
+    if execution.timed_out
+        || execution.stack_stops != 0
+        || last.halt != HaltClass::WorkBound
+        || leaves.iter().any(diagnosed)
+        || !explored.iter().all(|leaf| {
+            matches!(
+                leaf.halt,
+                HaltClass::Stuck | HaltClass::Trivial | HaltClass::Vacuous
+            )
+        })
+    {
+        return Vec::new();
+    }
+    let Ok(bridged) = paths_from_execution_values(execution, context, value) else {
+        return Vec::new();
+    };
+    let work_bound = format!("leaf:{}", explored.len());
+    let shaped = bridged.paths.iter().all(|path| {
+        if path.path_key.as_deref() == Some(work_bound.as_str()) {
+            !path.complete && path.stop == PathStop::BackendLimit
+        } else {
+            path.complete
+                && path
+                    .execution_terminal
+                    .as_ref()
+                    .is_some_and(|terminal| terminal.kind != ExecutionTerminalKind::SemanticCrash)
+        }
+    });
+    if !shaped {
+        return Vec::new();
+    }
+    bridged
+        .paths
+        .iter()
+        .filter_map(|path| {
+            let terminal = path.execution_terminal.as_ref()?;
+            let ordinal = path
+                .path_key
+                .as_deref()?
+                .strip_prefix("leaf:")?
+                .parse::<usize>()
+                .ok()?;
+            let leaf = explored.get(ordinal)?;
+            if leaf.halt != HaltClass::Stuck || leaf.contradicted_total.is_some() {
+                return None;
+            }
+            let decided = split_state(&leaf.branch.state, context.sorts)
+                .ok()?
+                .decided_term(value)?;
+            (decided == terminal.state
+                && matches!(
+                    terminal.kind,
+                    ExecutionTerminalKind::Normal | ExecutionTerminalKind::Stuck
+                ))
+            .then(|| terminal.clone())
+        })
+        .collect()
+}
+
 /// Turns a stepped run into declaration events using one baseline-owned decider.
 pub fn paths_from_steps(
     context: &BridgeContext<'_>,
@@ -2096,6 +2183,112 @@ mod tests {
         assert_ne!(
             bridged.paths[0].execution_terminal,
             bridged.paths[1].execution_terminal
+        );
+    }
+
+    /// Re-pin L1-2 (decision 6, finding A-15): the terminals a one-sided kill may read. Only a
+    /// run whose sole incompleteness is its last, work-bound leaf gives any, and only its clean,
+    /// decided, ground, stuck, non-crash leaves.
+    #[test]
+    fn work_bound_stuck_terminals_are_the_clean_ground_stuck_leaves_of_a_work_bound_run() {
+        use ExecutionTerminalKind::Normal;
+        use LeafFeasibility::Solver as Z;
+        use k_rust::backend::{BackendDiagnosticOutput, ContradictedTotalOutput};
+        let sorts = sorts();
+        let value = |term: &Pattern| independent(term).then(|| term.clone());
+        let ground = || leaf(H::Stuck, GROUND, U, 1);
+        let bound = || leaf(H::WorkBound, GROUND, U, 2);
+        let diagnosed = |mut leaf: AdaptedLeaf| {
+            leaf.diagnostics
+                .push(BackendDiagnosticOutput::UnsupportedHookUnevaluated {
+                    hook: "TEST.hook".into(),
+                    reason: "unavailable".into(),
+                });
+            leaf
+        };
+        let contradicted = || {
+            let mut leaf = ground();
+            leaf.contradicted_total = Some(ContradictedTotalOutput {
+                symbol: "Lblf".into(),
+                k_label: None,
+                rule_id: "f-eq".into(),
+                rule_label: None,
+                origin: None,
+                application: kore(GROUND),
+                undefined: kore(BARE_BOTTOM),
+            });
+            leaf
+        };
+        let terminal = |state: &str| ExecutionTerminal {
+            kind: Normal,
+            state: parse_pattern(state).expect("term"),
+        };
+        let execution = |leaves: Vec<AdaptedLeaf>| AdaptedExecution {
+            leaves,
+            effects: Vec::new(),
+            timed_out: false,
+            stack_stops: 0,
+            modality: crate::execution::ResultModality::StateSet,
+            work: 3,
+            coverage: None,
+        };
+        #[rustfmt::skip]
+        let rows: Vec<(&str, AdaptedExecution, Vec<ExecutionTerminal>)> = vec![
+            ("a ground stuck leaf before the work bound", execution(vec![ground(), bound()]), vec![terminal(GROUND)]),
+            ("beside a decided undefined step and a vacuous leaf",
+                execution(vec![leaf(H::Trivial, GROUND, U, 1), leaf(H::Vacuous, BOTTOM, U, 1), ground(), bound()]),
+                vec![terminal(GROUND)]),
+            ("an undefined step is no stuck leaf", execution(vec![leaf(H::Trivial, GROUND, U, 1), bound()]), vec![]),
+            ("a complete run is not work-bound", execution(vec![ground()]), vec![]),
+            ("the work-bound leaf must be last", execution(vec![bound(), ground()]), vec![]),
+            ("one work-bound leaf", execution(vec![ground(), bound(), bound()]), vec![]),
+            ("only the work-bound leaf", execution(vec![bound()]), vec![]),
+            ("a diagnostic on the leaf", execution(vec![diagnosed(ground()), bound()]), vec![]),
+            ("a diagnostic on another leaf", execution(vec![ground(), diagnosed(leaf(H::Stuck, CRASH, U, 1)), bound()]), vec![]),
+            ("a diagnostic on the work-bound leaf", execution(vec![ground(), diagnosed(bound())]), vec![]),
+            ("a contradicted claim", execution(vec![contradicted(), bound()]), vec![]),
+            ("a free variable (complete through feasibility)", execution(vec![leaf(H::Stuck, SYMBOLIC, F, 1), bound()]), vec![]),
+            ("a path predicate (complete through the solver)", execution(vec![leaf(H::Stuck, CONSTRAINED, Z, 1), bound()]), vec![]),
+            ("a crash", execution(vec![leaf(H::Stuck, CRASH, U, 1), bound()]), vec![]),
+            ("an explored crash beside it", execution(vec![ground(), leaf(H::Stuck, CRASH, U, 1), bound()]), vec![]),
+            ("another explored path undecided", execution(vec![leaf(H::Stuck, SYMBOLIC, U, 1), ground(), bound()]), vec![]),
+            ("a depth bound too", execution(vec![leaf(H::DepthBound, GROUND, U, 1), ground(), bound()]), vec![]),
+            ("a breadth bound too", execution(vec![leaf(H::BreadthBound, GROUND, U, 1), ground(), bound()]), vec![]),
+            ("an indeterminate leaf too", execution(vec![leaf(H::Indeterminate, GROUND, U, 1), ground(), bound()]), vec![]),
+            ("an unsupported hook too", execution(vec![leaf(H::UnsupportedHook, GROUND, U, 1), ground(), bound()]), vec![]),
+            ("a simplification error too", execution(vec![leaf(H::SimplificationError, GROUND, U, 1), ground(), bound()]), vec![]),
+            ("no leaf", execution(vec![]), vec![]),
+        ];
+        for (id, execution, expected) in rows {
+            assert_eq!(
+                work_bound_stuck_terminals(&execution, &bridge_context(&sorts), &value),
+                expected,
+                "{id}"
+            );
+        }
+        let mut stopped = execution(vec![ground(), bound()]);
+        stopped.stack_stops = 1;
+        assert_eq!(
+            work_bound_stuck_terminals(&stopped, &bridge_context(&sorts), &value),
+            Vec::new(),
+            "a stack stop"
+        );
+        let mut timed_out = execution(vec![ground(), bound()]);
+        timed_out.timed_out = true;
+        assert_eq!(
+            work_bound_stuck_terminals(&timed_out, &bridge_context(&sorts), &value),
+            Vec::new(),
+            "a timed-out run"
+        );
+        // A term that is not a definition-independent value.
+        assert_eq!(
+            work_bound_stuck_terminals(
+                &execution(vec![ground(), bound()]),
+                &bridge_context(&sorts),
+                &|_| None
+            ),
+            Vec::new(),
+            "not a value"
         );
     }
 }
