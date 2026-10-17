@@ -22,13 +22,13 @@
 //! refuses it conservatively.
 
 use crate::sort::site_sorts;
+use crate::typing::CompilationTyping;
 use crate::{
     Baseline, Edit, InsertPosition, Patch, PatchFailure, ResolvedUniverse, SentenceRef, TermRef,
     apply, child, field_term,
 };
 use k_rust::definition::{AttributeKey, Sentence};
 use k_rust::kast::{Label, Sort, Term};
-use k_rust::kompile::SentenceTyper;
 use std::collections::BTreeSet;
 use std::fmt;
 
@@ -639,10 +639,12 @@ fn derive_sites_with<'b>(
             _ => None,
         })
         .collect::<Vec<_>>();
-    let resolved = baseline.loaded().resolved();
+    // Site sorts are compilation's typing (one `SentenceTyper::for_compilation` of the baseline,
+    // `typing_in` the declaring module); a rule it does not type has no known site sort.
+    let compilation =
+        (!sorts.is_empty()).then(|| CompilationTyping::new(baseline.loaded().resolved()));
     let mut exhaustive = true;
     let mut sites = Vec::new();
-    let mut typers = std::collections::BTreeMap::new();
     // Imported and builtin declarations matter too: the typer recognizes these
     // names even when a user production gives them a real result sort.
     let non_builtin_cell_labels = if universe.is_some() && !sorts.is_empty() {
@@ -689,11 +691,10 @@ fn derive_sites_with<'b>(
         {
             continue;
         }
-        let typing = (!sorts.is_empty()).then(|| {
-            let typer = typers
-                .entry(sentence_ref.module.clone())
-                .or_insert_with(|| SentenceTyper::new(resolved, &sentence_ref.module).ok());
-            typer.as_ref().and_then(|typer| typer.typing(sentence).ok())
+        let typing = compilation.as_ref().map(|compilation| {
+            compilation
+                .typing(sentence, &sentence_ref.module)
+                .and_then(Result::ok)
         });
         for field in 0..3 {
             let Some(root) = field_term(sentence, field) else {

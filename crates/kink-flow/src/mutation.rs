@@ -355,7 +355,12 @@ pub enum InvalidReason {
     SpanChanged,
     /// The edited rule is the baseline rule up to formatting.
     NoChange,
-    /// kink-patch refused the patch (defensive: the checks above make it unreachable).
+    /// kink-patch refused the patch. Defensive: the checks above leave only a sort or semantic-cast
+    /// error of an edited rule in compilation's typing view (one `SentenceTyper::for_compilation`,
+    /// `typing_in` the declaring module), an error compilation stops at too and that the edited
+    /// load's parser already reports in every case kink has met (`edited-load-failed`). A rule
+    /// that types only in compilation's view, not in its own module's, is no longer refused here
+    /// (L2-2; findings C-02, C-03): compilation decides.
     PatchRejected,
 }
 

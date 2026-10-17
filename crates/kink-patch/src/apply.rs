@@ -1,10 +1,10 @@
 //! Atomic application of a [`Patch`] to a [`Baseline`].
 
 use crate::failure::{PatchFailure, PatchFailureKind};
+use crate::typing::CompilationTyping;
 use crate::{Baseline, Edit, InsertPosition, Patch, Region, SentenceRef, Target, path_in};
 use k_rust::definition::{AttributeKey, Definition, ResolvedDefinition, Sentence, sentence_mut};
 use k_rust::kast::Term;
-use k_rust::kompile::SentenceTyper;
 use k_rust::outer::{LoadError, LoadedDefinition};
 use std::collections::{BTreeMap, BTreeSet};
 use std::mem::discriminant;
@@ -79,8 +79,9 @@ impl Mutant {
 /// Applies every edit of `patch` or none.
 ///
 /// Pins are checked first, in sentence order. Every edit is checked against the immutable baseline, then edits are
-/// checked against each other. The patched rule sentences are typed after
-/// all edits are assembled, and no output is published unless every check passes.
+/// checked against each other. The patched rule sentences are typed in compilation's view after
+/// all edits are assembled (only a sort or cast error, at which compilation also stops, refuses),
+/// and no output is published unless every check passes.
 ///
 /// # Errors
 ///
@@ -220,8 +221,16 @@ fn preflight(baseline: &Baseline, edit: &Edit) -> Result<(), PatchFailure> {
     }
 }
 
-/// Check the edited rule-like sentences with the same typer compilation uses.
-/// A module typer is reused for every changed sentence in that module.
+/// The demoted typing gate (decision 4; findings C-02, C-03): every edited rule or claim is typed
+/// in compilation's view, one `SentenceTyper::for_compilation` of the patched definition, with
+/// `typing_in` its declaring module. The patch is refused only on a sort or semantic-cast error,
+/// which k-rust's contract says compilation also stops at, so by that contract this check refuses
+/// a subset of what compilation refuses (were the contract wrong, a refusal would still only cost
+/// a mutant, never make a kill). Every other answer leaves the verdict to compilation:
+/// `CellCompletion` (a shape compilation may accept), a sentence outside the main module's import
+/// closure (compilation never emits it), or no typer. Before L2-2 the gate typed each sentence in
+/// its own module's view and refused on any error, which is stricter than compilation in cases
+/// C-03 (a)-(c).
 fn check_edited_sentences(
     definition: &Definition,
     resolved: &ResolvedDefinition,
@@ -236,7 +245,7 @@ fn check_edited_sentences(
             _ => None,
         })
         .collect::<BTreeSet<_>>();
-    let mut typers = BTreeMap::new();
+    let mut typing = None;
     for (at, origin) in origins {
         let edited = match origin {
             SentenceOrigin::Baseline(original) => changed.contains(original),
@@ -257,23 +266,12 @@ fn check_edited_sentences(
         ) {
             continue;
         }
-        let typer = typers.entry(at.module.as_str()).or_insert_with(|| {
-            SentenceTyper::new(resolved, &at.module).map_err(|error| ill_formed(error.to_string()))
-        });
-        check_sentence_typing(typer.as_ref().map_err(Clone::clone)?, sentence)?;
+        let typing = typing.get_or_insert_with(|| CompilationTyping::new(resolved));
+        if let Some(error) = typing.compilation_error(sentence, &at.module) {
+            return Err(ill_formed(error.to_string()));
+        }
     }
     Ok(())
-}
-
-/// The sentence re-typing check shared by patch application and universe resolution.
-pub(crate) fn check_sentence_typing(
-    typer: &SentenceTyper<'_>,
-    sentence: &Sentence,
-) -> Result<(), PatchFailure> {
-    typer
-        .typing(sentence)
-        .map(|_| ())
-        .map_err(|error| ill_formed(error.to_string()))
 }
 
 fn existing<'a>(baseline: &'a Baseline, at: &SentenceRef) -> Result<&'a Sentence, PatchFailure> {

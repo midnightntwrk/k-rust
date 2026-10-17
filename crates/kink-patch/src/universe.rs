@@ -1,10 +1,9 @@
 //! Declared rule universes and deterministic, explicitly listed exclusions.
 
-use crate::apply::check_sentence_typing;
+use crate::typing::CompilationTyping;
 use crate::{Baseline, SentenceRef, Sha256Digest, canonical_json, payload_digest};
 use k_rust::definition::{AttributeKey, Sentence};
 use k_rust::kast::Term;
-use k_rust::kompile::SentenceTyper;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -104,11 +103,16 @@ impl ResolvedUniverse {
     }
 }
 
-/// Resolves the declaration using the same sentence re-typing check as `apply`.
+/// Resolves the declaration. A rule is `Untyped` when compilation's typing view (one
+/// `SentenceTyper::for_compilation` of the baseline, `typing_in` its declaring module) gives it
+/// no typing: a `CellCompletion` shape, or a rule outside the main module's import closure, which
+/// compilation never emits. A rule that types only in that view (its own module lacks `K`,
+/// overloads or helpers compilation sees) is in the universe.
 #[must_use]
 pub fn resolve_universe(baseline: &Baseline, universe: &Universe) -> ResolvedUniverse {
-    let resolved = baseline.loaded().resolved();
-    let mut typers = BTreeMap::new();
+    let typing = universe
+        .typed
+        .then(|| CompilationTyping::new(baseline.loaded().resolved()));
     let mut macro_heads = BTreeMap::new();
     let mut included = Vec::new();
     let mut excluded = Vec::new();
@@ -119,14 +123,9 @@ pub fn resolve_universe(baseline: &Baseline, universe: &Universe) -> ResolvedUni
         else {
             continue;
         };
-        let untyped = universe.typed && {
-            let typer = typers
-                .entry(at.module.clone())
-                .or_insert_with(|| SentenceTyper::new(resolved, &at.module).ok());
-            typer
-                .as_ref()
-                .is_none_or(|typer| check_sentence_typing(typer, sentence).is_err())
-        };
+        let untyped = typing
+            .as_ref()
+            .is_some_and(|typing| !matches!(typing.typing(sentence, &at.module), Some(Ok(_))));
         let reason = if untyped {
             Some(ExclusionReason::Untyped)
         } else if let Some(key) = universe

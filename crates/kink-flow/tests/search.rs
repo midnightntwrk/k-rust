@@ -959,3 +959,75 @@ fn an_inconsistent_mutation_is_invalid_and_names_its_pair() {
         refused["inconsistent_pairs"]
     );
 }
+
+/// L2-2 (decision 4; findings C-02, C-03 (a)): `TWICE` imports only `INT-SYNTAX`, so its own
+/// module's typing view lacks the `K` sequence order and types neither `twice` nor `first`;
+/// compilation types both in the main module's view and compiles. Until L2-2 kink-patch typed
+/// every edited rule in its own module, so both mutations were `invalid-mutation`
+/// (`patch-rejected`) although their mutants compile. Now compilation decides, and each mutant
+/// goes through claim removal, the compiled-effect diff and the consistency check before it
+/// runs: `second-steps` edits a rewrite rule (no claim to remove), `first-zero` edits the
+/// equation of the total function `first`, whose `total` claim the mutant loses. Both are
+/// killed by `go(1)`, whose baseline result is `done(1) ~> done(1) ~> done(1)`.
+#[test]
+fn a_rule_typed_only_in_compilations_view_is_mutated_and_run() {
+    let dir = scratch("module-view");
+    fs::write(
+        dir.join("modview.k"),
+        "module MODVIEW-SYNTAX\n  imports INT-SYNTAX\n  syntax Pgm ::= go(Int)\nendmodule\n\n\
+         module TWICE\n  imports INT-SYNTAX\n  syntax KItem ::= step(Int) | done(Int)\n  \
+         syntax K ::= first(Int) [function, total]\n  \
+         rule [twice]: step(X) => done(X) ~> done(X)\n  rule [first]: first(X) => done(X)\n\
+         endmodule\n\n\
+         module MODVIEW\n  imports MODVIEW-SYNTAX\n  imports TWICE\n  imports INT\n  \
+         configuration <k> $PGM:Pgm </k>\n  rule [go]: go(X) => step(X) ~> first(X)\nendmodule\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.join("FLOW.toml"),
+        "[spec]\nentry = \"modview.k\"\nmain_module = \"MODVIEW\"\nsyntax_module = \"MODVIEW-SYNTAX\"\n\n\
+         [[program]]\nid = \"one\"\ntext = \"go(1)\"\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.join("MUTATIONS.toml"),
+        "[[mutation]]\nid = \"second-steps\"\n\n  [[mutation.edit]]\n  rule = \"twice\"\n  \
+         find = \"~> done(X)\"\n  replace = \"~> step(X)\"\n\n\
+         [[mutation]]\nid = \"first-zero\"\n\n  [[mutation.edit]]\n  rule = \"first\"\n  \
+         find = \"done(X)\"\n  replace = \"done(0)\"\n",
+    )
+    .unwrap();
+    let (document, ok) = search(&dir.join("FLOW.toml"), &dir.join("MUTATIONS.toml"), &[]);
+    assert!(ok, "{document:#}");
+    assert_eq!(
+        verdicts(&document),
+        expect(&[
+            ("second-steps", "killed", Some("one"), false),
+            ("first-zero", "killed", Some("one"), false),
+        ]),
+        "{document:#}"
+    );
+    for id in ["second-steps", "first-zero"] {
+        assert_eq!(
+            mutation(&document, id)["inconsistent_pairs"],
+            json!([]),
+            "{id}"
+        );
+        assert_eq!(
+            mutation(&document, id)["removed_claims"]["unsupported"],
+            json!([]),
+            "{id}"
+        );
+    }
+    assert_eq!(
+        mutation(&document, "second-steps")["removed_claims"]["removed"],
+        json!([])
+    );
+    let removed = mutation(&document, "first-zero")["removed_claims"]["removed"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|claim| (claim["label"].clone(), claim["key"].clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(removed, [(Value::Null, json!("total"))], "{document:#}");
+}

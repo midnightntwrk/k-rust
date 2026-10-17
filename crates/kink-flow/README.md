@@ -242,7 +242,7 @@ a reason and a detail; it is never compiled. Reasons:
 | `span-changed` | In an edited file a sentence does not start (or, unless it is the replaced rule, end) where the edits move it: the edit's text reaches past its rule: a replacement that ends in a comment, or one that comments out a neighbouring rule and writes a copy of it. |
 | `label-changed` | The edit changes the rule's label. |
 | `no-change` | The edited rule equals the original up to formatting. |
-| `no-usable-span`, `patch-rejected` | Defensive: a rule's offsets and location name different text of its K view, or kink-patch refused the patch; not expected on rules k-rust loaded. |
+| `no-usable-span`, `patch-rejected` | Defensive: a rule's offsets and location name different text of its K view, or kink-patch refused the patch; not expected on rules k-rust loaded. kink-patch types an edited rule as compilation does (the main module's view, `SentenceTyper::for_compilation` with `typing_in`) and refuses only a sort or cast error there, at which compilation stops too; the edited load's parser reports such errors first (`edited-load-failed`). A rule that types only in compilation's view, not in its own module's, compiles and runs. |
 
 ## `kink-flow run FLOW.toml MUTATIONS.toml [--only ID]... [--verify] [--order cost|corpus] [--cache DIR]`
 

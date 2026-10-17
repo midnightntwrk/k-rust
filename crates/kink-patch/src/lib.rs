@@ -9,7 +9,13 @@
 //!
 //! This crate performs local checks and name resolution only. Whether a
 //! mutant compiles is decided by k-rust `compile_loaded_definition` over
-//! [`Mutant::to_loaded`], which kink-native's validator runs.
+//! [`Mutant::to_loaded`], which kink-native's validator runs. Every typing
+//! this crate reads (the universe's `Untyped` exclusion, site sorts, and
+//! [`apply`]'s check of edited rules) is compilation's own view: one
+//! `SentenceTyper::for_compilation` per resolved definition, with `typing_in`
+//! the declaring module. [`apply`] refuses only a sort or semantic-cast error
+//! there, at which compilation stops too, so by k-rust's contract it never
+//! refuses a mutant that compiles (and a refusal is never a kill either way).
 //!
 //! [`derive_sites`], [`select`] and [`Selection::fold`] turn the baseline's
 //! term positions into a [`CandidateGeneration`] of deduplicated candidate
@@ -30,6 +36,7 @@ mod fingerprint;
 mod operator;
 mod semantic_input;
 mod sort;
+mod typing;
 mod universe;
 
 pub use apply::{Mutant, SentenceOrigin, apply};

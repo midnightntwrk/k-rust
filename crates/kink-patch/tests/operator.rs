@@ -323,12 +323,16 @@ endmodule
     let generation =
         generate(&baseline, &universe, &accepted, usize::MAX).expect("placed Int sites");
     assert!(generation.scored());
+    // Site sorts are compilation's typing: the main module's typer, `typing_in` the declaring
+    // module (L2-2; findings C-02, C-03).
+    let typer = SentenceTyper::for_compilation(baseline.loaded().resolved()).expect("typer");
     for origin in generation.selected_origins() {
         let at = &origin.site_tuple[0];
-        let typer =
-            SentenceTyper::new(baseline.loaded().resolved(), &at.sentence.module).expect("typer");
         let typing = typer
-            .typing(baseline.sentence(&at.sentence).expect("rule"))
+            .typing_in(
+                baseline.sentence(&at.sentence).expect("rule"),
+                &at.sentence.module,
+            )
             .expect("typing");
         if let Some(position) = typing.positions.get(&at.path.0) {
             assert_eq!(position.sort, Some(Sort::new("Int")));
