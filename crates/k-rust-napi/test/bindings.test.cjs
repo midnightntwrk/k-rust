@@ -349,6 +349,8 @@ test('searches and observes the persistent native backend graph', () => {
   )
   assert.equal(backend.capabilities.coverage, true)
   assert.equal(backend.capabilities.stackStops, true)
+  assert.equal(backend.capabilities.smtUnknowns, true)
+  assert.equal(backend.execute({ state: a }).smtUnknowns, undefined)
   assert.equal(backend.execute({ state: a }).coverage, undefined)
   assert.deepEqual(backend.execute({ state: a, collectCoverage: true }).coverage, {
     applied: ['a-to-b', 'b-to-c'],

@@ -1493,6 +1493,9 @@ impl AlphaComparable for ExecutionResult {
         if self.stack_stops != other.stack_stops {
             return Err("execution stack-stop counts differ".into());
         }
+        if self.smt_unknowns != other.smt_unknowns {
+            return Err("execution undecided-answer counts differ".into());
+        }
         if self.stopped != other.stopped {
             return Err("execution stop causes differ".into());
         }
@@ -1519,6 +1522,7 @@ impl AlphaComparable for ExecutionResult {
             work: self.work,
             expanded: self.expanded,
             stack_stops: self.stack_stops,
+            smt_unknowns: self.smt_unknowns,
             stopped: self.stopped.clone(),
         })
     }
@@ -1568,6 +1572,7 @@ fn result_with_transition(name: &str) -> ExecutionResult {
         work: 0,
         expanded: 0,
         stack_stops: 0,
+        smt_unknowns: 0,
         stopped: None,
         modality: crate::search::ResultModality::StateSet,
         leaves: vec![ExecutionLeaf {

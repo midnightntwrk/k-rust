@@ -64,7 +64,8 @@ use z3::{
 };
 
 use super::{
-    ModelResult, Satisfiability, SmtError, SmtPrelude, SmtSolver, TranslatedQuery, Validity,
+    APPROXIMATE_MODEL_REASON, ModelResult, Satisfiability, SmtError, SmtPrelude, SmtSolver,
+    TranslatedQuery, Validity,
 };
 use crate::{
     model::ModelQuery,
@@ -162,8 +163,6 @@ fn resource_limit(timeout_ms: u32) -> u32 {
 
 const RESULT_CACHE_ENTRY_LIMIT: usize = 256;
 const RESULT_CACHE_KEY_BYTE_LIMIT: usize = 8 * 1024 * 1024;
-const APPROXIMATE_MODEL_REASON: &str =
-    "the query abstracts symbols or sorts; a solver model is not a model of the predicate";
 
 #[derive(Clone, Debug)]
 enum PreludeState {

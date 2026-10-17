@@ -904,6 +904,20 @@ pub struct ExecutionResult {
     /// `nesting::with_simplification_stack_budget`, and on the stack other threads of the process
     /// hold, so a run's result is a function of its inputs only when this is zero.
     pub stack_stops: usize,
+    /// The undecided answers the solver delivered to the run's decisions: an `Unknown` from
+    /// [`SmtSolver::is_sat`] or [`SmtSolver::check_predicates`] (a timeout, the
+    /// solver's resource limit, or its incompleteness), and an `Unknown` model other than the one
+    /// that reports an approximate translation, each counted once as the run received it, after
+    /// the solver's retries. A run reads such an answer as an over-approximation, so another run
+    /// of the same request in which the query was decided may give another result. A decided
+    /// answer is a function of the query and the build, and the solver's cache holds only decided
+    /// answers, so a run whose count is zero took every decision from a fact about its queries:
+    /// within the execution determinism contract it gives one result on a fresh solver and on a
+    /// reused one (docs/compatibility.md, "Determinism and concurrency"). A failure (`Err`: no
+    /// solver in the build, a query that does not translate) and a stop are not counted, so a run
+    /// without a solver counts zero. A state-set run does not ask the queries of a subtree it does
+    /// not explore.
+    pub smt_unknowns: usize,
     /// The cause of the stop that ended the run (a cancellation or a failed solver prelude), if
     /// one did; `None` when the run ended by itself, by a bound or by its work budget, unless,
     /// under [`ExecutionOptions::discard_stopped`], a pass after the exploration (the breadth

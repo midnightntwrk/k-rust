@@ -108,19 +108,22 @@ pub(super) fn execute_using(
     observe: impl FnMut(&BuiltinEffect),
 ) -> (ExecutionResult, InitialSimplificationStatus) {
     // Every stack stop of the run is counted, those that end a state and those a refinement
-    // dismisses alike (`ExecutionResult::stack_stops`).
+    // dismisses alike (`ExecutionResult::stack_stops`), and so is every undecided answer the
+    // solver delivers to a decision of the run (`ExecutionResult::smt_unknowns`).
+    let counting = crate::smt::UndecidedCounting::new(solver);
     let ((mut result, status), stack_stops) = crate::stop::counting_stack_stops(|| {
         execute_counted(
             definition,
             initial,
             options,
-            solver,
+            &counting,
             initial_io,
             observation,
             observe,
         )
     });
     result.stack_stops = stack_stops;
+    result.smt_unknowns = counting.undecided();
     (result, status)
 }
 
@@ -339,6 +342,7 @@ impl<'a> Execution<'a> {
                 work: self.work.visited(),
                 expanded: self.work.expanded(),
                 stack_stops: 0,
+                smt_unknowns: 0,
                 stopped: self.stopped,
             },
             InitialSimplificationStatus {
@@ -1886,6 +1890,7 @@ impl<'a> Execution<'a> {
                 work: self.work.visited(),
                 expanded: self.work.expanded(),
                 stack_stops: 0,
+                smt_unknowns: 0,
                 stopped: self.stopped,
             },
             InitialSimplificationStatus {

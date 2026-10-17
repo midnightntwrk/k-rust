@@ -1335,6 +1335,86 @@ impl SmtSolver for NoSolver {
     }
 }
 
+/// The reason of a [`ModelResult::Unknown`] that reports an approximate translation: the model
+/// the solver found is no K valuation. It is a fact about the query, not an undecided answer.
+pub(crate) const APPROXIMATE_MODEL_REASON: &str =
+    "the query abstracts symbols or sorts; a solver model is not a model of the predicate";
+
+/// A solver that forwards every query to `inner` and counts the undecided answers it delivers:
+/// an `Unknown` from [`SmtSolver::is_sat`] or [`SmtSolver::check_predicates`], and an `Unknown`
+/// from [`SmtSolver::get_model`] other than the approximate-model one
+/// ([`APPROXIMATE_MODEL_REASON`]).
+///
+/// An undecided answer depends on the solver's bounds (its timeout, its resource limit, its
+/// incompleteness), so a consumer that reads it as an over-approximation may compute another
+/// result than a run in which the same query was decided. A decided answer (`Sat`, `Unsat`, a
+/// validity verdict, a model) is a function of the query and the build, whatever produced it (the
+/// solver, a retry, another subquery of a validity check, or a cache that holds only decided
+/// answers), and so is a failure (`Err`: no solver in this build, a query that does not
+/// translate); neither is counted, and nor is a stop. The count is taken once per answer as the
+/// consumer receives it, after the inner solver's retries.
+pub(crate) struct UndecidedCounting<'a> {
+    inner: &'a dyn SmtSolver,
+    undecided: std::sync::atomic::AtomicUsize,
+}
+
+impl<'a> UndecidedCounting<'a> {
+    pub(crate) fn new(inner: &'a dyn SmtSolver) -> Self {
+        Self {
+            inner,
+            undecided: std::sync::atomic::AtomicUsize::new(0),
+        }
+    }
+
+    /// The undecided answers delivered so far.
+    pub(crate) fn undecided(&self) -> usize {
+        self.undecided.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn count(&self, undecided: bool) {
+        if undecided {
+            self.undecided
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+}
+
+impl SmtSolver for UndecidedCounting<'_> {
+    fn is_sat(
+        &self,
+        predicates: &[Predicate],
+        substitution: &Substitution,
+    ) -> Stoppable<Result<Satisfiability, SmtError>> {
+        let answer = self.inner.is_sat(predicates, substitution);
+        self.count(matches!(answer, Ok(Ok(Satisfiability::Unknown(_)))));
+        answer
+    }
+
+    fn check_predicates(
+        &self,
+        known: &[Predicate],
+        substitution: &Substitution,
+        checked: &[Predicate],
+    ) -> Stoppable<Result<Validity, SmtError>> {
+        let answer = self.inner.check_predicates(known, substitution, checked);
+        self.count(matches!(answer, Ok(Ok(Validity::Unknown(_)))));
+        answer
+    }
+
+    fn get_model(&self, query: &ModelQuery<'_>) -> Stoppable<Result<ModelResult, SmtError>> {
+        let answer = self.inner.get_model(query);
+        self.count(matches!(
+            &answer,
+            Ok(Ok(ModelResult::Unknown(reason))) if reason != APPROXIMATE_MODEL_REASON
+        ));
+        answer
+    }
+
+    fn prelude_signal(&self) -> Option<&PreludeSignal> {
+        self.inner.prelude_signal()
+    }
+}
+
 /// The argument index that a template atom `#i` names, when it is a placeholder.
 fn placeholder(atom: &str) -> Option<usize> {
     atom.strip_prefix('#')
@@ -1453,6 +1533,103 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
+
+    /// A solver that answers every query with the next scripted answer of its kind.
+    struct Scripted {
+        satisfiability: std::cell::RefCell<Vec<Option<Result<Satisfiability, SmtError>>>>,
+        validity: std::cell::RefCell<Vec<Option<Result<Validity, SmtError>>>>,
+        signal: PreludeSignal,
+    }
+
+    impl SmtSolver for Scripted {
+        /// `None` scripts a stop.
+        fn is_sat(
+            &self,
+            _predicates: &[Predicate],
+            _substitution: &Substitution,
+        ) -> Stoppable<Result<Satisfiability, SmtError>> {
+            match self.satisfiability.borrow_mut().remove(0) {
+                Some(answer) => Ok(answer),
+                None => Err(crate::stop::Stop::solver_prelude(
+                    crate::stop::PreludeFailure::Inconsistent,
+                )),
+            }
+        }
+
+        fn check_predicates(
+            &self,
+            _known: &[Predicate],
+            _substitution: &Substitution,
+            _checked: &[Predicate],
+        ) -> Stoppable<Result<Validity, SmtError>> {
+            match self.validity.borrow_mut().remove(0) {
+                Some(answer) => Ok(answer),
+                None => Err(crate::stop::Stop::solver_prelude(
+                    crate::stop::PreludeFailure::Inconsistent,
+                )),
+            }
+        }
+
+        fn prelude_signal(&self) -> Option<&PreludeSignal> {
+            Some(&self.signal)
+        }
+    }
+
+    /// The adapter counts one per undecided answer it delivers (`Unknown` from `is_sat` and
+    /// `check_predicates`), and nothing for a decided answer, a failure or a stop; it delivers
+    /// every answer unchanged and forwards the inner solver's prelude signal.
+    #[test]
+    fn the_undecided_counting_adapter_counts_each_unknown_answer_once() {
+        let unknown = || "timeout".to_owned();
+        let satisfiability = vec![
+            Some(Ok(Satisfiability::Unknown(unknown()))),
+            Some(Ok(Satisfiability::Sat)),
+            Some(Ok(Satisfiability::Unsat)),
+            Some(Err(SmtError::Unavailable)),
+            Some(Err(SmtError::Unknown(unknown()))),
+            Some(Ok(Satisfiability::Unknown(unknown()))),
+            None,
+        ];
+        let validity = vec![
+            Some(Ok(Validity::Valid)),
+            Some(Ok(Validity::Refuted)),
+            Some(Ok(Validity::Contingent)),
+            Some(Ok(Validity::InconsistentGroundTruth)),
+            Some(Ok(Validity::Unknown(unknown()))),
+            Some(Err(SmtError::Unavailable)),
+            None,
+        ];
+        let solver = Scripted {
+            satisfiability: std::cell::RefCell::new(satisfiability.clone()),
+            validity: std::cell::RefCell::new(validity.clone()),
+            signal: PreludeSignal::default(),
+        };
+        let counting = UndecidedCounting::new(&solver);
+        assert!(std::ptr::eq(
+            counting.prelude_signal().unwrap(),
+            &raw const solver.signal
+        ));
+        for expected in satisfiability {
+            let answer = counting.is_sat(&[], &Substitution::new());
+            match expected {
+                Some(expected) => assert_eq!(answer.unwrap(), expected),
+                None => {
+                    let _cause = answer.unwrap_err().into_cause();
+                }
+            }
+        }
+        assert_eq!(counting.undecided(), 2);
+        for expected in validity {
+            let answer = counting.check_predicates(&[], &Substitution::new(), &[]);
+            match expected {
+                Some(expected) => assert_eq!(answer.unwrap(), expected),
+                None => {
+                    let _cause = answer.unwrap_err().into_cause();
+                }
+            }
+        }
+        assert_eq!(counting.undecided(), 3);
+    }
     use crate::term::{FunctionType, Symbol, SymbolAttributes, SymbolType, Variable};
 
     fn symbol(name: &str, smt: Option<SmtType>, arguments: Vec<Sort>, result: Sort) -> Arc<Symbol> {

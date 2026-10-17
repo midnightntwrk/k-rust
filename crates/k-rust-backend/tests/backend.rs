@@ -49,6 +49,8 @@ mod search;
 mod set_aside_equations;
 #[path = "backend/simplify.rs"]
 mod simplify;
+#[path = "backend/smt_unknowns.rs"]
+mod smt_unknowns;
 #[path = "backend/structural_distinctness.rs"]
 mod structural_distinctness;
 #[path = "backend/stuck_instances.rs"]

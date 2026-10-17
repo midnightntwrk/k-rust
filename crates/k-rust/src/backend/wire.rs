@@ -1781,6 +1781,7 @@ pub(super) fn execution_response<K: WireKore>(
         work: result.work,
         expanded: result.expanded,
         stack_stops: result.stack_stops,
+        smt_unknowns: result.smt_unknowns,
     })
 }
 
