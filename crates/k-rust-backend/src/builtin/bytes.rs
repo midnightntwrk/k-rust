@@ -811,11 +811,14 @@ mod tests {
         assert!(bounded_length(&(BigInt::from(8_u64 << 30) + 1), &cap).is_err());
     }
 
-    /// Of the allowance, only its bytes decide whether a hook refuses: a `padRightBytes` and an
-    /// `Int2Bytes` application whose result fits an allowance of `L` bytes give the same term
-    /// under `L` and `2 * L` and are refused under `L / 4`; and two allowances with equal bytes
-    /// and different sources compute the same result and refuse with details that differ only in
-    /// the named limit (docs/compatibility.md, "Determinism and concurrency", "Execute").
+    /// Of the allowance, only its bytes decide whether one application refuses: a `padRightBytes`
+    /// and an `Int2Bytes` application whose result fits an allowance of `L` bytes give the same
+    /// term under `L` and `2 * L` and are refused under `L / 4`; and two allowances with equal
+    /// bytes and different sources compute the same result and refuse with details that differ
+    /// only in the named limit. This is a property of one application, the premise of the
+    /// equal-bytes rule for runs (docs/compatibility.md, "Determinism and concurrency",
+    /// "Execute"); it says nothing about a run under more bytes, where a refusal dropped with an
+    /// undone attempt can have decided the result.
     #[test]
     fn only_the_allowances_bytes_decide_a_refusal() {
         const L: u64 = 64 << 10;
