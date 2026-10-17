@@ -1,22 +1,8 @@
 # KRS language-tour plan
 
-This directory is the planning source for a comprehensive KRS language tour.
-The corresponding Vocs site is the repository's `../docs-site/`.
-
-The plan has four artifacts:
-
-- [`tour.toml`](tour.toml) is the machine-readable curriculum and feature-status ledger.
-- [`authoring-spec/`](authoring-spec/README.md) is the normative readable-authoring specification: the IMP specimen, the decision register, and the open questions.
-- [`check.py`](check.py) enforces the ledger's identities, dependencies, classifications, evidence paths, and synthesis gloss requirements.
-- [`check-pages.py`](check-pages.py) enforces canonical pages, concept declarations, navigation order, complete routes and anchors, synthesis publication state, and reviewed public-surface reference coverage.
-
-Validate the coverage contract after changing it:
-
-```sh
-python3 docs-plan/check.py
-python3 docs-plan/check-pages.py
-taplo check docs-plan/tour.toml
-```
+This directory holds the KRS side of the language tour's plan.
+[`authoring-spec/`](authoring-spec/README.md) is the normative readable-authoring specification: the IMP specimen, the decision register, and the open questions.
+The curriculum ledger and its checks describe the shared documentation site, so they live with it in [`../../docs-site/plan/`](../../docs-site/plan/README.md).
 
 ## Authority
 
@@ -45,7 +31,7 @@ Every published example must be labeled as one of:
 - explicit/reference layer 2;
 - future or unsupported.
 
-The status ledger in `tour.toml` is the review checklist for that promise.
+The status ledger, `../../docs-site/plan/tour.toml`, is the review checklist for that promise.
 
 Chapter routes in the ledger are the canonical destinations for concept links.
 Synthesis pages such as the five-minute theory declare their previewed concepts separately and may be published only after their generated glosses, destinations, page annotations, and navigation state pass the same gate.

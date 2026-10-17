@@ -10,8 +10,9 @@ from collections import Counter
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parent.parent
-LEDGER = ROOT / "docs-plan" / "tour.toml"
+# Evidence, fixture, and seed paths in the ledger are relative to the KRS directory.
+ROOT = Path(__file__).resolve().parents[2] / "krs"
+LEDGER = Path(__file__).resolve().parent / "tour.toml"
 
 
 def fail(message: str) -> None:

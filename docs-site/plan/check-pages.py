@@ -13,8 +13,8 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 
-ROOT = Path(__file__).resolve().parent.parent
-LEDGER = ROOT / "docs-plan" / "tour.toml"
+ROOT = Path(__file__).resolve().parents[2] / "krs"
+LEDGER = Path(__file__).resolve().parent / "tour.toml"
 PAGES = ROOT.parent / "docs-site" / "src" / "pages"
 VOCS_CONFIG = ROOT.parent / "docs-site" / "vocs.config.ts"
 FACADE = ROOT / "crates" / "krs" / "src" / "lib.rs"
@@ -219,7 +219,7 @@ def main() -> None:
         route = chapter["route"]
         page = page_for_route(route)
         if not page.is_file():
-            fail(f"chapter {chapter_id!r} is missing page {page.relative_to(ROOT)}")
+            fail(f"chapter {chapter_id!r} is missing page {page.relative_to(ROOT.parent)}")
         source = page.read_text(encoding="utf-8")
         marker = re.search(r"\{/\*\s*tour-concepts:\s*([^*]*)\*/\}", source)
         declared = marker.group(1).split() if marker else []
