@@ -9,13 +9,20 @@
 //!
 //! This crate performs local checks and name resolution only. Whether a
 //! mutant compiles is decided by k-rust `compile_loaded_definition` over
-//! [`Mutant::to_loaded`], which kink-native's validator runs. Every typing
-//! this crate reads (the universe's `Untyped` exclusion, site sorts, and
-//! [`apply`]'s check of edited rules) is compilation's own view: one
+//! [`Mutant::to_loaded`], which kink-native's validator runs. A mutant is
+//! valid when it compiles: no typing error refuses a patch, a universe rule
+//! or a candidate (packet L2-2-fix-1). Typing is a generation aid and a
+//! diagnostic only. Site sorts come from compilation's view (one
 //! `SentenceTyper::for_compilation` per resolved definition, with `typing_in`
-//! the declaring module. [`apply`] refuses only a sort or semantic-cast error
-//! there, at which compilation stops too, so by k-rust's contract it never
-//! refuses a mutant that compiles (and a refusal is never a kill either way).
+//! the declaring module), else from the declaring module's own view, else a
+//! rule has none and a sort-selected discovery over it is not exhaustive.
+//! [`apply`] records the edited rules' errors in compilation's view as
+//! [`Mutant::typing_diagnostics`]. k-rust documents that view as
+//! one-directional (a typing error implies compilation fails), but it is
+//! not at 501f18b9: a main module that adds a second common supersort `D` of
+//! `A` and `B` makes the rule `a(X) => b(X)` a `Sort` error there, and
+//! compilation accepts and runs the definition (review L2-2-review-1, probes
+//! lubbase and lubmain).
 //!
 //! [`derive_sites`], [`select`] and [`Selection::fold`] turn the baseline's
 //! term positions into a [`CandidateGeneration`] of deduplicated candidate
@@ -39,7 +46,7 @@ mod sort;
 mod typing;
 mod universe;
 
-pub use apply::{Mutant, SentenceOrigin, apply};
+pub use apply::{Mutant, SentenceOrigin, TypingDiagnostic, apply};
 pub use candidate::{
     Bindings, Candidate, CandidateDisposition, CandidateFailure, CandidateFailureKind,
     CandidateGeneration, Completeness, Discovery, DiscoveryTuple, PatchOrigin, Selection,

@@ -355,12 +355,14 @@ pub enum InvalidReason {
     SpanChanged,
     /// The edited rule is the baseline rule up to formatting.
     NoChange,
-    /// kink-patch refused the patch. Defensive: the checks above leave only a sort or semantic-cast
-    /// error of an edited rule in compilation's typing view (one `SentenceTyper::for_compilation`,
-    /// `typing_in` the declaring module), an error compilation stops at too and that the edited
-    /// load's parser already reports in every case kink has met (`edited-load-failed`). A rule
-    /// that types only in compilation's view, not in its own module's, is no longer refused here
-    /// (L2-2; findings C-02, C-03): compilation decides.
+    /// kink-patch refused the patch for a reason other than typing (a stale pin, a patch that does
+    /// not resolve, a selection error). Defensive: the checks above make it unreachable on rules
+    /// k-rust loaded. No typing error refuses a mutation (re-pin L2-2-fix-1; findings C-02,
+    /// C-03): a mutant is valid when it compiles, and kink-patch only records an edited rule's
+    /// errors in compilation's typing view (the row's `typing_diagnostics`). k-rust documents
+    /// those errors as errors compilation stops at, but its view refuses shapes compilation
+    /// accepts (`CellCompletion`, and a least upper bound that a second common supersort in the
+    /// main module makes non-unique; review L2-2-review-1, probes lub, lubbase and lubmain).
     PatchRejected,
 }
 

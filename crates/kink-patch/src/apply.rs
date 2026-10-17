@@ -30,6 +30,21 @@ const PROTECTED_KEYS: [AttributeKey; 11] = [
 pub struct Mutant {
     definition: Definition,
     origins: BTreeMap<SentenceRef, SentenceOrigin>,
+    typing_diagnostics: Vec<TypingDiagnostic>,
+}
+
+/// A typing error of an edited or inserted rule or claim in compilation's typing view (one
+/// `SentenceTyper::for_compilation` of the patched definition, `typing_in` the sentence's
+/// module). A diagnostic only: it refuses nothing, and compilation decides whether the mutant is
+/// valid (packet L2-2-fix-1; the view refuses shapes compilation accepts, see the crate docs).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TypingDiagnostic {
+    /// The output sentence, in the mutant's coordinates.
+    pub at: SentenceRef,
+    /// Where it came from: the edited baseline sentence, or the inserting edit.
+    pub origin: SentenceOrigin,
+    /// The typer's message.
+    pub message: String,
 }
 
 /// Where an output sentence came from.
@@ -60,6 +75,14 @@ impl Mutant {
         &self.origins
     }
 
+    /// The typing errors of the edited and inserted rules and claims in compilation's view, in
+    /// sentence order; empty when each of them types there or lies outside the main module's
+    /// import closure. Diagnostics only: compilation decides.
+    #[must_use]
+    pub fn typing_diagnostics(&self) -> &[TypingDiagnostic] {
+        &self.typing_diagnostics
+    }
+
     /// Relinks the mutant for `compile_loaded_definition`.
     ///
     /// A loaded definition cannot be fed back through `load_structured`, so
@@ -79,9 +102,10 @@ impl Mutant {
 /// Applies every edit of `patch` or none.
 ///
 /// Pins are checked first, in sentence order. Every edit is checked against the immutable baseline, then edits are
-/// checked against each other. The patched rule sentences are typed in compilation's view after
-/// all edits are assembled (only a sort or cast error, at which compilation also stops, refuses),
-/// and no output is published unless every check passes.
+/// checked against each other. No output is published unless every check passes. No check is a
+/// typing check: the edited rules and claims are typed in compilation's view after all edits are
+/// assembled, and a typing error is only recorded ([`Mutant::typing_diagnostics`]); compilation
+/// decides whether the mutant is valid.
 ///
 /// # Errors
 ///
@@ -110,10 +134,11 @@ pub fn apply(baseline: &Baseline, patch: &Patch) -> Result<Mutant, PatchFailure>
     let origins = rebuild_modules(&mut definition, patch.edits())?;
     let resolved = ResolvedDefinition::resolve(&definition)
         .map_err(|error| ill_formed(format!("the patched definition does not resolve: {error}")))?;
-    check_edited_sentences(&definition, &resolved, &origins, patch.edits())?;
+    let typing_diagnostics = typing_diagnostics(&definition, &resolved, &origins, patch.edits())?;
     Ok(Mutant {
         definition,
         origins,
+        typing_diagnostics,
     })
 }
 
@@ -221,22 +246,21 @@ fn preflight(baseline: &Baseline, edit: &Edit) -> Result<(), PatchFailure> {
     }
 }
 
-/// The demoted typing gate (decision 4; findings C-02, C-03): every edited rule or claim is typed
-/// in compilation's view, one `SentenceTyper::for_compilation` of the patched definition, with
-/// `typing_in` its declaring module. The patch is refused only on a sort or semantic-cast error,
-/// which k-rust's contract says compilation also stops at, so by that contract this check refuses
-/// a subset of what compilation refuses (were the contract wrong, a refusal would still only cost
-/// a mutant, never make a kill). Every other answer leaves the verdict to compilation:
-/// `CellCompletion` (a shape compilation may accept), a sentence outside the main module's import
-/// closure (compilation never emits it), or no typer. Before L2-2 the gate typed each sentence in
-/// its own module's view and refused on any error, which is stricter than compilation in cases
-/// C-03 (a)-(c).
-fn check_edited_sentences(
+/// The typing diagnostics of the edited and inserted rules and claims (decision 4; findings
+/// C-02, C-03; packet L2-2-fix-1): each is typed in compilation's view, one
+/// `SentenceTyper::for_compilation` of the patched definition with `typing_in` its declaring
+/// module, and any error is recorded, never a refusal. A mutant is valid when it compiles. k-rust
+/// documents a typing error as an error compilation stops at, but the view refuses shapes
+/// compilation accepts: `CellCompletion`, its stated exception, and a least upper bound a second
+/// common supersort in the main module makes non-unique (`Sort`; review L2-2-review-1, probes
+/// lubbase and lubmain). Before L2-2 every error of the declaring module's view refused the
+/// patch, and at L2-2 a `Sort` or `SemanticCasts` error of compilation's view did.
+fn typing_diagnostics(
     definition: &Definition,
     resolved: &ResolvedDefinition,
     origins: &BTreeMap<SentenceRef, SentenceOrigin>,
     edits: &[Edit],
-) -> Result<(), PatchFailure> {
+) -> Result<Vec<TypingDiagnostic>, PatchFailure> {
     let changed = edits
         .iter()
         .filter_map(|edit| match edit {
@@ -246,6 +270,7 @@ fn check_edited_sentences(
         })
         .collect::<BTreeSet<_>>();
     let mut typing = None;
+    let mut diagnostics = Vec::new();
     for (at, origin) in origins {
         let edited = match origin {
             SentenceOrigin::Baseline(original) => changed.contains(original),
@@ -267,11 +292,15 @@ fn check_edited_sentences(
             continue;
         }
         let typing = typing.get_or_insert_with(|| CompilationTyping::new(resolved));
-        if let Some(error) = typing.compilation_error(sentence, &at.module) {
-            return Err(ill_formed(error.to_string()));
+        if let Some(error) = typing.error(sentence, &at.module) {
+            diagnostics.push(TypingDiagnostic {
+                at: at.clone(),
+                origin: origin.clone(),
+                message: error.to_string(),
+            });
         }
     }
-    Ok(())
+    Ok(diagnostics)
 }
 
 fn existing<'a>(baseline: &'a Baseline, at: &SentenceRef) -> Result<&'a Sentence, PatchFailure> {

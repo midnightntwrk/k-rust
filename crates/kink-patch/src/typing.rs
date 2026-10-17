@@ -1,4 +1,4 @@
-//! Compilation's typing view of one resolved definition.
+//! Typing views of one resolved definition: a generation aid and a diagnostic, never a verdict.
 //!
 //! k-rust's contract (docs/compatibility.md, the `SentenceTyper` paragraphs, at 501f18b9):
 //! compilation injects every rule-like sentence of the main module's import closure with one
@@ -6,23 +6,37 @@
 //! `SentenceTyper::for_compilation(definition)`, built once per definition, gives compilation's
 //! typing of each rule and claim of that closure through `typer.typing_in(sentence, module)`,
 //! with `module` the module that declares the sentence (or that an edited sentence is relinked
-//! into). The contract is one-directional: if compilation accepts a definition, every such
-//! sentence types; a typing error is an error compilation stops at, except
-//! `SentenceTypingError::CellCompletion`, a shape compilation may accept. Sentences outside the
-//! main closure are outside the contract: compilation never emits them.
+//! into). k-rust states the contract as one-directional (a typing error implies compilation
+//! fails, except `SentenceTypingError::CellCompletion`), but it is false at 501f18b9: when the
+//! main module declares a second common supersort `D` of `A` and `B`, the cell-less rewrite
+//! `a(X) => b(X)` gets `SentenceTypingError::Sort` ("cannot compute a unique least upper bound
+//! for A, B") in compilation's view, whether the main module or an imported one declares it, and
+//! compilation accepts the definition and runs it (review L2-2-review-1, probes lubbase and
+//! lubmain; packet L2-2-fix-1).
 //!
-//! A sentence's own module's typer (`SentenceTyper::new(definition, module)`) is not
-//! compilation's typing: its closure may lack `K`, overloads or helpers that compilation sees
-//! (findings C-02, C-03 (a)).
+//! So kink never refuses on a typing error. A mutant is valid when it compiles: compilation
+//! decides every patch, and kink-patch reads typing only
+//! - to place site sorts ([`CompilationTyping::site_typing`]): compilation's view where it types
+//!   the sentence, else the declaring module's own view (`SentenceTyper::new(definition,
+//!   module)`, the reading before L2-2), else none, and a rule with no typing is a site without
+//!   a sort, which a sort-selected discovery skips and reports as not exhaustive;
+//! - as a diagnostic on an applied patch ([`CompilationTyping::error`]).
+//!
+//! A sentence's own module's view is not compilation's typing: its closure may lack `K`,
+//! overloads or helpers that compilation sees (findings C-02, C-03 (a)), or may lack a supersort
+//! that makes a least upper bound non-unique in compilation's view (the counterexample above).
 
 use k_rust::definition::{ResolvedDefinition, Sentence};
 use k_rust::kompile::{SentenceTyper, SentenceTyping, SentenceTypingError};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
-/// The typer of the main module and the main module's import closure, built once.
+/// The typer of the main module, the main module's import closure, and the own-module typers
+/// built so far, of one resolved definition.
 pub(crate) struct CompilationTyping<'a> {
+    resolved: &'a ResolvedDefinition,
     typer: Option<SentenceTyper<'a>>,
     closure: BTreeSet<&'a str>,
+    own: BTreeMap<String, Option<SentenceTyper<'a>>>,
 }
 
 impl<'a> CompilationTyping<'a> {
@@ -35,14 +49,16 @@ impl<'a> CompilationTyping<'a> {
             .map(|id| resolved.module(id).name.as_str())
             .collect();
         Self {
+            resolved,
             typer: SentenceTyper::for_compilation(resolved).ok(),
             closure,
+            own: BTreeMap::new(),
         }
     }
 
     /// Compilation's typing of `sentence`, a rule or claim that `module` declares. `None` when
-    /// the contract says nothing about it: `module` is outside the main module's import
-    /// closure, or the main module's typer could not be built (compilation then decides).
+    /// `module` is outside the main module's import closure (compilation never emits the
+    /// sentence) or the main module's typer could not be built.
     pub(crate) fn typing(
         &self,
         sentence: &Sentence,
@@ -54,24 +70,30 @@ impl<'a> CompilationTyping<'a> {
         Some(self.typer.as_ref()?.typing_in(sentence, module))
     }
 
-    /// The typing error of `sentence` in `module` that implies compilation fails: a sort or
-    /// semantic-cast error on a rule or claim of the main closure. Every other answer (typed,
-    /// `CellCompletion`, outside the contract) leaves the verdict to compilation.
-    pub(crate) fn compilation_error(
-        &self,
+    /// The typing error of `sentence` in compilation's view, a diagnostic only: compilation
+    /// decides whether the sentence's definition is valid.
+    pub(crate) fn error(&self, sentence: &Sentence, module: &str) -> Option<SentenceTypingError> {
+        self.typing(sentence, module)?.err()
+    }
+
+    /// The typing site sorts are read from: compilation's view when it types `sentence`, else
+    /// the view of `module`, the declaring module, else `None` (no site sorts). Neither view
+    /// decides anything: a site sort only steers which candidates a generator builds, and
+    /// compilation decides each of them.
+    pub(crate) fn site_typing(
+        &mut self,
         sentence: &Sentence,
         module: &str,
-    ) -> Option<SentenceTypingError> {
-        match self.typing(sentence, module)? {
-            Err(
-                error @ (SentenceTypingError::Sort { .. } | SentenceTypingError::SemanticCasts(_)),
-            ) => Some(error),
-            Ok(_)
-            | Err(
-                SentenceTypingError::CellCompletion { .. }
-                | SentenceTypingError::NotRuleLike
-                | SentenceTypingError::MissingModule(_),
-            ) => None,
+    ) -> Option<SentenceTyping> {
+        if let Some(Ok(typing)) = self.typing(sentence, module) {
+            return Some(typing);
         }
+        let resolved = self.resolved;
+        self.own
+            .entry(module.to_owned())
+            .or_insert_with(|| SentenceTyper::new(resolved, module).ok())
+            .as_ref()?
+            .typing(sentence)
+            .ok()
     }
 }

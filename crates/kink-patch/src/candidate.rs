@@ -640,8 +640,10 @@ fn derive_sites_with<'b>(
         })
         .collect::<Vec<_>>();
     // Site sorts are compilation's typing (one `SentenceTyper::for_compilation` of the baseline,
-    // `typing_in` the declaring module); a rule it does not type has no known site sort.
-    let compilation =
+    // `typing_in` the declaring module), else the declaring module's own view's
+    // (`CompilationTyping::site_typing`); a rule neither view types has no known site sort, so
+    // a sort-selected discovery skips its sites and is not exhaustive.
+    let mut compilation =
         (!sorts.is_empty()).then(|| CompilationTyping::new(baseline.loaded().resolved()));
     let mut exhaustive = true;
     let mut sites = Vec::new();
@@ -691,11 +693,9 @@ fn derive_sites_with<'b>(
         {
             continue;
         }
-        let typing = compilation.as_ref().map(|compilation| {
-            compilation
-                .typing(sentence, &sentence_ref.module)
-                .and_then(Result::ok)
-        });
+        let typing = compilation
+            .as_mut()
+            .map(|compilation| compilation.site_typing(sentence, &sentence_ref.module));
         for field in 0..3 {
             let Some(root) = field_term(sentence, field) else {
                 continue;
@@ -812,6 +812,9 @@ pub struct Candidate {
     pub operator: String,
     pub patch: Patch,
     pub origins: Vec<PatchOrigin>,
+    /// [`crate::Mutant::typing_diagnostics`] of the applied patch: diagnostics only, since
+    /// compilation decides whether the candidate is a valid mutant.
+    pub typing_diagnostics: Vec<crate::TypingDiagnostic>,
 }
 
 /// Whether a producer considered its whole declared finite input.
@@ -1184,12 +1187,13 @@ impl<'b> Selection<'b> {
                 dispositions.push(CandidateDisposition::Rejected(failure.clone()));
             } else {
                 match apply(self.baseline, &patch) {
-                    Ok(_) => {
+                    Ok(mutant) => {
                         dispositions.push(CandidateDisposition::Mutant(candidates.len()));
                         candidates.push(Candidate {
                             operator: operator.to_owned(),
                             patch,
                             origins: vec![origin.clone()],
+                            typing_diagnostics: mutant.typing_diagnostics().to_vec(),
                         });
                     }
                     Err(failure) => {

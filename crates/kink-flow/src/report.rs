@@ -32,6 +32,10 @@
 //! does not show to join, which refuse a mutant that is not a theory with models (status
 //! `invalid`, reason `inconsistent-mutant`, kink-native `consistency`); empty otherwise.
 //!
+//! Re-pin L2-2-fix-1 (version 6): every row whose patch applies carries `typing_diagnostics`
+//! ([`typing_diagnostics_value`]): the edited rules' errors in compilation's typing view, which
+//! refuse nothing (compilation decides whether the mutant is valid); empty otherwise.
+//!
 //! Nothing here reads or changes a verdict: every status is the kill search's, which is the
 //! campaign runner's fold over live and cached outcomes (README 7.5.3).
 
@@ -47,7 +51,7 @@ use kink_campaign::{
     TestRun,
 };
 use kink_native::{K_RUST_REVISION, execution::SolverProfile};
-use kink_patch::{Baseline, Claim, SentenceOrigin, Withdrawal};
+use kink_patch::{Baseline, Claim, SentenceOrigin, TypingDiagnostic, Withdrawal};
 use serde_json::{Value, json};
 use std::{
     fs,
@@ -59,8 +63,8 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// The run document's version: 2 since F-06 added the survivor fields; 3 since F-13 named the
 /// oracle slots of an executed entry (`slots` is an object keyed by slot name); 4 since re-pin
 /// R0c-fix-2 added each row's `removed_claims`; 5 since re-pin R0c-fix-3 added each row's
-/// `inconsistent_pairs`.
-pub const RUN_VERSION: u64 = 5;
+/// `inconsistent_pairs`; 6 since re-pin L2-2-fix-1 added each row's `typing_diagnostics`.
+pub const RUN_VERSION: u64 = 6;
 /// The claims a mutation's edit leaves unbacked (kink-patch `ClaimSupport::withdraw`):
 /// `{removed: [claim], unsupported: [claim]}`, each claim `{module, index, label, key, value}`
 /// for a baseline sentence (`label` null when it has none) or `{inserted: <edit index>, key,
@@ -88,6 +92,36 @@ pub fn claims_value(baseline: &Baseline, withdrawal: &Withdrawal) -> Value {
         "removed": withdrawal.withdrawn.iter().map(claim).collect::<Vec<_>>(),
         "unsupported": withdrawal.unsupported.iter().map(claim).collect::<Vec<_>>(),
     })
+}
+
+/// The typing errors of a mutation's edited rules in compilation's typing view (kink-patch
+/// `Mutant::typing_diagnostics`), each `{module, index, label, message}` for a baseline
+/// sentence (`label` null when it has none) or `{inserted: <edit index>, message}`. Diagnostics
+/// only: no typing error refuses a mutation, and compilation decides whether the mutant is valid
+/// (k-rust's view refuses shapes compilation accepts; kink-patch crate docs).
+pub fn typing_diagnostics_value(baseline: &Baseline, diagnostics: &[TypingDiagnostic]) -> Value {
+    Value::Array(
+        diagnostics
+            .iter()
+            .map(|diagnostic| match &diagnostic.origin {
+                SentenceOrigin::Baseline(at) => json!({
+                    "module": at.module,
+                    "index": at.index,
+                    "label": baseline.sentence(at).and_then(|sentence| {
+                        sentence
+                            .attributes()
+                            .value(k_rust::definition::AttributeKey::Label)
+                            .and_then(Value::as_str)
+                            .map(str::to_owned)
+                    }),
+                    "message": diagnostic.message,
+                }),
+                SentenceOrigin::Inserted { edit } => {
+                    json!({"inserted": edit, "message": diagnostic.message})
+                }
+            })
+            .collect(),
+    )
 }
 
 /// The `schema` of the document `report` prints when there is no report to print.

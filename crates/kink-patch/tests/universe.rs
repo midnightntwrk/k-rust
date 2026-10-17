@@ -407,7 +407,6 @@ fn top_level_definitions_keep_legacy_tuples_and_have_deterministic_universes() {
         let mut counts = BTreeMap::<String, usize>::new();
         for (_, reason) in resolved.excluded() {
             let key = match reason {
-                ExclusionReason::Untyped => "untyped".to_owned(),
                 ExclusionReason::Attribute(key) => format!("attribute:{key}"),
                 ExclusionReason::MacroRule => "macro-rule".to_owned(),
             };
@@ -486,8 +485,10 @@ fn universe_value_has_exact_keys_and_the_excluded_payload_digest() {
 /// equation has a variable in the body of a cell with children (`SentenceTypingError::
 /// CellCompletion`, the stated exception of k-rust docs/compatibility.md to compiles-implies-
 /// types; k-rust tests/sentence_typing.rs
-/// a_cell_with_a_variable_in_a_local_functions_equation_is_refused). It keeps the Untyped
-/// exclusion exercised now that `#let` types (re-pin R0a, findings C-01, E-12).
+/// a_cell_with_a_variable_in_a_local_functions_equation_is_refused). Re-pin R0a kept it to
+/// exercise the `Untyped` exclusion once `#let` typed (findings C-01, E-12); since L2-2-fix-1 no
+/// typing error excludes a rule, and it exercises an included rule with no site sorts
+/// (`ResolvedUniverse::unsorted`).
 const UNTYPED_CELL: &str = r#"module UNTYPEDCELL
   imports INT
   imports BOOL
@@ -518,15 +519,14 @@ fn expected_rule_exclusions() {
             .included()
             .contains(&support::rule(&partial, "SYMPARTIAL.halflet"))
     );
+    // Re-pin L2-2-fix-1: UNTYPEDCELL.completed, which no typing view types, was excluded as
+    // Untyped; the baseline compiles, so it is included, without site sorts.
     let untyped = untyped_cell();
     let resolved = resolve_universe(&untyped, &Universe::v1());
-    assert_eq!(
-        resolved.excluded(),
-        &[(
-            support::rule(&untyped, "UNTYPEDCELL.completed"),
-            ExclusionReason::Untyped
-        )]
-    );
+    let completed = support::rule(&untyped, "UNTYPEDCELL.completed");
+    assert_eq!(resolved.excluded(), &[]);
+    assert!(resolved.included().contains(&completed));
+    assert_eq!(resolved.unsorted(), &[completed]);
     let macros = support::load("t12macro.k");
     let resolved = resolve_universe(&macros, &Universe::v1());
     assert_eq!(
@@ -585,16 +585,18 @@ fn a_foreign_universe_cannot_silently_skip_rules() {
     assert!(derive_sites_in(&counter, &universe, &[]).is_err());
 }
 
+/// Re-pin L2-2-fix-1: `Untyped`, formerly first, is gone (no typing error excludes a rule).
 #[test]
-fn exclusion_priority_is_untyped_then_attribute_then_macro_rule() {
+fn exclusion_priority_is_attribute_then_macro_rule() {
     let partial = support::load("sympartial.k");
     let universe = Universe {
         exclude_attributes: vec!["label".to_owned()],
         ..Universe::v1()
     };
     let resolved = resolve_universe(&partial, &universe);
-    // Re-pin R0a (findings C-01, E-12): halflet types at 501f18b9, so its label excludes it; the
-    // untyped-first priority is pinned on UNTYPEDCELL.completed, which carries a label too.
+    // Re-pin R0a (findings C-01, E-12): halflet types at 501f18b9, so its label excludes it.
+    // UNTYPEDCELL.completed, which no typing view types and which carries a label too, is excluded
+    // by its label since L2-2-fix-1 (Untyped before), and an excluded rule is never unsorted.
     assert!(resolved.excluded().contains(&(
         support::rule(&partial, "SYMPARTIAL.halflet"),
         ExclusionReason::Attribute("label".to_owned())
@@ -607,8 +609,9 @@ fn exclusion_priority_is_untyped_then_attribute_then_macro_rule() {
     let resolved = resolve_universe(&untyped, &universe);
     assert!(resolved.excluded().contains(&(
         support::rule(&untyped, "UNTYPEDCELL.completed"),
-        ExclusionReason::Untyped
+        ExclusionReason::Attribute("label".to_owned())
     )));
+    assert_eq!(resolved.unsorted(), &[]);
     assert!(resolved.excluded().contains(&(
         support::rule(&untyped, "UNTYPEDCELL.plain"),
         ExclusionReason::Attribute("label".to_owned())
@@ -629,16 +632,53 @@ fn exclusion_priority_is_untyped_then_attribute_then_macro_rule() {
 
 /// Re-pin R0a (findings C-01, E-12; k-rust KINK-03): sympartial.k excluded SYMPARTIAL.halflet
 /// as Untyped at 927b9ce6 (1 exclusion, 3 requires sites); at 501f18b9 it types, so sympartial.k
-/// excludes nothing and halflet's requires is a fourth site. The recorded-exclusion case is kept
-/// on UNTYPEDCELL, whose CellCompletion rule is still Untyped.
+/// excludes nothing and halflet's requires is a fourth site. Re-pin L2-2-fix-1: the
+/// recorded-exclusion case, kept on UNTYPEDCELL's Untyped rule until then, is on claims.k's
+/// `simplification` lemma; an included rule with no site sorts is
+/// an_unsorted_rule_is_included_and_keeps_a_sort_selected_discovery_incomplete.
 #[test]
 fn recorded_exclusions_alone_do_not_make_a_generation_incomplete() {
     for (baseline, excluded, sites) in [
         (support::load("sympartial.k"), 0, 4),
-        (untyped_cell(), 1, 1),
+        (support::load("claims.k"), 2, 7),
     ] {
         recorded_exclusions_row(&baseline, excluded, sites);
     }
+}
+
+/// Re-pin L2-2-fix-1 (deliverable 2): a rule of a compiling baseline that no typing view types is
+/// in the universe, recorded as unsorted. A sort-selected discovery skips its sites and is not
+/// exhaustive, so no generation over it is scored; a discovery that selects no sort reaches it.
+#[test]
+fn an_unsorted_rule_is_included_and_keeps_a_sort_selected_discovery_incomplete() {
+    let baseline = untyped_cell();
+    support::compile(baseline.loaded()).expect("the baseline compiles");
+    let universe = resolve_universe(&baseline, &Universe::v1());
+    let completed = support::rule(&baseline, "UNTYPEDCELL.completed");
+    let plain = support::rule(&baseline, "UNTYPEDCELL.plain");
+    assert_eq!(universe.unsorted(), std::slice::from_ref(&completed));
+    let sorted = derive_sites_in(
+        &baseline,
+        &universe,
+        &[
+            SiteSelector::Path(vec![1]),
+            SiteSelector::Sort(Sort::new("Bool")),
+        ],
+    )
+    .expect("requires sites");
+    assert!(!sorted.exhaustive());
+    let rules = |discovery: &Discovery<'_>| {
+        discovery
+            .tuples()
+            .iter()
+            .map(|tuple| tuple.sites[0].at.sentence.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(rules(&sorted), std::slice::from_ref(&plain));
+    let unsorted = derive_sites_in(&baseline, &universe, &[SiteSelector::Path(vec![1])])
+        .expect("requires sites");
+    assert!(unsorted.exhaustive());
+    assert_eq!(rules(&unsorted), [completed, plain]);
 }
 
 fn recorded_exclusions_row(baseline: &Baseline, excluded: usize, sites: usize) {

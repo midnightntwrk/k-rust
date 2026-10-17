@@ -916,7 +916,8 @@ fn an_inconsistent_mutation_is_invalid_and_names_its_pair() {
     let dir = fixture("overlap", "inconsistent");
     let (document, ok) = search(&dir.join("FLOW.toml"), &dir.join("MUTATIONS.toml"), &[]);
     assert!(ok, "{document:#}");
-    assert_eq!(document["version"], 5);
+    // Re-pin L2-2-fix-1: version 6 adds each row's `typing_diagnostics`.
+    assert_eq!(document["version"], 6);
     assert_eq!(
         verdicts(&document),
         expect(&[
@@ -1030,4 +1031,260 @@ fn a_rule_typed_only_in_compilations_view_is_mutated_and_run() {
         .map(|claim| (claim["label"].clone(), claim["key"].clone()))
         .collect::<Vec<_>>();
     assert_eq!(removed, [(Value::Null, json!("total"))], "{document:#}");
+}
+
+/// Writes an inline flow fixture: the K file, a specification with `programs` (id, text), and a
+/// mutation list with one edit per mutation (id, rule, find, replace).
+fn inline_flow(
+    name: &str,
+    file: &str,
+    text: &str,
+    (main, syntax): (&str, &str),
+    programs: &[(&str, &str)],
+    mutations: &[(&str, &str, &str, &str)],
+) -> PathBuf {
+    let dir = scratch(name);
+    fs::write(dir.join(file), text).unwrap();
+    let mut flow = format!(
+        "[spec]\nentry = \"{file}\"\nmain_module = \"{main}\"\nsyntax_module = \"{syntax}\"\n"
+    );
+    for (id, text) in programs {
+        flow.push_str(&format!(
+            "\n[[program]]\nid = \"{id}\"\ntext = \"{text}\"\n"
+        ));
+    }
+    fs::write(dir.join("FLOW.toml"), flow).unwrap();
+    let mut list = String::new();
+    for (id, rule, find, replace) in mutations {
+        list.push_str(&format!(
+            "[[mutation]]\nid = \"{id}\"\n\n  [[mutation.edit]]\n  rule = \"{rule}\"\n  \
+             find = \"{find}\"\n  replace = \"{replace}\"\n\n"
+        ));
+    }
+    fs::write(dir.join("MUTATIONS.toml"), list).unwrap();
+    dir
+}
+
+/// The labels of a row's typing diagnostics.
+fn diagnosed(document: &Value, id: &str) -> Vec<Value> {
+    mutation(document, id)["typing_diagnostics"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{id}: {document:#}"))
+        .iter()
+        .map(|diagnostic| diagnostic["label"].clone())
+        .collect()
+}
+
+/// Re-pin L2-2-fix-1 (review L2-2-review-1, major defect; probes lub, lubbase and lubmain): no
+/// typing error makes a mutation `patch-rejected`. k-rust's typing view gives a `Sort` error (no
+/// unique least upper bound of `A` and `B`, since the main module adds a second common supersort
+/// `D`) on a rule `a(X) => b(X)` that compilation accepts. Each mutation compiles, goes through
+/// claim removal (nothing to remove: rewrite rules only), the compiled-effect diff and the
+/// consistency check, and runs, and `go(1)` kills it with a final configuration of another
+/// constructor; the error is the row's `typing_diagnostics`.
+/// - `lub-a-to-b` (imported module `LUBB`, edit `a2(X)` -> `b(X)`): killed at 1ee9955,
+///   patch-rejected at L2-2, killed again.
+/// - `lubbase-b-arg` (imported module, baseline rule `a(X) => b(X)`, edit to `b(0)`): the same;
+///   its control `a(X) => a2(X)` types.
+/// - `lubmain-a-to-b` (main module, edit `a2(X)` -> `b(X)`): patch-rejected at 1ee9955 and L2-2,
+///   since both views refuse it; now compiled, run and killed.
+///
+/// The controls have no diagnostic and are killed.
+#[test]
+fn a_typing_error_compilation_accepts_is_a_diagnostic_and_the_mutant_runs() {
+    let imported = |module: &str, rule: &str| {
+        format!(
+            "module {module}-SYNTAX\n  imports INT-SYNTAX\n  syntax Pgm ::= go(Int) [symbol(go)]\n\
+             endmodule\n\nmodule {module}B\n  imports INT-SYNTAX\n  \
+             syntax A ::= a(Int) [symbol(a)] | a2(Int) [symbol(a2)]\n  \
+             syntax B ::= b(Int) [symbol(b)]\n  syntax C ::= A | B\n  rule [ab]: {rule}\n\
+             endmodule\n\nmodule {module}\n  imports {module}-SYNTAX\n  imports {module}B\n  \
+             imports INT\n  syntax D ::= A | B\n  configuration <k> $PGM:Pgm </k>\n  \
+             rule [go]: go(X) => a(X)\nendmodule\n"
+        )
+    };
+    let main = "module LUBM-SYNTAX\n  imports INT-SYNTAX\n  syntax Pgm ::= go(Int) [symbol(go)]\n\
+                endmodule\n\nmodule LUBM\n  imports LUBM-SYNTAX\n  imports INT\n  \
+                syntax A ::= a(Int) [symbol(a)] | a2(Int) [symbol(a2)]\n  \
+                syntax B ::= b(Int) [symbol(b)]\n  syntax C ::= A | B\n  syntax D ::= A | B\n  \
+                configuration <k> $PGM:Pgm </k>\n  rule [go]: go(X) => a(X)\n  \
+                rule [ab]: a(X) => a2(X)\nendmodule\n";
+    for (name, text, modules, mutations, label) in [
+        (
+            "lub",
+            imported("LUB", "a(X) => a2(X)"),
+            ("LUB", "LUB-SYNTAX"),
+            [("a-to-b", "a2(X)", "b(X)"), ("control", "a2(X)", "a2(0)")],
+            "LUBB.ab",
+        ),
+        (
+            "lubbase",
+            imported("LUBBASE", "a(X) => b(X)"),
+            ("LUBBASE", "LUBBASE-SYNTAX"),
+            [
+                ("b-arg", "b(X)", "b(0)"),
+                ("control", "=> b(X)", "=> a2(X)"),
+            ],
+            "LUBBASEB.ab",
+        ),
+        (
+            "lubmain",
+            main.to_owned(),
+            ("LUBM", "LUBM-SYNTAX"),
+            [("a-to-b", "a2(X)", "b(X)"), ("control", "a2(X)", "a2(0)")],
+            "LUBM.ab",
+        ),
+    ] {
+        let file = format!("{name}.k");
+        let rows = mutations.map(|(id, find, replace)| (id, "ab", find, replace));
+        let dir = inline_flow(
+            &format!("typing-{name}"),
+            &file,
+            &text,
+            modules,
+            &[("one", "go(1)")],
+            &rows,
+        );
+        let (document, ok) = search(&dir.join("FLOW.toml"), &dir.join("MUTATIONS.toml"), &[]);
+        assert!(ok, "{name}: {document:#}");
+        let [(edited, ..), (control, ..)] = mutations;
+        assert_eq!(
+            verdicts(&document),
+            expect(&[
+                (edited, "killed", Some("one"), false),
+                (control, "killed", Some("one"), false),
+            ]),
+            "{name}: {document:#}"
+        );
+        assert_eq!(diagnosed(&document, edited), [json!(label)], "{name}");
+        let message = mutation(&document, edited)["typing_diagnostics"][0]["message"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert!(
+            message.contains("unique least upper bound"),
+            "{name}: {message}"
+        );
+        assert_eq!(diagnosed(&document, control), [] as [Value; 0], "{name}");
+        for id in [edited, control] {
+            let row = mutation(&document, id);
+            assert_eq!(row["inconsistent_pairs"], json!([]), "{name} {id}");
+            assert_eq!(
+                row["removed_claims"],
+                json!({"removed": [], "unsupported": []}),
+                "{name} {id}"
+            );
+        }
+    }
+}
+
+/// Re-pin L2-2-fix-1 (review L2-2-review-1, minor 4; probe cellc): C-03 case (c), a local
+/// function whose equation has a variable in the body of a cell with children
+/// (`SentenceTypingError::CellCompletion`, k-rust's stated exception), run to a verdict. Both
+/// mutations were `patch-rejected` at 1ee9955; each compiles, removes no claim, passes the
+/// consistency check and is killed by `go` (final `barK(..)` against `fooK(..)`, and a stuck `go`
+/// against `fooK(..)`), with the CellCompletion message as its typing diagnostic.
+#[test]
+fn a_cell_completion_shape_is_mutated_and_run_to_a_verdict() {
+    let dir = inline_flow(
+        "typing-cellc",
+        "cellc.k",
+        "module CELLC-SYNTAX\n  syntax KItem ::= \"go\" [symbol(go)]\nendmodule\n\n\
+         module CELLC\n  imports CELLC-SYNTAX\n  imports INT\n  imports BOOL\n  \
+         configuration <t>\n    <k> $PGM:K </k>\n    <accounts> <account multiplicity=\"*\" \
+         type=\"Map\"> <id> 0 </id> <bal> 0 </bal> </account> </accounts>\n  </t>\n  \
+         syntax KItem ::= \"stop\" | box(AccountsCell) | fooK(K) | barK(K)\n  \
+         rule [completed]: <k> go => #fun(box(<accounts> B </accounts>) => fooK(B))\
+         (box(<accounts> A </accounts>)) ... </k> <accounts> A </accounts>\n  \
+         rule [plain]: <k> stop => .K ... </k>\nendmodule\n",
+        ("CELLC", "CELLC-SYNTAX"),
+        &[("go", "go")],
+        &[
+            ("lambda-body", "completed", "=> fooK(B)", "=> barK(B)"),
+            (
+                "outer-requires",
+                "completed",
+                "</k> <accounts> A </accounts>",
+                "</k> <accounts> A </accounts> requires false",
+            ),
+        ],
+    );
+    let (document, ok) = search(&dir.join("FLOW.toml"), &dir.join("MUTATIONS.toml"), &[]);
+    assert!(ok, "{document:#}");
+    assert_eq!(
+        verdicts(&document),
+        expect(&[
+            ("lambda-body", "killed", Some("go"), false),
+            ("outer-requires", "killed", Some("go"), false),
+        ]),
+        "{document:#}"
+    );
+    for id in ["lambda-body", "outer-requires"] {
+        assert_eq!(diagnosed(&document, id), [json!("CELLC.completed")], "{id}");
+        let row = mutation(&document, id);
+        assert!(
+            row["typing_diagnostics"][0]["message"]
+                .as_str()
+                .unwrap()
+                .contains("local function"),
+            "{id}: {row:#}"
+        );
+        assert_eq!(row["inconsistent_pairs"], json!([]), "{id}");
+        assert_eq!(
+            row["removed_claims"],
+            json!({"removed": [], "unsupported": []}),
+            "{id}"
+        );
+    }
+}
+
+/// Re-pin L2-2-fix-1 (review L2-2-review-1, minor 1; probe synout3): the syntax module, which the
+/// main module does not import, is loaded with its rules, outside the main module's import
+/// closure. Compilation never emits them, so an edit of one compiles equal to the baseline and is
+/// `equivalent` (`equivalent-compilation`), with no typing diagnostic (compilation's view says
+/// nothing outside the closure). An edit that does not parse is `edited-load-failed`. The main
+/// module's rule is a control.
+#[test]
+fn a_syntax_module_rule_outside_the_main_closure_is_an_equivalent_mutation() {
+    let dir = inline_flow(
+        "typing-syntax-outside",
+        "synout3.k",
+        "module SYN3-CFG\n  imports INT\n  syntax Pgm ::= go(Int) [symbol(go)]\n  \
+         syntax KItem ::= aux(Int) [symbol(aux)] | done(Int) [symbol(done)]\n  \
+         syntax Int ::= sf(Int) [function, total, symbol(sf)]\n  \
+         configuration <k> $PGM:Pgm </k>\n  rule [sfr]: sf(X) => X +Int 10\nendmodule\n\n\
+         module SYN3-SYNTAX\n  imports SYN3-CFG\n  \
+         rule [srule]: <k> aux(X) => done(X +Int 100) ... </k>\n  rule [sfr2]: sf(0) => 5\n\
+         endmodule\n\nmodule SYN3\n  imports SYN3-CFG\n  rule [go]: go(X) => aux(sf(X))\n  \
+         rule [mrule]: aux(X) => done(X +Int 1) [owise]\nendmodule\n",
+        ("SYN3", "SYN3-SYNTAX"),
+        &[("one", "go(1)"), ("zero", "go(0)")],
+        &[
+            ("srule-edit", "srule", "X +Int 100", "X +Int 200"),
+            ("sfr2-edit", "sfr2", "=> 5", "=> 6"),
+            ("srule-ill", "srule", "done(X +Int 100)", "done(true)"),
+            ("mrule-edit", "mrule", "X +Int 1", "X +Int 2"),
+        ],
+    );
+    let (document, ok) = search(&dir.join("FLOW.toml"), &dir.join("MUTATIONS.toml"), &[]);
+    assert!(ok, "{document:#}");
+    assert_eq!(
+        verdicts(&document),
+        expect(&[
+            ("srule-edit", "equivalent", None, false),
+            ("sfr2-edit", "equivalent", None, false),
+            ("srule-ill", "invalid-mutation", None, false),
+            ("mrule-edit", "killed", Some("one"), false),
+        ]),
+        "{document:#}"
+    );
+    for id in ["srule-edit", "sfr2-edit"] {
+        let row = mutation(&document, id);
+        assert_eq!(row["reason"], "equivalent-compilation", "{id}");
+        assert_eq!(row["typing_diagnostics"], json!([]), "{id}");
+    }
+    assert_eq!(
+        mutation(&document, "srule-ill")["reason"],
+        "edited-load-failed"
+    );
 }

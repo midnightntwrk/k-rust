@@ -12,6 +12,9 @@ use std::collections::{BTreeMap, BTreeSet};
 pub struct Universe {
     /// V1 discovery requires an authored-rule declaration.
     pub authored: bool,
+    /// Whether the resolution reads each included rule's typing, to record the rules no typing
+    /// view types ([`ResolvedUniverse::unsorted`]). A typing error excludes no rule (packet
+    /// L2-2-fix-1): typing only gives site sorts.
     pub typed: bool,
     pub exclude_attributes: Vec<String>,
     pub exclude_macro_rules: bool,
@@ -30,9 +33,13 @@ impl Universe {
 }
 
 /// The first applicable reason a rule is outside the declared universe.
+///
+/// No reason is a typing error. Until L2-2-fix-1 a rule its typing view did not type was
+/// excluded as `Untyped`; it is now included (on a baseline that compiles, a typing error is no
+/// evidence against the rule), and a rule no view types is recorded in
+/// [`ResolvedUniverse::unsorted`] instead.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ExclusionReason {
-    Untyped,
     Attribute(String),
     MacroRule,
 }
@@ -40,7 +47,6 @@ pub enum ExclusionReason {
 impl ExclusionReason {
     fn text(&self) -> String {
         match self {
-            Self::Untyped => "untyped".to_owned(),
             Self::Attribute(key) => format!("attribute:{key}"),
             Self::MacroRule => "macro-rule".to_owned(),
         }
@@ -53,6 +59,7 @@ pub struct ResolvedUniverse {
     declaration: Universe,
     included: Vec<SentenceRef>,
     excluded: Vec<(SentenceRef, ExclusionReason)>,
+    unsorted: Vec<SentenceRef>,
 }
 
 impl ResolvedUniverse {
@@ -64,6 +71,15 @@ impl ResolvedUniverse {
     #[must_use]
     pub fn excluded(&self) -> &[(SentenceRef, ExclusionReason)] {
         &self.excluded
+    }
+
+    /// The included rules that no typing view types (neither compilation's view nor the
+    /// declaring module's own), in sentence order: their sites have no sort, so a sort-selected
+    /// discovery skips them and is not exhaustive. Empty unless the declaration is `typed`. It
+    /// is derived from the baseline, like every other part, and is not in [`Self::value`].
+    #[must_use]
+    pub fn unsorted(&self) -> &[SentenceRef] {
+        &self.unsorted
     }
 
     fn excluded_value(&self) -> Value {
@@ -103,19 +119,21 @@ impl ResolvedUniverse {
     }
 }
 
-/// Resolves the declaration. A rule is `Untyped` when compilation's typing view (one
-/// `SentenceTyper::for_compilation` of the baseline, `typing_in` its declaring module) gives it
-/// no typing: a `CellCompletion` shape, or a rule outside the main module's import closure, which
-/// compilation never emits. A rule that types only in that view (its own module lacks `K`,
-/// overloads or helpers compilation sees) is in the universe.
+/// Resolves the declaration. No typing error excludes a rule: a mutant is valid when it
+/// compiles, and k-rust's typing view refuses rules compilation accepts (packet L2-2-fix-1; the
+/// crate docs give the counterexample). Typing only places site sorts: compilation's view (one
+/// `SentenceTyper::for_compilation` of the baseline, `typing_in` the declaring module), else the
+/// declaring module's own view, as before L2-2. A rule that neither types (a `CellCompletion`
+/// shape, or the lubmain shape) is included and recorded in [`ResolvedUniverse::unsorted`].
 #[must_use]
 pub fn resolve_universe(baseline: &Baseline, universe: &Universe) -> ResolvedUniverse {
-    let typing = universe
+    let mut typing = universe
         .typed
         .then(|| CompilationTyping::new(baseline.loaded().resolved()));
     let mut macro_heads = BTreeMap::new();
     let mut included = Vec::new();
     let mut excluded = Vec::new();
+    let mut unsorted = Vec::new();
     for (at, sentence) in baseline.authored_sentences() {
         let Sentence::Rule {
             body, attributes, ..
@@ -123,12 +141,7 @@ pub fn resolve_universe(baseline: &Baseline, universe: &Universe) -> ResolvedUni
         else {
             continue;
         };
-        let untyped = typing
-            .as_ref()
-            .is_some_and(|typing| !matches!(typing.typing(sentence, &at.module), Some(Ok(_))));
-        let reason = if untyped {
-            Some(ExclusionReason::Untyped)
-        } else if let Some(key) = universe
+        let reason = if let Some(key) = universe
             .exclude_attributes
             .iter()
             .find(|key| attributes.get(key).is_some())
@@ -151,15 +164,23 @@ pub fn resolve_universe(baseline: &Baseline, universe: &Universe) -> ResolvedUni
         if let Some(reason) = reason {
             excluded.push((at, reason));
         } else {
+            if typing
+                .as_mut()
+                .is_some_and(|typing| typing.site_typing(sentence, &at.module).is_none())
+            {
+                unsorted.push(at.clone());
+            }
             included.push(at);
         }
     }
     included.sort();
     excluded.sort_by(|left, right| left.0.cmp(&right.0));
+    unsorted.sort();
     ResolvedUniverse {
         declaration: universe.clone(),
         included,
         excluded,
+        unsorted,
     }
 }
 

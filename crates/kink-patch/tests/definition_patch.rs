@@ -681,6 +681,10 @@ fn raw_term_mut<'a>(sentence: &'a mut Sentence, path: &[u32]) -> &'a mut Term {
     term
 }
 
+/// Re-pin L2-2-fix-1: a typing error refuses no patch (a mutant is valid when it compiles), so
+/// each ill-sorted edit applies, with its error in compilation's typing view as a diagnostic, and
+/// k-rust's compilation refuses the mutant (before: `apply` refused each row locally-ill-formed,
+/// and three rows checked the raw edit against compilation).
 #[test]
 fn ill_sorted_edits_are_rejected_by_k_rust() {
     let counter = support::load("counter.k");
@@ -688,62 +692,39 @@ fn ill_sorted_edits_are_rejected_by_k_rust() {
         baseline: &counter,
         expected: None,
     };
-    // (row, path, replacement, whether the raw edit is checked upstream)
-    let rows: &[(&str, &[u32], Term, bool)] = &[
-        (
-            "bool-token-in-nat-position",
-            &[0, 1, 0],
-            boolean("true"),
-            true,
-        ),
-        ("non-bool-requires", &[1], z(), true),
-        (
-            "arity-drift",
-            &[0, 1],
-            Term::apply("counter", vec![z()]),
-            false,
-        ),
-        (
-            "unknown-label",
-            &[0, 1, 0],
-            Term::apply("noSuch", vec![]),
-            false,
-        ),
+    // (row, path, replacement)
+    let rows: &[(&str, &[u32], Term)] = &[
+        ("bool-token-in-nat-position", &[0, 1, 0], boolean("true")),
+        ("non-bool-requires", &[1], z()),
+        ("arity-drift", &[0, 1], Term::apply("counter", vec![z()])),
+        ("unknown-label", &[0, 1, 0], Term::apply("noSuch", vec![])),
         (
             "original-reference-sort-drift",
             &[0, 1, 0],
             f.term("COUNTER.increment", &[0, 0]),
-            true,
         ),
     ];
-    for (row, path, replacement, check_upstream) in rows {
+    for (row, path, replacement) in rows {
         let patch = Patch::new(vec![f.replace(
             "COUNTER.increment",
             path,
             replacement.clone(),
         )])
         .expect("patch");
-        let failure = apply(&counter, &patch).expect_err(row);
+        let mutant = apply(&counter, &patch).unwrap_or_else(|failure| panic!("{row}: {failure}"));
         assert_eq!(
-            failure.kind(),
-            PatchFailureKind::LocallyIllFormed,
-            "{row}: {failure}"
+            mutant
+                .typing_diagnostics()
+                .iter()
+                .map(|diagnostic| &diagnostic.at)
+                .collect::<Vec<_>>(),
+            [&f.rule("COUNTER.increment")],
+            "{row}"
         );
-        if *check_upstream {
-            let increment = f.rule("COUNTER.increment");
-            let mut definition = counter.definition().clone();
-            let module = definition
-                .modules
-                .iter_mut()
-                .find(|module| module.name == increment.module)
-                .expect("module");
-            let sentence = sentence_mut(&mut module.local_sentences[increment.index as usize]);
-            *raw_term_mut(sentence, path) = replacement.clone();
-            assert!(
-                support::compile(&relink(&counter, definition)).is_err(),
-                "{row}: k-rust accepted an ill-sorted edit"
-            );
-        }
+        assert!(
+            support::compile(&mutant.to_loaded(&counter).expect("the mutant relinks")).is_err(),
+            "{row}: k-rust accepted an ill-sorted edit"
+        );
     }
 }
 
@@ -793,15 +774,17 @@ fn path_through_semantic_cast_is_typed_at_the_cast_sort() {
     let expected = load_expected("path-through-semantic-cast", "COUNTER");
     support::assert_same_authored_rules("COUNTER", applied.definition(), expected.definition());
 
-    let failure = apply(
+    // Re-pin L2-2-fix-1: the Bool is a typing diagnostic, not a refusal (before: refused
+    // locally-ill-formed); compilation refuses the mutant, as it refuses the raw edit below.
+    let mutant = apply(
         &counter,
         &Patch::new(vec![f.replace("COUNTER.increment", &path, boolean("true"))]).expect("patch"),
     )
-    .expect_err("a Bool below a Nat cast");
-    assert_eq!(
-        failure.kind(),
-        PatchFailureKind::LocallyIllFormed,
-        "{failure}"
+    .expect("a typing error refuses no patch");
+    assert_eq!(mutant.typing_diagnostics().len(), 1);
+    assert!(
+        support::compile(&mutant.to_loaded(&counter).expect("the mutant relinks")).is_err(),
+        "k-rust must reject the mutant with a Bool below a Nat cast"
     );
 
     let mut definition = counter.definition().clone();

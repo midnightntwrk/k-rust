@@ -189,8 +189,10 @@ fn an_exit_stop_kill_names_its_slot_and_both_sides() {
     let row = mutation(&document, "guard-dropped");
     assert_eq!(row["status"], "killed");
     assert_eq!(row["killer"], "by-zero");
-    // Re-pin R0c-fix-3: version 5 adds each row's `inconsistent_pairs`.
-    assert_eq!(document["version"], 5);
+    // Re-pin R0c-fix-3: version 5 adds each row's `inconsistent_pairs`; re-pin L2-2-fix-1:
+    // version 6 adds each row's `typing_diagnostics`.
+    assert_eq!(document["version"], 6);
+    assert_eq!(row["typing_diagnostics"], json!([]));
     assert_eq!(
         entry(&document, "guard-dropped", "by-zero")["slots"],
         json!({

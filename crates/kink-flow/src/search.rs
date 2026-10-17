@@ -64,7 +64,7 @@ use crate::{
     outcomes::{CachedOutcome, OutcomeRecord, OutcomeStore, cacheable, slot_name},
     report::{
         RUN_SCHEMA, RUN_VERSION, action, claims_value, executed_cause, rules_value, slots_value,
-        survivors, untargeted_rules, unusable_programs,
+        survivors, typing_diagnostics_value, untargeted_rules, unusable_programs,
     },
     results::{
         BaselineRunner, ORACLE_SLOTS, ProgramRow, RESULT_SCHEMA_VERSION, ResultClass,
@@ -657,6 +657,15 @@ impl Search<'_> {
             Ok(generation) => generation,
             Err(e) => return (invalid(row, e, json!(digest.to_string())), false),
         };
+        // Re-pin L2-2-fix-1: the edited rules' typing errors in compilation's view, diagnostics
+        // only (compilation decides whether the mutant is valid).
+        row.insert(
+            "typing_diagnostics".into(),
+            typing_diagnostics_value(
+                self.spec.validator.baseline(),
+                &generation.candidates()[0].typing_diagnostics,
+            ),
+        );
         let order = order(&self.candidates, resolved, self.order);
         let reaching = order
             .iter()
