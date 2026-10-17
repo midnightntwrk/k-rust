@@ -956,6 +956,39 @@ fn a_condition_that_equates_two_terms_excludes_the_definition() {
     });
 }
 
+/// Re-pin R0c-fix-4 (R0c-fix-3 review minor 6, `r0c/eqlemma.k`): the scan reads every axiom's
+/// antecedents and both sides of its conclusion, whatever its left-hand side: the requires of a
+/// `#Ceil` lemma, an equation's `ensures` and a rewrite rule's `ensures` each hold
+/// `{ I #Equals .. }`, and each is listed; the equation `f` without one is not.
+#[test]
+fn an_equality_in_a_lemma_or_an_ensures_excludes_the_definition() {
+    on_a_big_stack(|| {
+        let (side, module) = fixture("r0c", "eqlemma");
+        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+        let catalog = backend(&side, &module).rule_catalog(None).unwrap();
+        let id = |label: &str| {
+            catalog
+                .iter()
+                .find(|rule| rule.label.as_deref() == Some(label))
+                .unwrap_or_else(|| panic!("{label}"))
+                .id
+                .clone()
+        };
+        let mut expected = ["EQLEMMA.fceil", "EQLEMMA.g", "EQLEMMA.go"]
+            .map(id)
+            .to_vec();
+        expected.sort();
+        let mut found = exclusions.equals_conditions.clone();
+        found.sort();
+        assert_eq!(found, expected);
+        assert!(!found.contains(&id("EQLEMMA.f")));
+        assert_eq!(
+            exclusions.definition_exclusion(),
+            Some(Exclusion::EqualsCondition)
+        );
+    });
+}
+
 /// Re-pin R0c-fix-1 deliverable 4: a condition that depends on the short-circuit reading leaves
 /// no leaf to read. `rq`'s condition `true orBool 10 /Int I >Int 0` is undefined on 0 in k-rust,
 /// so `rq(0)` is a Stuck leaf naming no rule, where a short-circuiting backend steps to

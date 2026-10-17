@@ -489,9 +489,17 @@ fn check_manifest(manifest: &CampaignManifest) {
         &value["k_rust"],
         &["revision", "provenance_format", "provenance_version"],
     );
+    // Re-pin R0c-fix-4: the manifest names the mutant admission algorithms.
     keys(
         &value["kink"],
-        &["fingerprint", "canonical_patch", "compiled_kore"],
+        &[
+            "fingerprint",
+            "canonical_patch",
+            "compiled_kore",
+            "claim_removal",
+            "mutant_consistency",
+            "mutant_effect",
+        ],
     );
     keys(
         &value["backend_options"],

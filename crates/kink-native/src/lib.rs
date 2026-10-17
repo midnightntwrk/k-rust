@@ -9,7 +9,8 @@
 //! - [`exclusion`] names the runs that are no evidence for any comparison (stack stops, load
 //!   stack stops, contradicted claims, implementation-chosen hooks, allowance refusals).
 //! - [`consistency`] refuses a mutant whose edit makes two equations of one function disagree
-//!   (k-rust's critical-pair check on the claim-free mutant).
+//!   (k-rust's critical-pair check on the claim-free mutant), reading what the edit changes from
+//!   the compiled definitions, with kink-patch's source reading as a fail-closed cross-check.
 //! - [`feasibility`] decides solver-free leaf feasibility and payload relations with the
 //!   backend's definition and unifier ([`feasibility::BackendRelations`]).
 //!

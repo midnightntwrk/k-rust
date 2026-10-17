@@ -479,3 +479,56 @@ fn conflicting_stored_input_is_refused_before_campaign_publication() {
         fs::remove_dir_all(store.root()).unwrap();
     });
 }
+
+/// Re-pin R0c-fix-4 (R0c-fix-3 review minor 5): a store whose report a build with other mutant
+/// admission algorithms wrote at the same k-rust pin (here one before R0c-fix-4, whose campaign
+/// manifest names no admission algorithm, its digests and index entry rewritten to agree) is
+/// refused on resume, and its summary is refused too.
+#[test]
+fn a_report_from_another_admission_build_is_refused() {
+    with_stack(|| {
+        let manifest = decode(&clean());
+        let store = store("stale-admission");
+        let outcome = run_definition(&workspace(), &manifest, "clean", &store).unwrap();
+        let entry = outcome.campaign.unwrap();
+        let root = store.profile_path(manifest.digest(), profile());
+        let current = root.join("campaigns").join(format!(
+            "{}.json",
+            entry["manifest_sha256"].as_str().unwrap()
+        ));
+        let mut report: Value =
+            serde_json::from_str(&fs::read_to_string(&current).unwrap()).unwrap();
+        let kink = report["manifest"]["kink"].as_object_mut().unwrap();
+        for key in ["claim_removal", "mutant_consistency", "mutant_effect"] {
+            assert!(kink.remove(key).is_some(), "{key}");
+        }
+        let digest = kink_patch::payload_digest(
+            kink_patch::CAMPAIGN_MANIFEST_DOMAIN,
+            canonical_json(&report["manifest"]).as_bytes(),
+        )
+        .to_string();
+        report["manifest_sha256"] = json!(digest);
+        let text = canonical_json(&report);
+        store
+            .write_text(&root.join(format!("campaigns/{digest}.json")), &text)
+            .unwrap();
+        let mut index = store.read_index(manifest.digest(), profile()).unwrap();
+        index["clean"]["manifest_sha256"] = json!(digest);
+        index["clean"]["report_sha256"] = json!(sha256(text.as_bytes()).to_string());
+        store.write_json(&root.join("index.json"), &index).unwrap();
+        let Err(refused) = run_definition(&workspace(), &manifest, "clean", &store) else {
+            panic!("the stale report is not resumed")
+        };
+        assert!(
+            refused.to_string().contains("admission algorithms"),
+            "{refused}"
+        );
+        let Err(summary) = summarize(&store, &manifest.digest().to_string(), profile()) else {
+            panic!("the stale report is not summarized")
+        };
+        assert!(
+            summary.to_string().contains("admission algorithms"),
+            "{summary}"
+        );
+    });
+}

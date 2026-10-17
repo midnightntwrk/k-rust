@@ -54,8 +54,12 @@
 //! R0c-fix-3): a function has at most one value per input, so two of its equations that apply
 //! to one input with different values leave the mutant with no model, and k-rust's verdict would
 //! be its listing order. k-rust's critical-pair check decides it over every pair of equations of
-//! a symbol the edit redefines or reaches ([`kink_native::consistency`]); a pair not shown to
-//! join refuses the mutant as `InconsistentMutant`, invalid and outside the score.
+//! a symbol the edit can change ([`kink_native::consistency`]); a pair not shown to join refuses
+//! the mutant as `InconsistentMutant`, invalid and outside the score. What the edit changes is read
+//! from the compiled definitions (re-pin R0c-fix-4): the symbols whose compiled equations differ
+//! from the baseline's, and those whose equations reach one, with kink-patch's source reading;
+//! the source reading is a fail-closed cross-check, and a compiled equation of a touched sentence
+//! it does not explain refuses the mutant as `UnsupportedClaims` (key `unread-equation`).
 
 //! A run the watchdog cancelled is `TestRun::Failed(TimeLimit)`; an adapter or bridge
 //! failure is `TestRun::Failed(Infrastructure)`. A rejected mutant runs nothing. The
@@ -85,7 +89,7 @@ use kink_native::bridge::{
     BridgeContext, BridgeFailure, BridgedPaths, paths_from_execution_values, tree_from_steps,
     validate_test_initial_state,
 };
-use kink_native::consistency::UnjoinedEquations;
+use kink_native::consistency::{CompiledEquations, MutantFailure, UnjoinedEquations};
 use kink_native::coverage::{RuleAuthors, TestCoverage};
 use kink_native::exclusion::{DefinitionExclusions, Exclusion};
 use kink_native::execution::{
@@ -98,8 +102,9 @@ use kink_native::signature::{DefinitionFacts, definition_facts};
 use kink_native::step_events::{ObservationDecider, StepEventSpec, StepObservation};
 use kink_native::{MutantRejection, NativeValidator, ValidatedDefinition};
 use kink_patch::{
-    Baseline, CandidateDisposition, CandidateGeneration, ClaimSupport, Patch, SentenceRef,
-    Sha256Digest, Withdrawal, apply, structure_sha256,
+    Baseline, CandidateDisposition, CandidateGeneration, Claim, ClaimSupport, Patch,
+    SentenceOrigin, SentenceRef, Sha256Digest, UNREAD_EQUATION_CLAIM, Withdrawal, apply,
+    structure_sha256,
 };
 use kink_pattern::{
     CollectionEvidence, CollectionStop, Evaluation, EvaluationContext, EvaluationOptions,
@@ -867,6 +872,12 @@ pub fn run_campaign_multi_with(
     let mut runtime = Runtime::prepare(campaign, &baseline)
         .map_err(|_| admission_failure(BaselineAdmission::Error))?;
     runtime.coverage = Some(RuleAuthors::of(&baseline));
+    // The baseline's compiled equations, which every mutant's are read against (re-pin
+    // R0c-fix-4). A baseline that does not internalize again leaves every mutant unchecked.
+    let admission = MutantAdmission {
+        equations: CompiledEquations::of(&baseline),
+        support,
+    };
     // Test-written predicates do not inherit the definedness premise of backend-built
     // predicates. Refuse unsafe input through the existing declaration admission gate,
     // before any baseline or mutant execution (TV-01, R2-F1).
@@ -976,7 +987,11 @@ pub fn run_campaign_multi_with(
     let mut runs: Vec<MutantRun> = Vec::with_capacity(candidates.len());
     let mut identities: Vec<Option<MutantIdentity>> = Vec::with_capacity(candidates.len());
     for (index, candidate) in candidates.into_iter().enumerate() {
-        let identity = mutant_identity(campaign.validator.baseline(), &candidate.patch, &support);
+        let identity = mutant_identity(
+            campaign.validator.baseline(),
+            &candidate.patch,
+            &admission.support,
+        );
         let same_as = identity.as_ref().and_then(|identity| {
             identities
                 .iter()
@@ -990,7 +1005,7 @@ pub fn run_campaign_multi_with(
             &baseline,
             &paired,
             options,
-            &support,
+            &admission,
             &mut observations,
         );
         session
@@ -1188,10 +1203,10 @@ fn run_mutant(
     compiled_baseline: &ValidatedDefinition,
     paired: &BTreeMap<&str, PairedTest<'_>>,
     options: &CampaignOptions,
-    support: &ClaimSupport,
+    admission: &MutantAdmission,
     observations: &mut BaselineObservations<'_>,
 ) -> MutantExecution {
-    match prepare_mutant(campaign, patch, compiled_baseline, support) {
+    match prepare_mutant(campaign, patch, compiled_baseline, admission) {
         Err(refusal) => {
             let MutantRefusal {
                 failure,
@@ -1320,17 +1335,22 @@ fn mutant_selection(
 ///
 /// Last, the claim-free mutant must be a theory with models where its edit can change one (re-pin
 /// R0c-fix-3, decisions log 2026-10-17 "inconsistent mutants"): every pair of equations of a
-/// symbol the patch redefines or reaches ([`ClaimSupport::affected`]) must join by k-rust's
-/// critical-pair check ([`kink_native::consistency::mutant_consistency`]). A pair not shown to
-/// join, or a check that cannot run, refuses the mutant as `InconsistentMutant`, invalid and
-/// outside the score, with the pairs named. It runs on the mutant only: the baseline's equations
-/// stay a trusted premise.
+/// symbol whose compiled equations differ from the baseline's or reach one, or that the patch
+/// redefines or reaches by kink-patch's source reading ([`ClaimSupport::effect`]), must join by
+/// k-rust's critical-pair check ([`kink_native::consistency::admit_mutant`], re-pin R0c-fix-4).
+/// A pair not shown to join, or a check that cannot run, refuses the mutant as
+/// `InconsistentMutant`, invalid and outside the score, with the pairs named. It runs on the
+/// mutant only: the baseline's equations stay a trusted premise. A compiled equation of a sentence
+/// the patch touches whose head the source reading does not redefine leaves the claims the edit
+/// unbacks unknown, so the mutant is `UnsupportedClaims`, each such equation recorded as an
+/// unsupported claim with key [`UNREAD_EQUATION_CLAIM`].
 fn prepare_mutant(
     campaign: &Campaign<'_>,
     patch: &Patch,
     compiled_baseline: &ValidatedDefinition,
-    support: &ClaimSupport,
+    admission: &MutantAdmission,
 ) -> Result<(MutantSides, Withdrawal), Box<MutantRefusal>> {
+    let support = &admission.support;
     let unclaimed = |failure| MutantRefusal::new(failure, Withdrawal::default());
     let side = campaign
         .validator
@@ -1345,9 +1365,9 @@ fn prepare_mutant(
     }
     // The patch applied during validation, so it applies here too.
     let baseline = campaign.validator.baseline();
-    let (claims, affected) = support
+    let (mut claims, effect) = support
         .withdraw(baseline, patch)
-        .and_then(|claims| Ok((claims, support.affected(baseline, patch)?)))
+        .and_then(|claims| Ok((claims, support.effect(baseline, patch)?)))
         .map_err(|_| unclaimed(MutantScopeFailure::Infrastructure))?;
     if !claims.trusted() {
         return Err(MutantRefusal::new(
@@ -1367,22 +1387,78 @@ fn prepare_mutant(
             }
         },
     };
-    let fail = |failure| MutantRefusal::new(failure, claims.clone());
-    validate_representation(&side).map_err(|_| fail(MutantScopeFailure::RepresentationRefused))?;
-    if let Err(inconsistency) =
-        kink_native::consistency::mutant_consistency(&side, affected.as_ref())
-    {
-        return Err(Box::new(MutantRefusal {
-            failure: MutantScopeFailure::InconsistentMutant,
-            claims,
-            inconsistent_pairs: inconsistency.pairs(),
-        }));
+    validate_representation(&side).map_err(|_| {
+        MutantRefusal::new(MutantScopeFailure::RepresentationRefused, claims.clone())
+    })?;
+    let admitted = match &admission.equations {
+        Ok(equations) => kink_native::consistency::admit_mutant(equations, &side, &effect),
+        Err(why) => Err(MutantFailure::Inconsistent(
+            kink_native::consistency::Inconsistency::Unchecked(format!(
+                "the baseline's equations did not internalize: {why}"
+            )),
+        )),
+    };
+    match admitted {
+        Ok(_) => {}
+        Err(MutantFailure::UnreadEquations(unread)) => {
+            // The patch's effect on the claims is not known: no claim-free definition is known
+            // either, so the mutant is refused as unsupported, naming each unread equation.
+            let fallback = effect
+                .touched
+                .iter()
+                .next()
+                .map_or(SentenceOrigin::Inserted { edit: 0 }, |at| {
+                    SentenceOrigin::Baseline(at.clone())
+                });
+            claims
+                .unsupported
+                .extend(unread.into_iter().map(|equation| Claim {
+                origin: equation.origin.unwrap_or_else(|| fallback.clone()),
+                key: UNREAD_EQUATION_CLAIM.to_owned(),
+                value: serde_json::json!({"head": equation.head, "equation": equation.equation}),
+            }));
+            return Err(MutantRefusal::new(
+                MutantScopeFailure::UnsupportedClaims,
+                claims,
+            ));
+        }
+        Err(MutantFailure::Uninternalizable(_)) => {
+            return Err(MutantRefusal::new(
+                MutantScopeFailure::Infrastructure,
+                claims,
+            ));
+        }
+        Err(MutantFailure::Inconsistent(inconsistency)) => {
+            return Err(Box::new(MutantRefusal {
+                failure: MutantScopeFailure::InconsistentMutant,
+                claims,
+                inconsistent_pairs: inconsistency.pairs(),
+            }));
+        }
     }
+    let fail = |failure| MutantRefusal::new(failure, claims.clone());
     // A preparation failure here is the mutant side's.
     let edit = CompiledEdit::between(compiled_baseline, &side);
     let runtime =
         Runtime::prepare(campaign, &side).map_err(|_| fail(MutantScopeFailure::Infrastructure))?;
     Ok((MutantSides { runtime, edit }, claims))
+}
+
+/// What every mutant of a campaign is admitted against: the baseline's claim support and its
+/// compiled equations (re-pin R0c-fix-4).
+struct MutantAdmission {
+    support: ClaimSupport,
+    equations: Result<CompiledEquations, String>,
+}
+
+impl MutantAdmission {
+    #[cfg(test)]
+    fn new(baseline: &kink_patch::Baseline, compiled: &ValidatedDefinition) -> Self {
+        Self {
+            support: ClaimSupport::new(baseline),
+            equations: CompiledEquations::of(compiled),
+        }
+    }
 }
 
 /// Why a mutant runs no test: its mutant-scope failure, the claims its patch leaves unbacked (as
@@ -2910,7 +2986,7 @@ mod tests {
                     validator.validate(&a).unwrap().kore_sha256(),
                     validator.validate(&b).unwrap().kore_sha256()
                 );
-                let support = ClaimSupport::new(baseline);
+                let support = MutantAdmission::new(baseline, &compiled);
                 let input = input_test_support::initial_state(
                     input_test_support::app(
                         "Lblseq",

@@ -311,7 +311,7 @@ pub fn campaign_manifest_multi_with_budget(
     let value = json!({
         "schema":"kink-campaign-manifest","version":5,
         "k_rust":{"revision":K_RUST_REVISION,"provenance_format":k_rust::definition::json::PROVENANCE_FORMAT,"provenance_version":k_rust::definition::json::PROVENANCE_VERSION},
-        "kink":{"fingerprint":FINGERPRINT_DOMAIN,"canonical_patch":CANONICAL_PATCH_DOMAIN,"compiled_kore":COMPILED_KORE_DOMAIN},
+        "kink":kink_identity(),
         "profile":SolverProfile::BUILD.name(), "compile_options":"default",
         "backend_options":{"smt_timeout_ms":backend.smt_timeout_ms,"smt_retry_limit":backend.smt_retry_limit},
         "budget":{"time_ms":u64::try_from(campaign.budget.time.as_millis()).unwrap_or(u64::MAX),"max_simplification_iterations":campaign.budget.max_simplification_iterations,"max_depth":campaign.budget.max_depth,"max_breadth":campaign.budget.max_breadth.map(|v| v.get())},
@@ -331,6 +331,31 @@ pub fn campaign_manifest_multi_with_budget(
         value,
         baseline_input,
     })
+}
+
+/// The manifest's `kink` member: the domains of kink's identities and the versions of the
+/// algorithms that admit a mutant (claim removal, the consistency check and the compiled reading
+/// of an edit's effect, re-pin R0c-fix-4). A mutant's status depends on these algorithms, so a
+/// report or store written by a build with other versions has another manifest digest: replay
+/// regenerates the manifest and refuses it, and kink-corpus refuses to resume it
+/// ([`same_admission`]).
+fn kink_identity() -> Value {
+    json!({
+        "fingerprint": FINGERPRINT_DOMAIN,
+        "canonical_patch": CANONICAL_PATCH_DOMAIN,
+        "compiled_kore": COMPILED_KORE_DOMAIN,
+        "claim_removal": kink_patch::CLAIM_REMOVAL_VERSION,
+        "mutant_consistency": kink_native::consistency::MUTANT_CONSISTENCY_VERSION,
+        "mutant_effect": kink_native::consistency::MUTANT_EFFECT_VERSION,
+    })
+}
+
+/// Whether the campaign manifest `manifest` (a report's `manifest` member) names this build's
+/// identity domains and mutant admission algorithms. A report from a build before re-pin
+/// R0c-fix-4, which names no admission algorithm, does not.
+#[must_use]
+pub fn same_admission(manifest: &Value) -> bool {
+    manifest["kink"] == kink_identity()
 }
 
 fn policy(policy: SelectionPolicy) -> Value {

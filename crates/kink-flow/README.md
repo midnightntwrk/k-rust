@@ -208,7 +208,11 @@ claim, or edits a lemma or an equation's `ensures`) is `unknown` with reason `un
 mutant does not compile is `unknown` with reason `stripped-claim-compile-failure`. The claim-free mutant must also be a
 theory with models (re-pin R0c-fix-3): a mutation that makes two equations of one function apply to one input with
 different values, or whose pairs of equations k-rust's critical-pair check does not show to join, is `invalid` with
-reason `inconsistent-mutant`, and its row's `inconsistent_pairs` names the pairs.
+reason `inconsistent-mutant`, and its row's `inconsistent_pairs` names the pairs. The functions whose pairs are read
+are those whose compiled equations the edit changes or reaches (a `#let` or `#fun` lambda included), with kink-patch's
+source reading as a fail-closed cross-check (re-pin R0c-fix-4): a sentence the edit touches that compiles to an
+equation of a function the source reading does not redefine makes the mutation `unknown` with reason
+`unsupported-claims` (removed-claims key `unread-equation`).
 
 A mutation that fails any check is `invalid-mutation`, with the offending edit (`edit[i]`) when one is at fault,
 a reason and a detail; it is never compiled. Reasons:
@@ -339,9 +343,10 @@ Besides `results/` and `report.json` (the last run's document, also written when
 - `outcomes/<context digest>/<mutation identity>.json`, tier 1:
   `{schema: "kink-flow-outcomes", version: 1, context, context_sha256, mutation_identity, mutation_id, removed_claims, records: {<program digest>: {program_id, baseline_run_sha256, outcome, slots, mutant_run_sha256, allowance_bytes, record_sha256}}}`.
   `removed_claims` is the row's (below), for the reader only: it is read back by nothing and is in no digest.
-  The context is `{outcome_schema: "kink-flow/outcome/v1", result_schema, kink_build, k_rust_revision, profile, execution_digest: {kind, digest}, budget, oracles, classifier, schedule, claim_removal, mutant_consistency}`:
-  `claim_removal` is kink-patch's `CLAIM_REMOVAL_VERSION`, since the mutant every record ran on depends on the claim-removal algorithm (v2 since re-pin R0c-fix-3: the reach follows the overload and unit axioms);
-  `mutant_consistency` is kink-native's `MUTANT_CONSISTENCY_VERSION`, since a mutant runs (and a record exists) only when its equations are shown consistent;
+  The context is `{outcome_schema: "kink-flow/outcome/v1", result_schema, kink_build, k_rust_revision, profile, execution_digest: {kind, digest}, budget, oracles, classifier, schedule, claim_removal, mutant_consistency, mutant_effect}`:
+  `claim_removal` is kink-patch's `CLAIM_REMOVAL_VERSION`, since the mutant every record ran on depends on the claim-removal algorithm (v2 since re-pin R0c-fix-3: the reach follows the overload and unit axioms; v3 since R0c-fix-4: a rule with configuration context is an equation of its head);
+  `mutant_consistency` is kink-native's `MUTANT_CONSISTENCY_VERSION`, since a mutant runs (and a record exists) only when its equations are shown consistent (v2 since R0c-fix-4: the check's guard reads the equation and skipped-pair counts);
+  `mutant_effect` is kink-native's `MUTANT_EFFECT_VERSION`, since the symbols the check reads, and the cross-check of kink-patch's source reading, come from the compiled definitions (re-pin R0c-fix-4);
   `kink_build` is the SHA-256 of the running `kink-flow` executable, so any rebuild (debug or release) starts a new context;
   `execution_digest` is today the specification digest (kind `kink-flow/spec/v1`), so any edit of the specification, a comment included, starts a new context.
   The mutation identity hashes each edit's kind, module, the addressed rule's fingerprint, its occurrence among equal fingerprints of the module,

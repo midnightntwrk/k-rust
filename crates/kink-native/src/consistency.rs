@@ -9,7 +9,7 @@
 //! not the definition's. Such a mutant is invalid, like one that does not compile: kink-campaign
 //! refuses it as `inconsistent-mutant`, outside the score, never killed or survived.
 //!
-//! [`mutant_consistency`] decides it with k-rust's own load-time critical-pair check
+//! [`admit_mutant`] decides it with k-rust's own load-time critical-pair check
 //! (`k_rust_backend::confluence`, k-rust 501f18b9 `docs/compatibility.md`, "Anywhere rules"),
 //! run on the claim-free mutant through
 //! `BackendDefinition::value_claims_in_scope(CheckScope::All)`, the scope k-rust documents as "a
@@ -30,12 +30,32 @@
 //! every evaluation assumes, and the critical pairs of the executable equations join, which the
 //! backend checks"; that is, k-rust's critical-pair checker decides joinability correctly.
 //!
-//! The checked heads are the symbols the patch redefines and every symbol whose equations reach
-//! one ([`kink_patch::Withdrawal::affected`]): an unchanged pair of a symbol that reaches an
-//! edited one can stop joining, since its reducts and conditions are normalized with the edited
-//! equations. Every other pair is the baseline's and is normalized with the baseline's equations
-//! alone, so it joins in the mutant exactly when it does in the baseline: the baseline's
-//! equations stay a trusted premise, and the baseline is not checked.
+//! What an edit changes is a fact about the compiled definitions, which k-rust executes, so it is
+//! read there ([`admit_mutant`], re-pin R0c-fix-4): some equations have no source sentence of
+//! their own (the `#lambda` equations kompile generates for a `#let` or `#fun`), and some source
+//! forms compile to equations of a symbol their written head does not name (a function rule with
+//! configuration context, `rule [[ F ]] C`, loaded as `#withConfig(F, C)`). The changed indexes
+//! are those of the claim-free mutant's function theory whose equations differ from the
+//! baseline's ([`CompiledEquations`]: compared without their unique ids, origins and the claims
+//! claim removal handles; an index on one side only counts; the simplification and ceil lemmas
+//! are compared alike, and a changed predicate lemma checks every head). The checked heads are every index
+//! whose equations reach a changed one over either compiled theory (an equation reaches the
+//! symbols it applies in its sides and conditions; an overload family is linked both ways),
+//! together with kink-patch's source reading ([`kink_patch::ClaimSupport::affected`]): an
+//! unchanged pair of a symbol that reaches a changed one can stop joining, since its reducts and
+//! conditions are normalized with the changed equations. A changed or reached index that is not
+//! a symbol checks every head. Every other pair is the baseline's and is normalized with the
+//! baseline's equations alone, so it joins in the mutant exactly when it does in the baseline:
+//! the baseline's equations stay a trusted premise, and the baseline is not checked.
+//!
+//! The source reading is kept as a fail-closed cross-check, since claim removal reads it: every
+//! compiled equation that a rule the patch touches or inserts gives, on either side, must be
+//! headed by a symbol kink-patch reads as redefined, or by a generated lambda (its only trusted
+//! claim, `total`, is k-rust's judgement of its body on the claim-free mutant, `resolve_fun`'s
+//! `equation_right_is_defined`, which reads only the claims that mutant keeps); and no other
+//! generated `total` symbol may have changed equations. Otherwise the claims the edit leaves
+//! unbacked are not known ([`MutantFailure::UnreadEquations`]), and kink-campaign refuses the
+//! mutant as `unsupported-claims`.
 //!
 //! Two properties of k-rust's check need care, and each is closed here:
 //!
@@ -48,8 +68,12 @@
 //!   appears in no equation, no pair and no step). The copy's executable equations, sorts and
 //!   overload families are the mutant's, so every pair of the mutant is classified, and
 //!   classified as k-rust classifies it in any definition with an equation head. kink also checks
-//!   that the check ran: it must have classified at least as many pairs as the copy has root
-//!   pairs (two equations of one index and priority group); otherwise the mutant is refused.
+//!   that the check ran on the whole definition: it must have read every executable equation,
+//!   skipped no candidate pair, and classified at least as many pairs as the copy has root pairs
+//!   (two equations of one index and priority group); otherwise the mutant is refused. k-rust
+//!   reports these counts for the whole definition only, so the guard does not show, group by
+//!   group, that every root, self and inner pair was classified; it shows that the early return
+//!   did not fire, since every definition has root pairs of its own or the prelude's.
 //! - A simplification of the check that runs out of native stack decides nothing, and then "the
 //!   verdict is a function of the definition only when [`condition_stack_stops`] is zero"; a
 //!   nonzero count refuses the mutant. Budget stops are a function of the definition, and a
@@ -60,19 +84,30 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-use k_rust::kast::identifier::{encode, encode_label};
+use k_rust::definition::Sentence;
+use k_rust::kast::identifier::{decode_label, encode, encode_label};
+use k_rust::kast::{GeneratedLabel, Label};
 use k_rust::kore::parser::parse_definition;
+use k_rust::provenance::InputSpace;
 use k_rust_backend::{
     confluence::{CheckScope, UnjoinedPair, ViolationKind},
     definition::BackendDefinition,
-    rule::{Concreteness, ConstraintKind, RewriteRule, TermIndex},
+    rule::{Concreteness, ConstraintKind, PredicateRewriteRule, RewriteRule, RuleRhs, TermIndex},
+    term::{FunctionType, SymbolType, Term},
 };
+use kink_patch::{SentenceOrigin, SentenceRef, SourceEffect};
 
 use crate::ValidatedDefinition;
 
 /// The version of the consistency check: a mutant's admission depends on it, so every cache of
-/// mutant outcomes names it (kink-flow's tier-1 context).
-pub const MUTANT_CONSISTENCY_VERSION: &str = "kink-native/mutant-consistency/v1";
+/// mutant outcomes names it (kink-flow's tier-1 context, the campaign manifest). v2 (re-pin
+/// R0c-fix-4): the guard also reads the equation and skipped-pair counts.
+pub const MUTANT_CONSISTENCY_VERSION: &str = "kink-native/mutant-consistency/v2";
+
+/// The version of the reading of a mutant's effect from the compiled definitions
+/// ([`admit_mutant`]: the compiled changed-index diff, its reverse reach and the cross-check of
+/// the source reading, re-pin R0c-fix-4). A mutant's admission depends on it.
+pub const MUTANT_EFFECT_VERSION: &str = "kink-native/mutant-effect/v1";
 
 /// The sort of the equation head kink adds to the checked copy (see the module documentation).
 pub const PROBE_SORT: &str = "SortKinkMutantConsistencyProbe";
@@ -156,23 +191,565 @@ impl fmt::Display for Inconsistency {
     }
 }
 
-/// Whether the claim-free mutant `side` is shown to be a theory with models where its edit can
-/// change one: every pair with an equation of a symbol of `heads` (K labels; `None` for every
-/// symbol, when the edit's effect is not known symbol by symbol) joins by k-rust's critical-pair
-/// check (see the module documentation).
+/// The executable equations of one compiled side, read as the check compares and reaches them
+/// (re-pin R0c-fix-4): for each index and priority group of k-rust's function theory, the
+/// equations without the attributes that do not change what they state; for each symbol, the
+/// indexes whose equations mention it; and for each equation, the sentences that wrote it.
+#[derive(Clone, Debug)]
+pub struct CompiledEquations {
+    theory: BTreeMap<TermIndex, BTreeMap<u8, Vec<RewriteRule>>>,
+    /// The simplification and ceil lemmas by index (k-rust's `simplification_theory` and
+    /// `ceil_theory`), read alike: a changed lemma about a symbol changes how its terms are
+    /// simplified, which a join of a pair that reaches it may read.
+    lemmas: [BTreeMap<TermIndex, BTreeMap<u8, Vec<RewriteRule>>>; 2],
+    /// The lemmas whose left-hand side is a predicate, by priority, read alike.
+    predicate_lemmas: BTreeMap<u8, Vec<PredicateRewriteRule>>,
+    /// For each symbol, the indexes whose equations apply it in their left-hand side, right-hand
+    /// side, `requires` or `ensures`, and the members of its overload family.
+    dependents: BTreeMap<String, BTreeSet<TermIndex>>,
+    equations: Vec<AuthoredEquation>,
+    /// The K labels of the side's source productions, KORE-encoded.
+    source_labels: BTreeSet<String>,
+    /// The compiled symbols declared `total`.
+    total: BTreeSet<String>,
+}
+
+/// One compiled equation, its index, its name and the sentences behind it.
+#[derive(Clone, Debug)]
+struct AuthoredEquation {
+    index: TermIndex,
+    name: String,
+    authors: Vec<Author>,
+}
+
+/// A sentence behind a compiled equation, as the mutant's origins map it back.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum Author {
+    Baseline(SentenceRef),
+    Inserted(usize),
+    /// A Compile address that names no sentence of the side, or a mutant sentence without an
+    /// origin (never expected; read as touched).
+    Unresolved,
+}
+
+impl CompiledEquations {
+    /// The equations of the compiled side `side` (internalized again from its KORE).
+    ///
+    /// # Errors
+    ///
+    /// Returns why the side's KORE did not internalize.
+    pub fn of(side: &ValidatedDefinition) -> Result<Self, String> {
+        let parsed =
+            parse_definition(&side.artifacts().definition_kore).map_err(|e| e.to_string())?;
+        let definition = BackendDefinition::internalize_for_source_execution(
+            &parsed,
+            &encode(&side.definition().main_module),
+            &side.artifacts().execution_rewrite_order,
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(Self::read(&definition, side))
+    }
+
+    fn read(definition: &BackendDefinition, side: &ValidatedDefinition) -> Self {
+        let authors = authors(side);
+        let mut theory = BTreeMap::<TermIndex, BTreeMap<u8, Vec<RewriteRule>>>::new();
+        let mut dependents = BTreeMap::<String, BTreeSet<TermIndex>>::new();
+        let mut equations = Vec::new();
+        for (index, priorities) in definition.function_theory() {
+            for (priority, rules) in priorities {
+                for rule in rules {
+                    theory
+                        .entry(index.clone())
+                        .or_default()
+                        .entry(*priority)
+                        .or_default()
+                        .push(meaning(rule));
+                    for symbol in mentioned(rule) {
+                        dependents.entry(symbol).or_default().insert(index.clone());
+                    }
+                    if let Some((greater, lesser)) = &rule.attributes.overload {
+                        for (from, to) in [(greater, lesser), (lesser, greater)] {
+                            dependents
+                                .entry(from.to_string())
+                                .or_default()
+                                .insert(TermIndex::Symbol(to.clone()));
+                        }
+                    }
+                    equations.push(AuthoredEquation {
+                        index: index.clone(),
+                        name: name(rule),
+                        authors: authors
+                            .get(&rule.attributes.unique_id)
+                            .cloned()
+                            .unwrap_or_default(),
+                    });
+                }
+            }
+        }
+        let lemmas = [definition.simplification_theory(), definition.ceil_theory()].map(|theory| {
+            theory
+                .iter()
+                .map(|(index, priorities)| {
+                    let priorities = priorities
+                        .iter()
+                        .map(|(priority, rules)| {
+                            (*priority, rules.iter().map(|r| meaning(r)).collect())
+                        })
+                        .collect();
+                    (index.clone(), priorities)
+                })
+                .collect()
+        });
+        let predicate_lemmas = definition
+            .predicate_simplification_theory()
+            .iter()
+            .map(|(priority, rules)| {
+                let rules = rules
+                    .iter()
+                    .map(|rule| {
+                        let mut rule = PredicateRewriteRule::clone(rule);
+                        rule.attributes.unique_id = String::new();
+                        rule.attributes.origins = Vec::new();
+                        rule.attributes.preserves_definedness = false;
+                        rule.attributes.smt_lemma = false;
+                        rule
+                    })
+                    .collect();
+                (*priority, rules)
+            })
+            .collect();
+        let source_labels = side
+            .definition()
+            .modules
+            .iter()
+            .flat_map(|module| &module.local_sentences)
+            .filter_map(|sentence| match &**sentence {
+                Sentence::Production {
+                    label: Some(label), ..
+                } => Some(encode_label(&label.name)),
+                _ => None,
+            })
+            .collect();
+        let total = definition
+            .symbols()
+            .iter()
+            .filter(|(_, symbol)| {
+                symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Total)
+            })
+            .map(|(name, _)| name.to_string())
+            .collect();
+        Self {
+            theory,
+            lemmas,
+            predicate_lemmas,
+            dependents,
+            equations,
+            source_labels,
+            total,
+        }
+    }
+
+    /// Whether `symbol` (a KORE name) is a lambda kompile generated for a `#let` or `#fun`, and
+    /// no source production of this side declares it.
+    fn generated_lambda(&self, symbol: &str) -> bool {
+        !self.source_labels.contains(symbol)
+            && decode_label(symbol).is_ok_and(|label| {
+                matches!(
+                    Label::new(label).generated(),
+                    Some(GeneratedLabel::Lambda { .. })
+                )
+            })
+    }
+}
+
+/// The equation without the attributes that do not change what it states: its unique id and
+/// origins (source positions and sentence places), the claims claim removal handles
+/// (`preserves-definedness`, `smt-lemma`), and the load's record of a rewrite rule's definedness
+/// discharge (empty on an equation).
+fn meaning(rule: &RewriteRule) -> RewriteRule {
+    let mut rule = rule.clone();
+    rule.attributes.unique_id = String::new();
+    rule.attributes.origins = Vec::new();
+    rule.attributes.preserves_definedness = false;
+    rule.attributes.smt_lemma = false;
+    rule.computed_attributes.discharged_by = Default::default();
+    rule
+}
+
+/// Every symbol an equation applies, in its left-hand side, right-hand side, `requires` and
+/// `ensures` (collections' entries included).
+fn mentioned(rule: &RewriteRule) -> BTreeSet<String> {
+    let mut symbols = BTreeSet::new();
+    let mut term = |term: &Term| {
+        term.visit_symbols(&mut |symbol| {
+            symbols.insert(symbol.name.to_string());
+        })
+    };
+    term(&rule.lhs);
+    match &rule.rhs {
+        RuleRhs::Term(rhs) => term(rhs),
+        RuleRhs::Disjunction(alternatives) => {
+            for alternative in alternatives {
+                term(&alternative.term);
+                for predicate in alternative.ensures.iter() {
+                    predicate.visit_terms(&mut term);
+                }
+            }
+        }
+        RuleRhs::Predicates(predicates) => {
+            for predicate in predicates {
+                predicate.visit_terms(&mut term);
+            }
+        }
+        RuleRhs::Top | RuleRhs::Bottom => {}
+    }
+    for predicate in rule.requires.iter().chain(rule.ensures.iter()) {
+        predicate.visit_terms(&mut term);
+    }
+    symbols
+}
+
+/// For each emitted rule id of `side`, the rule sentences behind it: its Compile addresses that
+/// name a rule, mapped back to the baseline through a mutant's origins. A rule is the only
+/// sentence whose role the source reading decides (a production's edit is a claim edit or an
+/// unknown effect, and a configuration's or a sort's is an unknown effect), so the addresses of
+/// other sentences are not read.
+fn authors(side: &ValidatedDefinition) -> BTreeMap<String, Vec<Author>> {
+    let definition = side.definition();
+    let sentence = |module: &str, index: u32| {
+        definition
+            .modules
+            .iter()
+            .find(|candidate| candidate.name == module)
+            .and_then(|module| module.local_sentences.get(usize::try_from(index).ok()?))
+    };
+    side.artifacts()
+        .sentence_provenance
+        .iter()
+        .map(|(id, provenance)| {
+            let authors = provenance
+                .input_addresses
+                .iter()
+                .filter(|address| address.input == InputSpace::Compile)
+                .filter_map(|address| {
+                    let at = SentenceRef::new(address.module.clone(), address.index);
+                    match sentence(&address.module, address.index).map(|s| &**s) {
+                        None => return Some(Author::Unresolved),
+                        Some(Sentence::Rule { .. }) => {}
+                        Some(_) => return None,
+                    }
+                    Some(match side.origins() {
+                        None => Author::Baseline(at),
+                        Some(origins) => match origins.get(&at) {
+                            Some(SentenceOrigin::Baseline(original)) => {
+                                Author::Baseline(original.clone())
+                            }
+                            Some(SentenceOrigin::Inserted { edit }) => Author::Inserted(*edit),
+                            None => Author::Unresolved,
+                        },
+                    })
+                })
+                .collect();
+            (id.clone(), authors)
+        })
+        .collect()
+}
+
+/// A compiled equation that a sentence the patch touches gives, headed by a symbol the source
+/// reading does not redefine (or a generated `total` symbol whose equations the patch changes):
+/// the patch's effect on the claims is not known.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UnreadEquation {
+    /// The touched sentence: a baseline sentence, or the patch's inserting edit; `None` for an
+    /// equation whose author could not be resolved, or a generated symbol's.
+    pub origin: Option<SentenceOrigin>,
+    /// The compiled head (KORE), or the index's kind when it is not a symbol.
+    pub head: String,
+    /// The equation, named as in [`UnjoinedEquations`].
+    pub equation: String,
+}
+
+impl fmt::Display for UnreadEquation {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "{} is an equation of {}",
+            self.equation, self.head
+        )
+    }
+}
+
+/// Why a mutant is refused before it runs ([`admit_mutant`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum MutantFailure {
+    /// The compiled definitions show an effect the source reading does not name, so the claims
+    /// the edit leaves unbacked are not known: kink-campaign refuses it as `unsupported-claims`.
+    UnreadEquations(Vec<UnreadEquation>),
+    /// The mutant is not shown to be a theory with models: `inconsistent-mutant`.
+    Inconsistent(Inconsistency),
+    /// The mutant's own KORE does not internalize (without the probe head either), so no test
+    /// could run on it: kink-campaign's infrastructure failure, as when its runtime cannot be
+    /// prepared.
+    Uninternalizable(String),
+}
+
+/// What the compiled definitions say a mutant's edit changes ([`admit_mutant`]).
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct CompiledEffect {
+    /// The indexes whose equations differ between the baseline and the claim-free mutant (KORE
+    /// symbol names, or the index kind).
+    pub changed: BTreeSet<String>,
+    /// The symbols whose pairs were read (KORE names), `None` for every symbol.
+    pub checked: Option<BTreeSet<String>>,
+}
+
+/// Whether the claim-free mutant `side` may run (re-pin R0c-fix-3, R0c-fix-4): the compiled
+/// definitions agree with the source reading `source` of the patch's effect, and the mutant is
+/// shown to be a theory with models where its edit can change one.
+///
+/// What the edit changes is read from the compiled definitions, which k-rust executes, and the
+/// source reading is a fail-closed cross-check (see the module documentation):
+///
+/// - changed indexes: every index of the claim-free mutant's function theory whose equations
+///   differ from `baseline`'s (compared without unique ids, origins and the claims claim removal
+///   handles), an index present on one side only included, and every index of its simplification
+///   and ceil lemmas that differs alike (a changed predicate lemma checks every head);
+/// - checked heads: the reverse reach of the changed indexes over both compiled theories (an
+///   equation reaches the symbols it applies, and an overload family is linked both ways),
+///   together with the source reading's affected symbols; `None` (every head) when the source
+///   reading is unknown or a changed or reached index is not a symbol;
+/// - every compiled equation that a sentence the patch touches (or inserts) gives, on either
+///   side, is headed by a symbol the source reading redefines, or by a lambda kompile generated
+///   for a `#let` or `#fun` (its `total` is derived from the claim-free mutant's own body); and
+///   no other generated `total` symbol has changed equations. Otherwise
+///   [`MutantFailure::UnreadEquations`].
+///
+/// The compiled diff is always computed: an empty source reading never admits a mutant without it.
+///
+/// # Errors
+///
+/// Returns why the mutant is refused.
+pub fn admit_mutant(
+    baseline: &CompiledEquations,
+    side: &ValidatedDefinition,
+    source: &SourceEffect,
+) -> Result<CompiledEffect, MutantFailure> {
+    let unchecked = |why: String| MutantFailure::Inconsistent(Inconsistency::Unchecked(why));
+    let definition = match checked_copy(side) {
+        Ok(definition) => definition,
+        Err(why) => {
+            // A mutant whose own KORE does not internalize runs nothing (its runtime cannot be
+            // prepared); one that internalizes only without the probe is unchecked.
+            return Err(match CompiledEquations::of(side) {
+                Err(own) => MutantFailure::Uninternalizable(own),
+                Ok(_) => unchecked(why),
+            });
+        }
+    };
+    let mutant = CompiledEquations::read(&definition, side);
+
+    let unread = unread_equations(baseline, &mutant, source);
+    if !unread.is_empty() {
+        return Err(MutantFailure::UnreadEquations(unread));
+    }
+
+    let mut changed = changed_indexes(&baseline.theory, &mutant.theory);
+    for (base, edited) in baseline.lemmas.iter().zip(&mutant.lemmas) {
+        changed.extend(changed_indexes(base, edited));
+    }
+    // A changed predicate lemma is about no one symbol: every head is checked.
+    let predicate_lemmas_changed = baseline.predicate_lemmas != mutant.predicate_lemmas;
+    let generated = changed
+        .iter()
+        .filter_map(|index| match index {
+            TermIndex::Symbol(symbol)
+                if mutant.total.contains(&**symbol)
+                    && !mutant.source_labels.contains(&**symbol)
+                    && !mutant.generated_lambda(symbol) =>
+            {
+                Some(UnreadEquation {
+                    origin: None,
+                    head: symbol.to_string(),
+                    equation: "a generated total symbol's equations".to_owned(),
+                })
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if !generated.is_empty() {
+        return Err(MutantFailure::UnreadEquations(generated));
+    }
+
+    let reached = reach(&changed, [baseline, &mutant]);
+    let source_heads = source.affected.as_ref().map(|affected| {
+        affected
+            .iter()
+            .map(|label| encode_label(label))
+            .collect::<BTreeSet<_>>()
+    });
+    if let Some(heads) = &source_heads {
+        // A head kink-patch names must be a symbol of the compiled definition, or its pairs
+        // would be read under no name.
+        let missing = heads
+            .iter()
+            .filter(|head| !definition.symbols().contains_key(head.as_str()))
+            .cloned()
+            .collect::<Vec<_>>();
+        if !missing.is_empty() {
+            return Err(unchecked(format!(
+                "the heads {missing:?} are not symbols of the compiled definition"
+            )));
+        }
+    }
+    let checked = match source_heads {
+        Some(mut heads)
+            if !predicate_lemmas_changed
+                && reached
+                    .iter()
+                    .all(|index| matches!(index, TermIndex::Symbol(_))) =>
+        {
+            heads.extend(reached.iter().filter_map(|index| match index {
+                TermIndex::Symbol(symbol) => Some(symbol.to_string()),
+                _ => None,
+            }));
+            Some(heads)
+        }
+        _ => None,
+    };
+    let effect = CompiledEffect {
+        changed: changed.iter().map(index_name).collect(),
+        checked,
+    };
+    if effect.checked.as_ref().is_some_and(BTreeSet::is_empty) {
+        // No symbol's equations differ, none reaches one, and the source reading redefines
+        // none: every pair is the baseline's.
+        return Ok(effect);
+    }
+    check(&definition, effect.checked.as_ref()).map_err(MutantFailure::Inconsistent)?;
+    Ok(effect)
+}
+
+/// The indexes whose equations differ between two theories, an index of one only included.
+fn changed_indexes(
+    baseline: &BTreeMap<TermIndex, BTreeMap<u8, Vec<RewriteRule>>>,
+    mutant: &BTreeMap<TermIndex, BTreeMap<u8, Vec<RewriteRule>>>,
+) -> BTreeSet<TermIndex> {
+    baseline
+        .keys()
+        .chain(mutant.keys())
+        .filter(|index| baseline.get(*index) != mutant.get(*index))
+        .cloned()
+        .collect()
+}
+
+/// The compiled equations of a touched (or inserted) sentence that the source reading does not
+/// explain, on either side.
+fn unread_equations(
+    baseline: &CompiledEquations,
+    mutant: &CompiledEquations,
+    source: &SourceEffect,
+) -> Vec<UnreadEquation> {
+    let Some(redefined) = &source.redefined else {
+        // Every symbol already counts as redefined.
+        return Vec::new();
+    };
+    let redefined = redefined
+        .iter()
+        .map(|label| encode_label(label))
+        .collect::<BTreeSet<_>>();
+    let mut unread = Vec::<UnreadEquation>::new();
+    for side in [baseline, mutant] {
+        for equation in &side.equations {
+            let explained = match &equation.index {
+                TermIndex::Symbol(symbol) => {
+                    redefined.contains(&**symbol) || side.generated_lambda(symbol)
+                }
+                _ => false,
+            };
+            if explained {
+                continue;
+            }
+            for author in &equation.authors {
+                let origin = match author {
+                    Author::Baseline(at) if source.touched.contains(at) => {
+                        Some(SentenceOrigin::Baseline(at.clone()))
+                    }
+                    Author::Baseline(_) => continue,
+                    Author::Inserted(edit) => Some(SentenceOrigin::Inserted { edit: *edit }),
+                    Author::Unresolved => None,
+                };
+                let found = UnreadEquation {
+                    origin,
+                    head: index_name(&equation.index),
+                    equation: equation.name.clone(),
+                };
+                if !unread.contains(&found) {
+                    unread.push(found);
+                }
+            }
+        }
+    }
+    unread
+}
+
+/// The indexes whose equations reach one of `changed` (`changed` included), over both sides'
+/// compiled theories.
+fn reach(changed: &BTreeSet<TermIndex>, sides: [&CompiledEquations; 2]) -> BTreeSet<TermIndex> {
+    let mut reached = BTreeSet::new();
+    let mut pending = changed.iter().cloned().collect::<Vec<_>>();
+    while let Some(index) = pending.pop() {
+        if !reached.insert(index.clone()) {
+            continue;
+        }
+        if let TermIndex::Symbol(symbol) = &index {
+            for side in sides {
+                if let Some(dependents) = side.dependents.get(&**symbol) {
+                    pending.extend(dependents.difference(&reached).cloned());
+                }
+            }
+        }
+    }
+    reached
+}
+
+fn index_name(index: &TermIndex) -> String {
+    match index {
+        TermIndex::Symbol(symbol) => symbol.to_string(),
+        other => format!("{other:?}"),
+    }
+}
+
+/// Whether the claim-free mutant `side` is shown to be a theory with models for the symbols
+/// `heads` (K labels; `None` for every symbol): every pair with an equation of one of them, or
+/// one not indexed at a symbol, joins by k-rust's critical-pair check. This reads the check for
+/// given heads only; [`admit_mutant`] decides which heads an edit can change.
 ///
 /// # Errors
 ///
 /// Returns the pairs not shown to join, or why the check could not decide.
-pub fn mutant_consistency(
+pub fn check_heads(
     side: &ValidatedDefinition,
     heads: Option<&BTreeSet<String>>,
 ) -> Result<(), Inconsistency> {
-    if heads.is_some_and(BTreeSet::is_empty) {
-        return Ok(());
-    }
     let definition = checked_copy(side).map_err(Inconsistency::Unchecked)?;
-    let heads = heads.map(|heads| heads.iter().map(|label| encode_label(label)).collect());
+    let heads = heads.map(|heads| {
+        heads
+            .iter()
+            .map(|label| encode_label(label))
+            .collect::<BTreeSet<_>>()
+    });
+    if let Some(heads) = &heads {
+        let missing = heads
+            .iter()
+            .filter(|head| !definition.symbols().contains_key(head.as_str()))
+            .cloned()
+            .collect::<Vec<_>>();
+        if !missing.is_empty() {
+            return Err(Inconsistency::Unchecked(format!(
+                "the heads {missing:?} are not symbols of the compiled definition"
+            )));
+        }
+    }
     check(&definition, heads.as_ref())
 }
 
@@ -227,34 +804,30 @@ fn check(
     }
     let mut index_of = BTreeMap::new();
     let mut root_pairs = 0;
+    let mut executable_equations = 0;
     for (index, priorities) in definition.function_theory() {
         for rules in priorities.values() {
             for rule in rules {
                 index_of.insert(rule.attributes.unique_id.clone(), index.clone());
             }
             let executable = rules.iter().filter(|rule| !symbolic(rule)).count();
+            executable_equations += executable;
             root_pairs += executable * executable.saturating_sub(1) / 2;
         }
     }
-    if counts.pairs < root_pairs {
+    // k-rust reports its counts for the whole definition only (`CheckCounts`), so these guards
+    // are global: the check read every executable equation, skipped no candidate pair, and
+    // unified at least as many candidate pairs as there are root pairs (two executable equations
+    // of one index and priority group; `pairs` also counts the inner pairs, and a self pair is
+    // counted in `several_matches` instead). They show the check ran on the whole definition
+    // (its early return for a definition with nothing withdrawable reads no pair); they do not
+    // show, group by group, that every root, self and inner pair was classified.
+    if counts.equations != executable_equations || counts.skipped > 0 || counts.pairs < root_pairs {
         return Err(Inconsistency::Unchecked(format!(
-            "k-rust classified {} pairs of the {root_pairs} root pairs",
-            counts.pairs
+            "k-rust read {} of the {executable_equations} executable equations, skipped {} \
+             candidate pairs and classified {} pairs of the {root_pairs} root pairs",
+            counts.equations, counts.skipped, counts.pairs
         )));
-    }
-    if let Some(heads) = heads {
-        // A head kink-patch names must be a symbol of the compiled definition, or its pairs
-        // would be read under no name.
-        let missing = heads
-            .iter()
-            .filter(|head| !definition.symbols().contains_key(head.as_str()))
-            .cloned()
-            .collect::<Vec<_>>();
-        if !missing.is_empty() {
-            return Err(Inconsistency::Unchecked(format!(
-                "the heads {missing:?} are not symbols of the compiled definition"
-            )));
-        }
     }
     let checked_symbol = |name: &str| heads.is_none_or(|heads| heads.contains(name));
     let checked = |rule: &RewriteRule| match index_of.get(&rule.attributes.unique_id) {

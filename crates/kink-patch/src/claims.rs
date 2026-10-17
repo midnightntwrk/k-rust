@@ -29,7 +29,11 @@
 //! [`ClaimSupport`] names that relation over one baseline. A patch *redefines* a symbol when
 //! it edits, deletes or inserts an equation headed by it (in the baseline or in the mutant)
 //! or edits a claim of its production: these are the edited symbols E, read from the head of
-//! each edited sentence. A symbol *reaches* E when one of its equations applies a symbol of E
+//! each edited sentence as k-rust reads it (under `#withConfig`, the rule form `[[ F ]] C` of a
+//! function rule with configuration context, the head of `F`; re-pin R0c-fix-4). This is the
+//! source reading of the edit; kink-native reads the compiled definitions against it
+//! ([`ClaimSupport::effect`]), and a compiled equation of a touched sentence whose head is not in
+//! E refuses the mutant ([`UNREAD_EQUATION_CLAIM`]). A symbol *reaches* E when one of its equations applies a symbol of E
 //! or a symbol that reaches E (the reverse call-graph closure). The equations read are the
 //! written ones and those kompile generates that link symbols: each member of an
 //! `overload(key)` family reaches every other (the overload axiom `g(inj(x)) = inj(l(x))` is an
@@ -72,14 +76,16 @@ use crate::apply::{Mutant, SentenceOrigin, apply};
 use crate::failure::PatchFailure;
 use crate::{Baseline, Edit, Patch, SentenceRef};
 use k_rust::definition::{AttributeKey, Definition, Sentence};
-use k_rust::kast::Term;
+use k_rust::kast::{InternalLabel, Term};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The version of the claim-removal algorithm ([`ClaimSupport::withdraw`]): a mutant's identity
 /// depends on it, so every cache of mutant outcomes names it (kink-flow's tier-1 context). v2
-/// (re-pin R0c-fix-3): the reach follows kompile's generated overload and unit axioms.
-pub const CLAIM_REMOVAL_VERSION: &str = "kink-patch/claim-removal/v2";
+/// (re-pin R0c-fix-3): the reach follows kompile's generated overload and unit axioms. v3 (re-pin
+/// R0c-fix-4): a rule written with configuration context (`[[ F ]] C`) is read as an equation of
+/// `F`'s head.
+pub const CLAIM_REMOVAL_VERSION: &str = "kink-patch/claim-removal/v3";
 
 /// One kind of claim k-rust trusts, how kink removes it from a mutant, and where k-rust 501f18b9
 /// says it is trusted (paths relative to `crates/` or `docs/` of the k-rust tree).
@@ -203,6 +209,13 @@ pub const ENSURES_CLAIM: &str = "ensures";
 /// `hooked-equation` row of [`TRUSTED_CLAIMS`]).
 pub const HOOKED_EQUATION_CLAIM: &str = "hooked-equation";
 
+/// The key under which a mutant records a sentence its patch touches that k-rust compiles to an
+/// equation of a symbol the source reading does not redefine (re-pin R0c-fix-4; the value names
+/// the compiled head). The claims resting on that symbol cannot be told from the source, so the
+/// patch's effect is unknown and the mutant is refused as unsupported. It is kink's own refusal
+/// key, not a claim k-rust trusts, and not a row of [`TRUSTED_CLAIMS`].
+pub const UNREAD_EQUATION_CLAIM: &str = "unread-equation";
+
 /// One trusted claim of a mutant: an attribute or a non-trivial equation `ensures`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Claim {
@@ -241,6 +254,19 @@ impl Withdrawal {
     pub const fn patch(&self) -> Option<&Patch> {
         self.patch.as_ref()
     }
+}
+
+/// The source reading of a patch's effect on the equational part ([`ClaimSupport::effect`]).
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SourceEffect {
+    /// The symbols the patch redefines (E, K labels), or `None` when its effect on the
+    /// equational part is not known symbol by symbol.
+    pub redefined: Option<BTreeSet<String>>,
+    /// The redefined symbols and every symbol whose equations reach one, or `None` with
+    /// `redefined`: the symbols whose claims [`ClaimSupport::withdraw`] removes.
+    pub affected: Option<BTreeSet<String>>,
+    /// The baseline sentences the patch replaces, deletes, or edits a term or attribute of.
+    pub touched: BTreeSet<SentenceRef>,
 }
 
 /// How a rule sentence takes part in the equational theory.
@@ -530,12 +556,28 @@ impl ClaimSupport {
         baseline: &Baseline,
         patch: &Patch,
     ) -> Result<Option<BTreeSet<String>>, PatchFailure> {
+        Ok(self.effect(baseline, patch)?.affected)
+    }
+
+    /// The source reading of `patch`'s effect on the equational part: the symbols it redefines,
+    /// those it can change the meaning of ([`Self::affected`]) and the baseline sentences it
+    /// touches. kink-native reads the compiled definitions against it (re-pin R0c-fix-4): the
+    /// compiled equations a touched sentence gives must be headed by a redefined symbol, and the
+    /// symbols whose compiled equations differ join the checked set.
+    ///
+    /// # Errors
+    ///
+    /// Returns the failure of applying `patch` to `baseline`.
+    pub fn effect(&self, baseline: &Baseline, patch: &Patch) -> Result<SourceEffect, PatchFailure> {
         let mutant = apply(baseline, patch)?;
         let edits = patch.edits();
         let touched = touched_sentences(edits);
-        Ok(self
-            .redefined(baseline, &mutant, edits, &touched)
-            .map(|redefined| self.closure(redefined)))
+        let redefined = self.redefined(baseline, &mutant, edits, &touched);
+        Ok(SourceEffect {
+            affected: redefined.clone().map(|redefined| self.closure(redefined)),
+            redefined,
+            touched: touched.into_iter().cloned().collect(),
+        })
     }
 
     /// Every symbol whose equations reach a redefined symbol, the redefined ones included.
@@ -716,10 +758,7 @@ fn role(sentence: &Sentence, defined: &BTreeSet<String>) -> Role {
     if attributes.has(LEMMA) {
         return Role::Lemma;
     }
-    let left = match body.unannotated() {
-        Term::Rewrite { left, .. } => left,
-        body => body,
-    };
+    let left = matched_term(body);
     let equational =
         attributes.has(AttributeKey::Anywhere) || attributes.has_any(&AttributeKey::MACRO_LIKE);
     match head(left) {
@@ -728,6 +767,39 @@ fn role(sentence: &Sentence, defined: &BTreeSet<String>) -> Role {
         None if equational => Role::Unknown,
         None => Role::Rewrite,
     }
+}
+
+/// The term whose head heads a rule body: the left-hand side of the body's rewrite, and under
+/// `#withConfig` (a function rule written with configuration context, `rule [[ F ]] C`, which
+/// k-rust compiles to an equation of `F`'s head) its first argument, or that argument's
+/// left-hand side when it is a rewrite. This is k-rust 501f18b9's one reading of the symbol that
+/// heads a rule (`k_rust::definition::rule_catalog::match_rule_label`, "under `#withConfig`, the
+/// head of its first argument"), through annotations and as-patterns (re-pin R0c-fix-4, R0c-fix-3
+/// review critical 2).
+fn matched_term(body: &Term) -> &Term {
+    match unaliased(body) {
+        Term::Apply { label, arguments } if label.is(InternalLabel::WithConfig) => {
+            arguments.first().map_or(body, rewrite_left)
+        }
+        _ => rewrite_left(body),
+    }
+}
+
+/// The left-hand side of `term` when it is a rewrite, else `term`.
+fn rewrite_left(term: &Term) -> &Term {
+    match unaliased(term) {
+        Term::Rewrite { left, .. } => left,
+        _ => term,
+    }
+}
+
+/// `term` without its annotations and the as-patterns around it.
+fn unaliased(term: &Term) -> &Term {
+    let mut term = term.unannotated();
+    while let Term::As { pattern, .. } = term {
+        term = pattern.unannotated();
+    }
+    term
 }
 
 /// The symbol at the top of a left-hand side, through annotations, as-patterns and casts.

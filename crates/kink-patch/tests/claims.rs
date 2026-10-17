@@ -792,3 +792,44 @@ fn an_edit_of_a_lesser_overload_reaches_the_greater() {
         Some(BTreeSet::from(["fint".to_owned(), "fnum".to_owned()]))
     );
 }
+
+/// Re-pin R0c-fix-4 (R0c-fix-3 review critical 2, `r0c/cfgf.k`): a function rule written with
+/// configuration context, `rule [fpos]: [[ f(I) => 1 ]] <k> _ </k> requires I >=Int 0`, is read
+/// as an equation of `f` (k-rust loads it as `#withConfig(F, C)` and compiles it to an equation of
+/// `F`'s head, `rule_catalog::match_rule_label`). An edit of its guard redefines `f`, so `f`'s
+/// `total` is removed and `f` is a head the consistency check reads; `go`, whose rule applies
+/// `f`, is a rewrite rule and is not affected. At 25e229e the rule read as a rewrite rule and
+/// nothing was redefined or removed.
+#[test]
+fn a_rule_with_configuration_context_is_an_equation_of_its_head() {
+    let baseline = support::load_path(
+        &std::path::Path::new(support::DIR).join("r0c/cfgf.k"),
+        "CFGF",
+    );
+    // `requires I >=Int 0`: the condition's second argument.
+    let at = TermRef::new(support::rule(&baseline, "CFGF.fpos"), [1, 1]);
+    let expected = baseline.term(&at).expect("the guard literal").clone();
+    assert_eq!(expected, int("0"));
+    let patch = Patch::new(vec![Edit::ReplaceTerm {
+        at,
+        expected,
+        replacement: int("5"),
+    }])
+    .unwrap();
+    let support = ClaimSupport::new(&baseline);
+    let effect = support.effect(&baseline, &patch).unwrap();
+    assert_eq!(effect.redefined, Some(BTreeSet::from(["f".to_owned()])));
+    assert_eq!(effect.affected, Some(BTreeSet::from(["f".to_owned()])));
+    assert_eq!(
+        effect.touched,
+        BTreeSet::from([support::rule(&baseline, "CFGF.fpos")])
+    );
+    let withdrawal = support.withdraw(&baseline, &patch).unwrap();
+    let removed = withdrawal
+        .withdrawn
+        .iter()
+        .map(|claim| claim.key.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(removed, [TOTAL.to_owned()]);
+    assert!(withdrawal.trusted());
+}

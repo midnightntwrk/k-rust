@@ -52,7 +52,8 @@
 //! - [`Exclusion::EqualsCondition`]: a rewrite rule or equation of the definition has a condition
 //!   that equates two terms (K `{ A #Equals B }`), which k-rust 501f18b9 names as a gap of its own
 //!   answers when the terms may be undefined ("Two gaps remain", `docs/compatibility.md`): such
-//!   a definition is excluded (re-pin R0c-fix-3, R0c-fix-2 review minor 3).
+//!   a definition is excluded (re-pin R0c-fix-3, R0c-fix-2 review minor 3). Since re-pin
+//!   R0c-fix-4 every axiom's antecedents and `ensures` are read, whatever its left-hand side.
 //!
 //! Every exclusion is read per test: it makes that test's comparison unknown, and a kill by
 //! another test, whose runs it does not touch, stands (decision 2's scope, Sebastien,
@@ -825,10 +826,7 @@ impl DefinitionExclusions {
                 else {
                     continue;
                 };
-                if axiom_conditions(pattern)
-                    .iter()
-                    .any(|condition| holds_term_equality(condition))
-                {
+                if holds_condition_equality(pattern) {
                     equals_conditions.insert(sentence_name(attributes));
                 }
                 let Some((conditions, left, right)) = rewrite_sides(pattern) else {
@@ -1275,17 +1273,34 @@ fn rewrite_sides(pattern: &Pattern) -> Option<(Vec<&Pattern>, &Pattern, &Pattern
     }
 }
 
-/// The condition patterns of a rewrite rule (its antecedents and its left-hand side, which holds
-/// its `requires` as a conjunct) or of an equation (its antecedent); none for any other axiom.
-fn axiom_conditions(pattern: &Pattern) -> Vec<&Pattern> {
-    if let Some((mut conditions, left, _)) = rewrite_sides(pattern) {
-        conditions.push(left);
-        conditions
-    } else {
-        equation_parts(pattern)
-            .and_then(|(_, antecedent, _)| antecedent)
-            .into_iter()
-            .collect()
+/// Whether an axiom's conditions hold an `\equals` other than the Bool reading, whatever its
+/// left-hand side is (an application, `#Ceil` or another predicate): every antecedent of an
+/// `\implies` around its conclusion (an equation's or lemma's `requires` and argument
+/// constraints), a rewrite rule's left-hand side (which holds its `requires`), and the `ensures`
+/// of either kind, the last conjunct of the right-hand side `\and(rhs, ensures)` kompile emits.
+/// The `\equals` that states the equation or lemma, its left-hand side (the term or predicate the
+/// lemma rewrites) and its right-hand side term are not conditions (a predicate lemma of the
+/// prelude rewrites one equality into another). Re-pin R0c-fix-4, R0c-fix-3 review minor 6:
+/// R0c-fix-3 read only rewrite rules and application-headed equations, and no `ensures`.
+fn holds_condition_equality(pattern: &Pattern) -> bool {
+    fn ensures(right: &Pattern) -> Option<&Pattern> {
+        match right {
+            Pattern::And { arguments, .. } if arguments.len() >= 2 => arguments.last(),
+            _ => None,
+        }
+    }
+    match pattern {
+        Pattern::Forall { body, .. } | Pattern::Exists { body, .. } => {
+            holds_condition_equality(body)
+        }
+        Pattern::Implies { left, right, .. } => {
+            holds_term_equality(left) || holds_condition_equality(right)
+        }
+        Pattern::Equals { right, .. } => ensures(right).is_some_and(holds_term_equality),
+        Pattern::Rewrites { left, right, .. } => {
+            holds_term_equality(left) || ensures(right).is_some_and(holds_term_equality)
+        }
+        _ => false,
     }
 }
 

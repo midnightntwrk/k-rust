@@ -13,6 +13,7 @@ mod plan;
 pub use manifest::{
     CampaignManifest, ManifestError, ManifestInput, ManifestOperator, MultiManifestInput,
     OperatorId, campaign_manifest, campaign_manifest_multi, campaign_manifest_multi_with_budget,
+    same_admission,
 };
 pub use plan::{BudgetMutants, CampaignPlan, CampaignPlanError, campaign_plan};
 mod report;

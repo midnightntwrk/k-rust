@@ -227,6 +227,14 @@ fn resume(
     {
         return Err(StoreError::Invalid("indexed report differs".into()));
     }
+    // A report written under other mutant admission algorithms (claim removal, the consistency
+    // check, the compiled reading of an edit's effect) at the same k-rust pin is not resumed:
+    // its statuses may rest on mutants this build refuses (re-pin R0c-fix-4).
+    if !kink_campaign::same_admission(&report["manifest"]) {
+        return Err(StoreError::Invalid(
+            "the indexed report was written under other mutant admission algorithms".into(),
+        ));
+    }
     let artifact_digest = report["manifest"]["baseline"]["semantic_input_sha256"]
         .as_str()
         .ok_or_else(|| StoreError::Invalid("artifact digest".into()))?;

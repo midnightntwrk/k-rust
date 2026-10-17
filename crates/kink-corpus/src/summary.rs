@@ -242,6 +242,9 @@ fn read_report(
     {
         return Err(invalid("campaign manifest or report identity"));
     }
+    if !kink_campaign::same_admission(campaign) {
+        return Err(invalid("campaign mutant admission algorithms"));
+    }
     if campaign["admission"]["verdict"] != "natural"
         && campaign["admission"]["verdict"] != "flagged"
     {

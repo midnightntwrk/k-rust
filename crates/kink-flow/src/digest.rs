@@ -178,6 +178,8 @@ pub fn outcome_context(
         // A mutant runs only when its equations are shown consistent (re-pin R0c-fix-3), so its
         // admission depends on the consistency check.
         "mutant_consistency": kink_native::consistency::MUTANT_CONSISTENCY_VERSION,
+        // What the edit changes is read from the compiled definitions (re-pin R0c-fix-4).
+        "mutant_effect": kink_native::consistency::MUTANT_EFFECT_VERSION,
     })
 }
 
