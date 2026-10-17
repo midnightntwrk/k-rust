@@ -10,6 +10,8 @@ It verifies that the displayed `tour-minimal` mirror is byte-for-byte identical 
 The primary navigation contains all 17 canonical chapters from `../krs/docs-plan/tour.toml` plus the checked five-minute synthesis.
 Its hover/focus glosses and canonical destinations are generated from the ledger rather than copied into a second glossary.
 `bun run check` validates the curriculum, reviewed public surfaces, complete page graph and anchors, generated compatibility and port summaries, terminology, gloss accessibility contracts, synced snippets, Rust-Twoslash failure controls, and the authoritative Cargo/KRS fixtures.
+Pages show `krs` command outputs recorded under `src/snippets/outputs/` from the commands `recorded-outputs.toml` lists.
+`bun run check` compares their input and output digests without running `krs` and fails when a fixture, an entry, or an output changed; `bun run record:outputs` records them again, and `bun run verify:outputs` (part of `bun run build`) runs every command and compares the outputs byte for byte.
 `bun run check:types && bun run build` is the production release gate, including Vocs dead-link checking.
 
 Rust Twoslash is supplementary.
@@ -46,7 +48,8 @@ The value is an absolute URL or an origin-relative path, and it is inlined into 
 It must name the root of a release publication assembled by `browser/release/release.py assemble` (format: `browser/release/release-format.toml`): `index.json` points to `releases/<sha256>.json`, whose assets are served from `blobs/<sha256>.<ext>`.
 Serve it with the headers in `browser/release/hosting.toml`; a cross-origin base must answer `GET` with `Access-Control-Allow-Origin` for the site's origin.
 When the variable is unset, the build still succeeds and the page renders its "lesson unavailable" state.
-No CI builds the site; `.github/workflows/krs.yml` checks that the tours are still correct KRS and runs the workspace tests, Clippy, and the MSRV check, but does not run the site build.
+No CI builds or checks the site, and a k-rust change does not trigger the docs check: `bun run check` is run by documentation work, which also repairs any drift it reports.
+`.github/workflows/krs.yml` checks that the tours are still correct KRS and runs the workspace tests, Clippy, and the MSRV check, but does not run the site build.
 
 The page fetches `index.json` and the release manifest on load, and the assets only after the reader presses the download button.
 `browser/worker/src/pack-cache.ts` verifies every required asset against the release, keeps it in one Cache Storage namespace per `pack_id`, and deletes inactive namespaces that no worker leases.

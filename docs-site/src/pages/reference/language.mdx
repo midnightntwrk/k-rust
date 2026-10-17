@@ -648,7 +648,7 @@ Each command compiles the selected definition in-process and corresponds to a K 
 | `krs prove --spec-module IMP-SUM-SPEC` | `kprove spec.k --spec-module IMP-SUM-SPEC` | a verdict for each claim of an author spec module |
 
 A run ends `stuck` when no rule applies; K has no separate finished state, so a program is finished when `<k>` holds only `.K`.
-Proof verdicts are k-rust's: `proven`, `disproved`, `failed`, `indeterminate`, and `depth-bound`.
+Proof verdicts are k-rust's `proven`, `disproved`, `failed`, `indeterminate`, `depth-bound`, and `breadth-bound`, and `trusted` for a [trusted claim](/verification/reachability-claims#trusted-claims), which is assumed without proof.
 `--output json` prints a `krs-exec/1` report whose configurations are KAST JSON, as `krun --output json` prints them.
 
 ### Printing through the grammar

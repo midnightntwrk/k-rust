@@ -1,0 +1,25 @@
+# krs command outputs that pages include from src/snippets/outputs/<id>.txt.
+# Each command runs from `fixture` (relative to docs-site/) as
+# `krs <args[0]> --package <package> --definition <definition> <args[1..]>`.
+# `python3 scripts/record-outputs.py --write` records them; bun run check fails when one is stale.
+
+[[output]]
+id = "tour-minimal-run"
+fixture = "../krs/tests/tour-minimal"
+package = "krs-tour-minimal"
+definition = "main"
+args = ["run"]
+
+[[output]]
+id = "tour-minimal-trace"
+fixture = "../krs/tests/tour-minimal"
+package = "krs-tour-minimal"
+definition = "main"
+args = ["run", "--trace"]
+
+[[output]]
+id = "tour-minimal-depth-0"
+fixture = "../krs/tests/tour-minimal"
+package = "krs-tour-minimal"
+definition = "main"
+args = ["run", "--depth", "0"]
