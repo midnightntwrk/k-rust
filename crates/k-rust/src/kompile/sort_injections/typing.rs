@@ -479,6 +479,9 @@ pub struct SentenceTyper<'a> {
     places_computation_cell: bool,
     /// The cells of the typer's module that decide the wrapping, computed on first use.
     computation_cells: std::cell::OnceCell<crate::kompile::passes::ComputationCells>,
+    /// The catalog compilation sees in each module whose sentences' wrapping was decided
+    /// ([`compilation_catalog`]), which holds the helpers it declares before the pass.
+    declaring_catalogs: std::cell::RefCell<BTreeMap<ModuleId, View<'a, ProductionCatalog<'a>>>>,
 }
 
 /// The production catalog compilation injects the sentences of `module`'s import closure with,
@@ -556,6 +559,7 @@ impl<'a> SentenceTyper<'a> {
             completes_cells: true,
             places_computation_cell: true,
             computation_cells: std::cell::OnceCell::new(),
+            declaring_catalogs: std::cell::RefCell::default(),
         })
     }
 
@@ -813,8 +817,10 @@ impl<'a> SentenceTyper<'a> {
     /// The pass decides on the sentence after the passes before it (local functions, function
     /// rules with configuration context, semantic casts, constant folding, or-pattern guards and
     /// macro expansion), and this decides on the loaded sentence with its macro attribute
-    /// propagated. The decision reads the left side's head, the number of body items and the
-    /// cells the body holds, which none of those passes changes for a sentence typed here, except
+    /// propagated, and with the catalog compilation sees in `module`, whose sort predicates and
+    /// projections make a rule headed by one a function rule. The decision reads the left
+    /// side's head, the number of body items and the cells the body holds, which none of those
+    /// passes changes for a sentence typed here, except
     /// a function rule with configuration context, `#withConfig(F, C)`: compilation lowers it to
     /// the function rule `F`, which is not wrapped.
     fn computation_cell_content_at(&self, sentence: &Sentence, module: ModuleId) -> Option<Sort> {
@@ -823,15 +829,21 @@ impl<'a> SentenceTyper<'a> {
         {
             return None;
         }
-        let productions = self.definition.production_catalog(module);
+        // The pass reads the head of the rule with the catalog of the declaring module at its
+        // stage, which holds the sort predicates and projections compilation declares before it:
+        // a rule headed by one of them is a function rule there.
+        let mut catalogs = self.declaring_catalogs.borrow_mut();
+        let productions = catalogs
+            .entry(module)
+            .or_insert_with(|| compilation_catalog(self.definition, module));
         let configuration = self.definition.production_catalog(self.module);
         let cells = self
             .computation_cells
             .get_or_init(|| crate::kompile::passes::ComputationCells::of(&configuration));
         let mut marked = sentence.clone();
-        crate::kompile::passes::propagate_macro_attribute(&mut marked, &productions);
+        crate::kompile::passes::propagate_macro_attribute(&mut marked, productions);
         cells
-            .wrapping(&marked, &productions, &configuration)
+            .wrapping(&marked, productions, &configuration)
             .ok()
             .flatten()
             .and_then(|cell| cell.content.cloned())

@@ -516,6 +516,49 @@ mod tests {
         wrapped
     }
 
+    /// The instances the view reports for `sentence`, a rule it types inside the computation
+    /// cell, that differ from those of the rule written with that cell around its body
+    /// (`<k>(#noDots, body, #dots)`), at the corresponding paths (`[0, p..]` against
+    /// `[0, 1, p..]`).
+    fn authored_instances_differ(
+        loaded: &LoadedDefinition,
+        typer: &SentenceTyper<'_>,
+        sentence: &Sentence,
+        module: &str,
+    ) -> Vec<String> {
+        let resolved = loaded.resolved();
+        let catalog = resolved.production_catalog(resolved.main_module_id());
+        let cells = super::ComputationCells::of(&catalog);
+        let cell = cells
+            .main_cells
+            .first()
+            .map(|(_, label, _)| label.clone())
+            .expect("a wrapped sentence has a main cell");
+        let mut authored = sentence.clone();
+        let (Sentence::Rule { body, .. } | Sentence::Claim { body, .. }) = &mut authored else {
+            unreachable!("keyed sentences are rules and claims")
+        };
+        *body = super::incomplete_cell(&cell, body.clone());
+        let typing = typer.typing_in(sentence, module).unwrap();
+        let in_cell = typer.typing_in(&authored, module).unwrap();
+        typing
+            .instances
+            .iter()
+            .filter_map(|(path, instance)| {
+                let mapped = match path.as_slice() {
+                    [0, rest @ ..] => [0, 1].iter().chain(rest).copied().collect::<Vec<_>>(),
+                    other => other.to_vec(),
+                };
+                (in_cell.instances.get(&mapped) != Some(instance)).then(|| {
+                    format!(
+                        "{module}: instance at {path:?} {instance:?} against {:?}",
+                        in_cell.instances.get(&mapped)
+                    )
+                })
+            })
+            .collect()
+    }
+
     /// The decision the typing view reads (`SentenceTyper::computation_cell_content`) on each
     /// loaded rule and claim of a compiled definition's main closure is what the computation-cell
     /// pass did to it in that compile, which decides on the sentence the earlier passes produce.
@@ -557,6 +600,10 @@ mod tests {
                         continue;
                     };
                     let Some(compiled) = stage.get(&key) else {
+                        failures.push(format!(
+                            "{name} {}: not among the stage's sentences: {sentence:?}",
+                            module.name
+                        ));
                         continue;
                     };
                     let decided = typer
@@ -567,6 +614,14 @@ mod tests {
                         failures.push(format!(
                             "{name} {}: decided {decided}, compiled {compiled:?}: {sentence:?}",
                             module.name
+                        ));
+                    }
+                    if decided {
+                        failures.extend(authored_instances_differ(
+                            &loaded,
+                            &typer,
+                            sentence,
+                            &module.name,
                         ));
                     }
                     checked += 1;

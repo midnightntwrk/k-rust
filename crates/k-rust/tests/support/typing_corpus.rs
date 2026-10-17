@@ -47,6 +47,7 @@ fn corpus() -> Vec<(String, String, String, Option<std::path::PathBuf>)> {
         ("collection-cell-content.k", "TEST"),
         ("private-configuration-context.k", "P"),
         ("cell-less-bound.k", "CELL-LESS-BOUND"),
+        ("generated-heads.k", "GENERATED-HEADS"),
     ] {
         let path = root.join("sentence-typing").join(file);
         corpus.push((

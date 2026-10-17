@@ -2608,7 +2608,10 @@ fn in_cell_path(path: &[u32]) -> Vec<u32> {
 
 /// Every rule compilation wraps in the computation cell types as the rule with that cell
 /// written around its body: the same sort and requirement at each corresponding position and in
-/// each branch, and the same variable sorts.
+/// each branch, and the same variable sorts. The rules are those `computation_cell_content`
+/// wraps; that this is what compilation wraps, and that the instances (crate-internal) agree too,
+/// is the crate test
+/// `kompile::passes::add_implicit_computation_cell::tests::the_shared_decision_matches_the_compiled_wrapping`.
 #[test]
 fn a_cell_less_rule_types_as_its_authored_computation_cell_form() {
     let mut compared = 0;
@@ -2737,4 +2740,38 @@ endmodule
         "{error} {:?}",
         error.diagnostics
     );
+}
+
+const GENERATED_HEADS: &str = include_str!("fixtures/sentence-typing/generated-heads.k");
+
+/// A rule whose left side is headed by a sort predicate or a sort projection, which compilation
+/// declares as a function before it wraps cell-free rules, is a function rule: it is not wrapped,
+/// and its sides are placed at their bound.
+#[test]
+fn a_rule_headed_by_a_generated_helper_is_not_wrapped() {
+    let loaded = load_main(
+        "generated-heads.k",
+        GENERATED_HEADS,
+        "GENERATED-HEADS",
+        None,
+    );
+    assert_compiles(&loaded, "generated-heads.k");
+    let typer = main_typer(&loaded);
+    for label in ["GENERATED-HEADS.pred", "GENERATED-HEADS.proj"] {
+        let sentence = labelled(loaded.definition(), label);
+        assert_eq!(
+            typer
+                .computation_cell_content(sentence, "GENERATED-HEADS")
+                .unwrap(),
+            None,
+            "{label}"
+        );
+    }
+    let typing = typer
+        .typing_in(
+            labelled(loaded.definition(), "GENERATED-HEADS.pred"),
+            "GENERATED-HEADS",
+        )
+        .unwrap();
+    assert_eq!(at(&typing, &[0, 1]), &sorted(Some("Bool"), Some("Bool")));
 }
