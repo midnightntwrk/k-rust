@@ -27,6 +27,11 @@
 //! program runs on does not carry (`removed`), and those no removal takes away, which refuse the
 //! mutant (`unsupported`, status `unknown`, reason `unsupported-claims`).
 //!
+//! Re-pin R0c-fix-3 (version 5): every resolved mutation's row carries `inconsistent_pairs`,
+//! each `{first, second, position, reason}`: the pairs of equations k-rust's critical-pair check
+//! does not show to join, which refuse a mutant that is not a theory with models (status
+//! `invalid`, reason `inconsistent-mutant`, kink-native `consistency`); empty otherwise.
+//!
 //! Nothing here reads or changes a verdict: every status is the kill search's, which is the
 //! campaign runner's fold over live and cached outcomes (README 7.5.3).
 
@@ -53,8 +58,9 @@ use std::{
 pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// The run document's version: 2 since F-06 added the survivor fields; 3 since F-13 named the
 /// oracle slots of an executed entry (`slots` is an object keyed by slot name); 4 since re-pin
-/// R0c-fix-2 added each row's `removed_claims`.
-pub const RUN_VERSION: u64 = 4;
+/// R0c-fix-2 added each row's `removed_claims`; 5 since re-pin R0c-fix-3 added each row's
+/// `inconsistent_pairs`.
+pub const RUN_VERSION: u64 = 5;
 /// The claims a mutation's edit leaves unbacked (kink-patch `ClaimSupport::withdraw`):
 /// `{removed: [claim], unsupported: [claim]}`, each claim `{module, index, label, key, value}`
 /// for a baseline sentence (`label` null when it has none) or `{inserted: <edit index>, key,
@@ -136,6 +142,11 @@ pub fn action(status: &str, reason: Option<&str>) -> Option<&'static str> {
         "equivalent" => {
             "nothing can kill it: the mutant compiles to the baseline's definition; drop or \
              change the mutation"
+        }
+        "invalid" if reason == Some("inconsistent-mutant") => {
+            "fix the mutation: two equations of one function are not shown to agree where both \
+             apply, so the mutant may have no model (inconsistent_pairs); make the guards \
+             exclusive or the results equal"
         }
         "invalid" => "fix the mutation: the mutant does not compile (reason)",
         "invalid-mutation" => "fix the mutation: it does not resolve (reason, edit, detail)",
@@ -386,6 +397,11 @@ fn failure_cause(kind: ExecutionFailureKind, budget: Budget) -> String {
         ExecutionFailureKind::AllowanceRefusal => {
             "allowance-refusal: a Bytes hook of the mutant's run was refused for the process's \
              memory allowance, a property of the host"
+                .into()
+        }
+        ExecutionFailureKind::EqualsCondition => {
+            "equals-condition: a rule or equation condition of the mutant equates two terms \
+             ({ A #Equals B }), which k-rust may decide wrongly when they may be undefined"
                 .into()
         }
     }

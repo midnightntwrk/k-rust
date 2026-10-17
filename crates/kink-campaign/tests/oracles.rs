@@ -708,6 +708,7 @@ fn mutant_status(run: TestRun) -> MutantStatus {
         }],
         mutant_failure: None,
         claims: Withdrawal::default(),
+        inconsistent_pairs: Vec::new(),
     };
     let manifest = [ManifestTest {
         test_id: "t".to_owned(),
@@ -839,6 +840,7 @@ fn work_bound_leaf_never_yields_distinguish() {
         ],
         mutant_failure: None,
         claims: Withdrawal::default(),
+        inconsistent_pairs: Vec::new(),
     };
     let manifest = ["agrees", "work-bound"].map(|test_id| ManifestTest {
         test_id: test_id.to_owned(),

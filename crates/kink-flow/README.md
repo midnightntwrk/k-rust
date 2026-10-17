@@ -205,7 +205,10 @@ the edit leaves unbacked (re-pin R0c-fix-2; root README, "What a kill trusts"): 
 function whose equations reach an edited equation, the lemmas about them and the `preserves-definedness` of the rules
 that apply them. A mutation whose edit leaves a claim no removal takes away (for example a replacement that writes a
 claim, or edits a lemma or an equation's `ensures`) is `unknown` with reason `unsupported-claims`; one whose claim-free
-mutant does not compile is `unknown` with reason `stripped-claim-compile-failure`.
+mutant does not compile is `unknown` with reason `stripped-claim-compile-failure`. The claim-free mutant must also be a
+theory with models (re-pin R0c-fix-3): a mutation that makes two equations of one function apply to one input with
+different values, or whose pairs of equations k-rust's critical-pair check does not show to join, is `invalid` with
+reason `inconsistent-mutant`, and its row's `inconsistent_pairs` names the pairs.
 
 A mutation that fails any check is `invalid-mutation`, with the offending edit (`edit[i]`) when one is at fault,
 a reason and a detail; it is never compiled. Reasons:
@@ -305,8 +308,9 @@ A mutation whose specification uses a hook for which k-rust chooses a value the 
 `keys_list`, `values` or `Set2List`, mixed-format or NaN-sign Float, and the hooks whose value k-rust's builtin files leave to
 the backend, the implementation or the environment, such as `String2Bytes`, `Bytes2String`, `Base2String` and substitution's
 renamed variables, and the `KRYPTO`, `HASH` and `SECP256K1` hooks no builtin file documents), or whose condition or rule
-result depends on whether `andBool`, `orBool` or `#if` skip an operand that may be undefined, is `unknown` with reason
-`implementation-chosen-hook` or `short-circuit-reading`. A program whose run takes an undefined step that falsifies a
+result depends on whether `andBool`, `orBool` or `#if` skip an operand that may be undefined, or that has a rule or
+equation condition equating two terms (`{ A #Equals B }`, a gap of k-rust's answers), is `unknown` with reason
+`implementation-chosen-hook`, `short-circuit-reading` or `equals-condition`. A program whose run takes an undefined step that falsifies a
 `total` or `preserves-definedness` claim the mutant still carries (a baseline claim its edit does not reach: the claims the
 edit leaves unbacked are removed from the mutant, above), or an undefined step through such an operator, is `unknown` for
 that mutation (failure `contradicted-claim` or `short-circuit-reading`), and a kill by another program, whose runs are clean,
@@ -335,8 +339,9 @@ Besides `results/` and `report.json` (the last run's document, also written when
 - `outcomes/<context digest>/<mutation identity>.json`, tier 1:
   `{schema: "kink-flow-outcomes", version: 1, context, context_sha256, mutation_identity, mutation_id, removed_claims, records: {<program digest>: {program_id, baseline_run_sha256, outcome, slots, mutant_run_sha256, allowance_bytes, record_sha256}}}`.
   `removed_claims` is the row's (below), for the reader only: it is read back by nothing and is in no digest.
-  The context is `{outcome_schema: "kink-flow/outcome/v1", result_schema, kink_build, k_rust_revision, profile, execution_digest: {kind, digest}, budget, oracles, classifier, schedule, claim_removal}`:
-  `claim_removal` is kink-patch's `CLAIM_REMOVAL_VERSION`, since the mutant every record ran on depends on the claim-removal algorithm;
+  The context is `{outcome_schema: "kink-flow/outcome/v1", result_schema, kink_build, k_rust_revision, profile, execution_digest: {kind, digest}, budget, oracles, classifier, schedule, claim_removal, mutant_consistency}`:
+  `claim_removal` is kink-patch's `CLAIM_REMOVAL_VERSION`, since the mutant every record ran on depends on the claim-removal algorithm (v2 since re-pin R0c-fix-3: the reach follows the overload and unit axioms);
+  `mutant_consistency` is kink-native's `MUTANT_CONSISTENCY_VERSION`, since a mutant runs (and a record exists) only when its equations are shown consistent;
   `kink_build` is the SHA-256 of the running `kink-flow` executable, so any rebuild (debug or release) starts a new context;
   `execution_digest` is today the specification digest (kind `kink-flow/spec/v1`), so any edit of the specification, a comment included, starts a new context.
   The mutation identity hashes each edit's kind, module, the addressed rule's fingerprint, its occurrence among equal fingerprints of the module,
@@ -380,13 +385,14 @@ Version 3 (F-13) names the oracle slots of an executed entry; `report` refuses a
 | `order` | `cost` or `corpus`: how the programs were ordered inside each group (step 3). |
 | `untargeted_rules` | The rules no resolving mutation of the whole list targets (`--only` limits the search, not this list), as in `results --mutations`. |
 
-A mutation row is `{id, note, digest, identity, removed_claims, status, reason, killer, killer_source, killer_from_cache, unusable_killer, reaching, executed, calls, call_wall_ms, rules, action}` (version 4 added `removed_claims`):
+A mutation row is `{id, note, digest, identity, removed_claims, inconsistent_pairs, status, reason, killer, killer_source, killer_from_cache, unusable_killer, reaching, executed, calls, call_wall_ms, rules, action}` (version 4 added `removed_claims`, version 5 `inconsistent_pairs`):
 
 | Field | Meaning |
 | --- | --- |
 | `digest` | The patch digest; null for an `invalid-mutation`, which also has `edit` (the offending edit's index or null) and `detail`. |
 | `identity` | The mutation's position-free identity (tier 1's file name); null when it has none (the mutation then always runs). |
 | `removed_claims` | `{removed, unsupported}`: the trusted claims the edit leaves unbacked. `removed` are absent from the mutant every program ran on (a `simplification` claim is a deleted lemma); `unsupported` are those no removal takes away, which make the mutation `unknown` (`unsupported-claims`). Each is `{module, index, label, key, value}` (`label` null for a production) or `{inserted, key, value}` for a sentence the edit inserts. Absent on an `invalid-mutation`. |
+| `inconsistent_pairs` | `[{first, second, position, reason}]`: the pairs of equations (each named by its rule label, written position or id; `position` the overlap's argument path, empty for the root) that k-rust's critical-pair check does not show to join, which make the mutation `invalid` (`inconsistent-mutant`); empty otherwise. Absent on an `invalid-mutation`. |
 | `status`, `reason` | The status (see the run section) and the runner's or the flow's reason. |
 | `killer`, `killer_source`, `killer_from_cache` | The first killing program of a `killed` mutation; where the kill came from: `outcome-cache` (tier 1, no call), `hint` (the hinted program's one-program call) or `search` (the call over the remaining programs); `killer_from_cache` is true for the first two. Null, null and false otherwise. |
 | `unusable_killer` | `{program, class, cause, source}` when a cached kill (`source` `outcome-cache`) or the hint (`hint`) names a program of the corpus that is not comparable now; else null. |

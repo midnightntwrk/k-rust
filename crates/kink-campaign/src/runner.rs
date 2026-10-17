@@ -50,6 +50,12 @@
 //! removal. A mutant whose patch writes a claim itself, edits a lemma, or touches the support of
 //! a claim no removal can take away has no such definition and is `UnsupportedClaims`; one whose
 //! withdrawn definition does not compile is `StrippedClaimCompileFailure`. Both are unknown.
+//! The claim-free mutant must then be a theory with models where its edit can change one (re-pin
+//! R0c-fix-3): a function has at most one value per input, so two of its equations that apply
+//! to one input with different values leave the mutant with no model, and k-rust's verdict would
+//! be its listing order. k-rust's critical-pair check decides it over every pair of equations of
+//! a symbol the edit redefines or reaches ([`kink_native::consistency`]); a pair not shown to
+//! join refuses the mutant as `InconsistentMutant`, invalid and outside the score.
 
 //! A run the watchdog cancelled is `TestRun::Failed(TimeLimit)`; an adapter or bridge
 //! failure is `TestRun::Failed(Infrastructure)`. A rejected mutant runs nothing. The
@@ -79,6 +85,7 @@ use kink_native::bridge::{
     BridgeContext, BridgeFailure, BridgedPaths, paths_from_execution_values, tree_from_steps,
     validate_test_initial_state,
 };
+use kink_native::consistency::UnjoinedEquations;
 use kink_native::coverage::{RuleAuthors, TestCoverage};
 use kink_native::exclusion::{DefinitionExclusions, Exclusion};
 use kink_native::execution::{
@@ -995,6 +1002,7 @@ pub fn run_campaign_multi_with(
             tests: execution.tests,
             mutant_failure: execution.failure,
             claims: execution.claims,
+            inconsistent_pairs: execution.inconsistent_pairs,
             selection: execution.selection,
         };
         let report = derive_mutant_report(&plan, &manifest, schedule)?;
@@ -1156,6 +1164,7 @@ struct MutantExecution {
     failure: Option<MutantScopeFailure>,
     evidence: Vec<TestEvidence>,
     claims: Withdrawal,
+    inconsistent_pairs: Vec<UnjoinedEquations>,
     selection: Option<MutantSelection>,
     /// The session's recordings of the live mutant runs (recording only).
     recordings: Vec<RunRecording>,
@@ -1183,14 +1192,22 @@ fn run_mutant(
     observations: &mut BaselineObservations<'_>,
 ) -> MutantExecution {
     match prepare_mutant(campaign, patch, compiled_baseline, support) {
-        Err((failure, claims)) => MutantExecution {
-            tests: Vec::new(),
-            failure: Some(failure),
-            evidence: Vec::new(),
-            claims,
-            selection: None,
-            recordings: Vec::new(),
-        },
+        Err(refusal) => {
+            let MutantRefusal {
+                failure,
+                claims,
+                inconsistent_pairs,
+            } = *refusal;
+            MutantExecution {
+                tests: Vec::new(),
+                failure: Some(failure),
+                evidence: Vec::new(),
+                claims,
+                inconsistent_pairs,
+                selection: None,
+                recordings: Vec::new(),
+            }
+        }
         Ok((mut sides, claims)) => {
             let selection = mutant_selection(
                 campaign,
@@ -1217,6 +1234,7 @@ fn run_mutant(
                 failure: None,
                 evidence,
                 claims,
+                inconsistent_pairs: Vec::new(),
                 selection,
                 recordings,
             }
@@ -1299,13 +1317,21 @@ fn mutant_selection(
 /// test, ground or symbolic, runs on it. A mutant with an unbacked claim no removal takes away is
 /// `UnsupportedClaims`; one whose claim-free definition k-rust refuses to compile is
 /// `StrippedClaimCompileFailure`. Both are unknown, never killed.
+///
+/// Last, the claim-free mutant must be a theory with models where its edit can change one (re-pin
+/// R0c-fix-3, decisions log 2026-10-17 "inconsistent mutants"): every pair of equations of a
+/// symbol the patch redefines or reaches ([`ClaimSupport::affected`]) must join by k-rust's
+/// critical-pair check ([`kink_native::consistency::mutant_consistency`]). A pair not shown to
+/// join, or a check that cannot run, refuses the mutant as `InconsistentMutant`, invalid and
+/// outside the score, with the pairs named. It runs on the mutant only: the baseline's equations
+/// stay a trusted premise.
 fn prepare_mutant(
     campaign: &Campaign<'_>,
     patch: &Patch,
     compiled_baseline: &ValidatedDefinition,
     support: &ClaimSupport,
-) -> Result<(MutantSides, Withdrawal), (MutantScopeFailure, Withdrawal)> {
-    let unclaimed = |failure| (failure, Withdrawal::default());
+) -> Result<(MutantSides, Withdrawal), Box<MutantRefusal>> {
+    let unclaimed = |failure| MutantRefusal::new(failure, Withdrawal::default());
     let side = campaign
         .validator
         .validate(patch)
@@ -1318,26 +1344,64 @@ fn prepare_mutant(
         Err(_) => return Err(unclaimed(MutantScopeFailure::Infrastructure)),
     }
     // The patch applied during validation, so it applies here too.
-    let claims = support
-        .withdraw(campaign.validator.baseline(), patch)
+    let baseline = campaign.validator.baseline();
+    let (claims, affected) = support
+        .withdraw(baseline, patch)
+        .and_then(|claims| Ok((claims, support.affected(baseline, patch)?)))
         .map_err(|_| unclaimed(MutantScopeFailure::Infrastructure))?;
     if !claims.trusted() {
-        return Err((MutantScopeFailure::UnsupportedClaims, claims));
+        return Err(MutantRefusal::new(
+            MutantScopeFailure::UnsupportedClaims,
+            claims,
+        ));
     }
     let side = match claims.patch() {
         None => side,
         Some(withdrawing) => match campaign.validator.validate(withdrawing) {
             Ok(side) => side,
-            Err(_) => return Err((MutantScopeFailure::StrippedClaimCompileFailure, claims)),
+            Err(_) => {
+                return Err(MutantRefusal::new(
+                    MutantScopeFailure::StrippedClaimCompileFailure,
+                    claims,
+                ));
+            }
         },
     };
-    let fail = |failure| (failure, claims.clone());
+    let fail = |failure| MutantRefusal::new(failure, claims.clone());
     validate_representation(&side).map_err(|_| fail(MutantScopeFailure::RepresentationRefused))?;
+    if let Err(inconsistency) =
+        kink_native::consistency::mutant_consistency(&side, affected.as_ref())
+    {
+        return Err(Box::new(MutantRefusal {
+            failure: MutantScopeFailure::InconsistentMutant,
+            claims,
+            inconsistent_pairs: inconsistency.pairs(),
+        }));
+    }
     // A preparation failure here is the mutant side's.
     let edit = CompiledEdit::between(compiled_baseline, &side);
     let runtime =
         Runtime::prepare(campaign, &side).map_err(|_| fail(MutantScopeFailure::Infrastructure))?;
     Ok((MutantSides { runtime, edit }, claims))
+}
+
+/// Why a mutant runs no test: its mutant-scope failure, the claims its patch leaves unbacked (as
+/// far as the preparation got), and the pairs of equations that refuse an inconsistent mutant.
+#[derive(Debug)]
+struct MutantRefusal {
+    failure: MutantScopeFailure,
+    claims: Withdrawal,
+    inconsistent_pairs: Vec<UnjoinedEquations>,
+}
+
+impl MutantRefusal {
+    fn new(failure: MutantScopeFailure, claims: Withdrawal) -> Box<Self> {
+        Box::new(Self {
+            failure,
+            claims,
+            inconsistent_pairs: Vec::new(),
+        })
+    }
 }
 
 /// A prepared mutant: the claim-free definition every test runs on, and its compiled edit.

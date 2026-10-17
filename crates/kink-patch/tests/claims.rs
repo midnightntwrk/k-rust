@@ -6,7 +6,8 @@ mod support;
 use k_rust::definition::{AttributeKey, Sentence};
 use k_rust::kast::{Sort, Term};
 use kink_patch::{
-    Baseline, ClaimRemoval, ClaimSupport, Edit, InsertPosition, Patch, SentenceOrigin, SentenceRef,
+    Baseline, CONCRETENESS, ClaimRemoval, ClaimSupport, ENSURES_CLAIM, Edit, HOOKED_EQUATION_CLAIM,
+    InsertPosition, LEMMA, Patch, RULE_CLAIMS, SYMBOL_CLAIMS, SentenceOrigin, SentenceRef,
     TRUSTED_CLAIMS, TermRef, Withdrawal, apply,
 };
 use serde_json::Value;
@@ -459,6 +460,170 @@ fn trusted_claims_are_pinned() {
             .iter()
             .any(|claim| claim.claim == "constructor")
     );
+
+    // Re-pin R0c-fix-3 (R0c-fix-2 review minor 1): the rows are the constants the removal
+    // algorithm reads, so dropping a key from one of them, or adding a row without it, fails.
+    let rows = |removal: ClaimRemoval| {
+        TRUSTED_CLAIMS
+            .iter()
+            .filter(|claim| claim.removal == removal)
+            .map(|claim| claim.claim)
+            .collect::<Vec<_>>()
+    };
+    let attributes = SYMBOL_CLAIMS
+        .iter()
+        .chain(&RULE_CLAIMS)
+        .map(|key| key.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(rows(ClaimRemoval::Attribute), attributes);
+    assert_eq!(rows(ClaimRemoval::Sentence), [LEMMA.as_str()]);
+    assert_eq!(
+        rows(ClaimRemoval::Refused),
+        [ENSURES_CLAIM, "concrete-equation", HOOKED_EQUATION_CLAIM]
+    );
+    assert_eq!(
+        CONCRETENESS.map(|key| key.as_str()),
+        ["concrete", "symbolic"]
+    );
+
+    // The k-rust passages the rows cite (and the "not claims" of the TRUSTED_CLAIMS docs), by
+    // digest at the pin: a re-pin that changes one needs the contract read again.
+    let k_rust = k_rust_tree();
+    for (file, first, last, digest) in TRUSTED_CLAIM_PASSAGES {
+        let text = std::fs::read_to_string(k_rust.join(file)).expect("a k-rust file");
+        let lines = text.split('\n').collect::<Vec<_>>();
+        let passage = lines[first - 1..last].join("\n");
+        assert_eq!(
+            kink_patch::sha256(passage.as_bytes()).to_string(),
+            digest,
+            "{file} {first}-{last} changed: read the k-rust contract again"
+        );
+    }
+}
+
+/// Each passage `TRUSTED_CLAIMS` cites (file relative to the k-rust tree, first and last line,
+/// sha256 of the lines joined by newlines) at k-rust 501f18b9.
+const TRUSTED_CLAIM_PASSAGES: [(&str, usize, usize, &str); 17] = [
+    (
+        "docs/compatibility.md",
+        943,
+        943,
+        "bcee9ac9986b1b5c90868e046c36afc8da3dc45638790a4926d7ef624b18e8b7",
+    ),
+    (
+        "docs/compatibility.md",
+        1010,
+        1010,
+        "44081fecb849b7cb88f057e47b16a7f46ad8e253196be4b9656aa55232470102",
+    ),
+    (
+        "docs/compatibility.md",
+        1028,
+        1033,
+        "0f233fef017749e7d8e86379281d8286817adc73b4cf10fc9330213551261915",
+    ),
+    (
+        "docs/compatibility.md",
+        1046,
+        1046,
+        "674db170e02676b6eeeb961e20bf1ab36874f7b9e9c9615bdd12b603a17277e1",
+    ),
+    (
+        "docs/compatibility.md",
+        1134,
+        1134,
+        "fd173e7f850dec9744c13cfce3954d1e2f5521b7259f29f78e60235cc70f325d",
+    ),
+    (
+        "docs/compatibility.md",
+        1288,
+        1288,
+        "ceadc9f94bdf864bcf369b5fc107b27a3bf10026e71c05c5a54d547610075107",
+    ),
+    (
+        "docs/compatibility.md",
+        1313,
+        1313,
+        "cb62c2f07d19806a29e137c7821fdc2113eabdb6404dfd53215e3d51fb0b9bcb",
+    ),
+    (
+        "docs/compatibility.md",
+        1376,
+        1384,
+        "93634a0caf840ca4a236549dab6e1d71f127528cca4b11149c0d627766cb1d51",
+    ),
+    (
+        "docs/compatibility.md",
+        1833,
+        1833,
+        "1af53c1bf1af7a9f17e6a3fec30797cc00225b31ea36dbd3e7b68304ffa3481a",
+    ),
+    (
+        "docs/compatibility.md",
+        2266,
+        2267,
+        "a7acad142464656d166719394614b9f7f621cc98c7470fa539a0e208ebf74c82",
+    ),
+    (
+        "docs/backend-port.md",
+        315,
+        315,
+        "3cb01101c1550a2cde4fb062444584d6a81cddbb1191285a8e4a30d2f9404a83",
+    ),
+    (
+        "docs/backend-port.md",
+        322,
+        322,
+        "6b6bfb6c4e2d37a4467c7b236e637cfe25cb60ba07e253a7eede5a48398e5178",
+    ),
+    (
+        "docs/backend-port.md",
+        340,
+        340,
+        "7cbfd603d6854b8c5f39175bfa1cf41c1a6a0a8d9712ea5e8811693e724b1e30",
+    ),
+    (
+        "crates/k-rust-backend/src/smt.rs",
+        207,
+        207,
+        "1caeb7f3044a3c36838e03391db8bd8d4a3d57a57c386b6479dd73af441d909c",
+    ),
+    (
+        "crates/k-rust-backend/src/smt.rs",
+        1013,
+        1024,
+        "a93c2de2f4221dc5c729b3e23a7426ee612300dfbddc13ff04275418b7291974",
+    ),
+    (
+        "crates/k-rust/src/kompile/module_to_kore.rs",
+        1524,
+        1535,
+        "57fb9f4beb1240e4987bfa6175dbfcc3b4ce218b3b8cd24147c85628b3ec740d",
+    ),
+    (
+        "crates/k-rust/src/kompile/module_to_kore.rs",
+        1551,
+        1557,
+        "f8374d89dd45e5237e10cba035a7513c592452cb734a31bac411d7fe4a1dda08",
+    ),
+];
+
+/// The k-rust tree the workspace builds against: the parent of the `k-rust-backend` path
+/// dependency's `crates/` directory.
+fn k_rust_tree() -> std::path::PathBuf {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let manifest =
+        std::fs::read_to_string(root.join("Cargo.toml")).expect("the workspace manifest");
+    let line = manifest
+        .lines()
+        .find(|line| line.trim_start().starts_with("k-rust-backend"))
+        .expect("a k-rust-backend dependency");
+    let path = line
+        .split("path = \"")
+        .nth(1)
+        .and_then(|rest| rest.split('"').next())
+        .expect("k-rust-backend is a path dependency");
+    root.join(path).join("../..")
 }
 
 fn reach() -> Baseline {
@@ -578,4 +743,52 @@ fn an_edited_lemma_is_unsupported() {
         set(&[("klemma", SIMPLIFICATION)])
     );
     assert!(!withdrawal.trusted());
+}
+
+/// Re-pin R0c-fix-3 deliverable 3 (R0c-fix-2 review major 2, `testdata/k/r0c/ovl.k`): kompile
+/// generates the overload axiom `fnum(inj(X)) = inj(fint(X))`, an equation of the greater `fnum`
+/// that no source sentence carries and that mentions the lesser `fint`. An edit of `fint` reaches
+/// `fnum` through it, so `fnum`'s `total` is removed with `fint`'s, and both are symbols the
+/// mutant consistency check reads (`ClaimSupport::affected`). At R0c-fix-2 only `fint`'s was
+/// removed.
+#[test]
+fn an_edit_of_a_lesser_overload_reaches_the_greater() {
+    let baseline = support::load_path(&std::path::Path::new(support::DIR).join("r0c/ovl.k"), "OVL");
+    // `f(I:Int) => 10 /Int (I +Int 1)`: the right side's second argument's second argument.
+    let at = TermRef::new(support::rule(&baseline, "OVL.fint"), [0, 1, 1, 1]);
+    let expected = baseline.term(&at).expect("the literal 1").clone();
+    assert_eq!(expected, int("1"));
+    let patch = Patch::new(vec![Edit::ReplaceTerm {
+        at,
+        expected,
+        replacement: int("0"),
+    }])
+    .unwrap();
+    let support = ClaimSupport::new(&baseline);
+    let withdrawal = support.withdraw(&baseline, &patch).unwrap();
+    let mut removed = withdrawal
+        .withdrawn
+        .iter()
+        .filter_map(|claim| match &claim.origin {
+            SentenceOrigin::Baseline(at) => match baseline.sentence(at) {
+                Some(Sentence::Production {
+                    label: Some(label), ..
+                }) => Some((label.name.clone(), claim.key.clone())),
+                _ => None,
+            },
+            SentenceOrigin::Inserted { .. } => None,
+        })
+        .collect::<Vec<_>>();
+    removed.sort();
+    assert_eq!(
+        removed,
+        [
+            ("fint".to_owned(), "total".to_owned()),
+            ("fnum".to_owned(), "total".to_owned())
+        ]
+    );
+    assert_eq!(
+        support.affected(&baseline, &patch).unwrap(),
+        Some(BTreeSet::from(["fint".to_owned(), "fnum".to_owned()]))
+    );
 }

@@ -19,6 +19,11 @@ use kink_patch::{
 };
 use serde_json::{Value, json};
 
+/// The report's version. Re-pin R0c-fix-3 added each mutant's `inconsistent_pairs`
+/// (`[{first, second, position, reason}]`, the pairs of equations that refuse an
+/// `InconsistentMutant`; empty otherwise) without a new version, as R0c-fix-2 added `claims`:
+/// the SI-04 replay row `malformed_reports_and_digest_mismatches_fail_in_check_order` forges
+/// version 5 as a foreign one, and replay compares rows by status, killers and tests only.
 pub const CAMPAIGN_REPORT_VERSION: u64 = 4;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -368,7 +373,7 @@ pub fn campaign_report_multi(
                 .map(|(edit, canonical)| diff(baseline, edit, canonical))
                 .collect::<Result<Vec<_>, _>>()?;
             let tests = mutant_run.plan.tests.iter().map(|test| Ok(json!({"test_id":test.test_id,"run":test_run(&test.run),"mutant":mutant_run.evidence.iter().find(|e| e.test_id == test.test_id).map(|e| side_run(&e.run)).transpose()?}))).collect::<Result<Vec<_>, ReportError>>()?;
-            mutants.push(json!({"mutant_id":mutant_run.report.mutant_id.0,"operator":mutant_run.operator,"origins":generation.dispositions().iter().enumerate().filter_map(|(ordinal, d)| (*d == CandidateDisposition::Mutant(id)).then_some(ordinal + origin_offset)).collect::<Vec<_>>(),"patch_sha256":entry["patch_sha256"],"canonical_patch":patch,"affected_sentences":affected,"inserted_sentences":inserted,"diff":diffs,"status":enum_name(mutant_run.report.status),"mutant_failure":mutant_run.plan.mutant_failure.map(enum_name),"executed_test_ids":mutant_run.report.executed_test_ids,"killing_test_ids":mutant_run.report.killing_test_ids,"skipped_test_ids":mutant_run.report.skipped_test_ids,"tests":tests,"selection":mutant_run.plan.selection.as_ref().map(|selection| selection.value()),"claims":{"withdrawn":mutant_run.plan.claims.withdrawn.iter().map(claim).collect::<Vec<_>>(),"unsupported":mutant_run.plan.claims.unsupported.iter().map(claim).collect::<Vec<_>>()}}));
+            mutants.push(json!({"mutant_id":mutant_run.report.mutant_id.0,"operator":mutant_run.operator,"origins":generation.dispositions().iter().enumerate().filter_map(|(ordinal, d)| (*d == CandidateDisposition::Mutant(id)).then_some(ordinal + origin_offset)).collect::<Vec<_>>(),"patch_sha256":entry["patch_sha256"],"canonical_patch":patch,"affected_sentences":affected,"inserted_sentences":inserted,"diff":diffs,"status":enum_name(mutant_run.report.status),"mutant_failure":mutant_run.plan.mutant_failure.map(enum_name),"executed_test_ids":mutant_run.report.executed_test_ids,"killing_test_ids":mutant_run.report.killing_test_ids,"skipped_test_ids":mutant_run.report.skipped_test_ids,"tests":tests,"selection":mutant_run.plan.selection.as_ref().map(|selection| selection.value()),"claims":{"withdrawn":mutant_run.plan.claims.withdrawn.iter().map(claim).collect::<Vec<_>>(),"unsupported":mutant_run.plan.claims.unsupported.iter().map(claim).collect::<Vec<_>>()},"inconsistent_pairs":mutant_run.plan.inconsistent_pairs.iter().map(kink_native::consistency::UnjoinedEquations::value).collect::<Vec<_>>()}));
         }
         offset += generation.candidates().len();
         origin_offset += generation.selected_origins().len();

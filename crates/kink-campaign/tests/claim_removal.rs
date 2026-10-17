@@ -4,6 +4,11 @@
 //! consistent theory k-rust executes without trusting them, and every test runs on it. The
 //! baseline keeps its claims, a trusted premise, and the per-test contradicted-claim guard stays
 //! the guard for them.
+//!
+//! Re-pin R0c-fix-3 (decisions log 2026-10-17, "inconsistent mutants"): the claim-free mutant must
+//! also be a theory with models where its edit can change one, by k-rust's critical-pair check
+//! over the equations of every symbol the edit redefines or reaches (kink-native `consistency`),
+//! and the reach follows kompile's overload axioms.
 
 #[path = "../../../testdata/k/support.rs"]
 mod support;
@@ -13,6 +18,7 @@ use std::time::Duration;
 
 use k_rust::kast::{Sort, Term};
 use k_rust::kompile::CompileOptions;
+use k_rust::kompile::initial_configuration::{kore_application, kore_sort};
 use k_rust::kore::ast::Pattern;
 use kink_campaign::{
     Campaign, CampaignFailureKind, CampaignRun, CrashPolicy, ExecutionFailureKind, MutantRun,
@@ -21,8 +27,8 @@ use kink_campaign::{
 };
 use kink_native::{NativeValidator, execution::ExecutionBudget};
 use kink_patch::{
-    Baseline, CandidateGeneration, Claim, Edit, Patch, SelectionPolicy, SentenceOrigin,
-    SiteSelector, TermRef, derive_sites, select,
+    Baseline, CandidateGeneration, Claim, ClaimSupport, Edit, Patch, SelectionPolicy,
+    SentenceOrigin, SiteSelector, TermRef, derive_sites, select,
 };
 use kink_pattern::ExecutionTerminalKind;
 
@@ -382,4 +388,275 @@ fn a_refused_claim_free_mutant_is_unknown() {
     ] {
         assert_eq!(failure.status(), MutantStatus::Unknown);
     }
+}
+
+/// Re-pin R0c-fix-3: the one-candidate generation of `patch`, an edit of the rule labelled `rule`.
+fn generation<'b>(baseline: &'b Baseline, rule: &str, patch: &Patch) -> CandidateGeneration<'b> {
+    let discovery = derive_sites(
+        baseline,
+        rule,
+        &[
+            SiteSelector::RuleLabel(rule.into()),
+            SiteSelector::Path(vec![0]),
+        ],
+    )
+    .unwrap();
+    let generation = select(&discovery, SelectionPolicy::Each, 1)
+        .unwrap()
+        .fold(rule, |_| patch.clone())
+        .unwrap();
+    assert_eq!(generation.candidates().len(), 1);
+    generation
+}
+
+/// The patch that removes `owise` from the rule labelled `rule` (catalogue v1 `drop-owise`).
+fn drop_owise(baseline: &Baseline, rule: &str) -> Patch {
+    let at = support::rule(baseline, rule);
+    let expected = baseline
+        .sentence(&at)
+        .and_then(|sentence| {
+            sentence
+                .attributes()
+                .value(k_rust::definition::AttributeKey::Owise)
+        })
+        .expect("an owise rule")
+        .clone();
+    Patch::new(vec![Edit::RemoveAttribute {
+        at,
+        key: "owise".into(),
+        expected,
+    }])
+    .unwrap()
+}
+
+/// The mutant is refused as inconsistent before any test runs, in both schedules alike, and its
+/// report names exactly the pair `first`/`second` (either order).
+fn assert_inconsistent(mutant: &MutantRun, first: &str, second: &str) {
+    assert_eq!(mutant.report.status, MutantStatus::Invalid);
+    assert_eq!(
+        mutant.plan.mutant_failure,
+        Some(MutantScopeFailure::InconsistentMutant)
+    );
+    assert!(mutant.plan.tests.is_empty() && mutant.evidence.is_empty());
+    assert!(mutant.report.killing_test_ids.is_empty());
+    let pairs = mutant
+        .report
+        .inconsistent_pairs
+        .iter()
+        .map(|pair| {
+            let mut names = [pair.first.clone(), pair.second.clone()];
+            names.sort();
+            names
+        })
+        .collect::<Vec<_>>();
+    let mut expected = [first.to_owned(), second.to_owned()];
+    expected.sort();
+    assert_eq!(pairs, [expected], "{:?}", mutant.report.inconsistent_pairs);
+}
+
+/// Re-pin R0c-fix-3 deliverable 1 (R0c-fix-2 review critical, `r0c/nomatch.k`): an edit of one
+/// guard of a two-equation function makes both equations apply to one input with different
+/// values, so the mutant has no model and k-rust's verdict on it is its listing order (it takes
+/// `fpos`, listed first). At 0233618 the mutant `fpos` 0 -> -5 was killed by `go(-1)` (baseline
+/// `val(2)`, mutant `val(1)`) and the mirror mutant `fneg` 0 -> 5 survived `go(1)`. Both are now
+/// refused as `inconsistent-mutant`, naming the pair: k-rust's critical-pair check, on the
+/// claim-free mutant, does not refute the overlap of `I >=Int -5` and `I <Int 0` (or of
+/// `I >=Int 0` and `I <Int 5`) and the two results differ. The baseline's guards are
+/// complementary, so its pair is refuted, and the baseline runs.
+#[test]
+fn an_edit_that_makes_two_equations_overlap_refuses_the_mutant() {
+    on_a_big_stack(|| {
+        let validator = validator("nomatch");
+        let baseline = validator.baseline();
+        let go = |i| support::app("Lblgo", vec![support::int(i)]);
+        let chk = |i| support::app("Lblchk", vec![support::int(i)]);
+        for (rule, from, to, tests) in [
+            (
+                "NOMATCH.fpos",
+                "0",
+                "-5",
+                vec![test("gom1", go(-1)), test("chkm1", chk(-1))],
+            ),
+            (
+                "NOMATCH.fneg",
+                "0",
+                "5",
+                vec![test("go1", go(1)), test("chk1", chk(1)), test("go7", go(7))],
+            ),
+        ] {
+            let generation = literal(baseline, rule, from, to);
+            let campaign = campaign(&validator, "NOMATCH", &tests);
+            for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                let run = run_campaign(&campaign, &generation, schedule).unwrap();
+                assert!(
+                    run.baseline
+                        .iter()
+                        .all(|baseline| matches!(baseline.run, SideRun::Sides { .. })),
+                    "{rule} {schedule:?}"
+                );
+                let [mutant] = run.mutants.as_slice() else {
+                    panic!("one mutant")
+                };
+                assert_inconsistent(mutant, "NOMATCH.fpos", "NOMATCH.fneg");
+                assert_eq!(
+                    named(baseline, "NOMATCH", &mutant.report.claims.withdrawn),
+                    [("f".to_owned(), "total".to_owned())]
+                );
+            }
+        }
+    });
+}
+
+/// Re-pin R0c-fix-3 deliverable 1, `drop-owise` (`r0c/owise.k`): without `owise`, `f(_) => 2`
+/// joins `f(0) => 1`'s priority group and both apply to 0 with different values, so the mutant is
+/// refused; `g(_) => 1` beside `g(0) => 1` agrees with it on 0, so the pair joins and the mutant
+/// runs (and survives: `g` has the same values).
+#[test]
+fn drop_owise_is_refused_only_where_the_owise_value_differs() {
+    on_a_big_stack(|| {
+        let validator = validator("owise");
+        let baseline = validator.baseline();
+        let go = |i| support::app("Lblgo", vec![support::int(i)]);
+        let tests = [test("go0", go(0)), test("go3", go(3))];
+        let campaign = campaign(&validator, "OWISE", &tests);
+        for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+            let differs = generation(
+                baseline,
+                "OWISE.fother",
+                &drop_owise(baseline, "OWISE.fother"),
+            );
+            let run = run_campaign(&campaign, &differs, schedule).unwrap();
+            assert_inconsistent(&run.mutants[0], "OWISE.fzero", "OWISE.fother");
+
+            let agrees = generation(
+                baseline,
+                "OWISE.gother",
+                &drop_owise(baseline, "OWISE.gother"),
+            );
+            let run = run_campaign(&campaign, &agrees, schedule).unwrap();
+            let mutant = &run.mutants[0];
+            assert_eq!(mutant.plan.mutant_failure, None, "{schedule:?}");
+            assert!(mutant.report.inconsistent_pairs.is_empty());
+            assert_eq!(mutant.report.status, MutantStatus::Survived, "{schedule:?}");
+        }
+    });
+}
+
+/// Re-pin R0c-fix-3 deliverable 3 (R0c-fix-2 review major 2, `r0c/ovl.k`): kompile's overload
+/// axiom `fnum(inj(X)) = inj(fint(X))` is an equation of the greater `fnum` that mentions the
+/// lesser `fint`, so an edit of `fint` reaches `fnum` and its `total` is removed too (at 0233618
+/// only `fint`'s was). `chk(0)` was already killed, through `fnum`'s falsified claim, and is now
+/// killed on the claim-free mutant; `go(0)` was unknown (`fnum`'s kept `total` contradicted) and
+/// is now killed: the claim-free mutant's `go` step is undefined at 0 (`10 /Int 0`), against
+/// `val(10)`. The mutant is consistent (one equation per symbol), so it runs.
+#[test]
+fn an_edit_of_a_lesser_overload_removes_the_greaters_claims() {
+    on_a_big_stack(|| {
+        let validator = validator("ovl");
+        let baseline = validator.baseline();
+        let generation = literal(baseline, "OVL.fint", "1", "0");
+        let num = |i| {
+            kore_application(
+                "inj",
+                vec![kore_sort("SortInt"), kore_sort("SortNum")],
+                vec![support::int(i)],
+            )
+        };
+        let tests = [
+            test("chk0", support::app("Lblchk", vec![num(0)])),
+            test("go0", support::app("Lblgo", vec![num(0)])),
+        ];
+        for test in &tests {
+            let one = [test.clone()];
+            let campaign = campaign(&validator, "OVL", &one);
+            for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                let run = run_campaign(&campaign, &generation, schedule).unwrap();
+                let mutant = &run.mutants[0];
+                assert_eq!(
+                    named(baseline, "OVL", &mutant.report.claims.withdrawn),
+                    [
+                        ("fint".to_owned(), "total".to_owned()),
+                        ("fnum".to_owned(), "total".to_owned())
+                    ]
+                );
+                assert_eq!(mutant.plan.mutant_failure, None);
+                assert_eq!(
+                    mutant.report.status,
+                    MutantStatus::Killed,
+                    "{} {schedule:?}",
+                    test.id
+                );
+                assert_eq!(
+                    mutant.report.killing_test_ids,
+                    std::slice::from_ref(&test.id)
+                );
+                assert_clean(&run, mutant, &test.id);
+            }
+        }
+    });
+}
+
+/// Re-pin R0c-fix-3 deliverable 5 (R0c-fix-2 review minor 3): equivalence is decided on the
+/// mutant as written, before claim removal. An edit of a `total` function's equation whose
+/// compiled output equals the baseline's (`fpos`'s condition variable `I` written `I:Int`, the
+/// sort kompile infers anyway) would remove `f`'s claim, yet the mutant is
+/// `EquivalentCompilation` with no claim record and no consistency check: removing claims never
+/// makes a mutant equivalent, nor keeps one from being.
+#[test]
+fn a_semantically_null_edit_stays_equivalent() {
+    on_a_big_stack(|| {
+        let validator = validator("nomatch");
+        let baseline = validator.baseline();
+        let rule = support::rule(baseline, "NOMATCH.fpos");
+        // The condition `I >=Int 0`: its first argument is the variable `I`, unsorted as written
+        // under the cast the parser puts on it.
+        let at = TermRef::new(rule, [1, 0, 0]);
+        let expected = baseline
+            .term(&at)
+            .expect("the condition's variable")
+            .clone();
+        assert!(
+            matches!(expected.unannotated(), Term::Variable { name, sort: None } if name == "I"),
+            "{expected}"
+        );
+        let patch = Patch::new(vec![Edit::ReplaceTerm {
+            at,
+            expected,
+            replacement: Term::Variable {
+                name: "I".into(),
+                sort: Some(Sort::new("Int")),
+            },
+        }])
+        .unwrap();
+        let generation = generation(baseline, "NOMATCH.fpos", &patch);
+        let withdrawal = ClaimSupport::new(baseline)
+            .withdraw(baseline, &generation.candidates()[0].patch)
+            .unwrap();
+        assert_eq!(
+            named(baseline, "NOMATCH", &withdrawal.withdrawn),
+            [("f".to_owned(), "total".to_owned())]
+        );
+        let tests = [test("go1", support::app("Lblgo", vec![support::int(1)]))];
+        let campaign = campaign(&validator, "NOMATCH", &tests);
+        for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+            let run = run_campaign(&campaign, &generation, schedule).unwrap();
+            let mutant = &run.mutants[0];
+            assert_eq!(mutant.report.status, MutantStatus::Equivalent);
+            assert_eq!(
+                mutant.plan.mutant_failure,
+                Some(MutantScopeFailure::EquivalentCompilation)
+            );
+            assert_eq!(mutant.report.claims, kink_patch::Withdrawal::default());
+            assert!(mutant.report.inconsistent_pairs.is_empty());
+        }
+    });
+}
+
+/// Re-pin R0c-fix-3: an inconsistent mutant is invalid, like one that does not compile.
+#[test]
+fn an_inconsistent_mutant_is_invalid() {
+    assert_eq!(
+        MutantScopeFailure::InconsistentMutant.status(),
+        MutantStatus::Invalid
+    );
 }

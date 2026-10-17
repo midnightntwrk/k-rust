@@ -49,6 +49,10 @@
 //! - [`Exclusion::AllowanceRefusal`]: a leaf reports a hook left unevaluated whose refusal reads
 //!   the process's memory allowance (Execute promise exclusion, findings A-07, B-02, B-07): the
 //!   result is a function of the host, not of the inputs a key names.
+//! - [`Exclusion::EqualsCondition`]: a rewrite rule or equation of the definition has a condition
+//!   that equates two terms (K `{ A #Equals B }`), which k-rust 501f18b9 names as a gap of its own
+//!   answers when the terms may be undefined ("Two gaps remain", `docs/compatibility.md`): such
+//!   a definition is excluded (re-pin R0c-fix-3, R0c-fix-2 review minor 3).
 //!
 //! Every exclusion is read per test: it makes that test's comparison unknown, and a kill by
 //! another test, whose runs it does not touch, stands (decision 2's scope, Sebastien,
@@ -608,6 +612,7 @@ pub enum Exclusion {
     ImplementationChosenHook,
     ShortCircuitReading,
     AllowanceRefusal,
+    EqualsCondition,
 }
 
 impl Exclusion {
@@ -621,6 +626,7 @@ impl Exclusion {
             Self::ImplementationChosenHook => "implementation-chosen-hook",
             Self::ShortCircuitReading => "short-circuit-reading",
             Self::AllowanceRefusal => "allowance-refusal",
+            Self::EqualsCondition => "equals-condition",
         }
     }
 }
@@ -671,6 +677,10 @@ pub struct DefinitionExclusions {
     /// condition or right-hand side does, directly or through another such symbol): a test's
     /// initial state that applies one is no evidence.
     pub short_circuit_symbols: BTreeSet<String>,
+    /// The rewrite rules and equations (each as its id, label or position) whose condition holds
+    /// an `\equals` between two terms, a K `{ A #Equals B }`, other than the Bool reading
+    /// `\equals(C, true)` of a K condition ([`Exclusion::EqualsCondition`]).
+    pub equals_conditions: Vec<String>,
 }
 
 impl DefinitionExclusions {
@@ -804,6 +814,7 @@ impl DefinitionExclusions {
         let mut short_circuit_conditions = BTreeSet::new();
         let mut short_circuit_rules = BTreeSet::new();
         let mut short_circuit_results = BTreeSet::new();
+        let mut equals_conditions = BTreeSet::new();
         for module in &kore.modules {
             for sentence in &module.sentences {
                 let Sentence::Axiom {
@@ -814,6 +825,12 @@ impl DefinitionExclusions {
                 else {
                     continue;
                 };
+                if axiom_conditions(pattern)
+                    .iter()
+                    .any(|condition| holds_term_equality(condition))
+                {
+                    equals_conditions.insert(sentence_name(attributes));
+                }
                 let Some((conditions, left, right)) = rewrite_sides(pattern) else {
                     continue;
                 };
@@ -846,6 +863,7 @@ impl DefinitionExclusions {
                 .union(&short_circuit.valued)
                 .cloned()
                 .collect(),
+            equals_conditions: equals_conditions.into_iter().collect(),
         }
     }
 
@@ -910,12 +928,13 @@ impl DefinitionExclusions {
                 .union(&other.short_circuit_symbols)
                 .cloned()
                 .collect(),
+            equals_conditions: union(&self.equals_conditions, &other.equals_conditions),
         }
     }
 
     /// The exclusion every run on this definition has, if any: a load stack stop first, then an
     /// implementation-chosen hook, then a rule whose condition, value or result depends on the
-    /// short-circuit reading.
+    /// short-circuit reading, then a condition that equates two terms.
     #[must_use]
     pub fn definition_exclusion(&self) -> Option<Exclusion> {
         if self.load_stack_stops > 0 {
@@ -926,6 +945,8 @@ impl DefinitionExclusions {
             || !self.short_circuit_results.is_empty()
         {
             Some(Exclusion::ShortCircuitReading)
+        } else if !self.equals_conditions.is_empty() {
+            Some(Exclusion::EqualsCondition)
         } else {
             None
         }
@@ -1252,6 +1273,47 @@ fn rewrite_sides(pattern: &Pattern) -> Option<(Vec<&Pattern>, &Pattern, &Pattern
         Pattern::Rewrites { left, right, .. } => Some((Vec::new(), left, right)),
         _ => None,
     }
+}
+
+/// The condition patterns of a rewrite rule (its antecedents and its left-hand side, which holds
+/// its `requires` as a conjunct) or of an equation (its antecedent); none for any other axiom.
+fn axiom_conditions(pattern: &Pattern) -> Vec<&Pattern> {
+    if let Some((mut conditions, left, _)) = rewrite_sides(pattern) {
+        conditions.push(left);
+        conditions
+    } else {
+        equation_parts(pattern)
+            .and_then(|(_, antecedent, _)| antecedent)
+            .into_iter()
+            .collect()
+    }
+}
+
+/// Whether `condition` holds an `\equals` other than the Bool reading `\equals(C, true)` (either
+/// order) by which kompile states a K condition: the KORE of a K `{ A #Equals B }` (re-pin
+/// R0c-fix-3, R0c-fix-2 review minor 3). k-rust 501f18b9 `docs/compatibility.md` "Two gaps
+/// remain": such an `\equals` between two possibly undefined terms in a rule or equation
+/// condition is kept as written, its SMT translation has no model where both sides are
+/// undefined, and answers over the definition "may wrongly be empty, `valid` or `proven`"; how
+/// the evaluator should read it is itself open. Whether the terms may be undefined is not read:
+/// every such condition excludes the definition, which costs no current fixture.
+fn holds_term_equality(condition: &Pattern) -> bool {
+    fn bool_true(pattern: &Pattern) -> bool {
+        matches!(pattern, Pattern::DomainValue {
+            sort: k_rust::kore::ast::Sort::Application { name, .. },
+            value,
+        } if name == "SortBool" && value.as_bytes() == b"true")
+    }
+    let mut found = false;
+    walk::for_each_post_order(condition, |node| {
+        if let Pattern::Equals { left, right, .. } = node
+            && !bool_true(left)
+            && !bool_true(right)
+        {
+            found = true;
+        }
+    });
+    found
 }
 
 /// An equation axiom's head symbol, antecedent (its `requires` and argument constraints) and

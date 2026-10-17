@@ -695,6 +695,7 @@ fn supplied_plan() -> (MutantPlan, Vec<ManifestTest>) {
         ],
         mutant_failure: None,
         claims: Withdrawal::default(),
+        inconsistent_pairs: Vec::new(),
         selection: Some(MutantSelection {
             policy: PRIORITIZE,
             order: vec!["t2".into(), "t1".into()],

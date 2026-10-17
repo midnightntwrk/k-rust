@@ -40,7 +40,8 @@ pub use candidate::{
 };
 pub use catalogue::catalogue_v1;
 pub use claims::{
-    CLAIM_REMOVAL_VERSION, Claim, ClaimRemoval, ClaimSupport, TRUSTED_CLAIMS, TrustedClaim,
+    CLAIM_REMOVAL_VERSION, CONCRETENESS, Claim, ClaimRemoval, ClaimSupport, ENSURES_CLAIM,
+    HOOKED_EQUATION_CLAIM, LEMMA, RULE_CLAIMS, SYMBOL_CLAIMS, TRUSTED_CLAIMS, TrustedClaim,
     Withdrawal,
 };
 pub use codec::CodecError;

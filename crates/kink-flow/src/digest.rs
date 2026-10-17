@@ -175,6 +175,9 @@ pub fn outcome_context(
         // A mutant is built without the claims its edit leaves unbacked (re-pin R0c-fix-2), so
         // its identity depends on the removal algorithm.
         "claim_removal": kink_patch::CLAIM_REMOVAL_VERSION,
+        // A mutant runs only when its equations are shown consistent (re-pin R0c-fix-3), so its
+        // admission depends on the consistency check.
+        "mutant_consistency": kink_native::consistency::MUTANT_CONSISTENCY_VERSION,
     })
 }
 

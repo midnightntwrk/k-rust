@@ -559,13 +559,18 @@ impl Search<'_> {
             .iter()
             .map(|(c, _)| self.candidates[*c].id.to_owned())
             .collect::<Vec<_>>();
-        let (mutant_failure, mutant_id, claims) = match live {
+        let (mutant_failure, mutant_id, claims, inconsistent_pairs) = match live {
             Some((order, plan)) => {
                 tests.extend(plan.tests.iter().cloned());
                 ids.extend(self.ids(order).into_iter().map(str::to_owned));
-                (plan.mutant_failure, plan.mutant_id, plan.claims.clone())
+                (
+                    plan.mutant_failure,
+                    plan.mutant_id,
+                    plan.claims.clone(),
+                    plan.inconsistent_pairs.clone(),
+                )
             }
-            None => (None, MutantId(0), Withdrawal::default()),
+            None => (None, MutantId(0), Withdrawal::default(), Vec::new()),
         };
         let plan = MutantPlan {
             selection: None,
@@ -573,6 +578,7 @@ impl Search<'_> {
             tests,
             mutant_failure,
             claims,
+            inconsistent_pairs,
         };
         let manifest = ids
             .into_iter()
@@ -666,6 +672,9 @@ impl Search<'_> {
                 claims_value(self.spec.validator.baseline(), &withdrawal)
             });
         row.insert("removed_claims".into(), removed_claims);
+        // Filled from the verdict's plan (re-pin R0c-fix-3): the pairs of equations that refuse
+        // an inconsistent mutant; empty otherwise.
+        row.insert("inconsistent_pairs".into(), json!([]));
         let key = hint_key(mutation, resolved);
         let records = self.valid_records(identity, &order, &mut row);
         // Tier 2: the hint, when it names a comparable program; otherwise it is removed.
@@ -1409,6 +1418,16 @@ fn verdict_row(
 ) -> Value {
     row.insert("status".into(), json!(status_name(report.status)));
     row.insert("reason".into(), json!(reason));
+    row.insert(
+        "inconsistent_pairs".into(),
+        json!(
+            report
+                .inconsistent_pairs
+                .iter()
+                .map(kink_native::consistency::UnjoinedEquations::value)
+                .collect::<Vec<_>>()
+        ),
+    );
     let killer = (report.status == MutantStatus::Killed)
         .then(|| report.killing_test_ids.first().cloned())
         .flatten();

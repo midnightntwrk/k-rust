@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 use std::fmt;
 
+use kink_native::consistency::UnjoinedEquations;
 use kink_patch::Withdrawal;
 
 use crate::{MutantSelection, SelectionPolicy};
@@ -80,6 +81,12 @@ pub enum MutantScopeFailure {
     /// k-rust refuses to compile the mutant once the claims its edit leaves unbacked are removed
     /// (`stripped-claim-compile-failure`, re-pin R0c-fix-2): no claim-free mutant runs.
     StrippedClaimCompileFailure,
+    /// The claim-free mutant is not shown to be a theory with models (`inconsistent-mutant`,
+    /// re-pin R0c-fix-3): k-rust's critical-pair check does not show some pair of equations of a
+    /// symbol the edit can change to join, or could not run ([`MutantPlan::inconsistent_pairs`]
+    /// names them; [`kink_native::consistency`]). Invalid like a compile failure: outside the
+    /// score, never killed or survived.
+    InconsistentMutant,
     /// Infrastructure failure affecting the whole mutant, for example a
     /// backend that cannot be prepared for the validated mutant.
     Infrastructure,
@@ -91,7 +98,9 @@ impl MutantScopeFailure {
     pub const fn status(self) -> MutantStatus {
         match self {
             Self::EquivalentCompilation => MutantStatus::Equivalent,
-            Self::Rejected | Self::LoweringNontermination => MutantStatus::Invalid,
+            Self::Rejected | Self::LoweringNontermination | Self::InconsistentMutant => {
+                MutantStatus::Invalid
+            }
             Self::LoweringTimeLimit => MutantStatus::Timeout,
             Self::LoweringResourceLimit
             | Self::RepresentationRefused
@@ -145,6 +154,10 @@ pub enum ExecutionFailureKind {
     /// A leaf reports a hook refused for the process's memory allowance, a host property
     /// ([`kink_native::exclusion::Exclusion::AllowanceRefusal`]).
     AllowanceRefusal,
+    /// The definition has a rule or equation condition that equates two terms, a gap of
+    /// k-rust's answers when they may be undefined (re-pin R0c-fix-3,
+    /// [`kink_native::exclusion::Exclusion::EqualsCondition`]).
+    EqualsCondition,
 }
 
 impl ExecutionFailureKind {
@@ -159,7 +172,8 @@ impl ExecutionFailureKind {
             | Self::ContradictedClaim
             | Self::ImplementationChosenHook
             | Self::ShortCircuitReading
-            | Self::AllowanceRefusal => MutantStatus::Unknown,
+            | Self::AllowanceRefusal
+            | Self::EqualsCondition => MutantStatus::Unknown,
             Self::TimeLimit => MutantStatus::Timeout,
             Self::Infrastructure => MutantStatus::Error,
         }
@@ -177,6 +191,7 @@ impl ExecutionFailureKind {
             Self::ImplementationChosenHook => Exclusion::ImplementationChosenHook,
             Self::ShortCircuitReading => Exclusion::ShortCircuitReading,
             Self::AllowanceRefusal => Exclusion::AllowanceRefusal,
+            Self::EqualsCondition => Exclusion::EqualsCondition,
             Self::Indeterminate | Self::ResourceLimit | Self::TimeLimit | Self::Infrastructure => {
                 return None;
             }
@@ -194,6 +209,7 @@ impl From<kink_native::exclusion::Exclusion> for ExecutionFailureKind {
             Exclusion::ImplementationChosenHook => Self::ImplementationChosenHook,
             Exclusion::ShortCircuitReading => Self::ShortCircuitReading,
             Exclusion::AllowanceRefusal => Self::AllowanceRefusal,
+            Exclusion::EqualsCondition => Self::EqualsCondition,
         }
     }
 }
@@ -261,6 +277,9 @@ pub struct MutantPlan {
     /// away (which refuse the mutant, [`MutantScopeFailure::UnsupportedClaims`]); empty for a
     /// mutant stopped before the removal (rejected, refused or equivalent as written).
     pub claims: Withdrawal,
+    /// The pairs of equations that refuse the mutant as [`MutantScopeFailure::InconsistentMutant`]
+    /// (re-pin R0c-fix-3); empty for every other mutant.
+    pub inconsistent_pairs: Vec<UnjoinedEquations>,
 }
 
 /// One scheduled mutant result.
@@ -285,6 +304,8 @@ pub struct MutantReport {
     pub skipped_test_ids: Vec<String>,
     /// The plan's claim withdrawal, beside the candidate's canonical edits.
     pub claims: Withdrawal,
+    /// The plan's pairs of equations not shown to join, when they refuse the mutant.
+    pub inconsistent_pairs: Vec<UnjoinedEquations>,
 }
 
 /// Precedence of a status in the oracle fold; the fold keeps the maximum.
@@ -506,6 +527,7 @@ pub fn derive_mutant_report(
         killing_test_ids: killing,
         skipped_test_ids,
         claims: plan.claims.clone(),
+        inconsistent_pairs: plan.inconsistent_pairs.clone(),
     })
 }
 

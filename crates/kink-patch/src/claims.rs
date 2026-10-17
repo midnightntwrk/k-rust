@@ -30,7 +30,12 @@
 //! it edits, deletes or inserts an equation headed by it (in the baseline or in the mutant)
 //! or edits a claim of its production: these are the edited symbols E, read from the head of
 //! each edited sentence. A symbol *reaches* E when one of its equations applies a symbol of E
-//! or a symbol that reaches E (the reverse call-graph closure). When a patch's effect on the
+//! or a symbol that reaches E (the reverse call-graph closure). The equations read are the
+//! written ones and those kompile generates that link symbols: each member of an
+//! `overload(key)` family reaches every other (the overload axiom `g(inj(x)) = inj(l(x))` is an
+//! equation of the greater `g` that mentions the lesser `l`), and a production with `unit(u)`
+//! reaches `u` (its unit axiom mentions `u`); subsort axioms link sorts, not symbols (re-pin
+//! R0c-fix-3, `generated_links`). When a patch's effect on the
 //! equational part is not known this precisely (it edits a production otherwise, a sort, a
 //! configuration, or a rule whose head cannot be read), every symbol counts as redefined. A
 //! claim is *supported* in the mutant when no symbol of its closure is redefined and the patch
@@ -72,8 +77,9 @@ use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The version of the claim-removal algorithm ([`ClaimSupport::withdraw`]): a mutant's identity
-/// depends on it, so every cache of mutant outcomes names it (kink-flow's tier-1 context).
-pub const CLAIM_REMOVAL_VERSION: &str = "kink-patch/claim-removal/v1";
+/// depends on it, so every cache of mutant outcomes names it (kink-flow's tier-1 context). v2
+/// (re-pin R0c-fix-3): the reach follows kompile's generated overload and unit axioms.
+pub const CLAIM_REMOVAL_VERSION: &str = "kink-patch/claim-removal/v2";
 
 /// One kind of claim k-rust trusts, how kink removes it from a mutant, and where k-rust 501f18b9
 /// says it is trusted (paths relative to `crates/` or `docs/` of the k-rust tree).
@@ -100,8 +106,13 @@ pub enum ClaimRemoval {
 /// `constructor` (kompile drops a source `constructor` and derives freeness itself,
 /// `k-rust/src/kompile/module_to_kore.rs` 1524-1535 and 1551-1557), a value production's
 /// `functional` (derived from its equations, `compatibility.md` 1028-1031), `trusted` (on
-/// reachability claims, which execution never reads, `compatibility.md` 1833) and kompile's
-/// generated lambdas (KK-71). kink-patch's test `trusted_claims_are_pinned` pins this list.
+/// reachability claims, which execution never reads, `compatibility.md` 1833), the `assoc`,
+/// `unit` and `idem` axioms of a function (emitted but never used by the backend, which
+/// evaluates it by its equations, `compatibility.md` 1288; `comm` is not emitted on a function)
+/// and kompile's generated lambdas (KK-71). A rewrite rule's `ensures` is the rule's meaning,
+/// and `freshGenerator`, `impure`, `memo` and `no-evaluators` are not consistency axioms.
+/// Termination and the SMT prelude stay premises. kink-patch's test `trusted_claims_are_pinned`
+/// pins this list against the constants the removal uses and the cited passages' digests.
 pub const TRUSTED_CLAIMS: &[TrustedClaim] = &[
     TrustedClaim {
         claim: "total",
@@ -160,8 +171,9 @@ pub const TRUSTED_CLAIMS: &[TrustedClaim] = &[
     },
 ];
 
-/// Production attributes that assert a property of the symbol's equations.
-const SYMBOL_CLAIMS: [AttributeKey; 5] = [
+/// Production attributes that assert a property of the symbol's equations: the
+/// [`ClaimRemoval::Attribute`] rows of [`TRUSTED_CLAIMS`] on a production.
+pub const SYMBOL_CLAIMS: [AttributeKey; 5] = [
     AttributeKey::Total,
     AttributeKey::Functional,
     AttributeKey::Injective,
@@ -169,15 +181,27 @@ const SYMBOL_CLAIMS: [AttributeKey; 5] = [
     AttributeKey::Smtlib,
 ];
 
-/// Rule attributes that assert a property of the rule, withdrawn by removing the attribute.
-const RULE_CLAIMS: [AttributeKey; 2] = [AttributeKey::PreservesDefinedness, AttributeKey::SmtLemma];
+/// Rule attributes that assert a property of the rule, withdrawn by removing the attribute: the
+/// [`ClaimRemoval::Attribute`] rows of [`TRUSTED_CLAIMS`] on a rule.
+pub const RULE_CLAIMS: [AttributeKey; 2] =
+    [AttributeKey::PreservesDefinedness, AttributeKey::SmtLemma];
 
-/// The rule attribute that makes the rule a lemma about other rules rather than a definition.
-const LEMMA: AttributeKey = AttributeKey::Simplification;
+/// The rule attribute that makes the rule a lemma about other rules rather than a definition: the
+/// [`ClaimRemoval::Sentence`] row of [`TRUSTED_CLAIMS`].
+pub const LEMMA: AttributeKey = AttributeKey::Simplification;
 
 /// Attributes that restrict when an equation is used, not what it states: k-rust trusts such an
-/// equation to be a theorem of the executable equations.
-const CONCRETENESS: [AttributeKey; 2] = [AttributeKey::Concrete, AttributeKey::Symbolic];
+/// equation to be a theorem of the executable equations (the `concrete-equation` row of
+/// [`TRUSTED_CLAIMS`]).
+pub const CONCRETENESS: [AttributeKey; 2] = [AttributeKey::Concrete, AttributeKey::Symbolic];
+
+/// The claim key of an equation's non-trivial `ensures` (the `ensures` row of
+/// [`TRUSTED_CLAIMS`]).
+pub const ENSURES_CLAIM: &str = "ensures";
+
+/// The claim key of a hooked symbol's equation, trusted to agree with its hook (the
+/// `hooked-equation` row of [`TRUSTED_CLAIMS`]).
+pub const HOOKED_EQUATION_CLAIM: &str = "hooked-equation";
 
 /// One trusted claim of a mutant: an attribute or a non-trivial equation `ensures`.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -262,6 +286,9 @@ impl ClaimSupport {
                 }
             }
         }
+        for (mentioned, head) in generated_links(definition) {
+            dependents.entry(mentioned).or_default().insert(head);
+        }
         Self {
             defined,
             hooked: hooked_labels(definition),
@@ -282,7 +309,7 @@ impl ClaimSupport {
         let edits = patch.edits();
         let touched = touched_sentences(edits);
         let redefined = self.redefined(baseline, &mutant, edits, &touched);
-        let affected = redefined.map(|redefined| self.affected(redefined));
+        let affected = redefined.map(|redefined| self.closure(redefined));
         let is_affected = |symbols: &BTreeSet<String>| {
             affected
                 .as_ref()
@@ -349,7 +376,7 @@ impl ClaimSupport {
                         if !trivial_ensures(ensures) {
                             withdrawal.unsupported.push(Claim {
                                 origin: origin.clone(),
-                                key: "ensures".to_owned(),
+                                key: ENSURES_CLAIM.to_owned(),
                                 value: Value::String(ensures.to_string()),
                             });
                         }
@@ -359,7 +386,7 @@ impl ClaimSupport {
                         if self.hooked.contains(head) {
                             withdrawal.unsupported.push(Claim {
                                 origin: origin.clone(),
-                                key: "hooked-equation".to_owned(),
+                                key: HOOKED_EQUATION_CLAIM.to_owned(),
                                 value: Value::String(head.clone()),
                             });
                         }
@@ -489,8 +516,30 @@ impl ClaimSupport {
         Some(redefined)
     }
 
+    /// The symbols whose equations `patch` can change the meaning of: the symbols it redefines
+    /// and every symbol whose equations reach one, the set whose claims [`Self::withdraw`]
+    /// removes. `None` when the patch's effect on the equational part is not known symbol by
+    /// symbol, so every symbol counts. kink-native's mutant consistency check reads the pairs
+    /// of these symbols' equations (re-pin R0c-fix-3).
+    ///
+    /// # Errors
+    ///
+    /// Returns the failure of applying `patch` to `baseline`.
+    pub fn affected(
+        &self,
+        baseline: &Baseline,
+        patch: &Patch,
+    ) -> Result<Option<BTreeSet<String>>, PatchFailure> {
+        let mutant = apply(baseline, patch)?;
+        let edits = patch.edits();
+        let touched = touched_sentences(edits);
+        Ok(self
+            .redefined(baseline, &mutant, edits, &touched)
+            .map(|redefined| self.closure(redefined)))
+    }
+
     /// Every symbol whose equations reach a redefined symbol, the redefined ones included.
-    fn affected(&self, redefined: BTreeSet<String>) -> BTreeSet<String> {
+    fn closure(&self, redefined: BTreeSet<String>) -> BTreeSet<String> {
         let mut affected = BTreeSet::new();
         let mut pending = redefined.into_iter().collect::<Vec<_>>();
         while let Some(symbol) = pending.pop() {
@@ -598,6 +647,50 @@ fn defined_labels(definition: &Definition) -> BTreeSet<String> {
             _ => None,
         })
         .collect()
+}
+
+/// The links of the axioms kompile generates rather than the author writes, as (mentioned symbol,
+/// symbol whose axiom mentions it) pairs (re-pin R0c-fix-3, R0c-fix-2 review major 2). k-rust
+/// 501f18b9 `k-rust/src/kompile/module_to_kore/axioms.rs` `generated_axioms` emits subsort
+/// (injection) axioms, which link sorts, not symbols; per-symbol functional, no-confusion and
+/// no-junk axioms; the algebraic axioms of a production, whose `unit(u)` axiom mentions the unit
+/// symbol `u`; and an overload axiom `g(inj(x1), ..., inj(xn)) = inj(l(x1, ..., xn))` for every
+/// lesser `l` and greater `g` of one `overload(key)` family (`compatibility.md` 196, 943, 966),
+/// which is an equation of `g` that mentions `l`. Each member of a family is linked to every
+/// other, both ways: the family counts as one symbol for the reach, which covers the
+/// lesser-to-greater axioms whatever the sort order, and is fail-closed beyond it.
+fn generated_links(definition: &Definition) -> Vec<(String, String)> {
+    let mut families = BTreeMap::<String, BTreeSet<String>>::new();
+    let mut links = Vec::new();
+    for (_, sentence) in sentences(definition) {
+        let Sentence::Production {
+            label: Some(label),
+            attributes,
+            ..
+        } = sentence
+        else {
+            continue;
+        };
+        if let Some(key) = attributes.string(AttributeKey::Overload) {
+            families
+                .entry(key.to_owned())
+                .or_default()
+                .insert(label.name.clone());
+        }
+        if let Some(unit) = attributes.string(AttributeKey::Unit) {
+            links.push((unit.to_owned(), label.name.clone()));
+        }
+    }
+    for members in families.values() {
+        for mentioned in members {
+            for head in members {
+                if mentioned != head {
+                    links.push((mentioned.clone(), head.clone()));
+                }
+            }
+        }
+    }
+    links
 }
 
 fn hooked_labels(definition: &Definition) -> BTreeSet<String> {

@@ -849,11 +849,15 @@ fn the_binarys_run_command() {
     let manifest = dir.join("FLOW.toml");
     let mutations = dir.join("MUTATIONS.toml");
     let cache = scratch("binary-cache");
+    // Re-pin R0c-fix-3 (R0c-fix-2 review major 3): corpus order, as the library-level tests use
+    // (`search` above). Under the default cost order the killer is the first killing program by
+    // measured baseline wall_ms, and store, increment and double each measure 1-3 ms on this
+    // fixture, so a 1 ms jitter on a loaded host made increment the killer.
     let output = Command::new(binary)
         .arg("run")
         .arg(&manifest)
         .arg(&mutations)
-        .args(["--only", "put-offset", "--cache"])
+        .args(["--only", "put-offset", "--order", "corpus", "--cache"])
         .arg(&cache)
         .output()
         .unwrap();
@@ -899,4 +903,59 @@ fn the_binarys_run_command() {
             assert_eq!(document["mutation_list"]["outcome"], "refused");
         }
     }
+}
+
+/// Re-pin R0c-fix-3 deliverable 1 (`testdata/flow/overlap`): a mutation that makes two equations
+/// of one function apply to one input with different values is `invalid` with reason
+/// `inconsistent-mutant`, runs no program and writes no outcome record, and its row names the
+/// pair; a rewrite-rule edit changes no equation and runs (killed by `minus-one`: `0` against
+/// `-1`). A second cold run of the same list gives the same rows: the refusal is a function of
+/// the mutant, and no record of the refused mutation exists for tier 1 to read.
+#[test]
+fn an_inconsistent_mutation_is_invalid_and_names_its_pair() {
+    let dir = fixture("overlap", "inconsistent");
+    let (document, ok) = search(&dir.join("FLOW.toml"), &dir.join("MUTATIONS.toml"), &[]);
+    assert!(ok, "{document:#}");
+    assert_eq!(document["version"], 5);
+    assert_eq!(
+        verdicts(&document),
+        expect(&[
+            ("pos-widened", "invalid", None, false),
+            ("sgn-plus-one", "killed", Some("minus-one"), false),
+        ])
+    );
+    let refused = mutation(&document, "pos-widened");
+    assert_eq!(refused["reason"], "inconsistent-mutant");
+    assert_eq!(
+        refused["calls"],
+        json!([{"programs": ["minus-one"], "status": "invalid"}])
+    );
+    assert_eq!(refused["executed"], json!([]));
+    let pairs = refused["inconsistent_pairs"].as_array().unwrap();
+    assert_eq!(pairs.len(), 1, "{pairs:?}");
+    let mut names = [
+        pairs[0]["first"].as_str().unwrap(),
+        pairs[0]["second"].as_str().unwrap(),
+    ];
+    names.sort_unstable();
+    assert_eq!(names, ["OVERLAP.neg", "OVERLAP.pos"]);
+    assert!(
+        refused["action"]
+            .as_str()
+            .unwrap()
+            .contains("inconsistent_pairs")
+    );
+    assert_eq!(
+        mutation(&document, "sgn-plus-one")["inconsistent_pairs"],
+        json!([])
+    );
+    assert_eq!(document["outcome_cache"]["records_written"], 1);
+
+    let (again, ok) = search(&dir.join("FLOW.toml"), &dir.join("MUTATIONS.toml"), &[]);
+    assert!(ok);
+    assert_eq!(verdicts(&again)[0], verdicts(&document)[0]);
+    assert_eq!(
+        mutation(&again, "pos-widened")["inconsistent_pairs"],
+        refused["inconsistent_pairs"]
+    );
 }

@@ -595,8 +595,13 @@ fn check_report(report: &CampaignReport) {
                 "tests",
                 "claims",
                 "selection",
+                // Re-pin R0c-fix-3: each mutant names the pairs that refuse an inconsistent one.
+                "inconsistent_pairs",
             ],
         );
+        for pair in array(&mutant["inconsistent_pairs"]) {
+            keys(pair, &["first", "second", "position", "reason"]);
+        }
         for sentence in array(&mutant["affected_sentences"]) {
             keys(
                 sentence,

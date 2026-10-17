@@ -80,6 +80,7 @@ fn plan(tests: Vec<TestPlan>) -> MutantPlan {
         tests,
         mutant_failure: None,
         claims: Withdrawal::default(),
+        inconsistent_pairs: Vec::new(),
     }
 }
 
@@ -198,6 +199,7 @@ fn mutant_status_is_derived_from_validation_then_oracle_outcomes() {
             selection: None,
             mutant_failure,
             claims: Withdrawal::default(),
+            inconsistent_pairs: Vec::new(),
             ..plan(tests)
         };
         for schedule in [ScheduleMode::FirstKill, ScheduleMode::Full] {
@@ -250,6 +252,7 @@ fn killed_cannot_fail_validation() {
         selection: None,
         mutant_failure: Some(failure),
         claims: Withdrawal::default(),
+        inconsistent_pairs: Vec::new(),
         ..plan(tests)
     };
     let killed = with_failure(
@@ -315,6 +318,7 @@ fn every_failure_kind_maps_to_one_status() {
                         selection: None,
                         mutant_failure: Some(kind),
                         claims: Withdrawal::default(),
+                        inconsistent_pairs: Vec::new(),
                         ..plan(tests)
                     },
                     &declared,
@@ -410,6 +414,7 @@ fn inconclusive_outcomes_fold_error_then_timeout_then_unknown() {
             selection: None,
             mutant_failure,
             claims: Withdrawal::default(),
+            inconsistent_pairs: Vec::new(),
             ..plan(
                 tests
                     .iter()
@@ -525,6 +530,7 @@ fn tests_may_be_skipped_only_after_a_first_kill() {
             selection: None,
             mutant_failure,
             claims: Withdrawal::default(),
+            inconsistent_pairs: Vec::new(),
             ..plan(tests)
         };
         let declared = manifest(declared);
@@ -609,6 +615,7 @@ fn plans_that_differ_from_the_manifest_are_rejected() {
             selection: None,
             mutant_failure,
             claims: Withdrawal::default(),
+            inconsistent_pairs: Vec::new(),
             ..plan(tests)
         };
         for schedule in [ScheduleMode::FirstKill, ScheduleMode::Full] {
@@ -720,6 +727,7 @@ fn plan_for(status: MutantStatus, id: usize) -> MutantPlan {
                 tests: Vec::new(),
                 mutant_failure: Some(MutantScopeFailure::EquivalentCompilation),
                 claims: Withdrawal::default(),
+                inconsistent_pairs: Vec::new(),
             };
         }
         Invalid => {
@@ -729,6 +737,7 @@ fn plan_for(status: MutantStatus, id: usize) -> MutantPlan {
                 tests: Vec::new(),
                 mutant_failure: Some(MutantScopeFailure::Rejected),
                 claims: Withdrawal::default(),
+                inconsistent_pairs: Vec::new(),
             };
         }
     };

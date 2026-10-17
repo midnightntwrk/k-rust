@@ -8,11 +8,14 @@
 //! - [`bridge`] maps adapted executions to kink-pattern paths and collection evidence.
 //! - [`exclusion`] names the runs that are no evidence for any comparison (stack stops, load
 //!   stack stops, contradicted claims, implementation-chosen hooks, allowance refusals).
+//! - [`consistency`] refuses a mutant whose edit makes two equations of one function disagree
+//!   (k-rust's critical-pair check on the claim-free mutant).
 //! - [`feasibility`] decides solver-free leaf feasibility and payload relations with the
 //!   backend's definition and unifier ([`feasibility::BackendRelations`]).
 //!
 pub mod bridge;
 pub mod census;
+pub mod consistency;
 pub mod coverage;
 mod equivalence;
 pub mod exclusion;

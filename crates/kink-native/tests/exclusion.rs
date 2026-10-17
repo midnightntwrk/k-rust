@@ -926,6 +926,36 @@ fn a_short_circuit_candidate_beside_a_sibling_excludes_the_definition() {
     });
 }
 
+/// Re-pin R0c-fix-3 deliverable 5 (R0c-fix-2 review minor 3, `r0c/eqcond.k`): k-rust 501f18b9
+/// names an `\equals` between two possibly undefined terms in a rule or equation condition as a
+/// gap of its own answers ("Two gaps remain", `docs/compatibility.md`): its SMT translation has no
+/// model where both sides are undefined, so answers may wrongly be empty, `valid` or `proven`.
+/// `go`'s condition `{ 10 /Int I #Equals 10 /Int I }` is one, and excludes the definition; the K
+/// Bool conditions kompile states as `\equals(C, true)` are not.
+#[test]
+fn a_condition_that_equates_two_terms_excludes_the_definition() {
+    on_a_big_stack(|| {
+        let (side, module) = fixture("r0c", "eqcond");
+        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+        let go = backend(&side, &module)
+            .rule_catalog(None)
+            .unwrap()
+            .into_iter()
+            .find(|rule| rule.label.as_deref() == Some("EQCOND.go"))
+            .expect("go")
+            .id;
+        assert_eq!(exclusions.equals_conditions, [go]);
+        assert_eq!(
+            exclusions.definition_exclusion(),
+            Some(Exclusion::EqualsCondition)
+        );
+        let (side, module) = fixture("r0c", "nomatch");
+        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+        assert!(exclusions.equals_conditions.is_empty());
+        assert_eq!(exclusions.definition_exclusion(), None);
+    });
+}
+
 /// Re-pin R0c-fix-1 deliverable 4: a condition that depends on the short-circuit reading leaves
 /// no leaf to read. `rq`'s condition `true orBool 10 /Int I >Int 0` is undefined on 0 in k-rust,
 /// so `rq(0)` is a Stuck leaf naming no rule, where a short-circuiting backend steps to
@@ -1049,6 +1079,12 @@ fn definition_exclusions_over_testdata() {
                 exclusions.short_circuit_conditions.is_empty(),
                 "{name}: {:?}",
                 exclusions.short_circuit_conditions
+            );
+            // Re-pin R0c-fix-3: no testdata or example condition equates two terms.
+            assert!(
+                exclusions.equals_conditions.is_empty(),
+                "{name}: {:?}",
+                exclusions.equals_conditions
             );
             if !exclusions.short_circuit_rules.is_empty() {
                 eprintln!(
