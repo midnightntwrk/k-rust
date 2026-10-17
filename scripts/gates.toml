@@ -300,6 +300,20 @@ paths = [
   '^scripts/reference-differential\.toml$',
 ]
 
+# The matching-logic position matrix: every matching-logic construct at every sentence position
+# and on the search-pattern route, against the outcome its meaning states, with the cells still
+# pending a ticket listed in the test (crates/k-rust/tests/ml_positions.rs). Its shards are
+# ignored tests, run here in both builds and the test profile.
+[[gate]]
+name = "ml-positions"
+run = "certification"
+command = "scripts/ml-positions.sh"
+paths = [
+  "@krust",
+  '^scripts/ml-positions\.sh$',
+  '^crates/k-rust/tests/ml_positions(\.rs|/)',
+]
+
 # The Python unit tests of the scripts' helpers.
 [[gate]]
 name = "script-unit-tests"
