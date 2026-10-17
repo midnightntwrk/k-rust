@@ -1,0 +1,26 @@
+---
+source: crates/k-rust/tests/cell_less_bound.rs
+description: "the CL.ab axiom of `rule [ab]: <k> a(X) => b(X) ... </k>` where A and B have the common supersorts C and D, rust backend, up to its UNIQUE'Unds'ID"
+---
+axiom{}
+    \rewrites{SortGeneratedTopCell{}}(
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'k'-GT-'{}(
+            kseq{}(inj{SortA{}, SortKItem{}}(Lbla{}(VarX:SortInt{})), Var'Unds'DotVar1:SortK{})
+          ),
+          Var'Unds'DotVar0:SortGeneratedCounterCell{}
+        ),
+        \top{SortGeneratedTopCell{}}()
+      ),
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'k'-GT-'{}(
+            kseq{}(inj{SortB{}, SortKItem{}}(Lblb{}(VarX:SortInt{})), Var'Unds'DotVar1:SortK{})
+          ),
+          Var'Unds'DotVar0:SortGeneratedCounterCell{}
+        ),
+        \top{SortGeneratedTopCell{}}()
+      )
+    )
+    [
