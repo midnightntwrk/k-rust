@@ -1176,6 +1176,198 @@ fn an_equation_head_separated_by_integer_bounds_keeps_its_claims() {
     );
 }
 
+/// An equation `head(X0) = right` with `X0` matching `pattern`, over the sorts given, with the
+/// attributes `attributes` (a KORE attribute list without brackets).
+fn unary_equation(
+    head: &str,
+    (argument, result): (&str, &str),
+    pattern: &str,
+    right: &str,
+    attributes: &str,
+) -> String {
+    format!(
+        r"axiom{{R}} \implies{{R}}(
+            \and{{R}}(\top{{R}}(), \and{{R}}(\in{{{argument}, R}}(X0:{argument}, {pattern}), \top{{R}}())),
+            \equals{{{result}, R}}({head}{{}}(X0:{argument}), \and{{{result}}}({right}, \top{{{result}}}()))
+        ) [{attributes}]"
+    )
+}
+
+/// Every kind of pair in one definition: the overload family with a second equation at `consE`
+/// (a stage-1 root pair), two equations of the equation head `w` (a root pair that does not
+/// join), three equations of the declared function `f` and one `[symbolic]` one, an equation of
+/// `g` whose argument pattern `w(z)` the equations of `w` are tried against (inner pairs), and
+/// `pick` over a map pattern that matches one map in several ways (a self pair).
+fn every_kind_of_pair() -> BackendDefinition {
+    let nat = ("SortNat{}", "SortNat{}");
+    definition(&format!(
+        r"symbol g{{}}(SortS{{}}) : SortNat{{}} [function{{}}()]
+        symbol pick{{}}(SortMap{{}}) : SortKey{{}} [function{{}}()]
+        axiom{{R}} \implies{{R}}(
+            \and{{R}}(\top{{R}}(), \and{{R}}(\in{{SortE{{}}, R}}(X0:SortE{{}}, e0{{}}()),
+                \and{{R}}(\in{{SortEs{{}}, R}}(X1:SortEs{{}}, K1:SortEs{{}}), \top{{R}}()))),
+            \equals{{SortEs{{}}, R}}(consE{{}}(X0:SortE{{}}, X1:SortEs{{}}), \and{{SortEs{{}}}}(nilE{{}}(), \top{{SortEs{{}}}}()))
+        ) []
+        {} {} {} {} {} {} {} {}",
+        w_equation("s{}(X:SortNat{})", "w{}(X:SortNat{})"),
+        w_equation("s{}(s{}(X:SortNat{}))", "m{}(X:SortNat{})"),
+        unary_equation("f", nat, "z{}()", "z{}()", ""),
+        unary_equation("f", nat, "s{}(X:SortNat{})", "X:SortNat{}", ""),
+        unary_equation("f", nat, "X:SortNat{}", "z{}()", ""),
+        unary_equation(
+            "f",
+            nat,
+            "k{}(X:SortNat{}, Y:SortNat{})",
+            "z{}()",
+            "symbolic{}()"
+        ),
+        unary_equation("g", ("SortS{}", "SortNat{}"), "w{}(z{}())", "z{}()", ""),
+        unary_equation(
+            "pick",
+            ("SortMap{}", "SortKey{}"),
+            "mapConcat{}(mapItem{}(K:SortKey{}, V:SortValue{}), M:SortMap{})",
+            "K:SortKey{}",
+            ""
+        ),
+    ))
+}
+
+/// The field-wise sum of the per-group counts of `claims`.
+fn summed_group_counts(claims: &super::ValueClaims) -> super::GroupCounts {
+    let mut sum = super::GroupCounts::default();
+    for counts in claims.group_counts().values() {
+        sum.equations += counts.equations;
+        sum.symbolic_equations += counts.symbolic_equations;
+        sum.root_pairs += counts.root_pairs;
+        sum.self_pairs += counts.self_pairs;
+        sum.inner_pairs += counts.inner_pairs;
+        sum.skipped += counts.skipped;
+        sum.overlaps += counts.overlaps;
+        sum.separated += counts.separated;
+        sum.refuted += counts.refuted;
+        sum.joined += counts.joined;
+        sum.not_joined += counts.not_joined;
+    }
+    sum
+}
+
+/// The counts of the group of `claims` at the symbol `name`, which must be the only group there.
+fn group_at(claims: &super::ValueClaims, name: &str) -> super::GroupCounts {
+    let index = crate::rule::TermIndex::Symbol(name.into());
+    let groups = claims
+        .group_counts()
+        .iter()
+        .filter(|(key, _)| key.index == index)
+        .map(|(_, counts)| *counts)
+        .collect::<Vec<_>>();
+    assert_eq!(groups.len(), 1, "{:?}", claims.group_counts());
+    groups[0]
+}
+
+/// Summed over the index and priority groups, the per-group counts are the check's totals, in
+/// both scopes: every classified pair is a root or an inner pair of one group, every self pair
+/// is one group's, and every overlap, separation, refutation, join and skipped pair is counted in
+/// one group. Under `CheckScope::All` each group of `n` executable equations has its `n(n-1)/2`
+/// root pairs, and the `[symbolic]` equation, which no check pairs, is counted only in its
+/// group's `symbolic_equations`.
+#[test]
+fn group_counts_sum_to_the_totals() {
+    use super::CheckScope;
+    let definition = every_kind_of_pair();
+    for (scope, claims) in [
+        (CheckScope::Gate, definition.value_claims().clone()),
+        (
+            CheckScope::All,
+            definition.value_claims_in_scope(CheckScope::All),
+        ),
+    ] {
+        let (counts, sum) = (claims.counts(), summed_group_counts(&claims));
+        assert_eq!(sum.equations, counts.equations, "{scope:?}");
+        assert_eq!(sum.root_pairs + sum.inner_pairs, counts.pairs, "{scope:?}");
+        assert_eq!(sum.self_pairs, counts.several_matches, "{scope:?}");
+        assert_eq!(
+            (
+                sum.skipped,
+                sum.overlaps,
+                sum.separated,
+                sum.refuted,
+                sum.joined
+            ),
+            (
+                counts.skipped,
+                counts.overlaps,
+                counts.separated,
+                counts.refuted,
+                counts.joined
+            ),
+            "{scope:?}"
+        );
+        assert_eq!(sum.not_joined, pairs(&claims).len(), "{scope:?}");
+        assert_eq!(sum.symbolic_equations, 1, "{scope:?}");
+        let f = group_at(&claims, "f");
+        assert_eq!(
+            (f.equations, f.symbolic_equations),
+            (3, 1),
+            "{scope:?}: {f:?}"
+        );
+        // Every equation of `f` is irrelevant to the gate and has no inner candidate, so the
+        // load skips each root pair it does not classify.
+        assert_eq!(f.root_pairs + f.skipped, 3, "{scope:?}: {f:?}");
+        assert_eq!(group_at(&claims, "consE").root_pairs, 1, "{scope:?}");
+        assert_eq!(group_at(&claims, "w").not_joined, 1, "{scope:?}");
+        let g = group_at(&claims, "g");
+        assert_eq!(g.inner_pairs, 2, "{scope:?}: {g:?}");
+        let pick = group_at(&claims, "pick");
+        assert_eq!(
+            (pick.self_pairs, pick.not_joined),
+            (1, 1),
+            "{scope:?}: {pick:?}"
+        );
+        if scope == CheckScope::Gate {
+            assert_eq!((f.root_pairs, f.skipped), (0, 3), "{f:?}");
+            continue;
+        }
+        assert_eq!(counts.skipped, 0);
+        for (key, group) in claims.group_counts() {
+            assert_eq!(
+                group.root_pairs,
+                group.equations * group.equations.saturating_sub(1) / 2,
+                "{key:?}: {group:?}"
+            );
+        }
+        assert_eq!(f.root_pairs, 3, "{f:?}");
+    }
+}
+
+/// The head-free `f` with the complementary guards `X >Int 0` and `X <=Int 0`: its group's one
+/// root pair is refuted, and the group says so.
+#[test]
+fn group_counts_name_the_refuted_pair() {
+    use super::CheckScope;
+    let definition = head_free(&format!(
+        "{} {}",
+        f_equation("gtInt", 0, 1, "one"),
+        f_equation("leInt", 0, 2, "two"),
+    ));
+    let all = definition.value_claims_in_scope(CheckScope::All);
+    let f = group_at(&all, "f");
+    assert_eq!(
+        (
+            f.equations,
+            f.root_pairs,
+            f.overlaps,
+            f.refuted,
+            f.not_joined
+        ),
+        (2, 1, 1, 1, 0),
+        "{f:?}"
+    );
+    // The load classifies no pair of this definition (nothing can be withdrawn), and its
+    // groups say that too.
+    let load = group_at(definition.value_claims(), "f");
+    assert_eq!((load.equations, load.root_pairs), (2, 0), "{load:?}");
+}
+
 mod review_one;
 mod review_two;
 mod scope;

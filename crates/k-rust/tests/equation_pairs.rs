@@ -16,6 +16,7 @@ use k_rust::{
 use k_rust_backend::{
     confluence::{CheckScope, UnjoinedPair, UnjoinedReason, ValueClaims},
     definition::BackendDefinition,
+    rule::TermIndex,
 };
 
 fn compile(source: &str, main: &str) -> String {
@@ -296,6 +297,43 @@ fn the_full_check_reports_the_pairs_of_a_definition_with_only_declared_functions
             all.unjoined()
         );
         assert!(pairs.iter().all(|pair| pair.withdrawn.is_empty()));
+    }
+}
+
+/// The request's acceptance, per group: the full check classifies the one root pair of `f`'s
+/// group of two equations, and the group says how it was decided (not joined with `I >Int -5`,
+/// refuted with `I <=Int 0`).
+#[test]
+fn the_full_check_counts_the_pairs_of_each_group() {
+    for (second, refuted, not_joined) in [("I >Int -5", 0, 1), ("I <=Int 0", 1, 0)] {
+        let definition = definition(
+            &format!(
+                "  syntax Int ::= f(Int) [function, symbol(f)]
+  rule [a]: f(I) => 1 requires I >Int 0
+  rule [b]: f(I) => 2 requires {second}"
+            ),
+            false,
+        );
+        let all = definition.value_claims_in_scope(CheckScope::All);
+        let groups = all
+            .group_counts()
+            .iter()
+            .filter(|(key, _)| key.index == TermIndex::Symbol("Lblf".into()))
+            .map(|(_, counts)| *counts)
+            .collect::<Vec<_>>();
+        assert_eq!(groups.len(), 1, "{second}: {:?}", all.group_counts());
+        let f = groups[0];
+        assert_eq!(
+            (
+                f.equations,
+                f.root_pairs,
+                f.skipped,
+                f.refuted,
+                f.not_joined
+            ),
+            (2, 1, 0, refuted, not_joined),
+            "{second}: {f:?}"
+        );
     }
 }
 
