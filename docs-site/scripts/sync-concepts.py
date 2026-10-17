@@ -5,33 +5,31 @@ from __future__ import annotations
 
 import json
 import sys
-import tomllib
 from pathlib import Path
 
 
 SITE = Path(__file__).resolve().parent.parent
-LEDGER = SITE / "plan" / "tour.toml"
+sys.path.insert(0, str(SITE / "plan"))
+from ledger import Ledger  # noqa: E402
+
 OUTPUT = SITE / "src" / "generated" / "five-minute-concepts.ts"
 
 
 def main() -> None:
-    with LEDGER.open("rb") as source:
-        ledger = tomllib.load(source)
-
+    ledger = Ledger.load()
     synthesis = next(
-        item for item in ledger["synthesis"] if item["id"] == "five-minute-theory"
+        item for item in ledger.rows("synthesis") if item["id"] == "five-minute-theory"
     )
-    concepts = {item["id"]: item for item in ledger["concept"]}
-    chapters = {item["id"]: item for item in ledger["chapter"]}
+    topics = {item["id"]: item for item in ledger.rows("topic")}
     generated = []
-    for concept_id in synthesis["requires"]:
-        concept = concepts[concept_id]
+    for topic_id in synthesis["requires"]:
+        topic = topics[topic_id]
         generated.append(
             {
-                "id": concept_id,
-                "title": concept["title"],
-                "gloss": concept["gloss"],
-                "route": chapters[concept["chapter"]]["route"],
+                "id": topic_id,
+                "title": topic["title"],
+                "gloss": topic["gloss"],
+                "route": ledger.destination(topic),
             }
         )
 

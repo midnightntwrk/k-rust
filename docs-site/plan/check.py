@@ -1,18 +1,16 @@
 #!/usr/bin/env python3
-"""Validate the KRS language-tour curriculum ledger."""
+"""Validate the tour curriculum ledger."""
 
 from __future__ import annotations
 
-import sys
-import tomllib
 import hashlib
+import sys
 from collections import Counter
-from pathlib import Path
+
+from ledger import KRS, LESSON_STATUSES, Ledger
 
 
-# Evidence, fixture, and seed paths in the ledger are relative to the KRS directory.
-ROOT = Path(__file__).resolve().parents[2] / "krs"
-LEDGER = Path(__file__).resolve().parent / "tour.toml"
+PAGE_DISPOSITIONS = ("split", "merged", "keep")
 
 
 def fail(message: str) -> None:
@@ -25,133 +23,194 @@ def duplicates(values: list[object]) -> list[object]:
     return sorted(value for value, count in counts.items() if count > 1)
 
 
+def require_unique(label: str, values: list[object]) -> None:
+    repeated = duplicates(values)
+    if repeated:
+        fail(f"duplicate {label}: {repeated}")
+
+
 def main() -> None:
-    with LEDGER.open("rb") as source:
-        ledger = tomllib.load(source)
+    ledger = Ledger.load()
+    if ledger.raw.get("schema") != 2:
+        fail("schema must be 2")
 
-    if ledger.get("schema") != 1:
-        fail("schema must be 1")
+    parts = ledger.rows("part")
+    lessons = ledger.rows("lesson")
+    concepts = ledger.rows("concept")
+    pages = ledger.rows("page")
+    topics = ledger.rows("topic")
+    if not parts or not lessons or not concepts or not topics:
+        fail("parts, lessons, concepts, and topics are required")
 
-    chapters = ledger.get("chapter", [])
-    concepts = ledger.get("concept", [])
-    if not chapters or not concepts:
-        fail("at least one chapter and concept are required")
+    require_unique("part IDs", [part.get("id") for part in parts])
+    require_unique("part orders", [part.get("order") for part in parts])
+    part_order = {part["id"]: part["order"] for part in parts}
 
-    chapter_ids = [chapter.get("id") for chapter in chapters]
-    chapter_orders = [chapter.get("order") for chapter in chapters]
-    chapter_routes = [chapter.get("route") for chapter in chapters]
+    # Lessons: unique, in Part order, each K concept taught by exactly one lesson.
+    require_unique("lesson IDs", [lesson.get("id") for lesson in lessons])
+    require_unique("lesson orders", [lesson.get("order") for lesson in lessons])
+    require_unique("lesson routes", [lesson.get("route") for lesson in lessons])
     concept_ids = [concept.get("id") for concept in concepts]
-    for label, values in (
-        ("chapter IDs", chapter_ids),
-        ("chapter orders", chapter_orders),
-        ("chapter routes", chapter_routes),
-        ("concept IDs", concept_ids),
-    ):
-        repeated = duplicates(values)
-        if repeated:
-            fail(f"duplicate {label}: {repeated}")
-    for route in chapter_routes:
+    require_unique("concept IDs", concept_ids)
+    taught: list[str] = []
+    previous_part = -1
+    for lesson in sorted(lessons, key=lambda row: row["order"]):
+        lesson_id = lesson["id"]
+        if lesson.get("part") not in part_order:
+            fail(f"{lesson_id}: unknown part {lesson.get('part')!r}")
+        if part_order[lesson["part"]] < previous_part:
+            fail(f"{lesson_id}: lesson order leaves its part's order")
+        previous_part = part_order[lesson["part"]]
+        if lesson.get("status") not in LESSON_STATUSES:
+            fail(f"{lesson_id}: unknown status {lesson.get('status')!r}")
+        route = lesson.get("route")
         if not isinstance(route, str) or not route.startswith("/"):
-            fail(f"chapter route must be an absolute site path: {route!r}")
+            fail(f"{lesson_id}: route must be an absolute site path: {route!r}")
+        for concept_id in lesson.get("concepts", []):
+            if concept_id not in concept_ids:
+                fail(f"{lesson_id}: unknown concept {concept_id!r}")
+        if (lesson["part"] == "krs") == bool(lesson.get("concepts")):
+            fail(f"{lesson_id}: a K lesson teaches concepts and a side-track lesson teaches none")
+        taught.extend(lesson.get("concepts", []))
+    require_unique("concepts taught by more than one lesson", taught)
+    untaught = sorted(set(concept_ids) - set(taught))
+    if untaught:
+        fail(f"concepts taught by no lesson: {untaught}")
+    lesson_by_id = {lesson["id"]: lesson for lesson in lessons}
 
-    chapter_order = {
-        chapter_id: order
-        for chapter_id, order in zip(chapter_ids, chapter_orders, strict=True)
-    }
-    chapter_owners = {chapter["id"]: chapter.get("owner") for chapter in chapters}
-    known_concepts = set(concept_ids)
-    concept_by_id = {concept["id"]: concept for concept in concepts}
-    statuses = set(ledger.get("status", {}))
-    coverage_classes = set(ledger.get("coverage", {}))
+    # Pages that predate the spine: each stays until its replacing lessons are accepted.
+    require_unique("page IDs", [page.get("id") for page in pages])
+    require_unique("page orders", [page.get("order") for page in pages])
+    page_routes = [page.get("route") for page in pages]
+    require_unique("page routes", page_routes)
+    collisions = sorted(set(page_routes) & {lesson["route"] for lesson in lessons})
+    if collisions:
+        fail(f"page routes reused by lessons: {collisions}")
+    page_by_route = {page["route"]: page for page in pages}
+    for page in pages:
+        page_id = page["id"]
+        disposition = page.get("disposition")
+        replaced_by = page.get("replaced_by", [])
+        if disposition not in PAGE_DISPOSITIONS:
+            fail(f"{page_id}: unknown disposition {disposition!r}")
+        if (disposition == "keep") == bool(replaced_by):
+            fail(f"{page_id}: a kept page has no replacements and a split or merged page has some")
+        for lesson_id in replaced_by:
+            if lesson_id not in lesson_by_id:
+                fail(f"{page_id}: unknown replacing lesson {lesson_id!r}")
+        if not isinstance(page.get("retired"), bool):
+            fail(f"{page_id}: retired must be true or false")
+        if page["retired"]:
+            pending = [lesson_id for lesson_id in replaced_by if lesson_by_id[lesson_id]["status"] != "accepted"]
+            if disposition == "keep" or pending:
+                fail(f"{page_id}: retired before its replacements were accepted: {pending}")
 
+    # Topics: each belongs to a K concept, a side-track lesson, or a reference page.
+    statuses = set(ledger.raw.get("status", {}))
+    coverage_classes = set(ledger.raw.get("coverage", {}))
+    topic_ids = [topic.get("id") for topic in topics]
+    require_unique("topic IDs", topic_ids)
+    topic_by_id = {topic["id"]: topic for topic in topics}
     evidence_count = 0
-    for concept in concepts:
-        concept_id = concept.get("id")
-        chapter_id = concept.get("chapter")
-        if chapter_id not in chapter_order:
-            fail(f"{concept_id}: unknown chapter {chapter_id!r}")
-        if concept.get("status") not in statuses:
-            fail(f"{concept_id}: unknown status {concept.get('status')!r}")
-        if concept.get("coverage") not in coverage_classes:
-            fail(f"{concept_id}: unknown coverage {concept.get('coverage')!r}")
-        if concept.get("status") in {"current", "qualified"} and not chapter_owners.get(
-            chapter_id
-        ):
-            fail(f"{concept_id}: current/qualified concept has no chapter owner")
+    for topic in topics:
+        topic_id = topic["id"]
+        coverage = topic.get("coverage")
+        if topic.get("status") not in statuses:
+            fail(f"{topic_id}: unknown status {topic.get('status')!r}")
+        if coverage not in coverage_classes:
+            fail(f"{topic_id}: unknown coverage {coverage!r}")
+        page = page_by_route.get(topic.get("page"))
+        if page is None:
+            fail(f"{topic_id}: unknown page {topic.get('page')!r}")
+        if coverage == "tour":
+            if topic.get("concept") not in concept_ids or "lesson" in topic:
+                fail(f"{topic_id}: a tour topic names one known concept and no lesson")
+        elif coverage == "krs":
+            lesson = lesson_by_id.get(topic.get("lesson"))
+            if lesson is None or lesson["part"] != "krs" or "concept" in topic:
+                fail(f"{topic_id}: a krs topic names one side-track lesson and no concept")
+        elif "concept" in topic or "lesson" in topic or page["disposition"] != "keep":
+            fail(f"{topic_id}: a {coverage} topic lives on a kept page and names no concept or lesson")
+        if ledger.destination(topic) == page["route"] and page["retired"]:
+            fail(f"{topic_id}: its page is retired but its lesson is not accepted")
+        if topic.get("status") in {"current", "qualified"} and not page.get("owner"):
+            fail(f"{topic_id}: current/qualified topic has no page owner")
 
-        for prerequisite in concept.get("prerequisites", []):
-            if prerequisite not in known_concepts:
-                fail(f"{concept_id}: unknown prerequisite {prerequisite!r}")
-            prerequisite_concept = concept_by_id[prerequisite]
-            prerequisite_order = chapter_order[prerequisite_concept["chapter"]]
-            if prerequisite_order > chapter_order[chapter_id]:
+        lesson = ledger.topic_lesson(topic)
+        for prerequisite in topic.get("prerequisites", []):
+            if prerequisite not in topic_by_id:
+                fail(f"{topic_id}: unknown prerequisite {prerequisite!r}")
+            required = topic_by_id[prerequisite]
+            required_lesson = ledger.topic_lesson(required)
+            if (
+                coverage == "tour"
+                and required.get("coverage") == "tour"
+                and required_lesson["order"] > lesson["order"]
+            ):
                 fail(
-                    f"{concept_id}: prerequisite {prerequisite!r} is taught "
-                    "in a later chapter"
+                    f"{topic_id}: prerequisite {prerequisite!r} is taught in {required_lesson['id']}, "
+                    f"after {lesson['id']}"
                 )
 
-        evidence = concept.get("evidence", [])
+        evidence = topic.get("evidence", [])
         if not evidence:
-            fail(f"{concept_id}: at least one evidence path is required")
+            fail(f"{topic_id}: at least one evidence path is required")
         for relative_path in evidence:
             evidence_count += 1
-            if not (ROOT / relative_path).exists():
-                fail(f"{concept_id}: missing evidence path {relative_path!r}")
+            if not (KRS / relative_path).exists():
+                fail(f"{topic_id}: missing evidence path {relative_path!r}")
 
     visiting: list[str] = []
     visited: set[str] = set()
 
-    def visit(concept_id: str) -> None:
-        if concept_id in visiting:
-            start = visiting.index(concept_id)
-            fail(f"prerequisite cycle: {' -> '.join(visiting[start:] + [concept_id])}")
-        if concept_id in visited:
+    def visit(topic_id: str) -> None:
+        if topic_id in visiting:
+            start = visiting.index(topic_id)
+            fail(f"prerequisite cycle: {' -> '.join(visiting[start:] + [topic_id])}")
+        if topic_id in visited:
             return
-        visiting.append(concept_id)
-        for prerequisite in concept_by_id[concept_id].get("prerequisites", []):
+        visiting.append(topic_id)
+        for prerequisite in topic_by_id[topic_id].get("prerequisites", []):
             visit(prerequisite)
         visiting.pop()
-        visited.add(concept_id)
+        visited.add(topic_id)
 
-    for concept_id in concept_ids:
-        visit(concept_id)
+    for topic_id in topic_ids:
+        visit(topic_id)
 
-    review = ledger.get("surface_review", {})
+    review = ledger.raw.get("surface_review", {})
     status_payload = "".join(
-        f"{concept['id']}={concept['status']}\n"
-        for concept in sorted(concepts, key=lambda item: item["id"])
+        f"{topic['id']}={topic['status']}\n" for topic in sorted(topics, key=lambda item: item["id"])
     )
     status_digest = hashlib.sha256(status_payload.encode()).hexdigest()
-    if review.get("concept_status_sha256") != status_digest:
+    if review.get("topic_status_sha256") != status_digest:
         fail(
-            "concept statuses changed without refreshing the surface review; "
-            f"expected concept_status_sha256 = {status_digest!r}"
+            "topic statuses changed without refreshing the surface review; "
+            f"expected topic_status_sha256 = {status_digest!r}"
         )
 
-    for synthesis in ledger.get("synthesis", []):
+    for synthesis in ledger.rows("synthesis"):
         synthesis_id = synthesis.get("id")
         if synthesis.get("status") not in {"deferred", "published"}:
             fail(f"{synthesis_id}: synthesis status must be deferred or published")
-        for concept_id in synthesis.get("requires", []):
-            if concept_id not in known_concepts:
-                fail(f"{synthesis_id}: unknown synthesis requirement {concept_id!r}")
-            gloss = concept_by_id[concept_id].get("gloss")
+        for topic_id in synthesis.get("requires", []):
+            if topic_id not in topic_by_id:
+                fail(f"{synthesis_id}: unknown synthesis requirement {topic_id!r}")
+            gloss = topic_by_id[topic_id].get("gloss")
             if not isinstance(gloss, str) or not gloss.strip():
-                fail(f"{synthesis_id}: requirement {concept_id!r} needs a gloss")
+                fail(f"{synthesis_id}: requirement {topic_id!r} needs a gloss")
 
-    lessons = ledger.get("lesson", [])
-    repeated = duplicates([lesson.get("id") for lesson in lessons])
-    if repeated:
-        fail(f"duplicate lesson IDs: {repeated}")
-    for lesson in lessons:
+    browser_lessons = ledger.rows("browser_lesson")
+    require_unique("browser lesson IDs", [lesson.get("id") for lesson in browser_lessons])
+    for lesson in browser_lessons:
         lesson_id = lesson.get("id")
         if lesson.get("status") not in {"deferred", "published"}:
-            fail(f"{lesson_id}: lesson status must be deferred or published")
+            fail(f"{lesson_id}: browser lesson status must be deferred or published")
         route = lesson.get("route")
         if not isinstance(route, str) or not route.startswith("/"):
-            fail(f"{lesson_id}: lesson route must be an absolute site path: {route!r}")
-        fixture = ROOT / lesson.get("fixture", "")
-        seed = ROOT / lesson.get("seed", "")
+            fail(f"{lesson_id}: browser lesson route must be an absolute site path: {route!r}")
+        fixture = KRS / lesson.get("fixture", "")
+        seed = KRS / lesson.get("seed", "")
         if not fixture.is_file():
             fail(f"{lesson_id}: missing fixture {lesson.get('fixture')!r}")
         if not seed.is_file():
@@ -159,9 +218,11 @@ def main() -> None:
         if seed.read_bytes() != fixture.read_bytes():
             fail(f"{lesson_id}: seed differs from its fixture; run `bun run sync:snippets`")
 
+    accepted = sum(lesson["status"] == "accepted" for lesson in lessons)
     print(
-        f"tour ledger passed: {len(chapters)} chapters, "
-        f"{len(concepts)} concepts, {len(lessons)} lessons, {evidence_count} evidence paths"
+        f"tour ledger passed: {len(parts)} parts, {len(lessons)} lessons ({accepted} accepted), "
+        f"{len(concepts)} concepts, {len(topics)} topics, {len(pages)} pages, "
+        f"{len(browser_lessons)} browser lessons, {evidence_count} evidence paths"
     )
 
 

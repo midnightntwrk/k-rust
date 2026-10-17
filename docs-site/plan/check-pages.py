@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import re
 import sys
-import tomllib
 from collections import Counter
 from html import unescape
 from posixpath import dirname, join, normpath
@@ -13,13 +12,15 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 
-ROOT = Path(__file__).resolve().parents[2] / "krs"
-LEDGER = Path(__file__).resolve().parent / "tour.toml"
-PAGES = ROOT.parent / "docs-site" / "src" / "pages"
-VOCS_CONFIG = ROOT.parent / "docs-site" / "vocs.config.ts"
-FACADE = ROOT / "crates" / "krs" / "src" / "lib.rs"
-BUILTIN_FACADE = ROOT / "crates" / "krs" / "src" / "builtin.rs"
-CLI_MAIN = ROOT / "crates" / "krs-cli" / "src" / "main.rs"
+from ledger import KRS, PLAN, Ledger
+
+
+SITE = PLAN.parent
+PAGES = SITE / "src" / "pages"
+VOCS_CONFIG = SITE / "vocs.config.ts"
+FACADE = KRS / "crates" / "krs" / "src" / "lib.rs"
+BUILTIN_FACADE = KRS / "crates" / "krs" / "src" / "builtin.rs"
+CLI_MAIN = KRS / "crates" / "krs-cli" / "src" / "main.rs"
 
 
 def fail(message: str) -> None:
@@ -60,8 +61,8 @@ def documentation_pages() -> dict[str, Path]:
             previous = pages.get(route)
             if previous is not None:
                 fail(
-                    f"pages {previous.relative_to(ROOT)} and "
-                    f"{page.relative_to(ROOT)} both define route {route}"
+                    f"pages {previous.relative_to(SITE)} and "
+                    f"{page.relative_to(SITE)} both define route {route}"
                 )
             pages[route] = page
     return pages
@@ -179,33 +180,34 @@ def resolve_internal_link(target: str, source_route: str) -> tuple[str, str] | N
     return route, unquote(parsed.fragment)
 
 
-def main() -> None:
-    with LEDGER.open("rb") as source:
-        ledger = tomllib.load(source)
+def concept_marker(page: Path) -> list[str]:
+    marker = re.search(r"\{/\*\s*tour-concepts:\s*([^*]*)\*/\}", page.read_text(encoding="utf-8"))
+    return marker.group(1).split() if marker else []
 
-    chapters = ledger.get("chapter", [])
-    syntheses = ledger.get("synthesis", [])
-    lessons = ledger.get("lesson", [])
-    concepts = ledger.get("concept", [])
+
+def main() -> None:
+    ledger = Ledger.load()
+    pages = [page for page in sorted(ledger.rows("page"), key=lambda row: row["order"]) if not page["retired"]]
+    retired = [page for page in ledger.rows("page") if page["retired"]]
+    lessons = sorted(ledger.rows("lesson"), key=lambda row: row["order"])
+    written = [lesson for lesson in lessons if lesson["status"] != "planned"]
+    syntheses = ledger.rows("synthesis")
+    browser_lessons = ledger.rows("browser_lesson")
+    topics = ledger.rows("topic")
     pages_by_route = documentation_pages()
     # The /k-rust section mirrors k-rust's documentation (docs-site/scripts/sync-k-rust.py) and is
-    # no part of the KRS curriculum; links into it are still checked.
+    # no part of the tour curriculum; links into it are still checked.
     other_pages = {
         route: page for route, page in pages_by_route.items()
         if route == "/k-rust" or route.startswith("/k-rust/")
     }
     pages_by_route = {route: page for route, page in pages_by_route.items() if route not in other_pages}
-    chapter_by_id = {chapter["id"]: chapter for chapter in chapters}
-    concepts_by_chapter: dict[str, list[str]] = {
-        chapter["id"]: [] for chapter in chapters
-    }
-    for concept in concepts:
-        concepts_by_chapter.setdefault(concept["chapter"], []).append(concept["id"])
     declared_routes = (
         ["/"]
-        + [chapter["route"] for chapter in chapters]
+        + [page["route"] for page in pages]
+        + [lesson["route"] for lesson in written]
         + [synthesis["route"] for synthesis in syntheses]
-        + [lesson["route"] for lesson in lessons]
+        + [lesson["route"] for lesson in browser_lessons]
     )
     duplicate_declared_routes = sorted(
         route for route, count in Counter(declared_routes).items() if count > 1
@@ -214,26 +216,32 @@ def main() -> None:
         fail(f"duplicate routes in curriculum ledger: {duplicate_declared_routes}")
     known_routes = set(declared_routes)
 
-    for chapter in chapters:
-        chapter_id = chapter["id"]
-        route = chapter["route"]
+    for lesson in lessons:
+        if lesson["status"] == "planned" and page_for_route(lesson["route"]).is_file():
+            fail(f"planned lesson {lesson['id']!r} already has a page at {lesson['route']}")
+    for page in retired:
+        if page_for_route(page["route"]).is_file():
+            fail(f"retired page {page['id']!r} still exists at {page['route']}")
+
+    # Every page and written lesson declares exactly the topics whose destination it is.
+    topics_by_destination: dict[str, list[str]] = {}
+    for topic in topics:
+        topics_by_destination.setdefault(ledger.destination(topic), []).append(topic["id"])
+    hosts = [(f"page {page['id']!r}", page["route"]) for page in pages] + [
+        (f"lesson {lesson['id']!r}", lesson["route"]) for lesson in written
+    ]
+    for label, route in hosts:
         page = page_for_route(route)
         if not page.is_file():
-            fail(f"chapter {chapter_id!r} is missing page {page.relative_to(ROOT.parent)}")
-        source = page.read_text(encoding="utf-8")
-        marker = re.search(r"\{/\*\s*tour-concepts:\s*([^*]*)\*/\}", source)
-        declared = marker.group(1).split() if marker else []
-        expected = concepts_by_chapter[chapter_id]
+            fail(f"{label} is missing page {page.relative_to(SITE)}")
+        expected = topics_by_destination.get(route, [])
+        declared = concept_marker(page)
         if declared != expected:
-            fail(
-                f"chapter {chapter_id!r} concept marker differs from ledger: "
-                f"expected {expected}, got {declared}"
-            )
-
-    for concept in concepts:
-        chapter_id = concept["chapter"]
-        if chapter_id not in chapter_by_id:
-            fail(f"concept {concept['id']!r} has no canonical chapter route")
+            fail(f"{label} concept marker differs from ledger: expected {expected}, got {declared}")
+    hosted = {route for _, route in hosts}
+    homeless = sorted(set(topics_by_destination) - hosted)
+    if homeless:
+        fail(f"topic destinations that are no published page: {homeless}")
 
     synthesis_routes: dict[str, str] = {}
     for synthesis in syntheses:
@@ -257,26 +265,13 @@ def main() -> None:
                 f"synthesis {synthesis['id']!r} glosses differ from ledger: "
                 f"expected {required}, got {annotated}"
             )
-        if synthesis["status"] == "published":
-            for concept_id in required:
-                concept = next(
-                    (item for item in concepts if item["id"] == concept_id), None
-                )
-                if concept is None:
-                    fail(f"published synthesis requires unknown concept {concept_id!r}")
-                destination = chapter_by_id[concept["chapter"]]["route"]
-                if not page_for_route(destination).is_file():
-                    fail(
-                        f"published synthesis requirement {concept_id!r} "
-                        f"has no page at {destination}"
-                    )
 
-    for lesson in lessons:
+    for lesson in browser_lessons:
         lesson_page = page_for_route(lesson["route"])
         if not lesson_page.is_file():
-            fail(f"lesson {lesson['id']!r} is missing page for {lesson['route']}")
+            fail(f"browser lesson {lesson['id']!r} is missing page for {lesson['route']}")
         if "<BrowserLesson" not in lesson_page.read_text(encoding="utf-8"):
-            fail(f"lesson {lesson['id']!r} page does not render <BrowserLesson />")
+            fail(f"browser lesson {lesson['id']!r} page does not render <BrowserLesson />")
 
     config = VOCS_CONFIG.read_text(encoding="utf-8")
     sidebar_routes = [
@@ -292,38 +287,29 @@ def main() -> None:
     if unknown_sidebar_routes:
         fail(f"primary sidebar contains unknown routes: {unknown_sidebar_routes}")
 
-    expected_chapter_routes = [
-        chapter["route"] for chapter in sorted(chapters, key=lambda item: item["order"])
-    ]
-    actual_chapter_routes = [
-        route for route in sidebar_routes if route in set(expected_chapter_routes)
-    ]
-    if actual_chapter_routes != expected_chapter_routes:
-        fail(
-            "primary sidebar does not contain chapter routes in ledger order: "
-            f"expected {expected_chapter_routes}, got {actual_chapter_routes}"
-        )
+    for label, expected_routes in (
+        ("pages", [page["route"] for page in pages]),
+        ("lessons", [lesson["route"] for lesson in written]),
+    ):
+        actual = [route for route in sidebar_routes if route in set(expected_routes)]
+        if actual != expected_routes:
+            fail(
+                f"primary sidebar does not contain the ledger's {label} in ledger order: "
+                f"expected {expected_routes}, got {actual}"
+            )
 
     for route, status in synthesis_routes.items():
         if status == "deferred" and route in sidebar_routes:
             fail(f"deferred synthesis route must stay out of primary sidebar: {route}")
         if status == "published" and route not in sidebar_routes:
             fail(f"published synthesis route is absent from primary sidebar: {route}")
-        if status == "published" and sidebar_routes.index(route) <= max(
-            sidebar_routes.index(chapter_route)
-            for chapter_route in expected_chapter_routes
-        ):
-            fail(
-                "published synthesis must follow every dependency-ordered chapter "
-                f"in the primary sidebar: {route}"
-            )
 
-    for lesson in lessons:
+    for lesson in browser_lessons:
         route = lesson["route"]
         if lesson["status"] == "deferred" and route in sidebar_routes:
-            fail(f"deferred lesson route must stay out of primary sidebar: {route}")
+            fail(f"deferred browser lesson route must stay out of primary sidebar: {route}")
         if lesson["status"] == "published" and route not in sidebar_routes:
-            fail(f"published lesson route is absent from primary sidebar: {route}")
+            fail(f"published browser lesson route is absent from primary sidebar: {route}")
 
     actual_routes = set(pages_by_route)
     missing_routes = sorted(known_routes - actual_routes)
@@ -372,7 +358,7 @@ def main() -> None:
 
     facade = FACADE.read_text(encoding="utf-8")
     reference = page_for_route("/reference/language").read_text(encoding="utf-8")
-    review = ledger.get("surface_review", {})
+    review = ledger.raw.get("surface_review", {})
     macro_exports_match = re.search(
         r"pub use krs_macros::\{(?P<exports>.*?)\};", facade, re.DOTALL
     )
@@ -430,8 +416,8 @@ def main() -> None:
         fail(f"composition page omits definition metadata keys: {missing_metadata}")
 
     print(
-        f"tour pages passed: {len(chapters)} chapters, "
-        f"{len(syntheses)} syntheses, {len(lessons)} lessons, {len(pages_by_route)} pages, "
+        f"tour pages passed: {len(pages)} earlier pages, {len(written)} written lessons, "
+        f"{len(syntheses)} syntheses, {len(browser_lessons)} browser lessons, {len(pages_by_route)} pages, "
         f"{len(sidebar_routes)} primary routes, {checked_links} internal links, "
         f"{checked_fragments} anchor links"
     )

@@ -9,17 +9,17 @@ import { ConceptGloss } from '../../components/ConceptGloss'
 
 {/* synthesis-concepts: host-object-split symbolic-terms declarative-relational-rules open-sorts subsort-membership framework-sorts core-builtins constructor-families syntax-templates precedence-associativity fixed-configurations configuration-init single-item-sequence rule-tables */}
 
-This synthesis returns to an object language with two terms—`foo` and `bar`—and one transition from the first to the second.
-After the dependency-ordered tour, the example is small enough to show how every part of a complete definition fits together at once.
+This optional preview shows a complete definition of an object language with two terms—`foo` and `bar`—and one transition from the first to the second.
+The tour introduces each construct below one at a time; the preview shows how the parts of a complete definition fit together before you start.
 
 :::info
-If you landed here directly, focus first on the host/object-language distinction and the `foo → bar` behavior.
-Every unfamiliar construct has a generated hover/focus explanation and a link to the chapter that introduces it in context.
+Focus first on the host/object-language distinction and the `foo → bar` behavior.
+Every unfamiliar construct has a generated hover/focus explanation and a link to the page that explains it in context.
 :::
 
 ## A map for unfamiliar names
 
-Hover or keyboard-focus any dotted label for a one-sentence explanation; selecting it opens the canonical chapter.
+Hover or keyboard-focus any dotted label for a one-sentence explanation; selecting it opens the page that explains it.
 These glosses and destinations are generated from the same curriculum ledger as the full tour.
 
 <ConceptGloss concept="host-object-split">Rust ↔ object language</ConceptGloss>
@@ -110,5 +110,5 @@ python3 tests/tour-minimal/verify.py
 The checked artifacts describe the same theory at each layer: the initial computation contains `foo`, the sole transition rewrites it to `bar`, and no rule rewrites `bar`.
 Actual execution belongs to a stronger pinned consumer gate; that gate is capability-gated rather than silently treated as passing when its K tools are unavailable.
 
-That is the complete tour in miniature.
-Return to [current boundaries](/reference/boundaries) for the exact qualification limits, or start the dependency-ordered path again with [what KRS defines](/start/what-krs-defines).
+That is the whole definition in miniature.
+Start the dependency-ordered path with [what KRS defines](/start/what-krs-defines), or see [current boundaries](/reference/boundaries) for the exact qualification limits.
