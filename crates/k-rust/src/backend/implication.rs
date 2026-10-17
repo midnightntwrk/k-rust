@@ -601,6 +601,12 @@ mod tests {
 
     /// A condition binding a term 200,000 levels deep is written on an 8 MiB stack: the output is
     /// built, written, and dropped without native recursion over the term.
+    ///
+    /// The consequent's variable is existential: `c^n(z) -> \exists X. X` holds by the witness
+    /// `X = c^n(z)`, decided by matching alone, so the verdict carries the deep condition in every
+    /// solver profile. A universal consequent variable would leave the obligation `X = c^n(z)`,
+    /// whose answer (and so whether a condition is reported) depends on the solver, which this
+    /// stack test must not depend on.
     #[test]
     fn the_cli_output_of_a_deep_condition_takes_no_native_stack_per_level() {
         const DEPTH: usize = 200_000;
@@ -608,13 +614,14 @@ mod tests {
             .stack_size(8 << 20)
             .spawn(|| {
                 let (antecedent, consequent, verdict, sort) =
-                    chain_implication(&chain(DEPTH), "X:SortK{}");
+                    chain_implication(&chain(DEPTH), r"\exists{SortK{}}(X:SortK{}, X:SortK{})");
+                assert_eq!(verdict.status(), ImplicationStatus::Valid);
                 cli_output(&antecedent, &consequent, &sort, verdict).unwrap()
             })
             .unwrap()
             .join()
             .unwrap();
-        // The term is written twice: in the implication and in the condition's substitution.
+        // The term is written twice: in the implication and in the condition's witness.
         assert_eq!(output.matches(r#""name": "c""#).count(), 2 * DEPTH);
     }
 }
