@@ -10,7 +10,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 from support import GateError  # noqa: E402
-from support.lsp import Session, token_range, version  # noqa: E402
+from support.lsp import Session, token_range  # noqa: E402
 from support.tools import checkout_scratch  # noqa: E402
 
 
@@ -21,7 +21,6 @@ TOKEN = "syntax"
 
 
 def main() -> None:
-    analyzer = version()
     target = Path(os.environ.get("KRS_IMP_PROBE_TARGET_ROOT", checkout_scratch())) / "rust-analyzer"
     capabilities = {
         "workspace": {"configuration": True},
@@ -40,7 +39,9 @@ def main() -> None:
         expected = token_range(TEXT, TOKEN, after="#[k::constructor")
         if len(matching) != 1 or matching[0].get("range") != expected:
             raise GateError(f"expected one exact authored `{TOKEN}` range {expected}, got {matching!r}")
-        print(json.dumps({"rust_analyzer": analyzer, "range": expected, "token": TOKEN}, sort_keys=True))
+        # The report is pinned (IMP.8), and the gate accepts any stable rust-analyzer, so it names
+        # the authored range and token only, not the analyzer's version.
+        print(json.dumps({"range": expected, "token": TOKEN}, sort_keys=True))
 
 
 if __name__ == "__main__":
