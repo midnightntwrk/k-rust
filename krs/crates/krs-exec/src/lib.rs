@@ -949,6 +949,21 @@ impl Semantics {
         )
     }
 
+    /// Print the first item of a term's `<k>` cell through the definition's grammar, as
+    /// [`Semantics::unparse`] prints it inside the whole term: `Some(None)` when `<k>` is empty,
+    /// `None` without a `<k>` cell (see [`Term::k_head_kore`]).
+    ///
+    /// A symbol without a printable production is printed as KAST and reported in [`Printed::warnings`].
+    #[must_use]
+    pub fn unparse_k_head(&self, term: &Term) -> Option<Option<Printed>> {
+        term.k_head_kore().map(|head| {
+            head.map(|item| {
+                self.unparser
+                    .print_kore(item, &krs_unparse::Options::new(krs_unparse::Mode::Pretty))
+            })
+        })
+    }
+
     fn steps(&mut self, trace: &[TraceEntry]) -> Vec<Step> {
         trace
             .iter()
