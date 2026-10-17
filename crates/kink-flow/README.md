@@ -48,7 +48,7 @@ Defaults:
 | `spec.syntax_module` | none | k-rust then uses `<main_module>-SYNTAX` if it exists, else the main module (a kompile warning). |
 | `spec.include_dirs` | `["."]` | The manifest's directory. |
 | `spec.md_selector` | `"k"` | |
-| `budget.time_ms` | `10000` | Wall-clock bound of one program run; must be positive. |
+| `budget.time_ms` | `10000` | Wall-clock bound of one program run; must be positive. A run whose state set kink replaces by its path set (an undefined step, a vacuous leaf or a contradicted claim) is two runs, each with this bound, so it can take up to twice as long. |
 | `budget.max_depth` | `100000` | Rewrite-depth bound of one program run; must be positive. A run is never unbounded. |
 | `budget.work_factor` | absent | The work budget of a mutant's run of a program: at most `work_factor * W + 10000` states visited (k-rust `max_work`), where `W` is the states the program's baseline run visited; must be positive. A mutant that runs past it is `unknown` on that program (never killed by it), long before `time_ms` would stop it. Absent: no work budget. It never bounds a baseline run. |
 | `program.start_sort` | the sort of `$PGM` | |

@@ -181,7 +181,9 @@ impl SolverProfile {
 /// Limits of one execution.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ExecutionBudget {
-    /// Wall-clock budget of one run (the watchdog's).
+    /// Wall-clock budget of one run (the watchdog's). A result run whose state set is replaced
+    /// by its path set ([`ExecutionAdapter::execute_result`]) is two runs, each with this whole
+    /// budget and a fresh watchdog, so it can take up to twice as long.
     pub time: Duration,
     /// Simplifier iterations per rewrite step. Exhaustion is a backend diagnostic.
     pub max_simplification_iterations: usize,
@@ -212,7 +214,11 @@ pub enum ResultModality {
     /// Structurally equal final configurations merged, each distinct state of a depth expanded
     /// once (k-rust's default). Its complete results have exactly the distinct final
     /// configurations of the path set of the same request, diagnostics included (re-pin
-    /// decision 3: k-rust executes the definition correctly, its merge included).
+    /// decision 3: k-rust executes the definition correctly, its merge included). It has fewer
+    /// leaves where paths converge, and it can be complete where the path set of the same
+    /// bounds is not: an earlier stuck leaf absorbs a later depth-bound or indeterminate leaf of
+    /// its configuration (k-rust `docs/backend-port.md`, "Final search depth cuts"; re-pin
+    /// L1-1-fix-1).
     #[default]
     StateSet,
 }
@@ -591,7 +597,10 @@ impl ExecutionAdapter {
     /// `run`. A state set none of whose leaves is an undefined step, a vacuous leaf or a
     /// contradicted claim ([`path_set_leaf`]) is returned as it is; otherwise the path set of the
     /// same request replaces it, so every such leaf kink's exclusions read has its own rule and
-    /// multiplicity. A timed-out state set is returned as it is: it publishes no leaf.
+    /// multiplicity. A timed-out state set is returned as it is: it publishes no leaf. The
+    /// replacement reads this run's leaves only, so the baseline's and a mutant's runs of one
+    /// test can end in different modalities ([`AdaptedExecution::modality`]); a replaced run
+    /// takes up to twice `budget.time` ([`ExecutionBudget::time`]).
     pub fn execute_result(
         &self,
         backend: &mut Backend,

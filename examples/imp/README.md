@@ -42,8 +42,10 @@ Since re-pin L1-1 every program run is one unobserved k-rust state-set run: k-ru
 configurations and expands each distinct state of a depth once, so the evaluation orders of the
 `strict` operators meet again instead of multiplying (k-rust KINK-01). A complete state set has
 exactly the distinct final configurations of the path set (re-pin decision 3; kink-flow
-`tests/modality.rs` checks it on this corpus, every program under both modalities). A mutant's
-run may also carry a work budget (`[budget] work_factor`, set to 4 above).
+`tests/modality.rs` checks it on this corpus, on demand: every program on the baseline and on all
+21 mutants under both modalities; re-pin L1-1-fix-1 found no difference in 143 compared runs, and
+11 mutant runs finished only as state sets). A mutant's run may also carry a work budget
+(`[budget] work_factor`, set to 4 above).
 
 A cold `run` in corpus order (`--order corpus`, release binary, under the 24 GiB scope, host
 load 18-20): 20.7 s and 0.11 GiB peak, against 140.1 s and 10.2 GiB at 1ee9955 (path sets, load
@@ -54,7 +56,12 @@ killed, `add-commuted` survives). Two things change, both because runs now finis
   bound, so it was `timeout`), so every mutation's call also runs it. It kills nothing; the
   calls are otherwise those of the path-set run.
 - `and-false-returns-rhs` is killed by `primes`, whose mutant run ended as a path set only at the
-  time bound (still not after 120 s), instead of by `and`.
+  time bound (still not after 120 s), instead of by `and`. The kill rests on re-pin decision 3
+  (k-rust's state-set merge is correct). The L1-1 review confirmed it without that premise: the
+  baseline's `primes` path set is complete with one distinct final configuration (`s = 2`), and one
+  concrete path of the mutant ends stuck outside it (`s = 0`); every path of an IMP program ends in
+  one configuration, since only the order of side-effect-free strict arguments varies.
+  `crates/kink-flow/tests/imp_primes_kill.rs` (ignored, on demand) repeats that confirmation.
 Five mutant runs that ran out the time bound before now end in the work bound, within about
 0.2 s (`unknown` on that program, where it was `timeout`; the cause names the budget and the
 census says `work-bound 1`), and so do three of the new `collatz` runs; none of these programs

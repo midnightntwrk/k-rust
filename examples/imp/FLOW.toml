@@ -28,8 +28,9 @@ file = "programs/sum.imp"
 id = "primes"
 file = "programs/primes.imp"
 
-# collatz takes about 36 s on the baseline even with m = 3, so it is `timeout` under
-# this budget and cannot kill a mutant; it stays as evidence of the cost (README.md).
+# collatz took about 36 s on the baseline as a path set even with m = 3, so before re-pin
+# L1-1 it was `timeout` under this budget; as a state set it ends in about 10 ms and is
+# comparable, so every mutation's search runs it (it kills none; README.md).
 [[program]]
 id = "collatz"
 file = "programs/collatz.imp"

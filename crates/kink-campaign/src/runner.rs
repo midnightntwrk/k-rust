@@ -19,7 +19,10 @@
 //!   a `work-bound` leaf, and every other incomplete run is `Unknown`, including a backend
 //!   diagnostic.
 //! - A single crash terminal is a `SemanticCrash` side carrying its terminal term; a
-//!   crash among several terminals is `Unknown`.
+//!   crash among several terminals is `Unknown`. This counts terminal leaves, not distinct
+//!   configurations: a path set with two paths to one crash configuration is `Unknown`, and the
+//!   state set of the same request, which merges them into one leaf, is a crash side (re-pin
+//!   L1-1-fix-1; a kill through it rests on decision 3, `tests/state_set_routes.rs` route 1).
 //! - A terminal term with a free variable is `Unknown`. A symbolic run's complete stuck leaf
 //!   stands for all of its instances, so its term is not one value: comparing such terms
 //!   structurally, or classifying them, is not a comparison of the values the programs compute.
@@ -274,13 +277,19 @@ pub struct CampaignOptions {
 /// [`run_campaign`] and [`run_campaign_multi`]'s callers in kink use unless they choose otherwise.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RunOptions {
-    /// The modality of every result run: the run of a test with no pattern oracle, on the
-    /// baseline and on every mutant (k-rust's state set by default). A test with a pattern oracle
-    /// runs as a stepped path set on both sides, and its fallback run when stepping fails is a
-    /// path set too, so within one test both sides always use one modality. A state set whose
-    /// leaves include an undefined step, a vacuous leaf or a contradicted claim is replaced by
-    /// the path set of the same request (kink-native `ExecutionAdapter::execute_result`).
-    /// `PathSet` is today's reading at 1ee9955, kept for the modality differential.
+    /// The modality requested for every result run: the run of a test with no pattern oracle,
+    /// on the baseline and on every mutant (k-rust's state set by default). A test with a pattern
+    /// oracle runs as a stepped path set on both sides, and its fallback run when stepping fails
+    /// is a path set too. A state set whose leaves include an undefined step, a vacuous leaf or a
+    /// contradicted claim is replaced by the path set of the same request (kink-native
+    /// `ExecutionAdapter::execute_result`). That replacement is decided per side, from that
+    /// side's own leaves, so the two sides of one test can differ: a baseline state set without
+    /// an undefined step is compared with a mutant path set that has one (re-pin L1-1-fix-1,
+    /// kink-campaign `tests/state_set_routes.rs` route 2). Sides are compared as sets of
+    /// projected final configurations, which decision 3 makes the same in both modalities; the
+    /// single-crash rule of [`state_side`] reads the number of terminal leaves, though, so a
+    /// state-set side can be a crash side where the path set of the same request is `Unknown`
+    /// (route 1). `PathSet` is the reading at 1ee9955, kept for the modality differential.
     pub result_modality: ResultModality,
     /// The work budget of every mutant result run ([`WorkBudget`]).
     pub work: WorkBudget,
@@ -1869,8 +1878,10 @@ impl Runtime {
     /// The request is a function of the test (re-pin L1-1): a test with a pattern oracle runs as
     /// a stepped path set, and when stepping fails its run is a path-set result run, so both
     /// sides of such a test are path sets; any other test runs as a result run in this side's
-    /// modality, which is the campaign's. `max_work` bounds result runs only, never a stepped run
-    /// ([`WorkBudget`]).
+    /// modality, which is the campaign's. The leaves need not be in that modality: a state set
+    /// with an undefined step, a vacuous leaf or a contradicted claim is replaced by its path set
+    /// on this side alone ([`RunOptions::result_modality`]). `max_work` bounds result runs only,
+    /// never a stepped run ([`WorkBudget`]).
     fn execute(
         &mut self,
         campaign: &Campaign<'_>,
