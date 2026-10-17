@@ -242,8 +242,11 @@ fn read_report(
     {
         return Err(invalid("campaign manifest or report identity"));
     }
-    if !kink_campaign::same_admission(campaign) {
-        return Err(invalid("campaign mutant admission algorithms"));
+    if let Some(key) = kink_campaign::identity_difference(&campaign["kink"]) {
+        return Err(invalid(format!(
+            "campaign kink identity (`{key}` is missing or differs: other mutant admission \
+             algorithms, exclusions or execution requests)"
+        )));
     }
     if campaign["admission"]["verdict"] != "natural"
         && campaign["admission"]["verdict"] != "flagged"

@@ -526,25 +526,34 @@ fn a_change_of_an_input_misses_tier_1() {
 
 #[test]
 fn hand_edited_contexts_and_records_are_ignored() {
-    // (c): a hand-changed context field (kink_build, k_rust_revision, result_schema), a
-    // hand-changed baseline run digest (record digest recomputed), a record whose digest does
-    // not recompute and a record whose outcome contradicts its slots each miss. One forgery
-    // per mutation file, so one run checks them all.
+    // (c): a hand-changed context field (kink_build, and the k_rust_revision and result_schema
+    // of the context's kink identity, packet CACHE-ID), a hand-changed baseline run digest
+    // (record digest recomputed), a record whose digest does not recompute and a record whose
+    // outcome contradicts its slots each miss. One forgery per mutation file, so one run checks
+    // them all.
     let (dir, cold) = calc_after_cold("forged");
     let manifest = dir.join("FLOW.toml");
     let mutations = dir.join("MUTATIONS.toml");
     for (id, field, value) in [
-        ("add-becomes-sub", "kink_build", json!("0".repeat(64))),
-        ("sub-off-by-one", "k_rust_revision", json!("0".repeat(40))),
+        (
+            "add-becomes-sub",
+            "/context/kink_build",
+            json!("0".repeat(64)),
+        ),
+        (
+            "sub-off-by-one",
+            "/context/kink/k_rust_revision",
+            json!("0".repeat(40)),
+        ),
         (
             "mul-becomes-add",
-            "result_schema",
+            "/context/kink/result_schema",
             json!("kink-flow/result/v1"),
         ),
     ] {
         let path = outcome_file(&manifest, &cold, id);
         let mut file = read_json(&path);
-        file["context"][field] = value;
+        *file.pointer_mut(field).unwrap() = value;
         write_json(&path, &file);
     }
     forge_record(&manifest, &cold, "no-mul", "nested", true, |r| {
@@ -586,6 +595,81 @@ fn hand_edited_contexts_and_records_are_ignored() {
         mutation(&warm, "add-becomes-sub")["killer_source"],
         "outcome-cache"
     );
+}
+
+/// Packet CACHE-ID: the tier-1 context holds kink's semantics identity (kink-campaign
+/// `identity`). An outcome file written under a context of a build before CACHE-ID (no `kink`
+/// member, its three admission versions at the top level, as at 64b56fa) or under any one other
+/// identity component lies in another context directory, and the same file placed in this
+/// build's directory is ignored: its context is not this build's.
+#[test]
+fn an_outcome_written_under_another_identity_is_ignored() {
+    use kink_flow::{
+        digest::{EXECUTION_DIGEST_KIND, ExecutionDigest, outcome_context},
+        manifest::Budget,
+        outcomes::{CachedOutcome, OutcomeRecord, OutcomeStore},
+    };
+    let cache = scratch("identity");
+    let store = kink_corpus::Store::new(&cache);
+    let context = outcome_context(
+        kink_patch::sha256(b"kink build"),
+        ExecutionDigest {
+            kind: EXECUTION_DIGEST_KIND,
+            digest: kink_patch::sha256(b"specification"),
+        },
+        Budget::default(),
+    );
+    assert_eq!(context["kink"], kink_campaign::kink_identity());
+    let identity = kink_patch::sha256(b"mutation");
+    let program = kink_patch::sha256(b"program").to_string();
+    let record = OutcomeRecord {
+        program_id: "program".into(),
+        baseline_run_sha256: "0".repeat(64),
+        outcome: CachedOutcome::Killed,
+        slots: vec![
+            kink_campaign::OracleOutcome::Distinguish,
+            kink_campaign::OracleOutcome::Agree,
+        ],
+        mutant_run_sha256: "1".repeat(64),
+        allowance_bytes: None,
+    };
+    let records = [(program.clone(), record)];
+    let here = OutcomeStore::new(&cache, context.clone());
+    let mut before = context.clone();
+    let object = before.as_object_mut().unwrap();
+    object.remove("kink");
+    for key in [
+        "k_rust_revision",
+        "result_schema",
+        "claim_removal",
+        "mutant_consistency",
+        "mutant_effect",
+    ] {
+        object.insert(key.into(), context["kink"][key].clone());
+    }
+    let mut stale = vec![("before CACHE-ID", before)];
+    for component in kink_campaign::KINK_IDENTITY {
+        let mut changed = context.clone();
+        changed["kink"][component.key] = json!(format!("{}-other", component.value));
+        stale.push((component.key, changed));
+    }
+    for (name, stale) in stale {
+        here.write(&store, identity, "m", &json!(null), &records)
+            .unwrap();
+        assert_eq!(here.read(identity).len(), 1, "{name}: control");
+        let there = OutcomeStore::new(&cache, stale);
+        assert_ne!(there.context_sha256(), here.context_sha256(), "{name}");
+        there
+            .write(&store, identity, "m", &json!(null), &records)
+            .unwrap();
+        assert_eq!(
+            there.read(identity).len(),
+            1,
+            "{name}: the stale build's own read"
+        );
+        fs::copy(there.path(identity), here.path(identity)).unwrap();
+        assert!(here.read(identity).is_empty(), "{name}");
+    }
 }
 
 #[test]
@@ -1953,7 +2037,7 @@ id = "denominator"
         let file = read_json(&outcome_file(&manifest, &document, "denominator"));
         assert_eq!(file["removed_claims"], row["removed_claims"], "{file:#}");
         assert_eq!(
-            file["context"]["claim_removal"],
+            file["context"]["kink"]["claim_removal"],
             json!(kink_patch::CLAIM_REMOVAL_VERSION)
         );
     }

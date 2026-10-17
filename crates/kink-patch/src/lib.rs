@@ -46,7 +46,7 @@ mod sort;
 mod typing;
 mod universe;
 
-pub use apply::{Mutant, SentenceOrigin, TypingDiagnostic, apply};
+pub use apply::{Mutant, PATCH_ADMISSION_VERSION, SentenceOrigin, TypingDiagnostic, apply};
 pub use candidate::{
     Bindings, Candidate, CandidateDisposition, CandidateFailure, CandidateFailureKind,
     CandidateGeneration, Completeness, Discovery, DiscoveryTuple, PatchOrigin, Selection,

@@ -99,7 +99,7 @@ Only comparable programs can kill a mutant; the others are reported and never co
 
 The cache is `.kink-flow/` next to `FLOW.toml` (or `--cache DIR`); deleting it is always safe.
 One JSON record per program, `results/<spec digest>/<program digest>.json`, holds its key
-(result schema version `kink-flow/result/v4`, the two digests and the budget), class and cause,
+(result schema version `kink-flow/result/v4`, kink's semantics identity `kink`, the two digests and the budget), class and cause,
 the baseline row exactly as the campaign report encodes it with the digest of its `run` part
 (`run_sha256`, comparable programs only), the final configuration as KORE text, the rule
 coverage, and `wall_ms`, the wall time of the program's live baseline run (outside the key and
@@ -107,7 +107,10 @@ the run digest; it orders the kill search, see `run`). The specification digest 
 specification is loaded and every source file the load reads; the program digest covers the
 program's bytes, start sort and variables, never its id. A record is used only when its key is
 the current key, so editing a program reruns that program, and editing the specification,
-the budget or kink's result schema reruns everything.
+the budget or kink's result schema reruns everything. So does a kink build with another semantics
+identity (packet CACHE-ID): the identity (kink-campaign `identity`) names every kink algorithm a
+program's class can depend on (the definition exclusions, the execution request, ...), and a
+record written by a build before CACHE-ID has no `kink` in its key, so it is recomputed.
 
 Within one command each program's baseline runs at most once: every campaign call of the command
 (the zero-mutant campaigns here, the kill search's calls in `run`) goes through one in-memory
@@ -346,10 +349,12 @@ Besides `results/` and `report.json` (the last run's document, also written when
 - `outcomes/<context digest>/<mutation identity>.json`, tier 1:
   `{schema: "kink-flow-outcomes", version: 1, context, context_sha256, mutation_identity, mutation_id, removed_claims, records: {<program digest>: {program_id, baseline_run_sha256, outcome, slots, mutant_run_sha256, allowance_bytes, record_sha256}}}`.
   `removed_claims` is the row's (below), for the reader only: it is read back by nothing and is in no digest.
-  The context is `{outcome_schema: "kink-flow/outcome/v1", result_schema, kink_build, k_rust_revision, profile, execution_digest: {kind, digest}, budget, oracles, classifier, schedule, claim_removal, mutant_consistency, mutant_effect}` (with `work_factor` set, `budget` also holds `work: {factor, floor}`):
+  The context is `{outcome_schema: "kink-flow/outcome/v1", kink_build, kink, profile, execution_digest: {kind, digest}, budget, oracles, classifier, schedule}` (with `work_factor` set, `budget` also holds `work: {factor, floor}`):
+  `kink` is kink's semantics identity (kink-campaign `identity`, packet CACHE-ID), `{k_rust_revision, fingerprint, canonical_patch, compiled_kore, patch_admission, claim_removal, mutant_consistency, mutant_effect, definition_exclusion, execution_request, result_schema, coverage}`, the version of every kink algorithm an outcome can depend on. Among them:
   `claim_removal` is kink-patch's `CLAIM_REMOVAL_VERSION`, since the mutant every record ran on depends on the claim-removal algorithm (v2 since re-pin R0c-fix-3: the reach follows the overload and unit axioms; v3 since R0c-fix-4: a rule with configuration context is an equation of its head);
   `mutant_consistency` is kink-native's `MUTANT_CONSISTENCY_VERSION`, since a mutant runs (and a record exists) only when its equations are shown consistent (v2 since R0c-fix-4: the check's guard reads the equation and skipped-pair counts);
   `mutant_effect` is kink-native's `MUTANT_EFFECT_VERSION`, since the symbols the check reads, and the cross-check of kink-patch's source reading, come from the compiled definitions (re-pin R0c-fix-4);
+  `definition_exclusion`, `patch_admission` and `execution_request` name the definition exclusions (re-pin R0-tail), the rule that no typing error refuses a patch (L2-2-fix-1) and the execution request with its state-set modality and work budget (L1-1);
   `kink_build` is the SHA-256 of the running `kink-flow` executable, so any rebuild (debug or release) starts a new context;
   `execution_digest` is today the specification digest (kind `kink-flow/spec/v1`), so any edit of the specification, a comment included, starts a new context.
   The mutation identity hashes each edit's kind, module, the addressed rule's fingerprint, its occurrence among equal fingerprints of the module,
@@ -360,6 +365,7 @@ Besides `results/` and `report.json` (the last run's document, also written when
   and its program is comparable with that baseline run digest; anything else is ignored.
   If the executable cannot be read, tier 1 is disabled for the command (`outcome_cache.reason` says why) and every mutation runs.
 - `hints.json`, tier 2: `{schema: "kink-flow-hints", version: 1, hints: {<hint key>: {program_digest, program_id, mutation_id}}}`.
+  It is the one store outside kink's semantics identity: a hint decides no status, so a hint an older build wrote only orders the search.
   The hint key hashes the mutation's edits as written (without `line`) and the K text of each addressed rule before the edit,
   so a hint survives edits elsewhere in the specification and is lost when the addressed rule's text changes.
   A hint is a scheduling hint only: it changes which killer is found first and the cost, never a status.
@@ -375,8 +381,8 @@ no program is comparable, a corpus error stopped the run, or `--verify` found a 
 
 `run` prints one document and writes the same document to `.kink-flow/report.json` (after every mutation, and once more at the end):
 
-`{schema: "kink-flow-run", version: 6, k_rust_revision, profile, result_schema_version, spec, programs, unusable_programs, mutations, counts, survivors, stopped, outcome_cache, mismatches, baseline_runs, order, untargeted_rules}`.
-Version 3 (F-13) names the oracle slots of an executed entry, and versions 4 to 6 add row fields (below); `report` refuses a document of another version.
+`{schema: "kink-flow-run", version: 7, k_rust_revision, profile, result_schema_version, kink, spec, programs, unusable_programs, mutations, counts, survivors, stopped, outcome_cache, mismatches, baseline_runs, order, untargeted_rules}`.
+Version 3 (F-13) names the oracle slots of an executed entry, versions 4 to 6 add row fields (below), and version 7 (packet CACHE-ID) adds `kink`, kink's semantics identity; `report` refuses a document of another version, or one whose `kink` is not this build's.
 
 | Field | Meaning |
 | --- | --- |

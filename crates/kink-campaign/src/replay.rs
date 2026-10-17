@@ -18,8 +18,7 @@ use kink_native::{
     step_events::StepEventSpec,
 };
 use kink_patch::{
-    Baseline, CAMPAIGN_MANIFEST_DOMAIN, CANONICAL_PATCH_DOMAIN, COMPILED_KORE_DOMAIN,
-    CandidateFailure, CandidateGeneration, FINGERPRINT_DOMAIN, OperatorSpec, Patch,
+    Baseline, CAMPAIGN_MANIFEST_DOMAIN, CandidateFailure, CandidateGeneration, OperatorSpec, Patch,
     PatchFailureKind, SemanticInput, Universe, apply, canonical_json, generate, payload_digest,
     resolve_universe, sha256, structure_sha256,
 };
@@ -281,6 +280,10 @@ fn replay_checked(
     })
 }
 
+/// The environment a report needs: the k-rust revision and provenance encoding, kink's whole
+/// semantics identity (the manifest's `kink` member, [`crate::identity`]; a stale component is
+/// refused as `kink.<key>` before anything is regenerated, packet CACHE-ID) and the solver
+/// profile. The regenerated manifest would also differ (`Declaration`).
 fn check_environment(manifest: &Value) -> Result<(), ReplayRefusal> {
     for (pointer, expected) in [
         ("/k_rust/revision", json!(K_RUST_REVISION)),
@@ -289,14 +292,20 @@ fn check_environment(manifest: &Value) -> Result<(), ReplayRefusal> {
             "/k_rust/provenance_version",
             json!(json::PROVENANCE_VERSION),
         ),
-        ("/kink/fingerprint", json!(FINGERPRINT_DOMAIN)),
-        ("/kink/canonical_patch", json!(CANONICAL_PATCH_DOMAIN)),
-        ("/kink/compiled_kore", json!(COMPILED_KORE_DOMAIN)),
-        ("/profile", json!(SolverProfile::BUILD.name())),
     ] {
         if manifest.pointer(pointer) != Some(&expected) {
             return Err(ReplayRefusal::Environment(pointer[1..].replace('/', ".")));
         }
+    }
+    if let Some(key) = crate::identity::identity_difference(&manifest["kink"]) {
+        return Err(ReplayRefusal::Environment(if key.is_empty() {
+            "kink".to_owned()
+        } else {
+            format!("kink.{key}")
+        }));
+    }
+    if manifest.pointer("/profile") != Some(&json!(SolverProfile::BUILD.name())) {
+        return Err(ReplayRefusal::Environment("profile".to_owned()));
     }
     Ok(())
 }
@@ -454,6 +463,50 @@ mod tests {
             assert_eq!(first_difference(&a, &b, "").as_deref(), Some(expected));
         }
         assert_eq!(first_difference(&json!({}), &json!({}), ""), None);
+    }
+
+    /// Packet CACHE-ID: a report whose manifest names another value of any one component of
+    /// kink's semantics identity, lacks one, adds one or names none is refused in the
+    /// environment check, naming the component.
+    #[test]
+    fn a_manifest_with_another_identity_component_is_refused() {
+        let manifest = json!({
+            "k_rust": {
+                "revision": K_RUST_REVISION,
+                "provenance_format": json::PROVENANCE_FORMAT,
+                "provenance_version": json::PROVENANCE_VERSION,
+            },
+            "kink": crate::identity::kink_identity(),
+            "profile": SolverProfile::BUILD.name(),
+        });
+        assert_eq!(check_environment(&manifest), Ok(()));
+        for component in crate::identity::KINK_IDENTITY {
+            let expected = Err(ReplayRefusal::Environment(format!(
+                "kink.{}",
+                component.key
+            )));
+            let mut changed = manifest.clone();
+            changed["kink"][component.key] = json!(format!("{}-other", component.value));
+            assert_eq!(check_environment(&changed), expected);
+            let mut missing = manifest.clone();
+            missing["kink"]
+                .as_object_mut()
+                .unwrap()
+                .remove(component.key);
+            assert_eq!(check_environment(&missing), expected);
+        }
+        let mut extra = manifest.clone();
+        extra["kink"]["later_algorithm"] = json!("v1");
+        assert_eq!(
+            check_environment(&extra),
+            Err(ReplayRefusal::Environment("kink.later_algorithm".into()))
+        );
+        let mut none = manifest;
+        none.as_object_mut().unwrap().remove("kink");
+        assert_eq!(
+            check_environment(&none),
+            Err(ReplayRefusal::Environment("kink".into()))
+        );
     }
 
     #[test]

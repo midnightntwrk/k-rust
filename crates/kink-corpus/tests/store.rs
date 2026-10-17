@@ -486,32 +486,80 @@ fn conflicting_stored_input_is_refused_before_campaign_publication() {
 /// refused on resume, and its summary is refused too. Re-pin R0-tail (R0c-fix-4 review minor 4):
 /// so is one a build with another definition-exclusion algorithm wrote: a build before R0-tail
 /// (1ee9955), whose manifest names the three admission algorithms but no exclusion version, and a
-/// build with another exclusion version.
+/// build with another exclusion version. Packet CACHE-ID: the manifest's `kink` member is kink's
+/// whole semantics identity, so so is one from a build before CACHE-ID (64b56fa: no patch
+/// admission, execution request, result schema, coverage or k-rust revision there) and one with
+/// any single component changed.
+/// A stale store: its name, the keys removed from the manifest's `kink` member and a
+/// `(key, value)` written into it.
+type Stale = (String, Vec<&'static str>, Option<(&'static str, String)>);
+
 #[test]
 fn a_report_from_another_admission_build_is_refused() {
     with_stack(|| {
-        // (store, keys removed from the manifest's `kink` member, exclusion version written)
-        let stale: [(&str, &[&str], Option<&str>); 3] = [
+        let mut stale: Vec<Stale> = vec![
             (
-                "stale-admission",
-                &[
+                "stale-admission".into(),
+                vec![
                     "claim_removal",
                     "mutant_consistency",
                     "mutant_effect",
                     "definition_exclusion",
+                    "k_rust_revision",
+                    "patch_admission",
+                    "execution_request",
+                    "result_schema",
+                    "coverage",
                 ],
                 None,
             ),
-            ("stale-exclusion", &["definition_exclusion"], None),
             (
-                "other-exclusion",
-                &[],
-                Some("kink-native/definition-exclusion/v0"),
+                "stale-exclusion".into(),
+                vec![
+                    "definition_exclusion",
+                    "k_rust_revision",
+                    "patch_admission",
+                    "execution_request",
+                    "result_schema",
+                    "coverage",
+                ],
+                None,
+            ),
+            (
+                "before-cache-id".into(),
+                vec![
+                    "k_rust_revision",
+                    "patch_admission",
+                    "execution_request",
+                    "result_schema",
+                    "coverage",
+                ],
+                None,
             ),
         ];
-        for (name, removed, version) in stale {
+        for component in kink_campaign::KINK_IDENTITY {
+            stale.push((
+                format!("other-{}", component.key),
+                Vec::new(),
+                Some((component.key, format!("{}-other", component.value))),
+            ));
+        }
+        stale.push((
+            "other-exclusion".into(),
+            Vec::new(),
+            Some((
+                "definition_exclusion",
+                "kink-native/definition-exclusion/v0".into(),
+            )),
+        ));
+        stale.push((
+            "later-component".into(),
+            Vec::new(),
+            Some(("later_algorithm", "kink/later/v1".into())),
+        ));
+        for (name, removed, written) in stale {
             let manifest = decode(&clean());
-            let store = store(name);
+            let store = store(&name);
             let outcome = run_definition(&workspace(), &manifest, "clean", &store).unwrap();
             let entry = outcome.campaign.unwrap();
             let root = store.profile_path(manifest.digest(), profile());
@@ -523,14 +571,10 @@ fn a_report_from_another_admission_build_is_refused() {
                 serde_json::from_str(&fs::read_to_string(&current).unwrap()).unwrap();
             let kink = report["manifest"]["kink"].as_object_mut().unwrap();
             for key in removed {
-                assert!(kink.remove(*key).is_some(), "{name}: {key}");
+                assert!(kink.remove(key).is_some(), "{name}: {key}");
             }
-            if let Some(version) = version {
-                assert!(
-                    kink.insert("definition_exclusion".into(), json!(version))
-                        .is_some(),
-                    "{name}"
-                );
+            if let Some((key, value)) = written {
+                kink.insert(key.into(), json!(value));
             }
             let digest = kink_patch::payload_digest(
                 kink_patch::CAMPAIGN_MANIFEST_DOMAIN,

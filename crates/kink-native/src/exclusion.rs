@@ -86,10 +86,10 @@ use k_rust_backend::{
 use crate::execution::{AdaptedExecution, AdaptedLeaf, HaltClass};
 
 /// The version of the definition exclusions ([`DefinitionExclusions`], with the hook lists and
-/// the scans it reads): whether a comparison is made at all depends on it, so a store of mutant
-/// outcomes names it (the campaign manifest's `kink` member, which kink-corpus resume and its
-/// summary compare; kink-flow's tier-1 key holds the executable's hash instead). Bump it whenever
-/// this module changes what it excludes. v1 (re-pin R0-tail, R0c-fix-4 review minor 4): the first
+/// the scans it reads): whether a comparison is made at all depends on it, so kink's semantics
+/// identity names it (kink-campaign `identity`), and every store keys on that identity: the
+/// campaign manifest's `kink` member, kink-flow's result key and its tier-1 context (packet
+/// CACHE-ID). Bump it whenever this module changes what it excludes. v1 (re-pin R0-tail, R0c-fix-4 review minor 4): the first
 /// named version, with the `ensures` of a rewrite rule read under the `\exists` of its existential
 /// variables.
 pub const DEFINITION_EXCLUSION_VERSION: &str = "kink-native/definition-exclusion/v1";

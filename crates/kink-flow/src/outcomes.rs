@@ -29,7 +29,7 @@
 //! outcome, slots, mutant_run_sha256, allowance_bytes, record_sha256}}}`. `removed_claims` is the
 //! row's (`report::claims_value`): the claims the mutant every record ran on does not carry
 //! (re-pin R0c-fix-2). It is informational, a function of the specification, the mutation and
-//! the context's `claim_removal` version, and is neither read back nor in a record digest. `allowance_bytes` is k-rust's
+//! the `claim_removal` version of the context's kink identity, and is neither read back nor in a record digest. `allowance_bytes` is k-rust's
 //! `Allowance::of_process().bytes()` of the process that wrote the record, for diagnosis only:
 //! it is neither in the key nor in the record digest (re-pin decision 5, finding B-07): an
 //! allowance only refuses Bytes results, a refused run is excluded, and no excluded run is cached. [`OutcomeStore::read`] returns only the records that

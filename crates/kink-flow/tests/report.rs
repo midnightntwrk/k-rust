@@ -129,6 +129,45 @@ fn contains(actual: &Value, excerpt: &Value) -> bool {
     }
 }
 
+/// Packet CACHE-ID: the run document names kink's semantics identity (kink-campaign
+/// `identity`), and `report` refuses a stored document that names another value of any one
+/// component, or none (every document before CACHE-ID, version 6): its statuses may rest on
+/// algorithms this build no longer runs.
+#[test]
+fn a_report_written_under_another_identity_is_refused() {
+    use kink_flow::report::{ReportOptions, report};
+    let path = fixture("calc", "identity").join("FLOW.toml");
+    let (document, ok) = search(
+        &path,
+        &path.with_file_name("MUTATIONS.toml"),
+        &["add-becomes-sub"],
+    );
+    assert!(ok, "{document:#}");
+    assert_eq!(document["kink"], kink_campaign::kink_identity());
+    let manifest = FlowManifest::read(&path).unwrap();
+    let stored = path.with_file_name(CACHE_DIRECTORY).join(REPORT_FILE);
+    assert_eq!(
+        report(&manifest, &ReportOptions::default()),
+        (document.clone(), true)
+    );
+    let mut before = document.clone();
+    before["version"] = json!(6);
+    before.as_object_mut().unwrap().remove("kink");
+    let mut stale = vec![before];
+    for component in kink_campaign::KINK_IDENTITY {
+        let mut changed = document.clone();
+        changed["kink"][component.key] = json!(format!("{}-other", component.value));
+        stale.push(changed);
+    }
+    for stale in stale {
+        fs::write(&stored, stale.to_string()).unwrap();
+        let (refused, ok) = report(&manifest, &ReportOptions::default());
+        assert!(!ok, "{refused:#}");
+        assert_eq!(refused["schema"], MISSING_SCHEMA);
+        assert_eq!(refused["outcome"], "unreadable", "{refused:#}");
+    }
+}
+
 #[test]
 fn a_survivor_row_carries_its_rule_texts_reaching_programs_and_outcomes() {
     let manifest = fixture("calc", "survivor").join("FLOW.toml");

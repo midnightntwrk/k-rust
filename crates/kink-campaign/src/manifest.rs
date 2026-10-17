@@ -4,10 +4,10 @@ use crate::{BudgetMutants, Campaign, CrashPolicy, Projection, ScheduleMode, Stat
 use k_rust::{backend::BackendOptions, kompile::CompileOptions, kore::codec::to_value};
 use kink_native::{K_RUST_REVISION, MutantRejection, execution::SolverProfile};
 use kink_patch::{
-    CAMPAIGN_MANIFEST_DOMAIN, CANONICAL_PATCH_DOMAIN, COMPILED_KORE_DOMAIN, CandidateDisposition,
-    CandidateGeneration, ClaimSupport, Completeness, FINGERPRINT_DOMAIN, OBSERVATION_DOMAIN,
-    OperatorSpec, ResolvedUniverse, SelectionPolicy, SemanticInput, Sha256Digest,
-    TEST_MANIFEST_DOMAIN, apply, canonical_json, payload_digest, structure_sha256,
+    CAMPAIGN_MANIFEST_DOMAIN, CandidateDisposition, CandidateGeneration, ClaimSupport,
+    Completeness, OBSERVATION_DOMAIN, OperatorSpec, ResolvedUniverse, SelectionPolicy,
+    SemanticInput, Sha256Digest, TEST_MANIFEST_DOMAIN, apply, canonical_json, payload_digest,
+    structure_sha256,
 };
 use kink_pattern::{MatchMode, PatternPlan, Relation};
 use serde_json::{Value, json};
@@ -311,7 +311,7 @@ pub fn campaign_manifest_multi_with_budget(
     let value = json!({
         "schema":"kink-campaign-manifest","version":5,
         "k_rust":{"revision":K_RUST_REVISION,"provenance_format":k_rust::definition::json::PROVENANCE_FORMAT,"provenance_version":k_rust::definition::json::PROVENANCE_VERSION},
-        "kink":kink_identity(),
+        "kink":crate::identity::kink_identity(),
         "profile":SolverProfile::BUILD.name(), "compile_options":"default",
         "backend_options":{"smt_timeout_ms":backend.smt_timeout_ms,"smt_retry_limit":backend.smt_retry_limit},
         "budget":{"time_ms":u64::try_from(campaign.budget.time.as_millis()).unwrap_or(u64::MAX),"max_simplification_iterations":campaign.budget.max_simplification_iterations,"max_depth":campaign.budget.max_depth,"max_breadth":campaign.budget.max_breadth.map(|v| v.get())},
@@ -333,32 +333,18 @@ pub fn campaign_manifest_multi_with_budget(
     })
 }
 
-/// The manifest's `kink` member: the domains of kink's identities and the versions of the
-/// algorithms that admit a mutant (claim removal, the consistency check and the compiled reading
-/// of an edit's effect, re-pin R0c-fix-4) and of the definition exclusions, which decide whether a
-/// comparison is made at all (re-pin R0-tail). A mutant's status depends on these algorithms, so a
-/// report or store written by a build with other versions has another manifest digest: replay
-/// regenerates the manifest and refuses it, and kink-corpus refuses to resume it
-/// ([`same_admission`]).
-fn kink_identity() -> Value {
-    json!({
-        "fingerprint": FINGERPRINT_DOMAIN,
-        "canonical_patch": CANONICAL_PATCH_DOMAIN,
-        "compiled_kore": COMPILED_KORE_DOMAIN,
-        "claim_removal": kink_patch::CLAIM_REMOVAL_VERSION,
-        "mutant_consistency": kink_native::consistency::MUTANT_CONSISTENCY_VERSION,
-        "mutant_effect": kink_native::consistency::MUTANT_EFFECT_VERSION,
-        "definition_exclusion": kink_native::exclusion::DEFINITION_EXCLUSION_VERSION,
-    })
-}
-
 /// Whether the campaign manifest `manifest` (a report's `manifest` member) names this build's
-/// identity domains, mutant admission algorithms and definition exclusions. A report from a build
-/// before re-pin R0c-fix-4, which names no admission algorithm, does not, and neither does one
-/// from a build before re-pin R0-tail, which names no definition-exclusion version.
+/// semantics identity. The manifest's `kink` member is that identity
+/// ([`crate::identity::kink_identity`]): the domains of kink's identities and the versions of
+/// every algorithm a mutant's status depends on (re-pin R0c-fix-4 named the admission algorithms,
+/// R0-tail the definition exclusions; packet CACHE-ID made it the one identity every store keys
+/// on). A report or store written by a build with another identity has another manifest digest:
+/// replay refuses it in its environment check, and kink-corpus refuses to resume or summarize
+/// it. A report from a build before packet CACHE-ID names no patch-admission,
+/// execution-request, result-schema or coverage version, so it does not.
 #[must_use]
 pub fn same_admission(manifest: &Value) -> bool {
-    manifest["kink"] == kink_identity()
+    crate::identity::identity_difference(&manifest["kink"]).is_none()
 }
 
 fn policy(policy: SelectionPolicy) -> Value {

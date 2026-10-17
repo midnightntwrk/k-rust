@@ -1623,6 +1623,7 @@ fn document(
         "k_rust_revision": K_RUST_REVISION,
         "profile": SolverProfile::BUILD.name(),
         "result_schema_version": RESULT_SCHEMA_VERSION,
+        "kink": kink_campaign::kink_identity(),
         "spec": {
             "outcome": if refusal.is_some() { "refused" } else { "admitted" },
             "stage": refusal.map(|r| &r.stage),
@@ -1656,6 +1657,7 @@ pub fn mutation_list_refused(detail: &str) -> Value {
         "version": RUN_VERSION,
         "k_rust_revision": K_RUST_REVISION,
         "profile": SolverProfile::BUILD.name(),
+        "kink": kink_campaign::kink_identity(),
         "mutation_list": {"outcome": "refused", "detail": detail},
     })
 }

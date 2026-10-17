@@ -10,6 +10,17 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::mem::discriminant;
 use std::sync::Arc;
 
+/// The version of the rule by which [`apply`] admits a patch before compilation: a mutant's
+/// admission depends on it, so kink's semantics identity names it (kink-campaign `identity`).
+/// Bump it whenever apply, or the typing it records, starts or stops refusing a patch.
+/// v1 (re-pin L2-2-fix-1, L2-2 review 2 minor 1): no typing error refuses a patch; apply refuses
+/// only an edit that does not apply or resolve, records the edited rules' typing errors in
+/// compilation's view as [`Mutant::typing_diagnostics`], and compilation decides whether the
+/// mutant is valid. Builds before packet CACHE-ID name no version: 1ee9955 refused a typing
+/// error in the module's own view, and 977dc0c (L2-2) a Sort or semantic-cast error in
+/// compilation's view.
+pub const PATCH_ADMISSION_VERSION: &str = "kink-patch/patch-admission/v1";
+
 /// Keys no edit may write: the rule label, kompile identities and source positions.
 const PROTECTED_KEYS: [AttributeKey; 11] = [
     AttributeKey::Label,

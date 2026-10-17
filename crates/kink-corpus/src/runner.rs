@@ -228,13 +228,20 @@ fn resume(
     {
         return Err(StoreError::Invalid("indexed report differs".into()));
     }
-    // A report written under other mutant admission algorithms (claim removal, the consistency
-    // check, the compiled reading of an edit's effect) or other definition exclusions at the same
-    // k-rust pin is not resumed: its statuses may rest on mutants this build refuses (re-pin
-    // R0c-fix-4) or on comparisons it excludes (re-pin R0-tail).
-    if !kink_campaign::same_admission(&report["manifest"]) {
+    // A report written under another kink semantics identity at the same k-rust pin (other
+    // mutant admission algorithms, definition exclusions, execution requests, result schema or
+    // coverage reading; kink-campaign `identity`) is not resumed: its statuses may rest on
+    // mutants this build refuses (re-pin R0c-fix-4), on comparisons it excludes (re-pin R0-tail)
+    // or on runs it no longer makes (packet CACHE-ID). Nor is a report of another format.
+    if let Some(key) = kink_campaign::identity_difference(&report["manifest"]["kink"]) {
+        return Err(StoreError::Invalid(format!(
+            "the indexed report was written under another kink identity (`{key}` is missing \
+             or differs): other mutant admission algorithms, exclusions or execution requests"
+        )));
+    }
+    if report["version"] != kink_campaign::CAMPAIGN_REPORT_VERSION {
         return Err(StoreError::Invalid(
-            "the indexed report was written under other mutant admission algorithms".into(),
+            "the indexed report has another campaign report version".into(),
         ));
     }
     let artifact_digest = report["manifest"]["baseline"]["semantic_input_sha256"]

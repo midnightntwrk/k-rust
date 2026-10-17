@@ -11,7 +11,7 @@
 use crate::{
     manifest::{Budget, FlowManifest, Program},
     mutation::{EditAction, Mutation, ResolvedMutation},
-    results::{ORACLE_SLOTS, RESULT_SCHEMA_VERSION, result_key},
+    results::{ORACLE_SLOTS, result_key},
 };
 use kink_corpus::{LoadedSource, SourceFile};
 use kink_native::{K_RUST_REVISION, execution::SolverProfile};
@@ -169,23 +169,20 @@ pub fn outcome_context(
     }
     json!({
         "outcome_schema": OUTCOME_SCHEMA_VERSION,
-        "result_schema": RESULT_SCHEMA_VERSION,
         "kink_build": kink_build.to_string(),
-        "k_rust_revision": K_RUST_REVISION,
+        // kink's semantics identity (kink-campaign `identity`, packet CACHE-ID): the k-rust
+        // revision, the result schema, claim removal (re-pin R0c-fix-2), the consistency check
+        // (R0c-fix-3), the compiled reading of an edit (R0c-fix-4), the definition exclusions
+        // (R0-tail), patch admission (L2-2-fix-1), the execution request (L1-1) and the coverage
+        // reading. `kink_build` already changes with every build; the identity names what an
+        // outcome rests on, so a context says which algorithm a stale one predates.
+        "kink": kink_campaign::kink_identity(),
         "profile": SolverProfile::BUILD.name(),
         "execution_digest": execution.value(),
         "budget": budget,
         "oracles": ORACLE_SLOTS,
         "classifier": CLASSIFIER,
         "schedule": SCHEDULE,
-        // A mutant is built without the claims its edit leaves unbacked (re-pin R0c-fix-2), so
-        // its identity depends on the removal algorithm.
-        "claim_removal": kink_patch::CLAIM_REMOVAL_VERSION,
-        // A mutant runs only when its equations are shown consistent (re-pin R0c-fix-3), so its
-        // admission depends on the consistency check.
-        "mutant_consistency": kink_native::consistency::MUTANT_CONSISTENCY_VERSION,
-        // What the edit changes is read from the compiled definitions (re-pin R0c-fix-4).
-        "mutant_effect": kink_native::consistency::MUTANT_EFFECT_VERSION,
     })
 }
 

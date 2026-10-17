@@ -63,8 +63,10 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// The run document's version: 2 since F-06 added the survivor fields; 3 since F-13 named the
 /// oracle slots of an executed entry (`slots` is an object keyed by slot name); 4 since re-pin
 /// R0c-fix-2 added each row's `removed_claims`; 5 since re-pin R0c-fix-3 added each row's
-/// `inconsistent_pairs`; 6 since re-pin L2-2-fix-1 added each row's `typing_diagnostics`.
-pub const RUN_VERSION: u64 = 6;
+/// `inconsistent_pairs`; 6 since re-pin L2-2-fix-1 added each row's `typing_diagnostics`; 7 since
+/// packet CACHE-ID added `kink`, kink's semantics identity (kink-campaign `identity`), which
+/// `report` requires to be this build's.
+pub const RUN_VERSION: u64 = 7;
 /// The claims a mutation's edit leaves unbacked (kink-patch `ClaimSupport::withdraw`):
 /// `{removed: [claim], unsupported: [claim]}`, each claim `{module, index, label, key, value}`
 /// for a baseline sentence (`label` null when it has none) or `{inserted: <edit index>, key,
@@ -577,6 +579,16 @@ fn read_report(path: &Path) -> Result<Value, (&'static str, String)> {
                 "the report has schema {} version {}, not {RUN_SCHEMA} version {RUN_VERSION}: \
                  run `kink-flow run` again",
                 document["schema"], document["version"]
+            ),
+        ));
+    }
+    if let Some(key) = kink_campaign::identity_difference(&document["kink"]) {
+        return Err((
+            "unreadable",
+            format!(
+                "the report was written under another kink identity (`{key}` is missing or \
+                 differs), so its statuses may rest on algorithms this build no longer runs: run `kink-flow run` \
+                 again"
             ),
         ));
     }

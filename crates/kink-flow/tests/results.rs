@@ -781,6 +781,73 @@ fn a_record_is_used_only_under_its_own_key() {
     assert!(rows(&fourth).iter().all(|(_, _, cached)| *cached));
 }
 
+/// Packet CACHE-ID (re-pin R0-tail review 1, minor): every record key holds kink's semantics
+/// identity (kink-campaign `identity`), so a record written by a build before CACHE-ID (its key
+/// has no `kink`, as at 1ee9955 through 64b56fa) or under any one other component (another
+/// definition-exclusion version among them) is recomputed and rewritten, never used: each forged
+/// record claims `unknown`, and the row is the live `comparable`.
+#[test]
+fn a_record_written_under_another_identity_is_recomputed() {
+    let manifest = fixture("calc", "identity").join("FLOW.toml");
+    let (first, status) = run(&manifest, false);
+    assert_eq!(status, EXIT_OK, "{first:#}");
+    let programs = ["add", "nested", "sub", "inline"];
+    for id in programs {
+        assert_eq!(
+            read_json(&record_path(&manifest, &first, id))["key"]["kink"],
+            kink_campaign::kink_identity(),
+            "{id}"
+        );
+    }
+    // None: the key of a build before CACHE-ID; Some(key): that component changed.
+    let forgeries = std::iter::once(None)
+        .chain(kink_campaign::KINK_IDENTITY.iter().map(|c| Some(c.key)))
+        .collect::<Vec<_>>();
+    for round in forgeries.chunks(programs.len()) {
+        let forged = programs.iter().zip(round).collect::<Vec<_>>();
+        for (id, component) in &forged {
+            let path = record_path(&manifest, &first, id);
+            let mut record = read_json(&path);
+            match component {
+                None => {
+                    record["key"].as_object_mut().unwrap().remove("kink");
+                }
+                Some(key) => {
+                    let value = record["key"]["kink"][key].as_str().unwrap().to_owned();
+                    record["key"]["kink"][key] = json!(format!("{value}-other"));
+                }
+            }
+            record["class"] = json!("unknown");
+            record["cause"] = json!("forged under another kink identity");
+            fs::write(&path, record.to_string()).unwrap();
+        }
+        let (document, status) = run(&manifest, false);
+        assert_eq!(status, EXIT_OK, "{round:?}: {document:#}");
+        let recomputed = forged.iter().map(|(id, _)| **id).collect::<Vec<_>>();
+        assert_eq!(
+            rows(&document),
+            programs
+                .iter()
+                .map(|id| (
+                    (*id).to_owned(),
+                    "comparable".to_owned(),
+                    !recomputed.contains(id)
+                ))
+                .collect::<Vec<_>>(),
+            "{round:?}"
+        );
+        for (id, component) in &forged {
+            let record = read_json(&record_path(&manifest, &first, id));
+            assert_eq!(
+                record["key"]["kink"],
+                kink_campaign::kink_identity(),
+                "{component:?}"
+            );
+            assert_eq!(record["class"], "comparable", "{component:?}");
+        }
+    }
+}
+
 /// The empty generation a zero-mutant campaign runs (as kink-corpus `baseline_only`).
 fn run_together(
     spec: &kink_flow::AdmittedSpec,

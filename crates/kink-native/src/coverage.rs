@@ -35,7 +35,9 @@ use crate::execution::{
     AdaptedExecution, AdaptedLeaf, BaselineLeaf, HaltClass, UndefinedStepRule, UnobservedExecution,
 };
 
-/// Domain of the canonical coverage list and its payload digest.
+/// Domain of the canonical coverage list and its payload digest, and the version of how coverage
+/// is read. Coverage orders the schedule, so under `FirstKill` it can decide which test kills;
+/// kink's semantics identity names it (kink-campaign `identity`).
 pub const COVERAGE_DOMAIN: &str = "kink/coverage/v1";
 
 /// Unmapped reason of an id whose every author is a sentence the mutant's patch inserted.

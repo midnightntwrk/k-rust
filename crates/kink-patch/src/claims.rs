@@ -81,7 +81,8 @@ use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The version of the claim-removal algorithm ([`ClaimSupport::withdraw`]): a mutant's identity
-/// depends on it, so every cache of mutant outcomes names it (kink-flow's tier-1 context). v2
+/// depends on it, so kink's semantics identity names it (kink-campaign `identity`), on which every
+/// store keys. v2
 /// (re-pin R0c-fix-3): the reach follows kompile's generated overload and unit axioms. v3 (re-pin
 /// R0c-fix-4): a rule written with configuration context (`[[ F ]] C`) is read as an equation of
 /// `F`'s head.

@@ -531,6 +531,20 @@ fn request(state: Pattern, budget: ExecutionBudget, run: ResultRun) -> ExecuteRe
     }
 }
 
+/// The version of the execution request kink sends for a run, and of how a result run's
+/// modality and work budget are chosen: a run's leaves, and so a verdict, depend on it, so kink's
+/// semantics identity names it (kink-campaign `identity`). Bump it whenever `request`,
+/// [`ExecutionAdapter::execute_result`]'s path-set replacement, or kink-campaign's choice of a
+/// test's modality and of a mutant's work budget (`RunOptions`, `WorkBudget`) changes what a run
+/// returns. v1 (re-pin L1-1 and L1-1-fix-1; L1-1 review 1 minor 5): a result run is a state set
+/// (path-set replacement on an undefined step, a vacuous leaf or a contradicted claim, decided per
+/// side), a stepped run an observed path set; no trace; run coverage collected; a cancellation
+/// answers an error; `max_work` only on a mutant's result run, calibrated from the baseline's run
+/// of the test. A campaign that stores reports (kink-corpus, replay) runs the default
+/// `RunOptions`; kink-flow's tier-1 context names its work budget. Builds before packet CACHE-ID
+/// name no version (1ee9955 ran path sets with traces).
+pub const EXECUTION_REQUEST_VERSION: &str = "kink-native/execution-request/v1";
+
 /// The request of a stepped run: an observed path set without a work budget.
 const STEPPED: ResultRun = ResultRun {
     modality: ResultModality::PathSet,

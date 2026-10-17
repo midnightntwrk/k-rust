@@ -103,14 +103,15 @@ use kink_patch::{SentenceOrigin, SentenceRef, SourceEffect};
 
 use crate::ValidatedDefinition;
 
-/// The version of the consistency check: a mutant's admission depends on it, so every cache of
-/// mutant outcomes names it (kink-flow's tier-1 context, the campaign manifest). v2 (re-pin
+/// The version of the consistency check: a mutant's admission depends on it, so kink's semantics
+/// identity names it (kink-campaign `identity`), on which every store keys. v2 (re-pin
 /// R0c-fix-4): the guard also reads the equation and skipped-pair counts.
 pub const MUTANT_CONSISTENCY_VERSION: &str = "kink-native/mutant-consistency/v2";
 
 /// The version of the reading of a mutant's effect from the compiled definitions
 /// ([`admit_mutant`]: the compiled changed-index diff, its reverse reach and the cross-check of
-/// the source reading, re-pin R0c-fix-4). A mutant's admission depends on it.
+/// the source reading, re-pin R0c-fix-4). A mutant's admission depends on it, so kink's
+/// semantics identity names it (kink-campaign `identity`).
 pub const MUTANT_EFFECT_VERSION: &str = "kink-native/mutant-effect/v1";
 
 /// The sort of the equation head kink adds to the checked copy (see the module documentation).
