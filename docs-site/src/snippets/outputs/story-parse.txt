@@ -1,0 +1,2 @@
+$ krs parse --package story-plus --definition main programs/t3.nat
+plus(succ(zero(.KList)),succ(zero(.KList)))

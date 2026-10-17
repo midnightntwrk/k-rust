@@ -1,0 +1,2 @@
+$ krs check --package story-plus --definition main
+KRS check passed: 12 descriptors, 2 semantic modules

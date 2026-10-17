@@ -16,7 +16,7 @@ export default defineConfig({
       text: 'Start here',
       collapsed: false,
       items: [
-        { text: 'Five-minute theory', link: '/start/five-minute-theory' },
+        { text: 'Introduction', link: '/' },
         { text: 'What KRS defines', link: '/start/what-krs-defines' },
         { text: 'Definition package', link: '/start/definition-package' },
       ],

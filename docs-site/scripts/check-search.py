@@ -49,20 +49,12 @@ def main() -> None:
         source = (PAGES / relative).read_text(encoding="utf-8")
         if term.casefold() not in source.casefold():
             missing.append(f"{term!r} on {relative}")
-    synthesis = (PAGES / "start" / "five-minute-theory.mdx").read_text(encoding="utf-8")
-    for boundary in (
-        "Rust analogy—and its limit",
-        "do not execute Rust",
-        "`foo_to_bar` does not call",
-    ):
-        if boundary not in synthesis:
-            missing.append(f"five-minute Rust boundary {boundary!r}")
     static = (PAGES / "semantics" / "static-semantics.mdx").read_text(encoding="utf-8")
     if "not Rust `Option`" not in static:
         missing.append("partial-function Rust analogy limit")
     if missing:
         raise SystemExit(f"search/terminology audit is incomplete: {missing}")
-    print(f"search audit passed: {len(REQUIRED)} canonical terms and 4 Rust limits")
+    print(f"search audit passed: {len(REQUIRED)} canonical terms and the partial-function Rust limit")
 
 
 if __name__ == "__main__":

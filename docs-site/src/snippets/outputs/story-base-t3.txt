@@ -1,0 +1,5 @@
+$ krs run --package story-plus --definition main programs/t3.nat
+<k>
+  s(s(zero)) ~> .K
+</k>
+krs run: stuck after 0 steps; <k> starts with `s(s(zero))`

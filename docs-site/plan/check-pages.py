@@ -191,7 +191,6 @@ def main() -> None:
     retired = [page for page in ledger.rows("page") if page["retired"]]
     lessons = sorted(ledger.rows("lesson"), key=lambda row: row["order"])
     written = [lesson for lesson in lessons if lesson["status"] != "planned"]
-    syntheses = ledger.rows("synthesis")
     browser_lessons = ledger.rows("browser_lesson")
     topics = ledger.rows("topic")
     pages_by_route = documentation_pages()
@@ -206,7 +205,6 @@ def main() -> None:
         ["/"]
         + [page["route"] for page in pages]
         + [lesson["route"] for lesson in written]
-        + [synthesis["route"] for synthesis in syntheses]
         + [lesson["route"] for lesson in browser_lessons]
     )
     duplicate_declared_routes = sorted(
@@ -243,29 +241,6 @@ def main() -> None:
     if homeless:
         fail(f"topic destinations that are no published page: {homeless}")
 
-    synthesis_routes: dict[str, str] = {}
-    for synthesis in syntheses:
-        route = synthesis["route"]
-        synthesis_routes[route] = synthesis["status"]
-        synthesis_page = page_for_route(route)
-        if not synthesis_page.is_file():
-            fail(f"synthesis {synthesis['id']!r} is missing page for {route}")
-        synthesis_source = synthesis_page.read_text(encoding="utf-8")
-        marker = re.search(r"\{/\*\s*synthesis-concepts:\s*([^*]*)\*/\}", synthesis_source)
-        declared = marker.group(1).split() if marker else []
-        required = synthesis.get("requires", [])
-        if declared != required:
-            fail(
-                f"synthesis {synthesis['id']!r} concept marker differs from ledger: "
-                f"expected {required}, got {declared}"
-            )
-        annotated = re.findall(r'<ConceptGloss\s+concept="([^"]+)"', synthesis_source)
-        if annotated != required:
-            fail(
-                f"synthesis {synthesis['id']!r} glosses differ from ledger: "
-                f"expected {required}, got {annotated}"
-            )
-
     for lesson in browser_lessons:
         lesson_page = page_for_route(lesson["route"])
         if not lesson_page.is_file():
@@ -297,12 +272,6 @@ def main() -> None:
                 f"primary sidebar does not contain the ledger's {label} in ledger order: "
                 f"expected {expected_routes}, got {actual}"
             )
-
-    for route, status in synthesis_routes.items():
-        if status == "deferred" and route in sidebar_routes:
-            fail(f"deferred synthesis route must stay out of primary sidebar: {route}")
-        if status == "published" and route not in sidebar_routes:
-            fail(f"published synthesis route is absent from primary sidebar: {route}")
 
     for lesson in browser_lessons:
         route = lesson["route"]
@@ -417,7 +386,7 @@ def main() -> None:
 
     print(
         f"tour pages passed: {len(pages)} earlier pages, {len(written)} written lessons, "
-        f"{len(syntheses)} syntheses, {len(browser_lessons)} browser lessons, {len(pages_by_route)} pages, "
+        f"{len(browser_lessons)} browser lessons, {len(pages_by_route)} pages, "
         f"{len(sidebar_routes)} primary routes, {checked_links} internal links, "
         f"{checked_fragments} anchor links"
     )

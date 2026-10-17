@@ -1,6 +1,6 @@
 # k-rust and KRS documentation site
 
-This directory contains KRS's dependency-ordered language tour, its generated-gloss five-minute synthesis page, and its reference, together with the `/k-rust` pages: an overview and k-rust's compatibility contract, which `scripts/sync-k-rust.py` mirrors from `../docs/compatibility.md` (`bun run sync:snippets` rewrites the mirror; `bun run check` fails when it is stale).
+This directory contains the site's animated introduction, KRS's dependency-ordered language tour, and its reference, together with the `/k-rust` pages: an overview and k-rust's compatibility contract, which `scripts/sync-k-rust.py` mirrors from `../docs/compatibility.md` (`bun run sync:snippets` rewrites the mirror; `bun run check` fails when it is stale).
 KRS's sources live in `../krs/`; the curriculum ledger and its checks are in `plan/` (`plan/README.md`).
 The site uses Vocs 2.8.5 and Bun 1.3.13.
 Install its locked dependencies with `bun install --frozen-lockfile`.
@@ -8,10 +8,11 @@ Run the local site with `bun run dev` and its fixture/tooling gate with `bun run
 Waku is pinned to `1.0.0-beta.6` because Vocs 2.8.5 uses that router event contract; widening the prerelease range resolves to `1.0.0-rc.0` and crashes `ScrollRestoration` after hydration.
 It verifies that the displayed `tour-minimal` mirror is byte-for-byte identical to its authoritative fixture and that the fixture passes `cargo check --locked`.
 `plan/tour.toml` orders the tour as Parts of lessons that teach the 44 K concepts, with an IMP milestone and a KRS side track; until a lesson is accepted, the 17 pages that predate that order stay in the navigation and remain the destinations of its topics.
-Its hover/focus glosses and canonical destinations are generated from the ledger rather than copied into a second glossary.
-`bun run check` validates the curriculum, reviewed public surfaces, complete page graph and anchors, generated port summaries, terminology, gloss accessibility contracts, synced snippets, Rust-Twoslash failure controls, and the authoritative Cargo/KRS fixtures.
+`bun run check` validates the curriculum, reviewed public surfaces, complete page graph and anchors, generated port summaries, terminology, the introduction's story data, synced snippets, Rust-Twoslash failure controls, and the authoritative Cargo/KRS fixtures.
 Each tour lesson's definition is one package of the Cargo workspace in `tour/`, which `bun run check` builds with `cargo check --locked`.
 The packages spell out their Cargo fields instead of inheriting them from the workspace, because `krs` cannot collect a package with inherited fields, and so that a reader can copy one package on its own.
+The introduction (`src/pages/index.mdx`) is a sequence of scene components in `src/components/story/`, one file per scene.
+They follow the `plus` specification in `story/plus/`; `story/story.toml` lists its test corpus and the edits the mutation scenes make, `bun run sync:snippets` generates the edited copies under `story/mutants/` and the scenes' data in `src/generated/story.ts`, and `bun run check` fails when they are stale or when an edit is no longer caught by the tests `story.toml` says catch it.
 Pages show `krs` command outputs recorded under `src/snippets/outputs/` from the commands `recorded-outputs.toml` lists.
 `bun run check` compares their input and output digests without running `krs` and fails when a fixture, an entry, or an output changed; `bun run record:outputs` records them again, and `bun run verify:outputs` (part of `bun run build`) runs every command and compares the outputs byte for byte.
 `bun run check:types && bun run build` is the production release gate, including Vocs dead-link checking.

@@ -1,0 +1,5 @@
+$ krs run --package story-plus-mutant-c --definition main programs/t4.nat
+<k>
+  s(s(zero)) ~> .K
+</k>
+krs run: stuck after 0 steps; <k> starts with `s(s(zero))`

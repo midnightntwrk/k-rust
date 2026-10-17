@@ -1,0 +1,63 @@
+# The introduction's running example: the `plus` specification in plus/, the test corpus an
+# AI writes for it, and the edits the mutation scenes make to it.
+#
+# `python3 scripts/sync-story.py --write` generates mutants/<id>/ (plus/ with one edit) and
+# src/generated/story.ts from this file; without --write it checks that both are current and
+# that every expectation below matches the krs outputs recorded for the story
+# (recorded-outputs.toml, ids story-<variant>-<test>).
+
+# The corpus, in the order the AI writes it. A test is a program in plus/programs/.
+[[test]]
+id = "t1"
+# The rules the program's run applies, read off its rewrite steps. krs does not report run
+# coverage yet (k-rust's run API does, as collectCoverage), so this list is maintained by hand.
+rules = ["plus_zero"]
+
+[[test]]
+id = "t2"
+rules = ["plus_zero"]
+
+[[test]]
+id = "t3"
+rules = ["plus_succ", "plus_zero"]
+
+[[test]]
+id = "t4"
+rules = ["plus_succ", "plus_zero"]
+# Written during the climb, to catch the edit that t1 to t3 miss.
+climb = true
+
+# Edits to the specification. `old` must occur exactly once in plus/src/lib.rs; `display_old`
+# and `display_new` are the same edit in the paper notation the scenes use.
+[[mutation]]
+id = "a"
+rule = "plus_zero"
+label = "plus_zero returns zero"
+why = "forgets what the base case returns"
+old = "    n\n}"
+new = "    NatSyntax::Zero()\n}"
+display_old = "n"
+display_new = "zero"
+caught_by = ["t2", "t3", "t4"]
+
+[[mutation]]
+id = "b"
+rule = "plus_succ"
+label = "plus_succ drops s"
+why = "loses one at every step"
+old = "    NatSyntax::Succ(Plus(m, n))\n"
+new = "    Plus(m, n)\n"
+display_old = "s(plus(m, n))"
+display_new = "plus(m, n)"
+caught_by = ["t3", "t4"]
+
+[[mutation]]
+id = "c"
+rule = "plus_succ"
+label = "plus_succ ignores m"
+why = "stops recursing after one step"
+old = "    NatSyntax::Succ(Plus(m, n))\n"
+new = "    NatSyntax::Succ(n)\n"
+display_old = "s(plus(m, n))"
+display_new = "s(n)"
+caught_by = ["t4"]

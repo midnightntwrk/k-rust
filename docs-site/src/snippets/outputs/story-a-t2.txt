@@ -1,0 +1,5 @@
+$ krs run --package story-plus-mutant-a --definition main programs/t2.nat
+<k>
+  zero ~> .K
+</k>
+krs run: stuck after 0 steps; <k> starts with `zero`
