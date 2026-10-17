@@ -1533,6 +1533,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
+    use crate::term::{FunctionType, Symbol, SymbolAttributes, SymbolType, Variable};
 
     /// A solver that answers every query with the next scripted answer of its kind.
     struct Scripted {
@@ -1630,7 +1631,6 @@ mod tests {
         }
         assert_eq!(counting.undecided(), 3);
     }
-    use crate::term::{FunctionType, Symbol, SymbolAttributes, SymbolType, Variable};
 
     fn symbol(name: &str, smt: Option<SmtType>, arguments: Vec<Sort>, result: Sort) -> Arc<Symbol> {
         Arc::new(Symbol {

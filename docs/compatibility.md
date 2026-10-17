@@ -1898,7 +1898,7 @@ A leaf finished before the stop carries, under `state-set`, the diagnostics of t
 Every leaf finished before the `work-bound` leaf is a leaf of every run of the same request with a larger budget or none, at the same position: the result without its `work-bound` leaf is a prefix of theirs.
 Under `path-set` the leaf is the same in every field; under `state-set` it is the same in every field but its diagnostics, which are among the larger run's (a later path merged into it adds its own).
 The reason is that the run takes states in a fixed order and tests the budget before it does anything to a state, so runs with two budgets make the same choices up to the smaller budget's stop, and the `state-set` merge of the final leaves keeps the first leaf of each configuration in place and only adds the diagnostics of the leaves merged into it.
-This holds within the execution determinism contract, whose exclusions apply as for the stop point (below); in a build with Z3 it holds only for runs whose result reports no `smtUnknowns` (below).
+This holds within the execution determinism contract, whose exclusions apply as for the stop point (below); in a build with Z3 it holds only when neither run reports `smtUnknowns` (below).
 A `maxBreadth` bound does not change it: the bound turns the pending states into `breadth-bound` leaves after a step, which ends the run, at the same point of every run that reaches that step.
 An observed run's leaves carry their branch identities and observations, which are part of the leaf and are the same in the larger run.
 A finished leaf is the end of its path, not a state whose subtree was explored: a `depth-bound`, `indeterminate`, `simplification-error` or stopped leaf among them is the same leaf in the larger run.

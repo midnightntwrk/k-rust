@@ -320,8 +320,9 @@ pub struct ExecuteRequest {
     /// it stops at the same state, with the same leaves finished before it, wherever its result
     /// is the same: within the execution determinism contract and its exclusions
     /// (docs/compatibility.md, "Determinism and concurrency", "Execute"), which leave out, among
-    /// others, a run in which an SMT query timed out in a build with Z3 (docs/compatibility.md,
-    /// "Work budget"). When a state remains after `max_work` states, it becomes the one
+    /// others, in a build with Z3, a run whose result reports a nonzero
+    /// [`ExecutionResult::smt_unknowns`] (wire `smtUnknowns`; docs/compatibility.md, "Work
+    /// budget"). When a state remains after `max_work` states, it becomes the one
     /// `work-bound` leaf ([`HaltReasonOutput::WorkBound`]), the last of the result, and the other
     /// pending states are not explored or reported; a budget at least the unbounded run's `work`
     /// changes nothing, and a budget of 0 makes the first initial state, as the request gave it,

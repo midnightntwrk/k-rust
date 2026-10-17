@@ -419,6 +419,7 @@ test('searches and observes the persistent portable backend graph', () => {
     'path-set',
   )
   assert.equal(backend.capabilities.coverage, true)
+  assert.equal(backend.capabilities.smtUnknowns, true)
   assert.equal(backend.execute({ state: a }).coverage, undefined)
   assert.deepEqual(backend.execute({ state: a, collectCoverage: true }).coverage, {
     applied: ['a-to-b', 'b-to-c'],
