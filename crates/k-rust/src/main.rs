@@ -4513,11 +4513,14 @@ mod tests {
         assert_eq!(binary, expected);
     }
 
+    /// A definition with only the sort Bool, over whose terms the predicates below are written:
+    /// a term read as a predicate states that it is `true`, which is a predicate only of a
+    /// Boolean term.
     fn empty_predicate_definition() -> BackendDefinition {
         let syntax = parse_kore_definition(
             r#"[]
             module MAIN
-              sort SortK{} []
+              sort SortBool{} []
             endmodule []"#,
         )
         .unwrap();
@@ -4533,25 +4536,25 @@ mod tests {
     fn standalone_simplification_deduplicates_conjunctions() {
         assert_eq!(
             simplify_predicate(
-                r"\and{SortK{}}(\not{SortK{}}(X:SortK{}), \not{SortK{}}(X:SortK{}))"
+                r"\and{SortBool{}}(\not{SortBool{}}(X:SortBool{}), \not{SortBool{}}(X:SortBool{}))"
             ),
-            parse_kore_pattern(r"\not{SortK{}}(X:SortK{})").unwrap()
+            parse_kore_pattern(r"\not{SortBool{}}(X:SortBool{})").unwrap()
         );
     }
 
     #[test]
     fn standalone_simplification_detects_contradictions() {
         assert_eq!(
-            simplify_predicate(r"\and{SortK{}}(\not{SortK{}}(X:SortK{}), X:SortK{})"),
-            parse_kore_pattern(r"\bottom{SortK{}}()").unwrap()
+            simplify_predicate(r"\and{SortBool{}}(\not{SortBool{}}(X:SortBool{}), X:SortBool{})"),
+            parse_kore_pattern(r"\bottom{SortBool{}}()").unwrap()
         );
     }
 
     #[test]
     fn standalone_simplification_eliminates_double_negation() {
         assert_eq!(
-            simplify_predicate(r"\not{SortK{}}(\not{SortK{}}(X:SortK{}))"),
-            parse_kore_pattern("X:SortK{}").unwrap()
+            simplify_predicate(r"\not{SortBool{}}(\not{SortBool{}}(X:SortBool{}))"),
+            parse_kore_pattern("X:SortBool{}").unwrap()
         );
     }
 

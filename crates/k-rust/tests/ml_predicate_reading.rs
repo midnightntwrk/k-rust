@@ -269,6 +269,9 @@ fn a_negated_configuration_at_a_shared_position_keeps_its_refusal() {
     );
 }
 
+/// A rule under test, the sentences beside it, and the programs `go(n)` with what each runs to.
+type Case = (String, &'static str, Vec<(i64, String)>);
+
 /// Conditions whose atoms are predicates over terms, and connectives at a condition's root, are
 /// read as written: each loads and runs each program to the configuration its meaning gives.
 #[test]
@@ -276,7 +279,7 @@ fn predicate_conditions_load_and_answer_as_written() {
     let go_rule =
         |condition: &str| format!("rule [p]: <k> go(X) => done(X) ... </k> requires {condition}");
     let one_or_two = [(1, done(1)), (2, done(2)), (3, go(3))];
-    let cases: Vec<(String, &str, Vec<(i64, String)>)> = vec![
+    let cases: Vec<Case> = vec![
         (go_rule("{X #Equals 1}"), "", vec![(1, done(1)), (3, go(3))]),
         (
             go_rule("#Ceil(1 /Int X)"),
