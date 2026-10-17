@@ -158,3 +158,89 @@ fn the_load_reports_a_pair_guarded_by_token_spellings_of_true_and_false() {
         }
     }
 }
+
+/// A join step that skips a priority group must not read such spellings as complementary either.
+/// `p: f(T) => g(T)` beside `q: f(_T) => 0` joins only if `g(T)` reaches 0 on every instance; it
+/// does not, since `g1` gives `g(abc) = 5` before the lower group `g2` is reached. Reading the
+/// two guards of `g1` as complementary would skip `g1` at the join step and join the pair. The
+/// same over `String`, and with the control spellings `aaa` and `bbb`.
+#[test]
+fn a_join_step_does_not_skip_a_group_guarded_by_true_and_false_spellings() {
+    for (first, second) in [("true", "false"), ("aaa", "bbb")] {
+        for declarations in [
+            format!(
+                r#"  syntax Int ::= f(MyTok) [function, symbol(f)] | g(MyTok) [function, symbol(g)]
+  rule [p]: f(T) => g(T)
+  rule [q]: f(_T) => 0
+  rule [g1]: g(T) => 5 requires T =/=K #token("{first}", "MyTok") andBool T =/=K #token("{second}", "MyTok") [priority(40)]
+  rule [g2]: g(_T) => 0 [priority(50)]"#
+            ),
+            format!(
+                r#"  syntax Int ::= f(String) [function, symbol(f)] | g(String) [function, symbol(g)]
+  rule [p]: f(S) => g(S)
+  rule [q]: f(_S) => 0
+  rule [g1]: g(S) => 5 requires #Not({{ S #Equals "{first}" }}) #And #Not({{ S #Equals "{second}" }}) [priority(40)]
+  rule [g2]: g(_S) => 0 [priority(50)]"#
+            ),
+        ] {
+            let definition = definition(&declarations);
+            let all = definition.value_claims_in_scope(CheckScope::All);
+            let pairs = pairs_between(&all, "p", "q");
+            assert_eq!(
+                pairs
+                    .iter()
+                    .map(|pair| pair.reason.clone())
+                    .collect::<Vec<_>>(),
+                [UnjoinedReason::DifferentResults],
+                "{declarations}: {:?}",
+                all.unjoined()
+            );
+        }
+    }
+}
+
+/// A sort hooked `BOOL.Bool` has exactly the values `true` and `false`, so `B` differing from
+/// both holds on no instance: the pair stays refuted, the load names nothing and keeps the claims
+/// of `hm`, in both scopes and whether the guards are written with `#Not` or `=/=K`. The token
+/// productions only give `MyBool` a token declaration, which `#token(_, "MyBool")` needs.
+#[test]
+fn a_sort_hooked_bool_keeps_its_complementary_literals() {
+    for (first, second) in [
+        (
+            r#"#Not({ B #Equals #token("true", "MyBool") })"#,
+            r#"#Not({ B #Equals #token("false", "MyBool") })"#,
+        ),
+        (
+            r#"B =/=K #token("true", "MyBool")"#,
+            r#"B =/=K #token("false", "MyBool")"#,
+        ),
+    ] {
+        let definition = definition(&format!(
+            r#"  syntax MyBool [hook(BOOL.Bool)]
+  syntax MyBool ::= "tt" [token] | "ff" [token]
+  syntax Int ::= hm(MyBool, Wrap) [function, symbol(hm)]
+  rule [a]: hm(B, _W) => 1 requires {first}
+  rule [b]: hm(B, _W) => 2 requires {second}"#
+        ));
+        let load = definition.value_claims();
+        assert!(
+            pairs_between(load, "a", "b").is_empty(),
+            "{:?}",
+            load.unjoined()
+        );
+        assert!(
+            !load
+                .tainted_symbols()
+                .iter()
+                .any(|name| name.as_ref() == "Lblhm"),
+            "{:?}",
+            load.tainted_symbols()
+        );
+        let all = definition.value_claims_in_scope(CheckScope::All);
+        assert!(
+            pairs_between(&all, "a", "b").is_empty(),
+            "{:?}",
+            all.unjoined()
+        );
+    }
+}

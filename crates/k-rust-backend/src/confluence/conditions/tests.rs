@@ -19,6 +19,7 @@ const DEFINITION: &str = r#"
     hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
     hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
     sort SortMyTok{} [hasDomainValues{}(), token{}()]
+    hooked-sort SortMyBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
     hooked-symbol ltInt{}(SortInt{}, SortInt{}) : SortBool{} [function{}(), total{}(), hook{}("INT.lt")]
     hooked-symbol leInt{}(SortInt{}, SortInt{}) : SortBool{} [function{}(), total{}(), hook{}("INT.le")]
     hooked-symbol gtInt{}(SortInt{}, SortInt{}) : SortBool{} [function{}(), total{}(), hook{}("INT.gt")]
@@ -159,7 +160,7 @@ fn check(definition: &BackendDefinition, conjuncts: &[Conjunct]) -> Option<Strin
                 .all(|conjunct| conjunct.satisfied(*assignment))
         })
         .collect::<Vec<_>>();
-    if contradictory(&predicates) {
+    if contradictory(&definition, &predicates) {
         if let Some(witness) = satisfying.first() {
             return Some(format!(
                 "{conjuncts:?} is called contradictory but {witness:?} satisfies it"
@@ -255,7 +256,7 @@ fn each_comparison_identity_refutes_exactly_its_complement() {
             .map(|conjunct| conjunct.predicate(&definition))
             .collect::<Vec<_>>();
         assert_eq!(
-            contradictory(&predicates),
+            contradictory(&definition, &predicates),
             !compatible,
             "{first} beside {second}"
         );
@@ -267,7 +268,7 @@ fn each_comparison_identity_refutes_exactly_its_complement() {
         .iter()
         .map(|conjunct| conjunct.predicate(&definition))
         .collect::<Vec<_>>();
-    assert!(contradictory(&predicates));
+    assert!(contradictory(&definition, &predicates));
 }
 
 #[test]
@@ -284,32 +285,39 @@ fn atoms_true_wherever_defined_refute_their_negation_only() {
     };
     let key_in_its_map =
         "inKeys{}(X:SortInt{}, mapConcat{}(mapItem{}(X:SortInt{}, Y:SortInt{}), M:SortMap{}))";
-    assert!(contradictory(&[required(key_in_its_map, false)]));
-    assert!(!contradictory(&[required(key_in_its_map, true)]));
+    assert!(contradictory(
+        &definition,
+        &[required(key_in_its_map, false)]
+    ));
+    assert!(!contradictory(
+        &definition,
+        &[required(key_in_its_map, true)]
+    ));
     let other_key =
         "inKeys{}(Y:SortInt{}, mapConcat{}(mapItem{}(X:SortInt{}, Y:SortInt{}), M:SortMap{}))";
-    assert!(!contradictory(&[required(other_key, false)]));
+    assert!(!contradictory(&definition, &[required(other_key, false)]));
     // `A == A` holds wherever defined; `A < A` fails wherever defined.
-    assert!(contradictory(&[required(
-        "eqInt{}(X:SortInt{}, X:SortInt{})",
-        false
-    )]));
-    assert!(contradictory(&[required(
-        "ltInt{}(X:SortInt{}, X:SortInt{})",
-        true
-    )]));
-    assert!(!contradictory(&[required(
-        "leInt{}(X:SortInt{}, X:SortInt{})",
-        true
-    )]));
+    assert!(contradictory(
+        &definition,
+        &[required("eqInt{}(X:SortInt{}, X:SortInt{})", false)]
+    ));
+    assert!(contradictory(
+        &definition,
+        &[required("ltInt{}(X:SortInt{}, X:SortInt{})", true)]
+    ));
+    assert!(!contradictory(
+        &definition,
+        &[required("leInt{}(X:SortInt{}, X:SortInt{})", true)]
+    ));
 }
 
-/// A domain value is a Boolean literal only when its sort is the builtin Bool sort. A token sort
-/// or `String` may spell a value `"true"` or `"false"`; such a value is one value of its sort
+/// A domain value is a Boolean literal only when its sort's domain kind is the Booleans. A token
+/// sort or `String` may spell a value `"true"` or `"false"`; such a value is one value of its sort
 /// among others, so `T` differing from both spellings is satisfiable (`T = abc`), and the two
-/// conjuncts are not complementary.
+/// conjuncts are not complementary. A sort hooked `BOOL.Bool` has only the two values, so there
+/// they are.
 #[test]
-fn only_a_bool_domain_value_is_read_as_a_boolean() {
+fn only_a_domain_value_of_bool_kind_is_read_as_a_boolean() {
     let definition = definition();
     let differs = |variable: &str, sort: &str, spelling: &str| {
         Predicate::Not(std::sync::Arc::new(Predicate::Equals(
@@ -322,7 +330,10 @@ fn only_a_bool_domain_value_is_read_as_a_boolean() {
             differs(variable, sort, "true"),
             differs(variable, sort, "false"),
         ];
-        assert!(!contradictory(&conjuncts), "{sort}: {conjuncts:?}");
+        assert!(
+            !contradictory(&definition, &conjuncts),
+            "{sort}: {conjuncts:?}"
+        );
     }
     // Over a Bool variable the same shape is a literal: `B` required true beside `B` not
     // required true is contradictory.
@@ -333,7 +344,13 @@ fn only_a_bool_domain_value_is_read_as_a_boolean() {
         ),
         differs("B", "SortBool", "true"),
     ];
-    assert!(contradictory(&conjuncts), "{conjuncts:?}");
+    assert!(contradictory(&definition, &conjuncts), "{conjuncts:?}");
+    // A sort hooked `BOOL.Bool` holds only `true` and `false`: differing from both is no value.
+    let conjuncts = [
+        differs("B", "SortMyBool", "true"),
+        differs("B", "SortMyBool", "false"),
+    ];
+    assert!(contradictory(&definition, &conjuncts), "{conjuncts:?}");
 }
 
 #[test]
