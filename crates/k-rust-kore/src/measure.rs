@@ -17,7 +17,9 @@
 //! The counter names are a schema for the dump written by `krust` under `KRUST_COUNTERS`; a
 //! rename or removal is a contract change and bumps the dump's `version`.
 
-/// Schema version of the `KRUST_COUNTERS` document.
+/// Schema version of the `KRUST_COUNTERS` document: it versions the counter set (the names and
+/// meaning of the counters the dump holds) and moves when that set changes; a change of the
+/// counts a run reports leaves it as it is ("Format versions" in `docs/compatibility.md`).
 pub const COUNTER_SCHEMA_VERSION: u64 = 20;
 
 macro_rules! algorithms {

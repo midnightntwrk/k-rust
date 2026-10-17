@@ -51,12 +51,17 @@ pub(crate) fn label_json(label: &Label) -> Value {
 
 /// Wire-format discriminator for definitions that retain compiler provenance.
 pub const PROVENANCE_FORMAT: &str = "KRUST-PROVENANCE";
-/// Current [`PROVENANCE_FORMAT`] schema version.
+/// Current [`PROVENANCE_FORMAT`] schema version: the version of the shape of the document
+/// that carries a compiled definition with its compiler provenance. It moves only when that
+/// schema changes; a change of a document's content (an embedded builtin file, the frontend's
+/// reading of a definition, the compiled definition itself) leaves it as it is, and the k-rust
+/// revision covers that ("Format versions" in `docs/compatibility.md`).
 ///
 /// Version 3 writes each distinct origin set once, in the envelope's `originSets` table, and a
 /// receipt's `origins` is an index into that table. Version 4 adds `KContextAlias` sentences.
-/// Version 5 lets the source table hold one logical source once per distinct offset map (one
-/// entry per Markdown extraction), and a source reference names its entry by `extraction`.
+/// Version 5 lets the source table hold one logical source once per distinct offset map (since
+/// every Markdown extraction's map became the identity, extractions of one file share an
+/// entry), and a source reference names its entry by `extraction`.
 /// Version 6 writes each sentence's input-address carrier under
 /// `org.krust.provenance.InputAddresses`; a version 5 reader would take that key for an ordinary
 /// attribute. Version 7 holds rule-like sentences whose labels carry no sort parameters, which

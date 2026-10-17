@@ -2029,6 +2029,37 @@ It is one component of an execution cache key: the build, the module, the option
 Edits of a source that change only its layout or its resolver identity leave the digest unchanged; the [Compile](#compile) paragraph states the property and its converse.
 Digests are comparable within one build, under `EXECUTION_DIGEST_VERSION`.
 
+### Format versions
+
+Each version number below names the shape of one kind of document, not its content.
+None of them moves when the content of a document changes: an embedded builtin file (such as the default layout), the frontend's reading of a definition's text, or a compiled or computed result.
+The build covers those changes (the k-rust revision with its `Cargo.lock`, and the rest of what [Compile](#compile) counts as one build), so any digest or cache key over k-rust output is comparable only under one revision, and equal version numbers in the output of two revisions do not make their bytes comparable.
+Content and result changes are listed in k-rust's answers to its clients, classified per commit range.
+
+Interchange formats k-rust shares with other tools:
+
+- `k_rust::kast::json::VERSION` (4): KAST JSON, the format of K terms and of definitions (`{"format": "KAST", "version": 4, …}`) that the term and definition JSON readers and writers use.
+- `k_rust_kore::kore::json::VERSION` (1): KORE JSON, the format of KORE patterns (`{"format": "KORE", "version": 1, …}`).
+
+Each number names the format k-rust reads and writes, and k-rust's readers refuse a document with another number.
+Other tools write and read these formats under the same numbers, so neither moves on k-rust's initiative.
+k-rust reads the subset of each format that this file documents.
+A fix or narrowing of how k-rust reads or writes a format is a result change, listed for clients, not a version change: eb394dc97 made the KAST JSON reader refuse a `KRegexTerminal` whose `precedeRegex` or `followRegex` is other than `"#"` ([Token precede and follow restrictions](#token-precede-and-follow-restrictions)), and 4a3b0b099 made a KORE JSON string value (of a `String` pattern or a domain value) denote its code points, where k-rust had written each byte of the stored payload as one code point and refused a code point above U+00FF ([Strings and their literals](#strings-and-their-literals)).
+So the number does not promise that a reader of the version reads every document of that version, nor that two k-rust revisions read one document alike.
+
+k-rust's own schema versions:
+
+- `k_rust::definition::json::PROVENANCE_VERSION` (8): the schema of the `KRUST-PROVENANCE` document, a compiled definition with its compiler provenance; its rustdoc states what each version changed.
+- `k_rust::backend::EXECUTION_DIGEST_VERSION` (1): the canonical form the [execution digest](#execution-digest) hashes.
+- `k_rust::backend::BACKEND_SCHEMA_VERSION` (1): the backend wire schema, the `schemaVersion` of the backend's requests and responses. The backend accepts only that number, so the schema has changed at version 1 without moving it: additive fields and variants (such as `coverage`, [Run coverage](#run-coverage)), and the closed-variant changes listed under [Observation events](#observation-events).
+- `k_rust::backend::IMPLICATION_SCHEMA_VERSION` (2): the schema of an implication result (`ImplicationResult`).
+- `k_rust::backend::VARIABLE_IDENTITY` (3): the scheme by which the backend reads and prints variable names ([Variable names](#variable-names)); its rustdoc states what each version promises.
+- `k_rust_kore::measure::COUNTER_SCHEMA_VERSION` (20): the counter set of the `KRUST_COUNTERS` document a `measure` build writes.
+
+Each moves only for a change of its schema, never for a change of content or of a result.
+A change of a schema need not move its number: besides `BACKEND_SCHEMA_VERSION`'s, `IMPLICATION_SCHEMA_VERSION` stayed 2 when e4c9ea67d added the optional `failure` field.
+So a number names a schema up to such changes, and only the k-rust revision names it exactly.
+
 ## Observation events
 
 Observed execution and search (`executeObserved` and the `*Observed` search methods of the host API) report three event kinds, a closed union tagged by `kind`.

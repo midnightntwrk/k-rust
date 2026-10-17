@@ -761,6 +761,10 @@ impl ImplicationFailureOutput {
     ];
 }
 
+/// The version of the implication result schema, the `schemaVersion` of an
+/// [`ImplicationResult`]. It moves only when that schema changes; a change of which verdict,
+/// condition or failure an implication computes leaves it as it is, and the k-rust revision
+/// covers that ("Format versions" in `docs/compatibility.md`).
 pub const IMPLICATION_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Clone, Debug, Serialize)]

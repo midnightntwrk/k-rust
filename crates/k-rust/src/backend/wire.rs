@@ -38,6 +38,12 @@ use k_rust_backend::{
 #[cfg(feature = "measure")]
 use k_rust_kore::measure::{self, Counter};
 
+/// The version of the backend wire schema: the shape of the requests and responses of
+/// [`Backend`](super::Backend)'s JSON operations, which carry it as `schemaVersion`; a request
+/// with another number is refused. It moves only for a schema change, and stays 1 for additive
+/// fields and variants (`docs/compatibility.md` records the schema changes made at version 1);
+/// a change of what an operation computes leaves it as it is, and the k-rust revision covers
+/// that ("Format versions" in `docs/compatibility.md`).
 pub const BACKEND_SCHEMA_VERSION: u32 = 1;
 
 /// The backend classification of a compiled axiom.

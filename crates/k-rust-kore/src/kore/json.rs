@@ -33,6 +33,15 @@ use super::{
 };
 
 pub const FORMAT: &str = "KORE";
+/// The version of KORE JSON (the `{"format": "KORE", "version": 1}` envelope), the
+/// interchange format of KORE patterns that k-rust shares with other K tools: it names the
+/// format this module reads and writes, the reader refuses any other number, and it never moves
+/// on k-rust's initiative.
+/// k-rust reads the subset of the format `docs/compatibility.md` documents, and a fix or
+/// narrowing of that reading or of what k-rust writes, like a change of a document's content,
+/// leaves the number as it is and is a result change of the k-rust revision ("Format versions"
+/// in `docs/compatibility.md`), so one number does not make two revisions read one document
+/// alike.
 pub const VERSION: u32 = 1;
 
 #[derive(Debug)]
