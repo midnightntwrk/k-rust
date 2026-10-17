@@ -57,7 +57,7 @@
 
 use crate::{
     admit::{AdmittedSpec, ProgramInputs, admit_spec},
-    digest::{execution_digest, hint_key, kink_build_identity, mutation_identity, outcome_context},
+    digest::{execution_digest, hint_key, mutation_identity, outcome_context},
     hints::{HintEntry, Hints},
     manifest::{Budget, FlowManifest},
     mutation::{InvalidMutation, Mutation, MutationList, ResolvedMutation, resolve, rule_texts},
@@ -1258,7 +1258,10 @@ pub fn run_with(
         }
     }
     let mut ok = update.ok();
-    let (tier1, tier1_reason) = match (tier1_refusal(SolverProfile::BUILD), kink_build_identity()) {
+    let (tier1, tier1_reason) = match (
+        tier1_refusal(SolverProfile::BUILD),
+        kink_campaign::kink_build(),
+    ) {
         (Some(reason), _) => (None, Some(reason.to_owned())),
         (None, Ok(build)) => (
             Some(OutcomeStore::new(
@@ -1623,6 +1626,7 @@ fn document(
         "k_rust_revision": K_RUST_REVISION,
         "profile": SolverProfile::BUILD.name(),
         "result_schema_version": RESULT_SCHEMA_VERSION,
+        "kink_build": run_document_build(),
         "kink": kink_campaign::kink_identity(),
         "spec": {
             "outcome": if refusal.is_some() { "refused" } else { "admitted" },
@@ -1650,6 +1654,13 @@ fn document(
     })
 }
 
+/// The run document's `kink_build`: the build that wrote it (kink-campaign `identity::kink_build`,
+/// packet CACHE-ID-fix-1), or null when the executable cannot be read, which `kink-flow report`
+/// never accepts.
+fn run_document_build() -> Value {
+    kink_campaign::kink_build().map_or(Value::Null, |build| json!(build.to_string()))
+}
+
 /// The run document of a mutation list that does not decode.
 pub fn mutation_list_refused(detail: &str) -> Value {
     json!({
@@ -1657,6 +1668,7 @@ pub fn mutation_list_refused(detail: &str) -> Value {
         "version": RUN_VERSION,
         "k_rust_revision": K_RUST_REVISION,
         "profile": SolverProfile::BUILD.name(),
+        "kink_build": run_document_build(),
         "kink": kink_campaign::kink_identity(),
         "mutation_list": {"outcome": "refused", "detail": detail},
     })

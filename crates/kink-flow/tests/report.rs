@@ -168,6 +168,74 @@ fn a_report_written_under_another_identity_is_refused() {
     }
 }
 
+/// Packet CACHE-ID-fix-1 (CACHE-ID review 1 major): the run document names the build that wrote
+/// it (`kink_build`, the executable's digest), and `report` prints only a document this build
+/// wrote: most verdict code has no version constant, so an equal semantics identity does not
+/// show that the statuses would be the same. Forged first (another build, none, and a version-7
+/// document from before CACHE-ID-fix-1), then two real builds: the `kink-flow` binary refuses
+/// the document this test binary wrote, and this test binary refuses the binary's.
+#[test]
+fn a_report_written_by_another_build_is_refused() {
+    use kink_flow::report::{ReportOptions, report};
+    let this_build = kink_campaign::identity::build_identity_of(&std::env::current_exe().unwrap())
+        .unwrap()
+        .to_string();
+    let dir = fixture("calc", "build");
+    let path = dir.join("FLOW.toml");
+    let (document, ok) = search(
+        &path,
+        &path.with_file_name("MUTATIONS.toml"),
+        &["add-becomes-sub"],
+    );
+    assert!(ok, "{document:#}");
+    assert_eq!(document["version"], RUN_VERSION);
+    assert_eq!(document["kink_build"], this_build);
+    let manifest = FlowManifest::read(&path).unwrap();
+    let stored = path.with_file_name(CACHE_DIRECTORY).join(REPORT_FILE);
+    let written = fs::read_to_string(&stored).unwrap();
+    let mut other = document.clone();
+    other["kink_build"] = json!(kink_patch::sha256(b"another kink build").to_string());
+    let mut none = document.clone();
+    none.as_object_mut().unwrap().remove("kink_build");
+    let mut before = none.clone();
+    before["version"] = json!(7);
+    for stale in [other, none, before] {
+        fs::write(&stored, stale.to_string()).unwrap();
+        let (refused, ok) = report(&manifest, &ReportOptions::default());
+        assert!(!ok, "{refused:#}");
+        assert_eq!(refused["outcome"], "unreadable", "{refused:#}");
+    }
+    // Two real builds.
+    fs::write(&stored, &written).unwrap();
+    let by_binary = binary(&["report", "FLOW.toml"], &dir);
+    assert_eq!(by_binary.status.code(), Some(i32::from(EXIT_CORPUS)));
+    let refused: Value = serde_json::from_slice(&by_binary.stdout).unwrap();
+    assert_eq!(refused["outcome"], "unreadable", "{refused:#}");
+    let detail = refused["detail"].as_str().unwrap();
+    assert!(detail.contains(&this_build), "{detail}");
+    assert!(
+        detail.contains("its kink identity is this build's"),
+        "{detail}"
+    );
+    let ran = binary(
+        &[
+            "run",
+            "FLOW.toml",
+            "MUTATIONS.toml",
+            "--only",
+            "add-becomes-sub",
+        ],
+        &dir,
+    );
+    assert_eq!(ran.status.code(), Some(i32::from(EXIT_OK)));
+    let reported = binary(&["report", "FLOW.toml"], &dir);
+    assert_eq!(reported.status.code(), Some(i32::from(EXIT_OK)));
+    assert_eq!(reported.stdout, ran.stdout);
+    let (refused, ok) = report(&manifest, &ReportOptions::default());
+    assert!(!ok, "{refused:#}");
+    assert_eq!(refused["outcome"], "unreadable", "{refused:#}");
+}
+
 #[test]
 fn a_survivor_row_carries_its_rule_texts_reaching_programs_and_outcomes() {
     let manifest = fixture("calc", "survivor").join("FLOW.toml");

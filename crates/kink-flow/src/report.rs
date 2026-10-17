@@ -65,8 +65,9 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// R0c-fix-2 added each row's `removed_claims`; 5 since re-pin R0c-fix-3 added each row's
 /// `inconsistent_pairs`; 6 since re-pin L2-2-fix-1 added each row's `typing_diagnostics`; 7 since
 /// packet CACHE-ID added `kink`, kink's semantics identity (kink-campaign `identity`), which
-/// `report` requires to be this build's.
-pub const RUN_VERSION: u64 = 7;
+/// `report` requires to be this build's; 8 since packet CACHE-ID-fix-1 added `kink_build`, the
+/// digest of the executable that wrote it, which `report` requires to be this executable's.
+pub const RUN_VERSION: u64 = 8;
 /// The claims a mutation's edit leaves unbacked (kink-patch `ClaimSupport::withdraw`):
 /// `{removed: [claim], unsupported: [claim]}`, each claim `{module, index, label, key, value}`
 /// for a baseline sentence (`label` null when it has none) or `{inserted: <edit index>, key,
@@ -579,6 +580,22 @@ fn read_report(path: &Path) -> Result<Value, (&'static str, String)> {
                 "the report has schema {} version {}, not {RUN_SCHEMA} version {RUN_VERSION}: \
                  run `kink-flow run` again",
                 document["schema"], document["version"]
+            ),
+        ));
+    }
+    // `report` honours the stored statuses without re-deriving them, so it prints only a document
+    // this build wrote (packet CACHE-ID-fix-1): most verdict code has no version constant, and
+    // only the build identity tells that it changed.
+    if let Some(reason) = kink_campaign::writer_difference(
+        &document["kink_build"],
+        &document["kink"],
+        &kink_campaign::kink_build(),
+    ) {
+        return Err((
+            "unreadable",
+            format!(
+                "the report is not this build's ({reason}), so its statuses may rest on verdict \
+                 code this build no longer runs: run `kink-flow run` again"
             ),
         ));
     }

@@ -5,13 +5,18 @@
 //! evidence into a value. [`compare_supplied`] compares two sides of one declaration, and
 //! [`derive_mutant_report`] and [`score`] fold the outcomes into mutant statuses and a
 //! score. [`tally`] counts its exclusions from the generation and run; show it beside the ratio.
-//! [`identity`] is kink's semantics identity: the version of every algorithm a verdict can depend
-//! on, which every persistent store (campaign manifests, kink-corpus stores, kink-flow's caches)
-//! keys on or refuses by.
+//! [`identity`] holds kink's build identity (the running executable's digest, which guards all of
+//! kink's verdict code) and kink's semantics identity (the versions of its versioned algorithms).
+//! Every store honoured without re-deriving its verdicts (kink-corpus stores, kink-flow's caches
+//! and run document) is bound to both; campaign manifests name the semantics identity only, so
+//! campaign reports stay build-independent.
 
 mod campaign;
 pub mod identity;
-pub use identity::{KINK_IDENTITY, RESULT_SCHEMA_VERSION, identity_difference, kink_identity};
+pub use identity::{
+    KINK_IDENTITY, RESULT_SCHEMA_VERSION, identity_difference, kink_build, kink_identity,
+    writer_difference,
+};
 mod manifest;
 mod oracle;
 mod plan;

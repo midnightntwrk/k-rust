@@ -607,3 +607,112 @@ fn a_report_from_another_admission_build_is_refused() {
         }
     });
 }
+
+/// Packet CACHE-ID-fix-1 (CACHE-ID review 1 major, minors 4 and 5): a store is honoured only by
+/// the build that wrote it and only for the run options kink-corpus runs with. Each index entry
+/// names its writer's build (`kink_build`) and run options (`run_options`), and each admission
+/// record its writer's build, outside the campaign report's bytes, so the report is unchanged.
+/// An entry of another build (simulated by writing another build's identity into it, as build A
+/// would), one with no build (every store written before CACHE-ID-fix-1) and one with other or
+/// no run options are refused by resume and by summary, with every semantics-identity component
+/// equal; resume also refuses an admission record of another build, and summary reads one as
+/// missing. tests/runner.rs runs the same with two real builds.
+#[test]
+fn a_store_of_another_build_or_other_run_options_is_refused() {
+    with_stack(|| {
+        let other = sha256(b"another kink build").to_string();
+        let this = kink_campaign::kink_build().unwrap().to_string();
+        let entries: [(&str, &str, Value); 4] = [
+            ("other-build", "kink_build", json!(other)),
+            ("no-build", "kink_build", Value::Null),
+            (
+                "other-run-options",
+                "run_options",
+                json!({"result_modality":"path-set","work":null}),
+            ),
+            ("no-run-options", "run_options", Value::Null),
+        ];
+        for (name, key, value) in entries {
+            let manifest = decode(&clean());
+            let store = store(name);
+            let outcome = run_definition(&workspace(), &manifest, "clean", &store).unwrap();
+            let entry = outcome.campaign.unwrap();
+            assert_eq!(entry["kink_build"], this);
+            assert_eq!(
+                entry["run_options"],
+                json!({"result_modality":"state-set","work":null})
+            );
+            assert_eq!(outcome.admission["kink_build"], this);
+            let root = store.profile_path(manifest.digest(), profile());
+            let report_path = root.join("campaigns").join(format!(
+                "{}.json",
+                entry["manifest_sha256"].as_str().unwrap()
+            ));
+            let report = fs::read(&report_path).unwrap();
+            assert!(!String::from_utf8_lossy(&report).contains(&this));
+            let mut index = store.read_index(manifest.digest(), profile()).unwrap();
+            if value.is_null() {
+                index["clean"].as_object_mut().unwrap().remove(key);
+            } else {
+                index["clean"][key] = value;
+            }
+            store.write_json(&root.join("index.json"), &index).unwrap();
+            let Err(refused) = run_definition(&workspace(), &manifest, "clean", &store) else {
+                panic!("{name}: resumed")
+            };
+            let expected = if key == "kink_build" {
+                "not by this build"
+            } else {
+                "run options"
+            };
+            assert!(refused.to_string().contains(expected), "{name}: {refused}");
+            let Err(summary) = summarize(&store, &manifest.digest().to_string(), profile()) else {
+                panic!("{name}: summarized")
+            };
+            assert!(summary.to_string().contains(expected), "{name}: {summary}");
+            assert_eq!(fs::read(&report_path).unwrap(), report, "{name}");
+        }
+        // An admission record of another build: resume refuses it, and summary reads it as
+        // missing (an error/process row that scores nothing), for an admitted definition and
+        // for a refused one; the same refusal record of this build is reported as written.
+        let manifest = decode(&clean());
+        let store = store("other-admission-build");
+        run_definition(&workspace(), &manifest, "clean", &store).unwrap();
+        let root = store.profile_path(manifest.digest(), profile());
+        let path = store
+            .admission_path(manifest.digest(), profile(), "clean")
+            .unwrap();
+        let mut admission = store.read_json(&path).unwrap();
+        admission["kink_build"] = json!(other);
+        store.write_json(&path, &admission).unwrap();
+        let Err(refused) = run_definition(&workspace(), &manifest, "clean", &store) else {
+            panic!("an admission record of another build was resumed")
+        };
+        assert!(
+            refused.to_string().contains("admission record"),
+            "{refused}"
+        );
+        let missing = json!({"outcome":"error","stage":"process","reason":"process"});
+        let summary = summarize(&store, &manifest.digest().to_string(), profile()).unwrap();
+        assert_eq!(summary.value()["definitions"][0]["admission"], missing);
+        assert_eq!(summary.value()["totals"]["definitions"]["admitted"], 0);
+        let mut index = store.read_index(manifest.digest(), profile()).unwrap();
+        index.as_object_mut().unwrap().remove("clean");
+        store.write_json(&root.join("index.json"), &index).unwrap();
+        admission["outcome"] = json!("refused");
+        admission["stage"] = json!("compile");
+        admission["reason"] = json!("forged");
+        for (build, expected) in [
+            (json!(other), missing),
+            (
+                json!(this),
+                json!({"outcome":"refused","stage":"compile","reason":"forged"}),
+            ),
+        ] {
+            admission["kink_build"] = build;
+            store.write_json(&path, &admission).unwrap();
+            let summary = summarize(&store, &manifest.digest().to_string(), profile()).unwrap();
+            assert_eq!(summary.value()["definitions"][0]["admission"], expected);
+        }
+    });
+}

@@ -2,9 +2,15 @@
 //!
 //! Campaign evidence supplies every tally and score. This module only reads it;
 //! it does not execute a definition or produce a campaign verdict.
+//!
+//! It honours stored verdicts without re-deriving them, so it reads only what this build wrote
+//! (packet CACHE-ID-fix-1; kink-campaign `identity`): an index entry of another build, of other
+//! run options or under another semantics identity refuses the summary, and an admission record
+//! of another build reads as missing (an `error`/`process` row, which scores nothing).
 
 use crate::{
     manifest::DefinitionSpec,
+    runner::{corpus_build, corpus_run_options, run_options_value},
     store::{Store, StoreError},
 };
 use kink_campaign::{CAMPAIGN_REPORT_VERSION, Projection};
@@ -48,6 +54,7 @@ pub fn summarize(
     corpus_manifest_sha256: &str,
     profile: &str,
 ) -> Result<CorpusSummary, StoreError> {
+    let build = corpus_build()?;
     let digest = kink_patch::Sha256Digest::parse(corpus_manifest_sha256)
         .ok_or_else(|| invalid("corpus manifest digest"))?;
     let manifest = store.read_manifest(digest)?;
@@ -80,12 +87,20 @@ pub fn summarize(
     let mut pattern_counts = [0_u64; 3];
     for definition in manifest.definitions() {
         let admission_path = store.admission_path(digest, profile, &definition.id)?;
-        let record = match fs::read_to_string(&admission_path) {
-            Ok(_) => store.read_json(&admission_path)?,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => json!({
+        let missing = || {
+            json!({
                 "definition":definition.id,"outcome":"error","stage":"process",
                 "reason":"process","census":null
-            }),
+            })
+        };
+        let record = match fs::read_to_string(&admission_path) {
+            // An admission record of another build (or one that names none: a process record,
+            // or a record written before packet CACHE-ID-fix-1) is read as missing: its
+            // refusal or census may rest on admission code this build no longer runs.
+            Ok(_) => Some(store.read_json(&admission_path)?)
+                .filter(|record| record["kink_build"] == build.to_string())
+                .unwrap_or_else(missing),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => missing(),
             Err(e) => return Err(e.into()),
         };
         if record["definition"] != definition.id {
@@ -109,7 +124,7 @@ pub fn summarize(
         }
         let report = entries
             .get(&definition.id)
-            .map(|entry| read_report(store, &base, entry, profile, digest, &definition.id))
+            .map(|entry| read_report(store, &base, entry, profile, digest, &definition.id, build))
             .transpose()?;
         if report
             .as_ref()
@@ -212,6 +227,7 @@ fn read_report(
     profile: &str,
     corpus: kink_patch::Sha256Digest,
     id: &str,
+    build: kink_patch::Sha256Digest,
 ) -> Result<Value, StoreError> {
     let digest = string(&entry["manifest_sha256"], "campaign digest")?;
     if kink_patch::Sha256Digest::parse(digest).is_none() {
@@ -241,6 +257,19 @@ fn read_report(
         || campaign["profile"] != profile
     {
         return Err(invalid("campaign manifest or report identity"));
+    }
+    if let Some(reason) =
+        kink_campaign::writer_difference(&entry["kink_build"], &campaign["kink"], &Ok(build))
+    {
+        return Err(invalid(format!(
+            "the indexed campaign of `{id}` is not summarized: {reason}"
+        )));
+    }
+    if entry["run_options"] != run_options_value(&corpus_run_options()) {
+        return Err(invalid(format!(
+            "the indexed campaign of `{id}` was made with run options {}",
+            entry["run_options"]
+        )));
     }
     if let Some(key) = kink_campaign::identity_difference(&campaign["kink"]) {
         return Err(invalid(format!(

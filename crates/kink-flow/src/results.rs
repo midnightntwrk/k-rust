@@ -1,6 +1,6 @@
 //! The result cache (flow README 5.3): one record per program's baseline run, keyed by the
-//! result schema version, kink's semantics identity (kink-campaign `identity`), the
-//! specification digest, the program digest and the budget.
+//! result schema version, kink's build identity and semantics identity (kink-campaign
+//! `identity`), the specification digest, the program digest and the budget.
 //!
 //! Each program runs as its own zero-mutant campaign through `kink_campaign::run_campaign_multi`
 //! (the way kink-corpus admission's `baseline_only` does), with the fixed oracles of README 5.4
@@ -25,7 +25,9 @@
 //!
 //! The cache is plain JSON under `<cache>/results/<spec digest>/<program digest>.json`. A record
 //! is used only when its key equals the current key; any other record, or one that does not
-//! parse, is recomputed and replaced. Deleting the cache is always safe.
+//! parse, is recomputed and replaced. A record names its writer's build, so a record another
+//! build wrote is recomputed (packet CACHE-ID-fix-1); when the executable cannot be read, no
+//! record is read or written. Deleting the cache is always safe.
 
 use crate::{
     admit::{AdmittedSpec, ProgramInputs, admit_spec},
@@ -143,14 +145,23 @@ pub fn execution_budget(budget: Budget) -> ExecutionBudget {
     }
 }
 
-/// The result key: schema version, kink's semantics identity (kink-campaign `identity`: the
-/// k-rust revision, the definition exclusions, the execution request, ...; packet CACHE-ID, re-pin
+/// The result key: schema version, kink's build identity `kink_build` (kink-campaign
+/// `identity::kink_build`, the running executable's digest, which guards every piece of verdict
+/// code, versioned or not; packet CACHE-ID-fix-1), kink's semantics identity `kink` (the k-rust
+/// revision, the definition exclusions, the execution request, ...; packet CACHE-ID, re-pin
 /// R0-tail review 1 minor), specification digest, program digest and budget. A record written by
-/// a build with another identity, or by one before CACHE-ID (whose key has no `kink`), misses and
-/// is recomputed.
-pub fn result_key(spec: Sha256Digest, program: Sha256Digest, budget: Budget) -> Value {
+/// another build, or by one before CACHE-ID-fix-1 (whose key has no `kink_build`), misses and is
+/// recomputed. `kink_build` is `None` when the executable cannot be read; such a key is never
+/// read or written ([`update_results`]).
+pub fn result_key(
+    spec: Sha256Digest,
+    program: Sha256Digest,
+    budget: Budget,
+    kink_build: Option<Sha256Digest>,
+) -> Value {
     json!({
         "schema_version": RESULT_SCHEMA_VERSION,
+        "kink_build": kink_build.map(|build| build.to_string()),
         "kink": kink_campaign::kink_identity(),
         "spec": spec.to_string(),
         "program": program.to_string(),
@@ -726,6 +737,7 @@ pub fn update_results(
     let spec_digest = spec_digest(manifest, &spec.loaded.files);
     let store = Store::new(cache);
     let directory = cache.join("results").join(spec_digest.to_string());
+    let build = kink_campaign::kink_build().ok();
     let mut mismatches = Vec::new();
     let rows = manifest
         .programs
@@ -738,6 +750,7 @@ pub fn update_results(
                 runner,
                 &ProgramContext {
                     spec_digest,
+                    build,
                     directory: &directory,
                     cache,
                     store: &store,
@@ -836,6 +849,9 @@ pub fn results(manifest: &FlowManifest, options: &ResultsOptions) -> (Value, boo
 
 struct ProgramContext<'a> {
     spec_digest: Sha256Digest,
+    /// kink's build identity; `None` when the executable cannot be read, and then no record is
+    /// read or written (packet CACHE-ID-fix-1).
+    build: Option<Sha256Digest>,
     directory: &'a Path,
     cache: &'a Path,
     store: &'a Store,
@@ -868,6 +884,7 @@ pub fn rerun_timeout_record(
         runner,
         &ProgramContext {
             spec_digest,
+            build: kink_campaign::kink_build().ok(),
             directory: &directory,
             cache,
             store: &store,
@@ -932,9 +949,13 @@ fn program_row(
         Err(refusal) => return refused(None, refusal),
     };
     let digest = program_digest(program, &text);
-    let key = result_key(context.spec_digest, digest, manifest.budget);
+    let key = result_key(context.spec_digest, digest, manifest.budget, context.build);
     let path = context.directory.join(format!("{digest}.json"));
-    let stored = read_record(&path, &key).flatten();
+    // Without a build identity no record is honoured (packet CACHE-ID-fix-1).
+    let stored = context
+        .build
+        .and_then(|_| read_record(&path, &key))
+        .flatten();
     if let (Some(record), false, false) = (&stored, context.verify, context.refresh) {
         return ProgramRow {
             row: with_wall(
@@ -1030,7 +1051,12 @@ fn program_row(
         &record,
     );
     let mut failed = result.class == ResultClass::Error;
-    if let Err(e) = context.store.write_json(&path, &record) {
+    if context.build.is_none() {
+        row["cache_error"] = json!(
+            "kink's build identity is unknown (the executable cannot be read): the result cache \
+             is neither read nor written"
+        );
+    } else if let Err(e) = context.store.write_json(&path, &record) {
         row["cache_error"] = json!(format!("cannot write the result record: {e}"));
         failed = true;
     }

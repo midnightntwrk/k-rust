@@ -191,8 +191,8 @@ fn an_exit_stop_kill_names_its_slot_and_both_sides() {
     assert_eq!(row["killer"], "by-zero");
     // Re-pin R0c-fix-3: version 5 adds each row's `inconsistent_pairs`; re-pin L2-2-fix-1:
     // version 6 adds each row's `typing_diagnostics`; packet CACHE-ID: version 7 adds the
-    // document's `kink` identity.
-    assert_eq!(document["version"], 7);
+    // document's `kink` identity; packet CACHE-ID-fix-1: version 8 adds its `kink_build`.
+    assert_eq!(document["version"], 8);
     assert_eq!(row["typing_diagnostics"], json!([]));
     assert_eq!(
         entry(&document, "guard-dropped", "by-zero")["slots"],

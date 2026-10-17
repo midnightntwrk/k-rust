@@ -1,32 +1,59 @@
-//! kink's semantics identity: the one list of everything in kink that can change a verdict
-//! (packet CACHE-ID of the k-rust 501f18b9 re-pin).
+//! kink's semantics identity and kink's build identity: what a stored verdict is bound to
+//! (packets CACHE-ID and CACHE-ID-fix-1 of the k-rust 501f18b9 re-pin).
 //!
 //! A verdict (a mutant's status, a baseline's comparability, a program's result class) depends on
-//! the k-rust revision and on kink's own algorithms: how a patch is addressed and admitted, which
-//! claims a mutant loses, whether its equations are consistent, what its edit changes, which
-//! comparisons are excluded, what execution request is sent, what counts as a comparable result
-//! and how coverage is read. [`KINK_IDENTITY`] names each one by its version constant, and
-//! [`kink_identity`] is their object, `{key: value}`. Every persistent store derives its key or
-//! its refusal from that one object, so a record written by a build with any other component
-//! misses or is refused:
-//! - the campaign manifest's `kink` member is [`kink_identity`]. kink-corpus resume and its
-//!   summary refuse a stored report whose manifest names another ([`crate::same_admission`]),
-//!   and replay's environment check refuses one before regenerating anything, naming the
-//!   component (`kink.<key>`). Replay also regenerates the manifest, which would refuse it too;
-//! - kink-flow's result cache keys every record on it (`results::result_key`, member `kink`);
-//! - kink-flow's tier-1 outcome context holds it (`digest::outcome_context`, member `kink`),
-//!   beside the executable's hash;
-//! - kink-flow's run document names it, and `kink-flow report` refuses a document that names
+//! the k-rust revision and on all of kink's verdict code. A stored verdict may be honoured
+//! without re-deriving it only if the code that derived it is the code now running. Two
+//! identities say so:
+//! - [`kink_build`], kink's build identity, the SHA-256 of the running executable (decision D14-1
+//!   (a), kink-flow tier 1, extended to every honouring store by packet CACHE-ID-fix-1). It
+//!   guards everything: the comparison and its Distinguish, the status fold, pattern-oracle
+//!   matching, leaf adaptation, step events, feasibility, the census and every other piece of
+//!   verdict code that has no version constant, as well as the versioned algorithms and the
+//!   linked k-rust. Nothing has to be bumped for it to change;
+//! - [`KINK_IDENTITY`], the semantics identity, names the versioned algorithms by their version
+//!   constants: how a patch is addressed and admitted, which claims a mutant loses, whether its
+//!   equations are consistent, what its edit changes, which comparisons are excluded, what
+//!   execution request is sent, what counts as a comparable result, how coverage is read, and
+//!   the k-rust revision. [`kink_identity`] is their object, `{key: value}`. It is the
+//!   human-readable part: a store from another build says which versioned algorithm differs,
+//!   when one does, and the identity keeps campaign reports (which must not depend on the build)
+//!   bound to the algorithms they were made with.
+//!
+//! Every store that is honoured without re-deriving its verdicts carries both, and is refused or
+//! missed when either differs from this build's ([`writer_difference`], [`identity_difference`]):
+//! - kink-corpus: each index entry and admission record names its writer's build
+//!   (`kink_build`), outside the campaign report's bytes, and the report's manifest names the
+//!   identity (`kink`). Resume and summary refuse an entry written by another build or under
+//!   another identity; summary reads an admission record of another build as missing;
+//! - kink-flow's result cache keys every record on both (`results::result_key`, members
+//!   `kink_build` and `kink`);
+//! - kink-flow's tier-1 outcome context holds both (`digest::outcome_context`);
+//! - kink-flow's run document names both, and `kink-flow report` refuses a document that names
 //!   another.
 //!
-//! The rule for adding to it: a constant whose change can change a verdict is a component here
-//! (bump the constant whenever its algorithm changes what it decides; the stores then miss
-//! without further edits). Every other versioned constant (a name ending in `_VERSION`, or a
-//! string value ending in `/v<N>`) is listed in [`OUTSIDE_IDENTITY`] with the reason it cannot
-//! change a verdict on its own. kink-campaign's `tests/identity.rs` reads every crate's sources
-//! and fails on a versioned constant that is in neither list.
+//! Replay (kink-campaign `replay`, `kink-corpus replay-check`) re-derives instead: it regenerates
+//! the manifest, re-runs the campaign and returns `Reproduced` only for byte-identical
+//! regeneration, so it needs no build binding. It still refuses another identity in its
+//! environment check (`kink.<key>`) before regenerating anything. kink-flow's killer hints
+//! decide no status, so they carry neither.
+//!
+//! An unreadable executable gives no build identity: every honouring store then recomputes or
+//! refuses, never accepts.
+//!
+//! The rule for adding to the semantics identity: a constant whose change can change a verdict is
+//! a component here (bump the constant whenever its algorithm changes what it decides; the stores
+//! then miss without further edits, and the refusal names it). Every other versioned constant (a
+//! `const` or `static` whose name ends in `_VERSION` or `_DOMAIN`, whose string value ends in
+//! `/v<N>`, `/v<N>.<M>` or `-v<N>`, or whose value names such a constant) is listed in
+//! [`OUTSIDE_IDENTITY`] with the reason it cannot change a verdict on its own. kink-campaign's
+//! `tests/identity.rs` parses every workspace member's sources and fails on a versioned constant
+//! that is in neither list. Verdict code without a version constant needs no entry: the build
+//! identity guards it.
 
+use kink_patch::{Sha256Digest, sha256};
 use serde_json::{Map, Value, json};
+use std::{path::Path, sync::OnceLock};
 
 /// The result schema of kink-flow's result cache: what counts as a comparable baseline result
 /// and what a result record holds. It lives here so the identity can name it; kink-flow
@@ -145,75 +172,113 @@ pub struct Outside {
     pub reason: &'static str,
 }
 
-const DOMAIN: &str = "a digest domain: a change changes the digest it names, and so the key or \
-                      the record that digest is part of";
-
-/// Every versioned constant outside [`KINK_IDENTITY`].
-pub const OUTSIDE_IDENTITY: [Outside; 22] = [
+/// Every versioned constant outside [`KINK_IDENTITY`]. Each reason names the path that checks
+/// the constant, or says why nothing has to.
+pub const OUTSIDE_IDENTITY: [Outside; 23] = [
     Outside {
         krate: "kink-patch",
         constant: "TEST_MANIFEST_DOMAIN",
-        reason: DOMAIN,
+        reason: "the domain of the campaign manifest's tests digest (`tests.sha256`): `kink-corpus \
+                 run` recomputes it from the stored inputs before it resumes (cli.rs \
+                 verify_binding), replay regenerates the manifest and requires equal text, and \
+                 kink-corpus summary and `definition` resume honour only an index entry whose \
+                 `kink_build` is this build",
     },
     Outside {
         krate: "kink-patch",
         constant: "OBSERVATION_DOMAIN",
-        reason: DOMAIN,
+        reason: "the domain of the campaign manifest's `observation_sha256`: `kink-corpus run` \
+                 recomputes it from the corpus declaration before it resumes (cli.rs \
+                 verify_binding), replay regenerates the manifest and requires equal text, and \
+                 kink-corpus summary and `definition` resume honour only an index entry whose \
+                 `kink_build` is this build",
     },
     Outside {
         krate: "kink-patch",
         constant: "CAMPAIGN_MANIFEST_DOMAIN",
-        reason: DOMAIN,
+        reason: "the domain of the campaign manifest's digest: every reader recomputes it from the \
+                 stored manifest and requires the indexed digest (kink-corpus runner.rs resume, \
+                 summary.rs read_report, cli.rs replay_check, kink-campaign replay)",
     },
     Outside {
         krate: "kink-patch",
         constant: "OPERATOR_DOMAIN",
-        reason: DOMAIN,
+        reason: "the domain of an operator specification's digest (`spec_sha256` in the campaign \
+                 manifest): `kink-corpus run` compares every stored operator row with the corpus's \
+                 specifications before it resumes (cli.rs verify_binding), replay regenerates the \
+                 manifest and requires equal text, and kink-corpus summary and `definition` \
+                 resume honour only an index entry whose `kink_build` is this build",
     },
     Outside {
         krate: "kink-native",
         constant: "CENSUS_DOMAIN",
-        reason: DOMAIN,
+        reason: "the domain of a declaration census's digest, which the campaign manifest and the \
+                 admission records hold: replay regenerates the manifest and requires equal \
+                 text, and kink-corpus summary and `definition` resume honour only an index entry \
+                 (and summary only an admission record) whose `kink_build` is this build, whose \
+                 census code wrote it",
     },
     Outside {
         krate: "kink-corpus",
         constant: "CORPUS_MANIFEST_DOMAIN",
-        reason: "a digest domain: the corpus manifest's digest names the store's directory",
+        reason: "the domain of the corpus manifest's digest, which names the store's directory: \
+                 every command recomputes it from the stored declaration and requires the \
+                 directory's name (store.rs read_manifest)",
     },
     Outside {
         krate: "kink-flow",
         constant: "SPEC_DOMAIN",
-        reason: DOMAIN,
+        reason: "the domain of the specification digest: every kink-flow command recomputes it \
+                 from the sources it loads (digest.rs spec_digest), and it enters the result key, \
+                 which also holds `kink_build`, and the tier-1 execution digest",
+    },
+    Outside {
+        krate: "kink-flow",
+        constant: "EXECUTION_DIGEST_KIND",
+        reason: "the kind of the tier-1 execution digest (today SPEC_DOMAIN itself): it is a member \
+                 of the tier-1 context, which also holds `kink_build`, and every command \
+                 recomputes the context (digest.rs outcome_context)",
     },
     Outside {
         krate: "kink-flow",
         constant: "PROGRAM_DOMAIN",
-        reason: DOMAIN,
+        reason: "the domain of the program digest: every kink-flow command recomputes it from the \
+                 program it reads (digest.rs program_digest), and it enters the result key, which \
+                 also holds `kink_build`, and the tier-1 key",
     },
     Outside {
         krate: "kink-flow",
         constant: "RUN_DOMAIN",
-        reason: DOMAIN,
+        reason: "the domain of a result record's `run_sha256`: `results --verify` and the timeout \
+                 refresh recompute it from a new run (results.rs verify_record), and a record is \
+                 read only under a key that holds `kink_build`",
     },
     Outside {
         krate: "kink-flow",
         constant: "RECORD_DOMAIN",
-        reason: DOMAIN,
+        reason: "the domain of a tier-1 record's digest: the tier-1 reader recomputes it from the \
+                 record (outcomes.rs record_sha256), and reads a record only under a context that \
+                 holds `kink_build`",
     },
     Outside {
         krate: "kink-flow",
         constant: "OUTCOME_CONTEXT_DOMAIN",
-        reason: DOMAIN,
+        reason: "the domain of the tier-1 context's digest, which names its directory: every \
+                 command recomputes it from its context (digest.rs context_sha256), and the reader \
+                 requires the stored context to equal it (outcomes.rs OutcomeStore::file)",
     },
     Outside {
         krate: "kink-flow",
         constant: "MUTATION_IDENTITY_DOMAIN",
-        reason: DOMAIN,
+        reason: "the domain of a mutation's tier-1 identity: every command recomputes it from the \
+                 mutation's patch (digest.rs mutation_identity), inside a context that holds \
+                 `kink_build`",
     },
     Outside {
         krate: "kink-flow",
         constant: "HINT_DOMAIN",
-        reason: DOMAIN,
+        reason: "the domain of a killer-hint key; a hint only orders the kill search, which proves \
+                 every status live or from tier 1",
     },
     Outside {
         krate: "kink-campaign",
@@ -225,18 +290,21 @@ pub const OUTSIDE_IDENTITY: [Outside; 22] = [
         krate: "kink-corpus",
         constant: "CLASSIFIER",
         reason: "kink-corpus's terminal classifier, recorded in every campaign manifest it writes \
-                 (`classifier`)",
+                 (`classifier`): `kink-corpus run` compares it before it resumes (cli.rs \
+                 verify_binding), replay regenerates the manifest with this build's classifier \
+                 and requires equal text, and kink-corpus summary and `definition` resume honour \
+                 only an index entry whose `kink_build` is this build",
     },
     Outside {
         krate: "kink-flow",
         constant: "OUTCOME_SCHEMA_VERSION",
-        reason: "what a tier-1 outcome record means, in the tier-1 context, the only store of \
-                 outcome records",
+        reason: "what a tier-1 outcome record means: a member of the tier-1 context, the only store \
+                 of outcome records, which the reader requires to equal this build's context",
     },
     Outside {
         krate: "kink-flow",
         constant: "OUTCOMES_VERSION",
-        reason: "the tier-1 outcome file's format, which its reader requires",
+        reason: "the tier-1 outcome file's format, which its reader requires (outcomes.rs)",
     },
     Outside {
         krate: "kink-flow",
@@ -247,7 +315,8 @@ pub const OUTSIDE_IDENTITY: [Outside; 22] = [
     Outside {
         krate: "kink-flow",
         constant: "RUN_VERSION",
-        reason: "the run document's format, which `kink-flow report` requires",
+        reason: "the run document's format, which `kink-flow report` requires (report.rs \
+                 read_report)",
     },
     Outside {
         krate: "kink-native",
@@ -267,6 +336,75 @@ pub const OUTSIDE_IDENTITY: [Outside; 22] = [
                  its patch, which the mutation identity of the tier-1 key digests",
     },
 ];
+
+/// kink's build identity (decision D14-1 (a), kink-flow tier 1; every honouring store since packet
+/// CACHE-ID-fix-1): the SHA-256 of the running executable's bytes (`std::env::current_exe`),
+/// computed once per process. Any rebuild of kink, debug or release, is another identity, so no
+/// store honours a verdict that other verdict code produced, whether or not that code has a
+/// version constant. `Err` when the executable cannot be read: every honouring store then
+/// recomputes or refuses, never accepts ([`writer_difference`]).
+///
+/// # Errors
+/// When the running executable has no path or cannot be read.
+pub fn kink_build() -> Result<Sha256Digest, String> {
+    static BUILD: OnceLock<Result<Sha256Digest, String>> = OnceLock::new();
+    BUILD
+        .get_or_init(|| {
+            let path = std::env::current_exe()
+                .map_err(|e| format!("the running executable has no path: {e}"))?;
+            build_identity_of(&path)
+        })
+        .clone()
+}
+
+/// The build identity of the executable at `path`: the SHA-256 of its bytes.
+///
+/// # Errors
+/// When the file cannot be read.
+pub fn build_identity_of(path: &Path) -> Result<Sha256Digest, String> {
+    let bytes = std::fs::read(path)
+        .map_err(|e| format!("cannot read the executable {}: {e}", path.display()))?;
+    Ok(sha256(&bytes))
+}
+
+/// Why a stored record may not be honoured by the build `build` ([`kink_build`]), or `None`
+/// when it may: `recorded_build` is the record's `kink_build` member (its writer's build) and
+/// `recorded_identity` its semantics identity. A record written by another build, one that names
+/// no build (every record written before packet CACHE-ID-fix-1), and any record when this build's
+/// identity is unknown, are refused. The reason names both builds and, when the identities
+/// differ too, the first component that differs ([`identity_difference`]). A record of this
+/// build whose identity differs (only a forged one) gives `None` here; the caller's identity
+/// check refuses it.
+#[must_use]
+pub fn writer_difference(
+    recorded_build: &Value,
+    recorded_identity: &Value,
+    build: &Result<Sha256Digest, String>,
+) -> Option<String> {
+    let build = match build {
+        Err(e) => {
+            return Some(format!(
+                "this build's identity is unknown ({e}), so no stored verdict is honoured"
+            ));
+        }
+        Ok(build) => build.to_string(),
+    };
+    let writer = match recorded_build.as_str() {
+        Some(writer) if writer == build => return None,
+        Some(writer) => format!("kink build {writer}"),
+        None => "a kink build it does not name".to_owned(),
+    };
+    let algorithms = match identity_difference(recorded_identity) {
+        Some(key) if key.is_empty() => "and it names no kink identity".to_owned(),
+        Some(key) => format!("and its kink identity differs at `{key}`"),
+        None => "and its kink identity is this build's, so what differs is verdict code that has \
+                 no version constant"
+            .to_owned(),
+    };
+    Some(format!(
+        "it was written by {writer}, not by this build {build}, {algorithms}"
+    ))
+}
 
 /// kink's semantics identity, `{key: value}` for every component of [`KINK_IDENTITY`].
 #[must_use]

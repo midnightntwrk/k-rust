@@ -134,6 +134,58 @@ fn all_stored_bytes(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
     walk(root, root, &mut result);
     result
 }
+/// The build identity of the executable at `path`, as a store names it.
+fn build_of(path: &Path) -> String {
+    kink_campaign::identity::build_identity_of(path)
+        .unwrap()
+        .to_string()
+}
+/// The `kink-corpus` binary's build identity.
+fn binary_build() -> String {
+    build_of(Path::new(env!("CARGO_BIN_EXE_kink-corpus")))
+}
+/// This test binary's build identity, which the library's writes name.
+fn library_build() -> String {
+    build_of(&std::env::current_exe().unwrap())
+}
+/// `bytes` without the writer's build (packet CACHE-ID-fix-1): every index entry and every
+/// admission record that is not a process record names `build`, which is removed, so two stores
+/// of different writers compare equal exactly when everything else is.
+fn without_writer(bytes: BTreeMap<PathBuf, Vec<u8>>, build: &str) -> BTreeMap<PathBuf, Vec<u8>> {
+    bytes
+        .into_iter()
+        .map(|(path, bytes)| {
+            let index = path.file_name().unwrap() == "index.json";
+            let admission = path.components().any(|c| c.as_os_str() == "admission");
+            if !index && !admission {
+                return (path, bytes);
+            }
+            let mut value: Value = serde_json::from_slice(&bytes).unwrap();
+            let records = if index {
+                value
+                    .as_object_mut()
+                    .unwrap()
+                    .values_mut()
+                    .collect::<Vec<_>>()
+            } else {
+                vec![&mut value]
+            };
+            for record in records {
+                if record["stage"] == "process" {
+                    assert!(record.get("kink_build").is_none(), "{}", path.display());
+                    continue;
+                }
+                assert_eq!(
+                    record.as_object_mut().unwrap().remove("kink_build"),
+                    Some(json!(build)),
+                    "{}",
+                    path.display()
+                );
+            }
+            (path, canonical_json(&value).into_bytes())
+        })
+        .collect()
+}
 fn library_store(manifest: &CorpusManifest, store: &Store) -> String {
     for definition in manifest.definitions() {
         run_definition(&workspace(), manifest, &definition.id, store).unwrap();
@@ -182,9 +234,12 @@ fn binary_matches_library_and_resume_and_summary_preserve_store_bytes() {
                 )
                 .unwrap();
             let before = stored_bytes(binary.root());
+            // Packet CACHE-ID-fix-1: each index entry and admission record names its writer's
+            // build, here the binary and this test binary; every other byte is equal.
+            assert_ne!(binary_build(), library_build());
             assert_eq!(
-                before,
-                stored_bytes(library.root()),
+                without_writer(before.clone(), &binary_build()),
+                without_writer(stored_bytes(library.root()), &library_build()),
                 "STOP: binary/library store bytes differ"
             );
             for bytes in before.values() {
@@ -530,7 +585,10 @@ fn closed_stdout_run_and_resume_preserve_library_evidence() {
                 .unwrap(),
         );
         let before = stored_bytes(store.root());
-        assert_eq!(before, stored_bytes(library.root()));
+        assert_eq!(
+            without_writer(before.clone(), &binary_build()),
+            without_writer(stored_bytes(library.root()), &library_build())
+        );
         let (reader, writer) = UnixStream::pair().unwrap();
         drop(reader);
         success(
@@ -558,7 +616,10 @@ fn process_metadata_after_missing_admission_can_be_retried() {
         let summary = library_store(&manifest, &library);
         success(command("run", &path, &store).output().unwrap());
         let before = stored_bytes(store.root());
-        assert_eq!(before, stored_bytes(library.root()));
+        assert_eq!(
+            without_writer(before.clone(), &binary_build()),
+            without_writer(stored_bytes(library.root()), &library_build())
+        );
         let admission = store
             .admission_path(manifest.digest(), profile(), "clean")
             .unwrap();
@@ -652,4 +713,76 @@ fn resume_refuses_a_test_input_that_now_lies_in_a_below_floor_case_directory() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert_eq!(all_stored_bytes(store.root()), before);
+}
+
+/// Packet CACHE-ID-fix-1 (CACHE-ID review 1 major): a store is honoured only by the build that
+/// wrote it, with two real builds. The library (this test binary) writes a store, and the
+/// `kink-corpus` binary refuses to resume or summarize it, naming both builds, and writes
+/// nothing; replay-check re-derives the report instead of honouring it, so it reproduces the
+/// store. The other way round, the library refuses the binary's store. Every semantics-identity
+/// component is equal in both, so only the build tells them apart.
+#[test]
+fn a_store_is_honoured_only_by_the_build_that_wrote_it() {
+    with_stack(|| {
+        let scratch = Scratch::new("two-builds");
+        let (path, manifest) = scratch.manifest(&clean());
+        let library = Store::new(scratch.0.join("library"));
+        library_store(&manifest, &library);
+        let before = all_stored_bytes(library.root());
+        let resumed = command("run", &path, &library).output().unwrap();
+        assert!(!resumed.status.success());
+        let stderr = String::from_utf8_lossy(&resumed.stderr);
+        for expected in [
+            "the indexed report is not resumed",
+            library_build().as_str(),
+            binary_build().as_str(),
+            "its kink identity is this build's",
+        ] {
+            assert!(stderr.contains(expected), "{expected}: {stderr}");
+        }
+        let summary = Command::new(env!("CARGO_BIN_EXE_kink-corpus"))
+            .arg("summary")
+            .arg("--store")
+            .arg(library.root())
+            .arg(manifest.digest().to_string())
+            .arg(profile())
+            .output()
+            .unwrap();
+        assert!(!summary.status.success());
+        assert!(
+            String::from_utf8_lossy(&summary.stderr).contains(&library_build()),
+            "{}",
+            String::from_utf8_lossy(&summary.stderr)
+        );
+        assert_eq!(all_stored_bytes(library.root()), before);
+        assert_eq!(
+            success(
+                command("replay-check", &path, &library)
+                    .arg("clean")
+                    .output()
+                    .unwrap()
+            )
+            .trim(),
+            "Reproduced"
+        );
+        assert_eq!(all_stored_bytes(library.root()), before);
+
+        let binary = Store::new(scratch.0.join("binary"));
+        success(command("run", &path, &binary).output().unwrap());
+        let before = all_stored_bytes(binary.root());
+        let refused = run_definition(&workspace(), &manifest, "clean", &binary).unwrap_err();
+        assert!(refused.to_string().contains(&binary_build()), "{refused}");
+        let refused = summarize(&binary, &manifest.digest().to_string(), profile()).unwrap_err();
+        assert!(refused.to_string().contains(&binary_build()), "{refused}");
+        assert_eq!(all_stored_bytes(binary.root()), before);
+        // Each build still resumes its own store.
+        assert!(
+            run_definition(&workspace(), &manifest, "clean", &library)
+                .unwrap()
+                .resumed
+        );
+        assert!(
+            success(command("run", &path, &binary).output().unwrap()).contains("clean: resumed")
+        );
+    });
 }

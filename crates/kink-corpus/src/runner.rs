@@ -1,4 +1,12 @@
 //! Per-definition corpus admission, campaign execution and atomic publication.
+//!
+//! A store is honoured without re-deriving its verdicts (resume, summary), so every record that
+//! decides what it reports is bound to the build that wrote it (packet CACHE-ID-fix-1; kink-campaign
+//! `identity`): each index entry and admission record carries its writer's `kink_build`, outside
+//! the campaign report's bytes, and each index entry the [`RunOptions`] its campaign ran with
+//! (`run_options`). Resume refuses an entry of another build, of other run options or under
+//! another semantics identity; summary does the same, and reads an admission record of another
+//! build as missing. Campaign reports, artifacts and inputs stay build-independent.
 
 use crate::{
     admission::{AdmissionRecord, AdmissionRefusal, admit_definition},
@@ -8,7 +16,8 @@ use crate::{
 use k_rust::{kompile::CompileOptions, kore::ast::Pattern};
 use kink_campaign::{
     Campaign, CampaignFailureKind, CampaignOptions, ManifestOperator, MultiManifestInput,
-    campaign_manifest_multi_with_budget, campaign_report_multi, run_campaign_multi,
+    RunOptions, WorkBudget, campaign_manifest_multi_with_budget, campaign_report_multi,
+    run_campaign_multi,
 };
 use kink_native::{NativeValidator, execution::SolverProfile};
 use kink_patch::{
@@ -20,6 +29,49 @@ use serde_json::{Value, json};
 use std::{fs, path::Path};
 
 pub const CLASSIFIER: &str = "kink-corpus/all-normal/v1";
+
+/// The run options of every campaign kink-corpus runs and stores (packet CACHE-ID-fix-1, CACHE-ID
+/// review minor 4): each index entry records them ([`run_options_value`]), and resume and summary
+/// refuse an entry made with others.
+#[must_use]
+pub fn corpus_run_options() -> RunOptions {
+    RunOptions::default()
+}
+
+/// The `run_options` member of an index entry: `{result_modality, work}`, `work` null without a
+/// work budget, else `{factor, floor}`.
+#[must_use]
+pub fn run_options_value(options: &RunOptions) -> Value {
+    json!({
+        "result_modality": options.result_modality.name(),
+        "work": match options.work {
+            WorkBudget::Unbounded => Value::Null,
+            WorkBudget::Calibrated { factor, floor } => json!({"factor": factor, "floor": floor}),
+        },
+    })
+}
+
+/// kink's build identity, without which kink-corpus neither resumes nor writes a store: a store
+/// is honoured only by the build that wrote it.
+///
+/// # Errors
+/// When the running executable cannot be read.
+pub fn corpus_build() -> Result<Sha256Digest, StoreError> {
+    kink_campaign::kink_build().map_err(|e| {
+        StoreError::Invalid(format!(
+            "kink's build identity is unknown ({e}): kink-corpus neither resumes nor writes a \
+             store without it"
+        ))
+    })
+}
+
+/// An admission record as the store holds it: the record and its writer's build (`kink_build`).
+#[must_use]
+pub fn stored_admission(record: &AdmissionRecord, build: Sha256Digest) -> Value {
+    let mut value = record.value();
+    value["kink_build"] = json!(build.to_string());
+    value
+}
 pub fn all_normal(_: &Pattern) -> ExecutionTerminalKind {
     ExecutionTerminalKind::Normal
 }
@@ -37,6 +89,7 @@ pub fn run_definition(
     id: &str,
     store: &Store,
 ) -> Result<DefinitionOutcome, StoreError> {
+    let build = corpus_build()?;
     // The shared declaration is the first file of every call, including resumptions.
     store.ensure_manifest(manifest)?;
     let digest = manifest.digest();
@@ -45,17 +98,12 @@ pub fn run_definition(
     if !manifest.definitions().iter().any(|d| d.id == id) {
         return Err(StoreError::Invalid("definition is not listed".into()));
     }
-    if let Some(outcome) = resume(store, digest, profile, id, &admission_path)? {
+    if let Some(outcome) = resume(store, digest, profile, id, &admission_path, build)? {
         return Ok(outcome);
     }
     let mut admission = admit_definition(manifest, id, workspace);
     let Some(admitted) = admission.admitted else {
-        store.write_text(&admission_path, &admission.record.text())?;
-        return Ok(DefinitionOutcome {
-            admission: admission.record.value(),
-            campaign: None,
-            resumed: false,
-        });
+        return store_refusal(store, &admission_path, &admission.record, build);
     };
     let d = manifest
         .definitions()
@@ -118,6 +166,7 @@ pub fn run_definition(
         budget_mutants,
     )
     .map_err(|e| StoreError::Invalid(e.to_string()))?;
+    let options = corpus_run_options();
     let run = match run_campaign_multi(
         &campaign,
         &generations,
@@ -125,7 +174,7 @@ pub fn run_definition(
             schedule: config.schedule,
             selection: config.selection,
             share_evidence: true,
-            run: kink_campaign::RunOptions::default(),
+            run: options,
         },
     ) {
         Ok(run) => run,
@@ -135,16 +184,20 @@ pub fn run_definition(
                 reason: failure_kind(e.kind()).into(),
                 detail: e.to_string(),
             });
-            return store_refusal(store, &admission_path, &admission.record);
+            return store_refusal(store, &admission_path, &admission.record, build);
         }
     };
     let report = campaign_report_multi(&declaration, &campaign, &generations, &run)
         .map_err(|e| StoreError::Invalid(e.to_string()))?;
     let text = report.text();
+    // The writer's build and run options sit in the index entry, outside the report's bytes, so
+    // the report stays build-independent (packet CACHE-ID-fix-1).
     let entry = json!({"manifest_sha256":declaration.digest().to_string(),
-        "report_sha256":sha256(text.as_bytes()).to_string(),"time_bound_fired":time_bound_fired(report.value())});
+        "report_sha256":sha256(text.as_bytes()).to_string(),"time_bound_fired":time_bound_fired(report.value()),
+        "kink_build":build.to_string(),"run_options":run_options_value(&options)});
     let root = store.profile_path(digest, profile);
-    store.write_text(&admission_path, &admission.record.text())?;
+    let admission = stored_admission(&admission.record, build);
+    store.write_json(&admission_path, &admission)?;
     // Use the very artifact named by the campaign declaration.
     store.write_text(
         &root.join(format!(
@@ -161,7 +214,7 @@ pub fn run_definition(
     index[id] = entry.clone();
     store.write_json(&root.join("index.json"), &index)?;
     Ok(DefinitionOutcome {
-        admission: admission.record.value(),
+        admission,
         campaign: Some(entry),
         resumed: false,
     })
@@ -170,10 +223,12 @@ fn store_refusal(
     store: &Store,
     path: &Path,
     record: &AdmissionRecord,
+    build: Sha256Digest,
 ) -> Result<DefinitionOutcome, StoreError> {
-    store.write_text(path, &record.text())?;
+    let admission = stored_admission(record, build);
+    store.write_json(path, &admission)?;
     Ok(DefinitionOutcome {
-        admission: record.value(),
+        admission,
         campaign: None,
         resumed: false,
     })
@@ -195,6 +250,7 @@ fn resume(
     profile: &str,
     id: &str,
     admission_path: &Path,
+    build: Sha256Digest,
 ) -> Result<Option<DefinitionOutcome>, StoreError> {
     let index = store.read_index(digest, profile)?;
     let Some(entry) = index.get(id) else {
@@ -227,6 +283,32 @@ fn resume(
         || entry["time_bound_fired"] != time_bound_fired(&report)
     {
         return Err(StoreError::Invalid("indexed report differs".into()));
+    }
+    // A store is resumed only by the build that wrote it (packet CACHE-ID-fix-1): the semantics
+    // identity below names only kink's versioned algorithms, and most verdict code (the
+    // comparison, the status fold, pattern matching, adaptation, step events, feasibility, the
+    // census) has no version constant, so only the build identity can tell that it changed.
+    if let Some(reason) = kink_campaign::writer_difference(
+        &entry["kink_build"],
+        &report["manifest"]["kink"],
+        &Ok(build),
+    ) {
+        return Err(StoreError::Invalid(format!(
+            "the indexed report is not resumed: {reason}; delete the store to rerun it with this \
+             build"
+        )));
+    }
+    if admission["kink_build"] != build.to_string() {
+        return Err(StoreError::Invalid(
+            "the indexed definition's admission record was written by another kink build".into(),
+        ));
+    }
+    if entry["run_options"] != run_options_value(&corpus_run_options()) {
+        return Err(StoreError::Invalid(format!(
+            "the indexed report was made with run options {}, not {}",
+            entry["run_options"],
+            run_options_value(&corpus_run_options())
+        )));
     }
     // A report written under another kink semantics identity at the same k-rust pin (other
     // mutant admission algorithms, definition exclusions, execution requests, result schema or

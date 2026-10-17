@@ -848,6 +848,107 @@ fn a_record_written_under_another_identity_is_recomputed() {
     }
 }
 
+/// The build identity of the executable at `path`, as its records name it.
+fn build_of(path: &Path) -> String {
+    kink_campaign::identity::build_identity_of(path)
+        .unwrap()
+        .to_string()
+}
+
+/// Packet CACHE-ID-fix-1 (CACHE-ID review 1 major): every record key holds the build that wrote
+/// it (`kink_build`, the executable's digest), so a record another build wrote is recomputed even
+/// when every semantics-identity component is equal; the code that decides a result class mostly
+/// has no version constant. Forged first: each forged record claims `unknown` under another
+/// build, or under none (the key of a build before CACHE-ID-fix-1), and the row is the live
+/// `comparable`. Then two real builds: the `kink-flow` binary and this test binary write the
+/// same cache in turn, and each recomputes every record the other wrote.
+#[test]
+fn a_record_written_by_another_build_is_recomputed() {
+    let manifest = fixture("calc", "build").join("FLOW.toml");
+    let programs = ["add", "nested", "sub", "inline"];
+    let this_build = build_of(&std::env::current_exe().unwrap());
+    let (first, status) = run(&manifest, false);
+    assert_eq!(status, EXIT_OK, "{first:#}");
+    for id in programs {
+        assert_eq!(
+            read_json(&record_path(&manifest, &first, id))["key"]["kink_build"],
+            this_build,
+            "{id}"
+        );
+    }
+    let other = kink_patch::sha256(b"another kink build").to_string();
+    for (forged, build) in [
+        (&programs[..2], Some(other.as_str())),
+        (&programs[2..], None),
+    ] {
+        for id in forged {
+            let path = record_path(&manifest, &first, id);
+            let mut record = read_json(&path);
+            match build {
+                Some(build) => record["key"]["kink_build"] = json!(build),
+                None => {
+                    record["key"].as_object_mut().unwrap().remove("kink_build");
+                }
+            }
+            record["class"] = json!("unknown");
+            record["cause"] = json!("forged under another kink build");
+            fs::write(&path, record.to_string()).unwrap();
+        }
+        let (document, status) = run(&manifest, false);
+        assert_eq!(status, EXIT_OK, "{document:#}");
+        assert_eq!(
+            rows(&document),
+            programs
+                .iter()
+                .map(|id| (
+                    (*id).to_owned(),
+                    "comparable".to_owned(),
+                    !forged.contains(id)
+                ))
+                .collect::<Vec<_>>(),
+            "{build:?}"
+        );
+        for id in forged {
+            let record = read_json(&record_path(&manifest, &first, id));
+            assert_eq!(record["key"]["kink_build"], this_build, "{build:?}");
+            assert_eq!(record["class"], "comparable", "{build:?}");
+        }
+    }
+    // Two real builds share the cache.
+    let binary = Path::new(env!("CARGO_BIN_EXE_kink-flow"));
+    let binary_build = build_of(binary);
+    assert_ne!(binary_build, this_build);
+    let results_by_binary = || {
+        let output = Command::new(binary)
+            .arg("results")
+            .arg(&manifest)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(i32::from(EXIT_OK)));
+        serde_json::from_slice::<Value>(&output.stdout).unwrap()
+    };
+    let all = |cached: bool| {
+        programs
+            .iter()
+            .map(|id| ((*id).to_owned(), "comparable".to_owned(), cached))
+            .collect::<Vec<_>>()
+    };
+    let by_binary = results_by_binary();
+    assert_eq!(rows(&by_binary), all(false));
+    for id in programs {
+        assert_eq!(
+            read_json(&record_path(&manifest, &first, id))["key"]["kink_build"],
+            binary_build,
+            "{id}"
+        );
+    }
+    assert_eq!(rows(&results_by_binary()), all(true));
+    let (by_library, _) = run(&manifest, false);
+    assert_eq!(rows(&by_library), all(false));
+    assert_eq!(rows(&run(&manifest, false).0), all(true));
+    assert_eq!(rows(&results_by_binary()), all(false));
+}
+
 /// The empty generation a zero-mutant campaign runs (as kink-corpus `baseline_only`).
 fn run_together(
     spec: &kink_flow::AdmittedSpec,

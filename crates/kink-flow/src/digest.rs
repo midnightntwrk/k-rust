@@ -1,8 +1,10 @@
 //! The digests that key kink-flow's caches.
 //!
 //! The specification and program digests key the result cache (flow README 5.3). F-14 adds the
-//! keys of the outcome cache (README 7.5): the execution digest, kink's build identity, the
-//! tier-1 context, the position-free mutation identity and the killer-hint key.
+//! keys of the outcome cache (README 7.5): the execution digest, the tier-1 context, the
+//! position-free mutation identity and the killer-hint key. kink's build identity, which both
+//! caches and the run document hold, is kink-campaign's `identity::kink_build` (packet
+//! CACHE-ID-fix-1).
 //!
 //! Every digest is `payload_digest(domain, canonical JSON)` (kink-patch), so it depends on
 //! values, never on how `FLOW.toml` or `MUTATIONS.toml` is formatted, and a program's id enters
@@ -20,7 +22,6 @@ use kink_patch::{
     payload_digest, sha256,
 };
 use serde_json::{Value, json};
-use std::sync::OnceLock;
 
 /// Domain of the specification digest.
 pub const SPEC_DOMAIN: &str = "kink-flow/spec/v1";
@@ -134,24 +135,6 @@ pub fn execution_digest(manifest: &FlowManifest, loaded: &LoadedSource) -> Execu
     }
 }
 
-/// kink's own build identity (decision D14-1 (a)): the SHA-256 of the running executable's
-/// bytes (`std::env::current_exe`), computed once per process. Any rebuild of kink, debug or
-/// release, is another identity, so tier 1 never trusts an outcome that other verdict code
-/// produced. `Err` when the executable cannot be read: tier 1 is then disabled for the
-/// command, never keyed without it.
-pub fn kink_build_identity() -> Result<Sha256Digest, String> {
-    static IDENTITY: OnceLock<Result<Sha256Digest, String>> = OnceLock::new();
-    IDENTITY
-        .get_or_init(|| {
-            let path = std::env::current_exe()
-                .map_err(|e| format!("the running executable has no path: {e}"))?;
-            let bytes = std::fs::read(&path)
-                .map_err(|e| format!("cannot read the executable {}: {e}", path.display()))?;
-            Ok(sha256(&bytes))
-        })
-        .clone()
-}
-
 /// The tier-1 context (flow README 7.5.3, "The key"): every component of the key except the
 /// mutation and the program, shared by every mutation of one command.
 pub fn outcome_context(
@@ -163,7 +146,8 @@ pub fn outcome_context(
     // work budget, which bounds only mutant runs (re-pin L1-1; absent without one, so a
     // context without a work budget is unchanged).
     let work_factor = budget.work_factor;
-    let mut budget = result_key(execution.digest, execution.digest, budget)["budget"].clone();
+    let mut budget =
+        result_key(execution.digest, execution.digest, budget, Some(kink_build))["budget"].clone();
     if let Some(factor) = work_factor {
         budget["work"] = json!({"factor": factor, "floor": crate::manifest::WORK_FLOOR});
     }
@@ -174,8 +158,9 @@ pub fn outcome_context(
         // revision, the result schema, claim removal (re-pin R0c-fix-2), the consistency check
         // (R0c-fix-3), the compiled reading of an edit (R0c-fix-4), the definition exclusions
         // (R0-tail), patch admission (L2-2-fix-1), the execution request (L1-1) and the coverage
-        // reading. `kink_build` already changes with every build; the identity names what an
-        // outcome rests on, so a context says which algorithm a stale one predates.
+        // reading. `kink_build` (kink-campaign `identity::kink_build`) changes with every build and
+        // guards all verdict code, versioned or not; the identity names the versioned algorithms
+        // an outcome rests on, so a context says which of them a stale one predates.
         "kink": kink_campaign::kink_identity(),
         "profile": SolverProfile::BUILD.name(),
         "execution_digest": execution.value(),

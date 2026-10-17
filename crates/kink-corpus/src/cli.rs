@@ -721,6 +721,10 @@ fn publish_summary_on_stack(
     Ok(())
 }
 
+/// Replay re-derives the stored report (kink-campaign `replay`: it regenerates the manifest,
+/// re-runs the campaign and reproduces only byte-identical bytes), so it honours no stored
+/// verdict and needs no build binding: it can check a store another build wrote (packet
+/// CACHE-ID-fix-1).
 fn replay_check(store: &Store, requested: &CorpusManifest, id: &str) -> Result<(), StoreError> {
     let corpus = store.read_manifest(requested.digest())?;
     let definition = corpus

@@ -99,11 +99,14 @@ Only comparable programs can kill a mutant; the others are reported and never co
 
 The cache is `.kink-flow/` next to `FLOW.toml` (or `--cache DIR`); deleting it is always safe.
 One JSON record per program, `results/<spec digest>/<program digest>.json`, holds its key
-(result schema version `kink-flow/result/v4`, kink's semantics identity `kink`, the two digests and the budget), class and cause,
+(result schema version `kink-flow/result/v4`, kink's build identity `kink_build`, kink's semantics identity `kink`, the two digests and the budget), class and cause,
 the baseline row exactly as the campaign report encodes it with the digest of its `run` part
 (`run_sha256`, comparable programs only), the final configuration as KORE text, the rule
 coverage, and `wall_ms`, the wall time of the program's live baseline run (outside the key and
-the run digest; it orders the kill search, see `run`). The specification digest covers the k-rust revision, the solver profile, how the
+the run digest; it orders the kill search, see `run`).
+`kink_build` is the SHA-256 of the executable that wrote the record (kink-campaign `identity::kink_build`, packet CACHE-ID-fix-1), so a record another build wrote, or one without `kink_build`, is recomputed: the code that decides a result class mostly has no version constant, and only the build tells that it changed.
+When the executable cannot be read, no record is read or written, and each row says so (`cache_error`).
+The specification digest covers the k-rust revision, the solver profile, how the
 specification is loaded and every source file the load reads; the program digest covers the
 program's bytes, start sort and variables, never its id. A record is used only when its key is
 the current key, so editing a program reruns that program, and editing the specification,
@@ -381,8 +384,9 @@ no program is comparable, a corpus error stopped the run, or `--verify` found a 
 
 `run` prints one document and writes the same document to `.kink-flow/report.json` (after every mutation, and once more at the end):
 
-`{schema: "kink-flow-run", version: 7, k_rust_revision, profile, result_schema_version, kink, spec, programs, unusable_programs, mutations, counts, survivors, stopped, outcome_cache, mismatches, baseline_runs, order, untargeted_rules}`.
-Version 3 (F-13) names the oracle slots of an executed entry, versions 4 to 6 add row fields (below), and version 7 (packet CACHE-ID) adds `kink`, kink's semantics identity; `report` refuses a document of another version, or one whose `kink` is not this build's.
+`{schema: "kink-flow-run", version: 8, k_rust_revision, profile, result_schema_version, kink_build, kink, spec, programs, unusable_programs, mutations, counts, survivors, stopped, outcome_cache, mismatches, baseline_runs, order, untargeted_rules}`.
+Version 3 (F-13) names the oracle slots of an executed entry, versions 4 to 6 add row fields (below), version 7 (packet CACHE-ID) adds `kink`, kink's semantics identity, and version 8 (packet CACHE-ID-fix-1) adds `kink_build`, the SHA-256 of the executable that wrote it.
+`report` prints the stored statuses without re-deriving them, so it refuses (`unreadable`) a document of another version, one written by another build (or naming none), and one whose `kink` is not this build's.
 
 | Field | Meaning |
 | --- | --- |

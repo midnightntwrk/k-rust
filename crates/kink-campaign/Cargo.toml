@@ -16,5 +16,11 @@ kink-pattern.workspace = true
 
 serde_json.workspace = true
 
+[dev-dependencies]
+# The source scan of tests/identity.rs (packet CACHE-ID-fix-1): syn parses every member's
+# sources, toml reads the workspace's members and k-rust paths. Both are already in Cargo.lock.
+syn = { version = "=2.0.119", default-features = false, features = ["full", "parsing", "visit"] }
+toml = { version = "=0.9.12", default-features = false, features = ["parse", "serde", "std"] }
+
 [features]
 z3 = ["kink-native/z3"]
