@@ -16,8 +16,7 @@ use crate::{
 use k_rust::{kompile::CompileOptions, kore::ast::Pattern};
 use kink_campaign::{
     Campaign, CampaignFailureKind, CampaignOptions, ManifestOperator, MultiManifestInput,
-    RunOptions, WorkBudget, campaign_manifest_multi_with_budget, campaign_report_multi,
-    run_campaign_multi,
+    RunOptions, campaign_manifest_multi_with_budget, campaign_report_multi, run_campaign_multi,
 };
 use kink_native::{NativeValidator, execution::SolverProfile};
 use kink_patch::{
@@ -32,23 +31,22 @@ pub const CLASSIFIER: &str = "kink-corpus/all-normal/v1";
 
 /// The run options of every campaign kink-corpus runs and stores (packet CACHE-ID-fix-1, CACHE-ID
 /// review minor 4): each index entry records them ([`run_options_value`]), and resume and summary
-/// refuse an entry made with others.
+/// refuse an entry made with others. The definition campaign, the admission's baseline-only run
+/// and `replay-check` all run with these (re-pin L1-2-land; CACHE-ID review 2 minor 1). They are
+/// the defaults: state sets, no work budget, no one-sided kill (kink-corpus sets no work budget,
+/// so the rule could not fire).
 #[must_use]
 pub fn corpus_run_options() -> RunOptions {
     RunOptions::default()
 }
 
-/// The `run_options` member of an index entry: `{result_modality, work}`, `work` null without a
-/// work budget, else `{factor, floor}`.
+/// The `run_options` member of an index entry: every run option, kink-campaign
+/// [`RunOptions::value`] (`{result_modality, work, one_sided}`, `work` null without a work
+/// budget, else `{factor, floor}`), which destructures every field, so a new option is recorded
+/// or does not compile. An entry written before re-pin L1-2-land lacks `one_sided` and is refused.
 #[must_use]
 pub fn run_options_value(options: &RunOptions) -> Value {
-    json!({
-        "result_modality": options.result_modality.name(),
-        "work": match options.work {
-            WorkBudget::Unbounded => Value::Null,
-            WorkBudget::Calibrated { factor, floor } => json!({"factor": factor, "floor": floor}),
-        },
-    })
+    options.value()
 }
 
 /// kink's build identity, without which kink-corpus neither resumes nor writes a store: a store

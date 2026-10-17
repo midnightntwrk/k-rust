@@ -442,6 +442,12 @@ fn the_identity_is_an_object_of_its_components() {
         identity["definition_exclusion"],
         kink_native::exclusion::DEFINITION_EXCLUSION_VERSION
     );
+    // Re-pin L1-2-land: the one-sided kill rule is a component, and an identity written before
+    // it (830c18e: every other component equal) differs at it.
+    assert_eq!(identity["one_sided"], kink_campaign::ONE_SIDED_VERSION);
+    let mut before = identity.clone();
+    before.as_object_mut().unwrap().remove("one_sided");
+    assert_eq!(identity_difference(&before).as_deref(), Some("one_sided"));
     assert_eq!(identity_difference(&identity), None);
     for component in KINK_IDENTITY {
         let mut changed = identity.clone();

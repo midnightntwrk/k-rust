@@ -132,7 +132,8 @@ fn contains(actual: &Value, excerpt: &Value) -> bool {
 /// Packet CACHE-ID: the run document names kink's semantics identity (kink-campaign
 /// `identity`), and `report` refuses a stored document that names another value of any one
 /// component, or none (every document before CACHE-ID, version 6): its statuses may rest on
-/// algorithms this build no longer runs.
+/// algorithms this build no longer runs. Re-pin L1-2-land: so is one that lacks the one-sided
+/// rule's component (`one_sided`, as at 830c18e) or names another version of it.
 #[test]
 fn a_report_written_under_another_identity_is_refused() {
     use kink_flow::report::{ReportOptions, report};
@@ -153,7 +154,14 @@ fn a_report_written_under_another_identity_is_refused() {
     let mut before = document.clone();
     before["version"] = json!(6);
     before.as_object_mut().unwrap().remove("kink");
-    let mut stale = vec![before];
+    // Re-pin L1-2-land: a document from before the one-sided rule was a component (830c18e).
+    let mut before_one_sided = document.clone();
+    before_one_sided["kink"]
+        .as_object_mut()
+        .unwrap()
+        .remove("one_sided")
+        .unwrap();
+    let mut stale = vec![before, before_one_sided];
     for component in kink_campaign::KINK_IDENTITY {
         let mut changed = document.clone();
         changed["kink"][component.key] = json!(format!("{}-other", component.value));

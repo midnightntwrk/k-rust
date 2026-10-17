@@ -785,7 +785,9 @@ fn a_record_is_used_only_under_its_own_key() {
 /// identity (kink-campaign `identity`), so a record written by a build before CACHE-ID (its key
 /// has no `kink`, as at 1ee9955 through 64b56fa) or under any one other component (another
 /// definition-exclusion version among them) is recomputed and rewritten, never used: each forged
-/// record claims `unknown`, and the row is the live `comparable`.
+/// record claims `unknown`, and the row is the live `comparable`. Re-pin L1-2-land: so is one
+/// whose key lacks the one-sided rule's component (`one_sided`, as at 830c18e) or names another
+/// version of it.
 #[test]
 fn a_record_written_under_another_identity_is_recomputed() {
     let manifest = fixture("calc", "identity").join("FLOW.toml");
@@ -799,9 +801,16 @@ fn a_record_written_under_another_identity_is_recomputed() {
             "{id}"
         );
     }
-    // None: the key of a build before CACHE-ID; Some(key): that component changed.
-    let forgeries = std::iter::once(None)
-        .chain(kink_campaign::KINK_IDENTITY.iter().map(|c| Some(c.key)))
+    // (None, _): the key of a build before CACHE-ID; (Some(key), false): that component changed;
+    // (Some("one_sided"), true): the key of a build before the one-sided rule was a component
+    // (830c18e, re-pin L1-2-land), which lacks it.
+    let forgeries = std::iter::once((None, false))
+        .chain(
+            kink_campaign::KINK_IDENTITY
+                .iter()
+                .map(|c| (Some(c.key), false)),
+        )
+        .chain(std::iter::once((Some("one_sided"), true)))
         .collect::<Vec<_>>();
     for round in forgeries.chunks(programs.len()) {
         let forged = programs.iter().zip(round).collect::<Vec<_>>();
@@ -809,10 +818,17 @@ fn a_record_written_under_another_identity_is_recomputed() {
             let path = record_path(&manifest, &first, id);
             let mut record = read_json(&path);
             match component {
-                None => {
+                (None, _) => {
                     record["key"].as_object_mut().unwrap().remove("kink");
                 }
-                Some(key) => {
+                (Some(key), true) => {
+                    record["key"]["kink"]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove(*key)
+                        .unwrap();
+                }
+                (Some(key), false) => {
                     let value = record["key"]["kink"][key].as_str().unwrap().to_owned();
                     record["key"]["kink"][key] = json!(format!("{value}-other"));
                 }

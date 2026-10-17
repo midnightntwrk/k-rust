@@ -8,7 +8,7 @@
 
 use crate::{
     BudgetMutants, CAMPAIGN_REPORT_VERSION, Campaign, CampaignOptions, ManifestOperator,
-    MultiManifestInput, MutantId, OperatorId, ScheduleMode, SelectionPolicy, TestCase,
+    MultiManifestInput, MutantId, OperatorId, RunOptions, ScheduleMode, SelectionPolicy, TestCase,
     campaign_manifest_multi_with_budget, campaign_report_multi, run_campaign_multi,
 };
 use k_rust::{definition::json, kompile::CompileOptions, kore::ast::Pattern};
@@ -89,14 +89,38 @@ pub fn replay(
     replay_with_budget(report, baseline_artifact, declaration, None)
 }
 
-/// Replays against the caller's declared sampling budget, never a budget read from the report.
+/// Replays against the caller's declared sampling budget, never a budget read from the report,
+/// with the default [`RunOptions`].
 pub fn replay_with_budget(
     report: &str,
     baseline_artifact: &str,
     declaration: &ReplayDeclaration<'_>,
     budget: Option<&BudgetMutants>,
 ) -> ReplayOutcome {
-    replay_checked(report, baseline_artifact, declaration, budget)
+    replay_with_options(
+        report,
+        baseline_artifact,
+        declaration,
+        budget,
+        RunOptions::default(),
+    )
+}
+
+/// [`replay_with_budget`] under the caller's run options: a caller whose campaigns run with its
+/// own options (kink-corpus `corpus_run_options`) replays with the same ones, so the replayed
+/// campaign is run as the stored one was (re-pin L1-2-land; CACHE-ID review 2 minor 1). Every
+/// verdict is re-derived under `run`, so `Reproduced` says that this build, with these options,
+/// regenerates the stored report byte for byte; the campaign manifest does not record run
+/// options, so a report made with others is not refused as such: it diverges wherever its
+/// verdicts differ.
+pub fn replay_with_options(
+    report: &str,
+    baseline_artifact: &str,
+    declaration: &ReplayDeclaration<'_>,
+    budget: Option<&BudgetMutants>,
+    run: RunOptions,
+) -> ReplayOutcome {
+    replay_checked(report, baseline_artifact, declaration, budget, run)
         .unwrap_or_else(ReplayOutcome::Refused)
 }
 
@@ -105,6 +129,7 @@ fn replay_checked(
     baseline_artifact: &str,
     declaration: &ReplayDeclaration<'_>,
     budget: Option<&BudgetMutants>,
+    run: RunOptions,
 ) -> Result<ReplayOutcome, ReplayRefusal> {
     let value: Value = serde_json::from_str(report).map_err(|_| ReplayRefusal::Schema)?;
     if value["schema"] != "kink-campaign-report" || value["version"] != CAMPAIGN_REPORT_VERSION {
@@ -264,7 +289,7 @@ fn replay_checked(
             schedule: declaration.schedule,
             selection: declaration.selection,
             share_evidence: true,
-            run: crate::RunOptions::default(),
+            run,
         },
     )
     .map_err(|e| ReplayRefusal::Campaign(e.to_string()))?;

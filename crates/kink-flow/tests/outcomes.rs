@@ -601,7 +601,9 @@ fn hand_edited_contexts_and_records_are_ignored() {
 /// `identity`). An outcome file written under a context of a build before CACHE-ID (no `kink`
 /// member, its three admission versions at the top level, as at 64b56fa) or under any one other
 /// identity component lies in another context directory, and the same file placed in this
-/// build's directory is ignored: its context is not this build's.
+/// build's directory is ignored: its context is not this build's. Re-pin L1-2-land: so is one
+/// written under a context that lacks the one-sided rule's component (`one_sided`, as at
+/// 830c18e), where a one-sided kill could not have been recorded.
 #[test]
 fn an_outcome_written_under_another_identity_is_ignored() {
     use kink_flow::{
@@ -647,7 +649,17 @@ fn an_outcome_written_under_another_identity_is_ignored() {
     ] {
         object.insert(key.into(), context["kink"][key].clone());
     }
-    let mut stale = vec![("before CACHE-ID", before)];
+    // Re-pin L1-2-land: a context from before the one-sided rule was a component (830c18e).
+    let mut before_one_sided = context.clone();
+    before_one_sided["kink"]
+        .as_object_mut()
+        .unwrap()
+        .remove("one_sided")
+        .unwrap();
+    let mut stale = vec![
+        ("before CACHE-ID", before),
+        ("before one_sided", before_one_sided),
+    ];
     for component in kink_campaign::KINK_IDENTITY {
         let mut changed = context.clone();
         changed["kink"][component.key] = json!(format!("{}-other", component.value));

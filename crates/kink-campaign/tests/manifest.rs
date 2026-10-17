@@ -492,7 +492,8 @@ fn check_manifest(manifest: &CampaignManifest) {
     // Re-pin R0c-fix-4: the manifest names the mutant admission algorithms. Re-pin R0-tail
     // (R0c-fix-4 review minor 4): and the definition-exclusion algorithm. Packet CACHE-ID: the
     // member is kink's whole semantics identity, which adds the k-rust revision, patch
-    // admission, the execution request, the result schema and the coverage reading.
+    // admission, the execution request, the result schema and the coverage reading. Re-pin
+    // L1-2-land: and the one-sided kill rule.
     keys(
         &value["kink"],
         &[
@@ -508,6 +509,7 @@ fn check_manifest(manifest: &CampaignManifest) {
             "execution_request",
             "result_schema",
             "coverage",
+            "one_sided",
         ],
     );
     assert_eq!(value["kink"], kink_campaign::kink_identity());

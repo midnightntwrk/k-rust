@@ -14,11 +14,11 @@
 //! - [`KINK_IDENTITY`], the semantics identity, names the versioned algorithms by their version
 //!   constants: how a patch is addressed and admitted, which claims a mutant loses, whether its
 //!   equations are consistent, what its edit changes, which comparisons are excluded, what
-//!   execution request is sent, what counts as a comparable result, how coverage is read, and
-//!   the k-rust revision. [`kink_identity`] is their object, `{key: value}`. It is the
-//!   human-readable part: a store from another build says which versioned algorithm differs,
-//!   when one does, and the identity keeps campaign reports (which must not depend on the build)
-//!   bound to the algorithms they were made with.
+//!   execution request is sent, what counts as a comparable result, how coverage is read, when a
+//!   work-bound mutant run kills one-sidedly, and the k-rust revision. [`kink_identity`] is their
+//!   object, `{key: value}`. It is the human-readable part: a store from another build says
+//!   which versioned algorithm differs, when one does, and the identity keeps campaign reports
+//!   (which must not depend on the build) bound to the algorithms they were made with.
 //!
 //! Every store that is honoured without re-deriving its verdicts carries both, and is refused or
 //! missed when either differs from this build's ([`writer_difference`], [`identity_difference`]):
@@ -86,7 +86,7 @@ pub struct Component {
 /// the first that differs. The k-rust revision comes last: a campaign manifest also names it in
 /// its `k_rust` member, which replay checks first, and a manifest written before packet CACHE-ID
 /// lacks it in `kink`, where the first kink algorithm it lacks is the more useful report.
-pub const KINK_IDENTITY: [Component; 12] = [
+pub const KINK_IDENTITY: [Component; 13] = [
     Component {
         key: "fingerprint",
         krate: "kink-patch",
@@ -152,6 +152,12 @@ pub const KINK_IDENTITY: [Component; 12] = [
         krate: "kink-native",
         constant: "COVERAGE_DOMAIN",
         value: kink_native::coverage::COVERAGE_DOMAIN,
+    },
+    Component {
+        key: "one_sided",
+        krate: "kink-campaign",
+        constant: "ONE_SIDED_VERSION",
+        value: crate::runner::ONE_SIDED_VERSION,
     },
     Component {
         key: "k_rust_revision",

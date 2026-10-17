@@ -489,7 +489,9 @@ fn conflicting_stored_input_is_refused_before_campaign_publication() {
 /// build with another exclusion version. Packet CACHE-ID: the manifest's `kink` member is kink's
 /// whole semantics identity, so so is one from a build before CACHE-ID (64b56fa: no patch
 /// admission, execution request, result schema, coverage or k-rust revision there) and one with
-/// any single component changed.
+/// any single component changed. Re-pin L1-2-land: the one-sided kill rule is a component
+/// (`one_sided`), so a store from a build before it (830c18e: every other component equal, none
+/// for the rule) is refused too, as is one with another version of the rule (the loop below).
 /// A stale store: its name, the keys removed from the manifest's `kink` member and a
 /// `(key, value)` written into it.
 type Stale = (String, Vec<&'static str>, Option<(&'static str, String)>);
@@ -510,6 +512,7 @@ fn a_report_from_another_admission_build_is_refused() {
                     "execution_request",
                     "result_schema",
                     "coverage",
+                    "one_sided",
                 ],
                 None,
             ),
@@ -522,6 +525,7 @@ fn a_report_from_another_admission_build_is_refused() {
                     "execution_request",
                     "result_schema",
                     "coverage",
+                    "one_sided",
                 ],
                 None,
             ),
@@ -533,9 +537,11 @@ fn a_report_from_another_admission_build_is_refused() {
                     "execution_request",
                     "result_schema",
                     "coverage",
+                    "one_sided",
                 ],
                 None,
             ),
+            ("before-one-sided".into(), vec!["one_sided"], None),
         ];
         for component in kink_campaign::KINK_IDENTITY {
             stale.push((
@@ -616,19 +622,36 @@ fn a_report_from_another_admission_build_is_refused() {
 /// would), one with no build (every store written before CACHE-ID-fix-1) and one with other or
 /// no run options are refused by resume and by summary, with every semantics-identity component
 /// equal; resume also refuses an admission record of another build, and summary reads one as
-/// missing. tests/runner.rs runs the same with two real builds.
+/// missing. tests/runner.rs runs the same with two real builds. Re-pin L1-2-land: the entry
+/// records every run option (kink-campaign `RunOptions::value`), the one-sided rule's `one_sided`
+/// included, so an entry made with the rule on, and one written before the rule was recorded
+/// (`{result_modality, work}` only), are refused too.
 #[test]
 fn a_store_of_another_build_or_other_run_options_is_refused() {
     with_stack(|| {
         let other = sha256(b"another kink build").to_string();
         let this = kink_campaign::kink_build().unwrap().to_string();
-        let entries: [(&str, &str, Value); 4] = [
+        let entries: [(&str, &str, Value); 6] = [
             ("other-build", "kink_build", json!(other)),
             ("no-build", "kink_build", Value::Null),
             (
                 "other-run-options",
                 "run_options",
-                json!({"result_modality":"path-set","work":null}),
+                json!({"result_modality":"path-set","work":null,"one_sided":"off"}),
+            ),
+            (
+                "one-sided-on",
+                "run_options",
+                json!({
+                    "result_modality": "state-set",
+                    "work": null,
+                    "one_sided": "no-crash-classifier",
+                }),
+            ),
+            (
+                "run-options-before-one-sided",
+                "run_options",
+                json!({"result_modality":"state-set","work":null}),
             ),
             ("no-run-options", "run_options", Value::Null),
         ];
@@ -640,7 +663,7 @@ fn a_store_of_another_build_or_other_run_options_is_refused() {
             assert_eq!(entry["kink_build"], this);
             assert_eq!(
                 entry["run_options"],
-                json!({"result_modality":"state-set","work":null})
+                json!({"result_modality":"state-set","work":null,"one_sided":"off"})
             );
             assert_eq!(outcome.admission["kink_build"], this);
             let root = store.profile_path(manifest.digest(), profile());

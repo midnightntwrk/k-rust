@@ -33,6 +33,7 @@ pub use report::{
 mod replay;
 pub use replay::{
     ReplayDeclaration, ReplayOperator, ReplayOutcome, ReplayRefusal, replay, replay_with_budget,
+    replay_with_options,
 };
 mod runner;
 pub mod selection;
@@ -49,8 +50,8 @@ pub use oracle::{
 };
 pub use runner::{
     BaselineRecording, BaselineSession, CallRecording, Campaign, CampaignOptions, CampaignRun,
-    LeafCensus, MutantRun, OneSided, OracleDeclaration, Projection, RunOptions, RunRecording,
-    RunStop, SideRun, StateProjection, Tally, TestCase, TestEvidence, WorkBudget, pattern_side,
-    run_campaign, run_campaign_multi, run_campaign_multi_with, run_campaign_with, slot_outcome,
-    state_side, tally,
+    LeafCensus, MutantRun, ONE_SIDED_VERSION, OneSided, OracleDeclaration, Projection, RunOptions,
+    RunRecording, RunStop, SideRun, StateProjection, Tally, TestCase, TestEvidence, WorkBudget,
+    pattern_side, run_campaign, run_campaign_multi, run_campaign_multi_with, run_campaign_with,
+    slot_outcome, state_side, tally,
 };

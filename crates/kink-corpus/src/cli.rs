@@ -5,12 +5,12 @@ use crate::{
     CorpusSource, ProgramSource, SourceFile, load_source,
     manifest::{CorpusInput, CorpusManifest, DefinitionSpec, exclusion_applies, path_excluded},
     resolver::read_under_root,
-    runner::{CLASSIFIER, all_normal, run_definition},
+    runner::{CLASSIFIER, all_normal, corpus_run_options, run_definition},
     store::{Store, StoreError, time_bound_fired},
     summary::summarize,
 };
 use kink_campaign::{
-    Projection, ReplayDeclaration, ReplayOperator, ReplayOutcome, replay_with_budget,
+    Projection, ReplayDeclaration, ReplayOperator, ReplayOutcome, replay_with_options,
 };
 use kink_native::execution::SolverProfile;
 use kink_patch::{
@@ -724,7 +724,8 @@ fn publish_summary_on_stack(
 /// Replay re-derives the stored report (kink-campaign `replay`: it regenerates the manifest,
 /// re-runs the campaign and reproduces only byte-identical bytes), so it honours no stored
 /// verdict and needs no build binding: it can check a store another build wrote (packet
-/// CACHE-ID-fix-1).
+/// CACHE-ID-fix-1). It re-runs the campaign with kink-corpus's run options
+/// ([`corpus_run_options`], as `definition` runs it; re-pin L1-2-land).
 fn replay_check(store: &Store, requested: &CorpusManifest, id: &str) -> Result<(), StoreError> {
     let corpus = store.read_manifest(requested.digest())?;
     let definition = corpus
@@ -798,11 +799,12 @@ fn replay_check(store: &Store, requested: &CorpusManifest, id: &str) -> Result<(
         selection: config.selection,
         operators: &operators,
     };
-    let outcome = replay_with_budget(
+    let outcome = replay_with_options(
         &report_text,
         &artifact,
         &declaration,
         config.budget_mutants.as_ref(),
+        corpus_run_options(),
     );
     println!("{outcome:?}");
     if outcome == ReplayOutcome::Reproduced {

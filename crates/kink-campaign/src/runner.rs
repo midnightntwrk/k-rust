@@ -138,6 +138,7 @@ use crate::{
     derive_mutant_report, score, validate_baseline,
 };
 use crate::{MutantSelection, SelectionPolicy};
+use serde_json::{Value, json};
 
 /// What a state oracle reads from each complete terminal.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -301,6 +302,44 @@ pub struct RunOptions {
     pub one_sided: OneSided,
 }
 
+impl RunOptions {
+    /// Every option as a JSON object, `{result_modality, work, one_sided}`: `work` is null
+    /// without a work budget, else `{factor, floor}`; `one_sided` is [`OneSided::name`]. A store
+    /// that records the options its runs were made with (kink-corpus index entries, `run_options`)
+    /// records this value (re-pin L1-2-land; CACHE-ID review 2 minor 1). Every field is
+    /// destructured, without `..`, and every nested option is matched exhaustively, so a new
+    /// option does not compile until it is recorded here: no option can be left out of the
+    /// record and silently default when the record is read back.
+    #[must_use]
+    pub fn value(&self) -> Value {
+        let Self {
+            result_modality,
+            work,
+            one_sided,
+        } = *self;
+        let work = match work {
+            WorkBudget::Unbounded => Value::Null,
+            WorkBudget::Calibrated { factor, floor } => json!({"factor": factor, "floor": floor}),
+        };
+        json!({
+            "result_modality": result_modality.name(),
+            "work": work,
+            "one_sided": one_sided.name(),
+        })
+    }
+}
+
+/// The version of the one-sided kill rule ([`OneSided`]): which work-bound mutant runs give
+/// one-sided evidence (kink-native `bridge::work_bound_stuck_terminals`, read by the mutant
+/// runtime's judging) and when a state slot distinguishes from it (`one_sided_distinguishes`).
+/// A component of kink's semantics identity ([`crate::identity::KINK_IDENTITY`], key
+/// `one_sided`), so every store that honours a verdict made without the rule, or under another
+/// version of it, misses or is refused, naming it (re-pin L1-2-land). Bump it whenever either
+/// function changes which slots distinguish. v1 (re-pin L1-2, L1-2-fix-1): decision 6 and
+/// finding A-15, a clean ground stuck leaf of a work-bound mutant run whose projection the
+/// baseline's complete set lacks, with contradicted claims read per path.
+pub const ONE_SIDED_VERSION: &str = "kink-campaign/one-sided/v1";
+
 /// The one-sided early kill (re-pin L1-2: decision 6, finding A-15). Off by default: a state slot
 /// distinguishes only two complete sides.
 ///
@@ -351,6 +390,17 @@ pub enum OneSided {
     /// verdict away from `Distinguish`. The runner cannot read a classifier's range, so the caller
     /// states it; the explored terminals are checked anyway.
     NoCrashClassifier,
+}
+
+impl OneSided {
+    /// The record name: `"off"` or `"no-crash-classifier"`.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::NoCrashClassifier => "no-crash-classifier",
+        }
+    }
 }
 
 /// The work budget (k-rust `max_work`: the most states a run may visit across all its paths) of
@@ -2924,6 +2974,48 @@ mod tests {
             .unwrap()
             .join()
             .unwrap();
+    }
+
+    /// Re-pin L1-2-land (CACHE-ID review 2 minor 1): the run options' record names every option,
+    /// the one-sided rule included, and tells each value apart.
+    #[test]
+    fn the_run_options_record_names_every_option() {
+        assert_eq!(
+            RunOptions::default().value(),
+            json!({"result_modality": "state-set", "work": null, "one_sided": "off"})
+        );
+        let options = RunOptions {
+            result_modality: ResultModality::PathSet,
+            work: WorkBudget::Calibrated {
+                factor: 4,
+                floor: 10_000,
+            },
+            one_sided: OneSided::NoCrashClassifier,
+        };
+        assert_eq!(
+            options.value(),
+            json!({
+                "result_modality": "path-set",
+                "work": {"factor": 4, "floor": 10_000},
+                "one_sided": "no-crash-classifier",
+            })
+        );
+        for changed in [
+            RunOptions {
+                result_modality: ResultModality::StateSet,
+                ..options
+            },
+            RunOptions {
+                work: WorkBudget::Unbounded,
+                ..options
+            },
+            RunOptions {
+                one_sided: OneSided::Off,
+                ..options
+            },
+        ] {
+            assert_ne!(changed.value(), options.value(), "{changed:?}");
+        }
     }
 
     /// Re-pin L1-2 (decision 6, finding A-15): a run's one-sided evidence is read only on a side
