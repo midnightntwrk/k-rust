@@ -832,8 +832,27 @@ pub fn load_with_options_timed(
     .map(|(loaded, _, timings)| (loaded, timings))
 }
 
-/// Load a fresh compilation using the semantic/syntax import closures, frontend utility
-/// roots, and entry modules without visible bubbles.
+/// Load a fresh compilation: the modules compilation processes, with their inner syntax parsed.
+///
+/// The loader keeps the following roots and their transitive imports, and drops every other
+/// module before inner parsing:
+/// - the main module;
+/// - the syntax module: `syntax_module` when given, else `<MAIN>-SYNTAX` when the definition has
+///   it, else the main module (with a fallback warning);
+/// - the configuration module ([`LoadOptions::configuration_module`], else the main module);
+/// - `K-REFLECTION`, `STDIN-STREAM`, `STDOUT-STREAM` and `MAP` when the definition has them;
+/// - every module that has no bubble (rule, claim, context or configuration) and imports none
+///   that has one;
+/// - `DEFAULT-CONFIGURATION` when the configuration module's closure holds no configuration
+///   after backend exclusion.
+///
+/// A retained module may lie outside the main module's import closure (an unimported syntax
+/// module, for example). [`compile_loaded_definition`](crate::kompile::compile_loaded_definition)
+/// runs every compile stage on the sentences of every retained module and emits only those of
+/// the main module's import closure, so such a module's sentences can stop compilation without
+/// contributing to the compiled theory: a rewrite rule of a module that sees no configuration is
+/// refused at cell concretization with an error that names the rule and says it lies outside the
+/// main module's import closure (`docs/compatibility.md`, beside the acceptance boundary).
 ///
 /// Selection follows full outer validation and precedes backend exclusion and inner parsing.
 /// Generic, structured, and prepared-definition loading retain their separate policies.
