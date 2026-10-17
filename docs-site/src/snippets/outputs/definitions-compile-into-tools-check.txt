@@ -1,0 +1,2 @@
+$ krs check --package tour-light --definition main
+KRS check passed: 9 descriptors, 2 semantic modules

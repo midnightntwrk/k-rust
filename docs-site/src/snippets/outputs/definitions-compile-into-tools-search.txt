@@ -1,0 +1,6 @@
+$ krs search --package tour-light --definition main programs/red.light
+<k>
+  green ~> .K
+</k>
+solution 1: depth 1
+krs search: 1 solution

@@ -1,0 +1,2 @@
+$ krs parse --package tour-nat --definition main programs/two.nat
+succ(succ(zero(.KList)))

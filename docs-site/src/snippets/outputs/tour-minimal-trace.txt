@@ -3,4 +3,4 @@ $ krs run --package krs-tour-minimal --definition main --trace
   bar ~> .K
 </k>
 step 1  KRS-TOUR-MINIMAL.foo-to-bar   src/lib.rs:43:5
-krs run: stuck after 1 step; <k> starts with `bar(.KList)`
+krs run: stuck after 1 step; <k> starts with `bar`

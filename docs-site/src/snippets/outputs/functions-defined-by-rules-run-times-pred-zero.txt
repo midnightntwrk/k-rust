@@ -1,0 +1,7 @@
+$ krs run --package tour-nat-functions --definition main programs/zero-times-pred-zero.nat
+  #Ceil ( pred ( zero ) )
+#And
+  <k>
+    zero ~> .K
+  </k>
+krs run: stuck after 0 steps; <k> starts with `zero`

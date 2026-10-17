@@ -1,0 +1,201 @@
+---
+title: Sorts and constructors
+description: Declare a sort and its constructors, and see that the terms they build are trees that do not compute.
+---
+
+# Sorts and constructors
+
+A K definition is about **terms**: trees built from the symbols the definition declares.
+This lesson declares the first sort of the running example, the natural numbers, and the two constructors that build them.
+The next two lessons add functions over these numbers and the equations that define those functions.
+
+This lesson's package is in the checkout at `docs-site/tour/sorts-and-constructors`, and its Cargo package name is `tour-nat`.
+Run every command below from that directory.
+
+## Sorts, constructors, and terms
+
+A **sort** is a name for a set of terms; read it as "a type of terms in the language you are defining".
+A **constructor** is a symbol that builds a term of a sort from its arguments.
+A **term** is a tree: each node is a symbol applied to its argument terms.
+
+The natural numbers here are Peano numbers.
+`zero` is a number, and if `n` is a number then `s(n)`, "the successor of `n`", is a number.
+So `s(zero)` is one and `s(s(zero))` is two.
+Nothing in this lesson adds or compares numbers.
+
+## The definition
+
+The package is the complete definition:
+
+```rust [docs-site/tour/sorts-and-constructors/src/lib.rs]
+// [!include ~/snippets/tour/sorts-and-constructors.rs:definition]
+```
+
+`k::sorts!` declares the sort `Nat`.
+The `: KItem` after it says that every `Nat` is also a `KItem`, K's sort of the items that the `k` cell holds, as in the [previous lesson](/tour/definitions-compile-into-tools); the lesson on the `k` cell explains `KItem`.
+
+The enum declares the constructors of `Nat`, one per variant.
+`#[k::constructors(sort = Nat, ...)]` says which sort every variant builds.
+Each variant becomes a **production**: one line of the grammar that declares a symbol and the text that writes it.
+
+`#[k::syntax("s({n})")]` is the variant's concrete syntax: how a program writes the term.
+`{n}` marks where the field `n` goes, and `n: Nat` says that the argument is itself a `Nat`.
+`Zero()` has no fields, so `zero` is a complete term on its own.
+
+KRS also accepts a unit variant, `Zero,`, and it declares the same constructor.
+This tour always writes `Zero()`, because in the rule tables of later lessons a bare `Zero` in a pattern is read as a variable named `Zero`, which matches any term, not as the constructor.
+
+Two attributes are required on every such enum and change nothing in this lesson:
+
+- `result = ...` names a result sort, and KRS requires one; the tour writes `KResult`. It matters only once rules may evaluate a constructor's arguments before the constructor itself, which a later lesson on evaluation order and strictness introduces.
+- `#[k::precedence((Zero, Succ))]` must name every variant exactly once. It tells the parser which operators bind tighter than others; each constructor here carries its own parentheses, so a single list of all of them is enough. A later lesson on precedence and associativity explains the attribute.
+
+The configuration and the `init` function are the boilerplate of the previous lesson: `krs run` parses the program file and puts the term in the `k` cell.
+
+## A term is a tree
+
+`krs parse` reads a program with the definition's grammar and prints the term it denotes.
+The program `programs/two.nat` contains `s(s(zero))`, and parsing it prints:
+
+```console [recorded with krs]
+// [!include ~/snippets/outputs/sorts-and-constructors-parse.txt]
+```
+
+This is **KAST**, K's notation for terms: a symbol followed by its arguments in parentheses.
+`succ` is the constructor's **symbol**, its identity inside K, which KRS derives from the variant name `Succ`; `s` is only how programs write it.
+`.KList` is the empty argument list of `zero`.
+Drawn as a tree, the term is:
+
+```text
+succ
+└── succ
+    └── zero
+```
+
+The grammar contains exactly the productions, so a program that no production describes does not parse.
+`programs/two-arguments.nat` contains `s(zero, zero)`, and the parser rejects it:
+
+```console [recorded with krs]
+// [!include ~/snippets/outputs/sorts-and-constructors-parse-error.txt]
+```
+
+No production of this definition contains a comma, so the comma is not even a token of its grammar.
+
+## Constructors do not compute
+
+Running `programs/two.nat` shows the same term, unchanged:
+
+```console [recorded with krs]
+// [!include ~/snippets/outputs/sorts-and-constructors-run.txt]
+```
+
+The definition has no rules, so no step is possible, and the run stops after 0 steps.
+Nothing was left undone: `s(s(zero))` is not an expression waiting to be evaluated; the tree is the value.
+
+Constructors are **free**: two terms built only from constructors are equal exactly when they are the same tree.
+`zero` and `s(zero)` are different terms, and so are `s(zero)` and `s(s(zero))`.
+That `s(s(zero))` means "two" is our reading; the definition knows only the tree.
+The next lessons depend on freeness: a function is defined by saying which term an application equals, and an equation selects terms by their shape.
+
+## A sort is open while you write it
+
+A Rust enum is closed: its variants are all the values there are, and a `match` must cover them.
+A K sort is **open** while you write the definition: the enum is one contribution of constructors to `Nat`, not the definition of `Nat`.
+Another enum, in this file or in another package of the definition, can add constructors to the same sort, as the second exercise shows.
+
+When `krs` assembles the definition, the constructors it collected are all the constructors of `Nat`, and every value of sort `Nat` is a tree built from them.
+The next lesson adds function symbols such as `plus`, whose applications are more terms of sort `Nat` but no new values: `plus(zero, zero)` is a term that equals the value `zero`.
+
+## The generated K
+
+`krs emit-k` writes the K that the package compiles to:
+
+```console [recorded with krs]
+// [!include ~/snippets/outputs/sorts-and-constructors-emit-k.txt]
+```
+
+`syntax Nat` declares the sort, and each `syntax Nat ::= ...` line is one production: quoted terminals, and the sort `Nat` where an argument goes.
+`symbol(succ)` is the symbol you saw in the KAST.
+`group(...)` and `format(...)` are details for K's parser and printer, from the precedence list and from pretty-printing; later lessons on precedence and on unparsing cover them.
+`KRS-FRAMEWORK` is the module KRS adds to every definition whose `k::sorts!` names `KItem` or `KResult`; it declares those two sorts, and `syntax KItem ::= Nat` is the `: KItem` from `k::sorts!`.
+The configuration puts the program, `$PGM`, into the `k` cell.
+
+The [language reference](/reference/language#declarations-and-sentence-forms) lists the other ways to declare sorts and productions.
+
+## Traps for Rust readers
+
+- `pub enum NatSyntax` looks like a closed data type. While you write the definition it is one contribution of constructors to the open sort `Nat`, and other enums may add more.
+- `n: Nat` names the sort of an argument. KRS never builds a Rust value of type `Nat`; the type exists so that Rust can check the shape of the definition.
+- Freeness is not visible in the Rust spelling: nothing in the enum says that `s(zero)` and `zero` differ, but in K they always do.
+- `result = KResult` and the precedence list suggest that evaluation results and parsing precedence already matter. They do not, until the lessons that explain them.
+- Some KRS code in the repository writes nullary constructors as unit variants (`I32,`). That declares the same constructor, but in a rule pattern a bare `I32` would be a variable.
+
+## Exercises
+
+**1. Two ways to write two.**
+Add a constructor `Two()` written `two` to `NatSyntax`, and add `Two` to the precedence list: `#[k::precedence((Zero, Succ, Two))]`.
+Put `two` in a new file `programs/two-word.nat` and parse both programs:
+
+```sh
+krs parse --package tour-nat --definition main programs/two-word.nat
+krs parse --package tour-nat --definition main programs/two.nat
+```
+
+Are `two` and `s(s(zero))` the same term?
+
+<details>
+<summary>Answer</summary>
+
+No.
+The first prints `two(.KList)` and the second `succ(succ(zero(.KList)))`: two different trees.
+Constructors are free, so nothing makes them equal; only an equation about a function symbol, which the next lesson introduces, can say that a term equals another.
+
+</details>
+
+**2. Another enum adds to the same sort.**
+Below `NatSyntax`, add a second enum to the same sort:
+
+```rust
+#[k::constructors(sort = Nat, result = KResult)]
+#[k::precedence((Omega))]
+pub enum Infinite {
+    #[k::syntax("omega")]
+    Omega(),
+}
+```
+
+Put `s(omega)` in a new file `programs/after-omega.nat` and parse it:
+
+```sh
+krs parse --package tour-nat --definition main programs/after-omega.nat
+```
+
+<details>
+<summary>Answer</summary>
+
+It prints `succ(omega(.KList))`.
+`omega` is a `Nat` because `Infinite` contributes it to the sort `Nat`, so `s(omega)` is a well-formed `Nat`, even though `NatSyntax` never mentions `omega`.
+
+</details>
+
+**3. Three.**
+Write the number three as a term in a new file `programs/three.nat`, then parse and run it:
+
+```sh
+krs parse --package tour-nat --definition main programs/three.nat
+krs run --package tour-nat --definition main programs/three.nat
+```
+
+Why does the run take no steps?
+
+<details>
+<summary>Answer</summary>
+
+Three is `s(s(s(zero)))`, which parses to `succ(succ(succ(zero(.KList))))`.
+The run prints the same term and stops after 0 steps: the definition has no rules, and a constructor term is already a value.
+
+</details>
+
+## Next
+
+[Functions defined by rules](/tour/functions-defined-by-rules) adds symbols whose applications equal other terms, and the equations that say which terms.

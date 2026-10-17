@@ -1,0 +1,32 @@
+$ krs emit-k --package tour-light --definition main --output target/krs-k
+emitted descriptor-bundle.json, semantic-ir.json, definition-ir.json, definition.k, symbols.json, sources.json
+$ cat target/krs-k/definition.k
+module KRS-FRAMEWORK
+  syntax KItem
+  syntax KResult
+
+  syntax KItem ::= KResult
+endmodule
+
+module LIGHT-SYNTAX
+  imports KRS-FRAMEWORK
+
+  syntax Light
+
+  syntax Light ::= "green" [symbol(green), group(krsgroup-c301ef250fb7fb18a39325b8), format(%1)]
+  syntax Light ::= "red" [symbol(red), group(krsgroup-c301ef250fb7fb18a39325b8), format(%1)]
+endmodule
+
+module LIGHT
+  imports KRS-FRAMEWORK
+  imports LIGHT-SYNTAX
+
+  syntax KItem ::= Light
+
+  configuration
+    <k> $PGM:Light </k>
+
+
+  rule [red-to-green]:
+    <k> red => green ... </k>
+endmodule

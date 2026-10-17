@@ -1,0 +1,5 @@
+$ krs run --package tour-nat-functions --definition main programs/pred-zero.nat
+<k>
+  pred ( zero ) ~> .K
+</k>
+krs run: stuck after 0 steps; <k> starts with `pred ( zero )`

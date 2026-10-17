@@ -22,6 +22,16 @@ export default defineConfig({
       ],
     },
     {
+      text: 'Part I: Definitions and terms',
+      collapsed: false,
+      items: [
+        { text: 'A definition compiles into tools', link: '/tour/definitions-compile-into-tools' },
+        { text: 'Sorts and constructors', link: '/tour/sorts-and-constructors' },
+        { text: 'Functions defined by rules', link: '/tour/functions-defined-by-rules' },
+        { text: 'Patterns and substitution', link: '/tour/patterns-and-substitution' },
+      ],
+    },
+    {
       text: 'Build IMP',
       collapsed: false,
       items: [

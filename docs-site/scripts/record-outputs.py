@@ -7,6 +7,10 @@ lock of input and output digests. With no option, the script recomputes the
 digests without running krs and fails when a fixture, a manifest entry, or an
 output changed since the last `--write`. `--verify` runs every entry again and
 compares the outputs byte for byte.
+
+An entry with `show = "PATH"` (relative to its fixture) also records the file the
+command wrote there, after a `$ cat PATH` line, so a page can show a generated
+artifact such as the `definition.k` that `krs emit-k --output DIRECTORY` writes.
 """
 
 from __future__ import annotations
@@ -74,6 +78,9 @@ def record(binary: Path, entry: dict) -> str:
     text = "$ " + shlex.join(["krs", *arguments(entry)]) + "\n" + executed.stdout + executed.stderr
     if executed.returncode != 0:
         text += f"exit status {executed.returncode}\n"
+    elif "show" in entry:
+        shown = SITE / entry["fixture"] / entry["show"]
+        text += "$ " + shlex.join(["cat", entry["show"]]) + "\n" + shown.read_text(encoding="utf-8")
     return text
 
 
