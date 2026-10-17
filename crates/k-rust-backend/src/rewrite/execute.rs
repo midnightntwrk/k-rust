@@ -1993,10 +1993,15 @@ fn final_leaves(
 /// configuration: the stuck halt is decided from the configuration (its term, constraints, effects
 /// and console), so the later leaf's subtree is that configuration alone, which the stuck leaf
 /// reports. Console availability and the state's kind, which the key leaves out, do not change a
-/// stuck verdict: with the console off a step that reaches a console hook is an error, not stuck,
-/// and a remainder's stuck verdict is its parent step's over every priority. A result whose bound
-/// and undecided leaves were all absorbed this way is complete (docs/compatibility.md, "Search
-/// results").
+/// stuck verdict: a stuck step performs no console operation (a rule's condition is not evaluated
+/// with the console, so a console hook there is the unsupported-hook failure with the console on
+/// or off, and the console is read only while a successor is built), so a step that reaches a
+/// console hook with the console off ends as a simplification failure, not stuck; and a
+/// remainder's stuck verdict is its parent step's over every priority. A result whose bound and
+/// undecided leaves were all absorbed this way is complete (docs/compatibility.md, "Search
+/// results"). When an unexplored or undecided leaf absorbs another, the key's omission of console
+/// availability loses no configuration either, as the kept leaf is not complete, but its halt
+/// describes its own path's console.
 ///
 /// A retained leaf is the first of the leaves merged into it, the witness: it keeps its own
 /// pattern, depth, halt reason, trace, branch, observations, effects, and console transcript, which

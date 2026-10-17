@@ -439,53 +439,76 @@ fn a_stuck_leaf_absorbs_a_later_bound_leaf_and_the_state_set_is_complete() {
     }
 }
 
-/// Console availability is not part of a final leaf's identity, and it does not change a stuck
-/// verdict. From `go`, one path passes through `sym(?X)`, a state with a variable, so the console
-/// is off on it from there on, and reaches `fin` at depth 2; the other stays ground, with the
-/// console on, and reaches `fin` at depth 3. Both leaves are `stuck` in the path set, and the
-/// state set holds one `stuck` leaf `fin`, the first path's.
-#[test]
-fn a_stuck_leaf_reached_with_the_console_off_absorbs_one_reached_with_it_on() {
-    use k_rust_backend::{
-        definition::BackendDefinition,
-        rewrite::{ExecutionOptions, HaltReason, execute_with_io_state},
-        search::ResultModality,
-        transition::ExecutionIoState,
-    };
-    const CONSOLE: &str = r#"
+/// The console fixture: from `go`, one path passes through `sym(?X)`, a state with a variable,
+/// so the console is off on it from there on, and reaches `fin` at depth 2; the other stays
+/// ground, with the console on, and reaches `fin` at depth 3 through `gnd()` and `gnd2()`.
+/// `{FIN_RULES}` is replaced by the rules of `fin`.
+const CONSOLE: &str = r#"
 module CONSOLE
   imports INT
-  syntax Pgm ::= "go" | sym(Int) | gnd() | gnd2() | "fin"
+  imports K-IO
+  syntax Pgm ::= "go" | sym(Int) | gnd() | gnd2() | "fin" | out(IOInt)
   rule go => sym(?_X:Int)
   rule go => gnd()
   rule sym(_) => fin
   rule gnd() => gnd2()
   rule gnd2() => fin
+  {FIN_RULES}
 endmodule
 "#;
-    let (kore, initial) = compile(CONSOLE, "CONSOLE", "go");
+
+/// The console fixture with `fin_rules`, run on the backend with the console on and `input` as
+/// its standard input (the facade's `ExecuteRequest` has no console input).
+fn console_runs(
+    fin_rules: &str,
+    input: &[u8],
+    max_depth: u64,
+) -> [k_rust_backend::rewrite::ExecutionResult; 2] {
+    use k_rust_backend::{
+        definition::BackendDefinition,
+        rewrite::{ExecutionOptions, execute_with_io_state},
+        search::ResultModality,
+        transition::ExecutionIoState,
+    };
+    let (kore, initial) = compile(&CONSOLE.replace("{FIN_RULES}", fin_rules), "CONSOLE", "go");
     let syntax = k_rust::kore::parser::parse_definition(&kore).unwrap();
     let definition = BackendDefinition::internalize(&syntax, "CONSOLE").unwrap();
     let initial = definition
         .admit_unverified(&initial, &[])
         .internalize_pattern()
         .unwrap();
-    let run = |result_modality| {
+    [ResultModality::PathSet, ResultModality::StateSet].map(|result_modality| {
         execute_with_io_state(
             &definition,
             initial.clone(),
             ExecutionOptions {
                 result_modality,
+                max_depth,
                 ..ExecutionOptions::default()
             },
-            ExecutionIoState::default(),
+            ExecutionIoState::new(input.to_vec()),
         )
+    })
+}
+
+/// Console availability is not part of a final leaf's identity, and it does not change a stuck
+/// verdict. With no rule for `fin`, both paths end `stuck` in `fin` in the path set, and the
+/// state set holds one `stuck` leaf `fin`, the first path's (the console-off one).
+///
+/// The companion fixture shows that the first path does run with the console off, and that a
+/// step that reaches a console hook there ends as a `simplification-failure` leaf, not `stuck`:
+/// with `fin => out(#getc(0))` and input `a`, the console-off `fin` is the unsupported-hook
+/// failure of `IO.getc`, and the ground path's `fin` steps to a `stuck` `out(97)` that consumed
+/// one byte. Under `maxDepth` 3 the ground path's `fin` is a `depth-bound` leaf instead.
+#[test]
+fn a_stuck_leaf_reached_with_the_console_off_absorbs_one_reached_with_it_on() {
+    use k_rust_backend::{
+        rewrite::{ExecutionLeaf, HaltReason},
+        simplify::SimplificationError,
     };
-    let path_set = run(ResultModality::PathSet);
-    let state_set = run(ResultModality::StateSet);
-    let read = |leaf: &k_rust_backend::rewrite::ExecutionLeaf| {
-        (leaf.halt_reason.clone(), leaf.depth, leaf.pattern.clone())
-    };
+    let read = |leaf: &ExecutionLeaf| (leaf.halt_reason.clone(), leaf.depth, leaf.pattern.clone());
+
+    let [path_set, state_set] = console_runs("", b"", u64::MAX);
     let [first, second] = path_set.leaves.as_slice() else {
         panic!("two path-set leaves expected: {:#?}", path_set.leaves);
     };
@@ -502,4 +525,39 @@ endmodule
         panic!("one state-set leaf expected: {:#?}", state_set.leaves);
     };
     assert_eq!(read(merged), read(first));
+
+    let unsupported_getc = |leaf: &ExecutionLeaf| {
+        matches!(
+            &leaf.halt_reason,
+            HaltReason::Simplification(SimplificationError::UnsupportedHook { hook, .. })
+                if hook == "IO.getc"
+        )
+    };
+    let getc = "rule fin => out(#getc(0))";
+    let [path_set, _] = console_runs(getc, b"a", u64::MAX);
+    let [off, on] = path_set.leaves.as_slice() else {
+        panic!("two path-set leaves expected: {:#?}", path_set.leaves);
+    };
+    assert!(unsupported_getc(off), "console off at fin: {off:#?}");
+    assert_eq!(off.depth, 2);
+    assert_eq!(off.io.observable().consumed, 0);
+    assert_eq!(on.halt_reason, HaltReason::Stuck, "{on:#?}");
+    assert_eq!(on.depth, 4);
+    assert_eq!(on.io.observable().consumed, 1);
+    assert!(
+        format!("{:?}", on.pattern).contains("\"97\""),
+        "the ground path read `a`: {:?}",
+        on.pattern
+    );
+
+    let [path_set, _] = console_runs(getc, b"a", 3);
+    let [off, on] = path_set.leaves.as_slice() else {
+        panic!("two path-set leaves expected: {:#?}", path_set.leaves);
+    };
+    assert!(unsupported_getc(off), "{off:#?}");
+    assert_eq!(off.depth, 2);
+    assert_eq!(
+        (on.halt_reason.clone(), on.depth),
+        (HaltReason::DepthBound, 3)
+    );
 }
