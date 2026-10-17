@@ -16,6 +16,7 @@ export default defineConfig({
       text: 'Start here',
       collapsed: false,
       items: [
+        { text: 'Five-minute theory', link: '/start/five-minute-theory' },
         { text: 'What KRS defines', link: '/start/what-krs-defines' },
         { text: 'Definition package', link: '/start/definition-package' },
       ],
@@ -64,11 +65,6 @@ export default defineConfig({
         { text: 'Language surface', link: '/reference/language' },
         { text: 'Boundaries and open questions', link: '/reference/boundaries' },
       ],
-    },
-    {
-      text: 'Synthesis',
-      collapsed: false,
-      items: [{ text: 'Five-minute theory', link: '/start/five-minute-theory' }],
     },
     {
       text: 'Try it',

@@ -26,7 +26,7 @@ Pass `--message-format=json` for machine consumption: located diagnostics use sc
 - **Toolchain pins.** `Krs.lock` pins K 7.1.337, Z3 4.12.5, and the IR schema versions; every gate reads them from there.
   KRS builds against the `k-rust` crates of the same commit, so there is no `k-rust` pin to move: a `k-rust` change that affects KRS updates KRS in the same commit.
   The MSRV is Rust 1.99.0, the `rust-version` every `k-rust` crate declares; the gates also qualify native-frontend helpers on any stable Rust at or above it.
-- **Documentation.** `docs-plan/tour.toml` is the curriculum and feature-status ledger for a 17-chapter language tour, published by the repository's Vocs site, `../docs-site/`, which documents k-rust as well.
+- **Documentation.** The repository's Vocs site, `../docs-site/`, publishes the language tour and documents k-rust as well; its curriculum ledger is `../docs-site/plan/tour.toml`.
   `docs-plan/authoring-spec/` is the normative readable-authoring specification.
 - **Browser lessons.** `browser/` contains a Web Worker that expands and compiles lessons in the browser, together with its dependency pack and release tooling.
 

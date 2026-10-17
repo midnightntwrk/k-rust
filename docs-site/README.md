@@ -1,13 +1,13 @@
 # k-rust and KRS documentation site
 
 This directory contains KRS's dependency-ordered language tour, its generated-gloss five-minute synthesis page, and its reference, together with the `/k-rust` pages: an overview and k-rust's compatibility contract, which `scripts/sync-k-rust.py` mirrors from `../docs/compatibility.md` (`bun run sync:snippets` rewrites the mirror; `bun run check` fails when it is stale).
-KRS's sources live in `../krs/`; the curriculum ledger is `../krs/docs-plan/tour.toml`.
+KRS's sources live in `../krs/`; the curriculum ledger and its checks are in `plan/` (`plan/README.md`).
 The site uses Vocs 2.8.5 and Bun 1.3.13.
 Install its locked dependencies with `bun install --frozen-lockfile`.
 Run the local site with `bun run dev` and its fixture/tooling gate with `bun run check`.
 Waku is pinned to `1.0.0-beta.6` because Vocs 2.8.5 uses that router event contract; widening the prerelease range resolves to `1.0.0-rc.0` and crashes `ScrollRestoration` after hydration.
 It verifies that the displayed `tour-minimal` mirror is byte-for-byte identical to its authoritative fixture and that the fixture passes `cargo check --locked`.
-The primary navigation contains all 17 canonical chapters from `../krs/docs-plan/tour.toml` plus the checked five-minute synthesis.
+`plan/tour.toml` orders the tour as Parts of lessons that teach the 44 K concepts, with an IMP milestone and a KRS side track; until a lesson is accepted, the 17 pages that predate that order stay in the navigation and remain the destinations of its topics.
 Its hover/focus glosses and canonical destinations are generated from the ledger rather than copied into a second glossary.
 `bun run check` validates the curriculum, reviewed public surfaces, complete page graph and anchors, generated compatibility and port summaries, terminology, gloss accessibility contracts, synced snippets, Rust-Twoslash failure controls, and the authoritative Cargo/KRS fixtures.
 Pages show `krs` command outputs recorded under `src/snippets/outputs/` from the commands `recorded-outputs.toml` lists.
