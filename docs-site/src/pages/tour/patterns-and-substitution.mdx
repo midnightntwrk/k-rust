@@ -1,0 +1,212 @@
+---
+title: Patterns and substitution
+description: How a left-hand side matches a term, how its variables fill in the right-hand side, and what wildcards and repeated variables mean.
+---
+
+# Patterns and substitution
+
+The equations of the [previous lesson](/tour/functions-defined-by-rules) had left-hand sides such as `plus(s(m), n)`.
+This lesson explains how such a left-hand side selects the terms an equation applies to, and how the equation builds its result.
+Transition rules use the same mechanism.
+
+This lesson's package is in the checkout at `docs-site/tour/patterns-and-substitution`, and its Cargo package name is `tour-nat-patterns`.
+Run every command below from that directory.
+
+## Patterns, matching, and substitution
+
+A **pattern** is a term that may contain **variables**.
+A variable stands for any term of its sort.
+**Matching** a pattern against a term looks for a **substitution**: one term for each variable, such that replacing the variables by those terms turns the pattern into the term.
+An equation applies to a term when its left-hand side matches it; the result is the right-hand side with the same substitution applied.
+
+The package repeats `plus`:
+
+```rust [docs-site/tour/patterns-and-substitution/src/lib.rs]
+// [!include ~/snippets/tour/patterns-and-substitution.rs:plus]
+```
+
+Match the term `plus(s(zero), s(zero))` against the left-hand side of `plus_succ`, `plus(s(m), n)`:
+
+```text
+pattern      plus( s( m    ),  n       )
+term         plus( s( zero ),  s(zero) )
+substitution m = zero, n = s(zero)
+```
+
+The symbols `plus` and `s` in the pattern must meet the same symbols in the term; only the variables are free to stand for something.
+Applying the substitution to the right-hand side `s(plus(m, n))` gives `s(plus(zero, s(zero)))`, the first line of the calculation in the previous lesson.
+
+The pattern of `plus_zero`, `plus(zero, n)`, does not match the same term: it needs `zero` where the term has `s(zero)`, and by freeness these are different terms.
+No substitution can change that, because a substitution only replaces variables.
+
+## Equals replace equals
+
+Matching compares terms as they are written.
+An equation, though, says that two terms are equal, so either may replace the other anywhere, including inside a larger term.
+`krs` uses that to simplify: wherever an application inside a term matches an equation, it may be replaced by the equation's result, and an equation for the outer term may then match the simplified term.
+
+This is not Rust's evaluation of arguments before a call.
+Nothing is called, and there is no order of evaluation to rely on: `isZero(plus(zero, s(zero)))` and `isZero(s(zero))` are two names for the same term, and the second one is the one a pattern can match.
+
+## A second sort for answers
+
+The rest of the lesson needs results that are not numbers, so the package declares a second sort, `Answer: KItem` in `k::sorts!`, and its constructors, exactly as for `Nat`:
+
+```rust [docs-site/tour/patterns-and-substitution/src/lib.rs]
+// [!include ~/snippets/tour/patterns-and-substitution.rs:answer]
+```
+
+In this package a program is a term of sort `Answer`, so `init` takes `pgm: Answer`.
+
+## Wildcards
+
+`isZero` says whether a number is `zero`:
+
+```rust [docs-site/tour/patterns-and-substitution/src/lib.rs]
+// [!include ~/snippets/tour/patterns-and-substitution.rs:is-zero]
+```
+
+The **wildcard** `_` in `isZero(s(_))` matches any term and gives it no name, because the right-hand side does not need it.
+`programs/is-zero-one.answer` contains `isZero(plus(zero, s(zero)))`.
+`plus(zero, s(zero))` is first simplified to `s(zero)`, and `isZero(s(zero))` then matches `isZero(s(_))`, so the run prints `no`:
+
+```console [recorded with krs]
+// [!include ~/snippets/outputs/patterns-and-substitution-run-is-zero.txt]
+```
+
+## A repeated variable is an equality test
+
+`same` answers `yes` when its two arguments are the same number:
+
+```rust [docs-site/tour/patterns-and-substitution/src/lib.rs]
+// [!include ~/snippets/tour/patterns-and-substitution.rs:same]
+```
+
+The variable `n` occurs twice in `same(n, n)`.
+A pattern in which a variable occurs more than once is **nonlinear**: a substitution gives the variable one term, so both arguments must be that same term.
+Because constructors are free, two constructor terms are the same exactly when they are the same tree, so the pattern tests the arguments for equality.
+
+`programs/same-two.answer` contains `same(plus(s(zero), s(zero)), s(s(zero)))`.
+The first argument simplifies to `s(s(zero))`, so `n = s(s(zero))` matches both arguments, and the run prints `yes`:
+
+```console [recorded with krs]
+// [!include ~/snippets/outputs/patterns-and-substitution-run-same.txt]
+```
+
+`programs/same-differ.answer` contains `same(plus(s(zero), zero), zero)`.
+The first argument simplifies to `s(zero)`, and no single term can stand for `n` in both places, so the run leaves the application in place:
+
+```console [recorded with krs]
+// [!include ~/snippets/outputs/patterns-and-substitution-run-differ.txt]
+```
+
+The `plus` application was replaced by its value, but no equation applies to `same(s(zero), zero)`.
+As with `pred(zero)` in the previous lesson, the definition gives no value for it, and `same` is declared partial, so it may have none.
+A nonlinear pattern can only say when an equation applies; it cannot say "otherwise".
+The second exercise makes `same` total with more patterns, and a later lesson on guards, `owise`, and priority shows K's ways to state a fallback.
+
+Two wildcards are two different variables without names.
+`same(_, _)` would match every pair of numbers, equal or not.
+
+## The sort of a variable
+
+`n` in `same(n, n)` has sort `Nat` because it stands in argument positions of sort `Nat`.
+KRS infers every variable's sort from the positions where it occurs, and the generated K writes it.
+Here every position has exactly one sort, so the inferred sort says nothing new.
+A later lesson on subsorts declares one sort to be part of another, and then a variable's sort can decide whether a rule applies.
+
+## The generated K
+
+`krs emit-k` shows that the patterns carry over unchanged:
+
+```console [recorded with krs]
+// [!include ~/snippets/outputs/patterns-and-substitution-emit-k.txt]
+```
+
+K writes the nonlinear pattern with one variable twice, `same ( N:Nat , N:Nat )`, and the wildcard as `_`.
+
+The `k::rules!` row of the [first lesson](/tour/definitions-compile-into-tools), `red_to_green: Red() => Green();`, also has a pattern on the left and a term on the right.
+A `k::rules!` table reads every row as a rule, so a row needs no `k::term!`, and the table's `use LightSyntax::*;` line lets rows name variants without the enum path.
+Equations are separate Rust items, so they keep both.
+
+## Traps for Rust readers
+
+- In Rust, binding the same name twice in one pattern is an error. Here it is an equality constraint between the two positions.
+- Each `_` is an independent variable. `same(_, _)` does not require the arguments to be equal.
+- `NatSyntax::Succ(m)` gives a variant with a named field its field positionally, which ordinary Rust rejects; KRS accepts it in patterns and right-hand sides, and the position stands for the field.
+- A pattern does not evaluate its argument the way a Rust call evaluates its arguments. Terms are simplified by equations, and a pattern matches the simplified term.
+- Several equations with patterns are not a `match`: the patterns are not tried top to bottom, and when no pattern matches there is no fallback and no panic.
+
+## Exercises
+
+**1. Two wildcards.**
+In `same_equal`, replace `Same(n, n)` with `Same(_, _)` and run:
+
+```sh
+krs run --package tour-nat-patterns --definition main programs/same-differ.answer
+```
+
+Why is the answer now wrong? Undo the change afterwards.
+
+<details>
+<summary>Answer</summary>
+
+It prints `yes`.
+Each `_` is its own variable, so `same(_, _)` matches `same(s(zero), zero)` with no equality constraint between the arguments.
+
+</details>
+
+**2. A total `same`.**
+Declare `Same` `total` and add three equations: `same(zero, s(_)) = no`, `same(s(_), zero) = no`, and `same(s(m), s(n)) = same(m, n)`.
+Check both programs:
+
+```sh
+krs run --package tour-nat-patterns --definition main programs/same-differ.answer
+krs run --package tour-nat-patterns --definition main programs/same-two.answer
+```
+
+The new third equation and `same_equal` both apply to `same(s(zero), s(zero))`: why do they agree, as the previous lesson requires?
+
+<details>
+<summary>Answer</summary>
+
+`programs/same-differ.answer` now gives `no` and `programs/same-two.answer` still gives `yes`.
+For equal arguments, `same(s(m), s(m))` equals `same(m, m)` by the new equation, and `same(m, m)` equals `yes` by `same_equal`; so both equations lead to `yes`.
+One spelling of the third equation:
+
+```rust
+#[k::equation]
+fn same_succ_succ(
+    k::term![Same(NatSyntax::Succ(m), NatSyntax::Succ(n))]: Term<Answer>,
+) -> Term<Answer> {
+    Same(m, n)
+}
+```
+
+</details>
+
+**3. Substitutions by hand.**
+Write out each equation and substitution that simplify `plus(s(s(zero)), zero)` to a constructor term `t`.
+Check your `t` by putting `same(plus(s(s(zero)), zero), t)`, with your term in place of `t`, in a new file `programs/check-sum.answer`:
+
+```sh
+krs run --package tour-nat-patterns --definition main programs/check-sum.answer
+```
+
+<details>
+<summary>Answer</summary>
+
+```text
+plus(s(s(zero)), zero)  =  s(plus(s(zero), zero))   plus_succ, m = s(zero), n = zero
+                        =  s(s(plus(zero, zero)))    plus_succ, m = zero,    n = zero
+                        =  s(s(zero))                plus_zero, n = zero
+```
+
+With `t = s(s(zero))` the run prints `yes`; any other `t` leaves the `same` application in place.
+
+</details>
+
+## Next
+
+The first part of the tour ends here: a definition declares sorts and constructors, defines functions by equations, and selects terms with patterns.
+The next part treats the `#[k::syntax]` templates as what they are, a grammar for programs.

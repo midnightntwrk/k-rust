@@ -1,0 +1,3 @@
+$ krs parse --package tour-nat --definition main programs/two-arguments.nat
+error[krs::exec::parse]: programs/two-arguments.nat:1:7 does not parse at sort Nat: could not parse program as Nat with module "NAT-SYNTAX": Scanner error: unexpected character sequence ','.
+exit status 1

@@ -2,4 +2,4 @@ $ krs run --package krs-tour-minimal --definition main --depth 0
 <k>
   foo ~> .K
 </k>
-krs run: depth-bound after 0 steps; <k> starts with `foo(.KList)`
+krs run: depth-bound after 0 steps; <k> starts with `foo`

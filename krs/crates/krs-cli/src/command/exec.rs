@@ -409,20 +409,14 @@ fn run(semantics: &mut Semantics, request: &RunRequest) -> Result<CommandOutcome
             print(semantics, &report.state, output, color, &mut stderr)?
         ),
     };
+    let head = k_head(semantics, &report.state, request.output, &mut stderr);
     let _ = write!(
         stderr,
-        "krs run: {} after {} step{}",
+        "krs run: {} after {} step{}{head}",
         status_word(report.halt.as_str(), smt),
         report.steps,
         if report.steps == 1 { "" } else { "s" }
     );
-    match report.state.k_head() {
-        Some(Some(head)) => {
-            let _ = write!(stderr, "; <k> starts with `{head}`");
-        }
-        Some(None) => stderr.push_str("; <k> is empty"),
-        None => {}
-    }
     stderr.push('\n');
     let exit_code = match report.exit_code {
         Some(code) if report.halt.is_complete() => i32::try_from(code & 0xff).unwrap_or(1),
@@ -569,6 +563,38 @@ fn status_word(word: &str, smt: bool) -> String {
         "indeterminate (no SMT solver)".to_owned()
     } else {
         word.to_owned()
+    }
+}
+
+/// The status line's description of the result's `<k>` cell: `; <k> starts with ` and its first
+/// item in backquotes, `; <k> is empty`, or nothing without a `<k>` cell.
+///
+/// The item is printed in the notation the result itself is printed in, so the line names the same term
+/// the reader sees above it: grammar-directed text for `pretty` and for `none` (which prints no
+/// result, and whose reader gets the default notation), KAST for `kast` and `json`, KORE for
+/// `kore`. Under `none` the grammar-directed print's warnings go to `stderr`; otherwise the print
+/// of the whole result has reported them.
+fn k_head(semantics: &Semantics, state: &Term, output: TermOutput, stderr: &mut String) -> String {
+    let head = match output {
+        TermOutput::Pretty | TermOutput::Program | TermOutput::None => {
+            semantics.unparse_k_head(state).map(|head| {
+                head.map(|printed| {
+                    if output == TermOutput::None {
+                        write_warnings(stderr, &printed);
+                    }
+                    printed.text
+                })
+            })
+        }
+        TermOutput::Kast | TermOutput::Json => state.k_head(),
+        TermOutput::Kore => state
+            .k_head_kore()
+            .map(|head| head.map(ToString::to_string)),
+    };
+    match head {
+        Some(Some(item)) => format!("; <k> starts with `{item}`"),
+        Some(None) => "; <k> is empty".to_owned(),
+        None => String::new(),
     }
 }
 

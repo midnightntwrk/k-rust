@@ -1,0 +1,5 @@
+$ krs run --package tour-nat-functions --definition main programs/one-plus-one.nat
+<k>
+  s(s(zero)) ~> .K
+</k>
+krs run: stuck after 0 steps; <k> starts with `s(s(zero))`

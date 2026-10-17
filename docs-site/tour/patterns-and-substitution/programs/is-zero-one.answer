@@ -1,0 +1,1 @@
+isZero(plus(zero, s(zero)))

@@ -25,7 +25,7 @@
     "native-run/parse.json": "23c8b2b783292f338832f5a3c06ded9edf695a12d33f7f5cbc3923cff765befa",
     "native-run/parse.kast": "18a7a86507bbcd724a66eb706b1a48732e4eb0b2054da44ddd578c7a94996b9f",
     "native-run/run.json": "89d63e29db027cbe54c48a816e0fe019b1da1f53d74df35bfc8989543afbd083",
-    "native-run/trace.txt": "4e618cc0263dd035962f937fd68a55d1298212409979b89922b232e38a1f1f4e",
+    "native-run/trace.txt": "730497cd5b7102d9e66a719e57c6cb4ca2168e87b88563ca076380cc491d2210",
     "native-run/final.pretty": "ee775fdeb2e96390a71a89a5e716769f33283ea9523e05bed152316b078eefc0",
     "native-run/parse.program": "b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c"
   },

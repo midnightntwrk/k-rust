@@ -8,6 +8,26 @@ const snippets = [
   { source: '../krs/tests/tour-minimal/src/lib.rs', mirror: 'src/snippets/tour-minimal.rs' },
   { source: '../krs/tests/tour-minimal/Cargo.toml', mirror: 'src/snippets/tour-minimal.Cargo.toml' },
   {
+    source: 'tour/definitions-compile-into-tools/src/lib.rs',
+    mirror: 'src/snippets/tour/definitions-compile-into-tools.rs',
+  },
+  {
+    source: 'tour/definitions-compile-into-tools/Cargo.toml',
+    mirror: 'src/snippets/tour/definitions-compile-into-tools.Cargo.toml',
+  },
+  {
+    source: 'tour/sorts-and-constructors/src/lib.rs',
+    mirror: 'src/snippets/tour/sorts-and-constructors.rs',
+  },
+  {
+    source: 'tour/functions-defined-by-rules/src/lib.rs',
+    mirror: 'src/snippets/tour/functions-defined-by-rules.rs',
+  },
+  {
+    source: 'tour/patterns-and-substitution/src/lib.rs',
+    mirror: 'src/snippets/tour/patterns-and-substitution.rs',
+  },
+  {
     source: '../krs/tests/tour-imp/chapters/01-sorts.rs',
     mirror: 'src/snippets/imp-sorts.rs',
   },

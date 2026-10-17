@@ -1,0 +1,29 @@
+$ krs emit-k --package tour-nat --definition main --output target/krs-k
+emitted descriptor-bundle.json, semantic-ir.json, definition-ir.json, definition.k, symbols.json, sources.json
+$ cat target/krs-k/definition.k
+module KRS-FRAMEWORK
+  syntax KItem
+  syntax KResult
+
+  syntax KItem ::= KResult
+endmodule
+
+module NAT-SYNTAX
+  imports KRS-FRAMEWORK
+
+  syntax Nat
+
+  syntax Nat ::= "s" "(" Nat ")" [symbol(succ), group(krsgroup-ed0b6ff63cf0cba2ebb2a364), format(%1%2%3%4)]
+  syntax Nat ::= "zero" [symbol(zero), group(krsgroup-ed0b6ff63cf0cba2ebb2a364), format(%1)]
+endmodule
+
+module NAT
+  imports KRS-FRAMEWORK
+  imports NAT-SYNTAX
+
+  syntax KItem ::= Nat
+
+  configuration
+    <k> $PGM:Nat </k>
+
+endmodule

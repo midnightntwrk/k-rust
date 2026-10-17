@@ -127,7 +127,7 @@ part = "definitions"
 order = 1
 route = "/tour/definitions-compile-into-tools"
 title = "A definition compiles into tools"
-status = "planned"
+status = "in-review"
 concepts = ["k-definition-and-toolchain"]
 
 [[lesson]]
@@ -136,7 +136,7 @@ part = "definitions"
 order = 2
 route = "/tour/sorts-and-constructors"
 title = "Sorts and constructors"
-status = "planned"
+status = "in-review"
 concepts = ["sorts-and-constructors"]
 
 [[lesson]]
@@ -145,7 +145,7 @@ part = "definitions"
 order = 3
 route = "/tour/functions-defined-by-rules"
 title = "Functions defined by rules"
-status = "planned"
+status = "in-review"
 concepts = ["function-symbols-and-rules"]
 
 [[lesson]]
@@ -154,7 +154,7 @@ part = "definitions"
 order = 4
 route = "/tour/patterns-and-substitution"
 title = "Patterns and substitution"
-status = "planned"
+status = "in-review"
 concepts = ["patterns-variables-substitution"]
 
 [[lesson]]

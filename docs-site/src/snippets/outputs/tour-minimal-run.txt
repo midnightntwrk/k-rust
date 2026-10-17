@@ -2,4 +2,4 @@ $ krs run --package krs-tour-minimal --definition main
 <k>
   bar ~> .K
 </k>
-krs run: stuck after 1 step; <k> starts with `bar(.KList)`
+krs run: stuck after 1 step; <k> starts with `bar`

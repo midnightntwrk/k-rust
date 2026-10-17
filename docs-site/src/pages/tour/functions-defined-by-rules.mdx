@@ -1,0 +1,245 @@
+---
+title: Functions defined by rules
+description: Declare function symbols, define them by unordered equations, and see what total and partial mean in a run.
+---
+
+# Functions defined by rules
+
+Constructors build terms that stand for themselves.
+This lesson adds **function symbols**: symbols whose applications are equal to other terms.
+`plus(s(zero), s(zero))` is a term, and it is equal to the term `s(s(zero))`.
+
+K has two kinds of rule, and this lesson introduces the second.
+The row `red_to_green` of the [first lesson](/tour/definitions-compile-into-tools) is a **transition** rule: one step of a run, which changes the state.
+Rows of a `k::rules!` table are transitions, and a later lesson on transitions writes more of them.
+An **equation** is a rule that states that two terms are equal; it is not a step, and `krs` uses it to simplify terms.
+Equations are how K defines function symbols.
+
+This lesson's package is in the checkout at `docs-site/tour/functions-defined-by-rules`, and its Cargo package name is `tour-nat-functions`.
+Run every command below from that directory.
+
+## A function symbol and its equations
+
+The package repeats the sort `Nat` and its constructors from the [previous lesson](/tour/sorts-and-constructors), and adds three functions.
+The first is addition:
+
+```rust [docs-site/tour/functions-defined-by-rules/src/lib.rs]
+// [!include ~/snippets/tour/functions-defined-by-rules.rs:plus]
+```
+
+The struct declares the function symbol `plus` and its production, the grammar line that writes it as `plus(m, n)`.
+Constructors and function symbols are both symbols with productions; `#[k::function(...)]` marks this one as a function.
+`sort = Nat` says that an application of `plus` is a term of sort `Nat`, and `total` is explained below.
+The fields are its arguments.
+
+KRS requires the fields of a function struct, and the sorts in an equation, to be spelled `Term<Nat>`; a constructor field writes the same sort as plain `Nat`.
+Both name the sort `Nat`.
+
+Each `#[k::equation]` fn is one equation.
+The parameter, inside `k::term![...]`, is the left-hand side, and the body is the right-hand side.
+`: Term<Nat>` after the left-hand side and `-> Term<Nat>` give the sorts of the two sides; the fn has no argument in the Rust sense, and nothing passes it a value.
+`Plus(m, n)` and `NatSyntax::Succ(m)` give a struct or variant its fields in declaration order, which ordinary Rust allows only for tuple-like types; KRS accepts it in equations.
+
+Read the two equations as:
+
+```text
+plus(zero, n)    = n
+plus(s(m), n)    = s(plus(m, n))
+```
+
+`m` and `n` are **variables**: they stand for any term of sort `Nat`.
+A left-hand side is a **pattern**, a term with variables in it; the [next lesson](/tour/patterns-and-substitution) explains how a pattern matches a term and how its variables carry over to the right-hand side.
+
+The fn is never called.
+KRS reads its signature and body as the equation and nothing else; the fn name is only a name for that equation.
+
+## Running a function
+
+Parsing a program does not evaluate it.
+`programs/one-plus-one.nat` contains `plus(s(zero), s(zero))`, and its parse is an application of the symbol `plus`:
+
+```console [recorded with krs]
+// [!include ~/snippets/outputs/functions-defined-by-rules-parse.txt]
+```
+
+Running the same program shows the configuration with the application replaced by the term it equals:
+
+```console [recorded with krs]
+// [!include ~/snippets/outputs/functions-defined-by-rules-run.txt]
+```
+
+Worked by hand, the two equations give:
+
+```text
+plus(s(zero), s(zero))  =  s(plus(zero, s(zero)))   by plus_succ
+                        =  s(s(zero))               by plus_zero
+```
+
+The run still took 0 steps, because this definition has no transitions.
+`plus(s(zero), s(zero))` and `s(s(zero))` are two names for the same number, and replacing one by the other is simplification, not a step.
+
+## Equations are unordered
+
+The equations of a function are not tried in order like the arms of a `match`.
+Each one is a separate statement that two terms are equal, and the order in which they are written means nothing.
+The generated K below lists the equations in the order of their generated labels: `times_zero`, the last function in the source, comes first, and the equation of `pred` sits between the two equations of `plus`.
+
+So two equations may apply to the same term.
+K then requires them to agree: if they gave different results, the definition would state that two different terms are equal.
+For example, adding the equation `plus(m, zero) = zero` would make `plus(s(zero), zero)` equal to both `s(zero)` and `zero`, so the definition would claim `s(zero) = zero`, which freeness rules out.
+KRS does not check equations for such overlaps, so keeping them consistent is the author's job.
+When a function needs one equation to win over another, K has explicit priorities, which a later lesson on guards, `owise`, and priority introduces.
+
+## Total and partial functions
+
+The second function is the predecessor:
+
+```rust [docs-site/tour/functions-defined-by-rules/src/lib.rs]
+// [!include ~/snippets/tour/functions-defined-by-rules.rs:pred]
+```
+
+It has one equation, `pred(s(n)) = n`, and none for `zero`, because zero has no predecessor among the naturals.
+It is declared **partial**: some of its applications may have no value.
+An application without a value is **undefined**.
+
+`programs/pred-zero.nat` contains `pred(zero)`, and running it prints:
+
+```console [recorded with krs]
+// [!include ~/snippets/outputs/functions-defined-by-rules-run-pred-zero.txt]
+```
+
+No equation applies, so `krs run` leaves the application in place; `krs` prints applications of function symbols with spaces around the parentheses, which means nothing.
+The definition gives no value for `pred(zero)`.
+It does not say that `pred(zero)` is undefined either: `partial` only permits that, and the equations leave `pred(zero)` unconstrained.
+
+The difference shows when another term's value depends on it.
+The third function is multiplication:
+
+```rust [docs-site/tour/functions-defined-by-rules/src/lib.rs]
+// [!include ~/snippets/tour/functions-defined-by-rules.rs:times]
+```
+
+`_` stands for any term that the equation does not need; the next lesson explains it.
+So `times(zero, pred(zero))` equals `zero` by the first equation, but only if `pred(zero)` has a value: an application whose argument has no value has no value itself.
+`programs/zero-times-pred-zero.nat` contains `times(zero, pred(zero))`, and running it prints:
+
+```console [recorded with krs]
+// [!include ~/snippets/outputs/functions-defined-by-rules-run-times-pred-zero.txt]
+```
+
+`#Ceil ( pred ( zero ) )` reads "provided that `pred(zero)` is defined", and `#And` joins that condition to the configuration.
+`krs` simplified the term to `zero` and kept the definedness of `pred(zero)` as an open condition, because the definition does not decide it.
+
+**Total**, as on `plus` and `times`, is a promise that every application has a value.
+KRS does not prove the promise, but it uses it: with `pred` declared total, the same run prints only the configuration with `zero`, with no condition, as the second exercise shows.
+A total `pred` without an equation for `zero` would mean that `pred(zero)` is some number the definition does not name.
+
+## The generated K
+
+`krs emit-k` shows the function productions and the equations:
+
+```console [recorded with krs]
+// [!include ~/snippets/outputs/functions-defined-by-rules-emit-k.txt]
+```
+
+A function symbol is a production with the `function` attribute; `plus` and `times` also have `total`, and `pred` does not.
+Each equation is a `rule` sentence.
+K writes equations and transitions with the same keyword: a rule whose left-hand side is a function application is an equation.
+K spells a variable with a capital letter, as in `N`, and may follow it with its sort, as in `N:Nat`; the sort is optional in K, and KRS always writes it.
+The `label(...)` values are generated identities, and the doc comments become K comments.
+
+## Traps for Rust readers
+
+- `fn plus_succ(...) { ... }` looks like executable Rust. It is one equation, it is never called, and its body is a term, not a computation.
+- `pub struct Plus` declares a function symbol, not a data type, and no Rust value of type `Plus` is ever built.
+- Several `#[k::equation]` fns look like ordered `match` arms or overloads. They are unordered equations, and KRS does not check that overlapping ones agree.
+- `partial` suggests `Option` or a panic. An application without a value is not a value that signals an error; there is nothing to inspect or catch, and `krs` keeps its definedness as a condition.
+- The `k::rules!` row of the first lesson named `Red()` without an enum path and without `k::term!`, because its table carries a `use LightSyntax::*;` line. Equations keep the enum path, `NatSyntax::Succ(m)`.
+
+## Exercises
+
+**1. Double.**
+Add a total function `double` with the equations `double(zero) = zero` and `double(s(n)) = s(s(double(n)))`, written like `plus`.
+Put `double(s(s(zero)))` in a new file `programs/double-two.nat` and run it:
+
+```sh
+krs run --package tour-nat-functions --definition main programs/double-two.nat
+```
+
+<details>
+<summary>Answer</summary>
+
+The `k` cell holds `s(s(s(s(zero))))`, four.
+One possible spelling of the second equation:
+
+```rust
+#[k::equation]
+fn double_succ(k::term![Double(NatSyntax::Succ(n))]: Term<Nat>) -> Term<Nat> {
+    NatSyntax::Succ(NatSyntax::Succ(Double(n)))
+}
+```
+
+</details>
+
+**2. A total predecessor.**
+Change `partial` to `total` on `Pred` and run the multiplication program again:
+
+```sh
+krs run --package tour-nat-functions --definition main programs/zero-times-pred-zero.nat
+```
+
+What disappears from the output, and why? Change `Pred` back to `partial` afterwards.
+
+<details>
+<summary>Answer</summary>
+
+The `#Ceil ( pred ( zero ) )` condition and the `#And` disappear; the `k` cell holds `zero`.
+A total `pred` promises that `pred(zero)` has a value, so `times(zero, pred(zero))` equals `zero` with nothing left to check.
+Running `programs/pred-zero.nat` still prints `pred ( zero )` in both versions: no equation names the value.
+
+</details>
+
+**3. Predict before you run.**
+Predict what `krs run` prints for `pred(plus(zero, zero))`, then put it in a new file `programs/pred-of-sum.nat` and check:
+
+```sh
+krs run --package tour-nat-functions --definition main programs/pred-of-sum.nat
+```
+
+<details>
+<summary>Answer</summary>
+
+`pred ( zero )`.
+`plus(zero, zero)` equals `zero`, so the term simplifies to `pred(zero)`, and no equation applies to that.
+
+</details>
+
+**4. A wrong equation that passes.**
+Add this equation, put `plus(s(zero), zero)` in a new file `programs/wrong.nat`, then check the definition and run the program:
+
+```rust
+#[k::equation]
+fn plus_wrong(k::term![Plus(m, NatSyntax::Zero())]: Term<Nat>) -> Term<Nat> {
+    NatSyntax::Zero()
+}
+```
+
+```sh
+krs check --package tour-nat-functions --definition main
+krs run --package tour-nat-functions --definition main programs/wrong.nat
+```
+
+Why is the definition wrong although both commands succeed? Remove the equation afterwards.
+
+<details>
+<summary>Answer</summary>
+
+`krs check` passes and `krs run` prints one of the two possible answers.
+The definition now says that `plus(s(zero), zero)` equals both `s(zero)`, by `plus_succ` and `plus_zero`, and `zero`, by `plus_wrong`, so it claims `s(zero) = zero`, which freeness rules out.
+KRS does not check equations for overlap, so no tool reports it.
+
+</details>
+
+## Next
+
+[Patterns and substitution](/tour/patterns-and-substitution) explains how a left-hand side selects the terms an equation applies to, and how its variables carry into the result.

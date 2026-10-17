@@ -105,8 +105,9 @@ fn tour_minimal_runs_one_step_with_an_authored_trace_and_stays_put_at_depth_zero
             .contains("foo_to_bar"),
         "trace line {line} is not the foo_to_bar rule"
     );
+    // The status line names the head of `<k>` in the notation of the printed result: KAST for JSON.
     assert!(
-        stderr(&run).contains("krs run: stuck after 1 step; <k> starts with `bar"),
+        stderr(&run).ends_with("krs run: stuck after 1 step; <k> starts with `bar(.KList)`\n"),
         "{}",
         stderr(&run)
     );
@@ -125,6 +126,11 @@ fn tour_minimal_runs_one_step_with_an_authored_trace_and_stays_put_at_depth_zero
         String::from_utf8_lossy(&human.stdout),
         "<k>\n  bar ~> .K\n</k>\n"
     );
+    assert!(
+        stderr(&human).ends_with("krs run: stuck after 1 step; <k> starts with `bar`\n"),
+        "{}",
+        stderr(&human)
+    );
 
     let depth_zero = krs(
         target.path(),
@@ -136,7 +142,11 @@ fn tour_minimal_runs_one_step_with_an_authored_trace_and_stays_put_at_depth_zero
     let report = json(&depth_zero);
     assert_eq!(report["run"]["halt"], "depth-bound");
     assert_eq!(report["run"]["steps"], 0);
-    assert!(stderr(&depth_zero).contains("<k> starts with `foo"));
+    assert!(
+        stderr(&depth_zero).ends_with("<k> starts with `foo(.KList)`\n"),
+        "{}",
+        stderr(&depth_zero)
+    );
 
     let stray = krs(target.path(), &manifest, "run", &["program.txt"]);
     assert_eq!(stray.status.code(), Some(2));
@@ -155,6 +165,87 @@ fn tour_minimal_runs_one_step_with_an_authored_trace_and_stays_put_at_depth_zero
     let no_claims = krs(target.path(), &manifest, "prove", &[]);
     assert_eq!(no_claims.status.code(), Some(1));
     assert!(stderr(&no_claims).contains("this definition has no claims"));
+}
+
+/// One step from `foo` leaves a head with arguments, `wrap bar by 3`, on `<k>`.
+const WRAP: &str = r#"
+use krs::KResult;
+use krs::builtin::{Int, KSequence};
+
+krs::sorts! {
+    ObjectTerm: KResult;
+}
+
+#[krs::constructors(sort = ObjectTerm, result = KResult)]
+#[krs::precedence((Foo, Bar, Wrap))]
+pub enum Object {
+    #[krs::syntax("foo")]
+    Foo(),
+    #[krs::syntax("bar")]
+    Bar(),
+    #[krs::syntax("wrap {value} by {amount}")]
+    Wrap { value: ObjectTerm, amount: Int },
+}
+
+#[krs::configuration]
+pub struct Machine {
+    #[krs::cell]
+    pub k: KSequence,
+}
+
+impl Machine {
+    #[krs::init]
+    pub fn init() -> Self {
+        Self {
+            k: krs::k![Object::Foo()],
+        }
+    }
+}
+
+krs::rules! {
+    for ObjectTerm;
+    use Object::*;
+
+    foo_to_wrap: Foo() => Wrap { value: Bar(), amount: 3 };
+}
+"#;
+
+#[test]
+fn the_status_line_prints_the_head_of_k_in_the_notation_of_the_result() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = materialize(temporary.path(), WRAP);
+
+    let pretty = krs(target.path(), &manifest, "run", &[]);
+    assert_eq!(pretty.status.code(), Some(0), "{}", stderr(&pretty));
+    assert_eq!(
+        String::from_utf8_lossy(&pretty.stdout),
+        "<k>\n  wrap bar by 3 ~> .K\n</k>\n"
+    );
+    assert_eq!(
+        stderr(&pretty),
+        "krs run: stuck after 1 step; <k> starts with `wrap bar by 3`\n"
+    );
+
+    // Without a printed result the line keeps the default, grammar-directed notation.
+    let none = krs(target.path(), &manifest, "run", &["--output", "none"]);
+    assert_eq!(none.status.code(), Some(0), "{}", stderr(&none));
+    assert_eq!(
+        stderr(&none),
+        "krs run: stuck after 1 step; <k> starts with `wrap bar by 3`\n"
+    );
+
+    let kast = krs(target.path(), &manifest, "run", &["--output", "kast"]);
+    assert_eq!(kast.status.code(), Some(0), "{}", stderr(&kast));
+    assert!(
+        String::from_utf8_lossy(&kast.stdout).contains("wrap(bar(.KList),#token(\"3\",\"Int\"))"),
+        "{}",
+        String::from_utf8_lossy(&kast.stdout)
+    );
+    assert_eq!(
+        stderr(&kast),
+        "krs run: stuck after 1 step; <k> starts with `wrap(bar(.KList),#token(\"3\",\"Int\"))`\n"
+    );
 }
 
 #[test]

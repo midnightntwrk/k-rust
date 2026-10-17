@@ -1,0 +1,10 @@
+# One package per tour lesson; each is the complete definition its lesson shows.
+# Packages spell out their fields instead of inheriting them, so a reader can copy one on its own.
+[workspace]
+resolver = "3"
+members = [
+  "definitions-compile-into-tools",
+  "sorts-and-constructors",
+  "functions-defined-by-rules",
+  "patterns-and-substitution",
+]

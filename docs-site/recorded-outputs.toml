@@ -23,3 +23,162 @@ fixture = "../krs/tests/tour-minimal"
 package = "krs-tour-minimal"
 definition = "main"
 args = ["run", "--depth", "0"]
+
+# A definition compiles into tools (/tour/definitions-compile-into-tools).
+
+[[output]]
+id = "definitions-compile-into-tools-check"
+fixture = "tour/definitions-compile-into-tools"
+package = "tour-light"
+definition = "main"
+args = ["check"]
+
+[[output]]
+id = "definitions-compile-into-tools-run"
+fixture = "tour/definitions-compile-into-tools"
+package = "tour-light"
+definition = "main"
+args = ["run", "programs/red.light"]
+
+[[output]]
+id = "definitions-compile-into-tools-trace"
+fixture = "tour/definitions-compile-into-tools"
+package = "tour-light"
+definition = "main"
+args = ["run", "--trace", "programs/red.light"]
+
+[[output]]
+id = "definitions-compile-into-tools-run-green"
+fixture = "tour/definitions-compile-into-tools"
+package = "tour-light"
+definition = "main"
+args = ["run", "programs/green.light"]
+
+[[output]]
+id = "definitions-compile-into-tools-search"
+fixture = "tour/definitions-compile-into-tools"
+package = "tour-light"
+definition = "main"
+args = ["search", "programs/red.light"]
+
+[[output]]
+id = "definitions-compile-into-tools-parse-red"
+fixture = "tour/definitions-compile-into-tools"
+package = "tour-light"
+definition = "main"
+args = ["parse", "programs/red.light"]
+
+[[output]]
+id = "definitions-compile-into-tools-parse-blue"
+fixture = "tour/definitions-compile-into-tools"
+package = "tour-light"
+definition = "main"
+args = ["parse", "programs/blue.light"]
+
+[[output]]
+id = "definitions-compile-into-tools-emit-k"
+fixture = "tour/definitions-compile-into-tools"
+package = "tour-light"
+definition = "main"
+args = ["emit-k", "--output", "target/krs-k"]
+show = "target/krs-k/definition.k"
+
+# Sorts and constructors (/tour/sorts-and-constructors).
+
+[[output]]
+id = "sorts-and-constructors-parse"
+fixture = "tour/sorts-and-constructors"
+package = "tour-nat"
+definition = "main"
+args = ["parse", "programs/two.nat"]
+
+[[output]]
+id = "sorts-and-constructors-parse-error"
+fixture = "tour/sorts-and-constructors"
+package = "tour-nat"
+definition = "main"
+args = ["parse", "programs/two-arguments.nat"]
+
+[[output]]
+id = "sorts-and-constructors-run"
+fixture = "tour/sorts-and-constructors"
+package = "tour-nat"
+definition = "main"
+args = ["run", "programs/two.nat"]
+
+[[output]]
+id = "sorts-and-constructors-emit-k"
+fixture = "tour/sorts-and-constructors"
+package = "tour-nat"
+definition = "main"
+args = ["emit-k", "--output", "target/krs-k"]
+show = "target/krs-k/definition.k"
+
+# Functions defined by rules (/tour/functions-defined-by-rules).
+
+[[output]]
+id = "functions-defined-by-rules-parse"
+fixture = "tour/functions-defined-by-rules"
+package = "tour-nat-functions"
+definition = "main"
+args = ["parse", "programs/one-plus-one.nat"]
+
+[[output]]
+id = "functions-defined-by-rules-run"
+fixture = "tour/functions-defined-by-rules"
+package = "tour-nat-functions"
+definition = "main"
+args = ["run", "programs/one-plus-one.nat"]
+
+[[output]]
+id = "functions-defined-by-rules-run-pred-zero"
+fixture = "tour/functions-defined-by-rules"
+package = "tour-nat-functions"
+definition = "main"
+args = ["run", "programs/pred-zero.nat"]
+
+[[output]]
+id = "functions-defined-by-rules-emit-k"
+fixture = "tour/functions-defined-by-rules"
+package = "tour-nat-functions"
+definition = "main"
+args = ["emit-k", "--output", "target/krs-k"]
+show = "target/krs-k/definition.k"
+
+# Patterns and substitution (/tour/patterns-and-substitution).
+
+[[output]]
+id = "patterns-and-substitution-run-is-zero"
+fixture = "tour/patterns-and-substitution"
+package = "tour-nat-patterns"
+definition = "main"
+args = ["run", "programs/is-zero-one.answer"]
+
+[[output]]
+id = "patterns-and-substitution-run-same"
+fixture = "tour/patterns-and-substitution"
+package = "tour-nat-patterns"
+definition = "main"
+args = ["run", "programs/same-two.answer"]
+
+[[output]]
+id = "patterns-and-substitution-run-differ"
+fixture = "tour/patterns-and-substitution"
+package = "tour-nat-patterns"
+definition = "main"
+args = ["run", "programs/same-differ.answer"]
+
+[[output]]
+id = "patterns-and-substitution-emit-k"
+fixture = "tour/patterns-and-substitution"
+package = "tour-nat-patterns"
+definition = "main"
+args = ["emit-k", "--output", "target/krs-k"]
+show = "target/krs-k/definition.k"
+
+[[output]]
+id = "functions-defined-by-rules-run-times-pred-zero"
+fixture = "tour/functions-defined-by-rules"
+package = "tour-nat-functions"
+definition = "main"
+args = ["run", "programs/zero-times-pred-zero.nat"]

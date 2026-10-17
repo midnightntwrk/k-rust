@@ -22,3 +22,9 @@ test('gloss honors reduced motion', () => {
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/)
   assert.match(css, /transition: none/)
 })
+
+test('gloss uses tokens Vocs 2 defines', () => {
+  // Vocs 1 spelled its tokens `--vocs-color_text`; Vocs 2 does not define them, and an
+  // undefined background leaves the tooltip transparent.
+  assert.doesNotMatch(css, /--vocs-[A-Za-z]+_/)
+})

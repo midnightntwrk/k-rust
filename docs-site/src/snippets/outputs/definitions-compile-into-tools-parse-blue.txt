@@ -1,0 +1,3 @@
+$ krs parse --package tour-light --definition main programs/blue.light
+error[krs::exec::parse]: programs/blue.light:1:1 does not parse at sort Light: could not parse program as Light with module "LIGHT-SYNTAX": Scanner error: unexpected character sequence 'b'.
+exit status 1

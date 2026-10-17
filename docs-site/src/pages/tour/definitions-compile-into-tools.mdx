@@ -1,0 +1,260 @@
+---
+title: A definition compiles into tools
+description: Write a one-rule K definition in KRS, then parse, run, and search with it, and read the K it becomes.
+---
+
+# A definition compiles into tools
+
+In K you do not write an interpreter for your language.
+You write a **K definition**: a description of the language that says what its programs look like, what state a running program has, and how that state may change.
+K calls those three parts the **syntax**, the **configuration**, and the **rules**.
+
+From that one source, K derives the tools you would otherwise write by hand:
+
+| Tool | `krs` command | K Framework command | What it does |
+| --- | --- | --- | --- |
+| parser | `krs parse` | `kast` | reads program text into a term of the language |
+| interpreter | `krs run` | `krun` | rewrites the starting state, one rule at a time, until no rule applies |
+| search | `krs search` | `krun --search` | follows every way the rules can rewrite the state and returns all final states |
+| prover | `krs prove` | `kprove` | proves claims about every run from a family of states |
+
+A **term** is a tree of symbols, such as `red` here or `s(s(zero))` in the next lesson; [Sorts and constructors](/tour/sorts-and-constructors) develops the idea.
+None of these tools knows anything about your language except what the definition says.
+Change the definition and every tool changes with it.
+
+KRS lets you write the definition as a Rust package.
+`krs` collects the definition from the package, translates it into K that you can read, and runs the tools above with [k-rust](/k-rust), the Rust implementation of K in the same repository.
+This lesson's package is `docs-site/tour/definitions-compile-into-tools` in the k-rust checkout, and its Cargo package name is `tour-light`.
+After installing `krs`, run every command from that directory.
+
+## Get krs
+
+`krs` is not published on crates.io; you build it from a checkout of the k-rust repository.
+You need Rust 1.99 or newer and the Z3 4.12.5 shared library, which `krs` links dynamically as `libz3.so.4.12`.
+From the root of the checkout:
+
+```sh
+export KRS_Z3_LIB=/path/to/z3-4.12.5/lib   # contains libz3.so; the repository's scripts read this name too
+export LIBRARY_PATH=$KRS_Z3_LIB${LIBRARY_PATH:+:$LIBRARY_PATH}           # for the linker, while Cargo builds krs
+export LD_LIBRARY_PATH=$KRS_Z3_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}  # for the loader, each time krs starts
+cargo install --locked --path krs/crates/krs-cli
+krs --help
+```
+
+On Linux, without `LD_LIBRARY_PATH` set, `krs` exits at once with `error while loading shared libraries: libz3.so.4.12`.
+The installed `krs` runs Cargo to build each definition against the checkout's KRS crates, so keep the checkout where it is and Cargo on your `PATH`, and install again after you update the checkout.
+
+## The definition
+
+A KRS definition is an ordinary Cargo package:
+
+```toml [docs-site/tour/definitions-compile-into-tools/Cargo.toml]
+// [!include ~/snippets/tour/definitions-compile-into-tools.Cargo.toml]
+```
+
+The dependency line gives the KRS authoring crate, `krs`, the local name `k`.
+That rename is plain Cargo: `k` is not K itself, only the name under which the source uses KRS's macros, such as `k::sorts!` and `k::rules!`.
+The path points into the checkout; a copy of the package elsewhere points it at `krs/crates/krs` in your checkout.
+
+`[package.metadata.krs]` is what makes the package a definition.
+`k-namespace = "LIGHT"` is the name the definition has in K, and the empty `definitions.main` table declares one definition named `main`, which every command selects with `--definition main`.
+[A definition is a Cargo package](/start/definition-package) explains these keys in detail.
+
+The definition itself describes a light that shows red or green, and one way for it to change:
+
+```rust [docs-site/tour/definitions-compile-into-tools/src/lib.rs]
+// [!include ~/snippets/tour/definitions-compile-into-tools.rs:definition]
+```
+
+Each item is one of K's three parts, and each gets its own lesson later; for now, a sentence or two each.
+
+- `k::sorts!` declares `Light`, a **sort**: the name of a kind of term, the role a type plays in Rust.
+  `Light: KItem` lets a light be an item of the computation that K runs.
+  [Sorts and constructors](/tour/sorts-and-constructors) teaches sorts.
+- `LightSyntax` is the **syntax**.
+  It is a **constructor family**: an enum whose variants are the constructors of one sort, here `Red()` and `Green()` of `Light`, and `#[k::syntax("red")]` is the text that writes `Red()` in a program.
+  K calls each such line a **production**: one line of the grammar, which declares a symbol and the text that writes it.
+  Constructors are one kind of symbol ([Sorts and constructors](/tour/sorts-and-constructors)); functions are another ([Functions defined by rules](/tour/functions-defined-by-rules)).
+  KRS requires a family written this way to name a `result` sort (the tour writes `KResult`) and to list every constructor in a `#[k::precedence]` chain; later lessons on evaluation order and on precedence explain both, and here they change nothing.
+- `Machine` is the **configuration**: the state of a running program, made of named **cells**.
+  It has one cell, `k`, which holds the **computation**, the work still to do; its type `KSequence` makes it a sequence of computation items.
+  `#[k::init]` says how a run starts: `pgm` is the program you pass on the command line, read as a `Light`, and `k::k![pgm]` builds the sequence that holds it as its one item.
+  Later lessons on the `k` cell and on configurations explain both.
+- `k::rules!` is a table of **rewrite rules**.
+  The row `red_to_green: Red() => Green();` says that when the computation starts with `red`, it may become `green`; `red_to_green` is the rule's name.
+  `for Light` says the rows rewrite terms of sort `Light`: each row's left side is matched against the front of the computation in the `k` cell.
+  This is a **transition** rule: applying it is one step of a run, the step that `--trace` counts below; [Functions defined by rules](/tour/functions-defined-by-rules) contrasts equations, which are not steps.
+  [Patterns and substitution](/tour/patterns-and-substitution) explains how a left side matches.
+
+## Check the definition
+
+`krs check` builds the package with Cargo, collects the definition from it, and checks it as a K definition; it runs no program:
+
+```console [recorded with krs]
+// [!include ~/snippets/outputs/definitions-compile-into-tools-check.txt]
+```
+
+The counts are KRS's internal bookkeeping, not the three K modules shown at the end of this lesson; nothing in the tour depends on them.
+
+`cargo build` also succeeds on this package, and that is where the Rust resemblance ends.
+It produces a library, `libtour_light.rlib`, with nothing in it to run: rustc checks names, paths, and the shapes of the macro inputs, as it would for any crate, and that is all.
+`Red()` is not a Rust value that some code computes with; it stands for the term `red` of the language.
+Nothing ever calls `red_to_green`: the row is a sentence of the definition, which `krs` reads.
+
+## Run a program
+
+The file `programs/red.light` holds the one-word program `red`.
+`krs run` parses it, places it in the `k` cell, and applies rules until none applies:
+
+```console [recorded with krs]
+// [!include ~/snippets/outputs/definitions-compile-into-tools-run.txt]
+```
+
+`krs run` printed the final configuration: the `k` cell holds `green ~> .K`.
+`~>` separates the items of a computation and `.K` is the empty computation, so the computation is just `green`; a later lesson on the `k` cell reads this notation in full.
+
+The last line says the run is **stuck**, and the command still exits with status 0.
+For a Rust reader stuck sounds like a failure, but in K it is how a run ends: K has no built-in notion of a finished program, and a run stops when no rule applies to the current state.
+No rule rewrites `green`, so the run stops there, and `green` is the answer.
+Whether the state a run stops in is the answer you meant is a property of your definition; a later lesson separates a finished program from one stuck on something no rule handles.
+
+A program that starts as `green` is stuck before the first step:
+
+```console [recorded with krs]
+// [!include ~/snippets/outputs/definitions-compile-into-tools-run-green.txt]
+```
+
+## Watch the steps
+
+`--trace` prints each step as it happens:
+
+```console [recorded with krs]
+// [!include ~/snippets/outputs/definitions-compile-into-tools-trace.txt]
+```
+
+The step line gives the step number, the rule that applied, and where you wrote that rule.
+`LIGHT.red-to-green` is the rule's name in K: `red_to_green` spelled the K way, inside the namespace `LIGHT`.
+`--depth N` stops a run after at most N steps, so `--depth 0` shows the starting state.
+
+## Search every path
+
+`krs run` follows a single path: at each step it picks one rule that applies.
+`krs search` follows every path and returns every state where a path ends:
+
+```console [recorded with krs]
+// [!include ~/snippets/outputs/definitions-compile-into-tools-search.txt]
+```
+
+This definition has one rule, so there is one path, and search finds the same `green` that run found.
+In general a K definition lets a state rewrite in more than one way, because its rules form a relation, not an ordered list of cases, and K does not make that relation deterministic.
+KRS goes further than K here: `krs check` rejects two transitions that can apply to the same state (`krs::analysis::overlapping-rule-heads`) unless you declare them as one nondeterministic group or give them an order.
+A later lesson on nondeterminism and search explains why, and gives search more to explore.
+
+The fourth tool, `krs prove`, proves **claims**: statements that every run from some family of states reaches a state of a given shape.
+This definition has no claims yet, so `krs prove` stops with the error `this definition has no claims` and exit status 1; a later lesson writes claims.
+
+## Parse a program
+
+The parser comes from the syntax.
+`krs parse` runs only the parser and prints the term it read from `programs/red.light`:
+
+```console [recorded with krs]
+// [!include ~/snippets/outputs/definitions-compile-into-tools-parse-red.txt]
+```
+
+The output is K's own notation for terms: the symbol `red` applied to no arguments, `.KList` being the empty argument list.
+The two `#[k::syntax]` strings are the whole grammar, so `krs parse` rejects the file `programs/blue.light`, which holds `blue`:
+
+```console [recorded with krs]
+// [!include ~/snippets/outputs/definitions-compile-into-tools-parse-blue.txt]
+```
+
+`krs run` parses its program with the same parser before the first step and stops with the same error on `blue`.
+
+## Read the K it becomes
+
+`krs emit-k` writes the K definition that every tool above works from, together with files that map it back to your source; here it writes them to `target/krs-k`, and `cat` shows the K:
+
+```console [recorded with krs]
+// [!include ~/snippets/outputs/definitions-compile-into-tools-emit-k.txt]
+```
+
+Read it from the bottom up.
+Your one rule:
+
+```rust [docs-site/tour/definitions-compile-into-tools/src/lib.rs]
+// [!include ~/snippets/tour/definitions-compile-into-tools.rs:rule]
+```
+
+became this K rule:
+
+```text
+rule [red-to-green]:
+  <k> red => green ... </k>
+```
+
+`<k> … </k>` is the `k` cell, `red => green` is the part of it that changes, and `...` stands for the rest of the cell, which the rule leaves as it is.
+Every row of a `k::rules!` table becomes a K `rule` like this one, labelled with the row's name.
+
+The module `LIGHT` holds the rest of the semantics: `syntax KItem ::= Light` is your `Light: KItem`, and `configuration <k> $PGM:Light </k>` is your `Machine` and its `init`, where `$PGM` is K's name for the program that `pgm` receives.
+The module `LIGHT-SYNTAX` holds the productions, the part of the definition that programs may use.
+In the brackets after each production, `symbol(red)` is the symbol's identity, the name K knows it by; `group(…)` and `format(…)` are details for K's parser and printer that later grammar lessons explain.
+
+The module `KRS-FRAMEWORK` is not something you wrote.
+KRS adds it to every definition whose `k::sorts!` names `KItem` or `KResult`, and it is the same each time: it declares those two sorts and that every `KResult` is a `KItem`.
+
+The emitted K is for reading and auditing, not a second source to edit: change the package and emit again.
+The [daily workflow](/reference/workflow) reference covers the files `emit-k` writes, `krs fmt`, and `krs build`.
+
+## Traps for Rust readers
+
+- The package compiles as Rust, but no Rust in it runs; `krs` reads it as a definition.
+- `k` is the KRS crate under a Cargo rename, not K.
+- `Red()` and `Green()` denote terms of your language, not Rust values.
+- Write constructors with their parentheses in rules.
+  A bare `Red` on a row's left side is a variable that matches any light, so `krs check` accepts `red_to_green: Red => Green();` and even `green` then rewrites to `green` forever; [Patterns and substitution](/tour/patterns-and-substitution) explains variables.
+- A rule is a sentence of the definition, not a function and not a `match` arm; rules have no order.
+- A run that ends stuck has not failed; stuck is how a run stops.
+
+## Exercises
+
+**1. Add a yellow light.**
+In `src/lib.rs`, add a `Yellow()` constructor with `#[k::syntax("yellow")]`, add it to the precedence chain as `(Red, Yellow, Green)`, and add the row `green_to_yellow: Green() => Yellow();`.
+Before you run anything, predict the final light and the number of steps for `programs/red.light`, then check:
+
+```sh
+krs run --trace --package tour-light --definition main programs/red.light
+```
+
+Also try `echo yellow | krs parse --package tour-light --definition main -` before and after the edit.
+
+<details>
+<summary>Answer</summary>
+
+Two steps, `red-to-green` and then `green-to-yellow`, and the run ends stuck at `yellow`.
+Before the edit the parser rejects `yellow`; after it, the same command prints `yellow(.KList)`, because the new `#[k::syntax]` string extended the grammar.
+
+</details>
+
+**2. Make it cycle.**
+Add the row `yellow_to_red: Yellow() => Red();`.
+Now every light has a rule, so a run never gets stuck, and `krs run` without a bound never returns (stop it with Ctrl-C): K does not require a definition to terminate.
+Predict the light after 10 steps, then check:
+
+```sh
+krs run --depth 10 --package tour-light --definition main programs/red.light
+```
+
+<details>
+<summary>Answer</summary>
+
+`green`.
+The cycle red, green, yellow has length 3, and 10 steps are three full cycles and one more step.
+The last line reports that the run stopped at the depth bound after 10 steps, not that it got stuck.
+
+</details>
+
+## Next
+
+The light has two constructors and no structure.
+[Sorts and constructors](/tour/sorts-and-constructors) gives terms arguments, so that a term can be a tree.

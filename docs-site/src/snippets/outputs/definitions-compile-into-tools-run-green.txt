@@ -1,0 +1,5 @@
+$ krs run --package tour-light --definition main programs/green.light
+<k>
+  green ~> .K
+</k>
+krs run: stuck after 0 steps; <k> starts with `green`

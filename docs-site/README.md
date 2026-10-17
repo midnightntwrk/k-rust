@@ -9,7 +9,9 @@ Waku is pinned to `1.0.0-beta.6` because Vocs 2.8.5 uses that router event contr
 It verifies that the displayed `tour-minimal` mirror is byte-for-byte identical to its authoritative fixture and that the fixture passes `cargo check --locked`.
 `plan/tour.toml` orders the tour as Parts of lessons that teach the 44 K concepts, with an IMP milestone and a KRS side track; until a lesson is accepted, the 17 pages that predate that order stay in the navigation and remain the destinations of its topics.
 Its hover/focus glosses and canonical destinations are generated from the ledger rather than copied into a second glossary.
-`bun run check` validates the curriculum, reviewed public surfaces, complete page graph and anchors, generated compatibility and port summaries, terminology, gloss accessibility contracts, synced snippets, Rust-Twoslash failure controls, and the authoritative Cargo/KRS fixtures.
+`bun run check` validates the curriculum, reviewed public surfaces, complete page graph and anchors, generated port summaries, terminology, gloss accessibility contracts, synced snippets, Rust-Twoslash failure controls, and the authoritative Cargo/KRS fixtures.
+Each tour lesson's definition is one package of the Cargo workspace in `tour/`, which `bun run check` builds with `cargo check --locked`.
+The packages spell out their Cargo fields instead of inheriting them from the workspace, because `krs` cannot collect a package with inherited fields, and so that a reader can copy one package on its own.
 Pages show `krs` command outputs recorded under `src/snippets/outputs/` from the commands `recorded-outputs.toml` lists.
 `bun run check` compares their input and output digests without running `krs` and fails when a fixture, an entry, or an output changed; `bun run record:outputs` records them again, and `bun run verify:outputs` (part of `bun run build`) runs every command and compares the outputs byte for byte.
 `bun run check:types && bun run build` is the production release gate, including Vocs dead-link checking.
