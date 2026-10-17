@@ -102,7 +102,7 @@ conformance = [
 # every other source with code compiled in one build only, and the feature table.
 inference = [
   '^crates/k-rust/src/inner/',
-  '^crates/k-rust/src/(kompile/compile|kast/sort_role|backend/(mod|simplification))\.rs$',
+  '^crates/k-rust/src/(lib|kompile/compile|kast/sort_role|backend/(mod|simplification))\.rs$',
   '^crates/k-rust/Cargo\.toml$',
 ]
 # KRS (krs/README.md): its crates, gates, and ports, the lock of the K, Z3, and schema versions its

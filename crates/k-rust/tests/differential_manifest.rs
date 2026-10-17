@@ -1,7 +1,7 @@
 use std::{
     collections::BTreeSet,
     fs,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     process::Command,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -3022,7 +3022,10 @@ fn gate_model_failures(registry: &Value, manifest: &Value, workspace: &Path) -> 
             failures.push(format!("gate {name} has no command"));
             continue;
         };
-        if !script.starts_with("scripts/") || !workspace.join(script).is_file() {
+        let within_workspace = Path::new(script)
+            .components()
+            .all(|component| matches!(component, Component::Normal(_)));
+        if !within_workspace || !workspace.join(script).is_file() {
             failures.push(format!(
                 "gate {name} runs `{script}`, which is not a workspace script"
             ));
