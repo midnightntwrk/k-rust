@@ -16,7 +16,7 @@ The CLI interoperability contract includes rendering parser sources, invoking th
 The conformance expectations retain each affected case or step with its concrete `llvm-only` reason.
 An LLVM expected output does not define the behavior of a hook or of a definition that `kore-parser --verify` rejects.
 A citation `domains.md`:N, or :N after one, names line N of `domains.md` at the pinned K revision, the file [crates/k-rust/builtin/domains.md](../crates/k-rust/builtin/domains.md) embeds; `substitution.md`:N likewise.
-A hook's behavior is defined by the K source that declares it: `domains.md` for K's builtin hooks (see [Hook specification exceptions](#hook-specification-exceptions)), `substitution.md` for the `SUBSTITUTION` hooks, and blockchain-k-plugin `plugin/krypto.md` for the `[crypto]` hooks, at the revision `651a2db5` of the pinned KEVM and at `207ae512`, the revision the hook capability inventory records (the two agree on every hook this section describes, apart from the point productions noted below); a case that needs a hook neither pinned Kore engine evaluates stays `llvm-only` unless k-rust implements that hook as described below.
+A hook's behavior is defined by the K source that declares it: `domains.md` for K's builtin hooks (see [Hook specification exceptions](#hook-specification-exceptions)), `substitution.md` for the `SUBSTITUTION` hooks, and blockchain-k-plugin `plugin/krypto.md` for the `[crypto]` hooks, at the revision `651a2db5` of the pinned KEVM and at `207ae512`, the revision the hook capability inventory records (the two agree on every hook k-rust evaluates, apart from the point productions; [Cryptographic hooks](#cryptographic-hooks), which also states the `[crypto]` hook names no K source declares, the `HASH` and `SECP256K1` aliases and `KRYPTO.sha3256`, and k-rust's readings of the plugin's text); a case that needs a hook neither pinned Kore engine evaluates stays `llvm-only` unless k-rust implements that hook as described below.
 The [hook capability inventory](../crates/k-rust/tests/fixtures/hook-capabilities.toml) records implemented and unsupported operations for the prelude and `[crypto]` hooks; the `SUBSTITUTION` hooks are classified by the `substitution_hooks_have_an_enforced_external_capability_classification` test beside it.
 The inventory puts every prelude hook in exactly one of five classes, which describe the backend's evaluators, not whether an application evaluates: `implemented` hooks have a backend evaluator; `execution_only` hooks have one only in ordinary execution, which supplies the branch state they read; `structural` hooks name builtin sorts, which the backend represents and never evaluates; `equation_defined` hooks have no backend evaluator and are defined by the equations of the prelude module each row names, where they apply; and `unsupported` hooks have no evaluator and no such equations. An `equation_defined` hook therefore evaluates through those equations where its module is imported (a ground `findChar` application under `STRING-COMMON` is computed), is the unsupported-hook error in a definition that does not reach the module, and stays an unevaluated application where no equation applies: `replace(S, T, R, N)` with `N < 0` has none (`domains.md` says it is undefined there and leaves the choice to the backend), and k-rust leaves it unevaluated, neither `\bottom` nor a value. The class does not mean that every ground application evaluates. Some modules are reached by every definition: the module that declares a definition's configuration, its own or the implicit default one, imports `MAP`, which imports `LIST`, so `pushList` always has its equation. `unsupported` hooks have no equation in any prelude module a definition for this backend can import. (`pinned_prelude_hooks_have_an_enforced_capability_classification` and `equation_defined_hooks_have_equations_in_their_named_module` and `unsupported_hooks_have_no_prelude_equations` in [hook_capabilities.rs](../crates/k-rust/tests/hook_capabilities.rs), `krun_evaluates_equation_defined_hooks_through_their_equations` in [cli.rs](../crates/k-rust/tests/cli.rs).)
 
@@ -27,33 +27,12 @@ The `KRYPTO` hooks `bn128add`, `bn128mul`, `bn128ate`, `bn128valid`, `bn128g2val
 `SUBSTITUTION.substOne` is declared in `substitution.md`; Kore has no `SUBSTITUTION` builtin module (`kore/src/Kore/Builtin.hs`), and neither has Booster.
 `STRING.rfind` (`rfindString`) is declared in `domains.md`; Kore's `String` module registers no `STRING.rfind` (`kore/src/Kore/Builtin/String/String.hs`), and Booster has no `STRING` builtin module.
 The 29 `MINT` hooks `Int2MInt`, `MInt2Signed`, `MInt2Unsigned`, `bitwidthMInt`, `+MInt`, `-MInt`, `*MInt`, `--MInt`, `~MInt`, `&MInt`, `|MInt`, `xorMInt`, `==MInt`, `=/=MInt`, the eight signed and unsigned orderings, `/uMInt`, `%uMInt`, `/sMInt`, `%sMInt`, `<<MInt`, `>>aMInt` and `>>lMInt` are declared in `domains.md`; neither Kore nor Booster has a `MINT` builtin module (`kore/src/Kore/Builtin/`, `booster/library/Booster/Builtin/`), so a machine-integer case stays `llvm-only` as reference evidence.
-k-rust implements these 38 hooks because each declaration fixes the hook's value on every input of the domain stated below, independently of any backend; `STRING.rfind`'s domain is every pair of strings with every integer start index ([Hook values at the edges of their domains](#hook-values-at-the-edges-of-their-domains)).
+k-rust implements these 38 hooks because each declaration fixes the hook's value on every input of the domain stated below (for the seven `KRYPTO` hooks, in [Cryptographic hooks](#cryptographic-hooks)), independently of any backend; `STRING.rfind`'s domain is every pair of strings with every integer start index ([Hook values at the edges of their domains](#hook-values-at-the-edges-of-their-domains)).
 Where the declaration gives no value, the result is undefined (`#Bottom`): this is k-rust's reading of a partial hook outside its described domain, stated with its sites in [Hook values at the edges of their domains](#hook-values-at-the-edges-of-their-domains), not a statement of the declaring K source.
 Where the value depends on a subterm the call cannot see, the application stays unevaluated.
 Such a subterm is a variable or an application of a non-constructor symbol, and it may denote any constructor term of its sort.
 
-`KRYPTO.sha256raw` and `KRYPTO.ripemd160raw` return the 32-byte SHA-256 digest and the 20-byte RIPEMD-160 digest of their `Bytes` argument.
-`plugin/krypto.md` declares `Sha256raw(Bytes)` and `RipEmd160raw(Bytes)` as "the same hash function as those named above except that they return a raw byte string", and every byte string has a digest.
-An argument that is not a `Bytes` literal stays unevaluated.
-
-The BN128 hooks are declared on points of the BN128 curve written `(x, y)` for G1 (`syntax G1Point ::= "(" Int "," Int ")"`) and `(x1 x x2, y1 x y2)` for G2 (`syntax G2Point ::= "(" Int "x" Int "," Int "x" Int ")"`), where `(0, 0)` and `(0 x 0, 0 x 0)` denote the point at infinity.
-At plugin `207ae512` the two point productions carry `symbol(g1Point)` and `symbol(g2Point)`; at `651a2db5`, the plugin of the pinned KEVM, they carry no `symbol` attribute and compilation generates their Kore names.
-Both revisions declare the same point productions otherwise, so every statement below holds at both.
-The Kore name of a point constructor is a property of the compiled definition, not of the declaration, so a BN128 hook takes as the point constructor of G1 the definition's only constructor of result sort `G1Point` with two `Int` arguments, and as that of G2 its only constructor of result sort `G2Point` with four `Int` arguments.
-A BN128 hook reads a point only from an application of the point constructor with `Int` literal coordinates.
-The coordinates must lie in `[0, p)` for the base field modulus `p`, and must be the point at infinity or satisfy the curve equation; for G2 the point must also lie in the order-`r` subgroup G2 of the twist curve.
-A point-constructor term with `Int` literal coordinates that fail these conditions, any other constructor term, and any domain value or collection in a point position is not a point: `isValidPoint` is `false`, and `BN128Add`, `BN128Mul` and `BN128AtePairing` are undefined.
-If the definition declares no constructor with the point signature, every constructor term in a point position is not a point.
-If it declares several, the declaration does not say which of them writes the point, so an application of one of them is treated like a variable, while a constructor term with another signature is still not a point.
-An argument that contains a variable, a conjunction or an unevaluated function application where the reading needs a value leaves the call unevaluated, unless another argument is already not a point, or the two pairing lists have known, different lengths.
-Reason: the declarations define the hooks on the points written with the point productions only; constructors are free, so a constructor term with another head denotes no point in any model, while a variable or function application may denote a point or not.
-On that domain:
-
-- `KRYPTO.bn128valid` (`isValidPoint(G1Point)`) is `true` for every G1 point. G1 has cofactor 1, so a point on the curve, which the declaration asks for, is a point of G1.
-- `KRYPTO.bn128g2valid` (`isValidPoint(G2Point)`, `symbol(isValidG2Point)`) is `true` for every G2 point and `false` for a point on the twist curve outside the subgroup G2. The declaration calls a `G2Point` a point on G2 and defines the pairing through discrete logarithms of G2 points, which exist only in the subgroup, so validity is exactly the domain of the pairing.
-- `KRYPTO.bn128add` (`BN128Add(G1Point, G1Point)`) returns the G1 point-constructor term of the sum P + Q in G1, with `(0, 0)` as the identity.
-- `KRYPTO.bn128mul` (`BN128Mul(G1Point, Int)`) returns the G1 point-constructor term of n·P for every `Int` n, computed as (n mod r)·P with the non-negative residue. Multiplication by an integer is defined for every integer, and r·P is the identity because G1 has prime order r.
-- `KRYPTO.bn128ate` (`BN128AtePairing(List, List)`) on lists of equal length, is `true` iff the product of the pairings e(P_i, Q_i) is 1. With P_i = a_i·G and Q_i = b_i·H for the generators G and H, the product is e(G, H) raised to the sum of a_i·b_i, so it is 1 exactly when that sum is zero modulo r, which is what the declaration states. Two empty lists give `true`, and lists of different lengths give the undefined result.
+The `[crypto]` hooks k-rust implements, the seven `KRYPTO` hooks above among them, are stated in [Cryptographic hooks](#cryptographic-hooks).
 
 `SUBSTITUTION.substOne` (`T [ V / X ]`) returns the capture-avoiding substitution of the `KItem` V for the free occurrences of the `KVar` X in T.
 A production with the `binder` attribute binds the `KVar` of its first nonterminal in its last nonterminal (`substitution.md`, "The `binder` Attribute"), and a bound `KVar` that would capture a free `KVar` of V is renamed.
@@ -150,6 +129,80 @@ Under `--io off`, and therefore in search, `stdinGetc` cannot apply and, unless 
 When that buffer holds more than one character and begins with a delimiter, because the input does or because two delimiters are adjacent after a token, the prefix is empty, `String2Int("")` is undefined, and the rule produces an undefined result where the interactive stream would have trimmed the delimiter and read the next token.
 The trailing newlines become exactly one for these rules: since nothing extends the buffer, a token is read only when a delimiter already follows it, so the one newline ends the input's last line whether or not standard input ended it, and the further ones are empty lines that hold no token, two of which would make a read past the last token undefined instead of finding the end of the input.
 The two modes therefore agree on a stream program's input only where these forms coincide; this is the input precondition of C9 in the [comparison contract](#comparison-contract).
+
+## Cryptographic hooks
+
+k-rust evaluates the 20 hooks of the `[crypto]` `implemented` list of the [hook capability inventory](../crates/k-rust/tests/fixtures/hook-capabilities.toml), in [krypto.rs](../crates/k-rust-backend/src/builtin/krypto.rs); this section states the value of each.
+`kcompile --backend rust` hooks the three namespaces `KRYPTO`, `HASH` and `SECP256K1` by default; KORE emitted for another backend hooks them only when `--hook-namespaces` names them.
+
+Sources.
+The `KRYPTO` hooks are declared in blockchain-k-plugin `plugin/krypto.md`, at `207ae512`, the revision the inventory's `[crypto] sources` records, and at `651a2db5`, the plugin of the pinned KEVM.
+`207ae512` descends from `651a2db5`, and its `plugin/krypto.md` differs only by the `symbol(g1Point)` and `symbol(g2Point)` attributes of the point productions and by the BLS12-381 and `P256Verify` declarations and their description, which it adds and none of which k-rust evaluates (`git diff 651a2db5 207ae512 -- plugin/krypto.md` in the plugin checkout of the pinned KEVM); the two revisions state the same contract for every hook below.
+Six of the hook names k-rust evaluates are declared by neither revision and by no module of k-rust's prelude:
+
+- `HASH.keccak256`, `HASH.sha256` and `HASH.ripemd160` are k-rust's names for `KRYPTO.keccak256`, `KRYPTO.sha256` and `KRYPTO.ripemd160`, and `SECP256K1.ecdsaRecover` is k-rust's name for `KRYPTO.ecdsaRecover`;
+- `KRYPTO.sha3256` and its alias `HASH.sha3_256` are the SHA3-256 hook with a hex output that the plugin describes as `Sha3_256`; the plugin hooks that production to `KRYPTO.sha3` instead, which k-rust does not evaluate (below).
+
+For these six names this section is the whole contract, and each alias is the same function as its `KRYPTO` spelling, failure value included.
+
+Signature.
+An alias has the signature of the `KRYPTO` declaration it names: `Bytes` to `String` for the hex digests, and `Bytes`, `Int`, `Bytes`, `Bytes` to `Bytes` for `ecdsaRecover`.
+A hook is evaluated only on literal arguments of those sorts (a `Bytes` domain value for each `Bytes` argument, an `Int` domain value for `v`), and its value is kept only at a declaration whose result sort the value belongs to, directly or through an injection into a supersort.
+At another signature, such as a `String` argument or a hex digest declared with a `Bytes` result, the hook gives no value, and the application stays unevaluated without an unsupported-hook error; an argument that is a variable or an unevaluated function application leaves the application unevaluated too.
+
+Values.
+For a `Bytes` literal B, each digest is the value of a named standard hash function of the byte string B, and every byte string has a digest, so each digest hook is defined and determined on every `Bytes` literal:
+
+| hook | value |
+|---|---|
+| `KRYPTO.keccak256`, `HASH.keccak256` | the hex of Keccak-256(B), 64 digits |
+| `KRYPTO.keccak256raw` | Keccak-256(B), 32 bytes |
+| `KRYPTO.sha256`, `HASH.sha256` | the hex of SHA-256(B), 64 digits |
+| `KRYPTO.sha256raw` | SHA-256(B), 32 bytes |
+| `KRYPTO.sha3256`, `HASH.sha3_256` | the hex of SHA3-256(B), 64 digits |
+| `KRYPTO.sha512_256raw` | SHA-512/256(B), 32 bytes |
+| `KRYPTO.ripemd160`, `HASH.ripemd160` | the hex of RIPEMD-160(B), 40 digits |
+| `KRYPTO.ripemd160raw` | RIPEMD-160(B), 20 bytes |
+| `KRYPTO.ecdsaPubKey` | the hex of the public key of the secret key B, 128 digits, or the empty `String` (below) |
+
+Keccak-256 is the Keccak sponge with capacity 512 and the original Keccak padding, without the domain-separation bits that FIPS 202 adds for SHA3-256; SHA-256 and SHA-512/256 are those of FIPS 180-4; SHA3-256 is that of FIPS 202; RIPEMD-160 is the 160-bit RIPEMD of Dobbertin, Bosselaers and Preneel.
+The plugin describes each hex hook as returning an N-character "hex-encoded string" of the digest, and each raw form as "the same hash function as those named above except that they return a raw byte string"; so a raw form is the digest bytes in order, and a hex form writes each digest byte as two hexadecimal digits, the more significant first, in the order of the bytes.
+`ECDSAPubKey` of a valid secret key, 32 bytes read as a big-endian integer in `[1, n)` for the secp256k1 group order `n`, is the hex of its public key in the uncompressed SEC1 encoding without the tag byte: the 32-byte big-endian x coordinate followed by the 32-byte big-endian y coordinate (the plugin: "the 64 byte hex-encoded public key").
+`ECDSARecover` and its alias are stated in [ECDSA recovery on invalid input](#ecdsa-recovery-on-invalid-input), and the BN128 hooks below.
+
+The BN128 hooks are declared on points of the BN128 curve written `(x, y)` for G1 (`syntax G1Point ::= "(" Int "," Int ")"`) and `(x1 x x2, y1 x y2)` for G2 (`syntax G2Point ::= "(" Int "x" Int "," Int "x" Int ")"`), where `(0, 0)` and `(0 x 0, 0 x 0)` denote the point at infinity.
+At plugin `207ae512` the two point productions carry `symbol(g1Point)` and `symbol(g2Point)`; at `651a2db5`, the plugin of the pinned KEVM, they carry no `symbol` attribute and compilation generates their Kore names.
+Both revisions declare the same point productions otherwise, so every statement below holds at both.
+The Kore name of a point constructor is a property of the compiled definition, not of the declaration, so a BN128 hook takes as the point constructor of G1 the definition's only constructor of result sort `G1Point` with two `Int` arguments, and as that of G2 its only constructor of result sort `G2Point` with four `Int` arguments.
+A BN128 hook reads a point only from an application of the point constructor with `Int` literal coordinates.
+The coordinates must lie in `[0, p)` for the base field modulus `p`, and must be the point at infinity or satisfy the curve equation; for G2 the point must also lie in the order-`r` subgroup G2 of the twist curve.
+A point-constructor term with `Int` literal coordinates that fail these conditions, any other constructor term, and any domain value or collection in a point position is not a point: `isValidPoint` is `false`, and `BN128Add`, `BN128Mul` and `BN128AtePairing` are undefined.
+If the definition declares no constructor with the point signature, every constructor term in a point position is not a point.
+If it declares several, the declaration does not say which of them writes the point, so an application of one of them is treated like a variable, while a constructor term with another signature is still not a point.
+An argument that contains a variable, a conjunction or an unevaluated function application where the reading needs a value leaves the call unevaluated, unless another argument is already not a point, or the two pairing lists have known, different lengths.
+Reason: the declarations define the hooks on the points written with the point productions only; constructors are free, so a constructor term with another head denotes no point in any model, while a variable or function application may denote a point or not.
+On that domain:
+
+- `KRYPTO.bn128valid` (`isValidPoint(G1Point)`) is `true` for every G1 point. G1 has cofactor 1, so a point on the curve, which the declaration asks for, is a point of G1.
+- `KRYPTO.bn128g2valid` (`isValidPoint(G2Point)`, `symbol(isValidG2Point)`) is `true` for every G2 point and `false` for a point on the twist curve outside the subgroup G2. The declaration calls a `G2Point` a point on G2 and defines the pairing through discrete logarithms of G2 points, which exist only in the subgroup, so validity is exactly the domain of the pairing.
+- `KRYPTO.bn128add` (`BN128Add(G1Point, G1Point)`) returns the G1 point-constructor term of the sum P + Q in G1, with `(0, 0)` as the identity.
+- `KRYPTO.bn128mul` (`BN128Mul(G1Point, Int)`) returns the G1 point-constructor term of n·P for every `Int` n, computed as (n mod r)·P with the non-negative residue. Multiplication by an integer is defined for every integer, and r·P is the identity because G1 has prime order r.
+- `KRYPTO.bn128ate` (`BN128AtePairing(List, List)`) on lists of equal length, is `true` iff the product of the pairings e(P_i, Q_i) is 1. With P_i = a_i·G and Q_i = b_i·H for the generators G and H, the product is e(G, H) raised to the sum of a_i·b_i, so it is 1 exactly when that sum is zero modulo r, which is what the declaration states. Two empty lists give `true`, and lists of different lengths give the undefined result.
+
+k-rust's readings.
+`plugin/krypto.md` says only that its `String` values are "hex-encoded data" and gives no letter case, and it describes `ECDSARecover` and `ECDSAPubKey` only on their documented domain.
+k-rust states three readings of that text, which are values of the definition as k-rust reads it, not open classes ([Implementation-chosen hook values](#implementation-chosen-hook-values)): the open-value classifier never returns them, and proofs and executions use them as they use every other determined value.
+
+- Every hex output, of the digest hooks and of `ECDSAPubKey`, is lowercase: its digits are `0`-`9` and `a`-`f`.
+- `ECDSARecover` outside its documented domain is the empty `Bytes` ([ECDSA recovery on invalid input](#ecdsa-recovery-on-invalid-input)).
+- `ECDSAPubKey` of a byte string that is not a valid secret key (not 32 bytes long, or 32 bytes whose integer is 0 or at least `n`) is the empty `String`, which no valid key's 128-digit hex equals.
+
+(`pinned_hash_hooks_match_standard_empty_vectors`, `hash_hooks_match_standard_nonempty_vectors`, `raw_hash_hooks_return_bytes`, `hex_digests_are_two_lowercase_hex_digits_per_byte`, `hash_namespace_aliases_agree_with_their_krypto_spelling`, `secp256k1_alias_agrees_with_its_krypto_spelling`, `a_hash_hook_on_a_string_argument_is_not_evaluated`, `derives_the_uncompressed_public_key_without_its_prefix` and `invalid_concrete_secrets_yield_the_empty_public_key` in [krypto.rs](../crates/k-rust-backend/src/builtin/krypto.rs).)
+
+Unsupported.
+The hooks of the inventory's `[[crypto.unsupported]]` lists have no evaluator: on constructor-like arguments an application of one is the unsupported-hook outcome of [Backend scope](#backend-scope).
+Two of them are reached by KEVM executions (KEVM `5dd05ea7`, `kevm-pyk/src/kevm_pyk/kproj/evm-semantics/`): `KRYPTO.blake2compress`, which the BLAKE2F precompile at address 9 applies through `Blake2CompressWrapper` (`evm.md`:2132, `serialization.md`:42-44), and `KRYPTO.verifyKZGProof`, which the point-evaluation precompile at address 10 applies through `verifyKZGProofWrapper` (`evm.md`:2156, :2164, `serialization.md`:68-70); a KEVM execution whose call of either precompile reaches the hook ends with that outcome.
+`KRYPTO.sha3`, the hook of the plugin's `Sha3_256`, is unsupported too, and KEVM does not apply `Sha3_256`: the EVM `SHA3` instruction is Keccak-256, which KEVM computes with `Keccak256` (`evm.md`:1146, `serialization.md`:62), as it computes its other hashes with `Keccak256` and `Keccak256raw`.
 
 ## Frontend policy
 
@@ -1482,7 +1535,7 @@ The sites, in the evaluators of [`builtin`](../crates/k-rust-backend/src/builtin
 | `/uMInt`, `/sMInt`, `%uMInt`, `%sMInt` | a zero divisor | `\bottom` |
 
 The reading has no site where the contract states the undefinedness itself (`#False`, `#Bottom`, or "not total" with the inputs named): `/Int`, `%Int`, `divInt` and `modInt` by zero ("Division by zero is `#False`"), and so `^%Int` with a zero modulus, which equals a `%Int`; the shifts by a negative amount, and so `bitRangeInt` and `signExtendBitRangeInt`, whose equations shift by their index and length; `log2Int` of a number that is not positive; a `Map` lookup of an unbound key; a `Map` or `Set` concatenation of operands that share a key or an element; and the `Bytes` index hooks, `substrBytes`, `replaceAtBytes` and padding outside their ranges.
-ECDSA recovery and `ECDSAPubKey` outside their documented domain have a stated value instead ([ECDSA recovery on invalid input](#ecdsa-recovery-on-invalid-input)).
+ECDSA recovery and `ECDSAPubKey` outside their documented domain have a stated value instead ([ECDSA recovery on invalid input](#ecdsa-recovery-on-invalid-input), [Cryptographic hooks](#cryptographic-hooks)).
 
 A `total` hook always has a value, so where its description gives none, the value exists but is not determined by the definition: the backend leaves such an application unevaluated, as a term denoting an unknown value of its sort, without reporting an unsupported hook, and the fold leaves it too; neither `\bottom` nor a chosen value is a consequence of the definition.
 A hook whose value on some arguments is one of several the definition admits, such as the order of `keys_list`, is evaluated only in an execution; see [Implementation-chosen hook values](#implementation-chosen-hook-values).
@@ -1526,7 +1579,7 @@ k-rust names each such case by a class, which one classifier decides for every e
 
 `Base2String`'s case comes with a consistency clause: "the backend will consistently choose one or the other" (:1831), so in each model one case serves every `Base2String` application, and the class is one open choice per model rather than one per application; k-rust writes lowercase letters everywhere.
 No other value is a class.
-The specified readings of an under-specified contract are values of the definition as k-rust reads it, on every route: the lowercase hex of the digest hooks, the byte-per-code-point `String2Bytes` and `Bytes2String`, IEEE 754 roundTiesToEven rounding, the ECDSA failure values, the undefinedness of a partial hook outside its described domain ([Hook values at the edges of their domains](#hook-values-at-the-edges-of-their-domains), [ECDSA recovery on invalid input](#ecdsa-recovery-on-invalid-input)), and the one NaN of each format ([Backend scope](#backend-scope)).
+The specified readings of an under-specified contract are values of the definition as k-rust reads it, on every route: the lowercase hex of the digest hooks and of `ECDSAPubKey` ([Cryptographic hooks](#cryptographic-hooks)), the byte-per-code-point `String2Bytes` and `Bytes2String`, IEEE 754 roundTiesToEven rounding, the ECDSA failure values, the undefinedness of a partial hook outside its described domain ([Hook values at the edges of their domains](#hook-values-at-the-edges-of-their-domains), [ECDSA recovery on invalid input](#ecdsa-recovery-on-invalid-input)), and the one NaN of each format ([Backend scope](#backend-scope)).
 Neither are `minFloat` and `maxFloat` with one NaN operand (`fp.min` and `fp.max` give the other operand), the raw digests and the BN128 hooks, `encodeBytes` and `decodeBytes` (they name their encoding), `#getc`, `#putc` and `#write` (a function of the request's console), nor a hook without an evaluator, which chooses no value.
 The constant fold leaves every application of a class unfolded ([Constant folding](#constant-folding)).
 
@@ -1590,7 +1643,7 @@ The tests are `kprove_proves_no_claim_that_depends_on_the_order_of_keys_list`, `
 
 ## ECDSA recovery on invalid input
 
-`KRYPTO.ecdsaRecover` and `SECP256K1.ecdsaRecover` share one evaluator in [krypto.rs](../crates/k-rust-backend/src/builtin/krypto.rs).
+`KRYPTO.ecdsaRecover` and `SECP256K1.ecdsaRecover`, k-rust's name for it ([Cryptographic hooks](#cryptographic-hooks)), share one evaluator in [krypto.rs](../crates/k-rust-backend/src/builtin/krypto.rs).
 Their hook contract is not in `domains.md`: [`plugin/krypto.md` at blockchain-k-plugin `207ae512`](https://github.com/runtimeverification/blockchain-k-plugin/blob/207ae5121e5178a09742ed746f2d15e34b1750cc/plugin/krypto.md), the revision the [hook capability inventory](../crates/k-rust/tests/fixtures/hook-capabilities.toml) records, declares `ECDSARecover(Bytes, Int, Bytes, Bytes)` as a `function` of sort `Bytes`.
 It documents only the successful result, the 64-byte public key that signed a 32-byte message hash with the given `v`, `r` and `s`, and refers to the Ethereum signature form for their meaning; it says nothing about other inputs.
 
@@ -1608,7 +1661,7 @@ A `Bytes` value of another length is a different value that a definition can tel
 `v` is restricted to the two values the referenced signature form uses; 29 to 34, which name a recovery with the group order added to `r` or a compressed key, are not part of that form.
 
 The declaration does not settle the result outside the documented domain: a `function` without `total` has at most one value ([`docs/user_manual.md`, "`function` and `total` attributes"](https://github.com/runtimeverification/k/blob/4a46d1231473b599c699160132fd6e76a5c46406/docs/user_manual.md#function-and-total-attributes)), so both `\bottom` and a single `Bytes` value are consistent with it.
-k-rust's reading is the value above, the empty `Bytes`, and likewise `ECDSAPubKey` of a secret that is not a valid 32-byte secp256k1 secret key is the empty `String` (`plugin/krypto.md` documents only "a 32-character byte string of a private key"); the reading is stated here, so proofs and executions use it, as they use the reading `\bottom` of the other partial hooks ([Hook values at the edges of their domains](#hook-values-at-the-edges-of-their-domains)).
+k-rust's reading is the value above, the empty `Bytes`, and likewise `ECDSAPubKey` of a secret that is not a valid 32-byte secp256k1 secret key is the empty `String` (`plugin/krypto.md` documents only "a 32-character byte string of a private key"); both are among k-rust's stated readings of the `[crypto]` hooks ([Cryptographic hooks](#cryptographic-hooks)), so proofs and executions use them, as they use the reading `\bottom` of the other partial hooks ([Hook values at the edges of their domains](#hook-values-at-the-edges-of-their-domains)).
 Rust reads a value here rather than `\bottom` because a failed recovery must stay observable.
 Every recovered key has exactly 64 bytes, so the empty value cannot be mistaken for a key, and a definition can branch on it with ordinary `Bytes` operations.
 A `\bottom` result would make every configuration that applies the hook to such an input denote no state: that execution path would vanish from execution and search results, and a claim over it would hold vacuously instead of checking how the definition handles a malformed signature.

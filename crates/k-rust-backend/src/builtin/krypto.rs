@@ -1,4 +1,18 @@
 //! Pure-Rust cryptographic hooks.
+//!
+//! The `KRYPTO` hooks are declared by blockchain-k-plugin `plugin/krypto.md`. `HASH.keccak256`,
+//! `HASH.sha256`, `HASH.ripemd160` and `SECP256K1.ecdsaRecover` are k-rust's names for
+//! `KRYPTO.keccak256`, `KRYPTO.sha256`, `KRYPTO.ripemd160` and `KRYPTO.ecdsaRecover`, and
+//! `KRYPTO.sha3256`, with its alias `HASH.sha3_256`, is the plugin's SHA3-256 hex hook under a
+//! name the plugin does not use; no K module declares these names, so each is the same function
+//! as its `KRYPTO` spelling by this module's dispatch and its contract is the one
+//! `docs/compatibility.md`, "Cryptographic hooks", states. Each digest is the value of a named
+//! standard hash function of its `Bytes` literal argument. Three values are k-rust's readings of
+//! the plugin's text, which gives no letter case and no value outside the documented domain:
+//! every hex output (of the digests and of `ecdsaPubKey`) is lowercase, `ecdsaRecover` outside
+//! its documented domain is the empty `Bytes`, and `ecdsaPubKey` of an invalid secret key is the
+//! empty `String`. They are determined values of the definition as k-rust reads it, not values it
+//! leaves open, so the open-value classifier never returns them.
 
 use std::sync::{Arc, LazyLock};
 
@@ -1121,6 +1135,124 @@ mod tests {
             evaluate("KRYPTO.ecdsaRecover", &symbolic),
             Ok(BuiltinResult::NotApplicable)
         );
+    }
+
+    /// `SECP256K1.ecdsaRecover` is k-rust's name for `KRYPTO.ecdsaRecover`: the same function on
+    /// the documented domain and the same failure value, the empty `Bytes`, outside it.
+    #[test]
+    fn secp256k1_alias_agrees_with_its_krypto_spelling() {
+        use k256::ecdsa::SigningKey;
+
+        let mut secret = [0_u8; 32];
+        secret[31] = 7;
+        let signing_key = SigningKey::from_slice(&secret).expect("valid secret key");
+        let message_hash = Keccak256::digest(b"k-rust alias test");
+        let (signature, recovery_id) = signing_key.sign_prehash_recoverable(&message_hash);
+        let signature = signature.to_bytes();
+        let recovery = |v: BigInt| {
+            [
+                bytes::bytes_term(&message_hash),
+                super::super::int_term(v),
+                bytes::bytes_term(&signature[..32]),
+                bytes::bytes_term(&signature[32..]),
+            ]
+        };
+        let public_key = signing_key.verifying_key().to_sec1_point(false);
+
+        let valid = recovery((27 + recovery_id.to_byte()).into());
+        assert_eq!(
+            evaluate("SECP256K1.ecdsaRecover", &valid),
+            Ok(BuiltinResult::Value(bytes::bytes_term(
+                &public_key.as_bytes()[1..]
+            )))
+        );
+        assert_eq!(
+            evaluate("SECP256K1.ecdsaRecover", &valid),
+            evaluate("KRYPTO.ecdsaRecover", &valid)
+        );
+
+        let invalid_v = recovery(29.into());
+        assert_eq!(
+            evaluate("SECP256K1.ecdsaRecover", &invalid_v),
+            Ok(BuiltinResult::Value(bytes::bytes_term(&[])))
+        );
+        assert_eq!(
+            evaluate("SECP256K1.ecdsaRecover", &invalid_v),
+            evaluate("KRYPTO.ecdsaRecover", &invalid_v)
+        );
+    }
+
+    /// Every hex output is two lowercase hexadecimal digits per digest byte, most significant
+    /// digit first: the hex form of a digest is the lowercase hex of its raw form, and the hex
+    /// forms without a raw evaluator (`sha3256` and the `HASH` aliases) are lowercase too.
+    #[test]
+    fn hex_digests_are_two_lowercase_hex_digits_per_byte() {
+        let all_bytes: Vec<u8> = (0..=255).collect();
+        let inputs: [&[u8]; 4] = [b"", b"abc", &[0xff; 200], &all_bytes];
+        let read_hex = |hook: &str, input: &[u8]| -> String {
+            match evaluate(hook, &[bytes::bytes_term(input)]) {
+                Ok(BuiltinResult::Value(value)) => super::super::string::read_string(&value)
+                    .unwrap_or_else(|| panic!("{hook} gives a String"))
+                    .to_owned(),
+                other => panic!("{hook}: {other:?}"),
+            }
+        };
+        let is_lowercase_hex = |text: &str| {
+            text.bytes()
+                .all(|digit| matches!(digit, b'0'..=b'9' | b'a'..=b'f'))
+        };
+
+        for (hex_hook, raw_hook) in [
+            ("KRYPTO.keccak256", "KRYPTO.keccak256raw"),
+            ("KRYPTO.sha256", "KRYPTO.sha256raw"),
+            ("KRYPTO.ripemd160", "KRYPTO.ripemd160raw"),
+        ] {
+            for input in inputs {
+                let raw = match evaluate(raw_hook, &[bytes::bytes_term(input)]) {
+                    Ok(BuiltinResult::Value(value)) => {
+                        bytes::read_bytes(&value).expect("a raw digest is Bytes")
+                    }
+                    other => panic!("{raw_hook}: {other:?}"),
+                };
+                let hex = read_hex(hex_hook, input);
+                assert_eq!(hex.len(), 2 * raw.len(), "{hex_hook}");
+                assert!(is_lowercase_hex(&hex), "{hex_hook}: {hex}");
+                let expected: String = raw.iter().map(|byte| format!("{byte:02x}")).collect();
+                assert_eq!(hex, expected, "{hex_hook} is the hex of {raw_hook}");
+            }
+        }
+
+        for (hook, digest_length) in [
+            ("KRYPTO.sha3256", 32),
+            ("HASH.keccak256", 32),
+            ("HASH.sha256", 32),
+            ("HASH.sha3_256", 32),
+            ("HASH.ripemd160", 20),
+        ] {
+            for input in inputs {
+                let hex = read_hex(hook, input);
+                assert_eq!(hex.len(), 2 * digest_length, "{hook}");
+                assert!(is_lowercase_hex(&hex), "{hook}: {hex}");
+            }
+        }
+    }
+
+    /// The hash hooks take a `Bytes` argument: at a declaration with a `String` argument the
+    /// evaluator has no input to hash, so the application is not evaluated.
+    #[test]
+    fn a_hash_hook_on_a_string_argument_is_not_evaluated() {
+        for hook in [
+            "HASH.keccak256",
+            "HASH.sha256",
+            "HASH.sha3_256",
+            "HASH.ripemd160",
+        ] {
+            assert_eq!(
+                evaluate(hook, &[Term::string("abc")]),
+                Ok(BuiltinResult::NotApplicable),
+                "{hook}"
+            );
+        }
     }
 
     #[test]
