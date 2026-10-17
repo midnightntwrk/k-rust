@@ -2,7 +2,10 @@
 //! conjunction with every claim withheld.
 //!
 //! The simplifier refutes a conjunction it evaluates to `\bottom`. Two propositional facts it does
-//! not use are decided here, on the conjuncts it leaves:
+//! not use are decided here, on the conjuncts it leaves. A conjunct states a Boolean literal when
+//! it requires a term equal to a domain value of the builtin Bool sort (`\equals(b, true)`), its
+//! negation, or a Bool-sorted term itself; a domain value of any other sort is never read as a
+//! Boolean, whatever its spelling.
 //!
 //! - **complementary literals**: a Boolean atom required true by one conjunct and false by another
 //!   (`N >Int M` beside `N <=Int M`, `notBool B` beside `B`). Comparisons are read up to their
@@ -16,6 +19,7 @@
 //! Every remaining conjunct `X = t` (a variable equal to a term without `X`) is an equality every
 //! instance satisfying the conditions has, which the join may apply (`confluence.rs`).
 
+use k_rust_kore::names::BuiltinSort;
 use rustc_hash::FxHashMap;
 
 use crate::{
@@ -103,14 +107,18 @@ fn literal(conjunct: &Predicate) -> Option<(Term, bool)> {
     }
 }
 
-/// The value of a Boolean domain value.
+/// The value of a Boolean literal: a domain value of the builtin Bool sort. A domain value of any
+/// other sort is one value of that sort whatever its spelling (a token or a `String` may read
+/// `"true"`), so it is not a literal, and a conjunct comparing a term with it states no Boolean.
 fn boolean(term: &Term) -> Option<bool> {
     match term.kind() {
-        TermKind::DomainValue { value, .. } => match value.as_bytes() {
-            b"true" => Some(true),
-            b"false" => Some(false),
-            _ => None,
-        },
+        TermKind::DomainValue { sort, value } if sort.is_builtin(BuiltinSort::Bool) => {
+            match value.as_bytes() {
+                b"true" => Some(true),
+                b"false" => Some(false),
+                _ => None,
+            }
+        }
         _ => None,
     }
 }

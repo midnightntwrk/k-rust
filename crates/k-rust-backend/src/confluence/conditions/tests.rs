@@ -17,6 +17,8 @@ const DEFINITION: &str = r#"
 [] module MAIN
     hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
     hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+    hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
+    sort SortMyTok{} [hasDomainValues{}(), token{}()]
     hooked-symbol ltInt{}(SortInt{}, SortInt{}) : SortBool{} [function{}(), total{}(), hook{}("INT.lt")]
     hooked-symbol leInt{}(SortInt{}, SortInt{}) : SortBool{} [function{}(), total{}(), hook{}("INT.le")]
     hooked-symbol gtInt{}(SortInt{}, SortInt{}) : SortBool{} [function{}(), total{}(), hook{}("INT.gt")]
@@ -300,6 +302,38 @@ fn atoms_true_wherever_defined_refute_their_negation_only() {
         "leInt{}(X:SortInt{}, X:SortInt{})",
         true
     )]));
+}
+
+/// A domain value is a Boolean literal only when its sort is the builtin Bool sort. A token sort
+/// or `String` may spell a value `"true"` or `"false"`; such a value is one value of its sort
+/// among others, so `T` differing from both spellings is satisfiable (`T = abc`), and the two
+/// conjuncts are not complementary.
+#[test]
+fn only_a_bool_domain_value_is_read_as_a_boolean() {
+    let definition = definition();
+    let differs = |variable: &str, sort: &str, spelling: &str| {
+        Predicate::Not(std::sync::Arc::new(Predicate::Equals(
+            term(&definition, &format!("{variable}:{sort}{{}}")),
+            term(&definition, &format!(r#"\dv{{{sort}{{}}}}("{spelling}")"#)),
+        )))
+    };
+    for (variable, sort) in [("T", "SortMyTok"), ("S", "SortString")] {
+        let conjuncts = [
+            differs(variable, sort, "true"),
+            differs(variable, sort, "false"),
+        ];
+        assert!(!contradictory(&conjuncts), "{sort}: {conjuncts:?}");
+    }
+    // Over a Bool variable the same shape is a literal: `B` required true beside `B` not
+    // required true is contradictory.
+    let conjuncts = [
+        Predicate::Equals(
+            term(&definition, "B:SortBool{}"),
+            term(&definition, r#"\dv{SortBool{}}("true")"#),
+        ),
+        differs("B", "SortBool", "true"),
+    ];
+    assert!(contradictory(&conjuncts), "{conjuncts:?}");
 }
 
 #[test]
