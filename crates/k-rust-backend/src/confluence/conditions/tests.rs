@@ -27,6 +27,13 @@ const DEFINITION: &str = r#"
     hooked-symbol eqInt{}(SortInt{}, SortInt{}) : SortBool{} [function{}(), total{}(), hook{}("INT.eq")]
     hooked-symbol neInt{}(SortInt{}, SortInt{}) : SortBool{} [function{}(), total{}(), hook{}("INT.ne")]
     hooked-symbol notBool{}(SortBool{}) : SortBool{} [function{}(), total{}(), hook{}("BOOL.not")]
+    hooked-symbol addInt{}(SortInt{}, SortInt{}) : SortInt{} [function{}(), total{}(), hook{}("INT.add")]
+    hooked-symbol subInt{}(SortInt{}, SortInt{}) : SortInt{} [function{}(), total{}(), hook{}("INT.sub")]
+    hooked-symbol divInt{}(SortInt{}, SortInt{}) : SortInt{} [function{}(), hook{}("INT.tdiv")]
+    hooked-symbol ltString{}(SortString{}, SortString{}) : SortBool{} [function{}(), total{}(), hook{}("STRING.lt")]
+    hooked-sort SortMInt{S} [hook{}("MINT.MInt"), hasDomainValues{}()]
+    sort Sort8{} []
+    hooked-symbol ultMInt{}(SortMInt{Sort8{}}, SortMInt{Sort8{}}) : SortBool{} [function{}(), total{}(), hook{}("MINT.ult")]
     hooked-sort SortMap{}
         [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
     hooked-symbol mapUnit{}() : SortMap{} [function{}(), total{}(), hook{}("MAP.unit")]
@@ -61,11 +68,13 @@ fn holds(operator: &str, left: i64, right: i64) -> bool {
     }
 }
 
-/// An operand: one of the variables `X`, `Y`, `Z`, or a literal.
+/// An operand: one of the variables `X`, `Y`, `Z`, a literal, or a variable shifted by a literal
+/// (`X +Int k`, or `X -Int -k` for a negative `k`).
 #[derive(Clone, Copy, Debug)]
 enum Operand {
     Variable(usize),
     Literal(i64),
+    Shifted(usize, i64),
 }
 
 const NAMES: [&str; 3] = ["X", "Y", "Z"];
@@ -75,6 +84,16 @@ impl Operand {
         match self {
             Self::Variable(index) => format!("{}:SortInt{{}}", NAMES[index]),
             Self::Literal(value) => format!(r#"\dv{{SortInt{{}}}}("{value}")"#),
+            Self::Shifted(index, offset) if offset < 0 => format!(
+                "subInt{{}}({}, {})",
+                Self::Variable(index).kore(),
+                Self::Literal(-offset).kore()
+            ),
+            Self::Shifted(index, offset) => format!(
+                "addInt{{}}({}, {})",
+                Self::Variable(index).kore(),
+                Self::Literal(offset).kore()
+            ),
         }
     }
 
@@ -82,6 +101,7 @@ impl Operand {
         match self {
             Self::Variable(index) => assignment[index],
             Self::Literal(value) => value,
+            Self::Shifted(index, offset) => assignment[index] + offset,
         }
     }
 }
@@ -388,6 +408,14 @@ pub(crate) fn random_conjunctions_agree_with_brute_force(cases: usize) -> Vec<St
                 Operand::Variable(next(3))
             }
         };
+        // A comparison operand may also be shifted; the equalities' operands are not.
+        let compared = |next: &mut dyn FnMut(usize) -> usize| {
+            if next(4) == 0 {
+                Operand::Shifted(next(3), i64::try_from(next(5)).unwrap() - 2)
+            } else {
+                operand(next)
+            }
+        };
         let count = 2 + next(3);
         let conjuncts = (0..count)
             .map(|_| {
@@ -396,8 +424,8 @@ pub(crate) fn random_conjunctions_agree_with_brute_force(cases: usize) -> Vec<St
                 } else {
                     Conjunct::Literal {
                         operator: OPERATORS[next(OPERATORS.len())],
-                        left: operand(&mut next),
-                        right: operand(&mut next),
+                        left: compared(&mut next),
+                        right: compared(&mut next),
                         negations: next(3),
                         polarity: next(2) == 0,
                     }
@@ -429,4 +457,165 @@ fn a_misread_comparison_is_caught_by_the_property_test() {
         random_conjunctions_agree_with_brute_force(2_000)
     });
     assert!(!failures.is_empty());
+}
+
+/// V7: reading `a <Int b` as `a <=Int b` when bounding one term refutes satisfiable conjunctions
+/// (`X <Int 1` required false beside `X <=Int 1` holds at `X = 1`), which the property test sees.
+#[test]
+fn a_misread_interval_bound_is_caught_by_the_property_test() {
+    let switches = crate::confluence::switches::Switches {
+        misread_interval_bound: true,
+        ..Default::default()
+    };
+    let failures = crate::confluence::switches::with(switches, || {
+        random_conjunctions_agree_with_brute_force(2_000)
+    });
+    assert!(!failures.is_empty());
+}
+
+fn int(value: &str) -> String {
+    format!(r#"\dv{{SortInt{{}}}}("{value}")"#)
+}
+
+/// `operator(left, right)` required `polarity`.
+fn required(
+    definition: &BackendDefinition,
+    operator: &str,
+    left: &str,
+    right: &str,
+    polarity: bool,
+) -> Predicate {
+    Predicate::Equals(
+        term(definition, &format!("{operator}{{}}({left}, {right})")),
+        term(definition, &format!(r#"\dv{{SortBool{{}}}}("{polarity}")"#)),
+    )
+}
+
+/// `\not` of `operator(left, right)` required true.
+fn not_required(
+    definition: &BackendDefinition,
+    operator: &str,
+    left: &str,
+    right: &str,
+) -> Predicate {
+    Predicate::Not(std::sync::Arc::new(required(
+        definition, operator, left, right, true,
+    )))
+}
+
+const KEY: &str = "X:SortInt{}";
+
+#[test]
+fn comparisons_of_one_term_with_literals_are_refuted_by_their_bounds() {
+    let definition = definition();
+    let d = &definition;
+    let refuted = |conjuncts: &[Predicate]| contradictory(d, conjuncts);
+    // X >Int 5 beside X <=Int 0: no integer.
+    assert!(refuted(&[
+        required(d, "gtInt", KEY, &int("5"), true),
+        required(d, "leInt", KEY, &int("0"), true),
+    ]));
+    // X >=Int -5 beside X <Int 0: -5 to -1.
+    assert!(!refuted(&[
+        required(d, "geInt", KEY, &int("-5"), true),
+        required(d, "ltInt", KEY, &int("0"), true),
+    ]));
+    // X +Int 1 >Int 5 beside X <Int 3: X > 4 and X < 3.
+    let shifted = format!("addInt{{}}({KEY}, {})", int("1"));
+    assert!(refuted(&[
+        required(d, "gtInt", &shifted, &int("5"), true),
+        required(d, "ltInt", KEY, &int("3"), true),
+    ]));
+    // A shift on the left of `+Int` and through `-Int`: (1 +Int X) -Int 2 <Int 0 beside X >Int 0.
+    let nested = format!("subInt{{}}(addInt{{}}({}, {KEY}), {})", int("1"), int("2"));
+    assert!(refuted(&[
+        required(d, "ltInt", &nested, &int("0"), true),
+        required(d, "gtInt", KEY, &int("0"), true),
+    ]));
+    // A literal on the left mirrors the relation: 5 <Int X beside X <Int 6.
+    assert!(refuted(&[
+        required(d, "ltInt", &int("5"), KEY, true),
+        required(d, "ltInt", KEY, &int("6"), true),
+    ]));
+    // 0 <= X <= 2 with every point excluded; with one point left, not refuted.
+    let interval = |excluded: &[&str]| {
+        let mut conjuncts = vec![
+            required(d, "geInt", KEY, &int("0"), true),
+            required(d, "leInt", KEY, &int("2"), true),
+        ];
+        conjuncts.extend(
+            excluded
+                .iter()
+                .map(|point| required(d, "neInt", KEY, &int(point), true)),
+        );
+        conjuncts
+    };
+    assert!(refuted(&interval(&["0", "1", "2"])));
+    assert!(!refuted(&interval(&["0", "2"])));
+    // An ML equality with a literal: \equals(X, 3) beside X >Int 3.
+    assert!(refuted(&[
+        Predicate::Equals(term(d, KEY), term(d, &int("3"))),
+        required(d, "gtInt", KEY, &int("3"), true),
+    ]));
+    // Literals beyond i64 are read exactly: X >Int 2^70 beside X <=Int 2^70 is empty, X >=Int 2^70
+    // beside X <=Int 2^70 is the point 2^70.
+    let big = "1180591620717411303424";
+    assert!(refuted(&[
+        required(d, "gtInt", KEY, &int(big), true),
+        required(d, "leInt", KEY, &int(big), true),
+    ]));
+    assert!(!refuted(&[
+        required(d, "geInt", KEY, &int(big), true),
+        required(d, "leInt", KEY, &int(big), true),
+    ]));
+    // A partial key shown defined by a comparison required true: (X /Int Y) +Int 1 >Int 5 beside
+    // X /Int Y <Int 3.
+    let quotient = "divInt{}(X:SortInt{}, Y:SortInt{})";
+    let shifted_quotient = format!("addInt{{}}({quotient}, {})", int("1"));
+    assert!(refuted(&[
+        required(d, "gtInt", &shifted_quotient, &int("5"), true),
+        required(d, "ltInt", quotient, &int("3"), true),
+    ]));
+    // A machine-integer or a string comparison bounds no integer: these are not read, although as
+    // integers they would be.
+    let word = |value: &str| format!(r#"\dv{{SortMInt{{Sort8{{}}}}}}("{value}")"#);
+    assert!(!refuted(&[
+        required(d, "ultMInt", "W:SortMInt{Sort8{}}", &word("1p8"), true),
+        Predicate::Equals(term(d, "W:SortMInt{Sort8{}}"), term(d, &word("5p8"))),
+    ]));
+    assert!(!refuted(&[
+        required(
+            d,
+            "ltString",
+            "S:SortString{}",
+            r#"\dv{SortString{}}("b")"#,
+            true
+        ),
+        Predicate::Equals(
+            term(d, "S:SortString{}"),
+            term(d, r#"\dv{SortString{}}("c")"#)
+        ),
+    ]));
+}
+
+/// A `\not` of a comparison also holds where its key is undefined, so it bounds a partial key only
+/// where another conjunct shows the key defined; over a variable, which is always defined, it
+/// bounds the key.
+#[test]
+fn a_negated_comparison_bounds_a_partial_term_only_where_it_is_shown_defined() {
+    let definition = definition();
+    let d = &definition;
+    let quotient = "divInt{}(X:SortInt{}, Y:SortInt{})";
+    let negated = |key: &str| {
+        vec![
+            not_required(d, "gtInt", key, &int("5")),
+            not_required(d, "ltInt", key, &int("6")),
+        ]
+    };
+    // q <=Int 5 and q >=Int 6, each also true where q = X /Int Y is undefined (Y = 0).
+    assert!(!contradictory(d, &negated(quotient)));
+    let mut shown = negated(quotient);
+    shown.push(required(d, "gtInt", quotient, &int("7"), true));
+    assert!(contradictory(d, &shown));
+    assert!(contradictory(d, &negated(KEY)));
 }

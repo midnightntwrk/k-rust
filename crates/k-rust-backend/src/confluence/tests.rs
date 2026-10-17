@@ -820,7 +820,7 @@ fn the_memo_answers_only_within_one_check() {
     }
 }
 
-/// The integers with `>Int` and `<=Int`, a constructor `mk`, a map from `Int` to `Int`, and the
+/// The integers with their comparisons, a constructor `mk`, a map from `Int` to `Int`, and the
 /// declared functions `f : Int -> Int` and `pick : Map -> S`, with `extra`: no equation head and
 /// no overloaded symbol, so nothing a pair could withdraw.
 fn head_free(extra: &str) -> BackendDefinition {
@@ -832,6 +832,10 @@ fn head_free(extra: &str) -> BackendDefinition {
                 [function{{}}(), total{{}}(), hook{{}}("INT.gt"), smt-hook{{}}(">")]
             hooked-symbol leInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
                 [function{{}}(), total{{}}(), hook{{}}("INT.le"), smt-hook{{}}("<=")]
+            hooked-symbol geInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+                [function{{}}(), total{{}}(), hook{{}}("INT.ge"), smt-hook{{}}(">=")]
+            hooked-symbol ltInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+                [function{{}}(), total{{}}(), hook{{}}("INT.lt"), smt-hook{{}}("<")]
             hooked-sort SortMap{{}}
                 [hook{{}}("MAP.Map"), unit{{}}(mapUnit{{}}()), element{{}}(mapItem{{}}()), concat{{}}(mapConcat{{}}())]
             hooked-symbol mapUnit{{}}() : SortMap{{}} [function{{}}(), total{{}}(), hook{{}}("MAP.unit")]
@@ -854,15 +858,26 @@ fn int(value: i64) -> String {
 
 /// `f(X0) = right requires X0 <comparison> bound`, labelled `id`.
 fn f_equation(comparison: &str, bound: i64, right: i64, id: &str) -> String {
+    int_equation("f", "SortInt{}", comparison, bound, &int(right), id)
+}
+
+/// `head(X0) = right requires X0 <comparison> bound` with `head : Int -> result`, labelled `id`.
+fn int_equation(
+    head: &str,
+    result: &str,
+    comparison: &str,
+    bound: i64,
+    right: &str,
+    id: &str,
+) -> String {
     format!(
         r#"axiom{{R}} \implies{{R}}(
             \and{{R}}(
                 \equals{{SortBool{{}}, R}}({comparison}{{}}(X:SortInt{{}}, {}), \dv{{SortBool{{}}}}("true")),
                 \and{{R}}(\in{{SortInt{{}}, R}}(X0:SortInt{{}}, X:SortInt{{}}), \top{{R}}())),
-            \equals{{SortInt{{}}, R}}(f{{}}(X0:SortInt{{}}), \and{{SortInt{{}}}}({}, \top{{SortInt{{}}}}()))
+            \equals{{{result}, R}}({head}{{}}(X0:SortInt{{}}), \and{{{result}}}({right}, \top{{{result}}}()))
         ) [UNIQUE'Unds'ID{{}}("{id}")]"#,
         int(bound),
-        int(right),
     )
 }
 
@@ -1097,6 +1112,68 @@ endmodule []"#).expect("the definition parses"));
     let all = definition.value_claims_in_scope(CheckScope::All);
     let differences = load.claim_differences(&all, &definition);
     assert!(differences.is_empty(), "{differences:?}");
+}
+
+/// Comparisons of one integer term with literals refute a pair whose requires bound it to no
+/// integer, in a definition with nothing to withdraw (under `CheckScope::All`).
+#[test]
+fn a_pair_whose_requires_bound_an_integer_to_nothing_is_refuted() {
+    use super::CheckScope;
+    // `X >Int 5` beside `X <=Int 0`: refuted.
+    let apart = head_free(&format!(
+        "{} {}",
+        f_equation("gtInt", 5, 1, "one"),
+        f_equation("leInt", 0, 2, "two"),
+    ));
+    let all = apart.value_claims_in_scope(CheckScope::All);
+    assert_eq!(
+        (all.counts().pairs, all.counts().refuted),
+        (1, 1),
+        "{:?}",
+        all.counts()
+    );
+    assert!(pairs(&all).is_empty(), "{:?}", all.unjoined());
+    // `X >=Int -5` beside `X <Int 0` overlap on -5 to -1 with different results: not joined.
+    let overlapping = head_free(&format!(
+        "{} {}",
+        f_equation("geInt", -5, 1, "one"),
+        f_equation("ltInt", 0, 2, "two"),
+    ));
+    let all = overlapping.value_claims_in_scope(CheckScope::All);
+    assert_eq!(pairs(&all).len(), 1, "{:?}", all.unjoined());
+}
+
+/// An equation head `wi` whose two equations are separated only by integer bounds keeps its
+/// claims at the load (`CheckScope::Gate`).
+#[test]
+fn an_equation_head_separated_by_integer_bounds_keeps_its_claims() {
+    let head = head_free(&format!(
+        r"symbol wi{{}}(SortInt{{}}) : SortS{{}} [anywhere{{}}()] {} {}",
+        int_equation(
+            "wi",
+            "SortS{}",
+            "gtInt",
+            5,
+            &format!("mk{{}}({})", int(1)),
+            "wi-one"
+        ),
+        int_equation(
+            "wi",
+            "SortS{}",
+            "leInt",
+            0,
+            &format!("mk{{}}({})", int(2)),
+            "wi-two"
+        ),
+    ));
+    let load = head.value_claims();
+    assert!(load.unjoined().is_empty(), "{:?}", load.unjoined());
+    assert!(
+        load.admit(&crate::rule::TermIndex::Symbol("wi".into()))
+            .is_some(),
+        "{:?}",
+        load.tainted_symbols()
+    );
 }
 
 mod review_one;

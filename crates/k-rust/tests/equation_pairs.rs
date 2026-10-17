@@ -298,3 +298,64 @@ fn the_full_check_reports_the_pairs_of_a_definition_with_only_declared_functions
         assert!(pairs.iter().all(|pair| pair.withdrawn.is_empty()));
     }
 }
+
+/// The verdicts of the full check on the pair of `rules` (labelled `a` and `b`), in a definition
+/// with nothing to withdraw: the reasons of the non-joined pairs between them.
+fn reasons_between_a_and_b(rules: &str) -> Vec<UnjoinedReason> {
+    let definition = definition(rules, false);
+    let all = definition.value_claims_in_scope(CheckScope::All);
+    pairs_between(&all, "a", "b")
+        .iter()
+        .map(|pair| pair.reason.clone())
+        .collect()
+}
+
+/// Changing a guard's integer constant keeps a consistent definition shown consistent: the
+/// comparisons of one term with literals bound it to no integer, in every build.
+#[test]
+fn requires_that_bound_one_integer_to_nothing_refute_the_pair() {
+    let declaration = "  syntax Int ::= gn(Int) [function, symbol(gn)]";
+    assert_eq!(
+        reasons_between_a_and_b(&format!(
+            "{declaration}
+  rule [a]: gn(X) => X +Int 1 requires X >Int 5
+  rule [b]: gn(X) => 0 requires X <=Int 0"
+        )),
+        []
+    );
+    assert_eq!(
+        reasons_between_a_and_b(&format!(
+            "{declaration}
+  rule [a]: gn(X) => X +Int 1 requires X >=Int -5
+  rule [b]: gn(X) => 0 requires X <Int 0"
+        )),
+        [UnjoinedReason::ConditionOpen]
+    );
+}
+
+/// Over a partial term `X /Int Y`: complementary comparisons stay refuted by their literals, and
+/// two negated bounds whose definedness arrives only as a sibling conjunct are not refuted.
+#[test]
+fn negated_bounds_of_a_partial_term_are_refuted_only_as_complementary_literals() {
+    let declaration = "  syntax Int ::= gd(Int, Int) [function, symbol(gd)]";
+    assert_eq!(
+        reasons_between_a_and_b(&format!(
+            "{declaration}
+  rule [a]: gd(X, Y) => 1 requires notBool (X /Int Y >Int 5)
+  rule [b]: gd(X, Y) => 2 requires notBool (X /Int Y <=Int 5)"
+        )),
+        []
+    );
+    // A known non-refutation (sound): after simplification the conjuncts are the two negated
+    // bounds `X /Int Y <=Int 5` and `X /Int Y >=Int 6`, each true also where `X /Int Y` is
+    // undefined, and the definedness of `X /Int Y` (`Y =/=Int 0`) is a sibling conjunct that no
+    // syntactic rule links to the quotient, so the bounds are not used.
+    assert_eq!(
+        reasons_between_a_and_b(&format!(
+            "{declaration}
+  rule [a]: gd(X, Y) => 1 requires notBool (X /Int Y >Int 5)
+  rule [b]: gd(X, Y) => 2 requires notBool (X /Int Y <Int 6)"
+        )),
+        [UnjoinedReason::ConditionOpen]
+    );
+}

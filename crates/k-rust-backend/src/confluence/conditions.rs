@@ -18,11 +18,33 @@
 //! - **atoms true on every instance where they are defined**: `K in keys(M)` (`SET.in` of
 //!   `MAP.keys`, or `MAP.in_keys`) where `K` is the key of an entry of the map term `M`, and
 //!   `A ==K A`. Required false, such an atom makes the conjunction false wherever it is defined,
-//!   and undefined elsewhere: a condition holds only where it is defined and true.
+//!   and undefined elsewhere: a condition holds only where it is defined and true;
+//! - **integer bounds**: the conjuncts that compare one integer term, the *key*, up to literal
+//!   offsets (`key +Int c`, `c +Int key`, `key -Int c`, nested), with an integer literal state
+//!   that the key lies in an interval with optional ends minus finitely many points. `Int` is the
+//!   unbounded integers and `INT.lt`, `le`, `gt`, `ge`, `eq`, `ne` are total and exact, and
+//!   `+Int` and `-Int` are total, so `key +Int c` is defined exactly where the key is and the set
+//!   is exact; over the integers it is empty exactly when the interval is empty, or finite with
+//!   every point excluded. The conjunction is refuted when one key's set is empty. Keys are
+//!   decided independently, and a comparison of two non-literal terms bounds neither: sound, not
+//!   complete for related keys (`X <Int Y` beside `Y <Int X` is not refuted).
+//!
+//! Definedness of a key: a conjunct requiring a comparison atom true or false (`\equals(b, true)`,
+//! `\equals(b, false)`, or `b` itself) holds only where `b` is defined, hence where the key is;
+//! so does an ML `\equals(t, c)` with an integer literal `c`. A `\not(...)` of such a conjunct
+//! also holds where the key is undefined, so its bound is used only when the key is `ceil_free`
+//! or another conjunct shows it defined; ignoring a conjunct only weakens the conjunction.
+//! After simplification the definedness of a partial key often arrives as a sibling conjunct
+//! that no syntactic rule links to the key (`Y =/=Int 0` for `X /Int Y`), so
+//! `notBool (X /Int Y >Int 5)` beside `notBool (X /Int Y <Int 6)` is not refuted: a known
+//! non-refutation, sound.
 //!
 //! Every remaining conjunct `X = t` (a variable equal to a term without `X`) is an equality every
 //! instance satisfying the conditions has, which the join may apply (`confluence.rs`).
 
+use std::collections::BTreeSet;
+
+use num_bigint::BigInt;
 use rustc_hash::FxHashMap;
 
 use crate::{
@@ -42,8 +64,9 @@ enum Atom {
     Other(Term),
 }
 
-/// Whether the conjuncts are contradictory by complementary literals or by an atom required false
-/// that holds wherever it is defined, the domain kinds of their sorts read in `definition`.
+/// Whether the conjuncts are contradictory by complementary literals, by an atom required false
+/// that holds wherever it is defined, or by the integer bounds of one key, the domain kinds of
+/// their sorts read in `definition`.
 pub(super) fn contradictory(definition: &BackendDefinition, conjuncts: &[Predicate]) -> bool {
     let mut seen = FxHashMap::<Atom, bool>::default();
     for conjunct in conjuncts {
@@ -65,7 +88,233 @@ pub(super) fn contradictory(definition: &BackendDefinition, conjuncts: &[Predica
             }
         }
     }
-    false
+    integer_bounds_empty(definition, conjuncts)
+}
+
+/// The integers a key may take under the conjuncts that compare it with literals: an interval
+/// with optional ends, minus finitely many excluded points.
+#[derive(Default)]
+struct Bounds {
+    lower: Option<BigInt>,
+    upper: Option<BigInt>,
+    excluded: BTreeSet<BigInt>,
+}
+
+impl Bounds {
+    fn constrain(&mut self, relation: Relation, value: BigInt) {
+        let at_least = |bounds: &mut Self, value: BigInt| {
+            if bounds.lower.as_ref().is_none_or(|lower| *lower < value) {
+                bounds.lower = Some(value);
+            }
+        };
+        let at_most = |bounds: &mut Self, value: BigInt| {
+            if bounds.upper.as_ref().is_none_or(|upper| *upper > value) {
+                bounds.upper = Some(value);
+            }
+        };
+        match relation {
+            Relation::Less => at_most(self, value - 1),
+            Relation::LessEqual => at_most(self, value),
+            Relation::Greater => at_least(self, value + 1),
+            Relation::GreaterEqual => at_least(self, value),
+            Relation::Equal => {
+                at_least(self, value.clone());
+                at_most(self, value);
+            }
+            Relation::NotEqual => {
+                self.excluded.insert(value);
+            }
+        }
+    }
+
+    /// Whether no integer is within the bounds: the interval is empty, or finite with each of its
+    /// points excluded. The walk over the points runs only when the interval has at most as many
+    /// points as are excluded.
+    fn empty(&self) -> bool {
+        let (Some(lower), Some(upper)) = (&self.lower, &self.upper) else {
+            return false;
+        };
+        if lower > upper {
+            return true;
+        }
+        if BigInt::from(self.excluded.len()) < upper - lower + 1 {
+            return false;
+        }
+        let mut point = lower.clone();
+        while &point <= upper {
+            if !self.excluded.contains(&point) {
+                return false;
+            }
+            point += 1;
+        }
+        true
+    }
+}
+
+/// `key <relation> literal`.
+#[derive(Clone, Copy, Debug)]
+enum Relation {
+    Less,
+    LessEqual,
+    Greater,
+    GreaterEqual,
+    Equal,
+    NotEqual,
+}
+
+impl Relation {
+    /// The relation that holds exactly where this one fails, on defined operands.
+    fn negated(self) -> Self {
+        match self {
+            Self::Less => Self::GreaterEqual,
+            Self::LessEqual => Self::Greater,
+            Self::Greater => Self::LessEqual,
+            Self::GreaterEqual => Self::Less,
+            Self::Equal => Self::NotEqual,
+            Self::NotEqual => Self::Equal,
+        }
+    }
+
+    /// The relation with its operands swapped: `a < b` is `b > a`.
+    fn mirrored(self) -> Self {
+        match self {
+            Self::Less => Self::Greater,
+            Self::LessEqual => Self::GreaterEqual,
+            Self::Greater => Self::Less,
+            Self::GreaterEqual => Self::LessEqual,
+            Self::Equal | Self::NotEqual => self,
+        }
+    }
+}
+
+/// `term` as `key + offset`, peeling `+Int` with an integer literal on either side and `-Int`
+/// with one on the right (both total, so the sum is defined exactly where `key` is); `None` for
+/// an integer literal, which has no key.
+fn shifted(term: &Term) -> Option<(Term, BigInt)> {
+    if crate::builtin::read_int(term).is_some() {
+        return None;
+    }
+    let peeled = match hooked(term) {
+        Some(("INT.add", [left, right])) => match (
+            crate::builtin::read_int(left),
+            crate::builtin::read_int(right),
+        ) {
+            (None, Some(value)) => Some((left, value)),
+            (Some(value), None) => Some((right, value)),
+            _ => None,
+        },
+        Some(("INT.sub", [left, right])) => {
+            crate::builtin::read_int(right).map(|value| (left, -value))
+        }
+        _ => None,
+    };
+    match peeled {
+        Some((inner, offset)) => {
+            let (key, inner_offset) = shifted(inner)?;
+            Some((key, inner_offset + offset))
+        }
+        None => Some((term.clone(), BigInt::from(0))),
+    }
+}
+
+/// `left <relation> right` as `key <relation'> literal`, when one side is an integer literal and
+/// the other a shifted key; `None` when both or neither are literals.
+fn compared(left: &Term, relation: Relation, right: &Term) -> Option<(Term, Relation, BigInt)> {
+    match (
+        crate::builtin::read_int(left),
+        crate::builtin::read_int(right),
+    ) {
+        (None, Some(value)) => {
+            let (key, offset) = shifted(left)?;
+            Some((key, relation, value - offset))
+        }
+        (Some(value), None) => {
+            let (key, offset) = shifted(right)?;
+            Some((key, relation.mirrored(), value - offset))
+        }
+        _ => None,
+    }
+}
+
+/// The integer constraint `key <relation> literal` a conjunct states, and whether the conjunct
+/// holding shows its key defined (module documentation, "Definedness of a key").
+fn integer_constraint(
+    definition: &BackendDefinition,
+    conjunct: &Predicate,
+) -> Option<(Term, Relation, BigInt, bool)> {
+    let (mut term, mut polarity) = match conjunct {
+        Predicate::Not(inner) => {
+            let (key, relation, value, _) = integer_constraint(definition, inner)?;
+            return Some((key, relation.negated(), value, false));
+        }
+        Predicate::Equals(left, right) => {
+            match (boolean(definition, left), boolean(definition, right)) {
+                (Some(value), None) => (right.clone(), value),
+                (None, Some(value)) => (left.clone(), value),
+                (None, None) => {
+                    let (key, relation, value) = compared(left, Relation::Equal, right)?;
+                    return Some((key, relation, value, true));
+                }
+                (Some(_), Some(_)) => return None,
+            }
+        }
+        Predicate::Term(term) => (term.clone(), true),
+        _ => return None,
+    };
+    while let Some(("BOOL.not", [inner])) = hooked(&term) {
+        let inner = inner.clone();
+        term = inner;
+        polarity = !polarity;
+    }
+    let Some((hook, [left, right])) = hooked(&term) else {
+        return None;
+    };
+    let relation = match hook {
+        "INT.lt" if super::switches::active().misread_interval_bound => Relation::LessEqual,
+        "INT.lt" => Relation::Less,
+        "INT.le" => Relation::LessEqual,
+        "INT.gt" => Relation::Greater,
+        "INT.ge" => Relation::GreaterEqual,
+        "INT.eq" => Relation::Equal,
+        "INT.ne" => Relation::NotEqual,
+        _ => return None,
+    };
+    let relation = if polarity {
+        relation
+    } else {
+        relation.negated()
+    };
+    let (key, relation, value) = compared(left, relation, right)?;
+    Some((key, relation, value, true))
+}
+
+/// Whether the conjuncts that compare one integer key with integer literals leave that key no
+/// integer value (module documentation, "integer bounds"). A key's constraints are used only
+/// when some conjunct shows it defined or it is `ceil_free`: otherwise a `\not` constraint also
+/// holds where the key is undefined, which no interval describes.
+fn integer_bounds_empty(definition: &BackendDefinition, conjuncts: &[Predicate]) -> bool {
+    let mut constraints = FxHashMap::<Term, (bool, Vec<(Relation, BigInt)>)>::default();
+    for conjunct in conjuncts {
+        let Some((key, relation, value, shows_defined)) = integer_constraint(definition, conjunct)
+        else {
+            continue;
+        };
+        let entry = constraints.entry(key).or_default();
+        entry.0 |= shows_defined;
+        entry.1.push((relation, value));
+    }
+    constraints
+        .into_iter()
+        .any(|(key, (shown_defined, found))| {
+            if !shown_defined && !key.attributes().ceil_free() {
+                return false;
+            }
+            let mut bounds = Bounds::default();
+            for (relation, value) in found {
+                bounds.constrain(relation, value);
+            }
+            bounds.empty()
+        })
 }
 
 /// The equalities `X = t` among the conjuncts, as one idempotent substitution: each conjunct
