@@ -37,6 +37,13 @@ use std::path::Path;
 use std::sync::OnceLock;
 
 /// The memory this process may use, in bytes, and which limit sets it.
+///
+/// Whether a hook bounded by the allowance refuses a result is decided by [`Allowance::bytes`]
+/// alone (beside the result's length and the build's fixed target cap); [`Allowance::source`]
+/// only names the limit in the refusal's text. Equality compares both, and the source names a
+/// host's cgroup, so a host that reuses results compares `bytes()`, never the allowances: a
+/// result that carries no refusal is the same under every allowance with at least as many bytes
+/// (docs/compatibility.md, "Determinism and concurrency", "Execute").
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Allowance {
     bytes: u64,
@@ -77,12 +84,21 @@ impl Allowance {
         ALLOWANCE.get_or_init(|| smallest(probe()))
     }
 
-    /// The memory the process may use, in bytes.
+    /// An allowance of `bytes` set by `source`, so that a test can compare two allowances that
+    /// differ only in the limit they name.
+    #[cfg(test)]
+    pub(crate) const fn with_source(bytes: u64, source: AllowanceSource) -> Self {
+        Self { bytes, source }
+    }
+
+    /// The memory the process may use, in bytes: the only part of the allowance that decides
+    /// whether a hook refuses a result, so the part a host records with a result and compares.
     pub const fn bytes(&self) -> u64 {
         self.bytes
     }
 
-    /// The limit that sets it.
+    /// The limit that sets it. It decides no result: it names the limit in a refusal's text and
+    /// in diagnostics, and it differs between hosts and between processes on one host.
     pub const fn source(&self) -> &AllowanceSource {
         &self.source
     }
