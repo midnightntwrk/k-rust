@@ -18,7 +18,7 @@ use k_rust_backend::{
 };
 use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
-use crate::support::internal_term;
+use crate::support::{condition_exhausted, internal_term, rule, search_definition};
 
 const MODALITIES: [ResultModality; 2] = [ResultModality::PathSet, ResultModality::StateSet];
 
@@ -277,6 +277,60 @@ fn a_work_budget_stops_a_branching_run_at_the_same_state() {
              {unbounded:#?}"
         );
     }
+}
+
+/// Under `StateSet` a leaf finished before the stop carries only the diagnostics of the paths
+/// merged into it before the stop, and a larger budget adds the later ones: `start` reaches the
+/// clean `c` (`to-c`) first, then `c` again through `norm(a)` (`to-norm`), whose evaluation
+/// exhausts the simplification budget on `norm-c`'s condition. The unbounded state-set leaf
+/// carries those diagnostics; a budget that stops the run after the first `c` reports it without
+/// them, a prefix of the unbounded result with strictly fewer diagnostics.
+#[test]
+fn a_state_set_leaf_finished_before_the_stop_gains_the_diagnostics_of_later_merged_paths() {
+    let definition = search_definition(
+        &[
+            rule("to-c", "start{}()", "c{}()"),
+            rule("to-norm", "start{}()", "norm{}(a{}())"),
+        ]
+        .concat(),
+    );
+    let initial = pattern(&definition, "start{}()");
+    let condition = condition_exhausted(&definition, "norm-c", 3);
+    let run = |max_work| {
+        execute(
+            &definition,
+            initial.clone(),
+            ExecutionOptions {
+                max_simplification_iterations: 3,
+                ..options(ResultModality::StateSet, max_work)
+            },
+        )
+    };
+    let unbounded = run(None);
+    let [leaf] = unbounded.leaves.as_slice() else {
+        panic!("one merged leaf expected: {:#?}", unbounded.leaves);
+    };
+    assert_eq!(leaf.halt_reason, HaltReason::Stuck);
+    assert_eq!(leaf.diagnostics, condition);
+    let mut grew = false;
+    for k in 0..unbounded.work {
+        let bounded = run(Some(k));
+        let (last, before) = bounded.leaves.split_last().expect("a leaf");
+        assert_eq!(last.halt_reason, HaltReason::WorkBound, "k = {k}");
+        assert_prefix(
+            ResultModality::StateSet,
+            before,
+            &unbounded.leaves,
+            &format!("k = {k}"),
+        );
+        grew |= before
+            .first()
+            .is_some_and(|leaf| leaf.diagnostics.len() < unbounded.leaves[0].diagnostics.len());
+    }
+    assert!(
+        grew,
+        "some budget stops the run after the clean leaf and before the diagnosed path"
+    );
 }
 
 /// The edges of `levels` chained diamonds, each with two routes to the next one and one stuck

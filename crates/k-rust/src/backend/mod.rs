@@ -325,9 +325,8 @@ pub struct ExecuteRequest {
     /// Every leaf finished before the `work-bound` leaf is a leaf of every run of the same
     /// request with a larger budget or none, at the same position: the result without its
     /// `work-bound` leaf is a prefix of theirs. Under `path-set` the leaf is the same in every
-    /// field; under `state-set` it has the same state, depth, halt reason, rule, trace, branch,
-    /// effects and console, and its diagnostics are among the larger run's (a later path merged
-    /// into it adds its own). This holds within the determinism contract above
+    /// field; under `state-set` it is the same in every field but its diagnostics, which are among
+    /// the larger run's (a later path merged into it adds its own). This holds within the determinism contract above
     /// (docs/compatibility.md, "Work budget").
     #[serde(default)]
     pub max_work: Option<u64>,

@@ -622,9 +622,8 @@ pub struct ExecutionOptions {
     /// Every leaf finished before the [`HaltReason::WorkBound`] leaf is a leaf of every run of the
     /// same request with a larger budget or none, at the same position: the result without its
     /// `WorkBound` leaf is a prefix of theirs. Under `PathSet` the leaf is the same in every
-    /// field; under `StateSet` it has the same pattern, depth, halt reason, trace, branch, effects
-    /// and console, and its diagnostics are among the larger run's (a later path merged into it
-    /// adds its own). This holds within the determinism contract above (docs/compatibility.md,
+    /// field; under `StateSet` it is the same in every field but its diagnostics, which are among
+    /// the larger run's (a later path merged into it adds its own). This holds within the determinism contract above (docs/compatibility.md,
     /// "Work budget").
     pub max_work: Option<u64>,
     /// Build no result after a stop that ends the run (a cancellation, a failed solver prelude),

@@ -11,7 +11,7 @@
 use k_rust::{
     backend::{
         Backend, BackendOptions, ExecuteRequest, ExecutionResult, HaltReasonOutput,
-        ResultModalityOutput,
+        ObservedRequest, ResultModalityOutput,
     },
     builtin::embedded,
     kast::Sort,
@@ -81,21 +81,39 @@ fn compile(source: &str, main: &str, program: &str) -> (String, Pattern) {
     (artifacts.definition_kore, assembler.finish().unwrap())
 }
 
-fn run(
+/// The request options a sweep varies besides the modality and the budget.
+#[derive(Clone, Copy, Debug, Default)]
+struct Shape {
+    max_depth: Option<u64>,
+    max_breadth: Option<usize>,
+    /// Run through `execute_observed` with every rule observed.
+    observed: bool,
+}
+
+fn run_shaped(
     backend: &mut Backend,
     initial: &Pattern,
     modality: ResultModalityOutput,
-    max_depth: Option<u64>,
+    shape: Shape,
     max_work: Option<u64>,
 ) -> ExecutionResult {
-    backend
-        .execute(ExecuteRequest {
-            max_depth,
-            max_work,
-            result_modality: modality,
-            ..ExecuteRequest::new(initial.clone())
-        })
-        .unwrap()
+    let request = ExecuteRequest {
+        max_depth: shape.max_depth,
+        max_breadth: shape.max_breadth,
+        max_work,
+        result_modality: modality,
+        ..ExecuteRequest::new(initial.clone())
+    };
+    if shape.observed {
+        backend
+            .execute_observed(ObservedRequest {
+                request,
+                rules: None,
+            })
+            .unwrap()
+    } else {
+        backend.execute(request).unwrap()
+    }
 }
 
 /// A leaf as JSON, and the same leaf without its diagnostics.
@@ -122,8 +140,24 @@ fn assert_prefix_contract(
     modality: ResultModalityOutput,
     max_depth: Option<u64>,
 ) -> ExecutionResult {
-    let context = format!("{name}, {modality:?}, maxDepth {max_depth:?}");
-    let unbounded = run(backend, initial, modality, max_depth, None);
+    let shape = Shape {
+        max_depth,
+        ..Shape::default()
+    };
+    assert_shaped_prefix_contract(name, backend, initial, modality, shape)
+}
+
+/// [`assert_prefix_contract`] for a request of the given shape. Under `path-set` the leaves are
+/// compared in every field, which includes an observed run's branch identities and observations.
+fn assert_shaped_prefix_contract(
+    name: &str,
+    backend: &mut Backend,
+    initial: &Pattern,
+    modality: ResultModalityOutput,
+    shape: Shape,
+) -> ExecutionResult {
+    let context = format!("{name}, {modality:?}, {shape:?}");
+    let unbounded = run_shaped(backend, initial, modality, shape, None);
     assert!(
         unbounded
             .leaves
@@ -133,7 +167,7 @@ fn assert_prefix_contract(
     );
     let work = unbounded.work;
     for budget in 0..=work + 1 {
-        let bounded = run(backend, initial, modality, max_depth, Some(budget));
+        let bounded = run_shaped(backend, initial, modality, shape, Some(budget));
         let context = format!("{context}, maxWork {budget}");
         if budget >= work {
             assert_eq!(
@@ -183,27 +217,72 @@ fn reasons(result: &ExecutionResult) -> Vec<HaltReasonOutput> {
 /// The absorb shape, with `a`'s two rules in either order, in both modalities, with and without
 /// a depth bound: the leaves before the `work-bound` leaf are the first leaves of the unbounded
 /// run at every budget. Under `maxDepth` 4 the path-set result holds a finished `depth-bound`
-/// leaf, so a bound leaf finished before the stop is covered too.
+/// leaf, so a bound leaf finished before the stop is covered too, and with `b` first the
+/// state-set result merged it (it has fewer leaves). Under `maxDepth` 4 the sweep also runs with
+/// `maxBreadth` 1, whose drain ends the run in `breadth-bound` leaves, and 2, which the run never
+/// exceeds, and observed, with every rule's transitions in the leaves.
 #[test]
 fn the_leaves_before_a_work_bound_leaf_are_a_prefix_of_every_larger_budget_result() {
+    let depth_four = Shape {
+        max_depth: Some(4),
+        ..Shape::default()
+    };
+    let shapes = [
+        depth_four,
+        Shape::default(),
+        Shape {
+            max_breadth: Some(1),
+            ..depth_four
+        },
+        Shape {
+            max_breadth: Some(2),
+            ..depth_four
+        },
+        Shape {
+            observed: true,
+            ..depth_four
+        },
+    ];
     for (variant, a_rules) in [
         ("b first", "rule a(K) => b(K)\n  rule a(K) => c(K)"),
         ("c first", "rule a(K) => c(K)\n  rule a(K) => b(K)"),
     ] {
         let (kore, initial) = compile(&ABSORB.replace("{A_RULES}", a_rules), "ABSORB", "s(3)");
         let mut backend = Backend::new(&kore, "ABSORB", BackendOptions::default()).unwrap();
-        for modality in MODALITIES {
-            for max_depth in [Some(4), None] {
-                let unbounded =
-                    assert_prefix_contract(variant, &mut backend, &initial, modality, max_depth);
-                if modality == ResultModalityOutput::PathSet && max_depth.is_some() {
-                    let reasons = reasons(&unbounded);
+        for shape in shapes {
+            let [path_set, state_set] = MODALITIES.map(|modality| {
+                assert_shaped_prefix_contract(variant, &mut backend, &initial, modality, shape)
+            });
+            let path_reasons = reasons(&path_set);
+            if let Some(breadth) = shape.max_breadth {
+                // The run's worklist holds at most two states (`a(4)`'s two successors), so only a
+                // bound of 1 drains it; a bound of 2 is never exceeded.
+                assert_eq!(
+                    path_reasons.contains(&HaltReasonOutput::BreadthBound),
+                    breadth == 1,
+                    "{variant}, maxBreadth {breadth}: {path_reasons:?}"
+                );
+            } else if shape.max_depth.is_some() {
+                assert!(
+                    path_reasons.contains(&HaltReasonOutput::Stuck)
+                        && path_reasons.contains(&HaltReasonOutput::DepthBound),
+                    "{variant}: {path_reasons:?}"
+                );
+                if variant == "b first" {
                     assert!(
-                        reasons.contains(&HaltReasonOutput::Stuck)
-                            && reasons.contains(&HaltReasonOutput::DepthBound),
-                        "{variant}: {reasons:?}"
+                        state_set.leaves.len() < path_set.leaves.len(),
+                        "{variant}, {shape:?}: the state set merged the bound leaf"
                     );
                 }
+            }
+            if shape.observed {
+                assert!(
+                    path_set
+                        .leaves
+                        .iter()
+                        .all(|leaf| !leaf.observations.is_empty()),
+                    "{variant}: observed leaves carry their transitions"
+                );
             }
         }
     }
