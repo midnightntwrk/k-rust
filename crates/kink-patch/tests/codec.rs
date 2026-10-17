@@ -6,8 +6,8 @@ use k_rust::{
     kast::{Sort, Term},
 };
 use kink_patch::{
-    Baseline, CodecError, Edit, InsertPosition, Patch, TermRef, apply, canonical_json,
-    structure_sha256,
+    Baseline, CodecError, Edit, InsertPosition, JsonError, MAX_JSON_DEPTH, Patch, TermRef, apply,
+    canonical_json, json_depth, parse_json, structure_sha256, value_depth,
 };
 use serde_json::{Value, json};
 
@@ -278,6 +278,146 @@ fn deep_terms_round_trip_past_serde_jsons_recursion_limit() {
                     let patch = Patch::new(vec![edit]).unwrap().pinned(&baseline).unwrap();
                     round_trip(&patch);
                 }
+            }
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+/// A Peano numeral `depth` levels above `z`.
+fn numeral(depth: usize) -> Term {
+    let mut deep = Term::apply("z", vec![]);
+    for _ in 0..depth {
+        deep = Term::apply("s", vec![deep]);
+    }
+    deep
+}
+
+/// Re-pin L1-3-fix-2 (review L1-3-2 D3): a patch is encoded and decoded on a stack sized from its
+/// depth, so a thread whose stack the depth exceeds gives the text, decoding and digest a 256 MiB
+/// thread gives. A term 20,000 levels deep took about 78 MB of stack to encode unoptimized, and
+/// on this 4 MiB thread the fix-1 codec aborted the process.
+#[test]
+fn a_deep_patch_encodes_and_decodes_alike_on_a_thread_too_small_for_it() {
+    const DEPTH: usize = 20_000;
+    let (patches, texts) = std::thread::Builder::new()
+        .stack_size(256 << 20)
+        .spawn(|| {
+            let baseline = support::load("counter.k");
+            let at = support::rule(&baseline, "COUNTER.increment");
+            let target = TermRef::new(at.clone(), [1]);
+            let mut sentence = baseline.sentence(&at).unwrap().clone();
+            let Sentence::Rule { requires, .. } = &mut sentence else {
+                panic!("a rule");
+            };
+            *requires = numeral(DEPTH);
+            let patches = [
+                Edit::ReplaceTerm {
+                    at: target.clone(),
+                    expected: baseline.term(&target).unwrap().clone(),
+                    replacement: numeral(DEPTH),
+                },
+                Edit::ReplaceSentence {
+                    at,
+                    replacement: sentence,
+                },
+            ]
+            .map(|edit| Patch::new(vec![edit]).unwrap().pinned(&baseline).unwrap());
+            let texts = patches
+                .iter()
+                .map(|patch| patch.canonical_json().unwrap())
+                .collect::<Vec<_>>();
+            (patches, texts)
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+    for (patch, text) in patches.into_iter().zip(texts) {
+        assert!(json_depth(&text) > 2 * DEPTH, "{}", json_depth(&text));
+        let expected_digest =
+            kink_patch::payload_digest(kink_patch::CANONICAL_PATCH_DOMAIN, text.as_bytes());
+        std::thread::Builder::new()
+            .stack_size(4 << 20)
+            .spawn(move || {
+                assert_eq!(patch.canonical_json().unwrap(), text);
+                assert_eq!(patch.digest().unwrap(), expected_digest);
+                let read = Patch::from_canonical_json(&text).unwrap();
+                assert!(read == patch);
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+}
+
+/// Re-pin L1-3-fix-2 (review L1-3-2 D3): `parse_json` parses a document exactly
+/// `MAX_JSON_DEPTH` levels deep and refuses one level more as `TooDeep`, before parsing any of
+/// it, where the fix-1 parser had no bound and aborted the process on a deep enough document.
+/// The patch codec refuses such a document by the same limit. Brackets inside strings are not
+/// nesting. On a 256 MiB thread, as kink's commands run (the parsed document is dropped there).
+#[test]
+fn parse_json_refuses_one_level_past_its_limit() {
+    std::thread::Builder::new()
+        .stack_size(256 << 20)
+        .spawn(|| {
+            let nested = |depth: usize| format!("{}{}", "[".repeat(depth), "]".repeat(depth));
+            let at_limit = nested(MAX_JSON_DEPTH);
+            let value = parse_json(&at_limit).unwrap();
+            assert_eq!(value_depth(&value), MAX_JSON_DEPTH);
+            assert_eq!(canonical_json(&value), at_limit);
+            drop(value);
+            let past = nested(MAX_JSON_DEPTH + 1);
+            let refused = parse_json(&past).unwrap_err();
+            assert!(
+                matches!(refused, JsonError::TooDeep { depth, limit }
+                    if depth == MAX_JSON_DEPTH + 1 && limit == MAX_JSON_DEPTH),
+                "{refused:?}"
+            );
+            assert!(refused.to_string().contains("MAX_JSON_DEPTH"), "{refused}");
+            assert_eq!(
+                Patch::from_canonical_json(&past),
+                Err(CodecError::TooDeep {
+                    depth: MAX_JSON_DEPTH + 1,
+                    limit: MAX_JSON_DEPTH
+                })
+            );
+            assert_eq!(json_depth(r#"["[[[\"", {"a":"]]{"}, [[]]]"#), 3);
+            assert!(matches!(parse_json("[[1]"), Err(JsonError::Syntax(_))));
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+/// Re-pin L1-3-fix-2: a patch whose document would nest past `MAX_JSON_DEPTH` (a term half as
+/// deep: KAST JSON takes two levels per term level) has no encoding, and the refusal names kink's
+/// limit (`TooDeep`), not a malformed patch.
+#[test]
+fn a_patch_past_the_document_limit_is_refused_as_too_deep() {
+    std::thread::Builder::new()
+        .stack_size(256 << 20)
+        .spawn(|| {
+            let baseline = support::load("counter.k");
+            let at = support::rule(&baseline, "COUNTER.increment");
+            let target = TermRef::new(at, [1]);
+            let patch = Patch::new(vec![Edit::ReplaceTerm {
+                at: target.clone(),
+                expected: baseline.term(&target).unwrap().clone(),
+                replacement: numeral(MAX_JSON_DEPTH / 2),
+            }])
+            .unwrap()
+            .pinned(&baseline)
+            .unwrap();
+            for refused in [
+                patch.canonical_json().map(|_| ()),
+                patch.digest().map(|_| ()),
+            ] {
+                assert!(
+                    matches!(refused, Err(CodecError::TooDeep { depth, limit })
+                        if depth > MAX_JSON_DEPTH && limit == MAX_JSON_DEPTH),
+                    "{refused:?}"
+                );
             }
         })
         .unwrap()

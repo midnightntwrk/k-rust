@@ -1106,6 +1106,8 @@ fn every_reason_is_produced_or_listed_as_defensive() {
         SourceViewMismatch,
         MarkdownEnvelope,
         SpanChanged,
+        // Re-pin L1-3-fix-2: produced by tests/deep_rules.rs.
+        EditedRuleTooDeep,
     ];
     let all = produced
         .iter()
@@ -1120,7 +1122,7 @@ fn every_reason_is_produced_or_listed_as_defensive() {
             | LineAmbiguous | AddressMismatch | NonRuleSentence | NoUsableSpan | FindNotFound
             | FindAmbiguous | EditOutsideRule | OverlappingEdits | SourceChanged
             | EditedLoadFailed | StructureChanged | LabelChanged | NoChange | PatchRejected
-            | SourceViewMismatch | MarkdownEnvelope | SpanChanged => {}
+            | SourceViewMismatch | MarkdownEnvelope | SpanChanged | EditedRuleTooDeep => {}
         }
     }
 }

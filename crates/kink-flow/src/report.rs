@@ -574,7 +574,7 @@ fn read_report(path: &Path) -> Result<Value, (&'static str, String)> {
             format!("no run report ({e}): run `kink-flow run FLOW.toml MUTATIONS.toml` first"),
         )
     })?;
-    let document = serde_json::from_str::<Value>(&text)
+    let document = kink_patch::parse_json(&text)
         .map_err(|e| ("unreadable", format!("the report is not JSON: {e}")))?;
     if document["schema"] != RUN_SCHEMA || document["version"] != RUN_VERSION {
         return Err((

@@ -46,9 +46,9 @@ use k_rust::{
 };
 use kink_corpus::{LoadedSource, resolver::load_source_with_overlay};
 use kink_patch::{
-    Baseline, Bindings, CandidateDisposition, CandidateGeneration, Discovery, DiscoveryTuple, Edit,
-    POSITION_KEYS, Patch, SelectionPolicy, SentenceFingerprint, SentenceRef, Sha256Digest, Site,
-    TermRef, select, sha256,
+    Baseline, Bindings, CandidateDisposition, CandidateGeneration, CodecError, Discovery,
+    DiscoveryTuple, Edit, POSITION_KEYS, Patch, SelectionPolicy, SentenceFingerprint, SentenceRef,
+    Sha256Digest, Site, TermRef, select, sha256,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -364,6 +364,12 @@ pub enum InvalidReason {
     /// accepts (`CellCompletion`, and a least upper bound that a second common supersort in the
     /// main module makes non-unique; review L2-2-review-1, probes lub, lubbase and lubmain).
     PatchRejected,
+    /// An edited rule is too deep for kink: its patch's document would nest deeper than
+    /// kink-patch `MAX_JSON_DEPTH` (two JSON levels per term level: terms about 64,000 levels
+    /// deep in an unoptimized build, 300,000 in an optimized one), so the mutation has no
+    /// encoding and no identity. It is kink's limit, not a fault of the mutation (re-pin
+    /// L1-3-fix-2; before, such a rule aborted the process in typing, review L1-3-2 D1).
+    EditedRuleTooDeep,
 }
 
 impl InvalidReason {
@@ -391,6 +397,7 @@ impl InvalidReason {
             Self::SpanChanged => "span-changed",
             Self::NoChange => "no-change",
             Self::PatchRejected => "patch-rejected",
+            Self::EditedRuleTooDeep => "edited-rule-too-deep",
         }
     }
 }
@@ -1117,7 +1124,18 @@ pub fn resolve(
         .map_err(|e| rejected(e.to_string()))?
         .pinned(baseline)
         .map_err(|e| rejected(e.to_string()))?;
-    let digest = patch.digest().map_err(|e| rejected(e.to_string()))?;
+    let digest = patch.digest().map_err(|e| match e {
+        CodecError::TooDeep { depth, limit } => InvalidMutation {
+            edit: whole(),
+            reason: InvalidReason::EditedRuleTooDeep,
+            detail: format!(
+                "the patch's JSON nests at least {depth} levels deep (two per term level), more \
+                 than kink's limit of {limit} in this build (kink-patch MAX_JSON_DEPTH); this is \
+                 kink's limit, not a fault of the mutation: a shallower edit is judged"
+            ),
+        },
+        other => rejected(other.to_string()),
+    })?;
     let edited_views = edited_files
         .into_iter()
         .map(|(name, file)| (name, file.edited_view))

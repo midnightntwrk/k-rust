@@ -7,6 +7,7 @@
 //! kill trusts"). kink-flow's text edits are parsed by K's parser before they become a patch.
 
 use crate::failure::{PatchFailure, PatchFailureKind};
+use crate::stack::{TYPING_STACK_PER_LEVEL, sentence_depth, with_stack};
 use crate::typing::CompilationTyping;
 use crate::{Baseline, Edit, InsertPosition, Patch, Region, SentenceRef, Target, path_in};
 use k_rust::definition::{AttributeKey, Definition, ResolvedDefinition, Sentence, sentence_mut};
@@ -272,6 +273,15 @@ fn preflight(baseline: &Baseline, edit: &Edit) -> Result<(), PatchFailure> {
 /// common supersort in the main module makes non-unique (`Sort`; review L2-2-review-1, probes
 /// lubbase and lubmain). Before L2-2 every error of the declaring module's view refused the
 /// patch, and at L2-2 a `Sort` or `SemanticCasts` error of compilation's view did.
+///
+/// The typing recurses once per level of the rule's terms, with no stack guard in k-rust (about
+/// 2 KiB per level), so it runs on a stack sized from the rule's deepest term (`stack`, re-pin
+/// L1-3-fix-2): on the calling thread, it aborted the process near 230,000 levels on kink's
+/// 256 MiB thread and near 1,500 on a worker's default stack (reviews L1-3-1 D1, L1-3-2 D1).
+/// The typing a rule gets is therefore a function of the rule, not of the thread. A rule too
+/// deep for the largest segment kink maps (over about a million levels), or one whose segment
+/// the system refuses, is not typed, and the diagnostic says so; that refuses nothing, as no
+/// typing error does, so [`PATCH_ADMISSION_VERSION`] is unchanged (before, such a rule aborted).
 fn typing_diagnostics(
     definition: &Definition,
     resolved: &ResolvedDefinition,
@@ -308,14 +318,21 @@ fn typing_diagnostics(
         ) {
             continue;
         }
-        let typing = typing.get_or_insert_with(|| CompilationTyping::new(resolved));
-        if let Some(error) = typing.error(sentence, &at.module) {
-            diagnostics.push(TypingDiagnostic {
-                at: at.clone(),
-                origin: origin.clone(),
-                message: error.to_string(),
-            });
-        }
+        let typing: &CompilationTyping<'_> =
+            typing.get_or_insert_with(|| CompilationTyping::new(resolved));
+        let typed = with_stack(sentence_depth(sentence), TYPING_STACK_PER_LEVEL, || {
+            typing.error(sentence, &at.module)
+        });
+        let message = match typed {
+            Ok(None) => continue,
+            Ok(Some(error)) => error.to_string(),
+            Err(refusal) => format!("not typed: {refusal}"),
+        };
+        diagnostics.push(TypingDiagnostic {
+            at: at.clone(),
+            origin: origin.clone(),
+            message,
+        });
     }
     Ok(diagnostics)
 }

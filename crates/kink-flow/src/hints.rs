@@ -62,7 +62,7 @@ impl Hints {
         let path = hints_path(cache);
         let entries = fs::read_to_string(&path)
             .ok()
-            .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+            .and_then(|text| kink_patch::parse_json(&text).ok())
             .filter(|value| value["schema"] == HINTS_SCHEMA && value["version"] == HINTS_VERSION)
             .and_then(|value| value.get("hints").and_then(Value::as_object).cloned())
             .map(|hints| {

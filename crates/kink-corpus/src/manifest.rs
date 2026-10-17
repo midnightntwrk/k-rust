@@ -127,7 +127,7 @@ pub struct CorpusManifest {
 impl CorpusManifest {
     pub fn from_canonical_json(text: &str) -> Result<Self, ManifestError> {
         let value: Value =
-            serde_json::from_str(text).map_err(|e| ManifestError::Json(e.to_string()))?;
+            kink_patch::parse_json(text).map_err(|e| ManifestError::Json(e.to_string()))?;
         if canonical_json(&value) != text {
             return Err(ManifestError::NonCanonical);
         }

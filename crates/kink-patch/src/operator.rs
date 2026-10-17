@@ -275,7 +275,7 @@ impl OperatorSpec {
     /// NonCanonical for noncanonical bytes (including noncanonical sort text).
     pub fn from_canonical_json(text: &str) -> Result<Self, CodecError> {
         let value: Value =
-            serde_json::from_str(text).map_err(|e| CodecError::Decode(e.to_string()))?;
+            crate::parse_json(text).map_err(|e| CodecError::Decode(e.to_string()))?;
         exact(
             &value,
             &["id", "variant", "version", "selector", "policy", "action"],

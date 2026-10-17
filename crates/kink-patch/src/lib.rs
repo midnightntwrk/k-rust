@@ -43,6 +43,7 @@ mod fingerprint;
 mod operator;
 mod semantic_input;
 mod sort;
+mod stack;
 mod typing;
 mod universe;
 
@@ -60,9 +61,10 @@ pub use claims::{
 };
 pub use codec::CodecError;
 pub use digest::{
-    CAMPAIGN_MANIFEST_DOMAIN, CANONICAL_PATCH_DOMAIN, COMPILED_KORE_DOMAIN, OBSERVATION_DOMAIN,
-    Sha256Digest, StructureError, TEST_MANIFEST_DOMAIN, canonical_json, parse_json, payload_digest,
-    sha256, structure_sha256,
+    CAMPAIGN_MANIFEST_DOMAIN, CANONICAL_PATCH_DOMAIN, COMPILED_KORE_DOMAIN, JsonError,
+    MAX_JSON_DEPTH, OBSERVATION_DOMAIN, Sha256Digest, StructureError, TEST_MANIFEST_DOMAIN,
+    canonical_json, check_json_depth, json_depth, parse_json, payload_digest, sha256,
+    structure_sha256, value_depth,
 };
 pub use failure::{PatchFailure, PatchFailureKind};
 pub use fingerprint::{
@@ -72,6 +74,7 @@ pub use operator::{
     Action, BUILTIN_CELL_SYNTAX_SORTS, Clause, OPERATOR_DOMAIN, OperatorSpec, generate,
 };
 pub use semantic_input::{SemanticInput, SemanticInputError};
+pub use stack::StackRefusal;
 pub use universe::{ExclusionReason, ResolvedUniverse, Universe, resolve_universe};
 
 use k_rust::definition::{Definition, Sentence};

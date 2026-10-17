@@ -186,8 +186,17 @@ fn admit(
                 program_input(&loaded, &spec)?
             }
             CorpusInput::KoreState { file, .. } => {
-                let value = serde_json::from_str(&input_texts[file])
-                    .map_err(|e| AdmissionRefusal::new("inputs", "parse", e))?;
+                // kink-patch `parse_json`: a concrete state nests two JSON levels per KORE level,
+                // so serde_json's limit of 128 refused a state about 64 levels deep, a list of a
+                // few dozen elements, as an unparsable input (re-pin L1-3-fix-2). A state deeper
+                // than kink's limit is refused as such (`too-deep`), not as unparsable.
+                let value = kink_patch::parse_json(&input_texts[file]).map_err(|e| {
+                    let reason = match e {
+                        kink_patch::JsonError::TooDeep { .. } => "too-deep",
+                        _ => "parse",
+                    };
+                    AdmissionRefusal::new("inputs", reason, e)
+                })?;
                 from_value(&value).map_err(|e| AdmissionRefusal::new("inputs", "parse", e))?
             }
         };

@@ -28,6 +28,9 @@ kink-pattern = { path = "crates/kink-pattern" }
 # terms it holds, without serde_json's limit of 128 (re-pin L1-3-fix-1).
 serde = "1.0.229"
 serde_json = { version = "1.0.149", features = ["unbounded_depth"] }
+# kink-patch's `with_stack` reads the calling thread's remaining stack (re-pin L1-3-fix-2); k-rust
+# already depends on it.
+stacker = "0.1.25"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

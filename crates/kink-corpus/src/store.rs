@@ -6,7 +6,7 @@ use crate::{
     resolver::read_under_root,
 };
 use kink_campaign::TestCase;
-use kink_patch::{Baseline, Sha256Digest, canonical_json, sha256};
+use kink_patch::{Baseline, Sha256Digest, canonical_json, check_json_depth, parse_json, sha256};
 use serde_json::{Value, json};
 use std::{
     fmt, fs,
@@ -74,10 +74,14 @@ impl Store {
         path.as_mut_os_string().push(".json");
         Ok(path)
     }
+    /// Reads a stored JSON document with kink-patch `parse_json`, the reader of every document
+    /// kink stores: a campaign report embeds the KAST JSON of edited terms and the KORE JSON of
+    /// test inputs and results, which nest as deep as those terms (re-pin L1-3-fix-2; with
+    /// serde_json's limit of 128 a report holding a term about 60 levels deep was written and then
+    /// refused on resume, summary and replay check, review L1-3-2 D2).
     pub fn read_json(&self, path: &Path) -> Result<Value, StoreError> {
         let text = fs::read_to_string(path)?;
-        let value: Value =
-            serde_json::from_str(&text).map_err(|e| StoreError::Invalid(e.to_string()))?;
+        let value: Value = parse_json(&text).map_err(|e| StoreError::Invalid(e.to_string()))?;
         if canonical_json(&value) != text {
             return Err(StoreError::Invalid("non-canonical stored JSON".into()));
         }
@@ -94,7 +98,10 @@ impl Store {
         }
         Ok(value)
     }
+    /// Writes `value` as canonical JSON; a document deeper than kink-patch `MAX_JSON_DEPTH`,
+    /// which [`Self::read_json`] would refuse, is refused before anything is written.
     pub fn write_json(&self, path: &Path, value: &Value) -> Result<(), StoreError> {
+        check_json_depth(value).map_err(|e| StoreError::Invalid(e.to_string()))?;
         self.write_text(path, &canonical_json(value))
     }
     /// Publish complete bytes by rename; temporary names never enter stored JSON.
@@ -225,7 +232,7 @@ impl Store {
                             .map_err(|e| StoreError::Invalid(e.to_string()))?
                     }
                     CorpusInput::KoreState { .. } => {
-                        let value = serde_json::from_str(&text.expect("file-backed input"))
+                        let value = parse_json(&text.expect("file-backed input"))
                             .map_err(|e| StoreError::Invalid(e.to_string()))?;
                         k_rust::kore::codec::from_value(&value)
                             .map_err(|e| StoreError::Invalid(e.to_string()))?

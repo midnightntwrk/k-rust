@@ -1,12 +1,20 @@
 //! Canonical patch v1, using metadata-free k-rust KAST values.
 //!
-//! Terms of any depth encode and decode: k-rust's KAST JSON of an edited term or sentence, and
-//! a canonical patch's text, are read with [`parse_json`], which has no nesting limit (re-pin
-//! L1-3-fix-1; serde_json's limit of 128 refused every term more than about 55 levels deep).
+//! k-rust's KAST JSON of an edited term or sentence, and a canonical patch's text, are read with
+//! [`parse_json`] (re-pin L1-3-fix-1; serde_json's limit of 128 refused every term more than
+//! about 55 levels deep). A patch whose document would nest deeper than [`MAX_JSON_DEPTH`] has
+//! no encoding: [`CodecError::TooDeep`], kink's limit, named as such (re-pin L1-3-fix-2). Within
+//! it, [`Patch::canonical_json`], [`Patch::digest`] and [`Patch::from_canonical_json`] build,
+//! serialize and drop their documents on a stack sized for that depth, so they give the same
+//! result on any thread; [`Patch::canonical_value`] returns its document to the caller, which
+//! drops it on its own stack.
 
+use crate::digest::{JsonError, check_json_depth, json_depth, with_document_stack};
+use crate::stack::{sentence_depth, term_depth};
 use crate::{
-    CANONICAL_PATCH_DOMAIN, Edit, InsertPosition, Patch, PatchModelError, SentenceFingerprint,
-    SentenceRef, Sha256Digest, TermRef, canonical_json, parse_json, payload_digest,
+    CANONICAL_PATCH_DOMAIN, Edit, InsertPosition, MAX_JSON_DEPTH, Patch, PatchModelError,
+    SentenceFingerprint, SentenceRef, Sha256Digest, TermRef, canonical_json, parse_json,
+    payload_digest,
 };
 use k_rust::{
     definition::{Attributes, Definition, FlatModule, Sentence},
@@ -23,6 +31,14 @@ pub enum CodecError {
     Decode(String),
     NonCanonical,
     Model(PatchModelError),
+    /// The patch's document nests `depth` levels deep, more than kink's limit `limit`
+    /// ([`MAX_JSON_DEPTH`]): an edit this deep has no encoding in this build.
+    TooDeep {
+        depth: usize,
+        limit: usize,
+    },
+    /// The system refused the stack segment the patch's depth needs (its message).
+    Stack(String),
 }
 impl std::fmt::Display for CodecError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -31,7 +47,19 @@ impl std::fmt::Display for CodecError {
 }
 impl std::error::Error for CodecError {}
 
+/// The levels a canonical patch document adds above the KAST JSON of a term or sentence it holds
+/// (`{"edits":[{"replacement": ...}]}`), with room to spare.
+const PATCH_ENVELOPE: usize = 16;
+
+/// A patch whose terms are at most this many levels deep is encoded on the calling thread's
+/// stack, as before re-pin L1-3-fix-2: its document stays within serde_json's former limit of 128.
+const SHALLOW_TERM_LEVELS: usize = 48;
+
 impl Patch {
+    /// The patch's canonical document.
+    ///
+    /// # Errors
+    /// [`CodecError::TooDeep`] when the document would nest deeper than [`MAX_JSON_DEPTH`].
     pub fn canonical_value(&self) -> Result<Value, CodecError> {
         if !self.is_pinned() {
             return Err(CodecError::Unpinned);
@@ -42,10 +70,18 @@ impl Patch {
             .map(encode_edit)
             .collect::<Result<Vec<_>, _>>()?;
         let pins = self.pins().iter().map(|(at, fingerprint)| json!({"module":at.module,"index":at.index,"fingerprint":fingerprint.to_string()})).collect::<Vec<_>>();
-        Ok(json!({"version":1,"edits":edits,"pins":pins}))
+        let value = json!({"version":1,"edits":edits,"pins":pins});
+        check_json_depth(&value).map_err(too_deep)?;
+        Ok(value)
     }
     pub fn canonical_json(&self) -> Result<String, CodecError> {
-        Ok(canonical_json(&self.canonical_value()?))
+        if self.term_levels() <= SHALLOW_TERM_LEVELS {
+            return Ok(canonical_json(&self.canonical_value()?));
+        }
+        with_document_stack(MAX_JSON_DEPTH + PATCH_ENVELOPE, || {
+            Ok(canonical_json(&self.canonical_value()?))
+        })
+        .map_err(|refusal| CodecError::Stack(refusal.to_string()))?
     }
     pub fn digest(&self) -> Result<Sha256Digest, CodecError> {
         Ok(payload_digest(
@@ -54,7 +90,46 @@ impl Patch {
         ))
     }
     pub fn from_canonical_json(text: &str) -> Result<Self, CodecError> {
-        let value: Value = parse_json(text).map_err(|e| CodecError::Decode(e.to_string()))?;
+        let depth = json_depth(text);
+        if depth > MAX_JSON_DEPTH {
+            return Err(CodecError::TooDeep {
+                depth,
+                limit: MAX_JSON_DEPTH,
+            });
+        }
+        with_document_stack(depth, || Self::decode(text))
+            .map_err(|refusal| CodecError::Stack(refusal.to_string()))?
+    }
+
+    /// The deepest term the patch's edits hold, as kink-patch's `stack::term_depth` counts.
+    fn term_levels(&self) -> usize {
+        self.edits()
+            .iter()
+            .map(|edit| match edit {
+                Edit::ReplaceTerm {
+                    expected,
+                    replacement,
+                    ..
+                } => term_depth(expected).max(term_depth(replacement)),
+                Edit::ReplaceSentence {
+                    replacement: sentence,
+                    ..
+                }
+                | Edit::InsertSentence { sentence, .. } => sentence_depth(sentence),
+                Edit::DeleteSentence { .. }
+                | Edit::AddAttribute { .. }
+                | Edit::RemoveAttribute { .. }
+                | Edit::ReplaceAttribute { .. } => 0,
+            })
+            .max()
+            .unwrap_or(0)
+    }
+
+    fn decode(text: &str) -> Result<Self, CodecError> {
+        let value: Value = parse_json(text).map_err(|e| match e {
+            JsonError::TooDeep { depth, limit } => CodecError::TooDeep { depth, limit },
+            other => CodecError::Decode(other.to_string()),
+        })?;
         exact(&value, &["version", "edits", "pins"])?;
         if value["version"].as_u64() != Some(1) {
             return Err(decode("unknown patch version"));
@@ -81,6 +156,15 @@ impl Patch {
     }
 }
 
+/// An encode-side refusal of [`parse_json`]: kink's depth limit as [`CodecError::TooDeep`],
+/// anything else as an encoding error.
+fn too_deep(error: JsonError) -> CodecError {
+    match error {
+        JsonError::TooDeep { depth, limit } => CodecError::TooDeep { depth, limit },
+        other => CodecError::Encode(other.to_string()),
+    }
+}
+
 fn reference(at: &SentenceRef) -> Value {
     json!({"module":at.module,"index":at.index})
 }
@@ -95,7 +179,7 @@ fn position(at: &InsertPosition) -> Value {
 fn term(term: &Term) -> Result<Value, CodecError> {
     let text =
         k_rust::kast::json::to_string(term).map_err(|e| CodecError::Encode(e.to_string()))?;
-    parse_json(&text).map_err(|e| CodecError::Encode(e.to_string()))
+    parse_json(&text).map_err(too_deep)
 }
 fn sentence(sentence: &Sentence) -> Result<Value, CodecError> {
     if matches!(sentence, Sentence::ContextAlias { .. }) {
@@ -113,7 +197,7 @@ fn sentence(sentence: &Sentence) -> Result<Value, CodecError> {
     };
     let text = k_rust::definition::json::to_string(&definition)
         .map_err(|e| CodecError::Encode(e.to_string()))?;
-    parse_json(&text).map_err(|e| CodecError::Encode(e.to_string()))
+    parse_json(&text).map_err(too_deep)
 }
 fn encode_edit(edit: &Edit) -> Result<Value, CodecError> {
     Ok(match edit {

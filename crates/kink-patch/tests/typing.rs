@@ -500,3 +500,80 @@ fn an_ill_sorted_structural_candidate_is_left_to_compilation() {
         "compilation refuses a Bool in an Int position"
     );
 }
+
+/// Re-pin L1-3-fix-2 (review L1-3-2 D1): `apply` types an edited rule on a stack sized from the
+/// rule's deepest term, so a rule 5,000 terms deep gets on a 1 MiB thread the typing it gets on
+/// a 256 MiB one, error included. k-rust's typing (`SentenceTyper::typing_in`) has no stack guard
+/// and takes about 2 KiB per level: before the fix this thread overflowed and the process
+/// aborted, as kink-flow's 256 MiB thread did near 230,000 levels.
+#[test]
+fn a_deep_rule_is_typed_alike_on_a_thread_too_small_for_its_typing() {
+    const DEPTH: usize = 5_000;
+    let text = format!(
+        "module DEEP\n  imports INT\n  syntax Peano ::= \"z\" | s(Peano)\n  syntax Exp ::= \
+         go(Int) | deep(Peano)\n  rule [big]: go(I:Int) => deep({}z{}) requires I >Int 100\n\
+         endmodule\n",
+        "s(".repeat(DEPTH),
+        ")".repeat(DEPTH)
+    );
+    let typings = |stack: usize| {
+        let text = text.clone();
+        std::thread::Builder::new()
+            .stack_size(256 << 20)
+            .spawn(move || {
+                let baseline = load("DEEP", &text);
+                let at = rule_ref(&baseline, "DEEP.big");
+                let patches = ["true", "1"].map(|token| {
+                    let mut replacement = baseline.sentence(&at).unwrap().clone();
+                    let Sentence::Rule { requires, .. } = &mut replacement else {
+                        panic!("a rule");
+                    };
+                    *requires = Term::Token {
+                        token: token.into(),
+                        sort: Sort::new(if token == "1" { "Int" } else { "Bool" }),
+                    };
+                    Patch::new(vec![Edit::ReplaceSentence {
+                        at: at.clone(),
+                        replacement,
+                    }])
+                    .unwrap()
+                });
+                std::thread::scope(|scope| {
+                    std::thread::Builder::new()
+                        .stack_size(stack)
+                        .spawn_scoped(scope, || {
+                            patches
+                                .iter()
+                                .map(|patch| {
+                                    let mutant = apply(&baseline, patch).unwrap();
+                                    mutant
+                                        .typing_diagnostics()
+                                        .iter()
+                                        .map(|d| d.message.clone())
+                                        .collect::<Vec<_>>()
+                                })
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap()
+                        .join()
+                        .unwrap()
+                })
+            })
+            .unwrap()
+            .join()
+            .unwrap()
+    };
+    let large = typings(256 << 20);
+    assert!(large[0].is_empty(), "{large:?}");
+    assert_eq!(
+        large[1].len(),
+        1,
+        "an Int requires is a typing error: {large:?}"
+    );
+    assert_eq!(typings(1 << 20), large);
+}
+
+/// The one authored sentence labelled `label`.
+fn rule_ref(baseline: &Baseline, label: &str) -> kink_patch::SentenceRef {
+    support::rule(baseline, label)
+}

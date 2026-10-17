@@ -393,9 +393,11 @@ pub fn campaign_report_multi(
         ),
     };
     let score = run.score.map(|s| json!({"killed":s.killed,"survived":s.survived,"denominator":s.denominator,"ratio":s.ratio.map(|r| json!({"numerator":r.numerator,"denominator":r.denominator}))}));
-    Ok(CampaignReport {
-        value: json!({"schema":"kink-campaign-report","version":CAMPAIGN_REPORT_VERSION,"manifest_sha256":manifest.digest().to_string(),"manifest":manifest.value(),"baseline":baseline_runs,"coverage":coverage,"origins":origins,"mutants":mutants,"summary":{"tally":{"killed":counts.killed,"survived":counts.survived,"equivalent":counts.equivalent,"invalid":counts.invalid,"timeout":counts.timeout,"unknown":counts.unknown,"error":counts.error,"rejected_origins":counts.rejected_origins},"score":score,"per_operator":per_operator}}),
-    })
+    let value = json!({"schema":"kink-campaign-report","version":CAMPAIGN_REPORT_VERSION,"manifest_sha256":manifest.digest().to_string(),"manifest":manifest.value(),"baseline":baseline_runs,"coverage":coverage,"origins":origins,"mutants":mutants,"summary":{"tally":{"killed":counts.killed,"survived":counts.survived,"equivalent":counts.equivalent,"invalid":counts.invalid,"timeout":counts.timeout,"unknown":counts.unknown,"error":counts.error,"rejected_origins":counts.rejected_origins},"score":score,"per_operator":per_operator}});
+    // A report no reader could read back (kink-corpus `Store::read_json`, `replay`: deeper than
+    // kink-patch MAX_JSON_DEPTH) is refused here, where it is written (re-pin L1-3-fix-2).
+    kink_patch::check_json_depth(&value).map_err(encode)?;
+    Ok(CampaignReport { value })
 }
 
 fn tally_value(counts: crate::Tally) -> Value {

@@ -404,39 +404,69 @@ fn rebuild(report: &Value, validator: &NativeValidator) -> Result<(), ReplayRefu
     Ok(())
 }
 
+/// The RFC 6901 pointer, below `pointer`, of the first place where `left` and `right` differ, in
+/// sorted-key and index order; `None` when they are equal.
+///
+/// Walked with an explicit work list and each pointer built only for the difference found, so a
+/// report as deep as the terms it holds (kink-patch `MAX_JSON_DEPTH`) is compared in time and
+/// memory linear in its size on any thread (re-pin L1-3-fix-2; the recursion it replaces compared
+/// every subtree again at each level, quadratic in the depth).
 fn first_difference(left: &Value, right: &Value, pointer: &str) -> Option<String> {
-    if left == right {
-        return None;
+    /// One pending step: compare two values, or report a member or item only one side has.
+    enum Step<'a> {
+        Compare(&'a Value, &'a Value, usize),
+        Missing(usize),
     }
-    match (left, right) {
-        (Value::Object(a), Value::Object(b)) => {
-            let keys = a.keys().chain(b.keys()).collect::<BTreeSet<_>>();
-            for key in keys {
-                let next = format!("{pointer}/{}", key.replace('~', "~0").replace('/', "~1"));
-                match (a.get(key), b.get(key)) {
-                    (Some(x), Some(y)) => {
-                        if let Some(found) = first_difference(x, y, &next) {
-                            return Some(found);
-                        }
-                    }
-                    _ => return Some(next),
-                }
+    // Each place visited is a segment and its parent's index, so a pointer costs its length.
+    let mut places: Vec<(Option<usize>, String)> = vec![(None, pointer.to_owned())];
+    let pointer_of = |places: &[(Option<usize>, String)], mut at: usize| {
+        let mut segments = Vec::new();
+        loop {
+            let (parent, segment) = &places[at];
+            segments.push(segment.as_str());
+            match parent {
+                Some(parent) => at = *parent,
+                None => break,
             }
         }
-        (Value::Array(a), Value::Array(b)) => {
-            for index in 0..a.len().max(b.len()) {
-                let next = format!("{pointer}/{index}");
-                match (a.get(index), b.get(index)) {
-                    (Some(x), Some(y)) => {
-                        if let Some(found) = first_difference(x, y, &next) {
-                            return Some(found);
-                        }
-                    }
-                    _ => return Some(next),
+        segments.into_iter().rev().collect::<String>()
+    };
+    let mut pending = vec![Step::Compare(left, right, 0)];
+    while let Some(step) = pending.pop() {
+        let (left, right, at) = match step {
+            Step::Missing(at) => return Some(pointer_of(&places, at)),
+            Step::Compare(left, right, at) => (left, right, at),
+        };
+        let mut children = Vec::new();
+        match (left, right) {
+            (Value::Object(a), Value::Object(b)) => {
+                for key in a.keys().chain(b.keys()).collect::<BTreeSet<_>>() {
+                    places.push((
+                        Some(at),
+                        format!("/{}", key.replace('~', "~0").replace('/', "~1")),
+                    ));
+                    let place = places.len() - 1;
+                    children.push(match (a.get(key), b.get(key)) {
+                        (Some(x), Some(y)) => Step::Compare(x, y, place),
+                        _ => Step::Missing(place),
+                    });
                 }
             }
+            (Value::Array(a), Value::Array(b)) => {
+                for index in 0..a.len().max(b.len()) {
+                    places.push((Some(at), format!("/{index}")));
+                    let place = places.len() - 1;
+                    children.push(match (a.get(index), b.get(index)) {
+                        (Some(x), Some(y)) => Step::Compare(x, y, place),
+                        _ => Step::Missing(place),
+                    });
+                }
+            }
+            // Two scalars, or values of two kinds: the comparison does not recurse.
+            _ if left != right => return Some(pointer_of(&places, at)),
+            _ => {}
         }
-        _ => return Some(pointer.to_owned()),
+        pending.extend(children.into_iter().rev());
     }
     None
 }

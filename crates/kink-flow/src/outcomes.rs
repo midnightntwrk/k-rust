@@ -272,7 +272,7 @@ impl OutcomeStore {
     /// The `records` object of the mutation's file when the file's own fields are current.
     fn file(&self, identity: Sha256Digest) -> Option<Map<String, Value>> {
         let text = fs::read_to_string(self.path(identity)).ok()?;
-        let value = serde_json::from_str::<Value>(&text).ok()?;
+        let value = kink_patch::parse_json(&text).ok()?;
         let current = value["schema"] == OUTCOMES_SCHEMA
             && value["version"] == OUTCOMES_VERSION
             && value["context"] == self.context

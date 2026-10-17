@@ -462,6 +462,7 @@ dependencies = [
  "k-rust",
  "serde",
  "serde_json",
+ "stacker",
 ]
 
 [[package]]

@@ -617,7 +617,7 @@ pub fn record_value(spec: &AdmittedSpec, key: &Value, id: &str, result: &Program
 fn read_record(path: &Path, key: &Value) -> Option<Option<Value>> {
     let text = fs::read_to_string(path).ok()?;
     Some(
-        serde_json::from_str::<Value>(&text)
+        kink_patch::parse_json(&text)
             .ok()
             .filter(|record| record["schema"] == RECORD_SCHEMA && record["key"] == *key),
     )

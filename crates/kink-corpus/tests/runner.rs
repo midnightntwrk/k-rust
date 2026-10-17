@@ -786,3 +786,121 @@ fn a_store_is_honoured_only_by_the_build_that_wrote_it() {
         );
     });
 }
+
+/// Re-pin L1-3-fix-2 (review L1-3-2 D2 and its proposed request on KORE inputs): a definition
+/// whose rule `[big]` is 200 terms deep, with a test whose concrete initial state is a file of
+/// KORE JSON 200 levels deep, is admitted and run; its campaign report, which embeds the KAST
+/// JSON of the deleted deep rule (over 400 JSON levels), and the stored input are written,
+/// resumed, summarised and replayed (`replay-check`: `Reproduced`, the test rebuilt from the
+/// stored input). Before, the input was refused at admission as `inputs`/`parse` (serde_json's
+/// limit of 128), and a report holding the rule was written and then refused on every read
+/// (`Store::read_json`).
+#[test]
+fn a_deep_rule_and_a_deep_kore_input_round_trip_through_store_resume_and_replay_check() {
+    const DEPTH: usize = 200;
+    let scratch = Scratch::new("deep-terms");
+    let ws = scratch.0.join("workspace");
+    let fixture = ws.join("fixture");
+    fs::create_dir_all(&fixture).unwrap();
+    let numeral = format!("{}z{}", "s(".repeat(DEPTH), ")".repeat(DEPTH));
+    let source = format!(
+        "module DEEPSTORE\n  imports BOOL\n  syntax Peano ::= \"z\" [symbol(z)] | s(Peano) \
+         [symbol(s)]\n  syntax Program ::= \"start\" [symbol(start)]\n                   | \
+         run(Peano) [symbol(run)]\n                   | \"done\" [symbol(done)]\n  configuration \
+         <k> $PGM:K </k>\n  rule [big]: start => run({numeral})\n  rule [stop]: run(_:Peano) => \
+         done\nendmodule\n"
+    );
+    fs::write(fixture.join("deep.k"), &source).unwrap();
+    let mut value = clean();
+    let d = &mut value["definitions"][0];
+    d["id"] = json!("deep");
+    d["root"]["path"] = json!("fixture");
+    d["entry"] = json!("deep.k");
+    d["main_module"] = json!("DEEPSTORE");
+    d["files"] = json!([{"name":"deep.k","sha256":sha256(source.as_bytes()).to_string()}]);
+    d["tests"][0]["id"] = json!("kore");
+    d["tests"][0]["input"] =
+        json!({"program":{"text":format!("run({numeral})")},"start_sort":null,"variables":[]});
+    d["tests"][1]["id"] = json!("program");
+    d["tests"][1]["input"] = json!({"program":{"text":"start"},"start_sort":null,"variables":[]});
+    // The concrete state of `run(<numeral>)`, as admission builds it from the program, becomes
+    // the first test's file-backed KORE input.
+    let inline = CorpusManifest::from_canonical_json(&canonical_json(&value)).unwrap();
+    let state = {
+        let ws = ws.clone();
+        std::thread::Builder::new()
+            .stack_size(kink_corpus::cli::DEFINITION_STACK_BYTES)
+            .spawn(move || {
+                let admitted = kink_corpus::admission::admit_definition(&inline, "deep", &ws)
+                    .admitted
+                    .expect("the program-input definition is admitted");
+                canonical_json(
+                    &k_rust::kore::codec::to_value(&admitted.tests[0].initial_state).unwrap(),
+                )
+            })
+            .unwrap()
+            .join()
+            .unwrap()
+    };
+    assert!(
+        kink_patch::json_depth(&state) > 2 * DEPTH,
+        "{}",
+        kink_patch::json_depth(&state)
+    );
+    fs::write(fixture.join("state.json"), &state).unwrap();
+    value["definitions"][0]["tests"][0]["input"] =
+        json!({"kore_state":{"file":"state.json","sha256":sha256(state.as_bytes()).to_string()}});
+    let (path, manifest) = scratch.manifest(&value);
+    let store = Store::new(scratch.0.join("store"));
+    success(command_at("run", &path, &store, &ws).output().unwrap());
+    let digest = manifest.digest();
+    let admission = store
+        .read_json(&store.admission_path(digest, profile(), "deep").unwrap())
+        .unwrap();
+    assert_eq!(admission["outcome"], "admitted", "{admission}");
+    let index = store.read_index(digest, profile()).unwrap();
+    let report = store
+        .read_json(&store.profile_path(digest, profile()).join(format!(
+            "campaigns/{}.json",
+            index["deep"]["manifest_sha256"].as_str().unwrap()
+        )))
+        .unwrap();
+    // The deleted deep rule's KAST in a mutant's edits; the state is stored as the test's input
+    // file, which resume and replay read back to rebuild the test (`Store::rebuild_tests`).
+    assert!(kink_patch::value_depth(&report["mutants"]) > 2 * DEPTH);
+    assert_eq!(
+        fs::read_to_string(store.input_path(digest, sha256(state.as_bytes()))).unwrap(),
+        state
+    );
+    assert!(report["mutants"].as_array().unwrap().len() >= 2);
+    let before = stored_bytes(store.root());
+    let resumed = success(
+        command_at("run", &path, &store, &ws)
+            .env("KINK_CORPUS_TEST_ABORT", "deep")
+            .output()
+            .unwrap(),
+    );
+    assert!(resumed.contains("deep: resumed"), "{resumed}");
+    assert_eq!(before, stored_bytes(store.root()));
+    success(
+        Command::new(env!("CARGO_BIN_EXE_kink-corpus"))
+            .arg("summary")
+            .arg("--store")
+            .arg(store.root())
+            .arg(digest.to_string())
+            .arg(profile())
+            .env("KINK_CORPUS_TEST_ABORT", "deep")
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(
+        success(
+            command_at("replay-check", &path, &store, &ws)
+                .arg("deep")
+                .output()
+                .unwrap()
+        )
+        .trim(),
+        "Reproduced"
+    );
+}
