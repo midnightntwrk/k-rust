@@ -2957,9 +2957,10 @@ pub enum DomainKind {
     /// the sort's KORE name on every route). A code point above U+00FF names no byte.
     Bytes,
     /// The floating-point numbers of every format (`FLOAT.Float`): a literal denotes its decimal
-    /// rounded to nearest, ties to even, in the format its suffix names, and the canonical text
-    /// is the one text of that value ([`crate::builtin::canonical_float_text`]): the hooks' text
-    /// for binary32 and binary64, the exact decimal for every other format.
+    /// rounded to nearest, ties to even by k-rust's reading of FLOAT rounding
+    /// (`docs/compatibility.md`, "Backend scope"), in the format its suffix names, and the
+    /// canonical text is the one text of that value ([`crate::builtin::canonical_float_text`]):
+    /// the hooks' text for binary32 and binary64, the exact decimal for every other format.
     Float,
     /// Every other sort with domain values (an unhooked token sort, `Id`, an unhooked
     /// `SortFloat`, ...): a text is its own value.

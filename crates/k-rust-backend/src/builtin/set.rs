@@ -1117,6 +1117,28 @@ mod tests {
     }
 
     /// The empty set has no element, and `choice` is partial: the application is undefined.
+    /// `Set2List` and `choice` of two or more constructor-like elements are `order` and `item`;
+    /// of one element they are determined.
+    #[test]
+    fn set_listings_and_choices_of_several_elements_are_order_and_item() {
+        let of = |elements: &[Term]| Term::set(set_definition(), elements.to_vec(), None);
+        let class = |hook: &str, set: Term| {
+            crate::builtin::chosen_value(hook, &[set], None).map(|chosen| chosen.class)
+        };
+        let two = of(&[Term::int(1), Term::int(2)]);
+        let one = of(&[Term::int(1)]);
+        assert_eq!(
+            class("SET.set2list", two.clone()),
+            Some(crate::builtin::ChosenClass::Order)
+        );
+        assert_eq!(
+            class("SET.choice", two),
+            Some(crate::builtin::ChosenClass::Item)
+        );
+        assert_eq!(class("SET.set2list", one.clone()), None);
+        assert_eq!(class("SET.choice", one), None);
+    }
+
     #[test]
     fn choice_of_the_empty_collection_is_bottom() {
         assert_eq!(choice_of(set(&[])), BuiltinResult::Bottom);

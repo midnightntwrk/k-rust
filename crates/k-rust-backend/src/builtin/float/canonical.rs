@@ -1,7 +1,8 @@
 //! The canonical text of a `Float` domain value: one text per value, in every format.
 //!
-//! A Float literal's mantissa and exponent name a rational number, rounded to nearest, ties to
-//! even, in the format its suffix names (`domains.md`, "Floating-point numbers"): no suffix, `d`
+//! A Float literal's mantissa and exponent name a rational number, rounded to nearest
+//! (`domains.md`, "Floating-point numbers"), ties to even by k-rust's reading of FLOAT rounding
+//! (`docs/compatibility.md`, "Backend scope"), in the format its suffix names: no suffix, `d`
 //! or `D` is binary64 (`p53x11`), `f` or `F` is binary32 (`p24x8`), and `pNxM` has `N` bits of
 //! precision (the implicit bit included) and `M` exponent bits, represented like an IEEE 754
 //! format: `emax = 2^(M-1) - 1`, `emin = 1 - emax`, with subnormals and overflow to the infinity

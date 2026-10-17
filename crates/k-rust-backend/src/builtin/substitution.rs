@@ -83,6 +83,27 @@ pub(super) fn evaluate(
     }
 }
 
+/// Whether `substOne`'s `arguments` substitute into a term that holds an application of a
+/// `binder` production, anywhere in it, collections included. KORE terms are not quotiented by
+/// renaming, and the contract fixes no names for the binders a substitution traverses, so the
+/// value of such a substitution is one the definition leaves open, whether or not it renames a
+/// variable (`super::chosen_value`, `FreshName`). `O(t)` in the size of the term.
+pub(super) fn substitutes_under_a_binder(arguments: &[Term]) -> bool {
+    let Some(body) = arguments.first() else {
+        return false;
+    };
+    let mut pending = vec![body];
+    while let Some(term) = pending.pop() {
+        if let TermKind::Application { symbol, .. } = term.kind()
+            && symbol.attributes.binder
+        {
+            return true;
+        }
+        pending.extend(crate::term::immediate_children(term.kind()));
+    }
+    false
+}
+
 /// Which sorts of a definition have constructor terms that may contain a `KVar` token.
 ///
 /// The sorts that may contain one form the least set of sort names closed under three clauses: a
@@ -1403,6 +1424,35 @@ mod tests {
             run(body, kvar("y"), kvar("x")),
             BuiltinResult::Value(expected)
         );
+    }
+
+    /// `substitution.md` fixes no names for the binders a substitution traverses, so every
+    /// `substOne` into a term holding an application of a `binder` production is `fresh-name`,
+    /// whether or not the substitution renames a variable (here the target `x` is not even free);
+    /// a term without one is determined.
+    #[test]
+    fn substitution_into_a_term_holding_a_binder_is_fresh_name() {
+        let class = |body: Term| {
+            crate::builtin::chosen_value(
+                "SUBSTITUTION.substOne",
+                &[body, exp_var("v"), kvar("x")],
+                None,
+            )
+            .map(|chosen| chosen.class)
+        };
+        assert_eq!(
+            class(lambda("y", exp_var("y"))),
+            Some(crate::builtin::ChosenClass::FreshName)
+        );
+        assert_eq!(
+            class(apply(
+                exp_var("x"),
+                Term::injection(val_sort(), exp_sort(), lambda("x", exp_var("x")))
+            )),
+            Some(crate::builtin::ChosenClass::FreshName)
+        );
+        assert_eq!(class(apply(exp_var("x"), exp_var("z"))), None);
+        assert_eq!(class(exp_var("x")), None);
     }
 
     #[test]

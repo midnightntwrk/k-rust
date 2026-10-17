@@ -8872,9 +8872,12 @@ const FOLDED_HOOK_CASES: &[FoldedHookCase] = &[
     ),
     (
         "STRING.base2string",
+        // A result with a letter digit has a case the definition leaves open, which the fold
+        // does not write (`leaves_values_the_definition_leaves_open_unfolded` in
+        // kompile_passes.rs); these results have none.
         &["Int", "Int"],
         "String",
-        &[&["255", "16"], &["-35", "36"], &["0", "2"]],
+        &[&["255", "10"], &["-9", "36"], &["0", "2"]],
     ),
     (
         "STRING.chr",
@@ -13717,6 +13720,70 @@ endmodule
         assert!(
             output.contains(r#"\dv{SortBool{}}("false")"#) && !output.contains("LblsignFloat"),
             "{program}: {output}"
+        );
+    }
+}
+
+/// A claim whose truth depends on a value the definition leaves open (Base2String's letter
+/// case, `minFloat` and `maxFloat` of `+0.0` and `-0.0`, the names `substOne` gives the binders
+/// it traverses) holds in some models of the definition and not in others, so it is neither
+/// proven nor disproved, whether its verdict came from the final state, from a rule condition
+/// (`cond-upper`) or from the apartness of `==K` against the other case (`eqk-false`). A withheld
+/// application is an unknown value of its sort, so `rt-valid`, which holds for every value the
+/// hook admits, is not proven either. Claims that need only that a value exists, claims over
+/// determined neighbours, and claims over k-rust's specified readings (String2Bytes byte per code
+/// point, Float2Int ties to even, the empty Bytes of a failed ECDSA recovery) are proven.
+#[test]
+fn kprove_proves_no_claim_that_depends_on_an_open_value() {
+    let source = format!(
+        r#"{}
+module OPEN-SPEC
+  imports OPEN
+  claim [b2s-lower]: <k> b2s(255, 16) => r("ff") </k>
+  claim [b2s-upper]: <k> b2s(255, 16) => r("FF") </k>
+  claim [case-cmp]: <k> ccase(255) => r(true) </k>
+  claim [min-zeros]: <k> mn(0.0, -0.0) => r(-0.0) </k>
+  claim [subst-y0]: <k> sub(lam(String2KVar("y"), app(String2KVar("x"), String2KVar("y"))), String2KVar("y"), String2KVar("x")) => r(lam(String2KVar("y0"), app(String2KVar("y"), String2KVar("y0")))) </k>
+  claim [rt-valid]: <k> rt(255, 16) => r(255) </k>
+  claim [max-zeros]: <k> mx(-0.0, 0.0) => r(0.0) </k>
+  claim [cond-upper]: <k> g(255) => r(2) </k>
+  claim [eqk-false]: <k> eqk(255) => r(false) </k>
+  claim [b2s-some]: <k> b2s(255, 16) => r(?_S:String) </k>
+  claim [b2s-digits]: <k> b2s(9, 10) => r("9") </k>
+  claim [mn-determined]: <k> mn(1.0, -0.0) => r(-0.0) </k>
+  claim [s2b-latin1]: <k> s2b("\xe9") => r(b"\xe9") </k>
+  claim [f2i-tie]: <k> f2i(2.5) => r(2) </k>
+  claim [ecdsa-failure]: <k> rec(b"", 29, b"", b"") => r(b"") </k>
+endmodule
+"#,
+        include_str!("fixtures/open-values.k")
+    );
+    let (verdicts, output) = order_claim_verdicts(&source, "OPEN", "OPEN-SPEC");
+    for claim in [
+        "b2s-lower",
+        "b2s-upper",
+        "case-cmp",
+        "min-zeros",
+        "subst-y0",
+        "rt-valid",
+        "max-zeros",
+        "cond-upper",
+        "eqk-false",
+    ] {
+        assert_undecided(&verdicts, claim, &output);
+    }
+    for claim in [
+        "b2s-some",
+        "b2s-digits",
+        "mn-determined",
+        "s2b-latin1",
+        "f2i-tie",
+        "ecdsa-failure",
+    ] {
+        assert_eq!(
+            claim_verdict(&verdicts, claim, &output),
+            "proven",
+            "{claim}: {output}"
         );
     }
 }

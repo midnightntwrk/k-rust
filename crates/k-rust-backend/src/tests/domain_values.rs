@@ -291,7 +291,9 @@ fn an_integer_hook_result_is_the_canonical_integer() {
 }
 
 /// Renaming a bound `KVar` token builds the fresh token at the token's own sort with the kind the
-/// definition gives it: the renamed binder is the token the definition loads with that text.
+/// definition gives it: the renamed binder is the token the definition loads with that text. The
+/// name is k-rust's choice (class `fresh-name`), which only an execution takes; outside one the
+/// substitution is withheld as a defined value.
 #[test]
 fn a_renamed_kvar_token_is_a_token_of_its_own_sort() {
     let definition = load(indoc! {r#"
@@ -326,9 +328,16 @@ fn a_renamed_kvar_token_is_a_token_of_its_own_sort() {
         variable("y")
     );
     assert_eq!(
-        evaluated(&definition, &application),
+        with_evaluation(EvaluationMode::Execution, || evaluated(
+            &definition,
+            &application
+        )),
         BuiltinResult::Value(term(&definition, &expected))
     );
+    assert!(matches!(
+        evaluated(&definition, &application),
+        BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified { defined: true, .. })
+    ));
 }
 
 /// At a sort named `SortBytes` whose payload is one byte per code point, a code point above

@@ -298,11 +298,16 @@ pub(crate) fn mixed_destination(hook: &str, arguments: &[Term]) -> Option<MixedP
 /// argument is a NaN of any format; `None` otherwise.
 ///
 /// `signFloat` is "the value of the sign bit" of a `Float`, a value of an IEEE-like format, in
-/// which every value, a NaN included, has a sign bit; the literal `NaN` names a NaN without
-/// saying which of the two it has. The description therefore gives the application a Bool value
-/// in every model, whatever its declaration says, but which one the definition does not
-/// determine: the evaluator's `false` is k-rust's reading, applied only in an execution
-/// (`super::implementation_chosen`). The argument is read exactly as the evaluator reads it.
+/// which every value, a NaN included, has a sign bit. k-rust reads every spelling of `NaN` in one
+/// format as the one NaN of that format, as the canonical text stores it (payloads are not
+/// modelled); the literal syntax writes one unsigned `NaN` lexeme per format beside signed zeros
+/// and infinities, and `Float2String` round-trips every `Float` through that syntax, which that
+/// reading makes one NaN per format. The description does not say which sign bit that NaN has,
+/// so only the sign bit is open: it gives the application a
+/// Bool value in every model, whatever its declaration says, but which one the definition does
+/// not determine (class `nan-sign`): the evaluator's `false` is k-rust's reading, applied only
+/// in an execution (`super::implementation_chosen`). The argument is read exactly as the
+/// evaluator reads it.
 pub(crate) fn nan_sign(hook: &str, arguments: &[Term]) -> Option<String> {
     if hook != "FLOAT.sign" {
         return None;
@@ -320,6 +325,31 @@ pub(crate) fn nan_sign(hook: &str, arguments: &[Term]) -> Option<String> {
          false, applies only in an execution"
             .into()
     })
+}
+
+/// Whether `minFloat` or `maxFloat` (`hook`) is applied to `+0.0` and `-0.0`, in either order,
+/// of one format the backend computes. Their `smt-hook`s `fp.min` and `fp.max` leave the result
+/// on the two zeros unspecified, so the value is one the definition leaves open
+/// (`super::chosen_value`, `SignedZero`); the evaluator's `-0.0` for `minFloat` and `+0.0` for
+/// `maxFloat` are k-rust's. Two zeros of one sign, and a zero beside a NaN (the other operand),
+/// are determined, and two formats are the mixed-format destination ([`mixed_destination`]).
+pub(crate) fn signed_zeros(hook: &str, arguments: &[Term]) -> bool {
+    if !matches!(hook, "FLOAT.min" | "FLOAT.max") {
+        return false;
+    }
+    let Ok(Some((Operand::Computed(left), Operand::Computed(right)))) =
+        read_operands(hook, arguments)
+    else {
+        return false;
+    };
+    let zero = |value: KFloat| match value {
+        KFloat::Binary32(value) => value == 0.0,
+        KFloat::Binary64(value) => value == 0.0,
+    };
+    left.format() == right.format()
+        && zero(left)
+        && zero(right)
+        && left.is_sign_negative() != right.is_sign_negative()
 }
 
 #[derive(Clone, Copy)]
