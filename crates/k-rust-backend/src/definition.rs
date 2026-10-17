@@ -2912,6 +2912,14 @@ impl BackendDefinition {
     /// classifies the pairs that can change no claim, for a report of every pair that does not
     /// join and for the test that both scopes admit the same claims
     /// ([`crate::confluence::ValueClaims::claim_differences`]).
+    ///
+    /// Under [`crate::confluence::CheckScope::All`] every candidate pair of the definition is
+    /// classified, whatever it declares (`counts().skipped == 0`), except that `[symbolic]`
+    /// function equations are paired by no check; pairs are formed within one index and
+    /// priority group. `separated`, `refuted` and `joined` are sound, a non-joined pair is not
+    /// shown to join and may be spurious, and the verdicts rest on the definition's `total`,
+    /// `functional`, simplification and ceil axioms: the contract is stated at
+    /// [`crate::confluence::CheckScope::All`].
     #[must_use]
     pub fn value_claims_in_scope(
         &self,

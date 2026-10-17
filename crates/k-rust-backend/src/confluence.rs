@@ -216,6 +216,25 @@ pub enum CheckScope {
     Gate,
     /// Every candidate pair: also the non-joined pairs of equations whose closure reaches no
     /// symbol the gate is asked about (a finding about the definition, independent of claims).
+    ///
+    /// The contract a client relies on:
+    ///
+    /// - every candidate pair of every definition is classified (`counts().skipped == 0`),
+    ///   whatever the definition declares, except that `[symbolic]` function equations are
+    ///   paired by no check;
+    /// - root candidates are formed within one index and priority group, and two groups are
+    ///   never paired: a lower group is read as holding only where no equation of a higher
+    ///   group applies (`docs/compatibility.md`, the priority reading of `M_NF`);
+    /// - `separated`, `refuted` and `joined` are sound: a separated overlap has no instance; a
+    ///   refuted one has both `requires` holding on no instance in any model; a joined one has
+    ///   both reducts reaching one term by innermost steps valid on every instance. A model of
+    ///   the definition follows from the pairs only if evaluation terminates;
+    /// - a non-joined pair is not shown to join, and may be spurious: its conditions may be
+    ///   undecided by the solver-free condition reader, the join or a simplification may stop
+    ///   on its budget, or its reducts may be equal in every model without the join showing it;
+    /// - the check reads the definition's `total` and `functional` declarations and its
+    ///   simplification and ceil lemmas as axioms (they decide which terms are `ceil_free` and
+    ///   what `condition_definedness` states), so its verdicts rest on them.
     All,
 }
 
@@ -1941,12 +1960,20 @@ fn check_detached(
         .symbols()
         .values()
         .any(|symbol| closure::taintable(symbol) && certified_root(definition, symbol));
-    if !withdrawable {
-        // No symbol the gate is asked about (`certified_root`, the union of the sites' symbol
-        // classes) can be tainted by any closure (`closure::taintable`): there is no
+    let rooted_at_gate_symbol = equations.iter().any(|equation| {
+        matches!(&equation.index, TermIndex::Symbol(name) if gate_symbol(definition, name))
+    });
+    if scope == CheckScope::Gate && !withdrawable && !rooted_at_gate_symbol {
+        // The load's shortcut, valid only where no pair it would classify can change a claim or
+        // be named. No symbol the gate is asked about (`certified_root`, the union of the sites'
+        // symbol classes) can be tainted by any closure (`closure::taintable`): there is no
         // equation head, hooked or not, and every overloaded symbol is a free constructor or
         // hooked. So no pair changes a claim, and the collection claims read only equations
-        // indexed at a collection or a bare variable, which the rows above taint.
+        // indexed at a collection or a bare variable, which the rows above taint. No executable
+        // equation is rooted at a gate symbol either, so no inner pair rewrites an argument
+        // (`UnjoinedPair::in_argument`), the one kind of pair the load names whatever it
+        // withdraws. Classifying a pair reads neither the gate nor relevance, so
+        // `CheckScope::All` classifies every pair of such a definition all the same.
         checked.counts.unjoined = unjoined.len();
         checked.unjoined = unjoined;
         return ValueClaims(Arc::new(Verdict::Checked(Box::new(checked))));

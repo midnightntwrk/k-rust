@@ -820,6 +820,189 @@ fn the_memo_answers_only_within_one_check() {
     }
 }
 
+/// The integers with `>Int` and `<=Int`, a constructor `mk`, a map from `Int` to `Int`, and the
+/// declared functions `f : Int -> Int` and `pick : Map -> S`, with `extra`: no equation head and
+/// no overloaded symbol, so nothing a pair could withdraw.
+fn head_free(extra: &str) -> BackendDefinition {
+    let source = format!(
+        r#"[] module MAIN
+            hooked-sort SortInt{{}} [hook{{}}("INT.Int"), hasDomainValues{{}}()]
+            hooked-sort SortBool{{}} [hook{{}}("BOOL.Bool"), hasDomainValues{{}}()]
+            hooked-symbol gtInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+                [function{{}}(), total{{}}(), hook{{}}("INT.gt"), smt-hook{{}}(">")]
+            hooked-symbol leInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+                [function{{}}(), total{{}}(), hook{{}}("INT.le"), smt-hook{{}}("<=")]
+            hooked-sort SortMap{{}}
+                [hook{{}}("MAP.Map"), unit{{}}(mapUnit{{}}()), element{{}}(mapItem{{}}()), concat{{}}(mapConcat{{}}())]
+            hooked-symbol mapUnit{{}}() : SortMap{{}} [function{{}}(), total{{}}(), hook{{}}("MAP.unit")]
+            hooked-symbol mapItem{{}}(SortInt{{}}, SortInt{{}}) : SortMap{{}} [function{{}}(), total{{}}(), hook{{}}("MAP.element")]
+            hooked-symbol mapConcat{{}}(SortMap{{}}, SortMap{{}}) : SortMap{{}}
+                [function{{}}(), hook{{}}("MAP.concat"), assoc{{}}(), comm{{}}(), unit{{}}(mapUnit{{}}())]
+            sort SortS{{}} []
+            symbol mk{{}}(SortInt{{}}) : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+            symbol f{{}}(SortInt{{}}) : SortInt{{}} [function{{}}()]
+            symbol pick{{}}(SortMap{{}}) : SortS{{}} [function{{}}()]
+            {extra}
+        endmodule []"#
+    );
+    internalized(&parse_definition(&source).expect("the definition parses"))
+}
+
+fn int(value: i64) -> String {
+    format!(r#"\dv{{SortInt{{}}}}("{value}")"#)
+}
+
+/// `f(X0) = right requires X0 <comparison> bound`, labelled `id`.
+fn f_equation(comparison: &str, bound: i64, right: i64, id: &str) -> String {
+    format!(
+        r#"axiom{{R}} \implies{{R}}(
+            \and{{R}}(
+                \equals{{SortBool{{}}, R}}({comparison}{{}}(X:SortInt{{}}, {}), \dv{{SortBool{{}}}}("true")),
+                \and{{R}}(\in{{SortInt{{}}, R}}(X0:SortInt{{}}, X:SortInt{{}}), \top{{R}}())),
+            \equals{{SortInt{{}}, R}}(f{{}}(X0:SortInt{{}}), \and{{SortInt{{}}}}({}, \top{{SortInt{{}}}}()))
+        ) [UNIQUE'Unds'ID{{}}("{id}")]"#,
+        int(bound),
+        int(right),
+    )
+}
+
+/// The non-joined pairs of `claims` between two distinct equations.
+fn pairs(claims: &super::ValueClaims) -> Vec<&super::UnjoinedPair> {
+    claims
+        .unjoined()
+        .iter()
+        .filter(|pair| !pair.reason.describes_one_equation())
+        .collect()
+}
+
+/// `CheckScope::All` classifies every candidate pair of a definition with nothing to withdraw;
+/// only the load, whose scope reads claims, skips them.
+#[test]
+fn every_pair_is_classified_in_scope_all_without_an_equation_head() {
+    use super::CheckScope;
+    // `X >Int 0` and `X >Int -5` overlap on `X = 1` with the results 1 and 2.
+    let overlapping = head_free(&format!(
+        "{} {}",
+        f_equation("gtInt", 0, 1, "one"),
+        f_equation("gtInt", -5, 2, "two"),
+    ));
+    assert_eq!(overlapping.value_claims().counts().pairs, 0);
+    let all = overlapping.value_claims_in_scope(CheckScope::All);
+    let counts = all.counts();
+    assert_eq!((counts.pairs, counts.skipped), (1, 0), "{counts:?}");
+    let found = pairs(&all);
+    assert_eq!(found.len(), 1, "{:?}", all.unjoined());
+    assert!(found[0].withdrawn.is_empty(), "{:?}", found[0]);
+    // `X >Int 0` beside `X <=Int 0` holds on no integer: refuted.
+    let complementary = head_free(&format!(
+        "{} {}",
+        f_equation("gtInt", 0, 1, "one"),
+        f_equation("leInt", 0, 2, "two"),
+    ));
+    let all = complementary.value_claims_in_scope(CheckScope::All);
+    assert_eq!(
+        (all.counts().pairs, all.counts().refuted),
+        (1, 1),
+        "{:?}",
+        all.counts()
+    );
+    assert!(pairs(&all).is_empty(), "{:?}", all.unjoined());
+}
+
+/// The self pair of a map pattern that matches one map in several ways, with results that
+/// differ between matchings, is classified and reported by `CheckScope::All` in a definition with
+/// nothing to withdraw.
+#[test]
+fn a_self_pair_is_classified_in_scope_all_without_an_equation_head() {
+    use super::{CheckScope, unify::UnresolvedShape};
+    let definition = head_free(
+        r#"axiom{R} \implies{R}(
+            \and{R}(\top{R}(), \and{R}(\in{SortMap{}, R}(X0:SortMap{},
+                mapConcat{}(mapItem{}(K:SortInt{}, V:SortInt{}), M:SortMap{})), \top{R}())),
+            \equals{SortS{}, R}(pick{}(X0:SortMap{}), \and{SortS{}}(mk{}(K:SortInt{}), \top{SortS{}}()))
+        ) [UNIQUE'Unds'ID{}("pick")]"#,
+    );
+    assert_eq!(definition.value_claims().counts().several_matches, 0);
+    let all = definition.value_claims_in_scope(CheckScope::All);
+    assert_eq!(all.counts().several_matches, 1, "{:?}", all.counts());
+    assert!(
+        all.unjoined()
+            .iter()
+            .any(|pair| pair.reason == UnjoinedReason::Unresolved(UnresolvedShape::SeveralMatches)),
+        "{:?}",
+        all.unjoined()
+    );
+}
+
+/// An overload family of two hooked functions, `hE` over `hN` (hooks that never apply to these
+/// sorts), so the only overloaded symbols cannot be withdrawn; an equation `hE(inj(n0)) = m(z)`
+/// rooted at `hE`, and `gg(hE(inj(n0))) = z`, whose argument pattern `hE` rewrites.
+fn hooked_overloads() -> BackendDefinition {
+    let source = r#"[] module MAIN
+        sort SortNat{} []
+        sort SortS{} []
+        sort SortE{} []
+        sort SortN{} []
+        symbol inj{From, To}(From) : To [sortInjection{}(), injective{}()]
+        axiom{R} \exists{R}(V:SortE{}, \equals{SortE{}, R}(V:SortE{}, inj{SortN{}, SortE{}}(F:SortN{}))) [subsort{SortN{}, SortE{}}()]
+        symbol z{}() : SortNat{} [constructor{}(), functional{}(), injective{}()]
+        symbol m{}(SortNat{}) : SortS{} [constructor{}(), functional{}(), injective{}()]
+        symbol n0{}() : SortN{} [constructor{}(), functional{}(), injective{}()]
+        hooked-symbol hE{}(SortE{}) : SortS{} [function{}(), hook{}("INT.abs")]
+        hooked-symbol hN{}(SortN{}) : SortS{} [function{}(), hook{}("INT.abs")]
+        axiom{R} \equals{SortS{}, R}(hE{}(inj{SortN{}, SortE{}}(K0:SortN{})), hN{}(K0:SortN{}))
+            [symbol-overload{}(hE{}(), hN{}())]
+        symbol gg{}(SortS{}) : SortNat{} [function{}()]
+        axiom{R} \implies{R}(
+            \and{R}(\top{R}(), \and{R}(\in{SortE{}, R}(X0:SortE{}, inj{SortN{}, SortE{}}(n0{}())), \top{R}())),
+            \equals{SortS{}, R}(hE{}(X0:SortE{}), \and{SortS{}}(m{}(z{}()), \top{SortS{}}()))
+        ) [UNIQUE'Unds'ID{}("he")]
+        axiom{R} \implies{R}(
+            \and{R}(\top{R}(), \and{R}(\in{SortS{}, R}(X0:SortS{}, hE{}(inj{SortN{}, SortE{}}(n0{}()))), \top{R}())),
+            \equals{SortNat{}, R}(gg{}(X0:SortS{}), \and{SortNat{}}(z{}(), \top{SortNat{}}()))
+        ) [UNIQUE'Unds'ID{}("gg")]
+    endmodule []"#;
+    internalized(&parse_definition(source).expect("the definition parses"))
+}
+
+/// The load names an inner pair at an argument whose second equation is rooted at an overloaded
+/// symbol even when that symbol cannot be withdrawn (it is hooked), as `CheckScope::All` does:
+/// such a pair is named whatever it withdraws. Both equations rooted at `hE` rewrite `gg`'s
+/// argument pattern: `he` and the overload equation `hE(inj(K0)) = hN(K0)`.
+#[test]
+fn the_load_names_an_argument_pair_at_a_hooked_overloaded_symbol() {
+    use super::CheckScope;
+    let definition = hooked_overloads();
+    let load = definition.value_claims();
+    let named = load
+        .unjoined()
+        .iter()
+        .filter(|pair| pair.in_argument() && pair.reported())
+        .map(|pair| {
+            (
+                pair.first.attributes.unique_id.as_str(),
+                pair.position.clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        named,
+        [("gg", vec![0]), ("gg", vec![0])],
+        "{:?}",
+        load.unjoined()
+    );
+    assert!(
+        load.unjoined()
+            .iter()
+            .any(|pair| pair.in_argument() && pair.second.attributes.unique_id == "he"),
+        "{:?}",
+        load.unjoined()
+    );
+    let all = definition.value_claims_in_scope(CheckScope::All);
+    let differences = load.claim_differences(&all, &definition);
+    assert!(differences.is_empty(), "{differences:?}");
+}
+
 mod review_one;
 mod review_two;
 mod scope;
