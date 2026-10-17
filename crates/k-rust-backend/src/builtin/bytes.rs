@@ -61,16 +61,14 @@ fn bytes_to_string(arguments: &[Term]) -> HookResult<BuiltinResult> {
     Ok(BuiltinResult::Value(string_term(decode_8_bit(&bytes))))
 }
 
-/// `String2Bytes` is the inverse of `Bytes2String`. `domains.md` names no encoding for the pair
-/// (it names one only for `encodeBytes`/`decodeBytes`, which take one); this backend reads it as
-/// mapping each byte to the code point of the same number, its chosen reading. Totality does
-/// not decide between readings: under this one `String2Bytes` has no value above 255, under
-/// UTF-8 decoding `Bytes2String` has none on an invalid sequence. What decides is the module's
-/// statement that only the first 256 code points are supported: on exactly those strings this
-/// reading makes both `total` conversions total and mutually inverse, while UTF-8 decoding
-/// leaves `Bytes2String` without a value on invalid sequences whatever strings are supported.
-/// The hook is `total`, so on a string holding a code point above 255 its value is not given by
-/// the definition and the application is left unevaluated.
+/// `String2Bytes` is the inverse of `Bytes2String`: each code point `b` in `0..255` maps to the
+/// byte `b`. That is k-rust's stated reading of `domains.md`'s "the resulting value is a copy of
+/// the original" over the strings the module supports, those of the initial 256 code points: a
+/// copy keeps each item, and on those strings every item on either side is a number in
+/// `0..255`, so both `total` conversions are total and mutually inverse there (`encodeBytes` and
+/// `decodeBytes`, which name their encoding, are the conversions that encode). The hook is
+/// `total`, so on a string holding a code point above 255, which is the copy of no byte
+/// sequence, its value is not given by the definition and the application is left unevaluated.
 fn string_to_bytes(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("BYTES.string2bytes", arguments, 1)?;
     let Some(value) = super::string::read_string(&arguments[0]) else {
@@ -1009,7 +1007,7 @@ mod tests {
         );
     }
 
-    /// Under the byte-per-code-point reading of the pair (this backend's chosen reading; see
+    /// Under the byte-per-code-point reading of the pair (k-rust's stated reading; see
     /// `string_to_bytes`), every code point up to 255 is the byte of the same number, and a
     /// string with a code point above 255 has no byte sequence `Bytes2String` maps to it.
     #[test]

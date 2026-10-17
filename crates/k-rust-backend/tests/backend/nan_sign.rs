@@ -1,5 +1,5 @@
-//! `signFloat` is "the value of the sign bit", and `domains.md` gives the `NaN` literal no sign
-//! bit, while every IEEE-like format has NaNs of both signs: the hook is total, so `signFloat`
+//! `signFloat` is "the value of the sign bit", and a format has one NaN, the one its literal
+//! syntax writes, whose sign bit `domains.md` does not give: the hook is total, so `signFloat`
 //! of a NaN has a Bool value in every model, but which one the definition leaves open. Inside an
 //! execution (`EvaluationMode::Execution`) k-rust answers `false`; outside one the application
 //! stays unevaluated as a defined value, so that no proof verdict reads that choice. Every other

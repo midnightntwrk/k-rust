@@ -298,11 +298,14 @@ pub(crate) fn mixed_destination(hook: &str, arguments: &[Term]) -> Option<MixedP
 /// argument is a NaN of any format; `None` otherwise.
 ///
 /// `signFloat` is "the value of the sign bit" of a `Float`, a value of an IEEE-like format, in
-/// which every value, a NaN included, has a sign bit; the literal `NaN` names a NaN without
-/// saying which of the two it has. The description therefore gives the application a Bool value
-/// in every model, whatever its declaration says, but which one the definition does not
-/// determine: the evaluator's `false` is k-rust's reading, applied only in an execution
-/// (`super::implementation_chosen`). The argument is read exactly as the evaluator reads it.
+/// which every value, a NaN included, has a sign bit. A format has one NaN: the literal syntax
+/// writes signed zeros and infinities but one unsigned `NaN` per format, and `Float2String`
+/// round-trips every `Float` through that syntax, so no value is a second NaN of the format.
+/// The description does not say which sign bit that NaN has, so it gives the application a
+/// Bool value in every model, whatever its declaration says, but which one the definition does
+/// not determine (class `nan-sign`): the evaluator's `false` is k-rust's reading, applied only
+/// in an execution (`super::implementation_chosen`). The argument is read exactly as the
+/// evaluator reads it.
 pub(crate) fn nan_sign(hook: &str, arguments: &[Term]) -> Option<String> {
     if hook != "FLOAT.sign" {
         return None;
