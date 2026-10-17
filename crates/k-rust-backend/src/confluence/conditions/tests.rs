@@ -160,7 +160,7 @@ fn check(definition: &BackendDefinition, conjuncts: &[Conjunct]) -> Option<Strin
                 .all(|conjunct| conjunct.satisfied(*assignment))
         })
         .collect::<Vec<_>>();
-    if contradictory(&definition, &predicates) {
+    if contradictory(definition, &predicates) {
         if let Some(witness) = satisfying.first() {
             return Some(format!(
                 "{conjuncts:?} is called contradictory but {witness:?} satisfies it"
