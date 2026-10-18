@@ -101,6 +101,7 @@ fn case(table: &toml::Table, runnable: bool) -> Option<Case> {
         for_proving: false,
         twins: Vec::new(),
         searches: Vec::new(),
+        patterns: Vec::new(),
     })
 }
 
@@ -225,6 +226,7 @@ pub fn fixture_cases(named: &[Case]) -> Vec<Case> {
                 for_proving: false,
                 twins: Vec::new(),
                 searches: Vec::new(),
+                patterns: Vec::new(),
             })
         })
         .collect()

@@ -20,8 +20,8 @@ use k_rust::{
         SOURCE_ATTRIBUTE, Sentence,
     },
     diagnostic::Severity,
-    inner::definition_with_named_projections,
-    kast::Sort,
+    inner::parse_rule_content,
+    kast::{Sort, Term},
     kompile::{
         CompilationBackend, CompileOptions, CompiledKoreArtifacts, ConfigurationAssembler,
         ProgramGrammar, compile_loaded_definition, compile_search_pattern,
@@ -33,10 +33,13 @@ use k_rust::{
 use super::{
     corpus::workspace,
     kore_alpha::{
-        NormalSentence, difference_signature, first_difference, first_id_difference, id_signature,
-        normal_definition, normal_pattern,
+        NormalSentence, difference_signature, first_difference, first_id_difference,
+        id_differences, normal_definition, normal_pattern,
     },
-    rename::{Strategy, rename_sentence, variable_names},
+    rename::{
+        Strategy, rename_binders, rename_sentence, renamed_occurrences, sentence_terms,
+        variable_names,
+    },
 };
 
 /// Which sentences of a definition a variant renames.
@@ -68,11 +71,18 @@ pub enum Text {
 /// An alpha-variant of an inline case written as source text, so that it goes through the
 /// parser (and its sort inference) on its own. It keeps the length of every line of the base,
 /// so every location attribute agrees.
+///
+/// A twin gives two results: `<name>`, the twin compiled and run against the base, and
+/// `<name>-parse`, the parse stage alone: the twin's loaded definition against the base's
+/// loaded definition with the twin's binder renamed in its scope ([`Twin::binder`]).
 #[derive(Clone, Debug)]
 pub struct Twin {
     /// The result name: `text-<what the twin renames>`.
     pub name: String,
     pub text: String,
+    /// The bound name the twin renames and the name it gives it: the one pair of names in which
+    /// the replaced text and its replacement differ.
+    pub binder: (String, String),
 }
 
 /// A search pattern and an alpha-variant of it, both compiled against the case's compiled
@@ -113,6 +123,10 @@ pub struct Case {
     pub for_proving: bool,
     pub twins: Vec<Twin>,
     pub searches: Vec<SearchTwin>,
+    /// Search patterns, each with its result name, to which every strategy is applied: the
+    /// pattern is parsed, renamed as a sentence is, written back as text and compiled beside the
+    /// base pattern (results `<name>/<strategy>`).
+    pub patterns: Vec<(String, String)>,
 }
 
 impl Case {
@@ -132,6 +146,7 @@ impl Case {
             for_proving: false,
             twins: Vec::new(),
             searches: Vec::new(),
+            patterns: Vec::new(),
         }
     }
 
@@ -173,9 +188,29 @@ impl Case {
             "{}: {name} renames {from:?}",
             self.name
         );
+        let names = |text: &str| -> Vec<String> {
+            text.split(|character: char| !(character.is_alphanumeric() || character == '_'))
+                .filter(|token| !token.is_empty())
+                .map(str::to_owned)
+                .collect()
+        };
+        let mut pairs: Vec<(String, String)> = names(from)
+            .into_iter()
+            .zip(names(to))
+            .filter(|(left, right)| left != right)
+            .collect();
+        pairs.sort();
+        pairs.dedup();
+        assert_eq!(
+            pairs.len(),
+            1,
+            "{}: {name} renames one bound name: {pairs:?}",
+            self.name
+        );
         self.twins.push(Twin {
             name: name.to_owned(),
             text: text.replace(from, to),
+            binder: pairs.remove(0),
         });
         self
     }
@@ -189,13 +224,29 @@ impl Case {
         self
     }
 
+    /// Add the search pattern `name`, to which every strategy is applied.
+    pub fn pattern(mut self, name: &str, text: &str) -> Self {
+        self.patterns.push((name.to_owned(), text.to_owned()));
+        self
+    }
+
     /// The names of the results this case can give besides the strategies'.
-    pub fn route_names(&self) -> Vec<&str> {
-        self.twins
-            .iter()
-            .map(|twin| twin.name.as_str())
-            .chain(self.searches.iter().map(|search| search.name.as_str()))
-            .collect()
+    pub fn route_names(&self) -> Vec<String> {
+        let mut names = Vec::new();
+        for twin in &self.twins {
+            names.push(twin.name.clone());
+            names.push(format!("{}-parse", twin.name));
+        }
+        names.extend(self.searches.iter().map(|search| search.name.clone()));
+        for (name, _) in &self.patterns {
+            names.push(format!("{name}/*"));
+            names.extend(
+                Strategy::ALL
+                    .iter()
+                    .map(|strategy| format!("{name}/{}", strategy.name())),
+            );
+        }
+        names
     }
 
     fn path(&self) -> String {
@@ -227,6 +278,9 @@ pub enum Kind {
     /// Both compile to alpha-equivalent KORE, and a run gives different leaves (only possible
     /// through a backend that reads spellings).
     Run,
+    /// The parse stage of a source twin: both load, and the twin's parse is not the base's parse
+    /// with the twin's binder renamed in its scope.
+    Parse,
 }
 
 /// The failure of one variant: its kind, a report that holds the first KORE difference and
@@ -602,19 +656,19 @@ fn compile(loaded: &LoadedDefinition, case: &Case, initial: &[Pattern]) -> Compi
     }
 }
 
-/// The initial configuration of each program of `case`, assembled as `krun` assembles it.
+/// The initial configuration of each program of `case`, assembled as `krun` assembles it, with
+/// the program grammar of the compiled frontend definition.
 fn initial_states(
-    loaded: &LoadedDefinition,
+    grammar: &ProgramGrammar,
     syntax: &str,
     case: &Case,
     artifacts: &CompiledKoreArtifacts,
 ) -> Result<Vec<Pattern>, String> {
-    let grammar = ProgramGrammar::new(loaded.definition()).map_err(|error| error.to_string())?;
     case.programs
         .iter()
         .map(|program| {
             let mut assembler = ConfigurationAssembler::new(
-                &grammar,
+                grammar,
                 case.main.clone(),
                 syntax.to_owned(),
                 &artifacts.configuration_variables,
@@ -709,17 +763,32 @@ pub fn check(case: &Case, strategies: &[Strategy]) -> CaseOutcome {
     };
     let base_loaded = relink(original.clone());
     let base_names = scope_names(&original, &case.scope, &source);
-    let (base, initial, base_artifacts) = match compile_artifacts(&base_loaded, case) {
-        Err(compiled) => (compiled, Vec::new(), None),
+    // `krun`'s program grammar: the frontend definition the base was compiled from, resolved once
+    // for the programs and the search patterns.
+    let needs_grammar =
+        !case.programs.is_empty() || !case.searches.is_empty() || !case.patterns.is_empty();
+    let (base, initial, base_artifacts, grammar) = match compile_artifacts(&base_loaded, case) {
+        Err(compiled) => (compiled, Vec::new(), None, None),
         Ok(artifacts) => {
-            let initial = if case.programs.is_empty() {
-                Vec::new()
-            } else {
-                initial_states(&loaded, &syntax, case, &artifacts).unwrap_or_else(|message| {
-                    panic!("{}: the programs do not parse: {message}", case.name)
+            let grammar = needs_grammar.then(|| {
+                ProgramGrammar::new(base_loaded.definition()).unwrap_or_else(|error| {
+                    panic!("{}: the program grammar resolves: {error}", case.name)
                 })
+            });
+            let initial = match &grammar {
+                Some(grammar) if !case.programs.is_empty() => {
+                    initial_states(grammar, &syntax, case, &artifacts).unwrap_or_else(|message| {
+                        panic!("{}: the programs do not parse: {message}", case.name)
+                    })
+                }
+                _ => Vec::new(),
             };
-            (finish(&artifacts, case, &initial), initial, Some(artifacts))
+            (
+                finish(&artifacts, case, &initial),
+                initial,
+                Some(artifacts),
+                grammar,
+            )
         }
     };
     let summary = match &base {
@@ -747,14 +816,15 @@ pub fn check(case: &Case, strategies: &[Strategy]) -> CaseOutcome {
     let mut twins = BTreeMap::new();
     for twin in &case.twins {
         let mut names = base_names.clone();
-        let compiled = match guarded(|| load_text(case, Some(&twin.text))) {
-            Err(message) => Compiled::Panic(format!("load panics: {}", one_line(&message))),
+        let loaded_twin = guarded(|| load_text(case, Some(&twin.text)));
+        let compiled = match &loaded_twin {
+            Err(message) => Compiled::Panic(format!("load panics: {}", one_line(message))),
             Ok(Err(message)) => Compiled::Refused(
                 vec![("load".to_owned(), None, message.clone())],
                 format!("load refused: {message}"),
             ),
             Ok(Ok((loaded, _, source))) => {
-                names.extend(scope_names(loaded.definition(), &case.scope, &source));
+                names.extend(scope_names(loaded.definition(), &case.scope, source));
                 // Relinked as the base is, so both are compiled from the same addressing.
                 let relinked = loaded
                     .with_definition(loaded.definition().clone())
@@ -762,19 +832,147 @@ pub fn check(case: &Case, strategies: &[Strategy]) -> CaseOutcome {
                 compile(&relinked, case, &initial)
             }
         };
+        let parse = parse_stage(case, &original, &source, twin, &loaded_twin, &compiled);
         twins.insert(twin.name.clone(), compare(case, &base, &compiled, &names));
+        twins.insert(format!("{}-parse", twin.name), parse);
     }
-    if !case.searches.is_empty() {
-        let artifacts = base_artifacts
-            .as_ref()
-            .unwrap_or_else(|| panic!("{}: a search case compiles", case.name));
-        twins.extend(search_twins(case, &base_loaded, artifacts));
+    if !case.searches.is_empty() || !case.patterns.is_empty() {
+        let (Some(artifacts), Some(grammar)) = (&base_artifacts, &grammar) else {
+            panic!("{}: a search case compiles", case.name)
+        };
+        twins.extend(search_results(case, grammar, artifacts));
     }
     CaseOutcome {
         base: Ok(summary),
         variants,
         twins,
     }
+}
+
+/// A loaded sentence's name for reports: its `label`, else its file's name and start position.
+fn loaded_name(sentence: &Sentence, file: &str) -> String {
+    if let Some(label) = sentence.attributes().get_str("label") {
+        return label.to_owned();
+    }
+    sentence.attributes().location().map_or_else(
+        || "<unlocated>".to_owned(),
+        |location| format!("{file}:{}:{}", location.start_line, location.start_column),
+    )
+}
+
+/// The text of a loaded sentence's terms, in textual KAST (which ignores the parser's metadata).
+fn loaded_text(sentence: &Sentence) -> String {
+    let mut sentence = sentence.clone();
+    let Some(parts) = sentence_terms(&mut sentence) else {
+        return String::new();
+    };
+    parts
+        .terms
+        .iter()
+        .map(|term| one_line(&Term::to_string(term)))
+        .collect::<Vec<_>>()
+        .join(" | ")
+}
+
+/// The parse stage of a source twin: the twin's loaded definition against the base's loaded
+/// definition with the twin's binder renamed in its scope, sentence by sentence over the case's
+/// own file, compared as terms (the parser's metadata, locations included, is not compared).
+/// After the parse the two are alpha-variants exactly when they are equal, since the twin renames
+/// one binder and the renamed base renames the same binder the same way.
+fn parse_stage(
+    case: &Case,
+    original: &Definition,
+    source: &str,
+    twin: &Twin,
+    loaded_twin: &Result<Result<Loaded, String>, String>,
+    compiled: &Compiled,
+) -> Option<Failure> {
+    let (from, to) = &twin.binder;
+    let twin_loaded = match (loaded_twin, compiled) {
+        (Ok(Ok((loaded, _, _))), _) => loaded,
+        (Err(_), Compiled::Panic(message)) => {
+            return Some(Failure::new(
+                Kind::VariantPanic,
+                format!("the twin {message}"),
+                format!("the variant panics: {}", prefix_chars(message, 160)),
+            ));
+        }
+        (Ok(Err(_)), Compiled::Refused(refusals, message)) => {
+            return Some(Failure::new(
+                Kind::VariantRefused,
+                format!("the base loads and the twin is refused: {message}"),
+                format!("variant refused {}", refusal_signature(refusals, message)),
+            ));
+        }
+        _ => unreachable!("a twin's compile follows its load"),
+    };
+    let own = |definition: &Definition, source: &str| -> Vec<(String, Sentence)> {
+        definition
+            .modules
+            .iter()
+            .flat_map(|module| {
+                module
+                    .local_sentences
+                    .iter()
+                    .map(move |sentence| (module.name.clone(), sentence))
+            })
+            .filter(|(_, sentence)| in_scope(sentence, &Scope::OwnFile, source))
+            .map(|(module, sentence)| (module, (**sentence).clone()))
+            .collect()
+    };
+    let renamed: Vec<(String, Sentence)> = own(original, source)
+        .into_iter()
+        .map(|(module, mut sentence)| {
+            rename_binders(&mut sentence, from, to);
+            (module, sentence)
+        })
+        .collect();
+    let parsed = own(twin_loaded.definition(), source);
+    let file = case
+        .path()
+        .rsplit('/')
+        .next()
+        .unwrap_or_default()
+        .to_owned();
+    let mut report = String::new();
+    let mut parts = Vec::new();
+    for ((module, left), (_, right)) in renamed.iter().zip(&parsed) {
+        if left == right {
+            continue;
+        }
+        let (left_text, right_text) = (loaded_text(left), loaded_text(right));
+        let (left_text, right_text) = if left_text == right_text {
+            (format!("{left:?}"), format!("{right:?}"))
+        } else {
+            (left_text, right_text)
+        };
+        let at = first_differing_byte(&left_text, &right_text);
+        let name = loaded_name(left, &file);
+        let _ = write!(
+            report,
+            "\n    {module}.{name}: base renamed: {left_text}\n    {module}.{name}: twin: {right_text}"
+        );
+        parts.push(format!(
+            "{module}.{name}: base «{}» variant «{}»",
+            window_at(&left_text, at),
+            window_at(&right_text, at)
+        ));
+    }
+    if renamed.len() != parsed.len() {
+        parts.push(format!(
+            "the twin has {} more sentences than the base",
+            parsed.len() as i64 - renamed.len() as i64
+        ));
+    }
+    (!parts.is_empty()).then(|| {
+        Failure::new(
+            Kind::Parse,
+            format!(
+                "the twin's parse is not the base's parse with {from} renamed {to} in its scope:{report}"
+            ),
+            parts.join("; "),
+        )
+    })
 }
 
 /// The window of `text` around byte `at`, from 24 characters before it, 64 characters long.
@@ -795,80 +993,262 @@ fn first_differing_byte(left: &str, right: &str) -> usize {
         .map_or(left.len().min(right.len()), |((at, _), _)| at)
 }
 
-/// Compile each search twin of `case` against its compiled definition, as `krun --pattern`
-/// does, and compare the two compiled patterns in alpha-normal form.
-fn search_twins(
+/// What compiling one search pattern gives.
+enum SearchCompiled {
+    Panic(String),
+    Refused(Refusal),
+    Pattern(String),
+}
+
+/// The attributes `krun --pattern` gives a pattern written on the command line.
+fn pattern_attributes(contents: &str) -> Attributes {
+    let mut attributes = Attributes::default();
+    attributes.insert(SOURCE_ATTRIBUTE, serde_json::json!("<command line>"));
+    let width = contents.chars().count();
+    attributes.insert(LOCATION_ATTRIBUTE, serde_json::json!([1, 1, 1, width]));
+    attributes
+}
+
+/// `text` with every `<command line>:<line>:<column>` position reduced to `<command line>`: a
+/// renaming moves the columns of a one-line pattern.
+fn without_positions(text: &str) -> String {
+    let marker = "<command line>";
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find(marker) {
+        out.push_str(&rest[..at + marker.len()]);
+        rest = &rest[at + marker.len()..];
+        while let Some(after) = rest.strip_prefix(':')
+            && after.starts_with(|character: char| character.is_ascii_digit())
+        {
+            rest = after.trim_start_matches(|character: char| character.is_ascii_digit());
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Each search twin and each strategy's variant of each search pattern of `case`, compiled
+/// against the case's compiled definition as `krun --pattern` compiles a pattern (the program
+/// grammar of the compiled frontend definition and the compiled execution definition), and
+/// compared with the base pattern in alpha-normal form.
+fn search_results(
     case: &Case,
-    loaded: &LoadedDefinition,
+    grammar: &ProgramGrammar,
     artifacts: &CompiledKoreArtifacts,
 ) -> Vec<(String, Option<Failure>)> {
-    let parsing = definition_with_named_projections(loaded.definition());
-    let parsing = ResolvedDefinition::resolve(&parsing).expect("the parsing definition resolves");
+    let parsing = grammar.resolved();
     let execution = ResolvedDefinition::resolve(&artifacts.execution_definition)
         .expect("the execution definition resolves");
-    let pattern = |contents: &str| -> Result<String, String> {
-        let mut attributes = Attributes::default();
-        attributes.insert(SOURCE_ATTRIBUTE, serde_json::json!("<command line>"));
-        let width = contents.chars().count();
-        attributes.insert(LOCATION_ATTRIBUTE, serde_json::json!([1, 1, 1, width]));
+    let compile = |contents: &str| -> SearchCompiled {
         match guarded(|| {
-            compile_search_pattern(&parsing, &execution, &case.main, contents, attributes)
+            compile_search_pattern(
+                parsing,
+                &execution,
+                &case.main,
+                contents,
+                pattern_attributes(contents),
+            )
         }) {
-            Err(message) => Err(format!("panics: {}", one_line(&message))),
-            Ok(Err(error)) => Err(format!("refused: {}", one_line(&error.to_string()))),
-            Ok(Ok(compiled)) => Ok(normal_pattern(&compiled.pattern)),
+            Err(message) => SearchCompiled::Panic(one_line(&message)),
+            Ok(Err(error)) => {
+                let debug = format!("{error:?}");
+                let code = debug
+                    .split(|character: char| !character.is_alphanumeric())
+                    .next()
+                    .unwrap_or_default()
+                    .to_owned();
+                SearchCompiled::Refused((
+                    code,
+                    None,
+                    without_positions(&one_line(&error.to_string())),
+                ))
+            }
+            Ok(Ok(compiled)) => SearchCompiled::Pattern(normal_pattern(&compiled.pattern)),
         }
     };
-    case.searches
-        .iter()
-        .map(|search| {
-            let base = pattern(&search.base);
-            let variant = pattern(&search.variant);
-            let failure = match (&base, &variant) {
-                (Ok(left), Ok(right)) if left == right => None,
-                (Ok(left), Ok(right)) => {
-                    let at = first_differing_byte(left, right);
+    let parse = |contents: &str| {
+        guarded(|| parse_rule_content(parsing, &case.main, contents, pattern_attributes(contents)))
+    };
+    let names_of = |contents: &str| -> BTreeSet<String> {
+        let mut names = BTreeSet::new();
+        if let Ok(Ok(sentence)) = parse(contents) {
+            for name in variable_names(&sentence) {
+                names.insert(name.trim_start_matches(['?', '!', '@']).to_owned());
+                names.insert(name);
+            }
+        }
+        names
+    };
+    let mut results = Vec::new();
+    for search in &case.searches {
+        let mut names = names_of(&search.base);
+        names.extend(names_of(&search.variant));
+        results.push((
+            search.name.clone(),
+            compare_patterns(&compile(&search.base), &compile(&search.variant), &names),
+        ));
+    }
+    for (name, text) in &case.patterns {
+        let base = compile(text);
+        let parsed = match parse(text) {
+            Ok(Ok(parsed)) => parsed,
+            Ok(Err(error)) => {
+                let message = one_line(&error.to_string());
+                results.push((
+                    format!("{name}/*"),
                     Some(Failure::new(
-                        Kind::Kore,
+                        Kind::BaseRefused,
+                        format!("the base pattern does not parse: {message}"),
                         format!(
-                            "the compiled search patterns differ:\n    base:    {left}\n    variant: {right}"
+                            "base pattern does not parse: {}",
+                            prefix_chars(&message, 160)
                         ),
-                        format!(
-                            "pattern: base «{}» variant «{}»",
-                            window_at(left, at),
-                            window_at(right, at)
-                        ),
-                    ))
-                }
-                (Ok(_), Err(error)) => Some(Failure::new(
-                    Kind::VariantRefused,
-                    format!("the base pattern compiles and the variant {error}"),
-                    format!("variant pattern {}", prefix_chars(error, 160)),
+                    )),
+                ));
+                continue;
+            }
+            Err(message) => {
+                let message = one_line(&message);
+                results.push((
+                    format!("{name}/*"),
+                    Some(Failure::new(
+                        Kind::BasePanic,
+                        format!("the base pattern's parse panics: {message}"),
+                        format!("base pattern parse panics: {}", prefix_chars(&message, 160)),
+                    )),
+                ));
+                continue;
+            }
+        };
+        if let SearchCompiled::Panic(message) = &base {
+            results.push((
+                format!("{name}/*"),
+                Some(Failure::new(
+                    Kind::BasePanic,
+                    format!("the base pattern panics: {message}"),
+                    format!("base pattern panics: {}", prefix_chars(message, 160)),
                 )),
-                (Err(error), Ok(_)) => Some(Failure::new(
-                    Kind::BaseRefused,
-                    format!("the base pattern {error}, and the variant compiles"),
-                    format!("base pattern {}", prefix_chars(error, 160)),
-                )),
-                // Both refused: by the same kind of error, whatever names it spells.
-                (Err(left), Err(right)) => {
-                    let head = |text: &str| text.split(':').take(2).collect::<String>();
-                    (head(left) != head(right)).then(|| {
-                        Failure::new(
-                            Kind::RefusalDiffers,
-                            format!("base pattern {left}\n    variant pattern {right}"),
-                            format!(
-                                "base pattern {} / variant pattern {}",
-                                prefix_chars(left, 80),
-                                prefix_chars(right, 80)
-                            ),
-                        )
-                    })
-                }
+            ));
+            continue;
+        }
+        for strategy in Strategy::ALL {
+            let mut renamed = parsed.clone();
+            if !rename_sentence(&mut renamed, strategy) {
+                continue;
+            }
+            let mut edits = renamed_occurrences(&parsed, &renamed)
+                .unwrap_or_else(|error| panic!("{}: {name}: {error}", case.name));
+            edits.sort();
+            let mut variant = text.clone();
+            for (at, from, to) in edits.iter().rev() {
+                assert_eq!(
+                    variant.get(*at..at + from.len()),
+                    Some(from.as_str()),
+                    "{}: {name}: the occurrence of {from} lies at byte {at} of {text:?}",
+                    case.name
+                );
+                variant.replace_range(*at..at + from.len(), to);
+            }
+            let mut names = names_of(text);
+            names.extend(names_of(&variant));
+            let failure = compare_patterns(&base, &compile(&variant), &names).map(|failure| {
+                Failure::new(
+                    failure.kind,
+                    format!(
+                        "pattern {text:?}, variant {variant:?}: {}",
+                        failure
+                            .report
+                            .rsplit_once("\n    at: ")
+                            .map_or(failure.report.as_str(), |(report, _)| report)
+                    ),
+                    failure.signature,
+                )
+            });
+            results.push((format!("{name}/{}", strategy.name()), failure));
+        }
+    }
+    results
+}
+
+/// Compare two compiled search patterns: a panic never passes; two patterns pass when their
+/// alpha-normal forms are equal; two refusals pass when they have the same code and the same
+/// message up to the variable names in `names`.
+fn compare_patterns(
+    base: &SearchCompiled,
+    variant: &SearchCompiled,
+    names: &BTreeSet<String>,
+) -> Option<Failure> {
+    let refused = |(code, _, message): &Refusal| format!("{code}: {message}");
+    match (base, variant) {
+        (SearchCompiled::Panic(message), _) => Some(Failure::new(
+            Kind::BasePanic,
+            format!("the base pattern panics: {message}"),
+            format!("base pattern panics: {}", prefix_chars(message, 160)),
+        )),
+        (_, SearchCompiled::Panic(message)) => Some(Failure::new(
+            Kind::VariantPanic,
+            format!("the variant pattern panics: {message}"),
+            format!("variant pattern panics: {}", prefix_chars(message, 160)),
+        )),
+        (SearchCompiled::Pattern(left), SearchCompiled::Pattern(right)) if left == right => None,
+        (SearchCompiled::Pattern(left), SearchCompiled::Pattern(right)) => {
+            let at = first_differing_byte(left, right);
+            Some(Failure::new(
+                Kind::Kore,
+                format!(
+                    "the compiled search patterns differ:\n    base:    {left}\n    variant: {right}"
+                ),
+                format!(
+                    "pattern: base «{}» variant «{}»",
+                    window_at(left, at),
+                    window_at(right, at)
+                ),
+            ))
+        }
+        (SearchCompiled::Pattern(_), SearchCompiled::Refused(refusal)) => Some(Failure::new(
+            Kind::VariantRefused,
+            format!(
+                "the base pattern compiles and the variant is refused: {}",
+                refused(refusal)
+            ),
+            format!(
+                "variant pattern refused {}",
+                prefix_chars(&refused(refusal), 160)
+            ),
+        )),
+        (SearchCompiled::Refused(refusal), SearchCompiled::Pattern(_)) => Some(Failure::new(
+            Kind::BaseRefused,
+            format!(
+                "the base pattern is refused, and the variant compiles: {}",
+                refused(refusal)
+            ),
+            format!(
+                "base pattern refused {}",
+                prefix_chars(&refused(refusal), 160)
+            ),
+        )),
+        (SearchCompiled::Refused(left), SearchCompiled::Refused(right)) => {
+            let normal = |(code, line, message): &Refusal| {
+                (code.clone(), *line, without_names(message, names))
             };
-            (search.name.clone(), failure)
-        })
-        .collect()
+            (normal(left) != normal(right)).then(|| {
+                Failure::new(
+                    Kind::RefusalDiffers,
+                    format!(
+                        "base pattern refused {}\n    variant pattern refused {}",
+                        refused(left),
+                        refused(right)
+                    ),
+                    format!(
+                        "base pattern refused {} / variant pattern refused {}",
+                        prefix_chars(&refused(left), 80),
+                        prefix_chars(&refused(right), 80)
+                    ),
+                )
+            })
+        }
+    }
 }
 
 /// `message` with every variable name in `names` replaced by `<var>`, so that two refusals
@@ -1020,20 +1400,30 @@ fn compare(
                     let _ = write!(runs, "\n    {line}");
                 }
             }
+            let ids = id_differences(base_kore, variant_kore);
             match (kore, first_run) {
-                (Some(kore), _) => failure(
-                    Kind::Kore,
-                    format!("{kore}{runs}"),
-                    difference_signature(base_kore, variant_kore)
-                        .unwrap_or_else(|| "no difference".to_owned()),
-                ),
-                (None, Some(first_run)) => {
+                // Every differing sentence, then the first differing run and the first
+                // `UNIQUE_ID` difference of a sentence whose text agrees, so that a second
+                // defect in the same result changes its signature.
+                (Some(kore), first_run) => {
+                    let mut signature = difference_signature(base_kore, variant_kore)
+                        .unwrap_or_else(|| "no difference".to_owned());
+                    if let Some(first_run) = first_run {
+                        let _ = write!(signature, " // {first_run}");
+                    }
+                    if let Some(id) = ids.first() {
+                        let _ = write!(signature, " // {id}");
+                    }
+                    failure(Kind::Kore, format!("{kore}{runs}"), signature)
+                }
+                (None, Some(mut first_run)) => {
+                    if let Some(id) = ids.first() {
+                        let _ = write!(first_run, " // {id}");
+                    }
                     failure(Kind::Run, runs.trim_start().to_owned(), first_run)
                 }
-                (None, None) => first_id_difference(base_kore, variant_kore).and_then(|report| {
-                    let signature = id_signature(base_kore, variant_kore).unwrap_or_default();
-                    failure(Kind::Id, report, signature)
-                }),
+                (None, None) => first_id_difference(base_kore, variant_kore)
+                    .and_then(|report| failure(Kind::Id, report, ids.join("; "))),
             }
         }
     }
@@ -1070,12 +1460,17 @@ fn k_cell(leaf: &str) -> String {
     )
 }
 
-/// A K-cell term with the `Lbl` prefixes, injections and the `kseq` unit dropped.
+/// A K-cell term with the `Lbl` prefixes, injections, the `kseq` unit and the encoded tail of a
+/// `name(...)` label's name (`'LParUndsRParUnds'<module>'Unds'<sorts>`) dropped.
 fn compact(text: &str) -> String {
     let text = text.replace("dotk{}()", ".");
     let mut out = String::new();
     let mut rest = text.as_str();
     while !rest.is_empty() {
+        if let Some(after) = rest.strip_prefix("'LParUndsRParUnds'") {
+            rest = &after[after.find(['{', '(']).unwrap_or(after.len())..];
+            continue;
+        }
         if let Some(after) = rest.strip_prefix("inj{") {
             let close = after.find("}(").map_or(0, |close| close + 2);
             rest = &after[close..];

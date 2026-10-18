@@ -29,28 +29,36 @@
 //! and the same messages up to the variable names; a panic (a kompile invariant of the test
 //! profile) is never a pass.
 //!
-//! Two routes write the variant as text rather than renaming the parsed definition: a source
+//! Two routes write the variant as text rather than renaming the parsed definition. A source
 //! twin (`Case::twin`) is an alpha-variant of an inline case's text, loaded and parsed on its own,
-//! so the parser's sort inference sees each spelling; and a search twin (`Case::search`) is a
-//! search pattern and an alpha-variant of it, both compiled against the case's compiled
-//! definition as `krun --pattern` compiles them, and compared in alpha-normal form.
+//! so the parser's sort inference sees each spelling; it gives the compiled result `<twin>` and
+//! the parse-stage result `<twin>-parse`, the twin's parse against the base's parse with the
+//! twin's binder renamed in its scope. A search twin (`Case::search`) is a search pattern and an
+//! alpha-variant of it, and a search pattern (`Case::pattern`) is parsed, renamed by every
+//! strategy and written back as text (`<pattern>/<strategy>`); each is compiled against the
+//! case's compiled definition as `krun --pattern` compiles it (the program grammar of the
+//! compiled frontend definition) and compared in alpha-normal form, a panic never passing and two
+//! refusals passing only with the same code and message up to the variable names.
 //!
 //! # Expected failures
 //!
 //! `EXPECTED` (`alpha_invariance/expected.rs`) lists every result that fails today, each with
-//! the ticket whose fix makes it pass, the kind of failure and a needle, a text its report must
-//! hold that is specific to its defect (the failure's signature or a part of it: the differing
-//! sentence and the first differing text of each side, the diagnostic, the panic or the run).
-//! An empty or generic needle is refused. A listed result must still fail in that way, and an
-//! unlisted one must pass: a fix shows as entries leaving the list, and a new failure (or a known
-//! one failing differently) fails the test until it is listed. Every entry must name a case some
-//! test gives and a strategy or twin of that case. A reviewer's binding finding becomes a new
-//! axis of `generate.rs` or a new probe, and its failing results become entries there.
+//! the set of tickets that must all land before it passes, the kind of failure and a needle, the
+//! failure's whole signature: every differing sentence with the first differing text of each
+//! side, then the first differing run and the first `UNIQUE_ID` difference (or the diagnostic,
+//! the panic or the run). An empty or generic needle is refused. A listed result must still fail
+//! with that kind and that signature, and an unlisted one must pass: a fix shows as entries
+//! leaving the list or as signatures losing that fix's sentences, and a new failure (or a known
+//! one failing differently, a second differing sentence included) fails the test until it is
+//! listed. Every entry must name a case some test gives and a strategy, twin or pattern variant
+//! of that case. A reviewer's binding finding becomes a new axis of `generate.rs` or a new probe,
+//! and its failing results become entries there.
 //!
 //! # Running
 //!
 //! `cargo test --test alpha_invariance` runs the probes, the prelude, the manifest's runnable
-//! workspace cases and a sample of the generated grammar. The ignored tests (the whole corpus,
+//! workspace cases and a sample of the generated grammar (in each family, the first case that
+//! holds an entry of each ticket set, and every 24th case). The ignored tests (the whole corpus,
 //! with the reference checkouts when present and every tracked K file, and the whole generated
 //! grammar) are run by the `alpha-invariance` gate (`scripts/alpha-invariance.sh`).
 //! `ALPHA_INVARIANCE_JOBS` sets the number of worker threads (default: the available
@@ -91,7 +99,7 @@ use std::{
     time::Instant,
 };
 
-use expected::{EXPECTED, needle_is_specific};
+use expected::{EXPECTED, needle_is_specific, ticket_set_name};
 use harness::{Case, CaseOutcome, Failure, check, describe};
 use rename::Strategy;
 
@@ -166,10 +174,10 @@ fn assert_cases(test: &str, cases: Vec<Case>) {
         );
         if let Some(failure) = failure {
             let (case, strategy) = key.split_once(' ').unwrap();
-            let ticket = expected.map_or("?", |entry| entry.ticket);
+            let tickets = expected.map_or("?", |entry| ticket_set_name(entry.tickets));
             let _ = writeln!(
                 listing,
-                "    expected(\"{case}\", \"{strategy}\", \"{ticket}\", Kind::{:?}, {:?}),",
+                "    expected(\"{case}\", \"{strategy}\", {tickets}, Kind::{:?}, {:?}),",
                 failure.kind, failure.signature
             );
         }
@@ -180,17 +188,24 @@ fn assert_cases(test: &str, cases: Vec<Case>) {
                 failure.kind, failure.report
             )),
             (Some(entry), None) => mismatches.push(format!(
-                "{key}: passes, but is listed as failing until {}: remove its entry",
-                entry.ticket
+                "{key}: passes, but is listed as failing until {} land: remove its entry",
+                entry.tickets.join(" and ")
             )),
+            // The needle is the whole signature, so a second defect in a listed result (another
+            // differing sentence, run or identifier) changes it and fails the test.
             (Some(entry), Some(failure)) => {
                 if failure.kind != entry.kind
-                    || !needle_is_specific(entry.needle)
-                    || !failure.report.contains(entry.needle)
+                    || !needle_is_specific(entry.signature())
+                    || failure.signature != entry.signature()
                 {
                     mismatches.push(format!(
-                        "{key}: listed as {:?} holding {:?} (until {}), and fails as {:?}: {}",
-                        entry.kind, entry.needle, entry.ticket, failure.kind, failure.report
+                        "{key}: listed as {:?} with the signature {:?} (until {} land), and fails as {:?} with the signature {:?}: {}",
+                        entry.kind,
+                        entry.signature(),
+                        entry.tickets.join(" and "),
+                        failure.kind,
+                        failure.signature,
+                        failure.report
                     ));
                 }
             }
@@ -200,9 +215,9 @@ fn assert_cases(test: &str, cases: Vec<Case>) {
     for entry in EXPECTED {
         if names.contains(entry.case) && !results.contains_key(&entry.key()) {
             mismatches.push(format!(
-                "{}: listed (until {}), and the case gives no such result",
+                "{}: listed (until {} land), and the case gives no such result",
                 entry.key(),
-                entry.ticket
+                entry.tickets.join(" and ")
             ));
         }
     }
@@ -267,17 +282,39 @@ fn the_runnable_workspace_corpus_is_alpha_invariant_or_listed() {
     assert_cases("corpus-runnable", cases);
 }
 
-/// The generated cases a sample keeps: the first of each family and every 24th after it, which
-/// keeps the default run near 30 seconds (the whole grammar is the gate's).
+/// The generated cases a sample keeps: in each family, for each ticket set its entries in
+/// `EXPECTED` name, the first case that holds an entry of that set, so that every family's
+/// defects run on every `cargo test` for every ticket they wait for; and every 24th case after
+/// the family's first. A family without entries keeps its first case and every 24th. This keeps
+/// the default run near 30 seconds; the whole grammar is the gate's.
 fn sample(cases: Vec<Case>) -> Vec<Case> {
+    let family = |case: &Case| case.name.split('/').next().unwrap_or("").to_owned();
+    let mut sets = BTreeMap::<&str, BTreeSet<&str>>::new();
+    for entry in EXPECTED {
+        sets.entry(entry.case)
+            .or_default()
+            .insert(ticket_set_name(entry.tickets));
+    }
+    let mut covered = BTreeMap::<String, BTreeSet<&str>>::new();
+    let mut firsts = BTreeSet::new();
+    for case in &cases {
+        let covered = covered.entry(family(case)).or_default();
+        for set in sets.get(case.name.as_str()).into_iter().flatten() {
+            if covered.insert(set) {
+                firsts.insert(case.name.clone());
+            }
+        }
+    }
     let mut seen = BTreeMap::<String, usize>::new();
     cases
         .into_iter()
         .filter(|case| {
-            let family = case.name.split('/').next().unwrap_or("").to_owned();
-            let index = seen.entry(family).or_default();
+            let family = family(case);
+            let index = seen.entry(family.clone()).or_default();
             *index += 1;
-            (*index - 1).is_multiple_of(24)
+            let has_entries = covered.get(&family).is_some_and(|sets| !sets.is_empty());
+            firsts.contains(&case.name)
+                || ((*index > 1 || !has_entries) && (*index - 1).is_multiple_of(24))
         })
         .collect()
 }
@@ -298,12 +335,7 @@ fn every_case() -> BTreeMap<String, Vec<String>> {
     cases.extend(corpus::fixture_cases(&manifest));
     let mut names: BTreeMap<String, Vec<String>> = cases
         .iter()
-        .map(|case| {
-            (
-                case.name.clone(),
-                case.route_names().into_iter().map(str::to_owned).collect(),
-            )
-        })
+        .map(|case| (case.name.clone(), case.route_names()))
         .collect();
     for name in corpus::manifest_case_names() {
         names.entry(name).or_default();
@@ -345,12 +377,13 @@ fn every_expected_entry_names_a_result_and_a_specific_needle() {
                 }
             }
         }
-        if !needle_is_specific(entry.needle) {
-            problems.push(format!(
-                "{}: the needle {:?} is empty or generic",
-                entry.key(),
-                entry.needle
-            ));
+        for needle in [Some(entry.needle), entry.portable].into_iter().flatten() {
+            if !needle_is_specific(needle) {
+                problems.push(format!(
+                    "{}: the needle {needle:?} is empty or generic",
+                    entry.key()
+                ));
+            }
         }
     }
     assert!(problems.is_empty(), "{}", problems.join("\n"));

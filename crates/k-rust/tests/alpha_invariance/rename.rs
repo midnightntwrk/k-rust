@@ -41,10 +41,15 @@ pub enum Strategy {
     /// may take the name of the sentence's `X:Int`. A quantifier binds exactly its own variable,
     /// so the sort of a variable it shadows is irrelevant to the meaning.
     BinderCaptureAnySort,
+    /// Every quantifier over a named variable to the name of a sibling binder: a quantifier of the
+    /// same sentence in a disjoint scope (neither encloses the other) over a variable of the same
+    /// class at another inferred sort, whose name does not occur in the renamed quantifier's
+    /// body. The two binders then share one name at two sorts, each within its own scope.
+    BinderCaptureSibling,
 }
 
 impl Strategy {
-    pub const ALL: [Strategy; 7] = [
+    pub const ALL: [Strategy; 8] = [
         Strategy::Fresh,
         Strategy::KIndex,
         Strategy::Rotate,
@@ -52,6 +57,7 @@ impl Strategy {
         Strategy::BinderCapture,
         Strategy::AnonNamed,
         Strategy::BinderCaptureAnySort,
+        Strategy::BinderCaptureSibling,
     ];
 
     pub fn name(self) -> &'static str {
@@ -63,6 +69,7 @@ impl Strategy {
             Strategy::BinderCapture => "binder-capture",
             Strategy::AnonNamed => "anon-named",
             Strategy::BinderCaptureAnySort => "binder-capture-any-sort",
+            Strategy::BinderCaptureSibling => "binder-capture-sibling",
         }
     }
 }
@@ -407,7 +414,10 @@ pub fn rename_sentence(sentence: &mut Sentence, strategy: Strategy) -> bool {
             rename_attributes(attributes, &listed);
             !minted.is_empty()
         }
-        Strategy::BinderApart | Strategy::BinderCapture | Strategy::BinderCaptureAnySort => {
+        Strategy::BinderApart
+        | Strategy::BinderCapture
+        | Strategy::BinderCaptureAnySort
+        | Strategy::BinderCaptureSibling => {
             let mut index = 0;
             let mut changed = false;
             let taken: BTreeSet<String> = names.iter().cloned().collect();
@@ -456,6 +466,22 @@ pub fn rename_sentence(sentence: &mut Sentence, strategy: Strategy) -> bool {
                                 break Some(candidate);
                             }
                         },
+                        Strategy::BinderCaptureSibling => {
+                            let Some(sort) = &sort else {
+                                continue;
+                            };
+                            sibling_binders(&terms, position, &path)
+                                .into_iter()
+                                .find(|(name, other_sort)| {
+                                    *name != bound
+                                        && !in_body.contains(name)
+                                        && other_sort != sort
+                                        && Spelling::of(name).is_some_and(|other| {
+                                            !other.anonymous() && other.class() == spelling.class()
+                                        })
+                                })
+                                .map(|(name, _)| name)
+                        }
                         _ => outside
                             .iter()
                             .filter(|name| **name != bound && !in_body.contains(name))
@@ -612,6 +638,130 @@ fn names_outside(term: &Term, path: &[usize], names: &mut Vec<String>) {
             names_in(child, names);
         }
     }
+}
+
+/// The bound name and the inferred sort (semantic cast) of every quantifier of `terms` whose scope
+/// is disjoint from the quantifier at `path` of `terms[position]`: in another term, or in the same
+/// term at a path neither a prefix nor an extension of `path`; in order of position, then
+/// preorder.
+fn sibling_binders(terms: &[&mut Term], position: usize, path: &[usize]) -> Vec<(String, String)> {
+    let mut siblings = Vec::new();
+    for (other, term) in terms.iter().enumerate() {
+        let mut quantifiers = Vec::new();
+        quantifier_paths(term, &mut Vec::new(), &mut quantifiers);
+        for other_path in quantifiers {
+            if other == position && (other_path.starts_with(path) || path.starts_with(&other_path))
+            {
+                continue;
+            }
+            let Term::Apply { arguments, .. } = at_path_ref(term, &other_path).unannotated() else {
+                unreachable!()
+            };
+            if let Some((name, Some(sort))) = binder_variable(&arguments[0]) {
+                siblings.push((name.to_owned(), sort.to_owned()));
+            }
+        }
+    }
+    siblings
+}
+
+/// Rename every quantifier of `sentence` over `from` to `to`, each within its own scope (the
+/// binder and the occurrences of its body that it binds); true when one was renamed.
+pub fn rename_binders(sentence: &mut Sentence, from: &str, to: &str) -> bool {
+    let Some(parts) = sentence_terms(sentence) else {
+        return false;
+    };
+    let mut changed = false;
+    for term in parts.terms {
+        let mut quantifiers = Vec::new();
+        quantifier_paths(term, &mut Vec::new(), &mut quantifiers);
+        for path in quantifiers {
+            let Term::Apply { arguments, .. } = at_path_ref(term, &path).unannotated() else {
+                unreachable!()
+            };
+            if binder_variable(&arguments[0]).is_some_and(|(name, _)| name == from) {
+                rename_bound(at_path(term, &path), from, to);
+                changed = true;
+            }
+        }
+    }
+    changed
+}
+
+/// The text edits that turn the source of `original` into the source of `renamed`, a renaming of
+/// it: for each variable occurrence whose name differs, the byte offset of the occurrence in the
+/// parsed text and the two names. An occurrence without a source span is an error.
+pub fn renamed_occurrences(
+    original: &Sentence,
+    renamed: &Sentence,
+) -> Result<Vec<(usize, String, String)>, String> {
+    fn walk(
+        left: &Term,
+        right: &Term,
+        span: Option<usize>,
+        edits: &mut Vec<(usize, String, String)>,
+    ) -> Result<(), String> {
+        match (left, right) {
+            (
+                Term::Annotated {
+                    term: left,
+                    metadata,
+                },
+                Term::Annotated { term: right, .. },
+            ) => walk(
+                left,
+                right,
+                metadata.span.as_ref().map(|span| span.start).or(span),
+                edits,
+            ),
+            (Term::Variable { name: from, .. }, Term::Variable { name: to, .. }) => {
+                if from != to {
+                    let at = span.ok_or_else(|| format!("the occurrence of {from} has no span"))?;
+                    edits.push((at, from.clone(), to.clone()));
+                }
+                Ok(())
+            }
+            (Term::Rewrite { left: a, right: b }, Term::Rewrite { left: c, right: d })
+            | (
+                Term::As {
+                    pattern: a,
+                    alias: b,
+                },
+                Term::As {
+                    pattern: c,
+                    alias: d,
+                },
+            ) => {
+                walk(a, c, None, edits)?;
+                walk(b, d, None, edits)
+            }
+            (Term::Sequence(left), Term::Sequence(right))
+            | (
+                Term::Apply {
+                    arguments: left, ..
+                },
+                Term::Apply {
+                    arguments: right, ..
+                },
+            ) => {
+                for (left, right) in left.iter().zip(right) {
+                    walk(left, right, None, edits)?;
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+    let (mut original, mut renamed) = (original.clone(), renamed.clone());
+    let (Some(left), Some(right)) = (sentence_terms(&mut original), sentence_terms(&mut renamed))
+    else {
+        return Ok(Vec::new());
+    };
+    let mut edits = Vec::new();
+    for (left, right) in left.terms.iter().zip(&right.terms) {
+        walk(left, right, None, &mut edits)?;
+    }
+    Ok(edits)
 }
 
 /// The semantic cast an occurrence of `name` carries in `terms` (its inferred sort), if any.

@@ -457,13 +457,17 @@ pub fn first_difference(base: &[NormalSentence], variant: &[NormalSentence]) -> 
     None
 }
 
-/// The distinguishing text of the first difference between two normal forms: the differing
-/// sentence's module and name, and the text of each side from 24 characters before the first
-/// differing character, 64 characters long; or the difference in the number of sentences. It
-/// names no sentence position, so a change elsewhere in the definition (the prelude) keeps it.
+/// The distinguishing text of every difference between two normal forms: for each differing
+/// sentence, in order, its module and name and the text of each side from 24 characters before
+/// the first differing character, 64 characters long; then the difference in the number of
+/// sentences, if any. It names no sentence position, so a change elsewhere in the definition (the
+/// prelude) keeps it, and a second differing sentence cannot hide behind the first.
 pub fn difference_signature(base: &[NormalSentence], variant: &[NormalSentence]) -> Option<String> {
-    for (left, right) in base.iter().zip(variant) {
-        if left.text != right.text {
+    let mut parts: Vec<String> = base
+        .iter()
+        .zip(variant)
+        .filter(|(left, right)| left.text != right.text)
+        .map(|(left, right)| {
             let at = left
                 .text
                 .char_indices()
@@ -478,35 +482,37 @@ pub fn difference_signature(base: &[NormalSentence], variant: &[NormalSentence])
                     .map_or(0, |(start, _)| start);
                 text[start..].chars().take(64).collect()
             };
-            return Some(format!(
+            format!(
                 "{}.{}: base «{}» variant «{}»",
                 left.module,
                 left.name,
                 window(&left.text),
                 window(&right.text)
-            ));
-        }
-    }
-    (base.len() != variant.len()).then(|| {
-        format!(
+            )
+        })
+        .collect();
+    if base.len() != variant.len() {
+        parts.push(format!(
             "the variant has {} more sentences than the base",
             variant.len() as i64 - base.len() as i64
-        )
-    })
+        ));
+    }
+    (!parts.is_empty()).then(|| parts.join("; "))
 }
 
-/// The distinguishing text of the first `UNIQUE'Unds'ID` difference: the sentence's module and
-/// name.
-pub fn id_signature(base: &[NormalSentence], variant: &[NormalSentence]) -> Option<String> {
+/// The distinguishing text of each `UNIQUE'Unds'ID` difference between sentences whose normal
+/// texts are equal, in order: the sentence's module and name.
+pub fn id_differences(base: &[NormalSentence], variant: &[NormalSentence]) -> Vec<String> {
     base.iter()
         .zip(variant)
-        .find(|(left, right)| left.id != right.id)
+        .filter(|(left, right)| left.text == right.text && left.id != right.id)
         .map(|(left, _)| {
             format!(
                 "{}.{}: UNIQUE_ID not alpha-invariant",
                 left.module, left.name
             )
         })
+        .collect()
 }
 
 /// The first sentence whose `UNIQUE'Unds'ID` differs between two normal forms whose texts are

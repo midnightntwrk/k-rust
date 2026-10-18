@@ -19,7 +19,10 @@
 //! - the sigil of the bound variable: none, or `?` beside a free right-side `?` variable;
 //! - the route: the parsed definition renamed and relinked (every strategy), source text written
 //!   beside the base with a binder annotated or left to the parser's sort inference (`source`),
-//!   or a search pattern compiled against the definition (`search`).
+//!   or a search pattern compiled against the definition, written beside the base or renamed by
+//!   every strategy (`search`, with the binder shapes of `one`, `two` and `anon`);
+//! - the capture target of a renamed binder: a free variable of the sentence at the same sort or
+//!   any sort, or a sibling binder (a disjoint scope) at another sort.
 //!
 //! The `owise` cross product of `owise_binders.rs` (its `shapes.rs`) is a family here too
 //! (`owise-cross`), so the competitors' binders are renamed under every strategy.
@@ -719,53 +722,146 @@ fn hole_contexts() -> Vec<Case> {
 
 /// Search patterns, compiled against a definition with a macro whose right side holds a binder:
 /// a pattern with an anonymous binder, with a named binder, and with the macro at a use site
-/// that passes an anonymous or a named variable. Each variant renames the pattern only.
+/// that passes an anonymous or a named variable. Each hand-written twin (`search-*`) renames the
+/// pattern only, and every strategy is applied to the base pattern of each twin and to a use of
+/// the macro at the pattern's free variable (`<pattern>/<strategy>`).
 fn search_patterns() -> Vec<Case> {
     let module = "GS";
-    vec![
-        Case::inline(
-            "search/patterns",
-            module,
-            format!(
-                "module {module}\n  imports INT\n  imports BOOL\n  syntax KItem ::= go(Int) | done(Int)\n  syntax Bool ::= m(Int) [macro]\n  rule m(N) => #Forall Y:Int . {{N =/=Int Y +Int Y #Equals true}}\n  rule <k> go(X) => done(X) ... </k>\nendmodule\n"
-            ),
-        )
-        .search(
+    let twins = [
+        (
             "search-anon-exists",
             "<k> go(X) </k> requires #Exists _ . {X #Equals _ +Int 1}",
             "<k> go(X) </k> requires #Exists _A . {X #Equals _B +Int 1}",
-        )
-        .search(
+        ),
+        (
             "search-anon-forall",
             "<k> go(X) </k> requires #Forall _ . (X =/=Int _)",
             "<k> go(X) </k> requires #Forall _A . (X =/=Int _B)",
-        )
-        .search(
+        ),
+        (
             "search-named-apart",
             "<k> go(X) </k> requires #Exists Y:Int . {X #Equals Y +Int 1}",
             "<k> go(X) </k> requires #Exists Z:Int . {X #Equals Z +Int 1}",
-        )
-        .search(
+        ),
+        (
             "search-named-capture",
             "<k> go(X) ~> done(W) </k> requires #Exists Y:Int . {X #Equals Y +Int 1}",
             "<k> go(X) ~> done(W) </k> requires #Exists W:Int . {X #Equals W +Int 1}",
-        )
-        .search(
+        ),
+        (
             "search-macro-anon",
             "<k> go(X) </k> requires m(_)",
             "<k> go(X) </k> requires m(_A)",
-        )
-        .search(
+        ),
+        (
             "search-macro-named-apart",
             "<k> go(X) </k> requires m(Z:Int)",
             "<k> go(X) </k> requires m(W:Int)",
-        )
-        .search(
+        ),
+        (
             "search-macro-named-capture",
             "<k> go(X) </k> requires m(Z:Int)",
             "<k> go(X) </k> requires m(Y:Int)",
         ),
+    ];
+    let mut case = Case::inline(
+        "search/patterns",
+        module,
+        format!(
+            "module {module}\n  imports INT\n  imports BOOL\n  syntax KItem ::= go(Int) | done(Int)\n  syntax Bool ::= m(Int) [macro]\n  rule m(N) => #Forall Y:Int . {{N =/=Int Y +Int Y #Equals true}}\n  rule <k> go(X) => done(X) ... </k>\nendmodule\n"
+        ),
+    );
+    for (name, base, variant) in twins {
+        case = case.search(name, base, variant);
+    }
+    for (name, base, _) in twins {
+        case = case.pattern(name, base);
+    }
+    vec![
+        case.pattern("macro-free", "<k> go(X) </k> requires m(X)"),
+        search_shapes(),
     ]
+}
+
+/// The binder shapes of the `one`, `two` and `anon` families as search patterns over the left
+/// side `goS(s(X))`: one binder (kind, relation to `X`, sort, in the `requires` or a function
+/// argument), two binders (conjoined or nested; distinct, same or the left side's name), and
+/// anonymous and `?` binders. Every strategy is applied to each (`<shape>/<strategy>`).
+fn search_shapes() -> Case {
+    let mut case = Case::inline(
+        "search/shapes",
+        "G",
+        format!("module G\n{HEADER}  rule <k> goS(s(X)) => done(X) ... </k>\nendmodule\n"),
+    );
+    let pattern = |requires: &str| format!("<k> goS(s(X)) </k> requires {requires}");
+    for kind in KINDS {
+        for (relation, name) in [("fresh", "B"), ("lhs", "X"), ("minted", "K0")] {
+            for (sort, formula) in [
+                ("same", int_formula(kind, name)),
+                ("other", bool_formula(kind, name)),
+            ] {
+                case = case
+                    .pattern(
+                        &format!("one-{}-{relation}-{sort}-requires", kind.tag()),
+                        &pattern(&formula),
+                    )
+                    .pattern(
+                        &format!("one-{}-{relation}-{sort}-argument", kind.tag()),
+                        &pattern(&format!("h({formula})")),
+                    );
+            }
+        }
+    }
+    for (first, second) in [
+        (Quantifier::Exists, Quantifier::Exists),
+        (Quantifier::Exists, Quantifier::Forall),
+        (Quantifier::Forall, Quantifier::Exists),
+    ] {
+        for (names, a, b) in [
+            ("distinct", "B", "C"),
+            ("same", "B", "B"),
+            ("lhs", "X", "X"),
+        ] {
+            case = case
+                .pattern(
+                    &format!("two-{}{}-{names}-conj", first.tag(), second.tag()),
+                    &pattern(&format!(
+                        "({}) #And ({})",
+                        int_formula(first, a),
+                        int_formula(second, b)
+                    )),
+                )
+                .pattern(
+                    &format!("two-{}{}-{names}-nested", first.tag(), second.tag()),
+                    &pattern(&format!(
+                        "{} {a}:Int . ({} {b}:Int . {{s({a}) #Equals s({b} +Int 0)}})",
+                        first.text(),
+                        second.text()
+                    )),
+                );
+        }
+    }
+    case.pattern(
+        "two-EE-distinct-conj-other-sort",
+        &pattern(&format!(
+            "({}) #And ({})",
+            int_formula(Quantifier::Exists, "B"),
+            bool_formula(Quantifier::Exists, "C")
+        )),
+    )
+    .pattern(
+        "anon-E-anon-binder",
+        &pattern("#Exists _ . {X #Equals _ +Int 1}"),
+    )
+    .pattern("anon-F-anon-binder", &pattern("#Forall _ . (X =/=Int _)"))
+    .pattern(
+        "anon-E-named-binder-anon-body",
+        &pattern("#Exists B:Int . {X #Equals _ +Int B}"),
+    )
+    .pattern(
+        "existential-E-q-binder",
+        &pattern("#Exists ?B:Int . {s(X) #Equals s(?B)}"),
+    )
 }
 
 /// The realizable shapes of the `owise` cross product of `owise_binders.rs`, run at the
