@@ -163,6 +163,13 @@ behavior = "metadata-only"
 reason = "Condition-conjunction resolution relabels the pending conjunctions that strictness, heating and cooling added to conditions as #And or _andBool_, in place, so each node keeps the origin its generating pass recorded; it creates no node."
 
 [[pipeline]]
+call = "lower_term_conjunctions"
+occurrences = 1
+behavior = "generating"
+generating_passes = ["lower-term-conjunctions"]
+reason = "Term-conjunction lowering writes a conjunction of two connective-free terms at a built position or in a claim, and an alias in a claim's left side, as the first operand guarded by their equality, which it generates together with the copy of the first operand."
+
+[[pipeline]]
 call = "add_implicit_computation_cell"
 occurrences = 1
 behavior = "generating"

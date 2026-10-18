@@ -375,15 +375,6 @@ const CELL_COUNT: usize = 509;
 /// and the builds in which it deviates (see the module documentation).
 #[rustfmt::skip]
 pub const PENDING: &[(&str, &str, Class, Class)] = &[
-    // MLP/7 (8): a term-level `t1 #And t2` at a built position or in a claim's left side is neither lowered nor normalized.
-    ("left/claim-lhs__and-term", "MLP/7", Class::Undecided, Class::Undecided),
-    ("left/claim-lhs__as", "MLP/7", Class::Undecided, Class::Undecided),
-    ("right/alias-rhs__and-term", "MLP/7", Class::Wrong, Class::Wrong),
-    ("right/anywhere-rhs__and-term", "MLP/7", Class::Wrong, Class::Wrong),
-    ("right/fun-rhs__and-term", "MLP/7", Class::Wrong, Class::Wrong),
-    ("right/macro-rhs__and-term", "MLP/7", Class::Wrong, Class::Wrong),
-    ("right/rule-rhs__and-term", "MLP/7", Class::Wrong, Class::Wrong),
-    ("right/simp-rhs__and-term", "MLP/7", Class::Wrong, Class::Wrong),
     // MLP/4 (147): shapes no k-rust route loads or the backend misreads: refused at compile with MlConstructPosition.
     // Since MLP/8 the backend refuses at load, naming the axiom, an #Equals with a connective operand and a connective over terms conjoined at a matched or shared position (Refused).
     // An #Equals on a condition's spine whose operands are not both terms or both predicates is refused at compile since MLP/3, without that code (Refused).

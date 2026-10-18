@@ -538,6 +538,12 @@ file = "crates/k-rust/src/kompile/ml_constructs.rs"
 reason = "chooses each conjunction that strictness, heating and cooling added to a condition on the condition after macro expansion; one pass over the sentences that hold a pending conjunction"
 
 [[phase_only_stage]]
+stage = "lower term conjunctions"
+call = "lower_term_conjunctions"
+file = "crates/k-rust/src/kompile/ml_constructs.rs"
+reason = "writes a built conjunction of two connective-free terms, and a claim's left-side alias, as the first term guarded by their equality; one pass over the bodies of rules and claims, copying only the sentences it changes"
+
+[[phase_only_stage]]
 stage = "add implicit computation cell"
 call = "add_implicit_computation_cell"
 file = "crates/k-rust/src/kompile/passes/add_implicit_computation_cell.rs"

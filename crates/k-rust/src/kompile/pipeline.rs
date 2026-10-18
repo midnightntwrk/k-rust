@@ -426,6 +426,11 @@ stage_adapter!(
     outcome
 );
 stage_adapter!(
+    lower_term_conjunctions_stage,
+    super::ml_constructs::lower_term_conjunctions_pass,
+    outcome
+);
+stage_adapter!(
     declare_deferred_totality_stage,
     passes::declare_deferred_totality_pass,
     outcome
@@ -674,6 +679,18 @@ const TRANSFORM_STAGE_TABLE: &[Stage] = &[
         "metadata-only",
         requires = Artifacts::NONE,
         provides = Artifacts::CONDITION_CONJUNCTIONS_RESOLVED
+    ),
+    // A conjunction of two connective-free terms where its value is built, and an alias in a
+    // claim's left side, is written as the first term guarded by their equality, which denotes the
+    // same set of values; after macro expansion, so macro and alias bodies are lowered where they
+    // are used. Each kept node keeps its metadata; the generated equality, and the copy of the
+    // first operand in it, record this pass as their origin.
+    stage!(
+        "lower term conjunctions",
+        "lower_term_conjunctions",
+        lower_term_conjunctions_stage,
+        Provenance::Driver(super::ml_constructs::LOWER_TERM_CONJUNCTIONS),
+        "generating"
     ),
     stage!(
         "add implicit computation cell",
