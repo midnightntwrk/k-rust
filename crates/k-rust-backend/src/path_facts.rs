@@ -29,13 +29,16 @@
 //! - An evaluation whose value only decides a definedness that is the same in every model runs
 //!   with the notes of chosen values suspended ([`suspend`]): they reach no collection and no
 //!   run record, and a memo filled there still learns them, so it replays them where they count.
-//!   Every other kind is noted there too: a contradicted claim or a refusal steers the
-//!   definedness it decides.
+//!   Every other kind is noted there too, since it can steer the definedness the evaluation
+//!   decides: a definedness-only fold reads an allowance refusal as "not defined without a
+//!   value" where a larger allowance gives a value (`deferred::defined_without_value`).
 //! - A contradicted claim names the rewrite rule whose attempt (its match, its conditions, its
 //!   right-hand side) or whose successor's normalization observed it ([`observed_by`]), so that
 //!   the same contradiction observed by two rules is two records.
 //! - The run-level record ([`run`]) holds every distinct fact the run noted outside a
 //!   suspension, in first-observed order, whatever became of the work and the paths that met it.
+//!   A result lists the definition's load record before it ([`RunRecord::of`]), each entry
+//!   tagged with who observed it ([`ObservedIn`]); a leaf carries the run's own facts only.
 //!
 //! With nothing open a note reads one thread-local flag and returns.
 
@@ -89,6 +92,25 @@ impl PathFact {
     /// definedness is the same in every model.
     fn suspends(&self) -> bool {
         matches!(self, Self::ChosenValue(_))
+    }
+
+    /// The fact as the load of a definition observed it ([`ObservedIn::Load`]).
+    pub(crate) fn observed_at_load(self) -> Self {
+        match self {
+            Self::ChosenValue(chosen) => Self::ChosenValue(chosen),
+            Self::ContradictedClaim(mut claim) => {
+                claim.observed_in = ObservedIn::Load;
+                Self::ContradictedClaim(claim)
+            }
+            Self::AllowanceRefusal(hook) => Self::AllowanceRefusal(UnevaluatedHook {
+                observed_in: ObservedIn::Load,
+                ..hook
+            }),
+            Self::UnsupportedHook(hook) => Self::UnsupportedHook(UnevaluatedHook {
+                observed_in: ObservedIn::Load,
+                ..hook
+            }),
+        }
     }
 
     /// The fact as a diagnostic of the paths it is attributed to, `None` for a fact of the run
@@ -145,6 +167,21 @@ pub struct ContradictedClaim {
     pub rule: Option<ObservingRule>,
     /// Whether the contradicted application is ground (variable-free).
     pub ground: bool,
+    /// Whether the definition's load or the run that reports it observed the contradiction. A
+    /// leaf's records are the run's; the load's are on the result's lists only.
+    pub observed_in: ObservedIn,
+}
+
+/// Who observed a run-level record: the load of the definition, whose analyses' verdicts every
+/// run of it reads, or the run that reports it.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum ObservedIn {
+    /// The load's analyses (`BackendDefinition::internalize`): a fact about the definition, the
+    /// same for every run and every leaf.
+    Load,
+    /// The run that reports it.
+    #[default]
+    Run,
 }
 
 /// The kinds of claim a [`ContradictedClaim`] can name.
@@ -186,6 +223,7 @@ type ClaimKey<'a> = (
     &'a Term,
     &'a Option<ObservingRule>,
     bool,
+    ObservedIn,
 );
 
 impl ContradictedClaim {
@@ -199,6 +237,7 @@ impl ContradictedClaim {
                 &total.undefined_term,
                 &self.rule,
                 self.ground,
+                self.observed_in,
             ),
         }
     }
@@ -237,16 +276,20 @@ impl Hash for ContradictedClaim {
     }
 }
 
-/// A hook application left unevaluated, by its hook and why.
+/// A hook application left unevaluated, by its hook and why, and who met it.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct UnevaluatedHook {
     pub hook: String,
     pub reason: UnsupportedHookReason,
+    /// Whether the definition's load or the run that reports it met the application.
+    pub observed_in: ObservedIn,
 }
 
 /// The run-level lists a result reports of the facts of the run that are not chosen values:
 /// each distinct one once, in first-observed order, with an unsupported hook that is also an
-/// allowance refusal listed as the refusal only.
+/// allowance refusal listed as the refusal only. A result builds them from its definition's load
+/// record followed by its run's record, so a fact both observed is listed once for each
+/// ([`ObservedIn`]).
 #[derive(Debug, Default)]
 pub(crate) struct RunRecord {
     pub(crate) contradicted_claims: Vec<ContradictedClaim>,
@@ -432,6 +475,7 @@ pub(crate) fn note_contradicted_total(total: &ContradictedTotal) {
         ground: total.application.attributes().variables.is_empty(),
         claim: Claim::Total(total.clone()),
         rule,
+        observed_in: ObservedIn::Run,
     })));
 }
 
@@ -444,6 +488,7 @@ pub(crate) fn note_unevaluated_hook(hook: &str, reason: &UnsupportedHookReason, 
     let unevaluated = UnevaluatedHook {
         hook: hook.to_owned(),
         reason: reason.clone(),
+        observed_in: ObservedIn::Run,
     };
     note(if allowance {
         PathFact::AllowanceRefusal(unevaluated)
@@ -574,7 +619,11 @@ pub(crate) fn emit(facts: &FactSet) {
 
 /// Run `action` with the notes of chosen values suspended: an evaluation whose value decides
 /// nothing that depends on which admitted value it took. Every other kind of fact is noted as
-/// anywhere else. Restored on every exit.
+/// anywhere else, because it can steer the definedness the evaluation decides: the
+/// definedness-only fold of a pure hook reads an allowance refusal as "not defined without a
+/// value" (`deferred::defined_without_value`), where a larger allowance gives the value and the
+/// application is defined; one that reads a refusal as defined (`simplify::defined_uncomputed`)
+/// over-reports it, which is sound. Restored on every exit.
 pub(crate) fn suspend<T>(action: impl FnOnce() -> T) -> T {
     struct Restore(bool);
     impl Drop for Restore {
@@ -734,10 +783,12 @@ mod tests {
         let refusal = UnevaluatedHook {
             hook: "BYTES.padRight".to_owned(),
             reason: UnsupportedHookReason::NotImplemented,
+            observed_in: ObservedIn::Run,
         };
         let hook = UnevaluatedHook {
             hook: "STRING.countAllOccurrences".to_owned(),
             reason: UnsupportedHookReason::NotImplemented,
+            observed_in: ObservedIn::Run,
         };
         assert_eq!(
             run,
@@ -752,9 +803,20 @@ mod tests {
             PathFact::AllowanceRefusal(refusal.clone()),
             PathFact::UnsupportedHook(hook.clone()),
         ]);
-        assert_eq!(record.allowance_refusals, [refusal]);
+        assert_eq!(record.allowance_refusals, std::slice::from_ref(&refusal));
         assert_eq!(record.unsupported_hooks, [hook]);
         assert!(record.contradicted_claims.is_empty());
+        // The load's refusal and the run's are two entries, the load's first.
+        let at_load = PathFact::AllowanceRefusal(refusal.clone()).observed_at_load();
+        let record = RunRecord::of(&[at_load, PathFact::AllowanceRefusal(refusal.clone())]);
+        assert_eq!(
+            record
+                .allowance_refusals
+                .iter()
+                .map(|refusal| refusal.observed_in)
+                .collect::<Vec<_>>(),
+            [ObservedIn::Load, ObservedIn::Run]
+        );
     }
 
     /// A rule scope is opened only while something is open, and closed on every exit.

@@ -2845,16 +2845,19 @@ impl BackendDefinition {
                     .collect();
             })
         });
-        // Chosen values are withheld at load (the analyses run in `Proof`); none is kept.
+        // Chosen values are withheld at load (the analyses run in `Proof`); none is kept. What
+        // is kept is a fact about the definition, tagged so (`path_facts::ObservedIn::Load`).
         result.load_record = record
             .into_iter()
             .filter(|fact| fact.chosen_value().is_none())
+            .map(crate::path_facts::PathFact::observed_at_load)
             .collect();
         Ok(result)
     }
 
     /// What the load's analyses met that undone work never rolls back (`crate::path_facts`), which
-    /// every run on this definition reports with its own (`rewrite::ExecutionResult`).
+    /// every run on this definition, execution or search, lists before its own
+    /// (`rewrite::ExecutionResult`, `search::SearchResult`), and no leaf carries.
     pub(crate) fn load_record(&self) -> &[crate::path_facts::PathFact] {
         &self.load_record
     }

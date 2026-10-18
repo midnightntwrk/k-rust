@@ -210,11 +210,11 @@ export interface BackendCapabilities {
   smtUnknowns: boolean
   /** `execute`, `executeObserved` and every search mark leaves, states, witnesses and matches with 'implementation-chosen-value' and report `implementationChosenValues`. */
   implementationChosenValues: boolean
-  /** `execute`, `executeObserved` and every search mark leaves and states with 'contradicted-claim'; `execute` and `executeObserved` report `contradictedClaims`. */
+  /** `execute`, `executeObserved` and every search mark leaves, states, witnesses and matches with 'contradicted-claim' and report `contradictedClaims`. */
   contradictedClaims: boolean
-  /** `execute` and `executeObserved` report `allowanceRefusals`. */
+  /** `execute`, `executeObserved` and every search report `allowanceRefusals`. */
   allowanceRefusals: boolean
-  /** `execute` and `executeObserved` report `unsupportedHooks`. */
+  /** `execute`, `executeObserved` and every search report `unsupportedHooks`. */
   unsupportedHooks: boolean
 }
 
@@ -402,7 +402,9 @@ export interface ExecutionResult {
    * total attribute is named, not repaired"). It includes the records of work that ended on no
    * reported leaf (a candidate a defined sibling covered, a state a `state-set` merge absorbed).
    * It is complete for contradictions found by evaluation on ground arguments; a symbolic state
-   * trusts the claim, so its absence says nothing about a non-ground run.
+   * trusts the claim, so its absence says nothing about a non-ground run. Each record says who
+   * observed it (`observedIn`): the load's records are facts about the definition, on this list
+   * and on no leaf, and a contradiction the load and the run both observed is listed once for each.
    */
   contradictedClaims?: ContradictedClaim[]
   /**
@@ -420,11 +422,15 @@ export interface ExecutionResult {
   unsupportedHooks?: UnevaluatedHook[]
 }
 
-/** A hook application a run left unevaluated, with the reason the 'unsupported-hook-unevaluated' diagnostic gives. */
+/** A hook application a run left unevaluated, with the reason the 'unsupported-hook-unevaluated' diagnostic gives, and who met it. */
 export interface UnevaluatedHook {
   hook: string
   reason: string
+  observedIn: ObservedIn
 }
+
+/** Who observed a run-level record: the load of the definition (a fact about the definition, on the result's lists only) or the run that reports it. */
+export type ObservedIn = 'load' | 'run'
 
 /**
  * A claim of the definition an evaluation found contradicted by the definition's own equations:
@@ -432,7 +438,8 @@ export interface UnevaluatedHook {
  * to defined arguments to bottom, with the fields of `ContradictedTotal`. `rewriteRule*` name the
  * rewrite rule whose attempt or successor's normalization observed it, absent when no rule's work
  * did. `ground`: the application is variable-free, so the definition has no model with the claim
- * at that input; a non-ground record shows nothing.
+ * at that input; a non-ground record shows nothing. `observedIn`: whether the definition's load or
+ * this run observed it; a leaf's records are always 'run'.
  */
 export interface ContradictedClaim {
   claim: 'total'
@@ -447,6 +454,7 @@ export interface ContradictedClaim {
   rewriteRuleLabel?: string
   rewriteRuleOrigin?: RuleOrigin
   ground: boolean
+  observedIn: ObservedIn
 }
 
 /** A value the definition leaves open that a run read: the hook that computed it and what is open about it. */
@@ -685,6 +693,7 @@ export type BackendDiagnostic =
       rewriteRuleLabel?: string
       rewriteRuleOrigin?: RuleOrigin
       ground: boolean
+      observedIn: ObservedIn
     }
 
 export type SmtFailure =
@@ -761,6 +770,12 @@ export interface SearchResult {
    * inputs and k-rust's stated readings gives the same results, entries and end.
    */
   implementationChosenValues?: ChosenValue[]
+  /** Every distinct contradicted claim the search and its definition's load observed, as for `ExecutionResult.contradictedClaims`; absent when none. */
+  contradictedClaims?: ContradictedClaim[]
+  /** Every distinct `Bytes` result the memory allowance refused, as for `ExecutionResult.allowanceRefusals`; absent when none. */
+  allowanceRefusals?: UnevaluatedHook[]
+  /** Every other distinct application left unevaluated as an unsupported hook, as for `ExecutionResult.unsupportedHooks`; absent when none. */
+  unsupportedHooks?: UnevaluatedHook[]
 }
 
 export interface PathSearchResult {
@@ -777,6 +792,12 @@ export interface PathSearchResult {
    * inputs and k-rust's stated readings gives the same results, entries and end.
    */
   implementationChosenValues?: ChosenValue[]
+  /** Every distinct contradicted claim the search and its definition's load observed, as for `ExecutionResult.contradictedClaims`; absent when none. */
+  contradictedClaims?: ContradictedClaim[]
+  /** Every distinct `Bytes` result the memory allowance refused, as for `ExecutionResult.allowanceRefusals`; absent when none. */
+  allowanceRefusals?: UnevaluatedHook[]
+  /** Every other distinct application left unevaluated as an unsupported hook, as for `ExecutionResult.unsupportedHooks`; absent when none. */
+  unsupportedHooks?: UnevaluatedHook[]
 }
 
 export interface SearchMatch {
@@ -801,6 +822,12 @@ export interface PatternSearchResult {
    * inputs and k-rust's stated readings gives the same results, entries and end.
    */
   implementationChosenValues?: ChosenValue[]
+  /** Every distinct contradicted claim the search and its definition's load observed, as for `ExecutionResult.contradictedClaims`; absent when none. */
+  contradictedClaims?: ContradictedClaim[]
+  /** Every distinct `Bytes` result the memory allowance refused, as for `ExecutionResult.allowanceRefusals`; absent when none. */
+  allowanceRefusals?: UnevaluatedHook[]
+  /** Every other distinct application left unevaluated as an unsupported hook, as for `ExecutionResult.unsupportedHooks`; absent when none. */
+  unsupportedHooks?: UnevaluatedHook[]
 }
 
 export interface PathSearchMatch {
@@ -825,6 +852,12 @@ export interface PathPatternSearchResult {
    * inputs and k-rust's stated readings gives the same results, entries and end.
    */
   implementationChosenValues?: ChosenValue[]
+  /** Every distinct contradicted claim the search and its definition's load observed, as for `ExecutionResult.contradictedClaims`; absent when none. */
+  contradictedClaims?: ContradictedClaim[]
+  /** Every distinct `Bytes` result the memory allowance refused, as for `ExecutionResult.allowanceRefusals`; absent when none. */
+  allowanceRefusals?: UnevaluatedHook[]
+  /** Every other distinct application left unevaluated as an unsupported hook, as for `ExecutionResult.unsupportedHooks`; absent when none. */
+  unsupportedHooks?: UnevaluatedHook[]
 }
 
 export interface PatternOptions {

@@ -150,6 +150,25 @@ pub enum ContradictedClaimKind {
     Total,
 }
 
+/// Who observed a run-level record (`k_rust_backend::path_facts::ObservedIn`): the load of the
+/// definition, whose records are facts about the definition on the result's lists only, or the
+/// run that reports it.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ObservedInOutput {
+    Load,
+    Run,
+}
+
+impl From<k_rust_backend::path_facts::ObservedIn> for ObservedInOutput {
+    fn from(observed_in: k_rust_backend::path_facts::ObservedIn) -> Self {
+        match observed_in {
+            k_rust_backend::path_facts::ObservedIn::Load => Self::Load,
+            k_rust_backend::path_facts::ObservedIn::Run => Self::Run,
+        }
+    }
+}
+
 /// A claim of the definition that an evaluation of the run found contradicted by the
 /// definition's own equations (`k_rust_backend::path_facts::ContradictedClaim`): a leaf's
 /// `contradicted-claim` path fact and an entry of the result's `contradictedClaims`.
@@ -160,7 +179,8 @@ pub enum ContradictedClaimKind {
 /// whose successor's normalization observed it, absent when no rule's work did (an initial
 /// state's normalization, the load). `ground` says whether the application is variable-free:
 /// a ground record shows that the definition has no model with the claim at that input; a
-/// non-ground one comes from a state that may be empty and shows nothing.
+/// non-ground one comes from a state that may be empty and shows nothing. `observedIn` says
+/// whether the definition's load or this run observed it; a leaf's records are always `run`.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[serde(bound(deserialize = "K: Deserialize<'de>"))]
@@ -183,6 +203,7 @@ pub struct ContradictedClaimOutput<K = Value> {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rewrite_rule_origin: Option<CompiledRuleOriginOutput>,
     pub ground: bool,
+    pub observed_in: ObservedInOutput,
 }
 
 pub(super) fn contradicted_claim_output<K: WireKore>(
@@ -217,6 +238,7 @@ pub(super) fn contradicted_claim_output<K: WireKore>(
             .and_then(|rule| rule.origin.as_ref())
             .map(Into::into),
         ground: claim.ground,
+        observed_in: claim.observed_in.into(),
     })
 }
 
@@ -955,6 +977,20 @@ pub struct SearchResponse<K = Value> {
     /// (docs/compatibility.md, "Marks in executions").
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub implementation_chosen_values: Vec<super::ChosenValueOutput>,
+    /// Every distinct contradicted claim the search, and the load of its definition, observed,
+    /// in first-observed order, as for
+    /// [`ExecutionResult::contradicted_claims`](super::ExecutionResult); absent when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub contradicted_claims: Vec<ContradictedClaimOutput<K>>,
+    /// Every distinct `Bytes` result the memory allowance refused in the search or in the load of
+    /// its definition, as for [`ExecutionResult::allowance_refusals`](super::ExecutionResult);
+    /// absent when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowance_refusals: Vec<super::UnevaluatedHookOutput>,
+    /// Every other distinct application left unevaluated as an unsupported hook, as for
+    /// [`ExecutionResult::unsupported_hooks`](super::ExecutionResult); absent when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unsupported_hooks: Vec<super::UnevaluatedHookOutput>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -972,6 +1008,15 @@ pub struct PathSearchResponse<K = Value> {
     /// As [`SearchResponse::implementation_chosen_values`]; omitted when empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub implementation_chosen_values: Vec<super::ChosenValueOutput>,
+    /// As [`SearchResponse::contradicted_claims`]; omitted when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub contradicted_claims: Vec<ContradictedClaimOutput<K>>,
+    /// As [`SearchResponse::allowance_refusals`]; omitted when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowance_refusals: Vec<super::UnevaluatedHookOutput>,
+    /// As [`SearchResponse::unsupported_hooks`]; omitted when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unsupported_hooks: Vec<super::UnevaluatedHookOutput>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -1002,6 +1047,15 @@ pub struct PatternSearchResponse<K = Value> {
     /// As [`SearchResponse::implementation_chosen_values`]; omitted when empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub implementation_chosen_values: Vec<super::ChosenValueOutput>,
+    /// As [`SearchResponse::contradicted_claims`]; omitted when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub contradicted_claims: Vec<ContradictedClaimOutput<K>>,
+    /// As [`SearchResponse::allowance_refusals`]; omitted when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowance_refusals: Vec<super::UnevaluatedHookOutput>,
+    /// As [`SearchResponse::unsupported_hooks`]; omitted when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unsupported_hooks: Vec<super::UnevaluatedHookOutput>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -1032,6 +1086,15 @@ pub struct PathPatternSearchResponse<K = Value> {
     /// As [`SearchResponse::implementation_chosen_values`]; omitted when empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub implementation_chosen_values: Vec<super::ChosenValueOutput>,
+    /// As [`SearchResponse::contradicted_claims`]; omitted when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub contradicted_claims: Vec<ContradictedClaimOutput<K>>,
+    /// As [`SearchResponse::allowance_refusals`]; omitted when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowance_refusals: Vec<super::UnevaluatedHookOutput>,
+    /// As [`SearchResponse::unsupported_hooks`]; omitted when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unsupported_hooks: Vec<super::UnevaluatedHookOutput>,
 }
 
 pub(super) trait WireKore: Sized {
@@ -1955,6 +2018,13 @@ pub(super) fn search_response<K: WireKore>(
             .iter()
             .map(Into::into)
             .collect(),
+        contradicted_claims: result
+            .contradicted_claims
+            .iter()
+            .map(contradicted_claim_output)
+            .collect::<Result<_, _>>()?,
+        allowance_refusals: result.allowance_refusals.iter().map(Into::into).collect(),
+        unsupported_hooks: result.unsupported_hooks.iter().map(Into::into).collect(),
     })
 }
 
@@ -1978,6 +2048,13 @@ pub(super) fn path_search_response<K: WireKore>(
             .iter()
             .map(Into::into)
             .collect(),
+        contradicted_claims: result
+            .contradicted_claims
+            .iter()
+            .map(contradicted_claim_output)
+            .collect::<Result<_, _>>()?,
+        allowance_refusals: result.allowance_refusals.iter().map(Into::into).collect(),
+        unsupported_hooks: result.unsupported_hooks.iter().map(Into::into).collect(),
     })
 }
 
@@ -2009,6 +2086,13 @@ pub(super) fn pattern_search_response<K: WireKore>(
             .iter()
             .map(Into::into)
             .collect(),
+        contradicted_claims: result
+            .contradicted_claims
+            .iter()
+            .map(contradicted_claim_output)
+            .collect::<Result<_, _>>()?,
+        allowance_refusals: result.allowance_refusals.iter().map(Into::into).collect(),
+        unsupported_hooks: result.unsupported_hooks.iter().map(Into::into).collect(),
     })
 }
 
@@ -2040,6 +2124,13 @@ pub(super) fn path_pattern_search_response<K: WireKore>(
             .iter()
             .map(Into::into)
             .collect(),
+        contradicted_claims: result
+            .contradicted_claims
+            .iter()
+            .map(contradicted_claim_output)
+            .collect::<Result<_, _>>()?,
+        allowance_refusals: result.allowance_refusals.iter().map(Into::into).collect(),
+        unsupported_hooks: result.unsupported_hooks.iter().map(Into::into).collect(),
     })
 }
 
@@ -2846,6 +2937,7 @@ mod tests {
             rewrite_rule_label: Some("MAIN.r".into()),
             rewrite_rule_origin: None,
             ground: true,
+            observed_in: ObservedInOutput::Run,
         });
         let value = serde_json::to_value(&output).unwrap();
         assert_eq!(
@@ -2861,7 +2953,8 @@ mod tests {
                 "undefined": {"tag": "DV"},
                 "rewriteRuleId": "r",
                 "rewriteRuleLabel": "MAIN.r",
-                "ground": true
+                "ground": true,
+                "observedIn": "run"
             })
         );
         assert_eq!(
@@ -2885,8 +2978,16 @@ mod tests {
             "rewriteRuleLabel?",
             "rewriteRuleOrigin?",
             "ground",
+            "observedIn",
         ];
         assert_typescript_variant_fields("BackendDiagnostic", "contradicted-claim", &fields);
+        // Where a record was observed is one of two words.
+        for (observed_in, word) in [
+            (ObservedInOutput::Load, "load"),
+            (ObservedInOutput::Run, "run"),
+        ] {
+            assert_eq!(serde_json::to_value(observed_in).unwrap(), word);
+        }
     }
 
     #[test]

@@ -792,6 +792,48 @@ endmodule
         }
     }
 
+    /// The searches list refusals and unsupported hooks as executions do, in each of the four
+    /// responses, with the work that met them passed over alike.
+    #[test]
+    fn every_search_lists_the_refusals_and_the_unsupported_hooks() {
+        use k_rust::{
+            backend::{SearchPatternRequest, SearchRequest, SearchTypeArg},
+            kore::parser::parse_pattern,
+        };
+        let target = parse_pattern("VarResult:SortGeneratedTopCell{}").unwrap();
+        for (program, field, hook) in [
+            ("run(1099511627776)", "allowanceRefusals", "BYTES.padRight"),
+            ("runh(1)", "unsupportedHooks", "STRING.countAllOccurrences"),
+        ] {
+            let (kore, initial) = compile(REFUSALS, program);
+            let search = SearchRequest {
+                search_type: SearchTypeArg::All,
+                ..SearchRequest::new(initial.clone())
+            };
+            let pattern = SearchPatternRequest {
+                search_type: SearchTypeArg::All,
+                ..SearchPatternRequest::new(initial, target.clone())
+            };
+            let mut backend = super::observed::backend(&kore);
+            for response in [
+                serde_json::to_value(backend.search(search.clone()).unwrap()).unwrap(),
+                serde_json::to_value(backend.search_paths(search.clone()).unwrap()).unwrap(),
+                serde_json::to_value(backend.search_pattern(pattern.clone()).unwrap()).unwrap(),
+                serde_json::to_value(backend.search_pattern_paths(pattern).unwrap()).unwrap(),
+            ] {
+                let listed = entries(&response, field)
+                    .into_iter()
+                    .map(|(hook, _)| hook)
+                    .collect::<Vec<_>>();
+                assert_eq!(listed, [hook], "{program}: {response:#}");
+                assert_eq!(
+                    response[field][0]["observedIn"], "run",
+                    "{program}: {response:#}"
+                );
+            }
+        }
+    }
+
     /// The refusal met inside `cnt`'s undone attempt is on the run's list; the leaf keeps only
     /// `cnt`'s own diagnostic, which is on the list too.
     #[test]
@@ -817,23 +859,22 @@ endmodule
     }
 }
 
-/// The load's critical-pair check classifies the overlap of the two `anywhere` equations of
-/// each equation head, `g` and `h` (a symbol a gate site can be asked about), and simplifies the
-/// first one's condition: `td(0)` is bottom, a contradicted claim, and the padding is refused by
-/// the memory allowance. Each decides its pair's verdict, which every later use of the
-/// definition reads, so every run of the definition lists both, the claim with no rule, beside
-/// its own records.
-#[test]
-fn what_the_load_observed_is_on_every_run_s_lists() {
-    const LOAD: &str = r#"
+/// Two `anywhere` equations of each equation head, `g` and `h` (a symbol a gate site can be
+/// asked about), overlap; the load's critical-pair check classifies each overlap and simplifies
+/// the first equation's condition: `td(0)` is bottom, a contradicted claim, and the padding is
+/// refused by the memory allowance. `fe(0)` meets `td(0)` again when a run evaluates it.
+const LOAD: &str = r#"
 module MAIN
   imports INT
   imports BYTES
   syntax Pgm ::= go(Int) | val(Int)
   syntax Int ::= td(Int) [function, total]
+               | fe(Int) [function, total]
   syntax Foo ::= g(Int) | h(Int) | "a" | "b"
   configuration <k> $PGM:Pgm </k>
   rule [tdeq]: td(I) => 10 /Int (I +Int 0)
+  rule [fe1]:  fe(I) => 1 requires td(I) >Int 0
+  rule [fe2]:  fe(_) => 2 [owise]
   rule [ga]:   g(_X) => a requires td(0) ==Int 1 [anywhere]
   rule [gb]:   g(_X) => b [anywhere]
   rule [ha]:   h(_X) => a requires lengthBytes(padRightBytes(.Bytes, 1099511627776, 0)) ==Int 1 [anywhere]
@@ -841,6 +882,12 @@ module MAIN
   rule [go]:   go(I) => val(I)
 endmodule
 "#;
+
+/// The load's verdicts decide every later use of the definition, so every run of it lists what
+/// the load observed, the claim with no rule, beside its own records. They are facts about the
+/// definition, the same for every leaf, so they are on the result's lists and on no leaf.
+#[test]
+fn what_the_load_observed_is_on_every_run_s_lists() {
     let (kore, initial) = compile_program(LOAD, "go(1)");
     for (name, _, _, result) in each_run(&kore, &initial) {
         let context = format!("{name}: {result:#}");
@@ -861,4 +908,276 @@ endmodule
             .collect::<Vec<_>>();
         assert_eq!(refusals, ["BYTES.padRight"], "{context}");
     }
+}
+
+/// `observedIn` of each entry of `field`, in order.
+fn observed_in(result: &Value, field: &str) -> Vec<String> {
+    result[field]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|entry| entry["observedIn"].as_str().unwrap_or("?").to_owned())
+        .collect()
+}
+
+/// Every record says whether the definition's load or this run observed it (`observedIn`):
+/// the load's records are `load`, and a leaf's records and the run's own are `run`. The load and
+/// the run can observe one contradiction alike: `val(fe(0))`'s initial normalization, which is
+/// no rule's work, meets the `td(0)` the load met, and the list holds both, so a client tells
+/// what this run's inputs reached from what the definition carries.
+#[test]
+fn each_record_says_whether_the_load_or_the_run_observed_it() {
+    let (kore, initial) = compile_program(LOAD, "go(1)");
+    for (name, _, _, result) in each_run(&kore, &initial) {
+        let context = format!("{name}: {result:#}");
+        assert_eq!(
+            observed_in(&result, "contradictedClaims"),
+            ["load"],
+            "{context}"
+        );
+        assert_eq!(
+            observed_in(&result, "allowanceRefusals"),
+            ["load"],
+            "{context}"
+        );
+    }
+    let (kore, initial) = compile_program(LOAD, "val(fe(0))");
+    for (name, _, _, result) in each_run(&kore, &initial) {
+        let context = format!("{name}: {result:#}");
+        assert_eq!(
+            run_records(&result),
+            [record("td", "tdeq", None), record("td", "tdeq", None)],
+            "{context}"
+        );
+        assert_eq!(
+            observed_in(&result, "contradictedClaims"),
+            ["load", "run"],
+            "{context}"
+        );
+    }
+    let (kore, initial) = compile_program(CONTRADICTIONS, "r(0)");
+    for (name, _, _, result) in each_run(&kore, &initial) {
+        let context = format!("{name}: {result:#}");
+        assert_eq!(
+            observed_in(&result, "contradictedClaims"),
+            ["run"],
+            "{context}"
+        );
+        for leaf in leaves(&result) {
+            let tags = leaf["diagnostics"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|diagnostic| diagnostic["kind"] == "contradicted-claim")
+                .map(|diagnostic| diagnostic["observedIn"].clone())
+                .collect::<Vec<_>>();
+            assert_eq!(tags, [Value::from("run")], "{context}");
+        }
+    }
+}
+
+/// Every leaf of a run that sets `stopAtBranch`, `maxWork` or `maxBreadth`, and under
+/// `state-set` a leaf whose halt another halt may stand for (`depth-bound` here), carries every
+/// record the run observed, as it carries every mark: `sib(0)`'s `done` leaf, which rests on no
+/// contradiction in the plain run, carries `sibtd`'s record in each. Under `path-set`,
+/// `maxDepth` adds nothing. This pins the shared rule of `crate::path_facts` for records.
+#[test]
+fn a_bound_or_a_stop_rule_puts_every_record_of_the_run_on_every_leaf() {
+    use k_rust::backend::{ExecuteRequest, ExecutionStrategy, ResultModalityOutput};
+    let (kore, initial) = compile_program(CONTRADICTIONS, "sib(0)");
+    let expected = BTreeSet::from([record("td", "tdeq", Some("sibtd"))]);
+    let run = |modality, adjust: &dyn Fn(&mut ExecuteRequest)| {
+        let mut request = ExecuteRequest {
+            result_modality: modality,
+            strategy: ExecutionStrategy::All,
+            ..ExecuteRequest::new(initial.clone())
+        };
+        adjust(&mut request);
+        let result = observed::backend(&kore).execute(request).unwrap();
+        serde_json::to_value(&result).unwrap()
+    };
+    for modality in observed::MODALITIES {
+        let plain = run(modality, &|_| {});
+        assert!(
+            records(leaf_with(&plain, "Lbldone")).is_empty(),
+            "{plain:#}"
+        );
+        type Adjustment<'a> = (&'a str, &'a dyn Fn(&mut ExecuteRequest));
+        let adjustments: [Adjustment; 3] = [
+            ("stopAtBranch", &|request| request.stop_at_branch = true),
+            ("maxWork 100", &|request| request.max_work = Some(100)),
+            ("maxBreadth 10", &|request| request.max_breadth = Some(10)),
+        ];
+        for (name, adjust) in adjustments {
+            let result = run(modality, adjust);
+            let context = format!("{modality:?} {name}: {result:#}");
+            assert_eq!(leaves(&result).len(), 1, "{context}");
+            assert_eq!(records(&leaves(&result)[0]), expected, "{context}");
+        }
+        let result = run(modality, &|request| request.max_depth = Some(1));
+        let context = format!("{modality:?} maxDepth 1: {result:#}");
+        let done = leaf_with(&result, "Lbldone");
+        assert_eq!(done["reason"], "depth-bound", "{context}");
+        match modality {
+            ResultModalityOutput::StateSet => assert_eq!(records(done), expected, "{context}"),
+            _ => assert!(records(done).is_empty(), "{context}"),
+        }
+    }
+}
+
+/// The searches report the run-level records as executions do (`contradictedClaims`,
+/// `allowanceRefusals`, `unsupportedHooks`, absent when empty), each of the four responses: what
+/// the load observed, and what the search observed, including work on no reported state (under
+/// `sib(0)` the `sibtd` successor vanishes, and every state is clean).
+#[test]
+fn every_search_response_lists_the_records() {
+    use k_rust::{
+        backend::{SearchPatternRequest, SearchRequest, SearchTypeArg},
+        kore::parser::parse_pattern,
+    };
+    let target = parse_pattern("VarResult:SortGeneratedTopCell{}").unwrap();
+    let responses = |source: &str, program: &str| {
+        let (kore, initial) = compile_program(source, program);
+        let search = SearchRequest {
+            search_type: SearchTypeArg::All,
+            ..SearchRequest::new(initial.clone())
+        };
+        let pattern = SearchPatternRequest {
+            search_type: SearchTypeArg::All,
+            ..SearchPatternRequest::new(initial, target.clone())
+        };
+        let mut backend = observed::backend(&kore);
+        [
+            serde_json::to_value(backend.search(search.clone()).unwrap()).unwrap(),
+            serde_json::to_value(backend.search_paths(search).unwrap()).unwrap(),
+            serde_json::to_value(backend.search_pattern(pattern.clone()).unwrap()).unwrap(),
+            serde_json::to_value(backend.search_pattern_paths(pattern).unwrap()).unwrap(),
+        ]
+    };
+    for response in responses(CONTRADICTIONS, "sib(0)") {
+        assert_eq!(
+            run_records(&response),
+            [record("td", "tdeq", Some("sibtd"))],
+            "{response:#}"
+        );
+        assert_eq!(
+            observed_in(&response, "contradictedClaims"),
+            ["run"],
+            "{response:#}"
+        );
+        assert!(response.get("allowanceRefusals").is_none(), "{response:#}");
+        assert!(response.get("unsupportedHooks").is_none(), "{response:#}");
+    }
+    for response in responses(LOAD, "go(1)") {
+        assert_eq!(
+            run_records(&response),
+            [record("td", "tdeq", None)],
+            "{response:#}"
+        );
+        assert_eq!(
+            observed_in(&response, "contradictedClaims"),
+            ["load"],
+            "{response:#}"
+        );
+        assert_eq!(
+            response["allowanceRefusals"][0]["hook"], "BYTES.padRight",
+            "{response:#}"
+        );
+    }
+    for response in responses(CONTRADICTIONS, "r(1)") {
+        assert!(response.get("contradictedClaims").is_none(), "{response:#}");
+    }
+}
+
+/// A search successor's normalization is the work of the rule that produced it, as in an
+/// execution: `e(0)`'s successor `val(fe(0))` meets `td(0)` when the search normalizes it, and
+/// the record names `e`, in every search and in the execution alike.
+#[test]
+fn a_search_successor_s_normalization_names_its_rule() {
+    use k_rust::backend::{SearchRequest, SearchTypeArg};
+    let (kore, initial) = compile_program(CONTRADICTIONS, "e(0)");
+    let expected = BTreeSet::from([record("td", "tdeq", Some("e"))]);
+    for search_type in [SearchTypeArg::Final, SearchTypeArg::All] {
+        let search = SearchRequest {
+            search_type,
+            ..SearchRequest::new(initial.clone())
+        };
+        let mut backend = observed::backend(&kore);
+        let graph = serde_json::to_value(backend.search(search.clone()).unwrap()).unwrap();
+        let paths = serde_json::to_value(backend.search_paths(search).unwrap()).unwrap();
+        for (states, response) in [("states", &graph), ("witnesses", &paths)] {
+            let val = response[states]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|state| observed::printed(state).contains("Lblval"))
+                .collect::<Vec<_>>();
+            assert_eq!(val.len(), 1, "{search_type:?}: {response:#}");
+            assert_eq!(records(val[0]), expected, "{search_type:?}: {response:#}");
+        }
+    }
+}
+
+/// `krun`'s warning says what a record shows. A ground record is a refutation of the claim at
+/// that input, so the definition is inconsistent there; a non-ground one (`rz(X)`, through
+/// `tz(_) => 10 /Int 0`) holds at each instance of a state that may have none, so it is worded as
+/// contradicted only. A record of the load says so.
+#[test]
+fn the_warning_says_what_a_record_shows() {
+    use k_rust::backend::execution::contradicted_claim_message;
+    use k_rust_backend::{rewrite::execute_with_solver, smt::NoSolver};
+    const NON_GROUND: &str = r#"
+module MAIN
+  imports INT
+  syntax Pgm ::= "done" | rz(Int)
+  syntax Int ::= tz(Int) [function, total]
+  configuration <k> $PGM:Pgm </k>
+  rule [tzeq]: tz(_) => 10 /Int 0
+  rule [rz]:   rz(I) => done requires tz(I) >Int 0
+endmodule
+"#;
+    let messages = |source: &str, program: &str, symbolic: bool| {
+        let (kore, ground) = compile_program(source, program);
+        let initial = if symbolic {
+            let printed = k_rust::kore::printer::Printer::compact().print_pattern(&ground);
+            let symbolic = printed.replacen("\\dv{SortInt{}}(\"0\")", "VarX:SortInt{}", 1);
+            assert_ne!(symbolic, printed);
+            k_rust::kore::parser::parse_pattern(&symbolic).unwrap()
+        } else {
+            ground
+        };
+        let mut backend = observed::backend(&kore);
+        let definition = backend.select_definition(None).unwrap();
+        let pattern = definition
+            .admit_unverified(&initial, &[])
+            .internalize_pattern()
+            .unwrap();
+        let result = execute_with_solver(&definition, pattern, Default::default(), &NoSolver);
+        result
+            .contradicted_claims
+            .iter()
+            .map(contradicted_claim_message)
+            .collect::<Vec<_>>()
+    };
+    let [ground] = <[String; 1]>::try_from(messages(CONTRADICTIONS, "r(0)", false)).unwrap();
+    assert!(
+        ground.contains("is contradicted on this input")
+            && ground.contains("so the definition is inconsistent here")
+            && ground.ends_with("(observed by rule MAIN.r)"),
+        "{ground}"
+    );
+    let [symbolic] = <[String; 1]>::try_from(messages(NON_GROUND, "rz(0)", true)).unwrap();
+    assert!(
+        symbolic.contains("is contradicted")
+            && !symbolic.contains("on this input")
+            && !symbolic.contains("inconsistent")
+            && symbolic.contains("not ground")
+            && symbolic.ends_with("(observed by rule MAIN.rz)"),
+        "{symbolic}"
+    );
+    let [load] = <[String; 1]>::try_from(messages(LOAD, "go(1)", false)).unwrap();
+    assert!(
+        load.ends_with("(observed when the definition was loaded)"),
+        "{load}"
+    );
 }

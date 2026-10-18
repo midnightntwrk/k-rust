@@ -265,16 +265,19 @@ pub struct BackendCapabilities {
     /// (`SearchResponse::implementation_chosen_values` and the other search responses').
     pub implementation_chosen_values: bool,
     /// `execute` and `execute_observed` mark each leaf whose path's decisions rest on a
-    /// contradicted claim (`BackendDiagnosticOutput::ContradictedClaim`) and list every such
-    /// record the run observed ([`ExecutionResult::contradicted_claims`]); a search marks its
-    /// states alike.
+    /// contradicted claim the run observed (`BackendDiagnosticOutput::ContradictedClaim`) and
+    /// list every such record the run and its definition's load observed
+    /// ([`ExecutionResult::contradicted_claims`]); every search marks its states, witnesses and
+    /// matches alike and lists the records (`SearchResponse::contradicted_claims` and the other
+    /// search responses').
     pub contradicted_claims: bool,
-    /// `execute` and `execute_observed` list every `Bytes` result the memory allowance refused
-    /// ([`ExecutionResult::allowance_refusals`]), whatever became of the work that met it.
-    pub allowance_refusals: bool,
-    /// `execute` and `execute_observed` list every application left unevaluated as an
-    /// unsupported hook ([`ExecutionResult::unsupported_hooks`]), whatever became of the work
+    /// `execute`, `execute_observed` and every search list every `Bytes` result the memory
+    /// allowance refused ([`ExecutionResult::allowance_refusals`]), whatever became of the work
     /// that met it.
+    pub allowance_refusals: bool,
+    /// `execute`, `execute_observed` and every search list every application left unevaluated
+    /// as an unsupported hook ([`ExecutionResult::unsupported_hooks`]), whatever became of the
+    /// work that met it.
     pub unsupported_hooks: bool,
 }
 
@@ -343,20 +346,26 @@ pub struct ExecuteRequest {
     /// budget"). When a state remains after `max_work` states, it becomes the one
     /// `work-bound` leaf ([`HaltReasonOutput::WorkBound`]), the last of the result, and the other
     /// pending states are not explored or reported; a budget at least the unbounded run's `work`
-    /// changes nothing, and a budget of 0 makes the first initial state, as the request gave it,
-    /// that leaf.
+    /// leaves every leaf's configuration, halt and order, the counts and the result's lists
+    /// unchanged, and its only change is that every leaf's diagnostics gain the run's path facts
+    /// (below); a budget of 0 makes the first initial state, as the request gave it, that leaf.
     ///
     /// It bounds the states, the leaves and the pending states; it does not bound the work of one
     /// state's step (a ground function evaluation runs to its value), the size of values, or the
     /// length of traces, so a host keeps its own time and memory limits. Under `state-set` a leaf
     /// finished before the stop carries the diagnostics of the paths merged into it before the
-    /// stop only, so they may differ from the same leaf's in a run with a larger budget.
+    /// stop only, so they may differ from the same leaf's in a run with a larger budget. In a run
+    /// with `maxWork` or `maxBreadth` set, every leaf carries every path fact the run noted so far
+    /// (each mark of [`ExecutionResult::implementation_chosen_values`] and each record of
+    /// [`ExecutionResult::contradicted_claims`] the run observed), since whether a bound fires
+    /// rests on the exploration of every path, in every model.
     ///
     /// Every leaf finished before the `work-bound` leaf is a leaf of every run of the same
     /// request with a larger budget or none, at the same position: the result without its
     /// `work-bound` leaf is a prefix of theirs. Under `path-set` the leaf is the same in every
-    /// field; under `state-set` it is the same in every field but its diagnostics, which are among
-    /// the larger run's (a later path merged into it adds its own). This holds within the determinism contract above
+    /// field but its path facts, which are among the larger run's; under `state-set` it is the
+    /// same in every field but its diagnostics, which are among the larger run's (a later path
+    /// merged into it adds its own). This holds within the determinism contract above
     /// (docs/compatibility.md, "Work budget").
     #[serde(default)]
     pub max_work: Option<u64>,
@@ -485,7 +494,9 @@ pub struct ExecutionResult<K = Value> {
     /// of work that ended on no reported leaf: a candidate a defined sibling covered, a state a
     /// `state-set` merge absorbed. It is complete for contradictions found by evaluation on
     /// ground arguments; a symbolic state trusts the claim, so an empty list says nothing about
-    /// a non-ground run.
+    /// a non-ground run. Each record says who observed it (`observedIn`): the load's records are
+    /// facts about the definition, on this list and on no leaf, and a contradiction the load and
+    /// the run both observed is listed once for each.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub contradicted_claims: Vec<wire::ContradictedClaimOutput<K>>,
     /// Every distinct `Bytes` result the memory allowance refused in the run or in the load of
@@ -503,12 +514,14 @@ pub struct ExecutionResult<K = Value> {
 }
 
 /// A hook application a run left unevaluated: the hook and why, in the text of the
-/// `unsupported-hook-unevaluated` diagnostic.
+/// `unsupported-hook-unevaluated` diagnostic, and whether the definition's load or this run met
+/// it.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct UnevaluatedHookOutput {
     pub hook: String,
     pub reason: String,
+    pub observed_in: wire::ObservedInOutput,
 }
 
 impl From<&k_rust_backend::path_facts::UnevaluatedHook> for UnevaluatedHookOutput {
@@ -516,6 +529,7 @@ impl From<&k_rust_backend::path_facts::UnevaluatedHook> for UnevaluatedHookOutpu
         Self {
             hook: unevaluated.hook.clone(),
             reason: unevaluated.reason.to_string(),
+            observed_in: unevaluated.observed_in.into(),
         }
     }
 }
@@ -2565,18 +2579,22 @@ mod tests {
         assert_eq!(capabilities["stackStops"], true);
     }
 
-    /// The marks of open values are declared where the facade writes them: the result's optional
-    /// list of `{hook, class}`, the class names, and a capability flag, true in every build.
-    /// The run-level records are declared where the facade writes them: the result's optional
-    /// lists, the record types and three capability flags, true in every build.
+    /// The run-level records are declared where the facade writes them: the optional lists of
+    /// the execution result and of the four search responses, the record types with where each
+    /// record was observed, and three capability flags, true in every build.
     #[test]
     fn the_run_level_records_match_typescript_declarations() {
-        assert_typescript_member(
+        for result in [
             "ExecutionResult",
-            "contradictedClaims?: ContradictedClaim[]",
-        );
-        assert_typescript_member("ExecutionResult", "allowanceRefusals?: UnevaluatedHook[]");
-        assert_typescript_member("ExecutionResult", "unsupportedHooks?: UnevaluatedHook[]");
+            "SearchResult",
+            "PathSearchResult",
+            "PatternSearchResult",
+            "PathPatternSearchResult",
+        ] {
+            assert_typescript_member(result, "contradictedClaims?: ContradictedClaim[]");
+            assert_typescript_member(result, "allowanceRefusals?: UnevaluatedHook[]");
+            assert_typescript_member(result, "unsupportedHooks?: UnevaluatedHook[]");
+        }
         for capability in [
             "contradictedClaims",
             "allowanceRefusals",
@@ -2597,11 +2615,13 @@ mod tests {
             "rewriteRuleLabel?: string",
             "rewriteRuleOrigin?: RuleOrigin",
             "ground: boolean",
+            "observedIn: ObservedIn",
         ] {
             assert_typescript_member("ContradictedClaim", member);
         }
         assert_typescript_member("UnevaluatedHook", "hook: string");
         assert_typescript_member("UnevaluatedHook", "reason: string");
+        assert_typescript_member("UnevaluatedHook", "observedIn: ObservedIn");
         let backend = Backend::new(
             r#"[] module MAIN sort SortK{} [] endmodule []"#,
             "MAIN",
@@ -2616,11 +2636,13 @@ mod tests {
         ] {
             assert_eq!(capabilities[capability], true, "{capability}");
         }
-        let value = serde_json::json!({"hook": "BYTES.padRight", "reason": "too long"});
+        let value = serde_json::json!({"hook": "BYTES.padRight", "reason": "too long", "observedIn": "load"});
         let output: UnevaluatedHookOutput = serde_json::from_value(value.clone()).unwrap();
         assert_eq!(serde_json::to_value(&output).unwrap(), value);
     }
 
+    /// The marks of open values are declared where the facade writes them: the result's optional
+    /// list of `{hook, class}`, the class names, and a capability flag, true in every build.
     #[test]
     fn the_implementation_chosen_values_match_typescript_declarations() {
         use k_rust_backend::builtin::ChosenClass;

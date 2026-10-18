@@ -43,10 +43,14 @@ use std::sync::OnceLock;
 /// only names the limit in the refusal's text. So two runs of a request under allowances with
 /// equal bytes make the same refusals and agree but in the refusals' text. Equality compares both
 /// fields, and the source names a host's cgroup, so a host that reuses results records `bytes()`
-/// and reuses a result only under equal `bytes()`, never comparing the allowances or their
-/// sources. A result that carries no refusal is not the same under more bytes: a refusal inside
-/// a simplification attempt that is undone leaves no diagnostic, yet can decide the result
-/// (docs/compatibility.md, "Determinism and concurrency", "Execute").
+/// and reuses a result under equal `bytes()`, never comparing the allowances or their sources.
+/// A refusal inside a simplification attempt that is undone leaves no diagnostic on a leaf, yet
+/// can decide the result, so a host reads the result's run-level list instead
+/// (`rewrite::ExecutionResult::allowance_refusals`, wire `allowanceRefusals`, which holds every
+/// refusal the run and the load of its definition met): a result whose list is empty is the
+/// result under every allowance of at least as many bytes, and one with a refusal is reused
+/// only under equal `bytes()` (docs/compatibility.md, "Resource bounds", "Determinism and
+/// concurrency", "Execute").
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Allowance {
     bytes: u64,

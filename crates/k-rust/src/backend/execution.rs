@@ -191,33 +191,65 @@ pub fn run(
 ///
 /// The attribute is an axiom k-rust trusts, and the equation is another axiom of the same
 /// definition; on this application they contradict each other, so the definition is
-/// inconsistent there. Nothing about the run changes: the message only explains the empty leaf.
+/// inconsistent there. Nothing about the run changes: the message explains a record of the
+/// contradiction, which may be a leaf's halt, a decision on a path, or work on no reported path.
 pub fn contradicted_total_message(contradicted: &ContradictedTotal) -> String {
+    format!(
+        "{} on this input: {}; the attribute is trusted, so the definition is inconsistent here",
+        contradicted_attribute(contradicted),
+        contradicting_equation(contradicted),
+    )
+}
+
+/// The opening of a contradicted-`total` message: which attribute is contradicted.
+fn contradicted_attribute(contradicted: &ContradictedTotal) -> String {
+    format!(
+        "the `total` attribute of {} is contradicted",
+        k_label(contradicted.symbol())
+    )
+}
+
+/// The equation that contradicts a `total` attribute, at the application it reduced to bottom.
+fn contradicting_equation(contradicted: &ContradictedTotal) -> String {
     let application =
         KorePrinter::compact().print_pattern(&externalize::term(&contradicted.application));
     let undefined =
         KorePrinter::compact().print_pattern(&externalize::term(&contradicted.undefined_term));
     format!(
-        "the `total` attribute of {symbol} is contradicted on this input: its equation {equation} reduces {application} to bottom (undefined at {undefined}); the attribute is trusted, so the definition is inconsistent here",
-        symbol = k_label(contradicted.symbol()),
+        "its equation {equation} reduces {application} to bottom (undefined at {undefined})",
         equation = contradicted.attributes.diagnostic_name(k_label),
     )
 }
 
 /// What krun tells the author of a contradicted claim a run observed
-/// (`k_rust_backend::path_facts::ContradictedClaim`): [`contradicted_total_message`] of the
-/// contradicted application, and the rewrite rule whose work observed it, when one did.
+/// (`k_rust_backend::path_facts::ContradictedClaim`), and who observed it: the rewrite rule whose
+/// work did, or the load of the definition.
+///
+/// A ground record is [`contradicted_total_message`]: the definition has no model with the claim
+/// at that input. A non-ground record comes from a state that may have no instance, so it shows
+/// no inconsistency and is worded as a contradiction at each instance of the state only.
 pub fn contradicted_claim_message(claim: &k_rust_backend::path_facts::ContradictedClaim) -> String {
     let total = claim
         .total()
         .expect("a contradicted claim of this backend is a contradicted total");
-    let message = contradicted_total_message(total);
-    match &claim.rule {
-        Some(rule) => format!(
+    let message = if claim.ground {
+        contradicted_total_message(total)
+    } else {
+        format!(
+            "{}: {}; the application is not ground, so the attribute is contradicted at each instance of the state, which may have none",
+            contradicted_attribute(total),
+            contradicting_equation(total),
+        )
+    };
+    match (&claim.rule, claim.observed_in) {
+        (_, k_rust_backend::path_facts::ObservedIn::Load) => {
+            format!("{message} (observed when the definition was loaded)")
+        }
+        (Some(rule), k_rust_backend::path_facts::ObservedIn::Run) => format!(
             "{message} (observed by rule {})",
             rule.label.as_deref().unwrap_or(&rule.unique_id)
         ),
-        None => message,
+        (None, k_rust_backend::path_facts::ObservedIn::Run) => message,
     }
 }
 
@@ -1345,6 +1377,7 @@ fn run_backend_in_execution(
             );
         }
         report_unprinted_marks(&result.implementation_chosen_values, &run_wide);
+        report_unprinted_claims(&result.contradicted_claims, &run_wide);
         return Ok(BackendRunOutput {
             pattern: RunPattern::Matches(search_output(
                 &result,

@@ -3419,7 +3419,7 @@ fn later_group_simplification_error_is_reported_on_the_remainder() {
     assert_be08_capture(
         "T8 result and solver transcript",
         &(&result, &transcript),
-        "b56b59dffda5775dd241073f3ec7680005463797b2b3f42ed66059f1248e78ab",
+        "d1eb00f17911d5054c3e23aab017300a8ea49940bf76122377959894a6f58c0e",
     );
 }
 
@@ -3765,7 +3765,7 @@ fn ground_io_candidates_are_rejected_without_touching_the_retained_cursor_across
     assert_be08_capture(
         "T14 result and solver transcript",
         &(&result, &transcript),
-        "b1f85d27f82fe26efa5170c9cd67756a34be0051529b0ad708910a7b83f37b05",
+        "55ce5c43d7f86432f45b6f67a98dc86c6951119e90ae66959999cdc9f1bd83cd",
     );
 }
 
