@@ -48,7 +48,8 @@ fn compiled(loaded: &LoadedDefinition) -> (String, String) {
 /// Compiling a loaded definition, and compiling the definition decoded from its document, give
 /// byte-identical execution provenance (and KORE), for the configuration of a deep chain and a
 /// wide sequence (configuration expansion, cell concretization and sort injection all
-/// re-receipt their nodes) and for the repository's rewrite example.
+/// re-receipt their nodes), for the repository's rewrite example and for a function equation
+/// whose right side is a conjunction of two terms.
 #[test]
 fn compiling_a_decoded_definition_writes_the_same_provenance() {
     let shape = |configuration: &str| {
@@ -79,10 +80,26 @@ endmodule
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/rewrite.k"),
     )
     .expect("the rewrite example is readable");
+    // A built conjunction of two terms, which 'lower term conjunctions' rewrites to the first
+    // guarded by their equality, copying the first.
+    let conjunction = r#"module MAIN-SYNTAX
+  imports INT-SYNTAX
+  syntax Int ::= f(Int) [function, symbol(f)] | g(Int) [function, symbol(g)]
+endmodule
+module MAIN
+  imports MAIN-SYNTAX
+  imports INT
+  configuration <k> $PGM:K </k>
+  rule f(X) => g(X) #And 1
+  rule g(X) => X +Int 0
+endmodule
+"#
+    .to_owned();
     for (file, source, module) in [
         ("chain.k", shape(&format!("foo({chain})")), "MAIN"),
         ("sequence.k", shape(&sequence), "MAIN"),
         ("rewrite.k", rewrite, "REWRITE"),
+        ("conjunction.k", conjunction, "MAIN"),
     ] {
         let loaded = load(file, &source, module);
         let document = json::to_provenance_string(loaded.definition(), loaded.source_table())
@@ -104,6 +121,12 @@ endmodule
         let (routed, routed_kore) = compiled(&relinked);
         assert!(direct == routed, "{file}: the execution provenance differs");
         assert_eq!(direct_kore, routed_kore, "{file}");
+        if file == "conjunction.k" {
+            assert!(
+                direct_kore.contains("\\equals{SortInt{}, SortInt{}}(Lblg{}("),
+                "{file}: the conjunction is lowered"
+            );
+        }
     }
 }
 

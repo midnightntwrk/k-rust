@@ -1352,8 +1352,10 @@ fn peel_alias(mut term: &Term) -> &Term {
     term
 }
 
+/// The labels of the `impure` productions `productions` declares and of the functions of module
+/// `module` whose equations apply one of them, transitively.
 #[allow(clippy::too_many_arguments)]
-fn transitive_impure_labels(
+pub(crate) fn transitive_impure_labels(
     definition: &ResolvedDefinition,
     module: ModuleId,
     productions: &ProductionCatalog<'_>,

@@ -6,7 +6,7 @@
 //! form, which is what its interpreter evaluates.
 
 use k_rust::{
-    backend::{Backend, BackendOptions, ExecuteRequest},
+    backend::{Backend, BackendOptions, ExecuteRequest, ProveRequest},
     builtin::embedded,
     definition::{
         Attributes, CheckMode, LOCATION_ATTRIBUTE, ResolvedDefinition, SOURCE_ATTRIBUTE, Sentence,
@@ -19,7 +19,7 @@ use k_rust::{
     },
     kore::{ast::Pattern, codec, parser::parse_pattern, printer::Printer},
     outer::{LoadOptions, ResolvedSource, load_for_compilation, load_with_options},
-    provenance::GeneratingPass,
+    provenance::{GeneratingPass, ProvenanceLink},
 };
 
 const HEADER: &str = "module P-SYNTAX
@@ -1279,12 +1279,209 @@ fn a_generated_equality_records_the_lowering_as_its_origin() {
     let Term::Apply { arguments, .. } = equality.unannotated() else {
         unreachable!("an equality is an application")
     };
+    let copy = arguments[0].metadata().expect("the copy of X is annotated");
+    let span = copy
+        .span
+        .unwrap_or_else(|| panic!("the copy of X keeps its source position: {copy:?}"));
+    // The copy is a node the lowering creates: its origin names the pass and links X's span.
+    let origin = copy.origin.as_deref().expect("the copy of X has an origin");
+    assert_eq!(origin.pass.as_str(), "lower-term-conjunctions");
     assert!(
-        arguments[0]
-            .metadata()
-            .and_then(|metadata| metadata.span)
-            .is_some(),
-        "the copy of X keeps its source position: {:?}",
-        arguments[0]
+        origin
+            .origins
+            .links()
+            .contains(&ProvenanceLink::Source { span }),
+        "the copy's origin links X's span {span:?}: {:?}",
+        origin.origins.links()
     );
+}
+
+fn chain(third: &str) -> String {
+    format!("  rule [p]: <k> go(X) => done(X #And 1 #And {third}) ... </k>\n")
+}
+
+/// A chain `t1 #And t2 #And ... #And tn` of connective-free terms is their intersection, which
+/// denotes at most one value, so it is t1 guarded by the equality of t1 with each other operand.
+/// `X #And 1 #And 2` (parsed `(X #And 1) #And 2`) denotes nothing at every X.
+#[test]
+fn a_built_conjunction_chain_of_distinct_terms_denotes_nothing() {
+    let rule = chain("2");
+    assert_eq!(run(&rule, 1), trivial("go(1)"));
+    assert_eq!(run(&rule, 2), trivial("go(2)"));
+    let equals = |value: &str| format!("\\equals{{SortInt{{}}, SortInt{{}}}}({X}, {})", int(value));
+    assert_contains(
+        &axiom(&compile(&rule), "P.p"),
+        &format!(
+            "Lbldone{{}}(\\and{{SortInt{{}}}}(\\and{{SortInt{{}}}}({X}, {}), {}))",
+            equals("1"),
+            equals("2")
+        ),
+    );
+}
+
+/// `X #And 1 #And 1` is 1 at X = 1 and nothing elsewhere, grouped either way.
+#[test]
+fn a_built_conjunction_chain_of_equal_terms_is_their_value() {
+    let rule = chain("1");
+    assert_eq!(run(&rule, 1), stuck("done(1)"));
+    assert_eq!(run(&rule, 3), trivial("go(3)"));
+    let right = "  rule [p]: <k> go(X) => done(X #And (1 #And 1)) ... </k>\n";
+    assert_eq!(run(right, 1), stuck("done(1)"));
+    assert_eq!(run(right, 3), trivial("go(3)"));
+}
+
+/// The specification `rules` (in module P), the claims `claims` (in module P-SPEC), and the
+/// verdict of proving the claim labelled `claim`.
+fn prove(rules: &str, claims: &str, claim: &str) -> String {
+    let kore = try_compile_spec(rules, claims).expect("the specification compiles");
+    let mut backend = Backend::new(&kore, "P-SPEC", BackendOptions::default()).unwrap();
+    backend
+        .prove(ProveRequest {
+            claim: Some(format!("P-SPEC.{claim}")),
+            max_depth: Some(20),
+            ..ProveRequest::default()
+        })
+        .unwrap()
+        .status
+        .to_string()
+}
+
+/// A position of a claim outside its rewrites is in its left side as much as a rewrite's left
+/// side is, so `P #as V` there denotes `P #And V` and is lowered like a left side's alias (and
+/// read the same way in the right side, where the left side has bound both).
+#[test]
+fn a_claim_shared_alias_is_lowered_and_the_claim_is_proven() {
+    let rules = "  syntax S ::= \"sa\" [symbol(sa)] | \"sb\" [symbol(sb)]\n  syntax KItem ::= pair(Int, S) [symbol(pair)]\n  rule [h]: <k> pair(X, sa) => pair(X, sb) ... </k>\n";
+    let claims = "  claim [s]: <k> pair(X #as Y, (sa => sb)) ... </k>\n  claim [t]: <k> pair(X #And 1, (sa => sb)) ... </k>\n";
+    assert_eq!(prove(rules, claims, "s"), "proven");
+    assert_eq!(prove(rules, claims, "t"), "proven");
+    let kore = try_compile_spec(rules, claims).expect("the specification compiles");
+    let shared = axiom(&kore, "P-SPEC.s");
+    assert_eq!(
+        shared
+            .matches(&format!("Lblpair{{}}({}", lowered(X, "VarY:SortInt{}")))
+            .count(),
+        2,
+        "{shared}"
+    );
+}
+
+/// `module P` over K-IO with the rules `rules`; `go(N)` and `wr()` are programs.
+fn io_source(rules: &str) -> String {
+    format!(
+        "module P-SYNTAX
+  imports INT-SYNTAX
+  syntax Pgm ::= go(Int) [symbol(go)] | wr() [symbol(wr)]
+endmodule
+
+module P
+  imports P-SYNTAX
+  imports INT
+  imports BOOL
+  imports STRING
+  imports K-IO
+  configuration <k> $PGM:Pgm </k>
+  syntax KItem ::= done(IOInt) [symbol(done)] | res(IOInt, IOInt) [symbol(res)] | wdone(K) [symbol(wdone)]
+  syntax IOInt ::= rd() [function, symbol(rd)]
+  rule rd() => #getc(0)
+  rule <k> done(V:Int) => res(V, #getc(0)) ... </k>
+{rules}endmodule
+"
+    )
+}
+
+/// An operand that applies an `impure` production, directly or through a function whose
+/// equations do, performs an effect when it is evaluated: copying it into an equality would
+/// duplicate the effect, and the equality is a predicate, where no effect is performed. Such a
+/// conjunction is emitted as written.
+#[test]
+fn a_conjunction_with_an_effectful_operand_is_not_lowered() {
+    for (label, conjunction) in [
+        ("first", "#getc(0) #And X"),
+        ("second", "X #And #getc(0)"),
+        ("through", "rd() #And X"),
+        ("chain", "#getc(0) #And X #And 1"),
+    ] {
+        let rule = format!("  rule [{label}]: <k> go(X) => done({conjunction}) ... </k>\n");
+        let artifacts = compile_source(io_source(&rule), CompilationBackend::Rust);
+        assert_lacks(
+            &axiom(&artifacts.definition_kore, &format!("P.{label}")),
+            "\\equals{",
+        );
+    }
+    let rule = "  rule [w]: <k> wr() => wdone(#write(1, \"x\") #And .K) ... </k>\n";
+    let artifacts = compile_source(io_source(rule), CompilationBackend::Rust);
+    assert_lacks(&axiom(&artifacts.definition_kore, "P.w"), "\\equals{");
+}
+
+/// `krust krun --io on` of `program` over `io_source(rules)`, standard input `input`: the exit
+/// status, standard output and standard error.
+#[cfg(feature = "cli")]
+fn krun_io(rules: &str, program: &str, input: &str, output: &[&str]) -> (i32, String, String) {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let nonce = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let root = std::env::temp_dir().join(format!(
+        "k-rust-ml-conditions-io-{}-{nonce}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let file = root.join("io.k");
+    std::fs::write(&file, io_source(rules)).unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            file.to_str().unwrap(),
+            "-m",
+            "P",
+            "--syntax-module",
+            "P-SYNTAX",
+        ])
+        .args(["--sort", "Pgm", "-e", program, "--io", "on"])
+        .args(output)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .unwrap();
+    let result = child.wait_with_output().unwrap();
+    let _ = std::fs::remove_dir_all(&root);
+    (
+        result.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&result.stdout).into_owned(),
+        String::from_utf8_lossy(&result.stderr).into_owned(),
+    )
+}
+
+/// Under `--io on`, the conjunction of a read and the value it must equal reads once: 97 = 97
+/// with "abc" on standard input, then the next character is 98. A write in a conjunction is
+/// performed once.
+#[cfg(feature = "cli")]
+#[test]
+fn an_effectful_conjunction_runs_its_effect_once_under_io() {
+    for conjunction in ["#getc(0) #And X", "X #And #getc(0)"] {
+        let rule = format!("  rule <k> go(X) => done({conjunction}) ... </k>\n");
+        let (status, stdout, stderr) = krun_io(&rule, "go(97)", "abc", &[]);
+        assert_eq!(status, 0, "{conjunction}: {stderr}");
+        let read = |value: &str| {
+            format!("inj{{SortInt{{}},SortIOInt{{}}}}(\\dv{{SortInt{{}}}}(\"{value}\"))")
+        };
+        assert!(
+            stdout
+                .split_whitespace()
+                .collect::<String>()
+                .contains(&format!("Lblres{{}}({},{})", read("97"), read("98"))),
+            "{conjunction}: {stdout}\n{stderr}"
+        );
+    }
+    let rule = "  rule <k> wr() => wdone(#write(1, \"x\") #And .K) ... </k>\n";
+    let (status, stdout, stderr) = krun_io(rule, "wr()", "", &["--output", "none"]);
+    assert_eq!((status, stdout.as_str()), (0, "x"), "{stderr}");
 }
