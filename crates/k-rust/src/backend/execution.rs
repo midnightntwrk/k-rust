@@ -227,9 +227,10 @@ fn contradicting_equation(contradicted: &ContradictedTotal) -> String {
 ///
 /// A ground `total` record is [`contradicted_total_message`]: the definition has no model with
 /// the claim at that input, and a ground `preserves-definedness` record says the same of the
-/// rule's result. A non-ground record comes from a state that may have no instance, or (for
-/// `preserves-definedness`) from a step whose `requires` was carried and may hold nowhere, so it
-/// shows no inconsistency and is worded as a contradiction at each instance only.
+/// rule's result. A non-ground record rests on something that may differ between models of the
+/// definition (the state's variables, an assumption that may hold nowhere, a value the definition
+/// leaves open), so it shows no inconsistency and is worded as a contradiction where that holds
+/// only.
 pub fn contradicted_claim_message(claim: &k_rust_backend::path_facts::ContradictedClaim) -> String {
     let (attribute, finding) = if let Some(total) = claim.total() {
         (contradicted_attribute(total), contradicting_equation(total))
@@ -244,11 +245,11 @@ pub fn contradicted_claim_message(claim: &k_rust_backend::path_facts::Contradict
         )
     } else if claim.preservation().is_some() {
         format!(
-            "{attribute}: {finding}; the step was not decided on a ground instance, so the attribute is contradicted at each instance the step applies to, which may be none"
+            "{attribute}: {finding}; the step was not decided on a ground instance alone (it rests on the state's variables, an assumption or a value the definition leaves open), so the attribute is contradicted only where the step applies so, which may be nowhere"
         )
     } else {
         format!(
-            "{attribute}: {finding}; the application is not ground, so the attribute is contradicted at each instance of the state, which may have none"
+            "{attribute}: {finding}; the refutation is not ground (it rests on the state's variables, an assumption or a value the definition leaves open), so the attribute is contradicted only where those hold, which may be nowhere"
         )
     };
     match (&claim.rule, claim.observed_in) {

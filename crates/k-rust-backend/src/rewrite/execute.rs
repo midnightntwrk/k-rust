@@ -590,6 +590,9 @@ impl<'a> Execution<'a> {
             .producer
             .as_ref()
             .map(|producer| producer.rule.clone());
+        // One normalization in two phases: what a record the term phase observes rests on is
+        // asked from the constraints' phase on (`crate::path_facts::observed_from`).
+        let normalization = crate::path_facts::marker();
         let Some((state, deferred_initial_vacuity)) = crate::path_facts::observed_by(
             || producer_rule.clone(),
             || self.normalise_constraints(state),
@@ -597,7 +600,8 @@ impl<'a> Execution<'a> {
         else {
             return Ok(Vec::new());
         };
-        let Some(state) = crate::path_facts::observed_by(
+        let Some(state) = crate::path_facts::observed_from(
+            normalization,
             || producer_rule,
             || self.simplify_term(state, deferred_initial_vacuity.is_some()),
         )?

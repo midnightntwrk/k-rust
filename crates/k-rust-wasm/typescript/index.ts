@@ -459,10 +459,12 @@ export type ContradictedClaim =
 /**
  * The fields of a `ContradictedClaim` of either kind. `rewriteRule*` name the rewrite rule whose
  * attempt or successor's normalization observed it, absent when no rule's work did. `ground`: the
- * application is variable-free and nothing but true was assumed to refute the claim (for `total`,
- * no constraint of the state; for `preserves-definedness`, every constraint of the step
- * simplified to true, so its `requires` was decided), so the definition has no model with the
- * claim at that input; a non-ground record shows nothing. `observedIn`: whether the definition's
+ * application is variable-free and the work that refuted the claim depended on nothing that may
+ * differ between models (it read no value the definition leaves open, among the other path facts,
+ * and assumed nothing but true: for `total`, no constraint of the state; for
+ * `preserves-definedness`, every constraint of the step simplified to true, so its `requires` was
+ * decided), so the definition has no model with the claim at that input; a non-ground record
+ * shows nothing. `observedIn`: whether the definition's
  * load or this run observed it; a leaf's records are always 'run'.
  */
 export interface ContradictedClaimFields {

@@ -1762,14 +1762,11 @@ fn instantiate(
             // instance and where `\bottom` was found; it is ground when that is variable-free and
             // the premises were decided on it alone, as on the console route.
             if rule.attributes.preserves_definedness && crate::path_facts::checking_claims() {
-                let premises_hold = predicates_truth(&pattern.constraints) == Truth::True
-                    && match_conditions.is_empty()
-                    && unclear_requires.is_empty();
                 crate::path_facts::note_preservation(
                     crate::path_facts::ObservingRule::of(rule),
                     &pattern.term,
                     pattern.term.clone(),
-                    premises_hold,
+                    unassumed(&pattern.constraints, &match_conditions, &unclear_requires),
                 );
             }
             return Err(PhaseExit::Attempt(RuleAttempt::Unified {
@@ -1893,6 +1890,20 @@ fn instantiate(
             trivial_work,
         }],
     })
+}
+
+/// Whether a step assumed nothing but `\top` of its instance: the pattern's `constraints` are
+/// `\top`, and the match and `requires` were decided on it rather than carried
+/// (`match_conditions`, `unclear_requires`), so the step's premises hold on the instance alone
+/// (`crate::path_facts::ContradictedClaim::ground`).
+fn unassumed(
+    constraints: &[Predicate],
+    match_conditions: &[Predicate],
+    unclear_requires: &[Predicate],
+) -> bool {
+    predicates_truth(constraints) == Truth::True
+        && match_conditions.is_empty()
+        && unclear_requires.is_empty()
 }
 
 /// Note the contradicted `preserves-definedness` of `context`'s rule, whose right-hand side is a
@@ -2100,10 +2111,10 @@ fn apply_rhs_alternative(
     // successor's normalization (`normalize_successor`).
     let result_bottom = |undefined: Term| {
         instance.as_ref().map(|instance| {
-            let premises_hold = predicates_truth(&pattern.constraints) == Truth::True
-                && match_conditions.is_empty()
-                && unclear_requires.is_empty();
-            let found = (undefined, premises_hold);
+            let found = (
+                undefined,
+                unassumed(&pattern.constraints, match_conditions, unclear_requires),
+            );
             crate::path_facts::note_contradicted_preservation(instance, || Some(found.clone()));
             Box::new((instance.clone(), found.0, found.1))
         })
@@ -2269,6 +2280,15 @@ fn apply_rhs_alternative(
             unique_id: rule.attributes.unique_id.clone(),
             origin: rule.attributes.origins.first().cloned(),
             claims_defined_result: crate::path_facts::claims_defined_result(rule),
+            // What the successor's normalization inherits of this attempt's work, which decided
+            // the step's premises: asked only where the rule's claim can be refuted there.
+            premises_depend: if crate::path_facts::claims_defined_result(rule)
+                && crate::path_facts::checking_claims()
+            {
+                crate::path_facts::rule_work_depends()
+            } else {
+                crate::path_facts::Dependence::default()
+            },
             substitution: substitution.clone(),
             rule_substitution,
             rule_predicates,

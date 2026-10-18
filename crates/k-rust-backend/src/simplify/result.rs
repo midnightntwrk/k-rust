@@ -58,9 +58,12 @@ pub struct Simplification {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct FoundBottom {
     pub(crate) term: Term,
-    /// Whether a contradicted `total` claim was noted for it, so that an enclosing lineage
-    /// names no second one (the innermost equation is the one contradicted).
-    pub(crate) named: bool,
+    /// The `total` applications whose contradicted claim was noted for it, so that an enclosing
+    /// lineage names no second one (the innermost equation is the one contradicted): none, or
+    /// the one `total` step whose result reached it. An evaluation recorded for reuse keeps only
+    /// the namings its own steps made ([`Accumulated::since`]), so that the step it is served
+    /// under names its own claim.
+    pub(crate) named: Vec<Term>,
 }
 
 /// A [`Simplification`] taken apart, every field public. There is no conversion back: a
@@ -220,13 +223,14 @@ impl Simplification {
     /// retained and `\bottom` is its only constraint, so the caller merges it as it merges any
     /// other constraint set and the pattern becomes `\bottom` as a whole. The subject is
     /// reported as where `\bottom` was found; the equation's own result is not that place.
-    /// Only the claim check reads where (`crate::path_facts::claims_checked`).
-    pub(super) fn bottom_subject(rule: &RewriteRule, term: &Term) -> Self {
+    /// Only the claim check reads where, so it is reported only when `claims_checked`
+    /// (`simplify::claims_checked_in`).
+    pub(super) fn bottom_subject(rule: &RewriteRule, term: &Term, claims_checked: bool) -> Self {
         Self {
-            bottom: crate::path_facts::claims_checked().then(|| {
+            bottom: claims_checked.then(|| {
                 Box::new(FoundBottom {
                     term: term.clone(),
-                    named: false,
+                    named: Vec::new(),
                 })
             }),
             ..Self::bottom_result(rule, term)
@@ -386,8 +390,15 @@ impl Accumulated {
 
     /// What was absorbed since `mark`, as the result for `term`, without undefined-term reports:
     /// the caller takes it only where none was raised. Where `\bottom` was found since `mark`
-    /// ([`FoundBottom`]) is kept. It shares what was absorbed.
-    pub(super) fn since(&self, mark: &AccumulatedMark, term: Term) -> Simplification {
+    /// ([`FoundBottom`]) is kept, without a naming by `outside`, the lineage's `total` step taken
+    /// before `mark`: that naming was the step's, not the work since `mark`'s. It shares what was
+    /// absorbed.
+    pub(super) fn since(
+        &self,
+        mark: &AccumulatedMark,
+        term: Term,
+        outside: Option<&Term>,
+    ) -> Simplification {
         Simplification {
             term,
             conditions: self.conditions.since(&mark.conditions),
@@ -401,7 +412,12 @@ impl Accumulated {
             bottom: if self.bottom == mark.bottom {
                 None
             } else {
-                self.bottom.clone()
+                self.bottom.clone().map(|mut found| {
+                    if let Some(outside) = outside {
+                        found.named.retain(|named| named != outside);
+                    }
+                    found
+                })
             },
         }
     }

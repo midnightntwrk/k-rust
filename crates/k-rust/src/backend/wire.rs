@@ -189,11 +189,13 @@ impl From<k_rust_backend::path_facts::ObservedIn> for ObservedInOutput {
 /// `rewriteRule*` name the rewrite rule whose attempt (match, conditions, right-hand side) or
 /// whose successor's normalization observed it, absent when no rule's work did (an initial
 /// state's normalization, the load). `ground` says whether the application is variable-free and
-/// nothing but `\top` was assumed to refute the claim (for `total`, no constraint of the state
-/// and no path condition; for `preserves-definedness`, every constraint of the step simplified
-/// to `\top`, so its `requires` was decided rather than carried): a ground record shows that the
-/// definition has no model with the claim at that input; a non-ground one rests on an assumption
-/// that may hold nowhere, and shows nothing. `observedIn` says
+/// the work that refuted the claim depended on nothing that may differ between models: it noted
+/// no path fact but ground records (no value the definition leaves open, for one) and assumed
+/// nothing but `\top` (for `total`, no constraint of the state and no path condition; for
+/// `preserves-definedness`, every constraint of the step simplified to `\top`, so its `requires`
+/// was decided rather than carried): a ground record shows that the definition has no model with
+/// the claim at that input; a non-ground one rests on something that may not hold in every
+/// model, and shows nothing. `observedIn` says
 /// whether the definition's load or this run observed it; a leaf's records are always `run`.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]

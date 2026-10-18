@@ -2030,19 +2030,265 @@ endmodule
     }
 }
 
+/// What a ground record rests on (docs/compatibility.md, "A contradicted `total` attribute is
+/// named, not repaired"): a record is ground only when the work that found `\bottom` depended on
+/// nothing that may differ between models of the definition, which every such dependence
+/// states as a path fact (an implementation-chosen value, among others), and assumed nothing but
+/// `\top`. For a `total` claim that work is the evaluation from the application on (the
+/// equation's selection, its conditions and its result); for a `preserves-definedness` claim it
+/// is the step's attempt (its match and `requires`) and the normalization of its result. Each
+/// case runs next to its mirror, whose chosen value leads away from `\bottom`.
+mod derivations {
+    use std::collections::BTreeSet;
+
+    use super::observed::{Record, compile, each_run, leaves, records, run_records};
+
+    pub(super) const CHOSEN: &str = r#"
+module MAIN
+  imports INT
+  imports BOOL
+  imports STRING
+  imports MAP
+  imports LIST
+  imports K-EQUAL
+  syntax Pgm ::= "done" | val(Int) | ka(Int) | kb(Int) | ca(Int) | cb(Int) | pka(Int) | pkb(Int)
+               | kr(Int) | ks(Int) | pkr(Int) | pks(Int) | karg(Int)
+  syntax Int ::= tka(Int) [function, total]
+               | tkb(Int) [function, total]
+               | tca(Int) [function, total]
+               | tcb(Int) [function, total]
+               | tkr(Int) [function, total]
+               | tks(Int) [function, total]
+               | td(Int) [function, total]
+  configuration <k> $PGM:Pgm </k>
+  rule [tkaeq]: tka(I) => 10 /Int (#if keys_list(1 |-> I 2 |-> I) ==K ListItem(1) ListItem(2) #then 0 #else 1 #fi)
+  rule [tkbeq]: tkb(I) => 10 /Int (#if keys_list(1 |-> I 2 |-> I) ==K ListItem(2) ListItem(1) #then 0 #else 1 #fi)
+  rule [tcaeq]: tca(I) => 10 /Int (#if Base2String(10, 16) ==String "a" #then I #else 1 #fi)
+  rule [tcbeq]: tcb(I) => 10 /Int (#if Base2String(10, 16) ==String "A" #then I #else 1 #fi)
+  rule [tkreq]: tkr(I) => 10 /Int I requires keys_list(1 |-> I 2 |-> I) ==K ListItem(1) ListItem(2)
+  rule [tkseq]: tks(I) => 10 /Int I requires keys_list(1 |-> I 2 |-> I) ==K ListItem(2) ListItem(1)
+  rule [tdeq]:  td(I) => 10 /Int I
+  rule [ka]: ka(X) => val(tka(X))
+  rule [kb]: kb(X) => val(tkb(X))
+  rule [ca]: ca(X) => val(tca(X))
+  rule [cb]: cb(X) => val(tcb(X))
+  rule [kr]: kr(X) => val(tkr(X))
+  rule [ks]: ks(X) => val(tks(X))
+  rule [pka]: pka(X) => val(10 /Int (#if keys_list(1 |-> X 2 |-> X) ==K ListItem(1) ListItem(2) #then 0 #else 1 #fi)) [preserves-definedness]
+  rule [pkb]: pkb(X) => val(10 /Int (#if keys_list(1 |-> X 2 |-> X) ==K ListItem(2) ListItem(1) #then 0 #else 1 #fi)) [preserves-definedness]
+  rule [pkr]: pkr(X) => val(10 /Int X) requires keys_list(1 |-> X 2 |-> X) ==K ListItem(1) ListItem(2) [preserves-definedness]
+  rule [pks]: pks(X) => val(10 /Int X) requires keys_list(1 |-> X 2 |-> X) ==K ListItem(2) ListItem(1) [preserves-definedness]
+  rule [karg]: karg(X) => val(td(#if keys_list(1 |-> X 2 |-> X) ==K ListItem(1) ListItem(2) #then 0 #else 1 #fi))
+endmodule
+"#;
+
+    fn total(symbol: &str, equation: &str, rule: &str, ground: bool) -> Record {
+        (
+            "total".to_owned(),
+            format!("{symbol}(_)_MAIN_Int_Int"),
+            format!("MAIN.{equation}"),
+            Some(format!("MAIN.{rule}")),
+            ground,
+        )
+    }
+
+    fn preservation(rule: &str, ground: bool) -> Record {
+        (
+            "preserves-definedness".to_owned(),
+            "?".to_owned(),
+            format!("MAIN.{rule}"),
+            Some(format!("MAIN.{rule}")),
+            ground,
+        )
+    }
+
+    /// Every leaf and the list of every run of `program` carry exactly `expected`, and the
+    /// claim-free definition names nothing.
+    fn assert_recorded(program: &str, expected: &[Record]) {
+        let (kore, initial) = compile(CHOSEN, program);
+        let (free, free_initial) = compile(&super::premises::claim_free(CHOSEN), program);
+        for (name, _, _, result) in each_run(&kore, &initial) {
+            let context = format!("{program} under {name}: {result:#}");
+            assert!(!leaves(&result).is_empty(), "{context}");
+            for leaf in leaves(&result) {
+                assert_eq!(
+                    records(leaf),
+                    expected.iter().cloned().collect::<BTreeSet<_>>(),
+                    "{context}"
+                );
+            }
+            assert_eq!(run_records(&result), expected, "{context}");
+        }
+        for (name, _, _, result) in each_run(&free, &free_initial) {
+            assert!(
+                run_records(&result).is_empty(),
+                "claim-free {program} under {name}: {result:#}"
+            );
+        }
+    }
+
+    /// `tka(0)`'s result is `\bottom` only because `keys_list` listed `1` first, a value the
+    /// definition leaves open: in a model that lists `2` first, `tka(0)` is `10`, as the mirror
+    /// `kb(0)` shows, so the record refutes nothing and is not ground.
+    #[test]
+    fn a_total_bottom_that_rests_on_a_chosen_order_is_not_ground() {
+        assert_recorded("ka(0)", &[total("tka", "tkaeq", "ka", false)]);
+        assert_recorded("kb(0)", &[]);
+    }
+
+    /// The same for `Base2String`'s letter case (`ca(0)`, mirror `cb(0)`).
+    #[test]
+    fn a_total_bottom_that_rests_on_a_chosen_letter_case_is_not_ground() {
+        assert_recorded("ca(0)", &[total("tca", "tcaeq", "ca", false)]);
+        assert_recorded("cb(0)", &[]);
+    }
+
+    /// The same for a `preserves-definedness` result term (`pka(0)`, mirror `pkb(0)`).
+    #[test]
+    fn a_result_bottom_that_rests_on_a_chosen_value_is_not_ground() {
+        assert_recorded("pka(0)", &[preservation("pka", false)]);
+        assert_recorded("pkb(0)", &[]);
+    }
+
+    /// A chosen value that decided a premise of the work is a dependence too: `tkr`'s equation
+    /// applies to `tkr(0)` because its `requires` read `keys_list`'s order. Its mirror does not
+    /// apply (`tks(0)` stays unevaluated) and names nothing.
+    #[test]
+    fn an_equation_requires_decided_by_a_chosen_value_is_a_dependence() {
+        assert_recorded("kr(0)", &[total("tkr", "tkreq", "kr", false)]);
+        assert_recorded("ks(0)", &[]);
+    }
+
+    /// `pkr`'s step applies to `pkr(0)` because its `requires` read `keys_list`'s order; the
+    /// mirror `pks(0)` is stuck and names nothing.
+    #[test]
+    fn a_rule_requires_decided_by_a_chosen_value_is_a_dependence() {
+        assert_recorded("pkr(0)", &[preservation("pkr", false)]);
+        assert_recorded("pks(0)", &[]);
+    }
+
+    /// A chosen value that only built the contradicted application is no part of the work that
+    /// found `\bottom`: `karg(0)`'s configuration holds `td(0)` because `keys_list` listed `1`
+    /// first, and `td(0)` is `\bottom` through `td`'s own equation in every model. The record is
+    /// ground; the leaf's chosen-value mark says that the path is one model's.
+    #[test]
+    fn a_chosen_value_that_only_built_the_application_leaves_the_record_ground() {
+        assert_recorded("karg(0)", &[total("td", "tdeq", "karg", true)]);
+    }
+
+    pub(super) const REUSE: &str = r#"
+module MAIN
+  imports INT
+  imports BOOL
+  imports STRING
+  syntax Pgm ::= "done" | val(Int) | un7(String) | un8(String)
+  syntax Int ::= tt(String) [function, total]
+               | tt2(String) [function, total]
+               | bot(Int) [function]
+               | pair(Int, Int) [function]
+               | cnt2(String, String) [function, hook(STRING.countAllOccurrences)]
+               | cntz(String, String) [function, hook(STRING.countAllOccurrences)]
+               | cnty(String, String) [function, hook(STRING.countAllOccurrences)]
+  configuration <k> $PGM:Pgm </k>
+  rule [boteq]: bot(I) => #Bottom requires I ==Int 0
+  rule [boteq2]: bot(I) => I requires I =/=Int 0
+  rule [cnt2eq]: cnt2(_, "") => bot(0)
+  rule [tteq]: tt(S) => cnt2(S, "")
+  rule [tt2eq]: tt2(S) => cnt2(S, "")
+  rule [cntzeq]: cntz(S, "") => pair(tt(S), tt2(S))
+  rule [cntyeq]: cnty(S, "") => pair(cnt2(S, ""), tt2(S))
+  rule [un7]: un7(S) => val(cntz(S, ""))
+  rule [un8]: un8(S) => val(cnty(S, ""))
+endmodule
+"#;
+
+    /// The `Unspecified` application `cnt2("a", "")` is `\bottom` through the partial `bot`, and
+    /// its first evaluation serves the second. Its result reaches `\bottom` under `tt`'s
+    /// equation and again under `tt2`'s, so both `total` claims are contradicted, with the reuse
+    /// of `Unspecified` evaluations as without it: in `un7`, the first evaluation ran under
+    /// `tt`'s step, which named it, and the served value does not carry that naming to `tt2`'s
+    /// step; in `un8`, the first ran outside every `total` step. Reuse still serves the value
+    /// (fewer equation attempts).
+    #[test]
+    fn a_reused_bottom_names_every_total_step_it_is_served_under() {
+        use k_rust::backend::ExecuteRequest;
+        use k_rust_backend::simplify::without_unspecified_reuse;
+        use k_rust_kore::measure::{Counter, snapshot};
+        let record = |symbol: &str, equation: &str, rule: &str| {
+            (
+                "total".to_owned(),
+                format!("{symbol}(_)_MAIN_Int_String"),
+                format!("MAIN.{equation}"),
+                Some(format!("MAIN.{rule}")),
+                true,
+            )
+        };
+        for (program, rule) in [("un7(\"a\")", "un7"), ("un8(\"a\")", "un8")] {
+            let expected = vec![record("tt2", "tt2eq", rule), record("tt", "tteq", rule)];
+            let expected = if rule == "un7" {
+                vec![expected[1].clone(), expected[0].clone()]
+            } else {
+                vec![expected[0].clone()]
+            };
+            let (kore, initial) = compile(REUSE, program);
+            for strategy in super::observed::STRATEGIES {
+                let run = || {
+                    let before = snapshot();
+                    let result = super::observed::backend(&kore)
+                        .execute(ExecuteRequest {
+                            strategy,
+                            ..ExecuteRequest::new(initial.clone())
+                        })
+                        .unwrap();
+                    let attempts = snapshot()
+                        .delta(&before)
+                        .get(Counter::SimplifyEquationAttempts);
+                    (serde_json::to_value(&result).unwrap(), attempts)
+                };
+                let (reused, with_reuse) = run();
+                let (fresh, without_reuse) = without_unspecified_reuse(run);
+                let context = format!("{program} under {strategy:?}");
+                assert_eq!(
+                    run_records(&reused),
+                    expected,
+                    "{context} with reuse: {reused:#}"
+                );
+                assert_eq!(
+                    run_records(&fresh),
+                    expected,
+                    "{context} without reuse: {fresh:#}"
+                );
+                assert_eq!(reused, fresh, "{context}");
+                assert!(
+                    with_reuse < without_reuse,
+                    "{context}: equation attempts {with_reuse} with reuse, {without_reuse} without"
+                );
+            }
+        }
+    }
+}
+
 /// The claim checks observe and decide nothing (docs/compatibility.md, "A contradicted `total`
 /// attribute is named, not repaired"): every run is the same with the checks on and with them
 /// off (`k_rust_backend::path_facts::without_claim_checks`, which notes no record and does none
 /// of the work done only to find one), apart from the records. The oracle runs every definition
 /// of this file, each probe definition of the reviews of the change that added the records, the
 /// claim-free variant of each (no `total`, no `preserves-definedness`), and the light IMP corpus,
-/// under both strategies and both result modalities: executed, executed observed, searched
-/// (graph and paths) and, for ground inputs, executed with a console. Every output must be equal
-/// once the records (`contradicted-claim` diagnostics and `contradictedClaims`) are taken out:
-/// leaves, their states, reasons, order, other diagnostics, halts, `work` and the run-level
-/// lists. A claim-free definition must also count the same work: every `measure` counter is
-/// equal. A claim-carrying definition may count more where a claim is checked (the counters that
-/// differ are printed).
+/// under both strategies and both result modalities, by every route: executed (plain, stopping
+/// at a branch, collecting coverage, with a breadth bound, assuming the state defined), executed
+/// observed, searched (graph final and all, paths) and, for ground inputs, executed with a
+/// console; and per input, simplified, implied by itself and asked for a model. Claims are
+/// proved by the same pairs ([`the_proof_route`]). Every output must be equal once the records
+/// (`contradicted-claim` diagnostics and `contradictedClaims`) are taken out: leaves, their
+/// states, reasons, order, other diagnostics, halts, `work` and the run-level lists. A
+/// claim-free definition must also count the same work: every `measure` counter is equal. A
+/// claim-carrying definition may count more where a claim is checked (the counters that differ
+/// are printed); a proof counts the same in every case.
+///
+/// The fixtures and probes run with no work, depth, breadth or result bound: a bound that is set
+/// puts every path fact the run noted so far on every leaf (docs/compatibility.md, "`maxWork`"),
+/// which would hide which leaf carries which fact. The IMP corpus alone runs bounded
+/// ([`Tier::Bounded`]).
 ///
 /// A later finding of the same kind becomes an input here.
 mod checks_off {
@@ -2149,20 +2395,60 @@ mod checks_off {
         Value::String(format!("{result:#?}"))
     }
 
-    /// The bounds of every run. IMP's `strict` and `seqstrict` attributes admit every evaluation
-    /// order, so under strategy `all` an unbounded run enumerates every interleaving: the
-    /// path-set execution, the observed execution's per-leaf traces and the path search of the
-    /// three-line `sum` program alone took one process to 39 GB. Bounded, the IMP corpus peaks
-    /// near 2.7 GB and every other oracle test below 200 MB, so the binary is safe with the
-    /// default test threads. A bound that fires fires alike with the checks on and off, so the
-    /// comparison holds for the bounded run. No fixture of this file reaches them; the IMP
-    /// corpus does.
+    /// How a definition's inputs are run. IMP's `strict` and `seqstrict` attributes admit every
+    /// evaluation order, so under strategy `all` an unbounded run enumerates every interleaving:
+    /// the path-set execution, the observed execution's per-leaf traces and the path search of
+    /// the three-line `sum` program alone took one process to 39 GB. Bounded, a bound that fires
+    /// fires alike with the checks on and off, so the comparison holds; it only puts every fact
+    /// of the run on every leaf, alike on both sides.
+    #[derive(Clone, Copy)]
+    enum Tier {
+        /// No work, depth, breadth or result bound: every fixture and probe.
+        Unbounded,
+        /// The IMP corpus.
+        Bounded,
+    }
+
     const MAX_WORK: u64 = 400;
     const MAX_DEPTH: u64 = 400;
     const MAX_BREADTH: usize = 16;
     const MAX_SIMPLIFICATION_ITERATIONS: usize = 100;
 
-    /// Run `initial` over `kore` on a thread of its own, with the claim checks on or off.
+    /// A response as JSON, an error as its message.
+    fn json<T: serde::Serialize>(response: Result<T, k_rust::backend::BackendError>) -> Value {
+        match response {
+            Ok(response) => serde_json::to_value(&response).unwrap(),
+            Err(error) => Value::String(format!("error: {}", error.message())),
+        }
+    }
+
+    /// Run `work` on a thread of its own, with the claim checks on or off, and count it.
+    fn counted<T: Send + 'static>(
+        checks: bool,
+        work: impl FnOnce() -> T + Send + 'static,
+    ) -> (T, Snapshot) {
+        std::thread::Builder::new()
+            .stack_size(64 << 20)
+            .spawn(move || {
+                let work = move || {
+                    let before = measure::snapshot();
+                    let result = work();
+                    (result, measure::snapshot().delta(&before))
+                };
+                if checks {
+                    work()
+                } else {
+                    without_claim_checks(work)
+                }
+            })
+            .unwrap()
+            .join()
+            .unwrap()
+    }
+
+    /// Run `initial` over `kore` by every execution and search route, under one strategy and
+    /// modality, with the claim checks on or off.
+    #[allow(clippy::too_many_arguments)]
     fn run(
         kore: &str,
         main: &str,
@@ -2170,41 +2456,72 @@ mod checks_off {
         strategy: ExecutionStrategy,
         modality: ResultModalityOutput,
         console: bool,
+        tier: Tier,
         checks: bool,
     ) -> Outputs {
         let (kore, main, initial) = (kore.to_owned(), main.to_owned(), initial.clone());
-        let work = move || {
-            let before = measure::snapshot();
-            let request = || ExecuteRequest {
-                result_modality: modality,
-                strategy,
-                max_work: Some(MAX_WORK),
-                max_depth: Some(MAX_DEPTH),
-                max_simplification_iterations: MAX_SIMPLIFICATION_ITERATIONS,
-                ..ExecuteRequest::new(initial.clone())
+        let bounded = matches!(tier, Tier::Bounded);
+        let (mut responses, counters) = counted(checks, move || {
+            let request = || {
+                let request = ExecuteRequest {
+                    result_modality: modality,
+                    strategy,
+                    ..ExecuteRequest::new(initial.clone())
+                };
+                if bounded {
+                    ExecuteRequest {
+                        max_work: Some(MAX_WORK),
+                        max_depth: Some(MAX_DEPTH),
+                        max_simplification_iterations: MAX_SIMPLIFICATION_ITERATIONS,
+                        ..request
+                    }
+                } else {
+                    request
+                }
             };
-            let search = || SearchRequest {
-                search_type: SearchTypeArg::Final,
-                max_depth: Some(MAX_DEPTH),
-                max_breadth: Some(MAX_BREADTH),
-                max_results: Some(MAX_BREADTH),
-                max_simplification_iterations: MAX_SIMPLIFICATION_ITERATIONS,
-                ..SearchRequest::new(initial.clone())
+            let search = |search_type| {
+                let request = SearchRequest {
+                    search_type,
+                    ..SearchRequest::new(initial.clone())
+                };
+                if bounded {
+                    SearchRequest {
+                        max_depth: Some(MAX_DEPTH),
+                        max_breadth: Some(MAX_BREADTH),
+                        max_results: Some(MAX_BREADTH),
+                        max_simplification_iterations: MAX_SIMPLIFICATION_ITERATIONS,
+                        ..request
+                    }
+                } else {
+                    request
+                }
             };
             let mut backend = backend_in(&kore, &main);
             let mut responses = vec![
-                serde_json::to_value(backend.execute(request()).unwrap()).unwrap(),
-                serde_json::to_value(
-                    backend
-                        .execute_observed(ObservedRequest {
-                            request: request(),
-                            rules: None,
-                        })
-                        .unwrap(),
-                )
-                .unwrap(),
-                serde_json::to_value(backend.search(search()).unwrap()).unwrap(),
-                serde_json::to_value(backend.search_paths(search()).unwrap()).unwrap(),
+                json(backend.execute(request())),
+                json(backend.execute(ExecuteRequest {
+                    stop_at_branch: true,
+                    ..request()
+                })),
+                json(backend.execute(ExecuteRequest {
+                    collect_coverage: true,
+                    ..request()
+                })),
+                json(backend.execute(ExecuteRequest {
+                    max_breadth: Some(1),
+                    ..request()
+                })),
+                json(backend.execute(ExecuteRequest {
+                    assume_state_defined: true,
+                    ..request()
+                })),
+                json(backend.execute_observed(ObservedRequest {
+                    request: request(),
+                    rules: None,
+                })),
+                json(backend.search(search(SearchTypeArg::Final))),
+                json(backend.search(search(SearchTypeArg::All))),
+                json(backend.search_paths(search(SearchTypeArg::Final))),
             ];
             if console {
                 use k_rust_backend::{
@@ -2220,38 +2537,54 @@ mod checks_off {
                     ExecutionStrategy::All => ExecutionMode::All,
                     _ => ExecutionMode::Any,
                 };
-                responses.push(console_without_records(execute_with_io_state(
-                    &definition,
-                    pattern,
+                let options = if bounded {
                     ExecutionOptions {
                         mode,
                         max_work: Some(MAX_WORK),
                         max_depth: MAX_DEPTH,
                         max_simplification_iterations: MAX_SIMPLIFICATION_ITERATIONS,
                         ..ExecutionOptions::default()
-                    },
+                    }
+                } else {
+                    ExecutionOptions {
+                        mode,
+                        ..ExecutionOptions::default()
+                    }
+                };
+                responses.push(console_without_records(execute_with_io_state(
+                    &definition,
+                    pattern,
+                    options,
                     ExecutionIoState::new(Vec::new()),
                 )));
             }
-            let counters = measure::snapshot().delta(&before);
-            responses.iter_mut().for_each(without_records);
-            Outputs {
-                responses,
-                counters,
-            }
-        };
-        std::thread::Builder::new()
-            .stack_size(64 << 20)
-            .spawn(move || {
-                if checks {
-                    work()
-                } else {
-                    without_claim_checks(work)
-                }
-            })
-            .unwrap()
-            .join()
-            .unwrap()
+            responses
+        });
+        responses.iter_mut().for_each(without_records);
+        Outputs {
+            responses,
+            counters,
+        }
+    }
+
+    /// Simplify `initial`, ask whether it implies itself and ask for a model of it, with the
+    /// claim checks on or off: the routes that do not depend on a strategy.
+    fn requests(kore: &str, main: &str, initial: &Pattern, checks: bool) -> Outputs {
+        use k_rust::backend::{ImplicationRequest, PatternRequest};
+        let (kore, main, initial) = (kore.to_owned(), main.to_owned(), initial.clone());
+        let (mut responses, counters) = counted(checks, move || {
+            let mut backend = backend_in(&kore, &main);
+            vec![
+                json(backend.simplify(PatternRequest::new(initial.clone()))),
+                json(backend.implies(ImplicationRequest::new(initial.clone(), initial.clone()))),
+                json(backend.get_model(PatternRequest::new(initial.clone()))),
+            ]
+        });
+        responses.iter_mut().for_each(without_records);
+        Outputs {
+            responses,
+            counters,
+        }
     }
 
     /// The counters that differ between `on` and `off`, by name.
@@ -2264,8 +2597,30 @@ mod checks_off {
     }
 
     /// The oracle over `source` (main module `main`) and its claim-free variant, each input
-    /// under both strategies and both modalities.
+    /// under both strategies and both modalities, unbounded.
     fn assert_inert(case: &str, source: &str, main: &str, inputs: &[Input]) {
+        assert_inert_in(Tier::Unbounded, case, source, main, inputs);
+    }
+
+    /// The equality and the counters of one pair of runs.
+    fn assert_pair(context: &str, on: &Outputs, off: &Outputs, claim_free: bool) {
+        assert_eq!(on.responses.len(), off.responses.len(), "{context}");
+        for (on, off) in on.responses.iter().zip(&off.responses) {
+            assert_eq!(on, off, "{context}: checks on, then off");
+        }
+        let counters = differing(&on.counters, &off.counters);
+        if claim_free {
+            assert!(
+                counters.is_empty(),
+                "{context}: counters (name, on, off) {counters:?}"
+            );
+        } else if !counters.is_empty() {
+            eprintln!("counter growth, {context}: (name, on, off) {counters:?}");
+        }
+    }
+
+    /// [`assert_inert`] in `tier`.
+    fn assert_inert_in(tier: Tier, case: &str, source: &str, main: &str, inputs: &[Input]) {
         let stripped = strip(source);
         assert!(
             !claims(&stripped),
@@ -2292,7 +2647,9 @@ mod checks_off {
                             input.name()
                         );
                         let run_once = |checks| {
-                            run(&kore, main, &initial, strategy, modality, console, checks)
+                            run(
+                                &kore, main, &initial, strategy, modality, console, tier, checks,
+                            )
                         };
                         if !warmed {
                             run_once(true);
@@ -2300,21 +2657,13 @@ mod checks_off {
                         }
                         let on = run_once(true);
                         let off = run_once(false);
-                        assert_eq!(on.responses.len(), off.responses.len(), "{context}");
-                        for (on, off) in on.responses.iter().zip(&off.responses) {
-                            assert_eq!(on, off, "{context}: checks on, then off");
-                        }
-                        let counters = differing(&on.counters, &off.counters);
-                        if claim_free {
-                            assert!(
-                                counters.is_empty(),
-                                "{context}: counters (name, on, off) {counters:?}"
-                            );
-                        } else if !counters.is_empty() {
-                            eprintln!("counter growth, {context}: (name, on, off) {counters:?}");
-                        }
+                        assert_pair(&context, &on, &off, claim_free);
                     }
                 }
+                let context = format!("{variant}: {} by request", input.name());
+                let on = requests(&kore, main, &initial, true);
+                let off = requests(&kore, main, &initial, false);
+                assert_pair(&context, &on, &off, claim_free);
             }
         }
     }
@@ -2793,12 +3142,211 @@ endmodule
         );
     }
 
+    // The probe definitions of code-reviews/KINK-18-3-fix2.toml: the chosen values and the
+    // reuse are `derivations`'s; the `#Bottom` right-hand sides follow.
+
+    const BOTTOMS: &str = r#"
+module MAIN
+  imports INT
+  imports BOOL
+  syntax Pgm ::= "done" | val(Int) | w(Int) | pdbn(Int) | pdbq(Int) | pdbr(Int) | go(Int) | pdo(Int)
+               | pds(Int) | pdc(Int)
+  syntax Int ::= q(Int) [function, total]
+               | f(Int) [function, total]
+  configuration <k> $PGM:Pgm </k>
+  rule [feq]: f(X) => X +Int 1
+  rule [pdbn]: pdbn(X) => #Bottom requires X ==Int 1 [preserves-definedness]
+  rule [pdbq]: pdbq(X) => #Bottom requires q(X) ==Int 0 [preserves-definedness]
+  rule [pdbr]: pdbr(X) => #Bottom requires X ==Int 0 [preserves-definedness]
+  rule [pdbrb]: pdbr(_) => done
+  rule [go]: go(X) => (w(f(X)) #Or done) [preserves-definedness]
+  rule [w]: w(Y) => val(Y)
+  rule [pdo]: pdo(X) => (val(X /Int 0) #Or val(f(X))) [preserves-definedness]
+  rule [pdsa]: pds(X) => val(X /Int 0) [preserves-definedness]
+  rule [pdsb]: pds(_) => done
+  rule [pdc]: pdc(X) => val(10 /Int X) requires X <Int 1 [preserves-definedness]
+  rule [pdc2]: pdc(X) => done requires X >=Int 1
+endmodule
+"#;
+
+    #[test]
+    fn the_third_review_s_probes() {
+        assert_inert(
+            "chosen",
+            super::derivations::CHOSEN,
+            "MAIN",
+            &[
+                Ground("ka(0)"),
+                Ground("kb(0)"),
+                Ground("ca(0)"),
+                Ground("cb(0)"),
+                Ground("pka(0)"),
+                Ground("pkb(0)"),
+                Ground("kr(0)"),
+                Ground("ks(0)"),
+                Ground("pkr(0)"),
+                Ground("pks(0)"),
+                Ground("karg(0)"),
+            ],
+        );
+        assert_inert(
+            "reuse",
+            super::derivations::REUSE,
+            "MAIN",
+            &[Ground("un7(\"a\")"), Ground("un8(\"a\")")],
+        );
+        assert_inert(
+            "bottoms",
+            BOTTOMS,
+            "MAIN",
+            &[
+                Ground("pdbn(0)"),
+                Ground("pdbq(0)"),
+                Ground("pdbr(0)"),
+                Ground("go(0)"),
+                Ground("pdo(0)"),
+                Ground("pds(0)"),
+                Ground("pdc(0)"),
+                Symbolic("go(777)"),
+                Symbolic("pdo(777)"),
+                Symbolic("pdbr(777)"),
+                Symbolic("pdc(777)"),
+                Symbolic("pds(777)"),
+                Constrained("pdbq(0)", 0),
+                Constrained("pdbq(0)", 1),
+            ],
+        );
+    }
+
+    /// Claims of the fixtures' shapes, with their contradictions on the proof's path.
+    const PROOF: &str = r#"
+module MAIN
+  imports INT
+  imports BOOL
+  imports MAP
+  imports LIST
+  imports K-EQUAL
+  syntax Pgm ::= "done" | val(Int) | pd(Int) | pdt(Int) | tbt(Int) | pdb(Int) | pdo(Int) | bt(Int)
+               | ka(Int)
+  syntax Int ::= td(Int) [function, total]
+               | tb(Int) [function, total]
+               | bot(Int) [function]
+               | tka(Int) [function, total]
+  configuration <k> $PGM:Pgm </k>
+  rule [tdeq]: td(I) => 10 /Int I
+  rule [tbeq]: tb(I) => #Bottom requires I ==Int 0
+  rule [tbeq2]: tb(I) => I requires I =/=Int 0
+  rule [boteq]: bot(I) => #Bottom requires I ==Int 0
+  rule [boteq2]: bot(I) => I requires I =/=Int 0
+  rule [tkaeq]: tka(I) => 10 /Int (#if keys_list(1 |-> I 2 |-> I) ==K ListItem(1) ListItem(2) #then 0 #else 1 #fi)
+  rule [pd]: pd(X) => val(X /Int 0) [preserves-definedness]
+  rule [pdt]: pdt(X) => val(td(X)) [preserves-definedness]
+  rule [tbt]: tbt(X) => val(tb(X))
+  rule [pdb]: pdb(_) => #Bottom [preserves-definedness]
+  rule [pdo]: pdo(X) => (val(X /Int 0) #Or done) [preserves-definedness]
+  rule [bt]: bt(X) => val(bot(X)) [preserves-definedness]
+  rule [ka]: ka(X) => val(tka(X))
+  rule val(_) => done
+endmodule
+
+module MAIN-SPEC
+  imports MAIN
+  claim [c-pd]: <k> pd(0) => done </k>
+  claim [c-pdt]: <k> pdt(0) => done </k>
+  claim [c-tbt]: <k> tbt(0) => done </k>
+  claim [c-pdb]: <k> pdb(0) => done </k>
+  claim [c-pdo]: <k> pdo(0) => done </k>
+  claim [c-bt]: <k> bt(0) => done </k>
+  claim [c-ka]: <k> ka(0) => done </k>
+  claim [c-pdx]: <k> pd(X) => done </k>
+  claim [c-tbx]: <k> tbt(X) => done </k>
+endmodule
+"#;
+
+    /// The compiled KORE of the spec module `spec` of `source`, its definition module `main`.
+    fn compile_spec(source: &str, spec: &str, main: &str) -> String {
+        use k_rust::{
+            builtin::embedded,
+            definition::CheckMode,
+            kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
+            outer::{LoadOptions, ResolvedSource, load_with_options},
+        };
+        let mut resolver = |_: &str, required: &str| {
+            embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+        };
+        let loaded = load_with_options(
+            ResolvedSource::new("spec.k", source),
+            spec,
+            &mut resolver,
+            &LoadOptions {
+                implicit_sources: vec![embedded("prelude.md").unwrap()],
+                configuration_module: Some(main.to_owned()),
+                ..CompilationBackend::Rust.load_options()
+            },
+        )
+        .unwrap();
+        compile_loaded_definition(
+            &loaded,
+            CompileOptions {
+                backend: CompilationBackend::Rust,
+                default_claims_to_all_path: true,
+                check_mode: CheckMode::Proof {
+                    definition_module: main.to_owned(),
+                },
+                ..CompileOptions::default()
+            },
+        )
+        .unwrap()
+        .definition_kore
+    }
+
+    /// The proof route: each claim proved with the checks on and off, with and without
+    /// `allowVacuous`, of the definition and of its claim-free variant. A proof notes no record
+    /// (`docs/compatibility.md`), so it does none of the work done only to find one: the
+    /// responses and every counter are equal, claims or none.
+    #[test]
+    fn the_proof_route() {
+        use k_rust::backend::ProveRequest;
+        for source in [PROOF.to_owned(), strip(PROOF)] {
+            let kore = compile_spec(&source, "MAIN-SPEC", "MAIN");
+            for claim in [
+                "c-pd", "c-pdt", "c-tbt", "c-pdb", "c-pdo", "c-bt", "c-ka", "c-pdx", "c-tbx",
+            ] {
+                for allow_vacuous in [false, true] {
+                    let run = |checks| {
+                        let kore = kore.clone();
+                        let (response, counters) = counted(checks, move || {
+                            let mut backend = backend_in(&kore, "MAIN-SPEC");
+                            json(backend.prove(ProveRequest {
+                                claim: Some(format!("MAIN-SPEC.{claim}")),
+                                allow_vacuous,
+                                ..ProveRequest::default()
+                            }))
+                        });
+                        Outputs {
+                            responses: vec![response],
+                            counters,
+                        }
+                    };
+                    let context = format!(
+                        "{claim} (allowVacuous {allow_vacuous}, claims {})",
+                        claims(&source)
+                    );
+                    let on = run(true);
+                    let off = run(false);
+                    assert_pair(&context, &on, &off, true);
+                }
+            }
+        }
+    }
+
     /// IMP of the K tutorial, which writes no claim attribute: the light corpus.
     const IMP: &str = include_str!("fixtures/kink/imp-lesson-4.k");
 
     #[test]
     fn the_light_imp_corpus() {
-        assert_inert(
+        assert_inert_in(
+            Tier::Bounded,
             "IMP",
             IMP,
             "IMP",

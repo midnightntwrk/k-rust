@@ -162,6 +162,11 @@ pub struct AppliedRule {
     /// Whether the rule claims `pattern`'s term defined, which the successor's normalization can
     /// refute (`crate::path_facts::claims_defined_result`).
     pub(crate) claims_defined_result: bool,
+    /// Whether the attempt that built this candidate depended on something that may differ
+    /// between models before the candidate was built (it decided the step's premises), which a
+    /// record of the rule's claim the successor's normalization observes rests on too
+    /// (`crate::path_facts::Dependence`; equality ignores it).
+    pub(crate) premises_depend: crate::path_facts::Dependence,
     pub substitution: Substitution,
     /// Rule-variable bindings suitable for execution diagnostics. Variables introduced solely as
     /// term aliases (`P #as X`) are implementation details and are omitted from this view.
@@ -196,12 +201,14 @@ impl AppliedRule {
             label: self.label.clone(),
             origin: self.origin.clone(),
             claims_defined_result: self.claims_defined_result,
+            premises_depend: self.premises_depend,
         }
     }
 }
 
 /// Every field but the `normalized` cache, which is work derived from `pattern`, and the rule's
-/// `origin` and `claims_defined_result`, which `unique_id` names within a definition.
+/// `origin` and `claims_defined_result`, which `unique_id` names within a definition, and
+/// `premises_depend`, a fact of the work that built it.
 impl std::fmt::Debug for AppliedRule {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter

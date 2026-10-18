@@ -4354,7 +4354,10 @@ fn simplify_on_stack(
     // The last equation applied in this lineage to an application of a `total` symbol, before
     // any undefined term appeared: an undefined term reached afterwards lies in that equation's
     // result, whose arguments were defined when it fired (`ContradictedTotal`).
-    let mut total_step: Option<(Term, Arc<RewriteRule>)> = None;
+    let mut total_step: Option<TotalStep> = None;
+    // Whether a contradicted claim found here would be noted, so that the work done only to
+    // find one is worth doing (`claims_checked_in`).
+    let checks = claims_checked_in(definition);
     // The function-equation steps this lineage took on `Unspecified` applications, oldest first,
     // each an attempt that lasts to the end of the lineage (`UnspecifiedFrame`), and, after one
     // failed, the equations its application is retried without.
@@ -4403,6 +4406,14 @@ fn simplify_on_stack(
                     execution.as_deref_mut(),
                 )?
             };
+            // Where the root step's work begins: a record of the claim of a `total` application
+            // the step applies an equation to asks what the work from here on depended on
+            // (`crate::path_facts::note_contradicted_total`).
+            let before_root = if checks {
+                crate::path_facts::marker()
+            } else {
+                crate::path_facts::Marker::default()
+            };
             let (root, root_step, root_equation, unspecified) = simplify_root(
                 definition,
                 &children.term,
@@ -4421,7 +4432,7 @@ fn simplify_on_stack(
             // Only the claim check reads where (`crate::path_facts::claims_checked`).
             let root_bottom = root.undefined_term.is_none()
                 && root.bottom.is_none()
-                && crate::path_facts::claims_checked()
+                && checks
                 && root.conjoins_bottom();
             let root = accumulated.absorb(root);
             if accumulated.undefined_term.is_none() {
@@ -4436,10 +4447,10 @@ fn simplify_on_stack(
                 };
                 if let Some(undefined) = &undefined {
                     accumulated.contradicted_total = contradicted.or_else(|| {
-                        total_step.as_ref().map(|(application, rule)| {
+                        total_step.as_ref().map(|step| {
                             let contradicted = ContradictedTotal::new(
-                                application.clone(),
-                                rule,
+                                step.application.clone(),
+                                &step.rule,
                                 undefined.clone(),
                             );
                             // Observed here, whatever becomes of this lineage's result: the
@@ -4448,6 +4459,7 @@ fn simplify_on_stack(
                             crate::path_facts::note_contradicted_total(
                                 &contradicted,
                                 assumptions.unconditional(),
+                                step.from,
                             );
                             contradicted
                         })
@@ -4497,6 +4509,7 @@ fn simplify_on_stack(
                     accumulated.bottom = Some(found_root_bottom(
                         &children.term,
                         root_equation.as_deref(),
+                        before_root,
                         total_step.as_ref(),
                         assumptions,
                     ));
@@ -4506,7 +4519,11 @@ fn simplify_on_stack(
                 && let Some(rule) = root_equation
                 && is_total_application(&children.term)
             {
-                total_step = Some((children.term.clone(), rule));
+                total_step = Some(TotalStep {
+                    application: children.term.clone(),
+                    rule,
+                    from: before_root,
+                });
             }
             if root.term.ptr_eq(&children.term)
                 || root.term == children.term
@@ -4599,23 +4616,24 @@ fn simplify_on_stack(
 /// in the lineage to an application of a `total` symbol (`total_step`), before anything in the
 /// lineage was `\bottom`, that equation's result reached `found`: the claim is contradicted, as
 /// when the result reaches an undefined term, unless an inner equation's record already names
-/// `found`. The record is ground only when the lineage assumes nothing but `\top`
-/// (`assumptions`, [`TermAssumptions::unconditional`]).
+/// `found`. Whether the record is ground is asked of the work from the step on and of the
+/// lineage's `assumptions` (`crate::path_facts::note_contradicted_total`).
 #[inline(never)]
 fn found_bottom(
     found: &FoundBottom,
-    total_step: Option<&(Term, Arc<RewriteRule>)>,
+    total_step: Option<&TotalStep>,
     assumptions: &TermAssumptions<'_>,
 ) -> Box<FoundBottom> {
     let mut found = Box::new(found.clone());
-    if !found.named
-        && let Some((application, rule)) = total_step
+    if found.named.is_empty()
+        && let Some(step) = total_step
     {
         crate::path_facts::note_contradicted_total(
-            &ContradictedTotal::new(application.clone(), rule, found.term.clone()),
+            &ContradictedTotal::new(step.application.clone(), &step.rule, found.term.clone()),
             assumptions.unconditional(),
+            step.from,
         );
-        found.named = true;
+        found.named.push(step.application.clone());
     }
     found
 }
@@ -4626,32 +4644,57 @@ fn found_bottom(
 /// (a `#Bottom` right-hand side, a refuted `ensures`), which contradicts the claim, and the
 /// record names `subject` as the undefined term (for a refuted `ensures` the term the equation
 /// built is not undefined); otherwise the last `total` step's result reached it
-/// ([`found_bottom`]). An `ensures` is refuted under the lineage's `assumptions`, so the record
-/// is ground only when they are `\top`.
+/// ([`found_bottom`]). The step's work began at `before_root`, and an `ensures` is refuted
+/// under the lineage's `assumptions`: the record's groundness is asked of both.
 #[inline(never)]
 fn found_root_bottom(
     subject: &Term,
     equation: Option<&RewriteRule>,
-    total_step: Option<&(Term, Arc<RewriteRule>)>,
+    before_root: crate::path_facts::Marker,
+    total_step: Option<&TotalStep>,
     assumptions: &TermAssumptions<'_>,
 ) -> Box<FoundBottom> {
     let found = FoundBottom {
         term: subject.clone(),
-        named: false,
+        named: Vec::new(),
     };
     match equation {
         Some(rule) if is_total_application(subject) => {
             crate::path_facts::note_contradicted_total(
                 &ContradictedTotal::new(subject.clone(), rule, subject.clone()),
                 assumptions.unconditional(),
+                before_root,
             );
             Box::new(FoundBottom {
-                named: true,
+                named: vec![subject.clone()],
                 ..found
             })
         }
         _ => found_bottom(&found, total_step, assumptions),
     }
+}
+
+/// The last equation a lineage applied to an application of a `total` symbol, before any
+/// undefined term appeared, and the point at which that step's work began, just before the
+/// equation was selected: a record of the claim asks what the work from there on depended on
+/// (`crate::path_facts::note_contradicted_total`).
+#[derive(Clone)]
+struct TotalStep {
+    application: Term,
+    rule: Arc<RewriteRule>,
+    from: crate::path_facts::Marker,
+}
+
+/// Whether a contradicted claim a simplification over `definition` finds is noted
+/// (`crate::path_facts::checking_claims`), and the definition makes a claim one can refute
+/// (`BackendDefinition::declares_claims`): only then is the work done that serves the check
+/// alone (`FoundBottom`, and asking where a root step's result found `\bottom`). A claim-free
+/// definition, and every simplification outside a run's collection (a proof, a simplify,
+/// implies or get-model request), does none of it. Within one outermost simplification the
+/// answer does not change, so a reused `Unspecified` evaluation carries what one made now
+/// would.
+fn claims_checked_in(definition: &BackendDefinition) -> bool {
+    definition.declares_claims() && crate::path_facts::checking_claims()
 }
 
 struct PathConditionReplacements {
@@ -5855,7 +5898,7 @@ struct UnspecifiedFrame {
 /// that attempt fails.
 struct LineageState {
     accumulated: AccumulatedMark,
-    total_step: Option<(Term, Arc<RewriteRule>)>,
+    total_step: Option<TotalStep>,
     remaining: usize,
     io: Option<ExecutionIoState>,
     diagnostics: diagnostic::EmissionMark,
@@ -6694,13 +6737,28 @@ impl UnspecifiedValues {
                 reads.merge(&entry.reads, depth);
             }
         });
+        // A `\bottom` the evaluation reached may have been named by the lineage's `total` step
+        // taken before the evaluation began: that naming, and the record it noted, belong to the
+        // step, not to the evaluation, so a lineage served the value under another `total` step
+        // names that one (`Accumulated::since`).
+        let outside = first
+            .before
+            .total_step
+            .as_ref()
+            .map(|step| &step.application);
+        let result = accumulated.since(&first.before.accumulated, end.clone(), outside);
+        let mut facts = crate::path_facts::since(first.history.facts_from);
+        if let Some(outside) = outside
+            && accumulated
+                .bottom
+                .as_ref()
+                .is_some_and(|found| found.named.contains(outside))
+        {
+            facts.retain(|fact| !fact.is_total_record_of(outside));
+        }
         Self::record(
             &first.application,
-            RecordedOutcome::Value(
-                accumulated.since(&first.before.accumulated, end.clone()),
-                Arc::clone(&first.rule),
-                crate::path_facts::since(first.history.facts_from),
-            ),
+            RecordedOutcome::Value(result, Arc::clone(&first.rule), facts),
             reads,
             depth,
             given,
@@ -7400,7 +7458,9 @@ fn apply_equation_instance(
         DecidedEquation::Defined(defined) => defined,
         DecidedEquation::Refuted(_) => {
             return Ok(EquationAttempt::Applied(Simplification::bottom_subject(
-                rule, term,
+                rule,
+                term,
+                claims_checked_in(definition),
             )));
         }
     };
