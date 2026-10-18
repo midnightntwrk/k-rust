@@ -1732,24 +1732,25 @@ enum Classified {
 }
 
 impl Context<'_> {
-    /// Classify `candidate`, counting it in its group as a root or an inner pair, and as not
-    /// joined when it is.
-    fn classify(&mut self, candidate: &Candidate<'_>) -> Classified {
+    /// Classify `candidate` ([`Self::classify`]), counting it in its group as a root or an inner
+    /// pair, and as not joined when it is.
+    fn classify_in_group(&mut self, candidate: &Candidate<'_>) -> Classified {
         let group = self.group(candidate.group);
         if candidate.position.is_empty() {
             group.root_pairs += 1;
         } else {
             group.inner_pairs += 1;
         }
-        let classified = self.classify_overlaps(candidate);
+        let classified = self.classify(candidate);
         if matches!(classified, Classified::NotJoined(_)) {
             self.group(candidate.group).not_joined += 1;
         }
         classified
     }
 
-    /// Classify every overlap of `candidate`, counting each in the totals and in its group.
-    fn classify_overlaps(&mut self, candidate: &Candidate<'_>) -> Classified {
+    /// Classify every overlap of `candidate`, counting the pair in the totals and each overlap in
+    /// the totals and in its group; [`Self::classify_in_group`] counts the pair in its group.
+    fn classify(&mut self, candidate: &Candidate<'_>) -> Classified {
         self.counts.pairs += 1;
         measure::bump(Counter::ConfluencePairs);
         let first = candidate.first;
@@ -2343,7 +2344,7 @@ fn check_detached(
                     lifting: false,
                     group,
                 };
-                if let Classified::NotJoined(pair) = context.classify(&candidate) {
+                if let Classified::NotJoined(pair) = context.classify_in_group(&candidate) {
                     stage_one[family] = false;
                     unjoined.push(*pair);
                 }
@@ -2390,7 +2391,7 @@ fn check_detached(
                     lifting: true,
                     group,
                 };
-                if let Classified::NotJoined(pair) = context.classify(&candidate) {
+                if let Classified::NotJoined(pair) = context.classify_in_group(&candidate) {
                     unjoined.push(*pair);
                 }
             }
@@ -2432,7 +2433,7 @@ fn check_detached(
                     lifting: true,
                     group: &equation.group,
                 };
-                if let Classified::NotJoined(mut pair) = context.classify(&candidate) {
+                if let Classified::NotJoined(mut pair) = context.classify_in_group(&candidate) {
                     pair.rewrites_argument = rewrites_argument;
                     unjoined.push(*pair);
                 }
