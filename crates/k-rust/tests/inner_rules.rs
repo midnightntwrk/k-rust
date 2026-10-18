@@ -7137,15 +7137,37 @@ fn mixfix_bool_operators_over_prefix_operands_parse() {
     assert_same_rules("  imports BOOL", &pairs);
 }
 
-/// A `Bool` production declared by the module still gives a clause that applies it one
-/// reading: the parse-time bottom sort adds no derivation of a mixfix application.
+/// A clause applying a declared `Bool` production keeps its one reading. Here the label of the
+/// production `foo(Int)` is `baz`, and the label `foo` names another production, `bar(Int)`: the
+/// written `foo(I)` is the mixfix application of `foo(Int)`, which applies `baz`, not a prefix
+/// application of the label `foo`, which the parse-time bottom now also admits at `Bool`.
 #[test]
 fn a_declared_bool_production_in_a_clause_has_one_reading() {
-    let imports = "  syntax Bool ::= foo(Int) [symbol(foo)]";
+    let imports = "  imports BOOL
+  syntax Bool ::= bar(Int) [function, symbol(foo)]
+                | foo(Int) [function, symbol(baz)]";
     let rule = symbottom_rule(imports, "window(I) => halt requires foo(I)")
         .unwrap_or_else(|error| panic!("the clause parses: {error}"));
     let Sentence::Rule { requires, .. } = rule else {
         panic!("a rule");
     };
-    assert_eq!(requires.to_string(), "foo(#SemanticCastToInt(I))");
+    let Term::Apply { label, .. } = requires.unannotated() else {
+        panic!("an application: {requires}");
+    };
+    assert_eq!(label.name, "baz", "{requires}");
+}
+
+/// A prefix term of another sort than `Bool` in a clause is a sort error, as at every other
+/// position.
+#[test]
+fn a_prefix_clause_of_another_sort_is_a_sort_error() {
+    let imports = "  syntax Int ::= gi(Int) [function, symbol(gi)]";
+    let error = symbottom_rule(imports, "window(I) => halt requires `gi`(I)")
+        .expect_err("an Int is no clause");
+    assert!(
+        error
+            .to_string()
+            .contains("unexpected sort Int; expected a subsort of Bool"),
+        "{error}"
+    );
 }

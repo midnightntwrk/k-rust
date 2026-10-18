@@ -1036,6 +1036,23 @@ endmodule
         [nonterminal(child)]
     }
 
+    /// The configuration grammar has no parse-time bottom, so `Bool` takes its variables
+    /// directly from the kernel syntax there.
+    #[test]
+    fn the_configuration_grammar_places_variables_at_bool_directly() {
+        let loaded = load_with_prelude("module MAIN\n  imports BOOL\nendmodule\n")
+            .unwrap_or_else(|error| panic!("MAIN loads: {error}"));
+        let resolved = loaded.resolved();
+        let module = resolved.module_id("MAIN").expect("MAIN is resolved");
+        let grammar = configuration_grammar(resolved, module).expect("the grammar builds");
+        for child in ["KConfigVar", "#KVariable"] {
+            assert!(
+                grammar.has_equivalent_production(&Sort::new("Bool"), &unary(child), false),
+                "Bool ::= {child}"
+            );
+        }
+    }
+
     /// 86a21b90 in the configuration grammar: the parameters `Sort`, `Sort1` and `Sort2` of the
     /// ML productions are bound by each production alone, so they are not sorts of the module and
     /// no production of the grammar has one as its result or as a nonterminal item. A sort the
