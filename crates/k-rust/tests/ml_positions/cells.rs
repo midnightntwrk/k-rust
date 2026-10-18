@@ -523,7 +523,10 @@ impl CondPos {
             }
             // A build that cannot decide the competitor's condition can apply neither the
             // competitor nor the owise equation: f(n) stays unevaluated, as for a function
-            // requires.
+            // requires. The Trivial go(n) leaf is the definedness branch the backend keeps for
+            // that unevaluated f(n); its constraint is infeasible, since the owise equation makes
+            // f defined everywhere, and the leaf is admitted only under the cell's allowance and
+            // only constrained, so it stands for no wrong value.
             CondPos::OwiseRequires => Run::new(go(n), vec![stuck(done(if holds { 1 } else { 0 }))])
                 .undecided(vec![stuck(done(if holds { 0 } else { 1 })), trivial(go(n))])
                 .unevaluated(unevaluated()),

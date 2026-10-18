@@ -675,16 +675,40 @@ fn emit_owise_equation(
             Term::Rewrite { left, .. } => left.as_ref(),
             _ => body,
         };
+        // The refresh keeps the competitor's free variables apart from the owise rule's own
+        // variables; a variable a quantifier of the competitor binds is local to it and keeps
+        // its authored name, so each binder stays the author's. No minted name may equal a bound
+        // one, which it would capture.
+        let mut bound = BTreeSet::new();
+        bound_variable_names(competitor_left, &BinderScope::default(), &mut bound);
+        bound_variable_names(competitor_requires, &BinderScope::default(), &mut bound);
+        // Invariant: `fresh` has reserved every bound name before `name`.
+        for name in &bound {
+            fresh.reserve(name.clone());
+        }
         let mut renames = BTreeMap::new();
-        let refreshed_left = refresh_variables(competitor_left, &mut fresh, &mut renames);
-        let refreshed_requires = refresh_variables(competitor_requires, &mut fresh, &mut renames);
-        // Every refreshed name is spelled like a generated anonymous variable, so the competitor
-        // is converted with anonymity taken from the variable each name replaces: a quantifier
-        // over a named variable binds that variable only.
+        let refreshed_left = refresh_variables(
+            competitor_left,
+            &BinderScope::default(),
+            &mut fresh,
+            &mut renames,
+        );
+        let refreshed_requires = refresh_variables(
+            competitor_requires,
+            &BinderScope::default(),
+            &mut fresh,
+            &mut renames,
+        );
+        // A free variable's refreshed name is spelled like a generated anonymous variable, so
+        // the competitor is converted with anonymity taken from origin: the refreshed names of
+        // anonymous variables and the anonymous variables a quantifier binds, which kept their
+        // names. Otherwise an anonymous binder would bind a refreshed named variable of its body.
         let anonymous = renames
             .iter()
             .filter(|((original, _), _)| is_generated_anonymous(original))
-            .map(|(_, refreshed)| GeneratedVariableIdentity::element(refreshed.clone()))
+            .map(|(_, refreshed)| refreshed)
+            .chain(bound.iter().filter(|name| is_generated_anonymous(name)))
+            .map(|name| GeneratedVariableIdentity::element(name.clone()))
             .collect();
         let competitor_converter = converter.with_generated_anonymous(anonymous);
         let converter = &competitor_converter;
@@ -968,13 +992,90 @@ fn variable_terms<'a>(roots: impl IntoIterator<Item = &'a Term>) -> BTreeMap<Str
     variables
 }
 
-// Invariant: each call rebuilds one node of `term` and recurses only into its direct subterms, so the finite `term` bounds the calls; `renames` maps every (name, sort) identity met so far to the one `_Gen` name `fresh` minted for it.
+/// The variables a quantifier of a competitor binds where `term` stands: the names of the named
+/// binders in scope, and, below an anonymous binder, every anonymous variable (the converter
+/// binds every anonymous variable of an anonymous binder's body).
+#[derive(Clone, Default)]
+struct BinderScope {
+    named: Vec<String>,
+    anonymous: bool,
+}
+
+impl BinderScope {
+    fn binds(&self, name: &str) -> bool {
+        self.named.iter().any(|bound| bound == name)
+            || self.anonymous && is_generated_anonymous(name)
+    }
+
+    /// The scope of the body of `label(arguments)` when it is a quantifier: `None` for any other
+    /// term.
+    fn of_body(&self, label: &Label, arguments: &[Term]) -> Option<Self> {
+        if !(label.is(InternalLabel::Exists) || label.is(InternalLabel::Forall)) {
+            return None;
+        }
+        let [binder, _] = arguments else {
+            return None;
+        };
+        let Term::Variable { name, .. } = binder.unannotated() else {
+            return None;
+        };
+        let mut body = self.clone();
+        if is_generated_anonymous(name) {
+            body.anonymous = true;
+        } else {
+            body.named.push(name.clone());
+        }
+        Some(body)
+    }
+}
+
+// Invariant: each call visits one node of `term` and recurses only into its direct subterms, so
+// the finite `term` bounds the calls; `bound` holds every name a quantifier of the competitor
+// binds at some node visited so far.
+fn bound_variable_names(term: &Term, scope: &BinderScope, bound: &mut BTreeSet<String>) {
+    match term.unannotated() {
+        Term::Variable { name, .. } => {
+            if scope.binds(name) {
+                bound.insert(name.clone());
+            }
+        }
+        Term::Apply { label, arguments } => {
+            if let Some(body) = scope.of_body(label, arguments) {
+                if let Term::Variable { name, .. } = arguments[0].unannotated() {
+                    bound.insert(name.clone());
+                }
+                bound_variable_names(&arguments[1], &body, bound);
+            } else {
+                for argument in arguments {
+                    bound_variable_names(argument, scope, bound);
+                }
+            }
+        }
+        other @ (Term::Rewrite { .. }
+        | Term::As { .. }
+        | Term::Sequence(_)
+        | Term::InjectedLabel(_)
+        | Term::Token { .. }
+        | Term::Annotated { .. }) => {
+            for child in other.children() {
+                bound_variable_names(child, scope, bound);
+            }
+        }
+    }
+}
+
+// Invariant: each call rebuilds one node of `term` and recurses only into its direct subterms, so the finite `term` bounds the calls; `renames` maps every (name, sort) identity of a free variable met so far to the one `_Gen` name `fresh` minted for it.
+/// `term` with every free variable renamed to a `_Gen` name `fresh` mints, the same identity to
+/// the same name; a variable a quantifier binds (in `scope`, or by a quantifier of `term`) keeps
+/// its name, and so does each quantifier's binder.
 fn refresh_variables(
     term: &Term,
+    scope: &BinderScope,
     fresh: &mut FreshNames,
     renames: &mut BTreeMap<(String, Option<Sort>), String>,
 ) -> Term {
     let refreshed = match term.unannotated() {
+        Term::Variable { name, .. } if scope.binds(name) => term.unannotated().clone(),
         Term::Variable { name, sort } => {
             let identity = (name.clone(), sort.clone());
             let name = renames
@@ -986,25 +1087,34 @@ fn refresh_variables(
             }
         }
         Term::Rewrite { left, right } => Term::Rewrite {
-            left: Box::new(refresh_variables(left, fresh, renames)),
-            right: Box::new(refresh_variables(right, fresh, renames)),
+            left: Box::new(refresh_variables(left, scope, fresh, renames)),
+            right: Box::new(refresh_variables(right, scope, fresh, renames)),
         },
         Term::As { pattern, alias } => Term::As {
-            pattern: Box::new(refresh_variables(pattern, fresh, renames)),
-            alias: Box::new(refresh_variables(alias, fresh, renames)),
+            pattern: Box::new(refresh_variables(pattern, scope, fresh, renames)),
+            alias: Box::new(refresh_variables(alias, scope, fresh, renames)),
         },
         Term::Sequence(items) => Term::Sequence(
             items
                 .iter()
-                .map(|item| refresh_variables(item, fresh, renames))
+                .map(|item| refresh_variables(item, scope, fresh, renames))
                 .collect(),
         ),
-        Term::Apply { label, arguments } => Term::Apply {
-            label: label.clone(),
-            arguments: arguments
-                .iter()
-                .map(|argument| refresh_variables(argument, fresh, renames))
-                .collect(),
+        Term::Apply { label, arguments } => match scope.of_body(label, arguments) {
+            Some(body) => Term::Apply {
+                label: label.clone(),
+                arguments: vec![
+                    arguments[0].clone(),
+                    refresh_variables(&arguments[1], &body, fresh, renames),
+                ],
+            },
+            None => Term::Apply {
+                label: label.clone(),
+                arguments: arguments
+                    .iter()
+                    .map(|argument| refresh_variables(argument, scope, fresh, renames))
+                    .collect(),
+            },
         },
         Term::InjectedLabel(label) => Term::InjectedLabel(label.clone()),
         Term::Token { token, sort } => Term::Token {
@@ -2002,12 +2112,13 @@ mod tests {
                     "{quantifier:?}: {name} is bound vacuously in {kore}"
                 );
             }
-            // One binder for the quantifier of the argument and one for the free `Z`.
+            // One binder for the free `Z`, over a generated name, and the argument's quantifier,
+            // which keeps its authored `Y`.
             let generated = binders
                 .iter()
                 .filter(|(name, _)| name.starts_with("Var'Unds'Gen"))
                 .count();
-            assert_eq!(generated, 2, "{quantifier:?}: {kore}");
+            assert_eq!((binders.len(), generated), (2, 1), "{quantifier:?}: {kore}");
         }
     }
 
@@ -2108,6 +2219,27 @@ mod tests {
         }
     }
 
+    /// The number of `\exists` wrapping the first competitor of the owise antecedent
+    /// `\not(\or(competitor, ..))`.
+    fn outer_binders(pattern: &Pattern) -> usize {
+        fn first_or(pattern: &Pattern) -> Option<&Pattern> {
+            if let Pattern::Or { arguments, .. } = pattern {
+                return arguments.first();
+            }
+            crate::kore::walk::children(pattern)
+                .into_iter()
+                .find_map(first_or)
+        }
+        let mut competitor = first_or(pattern).expect("an owise antecedent has a disjunction");
+        let mut count = 0;
+        // Invariant: `count` binders wrap `competitor`.
+        while let Pattern::Exists { body, .. } = competitor {
+            count += 1;
+            competitor = body;
+        }
+        count
+    }
+
     /// Every binder of `pattern`, outermost first along each path, with the binders enclosing it.
     fn binders_with_scope(
         pattern: &Pattern,
@@ -2135,14 +2267,35 @@ mod tests {
         }
     }
 
-    /// The owise axiom of each competitor shape: every binder binds a variable free in its body
-    /// (K3), no binder rebinds a name an enclosing binder binds (a competitor variable is never
-    /// captured, and no shape here shadows a name), no competitor variable is left free, and the
-    /// axiom has `binders` binders over generated names: one per free competitor variable and
-    /// one per variable its own quantifiers bind.
+    /// The owise axiom of each competitor shape: a binder over a generated name binds a variable
+    /// free in its body (K3), no binder rebinds a name an enclosing binder binds, no competitor
+    /// variable is left free, and the axiom has `(binders, generated, outer)` binders: `binders`
+    /// in all, `generated` of them over generated names (a variable a quantifier of the
+    /// competitor binds keeps its authored name, so an authored binder whose variable does not
+    /// occur in its body stays the author's), and `outer` of them wrapping the competitor's match
+    /// and condition, one per free competitor variable (a free variable bound inside instead is
+    /// captured).
     #[test]
     fn owise_binds_each_competitor_variable_once_and_captures_none() {
         let y = || int_variable("Y");
+        let truth = || Term::Token {
+            token: "true".into(),
+            sort: Sort::new("Bool"),
+        };
+        let zero = || Term::Token {
+            token: "0".into(),
+            sort: Sort::new("Int"),
+        };
+        let g = |left: Term, right: Term| Term::apply("g", vec![left, right]);
+        // `{X #Equals h(0)}`, a condition in which the quantified Y does not occur.
+        let x_equals_h_zero = || Term::Apply {
+            label: Label::with_parameters(
+                InternalLabel::Equals.as_str(),
+                vec![Sort::new("Int"), Sort::new("Bool")],
+            ),
+            arguments: vec![int_variable("X"), Term::apply("h", vec![zero()])],
+        };
+        let g_x_anonymous = || g(int_variable("X"), int_variable("_Gen0"));
         let shapes = [
             (
                 "#Exists Y . g(Y, Z)",
@@ -2150,13 +2303,10 @@ mod tests {
                     InternalLabel::Exists,
                     "Pair",
                     y(),
-                    Term::apply("g", vec![y(), int_variable("Z")]),
+                    g(y(), int_variable("Z")),
                 ),
-                Term::Token {
-                    token: "true".into(),
-                    sort: Sort::new("Bool"),
-                },
-                2,
+                truth(),
+                (2, 1, 1),
             ),
             (
                 "#Exists _ . g(_, 0)",
@@ -2164,34 +2314,22 @@ mod tests {
                     InternalLabel::Exists,
                     "Pair",
                     int_variable("_Gen0"),
-                    Term::apply(
-                        "g",
-                        vec![
-                            int_variable("_Gen1"),
-                            Term::Token {
-                                token: "0".into(),
-                                sort: Sort::new("Int"),
-                            },
-                        ],
-                    ),
+                    g(int_variable("_Gen1"), zero()),
                 ),
-                Term::Token {
-                    token: "true".into(),
-                    sort: Sort::new("Bool"),
-                },
-                1,
+                truth(),
+                (1, 1, 0),
             ),
             (
                 "g(X, _) requires #Forall Y . {X #Equals h(Y)}",
-                Term::apply("g", vec![int_variable("X"), int_variable("_Gen0")]),
+                g_x_anonymous(),
                 quantified(InternalLabel::Forall, "Bool", y(), x_equals_h("Y")),
-                3,
+                (3, 2, 2),
             ),
             (
                 "g(X, _) requires #Exists Y . {X #Equals h(Y)}",
-                Term::apply("g", vec![int_variable("X"), int_variable("_Gen0")]),
+                g_x_anonymous(),
                 quantified(InternalLabel::Exists, "Bool", y(), x_equals_h("Y")),
-                3,
+                (3, 2, 2),
             ),
             (
                 "#Exists Y . #Exists W . g(Y, W)",
@@ -2203,14 +2341,56 @@ mod tests {
                         InternalLabel::Exists,
                         "Pair",
                         int_variable("W"),
-                        Term::apply("g", vec![y(), int_variable("W")]),
+                        g(y(), int_variable("W")),
                     ),
                 ),
-                Term::Token {
-                    token: "true".into(),
-                    sort: Sort::new("Bool"),
-                },
-                2,
+                truth(),
+                (2, 0, 0),
+            ),
+            // An authored binder whose variable does not occur in its body, in the arguments and
+            // in the condition: the binder stays the author's.
+            (
+                "#Exists Y . g(0, 0)",
+                quantified(InternalLabel::Exists, "Pair", y(), g(zero(), zero())),
+                truth(),
+                (1, 0, 0),
+            ),
+            (
+                "g(X, _) requires #Exists Y . {X #Equals h(0)}",
+                g_x_anonymous(),
+                quantified(InternalLabel::Exists, "Bool", y(), x_equals_h_zero()),
+                (3, 2, 2),
+            ),
+            (
+                "g(X, _) requires #Forall Y . {X #Equals h(0)}",
+                g_x_anonymous(),
+                quantified(InternalLabel::Forall, "Bool", y(), x_equals_h_zero()),
+                (3, 2, 2),
+            ),
+            // Shadowing both ways: a bound name equal to the owise rule's own variable `X`, and
+            // a free competitor variable beside an anonymous binder, whose generated names
+            // `_Gen0` and `_Gen1` no refreshed name may take.
+            (
+                "#Exists X . g(X, Z), X the owise rule's variable",
+                quantified(
+                    InternalLabel::Exists,
+                    "Pair",
+                    int_variable("X"),
+                    g(int_variable("X"), int_variable("Z")),
+                ),
+                truth(),
+                (2, 1, 1),
+            ),
+            (
+                "#Exists _ . g(_, Z)",
+                quantified(
+                    InternalLabel::Exists,
+                    "Pair",
+                    int_variable("_Gen0"),
+                    g(int_variable("_Gen1"), int_variable("Z")),
+                ),
+                truth(),
+                (2, 2, 1),
             ),
         ];
         // Every shape is checked, and every problem of every shape reported.
@@ -2229,8 +2409,9 @@ mod tests {
             };
             let mut binders = Vec::new();
             binders_with_scope(pattern, &mut Vec::new(), &mut binders);
+            let is_generated = |name: &str| name.starts_with("Var'Unds'Gen");
             for (name, binds_free, rebinds) in &binders {
-                if !binds_free {
+                if is_generated(name) && !binds_free {
                     problems.push(format!("{shape}: {name} is bound vacuously in {kore}"));
                 }
                 if *rebinds {
@@ -2241,17 +2422,18 @@ mod tests {
             }
             let generated = binders
                 .iter()
-                .filter(|(name, _, _)| name.starts_with("Var'Unds'Gen"))
+                .filter(|(name, _, _)| is_generated(name))
                 .count();
-            if generated != expected {
+            let found = (binders.len(), generated, outer_binders(pattern));
+            if found != expected {
                 problems.push(format!(
-                    "{shape}: {generated} binders over generated names, expected {expected}, in {kore}"
+                    "{shape}: (binders, generated, outer) {found:?}, expected {expected:?}, in {kore}"
                 ));
             }
             if pattern
                 .free_variables()
                 .iter()
-                .any(|variable| variable.name.starts_with("Var'Unds'Gen"))
+                .any(|variable| is_generated(&variable.name))
             {
                 problems.push(format!("{shape}: a competitor variable is free in {kore}"));
             }
@@ -2469,7 +2651,12 @@ mod tests {
                 },
             ],
         );
-        let refreshed = refresh_variables(&term, &mut FreshNames::default(), &mut BTreeMap::new());
+        let refreshed = refresh_variables(
+            &term,
+            &BinderScope::default(),
+            &mut FreshNames::default(),
+            &mut BTreeMap::new(),
+        );
         let variables = variable_terms([&refreshed]);
 
         assert_eq!(
