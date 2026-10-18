@@ -51,7 +51,8 @@
 //!    at an equation head or an overloaded symbol is classified under every scope: not joined,
 //!    it states that `e1` is not shown consistent with `e2`, a finding the load reports whatever
 //!    claims it withdraws ([`UnjoinedPair::in_argument`]);
-//! 5. each overlap is separated by priority (a root pair of different priority groups), refuted
+//! 5. each overlap is separated (it has no instance whose variables are normal forms: a variable
+//!    ranges over a sort with no normal form), refuted
 //!    (the conjunction of both `requires` simplifies to `\bottom` with every claim withheld),
 //!    joined (both sides reach one term by steps valid on every instance, `join.rs`), or not
 //!    joined;
@@ -136,6 +137,8 @@ struct Checked {
     unjoined: Vec<UnjoinedPair>,
     violations: Vec<Violation>,
     counts: CheckCounts,
+    /// The counts of each index and priority group ([`ValueClaims::group_counts`]).
+    group_counts: BTreeMap<GroupKey, GroupCounts>,
     /// The instance-normal tokens of the equation-head applications of executable left-hand
     /// sides that denote one ground term, recorded after the check
     /// (`BackendDefinition::record_pattern_tokens`).
@@ -216,6 +219,48 @@ pub enum CheckScope {
     Gate,
     /// Every candidate pair: also the non-joined pairs of equations whose closure reaches no
     /// symbol the gate is asked about (a finding about the definition, independent of claims).
+    ///
+    /// The contract a client relies on:
+    ///
+    /// - every candidate pair of every definition is classified (`counts().skipped == 0`),
+    ///   whatever the definition declares. Executable function and anywhere equations are
+    ///   paired; `[symbolic]` function equations, simplification equations and rewrite rules are
+    ///   paired by no check;
+    /// - root pairs are formed within one index and priority group: two groups of one index are
+    ///   never paired at the root, since every equation is read with the priority antecedent (it
+    ///   holds only where no equation of a higher group applies; the evaluator and the join read
+    ///   it so too, `docs/compatibility.md`, the priority reading of `M_NF`). Inner pairs pair an
+    ///   equation with the equations of every priority group offered at a subterm's index, at
+    ///   the other members of its overload family and at the bare-variable index;
+    /// - a client must read [`ValueClaims::violations`] too: an equation a precondition row
+    ///   reports (rooted at a free constructor or an injection, indexed at a collection or a bare
+    ///   variable, or a misshapen overload equation) is outside the check's reasoning, and its
+    ///   overlaps with equations at other indexes are not formed. [`ValueClaims::unjoined`] also
+    ///   lists per-equation reports ([`UnjoinedReason::describes_one_equation`]), which are not
+    ///   pairs;
+    /// - `separated`, `refuted` and `joined` are sound: a separated overlap has no instance
+    ///   whose variables are normal forms (a variable ranges over a sort with no normal form); a
+    ///   refuted one has both `requires` holding on no instance in any model; a joined one has
+    ///   both reducts reaching one term by innermost steps valid on every instance. A model of
+    ///   the definition's equations, read with the priority antecedent, follows from the pairs
+    ///   only if evaluation terminates;
+    /// - a non-joined pair is not shown to join, and may be spurious, for example: its
+    ///   conditions are undecided by the solver-free condition reader
+    ///   ([`UnjoinedReason::ConditionOpen`]), a simplification stopped on its budget of polls,
+    ///   the join ran out of its steps ([`UnjoinedReason::JoinBudget`]), the join refused a step whose definedness it could not
+    ///   show ([`UnjoinedReason::JoinRefused`]), the unifier met a shape it does not solve
+    ///   ([`UnjoinedReason::Unresolved`]), the two `ensures` differ syntactically
+    ///   ([`UnjoinedReason::EnsuresDiffer`]), a right-hand side is not read
+    ///   ([`UnjoinedReason::UnsupportedRightHandSide`]), or the reducts are equal in every model
+    ///   without the join showing it;
+    /// - the verdicts rest on the definition's declarations and axioms, read as true: the
+    ///   `total` and `functional` declarations and the simplification and ceil lemmas (they
+    ///   decide which terms are `ceil_free` and what `condition_definedness` states), the
+    ///   constructor and `injective` declarations (the unifier separates distinct constructor
+    ///   roots), the hooks' semantics (a refutation of `X >Int 0` beside `X <=Int 0` reads the
+    ///   `INT` hooks), the sorts' inhabitation by normal forms (separation), and the subsort and
+    ///   overload axioms. Only the backend's value claims are withheld while the check runs
+    ///   (`ValueClaims::withheld`).
     All,
 }
 
@@ -354,6 +399,40 @@ impl ValueClaims {
         match &*self.0 {
             Verdict::Withheld => CheckCounts::default(),
             Verdict::Checked(checked) => checked.counts,
+        }
+    }
+
+    /// The work the check did in each index and priority group of executable equations
+    /// ([`GroupKey`]), within which root pairs are formed; a group that holds only `[symbolic]`
+    /// function equations is listed too. Empty for a withheld verdict: nothing was classified.
+    ///
+    /// Summed over the groups, `equations` is [`CheckCounts::equations`], `root_pairs +
+    /// inner_pairs` is [`CheckCounts::pairs`], `self_pairs` is [`CheckCounts::several_matches`],
+    /// `skipped`, `overlaps`, `separated`, `refuted` and `joined` are their totals (overlaps and
+    /// joins of self pairs included), and `not_joined` is the number of pairs in
+    /// [`Self::unjoined`] that are not per-equation reports
+    /// ([`UnjoinedReason::describes_one_equation`]); debug builds assert it on every check.
+    /// Under [`CheckScope::All`] each group of `n` executable equations has `n(n-1)/2`
+    /// `root_pairs` and no `skipped` pair by construction: that scope forms and classifies every
+    /// root pair of every group. The identity is therefore no evidence that an overlap was
+    /// classified; checking it guards only against reading a [`CheckScope::Gate`] verdict. The
+    /// overlaps no group counts are those the [`CheckScope::All`] contract leaves unformed or
+    /// unpaired: an equation a precondition row of [`Self::violations`] reports (a bare-variable
+    /// equation is offered beside every index, and its root overlaps with other indexes are not
+    /// formed); `[symbolic]` function equations, simplification equations and rewrite rules,
+    /// which no check pairs; and root overlaps across the priority groups of one index, which
+    /// are not overlaps under the priority reading. A pair is counted only in its first
+    /// equation's group ([`GroupCounts`]), so the non-joined pairs touching one equation are
+    /// [`Self::unjoined`] filtered by [`UnjoinedPair::first`] and [`UnjoinedPair::second`].
+    /// The load's shortcut ([`CheckScope::Gate`] on a definition where no pair can change a
+    /// claim or be named) classifies and skips no pair, so its groups count only their
+    /// equations.
+    #[must_use]
+    pub fn group_counts(&self) -> &BTreeMap<GroupKey, GroupCounts> {
+        static NONE: BTreeMap<GroupKey, GroupCounts> = BTreeMap::new();
+        match &*self.0 {
+            Verdict::Withheld => &NONE,
+            Verdict::Checked(checked) => &checked.group_counts,
         }
     }
 
@@ -540,7 +619,8 @@ pub struct CheckCounts {
     pub pairs: usize,
     /// Overlaps found (unifiers of candidate pairs).
     pub overlaps: usize,
-    /// Overlaps separated by priority.
+    /// Overlaps separated: no instance whose variables are normal forms (a variable ranges over a
+    /// sort with no normal form).
     pub separated: usize,
     /// Overlaps refuted by their conditions.
     pub refuted: usize,
@@ -614,6 +694,97 @@ impl CheckCounts {
             ..self
         }
     }
+}
+
+/// An index and priority group of the function theory: the executable equations indexed at
+/// `index` with priority `priority`. Equation selection offers them, at a term with that index,
+/// together with the equations of the [`TermIndex::Variable`] group of the same priority, which
+/// the check does not root-pair with them (a precondition row reports each Variable-indexed
+/// equation, [`ValueClaims::violations`]). It is the lookup key of
+/// [`ValueClaims::group_counts`], so a client builds one to read a group.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct GroupKey {
+    /// The index of the group's left-hand sides.
+    pub index: TermIndex,
+    /// The group's priority (a lower number is tried first).
+    pub priority: u8,
+}
+
+/// What the check counted in one index and priority group ([`ValueClaims::group_counts`]).
+/// A pair is counted in the group of its first equation: a root pair in the group of its two
+/// equations (an overload family's stage-1 pairs in their member's group), an inner pair in the
+/// group of the equation whose left-hand side holds the position (whatever group the second
+/// equation is in), a self pair in its equation's group. The precondition rows and the
+/// per-equation reports are not pairs and are not counted here. Fields may be added, so a client
+/// outside this crate reads one and cannot build or exhaustively destructure it.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[non_exhaustive]
+pub struct GroupCounts {
+    /// The group's executable equations.
+    pub equations: usize,
+    /// The group's `[symbolic]` function equations, which are not executable equations: no check
+    /// pairs them, so an edit to one is outside every verdict.
+    pub symbolic_equations: usize,
+    /// Root pairs of two of the group's equations classified.
+    pub root_pairs: usize,
+    /// Self pairs: the group's equations whose left-hand side may match one subject in several
+    /// ways ([`CheckCounts::several_matches`]).
+    pub self_pairs: usize,
+    /// Inner pairs classified whose first equation is in the group.
+    pub inner_pairs: usize,
+    /// Root and inner pairs not classified because neither equation is relevant
+    /// ([`CheckCounts::skipped`]; zero under [`CheckScope::All`]).
+    pub skipped: usize,
+    /// Overlaps found (unifiers of the group's pairs), self pairs included.
+    pub overlaps: usize,
+    /// Of those, the overlaps separated ([`CheckCounts::separated`]).
+    pub separated: usize,
+    /// Of those, the overlaps refuted by their conditions.
+    pub refuted: usize,
+    /// Of those, the overlaps joined, self pairs included.
+    pub joined: usize,
+    /// Pairs (root, inner and self) not shown to join, one per pair: the check stops a pair at
+    /// its first overlap that does not join, and counts a pair whose unification it does not
+    /// decide here too.
+    pub not_joined: usize,
+}
+
+/// Where the per-group counts, summed over the groups, differ from the totals `counts` and the
+/// non-joined pairs `unjoined` (the relations [`ValueClaims::group_counts`] states); empty when
+/// they agree.
+fn group_sums_differ(
+    counts: &CheckCounts,
+    groups: &BTreeMap<GroupKey, GroupCounts>,
+    unjoined: &[UnjoinedPair],
+) -> Vec<String> {
+    let sum = |field: fn(&GroupCounts) -> usize| groups.values().map(field).sum::<usize>();
+    let pairs = unjoined
+        .iter()
+        .filter(|pair| !pair.reason.describes_one_equation())
+        .count();
+    [
+        ("equations", sum(|group| group.equations), counts.equations),
+        (
+            "root and inner pairs",
+            sum(|group| group.root_pairs + group.inner_pairs),
+            counts.pairs,
+        ),
+        (
+            "self pairs",
+            sum(|group| group.self_pairs),
+            counts.several_matches,
+        ),
+        ("skipped", sum(|group| group.skipped), counts.skipped),
+        ("overlaps", sum(|group| group.overlaps), counts.overlaps),
+        ("separated", sum(|group| group.separated), counts.separated),
+        ("refuted", sum(|group| group.refuted), counts.refuted),
+        ("joined", sum(|group| group.joined), counts.joined),
+        ("not joined", sum(|group| group.not_joined), pairs),
+    ]
+    .into_iter()
+    .filter(|(_, summed, total)| summed != total)
+    .map(|(name, summed, total)| format!("{name}: {summed} over the groups, {total} in all"))
+    .collect()
 }
 
 /// A critical pair that does not provably join, or an executable equation that the evaluator
@@ -880,7 +1051,8 @@ impl ViolationKind {
 /// An executable equation of the check.
 struct Equation {
     rule: Arc<RewriteRule>,
-    index: TermIndex,
+    /// Its index and priority group.
+    group: GroupKey,
 }
 
 /// Whether `rule` is restricted to symbolic instances: such an equation is never a step on a
@@ -1193,9 +1365,18 @@ pub(crate) struct Context<'d> {
     memo: Option<memo::Memo>,
     fresh: u64,
     counts: CheckCounts,
+    /// The counts of each group, one entry for every group of `executable_equations`.
+    group_counts: BTreeMap<GroupKey, GroupCounts>,
 }
 
 impl<'d> Context<'d> {
+    /// The counts of `group`, a group of an executable equation.
+    fn group(&mut self, group: &GroupKey) -> &mut GroupCounts {
+        self.group_counts
+            .get_mut(group)
+            .expect("every group of an executable equation has its counts")
+    }
+
     fn unifier<'a>(
         &'a mut self,
         lifting: bool,
@@ -1437,7 +1618,7 @@ pub(crate) fn unify_for_tests(
 pub(crate) fn relevance_disagreements(
     definition: &BackendDefinition,
 ) -> (usize, usize, Vec<String>) {
-    let (_, equations) = executable_equations(definition);
+    let (_, equations, _) = executable_equations(definition);
     let sorts = symbols::Sorts::of(definition);
     let mut closure = closure::Closure::new(definition, &sorts, &equations);
     let gate = |symbol: &Name| gate_symbol(definition, symbol);
@@ -1539,6 +1720,8 @@ struct Candidate<'r> {
     second: &'r Arc<RewriteRule>,
     position: Vec<usize>,
     lifting: bool,
+    /// The group of `first`, which counts the pair.
+    group: &'r GroupKey,
 }
 
 /// What classifying one candidate pair found.
@@ -1549,6 +1732,24 @@ enum Classified {
 }
 
 impl Context<'_> {
+    /// Classify `candidate` ([`Self::classify`]), counting it in its group as a root or an inner
+    /// pair, and as not joined when it is.
+    fn classify_in_group(&mut self, candidate: &Candidate<'_>) -> Classified {
+        let group = self.group(candidate.group);
+        if candidate.position.is_empty() {
+            group.root_pairs += 1;
+        } else {
+            group.inner_pairs += 1;
+        }
+        let classified = self.classify(candidate);
+        if matches!(classified, Classified::NotJoined(_)) {
+            self.group(candidate.group).not_joined += 1;
+        }
+        classified
+    }
+
+    /// Classify every overlap of `candidate`, counting the pair in the totals and each overlap in
+    /// the totals and in its group; [`Self::classify_in_group`] counts the pair in its group.
     fn classify(&mut self, candidate: &Candidate<'_>) -> Classified {
         self.counts.pairs += 1;
         measure::bump(Counter::ConfluencePairs);
@@ -1607,12 +1808,15 @@ impl Context<'_> {
         for unifier in unifiers {
             if self.vacuous(first, &second, &unifier) {
                 self.counts.separated += 1;
+                self.group(candidate.group).separated += 1;
                 continue;
             }
             self.counts.overlaps += 1;
+            self.group(candidate.group).overlaps += 1;
             let equalities = match self.conditions(&[first.as_ref(), second.as_ref()], &unifier) {
                 Conditions::Refuted => {
                     self.counts.refuted += 1;
+                    self.group(candidate.group).refuted += 1;
                     continue;
                 }
                 Conditions::Open(equalities) => equalities,
@@ -1694,7 +1898,10 @@ impl Context<'_> {
                 (first_side.clone(), second_side.clone()),
                 &values,
             ) {
-                join::Outcome::Joined => self.counts.joined += 1,
+                join::Outcome::Joined => {
+                    self.counts.joined += 1;
+                    self.group(candidate.group).joined += 1;
+                }
                 join::Outcome::NotJoined {
                     reached,
                     refused,
@@ -1836,16 +2043,28 @@ pub(crate) fn check(
 }
 
 /// The executable equations the check reads (every equation of the function theory but the
-/// `symbolic` ones), by index and priority as equation selection offers them, and in one list.
-fn executable_equations(definition: &BackendDefinition) -> (Groups, Vec<Equation>) {
+/// `symbolic` ones), by index and priority as equation selection offers them, and in one list;
+/// and the counts of every group of the function theory, with its executable and its `symbolic`
+/// equations counted.
+fn executable_equations(
+    definition: &BackendDefinition,
+) -> (Groups, Vec<Equation>, BTreeMap<GroupKey, GroupCounts>) {
     let mut groups = Groups::new();
     let mut equations = Vec::new();
+    let mut group_counts = BTreeMap::new();
     for (index, priorities) in definition.function_theory() {
         for (priority, rules) in priorities {
+            let group = GroupKey {
+                index: index.clone(),
+                priority: *priority,
+            };
+            let counts: &mut GroupCounts = group_counts.entry(group.clone()).or_default();
             for rule in rules {
                 if symbolic(rule) && !switches::active().join_with_symbolic {
+                    counts.symbolic_equations += 1;
                     continue;
                 }
+                counts.equations += 1;
                 groups
                     .entry(index.clone())
                     .or_default()
@@ -1854,12 +2073,12 @@ fn executable_equations(definition: &BackendDefinition) -> (Groups, Vec<Equation
                     .push(Arc::clone(rule));
                 equations.push(Equation {
                     rule: Arc::clone(rule),
-                    index: index.clone(),
+                    group: group.clone(),
                 });
             }
         }
     }
-    (groups, equations)
+    (groups, equations, group_counts)
 }
 
 #[allow(
@@ -1875,13 +2094,13 @@ fn check_detached(
     let _apart = ApartScope::enter();
     let _domain = crate::term::domain::DomainScope::enter(definition);
     let mut checked = Checked::default();
-    let (groups, equations) = executable_equations(definition);
+    let (groups, equations, group_counts) = executable_equations(definition);
     checked.counts.equations = equations.len();
 
     // P5: one lookup per equation.
     let mut row_seeds = Vec::new();
     for equation in &equations {
-        let violation = match &equation.index {
+        let violation = match &equation.group.index {
             TermIndex::Symbol(name) => definition.symbols().get(name).and_then(|symbol| {
                 (symbol.attributes.head_role() == HeadRole::FreeConstructor)
                     .then(|| ViolationKind::ConstructorHeaded(name.clone()))
@@ -1937,42 +2156,15 @@ fn check_detached(
         })
         .collect::<Vec<_>>();
 
-    let withdrawable = definition
-        .symbols()
-        .values()
-        .any(|symbol| closure::taintable(symbol) && certified_root(definition, symbol));
-    if !withdrawable {
-        // No symbol the gate is asked about (`certified_root`, the union of the sites' symbol
-        // classes) can be tainted by any closure (`closure::taintable`): there is no
-        // equation head, hooked or not, and every overloaded symbol is a free constructor or
-        // hooked. So no pair changes a claim, and the collection claims read only equations
-        // indexed at a collection or a bare variable, which the rows above taint.
-        checked.counts.unjoined = unjoined.len();
-        checked.unjoined = unjoined;
-        return ValueClaims(Arc::new(Verdict::Checked(Box::new(checked))));
-    }
-
-    let mut context = Context {
-        definition,
-        families: Families::of(definition),
-        sorts: symbols::Sorts::of(definition),
-        groups,
-        renamed: FxHashMap::default(),
-        memo: (memo == ConditionMemo::On && !switches::active().no_condition_memo)
-            .then(memo::Memo::default),
-        fresh: 0,
-        counts: CheckCounts::default(),
-    };
-    context.counts.equations = checked.counts.equations;
-    context.counts.families = context.families.len();
-
-    // P5 rows of the overload families.
-    let mut family_violations = vec![false; context.families.len()];
+    let families = Families::of(definition);
+    // P5 rows of the overload families. They read no pair, so every scope computes them, the
+    // load's shortcut below included.
+    let mut family_violations = vec![false; families.len()];
     for equation in &equations {
-        let TermIndex::Symbol(name) = &equation.index else {
+        let TermIndex::Symbol(name) = &equation.group.index else {
             continue;
         };
-        let Some(family) = context.families.family(name) else {
+        let Some(family) = families.family(name) else {
             continue;
         };
         if definition.overloads().overloaded_by(name).is_empty() {
@@ -1989,7 +2181,7 @@ fn check_detached(
         }
     }
     for (family, violated) in family_violations.iter_mut().enumerate() {
-        let members = context.families.members(family).to_vec();
+        let members = families.members(family).to_vec();
         for (index, left) in members.iter().enumerate() {
             for right in &members[index + 1..] {
                 let common = definition.overloads().common_overloads(left, right);
@@ -2019,6 +2211,52 @@ fn check_detached(
         }
     }
 
+    let withdrawable = definition
+        .symbols()
+        .values()
+        .any(|symbol| closure::taintable(symbol) && certified_root(definition, symbol));
+    let rooted_at_gate_symbol = equations.iter().any(|equation| {
+        matches!(&equation.group.index, TermIndex::Symbol(name) if gate_symbol(definition, name))
+    });
+    if scope == CheckScope::Gate && !withdrawable && !rooted_at_gate_symbol {
+        // The load's shortcut, valid only where no pair it would classify can change a claim or
+        // be named. No symbol the gate is asked about (`certified_root`, the union of the sites'
+        // symbol classes) can be tainted by any closure (`closure::taintable`): there is no
+        // equation head, hooked or not, and every overloaded symbol is a free constructor or
+        // hooked. So no pair changes a claim, and the collection claims read only equations
+        // indexed at a collection or a bare variable, which the rows above taint. No executable
+        // equation is rooted at a gate symbol either, so no inner pair rewrites an argument
+        // (`UnjoinedPair::in_argument`), the one kind of pair the load names whatever it
+        // withdraws; `rooted_at_gate_symbol` over-approximates "some inner pair can rewrite an
+        // argument at a gate symbol". The precondition rows are computed above, whatever the
+        // scope. Classifying a pair reads neither the gate nor relevance, so `CheckScope::All`
+        // classifies every pair of such a definition all the same.
+        checked.counts.unjoined = unjoined.len();
+        checked.group_counts = group_counts;
+        debug_assert_eq!(
+            group_sums_differ(&checked.counts, &checked.group_counts, &unjoined),
+            Vec::<String>::new(),
+            "the per-group counts sum to the totals"
+        );
+        checked.unjoined = unjoined;
+        return ValueClaims(Arc::new(Verdict::Checked(Box::new(checked))));
+    }
+
+    let mut context = Context {
+        definition,
+        families,
+        sorts: symbols::Sorts::of(definition),
+        groups,
+        renamed: FxHashMap::default(),
+        memo: (memo == ConditionMemo::On && !switches::active().no_condition_memo)
+            .then(memo::Memo::default),
+        fresh: 0,
+        counts: CheckCounts::default(),
+        group_counts,
+    };
+    context.counts.equations = checked.counts.equations;
+    context.counts.families = context.families.len();
+
     // Self pairs: an equation whose left-hand side matches one subject in several ways is a
     // root peak with itself (R2.2). It joins when its right-hand side and `ensures` read only
     // variables every matching gives the same value; otherwise it is not shown to join.
@@ -2032,6 +2270,9 @@ fn check_detached(
         }
         context.counts.several_matches += 1;
         context.counts.overlaps += 1;
+        let group = context.group(&equation.group);
+        group.self_pairs += 1;
+        group.overlaps += 1;
         let read = match &equation.rule.rhs {
             RuleRhs::Term(term) => Some(term.attributes().variables.to_btree_set()),
             RuleRhs::Bottom => Some(BTreeSet::new()),
@@ -2053,8 +2294,10 @@ fn check_detached(
         });
         if read.is_some_and(|read| read.is_disjoint(&undetermined)) {
             context.counts.joined += 1;
+            context.group(&equation.group).joined += 1;
             continue;
         }
+        context.group(&equation.group).not_joined += 1;
         unjoined.push(UnjoinedPair {
             first: Arc::clone(&equation.rule),
             second: Arc::clone(&equation.rule),
@@ -2079,12 +2322,16 @@ fn check_detached(
                 TermIndex::Symbol(name) => context.families.family(name),
                 _ => None,
             };
-            priorities
-                .values()
-                .map(move |rules| (family, rules.clone()))
+            priorities.iter().map(move |(priority, rules)| {
+                let group = GroupKey {
+                    index: index.clone(),
+                    priority: *priority,
+                };
+                (family, group, rules.clone())
+            })
         })
         .collect::<Vec<_>>();
-    for (family, rules) in &root_groups {
+    for (family, group, rules) in &root_groups {
         let Some(family) = *family else {
             continue;
         };
@@ -2095,8 +2342,9 @@ fn check_detached(
                     second,
                     position: Vec::new(),
                     lifting: false,
+                    group,
                 };
-                if let Classified::NotJoined(pair) = context.classify(&candidate) {
+                if let Classified::NotJoined(pair) = context.classify_in_group(&candidate) {
                     stage_one[family] = false;
                     unjoined.push(*pair);
                 }
@@ -2125,7 +2373,7 @@ fn check_detached(
                 relevant(first) || relevant(second)
             }
     };
-    for (family, rules) in &root_groups {
+    for (family, group, rules) in &root_groups {
         if family.is_some() {
             continue;
         }
@@ -2133,6 +2381,7 @@ fn check_detached(
             for second in &rules[position + 1..] {
                 if !classified(first, second) {
                     context.counts.skipped += 1;
+                    context.group(group).skipped += 1;
                     continue;
                 }
                 let candidate = Candidate {
@@ -2140,8 +2389,9 @@ fn check_detached(
                     second,
                     position: Vec::new(),
                     lifting: true,
+                    group,
                 };
-                if let Classified::NotJoined(pair) = context.classify(&candidate) {
+                if let Classified::NotJoined(pair) = context.classify_in_group(&candidate) {
                     unjoined.push(*pair);
                 }
             }
@@ -2163,8 +2413,9 @@ fn check_detached(
                 // A pair at an argument whose second equation is rooted at a symbol a gate site
                 // is asked about (an equation head or an overloaded symbol) is reported whatever
                 // its relevance (`UnjoinedPair::in_argument`), so it is classified under every
-                // scope. Such an equation's closure reaches its own root, so the pair is relevant
-                // too; the disjunct states the class instead of relying on that.
+                // scope. When that root is taintable, its closure reaches it and the pair is
+                // relevant too; a hooked or free-constructor root is not taintable, which is why
+                // the disjunct is needed.
                 let rewrites_argument = argument_position(&equation.rule.lhs, &position)
                     && matches!(
                         term_index(&second.lhs),
@@ -2172,6 +2423,7 @@ fn check_detached(
                     );
                 if !classified(&equation.rule, &second) && !rewrites_argument {
                     context.counts.skipped += 1;
+                    context.group(&equation.group).skipped += 1;
                     continue;
                 }
                 let candidate = Candidate {
@@ -2179,8 +2431,9 @@ fn check_detached(
                     second: &second,
                     position: position.clone(),
                     lifting: true,
+                    group: &equation.group,
                 };
-                if let Classified::NotJoined(mut pair) = context.classify(&candidate) {
+                if let Classified::NotJoined(mut pair) = context.classify_in_group(&candidate) {
                     pair.rewrites_argument = rewrites_argument;
                     unjoined.push(*pair);
                 }
@@ -2190,6 +2443,12 @@ fn check_detached(
 
     checked.counts = context.counts;
     checked.counts.unjoined = unjoined.len();
+    checked.group_counts = std::mem::take(&mut context.group_counts);
+    debug_assert_eq!(
+        group_sums_differ(&checked.counts, &checked.group_counts, &unjoined),
+        Vec::<String>::new(),
+        "the per-group counts sum to the totals"
+    );
     debug_assert_eq!(
         checked.counts.simplifier_calls,
         checked.counts.condition_memo_hits

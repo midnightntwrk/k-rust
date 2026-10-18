@@ -16,6 +16,7 @@ use k_rust::{
 use k_rust_backend::{
     confluence::{CheckScope, UnjoinedPair, UnjoinedReason, ValueClaims},
     definition::BackendDefinition,
+    rule::TermIndex,
 };
 
 fn compile(source: &str, main: &str) -> String {
@@ -40,11 +41,16 @@ fn compile(source: &str, main: &str) -> String {
         .definition_kore
 }
 
-/// The loaded definition of module `PAIRS` with `declarations` added.
-///
-/// Every definition here declares the anywhere head `nw`, so that it has a symbol whose claims a
-/// pair can withdraw: the check classifies no pair of a definition without one, in either scope.
-fn definition(declarations: &str) -> std::sync::Arc<BackendDefinition> {
+/// The anywhere head `nw` over `wr`, which gives a definition a symbol whose claims a pair can
+/// withdraw, so that the load classifies the pairs that reach it.
+const ANYWHERE_HEAD: &str = "  syntax Wrap ::= wr(MyTok) [symbol(wr)] | nw(Wrap) [symbol(nw)]
+  rule nw(wr(T)) => wr(T) [anywhere]";
+
+/// The loaded definition of module `PAIRS` with `declarations` added, and with the anywhere head
+/// `nw` when `with_head`. Without it the definition has nothing the load could withdraw, so the
+/// load classifies none of its pairs; `CheckScope::All` classifies them either way.
+fn definition(declarations: &str, with_head: bool) -> std::sync::Arc<BackendDefinition> {
+    let head = if with_head { ANYWHERE_HEAD } else { "" };
     let source = format!(
         r#"module PAIRS
   imports INT
@@ -52,8 +58,7 @@ fn definition(declarations: &str) -> std::sync::Arc<BackendDefinition> {
   imports STRING
   imports K-EQUAL
   syntax MyTok ::= r"[a-z][a-z0-9]*" [token]
-  syntax Wrap ::= wr(MyTok) [symbol(wr)] | nw(Wrap) [symbol(nw)]
-  rule nw(wr(T)) => wr(T) [anywhere]
+{head}
   syntax Prog ::= go(MyTok) [symbol(go)] | val(Int) [symbol(val)]
 {declarations}
   configuration <k> $PGM:Prog </k>
@@ -87,44 +92,50 @@ fn pairs_between<'a>(claims: &'a ValueClaims, first: &str, second: &str) -> Vec<
 /// with its open conditions.
 #[test]
 fn a_token_spelled_true_or_false_is_not_a_boolean_literal() {
-    let definition = definition(
-        r#"  syntax Int ::= ht(MyTok) [function, symbol(ht)]
+    for with_head in [false, true] {
+        let definition = definition(
+            r#"  syntax Int ::= ht(MyTok) [function, symbol(ht)]
   rule [a]: ht(T) => 1 requires T =/=K #token("true", "MyTok")
   rule [b]: ht(T) => 2 requires T =/=K #token("false", "MyTok")"#,
-    );
-    let all = definition.value_claims_in_scope(CheckScope::All);
-    let pairs = pairs_between(&all, "a", "b");
-    assert_eq!(
-        pairs
-            .iter()
-            .map(|pair| pair.reason.clone())
-            .collect::<Vec<_>>(),
-        [UnjoinedReason::ConditionOpen],
-        "{:?}",
-        all.unjoined()
-    );
+            with_head,
+        );
+        let all = definition.value_claims_in_scope(CheckScope::All);
+        let pairs = pairs_between(&all, "a", "b");
+        assert_eq!(
+            pairs
+                .iter()
+                .map(|pair| pair.reason.clone())
+                .collect::<Vec<_>>(),
+            [UnjoinedReason::ConditionOpen],
+            "with the head: {with_head}: {:?}",
+            all.unjoined()
+        );
+    }
 }
 
 /// The same over `String`: `#Not({S #Equals "true"})` beside `#Not({S #Equals "false"})` holds at
 /// `S = "abc"`.
 #[test]
 fn a_string_spelled_true_or_false_is_not_a_boolean_literal() {
-    let definition = definition(
-        r#"  syntax Int ::= hs(String) [function, symbol(hs)]
+    for with_head in [false, true] {
+        let definition = definition(
+            r#"  syntax Int ::= hs(String) [function, symbol(hs)]
   rule [a]: hs(S) => 1 requires #Not({ S #Equals "true" })
   rule [b]: hs(S) => 2 requires #Not({ S #Equals "false" })"#,
-    );
-    let all = definition.value_claims_in_scope(CheckScope::All);
-    let pairs = pairs_between(&all, "a", "b");
-    assert_eq!(
-        pairs
-            .iter()
-            .map(|pair| pair.reason.clone())
-            .collect::<Vec<_>>(),
-        [UnjoinedReason::ConditionOpen],
-        "{:?}",
-        all.unjoined()
-    );
+            with_head,
+        );
+        let all = definition.value_claims_in_scope(CheckScope::All);
+        let pairs = pairs_between(&all, "a", "b");
+        assert_eq!(
+            pairs
+                .iter()
+                .map(|pair| pair.reason.clone())
+                .collect::<Vec<_>>(),
+            [UnjoinedReason::ConditionOpen],
+            "with the head: {with_head}: {:?}",
+            all.unjoined()
+        );
+    }
 }
 
 /// With the anywhere head `nw` in reach of `hg`'s second argument, the load itself classifies the
@@ -133,11 +144,14 @@ fn a_string_spelled_true_or_false_is_not_a_boolean_literal() {
 #[test]
 fn the_load_reports_a_pair_guarded_by_token_spellings_of_true_and_false() {
     for (first, second) in [("true", "false"), ("aaa", "bbb")] {
-        let definition = definition(&format!(
-            r#"  syntax Int ::= hg(MyTok, Wrap) [function, symbol(hg)]
+        let definition = definition(
+            &format!(
+                r#"  syntax Int ::= hg(MyTok, Wrap) [function, symbol(hg)]
   rule [c]: hg(T, _W) => 1 requires T =/=K #token("{first}", "MyTok")
   rule [d]: hg(T, _W) => 2 requires T =/=K #token("{second}", "MyTok")"#
-        ));
+            ),
+            true,
+        );
         let load = definition.value_claims();
         let pairs = pairs_between(load, "c", "d");
         assert_eq!(
@@ -183,18 +197,20 @@ fn a_join_step_does_not_skip_a_group_guarded_by_true_and_false_spellings() {
   rule [g2]: g(_S) => 0 [priority(50)]"#
             ),
         ] {
-            let definition = definition(&declarations);
-            let all = definition.value_claims_in_scope(CheckScope::All);
-            let pairs = pairs_between(&all, "p", "q");
-            assert_eq!(
-                pairs
-                    .iter()
-                    .map(|pair| pair.reason.clone())
-                    .collect::<Vec<_>>(),
-                [UnjoinedReason::DifferentResults],
-                "{declarations}: {:?}",
-                all.unjoined()
-            );
+            for with_head in [false, true] {
+                let definition = definition(&declarations, with_head);
+                let all = definition.value_claims_in_scope(CheckScope::All);
+                let pairs = pairs_between(&all, "p", "q");
+                assert_eq!(
+                    pairs
+                        .iter()
+                        .map(|pair| pair.reason.clone())
+                        .collect::<Vec<_>>(),
+                    [UnjoinedReason::DifferentResults],
+                    "{declarations} (with the head: {with_head}): {:?}",
+                    all.unjoined()
+                );
+            }
         }
     }
 }
@@ -215,13 +231,16 @@ fn a_sort_hooked_bool_keeps_its_complementary_literals() {
             r#"B =/=K #token("false", "MyBool")"#,
         ),
     ] {
-        let definition = definition(&format!(
-            r#"  syntax MyBool [hook(BOOL.Bool)]
+        let definition = definition(
+            &format!(
+                r#"  syntax MyBool [hook(BOOL.Bool)]
   syntax MyBool ::= "tt" [token] | "ff" [token]
   syntax Int ::= hm(MyBool, Wrap) [function, symbol(hm)]
   rule [a]: hm(B, _W) => 1 requires {first}
   rule [b]: hm(B, _W) => 2 requires {second}"#
-        ));
+            ),
+            true,
+        );
         let load = definition.value_claims();
         assert!(
             pairs_between(load, "a", "b").is_empty(),
@@ -243,4 +262,138 @@ fn a_sort_hooked_bool_keeps_its_complementary_literals() {
             all.unjoined()
         );
     }
+}
+
+/// The request's acceptance: `f(I) => 1 requires I >Int 0` beside `f(I) => 2 requires I >Int -5`
+/// overlap on `I = 1` with different results, so the full check reports one non-joined pair of
+/// `f`'s two equations, in a definition that declares nothing a pair could withdraw and with no
+/// symbol added for the check's sake. With `I <=Int 0` as the second guard the requires hold on
+/// no integer, and no pair of `f` is reported.
+#[test]
+fn the_full_check_reports_the_pairs_of_a_definition_with_only_declared_functions() {
+    for (second, expected) in [
+        ("I >Int -5", vec![UnjoinedReason::ConditionOpen]),
+        ("I <=Int 0", Vec::new()),
+    ] {
+        let definition = definition(
+            &format!(
+                "  syntax Int ::= f(Int) [function, symbol(f)]
+  rule [a]: f(I) => 1 requires I >Int 0
+  rule [b]: f(I) => 2 requires {second}"
+            ),
+            false,
+        );
+        assert!(definition.value_claims().unjoined().is_empty());
+        let all = definition.value_claims_in_scope(CheckScope::All);
+        assert_eq!(all.counts().skipped, 0);
+        let pairs = pairs_between(&all, "a", "b");
+        assert_eq!(
+            pairs
+                .iter()
+                .map(|pair| pair.reason.clone())
+                .collect::<Vec<_>>(),
+            expected,
+            "{second}: {:?}",
+            all.unjoined()
+        );
+        assert!(pairs.iter().all(|pair| pair.withdrawn.is_empty()));
+    }
+}
+
+/// The request's acceptance, per group: the full check classifies the one root pair of `f`'s
+/// group of two equations, and the group says how it was decided (not joined with `I >Int -5`,
+/// refuted with `I <=Int 0`).
+#[test]
+fn the_full_check_counts_the_pairs_of_each_group() {
+    for (second, refuted, not_joined) in [("I >Int -5", 0, 1), ("I <=Int 0", 1, 0)] {
+        let definition = definition(
+            &format!(
+                "  syntax Int ::= f(Int) [function, symbol(f)]
+  rule [a]: f(I) => 1 requires I >Int 0
+  rule [b]: f(I) => 2 requires {second}"
+            ),
+            false,
+        );
+        let all = definition.value_claims_in_scope(CheckScope::All);
+        let groups = all
+            .group_counts()
+            .iter()
+            .filter(|(key, _)| key.index == TermIndex::Symbol("Lblf".into()))
+            .map(|(_, counts)| *counts)
+            .collect::<Vec<_>>();
+        assert_eq!(groups.len(), 1, "{second}: {:?}", all.group_counts());
+        let f = groups[0];
+        assert_eq!(
+            (
+                f.equations,
+                f.root_pairs,
+                f.skipped,
+                f.refuted,
+                f.not_joined
+            ),
+            (2, 1, 0, refuted, not_joined),
+            "{second}: {f:?}"
+        );
+    }
+}
+
+/// The verdicts of the full check on the pair of `rules` (labelled `a` and `b`), in a definition
+/// with nothing to withdraw: the reasons of the non-joined pairs between them.
+fn reasons_between_a_and_b(rules: &str) -> Vec<UnjoinedReason> {
+    let definition = definition(rules, false);
+    let all = definition.value_claims_in_scope(CheckScope::All);
+    pairs_between(&all, "a", "b")
+        .iter()
+        .map(|pair| pair.reason.clone())
+        .collect()
+}
+
+/// Changing a guard's integer constant keeps a consistent definition shown consistent: the
+/// comparisons of one term with literals bound it to no integer, in every build.
+#[test]
+fn requires_that_bound_one_integer_to_nothing_refute_the_pair() {
+    let declaration = "  syntax Int ::= gn(Int) [function, symbol(gn)]";
+    assert_eq!(
+        reasons_between_a_and_b(&format!(
+            "{declaration}
+  rule [a]: gn(X) => X +Int 1 requires X >Int 5
+  rule [b]: gn(X) => 0 requires X <=Int 0"
+        )),
+        []
+    );
+    assert_eq!(
+        reasons_between_a_and_b(&format!(
+            "{declaration}
+  rule [a]: gn(X) => X +Int 1 requires X >=Int -5
+  rule [b]: gn(X) => 0 requires X <Int 0"
+        )),
+        [UnjoinedReason::ConditionOpen]
+    );
+}
+
+/// Over a partial term `X /Int Y`: complementary comparisons stay refuted by their literals, and
+/// two negated bounds whose definedness arrives only as a sibling conjunct are not refuted.
+#[test]
+fn negated_bounds_of_a_partial_term_are_refuted_only_as_complementary_literals() {
+    let declaration = "  syntax Int ::= gd(Int, Int) [function, symbol(gd)]";
+    assert_eq!(
+        reasons_between_a_and_b(&format!(
+            "{declaration}
+  rule [a]: gd(X, Y) => 1 requires notBool (X /Int Y >Int 5)
+  rule [b]: gd(X, Y) => 2 requires notBool (X /Int Y <=Int 5)"
+        )),
+        []
+    );
+    // A known non-refutation (sound): after simplification the conjuncts are the two negated
+    // bounds `X /Int Y <=Int 5` and `X /Int Y >=Int 6`, each true also where `X /Int Y` is
+    // undefined, and the definedness of `X /Int Y` (`Y =/=Int 0`) is a sibling conjunct that no
+    // syntactic rule links to the quotient, so the bounds are not used.
+    assert_eq!(
+        reasons_between_a_and_b(&format!(
+            "{declaration}
+  rule [a]: gd(X, Y) => 1 requires notBool (X /Int Y >Int 5)
+  rule [b]: gd(X, Y) => 2 requires notBool (X /Int Y <Int 6)"
+        )),
+        [UnjoinedReason::ConditionOpen]
+    );
 }

@@ -2512,7 +2512,7 @@ mod tests {
         );
         let rule = rewrite_rule(&definition);
 
-        assert!(rule.attributes.preserves_definedness);
+        assert!(rule.computed_attributes.definedness_discharged);
         assert!(rule.computed_attributes.undefined_symbols.is_empty());
     }
 

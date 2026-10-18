@@ -2173,11 +2173,15 @@ impl BackendDefinition {
                                 });
                             counts.budget_stops += usize::from(stops.budget_exhausted);
                             counts.stack_stops += usize::from(stops.stack_exhausted);
+                            // A rule declared `preserves-definedness` had its obligation cleared
+                            // when it was built, so its discharge succeeds without showing
+                            // anything: the load records no discharge for it.
+                            let declared = rule.rule.attributes.preserves_definedness;
                             discharged.push((
                                 index.clone(),
                                 *priority,
                                 position,
-                                is_defined && !stops.any(),
+                                is_defined && !stops.any() && !declared,
                                 coverage,
                             ));
                         }
@@ -2205,7 +2209,8 @@ impl BackendDefinition {
             if !rule.computed_attributes.undefined_symbols.is_empty() {
                 rule.computed_attributes.discharged_by = coverage;
             }
-            rule.attributes.preserves_definedness = true;
+            // The declared attribute stays the author's claim; the discharge is recorded apart.
+            rule.computed_attributes.definedness_discharged = true;
             rule.computed_attributes.undefined_symbols.clear();
         }
     }
@@ -2915,6 +2920,17 @@ impl BackendDefinition {
     /// classifies the pairs that can change no claim, for a report of every pair that does not
     /// join and for the test that both scopes admit the same claims
     /// ([`crate::confluence::ValueClaims::claim_differences`]).
+    ///
+    /// Under [`crate::confluence::CheckScope::All`] every candidate pair of the definition is
+    /// classified, whatever it declares (`counts().skipped == 0`); `[symbolic]` function
+    /// equations, simplification equations and rewrite rules are paired by no check. Root pairs
+    /// are formed within one index and priority group; inner pairs pair an equation with the
+    /// equations of every priority group offered at a subterm's index, its overload family and
+    /// the bare-variable index. The precondition rows ([`crate::confluence::ValueClaims::violations`])
+    /// name the equations outside the check's reasoning. `separated`, `refuted` and `joined` are
+    /// sound, a non-joined pair is not shown to join and may be spurious, and the verdicts rest
+    /// on the definition's declarations and axioms: the contract is stated at
+    /// [`crate::confluence::CheckScope::All`].
     #[must_use]
     pub fn value_claims_in_scope(
         &self,

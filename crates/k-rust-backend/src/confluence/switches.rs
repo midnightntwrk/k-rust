@@ -72,6 +72,8 @@ pub(crate) struct Switches {
     pub(crate) collapse_every_total: bool,
     /// Conditions: read `a <=Int b` as `notBool (a <Int b)` instead of `notBool (b <Int a)`.
     pub(crate) misread_int_le: bool,
+    /// Conditions: read `a <Int b` as `a <=Int b` when bounding one integer term.
+    pub(crate) misread_interval_bound: bool,
     /// Never pair an equation with itself at the root (before the revision after review 2).
     pub(crate) drop_several_matches: bool,
     /// `SortReach`: no edges from a collection sort to its element, key and value sorts.
@@ -124,6 +126,7 @@ thread_local! {
             stuck_total_is_bottom: false,
             collapse_every_total: false,
             misread_int_le: false,
+            misread_interval_bound: false,
             drop_several_matches: false,
             drop_collection_edges: false,
             drop_injected_inner: false,
