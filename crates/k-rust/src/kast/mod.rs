@@ -1,6 +1,7 @@
 //! User-facing K terms, KAST JSON, and textual KAST.
 
 pub mod ast;
+pub mod binding;
 pub mod convert;
 pub mod identifier;
 pub mod json;
