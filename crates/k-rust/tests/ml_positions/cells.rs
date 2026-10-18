@@ -6,7 +6,7 @@
 //! cells added after its review keep the same scheme.
 
 use crate::{
-    Allow, CellSpec, Code, Expect, Leaf, ML_CONSTRUCT_POSITION, Route, Run, Verdict, leaf,
+    Allow, CellSpec, Code, Expect, Leaf, ML_CONSTRUCT_POSITION, Meaning, Route, Run, Verdict, leaf,
 };
 
 const INVALID_SEARCH_PATTERN: Code = Code::Diag("InvalidSearchPattern");
@@ -306,9 +306,10 @@ const OPERAND_CONDITIONS: &[Condition] = &[
 ];
 
 /// Partial Bool leaves (review finding 5): a Bool term below the spine means `t = true`, so
-/// `#Not(t)` and `t #Implies b` hold where t is undefined, and `notBool t` and `t impliesBool b`
-/// do not. `orBool` has no such cell: its operand may be skipped (domains.md), so its value
-/// with an undefined operand beside a true one is not stated by the contract.
+/// `#Not(t)` and `t #Implies b` hold where t is undefined, and `notBool t` does not.
+/// `t impliesBool (X ==Int 3)` is undefined at X = 0: its second operand is false there, so the
+/// undefined first operand is relevant. `orBool` has no such cell: beside a true operand an
+/// undefined one is irrelevant and may be skipped, so the contract states no value.
 const PARTIAL_CONDITIONS: &[Condition] = &[
     condition(
         "partial-not",
@@ -336,7 +337,7 @@ const PARTIAL_CONDITIONS: &[Condition] = &[
         "((10 /Int X) ==Int 5) impliesBool (X ==Int 3)",
         |x| x != 0 && (10 / x != 5 || x == 3),
         Kind::Plain,
-        "undefined at X = 0 (impliesBool evaluates both operands)",
+        "undefined at X = 0, where the second operand is false and the undefined first one decides",
     ),
     condition(
         "partial-or",
@@ -410,9 +411,11 @@ impl CondPos {
             CondPos::SimpEnsures => {
                 format!("{F}  rule [p]: f(X) => X ensures {c} [simplification]\n{G}")
             }
+            // go(N) steps to c2(N, e(N)); the context heats e(N) where the condition over N
+            // holds, and e(N) evaluates to N, which cools back: c2(N, N).
             CondPos::ContextRequires => format!(
-                "  syntax KResult ::= Int\n  syntax KItem ::= ctx(Int) [symbol(ctx)]\n  context [p]: ctx(HOLE:Int) requires {}\n",
-                c.replace('X', "HOLE")
+                "  syntax Exp ::= Int | e(Int) [symbol(e)]\n  syntax KResult ::= Int\n  syntax KItem ::= c2(Int, Exp) [symbol(c2)]\n  rule [e]: <k> e(N) => N ... </k>\n  rule [g]: <k> go(N) => c2(N, e(N)) ... </k>\n  context [p]: c2(N:Int, HOLE:Exp) requires {}\n",
+                c.replace('X', "N")
             ),
             CondPos::ClaimRequires => format!(
                 "  rule [g]: <k> go(X) => done(X) ... </k> requires X <Int 3\nendmodule\n\nmodule P-SPEC\n  imports P\n  claim [p]: <k> go(X) => done(X) ... </k> requires {c}\n  claim [q]: <k> go(X) => stuck(X) ... </k> requires {c}\n"
@@ -432,7 +435,7 @@ impl CondPos {
 
     fn default_programs(self) -> Vec<i64> {
         match self {
-            CondPos::ContextRequires => vec![1],
+            CondPos::ContextRequires => vec![1, 3],
             CondPos::ClaimRequires | CondPos::ClaimEnsures | CondPos::Search => Vec::new(),
             CondPos::OwiseRequires => vec![1, 2, 3],
             _ => vec![1, 3],
@@ -463,14 +466,23 @@ impl CondPos {
             CondPos::FunRequires | CondPos::SimpRequires => {
                 if holds {
                     Run::new(go(n), applied())
-                        .undecided(vec![stuck(done(format!("f({n})"))), trivial(go(n))])
+                        .undecided(vec![trivial(go(n))])
+                        .unevaluated(unevaluated())
                 } else {
                     Run::new(go(n), unevaluated())
                         .optional(vec![trivial(go(n))])
                         .undecided(applied())
                 }
             }
-            CondPos::ContextRequires => Run::new(go(n), vec![stuck(go(n))]),
+            CondPos::ContextRequires => {
+                let heated = stuck(format!("c2({n}, {n})"));
+                let unheated = stuck(format!("c2({n}, e({n}))"));
+                if holds {
+                    Run::new(go(n), vec![heated]).undecided(vec![unheated])
+                } else {
+                    Run::new(go(n), vec![unheated]).undecided(vec![heated])
+                }
+            }
             CondPos::OwiseRequires => Run::new(go(n), vec![stuck(done(if holds { 1 } else { 0 }))])
                 .undecided(vec![stuck(done(if holds { 0 } else { 1 }))]),
             CondPos::ClaimRequires | CondPos::ClaimEnsures | CondPos::Search => {
@@ -524,7 +536,7 @@ fn condition_cell(position: CondPos, c: &Condition, programs: &[i64]) -> CellSpe
             programs.iter().map(|n| go(*n)).collect::<Vec<_>>(),
         )
     };
-    let expect = refused.unwrap_or_else(|| match position {
+    let meaning_expect = match position {
         CondPos::ClaimRequires => {
             let truth_set: Vec<i64> = (-20..=20).filter(|x| (c.truth)(*x)).collect();
             let p = if truth_set.iter().all(|x| *x < 3) {
@@ -565,7 +577,12 @@ fn condition_cell(position: CondPos, c: &Condition, programs: &[i64]) -> CellSpe
                 .map(|n| position.run(*n, (c.truth)(*n)))
                 .collect(),
         ),
-    });
+    };
+    // `notBool {X #Equals 3}` is ill-formed: it states no truth set.
+    let meaning_runs = match (&refused, c.id) {
+        (None, _) | (Some(_), "predarg") => Meaning::Unstated,
+        (Some(_), _) => Meaning::States(meaning_expect.clone()),
+    };
     CellSpec {
         name,
         route,
@@ -573,8 +590,9 @@ fn condition_cell(position: CondPos, c: &Condition, programs: &[i64]) -> CellSpe
         pattern,
         programs: programs_list,
         meaning: c.meaning.to_owned(),
-        expect,
+        expect: refused.unwrap_or(meaning_expect),
         allow,
+        meaning_runs,
     }
 }
 
@@ -666,6 +684,22 @@ fn condition_cells(cells: &mut Vec<CellSpec>) {
             ]),
         ]),
         allow: Allow::None,
+        meaning_runs: Meaning::Unstated,
+    });
+    // The same rule decides claims over the state it reaches: done(W) with W in {1, 2}, and no
+    // undefined step.
+    cells.push(CellSpec {
+        name: "cond/claim-ensures__exists-or-bt".to_owned(),
+        route: Route::Kprove,
+        text: "  rule [p]: <k> pick => done(?W) ... </k> ensures (?W ==Int 1) #Or (?W ==Int 2)\nendmodule\n\nmodule P-SPEC\n  imports P\n  claim [q]: <k> pick => done(?W) ... </k> ensures (?W ==Int 1) #Or (?W ==Int 2)\n  claim [r]: <k> pick => done(?W) ... </k> ensures ?W ==Int 1\n"
+            .to_owned(),
+        pattern: None,
+        programs: Vec::new(),
+        meaning: "pick reaches done(W) for some W in {1, 2}: the rule's own ensures holds on every path, W = 1 does not".to_owned(),
+        expect: Expect::proofs(vec![("q", Verdict::Proven), ("r", Verdict::NotProven)]),
+        // The portable build has no solver to decide the existential's disjunction.
+        allow: Allow::PortableUndecided,
+        meaning_runs: Meaning::Unstated,
     });
 }
 
@@ -716,6 +750,7 @@ fn macro_condition_cells(cells: &mut Vec<CellSpec>) {
                     .collect(),
             ),
             allow: Allow::None,
+            meaning_runs: Meaning::Unstated,
         });
     }
 }
@@ -866,7 +901,7 @@ fn left_cell(position: &str, id: &str, text: &str, value: &str, meaning: &str) -
             "  syntax Int ::= f(Int) [function, symbol(f)]\n  rule [p]: f({text}) => 10 +Int {value} [simplification]\n  rule [g]: <k> go(X) => done(f(X)) ... </k>\n"
         ),
         "claim-lhs" => format!(
-            "  rule [g]: <k> go(X) => done(X) ... </k>\nendmodule\n\nmodule P-SPEC\n  imports P\n  claim [p]: <k> go({text}) => done(?_) ... </k>\n"
+            "  rule [g]: <k> go(X) => done(X) ... </k> requires X <Int 3\n  rule [h]: <k> pair(X, sa) => pair(X, sb) ... </k>\nendmodule\n\nmodule P-SPEC\n  imports P\n  claim [p]: <k> go({text}) => done(?_) ... </k>\n  claim [q]: <k> pair({text}, sa) => pair(?_, sb) ... </k>\n"
         ),
         _ => unreachable!(),
     };
@@ -924,20 +959,46 @@ fn left_cell(position: &str, id: &str, text: &str, value: &str, meaning: &str) -
             _ => unreachable!(),
         }
     };
-    let (expect, allow) = match decision {
-        Decision::Refuse(expect) => (expect, Allow::None),
+    // Claim p holds when every input its left side matches is below 3, the condition of the rule
+    // that drives go; claim q, over the unconditional rule h, holds for every left side.
+    let claim_verdict = if (-20..=20).all(|n| left_values(id, n).is_empty() || n < 3) {
+        Verdict::Proven
+    } else {
+        Verdict::NotProven
+    };
+    let meaning_expect = || {
+        if position == "claim-lhs" {
+            // The vacuous q of `#Floor`, which no build decides, keeps the allowance.
+            let q = if id == "floor" {
+                Verdict::Proven
+            } else {
+                Verdict::ProvenAlways
+            };
+            Expect::proofs(vec![("p", claim_verdict), ("q", q)])
+        } else {
+            Expect::runs((1..=3).map(run).collect())
+        }
+    };
+    let (expect, allow, meaning_runs) = match decision {
+        Decision::Refuse(expect) => {
+            let meaning = match (id, position) {
+                ("let" | "fun", _) => Meaning::Unstated,
+                // `f(X #Or 2) => 10 +Int X` states f(2) = 10 +Int X for every X.
+                ("or-var", "fun-lhs" | "simp-lhs") => Meaning::NoModel,
+                _ => Meaning::States(meaning_expect()),
+            };
+            (expect, Allow::None, meaning)
+        }
         Decision::Meaning | Decision::Undecided => {
-            let allow = if matches!(decision, Decision::Undecided) {
+            let allow = if matches!(decision, Decision::Undecided) || id == "floor" {
                 Allow::Undecided
+            } else if position == "claim-lhs" {
+                // The proof of p decides `X <Int 3` over the matched inputs.
+                Allow::PortableUndecided
             } else {
                 Allow::None
             };
-            if position == "claim-lhs" {
-                // Every go(n) the left side matches reaches done(n).
-                (Expect::proofs(vec![("p", Verdict::Proven)]), allow)
-            } else {
-                (Expect::runs((1..=3).map(run).collect()), allow)
-            }
+            (meaning_expect(), allow, Meaning::Unstated)
         }
     };
     CellSpec {
@@ -953,6 +1014,7 @@ fn left_cell(position: &str, id: &str, text: &str, value: &str, meaning: &str) -
         meaning: format!("matches {meaning}"),
         expect,
         allow,
+        meaning_runs,
     }
 }
 
@@ -1089,8 +1151,50 @@ fn right_cell(position: &str, id: &str, text: &str, meaning: &str) -> CellSpec {
         [1, 3].into_iter().map(go).collect()
     };
     let decision = right_decision(position, id);
-    let (expect, allow) = match decision {
-        Decision::Refuse(expect) => (expect, Allow::None),
+    let function_like = matches!(position, "fun-rhs" | "simp-rhs" | "anywhere-rhs");
+    let meaning_expect = || {
+        if is_claim {
+            // The claim holds when done(X), which go(X) reaches, is among the values the right
+            // side denotes for every X.
+            let holds = match id {
+                "exists" | "top" => true,
+                "not" | "implies" => false,
+                _ => (-20..=20).all(|x| right_values(id, x).contains(&x)),
+            };
+            let verdict = if holds {
+                Verdict::Proven
+            } else {
+                Verdict::NotProven
+            };
+            Expect::proofs(vec![("p", verdict)])
+        } else {
+            let runs = [1, 3]
+                .into_iter()
+                .map(|n| {
+                    let values = right_values(id, n);
+                    if values.is_empty() {
+                        Run::new(go(n), vec![trivial(go(n))]).undecided(vec![stuck(done(n))])
+                    } else {
+                        Run::new(go(n), values.iter().map(|v| stuck(done(v))).collect())
+                    }
+                })
+                .collect();
+            Expect::runs(runs)
+        }
+    };
+    let (expect, allow, meaning_runs) = match decision {
+        Decision::Refuse(expect) => {
+            let meaning = match id {
+                "as" => Meaning::Unstated,
+                // A function application has at most one value: an equation whose right side
+                // denotes several (or every) value states an axiom with no model.
+                "or" | "not" | "exists" | "implies" | "top" if function_like => Meaning::NoModel,
+                // A rule whose right side denotes infinitely many states has no finite leaf set.
+                "not" | "exists" | "implies" | "top" if !is_claim => Meaning::Unstated,
+                _ => Meaning::States(meaning_expect()),
+            };
+            (expect, Allow::None, meaning)
+        }
         Decision::Meaning | Decision::Undecided => {
             let allow = if matches!(decision, Decision::Undecided) {
                 Allow::Undecided
@@ -1101,30 +1205,7 @@ fn right_cell(position: &str, id: &str, text: &str, meaning: &str) -> CellSpec {
             } else {
                 Allow::None
             };
-            if is_claim {
-                // The claim holds when done(X), which go(X) reaches, is among the values the
-                // right side denotes for every X.
-                let holds = (-20..=20).all(|x| right_values(id, x).contains(&x));
-                let verdict = if holds {
-                    Verdict::Proven
-                } else {
-                    Verdict::NotProven
-                };
-                (Expect::proofs(vec![("p", verdict)]), allow)
-            } else {
-                let runs = [1, 3]
-                    .into_iter()
-                    .map(|n| {
-                        let values = right_values(id, n);
-                        if values.is_empty() {
-                            Run::new(go(n), vec![trivial(go(n))]).undecided(vec![stuck(done(n))])
-                        } else {
-                            Run::new(go(n), values.iter().map(|v| stuck(done(v))).collect())
-                        }
-                    })
-                    .collect();
-                (Expect::runs(runs), allow)
-            }
+            (meaning_expect(), allow, Meaning::Unstated)
         }
     };
     CellSpec {
@@ -1140,6 +1221,7 @@ fn right_cell(position: &str, id: &str, text: &str, meaning: &str) -> CellSpec {
         meaning: format!("denotes {meaning}"),
         expect,
         allow,
+        meaning_runs,
     }
 }
 
@@ -1230,6 +1312,7 @@ fn predicate_simplification_cells(cells: &mut Vec<CellSpec>) {
             expect: Expect::proofs(vec![("q", verdict)]),
             // The claim decides an implication over symbolic integers.
             allow: Allow::PortableUndecided,
+            meaning_runs: Meaning::Unstated,
         });
     }
     // The lemma of eq-eq on a ground atom: a rewrite rule's condition {f(1) #Equals 1}.
@@ -1247,6 +1330,7 @@ fn predicate_simplification_cells(cells: &mut Vec<CellSpec>) {
             Run::new(go(3), vec![stuck(go(3))]),
         ]),
         allow: Allow::None,
+        meaning_runs: Meaning::Unstated,
     });
     for (id, lemma, driver, runs, meaning) in table {
         cells.push(CellSpec {
@@ -1258,6 +1342,7 @@ fn predicate_simplification_cells(cells: &mut Vec<CellSpec>) {
             meaning: meaning.to_owned(),
             expect: Expect::runs(runs),
             allow: Allow::None,
+            meaning_runs: Meaning::Unstated,
         });
     }
 }
@@ -1302,6 +1387,7 @@ fn extra_cells(cells: &mut Vec<CellSpec>) {
             meaning: meaning.to_owned(),
             expect: Expect::runs(vec![run(1, at1), run(3, at3)]),
             allow: Allow::None,
+            meaning_runs: Meaning::Unstated,
         });
     }
 }

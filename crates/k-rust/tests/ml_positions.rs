@@ -29,14 +29,22 @@
 //!   sentence, or loading stops with a parse error located at that line; the code may differ
 //!   between the portable and the Z3 build where each build's parser decides the refusal.
 //!
+//! A step whose result denotes no state (an `ensures` that does not hold, a right side such as
+//! `#Bottom` or `X #And 1` at X = 3) is expected as a `Trivial` leaf at the state before the
+//! step: the convention of k-rust's halt reasons (`HaltReasonOutput::Trivial`), which reports
+//! such a pre-state as having no defined successor rather than as a state of the run.
+//!
 //! A run may also list optional leaves, which the meaning neither requires nor excludes (the
 //! definedness branch `Trivial` of a partial function's application that no equation
-//! evaluates). A cell may carry an allowance for a condition the build does not decide (a
-//! quantified predicate or a claim's arithmetic implication without a solver, and `#Floor`): a
-//! run may then give any non-empty part of the leaves of both truth values of the undecided
-//! construct, each leaf outside the expected ones being constrained, `Indeterminate`, or holding
-//! the application the undecided equation would evaluate, and a claim may be `indeterminate` or
-//! `failed` instead of `proven` and `indeterminate` instead of not proven.
+//! evaluates, whose constraint the contract does not check); a run whose leaves are all
+//! optional needs one of its non-Trivial ones. A cell may carry an allowance for a construct the
+//! build does not decide (a quantified predicate or a claim's arithmetic implication without a
+//! solver, and `#Floor`). A run then conforms when it is the single leaf `Indeterminate` at the
+//! program or at an expected state (the unheated state of a context), or when every expected leaf other than a Trivial one is observed (constrained or
+//! not, or as the unevaluated application of `f` that stands for it) and every other observed
+//! leaf is a leaf of the construct's other truth value that is constrained or holds that
+//! unevaluated application; a claim may be `indeterminate` or `failed` instead of `proven`, and
+//! `indeterminate` instead of not proven.
 //!
 //! A panic during a cell (a kompile invariant in the test profile, a backend assertion) never
 //! conforms.
@@ -44,11 +52,14 @@
 //! # PENDING
 //!
 //! [`PENDING`] lists the cells that deviate from their expectation at the base of the ML lane
-//! (`main` 7125d22fc), each with the ticket after which its design makes the cell conform and the
-//! builds in which it deviates. A pending cell must still deviate: a change that makes it
-//! conform fails the shard until the change removes the cell from the list, so every later
-//! ticket's regression test is its cells leaving the list. A cell that is not pending must
-//! conform. The ticket `unassigned` marks a deviation that no ticket of the ML lane covers, kept
+//! (`main` 7125d22fc), each with the ticket after which its design makes the cell conform and,
+//! for each build, how it deviates there ([`Class`]: `Wrong`, `Refused`, `Panic`, `Undecided`,
+//! `Accepted`, or `Conforms` where it does not deviate). A refused cell is classified against the
+//! runs its meaning states, where it states any. A pending cell must still deviate, in the
+//! recorded class: a change that makes it conform, or that changes how it deviates (a wrong
+//! answer becoming a refusal, a refusal becoming a wrong answer), fails the shard until the
+//! change records it in the list, so every later ticket's regression test is its cells leaving
+//! or changing in the list. A cell that is not pending must conform. The ticket `unassigned` marks a deviation that no ticket of the ML lane covers, kept
 //! visible until the programme assigns it.
 //!
 //! # Running
@@ -110,21 +121,26 @@ impl Build {
     }
 }
 
-/// The builds a pending cell deviates in.
+/// How a cell deviates from its expectation in one build, recorded for each pending cell.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Builds {
-    Both,
-    Portable,
-    Z3,
-}
-
-impl Builds {
-    fn contains(self, build: Build) -> bool {
-        matches!(
-            (self, build),
-            (Builds::Both, _) | (Builds::Portable, Build::Portable) | (Builds::Z3, Build::Z3)
-        )
-    }
+pub enum Class {
+    /// The cell does not deviate in this build.
+    Conforms,
+    /// A run gives a leaf, or a claim a verdict, that the meaning contradicts (a state the
+    /// rule does not reach, `proven` for a false claim, `disproved` for a true one), or the
+    /// sentence states an axiom with no model and runs.
+    Wrong,
+    /// Loading, compiling, `Backend::new` or a run refuses the cell (at run time also a
+    /// `SimplificationError` halt).
+    Refused,
+    /// A kompile invariant or another assertion panics.
+    Panic,
+    /// The runs give no leaf the meaning contradicts but miss a state, or stay undecided
+    /// (`Indeterminate`, constrained leaves the meaning does not list, `failed` or
+    /// `indeterminate` for a true claim).
+    Undecided,
+    /// A refused cell runs and agrees with its meaning, or with no stated meaning.
+    Accepted,
 }
 
 /// How a cell's definition is compiled and exercised.
@@ -163,6 +179,9 @@ pub struct Run {
     pub optional: Vec<Leaf>,
     /// Leaves of the other truth value of an undecided construct, allowed under an allowance.
     pub undecided: Vec<Leaf>,
+    /// Under an allowance, leaves that stand for the expected ones left unevaluated (the
+    /// application `f(n)` an undecided equation would evaluate).
+    pub unevaluated: Vec<Leaf>,
 }
 
 impl Run {
@@ -172,6 +191,7 @@ impl Run {
             leaves,
             optional: Vec::new(),
             undecided: Vec::new(),
+            unevaluated: Vec::new(),
         }
     }
 
@@ -184,12 +204,19 @@ impl Run {
         self.undecided = leaves;
         self
     }
+
+    pub fn unevaluated(mut self, leaves: Vec<Leaf>) -> Self {
+        self.unevaluated = leaves;
+        self
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Verdict {
     Proven,
     NotProven,
+    /// Proven, in every build whatever the cell's allowance: the proof needs no solver.
+    ProvenAlways,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -237,6 +264,18 @@ impl Expect {
     }
 }
 
+/// What the meaning of a refused cell states about its runs.
+#[derive(Clone, Debug)]
+pub enum Meaning {
+    /// No outcome: the sentence is ill-formed, or its value is no finite set of states.
+    Unstated,
+    /// The sentence states an axiom with no model (an equation `f(2) = 10 +Int X` for every X):
+    /// any run's answer is wrong.
+    NoModel,
+    /// The runs or verdicts the meaning states (an `Accept` expectation).
+    States(Expect),
+}
+
 /// The builds in which a cell's undecided construct may stay undecided.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Allow {
@@ -271,6 +310,9 @@ pub struct CellSpec {
     pub meaning: String,
     pub expect: Expect,
     pub allow: Allow,
+    /// For a refused cell, what its meaning states, against which a pending cell that runs is
+    /// classified ([`Class`]).
+    pub meaning_runs: Meaning,
 }
 
 pub const HEADER: &str = "module P-SYNTAX
@@ -313,228 +355,233 @@ impl CellSpec {
 
 // ---------------------------------------------------------------- PENDING
 
+/// The number of cells of the matrix.
+const CELL_COUNT: usize = 492;
+
 /// The cells that deviate at the ML lane's base, each with the ticket after which it conforms
 /// and the builds in which it deviates (see the module documentation).
 #[rustfmt::skip]
-pub const PENDING: &[(&str, &str, Builds)] = &[
-    // MLP/1 (28): guard_or_patterns aliases a disjunction in a condition: R3 panics in debug, the equation is never applied, or the predicate form fails sort inference on `_Gen0`.
-    ("cond/fun-ensures__fa-pr", "MLP/1", Builds::Both),
-    ("cond/fun-ensures__or-bt", "MLP/1", Builds::Both),
-    ("cond/fun-ensures__or-mix", "MLP/1", Builds::Both),
-    ("cond/fun-ensures__or-pr", "MLP/1", Builds::Both),
-    ("cond/fun-requires__fa-pr", "MLP/1", Builds::Both),
-    ("cond/fun-requires__or-bt", "MLP/1", Builds::Both),
-    ("cond/fun-requires__or-mix", "MLP/1", Builds::Both),
-    ("cond/fun-requires__or-pr", "MLP/1", Builds::Both),
-    ("cond/fun-requires__partial-or", "MLP/1", Builds::Both),
-    ("cond/owise-requires__or-bt", "MLP/1", Builds::Both),
-    ("cond/rule-ensures__exists-or-bt", "MLP/1", Builds::Both),
-    ("cond/rule-ensures__fa-pr", "MLP/1", Builds::Both),
-    ("cond/rule-ensures__or-bt", "MLP/1", Builds::Both),
-    ("cond/rule-ensures__or-mix", "MLP/1", Builds::Both),
-    ("cond/rule-ensures__or-pr", "MLP/1", Builds::Both),
-    ("cond/rule-requires__fa-pr", "MLP/1", Builds::Both),
-    ("cond/rule-requires__or-bt", "MLP/1", Builds::Portable),
-    ("cond/rule-requires__or-mix", "MLP/1", Builds::Portable),
-    ("cond/rule-requires__or-pr", "MLP/1", Builds::Both),
-    ("cond/rule-requires__partial-or", "MLP/1", Builds::Portable),
-    ("cond/simp-ensures__fa-pr", "MLP/1", Builds::Both),
-    ("cond/simp-ensures__or-bt", "MLP/1", Builds::Both),
-    ("cond/simp-ensures__or-mix", "MLP/1", Builds::Both),
-    ("cond/simp-ensures__or-pr", "MLP/1", Builds::Both),
-    ("cond/simp-requires__fa-pr", "MLP/1", Builds::Both),
-    ("cond/simp-requires__or-bt", "MLP/1", Builds::Both),
-    ("cond/simp-requires__or-mix", "MLP/1", Builds::Both),
-    ("cond/simp-requires__or-pr", "MLP/1", Builds::Both),
-    // MLP/2 (18): a predicate context condition is conjoined by `_andBool_` and fails at Backend::new.
-    ("cond/context-requires__and-pr", "MLP/2", Builds::Both),
-    ("cond/context-requires__bottom", "MLP/2", Builds::Both),
-    ("cond/context-requires__ceil", "MLP/2", Builds::Both),
-    ("cond/context-requires__eq", "MLP/2", Builds::Both),
-    ("cond/context-requires__eq-bool", "MLP/2", Builds::Both),
-    ("cond/context-requires__ex-bt", "MLP/2", Builds::Both),
-    ("cond/context-requires__ex-pr", "MLP/2", Builds::Both),
-    ("cond/context-requires__fa-bt", "MLP/2", Builds::Both),
-    ("cond/context-requires__fa-pr", "MLP/2", Builds::Both),
-    ("cond/context-requires__floor", "MLP/2", Builds::Both),
-    ("cond/context-requires__imp-bt", "MLP/2", Builds::Both),
-    ("cond/context-requires__imp-pr", "MLP/2", Builds::Both),
-    ("cond/context-requires__not-bt", "MLP/2", Builds::Both),
-    ("cond/context-requires__not-pr", "MLP/2", Builds::Both),
-    ("cond/context-requires__or-bt", "MLP/2", Builds::Both),
-    ("cond/context-requires__or-mix", "MLP/2", Builds::Both),
-    ("cond/context-requires__or-pr", "MLP/2", Builds::Both),
-    ("cond/context-requires__top", "MLP/2", Builds::Both),
+pub const PENDING: &[(&str, &str, Class, Class)] = &[
+    // MLP/1 (29): guard_or_patterns aliases a disjunction in a condition: R3 panics in debug, the equation is never applied, or the predicate form fails sort inference on `_Gen0`.
+    ("cond/claim-ensures__exists-or-bt", "MLP/1", Class::Panic, Class::Panic),
+    ("cond/fun-ensures__fa-pr", "MLP/1", Class::Panic, Class::Panic),
+    ("cond/fun-ensures__or-bt", "MLP/1", Class::Panic, Class::Panic),
+    ("cond/fun-ensures__or-mix", "MLP/1", Class::Panic, Class::Panic),
+    ("cond/fun-ensures__or-pr", "MLP/1", Class::Panic, Class::Panic),
+    ("cond/fun-requires__fa-pr", "MLP/1", Class::Refused, Class::Refused),
+    ("cond/fun-requires__or-bt", "MLP/1", Class::Undecided, Class::Undecided),
+    ("cond/fun-requires__or-mix", "MLP/1", Class::Undecided, Class::Undecided),
+    ("cond/fun-requires__or-pr", "MLP/1", Class::Refused, Class::Refused),
+    ("cond/fun-requires__partial-or", "MLP/1", Class::Undecided, Class::Undecided),
+    ("cond/owise-requires__or-bt", "MLP/1", Class::Undecided, Class::Undecided),
+    ("cond/rule-ensures__exists-or-bt", "MLP/1", Class::Panic, Class::Panic),
+    ("cond/rule-ensures__fa-pr", "MLP/1", Class::Panic, Class::Panic),
+    ("cond/rule-ensures__or-bt", "MLP/1", Class::Panic, Class::Panic),
+    ("cond/rule-ensures__or-mix", "MLP/1", Class::Panic, Class::Panic),
+    ("cond/rule-ensures__or-pr", "MLP/1", Class::Panic, Class::Panic),
+    ("cond/rule-requires__fa-pr", "MLP/1", Class::Refused, Class::Refused),
+    ("cond/rule-requires__or-bt", "MLP/1", Class::Undecided, Class::Conforms),
+    ("cond/rule-requires__or-mix", "MLP/1", Class::Undecided, Class::Conforms),
+    ("cond/rule-requires__or-pr", "MLP/1", Class::Refused, Class::Refused),
+    ("cond/rule-requires__partial-or", "MLP/1", Class::Undecided, Class::Conforms),
+    ("cond/simp-ensures__fa-pr", "MLP/1", Class::Panic, Class::Panic),
+    ("cond/simp-ensures__or-bt", "MLP/1", Class::Panic, Class::Panic),
+    ("cond/simp-ensures__or-mix", "MLP/1", Class::Panic, Class::Panic),
+    ("cond/simp-ensures__or-pr", "MLP/1", Class::Panic, Class::Panic),
+    ("cond/simp-requires__fa-pr", "MLP/1", Class::Refused, Class::Refused),
+    ("cond/simp-requires__or-bt", "MLP/1", Class::Undecided, Class::Undecided),
+    ("cond/simp-requires__or-mix", "MLP/1", Class::Undecided, Class::Undecided),
+    ("cond/simp-requires__or-pr", "MLP/1", Class::Refused, Class::Refused),
+    // MLP/2 (19): a predicate context condition is conjoined by `_andBool_`: Backend::new refuses it, or the context never heats.
+    ("cond/context-requires__and-bt", "MLP/2", Class::Undecided, Class::Undecided),
+    ("cond/context-requires__and-pr", "MLP/2", Class::Refused, Class::Refused),
+    ("cond/context-requires__bottom", "MLP/2", Class::Refused, Class::Refused),
+    ("cond/context-requires__ceil", "MLP/2", Class::Refused, Class::Refused),
+    ("cond/context-requires__eq", "MLP/2", Class::Refused, Class::Refused),
+    ("cond/context-requires__eq-bool", "MLP/2", Class::Refused, Class::Refused),
+    ("cond/context-requires__ex-bt", "MLP/2", Class::Refused, Class::Refused),
+    ("cond/context-requires__ex-pr", "MLP/2", Class::Refused, Class::Refused),
+    ("cond/context-requires__fa-bt", "MLP/2", Class::Refused, Class::Refused),
+    ("cond/context-requires__fa-pr", "MLP/2", Class::Refused, Class::Refused),
+    ("cond/context-requires__floor", "MLP/2", Class::Refused, Class::Refused),
+    ("cond/context-requires__imp-bt", "MLP/2", Class::Refused, Class::Refused),
+    ("cond/context-requires__imp-pr", "MLP/2", Class::Refused, Class::Refused),
+    ("cond/context-requires__not-bt", "MLP/2", Class::Refused, Class::Refused),
+    ("cond/context-requires__not-pr", "MLP/2", Class::Refused, Class::Refused),
+    ("cond/context-requires__or-bt", "MLP/2", Class::Refused, Class::Refused),
+    ("cond/context-requires__or-mix", "MLP/2", Class::Refused, Class::Refused),
+    ("cond/context-requires__or-pr", "MLP/2", Class::Refused, Class::Refused),
+    ("cond/context-requires__top", "MLP/2", Class::Refused, Class::Refused),
     // MLP/7 (8): a term-level `t1 #And t2` at a built position or in a claim's left side is neither lowered nor normalized.
-    ("left/claim-lhs__and-term", "MLP/7", Builds::Both),
-    ("left/claim-lhs__as", "MLP/7", Builds::Both),
-    ("right/alias-rhs__and-term", "MLP/7", Builds::Both),
-    ("right/anywhere-rhs__and-term", "MLP/7", Builds::Both),
-    ("right/fun-rhs__and-term", "MLP/7", Builds::Both),
-    ("right/macro-rhs__and-term", "MLP/7", Builds::Both),
-    ("right/rule-rhs__and-term", "MLP/7", Builds::Both),
-    ("right/simp-rhs__and-term", "MLP/7", Builds::Both),
+    ("left/claim-lhs__and-term", "MLP/7", Class::Undecided, Class::Undecided),
+    ("left/claim-lhs__as", "MLP/7", Class::Undecided, Class::Undecided),
+    ("right/alias-rhs__and-term", "MLP/7", Class::Wrong, Class::Wrong),
+    ("right/anywhere-rhs__and-term", "MLP/7", Class::Wrong, Class::Wrong),
+    ("right/fun-rhs__and-term", "MLP/7", Class::Wrong, Class::Wrong),
+    ("right/macro-rhs__and-term", "MLP/7", Class::Wrong, Class::Wrong),
+    ("right/rule-rhs__and-term", "MLP/7", Class::Wrong, Class::Wrong),
+    ("right/simp-rhs__and-term", "MLP/7", Class::Wrong, Class::Wrong),
     // MLP/4 (132): shapes no k-rust route loads or the backend misreads: refused at compile with MlConstructPosition.
-    ("cond/claim-ensures__as", "MLP/4", Builds::Z3),
-    ("cond/claim-ensures__fun", "MLP/4", Builds::Both),
-    ("cond/claim-ensures__let", "MLP/4", Builds::Both),
-    ("cond/claim-ensures__or-inner", "MLP/4", Builds::Both),
-    ("cond/claim-ensures__predarg", "MLP/4", Builds::Both),
-    ("cond/claim-requires__as", "MLP/4", Builds::Z3),
-    ("cond/claim-requires__ceilop-and", "MLP/4", Builds::Both),
-    ("cond/claim-requires__eqop-and", "MLP/4", Builds::Both),
-    ("cond/claim-requires__eqop-or-int", "MLP/4", Builds::Both),
-    ("cond/claim-requires__eqop-or-true", "MLP/4", Builds::Both),
-    ("cond/claim-requires__eqop-true-or", "MLP/4", Builds::Both),
-    ("cond/claim-requires__fun", "MLP/4", Builds::Both),
-    ("cond/claim-requires__let", "MLP/4", Builds::Both),
-    ("cond/claim-requires__or-inner", "MLP/4", Builds::Both),
-    ("cond/claim-requires__predarg", "MLP/4", Builds::Both),
-    ("cond/context-requires__as", "MLP/4", Builds::Z3),
-    ("cond/context-requires__or-inner", "MLP/4", Builds::Both),
-    ("cond/context-requires__predarg", "MLP/4", Builds::Both),
-    ("cond/fun-ensures__as", "MLP/4", Builds::Z3),
-    ("cond/fun-ensures__or-inner", "MLP/4", Builds::Both),
-    ("cond/fun-ensures__predarg", "MLP/4", Builds::Both),
-    ("cond/fun-requires__as", "MLP/4", Builds::Z3),
-    ("cond/fun-requires__ceilop-and", "MLP/4", Builds::Both),
-    ("cond/fun-requires__eqop-and", "MLP/4", Builds::Both),
-    ("cond/fun-requires__eqop-or-int", "MLP/4", Builds::Both),
-    ("cond/fun-requires__eqop-or-true", "MLP/4", Builds::Both),
-    ("cond/fun-requires__eqop-true-or", "MLP/4", Builds::Both),
-    ("cond/fun-requires__or-inner", "MLP/4", Builds::Both),
-    ("cond/fun-requires__predarg", "MLP/4", Builds::Both),
-    ("cond/rule-ensures__as", "MLP/4", Builds::Z3),
-    ("cond/rule-ensures__or-inner", "MLP/4", Builds::Both),
-    ("cond/rule-ensures__predarg", "MLP/4", Builds::Both),
-    ("cond/rule-requires__as", "MLP/4", Builds::Z3),
-    ("cond/rule-requires__ceilop-and", "MLP/4", Builds::Both),
-    ("cond/rule-requires__eqop-and", "MLP/4", Builds::Both),
-    ("cond/rule-requires__eqop-or-int", "MLP/4", Builds::Both),
-    ("cond/rule-requires__eqop-or-true", "MLP/4", Builds::Both),
-    ("cond/rule-requires__eqop-true-or", "MLP/4", Builds::Both),
-    ("cond/rule-requires__or-inner", "MLP/4", Builds::Both),
-    ("cond/rule-requires__predarg", "MLP/4", Builds::Both),
-    ("cond/simp-ensures__as", "MLP/4", Builds::Z3),
-    ("cond/simp-ensures__or-inner", "MLP/4", Builds::Both),
-    ("cond/simp-ensures__predarg", "MLP/4", Builds::Both),
-    ("cond/simp-requires__as", "MLP/4", Builds::Z3),
-    ("cond/simp-requires__or-inner", "MLP/4", Builds::Both),
-    ("cond/simp-requires__predarg", "MLP/4", Builds::Both),
-    ("left/claim-lhs__bottom", "MLP/4", Builds::Both),
-    ("left/claim-lhs__exists", "MLP/4", Builds::Both),
-    ("left/claim-lhs__forall", "MLP/4", Builds::Both),
-    ("left/claim-lhs__implies", "MLP/4", Builds::Both),
-    ("left/claim-lhs__not", "MLP/4", Builds::Both),
-    ("left/claim-lhs__top", "MLP/4", Builds::Both),
-    ("left/fun-lhs__and-pred", "MLP/4", Builds::Both),
-    ("left/fun-lhs__bottom", "MLP/4", Builds::Both),
-    ("left/fun-lhs__exists", "MLP/4", Builds::Both),
-    ("left/fun-lhs__floor", "MLP/4", Builds::Both),
-    ("left/fun-lhs__forall", "MLP/4", Builds::Both),
-    ("left/fun-lhs__implies", "MLP/4", Builds::Both),
-    ("left/fun-lhs__not", "MLP/4", Builds::Both),
-    ("left/fun-lhs__or-var", "MLP/4", Builds::Both),
-    ("left/fun-lhs__top", "MLP/4", Builds::Both),
-    ("left/rule-lhs__and-implies", "MLP/4", Builds::Both),
-    ("left/rule-lhs__bottom", "MLP/4", Builds::Both),
-    ("left/rule-lhs__exists", "MLP/4", Builds::Both),
-    ("left/rule-lhs__forall", "MLP/4", Builds::Both),
-    ("left/rule-lhs__implies", "MLP/4", Builds::Both),
-    ("left/rule-lhs__not", "MLP/4", Builds::Both),
-    ("left/rule-lhs__top", "MLP/4", Builds::Both),
-    ("left/rule-shared__exists", "MLP/4", Builds::Both),
-    ("left/rule-shared__forall", "MLP/4", Builds::Both),
-    ("left/rule-shared__implies", "MLP/4", Builds::Both),
-    ("left/rule-shared__not", "MLP/4", Builds::Both),
-    ("left/simp-lhs__and-pred", "MLP/4", Builds::Both),
-    ("left/simp-lhs__bottom", "MLP/4", Builds::Both),
-    ("left/simp-lhs__ceil", "MLP/4", Builds::Both),
-    ("left/simp-lhs__exists", "MLP/4", Builds::Both),
-    ("left/simp-lhs__floor", "MLP/4", Builds::Both),
-    ("left/simp-lhs__forall", "MLP/4", Builds::Both),
-    ("left/simp-lhs__implies", "MLP/4", Builds::Both),
-    ("left/simp-lhs__not", "MLP/4", Builds::Both),
-    ("left/simp-lhs__or", "MLP/4", Builds::Both),
-    ("left/simp-lhs__or-var", "MLP/4", Builds::Both),
-    ("left/simp-lhs__top", "MLP/4", Builds::Both),
-    ("right/alias-rhs__exists", "MLP/4", Builds::Both),
-    ("right/alias-rhs__exists-pred", "MLP/4", Builds::Both),
-    ("right/alias-rhs__forall", "MLP/4", Builds::Both),
-    ("right/alias-rhs__implies", "MLP/4", Builds::Both),
-    ("right/alias-rhs__not", "MLP/4", Builds::Both),
-    ("right/alias-rhs__top", "MLP/4", Builds::Both),
-    ("right/anywhere-rhs__exists", "MLP/4", Builds::Both),
-    ("right/anywhere-rhs__exists-pred", "MLP/4", Builds::Both),
-    ("right/anywhere-rhs__forall", "MLP/4", Builds::Both),
-    ("right/anywhere-rhs__implies", "MLP/4", Builds::Both),
-    ("right/anywhere-rhs__not", "MLP/4", Builds::Both),
-    ("right/anywhere-rhs__or", "MLP/4", Builds::Both),
-    ("right/anywhere-rhs__top", "MLP/4", Builds::Both),
-    ("right/claim-rhs__bottom", "MLP/4", Builds::Both),
-    ("right/claim-rhs__exists", "MLP/4", Builds::Both),
-    ("right/claim-rhs__exists-pred", "MLP/4", Builds::Both),
-    ("right/claim-rhs__forall", "MLP/4", Builds::Both),
-    ("right/claim-rhs__fun", "MLP/4", Builds::Both),
-    ("right/claim-rhs__implies", "MLP/4", Builds::Both),
-    ("right/claim-rhs__let", "MLP/4", Builds::Both),
-    ("right/claim-rhs__not", "MLP/4", Builds::Both),
-    ("right/claim-rhs__top", "MLP/4", Builds::Both),
-    ("right/fun-rhs__exists", "MLP/4", Builds::Both),
-    ("right/fun-rhs__exists-pred", "MLP/4", Builds::Both),
-    ("right/fun-rhs__forall", "MLP/4", Builds::Both),
-    ("right/fun-rhs__implies", "MLP/4", Builds::Both),
-    ("right/fun-rhs__not", "MLP/4", Builds::Both),
-    ("right/fun-rhs__or", "MLP/4", Builds::Both),
-    ("right/fun-rhs__top", "MLP/4", Builds::Both),
-    ("right/macro-rhs__exists", "MLP/4", Builds::Both),
-    ("right/macro-rhs__exists-pred", "MLP/4", Builds::Both),
-    ("right/macro-rhs__forall", "MLP/4", Builds::Both),
-    ("right/macro-rhs__implies", "MLP/4", Builds::Both),
-    ("right/macro-rhs__not", "MLP/4", Builds::Both),
-    ("right/macro-rhs__top", "MLP/4", Builds::Both),
-    ("right/rule-rhs__and-or", "MLP/4", Builds::Both),
-    ("right/rule-rhs__exists", "MLP/4", Builds::Both),
-    ("right/rule-rhs__exists-pred", "MLP/4", Builds::Both),
-    ("right/rule-rhs__forall", "MLP/4", Builds::Both),
-    ("right/rule-rhs__implies", "MLP/4", Builds::Both),
-    ("right/rule-rhs__not", "MLP/4", Builds::Both),
-    ("right/rule-rhs__top", "MLP/4", Builds::Both),
-    ("right/simp-rhs__exists", "MLP/4", Builds::Both),
-    ("right/simp-rhs__exists-pred", "MLP/4", Builds::Both),
-    ("right/simp-rhs__forall", "MLP/4", Builds::Both),
-    ("right/simp-rhs__implies", "MLP/4", Builds::Both),
-    ("right/simp-rhs__not", "MLP/4", Builds::Both),
-    ("right/simp-rhs__or", "MLP/4", Builds::Both),
-    ("right/simp-rhs__top", "MLP/4", Builds::Both),
+    ("cond/claim-ensures__as", "MLP/4", Class::Conforms, Class::Refused),
+    ("cond/claim-ensures__fun", "MLP/4", Class::Refused, Class::Refused),
+    ("cond/claim-ensures__let", "MLP/4", Class::Refused, Class::Refused),
+    ("cond/claim-ensures__or-inner", "MLP/4", Class::Refused, Class::Refused),
+    ("cond/claim-ensures__predarg", "MLP/4", Class::Refused, Class::Refused),
+    ("cond/claim-requires__as", "MLP/4", Class::Conforms, Class::Accepted),
+    ("cond/claim-requires__ceilop-and", "MLP/4", Class::Undecided, Class::Wrong),
+    ("cond/claim-requires__eqop-and", "MLP/4", Class::Refused, Class::Refused),
+    ("cond/claim-requires__eqop-or-int", "MLP/4", Class::Refused, Class::Refused),
+    ("cond/claim-requires__eqop-or-true", "MLP/4", Class::Undecided, Class::Wrong),
+    ("cond/claim-requires__eqop-true-or", "MLP/4", Class::Undecided, Class::Wrong),
+    ("cond/claim-requires__fun", "MLP/4", Class::Refused, Class::Refused),
+    ("cond/claim-requires__let", "MLP/4", Class::Refused, Class::Refused),
+    ("cond/claim-requires__or-inner", "MLP/4", Class::Refused, Class::Refused),
+    ("cond/claim-requires__predarg", "MLP/4", Class::Refused, Class::Refused),
+    ("cond/context-requires__as", "MLP/4", Class::Conforms, Class::Refused),
+    ("cond/context-requires__or-inner", "MLP/4", Class::Refused, Class::Refused),
+    ("cond/context-requires__predarg", "MLP/4", Class::Refused, Class::Refused),
+    ("cond/fun-ensures__as", "MLP/4", Class::Conforms, Class::Refused),
+    ("cond/fun-ensures__or-inner", "MLP/4", Class::Panic, Class::Panic),
+    ("cond/fun-ensures__predarg", "MLP/4", Class::Refused, Class::Refused),
+    ("cond/fun-requires__as", "MLP/4", Class::Conforms, Class::Undecided),
+    ("cond/fun-requires__ceilop-and", "MLP/4", Class::Wrong, Class::Wrong),
+    ("cond/fun-requires__eqop-and", "MLP/4", Class::Wrong, Class::Wrong),
+    ("cond/fun-requires__eqop-or-int", "MLP/4", Class::Accepted, Class::Accepted),
+    ("cond/fun-requires__eqop-or-true", "MLP/4", Class::Accepted, Class::Accepted),
+    ("cond/fun-requires__eqop-true-or", "MLP/4", Class::Accepted, Class::Accepted),
+    ("cond/fun-requires__or-inner", "MLP/4", Class::Refused, Class::Refused),
+    ("cond/fun-requires__predarg", "MLP/4", Class::Refused, Class::Refused),
+    ("cond/rule-ensures__as", "MLP/4", Class::Conforms, Class::Refused),
+    ("cond/rule-ensures__or-inner", "MLP/4", Class::Panic, Class::Panic),
+    ("cond/rule-ensures__predarg", "MLP/4", Class::Refused, Class::Refused),
+    ("cond/rule-requires__as", "MLP/4", Class::Conforms, Class::Accepted),
+    ("cond/rule-requires__ceilop-and", "MLP/4", Class::Wrong, Class::Wrong),
+    ("cond/rule-requires__eqop-and", "MLP/4", Class::Wrong, Class::Wrong),
+    ("cond/rule-requires__eqop-or-int", "MLP/4", Class::Undecided, Class::Undecided),
+    ("cond/rule-requires__eqop-or-true", "MLP/4", Class::Undecided, Class::Undecided),
+    ("cond/rule-requires__eqop-true-or", "MLP/4", Class::Undecided, Class::Undecided),
+    ("cond/rule-requires__or-inner", "MLP/4", Class::Refused, Class::Refused),
+    ("cond/rule-requires__predarg", "MLP/4", Class::Refused, Class::Refused),
+    ("cond/simp-ensures__as", "MLP/4", Class::Conforms, Class::Refused),
+    ("cond/simp-ensures__or-inner", "MLP/4", Class::Panic, Class::Panic),
+    ("cond/simp-ensures__predarg", "MLP/4", Class::Refused, Class::Refused),
+    ("cond/simp-requires__as", "MLP/4", Class::Conforms, Class::Undecided),
+    ("cond/simp-requires__or-inner", "MLP/4", Class::Refused, Class::Refused),
+    ("cond/simp-requires__predarg", "MLP/4", Class::Refused, Class::Refused),
+    ("left/claim-lhs__bottom", "MLP/4", Class::Refused, Class::Refused),
+    ("left/claim-lhs__exists", "MLP/4", Class::Refused, Class::Refused),
+    ("left/claim-lhs__forall", "MLP/4", Class::Refused, Class::Refused),
+    ("left/claim-lhs__implies", "MLP/4", Class::Refused, Class::Refused),
+    ("left/claim-lhs__not", "MLP/4", Class::Refused, Class::Refused),
+    ("left/claim-lhs__top", "MLP/4", Class::Refused, Class::Refused),
+    ("left/fun-lhs__and-pred", "MLP/4", Class::Refused, Class::Refused),
+    ("left/fun-lhs__bottom", "MLP/4", Class::Refused, Class::Refused),
+    ("left/fun-lhs__exists", "MLP/4", Class::Panic, Class::Panic),
+    ("left/fun-lhs__floor", "MLP/4", Class::Refused, Class::Refused),
+    ("left/fun-lhs__forall", "MLP/4", Class::Panic, Class::Panic),
+    ("left/fun-lhs__implies", "MLP/4", Class::Refused, Class::Refused),
+    ("left/fun-lhs__not", "MLP/4", Class::Refused, Class::Refused),
+    ("left/fun-lhs__or-var", "MLP/4", Class::Wrong, Class::Wrong),
+    ("left/fun-lhs__top", "MLP/4", Class::Refused, Class::Refused),
+    ("left/rule-lhs__and-implies", "MLP/4", Class::Undecided, Class::Undecided),
+    ("left/rule-lhs__bottom", "MLP/4", Class::Refused, Class::Refused),
+    ("left/rule-lhs__exists", "MLP/4", Class::Refused, Class::Refused),
+    ("left/rule-lhs__forall", "MLP/4", Class::Refused, Class::Refused),
+    ("left/rule-lhs__implies", "MLP/4", Class::Refused, Class::Refused),
+    ("left/rule-lhs__not", "MLP/4", Class::Refused, Class::Refused),
+    ("left/rule-lhs__top", "MLP/4", Class::Refused, Class::Refused),
+    ("left/rule-shared__exists", "MLP/4", Class::Refused, Class::Refused),
+    ("left/rule-shared__forall", "MLP/4", Class::Refused, Class::Refused),
+    ("left/rule-shared__implies", "MLP/4", Class::Undecided, Class::Undecided),
+    ("left/rule-shared__not", "MLP/4", Class::Refused, Class::Refused),
+    ("left/simp-lhs__and-pred", "MLP/4", Class::Refused, Class::Refused),
+    ("left/simp-lhs__bottom", "MLP/4", Class::Refused, Class::Refused),
+    ("left/simp-lhs__ceil", "MLP/4", Class::Refused, Class::Refused),
+    ("left/simp-lhs__exists", "MLP/4", Class::Refused, Class::Refused),
+    ("left/simp-lhs__floor", "MLP/4", Class::Refused, Class::Refused),
+    ("left/simp-lhs__forall", "MLP/4", Class::Refused, Class::Refused),
+    ("left/simp-lhs__implies", "MLP/4", Class::Refused, Class::Refused),
+    ("left/simp-lhs__not", "MLP/4", Class::Refused, Class::Refused),
+    ("left/simp-lhs__or", "MLP/4", Class::Refused, Class::Refused),
+    ("left/simp-lhs__or-var", "MLP/4", Class::Refused, Class::Refused),
+    ("left/simp-lhs__top", "MLP/4", Class::Refused, Class::Refused),
+    ("right/alias-rhs__exists", "MLP/4", Class::Refused, Class::Refused),
+    ("right/alias-rhs__exists-pred", "MLP/4", Class::Refused, Class::Refused),
+    ("right/alias-rhs__forall", "MLP/4", Class::Refused, Class::Refused),
+    ("right/alias-rhs__implies", "MLP/4", Class::Refused, Class::Refused),
+    ("right/alias-rhs__not", "MLP/4", Class::Refused, Class::Refused),
+    ("right/alias-rhs__top", "MLP/4", Class::Refused, Class::Refused),
+    ("right/anywhere-rhs__exists", "MLP/4", Class::Refused, Class::Refused),
+    ("right/anywhere-rhs__exists-pred", "MLP/4", Class::Refused, Class::Refused),
+    ("right/anywhere-rhs__forall", "MLP/4", Class::Refused, Class::Refused),
+    ("right/anywhere-rhs__implies", "MLP/4", Class::Refused, Class::Refused),
+    ("right/anywhere-rhs__not", "MLP/4", Class::Refused, Class::Refused),
+    ("right/anywhere-rhs__or", "MLP/4", Class::Refused, Class::Refused),
+    ("right/anywhere-rhs__top", "MLP/4", Class::Refused, Class::Refused),
+    ("right/claim-rhs__bottom", "MLP/4", Class::Refused, Class::Refused),
+    ("right/claim-rhs__exists", "MLP/4", Class::Refused, Class::Refused),
+    ("right/claim-rhs__exists-pred", "MLP/4", Class::Refused, Class::Refused),
+    ("right/claim-rhs__forall", "MLP/4", Class::Refused, Class::Refused),
+    ("right/claim-rhs__fun", "MLP/4", Class::Refused, Class::Refused),
+    ("right/claim-rhs__implies", "MLP/4", Class::Refused, Class::Refused),
+    ("right/claim-rhs__let", "MLP/4", Class::Refused, Class::Refused),
+    ("right/claim-rhs__not", "MLP/4", Class::Refused, Class::Refused),
+    ("right/claim-rhs__top", "MLP/4", Class::Refused, Class::Refused),
+    ("right/fun-rhs__exists", "MLP/4", Class::Refused, Class::Refused),
+    ("right/fun-rhs__exists-pred", "MLP/4", Class::Refused, Class::Refused),
+    ("right/fun-rhs__forall", "MLP/4", Class::Refused, Class::Refused),
+    ("right/fun-rhs__implies", "MLP/4", Class::Refused, Class::Refused),
+    ("right/fun-rhs__not", "MLP/4", Class::Refused, Class::Refused),
+    ("right/fun-rhs__or", "MLP/4", Class::Refused, Class::Refused),
+    ("right/fun-rhs__top", "MLP/4", Class::Refused, Class::Refused),
+    ("right/macro-rhs__exists", "MLP/4", Class::Refused, Class::Refused),
+    ("right/macro-rhs__exists-pred", "MLP/4", Class::Refused, Class::Refused),
+    ("right/macro-rhs__forall", "MLP/4", Class::Refused, Class::Refused),
+    ("right/macro-rhs__implies", "MLP/4", Class::Refused, Class::Refused),
+    ("right/macro-rhs__not", "MLP/4", Class::Refused, Class::Refused),
+    ("right/macro-rhs__top", "MLP/4", Class::Refused, Class::Refused),
+    ("right/rule-rhs__and-or", "MLP/4", Class::Wrong, Class::Wrong),
+    ("right/rule-rhs__exists", "MLP/4", Class::Refused, Class::Refused),
+    ("right/rule-rhs__exists-pred", "MLP/4", Class::Refused, Class::Refused),
+    ("right/rule-rhs__forall", "MLP/4", Class::Refused, Class::Refused),
+    ("right/rule-rhs__implies", "MLP/4", Class::Refused, Class::Refused),
+    ("right/rule-rhs__not", "MLP/4", Class::Refused, Class::Refused),
+    ("right/rule-rhs__top", "MLP/4", Class::Refused, Class::Refused),
+    ("right/simp-rhs__exists", "MLP/4", Class::Refused, Class::Refused),
+    ("right/simp-rhs__exists-pred", "MLP/4", Class::Refused, Class::Refused),
+    ("right/simp-rhs__forall", "MLP/4", Class::Refused, Class::Refused),
+    ("right/simp-rhs__implies", "MLP/4", Class::Refused, Class::Refused),
+    ("right/simp-rhs__not", "MLP/4", Class::Refused, Class::Refused),
+    ("right/simp-rhs__or", "MLP/4", Class::Refused, Class::Refused),
+    ("right/simp-rhs__top", "MLP/4", Class::Undecided, Class::Undecided),
     // MLP/9 (24): search-pattern conditions: refused unlocated at run time, or read as Bool terms.
-    ("search/final__and-bt", "MLP/9", Builds::Both),
-    ("search/final__and-pr", "MLP/9", Builds::Both),
-    ("search/final__as", "MLP/9", Builds::Z3),
-    ("search/final__bottom", "MLP/9", Builds::Both),
-    ("search/final__ceil", "MLP/9", Builds::Both),
-    ("search/final__eq", "MLP/9", Builds::Both),
-    ("search/final__eq-bool", "MLP/9", Builds::Both),
-    ("search/final__ex-bt", "MLP/9", Builds::Both),
-    ("search/final__ex-pr", "MLP/9", Builds::Both),
-    ("search/final__fa-bt", "MLP/9", Builds::Both),
-    ("search/final__fa-pr", "MLP/9", Builds::Both),
-    ("search/final__floor", "MLP/9", Builds::Both),
-    ("search/final__fun", "MLP/9", Builds::Both),
-    ("search/final__imp-bt", "MLP/9", Builds::Both),
-    ("search/final__imp-pr", "MLP/9", Builds::Both),
-    ("search/final__let", "MLP/9", Builds::Both),
-    ("search/final__not-bt", "MLP/9", Builds::Both),
-    ("search/final__not-pr", "MLP/9", Builds::Both),
-    ("search/final__or-bt", "MLP/9", Builds::Both),
-    ("search/final__or-inner", "MLP/9", Builds::Both),
-    ("search/final__or-mix", "MLP/9", Builds::Both),
-    ("search/final__or-pr", "MLP/9", Builds::Both),
-    ("search/final__predarg", "MLP/9", Builds::Both),
-    ("search/final__top", "MLP/9", Builds::Both),
-    // unassigned (2): new findings outside the lane's designs (MLP/0 report): a predicate lemma whose subject is a disjunction, and a predicate lemma on a ground atom of a rewrite rule's condition, are not applied.
-    ("psimp/pred-simp__eq-eq-ground", "unassigned", Builds::Both),
-    ("psimp/pred-simp__or-lhs", "unassigned", Builds::Z3),
+    ("search/final__and-bt", "MLP/9", Class::Refused, Class::Refused),
+    ("search/final__and-pr", "MLP/9", Class::Refused, Class::Refused),
+    ("search/final__as", "MLP/9", Class::Conforms, Class::Refused),
+    ("search/final__bottom", "MLP/9", Class::Refused, Class::Refused),
+    ("search/final__ceil", "MLP/9", Class::Refused, Class::Refused),
+    ("search/final__eq", "MLP/9", Class::Refused, Class::Refused),
+    ("search/final__eq-bool", "MLP/9", Class::Refused, Class::Refused),
+    ("search/final__ex-bt", "MLP/9", Class::Refused, Class::Refused),
+    ("search/final__ex-pr", "MLP/9", Class::Refused, Class::Refused),
+    ("search/final__fa-bt", "MLP/9", Class::Refused, Class::Refused),
+    ("search/final__fa-pr", "MLP/9", Class::Refused, Class::Refused),
+    ("search/final__floor", "MLP/9", Class::Refused, Class::Refused),
+    ("search/final__fun", "MLP/9", Class::Refused, Class::Refused),
+    ("search/final__imp-bt", "MLP/9", Class::Refused, Class::Refused),
+    ("search/final__imp-pr", "MLP/9", Class::Refused, Class::Refused),
+    ("search/final__let", "MLP/9", Class::Refused, Class::Refused),
+    ("search/final__not-bt", "MLP/9", Class::Refused, Class::Refused),
+    ("search/final__not-pr", "MLP/9", Class::Refused, Class::Refused),
+    ("search/final__or-bt", "MLP/9", Class::Refused, Class::Refused),
+    ("search/final__or-inner", "MLP/9", Class::Refused, Class::Refused),
+    ("search/final__or-mix", "MLP/9", Class::Refused, Class::Refused),
+    ("search/final__or-pr", "MLP/9", Class::Refused, Class::Refused),
+    ("search/final__predarg", "MLP/9", Class::Accepted, Class::Accepted),
+    ("search/final__top", "MLP/9", Class::Refused, Class::Refused),
+    // unassigned (2): follow-ups FU-20 and FU-21 (decisions.toml, "MLP/0 questions"): a predicate lemma whose subject is a disjunction, and a predicate lemma on a ground atom of a rewrite rule's condition, are not applied.
+    ("psimp/pred-simp__eq-eq-ground", "unassigned", Class::Undecided, Class::Undecided),
+    ("psimp/pred-simp__or-lhs", "unassigned", Class::Conforms, Class::Undecided),
 ];
 
 // ---------------------------------------------------------------- observation
@@ -1066,6 +1113,18 @@ fn conforms(cell: &CellSpec, build: Build, outcome: &Outcome) -> Result<(), Stri
                 return Err("expected acceptance".to_owned());
             };
             let allowed = cell.allow.applies(build);
+            assert_eq!(
+                runs.len(),
+                observed_runs.len(),
+                "{}: one observed run per expected run",
+                cell.name
+            );
+            assert_eq!(
+                proofs.len(),
+                observed_proofs.len(),
+                "{}: one observed verdict per expected verdict",
+                cell.name
+            );
             for (run, (program, observed)) in runs.iter().zip(observed_runs) {
                 debug_assert_eq!(&run.program, program);
                 let observed = observed
@@ -1079,7 +1138,7 @@ fn conforms(cell: &CellSpec, build: Build, outcome: &Outcome) -> Result<(), Stri
                     .as_ref()
                     .map_err(|error| format!("claim {claim}: error {}", one_line(error)))?;
                 let fits = match (verdict, status.as_str()) {
-                    (Verdict::Proven, "proven") => true,
+                    (Verdict::Proven | Verdict::ProvenAlways, "proven") => true,
                     (Verdict::NotProven, "disproved" | "failed") => true,
                     (Verdict::Proven, "indeterminate" | "failed") => allowed,
                     (Verdict::NotProven, "indeterminate") => allowed,
@@ -1123,26 +1182,51 @@ fn run_conforms(run: &Run, observed: &[ObservedLeaf], allowed: bool) -> Result<(
             }
         )
     };
-    // A run whose leaves are all optional needs one of them: the meaning gives a successor.
-    let some_leaf = !required.is_empty() || run.optional.is_empty() || !seen.is_empty();
+    // A run whose leaves are all optional needs one of its non-Trivial ones: the meaning gives
+    // a successor state.
+    let some_leaf = !required.is_empty()
+        || run.optional.is_empty()
+        || seen.iter().any(|leaf| leaf.halt != "Trivial");
     if required.is_subset(&seen) && seen.is_subset(&permitted) && some_leaf {
         return Ok(());
     }
-    if allowed && !observed.is_empty() {
+    if allowed {
+        // The build did not decide the construct at all: the run halts Indeterminate at the
+        // program, or at an expected state from which the undecided construct is reached (the
+        // unheated state of a context).
+        let mut undecided_at: BTreeSet<String> = run
+            .leaves
+            .iter()
+            .chain(&run.undecided)
+            .map(|leaf| leaf.term.clone())
+            .collect();
+        undecided_at.insert(render_program(&run.program));
+        if observed.len() == 1
+            && observed[0].halt == "Indeterminate"
+            && undecided_at.contains(&observed[0].term)
+        {
+            return Ok(());
+        }
         let mut undecided = permitted.clone();
         undecided.extend(run.undecided.iter().cloned());
-        let program_term = render_program(&run.program);
+        undecided.extend(run.unevaluated.iter().cloned());
+        // A leaf outside the expected ones carries the undecided construct: in its constraint,
+        // or as the application of `f` the undecided equation would evaluate.
         let fits = observed.iter().all(|leaf| {
             let key = key(leaf);
-            if leaf.halt == "Indeterminate" && leaf.term == program_term {
-                return true;
-            }
-            // A leaf outside the expected ones carries the undecided construct: in its
-            // constraint, or as the application of `f` the undecided equation would evaluate.
             undecided.contains(&key)
                 && (permitted.contains(&key) || leaf.constrained || leaf.term.contains("f("))
         });
-        if fits {
+        // Every expected state is still reached: each required leaf other than a Trivial one
+        // (which denotes no state) is observed, constrained or not, or left unevaluated.
+        let covered = run
+            .leaves
+            .iter()
+            .filter(|leaf| leaf.halt != "Trivial")
+            .all(|leaf| {
+                seen.contains(leaf) || run.unevaluated.iter().any(|stand| seen.contains(stand))
+            });
+        if fits && covered && !observed.is_empty() {
             return Ok(());
         }
     }
@@ -1181,13 +1265,136 @@ fn refused_as(cell: &CellSpec, code: Code, outcome: &Outcome) -> Result<(), Stri
     }
 }
 
+/// How a deviating outcome deviates ([`Class`]): against the expectation of an `Accept` cell,
+/// and against the stated meaning of a refused one.
+fn classify(cell: &CellSpec, outcome: &Outcome) -> Class {
+    let (observed_runs, observed_proofs) = match outcome {
+        Outcome::Panic(_) => return Class::Panic,
+        Outcome::LoadRefused(_)
+        | Outcome::CompileRefused { .. }
+        | Outcome::SearchRefused { .. }
+        | Outcome::BackendRefused(_) => return Class::Refused,
+        Outcome::Ran { runs, proofs } => (runs, proofs),
+    };
+    let meaning = match (&cell.expect, &cell.meaning_runs) {
+        (Expect::Accept { .. }, _) => &cell.expect,
+        (Expect::Refuse { .. }, Meaning::States(meaning)) => meaning,
+        (Expect::Refuse { .. }, Meaning::NoModel) => return no_model_class(observed_runs),
+        (Expect::Refuse { .. }, Meaning::Unstated) => return Class::Accepted,
+    };
+    let Expect::Accept { runs, proofs } = meaning else {
+        unreachable!("a stated meaning is an Accept expectation");
+    };
+    let mut class = Class::Accepted;
+    let mut worse = |found: Class| {
+        let rank = |class: Class| match class {
+            Class::Wrong => 3,
+            Class::Refused => 2,
+            Class::Undecided => 1,
+            _ => 0,
+        };
+        if rank(found) > rank(class) {
+            class = found;
+        }
+    };
+    for run in runs {
+        let Some((_, observed)) = observed_runs
+            .iter()
+            .find(|(program, _)| *program == run.program)
+        else {
+            continue;
+        };
+        let Ok(observed) = observed else {
+            worse(Class::Refused);
+            continue;
+        };
+        let mut permitted: BTreeSet<Leaf> = run.leaves.iter().cloned().collect();
+        permitted.extend(run.optional.iter().cloned());
+        let mut seen = BTreeSet::new();
+        for leaf in observed {
+            let key = Leaf {
+                term: leaf.term.clone(),
+                halt: leaf.halt.clone(),
+            };
+            seen.insert(key.clone());
+            match leaf.halt.as_str() {
+                "SimplificationError" | "UnsupportedHook" => worse(Class::Refused),
+                "Stuck" | "Trivial" | "Vacuous" | "Match" if !permitted.contains(&key) => {
+                    // A constrained leaf may have no instance: its constraint is not read.
+                    worse(if leaf.constrained || leaf.term.contains("f(") {
+                        Class::Undecided
+                    } else {
+                        Class::Wrong
+                    });
+                }
+                "Stuck" | "Trivial" | "Vacuous" | "Match" => {}
+                _ => worse(Class::Undecided),
+            }
+        }
+        if run
+            .leaves
+            .iter()
+            .any(|leaf| leaf.halt != "Trivial" && !seen.contains(leaf))
+        {
+            worse(Class::Undecided);
+        }
+    }
+    for (claim, verdict) in proofs {
+        let Some((_, observed)) = observed_proofs.iter().find(|(name, _)| name == claim) else {
+            continue;
+        };
+        match (verdict, observed.as_deref()) {
+            (_, Err(_)) => worse(Class::Refused),
+            (Verdict::Proven | Verdict::ProvenAlways, Ok("proven"))
+            | (Verdict::NotProven, Ok("disproved" | "failed")) => {}
+            (Verdict::Proven | Verdict::ProvenAlways, Ok("disproved"))
+            | (Verdict::NotProven, Ok("proven")) => worse(Class::Wrong),
+            _ => worse(Class::Undecided),
+        }
+    }
+    class
+}
+
+/// A sentence with no model has no right answer: a run that reaches a state answers wrong; one
+/// that halts refusing the step, or leaves the application unevaluated, does not answer.
+fn no_model_class(observed_runs: &[(String, Result<Vec<ObservedLeaf>, String>)]) -> Class {
+    let mut class = Class::Undecided;
+    for (_, observed) in observed_runs {
+        let Ok(leaves) = observed else {
+            class = Class::Refused;
+            continue;
+        };
+        for leaf in leaves {
+            match leaf.halt.as_str() {
+                "SimplificationError" | "UnsupportedHook" => class = Class::Refused,
+                "Stuck" | "Vacuous" | "Match" if !leaf.term.contains("f(") => {
+                    return Class::Wrong;
+                }
+                _ => {}
+            }
+        }
+    }
+    class
+}
+
 // ---------------------------------------------------------------- shards
 
-fn pending(name: &str, build: Build) -> Option<&'static str> {
+/// The ticket and the base class of a cell pending in `build`.
+fn pending(name: &str, build: Build) -> Option<(&'static str, Class)> {
     PENDING
         .iter()
-        .find(|(cell, _, builds)| *cell == name && builds.contains(build))
-        .map(|(_, ticket, _)| *ticket)
+        .find(|(cell, ..)| *cell == name)
+        .map(|(_, ticket, portable, z3)| {
+            (
+                *ticket,
+                if build == Build::Portable {
+                    *portable
+                } else {
+                    *z3
+                },
+            )
+        })
+        .filter(|(_, class)| *class != Class::Conforms)
 }
 
 fn run_shard(shard: &str, cells: Vec<CellSpec>) {
@@ -1212,15 +1419,28 @@ fn run_shard(shard: &str, cells: Vec<CellSpec>) {
             "deviates"
         };
         *counts.entry(status).or_insert(0usize) += 1;
+        let class = if verdict.is_ok() {
+            Class::Conforms
+        } else {
+            classify(cell, &outcome)
+        };
         lines.push(format!(
-            "{}\t{}\t{status}\t{}\t{}",
+            "{}\t{}\t{status}\t{class:?}\t{}\t{}",
             cell.name,
             build.name(),
             outcome.summary(),
             verdict.as_ref().err().map(String::as_str).unwrap_or("")
         ));
         match (pending(&cell.name, build), verdict) {
-            (None, Ok(())) | (Some(_), Err(_)) => {}
+            (None, Ok(())) => {}
+            (Some((_, recorded)), Err(_)) if recorded == class => {}
+            (Some((ticket, recorded)), Err(_)) => failures.push(format!(
+                "{} ({}) is pending {ticket} as {recorded:?} but is now {class:?}: record the \
+                 change in PENDING\n    outcome: {}",
+                cell.name,
+                build.name(),
+                outcome.summary()
+            )),
             (None, Err(deviation)) => failures.push(format!(
                 "{} ({}) deviates from its meaning: {deviation}\n    meaning: {}\n    outcome: {}",
                 cell.name,
@@ -1228,7 +1448,7 @@ fn run_shard(shard: &str, cells: Vec<CellSpec>) {
                 cell.meaning,
                 outcome.summary()
             )),
-            (Some(ticket), Ok(())) => failures.push(format!(
+            (Some((ticket, _)), Ok(())) => failures.push(format!(
                 "{} ({}) is pending {ticket} but conforms: remove it from PENDING\n    outcome: {}",
                 cell.name,
                 build.name(),
@@ -1236,7 +1456,7 @@ fn run_shard(shard: &str, cells: Vec<CellSpec>) {
             )),
         }
     }
-    for (name, _, _) in PENDING {
+    for (name, ..) in PENDING {
         if cells::shard_of(name) == shard && !names.contains(name) {
             failures.push(format!("PENDING names {name}, which shard {shard} lacks"));
         }
@@ -1300,7 +1520,12 @@ macro_rules! shards {
                 total += cells::shard(shard).len();
             }
             assert_eq!(total, cells::all().len());
-            for (name, _, _) in PENDING {
+            // The cell set is pinned: a cell dropped from or added to a table is a visible diff.
+            let names: BTreeSet<String> =
+                cells::all().into_iter().map(|cell| cell.name).collect();
+            assert_eq!(names.len(), cells::all().len(), "cell names are unique");
+            assert_eq!(names.len(), CELL_COUNT, "the matrix has CELL_COUNT cells");
+            for (name, ..) in PENDING {
                 assert!(
                     shards.contains(&cells::shard_of(name)),
                     "PENDING names {name}, which belongs to no shard"

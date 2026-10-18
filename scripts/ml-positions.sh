@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The matching-logic position matrix (crates/k-rust/tests/ml_positions.rs): run its ignored shards
-# in the portable build, then in the native (`z3-inference`) build, both in the test profile, so
+# and its completeness test in the portable build, then in the native (`z3-inference`) build, both in the test profile, so
 # debug assertions and the kompile invariants run on every cell.
 set -euo pipefail
 
@@ -43,7 +43,7 @@ target_dir=${KRUST_GATE_TARGET_DIR:-$workspace/target/gates}
 
 matrix() {
   cargo test --locked --manifest-path "$workspace/Cargo.toml" --target-dir "$target_dir" \
-    -p k-rust --no-default-features "$@" --test ml_positions -- --ignored "${shards[@]}"
+    -p k-rust --no-default-features "$@" --test ml_positions -- --include-ignored "${shards[@]}"
 }
 
 shards=("$@")
