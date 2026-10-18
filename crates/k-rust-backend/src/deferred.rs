@@ -191,18 +191,117 @@ pub(crate) fn is_impure_symbol(definition: &BackendDefinition, symbol: &Symbol) 
             .is_some_and(|hook| hook.starts_with("IO."))
 }
 
+/// The symbols of a definition whose applications may perform a console effect when they are
+/// evaluated, closed over the definition's own equations; computed once at load
+/// (`BackendDefinition::internalize`) and read by [`holds_console_effect`].
+///
+/// It holds every symbol with an `IO.` hook or declared `impure`, and every head of a function
+/// equation, an anywhere rule or a simplification (every equation that can rewrite an
+/// application) whose right-hand side, requires or ensures mentions a symbol it holds: such an
+/// application may be rewritten into one that performs the effect. The frontend's propagation of
+/// `impure` follows function-headed rules only, so an anywhere head and the functions that reach
+/// it are found here and not there; hand-written KORE without the attribute is covered too.
+///
+/// `unindexed` holds when an equation whose left-hand side has no symbol at its root (a
+/// collection, an injection, a variable) mentions such a symbol: it can rewrite terms the walk
+/// cannot attribute to a head, so every term may then perform an effect.
+///
+/// The cost is one visit per node of those equations' right-hand sides, requires and ensures,
+/// and one edge per (mentioned symbol, head) pair, followed once each: linear in the size of
+/// the definition's equations.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct ConsoleReach {
+    symbols: rustc_hash::FxHashSet<crate::term::Name>,
+    unindexed: bool,
+}
+
+impl ConsoleReach {
+    pub(crate) fn of(definition: &BackendDefinition) -> Self {
+        use crate::rule::{RuleRhs, TermIndex};
+        let mut callers: rustc_hash::FxHashMap<crate::term::Name, Vec<crate::term::Name>> =
+            rustc_hash::FxHashMap::default();
+        let mut unindexed_mentions: Vec<crate::term::Name> = Vec::new();
+        let theories = [
+            definition.function_theory(),
+            definition.simplification_theory(),
+        ];
+        for (index, groups) in theories.into_iter().flatten() {
+            for rule in groups.values().flatten() {
+                let mut mentioned = Vec::new();
+                let mut symbols = |term: &Term| {
+                    term.visit_symbols(&mut |symbol: &Symbol| mentioned.push(symbol.name.clone()))
+                };
+                match &rule.rhs {
+                    RuleRhs::Term(term) => symbols(term),
+                    RuleRhs::Disjunction(alternatives) => {
+                        for alternative in alternatives {
+                            symbols(&alternative.term);
+                            for predicate in alternative.ensures.iter() {
+                                predicate.visit_terms(&mut symbols);
+                            }
+                        }
+                    }
+                    RuleRhs::Predicates(predicates) => {
+                        for predicate in predicates {
+                            predicate.visit_terms(&mut symbols);
+                        }
+                    }
+                    RuleRhs::Top | RuleRhs::Bottom => {}
+                }
+                for predicate in rule.requires.iter().chain(rule.ensures.iter()) {
+                    predicate.visit_terms(&mut symbols);
+                }
+                match index {
+                    TermIndex::Symbol(head) => {
+                        for symbol in mentioned {
+                            callers.entry(symbol).or_default().push(head.clone());
+                        }
+                    }
+                    _ => unindexed_mentions.extend(mentioned),
+                }
+            }
+        }
+        let mut symbols = rustc_hash::FxHashSet::default();
+        let mut pending: Vec<crate::term::Name> = definition
+            .symbols()
+            .values()
+            .filter(|symbol| is_impure_symbol(definition, symbol))
+            .map(|symbol| symbol.name.clone())
+            .collect();
+        while let Some(symbol) = pending.pop() {
+            if symbols.insert(symbol.clone())
+                && let Some(heads) = callers.get(&symbol)
+            {
+                pending.extend(heads.iter().cloned());
+            }
+        }
+        let unindexed = unindexed_mentions
+            .iter()
+            .any(|symbol| symbols.contains(symbol));
+        Self { symbols, unindexed }
+    }
+
+    /// Whether an application of `symbol` may perform a console effect.
+    pub(crate) fn may_reach(&self, symbol: &Symbol) -> bool {
+        self.symbols.contains(&symbol.name)
+    }
+}
+
 /// Whether `term` holds an application that may perform a console effect when it is
-/// evaluated: of a console hook (`IO.getc`, `IO.read`, `IO.putc`, `IO.write`), or of a symbol
-/// the definition declares `impure`. Every `IO.` hook is `impure`, so this over-approximates the
-/// console effects, which is sound for the marks it decides. Its completeness rests on the
-/// frontend propagating `impure` to every function whose equations reach an impure symbol: the
-/// backend reads the declared attribute only.
+/// evaluated: of a symbol [`ConsoleReach`] holds, which over-approximates the console effects
+/// (every `IO.` hook is `impure`, and so is a symbol only declared so), as is sound for the marks
+/// it decides.
 ///
 /// The walk stops at every constructor-like subterm (a domain value, a free-constructor
-/// application, a collection of them), which holds no application of a function, so it visits
+/// application, a collection of them), which holds no application a function equation, an
+/// anywhere rule or a simplification heads (such a head is no free constructor), so it visits
 /// only the subterms that may hold one: a large evaluated state is one node. It keeps one work
 /// list per call, which allocates only when a node has children to visit, and none per node.
 pub(crate) fn holds_console_effect(definition: &BackendDefinition, term: &Term) -> bool {
+    let reach = definition.console_reach();
+    if reach.unindexed {
+        return true;
+    }
     let mut pending: Vec<&Term> = Vec::new();
     let mut next = Some(term);
     while let Some(term) = next.take().or_else(|| pending.pop()) {
@@ -215,12 +314,7 @@ pub(crate) fn holds_console_effect(definition: &BackendDefinition, term: &Term) 
             TermKind::Application {
                 symbol, arguments, ..
             } => {
-                if definition.is_impure(&symbol.name)
-                    || matches!(
-                        symbol.attributes.hook.as_deref(),
-                        Some("IO.getc" | "IO.read" | "IO.putc" | "IO.write")
-                    )
-                {
+                if reach.may_reach(symbol) {
                     return true;
                 }
                 pending.extend(arguments.iter());

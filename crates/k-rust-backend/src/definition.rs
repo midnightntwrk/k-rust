@@ -1120,6 +1120,10 @@ pub struct BackendDefinition {
     /// The symbols declared with the KORE `impure` attribute, K's mark of an operation with an
     /// effect; read by [`Self::is_impure`].
     impure_symbols: BTreeSet<Name>,
+    /// The symbols whose applications may perform a console effect, closed over the equations;
+    /// computed by `internalize` once the theories are complete; read by
+    /// [`Self::console_reach`].
+    console_reach: crate::deferred::ConsoleReach,
     finite_sort_constructors: BTreeMap<Sort, FiniteConstructorDomain>,
     /// Which sorts may contain a `KVar` token; computed on first use by `SUBSTITUTION.substOne`.
     kvar_sorts: OnceLock<KVarSorts>,
@@ -2235,6 +2239,12 @@ impl BackendDefinition {
         self.impure_symbols.contains(symbol)
     }
 
+    /// The symbols whose applications may perform a console effect, closed over the
+    /// definition's equations ([`crate::deferred::ConsoleReach`]).
+    pub(crate) fn console_reach(&self) -> &crate::deferred::ConsoleReach {
+        &self.console_reach
+    }
+
     /// Whether `term` is an application of a `value-production` symbol that no equation of the
     /// definition reduces, on any instance, so that the application is defined wherever its
     /// arguments are.
@@ -2731,6 +2741,7 @@ impl BackendDefinition {
             ceil_theory: Theory::new(),
             value_productions,
             impure_symbols,
+            console_reach: crate::deferred::ConsoleReach::default(),
             finite_sort_constructors: BTreeMap::new(),
             kvar_sorts: OnceLock::new(),
             inhabited_sorts: OnceLock::new(),
@@ -2805,6 +2816,7 @@ impl BackendDefinition {
             }
         }
         result.finite_sort_constructors = collect_finite_sort_constructors(&result)?;
+        result.console_reach = crate::deferred::ConsoleReach::of(&result);
         // The check runs while the definition still withholds every claim, and before the
         // rewrite rules' definedness is discharged, which reads the claims.
         #[cfg(test)]
