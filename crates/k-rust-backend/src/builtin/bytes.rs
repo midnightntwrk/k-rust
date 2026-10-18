@@ -235,7 +235,15 @@ fn pad(arguments: &[Term], left: bool, allowance: &Allowance) -> HookResult<Buil
     {
         return Ok(BuiltinResult::Value(arguments[0].clone()));
     }
-    let length = match bounded_length(&length, &bytes_result_cap(allowance)) {
+    let length = match bounded_length(
+        if left {
+            "BYTES.padLeft"
+        } else {
+            "BYTES.padRight"
+        },
+        &length,
+        &bytes_result_cap(allowance),
+    ) {
         Ok(length) => length,
         Err(reason) => return Ok(BuiltinResult::Unsupported(reason)),
     };
@@ -303,7 +311,7 @@ fn int_to_bytes(arguments: &[Term], allowance: &Allowance) -> HookResult<Builtin
     let Some(endianness) = read_endianness(&arguments[2]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let length = match bounded_length(&length, &bytes_result_cap(allowance)) {
+    let length = match bounded_length("BYTES.int2bytes", &length, &bytes_result_cap(allowance)) {
         Ok(length) => length,
         Err(reason) => return Ok(BuiltinResult::Unsupported(reason)),
     };
@@ -375,7 +383,15 @@ fn read_index(term: &Term) -> Option<Option<usize>> {
 /// A nonnegative `length` as the length of a `Bytes` result, or `ResultTooLarge` above `cap`, or
 /// above the caller's result bound (`super::result_bound`): the value exists, and the backend
 /// does not build it.
-fn bounded_length(length: &BigInt, cap: &ResultCap<'_>) -> Result<usize, UnsupportedHookReason> {
+///
+/// A refusal at the cap is noted in the run-level record as `hook`'s allowance refusal
+/// (`crate::path_facts`): it holds under this allowance only, and a run that met it may differ
+/// under one of more bytes, whatever became of the work that met it.
+fn bounded_length(
+    hook: &str,
+    length: &BigInt,
+    cap: &ResultCap<'_>,
+) -> Result<usize, UnsupportedHookReason> {
     debug_assert!(
         length.sign() != Sign::Minus,
         "callers reject a negative length"
@@ -397,13 +413,17 @@ fn bounded_length(length: &BigInt, cap: &ResultCap<'_>) -> Result<usize, Unsuppo
         .to_u64()
         .filter(|length| *length <= limit)
         .and_then(|length| usize::try_from(length).ok())
-        .ok_or_else(|| UnsupportedHookReason::ResultTooLarge {
-            detail: format!(
-                "a Bytes result of length {} is longer than its cap of {limit} bytes ({}): {}",
-                describe_int(length),
-                super::describe_bytes(limit),
-                cap.reason(),
-            ),
+        .ok_or_else(|| {
+            let reason = UnsupportedHookReason::ResultTooLarge {
+                detail: format!(
+                    "a Bytes result of length {} is longer than its cap of {limit} bytes ({}): {}",
+                    describe_int(length),
+                    super::describe_bytes(limit),
+                    cap.reason(),
+                ),
+            };
+            crate::path_facts::note_unevaluated_hook(hook, &reason, true);
+            reason
         })
 }
 
@@ -803,10 +823,10 @@ mod tests {
         let cap = bytes_result_cap(&ALLOWANCE);
         assert_eq!(cap.bytes(), 8 << 30);
         assert_eq!(
-            bounded_length(&BigInt::from(8_u64 << 30), &cap),
+            bounded_length("BYTES.padRight", &BigInt::from(8_u64 << 30), &cap),
             Ok(8 << 30)
         );
-        assert!(bounded_length(&(BigInt::from(8_u64 << 30) + 1), &cap).is_err());
+        assert!(bounded_length("BYTES.padRight", &(BigInt::from(8_u64 << 30) + 1), &cap).is_err());
     }
 
     /// Of the allowance, only its bytes decide whether one application refuses: a `padRightBytes`

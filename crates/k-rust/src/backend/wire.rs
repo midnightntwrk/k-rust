@@ -141,6 +141,85 @@ fn contradicted_total_output<K: WireKore>(
     })
 }
 
+/// The kind of claim a [`ContradictedClaimOutput`] names.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ContradictedClaimKind {
+    /// A symbol declared `total` (or `functional`) whose own equation reduced an application to
+    /// defined arguments to bottom; the record carries the fields of [`ContradictedTotalOutput`].
+    Total,
+}
+
+/// A claim of the definition that an evaluation of the run found contradicted by the
+/// definition's own equations (`k_rust_backend::path_facts::ContradictedClaim`): a leaf's
+/// `contradicted-claim` path fact and an entry of the result's `contradictedClaims`.
+///
+/// `symbol` to `undefined` are those of [`ContradictedTotalOutput`]: the contradicted symbol, the
+/// equation that reduced the application to bottom, the application and the undefined term.
+/// `rewriteRule*` name the rewrite rule whose attempt (match, conditions, right-hand side) or
+/// whose successor's normalization observed it, absent when no rule's work did (an initial
+/// state's normalization, the load). `ground` says whether the application is variable-free:
+/// a ground record shows that the definition has no model with the claim at that input; a
+/// non-ground one comes from a state that may be empty and shows nothing.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub struct ContradictedClaimOutput<K = Value> {
+    pub claim: ContradictedClaimKind,
+    pub symbol: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub k_label: Option<String>,
+    pub rule_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rule_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<CompiledRuleOriginOutput>,
+    pub application: K,
+    pub undefined: K,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rewrite_rule_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rewrite_rule_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rewrite_rule_origin: Option<CompiledRuleOriginOutput>,
+    pub ground: bool,
+}
+
+pub(super) fn contradicted_claim_output<K: WireKore>(
+    claim: &k_rust_backend::path_facts::ContradictedClaim,
+) -> Result<ContradictedClaimOutput<K>, BackendError> {
+    let total = claim
+        .total()
+        .expect("a contradicted claim of this backend is a contradicted total");
+    let ContradictedTotalOutput {
+        symbol,
+        k_label,
+        rule_id,
+        rule_label,
+        origin,
+        application,
+        undefined,
+    } = contradicted_total_output(total)?;
+    Ok(ContradictedClaimOutput {
+        claim: ContradictedClaimKind::Total,
+        symbol,
+        k_label,
+        rule_id,
+        rule_label,
+        origin,
+        application,
+        undefined,
+        rewrite_rule_id: claim.rule.as_ref().map(|rule| rule.unique_id.clone()),
+        rewrite_rule_label: claim.rule.as_ref().and_then(|rule| rule.label.clone()),
+        rewrite_rule_origin: claim
+            .rule
+            .as_ref()
+            .and_then(|rule| rule.origin.as_ref())
+            .map(Into::into),
+        ground: claim.ground,
+    })
+}
+
 /// One compiled rule, after equivalent written axioms have been collapsed.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -591,6 +670,14 @@ pub enum BackendDiagnosticOutput<K = Value> {
         hook: String,
         class: String,
     },
+    /// The path's decisions rest on an evaluation that found a claim of the definition
+    /// contradicted by its own equations (`BackendDiagnostic::ContradictedClaim`): a condition
+    /// it refuted, a candidate it removed, or the halt. k-rust reads the undefined value as
+    /// undefined, the answer without the claim; in a model of the claim the decision at that
+    /// input may differ. A path fact, as `implementation-chosen-value` is: it stays on the paths
+    /// that depend on the work that found it whatever became of that work, and it never causes
+    /// or prevents a `state-set` merge.
+    ContradictedClaim(ContradictedClaimOutput<K>),
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -1394,6 +1481,9 @@ fn diagnostic_output<K: WireKore>(
                 class: class.name().to_owned(),
             }
         }
+        BackendDiagnostic::ContradictedClaim(claim) => {
+            BackendDiagnosticOutput::ContradictedClaim(contradicted_claim_output(&claim)?)
+        }
     })
 }
 
@@ -1835,6 +1925,13 @@ pub(super) fn execution_response<K: WireKore>(
             .iter()
             .map(Into::into)
             .collect(),
+        contradicted_claims: result
+            .contradicted_claims
+            .iter()
+            .map(contradicted_claim_output)
+            .collect::<Result<_, _>>()?,
+        allowance_refusals: result.allowance_refusals.iter().map(Into::into).collect(),
+        unsupported_hooks: result.unsupported_hooks.iter().map(Into::into).collect(),
     })
 }
 
@@ -2729,6 +2826,67 @@ mod tests {
             "implementation-chosen-value",
             &["hook", "class"],
         );
+    }
+
+    /// A contradicted claim is written with its kind, the contradicted total's fields, the
+    /// observing rule and `ground`, read back, and declared alike in both TypeScript files, as a
+    /// diagnostic and as the result's record.
+    #[test]
+    fn a_contradicted_claim_round_trips_on_the_wire() {
+        let output = BackendDiagnosticOutput::<Value>::ContradictedClaim(ContradictedClaimOutput {
+            claim: ContradictedClaimKind::Total,
+            symbol: "Lbltd".into(),
+            k_label: Some("td".into()),
+            rule_id: "eq".into(),
+            rule_label: Some("MAIN.tdeq".into()),
+            origin: None,
+            application: serde_json::json!({"tag": "App"}),
+            undefined: serde_json::json!({"tag": "DV"}),
+            rewrite_rule_id: Some("r".into()),
+            rewrite_rule_label: Some("MAIN.r".into()),
+            rewrite_rule_origin: None,
+            ground: true,
+        });
+        let value = serde_json::to_value(&output).unwrap();
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "kind": "contradicted-claim",
+                "claim": "total",
+                "symbol": "Lbltd",
+                "kLabel": "td",
+                "ruleId": "eq",
+                "ruleLabel": "MAIN.tdeq",
+                "application": {"tag": "App"},
+                "undefined": {"tag": "DV"},
+                "rewriteRuleId": "r",
+                "rewriteRuleLabel": "MAIN.r",
+                "ground": true
+            })
+        );
+        assert_eq!(
+            serde_json::from_value::<BackendDiagnosticOutput>(value.clone()).unwrap(),
+            output
+        );
+        // An unknown field is refused, as for every diagnostic.
+        let mut unknown = value;
+        unknown["extra"] = serde_json::json!(1);
+        assert!(serde_json::from_value::<BackendDiagnosticOutput>(unknown).is_err());
+        let fields = [
+            "claim",
+            "symbol",
+            "kLabel?",
+            "ruleId",
+            "ruleLabel?",
+            "origin?",
+            "application",
+            "undefined",
+            "rewriteRuleId?",
+            "rewriteRuleLabel?",
+            "rewriteRuleOrigin?",
+            "ground",
+        ];
+        assert_typescript_variant_fields("BackendDiagnostic", "contradicted-claim", &fields);
     }
 
     #[test]

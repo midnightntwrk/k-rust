@@ -132,7 +132,7 @@ impl DeferredOutcome {
         let TermKind::Application { symbol, .. } = application.kind() else {
             unreachable!("an impure subterm is an application");
         };
-        Self {
+        let outcome = Self {
             hook: symbol
                 .attributes
                 .hook
@@ -142,7 +142,11 @@ impl DeferredOutcome {
                 detail: detail.to_owned(),
             },
             term: application.clone(),
-        }
+        };
+        // The run record keeps it whatever becomes of the work that met it
+        // (`crate::path_facts`).
+        crate::path_facts::note_unevaluated_hook(&outcome.hook, &outcome.reason, false);
+        outcome
     }
 
     /// The hook of the impure application, or its symbol's name when it has none.

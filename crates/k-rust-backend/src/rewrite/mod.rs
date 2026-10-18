@@ -155,6 +155,10 @@ pub struct AppliedRule {
     pub pattern: Pattern,
     pub label: Option<String>,
     pub unique_id: String,
+    /// Where the rule is written (its first origin), when the KORE carries it: with `unique_id`
+    /// and `label`, what a contradicted claim its successor's normalization observes names
+    /// (`crate::path_facts::ObservingRule`).
+    pub(crate) origin: Option<crate::rule::RuleOrigin>,
     pub substitution: Substitution,
     /// Rule-variable bindings suitable for execution diagnostics. Variables introduced solely as
     /// term aliases (`P #as X`) are implementation details and are omitted from this view.
@@ -181,7 +185,19 @@ pub struct AppliedRule {
     pub observations: Vec<ObservationEvent>,
 }
 
-/// Every field but the `normalized` cache, which is work derived from `pattern`.
+impl AppliedRule {
+    /// The rule, as a contradicted claim its successor's normalization observes names it.
+    pub(crate) fn observing_rule(&self) -> crate::path_facts::ObservingRule {
+        crate::path_facts::ObservingRule {
+            unique_id: self.unique_id.clone(),
+            label: self.label.clone(),
+            origin: self.origin.clone(),
+        }
+    }
+}
+
+/// Every field but the `normalized` cache, which is work derived from `pattern`, and the rule's
+/// `origin`, which `unique_id` names within a definition.
 impl std::fmt::Debug for AppliedRule {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
@@ -936,6 +952,28 @@ pub struct ExecutionResult {
     /// leaves. An evaluation that only decided a definedness every model gives alike does not
     /// count.
     pub implementation_chosen_values: Vec<crate::builtin::ChosenValue>,
+    /// Every distinct contradicted claim the run observed, in the order the run first noted it
+    /// (`crate::path_facts::ContradictedClaim`), and those the load of its definition observed
+    /// (`BackendDefinition::load_record`), first: those on the paths of its leaves
+    /// (`BackendDiagnostic::ContradictedClaim`), and those of work that ended on no reported
+    /// leaf (a candidate a defined sibling covered, a state a state-set merge absorbed). Empty
+    /// when no evaluation of the run, and none of the load, reduced an application of a symbol
+    /// declared `total` to defined arguments to bottom through one of its own equations. The
+    /// list is complete for contradictions found by evaluation; a symbolic state trusts the
+    /// claim, so it gives no evidence that a non-ground run rests on no false claim.
+    pub contradicted_claims: Vec<crate::path_facts::ContradictedClaim>,
+    /// Every distinct `Bytes` result the memory allowance refused (`crate::allowance`) in the
+    /// run or in the load of its definition, in the order first met, whatever became of the work
+    /// that met it: a refusal inside an attempt that was undone or passed over, which leaves no
+    /// diagnostic, is listed too. When it is empty, every application of a hook the allowance
+    /// bounds was computed, so the run gives the same result under every allowance of at least
+    /// as many bytes (docs/compatibility.md, "Resource bounds").
+    pub allowance_refusals: Vec<crate::path_facts::UnevaluatedHook>,
+    /// Every distinct application the run, or the load of its definition, left unevaluated as an
+    /// unsupported hook other than an allowance refusal, in the order first met, whatever became
+    /// of the work that met it (the `UnsupportedHookUnevaluated` reports and the unsupported-hook
+    /// failures, kept or dropped).
+    pub unsupported_hooks: Vec<crate::path_facts::UnevaluatedHook>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

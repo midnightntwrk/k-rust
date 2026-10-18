@@ -180,6 +180,12 @@ fn execute_counted(
             .filter_map(crate::path_facts::PathFact::chosen_value)
             .cloned()
             .collect();
+        // What undone work never rolls back, of the load and then of the run.
+        let record =
+            crate::path_facts::RunRecord::of(definition.load_record().iter().chain(&facts));
+        result.contradicted_claims = record.contradicted_claims;
+        result.allowance_refusals = record.allowance_refusals;
+        result.unsupported_hooks = record.unsupported_hooks;
         // `max_work` and `max_breadth` count the states of every path: whether either bound
         // fires, and where, rests on exploration off a leaf's path, so in another model a leaf
         // may be cut elsewhere or not at all. Every leaf of such a run carries every mark the
@@ -396,6 +402,9 @@ impl<'a> Execution<'a> {
                 smt_unknowns: 0,
                 stopped: self.stopped,
                 implementation_chosen_values: Vec::new(),
+                contradicted_claims: Vec::new(),
+                allowance_refusals: Vec::new(),
+                unsupported_hooks: Vec::new(),
             },
             InitialSimplificationStatus {
                 simplified_to_bottom: false,
@@ -574,10 +583,25 @@ impl<'a> Execution<'a> {
         }
         // A successor whose normalization shows its step undefined everywhere another candidate
         // of the step is defined vanishes: those instances are on the other candidates' paths.
-        let Some((state, deferred_initial_vacuity)) = self.normalise_constraints(state)? else {
+        //
+        // A successor's normalization is the work of the rule that produced it: a contradicted
+        // claim it observes names that rule (`crate::path_facts`).
+        let producer_rule = state
+            .producer
+            .as_ref()
+            .map(|producer| producer.rule.clone());
+        let Some((state, deferred_initial_vacuity)) = crate::path_facts::observed_by(
+            || producer_rule.clone(),
+            || self.normalise_constraints(state),
+        )?
+        else {
             return Ok(Vec::new());
         };
-        let Some(state) = self.simplify_term(state, deferred_initial_vacuity.is_some())? else {
+        let Some(state) = crate::path_facts::observed_by(
+            || producer_rule,
+            || self.simplify_term(state, deferred_initial_vacuity.is_some()),
+        )?
+        else {
             return Ok(Vec::new());
         };
         if self.merged(&state) {
@@ -759,12 +783,7 @@ impl<'a> Execution<'a> {
     ) -> Phase<Vec<ExecutionState>> {
         let facts = phase_diagnostics
             .iter()
-            .filter(|diagnostic| {
-                matches!(
-                    diagnostic,
-                    BackendDiagnostic::ImplementationChosenValue { .. }
-                )
-            })
+            .filter(|diagnostic| diagnostic.is_path_fact())
             .cloned()
             .collect::<Vec<_>>();
         if facts.is_empty() {
@@ -1254,16 +1273,21 @@ impl<'a> Execution<'a> {
                 self.observation,
             );
             let (simplified, diagnostics) = crate::path_facts::collect_with_diagnostics(|| {
-                simplify_result_pattern(
-                    self.definition,
-                    &applied.pattern,
-                    self.options.max_simplification_iterations,
-                    self.solver,
-                    state.depth,
-                    &mut state.trace,
-                    Some(&mut candidate_observation),
-                    &mut self.observation_log,
-                    self.observation,
+                crate::path_facts::observed_by(
+                    || Some(producer.rule.clone()),
+                    || {
+                        simplify_result_pattern(
+                            self.definition,
+                            &applied.pattern,
+                            self.options.max_simplification_iterations,
+                            self.solver,
+                            state.depth,
+                            &mut state.trace,
+                            Some(&mut candidate_observation),
+                            &mut self.observation_log,
+                            self.observation,
+                        )
+                    },
                 )
             });
             extend_distinct(&mut applied.diagnostics, &diagnostics);
@@ -1298,6 +1322,7 @@ impl<'a> Execution<'a> {
                     .or(state.io_enabled.then_some(&state.io));
                 let halt_reason = match self.bottom_successor_halt(
                     &producer.successor,
+                    &producer.rule,
                     &producer.before.constraints,
                     io,
                     state.depth + 1,
@@ -1325,17 +1350,23 @@ impl<'a> Execution<'a> {
         );
         next.producer = Some(std::rc::Rc::new(producer));
         if let Some(rule) = terminal_rule {
+            let producer_rule = next.producer.as_ref().map(|producer| producer.rule.clone());
             let (simplified, diagnostics) = crate::path_facts::collect_with_diagnostics(|| {
-                simplify_result_pattern(
-                    self.definition,
-                    &next.pattern,
-                    self.options.max_simplification_iterations,
-                    self.solver,
-                    next.depth,
-                    &mut next.trace,
-                    Some(&mut next.observation),
-                    &mut self.observation_log,
-                    self.observation,
+                crate::path_facts::observed_by(
+                    || producer_rule,
+                    || {
+                        simplify_result_pattern(
+                            self.definition,
+                            &next.pattern,
+                            self.options.max_simplification_iterations,
+                            self.solver,
+                            next.depth,
+                            &mut next.trace,
+                            Some(&mut next.observation),
+                            &mut self.observation_log,
+                            self.observation,
+                        )
+                    },
                 )
             });
             next.diagnostics.extend(&diagnostics);
@@ -1358,6 +1389,7 @@ impl<'a> Execution<'a> {
                     .expect("the successor's producer is set");
                 let halt_reason = match self.bottom_successor_halt(
                     &producer.successor,
+                    &producer.rule,
                     &producer.before.constraints,
                     next.io_enabled.then_some(&next.io),
                     next.depth,
@@ -1493,17 +1525,23 @@ impl<'a> Execution<'a> {
                     &mut self.observation_log,
                     self.observation,
                 );
+                let rule = applied.observing_rule();
                 let (simplified, diagnostics) = crate::path_facts::collect_with_diagnostics(|| {
-                    simplify_result_pattern(
-                        self.definition,
-                        &applied.pattern,
-                        self.options.max_simplification_iterations,
-                        self.solver,
-                        state.depth + 1,
-                        &mut state.trace,
-                        Some(&mut observation),
-                        &mut self.observation_log,
-                        self.observation,
+                    crate::path_facts::observed_by(
+                        || Some(rule.clone()),
+                        || {
+                            simplify_result_pattern(
+                                self.definition,
+                                &applied.pattern,
+                                self.options.max_simplification_iterations,
+                                self.solver,
+                                state.depth + 1,
+                                &mut state.trace,
+                                Some(&mut observation),
+                                &mut self.observation_log,
+                                self.observation,
+                            )
+                        },
                     )
                 });
                 extend_distinct(&mut applied.diagnostics, &diagnostics);
@@ -1533,15 +1571,20 @@ impl<'a> Execution<'a> {
                             .as_ref()
                             .or(state.io_enabled.then_some(&state.io));
                         let (undefined, work) = crate::path_facts::collect_with_diagnostics(|| {
-                            successor_undefinedness(
-                                self.definition,
-                                &built,
-                                &applied.before.constraints,
-                                SimplificationOptions::keep_partial(
-                                    self.options.max_simplification_iterations,
-                                ),
-                                self.solver,
-                                io,
+                            crate::path_facts::observed_by(
+                                || Some(rule),
+                                || {
+                                    successor_undefinedness(
+                                        self.definition,
+                                        &built,
+                                        &applied.before.constraints,
+                                        SimplificationOptions::keep_partial(
+                                            self.options.max_simplification_iterations,
+                                        ),
+                                        self.solver,
+                                        io,
+                                    )
+                                },
                             )
                         });
                         extend_distinct(&mut applied.diagnostics, &work);
@@ -1589,10 +1632,12 @@ impl<'a> Execution<'a> {
             for (applied, built, undefined) in undefined_candidates {
                 let mut diagnostics = parent.diagnostics.clone();
                 diagnostics.extend(&applied.diagnostics);
+                let rule = applied.observing_rule();
                 let producer = Producer {
                     parent: parent.clone(),
                     before: applied.before,
                     successor: built,
+                    rule,
                     rule_id: applied.unique_id,
                     label: applied.label,
                     effects: applied.effects,
@@ -1724,7 +1769,7 @@ impl<'a> Execution<'a> {
         let mut next = Vec::with_capacity(branches.len() + usize::from(remainder.is_some()));
         let successors = branches
             .iter()
-            .map(|applied| applied.pattern.clone())
+            .map(|applied| (applied.pattern.clone(), applied.observing_rule()))
             .collect::<Vec<_>>();
         for (index, applied) in branches.into_iter().enumerate() {
             let siblings = successors
@@ -1763,9 +1808,11 @@ impl<'a> Execution<'a> {
     /// a pattern with the constraints `base`, normalized to `normalized`, whose constraints are `\bottom`: the failing obligation and
     /// the contradicted attribute when [`successor_undefinedness`] shows the successor undefined,
     /// the false constraint of `normalized` otherwise. The deciding work is `diagnostics`'.
+    #[allow(clippy::too_many_arguments)]
     fn bottom_successor_halt(
         &self,
         built: &Pattern,
+        rule: &crate::path_facts::ObservingRule,
         base: &[Predicate],
         io: Option<&ExecutionIoState>,
         depth: u64,
@@ -1773,13 +1820,20 @@ impl<'a> Execution<'a> {
         diagnostics: &mut PathDiagnostics,
     ) -> Stoppable<HaltReason> {
         let (undefined, work) = crate::path_facts::collect_with_diagnostics(|| {
-            successor_undefinedness(
-                self.definition,
-                built,
-                base,
-                SimplificationOptions::keep_partial(self.options.max_simplification_iterations),
-                self.solver,
-                io,
+            crate::path_facts::observed_by(
+                || Some(rule.clone()),
+                || {
+                    successor_undefinedness(
+                        self.definition,
+                        built,
+                        base,
+                        SimplificationOptions::keep_partial(
+                            self.options.max_simplification_iterations,
+                        ),
+                        self.solver,
+                        io,
+                    )
+                },
             )
         });
         diagnostics.extend(&work);
@@ -1834,17 +1888,24 @@ impl<'a> Execution<'a> {
         extend_unique_predicates(&mut constraints, closed_over(branch, &bound));
         let parent_io = producer.parent.io_enabled.then_some(&producer.parent.io);
         let mut defined = Vec::with_capacity(producer.siblings.len());
-        for sibling in &producer.siblings {
+        for (sibling, rule) in &producer.siblings {
             // The sibling's simplification decides this leaf's constraint, so its work is the
-            // leaf's.
+            // leaf's; a contradiction it observes is its own rule's.
             let (undefined, work) = crate::path_facts::collect_with_diagnostics(|| {
-                successor_undefinedness(
-                    self.definition,
-                    sibling,
-                    &producer.before.constraints,
-                    SimplificationOptions::keep_partial(self.options.max_simplification_iterations),
-                    self.solver,
-                    parent_io,
+                crate::path_facts::observed_by(
+                    || Some(rule.clone()),
+                    || {
+                        successor_undefinedness(
+                            self.definition,
+                            sibling,
+                            &producer.before.constraints,
+                            SimplificationOptions::keep_partial(
+                                self.options.max_simplification_iterations,
+                            ),
+                            self.solver,
+                            parent_io,
+                        )
+                    },
                 )
             });
             diagnostics.extend(&work);
@@ -1863,12 +1924,19 @@ impl<'a> Execution<'a> {
             constraints,
         };
         let (simplified, work) = crate::path_facts::collect_with_diagnostics(|| {
-            simplify_predicates_with_solver(
-                self.definition,
-                &pattern.constraints,
-                &[],
-                SimplificationOptions::keep_partial(self.options.max_simplification_iterations),
-                self.solver,
+            crate::path_facts::observed_by(
+                || Some(producer.rule.clone()),
+                || {
+                    simplify_predicates_with_solver(
+                        self.definition,
+                        &pattern.constraints,
+                        &[],
+                        SimplificationOptions::keep_partial(
+                            self.options.max_simplification_iterations,
+                        ),
+                        self.solver,
+                    )
+                },
             )
         });
         diagnostics.extend(&work);
@@ -2101,6 +2169,9 @@ impl<'a> Execution<'a> {
                 smt_unknowns: 0,
                 stopped: self.stopped,
                 implementation_chosen_values: Vec::new(),
+                contradicted_claims: Vec::new(),
+                allowance_refusals: Vec::new(),
+                unsupported_hooks: Vec::new(),
             },
             InitialSimplificationStatus {
                 simplified_to_bottom: self.initial_input_count != 0
@@ -3109,13 +3180,16 @@ struct Producer {
     successor: Pattern,
     rule_id: String,
     label: Option<String>,
+    /// The rule, as the contradicted claims the successor's normalization observes name it
+    /// (`crate::path_facts`).
+    rule: crate::path_facts::ObservingRule,
     effects: Vec<BuiltinEffect>,
     /// The simplifications of a higher-priority remainder that led to `before`, which the leaf's
     /// path goes through, as an undefined step the step itself finds does.
     remainder_simplifications: Vec<RemainderSimplification>,
     /// The successors of the step's other applied candidates, as the step built them, whose
-    /// definedness is decided only if this successor turns out undefined.
-    siblings: Vec<Pattern>,
+    /// definedness is decided only if this successor turns out undefined, each with its rule.
+    siblings: Vec<(Pattern, crate::path_facts::ObservingRule)>,
     /// The successors of the step's other applied candidates already normalized and not
     /// undefined, as the step built them.
     defined_siblings: Vec<Pattern>,
@@ -3125,7 +3199,11 @@ struct Producer {
 }
 
 impl Producer {
-    fn of(parent: &ExecutionState, applied: &AppliedRule, siblings: Vec<Pattern>) -> Self {
+    fn of(
+        parent: &ExecutionState,
+        applied: &AppliedRule,
+        siblings: Vec<(Pattern, crate::path_facts::ObservingRule)>,
+    ) -> Self {
         Self {
             parent: ExecutionState {
                 producer: None,
@@ -3135,6 +3213,7 @@ impl Producer {
             successor: applied.pattern.clone(),
             rule_id: applied.unique_id.clone(),
             label: applied.label.clone(),
+            rule: applied.observing_rule(),
             effects: applied.effects.clone(),
             remainder_simplifications: applied.remainder_simplifications.clone(),
             siblings,

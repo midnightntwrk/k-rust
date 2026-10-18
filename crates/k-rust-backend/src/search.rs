@@ -1500,12 +1500,7 @@ impl KeptState {
     ) {
         let facts = diagnostics
             .iter()
-            .filter(|diagnostic| {
-                matches!(
-                    diagnostic,
-                    BackendDiagnostic::ImplementationChosenValue { .. }
-                )
-            })
+            .filter(|diagnostic| diagnostic.is_path_fact())
             .cloned()
             .collect::<Vec<_>>();
         if facts.is_empty() {

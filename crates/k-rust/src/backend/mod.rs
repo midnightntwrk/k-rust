@@ -264,6 +264,18 @@ pub struct BackendCapabilities {
     /// states, witnesses and matches alike and lists every such value it read
     /// (`SearchResponse::implementation_chosen_values` and the other search responses').
     pub implementation_chosen_values: bool,
+    /// `execute` and `execute_observed` mark each leaf whose path's decisions rest on a
+    /// contradicted claim (`BackendDiagnosticOutput::ContradictedClaim`) and list every such
+    /// record the run observed ([`ExecutionResult::contradicted_claims`]); a search marks its
+    /// states alike.
+    pub contradicted_claims: bool,
+    /// `execute` and `execute_observed` list every `Bytes` result the memory allowance refused
+    /// ([`ExecutionResult::allowance_refusals`]), whatever became of the work that met it.
+    pub allowance_refusals: bool,
+    /// `execute` and `execute_observed` list every application left unevaluated as an
+    /// unsupported hook ([`ExecutionResult::unsupported_hooks`]), whatever became of the work
+    /// that met it.
+    pub unsupported_hooks: bool,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -466,6 +478,46 @@ pub struct ExecutionResult<K = Value> {
     /// in every such model, its depth and trace may not be.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub implementation_chosen_values: Vec<ChosenValueOutput>,
+    /// Every distinct contradicted claim the run observed (wire `contradictedClaims`), and those
+    /// the load of its definition observed, in first-observed order; absent when empty
+    /// (docs/compatibility.md, "A contradicted total attribute is named, not repaired"). It holds
+    /// the records of the leaves' paths (`BackendDiagnosticOutput::ContradictedClaim`) and those
+    /// of work that ended on no reported leaf: a candidate a defined sibling covered, a state a
+    /// `state-set` merge absorbed. It is complete for contradictions found by evaluation on
+    /// ground arguments; a symbolic state trusts the claim, so an empty list says nothing about
+    /// a non-ground run.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub contradicted_claims: Vec<wire::ContradictedClaimOutput<K>>,
+    /// Every distinct `Bytes` result the memory allowance refused in the run or in the load of
+    /// its definition (wire `allowanceRefusals`), in first-met order, including a refusal inside
+    /// an attempt that was undone or passed over, which leaves no diagnostic; absent when empty.
+    /// A result without it is the result under every allowance of at least as many bytes
+    /// (docs/compatibility.md, "Resource bounds").
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowance_refusals: Vec<UnevaluatedHookOutput>,
+    /// Every distinct application left unevaluated as an unsupported hook, other than an
+    /// allowance refusal, in the run or in the load of its definition (wire `unsupportedHooks`),
+    /// in first-met order, whatever became of the work that met it; absent when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unsupported_hooks: Vec<UnevaluatedHookOutput>,
+}
+
+/// A hook application a run left unevaluated: the hook and why, in the text of the
+/// `unsupported-hook-unevaluated` diagnostic.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct UnevaluatedHookOutput {
+    pub hook: String,
+    pub reason: String,
+}
+
+impl From<&k_rust_backend::path_facts::UnevaluatedHook> for UnevaluatedHookOutput {
+    fn from(unevaluated: &k_rust_backend::path_facts::UnevaluatedHook) -> Self {
+        Self {
+            hook: unevaluated.hook.clone(),
+            reason: unevaluated.reason.to_string(),
+        }
+    }
 }
 
 /// A value the definition leaves open that a run read: the hook that computed it and what the
@@ -564,10 +616,13 @@ pub struct ExecutionLeaf<K = Value> {
     /// A leaf of a `state-set` result also carries those of every path whose equal configuration
     /// was merged into it, so its list may name work that is not on its own `trace`, and the
     /// result is free of diagnostics exactly when the `path-set` result of the same request is,
-    /// but for the `implementation-chosen-value` marks of a state merged during exploration,
-    /// which are on [`ExecutionResult::implementation_chosen_values`] instead. Those marks are
-    /// path facts: they stay on every path whose decisions rest on the work that found them,
-    /// whatever became of that work (docs/compatibility.md, "Marks in executions").
+    /// but for the `implementation-chosen-value` marks and `contradicted-claim` records of a
+    /// state merged during exploration, which are on
+    /// [`ExecutionResult::implementation_chosen_values`] and
+    /// [`ExecutionResult::contradicted_claims`] instead. Those are path facts: they stay on every
+    /// path whose decisions rest on the work that found them, whatever became of that work
+    /// (docs/compatibility.md, "Marks in executions", "A contradicted `total` attribute is
+    /// named, not repaired").
     /// A merged diagnostic names variables as the path that met it named them, so a variable the
     /// request does not name may not occur in this leaf's `state` (it is never one of the leaf's
     /// own variables), and diagnostics equal up to such names are each listed.
@@ -1184,6 +1239,9 @@ impl Backend {
             stack_stops: true,
             smt_unknowns: true,
             implementation_chosen_values: true,
+            contradicted_claims: true,
+            allowance_refusals: true,
+            unsupported_hooks: true,
         }
     }
 
@@ -2509,6 +2567,60 @@ mod tests {
 
     /// The marks of open values are declared where the facade writes them: the result's optional
     /// list of `{hook, class}`, the class names, and a capability flag, true in every build.
+    /// The run-level records are declared where the facade writes them: the result's optional
+    /// lists, the record types and three capability flags, true in every build.
+    #[test]
+    fn the_run_level_records_match_typescript_declarations() {
+        assert_typescript_member(
+            "ExecutionResult",
+            "contradictedClaims?: ContradictedClaim[]",
+        );
+        assert_typescript_member("ExecutionResult", "allowanceRefusals?: UnevaluatedHook[]");
+        assert_typescript_member("ExecutionResult", "unsupportedHooks?: UnevaluatedHook[]");
+        for capability in [
+            "contradictedClaims",
+            "allowanceRefusals",
+            "unsupportedHooks",
+        ] {
+            assert_typescript_member("BackendCapabilities", &format!("{capability}: boolean"));
+        }
+        for member in [
+            "claim: 'total'",
+            "symbol: string",
+            "kLabel?: string",
+            "ruleId: string",
+            "ruleLabel?: string",
+            "origin?: RuleOrigin",
+            "application: Kore",
+            "undefined: Kore",
+            "rewriteRuleId?: string",
+            "rewriteRuleLabel?: string",
+            "rewriteRuleOrigin?: RuleOrigin",
+            "ground: boolean",
+        ] {
+            assert_typescript_member("ContradictedClaim", member);
+        }
+        assert_typescript_member("UnevaluatedHook", "hook: string");
+        assert_typescript_member("UnevaluatedHook", "reason: string");
+        let backend = Backend::new(
+            r#"[] module MAIN sort SortK{} [] endmodule []"#,
+            "MAIN",
+            BackendOptions::default(),
+        )
+        .unwrap();
+        let capabilities = serde_json::to_value(backend.capabilities()).unwrap();
+        for capability in [
+            "contradictedClaims",
+            "allowanceRefusals",
+            "unsupportedHooks",
+        ] {
+            assert_eq!(capabilities[capability], true, "{capability}");
+        }
+        let value = serde_json::json!({"hook": "BYTES.padRight", "reason": "too long"});
+        let output: UnevaluatedHookOutput = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&output).unwrap(), value);
+    }
+
     #[test]
     fn the_implementation_chosen_values_match_typescript_declarations() {
         use k_rust_backend::builtin::ChosenClass;

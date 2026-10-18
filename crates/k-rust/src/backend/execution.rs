@@ -204,6 +204,23 @@ pub fn contradicted_total_message(contradicted: &ContradictedTotal) -> String {
     )
 }
 
+/// What krun tells the author of a contradicted claim a run observed
+/// (`k_rust_backend::path_facts::ContradictedClaim`): [`contradicted_total_message`] of the
+/// contradicted application, and the rewrite rule whose work observed it, when one did.
+pub fn contradicted_claim_message(claim: &k_rust_backend::path_facts::ContradictedClaim) -> String {
+    let total = claim
+        .total()
+        .expect("a contradicted claim of this backend is a contradicted total");
+    let message = contradicted_total_message(total);
+    match &claim.rule {
+        Some(rule) => format!(
+            "{message} (observed by rule {})",
+            rule.label.as_deref().unwrap_or(&rule.unique_id)
+        ),
+        None => message,
+    }
+}
+
 /// What kind of finding of the load-time critical-pair check a [`ValueClaimFinding`] is, named
 /// as the diagnostic `kompile` reports it under.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
@@ -790,6 +807,22 @@ fn report_unprinted_marks(
     }
 }
 
+/// Print, once each, the records of `listed`, the run's list of contradicted claims, that no
+/// result's warning printed (`run_wide`): work on no reported path observed them.
+fn report_unprinted_claims(
+    listed: &[k_rust_backend::path_facts::ContradictedClaim],
+    run_wide: &HashSet<&BackendDiagnostic>,
+) {
+    for claim in listed {
+        let printed = run_wide.iter().any(|diagnostic| {
+            matches!(diagnostic, BackendDiagnostic::ContradictedClaim(other) if **other == *claim)
+        });
+        if !printed {
+            eprintln!("warning: {}", contradicted_claim_message(claim));
+        }
+    }
+}
+
 /// Print the warnings of `diagnostics`, one result's path, each once. A diagnostic about the
 /// initial configuration is on every result's path, and a mark of an open value names no result;
 /// `run_wide` keeps those already printed for another result of the run, so each is printed
@@ -813,6 +846,12 @@ fn report_diagnostics<'a>(
                         "warning: {}",
                         implementation_chosen_value_message(hook, *class)
                     );
+                }
+            }
+            // A record names no result: once per run.
+            BackendDiagnostic::ContradictedClaim(claim) => {
+                if run_wide.insert(diagnostic) {
+                    eprintln!("warning: {}", contradicted_claim_message(claim));
                 }
             }
             BackendDiagnostic::UndefinedInitialInstances { definedness } => {
@@ -1406,6 +1445,7 @@ fn run_backend_in_execution(
         );
     }
     report_unprinted_marks(&execution.implementation_chosen_values, &run_wide);
+    report_unprinted_claims(&execution.contradicted_claims, &run_wide);
     if let Some(path) = options.stop_leaves {
         let depth_bounded = execution
             .leaves
@@ -1541,17 +1581,8 @@ fn run_backend_in_execution(
                     unreachable!("all dropped leaves were checked above")
                 }
             }
-            if let HaltReason::Trivial {
-                contradicted_total: Some(contradicted),
-                ..
-            }
-            | HaltReason::Vacuous {
-                contradicted_total: Some(contradicted),
-                ..
-            } = &leaf.halt_reason
-            {
-                eprintln!("warning: {}", contradicted_total_message(contradicted));
-            }
+            // A halt's contradicted claim, its cause, is one of the run's records, whose
+            // warnings were printed above.
         }
     }
     if let Some(target) = match_target {

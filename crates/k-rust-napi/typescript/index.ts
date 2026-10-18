@@ -210,6 +210,12 @@ export interface BackendCapabilities {
   smtUnknowns: boolean
   /** `execute`, `executeObserved` and every search mark leaves, states, witnesses and matches with 'implementation-chosen-value' and report `implementationChosenValues`. */
   implementationChosenValues: boolean
+  /** `execute`, `executeObserved` and every search mark leaves and states with 'contradicted-claim'; `execute` and `executeObserved` report `contradictedClaims`. */
+  contradictedClaims: boolean
+  /** `execute` and `executeObserved` report `allowanceRefusals`. */
+  allowanceRefusals: boolean
+  /** `execute` and `executeObserved` report `unsupportedHooks`. */
+  unsupportedHooks: boolean
 }
 
 export interface CreateBackendOptions {
@@ -390,6 +396,57 @@ export interface ExecutionResult {
    * `terminal` one).
    */
   implementationChosenValues?: ChosenValue[]
+  /**
+   * Every distinct contradicted claim the run observed, and those the load of its definition
+   * observed, in first-observed order; absent when none (docs/compatibility.md, "A contradicted
+   * total attribute is named, not repaired"). It includes the records of work that ended on no
+   * reported leaf (a candidate a defined sibling covered, a state a `state-set` merge absorbed).
+   * It is complete for contradictions found by evaluation on ground arguments; a symbolic state
+   * trusts the claim, so its absence says nothing about a non-ground run.
+   */
+  contradictedClaims?: ContradictedClaim[]
+  /**
+   * Every distinct `Bytes` result the memory allowance refused in the run or in the load of its
+   * definition, in first-met order, including a refusal inside work that was undone or passed
+   * over, which leaves no diagnostic; absent when none. A result without it is the result under
+   * every allowance of at least as many bytes (docs/compatibility.md, "Resource bounds").
+   */
+  allowanceRefusals?: UnevaluatedHook[]
+  /**
+   * Every distinct application left unevaluated as an unsupported hook, other than an allowance
+   * refusal, in the run or in the load of its definition, in first-met order, whatever became of
+   * the work that met it; absent when none.
+   */
+  unsupportedHooks?: UnevaluatedHook[]
+}
+
+/** A hook application a run left unevaluated, with the reason the 'unsupported-hook-unevaluated' diagnostic gives. */
+export interface UnevaluatedHook {
+  hook: string
+  reason: string
+}
+
+/**
+ * A claim of the definition an evaluation found contradicted by the definition's own equations:
+ * `claim: 'total'`, a symbol declared total (or functional) whose equation reduced an application
+ * to defined arguments to bottom, with the fields of `ContradictedTotal`. `rewriteRule*` name the
+ * rewrite rule whose attempt or successor's normalization observed it, absent when no rule's work
+ * did. `ground`: the application is variable-free, so the definition has no model with the claim
+ * at that input; a non-ground record shows nothing.
+ */
+export interface ContradictedClaim {
+  claim: 'total'
+  symbol: string
+  kLabel?: string
+  ruleId: string
+  ruleLabel?: string
+  origin?: RuleOrigin
+  application: Kore
+  undefined: Kore
+  rewriteRuleId?: string
+  rewriteRuleLabel?: string
+  rewriteRuleOrigin?: RuleOrigin
+  ground: boolean
 }
 
 /** A value the definition leaves open that a run read: the hook that computed it and what is open about it. */
@@ -606,6 +663,29 @@ export type BackendDiagnostic =
    * that work, and never causes or prevents a `state-set` merge.
    */
   | { kind: 'implementation-chosen-value'; hook: string; class: ChosenClass }
+  /**
+   * The path's decisions rest on an evaluation that found a claim of the definition contradicted
+   * by its own equations (a condition it refuted, a candidate it removed, the halt); the fields
+   * are those of `ContradictedClaim`. k-rust reads the undefined value as undefined, the answer
+   * without the claim; in a model of the claim the decision may differ. A path fact: it stays on
+   * the paths that depend on the work that found it, whatever became of that work, and never
+   * causes or prevents a `state-set` merge.
+   */
+  | {
+      kind: 'contradicted-claim'
+      claim: 'total'
+      symbol: string
+      kLabel?: string
+      ruleId: string
+      ruleLabel?: string
+      origin?: RuleOrigin
+      application: Kore
+      undefined: Kore
+      rewriteRuleId?: string
+      rewriteRuleLabel?: string
+      rewriteRuleOrigin?: RuleOrigin
+      ground: boolean
+    }
 
 export type SmtFailure =
   | { kind: 'translation'; error: TranslationFailure }

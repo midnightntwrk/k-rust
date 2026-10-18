@@ -844,6 +844,7 @@ impl AlphaComparable for AppliedRule {
             pattern: self.pattern.rename_alpha(context)?,
             label: self.label.clone(),
             unique_id: self.unique_id.clone(),
+            origin: self.origin.clone(),
             substitution: rename_substitution(&self.substitution, context),
             rule_substitution: rename_substitution(&self.rule_substitution, context),
             rule_predicates: rename_predicates(&self.rule_predicates, context),
@@ -1513,6 +1514,13 @@ impl AlphaComparable for ExecutionResult {
         if self.implementation_chosen_values != other.implementation_chosen_values {
             return Err("execution marks differ".into());
         }
+        // A record's terms are compared as written: a ground one names no variable.
+        if self.contradicted_claims != other.contradicted_claims
+            || self.allowance_refusals != other.allowance_refusals
+            || self.unsupported_hooks != other.unsupported_hooks
+        {
+            return Err("execution run-level records differ".into());
+        }
         Ok(())
     }
 
@@ -1529,6 +1537,9 @@ impl AlphaComparable for ExecutionResult {
             smt_unknowns: self.smt_unknowns,
             stopped: self.stopped.clone(),
             implementation_chosen_values: self.implementation_chosen_values.clone(),
+            contradicted_claims: self.contradicted_claims.clone(),
+            allowance_refusals: self.allowance_refusals.clone(),
+            unsupported_hooks: self.unsupported_hooks.clone(),
         })
     }
 }
@@ -1580,6 +1591,9 @@ fn result_with_transition(name: &str) -> ExecutionResult {
         smt_unknowns: 0,
         stopped: None,
         implementation_chosen_values: Vec::new(),
+        contradicted_claims: Vec::new(),
+        allowance_refusals: Vec::new(),
+        unsupported_hooks: Vec::new(),
         modality: crate::search::ResultModality::StateSet,
         leaves: vec![ExecutionLeaf {
             pattern: after.clone(),
