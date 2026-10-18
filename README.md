@@ -101,6 +101,11 @@ The store's bytes stay a function of its inputs except the writer's `kink_build`
 Any rebuild of kink therefore refuses every store an earlier build wrote: delete the store to rerun it with the new build.
 `kink-corpus replay-check` re-derives a stored report instead, so it can check a store from another build.
 
+**Checking a pattern.** When you write a program to exercise a situation, write the situation as a K pattern in `PATTERNS.toml` (`pattern = "<k> _:Int / 0 ~> _ </k>"`, as a rule's left-hand side is written) and claim the program hits it (`programs = ["divzero"]`).
+`kink-flow query FLOW.toml PATTERNS.toml` answers, per (pattern, program), whether some run reaches a configuration that matches: `hit` with the matching configuration and the rules of a run to it, `no` (the claim is refuted: the program never does what you said it tests), or `unknown` with its cause.
+A `no` needs the program's whole state space explored within the budget, a comparable baseline run and a definition that leaves no value to the implementation (decision 1's census), so a bounded or open run is `unknown`, never `no`; a `hit` needs only the run it found.
+Definitive answers are cached under a key that names the specification, the program, the compiled pattern, the budget and kink's build, `--verify` re-derives them, and no answer ever decides a mutation ([`crates/kink-flow/README.md`](crates/kink-flow/README.md), "Checking a pattern").
+
 ### Commands
 
 Every command prints one JSON document on stdout.
@@ -114,8 +119,9 @@ and 2 on a usage error (message on stderr).
 | `kink-flow results FLOW.toml [--verify] [--mutations MUTATIONS.toml]` | Fills the result cache for new or changed programs; lists every program's class, cause and baseline wall time (`wall_ms`) and every rule's coverage; `--verify` reruns every program and compares it with its cached result; `--mutations` also lists the rules no mutation of that list targets. |
 | `kink-flow run FLOW.toml MUTATIONS.toml [--only ID]... [--verify] [--order cost\|corpus] [--compile-workers N] [--no-memo]` | Updates the result cache, resolves each mutation, runs the kill search, updates the outcome cache and the killer hints, and writes the report. The search tries the programs whose coverage witnesses an edited rule's edit first (they reached the rule, for an edit of its `requires`; they fired it, for any other edit), each group cheapest first (`--order corpus`: in `FLOW.toml`'s order); the order changes which killer is found first and the cost, never a status. `--verify` decides nothing from the outcome cache: it re-proves every cached outcome, reports each that differs (`mismatches`, exit 1) and writes no outcome and no hint. `--compile-workers N` compiles up to N mutants ahead of their turn (4 by default; 1 compiles each in its own call); it changes nothing but wall time and memory. A warm run reads the memos of what did not change (re-pin L1-4: each mutation's resolution facts, used only for a mutation tier 1 decides with no call, and the specification's declaration census, under keys that name every input, `kink_build` and `kink`); `--no-memo` reads and writes none, `--verify` re-derives and compares them. |
 | `kink-flow report FLOW.toml` | Prints the last run's report again, byte for byte. |
+| `kink-flow query FLOW.toml PATTERNS.toml [--only ID]... [--verify]` | Updates the result cache and answers each pattern on each program it claims (or on every program): `hit`, `no`, `unknown`, `invalid-pattern` or `error`, with the witness of a hit, refuted claims flagged; caches the definitive answers; `--verify` re-derives every answer and compares. |
 
-`results`, `run` and `report` take `--cache DIR`; the default cache is `.kink-flow/` next to `FLOW.toml`.
+`results`, `run`, `report` and `query` take `--cache DIR`; the default cache is `.kink-flow/` next to `FLOW.toml`.
 
 ### Walkthrough
 
@@ -435,7 +441,8 @@ Every other row also carries:
   the context is kink's build, the k-rust revision, the solver profile, the specification digest, the budget and the oracles;
   a timeout, an unknown or an error is never cached;
 - `hints.json`: each killed mutation's last killing program, keyed by the mutation's edits and its rules' text (no positions), a scheduling hint only (deleting it with `outcomes/` re-runs the searches cheapest killer first);
-- `report.json`: the last run's report.
+- `report.json`: the last run's report;
+- `patterns/<spec digest>/<pattern digest>/<program digest>.json`: one cached pattern answer (`hit` with its witness, or `no`); `run` never reads it.
 
 The specification digest covers every source file the specification loads, so editing the specification reruns every program and every mutation, each killed one first with its hint;
 the program digest covers a program's text, start sort and variables, so editing a program reruns only that program.

@@ -12,7 +12,9 @@
 //! survive specification edits ([`hints`], which replaces F-05's killer cache). F-12 runs each
 //! program's baseline at most once per command; F-13 names the oracle slots of the report,
 //! records timings and leaf censuses, orders the kill search cheapest killer first and lists
-//! the rules no mutation targets.
+//! the rules no mutation targets. F-18 adds the per-input pattern checks: `PATTERNS.toml`, the
+//! lowering of a K pattern and its evaluation by k-rust's search ([`pattern`]), and the `query`
+//! command with its cache of definitive answers ([`query`]).
 
 pub mod admit;
 pub mod cli;
@@ -22,6 +24,8 @@ pub mod manifest;
 pub mod memo;
 pub mod mutation;
 pub mod outcomes;
+pub mod pattern;
+pub mod query;
 pub mod report;
 pub mod results;
 pub mod search;

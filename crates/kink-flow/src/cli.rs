@@ -9,6 +9,8 @@ use crate::{
     manifest::{FlowManifest, ManifestError},
     memo::MemoUse,
     mutation::MutationList,
+    pattern::PatternList,
+    query::{QueryOptions, pattern_list_refused},
     report::{ReportOptions, render},
     results::ResultsOptions,
     search::{ProgramOrder, RunMode, RunOptions, mutation_list_refused},
@@ -30,8 +32,8 @@ pub const USAGE: &str = "usage: kink-flow check FLOW.toml | kink-flow results FL
                          [--verify] [--mutations MUTATIONS.toml] [--cache DIR] | kink-flow run \
                          FLOW.toml MUTATIONS.toml [--only ID]... [--verify] [--order cost|corpus] \
                          [--compile-workers N] [--no-memo] [--cache DIR] | kink-flow report \
-                         FLOW.toml \
-                         [--cache DIR]";
+                         FLOW.toml [--cache DIR] | kink-flow query FLOW.toml PATTERNS.toml \
+                         [--only ID]... [--verify] [--cache DIR]";
 
 /// Run one command; returns the process exit status.
 pub fn execute(args: Vec<OsString>) -> u8 {
@@ -97,6 +99,34 @@ pub fn execute(args: Vec<OsString>) -> u8 {
                 Some(result) => result,
                 None => {
                     eprintln!("kink-flow: the run thread panicked");
+                    return EXIT_CORPUS;
+                }
+            }
+        }
+        Ok([command, manifest, patterns, rest @ ..]) if command == "query" => {
+            let manifest = PathBuf::from(manifest);
+            let patterns = PathBuf::from(patterns);
+            for file in [&manifest, &patterns] {
+                if !file.is_file() {
+                    return usage(&format!("{} is not a file", file.display()));
+                }
+            }
+            let options = match query_options(rest) {
+                Ok(options) => options,
+                Err(message) => return usage(&message),
+            };
+            if let Ok(list) = PatternList::read(&patterns)
+                && let Some(id) = options
+                    .only
+                    .iter()
+                    .find(|id| !list.patterns.iter().any(|p| &p.id == *id))
+            {
+                return usage(&format!("--only {id}: no pattern has this id"));
+            }
+            match on_stack(move || query(&manifest, &patterns, &options)) {
+                Some(result) => result,
+                None => {
+                    eprintln!("kink-flow: the query thread panicked");
                     return EXIT_CORPUS;
                 }
             }
@@ -206,6 +236,28 @@ fn run_options(args: &[String]) -> Result<(RunOptions, RunMode), String> {
     Ok((options, mode))
 }
 
+fn query_options(args: &[String]) -> Result<QueryOptions, String> {
+    let mut options = QueryOptions::default();
+    let mut args = args.iter();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--verify" if !options.verify => options.verify = true,
+            "--only" => {
+                let id = args.next().ok_or("--only needs a pattern id")?;
+                if !options.only.contains(id) {
+                    options.only.push(id.clone());
+                }
+            }
+            "--cache" if options.cache.is_none() => {
+                let directory = args.next().ok_or("--cache needs a directory")?;
+                options.cache = Some(PathBuf::from(directory));
+            }
+            _ => return Err(format!("unexpected argument {arg:?}")),
+        }
+    }
+    Ok(options)
+}
+
 fn report_options(args: &[String]) -> Result<ReportOptions, String> {
     let mut options = ReportOptions::default();
     let mut args = args.iter();
@@ -219,6 +271,29 @@ fn report_options(args: &[String]) -> Result<ReportOptions, String> {
         }
     }
     Ok(options)
+}
+
+/// `kink-flow query FLOW.toml PATTERNS.toml [--only ID]... [--verify] [--cache DIR]`: the query
+/// document (flow F-18, [`crate::query`]) and the exit status: [`EXIT_OK`] when every selected
+/// (pattern, program) got its answer (`hit`, `no`, `unknown` or `invalid-pattern`; a refuted claim
+/// included); [`EXIT_CORPUS`] when the manifest, the pattern list, the specification or a program
+/// is refused, a search failed, an answer's record could not be written, or `--verify` found a
+/// stored answer that differs from a live one.
+pub fn query(manifest: &Path, patterns: &Path, options: &QueryOptions) -> (Value, u8) {
+    let manifest = match FlowManifest::read(manifest) {
+        Ok(manifest) => manifest,
+        Err(error) => {
+            let mut document = manifest_refused(&error);
+            document["schema"] = json!(crate::query::QUERY_SCHEMA);
+            return (document, EXIT_CORPUS);
+        }
+    };
+    let list = match PatternList::read(patterns) {
+        Ok(list) => list,
+        Err(error) => return (pattern_list_refused(&error), EXIT_CORPUS),
+    };
+    let (document, ok) = crate::query::query(&manifest, &list, options);
+    (document, if ok { EXIT_OK } else { EXIT_CORPUS })
 }
 
 /// `kink-flow report FLOW.toml [--cache DIR]`: the run document the last `run` wrote, as `run`

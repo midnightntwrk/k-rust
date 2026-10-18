@@ -13,7 +13,8 @@ the survivor report with the `report` command (flow F-06),
 Markdown sources (flow F-10),
 the outcome cache: proved outcomes kept across commands, killer hints that survive specification edits, and `run --verify` (flow F-14),
 one baseline run per program per command (flow F-12),
-and report usability: named oracle slots, timings, leaf censuses in the causes of stopped runs, cheaper killers first, and the rules no mutation targets (flow F-13).
+report usability: named oracle slots, timings, leaf censuses in the causes of stopped runs, cheaper killers first, and the rules no mutation targets (flow F-13),
+and per-input pattern checks with the `query` command (flow F-18; "Checking a pattern" below).
 
 ## `FLOW.toml`
 
@@ -424,6 +425,8 @@ Besides `results/` and `report.json` (the last run's document, also written when
   `value` the facts `{digest, rules, identity, typing_diagnostics, removed_claims}` or the census (kink-native `DeclarationCensus::value`), and `record_sha256` the digest of `{key, value}` under the version.
   A record is used only when its key is exactly the current one and its digest recomputes under that key; the path only finds it.
 
+- `patterns/<spec digest>/<pattern digest>/<program digest>.json`, the cached answers of `query` (flow F-18, "Checking a pattern" below). `run` neither reads nor writes them.
+
 Every file is written atomically; deleting any of them, or the whole directory, is always safe.
 The `killers/` directory of F-05 is no longer read or written and can be deleted.
 
@@ -494,3 +497,100 @@ When there is none, or it is not a run document of the current version, it print
 `{schema: "kink-flow-report", version: 1, k_rust_revision, profile, outcome: "missing" | "unreadable", path, detail}`.
 
 Exit status: 0 when it printed a report; 1 when there is none, it is unreadable, or the manifest does not decode; 2 on a usage error.
+
+## Checking a pattern: `kink-flow query FLOW.toml PATTERNS.toml [--only ID]... [--verify] [--cache DIR]`
+
+A pattern check asks, for one program of the corpus: does some run of this program, from its input, reach a configuration that matches this pattern?
+The initial configuration, every configuration a run reaches and the final ones all count.
+Use it to check a claim before relying on it: when you write a program meant to exercise a situation (a division by zero, a thread that writes before another reads, a loop that runs twice), write the situation as a pattern and claim the program hits it.
+kink-flow runs the program and confirms or refutes the claim, so a test whose purpose was imagined rather than reached is caught.
+"Every run hits" is not asked: when a program has several runs (thread interleavings, the evaluation order of `strict` operators), the answer is about some run.
+
+### `PATTERNS.toml`
+
+```toml
+[[pattern]]
+id = "result-three"                  # unique, non-empty
+pattern = "<k> 3 </k>"               # K text, as the left-hand side of a rule is written
+programs = ["add", "sub"]            # optional: the programs you claim hit it
+note = "the result 3 is reached"     # optional, free text
+
+[[pattern]]
+id = "result-above-five"
+pattern = "<k> I:Int </k> requires I >Int 5"
+```
+
+- `pattern` is parsed by the specification's own grammar, as the content of a rule in the main module: write a configuration fragment, with `...` and omitted cells completed as in a rule (`<k> 1 / 0 ~> _ </k>`, `<state> ... X |-> 3 ... </state>`), variables (`I:Int`, `_`) and an optional `requires` condition over them. A rewrite (`=>`) in a pattern denotes its left side. An `ensures` is refused, and so is a variable that occurs only on a rewrite's right side.
+- `programs` lists the corpus programs you claim hit the pattern (the per-input claims). Without it, every program of the corpus is asked ("which programs already hit it?").
+- An unknown key, a value of the wrong type, a duplicate or empty id, an empty or duplicated `programs` entry, and a claimed program the manifest does not have are errors that name the key; the command then runs nothing and exits 1.
+
+`testdata/flow/calc/PATTERNS.toml` and `testdata/flow/loop/PATTERNS.toml` are complete examples.
+
+### Answers
+
+The command prints one document, `{schema: "kink-flow-query", version: 1, k_rust_revision, profile, kink_build, kink, spec, programs, patterns, rows, counts, refuted_claims, mismatches, pattern_cache, baseline_runs}`:
+`programs` are the `results` rows (the result cache is brought up to date first),
+`patterns` one entry per selected pattern `{id, note, pattern, outcome: valid | invalid-pattern, detail, digest, kore, asked: claimed | corpus}` (`kore` is the compiled target),
+and `rows` one row per (pattern, program asked) `{pattern, program, claimed, answer, cause, witness, cached, wall_ms, claim}`.
+
+| `answer` | Meaning | What to do |
+| --- | --- | --- |
+| `hit` | A run reaches a configuration that matches the pattern; `witness` shows it. | Nothing: the claim holds. |
+| `no` | No run reaches one: the whole state space of the program was explored, within the budget, on a definition where nothing is left to the implementation. | The program does not do what you meant: change the program, or the pattern. |
+| `unknown` | No definitive answer; `cause` says why (below). | Read the cause; usually make the program terminate within the budget, or accept that the definition leaves the question open. |
+| `invalid-pattern` | The pattern does not parse, sort or compile; `cause` is k-rust's message. It never runs. | Fix the pattern. |
+| `error` | The program is not admitted, or k-rust refused the search; `cause` says which. | Fix the program, or report it. |
+
+`claim` is null for a program the corpus form asked; for a claimed program it is `confirmed` (`hit`), `refuted` (`no`) or `unconfirmed` (anything else).
+**A refuted claim** (also listed in `refuted_claims`) means the program, run exactly as kink runs it, never reaches the situation you said it tests: the purpose you gave the test is not what it does.
+An `unconfirmed` claim is neither confirmed nor refuted.
+
+The witness of a hit is `{depth, state: {kore, truncated}, bindings, rules, rendering, note}`:
+the matching configuration as KORE text (cut to 4000 characters) and the number of rewrite steps to it, the values of the variables you wrote (`[{variable, value}]`; the variables k-rust generates to complete cells are left out),
+and `rules`, the rewrite steps of one run from the initial configuration to it, each named by its label, else by the file and line of the rule written for it, else by its compiled id.
+k-rust 501f18b9 has no unparser from KORE back to the specification's syntax, so `rendering` is `kore`.
+
+**Why a no can be unknown.** A `no` is a claim about every run, so it needs more than a `hit`:
+- the exploration completed: no path stopped at `budget.max_depth` (`a path reached max_depth = N`), the search finished within `budget.time_ms`, and k-rust decided every step and every match (an undecided step, an undecided match, a state stopped for lack of native stack each make it incomplete);
+- the program's baseline run (its `results` row) is `comparable`: complete, with no stack stop and nothing else that makes a run no evidence (a contradicted claim, an allowance refusal, ...);
+- the definition leaves nothing to the implementation: no rule depends on a hook whose value the definition leaves open and k-rust chooses (`implementation-chosen-hook`, decision 1's census: `keys_list`, `choice`, `String2Bytes`, ...), or on whether `andBool`, `orBool` or `#if` skip an undefined operand (`short-circuit-reading`), and neither does the program's initial configuration; with such a value another implementation could reach the pattern, so the exploration of k-rust's choice says nothing about it;
+- the build is not the Z3 profile (a solver query can time out silently).
+
+A `hit` needs none of these: it is a run that exists, and k-rust's choice of an open value is one model of the definition. A hit is found even in a program that never ends, or that the budget stops: the search stops at the first match.
+Two conditions make every answer unknown: the definition's load counted a stop for lack of native stack (`load-stack-stop`), or a rule or equation has a condition equating two terms (`equals-condition`, a gap of k-rust's own answers).
+A match that holds only under a condition k-rust did not decide, or whose path emitted a backend diagnostic, is not a hit; the search stops at its first match, so the answer is then unknown.
+
+### How it runs, and what it costs
+
+Each pattern is compiled once, by k-rust's own compiler of search patterns (`kompile::compile_search_pattern`, the one `krun --pattern` uses), against the compiled definition the programs run on.
+Each (pattern, program) is one k-rust `search_pattern` from the program's initial configuration: search type all (every reachable configuration, the initial one included), state set (each distinct configuration of a depth once), at most one result, the manifest's `max_depth`, under a watchdog of `time_ms`.
+k-rust's search has no work budget yet (a k-rust request, KINK-24, would make a bounded answer reproducible), so `time_ms` is what stops a program that does not end.
+A check costs about one plain run of the program (release build, shared host at load 9-24; flow F-18 handoff): where the search explores every configuration it took 1.0-2.3 times the program's baseline run (`examples/imp` sum 6 ms against 3, primes 12 against 8, collatz 20 against 10; IMP++ primes 98 against 43, collatz 93 against 48, spawn 2.5-2.9 s against 2.5 s), and much less when the hit comes early (an interleaving of IMP++ spawn found at depth 39 in 0.32 s, against 2.5 s for the run).
+The search keeps every configuration it reached with the trace of one run to it, which added at most 45 MiB to the process's peak (IMP++ primes 153 MiB against 109 MiB).
+The admission of the specification (about 1 s per command on IMP) costs more than most checks, and a cached answer costs no search.
+
+### The cache, `--verify` and trust
+
+Only a `hit` and a `no` are cached, one record per (pattern, program), `patterns/<spec digest>/<pattern digest>/<program digest>.json` in the cache directory:
+`{schema: "kink-flow-pattern", key, pattern_id, program_id, answer, witness, baseline_run_sha256, record_sha256}`.
+The key is `{schema_version: "kink-flow/pattern-answer/v1", lowering: "kink-flow/pattern-lowering/v1", k_rust_revision, kink_build, kink, spec, program, pattern, budget, modality}`:
+the specification digest (every source file, a comment included), the program digest (its text, start sort and variables), the pattern digest (its compiled KORE target, not its id or its text's layout), the budget as the result key holds it, the search's modality, kink's build (any rebuild misses) and its semantics identity.
+A record is used only when its key is exactly the current one and its `record_sha256` recomputes; a cached `no` also only while the program's current result is `comparable` with the baseline run digest the `no` was given against.
+A used record is judged again with the current command's facts (the definition's exclusions on this command's load, the initial configuration's, the baseline class, the profile), so it never answers more than a live search would.
+Editing the specification, the program, the budget or the pattern, or rebuilding kink, recomputes the answer; an `unknown` is recomputed every time.
+
+A cached answer stands without a search. It rests on the integrity of the cache directory (whoever can write it can forge an answer, as for every kink cache) and on the key naming every input; not on k-rust's determinism: a `hit` and a `no` are facts about the definition and the program, which a later search can fail to re-derive (an unknown) but cannot contradict.
+`--verify` searches every selected (pattern, program) live, compares each with its stored record, lists every difference in `mismatches` (`{pattern, program, record, cached, live}`; the row's `verify` is `match` or `mismatch`), writes no record, and exits 1 on a difference; it also updates the results with `--verify`.
+The cache is off under the Z3 profile, as tier 1 is, and when the executable cannot be read (`pattern_cache.enabled` false, with the reason).
+
+What every answer trusts, besides the cache:
+- k-rust's search is sound and exact for "some reachable configuration matches" under the state set (re-pin M-2 found the same distinct states and hits by stepping on IMP and IMP++; `tests/query.rs` walks every fixture program's states one step at a time and requires the same answers);
+- k-rust's parser and pattern compiler decide what a pattern denotes;
+- the baseline's own claims (`total`, `preserves-definedness`, lemmas) are trusted, as for every baseline run. A contradiction k-rust detects ends its path (the undefined step has no successor), so a witness's run passes through none;
+- a search does not count the stops for lack of native stack it dismisses while it only refines a result (k-rust `docs/compatibility.md`, "Execute"). k-rust states at every such site a search reaches that the kept result is sound (a definedness condition left unsimplified, a fold forgone), so such a stop can leave a step or a match undecided (an unknown) but cannot make a decided match or a completed exploration false: whether an answer is definitive can depend on the host's stack, its truth cannot. A `no` also requires the baseline run's own count to be zero.
+
+**Answers never decide a mutation.** No answer enters a result record, an outcome record, a hint or a run document, and `run` does not read the pattern cache: a kill needs the final configurations to differ, and a pattern-only difference stays unknown by design.
+
+Exit status: 0 when every selected (pattern, program) got its answer (`hit`, `no`, `unknown`, `invalid-pattern`; refuted claims included);
+1 when the manifest, the pattern list, the specification or a program is refused, a search failed, a record could not be written, or `--verify` found a difference;
+2 on a usage error (an `--only` id that names no pattern, an option given twice).

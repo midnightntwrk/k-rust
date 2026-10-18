@@ -183,7 +183,7 @@ pub struct Outside {
 
 /// Every versioned constant outside [`KINK_IDENTITY`]. Each reason names the path that checks
 /// the constant, or says why nothing has to.
-pub const OUTSIDE_IDENTITY: [Outside; 25] = [
+pub const OUTSIDE_IDENTITY: [Outside; 30] = [
     Outside {
         krate: "kink-patch",
         constant: "TEST_MANIFEST_DOMAIN",
@@ -358,6 +358,39 @@ pub const OUTSIDE_IDENTITY: [Outside; 25] = [
         constant: "MUTATION_OPERATOR",
         reason: "the operator name of a written mutation's generation; what the mutation builds is \
                  its patch, which the mutation identity of the tier-1 key digests",
+    },
+    Outside {
+        krate: "kink-flow",
+        constant: "ANSWER_SCHEMA_VERSION",
+        reason: "the pattern answer record's format and meaning (flow F-18): its reader requires it \
+                 in the record's key, which also holds `kink_build` and the whole identity, and \
+                 checks the record's digest under that key (query.rs read_record); a pattern answer \
+                 decides no status",
+    },
+    Outside {
+        krate: "kink-flow",
+        constant: "LOWERING_VERSION",
+        reason: "how a pattern's K text becomes its search target (flow F-18): a member of every \
+                 pattern answer's key, which also holds `kink_build` (query.rs answer_key); a \
+                 pattern answer decides no status",
+    },
+    Outside {
+        krate: "kink-flow",
+        constant: "PATTERN_DOMAIN",
+        reason: "the domain of a pattern's digest (flow F-18): every query recomputes it from the \
+                 compiled target (pattern.rs Lowering::lower), and it enters the pattern answer's \
+                 key, which also holds `kink_build`",
+    },
+    Outside {
+        krate: "kink-flow",
+        constant: "PATTERN_RECORD_DOMAIN",
+        reason: "the domain of a pattern answer record's digest (flow F-18): the reader recomputes \
+                 it from the record under a key that holds `kink_build` (query.rs read_record)",
+    },
+    Outside {
+        krate: "kink-flow",
+        constant: "QUERY_VERSION",
+        reason: "the query document's format (flow F-18): no command reads a query document back",
     },
 ];
 
