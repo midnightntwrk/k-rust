@@ -23,6 +23,25 @@ The napi and wasm diagnostic objects expose the same list as `inputAddresses`, w
 
 The input-address carrier and origin receipts do not appear in KORE or KAST v4 and do not affect `UNIQUE_ID` digests.
 
+## Generated rules
+
+Every emitted rule that compilation generates from a source sentence carries that sentence's input addresses, so its `sentence_provenance` entry names the sentence it was generated from.
+This covers:
+
+- the equations of a `#let`, a `#fun` or a match (`:=K`, `:/=K`) that `resolve_fun` lifts out of a rule;
+- the `owise` refutation of a lambda whose pattern does not cover its parameter sort;
+- a match's negative `owise` equation;
+- the function equation that a function rule with configuration context (`rule [[ f(..) => .. ]] ..`) is lowered to.
+
+An entry's `generated_by` is absent for these rules, since an input sentence contributed to them.
+
+The source-to-KORE direction is the inverse of the map: the emitted rules of a sentence are the keys whose `input_addresses` contain that sentence's address.
+`RewriteRule::attributes.unique_id` is the key that joins a backend rule with its entry.
+
+Generated equations carry no label and no `Source` or `Location` of their own.
+A lambda family emits up to three equations, which one label could not tell apart, so a report names a generated equation through the enclosing sentence of its entry.
+`crates/k-rust/tests/generated_sentence_provenance.rs` pins these rules.
+
 ## Origin receipts and their documents
 
 An origin receipt (`OriginRecord`) holds the generating pass, an origin set, and an optional destination anchor.
