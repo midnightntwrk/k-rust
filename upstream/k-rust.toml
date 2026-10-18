@@ -13,8 +13,8 @@
 # from k-rust draft/k-in-k/answers-2026-10.toml (judged against k-rust's code at 501f18b9 and kink's R0 evidence,
 # not taken as given) and records it in update_2026_10_17. A re-judged row's status and status_basis are replaced;
 # their 927b9ce6 values are in this file at K-in-K2 1ee9955. KINK-15 and KINK-16 had no row before 2026-10-17;
-# they are added below. Requests KINK-17..KINK-20 of draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-3.md are not
-# filed here until Sebastien has given ADDENDUM-3 to k-rust.
+# they are added below. Requests KINK-17..KINK-22 of draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-3.md (given to
+# k-rust on 2026-10-18, frozen at sha256 55d51a795c6c126a7b9ee461cec6b6da28cc49d8b5d37dbf5b955121747e4262) were added on 2026-10-18.
 # status_at_main rows record the judgement at main 9ea39ec7 (2026-10-15); the pin is now later than that main.
 #
 # Fields added on 2026-10-15 (now in README.md's field table):
@@ -33,7 +33,7 @@
 # original fields) and where_requested_shape_differs (how an accepted fix differs from the request).
 
 schema = 1
-updated = "2026-10-17"
+updated = "2026-10-18"
 
 [reference_pin]
 # Status is judged against this commit of the on-disk checkout that the workspace builds against: kink-pattern, kink-patch, kink-native, kink-campaign, kink-corpus and kink-flow all depend on k-rust.
@@ -1019,6 +1019,102 @@ where_requested_shape_differs = "The count is states visited, decided by k-rust'
 sources = ["draft/tasks/k-rust-handoff-2026-10-15/HANDOFF.md KINK-16; ADDENDUM-1.md; ADDENDUM-2.md section 2", "k-in-k2 draft/tasks/flow/handoffs/F-11.toml proposed_requests[1] (reworded 2026-10-15)", "draft/tasks/upstream-pending.md (2026-10-15)", "k-rust draft/k-in-k/answers-2026-10.toml KINK-16"]
 handoff = "KINK-16"
 update_2026_10_17 = "Folded from k-rust draft/k-in-k/answers-2026-10.toml KINK-16 ('done'). kink adopts it with restrictions. A work-bound result is incomplete: its leaf's state is never compared and gives no real prefix (findings A-05). A work-bound outcome is cached only under the Execute promise, keyed on budget, modality and solver profile, and not in Z3 builds while tier 1 is off there (B-08). Budgets are calibrated per definition from baseline work, in the mutants' modality (A-16, B-15). k-rust's one-sided kill (a clean ground Stuck leaf before the work-bound leaf, absent from the baseline's complete set) is accepted for ground tests and complete baselines only (ANALYSIS decision 6; lane 1). Still open at k-rust: a deterministic per-step poll budget (trigger: watchdog stops inside one step), FU-11 and FU-15."
+
+[[request]]
+# Added on 2026-10-18 from ADDENDUM-3.md KINK-17 (ADDENDUM-3 was given to k-rust on 2026-10-18).
+id = "implementation-chosen-value-diagnostic"
+title = "Executions give no signal when a leaf's result used a value the definition leaves open"
+kind = "missing-feature"
+status = "open"
+status_basis = "carried from draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-3.md (sha256 55d51a79…, given to k-rust on 2026-10-18, judged against k-rust's code at 501f18b9 when written), not requalified"
+blocking = false
+needed_by = ["kill semantics (ANALYSIS decision 1): a kill must hold in every model of the definition, so the census can narrow from the definition to the leaf"]
+summary = "At 501f18b9 k-rust evaluates applications whose value the definition leaves open (choice and listing order of MAP/SET/RANGEMAP, mixed-format Float, NaN sign, Base2String case, Float2String text, String2Bytes/Bytes2String reading, substitution renaming, several hook families, the strict reading of andBool/orBool/impliesBool/#if) and returns one model's answer with no leaf signal. ADDENDUM-3 also asks whether andThenBool's strictness on an undefined right operand is intended."
+reproducer = "ADDENDUM-3 KINK-17 acceptance: a ground choice over a two-item Map; keys_list of two items; Base2String(255, 16); substOne renaming a bound variable; false andBool X with X undefined."
+local_workaround = "A definition-level fail-closed census: a comparison is unknown when the baseline or mutant has a non-prelude rule referencing one of these hooks (R0b; cost six fixture kills until the fixtures were rewritten)."
+requested_action = "Handoff KINK-17 (high). A leaf diagnostic such as implementation-chosen-value, naming the hook, on every leaf whose path evaluated such an application (union over merged paths under StateSet); for the short-circuit operators, only where the strict and lazy readings differ. Acceptance as in ADDENDUM-3 KINK-17; runs that evaluate none get no diagnostic; leaf order and states unchanged."
+sources = ["draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-3.md KINK-17", "draft/tasks/repin-501f18b9/ANALYSIS.md"]
+handoff = "KINK-17"
+
+[[request]]
+# Added on 2026-10-18 from ADDENDUM-3.md KINK-18 (ADDENDUM-3 was given to k-rust on 2026-10-18).
+id = "contradicted-claim-coverage"
+title = "No flag for a false [preserves-definedness] claim, or for a false total/functional claim hit while deciding a condition"
+kind = "missing-feature"
+status = "open"
+status_basis = "carried from draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-3.md (sha256 55d51a79…, given to k-rust on 2026-10-18, judged against k-rust's code at 501f18b9 when written), not requalified"
+blocking = false
+needed_by = ["kill semantics (ANALYSIS decision 2): a kill on an inconsistent theory says nothing about tests", "StateSet result runs, where a Trivial leaf's rule_id is only witness metadata"]
+summary = "Since KINK-10/3 an undefined rule result gives a Trivial leaf over the pre-step configuration. contradicted_total reports false total/functional claims there, but nothing reports a false [preserves-definedness] claim, nor a false total/functional claim met while evaluating a requires or equation condition (the run then reads it as 'not applied' and ends Stuck or takes owise)."
+reproducer = "ADDENDUM-3 KINK-18: a [preserves-definedness] rule whose right-hand side is X /Int 0; r(I) => a requires td(I) >Int 0 with td total and undefined at 0, run at 0."
+local_workaround = "PathSet Trivial leaf of a [preserves-definedness] rule is unknown; every mutant is built without the claims its edit can affect (R0c-fix-2). Remaining gap: a baseline whose own claim is false (trusted as a premise)."
+requested_action = "Handoff KINK-18 (medium). Report both cases in both modalities, the first like contradicted_total, the second on the path's following leaf; under StateSet list on each Trivial leaf every rule whose undefined step it stands for, with each one's contradicted claims. Acceptance as in ADDENDUM-3 KINK-18."
+sources = ["draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-3.md KINK-18", "draft/tasks/repin-501f18b9/ANALYSIS.md"]
+handoff = "KINK-18"
+
+[[request]]
+# Added on 2026-10-18 from ADDENDUM-3.md KINK-19 (ADDENDUM-3 was given to k-rust on 2026-10-18).
+id = "smt-undecided-count"
+title = "Results do not say whether any solver answer was undecided"
+kind = "missing-feature"
+status = "open"
+status_basis = "carried from draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-3.md (sha256 55d51a79…, given to k-rust on 2026-10-18, judged against k-rust's code at 501f18b9 when written), not requalified"
+blocking = false
+needed_by = ["tier-1 outcome caching in Z3 builds (FU-15), off today"]
+summary = "compatibility.md excludes runs with an SMT timeout from the Execute promise, but a result does not say whether one happened, so kink cannot cache any Z3-profile outcome."
+reproducer = "ADDENDUM-3 KINK-19: a Z3 run with a query forced to time out (1 ms solver timeout under test)."
+local_workaround = "Tier 1 off under the Z3 profile (R0, ANALYSIS section 3)."
+requested_action = "Handoff KINK-19 (low). A per-result count of decisions made from undecided solver answers (timeout, unknown, resource-out), like stackStops, omitted when 0; 0 in the portable build; documented relation to the Execute promise."
+sources = ["draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-3.md KINK-19", "draft/tasks/repin-501f18b9/ANALYSIS.md"]
+handoff = "KINK-19"
+
+[[request]]
+# Added on 2026-10-18 from ADDENDUM-3.md KINK-20 (ADDENDUM-3 was given to k-rust on 2026-10-18).
+id = "equation-pair-check-coverage"
+title = "Equation-pair classification skips definitions without equation heads, gives no per-group counts and leaves simple disjoint guards unrefuted"
+kind = "correctness"
+status = "open"
+status_basis = "carried from draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-3.md (sha256 55d51a79…, given to k-rust on 2026-10-18, judged against k-rust's code at 501f18b9 when written), not requalified"
+blocking = false
+needed_by = ["mutant consistency check (inconsistent-mutant refusal): a consistent mutant wrongly refused leaves the score and can hide a survivor"]
+summary = "value_claims_in_scope(CheckScope::All) checks no pair in a definition with no equation head and no withdrawable overloaded symbol (every definition kink mutates); CheckCounts is whole-definition only; in the portable build a non-complementary but disjoint overlap such as X >Int 5 vs X <=Int 0 is 'neither refuted nor enough to join', so kink refuses a consistent mutant. Also asks for a source-sentence to KORE-equation mapping, labels on generated #lambda equations, and two contract clarifications."
+reproducer = "ADDENDUM-3 KINK-20 acceptance: f(I) => 1 requires I >Int 0 and f(I) => 2 requires I >Int -5 (not joined, no extra symbol); guards I >Int 0 / I <=Int 0 refuted; portable build gn(X) => X +Int 1 requires X >Int 5 beside gn(X) => 0 requires X <=Int 0 refuted, X >=Int -5 beside X <Int 0 not joined."
+local_workaround = "kink adds an equation-free [anywhere] symbol to a copy, pins confluence.rs by digest, checks a total count; undecided overlaps make the mutant invalid inconsistent-mutant (fail-closed, out of the score)."
+requested_action = "Handoff KINK-20 (medium), items 1-9 of ADDENDUM-3: classify every pair whatever the heads; per index and priority group counts; refute single-integer-variable literal comparisons by interval reasoning also in the portable build; optional semantic self pairs and load-time spec diagnostics; source-to-equation mapping both ways incl. #fun/#let #lambda and #withConfig; labels for generated #lambda equations; inner-pair status of DomainValue/And-indexed equations; whether {A #Equals B} in requires/ensures falls under 'Two gaps remain'."
+sources = ["draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-3.md KINK-20", "draft/tasks/repin-501f18b9/ANALYSIS.md"]
+handoff = "KINK-20"
+
+[[request]]
+# Added on 2026-10-18 from ADDENDUM-3.md KINK-21 (ADDENDUM-3 was given to k-rust on 2026-10-18).
+id = "typing-error-where-compilation-succeeds"
+title = "SentenceTyper reports a sort error on a cell-less rewrite that compilation accepts"
+kind = "correctness"
+status = "open"
+status_basis = "carried from draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-3.md (sha256 55d51a79…, given to k-rust on 2026-10-18, judged against k-rust's code at 501f18b9 when written), not requalified"
+blocking = false
+needed_by = ["k-rust's own contract (compatibility.md:278); kink no longer depends on it"]
+summary = "compatibility.md:278 says a typing error implies compilation fails. At 501f18b9, [ab] a(X) => b(X) with A, B having two common supersorts gives IncompatibleSorts in for_compilation().typing_in, yet compiles and runs; likely the typer takes the LUB before AddImplicitComputationCell. Related: compile_loaded_definition accepts a parser-free [anywhere] rule equating an A with a B that the parser refuses (fails later at backend internalisation). Also asks to document the loader's retained modules."
+reproducer = "ADDENDUM-3 KINK-21: modules LUBBB and LUBBASE as described there."
+local_workaround = "kink no longer refuses on any typing error (ANALYSIS decision 4); kink-flow takes only text edits, which the parser checks (decisions log 2026-10-18, STRUCT-SORT parked)."
+requested_action = "Handoff KINK-21 (medium). Type a cell-less rewrite where compilation places it, or list the shape as an exception; consider a right-side sort check in compilation or document that it trusts its input; document load_for_compilation's retained modules."
+sources = ["draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-3.md KINK-21", "draft/tasks/repin-501f18b9/ANALYSIS.md"]
+handoff = "KINK-21"
+
+[[request]]
+# Added on 2026-10-18 from ADDENDUM-3.md KINK-22 (ADDENDUM-3 was given to k-rust on 2026-10-18).
+id = "execution-facts-for-kills"
+title = "Two execution facts kink's kills rest on are not stated: leaves before a work-bound leaf are finished, and state sets absorb bound or undecided leaves"
+kind = "correctness"
+status = "open"
+status_basis = "carried from draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-3.md (sha256 55d51a79…, given to k-rust on 2026-10-18, judged against k-rust's code at 501f18b9 when written), not requalified"
+blocking = false
+needed_by = ["one-sided kills from work-bound runs (ANALYSIS decision 6; on by default in kink-flow)", "StateSet result runs: completeness of a state-set result"]
+summary = "Fact 1: every leaf reported before the work-bound leaf is a finished expansion (read from k-rust-backend rewrite/execute.rs:378-384, not stated). Fact 2: a state set can be complete where the path set of the same bounds is not, because a later depth-bound or undecided leaf of a stuck configuration is absorbed without trace (kink fixture testdata/k/l1/absorb.k: [Stuck 3], work 7 in both modalities)."
+reproducer = "ADDENDUM-3 KINK-22: testdata/k/l1/absorb.k under StateSet and PathSet."
+local_workaround = "kink relies on fact 1 as read in the code at the pin; for fact 2 it compares modalities in tests only."
+requested_action = "Handoff KINK-22 (high). Document fact 1 beside the work budget as part of the Execute promise; document fact 2 beside the state-set merge and report per state-set result a count of absorbed bound or undecided leaves; low priority: work and expanded counts on a cancelled error. Acceptance as in ADDENDUM-3 KINK-22."
+sources = ["draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-3.md KINK-22", "draft/tasks/repin-501f18b9/ANALYSIS.md"]
+handoff = "KINK-22"
 
 [[request]]
 id = "unadmitted-hook-namespace-visibility"
