@@ -498,8 +498,9 @@ pub struct ExecutionResult<K = Value> {
     /// `state-set` merge absorbed. It is complete for the `total` contradictions evaluation finds
     /// on ground arguments, and for the `preserves-definedness` contradictions a successor's
     /// normalization finds: a declared rule's result term found `\bottom`, by any route (for a
-    /// disjunctive right-hand side, every alternative's). A symbolic state trusts the claims, so
-    /// an empty list says nothing about a non-ground run. Each record says who observed it (`observedIn`): the load's records are
+    /// disjunctive right-hand side, every alternative's; a `#Bottom` right-hand side). A symbolic
+    /// state trusts the claims, so an empty list says nothing about a non-ground run. Each record
+    /// says who observed it (`observedIn`): the load's records are
     /// facts about the definition, on this list and on no leaf, and a contradiction the load and
     /// the run both observed is listed once for each.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

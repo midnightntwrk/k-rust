@@ -220,12 +220,15 @@ impl Simplification {
     /// retained and `\bottom` is its only constraint, so the caller merges it as it merges any
     /// other constraint set and the pattern becomes `\bottom` as a whole. The subject is
     /// reported as where `\bottom` was found; the equation's own result is not that place.
+    /// Only the claim check reads where (`crate::path_facts::claims_checked`).
     pub(super) fn bottom_subject(rule: &RewriteRule, term: &Term) -> Self {
         Self {
-            bottom: Some(Box::new(FoundBottom {
-                term: term.clone(),
-                named: false,
-            })),
+            bottom: crate::path_facts::claims_checked().then(|| {
+                Box::new(FoundBottom {
+                    term: term.clone(),
+                    named: false,
+                })
+            }),
             ..Self::bottom_result(rule, term)
         }
     }
@@ -381,8 +384,9 @@ impl Accumulated {
         self.conditions.since(&mark.conditions)
     }
 
-    /// What was absorbed since `mark`, as the result for `term`, without reports: the caller
-    /// takes it only where no report was raised. It shares what was absorbed.
+    /// What was absorbed since `mark`, as the result for `term`, without undefined-term reports:
+    /// the caller takes it only where none was raised. Where `\bottom` was found since `mark`
+    /// ([`FoundBottom`]) is kept. It shares what was absorbed.
     pub(super) fn since(&self, mark: &AccumulatedMark, term: Term) -> Simplification {
         Simplification {
             term,
@@ -392,7 +396,13 @@ impl Accumulated {
             exhausted: None,
             undefined_term: None,
             contradicted_total: None,
-            bottom: None,
+            // Where `\bottom` was found since `mark`, when it was: the part's own report, which a
+            // lineage that takes the part as a step's result reads as it reads a fresh one's.
+            bottom: if self.bottom == mark.bottom {
+                None
+            } else {
+                self.bottom.clone()
+            },
         }
     }
 

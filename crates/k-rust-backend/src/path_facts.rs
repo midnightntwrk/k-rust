@@ -157,11 +157,11 @@ impl PathFact {
 ///
 /// A record is a fact about the definition at the contradicted application (for a
 /// `preserves-definedness` claim, the rule's result term). When it is
-/// [`ground`](Self::ground), the application is variable-free (and, for a
-/// `preserves-definedness` claim, the step's premises were decided to hold), so the definition
-/// has no model with the claim at that input. A non-ground record comes from a state whose
-/// constraints may be unsatisfiable without being refuted, or from a step whose `requires` was
-/// carried rather than decided, and refutes nothing.
+/// [`ground`](Self::ground), the application is variable-free and nothing but the definition
+/// was assumed to refute it, so the definition has no model with the claim at that input. A
+/// non-ground record rests on an assumption that is not `\top` (a state's constraints, which
+/// may be unsatisfiable without being refuted, or a `requires` a step carried rather than
+/// decided), and refutes nothing.
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct ContradictedClaim {
@@ -170,11 +170,13 @@ pub struct ContradictedClaim {
     /// produced successor's normalization observed the contradiction; `None` when no rule's
     /// work did (the normalization of an initial state, or work outside a run's steps).
     pub rule: Option<ObservingRule>,
-    /// Whether the contradicted application is ground (variable-free). For a
-    /// `preserves-definedness` claim: the result term is variable-free and every constraint of
-    /// the successor (the pre-step state's and what the step added: a carried `requires`,
-    /// `ensures` or obligation) simplified to `\top`, so the step's premises hold on the
-    /// instance alone.
+    /// Whether the record refutes the claim at a ground input: the contradicted application is
+    /// variable-free and no assumption other than `\top` was used to refute it. For a `total`
+    /// claim: the simplification that reduced the application to bottom ran under no known
+    /// predicate and no path condition but `\top`. For a `preserves-definedness` claim: every
+    /// constraint of the successor (the pre-step state's and what the step added: a carried
+    /// `requires`, `ensures` or obligation) simplified to `\top`, so the step's premises hold on
+    /// the instance alone.
     pub ground: bool,
     /// Whether the definition's load or the run that reports it observed the contradiction. A
     /// leaf's records are the run's; the load's are on the result's lists only.
@@ -201,7 +203,7 @@ pub enum Claim {
     /// defined arguments to bottom.
     Total(ContradictedTotal),
     /// A rewrite rule declared `preserves-definedness` whose result term, as a step that applied
-    /// it built it, the normalization found `\bottom`.
+    /// it built it, the normalization found `\bottom`, or whose right-hand side is `#Bottom`.
     PreservesDefinedness(ContradictedPreservation),
 }
 
@@ -223,10 +225,12 @@ pub struct ContradictedPreservation {
     /// Where the rule is written (its first origin), when the KORE carries it.
     pub origin: Option<RuleOrigin>,
     /// The rule's result term as the step built it (for a disjunctive right-hand side, its first
-    /// alternative).
+    /// alternative; for a `#Bottom` right-hand side, which builds none, the configuration the
+    /// step applied to).
     pub instance: Term,
     /// The undefined term the normalization of `instance` reached: a subterm of it, or of a
-    /// callee's equation result; where the normalization found `\bottom` otherwise.
+    /// callee's equation result; where the normalization found `\bottom` otherwise (for a
+    /// `#Bottom` right-hand side, the configuration the step applied to).
     pub undefined_term: Term,
 }
 
@@ -538,6 +542,53 @@ pub(crate) fn is_open() -> bool {
     OPEN.get()
 }
 
+#[cfg(feature = "test-switches")]
+thread_local! {
+    /// Whether this thread checks claims ([`without_claim_checks`]).
+    static CLAIM_CHECKS: Cell<bool> = const { Cell::new(true) };
+}
+
+/// Run `action` with the claim checks turned off on this thread: no contradicted claim is noted,
+/// and none of the work done only to find one runs (where a result term or an equation's result
+/// was found `\bottom`, the normalization of a disjunctive right-hand side's alternatives). A
+/// claim attribute's check observes and decides nothing, so every result must be the same apart
+/// from the records; tests compare the two. Only with the `test-switches` feature, which no
+/// normal build enables.
+#[cfg(feature = "test-switches")]
+pub fn without_claim_checks<T>(action: impl FnOnce() -> T) -> T {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            CLAIM_CHECKS.set(self.0);
+        }
+    }
+    let _restore = Restore(CLAIM_CHECKS.replace(false));
+    action()
+}
+
+/// Whether claims are checked: always, except under `without_claim_checks` (feature
+/// `test-switches`). The bookkeeping that serves only the check (`simplify::FoundBottom`) runs
+/// only then.
+#[inline(always)]
+pub(crate) fn claims_checked() -> bool {
+    #[cfg(feature = "test-switches")]
+    {
+        CLAIM_CHECKS.get()
+    }
+    #[cfg(not(feature = "test-switches"))]
+    {
+        true
+    }
+}
+
+/// Whether a contradicted claim found now would be noted: claims are checked
+/// ([`claims_checked`]) and a note has somewhere to go ([`is_open`]). Work done only to find one
+/// runs only then.
+#[inline]
+pub(crate) fn checking_claims() -> bool {
+    is_open() && claims_checked()
+}
+
 /// Note `fact`: it reaches the innermost open collection and the run record, unless notes are
 /// suspended.
 pub(crate) fn note(fact: PathFact) {
@@ -550,14 +601,18 @@ pub(crate) fn note(fact: PathFact) {
 
 /// Note that an equation reduced `total`, an application of a symbol declared `total` to
 /// defined arguments, to bottom: a contradicted claim, observed by the innermost rule whose work
-/// is under way ([`observed_by`]).
-pub(crate) fn note_contradicted_total(total: &ContradictedTotal) {
-    if !OPEN.get() {
+/// is under way ([`observed_by`]). `unconditional` says whether the simplification that found it
+/// ran under no assumption other than `\top` (no known predicate and no path condition): the
+/// record is [`ground`](ContradictedClaim::ground) only then and when the application is
+/// variable-free, since an assumption may have been what reduced the equation's result to
+/// bottom, and the definition can have a model with the claim where the assumption is false.
+pub(crate) fn note_contradicted_total(total: &ContradictedTotal, unconditional: bool) {
+    if !checking_claims() {
         return;
     }
     let rule = STATE.with_borrow(|state| state.rules.last().cloned().flatten());
     note(PathFact::ContradictedClaim(Box::new(ContradictedClaim {
-        ground: total.application.attributes().variables.is_empty(),
+        ground: unconditional && total.application.attributes().variables.is_empty(),
         claim: Claim::Total(total.clone()),
         rule,
         observed_in: ObservedIn::Run,
@@ -577,7 +632,7 @@ pub(crate) fn note_contradicted_preservation(
     instance: &Term,
     found: impl FnOnce() -> Option<(Term, bool)>,
 ) {
-    if !OPEN.get() {
+    if !checking_claims() {
         return;
     }
     let Some(rule) = STATE.with_borrow(|state| state.rules.last().cloned().flatten()) else {
@@ -601,6 +656,9 @@ pub(crate) fn note_preservation(
     undefined_term: Term,
     premises_hold: bool,
 ) {
+    if !checking_claims() {
+        return;
+    }
     note(PathFact::ContradictedClaim(Box::new(ContradictedClaim {
         ground: premises_hold && instance.attributes().variables.is_empty(),
         claim: Claim::PreservesDefinedness(ContradictedPreservation {

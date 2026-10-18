@@ -1755,6 +1755,23 @@ fn instantiate(
             .collect(),
         RuleRhs::Top => return Err(PhaseExit::Attempt(RuleAttempt::NotApplicable)),
         RuleRhs::Bottom => {
+            // A declared `preserves-definedness` claims the result defined where the match and
+            // the `requires` hold, and a `#Bottom` right-hand side is defined nowhere: the step
+            // applies, so the claim is refuted at this instance. The right-hand side builds no
+            // term, so the record names the configuration the step applied to as both the
+            // instance and where `\bottom` was found; it is ground when that is variable-free and
+            // the premises were decided on it alone, as on the console route.
+            if rule.attributes.preserves_definedness && crate::path_facts::checking_claims() {
+                let premises_hold = predicates_truth(&pattern.constraints) == Truth::True
+                    && match_conditions.is_empty()
+                    && unclear_requires.is_empty();
+                crate::path_facts::note_preservation(
+                    crate::path_facts::ObservingRule::of(rule),
+                    &pattern.term,
+                    pattern.term.clone(),
+                    premises_hold,
+                );
+            }
             return Err(PhaseExit::Attempt(RuleAttempt::Unified {
                 groups: vec![RuleApplicationGroup {
                     applied: Vec::new(),
@@ -1782,7 +1799,7 @@ fn instantiate(
     // long as every one may be `\bottom` (`DisjunctionBottom`).
     let mut disjunction = (rule.attributes.preserves_definedness
         && matches!(rule.rhs, RuleRhs::Disjunction(_))
-        && crate::path_facts::is_open())
+        && crate::path_facts::checking_claims())
     .then(Vec::new);
     for (rhs, alternative_ensures) in alternatives {
         let ensures = rule.ensures.merged(alternative_ensures);
@@ -2028,7 +2045,8 @@ fn apply_rhs_alternative(
     let mut io_evaluation = io.map(ExecutionIoState::begin_evaluation);
     // The result term as the step built it, which a declared `preserves-definedness` claims
     // defined (`crate::path_facts::note_contradicted_preservation`).
-    let instance = rule.attributes.preserves_definedness.then(|| rhs.clone());
+    let instance = (rule.attributes.preserves_definedness && crate::path_facts::checking_claims())
+        .then(|| rhs.clone());
     let (rhs, rhs_conditions, effects, undefined_term, contradicted_total, bottom) =
         if rule.computed_attributes.undefined_symbols.is_empty() && io_evaluation.is_none() {
             (

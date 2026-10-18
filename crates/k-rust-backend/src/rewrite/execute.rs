@@ -2717,9 +2717,6 @@ pub(crate) struct SuccessorNormalization {
 
 struct TermNormalization {
     simplified: Simplification,
-    /// Where the result term was found `\bottom`, and whether the step's premises hold
-    /// ([`result_bottom`]).
-    bottom: Option<(crate::term::Term, bool)>,
     diagnostics: Vec<BackendDiagnostic>,
     /// The console state the evaluation committed, when the successor admitted one.
     io: Option<ExecutionIoState>,
@@ -2761,6 +2758,10 @@ impl std::fmt::Debug for SuccessorNormalization {
 /// one, where a subterm reduced to `\bottom` with the constraints `\bottom` makes it undefined.
 /// A successor that is only empty, or whose simplification fails, is not shown undefined.
 /// Diagnostics are not emitted; the normalization holds them.
+///
+/// A contradicted `preserves-definedness` of the rule whose work the normalization is
+/// (`crate::path_facts::observed_by`) is noted when its result term is found `\bottom`
+/// ([`note_undefined_result`]).
 pub(crate) fn normalize_successor(
     definition: &BackendDefinition,
     successor: &Pattern,
@@ -2769,6 +2770,41 @@ pub(crate) fn normalize_successor(
     solver: &dyn SmtSolver,
     io: Option<&ExecutionIoState>,
 ) -> Stoppable<SuccessorCheck> {
+    normalize_successor_with(
+        definition,
+        successor,
+        base,
+        options,
+        solver,
+        io,
+        ResultClaim::Note,
+    )
+    .map(|(check, _)| check)
+}
+
+/// What [`normalize_successor_with`] does with a result term found `\bottom`.
+#[derive(Clone, Copy)]
+enum ResultClaim {
+    /// Note the contradicted `preserves-definedness` of the rule whose work the normalization is,
+    /// when it claims one.
+    Note,
+    /// Note nothing, and report where the result was found `\bottom` ([`result_bottom`]): the
+    /// caller decides on one alternative of a disjunctive right-hand side
+    /// ([`alternatives_bottom`]).
+    Report,
+}
+
+/// [`normalize_successor`], with `claim` saying what is done with a result term found
+/// `\bottom`; the second part is the report [`ResultClaim::Report`] asks for.
+fn normalize_successor_with(
+    definition: &BackendDefinition,
+    successor: &Pattern,
+    base: &[Predicate],
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+    io: Option<&ExecutionIoState>,
+    claim: ResultClaim,
+) -> Stoppable<(SuccessorCheck, Option<(crate::term::Term, bool)>)> {
     let failed = SuccessorCheck {
         undefined: None,
         normalization: None,
@@ -2781,7 +2817,7 @@ pub(crate) fn normalize_successor(
         simplify_predicates_with_solver(definition, &pattern.constraints, &[], options, solver)
     });
     let Ok(simplified) = simplified? else {
-        return Ok(failed);
+        return Ok((failed, None));
     };
     let mut normalization = SuccessorNormalization {
         built: successor.clone(),
@@ -2798,16 +2834,21 @@ pub(crate) fn normalize_successor(
     pattern.constraints = constraints;
     normalize_pattern_substitution(&mut pattern, definition.sort_graph());
     if predicates_truth(&pattern.constraints) == Truth::False {
-        return Ok(SuccessorCheck {
-            undefined: added
-                .into_iter()
-                .find(|predicate| matches!(predicate, Predicate::Ceil(_) | Predicate::Defined(_)))
-                .map(|obligation| UndefinedSuccessor {
-                    obligation,
-                    contradicted_total: None,
-                }),
-            normalization: Some(normalization),
-        });
+        return Ok((
+            SuccessorCheck {
+                undefined: added
+                    .into_iter()
+                    .find(|predicate| {
+                        matches!(predicate, Predicate::Ceil(_) | Predicate::Defined(_))
+                    })
+                    .map(|obligation| UndefinedSuccessor {
+                        obligation,
+                        contradicted_total: None,
+                    }),
+                normalization: Some(normalization),
+            },
+            None,
+        ));
     }
     let mut evaluation = io
         .filter(|_| pattern_supports_execution_io(&pattern))
@@ -2830,46 +2871,53 @@ pub(crate) fn normalize_successor(
                 solver,
             ),
         };
-        let bottom = match &simplified {
-            Ok(Ok(simplified)) => result_bottom(&pattern.constraints, simplified),
+        let bottom = match (&simplified, claim) {
+            (Ok(Ok(simplified)), ResultClaim::Note) => {
+                note_undefined_result(&successor.term, &pattern.constraints, simplified);
+                None
+            }
+            (Ok(Ok(simplified)), ResultClaim::Report) => {
+                result_bottom(&pattern.constraints, simplified)
+            }
             _ => None,
         };
-        if bottom.is_some() {
-            crate::path_facts::note_contradicted_preservation(&successor.term, || bottom.clone());
-        }
         (simplified, bottom)
     });
     let Ok(simplified) = simplified? else {
-        return Ok(failed);
+        return Ok((failed, None));
     };
     let parts = simplified.clone().into_parts();
     normalization.term = Some(TermNormalization {
         simplified,
-        bottom,
         diagnostics,
         io: evaluation.map(|evaluation| evaluation.commit()),
     });
     let mut constraints = pattern.constraints;
     constraints.extend(parts.conditions);
-    Ok(SuccessorCheck {
-        undefined: match parts.undefined_term {
-            Some(term) if predicates_truth(&constraints) == Truth::False => {
-                Some(UndefinedSuccessor {
-                    obligation: Predicate::Ceil(term),
-                    contradicted_total: parts.contradicted_total,
-                })
-            }
-            _ => None,
+    Ok((
+        SuccessorCheck {
+            undefined: match parts.undefined_term {
+                Some(term) if predicates_truth(&constraints) == Truth::False => {
+                    Some(UndefinedSuccessor {
+                        obligation: Predicate::Ceil(term),
+                        contradicted_total: parts.contradicted_total,
+                    })
+                }
+                _ => None,
+            },
+            normalization: Some(normalization),
         },
-        normalization: Some(normalization),
-    })
+        bottom,
+    ))
 }
 
 /// Note a contradicted `preserves-definedness` (`crate::path_facts::note_contradicted_preservation`)
 /// when `simplified`, the simplification of a successor's term under `constraints`, shows the
 /// result term `\bottom` ([`result_bottom`]). `instance` is the result term as the step that
 /// produced the successor built it. The claim is that of the rule whose work the normalization
-/// is (`crate::path_facts::observed_by`), when it makes one.
+/// is (`crate::path_facts::observed_by`), when it makes one; [`result_bottom`] runs only then,
+/// and only while claims are checked and a note has somewhere to go, so a successor of a rule
+/// that claims nothing costs nothing here.
 pub(crate) fn note_undefined_result(
     instance: &crate::term::Term,
     constraints: &[Predicate],
@@ -2897,12 +2945,16 @@ pub(crate) fn result_bottom(
     constraints: &[Predicate],
     simplified: &Simplification,
 ) -> Option<(crate::term::Term, bool)> {
-    let truth = predicates_truth(constraints);
-    if truth == Truth::False
-        || !simplified
-            .conjoined()
-            .any(|predicate| predicate_truth(predicate) == Truth::False)
+    // The term phase's own conditions first: a result that conjoins no `\bottom` is the common
+    // case, and the constraints are not read for it.
+    if !simplified
+        .conjoined()
+        .any(|predicate| predicate_truth(predicate) == Truth::False)
     {
+        return None;
+    }
+    let truth = predicates_truth(constraints);
+    if truth == Truth::False {
         return None;
     }
     let undefined = simplified
@@ -2918,8 +2970,9 @@ pub(crate) fn result_bottom(
 /// and where for each: the definedness of a disjunction is the disjunction of its alternatives'
 /// definedness, so a declared `preserves-definedness` of such a rule is refuted only then
 /// (`apply`). The normalizations are taken aside: they decide nothing in the run, so what they
-/// observe reaches no path and no list, they use no console and they cover nothing; the
-/// successors' own normalizations observe it where the run decides on them.
+/// observe reaches no path and no list, what they emit is dropped, they use no console and they
+/// cover nothing; the successors' own normalizations observe and emit it where the run decides
+/// on them.
 pub(crate) fn alternatives_bottom(
     definition: &BackendDefinition,
     built: &[&Pattern],
@@ -2929,14 +2982,19 @@ pub(crate) fn alternatives_bottom(
 ) -> Stoppable<Option<Vec<(crate::term::Term, bool)>>> {
     crate::coverage::suspend(|| {
         crate::path_facts::aside(|| {
-            let (found, _) = diagnostic::collect_unit(|| {
+            // Held and dropped, never committed: the run emits what its own normalizations do.
+            let (found, _dropped) = diagnostic::buffer(|| {
                 let mut found = Vec::with_capacity(built.len());
                 for successor in built {
-                    let checked =
-                        normalize_successor(definition, successor, base, options, solver, None)?;
-                    let bottom = checked
-                        .normalization
-                        .and_then(|normalization| normalization.term?.bottom);
+                    let (_, bottom) = normalize_successor_with(
+                        definition,
+                        successor,
+                        base,
+                        options,
+                        solver,
+                        None,
+                        ResultClaim::Report,
+                    )?;
                     match bottom {
                         Some(bottom) => found.push(bottom),
                         None => return Ok(None),

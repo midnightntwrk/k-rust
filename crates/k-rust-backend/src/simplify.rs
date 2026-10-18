@@ -234,8 +234,8 @@ impl SimplificationOptions {
 /// `#Bottom` or whose `ensures` is refuted, applied in the result or as the `total` equation
 /// itself, or a subterm whose bindings an equation finds empty. The claim is contradicted
 /// alike, and the record names the term where `\bottom` was found (`FoundBottom`): the
-/// equation's own result when its result is `\bottom` itself. Such a record is only noted; it
-/// is not carried by the simplification (`Simplification::contradicted_total` goes with an
+/// application itself when the equation's own result is `\bottom`. Such a record is only noted;
+/// it is not carried by the simplification (`Simplification::contradicted_total` goes with an
 /// undefined term, which an undefined step's halt names).
 ///
 /// Each one is also noted where it is found, as a contradicted claim of the paths whose
@@ -256,7 +256,7 @@ pub struct ContradictedTotal {
     /// them a reply carries.
     pub attributes: RuleAttributes,
     /// The undefined term the equation's result reached, or the term at which it was found
-    /// `\bottom` otherwise (the equation's own result when that is `\bottom`).
+    /// `\bottom` otherwise (`application` itself when the equation's own result is `\bottom`).
     pub undefined_term: Term,
 }
 
@@ -835,6 +835,18 @@ fn simplify_predicates_entry(
 struct TermAssumptions<'a> {
     predicates: &'a [Predicate],
     path_condition: &'a PathConditionReplacements,
+}
+
+impl TermAssumptions<'_> {
+    /// Whether nothing is assumed but `\top`: every known predicate is `\top` and the path
+    /// condition replaces nothing. A bottom found under such assumptions is found from the
+    /// definition and the term alone (`crate::path_facts::note_contradicted_total`).
+    fn unconditional(&self) -> bool {
+        self.predicates
+            .iter()
+            .all(|predicate| *predicate == Predicate::True)
+            && self.path_condition.is_empty()
+    }
 }
 
 /// The assumptions of one predicate simplification: the known predicates and their path
@@ -4406,8 +4418,11 @@ fn simplify_on_stack(
             let mut before_step = unspecified.as_ref().map(|_| accumulated.mark());
             // The root step's own result conjoins `\bottom` and nothing says where: an applied
             // equation's `#Bottom` right-hand side or refuted `ensures` (`FoundBottom`).
-            let root_bottom =
-                root.undefined_term.is_none() && root.bottom.is_none() && root.conjoins_bottom();
+            // Only the claim check reads where (`crate::path_facts::claims_checked`).
+            let root_bottom = root.undefined_term.is_none()
+                && root.bottom.is_none()
+                && crate::path_facts::claims_checked()
+                && root.conjoins_bottom();
             let root = accumulated.absorb(root);
             if accumulated.undefined_term.is_none() {
                 // A child's own report comes first: it names the innermost equation. Otherwise
@@ -4430,7 +4445,10 @@ fn simplify_on_stack(
                             // Observed here, whatever becomes of this lineage's result: the
                             // paths whose decisions rest on it carry the record
                             // (`crate::path_facts`).
-                            crate::path_facts::note_contradicted_total(&contradicted);
+                            crate::path_facts::note_contradicted_total(
+                                &contradicted,
+                                assumptions.unconditional(),
+                            );
                             contradicted
                         })
                     });
@@ -4443,7 +4461,7 @@ fn simplify_on_stack(
                 && accumulated.bottom.is_none()
                 && let Some(found) = &children.bottom
             {
-                accumulated.bottom = Some(found_bottom(found, total_step.as_ref()));
+                accumulated.bottom = Some(found_bottom(found, total_step.as_ref(), assumptions));
             }
             if let (Some(step), Some(mut before)) = (unspecified, before_step.take()) {
                 // The step's own result carries no report, so the reports now are those of the
@@ -4473,18 +4491,18 @@ fn simplify_on_stack(
             // (an undone `Unspecified` step takes it back with the step).
             if accumulated.undefined_term.is_none() && accumulated.bottom.is_none() {
                 if let Some(found) = &root.bottom {
-                    accumulated.bottom = Some(found_bottom(found, total_step.as_ref()));
+                    accumulated.bottom =
+                        Some(found_bottom(found, total_step.as_ref(), assumptions));
                 } else if root_bottom {
                     accumulated.bottom = Some(found_root_bottom(
                         &children.term,
-                        &root.term,
                         root_equation.as_deref(),
                         total_step.as_ref(),
+                        assumptions,
                     ));
                 }
             }
             if accumulated.undefined_term.is_none()
-                && accumulated.bottom.is_none()
                 && let Some(rule) = root_equation
                 && is_total_application(&children.term)
             {
@@ -4581,37 +4599,41 @@ fn simplify_on_stack(
 /// in the lineage to an application of a `total` symbol (`total_step`), before anything in the
 /// lineage was `\bottom`, that equation's result reached `found`: the claim is contradicted, as
 /// when the result reaches an undefined term, unless an inner equation's record already names
-/// `found`.
+/// `found`. The record is ground only when the lineage assumes nothing but `\top`
+/// (`assumptions`, [`TermAssumptions::unconditional`]).
 #[inline(never)]
 fn found_bottom(
     found: &FoundBottom,
     total_step: Option<&(Term, Arc<RewriteRule>)>,
+    assumptions: &TermAssumptions<'_>,
 ) -> Box<FoundBottom> {
     let mut found = Box::new(found.clone());
     if !found.named
         && let Some((application, rule)) = total_step
     {
-        crate::path_facts::note_contradicted_total(&ContradictedTotal::new(
-            application.clone(),
-            rule,
-            found.term.clone(),
-        ));
+        crate::path_facts::note_contradicted_total(
+            &ContradictedTotal::new(application.clone(), rule, found.term.clone()),
+            assumptions.unconditional(),
+        );
         found.named = true;
     }
     found
 }
 
-/// The root step on `subject` gave `result` with `\bottom` conjoined, nothing in the lineage
+/// The root step on `subject` gave a result with `\bottom` conjoined, nothing in the lineage
 /// being `\bottom` before it: `subject` is where. When the step applied an equation of a `total`
 /// symbol (`equation`), whose arguments are not `\bottom`, the equation's own result is `\bottom`
-/// (a `#Bottom` right-hand side, a refuted `ensures`), which contradicts the claim; otherwise
-/// the last `total` step's result reached it ([`found_bottom`]).
+/// (a `#Bottom` right-hand side, a refuted `ensures`), which contradicts the claim, and the
+/// record names `subject` as the undefined term (for a refuted `ensures` the term the equation
+/// built is not undefined); otherwise the last `total` step's result reached it
+/// ([`found_bottom`]). An `ensures` is refuted under the lineage's `assumptions`, so the record
+/// is ground only when they are `\top`.
 #[inline(never)]
 fn found_root_bottom(
     subject: &Term,
-    result: &Term,
     equation: Option<&RewriteRule>,
     total_step: Option<&(Term, Arc<RewriteRule>)>,
+    assumptions: &TermAssumptions<'_>,
 ) -> Box<FoundBottom> {
     let found = FoundBottom {
         term: subject.clone(),
@@ -4619,17 +4641,16 @@ fn found_root_bottom(
     };
     match equation {
         Some(rule) if is_total_application(subject) => {
-            crate::path_facts::note_contradicted_total(&ContradictedTotal::new(
-                subject.clone(),
-                rule,
-                result.clone(),
-            ));
+            crate::path_facts::note_contradicted_total(
+                &ContradictedTotal::new(subject.clone(), rule, subject.clone()),
+                assumptions.unconditional(),
+            );
             Box::new(FoundBottom {
                 named: true,
                 ..found
             })
         }
-        _ => found_bottom(&found, total_step),
+        _ => found_bottom(&found, total_step, assumptions),
     }
 }
 
@@ -4681,8 +4702,13 @@ impl PathConditionReplacements {
         }
     }
 
+    /// Whether the path condition replaces nothing.
+    fn is_empty(&self) -> bool {
+        self.substitution.is_empty() && self.replacements.is_empty()
+    }
+
     fn apply(&self, term: &Term) -> Term {
-        if self.substitution.is_empty() && self.replacements.is_empty() {
+        if self.is_empty() {
             return term.clone();
         }
         let term = substitute(term, &self.substitution);
@@ -6655,7 +6681,6 @@ impl UnspecifiedValues {
         if !effect_free
             || accumulated.exhausted.is_some()
             || accumulated.undefined_term.is_some()
-            || accumulated.bottom.is_some()
             || *end == first.application
         {
             return;

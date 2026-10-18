@@ -3422,7 +3422,7 @@ fn later_group_simplification_error_is_reported_on_the_remainder() {
     assert_be08_capture(
         "T8 result and solver transcript",
         &(&result, &transcript),
-        "57412dfb7fb55d0e02a32a8f7755bd228906063f202965841b58f200ff8ce72a",
+        "005bd6e9fd242afe3e959ff3ed1ce11c548348cb9d099cfcf0ffd66c1efbb46e",
     );
 }
 
@@ -3492,7 +3492,7 @@ fn cancellation_during_lower_group_work_is_observed_after_the_step() {
     assert_be08_capture(
         "T9 result and solver transcript",
         &(&result, &transcript),
-        "7c44d39490e8fbe4c6b582fc8bd9e5107d0c9cb8ea99857b7df368e63cb5761d",
+        "e2f91c86ba5cb60aba92966b6cc5fa34861663be66911206692dfbab4964c290",
     );
     assert_eq!(leaf.halt_reason, HaltReason::Stopped(StopCause::Cancelled));
     assert!(result.discarded.is_empty(), "{result:#?}");
@@ -3706,7 +3706,7 @@ fn complete_step_classifies_effects_from_every_group() {
     assert_be08_capture(
         "T13 result and solver transcript",
         &(&result, &transcript),
-        "efbfaaa4cbf6d35b6efe5652a320029d052a14dd990a4805225bae5726560b82",
+        "e31b2e3cae0a407711c8dce19bcd0c460a94ae010b5a81a5274b19c727d89277",
     );
 }
 
@@ -3825,7 +3825,7 @@ fn cut_point_and_terminal_rules_after_a_cascade_that_leaves_one_survivor() {
             &terminal,
             &*terminal_solver.transcript.borrow(),
         ),
-        "a9c8b076458e82fc625145d7485e1ebcadc992012b400a1987c871af87dcfd30",
+        "30c2bd9a80b3462b86f8b86d67349835b56214ad5e3435adfc7bd41e2550835f",
     );
     assert!(cut_solver.answers.borrow().is_empty());
     assert!(cut_solver.validity.borrow().is_empty());
