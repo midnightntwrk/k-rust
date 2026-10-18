@@ -369,7 +369,7 @@ impl CellSpec {
 // ---------------------------------------------------------------- PENDING
 
 /// The number of cells of the matrix.
-const CELL_COUNT: usize = 507;
+const CELL_COUNT: usize = 509;
 
 /// The cells that deviate at the ML lane's base, each with the ticket after which it conforms
 /// and the builds in which it deviates (see the module documentation).
@@ -457,9 +457,9 @@ pub const PENDING: &[(&str, &str, Class, Class)] = &[
     ("left/claim-lhs__top", "MLP/4", Class::Refused, Class::Refused),
     ("left/fun-lhs__and-pred", "MLP/4", Class::Refused, Class::Refused),
     ("left/fun-lhs__bottom", "MLP/4", Class::Refused, Class::Refused),
-    ("left/fun-lhs__exists", "MLP/4", Class::Panic, Class::Panic),
+    ("left/fun-lhs__exists", "MLP/4", Class::Refused, Class::Refused),
     ("left/fun-lhs__floor", "MLP/4", Class::Refused, Class::Refused),
-    ("left/fun-lhs__forall", "MLP/4", Class::Panic, Class::Panic),
+    ("left/fun-lhs__forall", "MLP/4", Class::Refused, Class::Refused),
     ("left/fun-lhs__implies", "MLP/4", Class::Refused, Class::Refused),
     ("left/fun-lhs__not", "MLP/4", Class::Refused, Class::Refused),
     ("left/fun-lhs__or-var", "MLP/4", Class::Wrong, Class::Wrong),

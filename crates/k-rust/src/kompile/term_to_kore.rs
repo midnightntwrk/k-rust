@@ -248,6 +248,17 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
         converter
     }
 
+    /// This converter with anonymity taken from `generated`, the variables known to stand for
+    /// anonymous ones, instead of from their spelling.
+    pub(crate) fn with_generated_anonymous(
+        &self,
+        generated: BTreeSet<GeneratedVariableIdentity>,
+    ) -> Self {
+        let mut converter = self.clone();
+        converter.generated_anonymous = Some(generated);
+        converter
+    }
+
     pub fn convert(&self, term: &Term) -> Result<Pattern, TermConversionError> {
         self.pattern(term)
     }
