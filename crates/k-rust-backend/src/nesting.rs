@@ -1371,14 +1371,16 @@ mod tests {
                     let outcome = definition
                         .with_stack_for(&[&pattern], || run(&definition, entry, &pattern))
                         .unwrap();
-                    // A term of sort `S` is no predicate: the predicate entry internalizes it,
-                    // on the stack it was given, and then refuses it.
+                    // A term is no predicate: the predicate entry unfolds its aliases, on the
+                    // stack it was given, and then refuses it.
                     if *entry == "predicate" {
                         assert!(
                             matches!(
                                 outcome,
                                 Err(DefinitionError::RulePattern(
-                                    crate::rule::RulePatternError::NonBoolTermAsPredicate { .. }
+                                    crate::rule::RulePatternError::TermInPredicatePosition {
+                                        connective: None
+                                    }
                                 ))
                             ),
                             "{entry}: {outcome:?}"

@@ -129,7 +129,11 @@ pub fn definition_digest(definition: &Definition, spec_module: &str) -> String {
 ///   outside the frontend's condition slots, so a claim with an `\equals` whose operand is a
 ///   connective over terms or a predicate beside a term, a connective over terms conjoined to a
 ///   term, or a term of another sort than Bool read as a predicate is refused; the previous
-///   reading gave some of them a meaning they do not have.
+///   reading gave some of them a meaning they do not have, and proved some. A refused claim is
+///   refused before any saved proof is looked up, but a proof saved under the previous reading
+///   may prove another claim that used a now-refused claim as a circularity, and would be
+///   reused as proven on a false assumption; no saved proof records the circularities it used,
+///   so every proof saved under the previous reading is set aside.
 ///
 /// The backend gives a claim its reading when it internalizes it
 /// (`k_rust_backend::claim::internalize_reachability_claim` and

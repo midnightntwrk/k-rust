@@ -5683,6 +5683,40 @@ endmodule
         assert_eq!(term["dest"]["tag"], "And", "{response:#}");
     }
 
+    /// A `simplify` state that states no term but has a term in a predicate position is a
+    /// connective over terms, a set of values, not a predicate: `\not(true)` and
+    /// `\implies(true, false)` over Bool are `{false}`, and `\not(X ∧ X = true)` is `{false}` where
+    /// `X` is `true`. Each is refused, not answered with its terms read as `t = true` (`\bottom`,
+    /// `\bottom` and `\not(X)`).
+    #[test]
+    fn simplify_refuses_a_term_below_a_connective_with_no_term() {
+        let mut service = simplify_validation_service();
+        for (id, pattern) in [
+            r#"\not{SortBool{}}(\dv{SortBool{}}("true"))"#,
+            r#"\implies{SortBool{}}(\dv{SortBool{}}("true"), \dv{SortBool{}}("false"))"#,
+            r#"\not{SortBool{}}(\and{SortBool{}}(X:SortBool{}, \equals{SortBool{}, SortBool{}}(X:SortBool{}, \dv{SortBool{}}("true"))))"#,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let state = encode_kore(&parse_pattern(pattern).unwrap()).unwrap();
+            let response = request(
+                &mut service,
+                id as u64 + 1,
+                "simplify",
+                json!({ "state": state }),
+            );
+            let error = &response["error"];
+            assert_eq!(error["code"], 2, "{pattern}: {response:#}");
+            assert!(
+                error["data"][0]["error"]
+                    .as_str()
+                    .is_some_and(|message| message.contains("states no term")),
+                "{pattern}: {response:#}"
+            );
+        }
+    }
+
     #[test]
     fn add_module_does_not_locate_imported_unlicensed_injection() {
         let mut service = RpcService::new(BackendSession::new(

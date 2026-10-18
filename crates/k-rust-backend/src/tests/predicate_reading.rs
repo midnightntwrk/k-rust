@@ -419,3 +419,169 @@ fn a_request_reads_every_predicate_as_written() {
         "{error:?}"
     );
 }
+
+/// The rewrite of `rw` from `f(X)` to `X`, with the given right-hand side.
+fn rewrite_to(rhs: &str) -> String {
+    format!(
+        r#"axiom{{}} \rewrites{{SortInt{{}}}}(
+            \and{{SortInt{{}}}}(f{{}}(X:SortInt{{}}), \top{{SortInt{{}}}}()),
+            {rhs}) [label{{}}("rw")]"#
+    )
+}
+
+/// The only rewrite rule of a loaded definition.
+fn rewrite_of(definition: &BackendDefinition) -> &RewriteRule {
+    definition
+        .rewrite_theory()
+        .values()
+        .flat_map(|priorities| priorities.values())
+        .flatten()
+        .next()
+        .expect("the rewrite is loaded")
+}
+
+/// pyk's `krule_to_kore` writes a rewrite's right-hand side with two or more `ensures` conjuncts
+/// as `\and(R, e1, …, en)`, one condition encoding per argument: each argument after the term is
+/// the `ensures` slot, read as its condition (here `not(B1 = B2)` and `B1`).
+#[test]
+fn a_rewrite_right_hand_side_with_one_argument_per_ensures_conjunct_loads_its_conditions() {
+    let not_equal = format!(
+        r#"\equals{{SortBool{{}}, SortInt{{}}}}(\not{{SortBool{{}}}}(\equals{{SortBool{{}}, SortBool{{}}}}({B1}, {B2})), {TRUE})"#
+    );
+    let first = format!(r#"\equals{{SortBool{{}}, SortInt{{}}}}({B1}, {TRUE})"#);
+    let definition = load(&rewrite_to(&format!(
+        r#"\and{{SortInt{{}}}}(X:SortInt{{}}, {not_equal}, {first})"#
+    )))
+    .expect("the ensures slot's conditions load");
+    let ensures = rewrite_of(&definition).ensures.iter().collect::<Vec<_>>();
+    assert!(
+        matches!(ensures.as_slice(), [Predicate::Iff(negation, holds), Predicate::Equals(..)]
+            if matches!(negation.as_ref(), Predicate::Not(_))
+                && matches!(holds.as_ref(), Predicate::Term(_))),
+        "{ensures:?}"
+    );
+}
+
+/// The slot of a right-hand side with one argument per `ensures` conjunct is exactly those
+/// arguments: an author's equality with a connective operand there is still refused, and the same
+/// three-argument shape is no slot on an equation's right-hand side, which no frontend writes
+/// with more than one `ensures` argument.
+#[test]
+fn the_slot_of_one_argument_per_ensures_conjunct_is_no_wider_than_those_arguments() {
+    let not_equal = format!(
+        r#"\equals{{SortBool{{}}, SortInt{{}}}}(\not{{SortBool{{}}}}(\equals{{SortBool{{}}, SortBool{{}}}}({B1}, {B2})), {TRUE})"#
+    );
+    let authored = format!(
+        r#"\equals{{SortBool{{}}, SortInt{{}}}}(\and{{SortBool{{}}}}({B1}, {B2}), {FALSE})"#
+    );
+    let error = load(&rewrite_to(&format!(
+        r#"\and{{SortInt{{}}}}(X:SortInt{{}}, {not_equal}, {authored})"#
+    )))
+    .expect_err("the author's equality is refused");
+    assert!(
+        matches!(&error, DefinitionError::AxiomReadsTermAsPredicate { axiom, .. } if axiom == "rw"),
+        "{error:?}"
+    );
+    let error = load(&equation_with(
+        r#"\top{R}()"#,
+        &format!(
+            r#"\and{{SortInt{{}}}}({}, {not_equal}, {not_equal})"#,
+            int(1)
+        ),
+    ))
+    .expect_err("an equation's right-hand side has no such slot");
+    assert!(
+        matches!(&error, DefinitionError::AxiomReadsTermAsPredicate { axiom, .. } if axiom == "eq"),
+        "{error:?}"
+    );
+}
+
+/// pyk's `mlEqualsTrue` writes the condition encoding with `true` on the left; in a rewrite's
+/// `requires` slot it is read as its condition, as the other orientation is.
+#[test]
+fn the_encoding_with_true_on_the_left_in_a_rewrite_requires_loads_as_its_condition() {
+    let definition = load(&format!(
+        r#"axiom{{}} \rewrites{{SortInt{{}}}}(
+            \and{{SortInt{{}}}}(f{{}}(X:SortInt{{}}), \equals{{SortBool{{}}, SortInt{{}}}}(
+                {TRUE}, \or{{SortBool{{}}}}({B1}, {B2}))),
+            X:SortInt{{}}) [label{{}}("rw")]"#
+    ))
+    .expect("the encoding loads");
+    let requires = rewrite_of(&definition).requires.iter().collect::<Vec<_>>();
+    assert!(
+        matches!(requires.as_slice(), [Predicate::Iff(holds, disjunction)]
+            if matches!(holds.as_ref(), Predicate::Term(_))
+                && matches!(disjunction.as_ref(), Predicate::Or(_))),
+        "{requires:?}"
+    );
+}
+
+/// A request that states no term is read as a predicate only when no term stands in a predicate
+/// position of it: `\not(true)` and `\implies(true, false)` over Bool are the set `{false}`, and
+/// `\not(X ∧ X = true)` is `{false}` where `X` is `true` and all of Bool where it is not; none is
+/// a predicate, and each is refused rather than read with its terms as `t = true` (`\bottom`,
+/// `\bottom` and `not(X = true)`). A predicate-shaped request is still read as a predicate.
+#[test]
+fn a_request_with_no_term_and_a_term_in_a_predicate_position_is_refused() {
+    let definition = load("").expect("the definition loads");
+    let read = |pattern: &str| {
+        let pattern =
+            k_rust_kore::kore::parser::parse_pattern(pattern).expect("the pattern parses");
+        definition
+            .admit_unverified(&pattern, &[])
+            .internalize_pattern_or_predicate()
+            .map(|_| ())
+    };
+    let x_true = format!(r#"\equals{{SortBool{{}}, SortBool{{}}}}(X:SortBool{{}}, {TRUE})"#);
+    for (pattern, connective) in [
+        (format!(r#"\not{{SortBool{{}}}}({TRUE})"#), "not"),
+        (
+            format!(r#"\implies{{SortBool{{}}}}({TRUE}, {FALSE})"#),
+            "implies",
+        ),
+        (
+            format!(r#"\not{{SortBool{{}}}}(\and{{SortBool{{}}}}(X:SortBool{{}}, {x_true}))"#),
+            "not",
+        ),
+    ] {
+        let error = read(&pattern).expect_err(&pattern);
+        // Matched by its debug form, so that the test also builds where the variant is absent.
+        assert_eq!(
+            format!("{error:?}"),
+            format!("RulePattern(TermInPredicatePosition {{ connective: Some({connective:?}) }})"),
+            "{pattern}"
+        );
+        assert!(error.to_string().contains("states no term"), "{error}");
+    }
+    read(&format!(r#"\not{{SortBool{{}}}}({x_true})"#)).expect("a predicate is read");
+}
+
+/// The get-model reader drops the term conjuncts of a request's top `\and`, but not a term below
+/// a connective: `\not(X ∧ X = true)` has no predicate part (`not(X = true)` is not what it
+/// states), while `X ∧ X = true` has `X = true`.
+#[test]
+fn the_model_predicate_drops_no_term_below_a_connective() {
+    let definition = load("").expect("the definition loads");
+    let model = |pattern: &str| {
+        let pattern =
+            k_rust_kore::kore::parser::parse_pattern(pattern).expect("the pattern parses");
+        definition
+            .admit_unverified(&pattern, &[])
+            .internalize_model_predicate()
+            .expect("the pattern internalizes")
+            .map(|(predicate, _)| predicate)
+    };
+    let conjunction = format!(
+        r#"\and{{SortBool{{}}}}(X:SortBool{{}}, \equals{{SortBool{{}}, SortBool{{}}}}(X:SortBool{{}}, {TRUE}))"#
+    );
+    assert_eq!(
+        model(&format!(r#"\not{{SortBool{{}}}}({conjunction})"#)),
+        None
+    );
+    assert!(
+        matches!(model(&conjunction), Some(Predicate::And(conjuncts))
+            if matches!(conjuncts.as_ref(), [Predicate::Equals(..)])),
+        "{:?}",
+        model(&conjunction)
+    );
+}

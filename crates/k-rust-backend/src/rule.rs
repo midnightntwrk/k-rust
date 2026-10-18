@@ -723,6 +723,17 @@ pub enum RulePatternError {
         axiom: Option<String>,
         sentence: Option<Box<SentenceKey>>,
     },
+    /// A request read as a predicate (a pattern that states no term, or one that its operation
+    /// reads as a predicate) with a term pattern in a predicate position
+    /// ([`has_term_in_predicate_position`]): the pattern itself when `connective` is `None`, or a
+    /// term below its root matching-logic connective `connective`, as in
+    /// `\not{SortBool{}}(\dv{SortBool{}}("true"))`. A term denotes a value of its sort and a
+    /// connective over terms a set of values (that pattern is `{false}`), so such a pattern is
+    /// not a predicate (a pattern that is all of its sort or empty), and reading each of its
+    /// terms as `t = true` misreads it.
+    TermInPredicatePosition {
+        connective: Option<&'static str>,
+    },
     /// An executable function or anywhere equation whose right-hand side gives no term, only
     /// `\top` or predicates (`#Top`, `#Top` with an `ensures`, `#Ceil(X)`). Such a right-hand
     /// side denotes every value of its sort or none, so the equation states that the application
@@ -805,6 +816,18 @@ impl std::fmt::Display for RulePatternError {
                     _ => Ok(()),
                 }
             }
+            Self::TermInPredicatePosition {
+                connective: Some(connective),
+            } => write!(
+                formatter,
+                "the pattern states no term and is a \\{connective} with a term in a predicate \
+                 position, which over terms denotes a set of values of their sort, not a \
+                 predicate, and the backend reads no predicate from it"
+            ),
+            Self::TermInPredicatePosition { connective: None } => formatter.write_str(
+                "the pattern is a term where a predicate is read; a term denotes a value of its \
+                 sort, not a predicate, and the backend reads no predicate from it",
+            ),
             Self::TopFunctionEquation { axiom, head, .. } => write!(
                 formatter,
                 "the function equation {axiom} of {head} gives no term as its right-hand side, \
@@ -1743,7 +1766,7 @@ pub fn internalize_axiom(
                 rhs,
                 sort_parameters,
                 injection_role,
-                ConditionSlot::Last,
+                ConditionSlot::RewriteRight,
                 PredicateReading::Written,
             )?;
             if matches!(rhs, RuleRhs::Top) {
@@ -2715,59 +2738,75 @@ fn internalize_rule_pattern_with_position(
     Ok((term, predicates))
 }
 
-/// Where a side's condition slot is: the argument of its root `\and` that a frontend writes
-/// beside the author's pattern, when that `\and` has two arguments. k-rust's compiler
-/// (`side_condition`) and the pinned frontend write a rewrite as `\rewrites(\and(L, requires),
-/// \and(R, ensures))`, an equation's right-hand side as `\and(R, ensures)`, and a claim as
-/// `\implies(\and(requires, L), \and(R, ensures))` under its modality and existentials, each
-/// condition `\top` or `\equals{Bool, S}(c, true)`.
+/// Where a side's condition slot is: the arguments of its root `\and` that a frontend writes
+/// beside the author's pattern. Each condition there is `\top`, `\equals{Bool, S}(c, true)`, or
+/// `\equals{Bool, S}(true, c)` (pyk's `mlEqualsTrue`), with `c` a Boolean term or a predicate
+/// over atoms. The slot shapes are exactly these:
+/// - k-rust's compiler (`side_condition`) and the pinned frontend write a rewrite as
+///   `\rewrites(\and(L, requires), \and(R, ensures))`, an equation's right-hand side as
+///   `\and(R, ensures)`, and a claim as `\implies(\and(requires, L), \and(R, ensures))` under its
+///   modality and existentials: the slot is one argument of a two-argument root `\and`;
+/// - pyk's `krule_to_kore` writes a rewrite's left-hand side as `\and(L, requires)`, with
+///   `requires` one condition or an `\and` of them, and its right-hand side as `R` with no
+///   `ensures`, `\and(R, e1)` with one, and `\and(R, e1, …, en)` with one argument per `ensures`
+///   conjunct when it has two or more ([`ConditionSlot::RewriteRight`]).
+///
+/// pyk also flattens an author's `R #And {P}` into that list of arguments, so in its output an
+/// author's condition and the frontend's are not told apart: both are read as a condition.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ConditionSlot {
     /// No slot: a standalone pattern, or a hand-written side of another shape.
     None,
-    /// The first argument (a claim's left-hand side).
+    /// The first argument of a two-argument root `\and` (a claim's left-hand side).
     First,
-    /// The last argument (a rewrite's left-hand side, every right-hand side).
+    /// The last argument of a two-argument root `\and` (a rewrite's left-hand side, an equation's
+    /// and a claim's right-hand side).
     Last,
+    /// As [`Self::Last`], and every argument after the first of a root `\and` with three or more
+    /// arguments whose first argument is a term (a rewrite's right-hand side).
+    RewriteRight,
+}
+
+impl ConditionSlot {
+    /// Whether argument `index` of `arguments`, those of a side's root `\and`, is in the slot.
+    fn holds(self, arguments: &[kore::Pattern], index: usize) -> bool {
+        match (self, arguments.len()) {
+            (Self::First, 2) => index == 0,
+            (Self::Last | Self::RewriteRight, 2) => index == 1,
+            (Self::RewriteRight, 3..) => index > 0 && is_term_pattern(&arguments[0]),
+            _ => false,
+        }
+    }
+
+    /// Whether a side `pattern` has the shape whose slot this is.
+    fn fits(self, pattern: &kore::Pattern) -> bool {
+        match pattern {
+            kore::Pattern::And { arguments, .. } => {
+                (0..arguments.len()).any(|index| self.holds(arguments, index))
+            }
+            _ => false,
+        }
+    }
 }
 
 /// The components of `pattern` (nested `\and` flattened, in written order), each with whether it
-/// comes from the condition `slot` of `pattern`'s root `\and`. The argument at the slot is a
+/// comes from the condition `slot` of `pattern`'s root `\and`. An argument at the slot is a
 /// condition only when it has no term in a predicate position, as every condition a frontend
 /// writes there (`\top`, `\equals{Bool, S}(c, true)`, a predicate over such atoms); any other
 /// argument there is conjoined to the side's term like the author's pattern.
 fn side_components(pattern: &kore::Pattern, slot: ConditionSlot) -> Vec<(&kore::Pattern, bool)> {
-    let slot_index = match (pattern, slot) {
-        (kore::Pattern::And { arguments, .. }, ConditionSlot::First) if arguments.len() == 2 => {
-            Some(0)
-        }
-        (kore::Pattern::And { arguments, .. }, ConditionSlot::Last) if arguments.len() == 2 => {
-            Some(1)
-        }
-        _ => None,
-    }
-    .filter(|&index| match pattern {
-        kore::Pattern::And { arguments, .. } => !has_term_in_predicate_position(&arguments[index]),
-        _ => false,
-    });
     let mut components = Vec::new();
-    match (pattern, slot_index) {
-        (kore::Pattern::And { arguments, .. }, Some(slot_index)) => {
+    match pattern {
+        kore::Pattern::And { arguments, .. } => {
             for (index, argument) in arguments.iter().enumerate() {
+                let in_slot =
+                    slot.holds(arguments, index) && !has_term_in_predicate_position(argument);
                 let mut flattened = Vec::new();
                 flatten_and(argument, &mut flattened);
-                components.extend(
-                    flattened
-                        .into_iter()
-                        .map(|component| (component, index == slot_index)),
-                );
+                components.extend(flattened.into_iter().map(|component| (component, in_slot)));
             }
         }
-        _ => {
-            let mut flattened = Vec::new();
-            flatten_and(pattern, &mut flattened);
-            components.extend(flattened.into_iter().map(|component| (component, false)));
-        }
+        _ => components.push((pattern, false)),
     }
     components
 }
@@ -2876,8 +2915,8 @@ fn internalize_term_rhs(
     reading: PredicateReading,
 ) -> Result<(RuleRhs, Vec<Predicate>), DefinitionError> {
     // The split into alternatives keeps a root `\and` and its arity, so each alternative keeps
-    // the slot argument; a side of another shape has no slot.
-    let slot = if matches!(pattern, kore::Pattern::And { arguments, .. } if arguments.len() == 2) {
+    // the slot arguments; a side of another shape has no slot.
+    let slot = if slot.fits(pattern) {
         slot
     } else {
         ConditionSlot::None
@@ -2959,10 +2998,11 @@ pub(crate) enum PredicateReading {
     /// another sort is refused ([`RulePatternError::NonBoolTermAsPredicate`]).
     Written,
     /// A frontend's condition slot ([`ConditionSlot`], an equation's `requires`): as
-    /// [`Self::Written`], and an `\equals{Bool, R}(P, \dv{Bool}("true"))` (either orientation)
-    /// with `P` not a term, reached from the slot's root through connectives only, is the
-    /// encoding of the condition "`P` holds", read as the `\iff` of `P` and `true = true`, that
-    /// is `P`. `P` itself is read [`Self::Written`]: an `\equals(P', true)` inside it is the
+    /// [`Self::Written`], and an `\equals{Bool, R}(P, true)` with `P` not a term (as k-rust's
+    /// compiler and the pinned frontend write it), or `\equals{Bool, R}(true, P)` (as pyk's
+    /// `mlEqualsTrue` writes it), `true` being `\dv{Bool}("true")`, reached from the slot's root
+    /// through connectives only, is the encoding of the condition "`P` holds", read as the `\iff`
+    /// of `P` and `true = true`, that is `P`. `P` itself is read [`Self::Written`]: an `\equals(P', true)` inside it is the
     /// author's.
     Slot,
     /// The sides of a predicate simplification whose left-hand side conjoins terms
@@ -3212,14 +3252,39 @@ pub(crate) fn internalize_predicate_reading(
     }
 }
 
+/// The predicate part of a get-model request: its atoms (`\equals`, `\ceil`, `\floor`, `\in`, read
+/// by [`internalize_predicate`]) under the connectives it is built from, with the term conjuncts
+/// of its top `\and` dropped (and of the top `\and` of each disjunct of a top `\or`), so that a
+/// pattern `t ∧ φ` is satisfiable only where its predicate part `φ` is. `None` when the pattern has no
+/// predicate part, or when a term stands below `\not`, `\implies`, `\iff`, `\exists` or
+/// `\forall`, where dropping it would change what the pattern states (`\not(X ∧ X = true)` at
+/// sort Bool is not `X ≠ true`).
 pub(crate) fn internalize_model_predicate(
     definition: &BackendDefinition,
     pattern: &kore::Pattern,
     sort_parameters: &[Name],
     injection_role: UnlicensedInjectionSite,
 ) -> Result<Option<Predicate>, DefinitionError> {
-    let recurse = |pattern: &kore::Pattern| {
-        internalize_model_predicate(definition, pattern, sort_parameters, injection_role)
+    internalize_model_predicate_below(definition, pattern, sort_parameters, injection_role, false)
+}
+
+/// [`internalize_model_predicate`] of `pattern`, which is below a connective that no term may be
+/// dropped from when `strict`.
+fn internalize_model_predicate_below(
+    definition: &BackendDefinition,
+    pattern: &kore::Pattern,
+    sort_parameters: &[Name],
+    injection_role: UnlicensedInjectionSite,
+    strict: bool,
+) -> Result<Option<Predicate>, DefinitionError> {
+    let recurse = |pattern: &kore::Pattern, strict: bool| {
+        internalize_model_predicate_below(
+            definition,
+            pattern,
+            sort_parameters,
+            injection_role,
+            strict,
+        )
     };
     Ok(match pattern {
         kore::Pattern::Equals { .. }
@@ -3234,39 +3299,47 @@ pub(crate) fn internalize_model_predicate(
         kore::Pattern::And { arguments, .. } => {
             let predicates = arguments
                 .iter()
-                .map(recurse)
-                .collect::<Result<Vec<_>, _>>()?
-                .into_iter()
-                .flatten()
-                .collect::<Vec<_>>();
-            (!predicates.is_empty()).then_some(Predicate::And(predicates.into()))
+                .map(|argument| recurse(argument, strict))
+                .collect::<Result<Vec<_>, _>>()?;
+            if strict && predicates.iter().any(Option::is_none) {
+                None
+            } else {
+                let predicates = predicates.into_iter().flatten().collect::<Vec<_>>();
+                (!predicates.is_empty()).then_some(Predicate::And(predicates.into()))
+            }
         }
         kore::Pattern::Or { arguments, .. } => {
             let predicates = arguments
                 .iter()
-                .map(recurse)
+                .map(|argument| recurse(argument, strict))
                 .collect::<Result<Option<Vec<_>>, _>>()?;
             predicates.map(|predicates| Predicate::Or(predicates.into()))
         }
         kore::Pattern::Not { argument, .. } => {
-            recurse(argument)?.map(|inner| Predicate::Not(Arc::new(inner)))
+            recurse(argument, true)?.map(|inner| Predicate::Not(Arc::new(inner)))
         }
-        kore::Pattern::Implies { left, right, .. } => match (recurse(left)?, recurse(right)?) {
-            (Some(left), Some(right)) => Some(Predicate::Implies(Arc::new(left), Arc::new(right))),
-            _ => None,
-        },
-        kore::Pattern::Iff { left, right, .. } => match (recurse(left)?, recurse(right)?) {
-            (Some(left), Some(right)) => Some(Predicate::Iff(Arc::new(left), Arc::new(right))),
-            _ => None,
-        },
-        kore::Pattern::Exists { variable, body, .. } => recurse(body)?
+        kore::Pattern::Implies { left, right, .. } => {
+            match (recurse(left, true)?, recurse(right, true)?) {
+                (Some(left), Some(right)) => {
+                    Some(Predicate::Implies(Arc::new(left), Arc::new(right)))
+                }
+                _ => None,
+            }
+        }
+        kore::Pattern::Iff { left, right, .. } => {
+            match (recurse(left, true)?, recurse(right, true)?) {
+                (Some(left), Some(right)) => Some(Predicate::Iff(Arc::new(left), Arc::new(right))),
+                _ => None,
+            }
+        }
+        kore::Pattern::Exists { variable, body, .. } => recurse(body, true)?
             .map(|inner| {
                 definition
                     .internalize_variable(variable, sort_parameters)
                     .map(|variable| Predicate::Exists(variable, Arc::new(inner)))
             })
             .transpose()?,
-        kore::Pattern::Forall { variable, body, .. } => recurse(body)?
+        kore::Pattern::Forall { variable, body, .. } => recurse(body, true)?
             .map(|inner| {
                 definition
                     .internalize_variable(variable, sort_parameters)
@@ -3311,9 +3384,9 @@ pub(crate) fn term_connective(component: &kore::Pattern) -> Option<&'static str>
     has_term_in_predicate_position(component).then_some(connective)
 }
 
-/// Whether `\equals(left, right)` is a frontend's encoding `\equals{Bool, R}(P, true)` of the
-/// condition "`P` holds", in either orientation: one operand the Boolean `true` and the other not
-/// a term.
+/// Whether `\equals(left, right)` is a frontend's encoding of the condition "`P` holds": one
+/// operand the Boolean `true` and the other not a term, `true` on the right as k-rust's compiler
+/// and the pinned frontend write it, or on the left as pyk's `mlEqualsTrue` writes it.
 fn is_condition_encoding(left: &kore::Pattern, right: &kore::Pattern) -> bool {
     fn is_true(pattern: &kore::Pattern) -> bool {
         matches!(

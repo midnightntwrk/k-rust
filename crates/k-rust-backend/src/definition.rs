@@ -3084,7 +3084,10 @@ impl BackendDefinition {
         Ok(Pattern { term, constraints })
     }
 
-    /// Internalize KORE as a constrained term, or as a predicate when it has no term leaf.
+    /// Internalize KORE as a constrained term, or as a predicate when it states no term and no
+    /// term stands in a predicate position of it ([`Self::internalize_predicate`]); a pattern
+    /// with no term conjunct but with a term below a connective, such as
+    /// `\not{SortBool{}}(\dv{SortBool{}}("true"))` (the set `{false}`), is refused.
     pub(crate) fn internalize_pattern_or_predicate(
         &self,
         pattern: &kore::Pattern,
@@ -3147,13 +3150,26 @@ impl BackendDefinition {
         }
     }
 
-    /// Internalize an arbitrary KORE pattern as an ML predicate and retain its result sort.
+    /// Internalize a predicate-shaped KORE pattern as an ML predicate and retain its result sort.
+    ///
+    /// A pattern with a term in a predicate position (after alias unfolding,
+    /// [`crate::rule::has_term_in_predicate_position`]) is a term or a connective over terms, a
+    /// set of values rather than a predicate, and is refused
+    /// ([`RulePatternError::TermInPredicatePosition`]); a request has no condition slot in
+    /// which a Boolean term would stand for the condition that it is `true`.
     pub(crate) fn internalize_predicate(
         &self,
         pattern: &kore::Pattern,
         sort_variables: &[Name],
     ) -> Result<(crate::rule::Predicate, Sort), DefinitionError> {
         let pattern = expand_aliases(pattern, &self.aliases)?;
+        if crate::rule::has_term_in_predicate_position(&pattern) {
+            return Err(DefinitionError::RulePattern(
+                RulePatternError::TermInPredicatePosition {
+                    connective: crate::rule::term_connective(&pattern),
+                },
+            ));
+        }
         let known = sort_variables.iter().cloned().collect::<BTreeSet<_>>();
         let result_sort = self.internalize_pattern_result_sort(
             &pattern,

@@ -21,7 +21,7 @@ use k_rust::{
     kore::{codec, parser::parse_definition, parser::parse_pattern, printer::Printer},
     outer::{LoadOptions, ResolvedSource, load_for_compilation},
 };
-use k_rust_backend::definition::{BackendDefinition, DefinitionError};
+use k_rust_backend::definition::{Admission, BackendDefinition, DefinitionError};
 
 const MAIN: &str = "MLP";
 const FILE: &str = "mlp.k";
@@ -526,6 +526,41 @@ fn configuration_of(program: &str) -> String {
          SortKItem{{}}}}({program}), Var'Unds'DotVar1:SortK{{}})), \
          Lbl'-LT-'generatedCounter'-GT-'{{}}(VarC:SortInt{{}}))"
     )
+}
+
+/// A `simplify` request (the library route of `krust kore-simplify`) that states no term is read
+/// as a predicate only when no term stands in a predicate position of it. `#Not(true)` and
+/// `true #Implies false` over Bool are the set `{false}`, and `#Not(B #And {B #Equals true})` is
+/// `{false}` where `B` is `true`: each is refused, not answered with its terms read as `t = true`
+/// (`\bottom`, `\bottom` and `\not(B)`). The predicate `#Not({B #Equals true})` is simplified.
+#[test]
+fn a_simplify_request_with_no_term_reads_no_term_as_a_predicate() {
+    let kore = compile(&source("rule [p]: <k> go(X) => done(X) ... </k>", ""));
+    let mut backend = Backend::new(&kore, MAIN, BackendOptions::default()).expect("it loads");
+    let simplify = |backend: &mut Backend, pattern: &str| {
+        backend.simplify_kore(
+            None,
+            &parse_pattern(pattern).expect("the pattern parses"),
+            Admission::Verified,
+        )
+    };
+    let b_true = r#"\equals{SortBool{}, SortBool{}}(VarB:SortBool{}, \dv{SortBool{}}("true"))"#;
+    let mut wrong = Vec::new();
+    for pattern in [
+        r#"\not{SortBool{}}(\dv{SortBool{}}("true"))"#.to_owned(),
+        r#"\implies{SortBool{}}(\dv{SortBool{}}("true"), \dv{SortBool{}}("false"))"#.to_owned(),
+        format!(r#"\not{{SortBool{{}}}}(\and{{SortBool{{}}}}(VarB:SortBool{{}}, {b_true}))"#),
+    ] {
+        match simplify(&mut backend, &pattern) {
+            Err(error) if error.message().contains("states no term") => {}
+            answer => wrong.push(format!("{pattern}: {answer:?}")),
+        }
+    }
+    let predicate = format!(r#"\not{{SortBool{{}}}}({b_true})"#);
+    if let Err(error) = simplify(&mut backend, &predicate) {
+        wrong.push(format!("{predicate}: {error}"));
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
 }
 
 /// An implication request has no condition slot: an `#Equals` with a connective operand
