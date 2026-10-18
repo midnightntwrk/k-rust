@@ -417,6 +417,11 @@ stage_adapter!(
 );
 stage_adapter!(expand_macros_stage, passes::expand_macros_pass);
 stage_adapter!(
+    resolve_condition_conjunctions_stage,
+    super::ml_constructs::resolve_condition_conjunctions_pass,
+    outcome
+);
+stage_adapter!(
     declare_deferred_totality_stage,
     passes::declare_deferred_totality_pass,
     outcome
@@ -652,6 +657,17 @@ const TRANSFORM_STAGE_TABLE: &[Stage] = &[
         "generating",
         requires = Artifacts::SEMANTIC_CASTS_RESOLVED.union(Artifacts::MACRO_KINDS_PROPAGATED),
         provides = Artifacts::NONE
+    ),
+    // The conjunctions that strictness, heating and cooling added to conditions are chosen on the
+    // conditions as the backend reads them, macros and aliases expanded and casts resolved; the
+    // stage relabels pending conjunctions in place, so each node keeps the origin its generating
+    // pass recorded.
+    stage!(
+        "resolve condition conjunctions",
+        "resolve_condition_conjunctions",
+        resolve_condition_conjunctions_stage,
+        Provenance::None,
+        "metadata-only"
     ),
     stage!(
         "add implicit computation cell",

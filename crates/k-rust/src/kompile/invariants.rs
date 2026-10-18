@@ -24,9 +24,12 @@
 //!   A sentence's `element`, `unit`, `concat` and `update` symbol instances satisfy K5 and K4
 //!   under its binder before its signature and pattern sorts are checked.
 //!
-//! - [`stage`] checks the output of every stage of the table-driven pipeline: R3, every
-//!   right-hand-side variable of a rule-like sentence stays bound by its left-hand side or
-//!   covered by an exemption once the pipeline input has that property.
+//! - [`stage`] checks the output of every stage of the table-driven pipeline:
+//!   R3, every right-hand-side variable of a rule-like sentence stays bound by its left-hand side
+//!   or covered by an exemption once the pipeline input has that property;
+//!   C1, every variable free in a condition of a rule-like sentence occurs in its body or in a
+//!   condition of the same sentence before the stage, outside two exemptions each confined to the
+//!   stage that generates the name.
 //!
 //! - [`ground`] checks G2-ground: the parametric symbol instances in a ground value's typing
 //!   at its position are exactly the instances that sort injection emits for that value.

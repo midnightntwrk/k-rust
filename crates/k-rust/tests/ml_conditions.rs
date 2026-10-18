@@ -8,10 +8,14 @@
 use k_rust::{
     backend::{Backend, BackendOptions, ExecuteRequest},
     builtin::embedded,
-    definition::{CheckMode, Sentence},
+    definition::{
+        Attributes, CheckMode, LOCATION_ATTRIBUTE, ResolvedDefinition, SOURCE_ATTRIBUTE, Sentence,
+    },
+    inner::definition_with_named_projections,
     kast::Term,
     kompile::{
         CompilationBackend, CompileOptions, CompiledKoreArtifacts, compile_loaded_definition,
+        compile_search_pattern,
     },
     kore::{ast::Pattern, codec, parser::parse_pattern, printer::Printer},
     outer::{LoadOptions, ResolvedSource, load_for_compilation, load_with_options},
@@ -897,4 +901,111 @@ fn a_bool_context_condition_stays_a_bool_conjunct() {
     assert_lacks(&heat, "\\and{SortGeneratedTopCell{}}(\\equals{SortBool{}");
     assert_eq!(run(&sentences, 1), stuck("foo(1, 1)"));
     assert_eq!(run(&sentences, 3), stuck("foo(3, e(3))"));
+}
+
+/// Macros, aliases and semantic casts that state a predicate condition. The conjunction a context
+/// gains is chosen on the condition the backend reads, after expansion and cast resolution, so
+/// each spelling heats exactly where its predicate holds, as the direct spelling does.
+const SPELLED_PREDICATES: &str = "  syntax Bool ::= isOne(Int) [macro]\n  rule isOne(N) => {N #Equals 1}\n  syntax Bool ::= isOneAlias(Int) [alias]\n  rule isOneAlias(N) => {N #Equals 1}\n  syntax Bool ::= small(Int) [macro]\n  rule small(N) => (N ==Int 1) #Or (N ==Int 2)\n";
+
+#[test]
+fn a_predicate_context_condition_spelled_through_a_macro_an_alias_or_a_cast_heats_where_it_holds() {
+    for (condition, heats_at_two) in [
+        ("isOne(N)", false),
+        ("isOneAlias(N)", false),
+        ("({N #Equals 1}):Bool", false),
+        ("small(N)", true),
+    ] {
+        let sentences = format!("{SPELLED_PREDICATES}{}", foo_context(condition));
+        assert_eq!(run(&sentences, 1), stuck("foo(1, 1)"), "{condition}");
+        let two = if heats_at_two {
+            "foo(2, 2)"
+        } else {
+            "foo(2, e(2))"
+        };
+        assert_eq!(run(&sentences, 2), stuck(two), "{condition}");
+        assert_eq!(run(&sentences, 3), stuck("foo(3, e(3))"), "{condition}");
+    }
+}
+
+/// A strict production heats through its context alias, whose condition here is a predicate
+/// spelled through a macro: `#Top` lets every argument heat, `#Bottom` none.
+#[test]
+fn a_strict_alias_condition_spelled_through_a_macro_is_conjoined_as_a_predicate() {
+    let strict = "  syntax Exp ::= Int | e(Int) [symbol(e)] | bar(Exp) [strict(c), symbol(bar)]\n  syntax KResult ::= Int\n  rule [e]: <k> e(N) => N ... </k>\n  rule [g]: <k> go(N) => bar(e(N)) ... </k>\n  syntax Bool ::= always() [macro] | never() [macro]\n  rule always() => #Top\n  rule never() => #Bottom\n";
+    for (condition, leaf) in [("always()", "bar(1)"), ("never()", "bar(e(1))")] {
+        let sentences =
+            format!("{strict}  context alias [c]: <k> HERE ... </k> requires {condition}\n");
+        assert_eq!(run(&sentences, 1), stuck(leaf), "{condition}");
+    }
+}
+
+/// The search-pattern route chooses the conjunction of its sort tests with the condition after
+/// macro expansion too: a predicate spelled through a macro compiles to the pattern its direct
+/// spelling compiles to.
+#[test]
+fn a_search_pattern_condition_spelled_through_a_macro_compiles_as_its_expansion() {
+    let sentences = format!("{SPELLED_PREDICATES}  syntax KItem ::= box(Int) [symbol(box)]\n");
+    let direct = compile_pattern(&sentences, "<k> box(X:Int) </k> requires {X #Equals 1}");
+    for spelled in ["isOne(X)", "isOneAlias(X)"] {
+        let pattern = format!("<k> box(X:Int) </k> requires {spelled}");
+        assert_eq!(compile_pattern(&sentences, &pattern), direct, "{spelled}");
+    }
+}
+
+/// `contents` compiled as a search pattern of the definition `sentences`, as KORE text.
+fn compile_pattern(sentences: &str, contents: &str) -> String {
+    let source = format!("{HEADER}{sentences}endmodule\n");
+    let mut resolver = |_: &str, required: &str| {
+        embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let options = LoadOptions {
+        implicit_sources: vec![
+            embedded("kast.md").unwrap(),
+            embedded("prelude.md").unwrap(),
+        ],
+        ..CompilationBackend::Rust.load_options()
+    };
+    let (loaded, _) = load_for_compilation(
+        ResolvedSource::new("ml_conditions.k", source),
+        "P",
+        Some("P-SYNTAX"),
+        &mut resolver,
+        &options,
+    )
+    .expect("the definition loads");
+    let artifacts = compile_loaded_definition(&loaded, CompileOptions::default())
+        .expect("the definition compiles");
+    let parsing = definition_with_named_projections(loaded.definition());
+    let parsing = ResolvedDefinition::resolve(&parsing).unwrap();
+    let execution = ResolvedDefinition::resolve(&artifacts.execution_definition).unwrap();
+    let mut attributes = Attributes::default();
+    attributes.insert(SOURCE_ATTRIBUTE, serde_json::json!("<pattern>"));
+    attributes.insert(
+        LOCATION_ATTRIBUTE,
+        serde_json::json!([1, 1, 1, contents.len() + 1]),
+    );
+    let compiled = compile_search_pattern(&parsing, &execution, "P", contents, attributes)
+        .unwrap_or_else(|error| panic!("{contents}: {error}"));
+    Printer::compact().print_pattern(&compiled.pattern)
+}
+
+/// An anonymous existential in an ensures (`?_`) is renamed like `_`; the renamed variable is the
+/// authored one, so the stage checker (C1 in the test profile) accepts it, and the rule runs as
+/// its named spelling does.
+#[test]
+fn an_anonymous_existential_in_an_ensures_compiles_and_runs_as_a_named_one() {
+    let anonymous = run(
+        "  rule [p]: <k> go(X) => done(X) ... </k> ensures ?_ ==Int 1\n",
+        1,
+    );
+    let named = run(
+        "  rule [p]: <k> go(X) => done(X) ... </k> ensures ?W ==Int 1\n",
+        1,
+    );
+    assert_eq!(anonymous, named);
+    assert!(
+        anonymous.contains(&("Stuck".to_owned(), "done(1)".to_owned())),
+        "{anonymous:?}"
+    );
 }

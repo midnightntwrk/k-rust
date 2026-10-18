@@ -157,6 +157,12 @@ generating_passes = ["macro-expansion"]
 reason = "Macro expansion substitutes generated terms at call sites."
 
 [[pipeline]]
+call = "resolve_condition_conjunctions"
+occurrences = 1
+behavior = "metadata-only"
+reason = "Condition-conjunction resolution relabels the pending conjunctions that strictness, heating and cooling added to conditions as #And or _andBool_, in place, so each node keeps the origin its generating pass recorded; it creates no node."
+
+[[pipeline]]
 call = "add_implicit_computation_cell"
 occurrences = 1
 behavior = "generating"

@@ -211,6 +211,9 @@ pub fn compile_search_pattern(
         .terms
         .try_into()
         .expect("two input roots produce two expanded roots");
+    // The sort tests were conjoined with the condition before its macros were expanded; the
+    // conjunction is chosen now, on the condition as the backend reads it.
+    let requires = crate::kompile::ml_constructs::resolve_condition_conjunctions(requires);
 
     let injector = SortInjector::new(execution_definition, module)?;
     let actual = injector.term_sort(&body, None)?;

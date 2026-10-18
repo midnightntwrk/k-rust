@@ -151,6 +151,11 @@ pub fn resolve_semantic_casts_in_sentence(
 /// Standalone search patterns (`compile_search_pattern`) use this mode. Macro and alias
 /// sentences suppress predicates because their casts describe matching syntax rather than
 /// runtime side conditions. `subsorts` is the visible order of the sentence's module.
+///
+/// The sort predicates are conjoined with the prior condition by `#And` when it is a predicate
+/// and by `_andBool_` when it is a token or a variable; when it is any other application, which
+/// may be a macro or an alias, the conjunction is left pending, and the caller chooses it after
+/// macro expansion, as `compile_search_pattern` does.
 pub fn resolve_semantic_casts_with_predicates_in_sentence(
     subsorts: &PartialOrder<Sort>,
     mut sentence: Sentence,

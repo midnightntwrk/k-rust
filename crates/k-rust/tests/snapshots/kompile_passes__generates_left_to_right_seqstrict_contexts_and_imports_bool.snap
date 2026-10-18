@@ -12,7 +12,7 @@ description: "K definition:\n\nmodule BOOL\nendmodule\n\nmodule MAIN\n  syntax E
     ),
     (
         "`_+_`(#SemanticCastToExp(K0),#SemanticCastToExp(HOLE))",
-        "`_andBool_`(isKResult(K0),#token(\"true\",\"Bool\"))",
+        "#krustPendingConditionAnd(isKResult(K0),#token(\"true\",\"Bool\"))",
         Some(
             "MAIN._+_2",
         ),

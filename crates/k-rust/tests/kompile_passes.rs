@@ -12542,7 +12542,9 @@ fn semantic_cast_predicates_share_sorts_across_roots_and_preserve_compound_metad
     let Term::Apply { label, arguments } = requires.unannotated() else {
         panic!("expected predicate conjunction: {requires}")
     };
-    assert_eq!(label.name, "_andBool_");
+    // `existing(X, Y)` may be a macro, so the conjunction stays pending until the caller has
+    // expanded macros (the search-pattern compiler resolves it then).
+    assert_eq!(label.name, "#krustPendingConditionAnd");
     let [predicates, existing] = arguments.as_slice() else {
         panic!("expected predicates and prior requires: {requires}")
     };
@@ -12655,7 +12657,9 @@ fn semantic_cast_predicates_cover_only_sorts_with_a_predicate_and_bag() {
     let Term::Apply { label, arguments } = requires.unannotated() else {
         panic!("expected predicate conjunction: {requires}")
     };
-    assert_eq!(label.name, "_andBool_");
+    // `existing(X, Y)` may be a macro, so the conjunction stays pending until the caller has
+    // expanded macros (the search-pattern compiler resolves it then).
+    assert_eq!(label.name, "#krustPendingConditionAnd");
     let [predicates, existing] = arguments.as_slice() else {
         panic!("expected predicates and prior requires: {requires}")
     };

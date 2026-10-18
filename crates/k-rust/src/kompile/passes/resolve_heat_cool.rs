@@ -282,7 +282,13 @@ endmodule
                 "heat" => "`notBool_`(isKResult(HOLE))",
                 _ => "isKResult(HOLE)",
             };
-            assert_eq!(new, &format!("`_andBool_`({old},{test})"), "{body}");
+            // `isKResult(HOLE)` may be a macro until macros are expanded, so the conjunction is
+            // left pending; the stage after macro expansion decides it.
+            assert_eq!(
+                new,
+                &format!("#krustPendingConditionAnd({old},{test})"),
+                "{body}"
+            );
         }
     }
 

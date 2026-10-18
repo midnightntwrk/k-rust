@@ -774,6 +774,8 @@ endmodule
         let (mut added, removed) = rendered_changes(&run);
         added.sort();
         let truth = r#"#token("true","Bool")"#;
+        // Two tokens are conjoined at once; a conjunction with `isKResult(K0)`, which may be a
+        // macro until macros are expanded, is left pending for the stage after macro expansion.
         let unconditional = format!("`_andBool_`({truth},{truth})");
         let mut expected = vec![
             format!(
@@ -789,10 +791,10 @@ endmodule
                 "context seq(#SemanticCastToExp(HOLE),#SemanticCastToExp(K1),#SemanticCastToExp(K2)) requires {unconditional}"
             ),
             format!(
-                "context seq(#SemanticCastToExp(K0),#SemanticCastToExp(HOLE),#SemanticCastToExp(K2)) requires `_andBool_`(isKResult(K0),{truth})"
+                "context seq(#SemanticCastToExp(K0),#SemanticCastToExp(HOLE),#SemanticCastToExp(K2)) requires #krustPendingConditionAnd(isKResult(K0),{truth})"
             ),
             format!(
-                "context seq(#SemanticCastToExp(K0),#SemanticCastToExp(K1),#SemanticCastToExp(HOLE)) requires `_andBool_`(`_andBool_`(isKResult(K0),isKResult(K1)),{truth})"
+                "context seq(#SemanticCastToExp(K0),#SemanticCastToExp(K1),#SemanticCastToExp(HOLE)) requires #krustPendingConditionAnd(`_andBool_`(isKResult(K0),isKResult(K1)),{truth})"
             ),
         ];
         expected.sort();

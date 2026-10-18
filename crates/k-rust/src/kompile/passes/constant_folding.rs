@@ -180,6 +180,10 @@ impl<'view, 'definition> Folder<'view, 'definition> {
                     .into_iter()
                     .map(|argument| self.fold(argument, position))
                     .collect::<Vec<_>>();
+                // A conjunction a pass added to a condition is decided once its operands are
+                // settled (tokens, here), so the fold evaluates it as the Bool conjunction it is.
+                let (label, arguments) =
+                    crate::kompile::ml_constructs::settle_conjunction(label, arguments);
                 // An application the fold does not evaluate keeps its meaning as written: the
                 // fold only replaces a term by a token that denotes the same value.
                 if position == Position::Right

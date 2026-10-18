@@ -31,24 +31,31 @@
 //! therefore also checks rule C1 at every stage boundary:
 //!
 //! - C1: every variable free in the `requires` or `ensures` of a rule, claim, context or context
-//!   alias of a module after a stage occurs in the sentence's body, or occurred free in a
-//!   condition of a rule-like sentence of the same module before the stage, or is `HOLE` of a
-//!   context alias. A variable a `#Exists` or `#Forall` of the condition binds is not free.
-//!   Two names that stages generate into conditions by protocol are exempt, each from its stage:
-//!   `resolve anonymous variables` renames each anonymous variable to `_Gen` followed by digits,
-//!   so after it such a name is exempt when the module's conditions held an anonymous variable
-//!   before it (the stage renames an authored variable, it adds none);
+//!   alias after a stage occurs in the sentence's body, or occurred free in a condition of the
+//!   same sentence before the stage, or is `HOLE` of a context alias. A variable a `#Exists` or
+//!   `#Forall` of the condition binds is not free.
+//!   The same sentence before the stage is every rule-like sentence before it that shares one of
+//!   its input addresses ([`Attributes::input_addresses`], which provenance carries through every
+//!   stage), so a stage that copies an authored condition into a sentence it derives from it
+//!   (contexts into heating and cooling rules, a strict alias into its contexts) keeps C1, and one
+//!   that invents a name does not, whatever other sentences of the module hold. Only a sentence
+//!   without an input address is compared with every condition of its module before the stage.
+//!   Two stages generate a name into conditions by protocol, and each is exempt at that stage
+//!   only:
+//!   `resolve anonymous variables` renames each anonymous variable `_`, `?_`, `!_` or `@_` to its
+//!   prefix followed by `_Gen` and digits, so at that stage such a name is exempt in a sentence
+//!   whose conditions held the anonymous variable of that prefix before it (the stage renames an
+//!   authored variable, it adds none);
 //!   `resolve function configuration` passes `#Configuration` to the configuration-reading
-//!   functions a condition calls, and a later stage binds it in the body, so `#Configuration` is
-//!   exempt until a stage providing [`Artifacts::CONFIGURATION_VARIABLES_BOUND`] has run (and in a
-//!   macro-like rule, as for R3) and must occur in the body after it, whatever the conditions held
-//!   before.
+//!   functions a condition calls, so at that stage `#Configuration` is exempt. After it,
+//!   `#Configuration` is checked like any other condition variable, until a stage providing
+//!   [`Artifacts::CONFIGURATION_VARIABLES_BOUND`] has run; from then on it must occur in the body
+//!   of a sentence that is not macro-like, whatever the conditions held before (that stage binds
+//!   it in the body of every rule whose conditions hold it).
 //!
-//! The earlier conditions are compared per module, not per sentence, because stages add, split
-//! and reorder sentences without a sentence identity that survives them; a stage that copies an
-//! authored condition into a new sentence (contexts into heating and cooling rules, a strict
-//! alias into its contexts) keeps C1, and one that invents a name does not. C1 holds on the
-//! pipeline input by definition, so it needs no obligation decided there.
+//! C1 holds on the pipeline input by definition, so it needs no obligation decided there.
+//!
+//! [`Attributes::input_addresses`]: crate::definition::Attributes::input_addresses
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -58,6 +65,7 @@ use crate::definition::{AttributeKey, Definition, Sentence, StructuralCheckOptio
 use crate::kast::{InternalLabel, Term};
 use crate::kompile::CompileOptions;
 use crate::kompile::pipeline::{Artifacts, Stage};
+use crate::provenance::InputAddress;
 
 use super::emitted::emitted_from;
 
@@ -67,21 +75,87 @@ const CONFIGURATION_VARIABLE: &str = "#Configuration";
 /// The stage that renames anonymous variables (C1's first exemption).
 const ANONYMOUS_RENAMING_STAGE: &str = "resolve anonymous variables";
 
+/// The stage that passes `#Configuration` to the configuration-reading functions a condition
+/// calls (C1's second exemption).
+const CONFIGURATION_PASSING_STAGE: &str = "resolve function configuration";
+
 /// Whether `name` is an anonymous variable as written: `_`, `?_`, `!_` or `@_`.
 fn is_anonymous(name: &str) -> bool {
     matches!(name, "_" | "?_" | "!_" | "@_")
 }
 
-/// Checks every stage boundary of the table-driven pipeline against R3 and names the first stage
-/// that breaks it.
+/// Checks every stage boundary of the table-driven pipeline against R3 and C1 and names the first
+/// stage that breaks one.
 #[derive(Debug)]
 pub(crate) struct StageChecks {
     binding: Obligation,
     /// The union of the `provides` of every stage run so far.
     available: Artifacts,
-    /// For each module, the variables free in a condition of one of its rule-like sentences at the
-    /// last boundary checked (C1); `None` before the first.
-    conditions: Option<BTreeMap<String, BTreeSet<String>>>,
+    /// The condition variables at the last boundary checked (C1); `None` before the first.
+    conditions: Option<ConditionVariables>,
+}
+
+/// The variables free in the conditions of the rule-like sentences of a definition (C1).
+#[derive(Debug, Default)]
+struct ConditionVariables {
+    /// Per input address, those of the sentences that carry it.
+    by_input: BTreeMap<InputAddress, BTreeSet<String>>,
+    /// Per module, those of all its sentences.
+    by_module: BTreeMap<String, BTreeSet<String>>,
+}
+
+impl ConditionVariables {
+    fn of(definition: &Definition) -> Self {
+        let mut variables = Self::default();
+        for module in &definition.modules {
+            let in_module = variables.by_module.entry(module.name.clone()).or_default();
+            for sentence in &module.local_sentences {
+                let Some((_, conditions, _)) = rule_like_parts(sentence) else {
+                    continue;
+                };
+                let mut names = BTreeSet::new();
+                for (_, condition) in conditions {
+                    names.extend(free_variables(condition));
+                }
+                for address in sentence.attributes().input_addresses() {
+                    variables
+                        .by_input
+                        .entry(address.clone())
+                        .or_default()
+                        .extend(names.iter().cloned());
+                }
+                in_module.extend(names);
+            }
+        }
+        variables
+    }
+
+    /// The condition variables of `sentence` of module `module` before the stage: those of the
+    /// sentences before it that share one of its input addresses, or, for a sentence without an
+    /// address, those of the whole module.
+    fn before(&self, module: &str, sentence: &Sentence) -> BTreeSet<String> {
+        let addresses = sentence.attributes().input_addresses();
+        if addresses.is_empty() {
+            return self.by_module.get(module).cloned().unwrap_or_default();
+        }
+        addresses
+            .iter()
+            .filter_map(|address| self.by_input.get(address))
+            .flatten()
+            .cloned()
+            .collect()
+    }
+}
+
+/// How C1 treats `#Configuration` in a condition at a boundary.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ConfigurationRule {
+    /// At the stage that passes it to configuration-reading functions: exempt.
+    Introduced,
+    /// Like any other condition variable.
+    Ordinary,
+    /// Once a stage has bound it, in a sentence that is not macro-like: it must occur in the body.
+    Bound,
 }
 
 impl Default for StageChecks {
@@ -112,7 +186,7 @@ impl StageChecks {
     /// the emission run keeps the decision of the transform run.
     pub(crate) fn start(&mut self, input: &Definition, options: &CompileOptions) {
         if self.conditions.is_none() {
-            self.conditions = Some(condition_variables_by_module(input));
+            self.conditions = Some(ConditionVariables::of(input));
         }
         if self.binding != Obligation::Pending {
             return;
@@ -165,28 +239,32 @@ impl StageChecks {
     /// Check C1 on the output of `stage` against the conditions before it, then record the
     /// output's conditions for the next boundary; panics like R3 when it is broken.
     fn check_conditions(&mut self, stage: &Stage, output: &Definition) {
-        let empty = BTreeSet::new();
         if let Some(earlier) = &self.conditions {
+            let renames_anonymous = stage.name == ANONYMOUS_RENAMING_STAGE;
             for module in &output.modules {
-                let before = earlier.get(&module.name).unwrap_or(&empty);
-                let renames_anonymous = stage.name == ANONYMOUS_RENAMING_STAGE
-                    && before.iter().any(|name| is_anonymous(name));
                 // Invariant: every sentence of `module` before `index` satisfies C1.
                 for (index, sentence) in module.local_sentences.iter().enumerate() {
-                    let configuration_exempt = !self
+                    let configuration = if stage.name == CONFIGURATION_PASSING_STAGE {
+                        ConfigurationRule::Introduced
+                    } else if self
                         .available
                         .contains(Artifacts::CONFIGURATION_VARIABLES_BOUND)
-                        || sentence.attributes().has_any(&AttributeKey::MACRO_LIKE);
+                        && !sentence.attributes().has_any(&AttributeKey::MACRO_LIKE)
+                    {
+                        ConfigurationRule::Bound
+                    } else {
+                        ConfigurationRule::Ordinary
+                    };
                     let introduced = introduced_condition_variables(
                         sentence,
-                        before,
+                        &earlier.before(&module.name, sentence),
                         renames_anonymous,
-                        configuration_exempt,
+                        configuration,
                     );
                     if !introduced.is_empty() {
                         panic!(
                             "kompile invariant C1 (condition binding) broken by stage {:?} ({}): \
-                             {} occur in no body and in no condition of the module before the stage\n  in {}\n  sentence: {}",
+                             {} occur in no body and in no condition of the sentence before the stage\n  in {}\n  sentence: {}",
                             stage.name,
                             stage.call,
                             describe_condition_variables(&introduced),
@@ -200,7 +278,7 @@ impl StageChecks {
                 }
             }
         }
-        self.conditions = Some(condition_variables_by_module(output));
+        self.conditions = Some(ConditionVariables::of(output));
     }
 
     /// The right-hand-side variables of `sentence`, per checked root, outside the exemptions of
@@ -274,33 +352,13 @@ fn rule_like_parts(sentence: &Sentence) -> Option<RuleLikeParts<'_>> {
     }
 }
 
-/// For each module of `definition`, the variables free in a condition of one of its rule-like
-/// sentences.
-fn condition_variables_by_module(definition: &Definition) -> BTreeMap<String, BTreeSet<String>> {
-    definition
-        .modules
-        .iter()
-        .map(|module| {
-            let mut names = BTreeSet::new();
-            for sentence in &module.local_sentences {
-                if let Some((_, conditions, _)) = rule_like_parts(sentence) {
-                    for (_, condition) in conditions {
-                        names.extend(free_variables(condition));
-                    }
-                }
-            }
-            (module.name.clone(), names)
-        })
-        .collect()
-}
-
-/// The condition variables of `sentence` that break C1 against `before`, the condition
-/// variables of its module before the stage, per condition.
+/// The condition variables of `sentence` that break C1 against `before`, the condition variables
+/// of the same sentence before the stage, per condition.
 fn introduced_condition_variables(
     sentence: &Sentence,
     before: &BTreeSet<String>,
     renames_anonymous: bool,
-    configuration_exempt: bool,
+    configuration: ConfigurationRule,
 ) -> Vec<(CheckedRoot, BTreeSet<String>)> {
     let Some((body, conditions, is_alias)) = rule_like_parts(sentence) else {
         return Vec::new();
@@ -317,12 +375,20 @@ fn introduced_condition_variables(
             let mut names = free_variables(condition);
             names.retain(|name| {
                 let allowed = if name == CONFIGURATION_VARIABLE {
-                    configuration_exempt || in_body.contains(name)
+                    match configuration {
+                        ConfigurationRule::Introduced => true,
+                        ConfigurationRule::Ordinary => {
+                            in_body.contains(name) || before.contains(name)
+                        }
+                        ConfigurationRule::Bound => in_body.contains(name),
+                    }
                 } else {
                     in_body.contains(name)
                         || before.contains(name)
                         || is_alias && name == "HOLE"
-                        || renames_anonymous && is_renamed_anonymous(name)
+                        || renames_anonymous
+                            && renamed_anonymous_prefix(name)
+                                .is_some_and(|prefix| before.contains(&format!("{prefix}_")))
                 };
                 !allowed
             });
@@ -399,8 +465,19 @@ fn structural_options(options: &CompileOptions) -> StructuralCheckOptions {
 /// Whether `name` is a name `resolve anonymous variables` gives an anonymous `_`: `_Gen`
 /// followed by one or more digits.
 fn is_renamed_anonymous(name: &str) -> bool {
-    name.strip_prefix("_Gen").is_some_and(|suffix| {
-        !suffix.is_empty() && suffix.bytes().all(|byte| byte.is_ascii_digit())
+    renamed_anonymous_prefix(name) == Some("")
+}
+
+/// The prefix (`""`, `"?"`, `"!"` or `"@"`) of the anonymous variable that `resolve anonymous
+/// variables` renames to `name`, when `name` is such a renaming: the prefix, `_Gen`, and one or
+/// more digits.
+fn renamed_anonymous_prefix(name: &str) -> Option<&'static str> {
+    ["", "?", "!", "@"].into_iter().find(|prefix| {
+        name.strip_prefix(prefix)
+            .and_then(|rest| rest.strip_prefix("_Gen"))
+            .is_some_and(|suffix| {
+                !suffix.is_empty() && suffix.bytes().all(|byte| byte.is_ascii_digit())
+            })
     })
 }
 
@@ -457,6 +534,7 @@ mod tests {
         Artifacts, PassError, PassFn, PassInput, PassOutcome, PipelineState, Provenance, Stage,
         run_stages,
     };
+    use crate::provenance::{InputAddress, InputSpace};
     use crate::timings::PhaseTimings;
 
     fn rule(left: Term, right: Term, attributes: Attributes) -> Sentence {
@@ -882,7 +960,7 @@ mod tests {
         let input = || definition(vec![conditioned(Term::apply("true", Vec::new()))]);
         let output = run(
             &[
-                stage("configuring stage", configure, Artifacts::NONE),
+                stage("resolve function configuration", configure, Artifacts::NONE),
                 stage("later stage", identity, Artifacts::NONE),
             ],
             input(),
@@ -891,7 +969,7 @@ mod tests {
         let message = panic_message(|| {
             run(
                 &[
-                    stage("configuring stage", configure, Artifacts::NONE),
+                    stage("resolve function configuration", configure, Artifacts::NONE),
                     stage(
                         "binding stage",
                         identity,
@@ -903,6 +981,185 @@ mod tests {
         });
         assert!(message.contains("C1"), "{message}");
         assert!(message.contains("\"binding stage\""), "{message}");
+        assert!(message.contains("#Configuration in requires"), "{message}");
+    }
+
+    fn addressed(mut sentence: Sentence, index: u32) -> Sentence {
+        sentence
+            .attributes_mut()
+            .set_input_addresses(vec![InputAddress::new(InputSpace::Compile, "MAIN", index)]);
+        sentence
+    }
+
+    fn is_int(name: &str) -> Term {
+        Term::apply("isInt", vec![Term::variable(name)])
+    }
+
+    /// The reviewer's escape: a rule of the module whose own condition holds the name the guard
+    /// minted (`requires X ==Int _Gen0`, a user existential) does not hide the alias the stage adds
+    /// to another rule's condition, because the earlier conditions are those of the sentence.
+    #[test]
+    fn another_sentences_condition_variable_does_not_hide_a_guard_alias() {
+        fn alias_first(
+            input: &PassInput<'_>,
+            _: &mut PipelineState,
+        ) -> Result<PassOutcome, PassError> {
+            let mut output = input.definition.clone();
+            if let Sentence::Rule { requires, .. } =
+                crate::definition::sentence_mut(&mut output.modules[0].local_sentences[0])
+            {
+                let taken = std::mem::replace(requires, Term::Sequence(Vec::new()));
+                *requires = Term::As {
+                    pattern: Box::new(taken),
+                    alias: Box::new(Term::variable("_Gen0")),
+                };
+            }
+            Ok(PassOutcome::Changed(output))
+        }
+        let user = conditioned(Term::apply(
+            "_==Int_",
+            vec![Term::variable("X"), Term::variable("_Gen0")],
+        ));
+        let message = panic_message(|| {
+            run(
+                &[stage("guard or-patterns", alias_first, Artifacts::NONE)],
+                definition(vec![
+                    addressed(conditioned(is_int_or_bool()), 0),
+                    addressed(user, 1),
+                ]),
+            );
+        });
+        assert!(message.contains("C1"), "{message}");
+        assert!(message.contains("_Gen0 in requires"), "{message}");
+        assert!(message.contains("sentence 0 of module MAIN"), "{message}");
+    }
+
+    /// `resolve anonymous variables` renames `_`, `?_`, `!_` and `@_` to the same prefix followed
+    /// by `_Gen` and digits; each renamed name is the sentence's own authored variable.
+    #[test]
+    fn every_anonymous_prefix_is_covered_by_the_renaming_exemption() {
+        /// `isInt(P_)` becomes `isInt(P_Gen0)`, as the renaming stage writes it.
+        fn rename(input: &PassInput<'_>, _: &mut PipelineState) -> Result<PassOutcome, PassError> {
+            replace_requires(input, |requires| {
+                let mut anonymous = None;
+                requires.visit_preorder(&mut |node| {
+                    if let Term::Variable { name, .. } = node {
+                        anonymous = Some(name.clone());
+                    }
+                });
+                let name = anonymous.expect("the test condition is isInt of a variable");
+                is_int(&format!("{name}Gen0"))
+            })
+        }
+        fn rename_to_existential(
+            input: &PassInput<'_>,
+            _: &mut PipelineState,
+        ) -> Result<PassOutcome, PassError> {
+            replace_requires(input, |_| is_int("?_Gen0"))
+        }
+        for prefix in ["", "?", "!", "@"] {
+            let output = run(
+                &[stage(
+                    "resolve anonymous variables",
+                    rename,
+                    Artifacts::NONE,
+                )],
+                definition(vec![addressed(
+                    conditioned(is_int(&format!("{prefix}_"))),
+                    0,
+                )]),
+            );
+            assert_eq!(output.modules[0].local_sentences.len(), 1, "{prefix}");
+        }
+        // A name of another prefix than the anonymous variable the sentence held is not its
+        // renaming.
+        let message = panic_message(|| {
+            run(
+                &[stage(
+                    "resolve anonymous variables",
+                    rename_to_existential,
+                    Artifacts::NONE,
+                )],
+                definition(vec![addressed(conditioned(is_int("_")), 0)]),
+            );
+        });
+        assert!(message.contains("?_Gen0 in requires"), "{message}");
+    }
+
+    /// The anonymous exemption is per sentence: renaming one sentence's `_` does not license a
+    /// `_Gen` name in another sentence whose conditions held no anonymous variable.
+    #[test]
+    fn the_anonymous_exemption_covers_only_the_sentence_that_held_the_anonymous_variable() {
+        fn rename(input: &PassInput<'_>, _: &mut PipelineState) -> Result<PassOutcome, PassError> {
+            let mut output = input.definition.clone();
+            for (index, sentence) in output.modules[0].local_sentences.iter_mut().enumerate() {
+                if let Sentence::Rule { requires, .. } = crate::definition::sentence_mut(sentence) {
+                    *requires = is_int(if index == 0 { "_Gen0" } else { "_Gen1" });
+                }
+            }
+            Ok(PassOutcome::Changed(output))
+        }
+        let message = panic_message(|| {
+            run(
+                &[stage(
+                    "resolve anonymous variables",
+                    rename,
+                    Artifacts::NONE,
+                )],
+                definition(vec![
+                    addressed(conditioned(is_int("_")), 0),
+                    addressed(conditioned(Term::apply("true", Vec::new())), 1),
+                ]),
+            );
+        });
+        assert!(message.contains("_Gen1 in requires"), "{message}");
+        assert!(message.contains("sentence 1 of module MAIN"), "{message}");
+    }
+
+    /// `#Configuration` is exempt only at the stage that passes it to configuration-reading
+    /// functions; any other stage that introduces it into a condition breaks C1, and a stage that
+    /// copies a condition holding it into a sentence of the same input keeps C1.
+    #[test]
+    fn only_the_function_configuration_stage_introduces_a_condition_configuration() {
+        fn configure(
+            input: &PassInput<'_>,
+            _: &mut PipelineState,
+        ) -> Result<PassOutcome, PassError> {
+            replace_requires(input, |_| {
+                Term::apply("isZero", vec![Term::variable("#Configuration")])
+            })
+        }
+        fn copy_first(
+            input: &PassInput<'_>,
+            _: &mut PipelineState,
+        ) -> Result<PassOutcome, PassError> {
+            let mut output = input.definition.clone();
+            let copy = output.modules[0].local_sentences[0].clone();
+            output.modules[0].local_sentences.push(copy);
+            Ok(PassOutcome::Changed(output))
+        }
+        let input = || {
+            definition(vec![addressed(
+                conditioned(Term::apply("true", Vec::new())),
+                0,
+            )])
+        };
+        let output = run(
+            &[
+                stage("resolve function configuration", configure, Artifacts::NONE),
+                stage("copying stage", copy_first, Artifacts::NONE),
+            ],
+            input(),
+        );
+        assert_eq!(output.modules[0].local_sentences.len(), 2);
+        let message = panic_message(|| {
+            run(
+                &[stage("another stage", configure, Artifacts::NONE)],
+                input(),
+            );
+        });
+        assert!(message.contains("C1"), "{message}");
+        assert!(message.contains("\"another stage\""), "{message}");
         assert!(message.contains("#Configuration in requires"), "{message}");
     }
 }
