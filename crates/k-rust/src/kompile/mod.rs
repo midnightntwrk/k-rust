@@ -39,7 +39,7 @@ pub use initial_configuration::{
 #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
 pub use invariants::assert_frontend_pattern;
 pub use module_to_kore::{
-    DeclarationError, DeclarationModules, EqualityOperand, ModuleToKoreError, ModuleToKoreOptions,
+    DeclarationError, DeclarationModules, ModuleToKoreError, ModuleToKoreOptions,
     declaration_modules, declaration_modules_from_resolved,
     declaration_modules_from_resolved_with_options, encode_kore_label, encode_kore_sort,
     module_to_kore, module_to_kore_from_resolved, module_to_kore_from_resolved_with_options,

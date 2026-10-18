@@ -408,29 +408,44 @@ fn a_negated_leaf_holds_where_its_bool_term_is_undefined() {
     );
 }
 
-// ---------------------------------------------------------------- an equality of a predicate and a Bool term
+// ---------------------------------------------------------------- an equality of mixed operands
 
-/// The conditions whose spine holds an `#Equals` between a non-term pattern and a Bool term,
-/// each with the case its refusal explains: `predicate` (a predicate at sort Bool is all of Bool
-/// or nothing, never one Bool value) or `connective` (a connective over Bool terms denotes a set
-/// of values, not a condition).
-const EQUALITIES_OF_A_PREDICATE_AND_A_BOOL_TERM: &[(&str, &str)] = &[
-    ("{ {X #Equals 1} #Equals true }", "predicate"),
-    ("{ #Ceil(1 /Int (X -Int 1)) #Equals true }", "predicate"),
-    ("#Not({ {X #Equals 1} #Equals true })", "predicate"),
-    ("{ {X #Equals 1} #Equals false }", "predicate"),
+/// The conditions whose spine holds an `#Equals` whose operands are not both terms and not both
+/// predicates, each with its operands' shapes. A predicate denotes all of its sort or nothing, so
+/// it never equals one value; a connective over terms denotes a set of values.
+const MIXED_EQUALITIES: &[(&str, &str)] = &[
+    ("{ {X #Equals 1} #Equals true }", "predicate, Bool term"),
+    (
+        "{ #Ceil(1 /Int (X -Int 1)) #Equals true }",
+        "predicate, Bool term",
+    ),
+    (
+        "#Not({ {X #Equals 1} #Equals true })",
+        "predicate, Bool term",
+    ),
+    ("{ {X #Equals 1} #Equals false }", "predicate, Bool term"),
     (
         "(X >Int 0) #And { (X >Int 5) #Equals #Ceil(1 /Int X) }",
-        "predicate",
+        "Bool term, predicate",
     ),
     (
         "{ true #Equals ((X ==Int 1) #Or (X ==Int 2)) }",
-        "connective",
+        "Bool term, connective",
     ),
     (
         "{ ((X ==Int 1) #And (X ==Int 2)) #Equals false }",
-        "connective",
+        "connective, Bool term",
     ),
+    // {X = 1} = {X = 1, false} holds where X ≠ 1: an equality of two sets of values.
+    (
+        "{ ((X ==Int 1) #Or (X ==Int 1)) #Equals ((X ==Int 1) #Or false) }",
+        "connective, connective",
+    ),
+    (
+        "{ ((X ==Int 1) #Or (X ==Int 2)) #Equals {X #Equals 1} }",
+        "connective, predicate",
+    ),
+    ("{ X #Equals (1 #Or 2) }", "Int term, connective"),
 ];
 
 /// The first line of the probed sentence: the line after [`HEADER`] and any declarations.
@@ -496,13 +511,13 @@ fn try_compile_spec(sentences: &str, claims: &str) -> Result<String, String> {
     .map_err(|error| error.to_string())
 }
 
-/// The refusal names the sentence by kind, label and position, and explains its case.
+/// The refusal names the sentence by kind, label and position, and states both reasons.
 #[track_caller]
 fn assert_refused(
     result: Result<String, String>,
     sentence: &str,
     line: usize,
-    case: &str,
+    shapes: &str,
     condition: &str,
 ) {
     let message = match result {
@@ -511,15 +526,15 @@ fn assert_refused(
     };
     let at = format!("{sentence} at ml_conditions.k:{line}:");
     assert!(message.contains(&at), "{condition}: no {at:?} in {message}");
-    let reason = match case {
-        "predicate" => "a predicate at sort Bool denotes all of Bool or nothing",
-        "connective" => "a connective over Bool terms denotes a set of values",
-        _ => unreachable!(),
-    };
-    assert!(
-        message.contains(reason),
-        "{condition}: no {reason:?} in {message}"
-    );
+    for reason in [
+        "a predicate at sort Bool denotes all of Bool or nothing",
+        "a connective over terms denotes a set of values",
+    ] {
+        assert!(
+            message.contains(reason),
+            "{condition} ({shapes}): no {reason:?} in {message}"
+        );
+    }
     assert!(
         message.contains("andBool"),
         "{condition}: no remedy in {message}"
@@ -527,53 +542,53 @@ fn assert_refused(
 }
 
 #[test]
-fn a_rule_whose_condition_equates_a_predicate_with_a_bool_term_is_refused() {
-    for (condition, case) in EQUALITIES_OF_A_PREDICATE_AND_A_BOOL_TERM {
+fn a_rule_whose_condition_has_a_mixed_equality_is_refused() {
+    for (condition, shapes) in MIXED_EQUALITIES {
         let result = try_compile(&format!(
             "  rule [p]: <k> go(X) => done(X) ... </k> requires {condition}\n"
         ));
-        assert_refused(result, "rule [P.p]", line_after(""), case, condition);
+        assert_refused(result, "rule [P.p]", line_after(""), shapes, condition);
     }
 }
 
 #[test]
-fn a_function_equation_whose_condition_equates_a_predicate_with_a_bool_term_is_refused() {
-    for (condition, case) in EQUALITIES_OF_A_PREDICATE_AND_A_BOOL_TERM {
+fn a_function_equation_whose_condition_has_a_mixed_equality_is_refused() {
+    for (condition, shapes) in MIXED_EQUALITIES {
         let result = try_compile(&format!(
             "{F}  rule [p]: f(X) => X requires {condition}\n{G}"
         ));
-        assert_refused(result, "rule [P.p]", line_after(F), case, condition);
+        assert_refused(result, "rule [P.p]", line_after(F), shapes, condition);
     }
     // In an ensures, at the equation's sort.
-    let (condition, case) = EQUALITIES_OF_A_PREDICATE_AND_A_BOOL_TERM[0];
+    let (condition, shapes) = MIXED_EQUALITIES[0];
     let result = try_compile(&format!(
         "{F}  rule [p]: f(X) => X ensures {condition}\n{G}"
     ));
-    assert_refused(result, "rule [P.p]", line_after(F), case, condition);
+    assert_refused(result, "rule [P.p]", line_after(F), shapes, condition);
 }
 
 #[test]
-fn a_claim_whose_condition_equates_a_predicate_with_a_bool_term_is_refused() {
+fn a_claim_whose_condition_has_a_mixed_equality_is_refused() {
     let rule = "  rule [g]: <k> go(X) => done(X) ... </k> requires X =/=Int 1\n";
     // The claim's line: HEADER, the rule, `endmodule`, a blank line, `module P-SPEC`, `imports P`.
     let line = HEADER.lines().count() + 1 + 4 + 1;
-    for (condition, case) in EQUALITIES_OF_A_PREDICATE_AND_A_BOOL_TERM {
+    for (condition, shapes) in MIXED_EQUALITIES {
         let result = try_compile_spec(
             rule,
             &format!("  claim [q]: <k> go(X) => done(X) ... </k> requires {condition}\n"),
         );
-        assert_refused(result, "claim [P-SPEC.q]", line, case, condition);
+        assert_refused(result, "claim [P-SPEC.q]", line, shapes, condition);
     }
 }
 
 /// An owise equation reads its competitors' conditions; the refusal names the competitor.
 #[test]
-fn an_owise_competitor_whose_condition_equates_a_predicate_with_a_bool_term_is_refused() {
-    let (condition, case) = EQUALITIES_OF_A_PREDICATE_AND_A_BOOL_TERM[0];
+fn an_owise_competitor_whose_condition_has_a_mixed_equality_is_refused() {
+    let (condition, shapes) = MIXED_EQUALITIES[0];
     let result = try_compile(&format!(
         "{F}  rule [o]: f(_) => 0 [owise]\n  rule [p]: f(X) => 1 requires {condition}\n{G}"
     ));
-    assert_refused(result, "rule [P.p]", line_after(F) + 1, case, condition);
+    assert_refused(result, "rule [P.p]", line_after(F) + 1, shapes, condition);
 }
 
 /// An equality of two predicates is their iff, and an equality of two terms an equality of
@@ -597,8 +612,8 @@ fn equalities_of_two_predicates_or_two_terms_compile() {
 /// guard_or_patterns aliases a disjunction there, which the test profile's kompile invariants
 /// refuse for that target at the base already (MLP/1).
 #[test]
-fn the_llvm_target_compiles_an_equality_of_a_predicate_and_a_bool_term_as_before() {
-    for (condition, _) in EQUALITIES_OF_A_PREDICATE_AND_A_BOOL_TERM
+fn the_llvm_target_compiles_a_mixed_equality_as_before() {
+    for (condition, _) in MIXED_EQUALITIES
         .iter()
         .filter(|(condition, _)| !condition.contains("#Or"))
     {

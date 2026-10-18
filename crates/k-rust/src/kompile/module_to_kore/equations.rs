@@ -1167,13 +1167,12 @@ impl ConditionForm {
 /// The condition `condition` of the sentence `sentence` names, at `result_sort`, in the form
 /// `form`.
 ///
-/// In the predicate form, a condition whose spine holds an author's `#Equals` between a Bool term
-/// and a pattern that is not a term ([`spine_equality_with_a_bool_term`]) is refused: it states no
-/// condition (a predicate at sort Bool is all of Bool or nothing, and a connective over Bool
-/// terms a set of values, so neither is one Bool value), and written as a predicate,
-/// `{P #Equals true}` would be the pattern `\equals{SortBool{}, R}(P, \dv{SortBool{}}("true"))`,
-/// the form in which KORE written by other tools states that a whole condition P holds, which
-/// k-rust's backend reads as P.
+/// In the predicate form, a condition whose spine holds an author's `#Equals` whose operands are
+/// not both terms and not both predicates ([`mixed_spine_equality`]) is refused: it states no
+/// condition (a predicate is all of its sort or nothing, and a connective over terms a set of
+/// values), and written as a predicate, `{P #Equals true}` would be the pattern
+/// `\equals{SortBool{}, R}(P, \dv{SortBool{}}("true"))`, the form in which KORE written by other
+/// tools states that a whole condition P holds, which k-rust's backend reads as P.
 fn side_condition(
     condition: &Term,
     result_sort: &KoreSort,
@@ -1190,10 +1189,9 @@ fn side_condition(
     let converted = converter.convert(condition)?;
     Ok(match form {
         ConditionForm::Predicate => {
-            if let Some(operand) = spine_equality_with_a_bool_term(&converted, &bool_sort) {
-                return Err(ModuleToKoreError::ConditionEqualsBoolTerm {
+            if mixed_spine_equality(&converted) {
+                return Err(ModuleToKoreError::MixedConditionEquality {
                     sentence: sentence(),
-                    operand,
                 });
             }
             predicate_at(&converted, result_sort, &bool_sort)
@@ -1233,61 +1231,56 @@ fn located_sentence(claim: bool, attributes: &KAttributes) -> String {
     }
 }
 
-/// What the operand that is not a term is, in an `#Equals` that pairs it with a Bool term on a
-/// condition's spine ([`spine_equality_with_a_bool_term`]).
+/// The shape of an operand of an `#Equals` on a condition's spine ([`mixed_spine_equality`]).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum EqualityOperand {
-    /// A predicate: a pattern with no Bool term directly below its spine (`{X #Equals 1}`,
-    /// `#Ceil(..)`, `#Not` of one). At sort Bool it denotes all of Bool or nothing.
+enum OperandShape {
+    /// A term: it denotes one value.
+    Term,
+    /// A predicate: a pattern that is not a term and has no term directly below its spine
+    /// (`{X #Equals 1}`, `#Ceil(..)`, `#Not` of one). It denotes all of its sort or nothing.
     Predicate,
-    /// A matching-logic connective with a Bool term directly below its spine
-    /// (`(X ==Int 1) #Or (X ==Int 2)`): the set of values its connectives build from the terms.
+    /// A matching-logic connective with a term directly below its spine
+    /// (`(X ==Int 1) #Or (X ==Int 2)`, `1 #Or 2`): the set of values its connectives build from
+    /// the terms.
     Connective,
 }
 
-/// The operand kind of the first `#Equals` on the spine of `condition` (the condition as
-/// converted, at sort Bool) whose operands are a Bool term and a pattern that is not a term.
+fn operand_shape(pattern: &Pattern) -> OperandShape {
+    if is_term(pattern) {
+        OperandShape::Term
+    } else if has_term_below_spine(pattern) {
+        OperandShape::Connective
+    } else {
+        OperandShape::Predicate
+    }
+}
+
+/// Whether the spine of `condition` (the condition as converted) holds an `#Equals` whose
+/// operands are not both terms and not both predicates ([`OperandShape`]).
 ///
 /// The spine is the condition's root and every operand of a connective (`\and`, `\or`, `\not`,
 /// `\implies`, `\iff`, `\exists`, `\forall`) on it; the operands of an atom (`\equals`,
-/// `\ceil`, `\floor`, `\in`) and of a term are not on it. Such an `#Equals` never holds as
-/// written for a predicate operand, which at sort Bool is all of Bool or nothing, and holds for a
-/// connective over Bool terms only as an equality of sets of values, which is no condition. An
-/// `#Equals` of two terms is an equality of values and one of two predicates their `\iff`; both
-/// are conditions.
-fn spine_equality_with_a_bool_term(
-    condition: &Pattern,
-    bool_sort: &KoreSort,
-) -> Option<EqualityOperand> {
-    let on_spine = |pattern: &Pattern| spine_equality_with_a_bool_term(pattern, bool_sort);
+/// `\ceil`, `\floor`, `\in`) and of a term are not on it. On the spine an `#Equals` of two terms
+/// is an equality of values and one of two predicates their `\iff`, and both are conditions. Any
+/// other pair states none: a predicate denotes all of its sort or nothing, so it never equals one
+/// value, and a connective over terms denotes a set of values, so an equality with it compares
+/// sets (`{(A #Or B) #Equals true}` holds only where A and B are both true).
+fn mixed_spine_equality(condition: &Pattern) -> bool {
     match condition {
         Pattern::And { arguments, .. } | Pattern::Or { arguments, .. } => {
-            arguments.iter().find_map(on_spine)
+            arguments.iter().any(mixed_spine_equality)
         }
-        Pattern::Not { argument, .. } => on_spine(argument),
+        Pattern::Not { argument, .. } => mixed_spine_equality(argument),
         Pattern::Implies { left, right, .. } | Pattern::Iff { left, right, .. } => {
-            on_spine(left).or_else(|| on_spine(right))
+            mixed_spine_equality(left) || mixed_spine_equality(right)
         }
-        Pattern::Exists { body, .. } | Pattern::Forall { body, .. } => on_spine(body),
-        Pattern::Equals {
-            operand_sort,
-            left,
-            right,
-            ..
-        } if **operand_sort == *bool_sort => {
-            let operand = match (is_term(left), is_term(right)) {
-                (true, false) => right,
-                (false, true) => left,
-                (true, true) | (false, false) => return None,
-            };
-            Some(if has_term_below_spine(operand) {
-                EqualityOperand::Connective
-            } else {
-                EqualityOperand::Predicate
-            })
-        }
-        Pattern::Equals { .. }
-        | Pattern::Top { .. }
+        Pattern::Exists { body, .. } | Pattern::Forall { body, .. } => mixed_spine_equality(body),
+        Pattern::Equals { left, right, .. } => !matches!(
+            (operand_shape(left), operand_shape(right)),
+            (OperandShape::Term, OperandShape::Term)
+                | (OperandShape::Predicate, OperandShape::Predicate)
+        ),
+        Pattern::Top { .. }
         | Pattern::Bottom { .. }
         | Pattern::Ceil { .. }
         | Pattern::Floor { .. }
@@ -1300,7 +1293,7 @@ fn spine_equality_with_a_bool_term(
         | Pattern::Variable(_)
         | Pattern::Application { .. }
         | Pattern::AssociativeApplication { .. }
-        | Pattern::DomainValue { .. } => None,
+        | Pattern::DomainValue { .. } => false,
     }
 }
 

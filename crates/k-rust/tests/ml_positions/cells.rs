@@ -304,6 +304,13 @@ const OPERAND_CONDITIONS: &[Condition] = &[
         Kind::TermLevel,
         "X ∩ {1} is defined where X = 1; a connective in the operand of #Ceil is refused (PredicateOperand)",
     ),
+    condition(
+        "eqop-or-or",
+        "{ ((X ==Int 1) #Or (X ==Int 1)) #Equals ((X ==Int 1) #Or false) }",
+        |x| x != 1,
+        Kind::TermLevel,
+        "{X ==Int 1} = {X ==Int 1, false}: X != 1; two connectives over terms compare sets of values; refused (PredicateOperand)",
+    ),
     // A predicate as an operand of #Equals beside a Bool term: at sort Bool a predicate is all of
     // Bool or nothing, never one Bool value.
     condition(

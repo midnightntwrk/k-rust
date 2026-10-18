@@ -360,7 +360,7 @@ impl CellSpec {
 // ---------------------------------------------------------------- PENDING
 
 /// The number of cells of the matrix.
-const CELL_COUNT: usize = 504;
+const CELL_COUNT: usize = 507;
 
 /// The cells that deviate at the ML lane's base, each with the ticket after which it conforms
 /// and the builds in which it deviates (see the module documentation).
@@ -425,9 +425,9 @@ pub const PENDING: &[(&str, &str, Class, Class)] = &[
     ("right/macro-rhs__and-term", "MLP/7", Class::Wrong, Class::Wrong),
     ("right/rule-rhs__and-term", "MLP/7", Class::Wrong, Class::Wrong),
     ("right/simp-rhs__and-term", "MLP/7", Class::Wrong, Class::Wrong),
-    // MLP/4 (144): shapes no k-rust route loads or the backend misreads: refused at compile with MlConstructPosition.
+    // MLP/4 (147): shapes no k-rust route loads or the backend misreads: refused at compile with MlConstructPosition.
     // Since MLP/8 the backend refuses at load, naming the axiom, an #Equals with a connective operand and a connective over terms conjoined at a matched or shared position (Refused).
-    // An #Equals of a predicate or connective with a Bool term on a condition's spine is refused at compile since MLP/3, without that code (Refused).
+    // An #Equals on a condition's spine whose operands are not both terms or both predicates is refused at compile since MLP/3, without that code (Refused).
     ("cond/claim-ensures__as", "MLP/4", Class::Conforms, Class::Refused),
     ("cond/claim-ensures__fun", "MLP/4", Class::Refused, Class::Refused),
     ("cond/claim-ensures__let", "MLP/4", Class::Refused, Class::Refused),
@@ -441,6 +441,7 @@ pub const PENDING: &[(&str, &str, Class, Class)] = &[
     ("cond/claim-requires__eqop-eq-true", "MLP/4", Class::Refused, Class::Refused),
     ("cond/claim-requires__eqop-not-eq-true", "MLP/4", Class::Refused, Class::Refused),
     ("cond/claim-requires__eqop-or-int", "MLP/4", Class::Refused, Class::Refused),
+    ("cond/claim-requires__eqop-or-or", "MLP/4", Class::Refused, Class::Refused),
     ("cond/claim-requires__eqop-or-true", "MLP/4", Class::Refused, Class::Refused),
     ("cond/claim-requires__eqop-true-or", "MLP/4", Class::Refused, Class::Refused),
     ("cond/claim-requires__fun", "MLP/4", Class::Refused, Class::Refused),
@@ -461,6 +462,7 @@ pub const PENDING: &[(&str, &str, Class, Class)] = &[
     ("cond/fun-requires__eqop-eq-true", "MLP/4", Class::Refused, Class::Refused),
     ("cond/fun-requires__eqop-not-eq-true", "MLP/4", Class::Refused, Class::Refused),
     ("cond/fun-requires__eqop-or-int", "MLP/4", Class::Refused, Class::Refused),
+    ("cond/fun-requires__eqop-or-or", "MLP/4", Class::Refused, Class::Refused),
     ("cond/fun-requires__eqop-or-true", "MLP/4", Class::Refused, Class::Refused),
     ("cond/fun-requires__eqop-true-or", "MLP/4", Class::Refused, Class::Refused),
     ("cond/fun-requires__or-inner", "MLP/4", Class::Refused, Class::Refused),
@@ -476,6 +478,7 @@ pub const PENDING: &[(&str, &str, Class, Class)] = &[
     ("cond/rule-requires__eqop-eq-true", "MLP/4", Class::Refused, Class::Refused),
     ("cond/rule-requires__eqop-not-eq-true", "MLP/4", Class::Refused, Class::Refused),
     ("cond/rule-requires__eqop-or-int", "MLP/4", Class::Refused, Class::Refused),
+    ("cond/rule-requires__eqop-or-or", "MLP/4", Class::Refused, Class::Refused),
     ("cond/rule-requires__eqop-or-true", "MLP/4", Class::Refused, Class::Refused),
     ("cond/rule-requires__eqop-true-or", "MLP/4", Class::Refused, Class::Refused),
     ("cond/rule-requires__or-inner", "MLP/4", Class::Refused, Class::Refused),
