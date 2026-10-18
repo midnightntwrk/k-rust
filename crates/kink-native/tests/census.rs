@@ -229,6 +229,57 @@ fn census_is_deterministic() {
     }
 }
 
+/// Re-pin L1-4: a census read back from its value ([`DeclarationCensus::from_value`], kink-flow's
+/// census memo) is the census, for a natural, a flagged (findings with hooks, sources and
+/// locations) and an inert-hook fixture; any value it would not write is refused.
+#[test]
+fn a_census_reads_back_from_its_value_and_nothing_else_does() {
+    for name in ["counter.k", "t13tok.k", "t13inert.k", "t13implemented.k"] {
+        let census = declaration_census(&compile(name)).unwrap();
+        let value = census.value();
+        assert_eq!(
+            DeclarationCensus::from_value(&value).as_ref(),
+            Some(&census),
+            "{name}"
+        );
+        let mut other = Vec::new();
+        for (key, changed) in [
+            ("census", json!("kink/declaration-census/v0")),
+            ("k_rust", json!("0000000")),
+            (
+                "verdict",
+                json!(if census.findings().is_empty() {
+                    "flagged"
+                } else {
+                    "natural"
+                }),
+            ),
+            ("findings", json!(null)),
+            ("extra", json!(1)),
+        ] {
+            let mut forged = value.clone();
+            forged[key] = changed;
+            other.push(forged);
+        }
+        if let Some(first) = census.findings().first() {
+            assert!(first.location.is_some());
+            let mut forged = value.clone();
+            forged["findings"][0]["class"] = json!("X");
+            other.push(forged);
+            let mut forged = value.clone();
+            forged["findings"][0]["location"] = json!([1, 2, 3]);
+            other.push(forged);
+        }
+        for forged in other {
+            assert_eq!(
+                DeclarationCensus::from_value(&forged),
+                None,
+                "{name}: {forged}"
+            );
+        }
+    }
+}
+
 fn reference_backend() -> BackendDefinition {
     let side = reference_prelude().unwrap();
     internalize(side).unwrap()

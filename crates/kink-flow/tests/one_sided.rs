@@ -555,6 +555,7 @@ fn search(manifest: &Path) -> Value {
             cache: None,
             order: ProgramOrder::Corpus,
             compile_workers: None,
+            memo: kink_flow::memo::MemoUse::On,
         },
     );
     assert!(ok, "{document:#}");

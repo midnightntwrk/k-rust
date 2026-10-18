@@ -1,7 +1,7 @@
 //! Ordered corpus refusals. The baseline check has no candidate to execute.
 
 use crate::{
-    LoadedSource, ProgramSource, SourceFile, TestInputSpec, assemble_input,
+    LoadedSource, ProgramSource, SourceFile, TestInputSpec, assemble_input_with,
     manifest::{
         BELOW_FLOOR, CorpusInput, CorpusManifest, DefinitionSpec, Exclusion, exclusion_applies,
         normalized, path_excluded,
@@ -16,7 +16,7 @@ use k_rust::{
 };
 use kink_campaign::{Campaign, CampaignFailureKind, CampaignOptions, TestCase, run_campaign_multi};
 use kink_native::{
-    CensusVerdict, DeclarationCensus, NativeValidator, ValidatedDefinition,
+    CensusError, CensusVerdict, DeclarationCensus, NativeValidator, ValidatedDefinition,
     bridge::validate_test_initial_state,
     declaration_census,
     execution::SolverProfile,
@@ -91,6 +91,10 @@ pub struct AdmittedDefinition {
     pub loaded: LoadedSource,
     pub semantic_input: SemanticInput,
     pub compiled: ValidatedDefinition,
+    /// The validator `compiled` came from (`loaded`'s baseline under `CompileOptions::default()`),
+    /// with its baseline compile memoised, so the campaign compiles the baseline no more (re-pin
+    /// L1-4; the runner bound a fresh validator and compiled it again).
+    pub validator: NativeValidator,
     pub tests: Vec<TestCase>,
 }
 #[derive(Clone, Debug)]
@@ -183,7 +187,7 @@ fn admit(
                 if let ProgramSource::File(file) = &spec.program {
                     spec.program = ProgramSource::Text(input_texts[file].clone());
                 }
-                program_input(&loaded, &spec)?
+                program_input(&loaded, &compiled, &spec)?
             }
             CorpusInput::KoreState { file, .. } => {
                 // kink-patch `parse_json`: a concrete state nests two JSON levels per KORE level,
@@ -210,6 +214,7 @@ fn admit(
         loaded,
         semantic_input,
         compiled,
+        validator,
         tests,
     })
 }
@@ -328,6 +333,18 @@ pub fn compile_definition(
     validator: &NativeValidator,
     record: &mut AdmissionRecord,
 ) -> Result<ValidatedDefinition, AdmissionRefusal> {
+    compile_definition_with(validator, record, declaration_census)
+}
+
+/// [`compile_definition`] whose census of the compiled baseline is `census` instead of
+/// kink-native `declaration_census`. `census` must give `declaration_census`'s value for that
+/// compile: kink-flow passes a memo of it keyed on every input of the census (re-pin L1-4), and
+/// `run --verify` there compares the memo with a census computed here.
+pub fn compile_definition_with(
+    validator: &NativeValidator,
+    record: &mut AdmissionRecord,
+    census: impl FnOnce(&ValidatedDefinition) -> Result<DeclarationCensus, CensusError>,
+) -> Result<ValidatedDefinition, AdmissionRefusal> {
     let compiled = validator
         .compile_baseline()
         .map_err(|e| AdmissionRefusal::new("compile", "compile-error", e))?;
@@ -352,7 +369,7 @@ pub fn compile_definition(
         return Err(AdmissionRefusal::new("representation", &clause, e));
     }
     record.representation = Some(json!("admitted"));
-    let census = declaration_census(&compiled)
+    let census = census(&compiled)
         .map_err(|e| AdmissionRefusal::new("declaration-census", "census-error", e))?;
     let flagged = census.verdict() == CensusVerdict::Flagged;
     record.census = Some(census);
@@ -380,12 +397,15 @@ pub fn input_backend(
 }
 
 /// Input assembly of one program: a parse failure refuses with reason `parse`, any other
-/// assembly failure with `assemble`.
+/// assembly failure with `assemble`. `compiled` is the admission's compile of `loaded`'s
+/// baseline ([`compile_definition`]), so assembling costs no compile (re-pin L1-4;
+/// [`crate::assemble_input_with`]).
 pub fn program_input(
     loaded: &LoadedSource,
+    compiled: &ValidatedDefinition,
     spec: &TestInputSpec,
 ) -> Result<Pattern, AdmissionRefusal> {
-    assemble_input(loaded, spec).map_err(|e| {
+    assemble_input_with(loaded, Some(compiled), spec).map_err(|e| {
         let reason = match e {
             crate::InputError::Parse(_) => "parse",
             _ => "assemble",

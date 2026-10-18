@@ -26,10 +26,31 @@
 //! overloads or helpers that compilation sees (findings C-02, C-03 (a)), or may lack a supersort
 //! that makes a least upper bound non-unique in compilation's view (the counterexample above).
 
-use crate::stack::{TYPING_STACK_PER_LEVEL, sentence_depth, with_stack};
+use crate::stack::{StackRefusal, TYPING_STACK_PER_LEVEL, sentence_depth, with_stack};
 use k_rust::definition::{ResolvedDefinition, Sentence};
 use k_rust::kompile::{SentenceTyper, SentenceTyping, SentenceTypingError};
 use std::collections::{BTreeMap, BTreeSet};
+
+/// The per-level stack bound of [`CompilationTyping::site_typing`]: [`TYPING_STACK_PER_LEVEL`],
+/// except in this crate's unit tests, which may raise it on their thread to force a refusal
+/// ([`SITE_TYPING_PER_LEVEL`]).
+fn site_typing_per_level() -> usize {
+    #[cfg(test)]
+    {
+        SITE_TYPING_PER_LEVEL.with(std::cell::Cell::get)
+    }
+    #[cfg(not(test))]
+    {
+        TYPING_STACK_PER_LEVEL
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// The bound [`site_typing_per_level`] gives on this thread (unit tests only).
+    pub(crate) static SITE_TYPING_PER_LEVEL: std::cell::Cell<usize> =
+        const { std::cell::Cell::new(TYPING_STACK_PER_LEVEL) };
+}
 
 /// The typer of the main module, the main module's import closure, and the own-module typers
 /// built so far, of one resolved definition.
@@ -88,17 +109,17 @@ impl<'a> CompilationTyping<'a> {
     /// baseline rule about 230,000 terms deep aborted kink-corpus's universe resolution). A
     /// sentence too deep for the largest segment kink maps, or whose segment the system refuses,
     /// gets no typing: a rule without site sorts, which a sort-selected discovery skips and
-    /// reports as not exhaustive, as for any rule neither view types.
+    /// reports as not exhaustive, as for any rule neither view types. That case is `Err` with the
+    /// refusal, which names kink's limit or the host's (re-pin L1-4, review L1-3-tail-1 D3: it was
+    /// silent), so the universe and the discovery can say why the rule has no sort.
     pub(crate) fn site_typing(
         &mut self,
         sentence: &Sentence,
         module: &str,
-    ) -> Option<SentenceTyping> {
-        with_stack(sentence_depth(sentence), TYPING_STACK_PER_LEVEL, || {
+    ) -> Result<Option<SentenceTyping>, StackRefusal> {
+        with_stack(sentence_depth(sentence), site_typing_per_level(), || {
             self.site_typing_here(sentence, module)
         })
-        .ok()
-        .flatten()
     }
 
     /// [`Self::site_typing`] on the calling thread's stack.

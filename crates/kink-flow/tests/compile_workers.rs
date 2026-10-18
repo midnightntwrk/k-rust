@@ -102,6 +102,7 @@ fn search(dir: &Path, list: &str, workers: usize) -> (Value, bool) {
             cache: None,
             order: ProgramOrder::Corpus,
             compile_workers: Some(workers),
+            memo: kink_flow::memo::MemoUse::On,
         },
     )
 }

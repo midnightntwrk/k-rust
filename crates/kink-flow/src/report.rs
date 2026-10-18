@@ -44,7 +44,7 @@
 use crate::outcomes::slot_name;
 use crate::{
     manifest::{Budget, FlowManifest},
-    mutation::{EditedRule, ResolvedMutation, RuleText},
+    mutation::{EditedRule, RuleText},
     results::{ORACLE_SLOTS, ResultClass, cache_directory, kebab},
     search::REPORT_FILE,
 };
@@ -158,8 +158,8 @@ pub fn rule_value(rule: &EditedRule) -> Value {
 }
 
 /// The `rules` of a resolved mutation, in sentence order.
-pub fn rules_value(resolved: &ResolvedMutation) -> Value {
-    Value::Array(resolved.rules.iter().map(rule_value).collect())
+pub fn rules_value(rules: &[EditedRule]) -> Value {
+    Value::Array(rules.iter().map(rule_value).collect())
 }
 
 /// What a status asks of the LLM; `None` for `killed`. `reason` refines `error`.
@@ -203,6 +203,10 @@ pub fn action(status: &str, reason: Option<&str>) -> Option<&'static str> {
         }
         "error" if reason == Some("no-comparable-program") => {
             "write a program whose baseline result is comparable: no program can kill yet"
+        }
+        "error" if reason == Some("resolution-mismatch") => {
+            "report it: the memo of this mutation's resolution differs from its live resolution \
+             (top-level mismatches); delete the cache's memo/ directory to stop trusting it"
         }
         "error" if reason.is_some_and(|r| r.starts_with("outcome-mismatch:")) => {
             "report it: a cached outcome differs from a live run of the same inputs (top-level \

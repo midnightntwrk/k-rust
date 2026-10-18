@@ -94,6 +94,69 @@ impl DeclarationCensus {
             "inert": self.inert.iter().map(|i| serde_json::json!({"symbol": i.symbol, "hook": i.hook})).collect::<Vec<_>>(),
         })
     }
+    /// The census whose [`Self::value`] is `value`, or `None` when `value` is not exactly the
+    /// value of a census of this build: another census domain or k-rust revision, a verdict that
+    /// is not its findings', a malformed member, or any member [`Self::value`] would not write.
+    /// kink-flow's census memo reads a stored census with it (re-pin L1-4).
+    pub fn from_value(value: &serde_json::Value) -> Option<Self> {
+        let text = |v: &serde_json::Value| v.as_str().map(str::to_owned);
+        let optional = |v: &serde_json::Value| -> Option<Option<String>> {
+            if v.is_null() {
+                Some(None)
+            } else {
+                text(v).map(Some)
+            }
+        };
+        let findings = value["findings"]
+            .as_array()?
+            .iter()
+            .map(|f| {
+                let location = if f["location"].is_null() {
+                    None
+                } else {
+                    let parts = f["location"]
+                        .as_array()?
+                        .iter()
+                        .map(|n| n.as_u64().and_then(|n| u32::try_from(n).ok()))
+                        .collect::<Option<Vec<_>>>()?;
+                    Some(<[u32; 4]>::try_from(parts).ok()?)
+                };
+                Some(CensusFinding {
+                    class: match f["class"].as_str()? {
+                        "N" => CensusClass::N,
+                        "H" => CensusClass::H,
+                        "C" => CensusClass::C,
+                        "U" => CensusClass::U,
+                        _ => return None,
+                    },
+                    symbol: text(&f["symbol"])?,
+                    hook: optional(&f["hook"])?,
+                    arguments: f["declared"]["arguments"]
+                        .as_array()?
+                        .iter()
+                        .map(text)
+                        .collect::<Option<Vec<_>>>()?,
+                    result: text(&f["declared"]["result"])?,
+                    expected: optional(&f["expected"])?,
+                    source: optional(&f["source"])?,
+                    location,
+                })
+            })
+            .collect::<Option<Vec<_>>>()?;
+        let inert = value["inert"]
+            .as_array()?
+            .iter()
+            .map(|i| {
+                Some(InertDeclaration {
+                    symbol: text(&i["symbol"])?,
+                    hook: text(&i["hook"])?,
+                })
+            })
+            .collect::<Option<Vec<_>>>()?;
+        let census = Self { findings, inert };
+        (census.value() == *value).then_some(census)
+    }
+
     pub fn text(&self) -> String {
         kink_patch::canonical_json(&self.value())
     }

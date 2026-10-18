@@ -7,6 +7,7 @@
 use crate::{
     admit::{FlowAdmission, admit},
     manifest::{FlowManifest, ManifestError},
+    memo::MemoUse,
     mutation::MutationList,
     report::{ReportOptions, render},
     results::ResultsOptions,
@@ -28,7 +29,8 @@ pub const EXIT_USAGE: u8 = 2;
 pub const USAGE: &str = "usage: kink-flow check FLOW.toml | kink-flow results FLOW.toml \
                          [--verify] [--mutations MUTATIONS.toml] [--cache DIR] | kink-flow run \
                          FLOW.toml MUTATIONS.toml [--only ID]... [--verify] [--order cost|corpus] \
-                         [--compile-workers N] [--cache DIR] | kink-flow report FLOW.toml \
+                         [--compile-workers N] [--no-memo] [--cache DIR] | kink-flow report \
+                         FLOW.toml \
                          [--cache DIR]";
 
 /// Run one command; returns the process exit status.
@@ -187,6 +189,7 @@ fn run_options(args: &[String]) -> Result<(RunOptions, RunMode), String> {
                         })?,
                 );
             }
+            "--no-memo" if options.memo == MemoUse::On => options.memo = MemoUse::Off,
             "--only" => {
                 let id = args.next().ok_or("--only needs a mutation id")?;
                 if !options.only.contains(id) {

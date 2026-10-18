@@ -76,6 +76,7 @@ fn search(manifest: &Path, mutations: &Path, order: ProgramOrder) -> Value {
             cache: None,
             order,
             compile_workers: None,
+            memo: kink_flow::memo::MemoUse::On,
         },
     );
     assert!(ok, "{document:#}");
@@ -781,6 +782,7 @@ fn results_and_the_report_list_the_rules_no_mutation_targets() {
             cache: None,
             order: ProgramOrder::Corpus,
             compile_workers: None,
+            memo: kink_flow::memo::MemoUse::On,
         },
     );
     assert!(ok, "{only:#}");

@@ -9,7 +9,7 @@ pub mod runner;
 pub mod store;
 pub mod summary;
 
-pub use input::{InputError, ProgramSource, TestInputSpec, assemble_input};
+pub use input::{InputError, ProgramSource, TestInputSpec, assemble_input, assemble_input_with};
 pub use resolver::{CorpusSource, LoadError, LoadedSource, SourceFile, load_source};
 
 pub use runner::{DefinitionOutcome, run_definition};

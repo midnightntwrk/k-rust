@@ -93,6 +93,7 @@ fn search_in(dir: &std::path::Path, depth: usize) -> [Vec<Value>; 2] {
         cache: None,
         order: ProgramOrder::Corpus,
         compile_workers: None,
+        memo: kink_flow::memo::MemoUse::On,
     };
     [(); 2].map(|()| {
         let (document, ok) = run(&manifest, &mutations, &options);
@@ -190,7 +191,7 @@ fn a_rule_too_deep_for_kink_is_refused_by_name_and_the_other_rows_stand() {
                     "{detail}"
                 );
                 assert!(detail.contains("the specification's rule 4)"), "{detail}");
-                assert!(!detail.contains("no mutation of this rule"), "{detail}");
+                assert!(!detail.contains("no mutation that keeps"), "{detail}");
             }
         })
         .unwrap()
@@ -200,8 +201,9 @@ fn a_rule_too_deep_for_kink_is_refused_by_name_and_the_other_rows_stand() {
 
 /// Re-pin L1-3-tail (review L1-3-fix-2-1 D4): when the specification's rule is itself too deep
 /// for kink, a mutation that changes only its guard is `edited-rule-too-deep`, and the detail
-/// says that no mutation of that rule can be judged in this build (a patch holds the whole
-/// edited rule), not that a shallower edit is judged. The other row is still killed.
+/// says that no mutation that keeps the rule's deep part can be judged in this build (a patch
+/// holds the whole edited rule; re-pin L1-4, review L1-3-tail-1 D4: not "no mutation of it",
+/// since one that replaces the deep part has a shallow patch). The other row is still killed.
 #[test]
 fn a_mutation_of_a_rule_already_too_deep_for_kink_says_no_mutation_of_it_is_judged() {
     std::thread::Builder::new()
@@ -229,8 +231,16 @@ fn a_mutation_of_a_rule_already_too_deep_for_kink_says_no_mutation_of_it_is_judg
                     )),
                     "{detail}"
                 );
+                // Review L1-3-tail-1 D4: only a mutation that keeps the deep part is out of
+                // reach; one that replaces it by a shallow term has a shallow patch.
                 assert!(
-                    detail.contains("no mutation of this rule can be judged in this build"),
+                    detail.contains(
+                        "no mutation that keeps the rule's deep part can be judged in this build"
+                    ),
+                    "{detail}"
+                );
+                assert!(
+                    detail.contains("the patch of a mutation that keeps the rule's deep part"),
                     "{detail}"
                 );
             }

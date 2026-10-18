@@ -13,12 +13,12 @@ use crate::{
     manifest::CorpusManifest,
     store::{Store, StoreError, time_bound_fired},
 };
-use k_rust::{kompile::CompileOptions, kore::ast::Pattern};
+use k_rust::kore::ast::Pattern;
 use kink_campaign::{
     Campaign, CampaignFailureKind, CampaignOptions, ManifestOperator, MultiManifestInput,
     RunOptions, campaign_manifest_multi_with_budget, campaign_report_multi, run_campaign_multi,
 };
-use kink_native::{NativeValidator, execution::SolverProfile};
+use kink_native::execution::SolverProfile;
 use kink_patch::{
     CAMPAIGN_MANIFEST_DOMAIN, OperatorSpec, Sha256Digest, canonical_json, payload_digest,
     resolve_universe, sha256,
@@ -116,7 +116,8 @@ pub fn run_definition(
         ));
     }
     let config = manifest.campaign();
-    let validator = NativeValidator::bind(admitted.loaded.baseline, CompileOptions::default());
+    // The admission's validator: its baseline compile is memoised (re-pin L1-4).
+    let validator = admitted.validator;
     let universe = resolve_universe(validator.baseline(), manifest.universe());
     let cap = usize::try_from(config.max_candidates_per_spec)
         .map_err(|_| StoreError::Invalid("candidate maximum does not fit usize".into()))?;

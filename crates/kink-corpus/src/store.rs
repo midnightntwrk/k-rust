@@ -1,11 +1,13 @@
 //! Atomic store writes and content-addressed corpus locations.
 
 use crate::{
-    LoadedSource, ProgramSource, assemble_input,
+    LoadedSource, ProgramSource, assemble_input_with,
     manifest::{CorpusInput, CorpusManifest, DefinitionSpec},
     resolver::read_under_root,
 };
+use k_rust::kompile::CompileOptions;
 use kink_campaign::TestCase;
+use kink_native::{NativeFailure, NativeValidator, ValidatedDefinition};
 use kink_patch::{Baseline, Sha256Digest, canonical_json, check_json_depth, parse_json, sha256};
 use serde_json::{Value, json};
 use std::{
@@ -209,6 +211,9 @@ impl Store {
             syntax_module,
             md_selector: None,
         };
+        // One baseline compile for every program input, on the first one (re-pin L1-4; each
+        // `assemble_input` compiled it again). A failure gives the text each input gave.
+        let compiled = std::cell::OnceCell::<Result<ValidatedDefinition, NativeFailure>>::new();
         definition
             .tests
             .iter()
@@ -228,7 +233,14 @@ impl Store {
                         if let Some(text) = text {
                             spec.program = ProgramSource::Text(text);
                         }
-                        assemble_input(&loaded, &spec)
+                        let side = compiled
+                            .get_or_init(|| {
+                                NativeValidator::bind(baseline.clone(), CompileOptions::default())
+                                    .compile_baseline()
+                            })
+                            .as_ref()
+                            .map_err(|e| StoreError::Invalid(e.to_string()))?;
+                        assemble_input_with(&loaded, Some(side), &spec)
                             .map_err(|e| StoreError::Invalid(e.to_string()))?
                     }
                     CorpusInput::KoreState { .. } => {

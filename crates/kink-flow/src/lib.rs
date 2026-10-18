@@ -19,6 +19,7 @@ pub mod cli;
 pub mod digest;
 pub mod hints;
 pub mod manifest;
+pub mod memo;
 pub mod mutation;
 pub mod outcomes;
 pub mod report;

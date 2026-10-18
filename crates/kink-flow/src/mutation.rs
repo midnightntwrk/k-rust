@@ -1197,7 +1197,9 @@ pub fn resolve(
 /// past kink's limit `limit` (re-pin L1-3-tail, review L1-3-fix-2-1 D4). A patch holds each edited
 /// rule whole, so the advice is about the rule as a whole: the deepest replaced rule's depth as
 /// edited and in the specification, and, when the specification's rule alone already makes a
-/// patch past the limit, that no mutation of that rule can be judged in this build.
+/// patch past the limit, that no mutation that keeps the rule's deep part can be judged in this
+/// build (review L1-3-tail-1 D4: one that replaces the deep part by a shallow one has a shallow
+/// patch).
 fn too_deep_detail(
     baseline: &kink_patch::Baseline,
     patch: &Patch,
@@ -1257,9 +1259,11 @@ fn too_deep_detail(
     if original_depth > limit {
         format!(
             "the rule {name} nests {original_levels} term levels in the specification, so the \
-             patch of any mutation of it nests at least {original_depth} JSON levels, more than \
-             {limit_text}: no mutation of this rule can be judged in this build, whatever it \
-             changes; this is kink's limit, not a fault of the mutation or of the rule"
+             patch of a mutation that keeps the rule's deep part nests at least {original_depth} \
+             JSON levels, more than {limit_text}: no mutation that keeps the rule's deep part can \
+             be judged in this build, whatever else it changes (only one that replaces that part \
+             by a shallow one has a patch within the limit); this is kink's limit, not a fault of \
+             the mutation or of the rule"
         )
     } else {
         format!(

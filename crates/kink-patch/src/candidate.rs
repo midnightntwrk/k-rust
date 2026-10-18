@@ -143,6 +143,9 @@ pub struct Discovery<'b> {
     exhaustive: bool,
     joined: bool,
     tuple_symmetric: bool,
+    /// The rules whose sites a sort-selected derivation skipped because their typing segment was
+    /// refused, each with the refusal ([`Self::typing_refusals`]).
+    typing_refusals: Vec<(SentenceRef, String)>,
 }
 
 impl<'b> Discovery<'b> {
@@ -156,6 +159,7 @@ impl<'b> Discovery<'b> {
             exhaustive: true,
             joined,
             tuple_symmetric,
+            typing_refusals: Vec::new(),
         }
     }
 
@@ -187,6 +191,7 @@ impl<'b> Discovery<'b> {
             exhaustive: false,
             joined,
             tuple_symmetric,
+            typing_refusals: Vec::new(),
         })
     }
 
@@ -236,6 +241,7 @@ impl<'b> Discovery<'b> {
             exhaustive: self.exhaustive && other.exhaustive,
             joined: self.joined,
             tuple_symmetric: self.tuple_symmetric,
+            typing_refusals: merged_refusals(&self.typing_refusals, &other.typing_refusals),
         })
     }
 
@@ -307,6 +313,7 @@ impl<'b> Discovery<'b> {
             exhaustive,
             joined: true,
             tuple_symmetric,
+            typing_refusals: merged_refusals(&self.typing_refusals, &other.typing_refusals),
         })
     }
 
@@ -325,6 +332,18 @@ impl<'b> Discovery<'b> {
     #[must_use]
     pub const fn exhaustive(&self) -> bool {
         self.exhaustive
+    }
+
+    /// Why a sort-selected derivation skipped sites it could not sort because the stack their
+    /// typing needs was refused: each rule, with the refusal (a rule too deep for the largest
+    /// segment kink maps, kink's limit, or a segment the system would not map, the host's;
+    /// re-pin L1-4, review L1-3-tail-1 D3). Such a discovery is not exhaustive, as for any rule
+    /// no typing view types, and this names the cause, which another host may not have. Empty
+    /// when no typing was refused; an input's refusals carry through [`Self::union`],
+    /// [`Self::join`] and [`Self::filter`]. Not part of any digest or report.
+    #[must_use]
+    pub fn typing_refusals(&self) -> &[(SentenceRef, String)] {
+        &self.typing_refusals
     }
 
     /// Tuples join several selector roles.
@@ -348,8 +367,20 @@ impl fmt::Debug for Discovery<'_> {
             .field("exhaustive", &self.exhaustive)
             .field("joined", &self.joined)
             .field("tuple_symmetric", &self.tuple_symmetric)
+            .field("typing_refusals", &self.typing_refusals)
             .finish_non_exhaustive()
     }
+}
+
+/// The typing refusals of two discoveries, each rule once, in sentence order.
+fn merged_refusals(
+    left: &[(SentenceRef, String)],
+    right: &[(SentenceRef, String)],
+) -> Vec<(SentenceRef, String)> {
+    let mut refusals = left.iter().chain(right).cloned().collect::<Vec<_>>();
+    refusals.sort();
+    refusals.dedup();
+    refusals
 }
 
 /// Whether two terms bound to one name are one term.
@@ -646,6 +677,7 @@ fn derive_sites_with<'b>(
     let mut compilation =
         (!sorts.is_empty()).then(|| CompilationTyping::new(baseline.loaded().resolved()));
     let mut exhaustive = true;
+    let mut typing_refusals = Vec::<(SentenceRef, String)>::new();
     let mut sites = Vec::new();
     // Imported and builtin declarations matter too: the typer recognizes these
     // names even when a user production gives them a real result sort.
@@ -693,9 +725,16 @@ fn derive_sites_with<'b>(
         {
             continue;
         }
-        let typing = compilation
+        let typed = compilation
             .as_mut()
             .map(|compilation| compilation.site_typing(sentence, &sentence_ref.module));
+        // A refused typing segment is a rule without site sorts, as for a rule no view types,
+        // with its cause kept (re-pin L1-4, review L1-3-tail-1 D3).
+        let refused = match &typed {
+            Some(Err(refusal)) => Some(refusal.to_string()),
+            _ => None,
+        };
+        let typing = typed.map(|typed| typed.ok().flatten());
         for field in 0..3 {
             let Some(root) = field_term(sentence, field) else {
                 continue;
@@ -745,6 +784,14 @@ fn derive_sites_with<'b>(
                             false
                         } else {
                             exhaustive &= actual.is_some();
+                            if actual.is_none()
+                                && let Some(refusal) = &refused
+                                && typing_refusals
+                                    .last()
+                                    .is_none_or(|(at, _)| *at != sentence_ref)
+                            {
+                                typing_refusals.push((sentence_ref.clone(), refusal.clone()));
+                            }
                             actual.is_some_and(|actual| {
                                 actual
                                     .iter()
@@ -784,6 +831,7 @@ fn derive_sites_with<'b>(
         exhaustive,
         joined: false,
         tuple_symmetric: false,
+        typing_refusals,
     })
 }
 

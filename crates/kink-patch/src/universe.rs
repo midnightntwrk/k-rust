@@ -60,6 +60,7 @@ pub struct ResolvedUniverse {
     included: Vec<SentenceRef>,
     excluded: Vec<(SentenceRef, ExclusionReason)>,
     unsorted: Vec<SentenceRef>,
+    typing_refused: Vec<(SentenceRef, String)>,
 }
 
 impl ResolvedUniverse {
@@ -80,6 +81,16 @@ impl ResolvedUniverse {
     #[must_use]
     pub fn unsorted(&self) -> &[SentenceRef] {
         &self.unsorted
+    }
+
+    /// The unsorted rules whose typing segment was refused, each with the refusal, in sentence
+    /// order: a rule too deep for the largest stack segment kink maps (kink's limit) or one whose
+    /// segment the system would not map (the host's, which another host may grant). Such a rule
+    /// is in [`Self::unsorted`] like any rule no view types, and this names why (re-pin L1-4,
+    /// review L1-3-tail-1 D3: it was silent). Not in [`Self::value`].
+    #[must_use]
+    pub fn typing_refusals(&self) -> &[(SentenceRef, String)] {
+        &self.typing_refused
     }
 
     fn excluded_value(&self) -> Value {
@@ -134,6 +145,7 @@ pub fn resolve_universe(baseline: &Baseline, universe: &Universe) -> ResolvedUni
     let mut included = Vec::new();
     let mut excluded = Vec::new();
     let mut unsorted = Vec::new();
+    let mut typing_refused = Vec::new();
     for (at, sentence) in baseline.authored_sentences() {
         let Sentence::Rule {
             body, attributes, ..
@@ -164,11 +176,16 @@ pub fn resolve_universe(baseline: &Baseline, universe: &Universe) -> ResolvedUni
         if let Some(reason) = reason {
             excluded.push((at, reason));
         } else {
-            if typing
+            match typing
                 .as_mut()
-                .is_some_and(|typing| typing.site_typing(sentence, &at.module).is_none())
+                .map(|typing| typing.site_typing(sentence, &at.module))
             {
-                unsorted.push(at.clone());
+                Some(Ok(None)) => unsorted.push(at.clone()),
+                Some(Err(refusal)) => {
+                    unsorted.push(at.clone());
+                    typing_refused.push((at.clone(), refusal.to_string()));
+                }
+                Some(Ok(Some(_))) | None => {}
             }
             included.push(at);
         }
@@ -176,11 +193,13 @@ pub fn resolve_universe(baseline: &Baseline, universe: &Universe) -> ResolvedUni
     included.sort();
     excluded.sort_by(|left, right| left.0.cmp(&right.0));
     unsorted.sort();
+    typing_refused.sort();
     ResolvedUniverse {
         declaration: universe.clone(),
         included,
         excluded,
         unsorted,
+        typing_refused,
     }
 }
 
@@ -211,5 +230,104 @@ fn head(term: &Term) -> Option<&str> {
         }
         Term::Apply { label, .. } => Some(&label.name),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Discovery, SiteSelector, derive_sites_in, typing::SITE_TYPING_PER_LEVEL};
+    use k_rust::{
+        builtin,
+        kast::Sort,
+        kompile::CompilationBackend,
+        outer::{LoadOptions, ResolvedSource},
+    };
+
+    const GUARDED: &str = r#"module GUARDED
+  imports INT
+  imports BOOL
+  syntax KItem ::= go(Int) | done(Int)
+  rule [positive]: go(N) => done(N) requires N >Int 0
+  rule [other]: go(N) => done(0 -Int N) requires N <=Int 0
+endmodule
+"#;
+
+    fn guarded() -> Baseline {
+        let mut resolver = |_: &str, name: &str| {
+            builtin::embedded(name).ok_or_else(|| format!("{name} is not embedded"))
+        };
+        Baseline::load(
+            ResolvedSource::new("guarded.k", GUARDED),
+            "GUARDED",
+            None,
+            &mut resolver,
+            &LoadOptions {
+                implicit_sources: vec![
+                    builtin::embedded("kast.md").expect("kast.md is embedded"),
+                    builtin::embedded("prelude.md").expect("prelude.md is embedded"),
+                ],
+                excluded_module_attributes: vec![
+                    CompilationBackend::Rust
+                        .excluded_module_attribute()
+                        .to_owned(),
+                ],
+                ..LoadOptions::default()
+            },
+        )
+        .expect("inline fixture loads")
+    }
+
+    /// Re-pin L1-4 (review L1-3-tail-1 D3): a baseline rule whose typing segment is refused is
+    /// unsorted, as before, and the universe and a sort-selected discovery now name the refusal
+    /// (here kink's limit, forced by a per-level bound past the largest segment kink maps; a
+    /// segment the system will not map is the host's and is named the same way). With the bound
+    /// as built, neither names anything and every rule is sorted.
+    #[test]
+    fn a_refused_typing_segment_is_named_in_the_universe_and_the_discovery() {
+        let baseline = guarded();
+        let selector = [
+            SiteSelector::Path(vec![1]),
+            SiteSelector::Sort(Sort::new("Bool")),
+        ];
+        let universe = resolve_universe(&baseline, &Universe::v1());
+        assert_eq!(universe.included().len(), 2);
+        assert_eq!(universe.unsorted(), &[]);
+        assert_eq!(universe.typing_refusals(), &[]);
+        let discovery = derive_sites_in(&baseline, &universe, &selector).expect("sites");
+        assert!(discovery.exhaustive());
+        assert_eq!(discovery.tuples().len(), 2);
+        assert_eq!(discovery.typing_refusals(), &[]);
+
+        SITE_TYPING_PER_LEVEL.with(|bound| bound.set(usize::MAX / 1024));
+        let refused = resolve_universe(&baseline, &Universe::v1());
+        let discovery = derive_sites_in(&baseline, &refused, &selector).expect("sites");
+        SITE_TYPING_PER_LEVEL.with(|bound| bound.set(crate::stack::TYPING_STACK_PER_LEVEL));
+        assert_eq!(refused.included(), universe.included());
+        assert_eq!(refused.unsorted(), universe.included());
+        assert_eq!(
+            refused
+                .typing_refusals()
+                .iter()
+                .map(|(at, _)| at.clone())
+                .collect::<Vec<_>>(),
+            universe.included()
+        );
+        for (_, refusal) in refused.typing_refusals() {
+            assert!(
+                refusal.contains("more than the")
+                    && refusal.contains("largest stack segment kink maps"),
+                "{refusal}"
+            );
+        }
+        assert!(!discovery.exhaustive());
+        assert!(discovery.tuples().is_empty());
+        assert_eq!(discovery.typing_refusals(), refused.typing_refusals());
+        // A union keeps the cause.
+        let united = discovery
+            .union(&Discovery::empty(&baseline, false, false))
+            .expect("same shape");
+        assert_eq!(united.typing_refusals(), refused.typing_refusals());
+        assert!(!united.exhaustive());
     }
 }

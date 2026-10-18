@@ -29,6 +29,9 @@
 //! - kink-flow's result cache keys every record on both (`results::result_key`, members
 //!   `kink_build` and `kink`);
 //! - kink-flow's tier-1 outcome context holds both (`digest::outcome_context`);
+//! - kink-flow's warm-path memos key every record on both (`memo::resolution_key`,
+//!   `memo::census_key`, re-pin L1-4), and `run --verify` re-derives every memoised value and
+//!   reports a record that differs;
 //! - kink-flow's run document names both, and `kink-flow report` refuses a document that names
 //!   another.
 //!
@@ -180,7 +183,7 @@ pub struct Outside {
 
 /// Every versioned constant outside [`KINK_IDENTITY`]. Each reason names the path that checks
 /// the constant, or says why nothing has to.
-pub const OUTSIDE_IDENTITY: [Outside; 23] = [
+pub const OUTSIDE_IDENTITY: [Outside; 25] = [
     Outside {
         krate: "kink-patch",
         constant: "TEST_MANIFEST_DOMAIN",
@@ -334,6 +337,21 @@ pub const OUTSIDE_IDENTITY: [Outside; 23] = [
         constant: "BASELINE_ONLY_OPERATOR",
         reason: "the operator name of the empty generation of a zero-mutant baseline campaign: it \
                  builds no mutant",
+    },
+    Outside {
+        krate: "kink-flow",
+        constant: "RESOLUTION_MEMO_VERSION",
+        reason: "the resolution memo record's format and meaning (re-pin L1-4): its reader requires \
+                 it in the record's key, which also holds `kink_build` and the whole identity, and \
+                 checks the record's digest under that key (memo.rs read); a record decides a row \
+                 only for a mutation tier 1 decides with no call",
+    },
+    Outside {
+        krate: "kink-flow",
+        constant: "CENSUS_MEMO_VERSION",
+        reason: "the census memo record's format and meaning (re-pin L1-4): its reader requires it \
+                 in the record's key, which also holds `kink_build` and the whole identity, and \
+                 checks the record's digest under that key (memo.rs read)",
     },
     Outside {
         krate: "kink-flow",

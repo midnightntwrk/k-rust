@@ -18,12 +18,14 @@ use kink_corpus::{
     admission::{
         AdmissionRecord, AdmissionRefusal, below_floor_exclusions, check_exclusions,
         check_initial_state, check_loaded_exclusions, check_loaded_semantic_input,
-        compile_definition, input_backend, path_names_case, program_input,
+        compile_definition_with, input_backend, path_names_case, program_input,
     },
     load_source,
     manifest::Exclusion,
 };
-use kink_native::{NativeValidator, ValidatedDefinition};
+use kink_native::{
+    CensusError, DeclarationCensus, NativeValidator, ValidatedDefinition, declaration_census,
+};
 use kink_patch::SemanticInput;
 use std::{
     fs,
@@ -99,8 +101,21 @@ pub fn admit(manifest: &FlowManifest) -> FlowAdmission {
 pub fn admit_spec(
     manifest: &FlowManifest,
 ) -> (AdmissionRecord, Option<(AdmittedSpec, ProgramInputs)>) {
+    admit_spec_with(manifest, &mut |_, side| declaration_census(side))
+}
+
+/// [`admit_spec`] whose declaration census of the compiled baseline is `census` (given the
+/// admitted load and the compile): kink-native `declaration_census`, or `run`'s census memo of it
+/// (re-pin L1-4, `memo`), which gives the same census.
+pub fn admit_spec_with(
+    manifest: &FlowManifest,
+    census: &mut dyn FnMut(
+        &LoadedSource,
+        &ValidatedDefinition,
+    ) -> Result<DeclarationCensus, CensusError>,
+) -> (AdmissionRecord, Option<(AdmittedSpec, ProgramInputs)>) {
     let mut record = AdmissionRecord::new(SPEC_RECORD_NAME);
-    let admitted = admit_definition(manifest, &mut record).and_then(|spec| {
+    let admitted = admit_definition(manifest, &mut record, census).and_then(|spec| {
         let backend = input_backend(&spec.compiled, &manifest.spec.main_module)?;
         Ok((spec, backend))
     });
@@ -148,7 +163,7 @@ impl ProgramInputs {
         program: &Program,
         text: String,
     ) -> Result<TestCase, AdmissionRefusal> {
-        let test = initial_state(&spec.loaded, program, text)?;
+        let test = initial_state(spec, program, text)?;
         check_initial_state(&mut self.backend, &test.initial_state)?;
         Ok(test)
     }
@@ -196,6 +211,10 @@ pub fn corpus_source(manifest: &FlowManifest) -> CorpusSource {
 fn admit_definition(
     manifest: &FlowManifest,
     record: &mut AdmissionRecord,
+    census: &mut dyn FnMut(
+        &LoadedSource,
+        &ValidatedDefinition,
+    ) -> Result<DeclarationCensus, CensusError>,
 ) -> Result<AdmittedSpec, AdmissionRefusal> {
     let spec = &manifest.spec;
     let exclusions = below_floor_exclusions();
@@ -208,7 +227,7 @@ fn admit_definition(
     check_loaded_exclusions(&exclusions, &manifest.directory, &root, &loaded.files)?;
     let semantic_input = check_loaded_semantic_input(&loaded)?;
     let validator = NativeValidator::bind(loaded.baseline.clone(), Default::default());
-    let compiled = compile_definition(&validator, record)?;
+    let compiled = compile_definition_with(&validator, record, |side| census(&loaded, side))?;
     Ok(AdmittedSpec {
         loaded,
         semantic_input,
@@ -232,13 +251,16 @@ fn read_program(root: &Path, name: &str) -> Result<String, AdmissionRefusal> {
     String::from_utf8(bytes).map_err(|e| load_refusal(format!("{name} is not UTF-8: {e}")))
 }
 
+/// The program's initial configuration, assembled with the specification's own baseline compile
+/// (re-pin L1-4: no compile per program).
 fn initial_state(
-    loaded: &LoadedSource,
+    spec: &AdmittedSpec,
     program: &Program,
     text: String,
 ) -> Result<TestCase, AdmissionRefusal> {
     let initial_state = program_input(
-        loaded,
+        &spec.loaded,
+        &spec.compiled,
         &TestInputSpec {
             program: ProgramSource::Text(text),
             start_sort: program.start_sort.clone(),

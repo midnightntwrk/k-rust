@@ -12,7 +12,7 @@ use k_rust::{
     },
     kore::ast::Pattern,
 };
-use kink_native::NativeValidator;
+use kink_native::{NativeValidator, ValidatedDefinition};
 
 use crate::resolver::{LoadedSource, read_under_root};
 
@@ -50,7 +50,33 @@ impl fmt::Display for InputError {
 impl std::error::Error for InputError {}
 
 /// Parse the program and declared variable texts, using deterministic, empty stream defaults.
+///
+/// It compiles `loaded`'s baseline for its configuration variables; a caller that already holds
+/// that compile passes it to [`assemble_input_with`] instead, which gives the same configuration
+/// without compiling again.
 pub fn assemble_input(loaded: &LoadedSource, spec: &TestInputSpec) -> Result<Pattern, InputError> {
+    assemble_input_with(loaded, None, spec)
+}
+
+/// [`assemble_input`] with `compiled`, the caller's compile of `loaded`'s baseline under
+/// `CompileOptions::default()` (re-pin L1-4): a compile of the same loaded definition under the
+/// same options, which k-rust's compile determinism makes the compile `assemble_input` would make
+/// (the premise of `NativeValidator::compile_baseline`'s memo and of every kill). Each program
+/// input then costs no compile: before L1-4 every program bound a fresh validator and compiled the
+/// baseline again (`examples/imp` cold: 7 of the run's 9 baseline compiles, 1.6 s of 14.8 s).
+///
+/// The caller must pass the compile of the same loaded value (`loaded.baseline`, bound under
+/// `CompileOptions::default()`); every caller does (kink-flow's admission, kink-corpus admission
+/// and `Store::rebuild_tests`). The guard below is structural only: it refuses a `compiled` whose
+/// options differ or whose source definition is unequal under k-rust's definition equality, and
+/// then compiles the baseline here, as without it. That equality ignores term metadata (spans,
+/// production identity, explicit compiler sorts, origins), so a compile of a definition that
+/// differs from `loaded`'s only there passes the guard (re-pin L1-4 fix 1, review D7).
+pub fn assemble_input_with(
+    loaded: &LoadedSource,
+    compiled: Option<&ValidatedDefinition>,
+    spec: &TestInputSpec,
+) -> Result<Pattern, InputError> {
     let text = match &spec.program {
         ProgramSource::Text(text) => text.clone(),
         ProgramSource::File(name) => {
@@ -59,10 +85,21 @@ pub fn assemble_input(loaded: &LoadedSource, spec: &TestInputSpec) -> Result<Pat
             String::from_utf8(bytes).map_err(|e| InputError::Parse(e.to_string()))?
         }
     };
-    let validator = NativeValidator::bind(loaded.baseline.clone(), CompileOptions::default());
-    let compiled = validator
-        .compile_baseline()
-        .map_err(|e| InputError::Assemble(e.to_string()))?;
+    let fresh;
+    let compiled = match compiled {
+        Some(compiled)
+            if *compiled.compile_options() == CompileOptions::default()
+                && compiled.definition() == loaded.baseline.definition() =>
+        {
+            compiled
+        }
+        _ => {
+            fresh = NativeValidator::bind(loaded.baseline.clone(), CompileOptions::default())
+                .compile_baseline()
+                .map_err(|e| InputError::Assemble(e.to_string()))?;
+            &fresh
+        }
+    };
     let grammar = ProgramGrammar::new(loaded.baseline.definition()).map_err(input_error)?;
     let variables = &compiled.artifacts().configuration_variables;
     let start = spec.start_sort.as_ref().map_or_else(

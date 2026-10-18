@@ -70,13 +70,26 @@
 //! O for every mutation, then one call per valid record whose program the cold call did not
 //! execute, and reports every record (and the cached path's status) that differs from the live
 //! runs as `outcome-mismatch:<program id>`. It writes no record and no hint.
+//!
+//! Memos (re-pin L1-4, [`crate::memo`]): the declaration census of the admission and the facts
+//! of each mutation's resolution are memoised under keys that name every input they depend on,
+//! `kink_build` and `kink`. A mutation whose facts the memo holds and that tier 1 decides with no
+//! call is not resolved (step 1): [`Search::search_memo`] builds its row from the facts with the
+//! code [`Search::search_one`] uses for a live resolution. Every mutation that compiles or runs
+//! anything is resolved in this command. `run --verify` resolves every mutation and runs the
+//! census live, and reports every stored record that differs (`resolution-mismatch`; in
+//! `mismatches` also for a mutation `--only` does not select or a corpus error left unsearched,
+//! and for a census also when the live census refuses the specification; re-pin L1-4 fix 1).
 
 use crate::{
-    admit::{AdmittedSpec, ProgramInputs, admit_spec},
-    digest::{execution_digest, hint_key, mutation_identity, outcome_context},
+    admit::{AdmittedSpec, ProgramInputs, admit_spec_with},
+    digest::{execution_digest, hint_key_of, mutation_identity, outcome_context, spec_digest},
     hints::{HintEntry, Hints},
     manifest::{Budget, FlowManifest},
-    mutation::{InvalidMutation, Mutation, MutationList, ResolvedMutation, resolve, rule_texts},
+    memo::{self, Facts, MemoUse},
+    mutation::{
+        EditedRule, InvalidMutation, Mutation, MutationList, ResolvedMutation, resolve, rule_texts,
+    },
     outcomes::{CachedOutcome, OutcomeRecord, OutcomeStore, cacheable, slot_name},
     report::{
         RUN_SCHEMA, RUN_VERSION, action, claims_value, executed_cause, rules_value, slots_value,
@@ -94,7 +107,9 @@ use kink_campaign::{
     ScheduleMode, TestCase, TestEvidence, TestPlan, TestRun, derive_mutant_report,
 };
 use kink_corpus::{Store, admission::AdmissionRecord};
-use kink_native::{K_RUST_REVISION, execution::SolverProfile};
+use kink_native::{
+    DeclarationCensus, K_RUST_REVISION, declaration_census, execution::SolverProfile,
+};
 use kink_patch::{CandidateGeneration, ClaimSupport, Patch, SentenceRef, Sha256Digest, Withdrawal};
 use serde_json::{Map, Value, json};
 use std::{
@@ -174,6 +189,9 @@ pub struct RunOptions {
     /// calling thread. Every run document, outcome record and hint is the same for every value
     /// (re-pin L1-3; [`run_with`]).
     pub compile_workers: Option<usize>,
+    /// Whether the warm path's memos are used (`--no-memo`: [`MemoUse::Off`]; re-pin L1-4,
+    /// [`crate::memo`]). Every run document, outcome record and hint is the same either way.
+    pub memo: MemoUse,
 }
 
 /// The compile workers of a `run` that names none ([`RunOptions::compile_workers`]). On
@@ -699,7 +717,7 @@ impl Search<'_> {
         let Ok(generation) = resolved.generation(baseline) else {
             return Vec::new();
         };
-        let order = order(&self.candidates, resolved, self.order);
+        let order = order(&self.candidates, &resolved.rules, self.order);
         if order.is_empty() {
             return Vec::new();
         }
@@ -738,46 +756,112 @@ impl Search<'_> {
         let digest = resolved.digest;
         row.insert("digest".into(), json!(digest.to_string()));
         // The survivor report's rule texts (README 5.7); a killed mutation drops them below.
-        row.insert("rules".into(), rules_value(resolved));
+        row.insert("rules".into(), rules_value(&resolved.rules));
         // The generation must derive from the validator's own baseline (the runner refuses any
         // other); the patch is pinned, so it applies to it as to the loaded baseline.
         let generation = match resolved.generation(self.spec.validator.baseline()) {
             Ok(generation) => generation,
             Err(e) => return (invalid(row, e, json!(digest.to_string())), false),
         };
-        // Re-pin L2-2-fix-1: the edited rules' typing errors in compilation's view, diagnostics
-        // only (compilation decides whether the mutant is valid).
-        row.insert(
-            "typing_diagnostics".into(),
-            typing_diagnostics_value(
-                self.spec.validator.baseline(),
+        let facts = self.facts(resolved, &generation);
+        self.search_facts(mutation, row, &facts, Some(&generation))
+            .expect("a live resolution's search always gives a row")
+    }
+
+    /// The facts of `resolved` that a row reads before any call ([`Facts`]; re-pin L1-4): what
+    /// the resolution memo stores.
+    fn facts(&self, resolved: &ResolvedMutation, generation: &CandidateGeneration<'_>) -> Facts {
+        let baseline = self.spec.validator.baseline();
+        Facts {
+            digest: resolved.digest,
+            rules: resolved.rules.clone(),
+            identity: mutation_identity(&self.spec.loaded.baseline, &resolved.patch),
+            // Re-pin L2-2-fix-1: the edited rules' typing errors in compilation's view,
+            // diagnostics only (compilation decides whether the mutant is valid).
+            typing_diagnostics: typing_diagnostics_value(
+                baseline,
                 &generation.candidates()[0].typing_diagnostics,
             ),
+            removed_claims: self
+                .support
+                .withdraw(baseline, &resolved.patch)
+                .map_or(Value::Null, |withdrawal| {
+                    claims_value(baseline, &withdrawal)
+                }),
+        }
+    }
+
+    /// Whether tier 1 decides the mutation of `facts` with no call given the stores now: no
+    /// program is in O (the row is the corpus error `no-comparable-program`), or a valid killed
+    /// record, or a valid agreement for every program of O ([`Search::search_facts`] steps 2
+    /// and 3). Only in search mode. The resolution memo is used only then (re-pin L1-4).
+    fn decided(&self, facts: &Facts) -> bool {
+        if self.mode != RunMode::Search {
+            return false;
+        }
+        let order = order(&self.candidates, &facts.rules, self.order);
+        let records = self.valid_records(facts.identity, &order, &mut Map::new());
+        tier1_decides(&order, &records)
+    }
+
+    /// The row of a mutation whose facts the resolution memo holds, when tier 1 decides it with
+    /// no call ([`Search::decided`]): the row [`Search::search_one`] gives the live resolution
+    /// of the same inputs, built from the same facts by the same code. `None` when tier 1 does
+    /// not decide it; the caller then resolves the mutation live.
+    fn search_memo(&mut self, mutation: &Mutation, facts: &Facts) -> Option<(Value, bool)> {
+        if !self.decided(facts) {
+            return None;
+        }
+        let mut row = Map::new();
+        row.insert("id".into(), json!(mutation.id));
+        row.insert("note".into(), json!(mutation.note));
+        row.insert("digest".into(), json!(facts.digest.to_string()));
+        row.insert("rules".into(), rules_value(&facts.rules));
+        self.search_facts(mutation, row, facts, None)
+    }
+
+    /// The kill search for one mutation from the facts of its resolution: steps 2 to 7 of the
+    /// module docs. `generation` is the live resolution's, or `None` for the facts of the
+    /// resolution memo; then the search stops with `None`, before it reads or removes the hint
+    /// and before it counts or writes anything, if tier 1 does not decide after all (another
+    /// command wrote the tier-1 store since [`Search::decided`] read it), and the caller resolves
+    /// the mutation live, so the live search sees the hint as a run without memos does.
+    fn search_facts(
+        &mut self,
+        mutation: &Mutation,
+        mut row: Map<String, Value>,
+        facts: &Facts,
+        generation: Option<&CandidateGeneration<'_>>,
+    ) -> Option<(Value, bool)> {
+        row.insert(
+            "typing_diagnostics".into(),
+            facts.typing_diagnostics.clone(),
         );
-        let order = order(&self.candidates, resolved, self.order);
+        let order = order(&self.candidates, &facts.rules, self.order);
         let reaching = order
             .iter()
-            .filter(|&&c| reaches(&self.candidates[c], resolved))
+            .filter(|&&c| reaches(&self.candidates[c], &facts.rules))
             .map(|&c| self.candidates[c].id.to_owned())
             .collect::<Vec<_>>();
         row.insert("reaching".into(), json!(reaching));
-        let identity = mutation_identity(&self.spec.loaded.baseline, &resolved.patch);
+        let identity = facts.identity;
         row.insert(
             "identity".into(),
             json!(identity.map(|identity| identity.to_string())),
         );
-        let removed_claims = self
-            .support
-            .withdraw(self.spec.validator.baseline(), &resolved.patch)
-            .map_or(Value::Null, |withdrawal| {
-                claims_value(self.spec.validator.baseline(), &withdrawal)
-            });
-        row.insert("removed_claims".into(), removed_claims);
+        row.insert("removed_claims".into(), facts.removed_claims.clone());
         // Filled from the verdict's plan (re-pin R0c-fix-3): the pairs of equations that refuse
         // an inconsistent mutant; empty otherwise.
         row.insert("inconsistent_pairs".into(), json!([]));
-        let key = hint_key(mutation, resolved);
+        let key = hint_key_of(mutation, &facts.rules);
         let records = self.valid_records(identity, &order, &mut row);
+        // A memo's facts carry no generation (re-pin L1-4): they are used only when tier 1
+        // decides with no call. Otherwise the search stops here, on the records it decides from,
+        // before the hint is read or removed and before anything is counted or written (re-pin
+        // L1-4 fix 1, review D6), and the caller resolves the mutation live.
+        if generation.is_none() && !tier1_decides(&order, &records) {
+            return None;
+        }
         // Tier 2: the hint, when it names a comparable program; otherwise it is removed.
         let mut hint = None;
         if self.mode == RunMode::Search
@@ -810,13 +894,14 @@ impl Search<'_> {
             if self.mode == RunMode::Search {
                 self.hints.remove(key);
             }
-            return (
+            return Some((
                 finish(row, None, None, RowCalls::default(), Vec::new()),
                 false,
-            );
+            ));
         }
         if self.mode == RunMode::Verify {
-            return self.verify_one(row, mutation, &generation, &order, &records);
+            let generation = generation.expect("run --verify resolves every mutation live");
+            return Some(self.verify_one(row, mutation, generation, &order, &records));
         }
 
         // Tier 1, step 2: a valid killed record decides, with no call.
@@ -831,7 +916,7 @@ impl Search<'_> {
             self.stats.programs_from_cache += 1;
             self.hints.insert(key, self.hint_entry(*c, mutation));
             let executed = vec![self.cached_entry(*c, record)];
-            return (
+            return Some((
                 verdict_row(
                     row,
                     &report,
@@ -841,7 +926,7 @@ impl Search<'_> {
                     executed,
                 ),
                 false,
-            );
+            ));
         }
         // Step 3: A (every valid record is now an agreement) and L.
         let agree = records;
@@ -861,21 +946,24 @@ impl Search<'_> {
                 .expect("cached agreements form a valid plan");
             self.stats.mutations_from_cache += 1;
             self.hints.remove(key);
-            return (
+            return Some((
                 verdict_row(row, &report, None, None, RowCalls::default(), executed),
                 false,
-            );
+            ));
         }
 
-        // Step 4: live calls, the hinted program alone first.
+        // Step 4: live calls, the hinted program alone first. A memo's facts never reach here:
+        // tier 1 decides them (checked above on these records), so step 2 or 3 returned.
+        let generation = generation
+            .expect("a memo's facts are searched only when tier 1 decides, in step 2 or 3");
         let mut calls = Calls::new();
         let mut runs = Vec::<(Vec<usize>, MutantRun)>::new();
         let mut source = SOURCE_SEARCH;
         if let Some(h) = hint.filter(|h| live_order.contains(h)) {
-            match self.call(&generation, &[h]) {
+            match self.call(generation, &[h]) {
                 (wall_ms, Err(error)) => {
                     calls.push((vec![h], json!("error"), wall_ms));
-                    return self.corpus_error(row, error, &calls, executed);
+                    return Some(self.corpus_error(row, error, &calls, executed));
                 }
                 (wall_ms, Ok(live)) => {
                     let status = live.mutant.report.status;
@@ -889,10 +977,10 @@ impl Search<'_> {
             }
         }
         if source != SOURCE_HINT {
-            match self.call(&generation, &live_order) {
+            match self.call(generation, &live_order) {
                 (wall_ms, Err(error)) => {
                     calls.push((live_order.clone(), json!("error"), wall_ms));
-                    return self.corpus_error(row, error, &calls, executed);
+                    return Some(self.corpus_error(row, error, &calls, executed));
                 }
                 (wall_ms, Ok(live)) => {
                     calls.push((
@@ -934,7 +1022,7 @@ impl Search<'_> {
                         self.ids(last_order)
                     ),
                 };
-                return self.corpus_error(row, error, &calls, executed);
+                return Some(self.corpus_error(row, error, &calls, executed));
             }
         };
         if last.plan.mutant_failure == Some(MutantScopeFailure::Infrastructure) && !agree.is_empty()
@@ -988,10 +1076,10 @@ impl Search<'_> {
         }
         let source = (report.status == MutantStatus::Killed).then_some(source);
         let calls = self.calls(&calls);
-        (
+        Some((
             verdict_row(row, &report, reason, source, calls, executed),
             false,
-        )
+        ))
     }
 
     /// `run --verify` for one resolved mutation (README 7.5.3): the cold call over O, a
@@ -1302,24 +1390,80 @@ pub fn run_with(
     let store = Store::new(&cache);
     let report_path = cache.join(REPORT_FILE);
     // A run that admits no specification still replaces the report, so `report` always prints
-    // the last run's document.
-    let refused = |record: &AdmissionRecord| {
-        let document = document(record, None, &[], Vec::new(), None, Accounting::NONE);
+    // the last run's document. Its `mismatches` are the census memo's (re-pin L1-4 fix 1, review
+    // D1): under `--verify`, a stored census that differs from the live one, above all a stored
+    // census that admits what the live one refuses, is reported whether or not the live census
+    // admits the specification; otherwise there is none.
+    let refused = |record: &AdmissionRecord, mismatches: &[Value]| {
+        let document = document(
+            record,
+            None,
+            &[],
+            Vec::new(),
+            None,
+            Accounting {
+                mismatches,
+                ..Accounting::NONE
+            },
+        );
         let _ = store.write_json(&report_path, &document);
         (document, false)
     };
-    let (mut record, admitted) = admit_spec(manifest);
+    let verify = mode == RunMode::Verify;
+    // Re-pin L1-4: the memos of the warm path (`memo`), under the conditions tier 1 has (no Z3
+    // profile, a known build) and unless `--no-memo`. `--verify` reads none of them for a
+    // decision and writes none: it compares each stored record with the live value.
+    let memo_build = match (
+        options.memo,
+        tier1_refusal(SolverProfile::BUILD),
+        kink_campaign::kink_build(),
+    ) {
+        (MemoUse::On, None, Ok(build)) => Some(build),
+        _ => None,
+    };
+    let mut census_mismatch = None;
+    let (mut record, admitted) = admit_spec_with(manifest, &mut |loaded, side| {
+        let Some(build) = memo_build else {
+            return declaration_census(side);
+        };
+        let spec = spec_digest(manifest, &loaded.files);
+        let (key, path) = (
+            memo::census_key(spec, build),
+            memo::census_path(&cache, spec),
+        );
+        let stored = memo::read_census(&path, &key);
+        if !verify && let Some(census) = stored {
+            return Ok(census);
+        }
+        let live = declaration_census(side);
+        match (&live, stored) {
+            (Ok(census), None) if !verify => memo::write_census(&store, &path, &key, census),
+            (live, Some(stored)) if live.as_ref().ok() != Some(&stored) => {
+                census_mismatch = Some(json!({
+                    "mutation": null,
+                    "program": null,
+                    "cached": {"census": stored.value()},
+                    "live": {"census": live.as_ref().map_or_else(
+                        |e| json!({"error": e.to_string()}),
+                        DeclarationCensus::value,
+                    )},
+                }));
+            }
+            _ => {}
+        }
+        live
+    });
+    let census_mismatch = census_mismatch.into_iter().collect::<Vec<_>>();
     let Some((spec, mut inputs)) = admitted else {
-        return refused(&record);
+        return refused(&record, &census_mismatch);
     };
     let runner = match BaselineRunner::new(&spec, manifest) {
         Ok(runner) => runner,
         Err(e) => {
             record.refusal = Some(runner_refusal(e));
-            return refused(&record);
+            return refused(&record, &census_mismatch);
         }
     };
-    let verify = mode == RunMode::Verify;
     let mut update = update_results(&spec, manifest, &mut inputs, &runner, &cache, verify);
     let hints = Hints::read(&cache);
     if !verify {
@@ -1415,17 +1559,77 @@ pub fn run_with(
             "records_written": search.stats.records_written,
         })
     };
+    search.mismatches.extend(census_mismatch);
     // Every mutation of the list is resolved first (resolution only loads), so that the report
     // lists, from its first write on, the rules no resolving mutation of the list targets
     // (flow F-13, informational only); `--only` limits the search, not this list.
+    //
+    // Re-pin L1-4: a mutation whose resolution memo record holds its facts under exactly the
+    // current key, and that tier 1 decides with no call, is not resolved: its row is built from
+    // the facts (`Search::search_memo`). Every other mutation is resolved live, as before, and
+    // its facts are written. The memo is read only while every source file still has the
+    // SHA-256 the admission recorded (`memo::sources_unchanged`).
+    let consult = memo_build.filter(|_| memo::sources_unchanged(&manifest.directory, &spec.loaded));
+    let mut resolution_mismatches = BTreeMap::new();
     let resolutions = list
         .mutations
         .iter()
-        .map(|mutation| resolve(manifest, &spec.loaded, mutation))
+        .enumerate()
+        .map(|(index, mutation)| {
+            let memo = consult.map(|build| {
+                (
+                    memo::resolution_key(update.spec_digest, build, mutation),
+                    memo::resolution_path(&cache, update.spec_digest, mutation),
+                )
+            });
+            let stored = memo
+                .as_ref()
+                .and_then(|(key, path)| memo::read_facts(path, key));
+            if !verify && let Some(facts) = stored.as_ref().filter(|facts| search.decided(facts)) {
+                return Resolution::Memo(facts.clone());
+            }
+            let live = resolve(manifest, &spec.loaded, mutation);
+            if let Some((key, path)) = &memo {
+                let facts = live.as_ref().ok().and_then(|resolved| {
+                    let generation = resolved.generation(spec.validator.baseline()).ok()?;
+                    Some(search.facts(resolved, &generation))
+                });
+                match (&facts, &stored) {
+                    (Some(facts), stored) if !verify && stored.as_ref() != Some(facts) => {
+                        memo::write_facts(&store, path, key, facts);
+                    }
+                    (live_facts, Some(stored)) if verify && live_facts.as_ref() != Some(stored) => {
+                        let live_value = match (live_facts, &live) {
+                            (Some(facts), _) => facts.value(),
+                            (None, Err(invalid)) => json!({
+                                "status": invalid.reason.status(),
+                                "reason": invalid.reason.as_str(),
+                                "detail": invalid.detail,
+                            }),
+                            (None, Ok(_)) => json!({"generation": "refused"}),
+                        };
+                        resolution_mismatches.insert(
+                            index,
+                            json!({
+                                "mutation": mutation.id,
+                                "program": null,
+                                "cached": {"resolution": stored.value()},
+                                "live": {"resolution": live_value},
+                            }),
+                        );
+                    }
+                    _ => {}
+                }
+            }
+            Resolution::Live(live)
+        })
         .collect::<Vec<_>>();
     let untargeted = Value::Array(untargeted_rules(
         &rule_texts(manifest, &spec.loaded),
-        &targeted(&resolutions),
+        &resolutions
+            .iter()
+            .flat_map(|resolution| resolution.rules().iter().map(|rule| rule.at.clone()))
+            .collect(),
     ));
     let mut rows = Vec::new();
     let mut stopped = None;
@@ -1433,7 +1637,9 @@ pub fn run_with(
         .mutations
         .iter()
         .zip(&resolutions)
-        .filter(|(mutation, _)| options.only.is_empty() || options.only.contains(&mutation.id))
+        .enumerate()
+        .filter(|(_, (mutation, _))| options.only.is_empty() || options.only.contains(&mutation.id))
+        .map(|(index, (mutation, resolution))| (index, mutation, resolution))
         .collect::<Vec<_>>();
     // Re-pin L1-3: compile ahead, a chunk at a time, the mutants of the chunk's mutations that
     // would make a live call given the stores at the chunk's start; every worker is joined
@@ -1450,16 +1656,29 @@ pub fn run_with(
     let mut written = None;
     // The chunk compiled ahead; dropping it drops what its mutations did not take.
     let mut ahead = None;
-    for (position, &(mutation, resolution)) in selected.iter().enumerate() {
+    for (position, &(index, mutation, resolution)) in selected.iter().enumerate() {
         if workers > 1 && position % chunk == 0 {
             drop(ahead.take());
             let patches = selected[position..selected.len().min(position + chunk)]
                 .iter()
-                .flat_map(|(_, resolution)| search.live_compiles(resolution))
+                .flat_map(|(_, _, resolution)| match resolution {
+                    Resolution::Live(resolution) => search.live_compiles(resolution),
+                    // Tier 1 decides it with no call (or it is resolved live at its turn).
+                    Resolution::Memo(_) => Vec::new(),
+                })
                 .collect::<Vec<_>>();
             ahead = Some(spec.validator.compile_ahead(&patches, workers));
         }
-        let (mut row, corpus_error) = search.search_one(mutation, resolution);
+        let (mut row, corpus_error) = match resolution {
+            Resolution::Live(resolution) => search.search_one(mutation, resolution),
+            Resolution::Memo(facts) => search.search_memo(mutation, facts).unwrap_or_else(|| {
+                search.search_one(mutation, &resolve(manifest, &spec.loaded, mutation))
+            }),
+        };
+        if let Some(mismatch) = resolution_mismatches.remove(&index) {
+            search.mismatches.push(mismatch);
+            row = resolution_mismatch(row);
+        }
         if corpus_error {
             stopped = Some(json!({"mutation": mutation.id, "reason": row["reason"]}));
             ok = false;
@@ -1503,6 +1722,12 @@ pub fn run_with(
         }
     }
     drop(ahead);
+    // Re-pin L1-4 fix 1 (review D5): `--verify` resolved every mutation of the list, so a memo
+    // record that differs from the live resolution of a mutation it did not search (not selected
+    // by `--only`, or after the corpus error that stopped the run) is reported too; it has no row.
+    search
+        .mismatches
+        .extend(resolution_mismatches.into_values());
     if !search.mismatches.is_empty() {
         ok = false;
     }
@@ -1526,6 +1751,50 @@ pub fn run_with(
         ok = false;
     }
     (document, ok)
+}
+
+/// Whether tier 1 decides, with no call, a mutation whose comparable programs in search order are
+/// `order` and whose valid tier-1 records are `records` (of programs of `order`): no program is in
+/// O, or a record is killed (step 2), or every program of O has a record, all agreements (step 3).
+fn tier1_decides(order: &[usize], records: &[(usize, OutcomeRecord)]) -> bool {
+    order.is_empty()
+        || records.len() == order.len()
+        || records
+            .iter()
+            .any(|(_, record)| record.outcome == CachedOutcome::Killed)
+}
+
+/// What `run` knows of a mutation's resolution (re-pin L1-4).
+enum Resolution {
+    /// Resolved in this command.
+    Live(Result<ResolvedMutation, InvalidMutation>),
+    /// Not resolved: the resolution memo's facts of a mutation tier 1 decides with no call.
+    Memo(Facts),
+}
+
+impl Resolution {
+    /// The rules the mutation edits; none when it does not resolve.
+    fn rules(&self) -> &[EditedRule] {
+        match self {
+            Self::Live(Ok(resolved)) => &resolved.rules,
+            Self::Live(Err(_)) => &[],
+            Self::Memo(facts) => &facts.rules,
+        }
+    }
+}
+
+/// The row of a mutation whose resolution memo record differs from its live resolution in `run
+/// --verify` (re-pin L1-4): status `error`, reason `resolution-mismatch`, whatever the live row
+/// said; the record and the live facts are in the top-level `mismatches`.
+fn resolution_mismatch(mut row: Value) -> Value {
+    row["status"] = json!("error");
+    row["reason"] = json!("resolution-mismatch");
+    row["detail"] = json!(
+        "the resolution memo's record of this mutation differs from its live resolution \
+         (top-level mismatches); delete the cache's memo/ directory and report it"
+    );
+    row["action"] = json!(action("error", Some("resolution-mismatch")));
+    row
 }
 
 /// The row of a mutation that does not resolve (or whose patch kink-patch refuses), or whose
@@ -1651,8 +1920,8 @@ fn finish(
 /// other edit (a right-hand side, an `ensures`, a left-hand side, an attribute, a deletion) by
 /// one that fired it (`applied`). A program that only matched a rule whose guard it refuted
 /// cannot witness a change of what the rule does once it applies.
-fn reaches(candidate: &Candidate<'_>, resolved: &ResolvedMutation) -> bool {
-    resolved.rules.iter().any(|rule| {
+fn reaches(candidate: &Candidate<'_>, rules: &[EditedRule]) -> bool {
+    rules.iter().any(|rule| {
         let witnesses = if rule.requires_edited {
             &candidate.reaches
         } else {
@@ -1669,7 +1938,7 @@ fn reaches(candidate: &Candidate<'_>, resolved: &ResolvedMutation) -> bool {
 /// no-Z3 profile (README 6.4; under Z3 see README.md's coverage paragraph).
 fn order(
     candidates: &[Candidate<'_>],
-    resolved: &ResolvedMutation,
+    rules: &[EditedRule],
     program_order: ProgramOrder,
 ) -> Vec<usize> {
     let mut order = Vec::with_capacity(candidates.len());
@@ -1677,7 +1946,7 @@ fn order(
         let mut tier = candidates
             .iter()
             .enumerate()
-            .filter(|(_, c)| reaches(c, resolved) == first)
+            .filter(|(_, c)| reaches(c, rules) == first)
             .map(|(index, _)| index)
             .collect::<Vec<_>>();
         if program_order == ProgramOrder::Cost {

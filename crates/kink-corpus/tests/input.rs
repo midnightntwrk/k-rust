@@ -7,7 +7,7 @@ use k_rust::{
 };
 use kink_corpus::{
     CorpusSource, InputError, LoadedSource, ProgramSource, TestInputSpec, assemble_input,
-    load_source,
+    assemble_input_with, load_source,
 };
 use kink_native::{NativeValidator, bridge::validate_test_initial_state};
 
@@ -110,5 +110,58 @@ fn program_file_escape_is_refused() {
     assert!(matches!(
         assemble_input(&loaded, &input),
         Err(InputError::Parse(_))
+    ));
+}
+
+/// Re-pin L1-4: assembling with the caller's compile of the baseline gives what assembling with
+/// a compile of its own gives, inputs and refusals alike; a compile of another definition is not
+/// used (the input is assembled with a compile of its own, so its configuration is its own).
+#[test]
+fn assembling_with_the_callers_compile_is_assembling_alone() {
+    let compile = |loaded: &LoadedSource| {
+        NativeValidator::bind(loaded.baseline.clone(), CompileOptions::default())
+            .compile_baseline()
+            .unwrap()
+    };
+    let variables = load("variables.k", "VARIABLES");
+    let program = load("program.k", "PROGRAM");
+    let streams = load("streams.k", "STREAMS");
+    let mut bound = spec();
+    bound.variables.push(("N".into(), "42".into()));
+    let mut ill_sorted = bound.clone();
+    ill_sorted.variables[0].1 = "true".into();
+    let mut at_k = spec();
+    at_k.start_sort = Some("K".into());
+    let value = |state: Result<k_rust::kore::ast::Pattern, InputError>| {
+        state.map(|state| to_value(&state).unwrap())
+    };
+    for (loaded, input) in [
+        (&variables, spec()),
+        (&variables, bound.clone()),
+        (&variables, ill_sorted),
+        (&program, spec()),
+        (&program, at_k),
+        (&streams, spec()),
+    ] {
+        let alone = value(assemble_input(loaded, &input));
+        assert_eq!(
+            value(assemble_input_with(loaded, Some(&compile(loaded)), &input)),
+            alone
+        );
+        assert_eq!(value(assemble_input_with(loaded, None, &input)), alone);
+    }
+    // A compile of another definition (program.k's) is not taken for variables.k: $N is still
+    // required and bound as variables.k declares it.
+    assert_eq!(
+        value(assemble_input_with(
+            &variables,
+            Some(&compile(&program)),
+            &bound
+        )),
+        value(assemble_input(&variables, &bound))
+    );
+    assert!(matches!(
+        assemble_input_with(&variables, Some(&compile(&program)), &spec()),
+        Err(InputError::MissingVariable(_))
     ));
 }

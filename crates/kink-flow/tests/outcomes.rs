@@ -140,6 +140,7 @@ fn search_mode(manifest: &Path, mutations: &Path, only: &[&str], mode: RunMode) 
             // timing (F-13's cost order: tests/usability.rs).
             order: ProgramOrder::Corpus,
             compile_workers: None,
+            memo: kink_flow::memo::MemoUse::On,
         },
         mode,
     )

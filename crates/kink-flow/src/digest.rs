@@ -12,7 +12,7 @@
 
 use crate::{
     manifest::{Budget, FlowManifest, Program},
-    mutation::{EditAction, Mutation, ResolvedMutation},
+    mutation::{EditAction, EditedRule, Mutation, ResolvedMutation},
     results::{ORACLE_SLOTS, result_key},
 };
 use kink_corpus::{LoadedSource, SourceFile};
@@ -267,6 +267,12 @@ pub fn mutation_identity(baseline: &Baseline, patch: &Patch) -> Option<Sha256Dig
 /// specification digest, no mutation id or note: the key survives edits elsewhere in the
 /// specification, and a hint only orders the work.
 pub fn hint_key(mutation: &Mutation, resolved: &ResolvedMutation) -> Sha256Digest {
+    hint_key_of(mutation, &resolved.rules)
+}
+
+/// [`hint_key`] from the mutation's edited rules (re-pin L1-4: a row the resolution memo
+/// decides has the rules, not the patch).
+pub fn hint_key_of(mutation: &Mutation, rules: &[EditedRule]) -> Sha256Digest {
     let edits = mutation
         .edits
         .iter()
@@ -284,8 +290,7 @@ pub fn hint_key(mutation: &Mutation, resolved: &ResolvedMutation) -> Sha256Diges
             })
         })
         .collect::<Vec<_>>();
-    let rules = resolved
-        .rules
+    let rules = rules
         .iter()
         .map(|rule| json!({"module": rule.at.module, "label": rule.label, "text": rule.before}))
         .collect::<Vec<_>>();
