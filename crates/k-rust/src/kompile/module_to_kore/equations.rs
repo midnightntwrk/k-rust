@@ -705,7 +705,10 @@ fn emit_owise_equation(
             sort: predicate_sort.clone(),
             arguments: vec![condition, matches],
         };
-        let mut quantified = variable_terms([&refreshed_left, &refreshed_requires])
+        // The competitor holds where some instance of its free variables matches and satisfies
+        // it; a variable an `#Exists` or `#Forall` of its arguments or condition binds already
+        // has its binder.
+        let mut quantified = free_variable_terms([&refreshed_left, &refreshed_requires])
             .into_values()
             .collect::<Vec<_>>();
         quantified.sort_by(|left, right| {
@@ -715,7 +718,7 @@ fn emit_owise_equation(
             )]
             let key = |term: &Term| match term.unannotated() {
                 Term::Variable { name, sort } => (sort.clone(), name.clone()),
-                _ => unreachable!("variable_terms returns variables"),
+                _ => unreachable!("free_variable_terms returns variables"),
             };
             key(left).cmp(&key(right))
         });
@@ -945,6 +948,58 @@ fn variable_terms<'a>(roots: impl IntoIterator<Item = &'a Term>) -> BTreeMap<Str
                     .or_insert_with(|| term.clone());
             }
         });
+    }
+    variables
+}
+
+/// The variables free in `roots`, each name mapped to its first free occurrence in preorder: an
+/// occurrence inside the body of an `#Exists` or `#Forall` whose first argument holds its name is
+/// bound there, and the first argument itself only names binders.
+fn free_variable_terms<'a>(roots: impl IntoIterator<Item = &'a Term>) -> BTreeMap<String, Term> {
+    let mut variables = BTreeMap::new();
+    let mut bound: Vec<String> = Vec::new();
+    // Each item is a term and the number of entries of `bound` in its scope; children are pushed
+    // in reverse, so terms are popped in preorder.
+    let mut pending: Vec<(&Term, usize)> = Vec::new();
+    // Invariant: `variables` maps every name with a free occurrence among the terms popped so
+    // far to its first one; every term popped is a subterm of a root, visited once, so the loop
+    // ends; `bound[..scope]` is the binders in scope of each pending term.
+    for root in roots {
+        pending.push((root, 0));
+        while let Some((term, scope)) = pending.pop() {
+            bound.truncate(scope);
+            match term.unannotated() {
+                Term::Variable { name, .. } => {
+                    if !bound.contains(name) {
+                        variables
+                            .entry(name.clone())
+                            .or_insert_with(|| term.clone());
+                    }
+                }
+                Term::Apply { label, arguments }
+                    if (label.is(InternalLabel::Exists) || label.is(InternalLabel::Forall))
+                        && arguments.len() == 2 =>
+                {
+                    arguments[0].visit_preorder(&mut |binder| {
+                        if let Term::Variable { name, .. } = binder.unannotated() {
+                            bound.push(name.clone());
+                        }
+                    });
+                    pending.push((&arguments[1], bound.len()));
+                }
+                other @ (Term::InjectedLabel(_)
+                | Term::Rewrite { .. }
+                | Term::As { .. }
+                | Term::Sequence(_)
+                | Term::Apply { .. }
+                | Term::Token { .. }
+                | Term::Annotated { .. }) => {
+                    for child in other.children().into_iter().rev() {
+                        pending.push((child, scope));
+                    }
+                }
+            }
+        }
     }
     variables
 }
@@ -1886,6 +1941,157 @@ mod tests {
         assert!(kore.contains("\\equals{SortInt{},Q1}"), "{kore}");
         assert!(kore.contains("\\equals{SortInt{},Q2}"), "{kore}");
         assert!(!kore.contains("Sort'Hash'SortParam"), "{kore}");
+    }
+
+    /// A competitor's quantified variables are its free variables: a variable that an `#Exists`
+    /// or `#Forall` in its arguments binds already has its binder, so the owise axiom binds only
+    /// the free ones, and every binder over a generated variable binds a variable of its body
+    /// (K3). The competitor here is `f(#Exists Y . Y) => 0` and `f(#Forall Y . Y) => 0` beside
+    /// `f(X) => 1 [owise]`, as structured input or a generated competitor can state it.
+    #[test]
+    fn owise_quantifies_only_the_free_variables_of_a_competitor() {
+        let parsed = crate::outer::parse(
+            "owise-binder.k",
+            indoc! {r#"
+                module MAIN
+                  syntax Bool
+                  syntax Int ::= "f(" Int ")" [function, total, symbol(f)]
+                endmodule
+            "#},
+        )
+        .unwrap();
+        let definition = crate::outer::lower(&parsed, "MAIN").unwrap();
+        let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+        let catalog = resolved.production_catalog(resolved.main_module_id());
+        let injector = SortInjector::new(&resolved, "MAIN").unwrap();
+        let converter = TermConverter::new(&resolved, "MAIN").unwrap();
+        let int = Sort::new("Int");
+        let variable = |name: &str| Term::Variable {
+            name: name.into(),
+            sort: Some(int.clone()),
+        };
+        let truth = Term::Token {
+            token: "true".into(),
+            sort: Sort::new("Bool"),
+        };
+        for quantifier in [InternalLabel::Exists, InternalLabel::Forall] {
+            // `f` is unary, so the competitor's free variable is its condition `requires Z`, a
+            // Bool variable, and its argument is the quantified `Y . Y`.
+            let quantified = Term::Apply {
+                label: Label::with_parameters(quantifier.as_str(), vec![int.clone()]),
+                arguments: vec![variable("Y"), variable("Y")],
+            };
+            let competitor_left = Term::apply("f", vec![quantified]);
+            let competitor = Sentence::Rule {
+                body: Term::Rewrite {
+                    left: Box::new(competitor_left),
+                    right: Box::new(Term::Token {
+                        token: "0".into(),
+                        sort: int.clone(),
+                    }),
+                },
+                requires: Term::Variable {
+                    name: "Z".into(),
+                    sort: Some(Sort::new("Bool")),
+                },
+                ensures: truth.clone(),
+                attributes: KAttributes::default(),
+            };
+            let mut cache = OwiseCompetitors {
+                scanned: true,
+                injected: vec![Some((competitor, SentenceSortVariables::default()))],
+                by_signature: BTreeMap::from([((Label::new("f"), vec![int.clone()]), vec![0])]),
+                failure: None,
+            };
+            let left = Term::apply("f", vec![variable("X")]);
+            let attributes = KAttributes::default();
+            let equation = equation_info(&left, &attributes, &catalog)
+                .unwrap()
+                .unwrap();
+            let emitted = emit_owise_equation(
+                equation,
+                converter.convert(&variable("X")).unwrap(),
+                Pattern::Top {
+                    sort: KoreSort::Variable("R".into()),
+                },
+                &attributes,
+                &BTreeSet::new(),
+                &converter,
+                &catalog,
+                &injector,
+                &[],
+                &mut cache,
+                &SentenceSortVariables::default(),
+                &BTreeSet::from(["X".into()]),
+                ConditionForm::Predicate,
+            )
+            .unwrap();
+            let KoreSentence::Axiom { pattern, .. } = &emitted else {
+                panic!("an owise equation must emit an axiom");
+            };
+            let mut binders = Vec::new();
+            collect_binders(pattern, &mut binders);
+            let kore = crate::kore::printer::Printer::compact().print_sentence(&emitted);
+            for (name, binds_free) in &binders {
+                assert!(
+                    binds_free,
+                    "{quantifier:?}: {name} is bound vacuously in {kore}"
+                );
+            }
+            // One binder for the quantifier of the argument and one for the free `Z`.
+            let generated = binders
+                .iter()
+                .filter(|(name, _)| name.starts_with("Var'Unds'Gen"))
+                .count();
+            assert_eq!(generated, 2, "{quantifier:?}: {kore}");
+        }
+    }
+
+    /// A name bound by a quantifier in one place and free in another is free; a name only a
+    /// quantifier binds is not.
+    #[test]
+    fn free_variable_terms_skip_only_the_quantified_occurrences() {
+        let exists = |binder: &str, body: Term| {
+            Term::apply(
+                InternalLabel::Exists.as_str(),
+                vec![Term::variable(binder), body],
+            )
+        };
+        let term = Term::apply(
+            "pair",
+            vec![
+                Term::variable("Y"),
+                exists("Y", Term::variable("Y")),
+                exists(
+                    "W",
+                    Term::apply("g", vec![Term::variable("W"), Term::variable("V")]),
+                ),
+            ],
+        );
+        assert_eq!(
+            free_variable_terms([&term]).into_keys().collect::<Vec<_>>(),
+            ["V", "Y"]
+        );
+        assert_eq!(
+            variable_terms([&term]).into_keys().collect::<Vec<_>>(),
+            ["V", "W", "Y"]
+        );
+    }
+
+    /// Every `\exists` and `\forall` of `pattern`: its variable's name and whether that variable
+    /// occurs free in its body.
+    fn collect_binders(pattern: &Pattern, binders: &mut Vec<(String, bool)>) {
+        if let Pattern::Exists { variable, body, .. } | Pattern::Forall { variable, body, .. } =
+            pattern
+        {
+            binders.push((
+                variable.name.clone(),
+                body.free_variables().contains(variable.as_ref()),
+            ));
+        }
+        for child in crate::kore::walk::children(pattern) {
+            collect_binders(child, binders);
+        }
     }
 
     /// An owise equation reads its competitors' conditions itself: a competitor that is not
