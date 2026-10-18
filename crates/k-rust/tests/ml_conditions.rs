@@ -83,15 +83,17 @@ fn compile(sentences: &str) -> String {
     compile_for(sentences, CompilationBackend::Rust)
 }
 
-/// The axiom labelled `label`, whitespace collapsed.
+/// The axiom or claim labelled `label`, whitespace collapsed.
 fn axiom(kore: &str, label: &str) -> String {
     let needle = format!("label{{}}(\"{label}\")");
     let at = kore
         .find(&needle)
         .unwrap_or_else(|| panic!("no axiom labelled {label}"));
-    let start = kore[..at]
-        .rfind("axiom{")
-        .expect("an axiom precedes its label");
+    let start = ["axiom{", "claim{"]
+        .into_iter()
+        .filter_map(|keyword| kore[..at].rfind(keyword))
+        .max()
+        .expect("an axiom or a claim precedes its label");
     let end = at + kore[at..].find(']').expect("the attribute list closes");
     kore[start..=end]
         .split_whitespace()
@@ -1097,5 +1099,116 @@ fn an_ensures_reading_the_configuration_through_a_macro_compiles_and_reads_it() 
     assert_eq!(
         run_with_flag(ensures, 3, 1),
         vec![("Trivial".to_owned(), "go(3)".to_owned())]
+    );
+}
+
+// ---------------------------------------------------------------- a conjunction of two terms
+
+// For terms t1 and t2 that denote at most one value each, `t1 #And t2` is {a} ∩ {b}: a where
+// a = b, nothing otherwise, which is `t1 #And {t1 #Equals t2}`. A built conjunction of two
+// connective-free terms, and one in a claim's left side, is compiled in that form; an operand
+// that holds a connective may denote several values, where the identity does not hold, and a
+// matched conjunction unifies as written.
+
+fn trivial(term: &str) -> Vec<(String, String)> {
+    vec![("Trivial".to_owned(), term.to_owned())]
+}
+
+/// `\and{SortInt{}}(t1, \equals{SortInt{}, SortInt{}}(t1, t2))`: `t1 #And t2` lowered.
+fn lowered(t1: &str, t2: &str) -> String {
+    format!("\\and{{SortInt{{}}}}({t1}, \\equals{{SortInt{{}}, SortInt{{}}}}({t1}, {t2}))")
+}
+
+#[test]
+fn a_built_conjunction_of_two_terms_is_the_first_guarded_by_their_equality() {
+    let rule = "  rule [p]: <k> go(X) => done(X #And 1) ... </k>\n";
+    let axiom = axiom(&compile(rule), "P.p");
+    assert_contains(&axiom, &format!("Lbldone{{}}({})", lowered(X, &int("1"))));
+    assert_eq!(run(rule, 1), stuck("done(1)"));
+    assert_eq!(run(rule, 3), trivial("go(3)"));
+}
+
+#[test]
+fn a_built_conjunction_with_a_function_application_is_lowered_and_runs_by_its_meaning() {
+    let rule =
+        format!("{F}  rule [f]: f(X) => X\n  rule [p]: <k> go(X) => done(f(X) #And 3) ... </k>\n");
+    let axiom = axiom(&compile(&rule), "P.p");
+    assert_contains(
+        &axiom,
+        &format!(
+            "Lbldone{{}}({})",
+            lowered("Lblf{}(VarX:SortInt{})", &int("3"))
+        ),
+    );
+    assert_eq!(run(&rule, 3), stuck("done(3)"));
+    assert_eq!(run(&rule, 1), trivial("go(1)"));
+}
+
+#[test]
+fn a_conjunction_in_a_macro_right_side_is_lowered_where_the_macro_is_used() {
+    let rule = "  syntax Int ::= m(Int) [macro, symbol(m)]\n  rule [m]: m(X) => X #And 1\n  rule [p]: <k> go(X) => done(m(X)) ... </k>\n";
+    let axiom = axiom(&compile(rule), "P.p");
+    assert_contains(&axiom, &format!("Lbldone{{}}({})", lowered(X, &int("1"))));
+    assert_eq!(run(rule, 1), stuck("done(1)"));
+    assert_eq!(run(rule, 3), trivial("go(3)"));
+}
+
+/// `(X #Or 0) #And 1` is {X, 0} ∩ {1}, which `(X #Or 0) #And {(X #Or 0) #Equals 1}` is not
+/// ({X, 0} = {1} never holds), so it is emitted as written.
+#[test]
+fn a_built_conjunction_whose_operand_holds_a_connective_is_not_lowered() {
+    let axiom = axiom(
+        &compile("  rule [p]: <k> go(X) => done((X #Or 0) #And 1) ... </k>\n"),
+        "P.p",
+    );
+    assert_contains(
+        &axiom,
+        &format!(
+            "Lbldone{{}}(\\and{{SortInt{{}}}}(\\or{{SortInt{{}}}}({X}, {}), {}))",
+            int("0"),
+            int("1")
+        ),
+    );
+    assert_lacks(&axiom, "\\equals{");
+}
+
+#[test]
+fn a_built_conjunction_of_a_term_and_a_predicate_is_unchanged() {
+    let rule = "  rule [p]: <k> go(X) => done(X #And {X #Equals 1}) ... </k>\n";
+    let axiom = axiom(&compile(rule), "P.p");
+    assert_contains(&axiom, &format!("Lbldone{{}}({})", lowered(X, &int("1"))));
+    assert_eq!(axiom.matches("\\equals{").count(), 1, "{axiom}");
+    assert_eq!(run(rule, 1), stuck("done(1)"));
+    assert_eq!(run(rule, 3), trivial("go(3)"));
+}
+
+#[test]
+fn a_matched_conjunction_of_two_terms_is_unchanged() {
+    let rule = "  rule [p]: <k> go(X #And 1) => done(X) ... </k>\n";
+    let axiom = axiom(&compile(rule), "P.p");
+    assert_contains(
+        &axiom,
+        &format!("Lblgo{{}}(\\and{{SortInt{{}}}}({X}, {}))", int("1")),
+    );
+    assert_lacks(&axiom, "\\equals{");
+    assert_eq!(run(rule, 1), stuck("done(1)"));
+    assert_eq!(run(rule, 3), stuck("go(3)"));
+}
+
+#[test]
+fn a_claim_left_side_conjunction_of_two_terms_and_alias_are_lowered() {
+    let rule = "  rule [g]: <k> go(X) => done(X) ... </k> requires X <Int 3\n";
+    let kore = try_compile_spec(
+        rule,
+        "  claim [c]: <k> go(X #And 1) => done(?_) ... </k>\n  claim [d]: <k> go(X #as Y) => done(?_) ... </k>\n",
+    )
+    .expect("the specification compiles");
+    assert_contains(
+        &axiom(&kore, "P-SPEC.c"),
+        &format!("Lblgo{{}}({})", lowered(X, &int("1"))),
+    );
+    assert_contains(
+        &axiom(&kore, "P-SPEC.d"),
+        &format!("Lblgo{{}}({})", lowered(X, "VarY:SortInt{}")),
     );
 }

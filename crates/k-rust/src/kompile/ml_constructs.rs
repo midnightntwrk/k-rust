@@ -1,4 +1,4 @@
-//! Matching-logic constructs in conditions.
+//! Matching-logic constructs in conditions and in terms.
 //!
 //! A condition whose root is a matching-logic connective (`#Or`, `#And`, `#Not`, `#Implies`,
 //! `#Iff`, `#Top`, `#Bottom`, `#Ceil`, `#Floor`, `#Equals`, `#Exists`, `#Forall`) is a predicate,
@@ -24,11 +24,32 @@
 //! `resolve_semantic_casts_with_predicates_in_sentence`) therefore resolve it before they return,
 //! on the condition as it stands, and the stage checker panics on one that survives the
 //! resolving stage (C2, [`crate::kompile::invariants::stage`]).
+//!
+//! # A conjunction of two terms
+//!
+//! A term without a connective, built from variables, domain values and applications of
+//! constructors and functions, denotes at most one value. For two such terms t1 = {a} and
+//! t2 = {b}, `t1 #And t2` is {a} ∩ {b}: {a} where a = b, empty otherwise, which is exactly
+//! `t1 #And {t1 #Equals t2}`; this also holds where t1 or t2 is undefined, since both sides are
+//! then empty. The stage [`lower_term_conjunctions_pass`], after macro expansion (so a macro or
+//! alias body is lowered where it is used), writes a conjunction of two connective-free terms in
+//! that form wherever its value is built: in the right side of a rewrite of a rule, a function
+//! equation, a simplification or an anywhere rule, and anywhere in a claim's body. In a claim's
+//! left side it also writes `P #as V`, which denotes the same set as `P #And V`, as
+//! `P #And {P #Equals V}`. The form denotes the same set of values, and the backend decides its
+//! equality, where a conjunction of two terms would be left as a leaf that denotes nothing.
+//!
+//! An operand that holds a connective may denote several values, where the identity does not
+//! hold: `(X #Or 0) #And 1` at X = 1 is {1, 0} ∩ {1} = {1}, while
+//! `(X #Or 0) #And {(X #Or 0) #Equals 1}` states {1, 0} = {1}, which never holds. Such a
+//! conjunction is left as written. A conjunction at a matched position (a rule's left side or a
+//! position its rewrites share) is left as written too: matching unifies its operands. A
+//! macro-like rule defines an abbreviation and is lowered only through its uses.
 #![deny(clippy::wildcard_enum_match_arm)]
 
 use std::convert::Infallible;
 
-use crate::definition::{Definition, Sentence};
+use crate::definition::{AttributeKey, Definition, Sentence};
 use crate::kast::{GeneratedLabel, InternalLabel, Label, Term, TermParts};
 
 /// The matching-logic connectives and predicate atoms of the frontend's term language.
@@ -267,6 +288,212 @@ pub(crate) fn resolve_condition_conjunctions_pass(
     ))
 }
 
+/// Where a subterm of a sentence body stands, and so which of its conjunctions the lowering
+/// rewrites.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Position {
+    /// A rule's left side or a position its rewrites share: matched, left as written.
+    Matched,
+    /// The right side of a rewrite: built.
+    Built,
+    /// A position of a claim outside its rewrites, in both its left and its right side.
+    ClaimShared,
+    /// The left side of a rewrite of a claim.
+    ClaimLeft,
+}
+
+impl Position {
+    fn lowers_conjunctions(self) -> bool {
+        self != Self::Matched
+    }
+
+    fn lowers_aliases(self) -> bool {
+        self == Self::ClaimLeft
+    }
+
+    /// The position of the left side of a rewrite at this position.
+    fn rewrite_left(self) -> Self {
+        match self {
+            Self::Matched | Self::Built => Self::Matched,
+            Self::ClaimShared | Self::ClaimLeft => Self::ClaimLeft,
+        }
+    }
+}
+
+/// Whether `term` is a term that denotes at most one value: no matching-logic connective at any
+/// depth, and no rewrite or alias, which are not terms.
+fn is_connective_free_term(term: &Term) -> bool {
+    let mut free = true;
+    term.visit_preorder(&mut |node| {
+        free &= !is_ml_connective(node) && !matches!(node, Term::Rewrite { .. } | Term::As { .. });
+    });
+    free
+}
+
+/// `first #And {first #Equals second}`, with `first` copied into the equality.
+fn guarded_by_equality(conjunction: Label, first: Term, second: Term) -> Term {
+    let equality = Term::Apply {
+        label: Label::new(InternalLabel::Equals.as_str()),
+        arguments: vec![first.clone(), second],
+    };
+    Term::Apply {
+        label: conjunction,
+        arguments: vec![first, equality],
+    }
+}
+
+/// `term`, standing at `position`, with each conjunction of two connective-free terms that the
+/// position builds written as the first guarded by their equality, and in a claim's left side
+/// each alias `P #as V` of connective-free terms written as `P #And {P #Equals V}`; `None` when
+/// nothing in `term` changes. Every node that is kept keeps its metadata.
+fn lower(term: &Term, position: Position) -> Option<Term> {
+    crate::stack::guarded(|| lower_level(term, position))
+}
+
+/// Lowers each of `terms` at `position`; `None` when none changes. Nothing is allocated until a
+/// term changes.
+fn lower_all(terms: &[Term], position: Position) -> Option<Vec<Term>> {
+    let mut output: Option<Vec<Term>> = None;
+    for (index, term) in terms.iter().enumerate() {
+        match (lower(term, position), &mut output) {
+            (Some(lowered), Some(output)) => output.push(lowered),
+            (Some(lowered), None) => {
+                let mut kept = terms[..index].to_vec();
+                kept.push(lowered);
+                output = Some(kept);
+            }
+            (None, Some(output)) => output.push(term.clone()),
+            (None, None) => {}
+        }
+    }
+    output
+}
+
+// Invariant: each call recurses into the immediate subterms of `term`, so the finite `term`
+// bounds the recursion; a lowered conjunction or alias is not descended into, since its operands
+// hold nothing to lower.
+fn lower_level(term: &Term, position: Position) -> Option<Term> {
+    match term {
+        Term::Annotated {
+            term: inner,
+            metadata,
+        } => {
+            let lowered = lower(inner, position)?;
+            let mut metadata = metadata.clone();
+            // An alias lowered to a conjunction is no application of the alias production.
+            if matches!(inner.unannotated(), Term::As { .. }) {
+                metadata.production = None;
+            }
+            Some(lowered.with_metadata(metadata))
+        }
+        Term::Apply { label, arguments }
+            if position.lowers_conjunctions()
+                && label.is(InternalLabel::And)
+                && let [first, second] = &arguments[..]
+                && is_connective_free_term(first)
+                && is_connective_free_term(second) =>
+        {
+            Some(guarded_by_equality(
+                label.clone(),
+                first.clone(),
+                second.clone(),
+            ))
+        }
+        Term::As { pattern, alias }
+            if position.lowers_aliases()
+                && is_connective_free_term(pattern)
+                && is_connective_free_term(alias) =>
+        {
+            Some(guarded_by_equality(
+                Label::new(InternalLabel::And.as_str()),
+                (**pattern).clone(),
+                (**alias).clone(),
+            ))
+        }
+        Term::Apply { label, arguments } => {
+            lower_all(arguments, position).map(|arguments| Term::Apply {
+                label: label.clone(),
+                arguments,
+            })
+        }
+        Term::Rewrite { left, right } => {
+            let lowered_left = lower(left, position.rewrite_left());
+            let lowered_right = lower(right, Position::Built);
+            (lowered_left.is_some() || lowered_right.is_some()).then(|| Term::Rewrite {
+                left: Box::new(lowered_left.unwrap_or_else(|| (**left).clone())),
+                right: Box::new(lowered_right.unwrap_or_else(|| (**right).clone())),
+            })
+        }
+        Term::As { pattern, alias } => {
+            let lowered_pattern = lower(pattern, position);
+            let lowered_alias = lower(alias, position);
+            (lowered_pattern.is_some() || lowered_alias.is_some()).then(|| Term::As {
+                pattern: Box::new(lowered_pattern.unwrap_or_else(|| (**pattern).clone())),
+                alias: Box::new(lowered_alias.unwrap_or_else(|| (**alias).clone())),
+            })
+        }
+        Term::Sequence(items) => lower_all(items, position).map(Term::Sequence),
+        Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. } => None,
+    }
+}
+
+/// `sentence` with its body lowered by [`lower`]: a rule's at a matched position (so only its
+/// rewrites' right sides are built), a claim's at a position of both its sides; `None` for a
+/// sentence that does not change, including a macro-like rule, other sentence kinds and every
+/// condition.
+fn lower_sentence(sentence: &Sentence) -> Option<Sentence> {
+    let position = match sentence {
+        Sentence::Rule { attributes, .. } if attributes.has_any(&AttributeKey::MACRO_LIKE) => {
+            return None;
+        }
+        Sentence::Rule { .. } => Position::Matched,
+        Sentence::Claim { .. } => Position::ClaimShared,
+        Sentence::SyntaxSort { .. }
+        | Sentence::SortSynonym { .. }
+        | Sentence::SyntaxLexical { .. }
+        | Sentence::Production { .. }
+        | Sentence::SyntaxPriority { .. }
+        | Sentence::SyntaxAssociativity { .. }
+        | Sentence::ContextAlias { .. }
+        | Sentence::Context { .. }
+        | Sentence::Configuration { .. }
+        | Sentence::Bubble { .. } => return None,
+    };
+    let (Sentence::Rule { body, .. } | Sentence::Claim { body, .. }) = sentence else {
+        unreachable!("only rules and claims are lowered")
+    };
+    let lowered = lower(body, position)?;
+    let mut sentence = sentence.clone();
+    if let Sentence::Rule { body, .. } | Sentence::Claim { body, .. } = &mut sentence {
+        *body = lowered;
+    }
+    Some(sentence)
+}
+
+/// The stage `lower term conjunctions`, after macro expansion: every rule and claim lowered by
+/// [`lower_sentence`] (see the module documentation). A sentence that does not change is kept as
+/// it is, shared, and a definition in which none changes is unchanged.
+pub(crate) fn lower_term_conjunctions_pass(
+    input: &super::pipeline::PassInput<'_>,
+    _: &mut super::pipeline::PipelineState,
+) -> Result<super::pipeline::PassOutcome, Infallible> {
+    let mut output: Option<Definition> = None;
+    for (module_index, module) in input.definition.modules.iter().enumerate() {
+        for (sentence_index, sentence) in module.local_sentences.iter().enumerate() {
+            if let Some(lowered) = lower_sentence(sentence) {
+                let definition = output.get_or_insert_with(|| input.definition.clone());
+                *crate::definition::sentence_mut(
+                    &mut definition.modules[module_index].local_sentences[sentence_index],
+                ) = lowered;
+            }
+        }
+    }
+    Ok(output.map_or(
+        super::pipeline::PassOutcome::Unchanged,
+        super::pipeline::PassOutcome::Changed,
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -369,6 +596,144 @@ mod tests {
             Some(Label::new(AND_BOOL))
         );
         assert_eq!(hashed_label(&Label::new(AND_BOOL)), None);
+    }
+
+    fn int(value: &str) -> Term {
+        Term::Token {
+            token: value.into(),
+            sort: Sort::new("Int"),
+        }
+    }
+
+    fn and(first: Term, second: Term) -> Term {
+        Term::apply(InternalLabel::And.as_str(), vec![first, second])
+    }
+
+    fn equality(first: Term, second: Term) -> Term {
+        Term::apply(InternalLabel::Equals.as_str(), vec![first, second])
+    }
+
+    fn rewrite(left: Term, right: Term) -> Term {
+        Term::Rewrite {
+            left: Box::new(left),
+            right: Box::new(right),
+        }
+    }
+
+    fn alias(pattern: Term, alias: Term) -> Term {
+        Term::As {
+            pattern: Box::new(pattern),
+            alias: Box::new(alias),
+        }
+    }
+
+    fn go(term: Term) -> Term {
+        Term::apply("go", vec![term])
+    }
+
+    fn done(term: Term) -> Term {
+        Term::apply("done", vec![term])
+    }
+
+    /// `X #And 1` and `f(X) #And 3`, built, become the first operand guarded by the equality.
+    #[test]
+    fn a_built_conjunction_of_two_terms_is_the_first_guarded_by_their_equality() {
+        let x = Term::variable("X");
+        let body = rewrite(go(x.clone()), done(and(x.clone(), int("1"))));
+        assert_eq!(
+            lower(&body, Position::Matched),
+            Some(rewrite(
+                go(x.clone()),
+                done(and(x.clone(), equality(x.clone(), int("1"))))
+            ))
+        );
+        let f = Term::apply("f", vec![x.clone()]);
+        let built = and(f.clone(), int("3"));
+        assert_eq!(
+            lower(&built, Position::Built),
+            Some(and(f.clone(), equality(f, int("3"))))
+        );
+    }
+
+    /// A connective in an operand, at any depth, keeps the conjunction as written; one below it
+    /// is still lowered.
+    #[test]
+    fn a_conjunction_whose_operand_holds_a_connective_is_kept() {
+        let x = Term::variable("X");
+        let or = Term::apply(InternalLabel::Or.as_str(), vec![x.clone(), int("0")]);
+        assert_eq!(lower(&and(or.clone(), int("1")), Position::Built), None);
+        let deep = and(Term::apply("g", vec![or]), int("1"));
+        assert_eq!(lower(&deep, Position::Built), None);
+        let predicate = and(x.clone(), equality(x.clone(), int("1")));
+        assert_eq!(lower(&predicate, Position::Built), None);
+        let nested = and(and(x.clone(), int("1")), int("2"));
+        assert_eq!(
+            lower(&nested, Position::Built),
+            Some(and(and(x.clone(), equality(x.clone(), int("1"))), int("2")))
+        );
+    }
+
+    /// A rule's left side and the positions its rewrites share are matched; a claim's are not.
+    #[test]
+    fn a_matched_conjunction_is_kept_and_a_claim_side_is_lowered() {
+        let x = Term::variable("X");
+        let lowered = and(x.clone(), equality(x.clone(), int("1")));
+        let body = rewrite(go(and(x.clone(), int("1"))), done(x.clone()));
+        assert_eq!(lower(&body, Position::Matched), None);
+        assert_eq!(
+            lower(&body, Position::ClaimShared),
+            Some(rewrite(go(lowered.clone()), done(x.clone())))
+        );
+        let shared = Term::apply(
+            "pair",
+            vec![and(x.clone(), int("1")), rewrite(int("2"), int("3"))],
+        );
+        assert_eq!(lower(&shared, Position::Matched), None);
+        assert_eq!(
+            lower(&shared, Position::ClaimShared),
+            Some(Term::apply(
+                "pair",
+                vec![lowered, rewrite(int("2"), int("3"))]
+            ))
+        );
+    }
+
+    /// `P #as V` is lowered in a claim's left side only.
+    #[test]
+    fn an_alias_is_lowered_in_a_claim_left_side_only() {
+        let (x, y) = (Term::variable("X"), Term::variable("Y"));
+        let body = rewrite(go(alias(x.clone(), y.clone())), done(y.clone()));
+        assert_eq!(lower(&body, Position::Matched), None);
+        assert_eq!(
+            lower(&body, Position::ClaimShared),
+            Some(rewrite(
+                go(and(x.clone(), equality(x.clone(), y.clone()))),
+                done(y.clone())
+            ))
+        );
+        let shared = go(alias(x.clone(), y.clone()));
+        assert_eq!(lower(&shared, Position::ClaimShared), None);
+        let built = rewrite(go(x.clone()), done(alias(x.clone(), y.clone())));
+        assert_eq!(lower(&built, Position::ClaimShared), None);
+        let or = Term::apply(InternalLabel::Or.as_str(), vec![x.clone(), int("0")]);
+        assert_eq!(lower(&alias(or, y), Position::ClaimLeft), None);
+    }
+
+    /// The conjunction keeps its annotation; an alias's annotation loses only its production.
+    #[test]
+    fn a_lowered_node_keeps_its_metadata() {
+        let x = Term::variable("X");
+        let metadata = crate::kast::TermMetadata {
+            sort: Some(Sort::new("Int")),
+            ..crate::kast::TermMetadata::default()
+        };
+        let annotated = and(x.clone(), int("1")).with_metadata(metadata.clone());
+        let lowered = lower(&annotated, Position::Built).expect("lowered");
+        assert_eq!(lowered.metadata(), Some(&metadata));
+        assert_eq!(
+            lowered.unannotated(),
+            &and(x.clone(), equality(x.clone(), int("1")))
+        );
     }
 
     #[test]
