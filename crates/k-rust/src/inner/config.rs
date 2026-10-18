@@ -673,8 +673,14 @@ pub(super) fn add_k_syntax(
             false,
         )?;
     }
-    add_subsort(grammar, "Bool", "#KVariable")?;
-    add_subsort(grammar, "Bool", "KConfigVar")?;
+    // The rule grammar gives `Bool` its variables through `Bool ::= KBott` and `KBott ::=
+    // #KVariable | KConfigVar` (`rule_member_productions`), or, where the module declares the
+    // parametric bottom production, beside it (`rule_grammar`); stating them here as well would
+    // give each `Bool` variable of a rule two derivations.
+    if which == BuiltinTokenGrammar::Configuration {
+        add_subsort(grammar, "Bool", "#KVariable")?;
+        add_subsort(grammar, "Bool", "KConfigVar")?;
+    }
     add_casts(grammar, &CastTarget::kernel(KernelSort::Bool))?;
     grammar.add(
         Sort::new("#RuleContent"),

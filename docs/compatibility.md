@@ -155,6 +155,10 @@ This is a recorded divergence from the pinned K frontend: it accepts a nested pa
 
 A production with sort parameters shaped like a subsort declaration is rejected at load with `Parametric subsort declarations are currently unsupported: {parent} ::= {child}; declare the subsort of each instance instead`.
 The exceptions are `{S} KItem ::= S` and `{S} S ::= KBott`, which state what K fixes for every sort: every sort of K terms is a KItem, and the parse-time bottom is below every sort.
+In the rule grammar the parse-time bottom lies below every sort of K terms, `Bool` included, so a KAST prefix term (`#token("5", "Int")`, `` `_>Int_`(I, 5) ``, `#SemanticCastToBool(X)`) parses wherever a term of such a sort can stand, the `requires` and `ensures` clauses included: ``requires `_>Int_`(I, 5)`` is the rule's `requires I >Int 5`, and resolution and sort inference check the term its labels and tokens name as they check its concrete spelling.
+A mixfix `Bool` operator takes prefix operands where the module imports it (``notBool `_>Int_`(I, 5)`` with `BOOL`).
+A condition that applies a label no production declares is then refused as an application of that unknown label.
+`Bool`'s variables come through the parse-time bottom, so each has one derivation (`kast_prefix_terms_parse_in_rule_clauses` in `crates/k-rust/tests/inner_rules.rs`).
 The definition's order relates sorts, and KORE's subsort axioms relate sorts, so a production with sort parameters states no pair of that order and has no subsort axiom.
 Write the subsort of each declared instance instead, for example `syntax Foo ::= MInt{8} | MInt{16}`.
 This is a recorded divergence from the pinned K frontend: it accepts such a declaration and writes a definition that its own backend validation refuses.

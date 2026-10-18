@@ -341,7 +341,7 @@ pub(in crate::inner) struct RuleMemberProductions {
 ///
 /// For the other columns: a defined sort receives every production.
 /// A numeral member is a width without terms ([`SortRole::has_terms`]) and receives nothing.
-/// `Bool` is a sort of `K` terms, but its `KItem` subsort, its variable subsorts and its casts belong to the fixed kernel syntax both grammars share, so the member loop adds only its scaffolding and bracket. `KLabel`, `KList` and `KString` receive
+/// `Bool` is a sort of `K` terms, but its `KItem` subsort and its casts belong to the fixed kernel syntax both grammars share, so the member loop adds its scaffolding, its bracket and `Bool ::= KBott`, as for every sort of `K` terms: a requires or ensures clause is a term of sort `Bool`, and a KAST prefix term (`#token`, `#klabel`, `` `label`(..) ``) is a parse-time bottom term, which resolution and sort inference then check like any other. Through `KBott ::= #KVariable | KConfigVar` it also gives `Bool` its variables in the rule grammar, so the kernel syntax states `Bool ::= #KVariable | KConfigVar` only for the configuration grammar, or where the module declares the parametric bottom production, and each `Bool` variable has one derivation. `KLabel`, `KList` and `KString` receive
 /// every production except `KItem ::= S` when the module declares them: a variable, a cast or a
 /// bracket may stand at a label, an argument sequence or a token spelling, but none of the three
 /// is a sort of K items ([`SortRole::has_implicit_kitem_subsort`]), and with the declared `KList ::= K` and
@@ -379,7 +379,7 @@ pub(in crate::inner) const fn rule_member_productions(role: SortRole) -> RuleMem
             #[cfg(not(feature = "z3-inference"))]
             rule_scaffold: true,
             kitem_subsort: false,
-            bottom_subsort: false,
+            bottom_subsort: true,
             casts: false,
             bracket: true,
         },
@@ -1174,11 +1174,12 @@ mod tests {
             let no_rule_production = vec![false; rule_member(role).len()];
             let expected_rule = match role {
                 SortRole::Defined => every_rule_production,
+                // `Bool ::= KBott` and the bracket; no `KItem ::= Bool` and no casts.
                 SortRole::Kernel(S::Bool) => vec![
                     #[cfg(not(feature = "z3-inference"))]
                     true,
                     false,
-                    false,
+                    true,
                     false,
                     true,
                 ],

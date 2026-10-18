@@ -136,6 +136,10 @@ impl std::error::Error for RuleError {}
 
 /// Parse one complete rule-content string with a resolved module's rule grammar.
 ///
+/// The whole contents are read with that grammar, the `requires` and `ensures` clauses
+/// included: a clause is a term of sort `Bool`, at which KAST prefix terms parse as at every
+/// other sort of `K` terms.
+///
 /// The returned rule retains the caller-supplied attributes, including source and
 /// content offsets used by parser metadata and diagnostics.
 pub fn parse_rule_content(
@@ -929,6 +933,19 @@ fn rule_grammar(resolved: &ResolvedDefinition, module: ModuleId) -> Result<Gramm
         if productions.casts {
             add_casts(&mut grammar, &CastTarget::member(&member))?;
         }
+    }
+    // `Bool` is the sort of every requires and ensures clause, so its variables and its
+    // parse-time bottom terms come from `Bool ::= KBott` (and `KBott ::= #KVariable |
+    // KConfigVar`) whether or not a sentence of the view mentions it, as they do for a member of
+    // the universe. With the parametric bottom production the member loop adds no
+    // `S ::= KBott`, and `Bool` takes its variables directly, as the kernel syntax gives them
+    // to the configuration grammar.
+    let bool_sort = KernelSort::Bool.sort();
+    if has_generated_bottom_sort {
+        add_subsort(&mut grammar, "Bool", FrontendSort::KVariable.as_str())?;
+        add_subsort(&mut grammar, "Bool", KernelSort::KConfigVar.name())?;
+    } else if universe.member(&bool_sort).is_none() {
+        add_subsort(&mut grammar, "Bool", FrontendSort::KBott.as_str())?;
     }
     add_synonym_casts(&mut grammar, &universe, &RULE_GRAMMAR)?;
     #[cfg(not(feature = "z3-inference"))]
