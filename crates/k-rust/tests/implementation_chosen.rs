@@ -397,7 +397,7 @@ fn a_mark_never_blocks_a_state_set_merge_and_reaches_the_result_list() {
     assert_eq!(leaves(&state_set)[0]["reason"], "trivial", "{state_set:#}");
     assert_eq!(state_set["work"], 5, "{state_set:#}");
     assert_eq!(state_set["expanded"], 4, "{state_set:#}");
-    assert_eq!(run_marks(&state_set), [keys.clone()]);
+    assert_eq!(run_marks(&state_set), std::slice::from_ref(&keys));
     let path_set = execute(&kore, &initial, ResultModalityOutput::PathSet);
     assert_eq!(leaves(&path_set).len(), 2, "{path_set:#}");
     for leaf in leaves(&path_set) {
