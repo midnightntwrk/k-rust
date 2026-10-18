@@ -97,6 +97,10 @@ fn case(table: &toml::Table, runnable: bool) -> Option<Case> {
             .get("hook-namespaces")
             .map(|_| strings("hook-namespaces")),
         skip_unloadable: false,
+        mains: Vec::new(),
+        for_proving: false,
+        twins: Vec::new(),
+        searches: Vec::new(),
     })
 }
 
@@ -104,6 +108,21 @@ fn case(table: &toml::Table, runnable: bool) -> Option<Case> {
 /// the workspace; otherwise every case whose checkout is present beside it (`k`,
 /// `imp-semantics`), the real semantics excepted.
 pub fn manifest_cases(local: bool) -> Vec<Case> {
+    manifest_entries(local)
+        .into_iter()
+        .filter(|case| matches!(&case.text, Text::File { path, .. } if path.is_file()))
+        .collect()
+}
+
+/// The names of every case the manifest can give, whether or not its checkout is present.
+pub fn manifest_case_names() -> Vec<String> {
+    manifest_entries(false)
+        .into_iter()
+        .map(|case| case.name)
+        .collect()
+}
+
+fn manifest_entries(local: bool) -> Vec<Case> {
     let manifest: toml::Table = MANIFEST.parse().expect("the manifest parses");
     let mut cases = Vec::new();
     for (key, runnable) in [("execution", true), ("compile", false)] {
@@ -124,13 +143,7 @@ pub fn manifest_cases(local: bool) -> Vec<Case> {
             if table.get("expect").and_then(Value::as_str) == Some("reject") {
                 continue;
             }
-            let Some(case) = case(table, runnable) else {
-                continue;
-            };
-            let Text::File { path, .. } = &case.text else {
-                unreachable!()
-            };
-            if path.is_file() {
+            if let Some(case) = case(table, runnable) {
                 cases.push(case);
             }
         }
@@ -151,8 +164,10 @@ pub fn prelude_case() -> Case {
 }
 
 /// Every tracked K file under `crates/k-rust/tests` that the manifest does not already name,
-/// compiled with its last module as the main module. A file that does not load that way (one
-/// written for another main module, or to test a load error) is left out by the harness.
+/// compiled with its last module as the main module, or, when it does not load that way, with
+/// the first of its other modules, from the last to the first, that loads. A file that loads
+/// with none of them (one written to test a load error) is left out by the harness, which
+/// lists it.
 pub fn fixture_cases(named: &[Case]) -> Vec<Case> {
     let named: Vec<PathBuf> = named
         .iter()
@@ -183,12 +198,14 @@ pub fn fixture_cases(named: &[Case]) -> Vec<Case> {
         .filter(|path| std::fs::canonicalize(path).is_ok_and(|path| !named.contains(&path)))
         .filter_map(|path| {
             let text = std::fs::read_to_string(&path).ok()?;
-            let main = text
+            let mut modules: Vec<String> = text
                 .lines()
                 .filter_map(|line| line.trim_start().strip_prefix("module "))
                 .filter_map(|rest| rest.split_whitespace().next())
-                .next_back()?
-                .to_owned();
+                .map(str::to_owned)
+                .collect();
+            let main = modules.pop()?;
+            modules.reverse();
             let name = path.strip_prefix(&root).ok()?.display().to_string();
             Some(Case {
                 name: format!("fixture/{name}"),
@@ -204,6 +221,10 @@ pub fn fixture_cases(named: &[Case]) -> Vec<Case> {
                 depth: 20,
                 hook_namespaces: None,
                 skip_unloadable: true,
+                mains: modules,
+                for_proving: false,
+                twins: Vec::new(),
+                searches: Vec::new(),
             })
         })
         .collect()

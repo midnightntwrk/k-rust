@@ -4,7 +4,7 @@
 //! `docs/testing.md`, "Alpha-invariance harness": after anonymous resolution each `_` is its own
 //! variable, a quantifier `#Exists V . P` or `#Forall V . P` binds exactly `V` in `P`, and every
 //! other variable of a rule, context, context alias or macro rule is bound by the sentence as a
-//! whole. A renaming keeps each variable's sigil (`?`, `!`, `@`) and `_` prefix, and never renames
+//! whole; a claim binds its variables the same way. A renaming keeps each variable's sigil (`?`, `!`, `@`) and `_` prefix, and never renames
 //! the fixed names `HOLE`, `HERE`, `#Configuration` (nor any other `#` or `$` name).
 //!
 //! A renaming is applied to the parsed sentence (the term the loader built), so the variant and
@@ -32,21 +32,26 @@ pub enum Strategy {
     /// Every quantifier over a named variable to a fresh bound name, within its scope only.
     BinderApart,
     /// Every quantifier over a named variable to the spelling of another variable of the same
-    /// class that occurs in the sentence but not in the quantifier's body, within its scope only:
-    /// the binder then shadows that variable.
+    /// class and the same inferred sort that occurs in the sentence but not in the quantifier's
+    /// body, within its scope only: the binder then shadows that variable.
     BinderCapture,
     /// Every anonymous variable (`_`, `?_`, `!_`, `@_`) to its own fresh `_`-prefixed name.
     AnonNamed,
+    /// As `BinderCapture`, whatever the sort of the shadowed variable: a binder over `Y:Bool`
+    /// may take the name of the sentence's `X:Int`. A quantifier binds exactly its own variable,
+    /// so the sort of a variable it shadows is irrelevant to the meaning.
+    BinderCaptureAnySort,
 }
 
 impl Strategy {
-    pub const ALL: [Strategy; 6] = [
+    pub const ALL: [Strategy; 7] = [
         Strategy::Fresh,
         Strategy::KIndex,
         Strategy::Rotate,
         Strategy::BinderApart,
         Strategy::BinderCapture,
         Strategy::AnonNamed,
+        Strategy::BinderCaptureAnySort,
     ];
 
     pub fn name(self) -> &'static str {
@@ -57,6 +62,7 @@ impl Strategy {
             Strategy::BinderApart => "binder-apart",
             Strategy::BinderCapture => "binder-capture",
             Strategy::AnonNamed => "anon-named",
+            Strategy::BinderCaptureAnySort => "binder-capture-any-sort",
         }
     }
 }
@@ -261,10 +267,16 @@ pub struct SentenceTerms<'a> {
 }
 
 /// The renamable parts of `sentence`, or `None` for a sentence whose variables no renaming
-/// touches (syntax, claims, configurations).
+/// touches (syntax, configurations).
 pub fn sentence_terms(sentence: &mut Sentence) -> Option<SentenceTerms<'_>> {
     match sentence {
         Sentence::Rule {
+            body,
+            requires,
+            ensures,
+            attributes,
+        }
+        | Sentence::Claim {
             body,
             requires,
             ensures,
@@ -290,23 +302,47 @@ pub fn sentence_terms(sentence: &mut Sentence) -> Option<SentenceTerms<'_>> {
     }
 }
 
+/// Every variable name of `sentence`'s renamable parts, in order of first occurrence.
+pub fn variable_names(sentence: &Sentence) -> Vec<String> {
+    let mut sentence = sentence.clone();
+    let mut names = Vec::new();
+    if let Some(parts) = sentence_terms(&mut sentence) {
+        for term in &parts.terms {
+            names_in(term, &mut names);
+        }
+    }
+    names
+}
+
+/// Rename the names listed in the variable-naming attributes through `map`. Only the listed
+/// names change: the separators and every name `map` keeps stay byte-identical, and an attribute
+/// none of whose names changes is not rewritten.
 fn rename_attributes(attributes: &mut Attributes, map: &BTreeMap<String, String>) {
     for key in VARIABLE_ATTRIBUTES {
-        let Some(content) = attributes.get_str(key) else {
+        let Some(content) = attributes.get_str(key).map(str::to_owned) else {
             continue;
         };
-        if content.trim().is_empty() {
-            continue;
+        let mut renamed = String::with_capacity(content.len());
+        let mut changed = false;
+        for (index, item) in content.split(',').enumerate() {
+            if index > 0 {
+                renamed.push(',');
+            }
+            let name = item.trim();
+            match map.get(name) {
+                Some(new) if new != name && !name.is_empty() => {
+                    let start = item.len() - item.trim_start().len();
+                    renamed.push_str(&item[..start]);
+                    renamed.push_str(new);
+                    renamed.push_str(&item[start + name.len()..]);
+                    changed = true;
+                }
+                _ => renamed.push_str(item),
+            }
         }
-        let renamed = content
-            .split(',')
-            .map(|name| {
-                let name = name.trim();
-                map.get(name).cloned().unwrap_or_else(|| name.to_owned())
-            })
-            .collect::<Vec<_>>()
-            .join(", ");
-        attributes.insert(key, serde_json::Value::String(renamed));
+        if changed {
+            attributes.insert(key, serde_json::Value::String(renamed));
+        }
     }
 }
 
@@ -371,7 +407,7 @@ pub fn rename_sentence(sentence: &mut Sentence, strategy: Strategy) -> bool {
             rename_attributes(attributes, &listed);
             !minted.is_empty()
         }
-        Strategy::BinderApart | Strategy::BinderCapture => {
+        Strategy::BinderApart | Strategy::BinderCapture | Strategy::BinderCaptureAnySort => {
             let mut index = 0;
             let mut changed = false;
             let taken: BTreeSet<String> = names.iter().cloned().collect();
@@ -428,7 +464,11 @@ pub fn rename_sentence(sentence: &mut Sentence, strategy: Strategy) -> bool {
                                     !other.anonymous() && other.class() == spelling.class()
                                 })
                             })
-                            .find(|name| sort.is_none() || sort_of(&terms, name) == sort)
+                            .find(|name| {
+                                strategy == Strategy::BinderCaptureAnySort
+                                    || sort.is_none()
+                                    || sort_of(&terms, name) == sort
+                            })
                             .cloned(),
                     };
                     if let Some(target) = target {

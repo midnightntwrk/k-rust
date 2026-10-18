@@ -167,6 +167,136 @@ pub fn probes() -> Vec<Case> {
     cases
 }
 
+/// The seeds of the BIND/A0 review and its claims, a test of their own so that it runs beside
+/// the probes.
+pub fn seeds() -> Vec<Case> {
+    let mut cases = review_seeds();
+    cases.extend(claim_seeds());
+    cases
+}
+
+const WRAP: &str = "  syntax Wrap ::= s(Int)\n  syntax KItem ::= go(Int) | goS(Wrap) | done(Int)\n";
+
+/// The seeds of the BIND/A0 review (`code-reviews/BIND-A0.toml`): the source route, an
+/// `anywhere` rule, a `simplification`, `#Not`, an `alias` macro, named binders in the `ensures`
+/// beside a right-side `?` variable, and a context with `HOLE`.
+fn review_seeds() -> Vec<Case> {
+    vec![
+        // The parser's sort inference: an unannotated binder named apart from the left side's
+        // `X:Int`, and its twin named like it, whose `{X #Equals true}` is a `Bool` equality.
+        probe(
+            "parse-binder-apart-inferred",
+            "PA",
+            &format!(
+                "{GO}  rule [p]: <k> go(X) => done(X) ... </k> requires #Exists Y . {{Y #Equals true}}\n"
+            ),
+            &["go(3)"],
+        )
+        .twin("text-shadow-lhs", "#Exists Y . {Y", "#Exists X . {X"),
+        probe(
+            "parse-binder-shadows-inferred",
+            "PS",
+            &format!(
+                "{GO}  rule [p]: <k> go(X) => done(X) ... </k> requires #Exists X . {{X #Equals true}}\n"
+            ),
+            &["go(3)"],
+        ),
+        // D5 in an `anywhere` rule, and its apart spelling.
+        probe(
+            "anywhere-binder-shadows-lhs-variable",
+            "AN",
+            &format!(
+                "{WRAP}  syntax KItem ::= t(Wrap)\n  rule t(s(X)) => done(X) requires #Exists X:Int . {{s(X) #Equals s(2)}} [anywhere]\n  rule <k> goS(W) => t(W) ... </k>\n"
+            ),
+            &["goS(s(3))", "goS(s(2))"],
+        ),
+        probe(
+            "anywhere-binder-apart-from-lhs-variable",
+            "AA",
+            &format!(
+                "{WRAP}  syntax KItem ::= t(Wrap)\n  rule t(s(X)) => done(X) requires #Exists Z:Int . {{s(Z) #Equals s(2)}} [anywhere]\n  rule <k> goS(W) => t(W) ... </k>\n"
+            ),
+            &["goS(s(3))", "goS(s(2))"],
+        ),
+        probe(
+            "simplification-binder-shadows-lhs-variable",
+            "SI",
+            &format!(
+                "{WRAP}  syntax Int ::= f(Wrap) [function, total]\n  rule f(_) => 0\n  rule f(s(X)) => X requires #Exists X:Int . {{s(X) #Equals s(2)}} [simplification]\n  rule <k> goS(W) => done(f(W)) ... </k>\n"
+            ),
+            &["goS(s(3))"],
+        ),
+        // D4 through an `alias` macro.
+        probe(
+            "alias-binder-shadows-parameter",
+            "AL",
+            &format!(
+                "{GO}  syntax Bool ::= m(Int, Int) [alias]\n  rule m(N, M) => #Exists M:Int . ({{N #Equals M}} #And {{M #Equals 0}})\n  rule [p]: <k> go(X) => done(X) ... </k> requires m(X, X)\n"
+            ),
+            &["go(3)", "go(0)"],
+        ),
+        probe(
+            "ensures-forall-named-beside-existential",
+            "EF",
+            &format!(
+                "{GO}  rule [p]: <k> go(X) => done(?Y) ... </k> ensures #Forall Z:Int . {{?Y +Int Z #Equals Z +Int X}}\n"
+            ),
+            &["go(3)"],
+        ),
+        // D2 shown by renaming: a named `?` binder in the `ensures` beside the free `?Y`.
+        probe(
+            "ensures-exists-existential-beside-existential",
+            "EQ",
+            &format!(
+                "{GO}  rule [p]: <k> go(X) => done(?Y) ... </k> ensures #Exists ?Z:Int . {{?Y #Equals ?Z +Int X}}\n"
+            ),
+            &["go(3)"],
+        ),
+        probe(
+            "context-hole-binder-shadows-variable",
+            "CH",
+            "  syntax Exp ::= Int | f(Exp, Int)\n  syntax KResult ::= Int\n  configuration <k> $PGM:Exp </k>\n  context f(HOLE, X) requires #Exists X:Int . {X #Equals 1}\n  rule <k> f(I:Int, J) => I +Int J ... </k>\n",
+            &[],
+        ),
+        // D5 under `#Not`.
+        probe(
+            "not-binder-shadows-lhs-variable",
+            "NE",
+            &format!(
+                "{WRAP}  rule [p]: <k> goS(s(X)) => done(X) ... </k> requires #Not(#Exists X:Int . {{s(X) #Equals s(2)}})\n"
+            ),
+            &["goS(s(3))", "goS(s(2))"],
+        ),
+    ]
+}
+
+/// Claims, compiled `--for-proving` (the review's `p/claim-*.k`): FU-26 and D2 in a claim, D5
+/// in a claim, and a plain claim, whose renaming changes only its `UNIQUE_ID`, which is not
+/// compared (FU-44).
+fn claim_seeds() -> Vec<Case> {
+    [
+        (
+            "claim-fu26-forall-anonymous",
+            "  rule <k> go(X) => done(X) ... </k>\n  claim <k> go(X) => done(X) ... </k> requires #Forall _ . (X =/=Int _)\n",
+        ),
+        (
+            "claim-d2-ensures-exists-anonymous",
+            "  rule <k> go(X) => done(X) ... </k>\n  claim <k> go(X) => done(?Y) ... </k> ensures #Exists ?_ . (?Y ==Int ?_)\n",
+        ),
+        (
+            "claim-d5-binder-shadows-lhs-variable",
+            "  rule <k> goS(s(X)) => done(X) ... </k>\n  claim <k> goS(s(X)) => done(X) ... </k> requires #Exists X:Int . {s(X) #Equals s(2)}\n",
+        ),
+        (
+            "claim-plain",
+            "  rule <k> go(X) => done(X) ... </k>\n  claim <k> go(X) => done(X) ... </k> requires X >Int 0\n",
+        ),
+    ]
+    .into_iter()
+    .map(|(name, sentences)| probe(name, "CL", &format!("{WRAP}{sentences}"), &[]).for_proving())
+    .collect()
+}
+
 const OWISE_HEADER: &str = "module P-SYNTAX
   imports INT-SYNTAX
   imports BOOL-SYNTAX

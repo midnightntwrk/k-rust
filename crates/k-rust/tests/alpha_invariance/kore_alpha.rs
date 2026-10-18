@@ -25,8 +25,8 @@ pub struct NormalSentence {
     /// position.
     pub name: String,
     pub text: String,
-    /// The `UNIQUE'Unds'ID` attribute, kept out of `text`: it is a digest of the sentence, so it
-    /// is compared on its own.
+    /// An axiom's `UNIQUE'Unds'ID` attribute, kept out of `text`: it is a digest of the
+    /// sentence, so it is compared on its own. A claim's is not compared, so it is `None`.
     pub id: Option<String>,
 }
 
@@ -258,18 +258,51 @@ pub fn normal_pattern(pattern: &Pattern) -> String {
     Printer::compact().print_pattern(&normaliser.pattern(pattern, &mut Vec::new()))
 }
 
-fn attribute_name(attributes: &[Pattern]) -> Option<String> {
-    for wanted in ["label", "UNIQUE'Unds'ID"] {
-        for attribute in attributes {
-            if let Pattern::Application { symbol, arguments } = attribute
-                && symbol.name == wanted
-                && let Some(Pattern::String(value)) = arguments.first()
-            {
-                return Some(value.as_utf8().unwrap_or("?").to_owned());
+fn string_attribute(attributes: &[Pattern], wanted: &str) -> Option<String> {
+    attributes.iter().find_map(|attribute| match attribute {
+        Pattern::Application { symbol, arguments } if symbol.name == wanted => {
+            match arguments.first() {
+                Some(Pattern::String(value)) => Some(value.as_utf8().unwrap_or("?").to_owned()),
+                _ => None,
             }
         }
+        _ => None,
+    })
+}
+
+/// A sentence's name for reports and signatures: its `label`; else its source file's name and
+/// start position (`domains.md:1088:3`), which no compiler change moves; else its
+/// `UNIQUE'Unds'ID`.
+fn attribute_name(attributes: &[Pattern]) -> Option<String> {
+    if let Some(label) = string_attribute(attributes, "label") {
+        return Some(label);
     }
-    None
+    let location = string_attribute(
+        attributes,
+        "org'Stop'kframework'Stop'attributes'Stop'Location",
+    );
+    let source = string_attribute(
+        attributes,
+        "org'Stop'kframework'Stop'attributes'Stop'Source",
+    );
+    if let (Some(location), Some(source)) = (location, source) {
+        let file = source
+            .trim_start_matches("Source(")
+            .trim_end_matches(')')
+            .rsplit('/')
+            .next()
+            .unwrap_or_default()
+            .to_owned();
+        let position = location
+            .trim_start_matches("Location(")
+            .trim_end_matches(')')
+            .split(',')
+            .take(2)
+            .collect::<Vec<_>>()
+            .join(":");
+        return Some(format!("{file}:{position}"));
+    }
+    string_attribute(attributes, "UNIQUE'Unds'ID")
 }
 
 fn unique_id(attribute: &Pattern) -> Option<String> {
@@ -366,10 +399,11 @@ pub fn normal_definition(kore: &str) -> Result<Vec<NormalSentence>, String> {
                 _ => None,
             }
             .unwrap_or_else(|| format!("#{index}"));
+            // A claim's `UNIQUE_ID` is kept spelling-based (FU-44): an identifier only has to
+            // tell a claim apart within its definition, so two alpha-equivalent claims with
+            // distinct identifiers give the same answers. Only an axiom's is compared.
             let id = match sentence {
-                Sentence::Axiom { attributes, .. } | Sentence::Claim { attributes, .. } => {
-                    attributes.0.iter().find_map(unique_id)
-                }
+                Sentence::Axiom { attributes, .. } => attributes.0.iter().find_map(unique_id),
                 _ => None,
             };
             sentences.push(NormalSentence {
@@ -421,6 +455,58 @@ pub fn first_difference(base: &[NormalSentence], variant: &[NormalSentence]) -> 
         ));
     }
     None
+}
+
+/// The distinguishing text of the first difference between two normal forms: the differing
+/// sentence's module and name, and the text of each side from 24 characters before the first
+/// differing character, 64 characters long; or the difference in the number of sentences. It
+/// names no sentence position, so a change elsewhere in the definition (the prelude) keeps it.
+pub fn difference_signature(base: &[NormalSentence], variant: &[NormalSentence]) -> Option<String> {
+    for (left, right) in base.iter().zip(variant) {
+        if left.text != right.text {
+            let at = left
+                .text
+                .char_indices()
+                .zip(right.text.chars())
+                .find(|((_, a), b)| a != b)
+                .map_or(left.text.len().min(right.text.len()), |((at, _), _)| at);
+            let window = |text: &str| -> String {
+                let start = text[..at.min(text.len())]
+                    .char_indices()
+                    .rev()
+                    .nth(23)
+                    .map_or(0, |(start, _)| start);
+                text[start..].chars().take(64).collect()
+            };
+            return Some(format!(
+                "{}.{}: base «{}» variant «{}»",
+                left.module,
+                left.name,
+                window(&left.text),
+                window(&right.text)
+            ));
+        }
+    }
+    (base.len() != variant.len()).then(|| {
+        format!(
+            "the variant has {} more sentences than the base",
+            variant.len() as i64 - base.len() as i64
+        )
+    })
+}
+
+/// The distinguishing text of the first `UNIQUE'Unds'ID` difference: the sentence's module and
+/// name.
+pub fn id_signature(base: &[NormalSentence], variant: &[NormalSentence]) -> Option<String> {
+    base.iter()
+        .zip(variant)
+        .find(|(left, right)| left.id != right.id)
+        .map(|(left, _)| {
+            format!(
+                "{}.{}: UNIQUE_ID not alpha-invariant",
+                left.module, left.name
+            )
+        })
 }
 
 /// The first sentence whose `UNIQUE'Unds'ID` differs between two normal forms whose texts are

@@ -327,6 +327,7 @@ paths = [
   "@krust",
   '^scripts/alpha-invariance\.sh$',
   '^crates/k-rust/tests/alpha_invariance(\.rs|/)',
+  '^crates/k-rust/tests/owise_binders/',
 ]
 
 # The Python unit tests of the scripts' helpers.
