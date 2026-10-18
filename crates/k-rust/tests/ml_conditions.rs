@@ -510,8 +510,13 @@ fn try_compile(sentences: &str) -> Result<String, String> {
 
 /// `kcompile --for-proving` of module P-SPEC (`claims`) over P (`sentences`).
 fn try_compile_spec(sentences: &str, claims: &str) -> Result<String, String> {
-    let source =
-        format!("{HEADER}{sentences}endmodule\n\nmodule P-SPEC\n  imports P\n{claims}endmodule\n");
+    try_compile_spec_source(format!(
+        "{HEADER}{sentences}endmodule\n\nmodule P-SPEC\n  imports P\n{claims}endmodule\n"
+    ))
+}
+
+/// The specification `source` (main module `P-SPEC`, definition module `P`), compiled.
+fn try_compile_spec_source(source: String) -> Result<String, String> {
     let mut resolver = |_: &str, required: &str| {
         embedded(required).ok_or_else(|| format!("unexpected require {required}"))
     };
@@ -1246,54 +1251,59 @@ fn annotated_equalities(term: &Term, found: &mut Vec<Term>) {
 /// receipts every node of it, the equality included, under its own pass.
 #[test]
 fn a_generated_equality_records_the_lowering_as_its_origin() {
-    let artifacts = compile_artifacts(
-        &format!("{F}  rule [p]: f(X) => X #And 1\n{G}"),
-        CompilationBackend::Rust,
-    );
-    let mut equalities = Vec::new();
-    for module in &artifacts.execution_definition.modules {
-        if module.name != "P" {
-            continue;
-        }
-        for sentence in &module.local_sentences {
-            if let Sentence::Rule { body, .. } = &**sentence {
-                annotated_equalities(body, &mut equalities);
+    // A chain of n operands generates n - 1 equalities, each with its own copy of X.
+    for (conjunction, n) in [("X #And 1", 2), ("X #And 1 #And 2", 3)] {
+        let artifacts = compile_artifacts(
+            &format!("{F}  rule [p]: f(X) => {conjunction}\n{G}"),
+            CompilationBackend::Rust,
+        );
+        let mut equalities = Vec::new();
+        for module in &artifacts.execution_definition.modules {
+            if module.name != "P" {
+                continue;
+            }
+            for sentence in &module.local_sentences {
+                if let Sentence::Rule { body, .. } = &**sentence {
+                    annotated_equalities(body, &mut equalities);
+                }
             }
         }
+        assert_eq!(
+            equalities.len(),
+            n - 1,
+            "{conjunction}: generated equalities in module P"
+        );
+        for equality in &equalities {
+            let origin = equality
+                .metadata()
+                .and_then(|metadata| metadata.origin.as_deref())
+                .expect("the generated equality has an origin");
+            assert_eq!(origin.pass.as_str(), "lower-term-conjunctions");
+            assert_eq!(
+                GeneratingPass::from_name("lower-term-conjunctions"),
+                Some(origin.pass)
+            );
+            let Term::Apply { arguments, .. } = equality.unannotated() else {
+                unreachable!("an equality is an application")
+            };
+            let copy = arguments[0].metadata().expect("the copy of X is annotated");
+            let span = copy
+                .span
+                .unwrap_or_else(|| panic!("the copy of X keeps its source position: {copy:?}"));
+            // The copy is a node the lowering creates: its origin names the pass and links X's
+            // span.
+            let origin = copy.origin.as_deref().expect("the copy of X has an origin");
+            assert_eq!(origin.pass.as_str(), "lower-term-conjunctions");
+            assert!(
+                origin
+                    .origins
+                    .links()
+                    .contains(&ProvenanceLink::Source { span }),
+                "the copy's origin links X's span {span:?}: {:?}",
+                origin.origins.links()
+            );
+        }
     }
-    let [equality] = &equalities[..] else {
-        panic!(
-            "one generated equality in module P, found {}",
-            equalities.len()
-        )
-    };
-    let origin = equality
-        .metadata()
-        .and_then(|metadata| metadata.origin.as_deref())
-        .expect("the generated equality has an origin");
-    assert_eq!(origin.pass.as_str(), "lower-term-conjunctions");
-    assert_eq!(
-        GeneratingPass::from_name("lower-term-conjunctions"),
-        Some(origin.pass)
-    );
-    let Term::Apply { arguments, .. } = equality.unannotated() else {
-        unreachable!("an equality is an application")
-    };
-    let copy = arguments[0].metadata().expect("the copy of X is annotated");
-    let span = copy
-        .span
-        .unwrap_or_else(|| panic!("the copy of X keeps its source position: {copy:?}"));
-    // The copy is a node the lowering creates: its origin names the pass and links X's span.
-    let origin = copy.origin.as_deref().expect("the copy of X has an origin");
-    assert_eq!(origin.pass.as_str(), "lower-term-conjunctions");
-    assert!(
-        origin
-            .origins
-            .links()
-            .contains(&ProvenanceLink::Source { span }),
-        "the copy's origin links X's span {span:?}: {:?}",
-        origin.origins.links()
-    );
 }
 
 fn chain(third: &str) -> String {
@@ -1330,11 +1340,39 @@ fn a_built_conjunction_chain_of_equal_terms_is_their_value() {
     assert_eq!(run(right, 3), trivial("go(3)"));
 }
 
+/// A predicate operand denotes everything or nothing, so it cannot enlarge the intersection:
+/// `(t1 #And {P}) #And t2` is `t1 #And {P} #And {t1 #Equals t2}`, the predicate kept as written.
+#[test]
+fn a_built_conjunction_chain_with_a_predicate_operand_guards_its_terms() {
+    let rule = "  rule [p]: <k> go(X) => done(X #And {X #Equals 1} #And 1) ... </k>\n";
+    assert_eq!(run(rule, 1), stuck("done(1)"));
+    assert_eq!(run(rule, 2), trivial("go(2)"));
+    let equals = |value: &str| format!("\\equals{{SortInt{{}}, SortInt{{}}}}({X}, {})", int(value));
+    assert_contains(
+        &axiom(&compile(rule), "P.p"),
+        &format!(
+            "Lbldone{{}}(\\and{{SortInt{{}}}}(\\and{{SortInt{{}}}}({X}, {}), {}))",
+            equals("1"),
+            equals("1")
+        ),
+    );
+    let first = "  rule [p]: <k> go(X) => done({X #Equals 1} #And X #And 1) ... </k>\n";
+    assert_eq!(run(first, 1), stuck("done(1)"));
+    assert_eq!(run(first, 2), trivial("go(2)"));
+}
+
 /// The specification `rules` (in module P), the claims `claims` (in module P-SPEC), and the
 /// verdict of proving the claim labelled `claim`.
 fn prove(rules: &str, claims: &str, claim: &str) -> String {
-    let kore = try_compile_spec(rules, claims).expect("the specification compiles");
-    let mut backend = Backend::new(&kore, "P-SPEC", BackendOptions::default()).unwrap();
+    prove_kore(
+        &try_compile_spec(rules, claims).expect("the specification compiles"),
+        claim,
+    )
+}
+
+/// The verdict of proving the claim labelled `claim` of the compiled specification `kore`.
+fn prove_kore(kore: &str, claim: &str) -> String {
+    let mut backend = Backend::new(kore, "P-SPEC", BackendOptions::default()).unwrap();
     backend
         .prove(ProveRequest {
             claim: Some(format!("P-SPEC.{claim}")),
@@ -1366,6 +1404,47 @@ fn a_claim_shared_alias_is_lowered_and_the_claim_is_proven() {
     );
 }
 
+/// Nested aliases `(X #as Y) #as Z` denote the chain X ∧ Y ∧ Z, so a claim's left side holding
+/// them is lowered as one: the claim reading Z in another cell is proven, its false twin is not.
+#[test]
+fn a_claim_nested_alias_is_lowered_as_a_chain_and_the_claim_is_proven() {
+    let source = |claims: &str| {
+        format!(
+            "module P-SYNTAX
+  imports INT-SYNTAX
+  syntax S ::= \"sa\" [symbol(sa)] | \"sb\" [symbol(sb)]
+  syntax Pgm ::= pair(Int, S) [symbol(pair)]
+endmodule
+
+module P
+  imports P-SYNTAX
+  imports INT
+  imports BOOL
+  configuration <k> $PGM:Pgm </k> <s> 0 </s>
+  rule [h]: <k> pair(X, sa) => pair(X, sb) ... </k> <s> S => S +Int X </s>
+endmodule
+
+module P-SPEC
+  imports P
+{claims}endmodule
+"
+        )
+    };
+    let claims = "  claim [n]: <k> pair((X #as Y) #as Z, (sa => sb)) ... </k> <s> S => S +Int Z </s>\n  claim [m]: <k> pair((X #as Y) #as Z, (sa => sb)) ... </k> <s> S => S +Int Z +Int 1 </s>\n";
+    let kore = try_compile_spec_source(source(claims)).expect("the specification compiles");
+    assert_eq!(prove_kore(&kore, "n"), "proven");
+    assert_ne!(prove_kore(&kore, "m"), "proven");
+    let nested = axiom(&kore, "P-SPEC.n");
+    let y = "VarY:SortInt{}";
+    let z = "VarZ:SortInt{}";
+    assert_contains(
+        &nested,
+        &format!(
+            "Lblpair{{}}(\\and{{SortInt{{}}}}(\\and{{SortInt{{}}}}({X}, \\equals{{SortInt{{}}, SortInt{{}}}}({X}, {y})), \\equals{{SortInt{{}}, SortInt{{}}}}({X}, {z}))"
+        ),
+    );
+}
+
 /// `module P` over K-IO with the rules `rules`; `go(N)` and `wr()` are programs.
 fn io_source(rules: &str) -> String {
     format!(
@@ -1384,14 +1463,20 @@ module P
   syntax KItem ::= done(IOInt) [symbol(done)] | res(IOInt, IOInt) [symbol(res)] | wdone(K) [symbol(wdone)]
   syntax IOInt ::= rd() [function, symbol(rd)]
   rule rd() => #getc(0)
+  syntax IOInt ::= viaAny(Int) [symbol(viaAny)]
+  rule viaAny(N) => #getc(N) [anywhere]
+  syntax IOInt ::= rdAny() [function, symbol(rdAny)]
+  rule rdAny() => viaAny(0)
+  syntax IOInt ::= myGetc(Int) [function, hook(IO.getc), symbol(myGetc)]
   rule <k> done(V:Int) => res(V, #getc(0)) ... </k>
 {rules}endmodule
 "
     )
 }
 
-/// An operand that applies an `impure` production, directly or through a function whose
-/// equations do, performs an effect when it is evaluated: copying it into an equality would
+/// An operand that applies an effectful production (`impure`, or hooked to an effect such as
+/// `IO.getc` without that attribute), directly or through the equations of a function, an
+/// anywhere rule or a macro, performs an effect when it is evaluated: copying it into an equality would
 /// duplicate the effect, and the equality is a predicate, where no effect is performed. Such a
 /// conjunction is emitted as written.
 #[test]
@@ -1401,6 +1486,10 @@ fn a_conjunction_with_an_effectful_operand_is_not_lowered() {
         ("second", "X #And #getc(0)"),
         ("through", "rd() #And X"),
         ("chain", "#getc(0) #And X #And 1"),
+        ("viaany", "viaAny(0) #And X"),
+        ("viaanysecond", "X #And viaAny(0)"),
+        ("viaanythrough", "rdAny() #And X"),
+        ("unmarkedhook", "myGetc(0) #And X"),
     ] {
         let rule = format!("  rule [{label}]: <k> go(X) => done({conjunction}) ... </k>\n");
         let artifacts = compile_source(io_source(&rule), CompilationBackend::Rust);
@@ -1466,7 +1555,14 @@ fn krun_io(rules: &str, program: &str, input: &str, output: &[&str]) -> (i32, St
 #[cfg(feature = "cli")]
 #[test]
 fn an_effectful_conjunction_runs_its_effect_once_under_io() {
-    for conjunction in ["#getc(0) #And X", "X #And #getc(0)"] {
+    for conjunction in [
+        "#getc(0) #And X",
+        "X #And #getc(0)",
+        "viaAny(0) #And X",
+        "X #And viaAny(0)",
+        "rdAny() #And X",
+        "myGetc(0) #And X",
+    ] {
         let rule = format!("  rule <k> go(X) => done({conjunction}) ... </k>\n");
         let (status, stdout, stderr) = krun_io(&rule, "go(97)", "abc", &[]);
         assert_eq!(status, 0, "{conjunction}: {stderr}");
