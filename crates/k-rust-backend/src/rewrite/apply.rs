@@ -1740,24 +1740,32 @@ fn instantiate(
     let mut trivial_work = Vec::new();
     for (rhs, alternative_ensures) in alternatives {
         let ensures = rule.ensures.merged(alternative_ensures);
+        // The alternative's own work (its right-hand side's construction and simplification)
+        // is its candidate's: the path facts it noted (`crate::path_facts`) are emitted into its
+        // unit, so they follow its diagnostics to the paths derived from it, and to the
+        // undefined-step entry it becomes when its result is undefined.
         let (attempt, own_diagnostics) = context.nested(|| {
             diagnostic::collect_unit(|| {
-                apply_rhs_alternative(
-                    context.definition,
-                    rule,
-                    pattern,
-                    rhs,
-                    &ensures,
-                    &substitution,
-                    &existential_substitution,
-                    &condition_knowledge,
-                    &match_conditions,
-                    &unclear_requires,
-                    &applicability,
-                    context.simplification_options,
-                    context.solver,
-                    context.io,
-                )
+                let (attempt, facts) = crate::path_facts::owned(|| {
+                    apply_rhs_alternative(
+                        context.definition,
+                        rule,
+                        pattern,
+                        rhs,
+                        &ensures,
+                        &substitution,
+                        &existential_substitution,
+                        &condition_knowledge,
+                        &match_conditions,
+                        &unclear_requires,
+                        &applicability,
+                        context.simplification_options,
+                        context.solver,
+                        context.io,
+                    )
+                });
+                crate::path_facts::emit(&facts);
+                attempt
             })
         });
         match attempt? {

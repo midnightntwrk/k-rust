@@ -7,7 +7,8 @@
 //! constraints ([`RefutationMemo::eligible`]), and only for the two refutations whose cause the
 //! attempt's own phases record ([`RefutationSite`]): its initial match `Failed` (P3), or its
 //! initial match succeeded directly and its instantiated `requires` simplified to `False` with no
-//! match condition (P11). An attempt that emitted a diagnostic, used the recovery ladder or
+//! match condition (P11). An attempt that emitted a diagnostic, noted a path fact (it read a
+//! value the definition leaves open, `crate::path_facts`), used the recovery ladder or
 //! re-entered is not kept. On such a subject and up to those exits the attempt is a function of
 //! the left-hand side's match against the subject term and of the `requires` instantiated by it:
 //! the path knowledge is empty (no constraint, and `\ceil` of a `ceil_free` subject is empty),
@@ -112,8 +113,8 @@ impl RefutationMemo {
     /// `NotApplicable` without an attempt when `memo` holds a refutation of the rule that read
     /// what this attempt would read, and storing this attempt's refutation when it is one the
     /// memo keeps: a `NotApplicable` at a recorded site ([`RefutationSite::Match`] or
-    /// [`RefutationSite::Requires`]) with no diagnostic emitted, so that skipping a later attempt
-    /// drops no report.
+    /// [`RefutationSite::Requires`]) with no diagnostic emitted and no path fact noted
+    /// (`crate::path_facts`), so that skipping a later attempt drops no report and no mark.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn apply_rule(
         memo: Option<&mut Self>,
@@ -144,6 +145,7 @@ impl RefutationMemo {
         }
         let site = Cell::new(RefutationSite::Other);
         let emitted = diagnostic::next_position();
+        let noted = crate::path_facts::marker();
         let attempt = apply_rule_reporting(
             definition,
             rule,
@@ -159,6 +161,9 @@ impl RefutationMemo {
         if matches!(attempt, RuleAttempt::NotApplicable)
             && matches!(site.get(), RefutationSite::Match | RefutationSite::Requires)
             && diagnostic::next_position() == emitted
+            // A refutation that read a value the definition leaves open is one model's: a
+            // later attempt decides it again, and its path is marked again.
+            && !crate::path_facts::noted_since(noted)
         {
             memo.record(definition, rule, &pattern.term);
         }

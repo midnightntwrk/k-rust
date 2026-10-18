@@ -604,7 +604,7 @@ fn deferred_operand_obligations(
     operand: &Term,
 ) -> Result<Vec<Predicate>, DeferredOutcome> {
     use crate::deferred::{Folded, deferred_obligations, fold_hooks_or_keep};
-    match fold_hooks_or_keep(definition, operand) {
+    match fold_hooks_or_keep(definition, operand, true) {
         Folded::Bottom(_) => Ok(vec![Predicate::False]),
         Folded::Term(folded) => deferred_obligations(definition, &folded),
     }

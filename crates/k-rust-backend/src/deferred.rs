@@ -39,6 +39,7 @@ use crate::{
     },
     definition::BackendDefinition,
     evaluation::EvaluationMode,
+    path_facts::FactSet,
     rule::{Predicate, RewriteRule, RuleRhs, applicable_groups, term_index},
     simplify::{EquationInstances, Instance, SimplificationError, equation_instances},
     stop::{self, Stoppable},
@@ -389,8 +390,40 @@ pub(crate) enum Folded {
 ///
 /// A value only an execution chooses is not computed outside one, as in term simplification
 /// (`crate::evaluation`). A builtin failure leaves its application as it is.
+///
+/// The folded term's value is read, so every value the definition leaves open that the fold takes
+/// marks the paths that read it (`crate::path_facts`); [`fold_hooks_for_definedness`] is the fold
+/// whose result decides a definedness only.
 pub(crate) fn fold_hooks(definition: &BackendDefinition, term: &Term) -> Stoppable<Folded> {
-    fold(definition, term, false)
+    fold(definition, term, false, false)
+}
+
+/// [`fold_hooks`] of a term whose definedness alone is read: the operand a decided `#if`,
+/// `andThenBool` or `orElseBool` discards, or the subject of a deferred atom.
+///
+/// A value the definition leaves open is a defined value in every model (`builtin::chosen_value`),
+/// and an application of a `total` symbol or a constructor over defined arguments is defined in
+/// every model. So where every application enclosing such a value in `term` is of a `total`
+/// symbol or a constructor, which admitted value the fold took cannot change the definedness
+/// read, and its evaluation marks no path. Under any other application (a partial hook such as
+/// `/Int` or `_[_]`, a function not declared `total`) the value can decide whether that
+/// application is defined, and it marks the paths as [`fold_hooks`] does:
+/// `10 /Int (#if keys_list(M)[0] ==K 1 #then 1 #else 0 #fi)` on two keys is defined in one
+/// listing order and undefined in the other.
+pub(crate) fn fold_hooks_for_definedness(
+    definition: &BackendDefinition,
+    term: &Term,
+) -> Stoppable<Folded> {
+    fold(definition, term, false, true)
+}
+
+/// Whether an application of `symbol` is defined wherever its arguments are: a constructor, or a
+/// function declared `total`.
+fn preserves_definedness(symbol: &Symbol) -> bool {
+    matches!(
+        symbol.attributes.symbol_type,
+        SymbolType::Constructor | SymbolType::Function(FunctionType::Total)
+    )
 }
 
 /// [`fold_hooks`], where a ground application of a function that no hook folds also takes the
@@ -399,11 +432,21 @@ pub(crate) fn fold_hooks(definition: &BackendDefinition, term: &Term) -> Stoppab
 /// on literal arguments, with a right-hand side folded by hooks alone and never stepped again: no
 /// recursion of the definition's equations, no effect, and a bound of one selection scan per
 /// node of the term (F5 of the fix round; docs/compatibility.md).
+///
+/// It folds a deferred atom's subject, whose definedness alone is read, as
+/// [`fold_hooks_for_definedness`] does.
 fn fold_with_values(definition: &BackendDefinition, term: &Term) -> Stoppable<Folded> {
-    fold(definition, term, true)
+    fold(definition, term, true, true)
 }
 
-fn fold(definition: &BackendDefinition, term: &Term, values: bool) -> Stoppable<Folded> {
+/// `definedness_only`: the definedness of `term` alone is read, and every application above it
+/// in the folded term preserves definedness ([`fold_hooks_for_definedness`]).
+fn fold(
+    definition: &BackendDefinition,
+    term: &Term,
+    values: bool,
+    definedness_only: bool,
+) -> Stoppable<Folded> {
     stop::with_stack_headroom(|| {
         let (symbol, sort_arguments, arguments) = match term.kind() {
             TermKind::Application {
@@ -416,7 +459,7 @@ fn fold(definition: &BackendDefinition, term: &Term, values: bool) -> Stoppable<
                 target,
                 term: inner,
             } => {
-                return Ok(match fold(definition, inner, values)? {
+                return Ok(match fold(definition, inner, values, definedness_only)? {
                     Folded::Term(folded) if folded.ptr_eq(inner) => Folded::Term(term.clone()),
                     Folded::Term(folded) => {
                         Folded::Term(Term::injection(source.clone(), target.clone(), folded))
@@ -431,8 +474,9 @@ fn fold(definition: &BackendDefinition, term: &Term, values: bool) -> Stoppable<
         }
         let mut changed = false;
         let mut folded_arguments = Vec::with_capacity(arguments.len());
+        let arguments_definedness_only = definedness_only && preserves_definedness(symbol);
         for argument in arguments {
-            match fold(definition, argument, values)? {
+            match fold(definition, argument, values, arguments_definedness_only)? {
                 Folded::Term(folded) => {
                     changed |= !folded.ptr_eq(argument);
                     folded_arguments.push(folded);
@@ -466,7 +510,12 @@ fn fold(definition: &BackendDefinition, term: &Term, values: bool) -> Stoppable<
         if !pure_hook_on_values(definition, &node) {
             return Ok(Folded::Term(node));
         }
-        Ok(match evaluate_pure_hook(definition, &node)? {
+        let evaluated = if definedness_only {
+            crate::path_facts::suspend(|| evaluate_pure_hook(definition, &node))
+        } else {
+            evaluate_pure_hook(definition, &node)
+        };
+        Ok(match evaluated? {
             // Outside an execution the entry leaves a value only an execution chooses
             // unevaluated (`builtin::evaluate_declared`); no equation step stands in for it.
             Ok(BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified { .. }))
@@ -526,8 +575,10 @@ fn defined_without_value(definition: &BackendDefinition, term: &Term) -> Stoppab
     if !pure_hook_on_values(definition, term) {
         return Ok(false);
     }
+    // Only the application's own definedness is read, which a value the definition leaves open
+    // has in every model: the evaluation marks no path (`crate::path_facts`).
     Ok(matches!(
-        evaluate_pure_hook(definition, term)?,
+        crate::path_facts::suspend(|| evaluate_pure_hook(definition, term))?,
         Ok(BuiltinResult::Value(_)
             | BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified { defined: true, .. }))
     ))
@@ -577,12 +628,23 @@ fn evaluate_pure_hook(
             .and_then(|values| values.entry(mode, application))
             .map(|entry| entry.result.clone())
     });
-    if let Some(Some(result)) = seen {
+    if let Some(Some((result, facts))) = seen {
+        // The served read took the value the evaluation took: its path read it too.
+        crate::path_facts::replay(&facts);
         return Ok(result);
     }
     #[cfg(test)]
     tests::HOOK_EVALUATIONS.with(|count| count.set(count.get() + 1));
+    let marker = crate::path_facts::marker();
     let result = evaluate_in_definition(application, definition)?;
+    let facts = crate::path_facts::since(marker);
+    // `SUBSTITUTION.substOne` is `impure` (substitution.md), so it is never kept here: each
+    // application is evaluated, and noted, where it is read.
+    debug_assert!(
+        !matches!(application.kind(), TermKind::Application { symbol, .. }
+            if symbol.attributes.hook.as_deref() == Some("SUBSTITUTION.substOne")),
+        "substOne is never served from the hook memo"
+    );
     HOOK_VALUES.with_borrow_mut(|values| {
         let Some(values) = values
             .as_mut()
@@ -595,7 +657,7 @@ fn evaluate_pure_hook(
             .iter_mut()
             .find(|entry| entry.names(mode, application))
         {
-            entry.result = Some(result.clone());
+            entry.result = Some((result.clone(), facts));
             return;
         }
         if values.entries.len() >= HOOK_VALUES_CAPACITY {
@@ -621,8 +683,9 @@ struct HookValue {
     symbol: Arc<Symbol>,
     sort_arguments: Vec<Sort>,
     arguments: Vec<NodeIdentity>,
-    /// The evaluator's result, kept from the second read on.
-    result: Option<Result<BuiltinResult, BuiltinError>>,
+    /// The evaluator's result, kept from the second read on, with the path facts its evaluation
+    /// noted (`crate::path_facts`), which every read it serves notes again.
+    result: Option<(Result<BuiltinResult, BuiltinError>, FactSet)>,
 }
 
 impl HookValue {
@@ -766,8 +829,14 @@ fn step_value(definition: &BackendDefinition, application: &Term) -> Stoppable<O
 
 /// [`fold_hooks`] where a stop only forgoes the fold: the term is kept as it is, which is sound,
 /// and a stop of the request stays raised for its owner's next poll.
-pub(crate) fn fold_hooks_or_keep(definition: &BackendDefinition, term: &Term) -> Folded {
-    match fold_hooks(definition, term) {
+///
+/// `definedness_only`: as [`fold_hooks_for_definedness`].
+pub(crate) fn fold_hooks_or_keep(
+    definition: &BackendDefinition,
+    term: &Term,
+    definedness_only: bool,
+) -> Folded {
+    match fold(definition, term, false, definedness_only) {
         Ok(folded) => folded,
         Err(stop) => {
             stop.forgo_refinement();
@@ -1362,7 +1431,7 @@ impl EvaluatedOperands {
             if deferred.contains(&position) || impure_subterm(definition, operand).is_some() {
                 continue;
             }
-            let Folded::Term(folded) = fold_hooks_or_keep(definition, operand) else {
+            let Folded::Term(folded) = fold_hooks_or_keep(definition, operand, false) else {
                 continue;
             };
             if folded != *value && !folded.attributes().ceil_free() {
@@ -1390,7 +1459,7 @@ impl EvaluatedOperands {
         let operand = if replaced.ptr_eq(operand) {
             replaced
         } else {
-            match fold_hooks_or_keep(definition, &replaced) {
+            match fold_hooks_or_keep(definition, &replaced, true) {
                 Folded::Term(folded) => folded,
                 Folded::Bottom(_) => return Ok(vec![Predicate::False]),
             }
@@ -1653,6 +1722,30 @@ mod tests {
             assert_eq!(reads(&first, &application, 3), [1, 1, 1]);
         }
         assert_eq!(evaluations(&first, &application), (0, value));
+    }
+
+    /// A served read notes the path facts its evaluation noted (`crate::path_facts`): each of
+    /// three reads, the third served from the scope, marks the collection open around it.
+    #[test]
+    fn a_served_read_notes_the_facts_of_its_evaluation() {
+        let definition = definition();
+        let application = choice(&definition);
+        let _scope = HookValueScope::enter(&definition);
+        crate::evaluation::with_evaluation(EvaluationMode::Execution, || {
+            let counts = (0..3)
+                .map(|_| {
+                    let ((count, value), facts) =
+                        crate::path_facts::collect(|| evaluations(&definition, &application));
+                    assert!(matches!(value, BuiltinResult::Value(_)), "{value:?}");
+                    assert_eq!(
+                        format!("{:?}", facts.shared),
+                        r#"{ChosenValue(ChosenValue { hook: "MAP.choice", class: Item, withheld_in_proof: true })}"#
+                    );
+                    count
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(counts, [1, 1, 0], "the third read is served");
+        });
     }
 
     #[test]

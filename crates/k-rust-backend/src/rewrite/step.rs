@@ -1039,6 +1039,16 @@ pub(super) fn rewrite_step_any(
                     }
                     let common = group.common.unwrap_or_default();
                     let mut group_trivial = group.trivial;
+                    // The sequential step offers an undefined result's instances to the groups
+                    // and rules after it, so whether a later candidate is taken rests on the
+                    // undefined alternatives' own work: the path facts it noted
+                    // (`crate::path_facts`) are on the state's path, every successor's.
+                    crate::path_facts::replay(&crate::path_facts::of_diagnostics(
+                        group
+                            .trivial_work
+                            .iter()
+                            .map(|sequenced| &sequenced.diagnostic),
+                    ));
                     // A candidate the step took as defined may still be undefined: an equation
                     // of a `total` symbol, trusted as total, may reduce its result to `\bottom`,
                     // which only its successor's normalization finds. The sequential step
@@ -1068,6 +1078,14 @@ pub(super) fn rewrite_step_any(
                         )?;
                         match checked.undefined {
                             Some(undefined) => {
+                                // Rejected: its instances go to the groups and rules after it,
+                                // which rests on its own work too, as above.
+                                crate::path_facts::replay(&crate::path_facts::of_diagnostics(
+                                    application
+                                        .diagnostics
+                                        .iter()
+                                        .map(|sequenced| &sequenced.diagnostic),
+                                ));
                                 if let Some(normalization) = &checked.normalization {
                                     extend_distinct(
                                         &mut undefined_work,

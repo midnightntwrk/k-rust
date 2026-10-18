@@ -571,6 +571,26 @@ pub enum BackendDiagnosticOutput<K = Value> {
     UndefinedInitialInstances {
         definedness: Vec<K>,
     },
+    /// The path read a value of `hook` the definition leaves open, of class `class` (the names
+    /// of [`ChosenValueOutput`](super::ChosenValueOutput)): in another model of the definition
+    /// that agrees with the request's inputs and k-rust's stated readings this leaf may differ
+    /// or be absent (`BackendDiagnostic::ImplementationChosenValue`). A leaf without one is, on
+    /// its own recorded path, a leaf in every such model (under `state-set`, its configuration
+    /// and halt, not its depth and trace); a search result or witness without one is reached in
+    /// every such model. It is a path fact: it stays on the paths that depend on the work that
+    /// found it whatever became of that work (an attempt that did not apply, a refuted
+    /// alternative, an undone attempt, a duplicate dropped for the kept state), and it never
+    /// causes or prevents a `state-set` merge. Where a halt rests on how many candidates survive
+    /// (`stopAtBranch`; with `cutPointRules` or `terminalRules`, a state one of whose candidates is
+    /// such a rule) every candidate's marks are on the state's path. A leaf carries all the run's
+    /// marks in a run with `maxWork` or `maxBreadth`, and under `state-set` when a leaf of
+    /// another halt class may stand for it (a `depth-bound` or other unexplored or undecided
+    /// leaf, and with `terminalRules` a `stuck` or `terminal` one) (docs/compatibility.md, "Marks
+    /// in executions").
+    ImplementationChosenValue {
+        hook: String,
+        class: String,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -841,6 +861,13 @@ pub struct SearchResponse<K = Value> {
     /// configuration; omitted when false.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub initial_bottom: bool,
+    /// Every distinct value the definition leaves open that the search read, in first-read order
+    /// (as for [`ExecutionResult::implementation_chosen_values`](super::ExecutionResult)); absent
+    /// when empty. When absent, every model of the definition that agrees with the request's
+    /// inputs and k-rust's stated readings gives the same results, entries and end
+    /// (docs/compatibility.md, "Marks in executions").
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub implementation_chosen_values: Vec<super::ChosenValueOutput>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -855,6 +882,9 @@ pub struct PathSearchResponse<K = Value> {
     /// As [`SearchResponse::initial_bottom`]; omitted when false.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub initial_bottom: bool,
+    /// As [`SearchResponse::implementation_chosen_values`]; omitted when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub implementation_chosen_values: Vec<super::ChosenValueOutput>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -882,6 +912,9 @@ pub struct PatternSearchResponse<K = Value> {
     /// As [`SearchResponse::initial_bottom`]; omitted when false.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub initial_bottom: bool,
+    /// As [`SearchResponse::implementation_chosen_values`]; omitted when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub implementation_chosen_values: Vec<super::ChosenValueOutput>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -909,6 +942,9 @@ pub struct PathPatternSearchResponse<K = Value> {
     /// As [`SearchResponse::initial_bottom`]; omitted when false.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub initial_bottom: bool,
+    /// As [`SearchResponse::implementation_chosen_values`]; omitted when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub implementation_chosen_values: Vec<super::ChosenValueOutput>,
 }
 
 pub(super) trait WireKore: Sized {
@@ -1352,6 +1388,12 @@ fn diagnostic_output<K: WireKore>(
                     .collect::<Result<_, _>>()?,
             }
         }
+        BackendDiagnostic::ImplementationChosenValue { hook, class } => {
+            BackendDiagnosticOutput::ImplementationChosenValue {
+                hook,
+                class: class.name().to_owned(),
+            }
+        }
     })
 }
 
@@ -1788,6 +1830,11 @@ pub(super) fn execution_response<K: WireKore>(
         expanded: result.expanded,
         stack_stops: result.stack_stops,
         smt_unknowns: result.smt_unknowns,
+        implementation_chosen_values: result
+            .implementation_chosen_values
+            .iter()
+            .map(Into::into)
+            .collect(),
     })
 }
 
@@ -1806,6 +1853,11 @@ pub(super) fn search_response<K: WireKore>(
         effects: effects_output(result.effects),
         incomplete: incomplete_searches_output(result.incomplete, &result.end)?,
         initial_bottom: result.initial_bottom,
+        implementation_chosen_values: result
+            .implementation_chosen_values
+            .iter()
+            .map(Into::into)
+            .collect(),
     })
 }
 
@@ -1824,6 +1876,11 @@ pub(super) fn path_search_response<K: WireKore>(
         effects: effects_output(result.effects),
         incomplete: incomplete_searches_output(result.incomplete, &result.end)?,
         initial_bottom: result.initial_bottom,
+        implementation_chosen_values: result
+            .implementation_chosen_values
+            .iter()
+            .map(Into::into)
+            .collect(),
     })
 }
 
@@ -1850,6 +1907,11 @@ pub(super) fn pattern_search_response<K: WireKore>(
         effects: effects_output(result.effects),
         incomplete: incomplete_searches_output(result.incomplete, &result.end)?,
         initial_bottom: result.initial_bottom,
+        implementation_chosen_values: result
+            .implementation_chosen_values
+            .iter()
+            .map(Into::into)
+            .collect(),
     })
 }
 
@@ -1876,6 +1938,11 @@ pub(super) fn path_pattern_search_response<K: WireKore>(
         effects: effects_output(result.effects),
         incomplete: incomplete_searches_output(result.incomplete, &result.end)?,
         initial_bottom: result.initial_bottom,
+        implementation_chosen_values: result
+            .implementation_chosen_values
+            .iter()
+            .map(Into::into)
+            .collect(),
     })
 }
 
@@ -2629,6 +2696,38 @@ mod tests {
             "BackendDiagnostic",
             "rule-condition-failed",
             &["ruleId", "origin?", "failure"],
+        );
+    }
+
+    /// A mark of an open value is written with its hook and class name and read back.
+    #[test]
+    fn an_implementation_chosen_value_round_trips_on_the_wire() {
+        let sort = Sort::simple("SortS");
+        let output = diagnostic_output::<Value>(
+            BackendDiagnostic::ImplementationChosenValue {
+                hook: "MAP.keys_list".into(),
+                class: k_rust_backend::builtin::ChosenClass::Order,
+            },
+            &sort,
+        )
+        .unwrap();
+        let value = serde_json::to_value(&output).unwrap();
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "kind": "implementation-chosen-value",
+                "hook": "MAP.keys_list",
+                "class": "order"
+            })
+        );
+        assert_eq!(
+            serde_json::from_value::<BackendDiagnosticOutput>(value).unwrap(),
+            output
+        );
+        assert_typescript_variant_fields(
+            "BackendDiagnostic",
+            "implementation-chosen-value",
+            &["hook", "class"],
         );
     }
 

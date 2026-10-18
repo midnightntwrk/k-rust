@@ -87,10 +87,11 @@ use crate::{
 use super::refutation_memo::RefutationMemo;
 use super::work::Work;
 use super::{
-    AppliedRule, ExecutionBranchMode, ExecutionLeaf, ExecutionOptions, ExecutionResult, HaltReason,
-    IndeterminateReason, InitialDefinedness, InitialSimplificationStatus, Pattern, RemainderBranch,
-    RemainderSimplification, RewriteResult, SubjectDefinedness, TraceEntry, TraceKind,
-    TrivialApplication, Truth, UndecidedStep, applied_trivial_halt,
+    AppliedRule, ExecutionBranchMode, ExecutionLeaf, ExecutionMode, ExecutionOptions,
+    ExecutionResult, HaltReason, IndeterminateReason, InitialDefinedness,
+    InitialSimplificationStatus, Pattern, RemainderBranch, RemainderSimplification, RewriteResult,
+    SubjectDefinedness, TraceEntry, TraceKind, TrivialApplication, Truth, UndecidedStep,
+    applied_trivial_halt,
     exploration_merge::{Arrival, ExplorationMerge},
     initial_definedness, normalize_pattern_substitution,
     path_trace::PathTrace,
@@ -149,6 +150,12 @@ fn execute_counted(
         moving_average: options.moving_average_timeout,
     });
     let collect_coverage = options.collect_coverage;
+    // Whether a bound that counts the whole run's exploration can end it: then every leaf rests
+    // on the work of every path, off its own included.
+    let bounded_by_run = options.max_work.is_some() || options.max_breadth.is_some();
+    // Under state-set, the standing of every halt a leaf of the run can have.
+    let replaceable_halts =
+        (options.result_modality == ResultModality::StateSet).then(|| Standing::possible(&options));
     let run = || {
         let mut execution = Execution::seed(
             definition,
@@ -164,6 +171,44 @@ fn execute_counted(
         }
         execution.run(&timeout_controller);
         execution.collect()
+    };
+    // Every mark the run notes, whatever becomes of the work that noted it.
+    let run = || {
+        let ((mut result, status), facts) = crate::path_facts::run(run);
+        result.implementation_chosen_values = facts
+            .iter()
+            .filter_map(crate::path_facts::PathFact::chosen_value)
+            .cloned()
+            .collect();
+        // `max_work` and `max_breadth` count the states of every path: whether either bound
+        // fires, and where, rests on exploration off a leaf's path, so in another model a leaf
+        // may be cut elsewhere or not at all. Every leaf of such a run carries every mark the
+        // run noted.
+        //
+        // Under state-set, the final merge lets the first leaf of a configuration it meets stand
+        // for a later one whose halt it may absorb, and the first can come from a path that
+        // exists only in another model: a leaf whose halt another class can absorb rests on
+        // every path, and carries every mark the run noted (`replaceable_in_state_set`).
+        let rests_on_every_path = |leaf: &ExecutionLeaf| {
+            bounded_by_run
+                || replaceable_halts
+                    .as_deref()
+                    .is_some_and(|possible| replaceable_in_state_set(possible, &leaf.halt_reason))
+        };
+        if !facts.is_empty() && result.leaves.iter().any(rests_on_every_path) {
+            let facts = crate::path_facts::diagnostics(
+                &facts
+                    .iter()
+                    .cloned()
+                    .collect::<crate::path_facts::FactSet>(),
+            );
+            for leaf in &mut result.leaves {
+                if rests_on_every_path(leaf) {
+                    extend_distinct(&mut leaf.diagnostics, &facts);
+                }
+            }
+        }
+        (result, status)
     };
     if !collect_coverage {
         return run();
@@ -273,10 +318,16 @@ impl<'a> Execution<'a> {
             // resumed from a reported one does not evaluate the operands its run left
             // unevaluated. One over an operand whose definedness depends on an impure
             // application is the unsupported-hook outcome.
-            match crate::deferred::resumed_constraints(
-                definition,
-                std::mem::take(&mut state.pattern.constraints),
-            ) {
+            let (resumed, facts) = crate::path_facts::collect(|| {
+                crate::deferred::resumed_constraints(
+                    definition,
+                    std::mem::take(&mut state.pattern.constraints),
+                )
+            });
+            state
+                .diagnostics
+                .extend(&crate::path_facts::diagnostics(&facts.all()));
+            match resumed {
                 Ok(constraints) => state.pattern.constraints = constraints,
                 Err(outcome) => {
                     leaves.push(state.leaf(
@@ -344,6 +395,7 @@ impl<'a> Execution<'a> {
                 stack_stops: 0,
                 smt_unknowns: 0,
                 stopped: self.stopped,
+                implementation_chosen_values: Vec::new(),
             },
             InitialSimplificationStatus {
                 simplified_to_bottom: false,
@@ -369,7 +421,11 @@ impl<'a> Execution<'a> {
     ///   that leaf or candidate.
     ///
     /// Work no reported successor is derived from is on no path: a rule attempt that does not
-    /// apply, an alternative refuted to bottom, a group the sequential step does not follow. A
+    /// apply, an alternative refuted to bottom, a group the sequential step does not follow. Its
+    /// path facts are not dropped with its diagnostics (`crate::path_facts`): the marks of open
+    /// values the step noted outside a candidate's own right-hand side are on the state's path,
+    /// every successor's, and every mark of the run is on its list
+    /// (`ExecutionResult::implementation_chosen_values`). A
     /// leaf cut off by a stop during or after the step carries all the work of the step and of
     /// its candidates done before it. Every collection forwards to any collector the caller
     /// holds around the execution, which therefore sees every diagnostic.
@@ -529,23 +585,48 @@ impl<'a> Execution<'a> {
         }
         // A `Finished` or `Branch` step attributes its diagnostics to its candidates; any other
         // result halts the state, whose leaf takes the step's whole collection.
-        let (rewritten, step_diagnostics) = diagnostic::collect(|| match &state.kind {
-            ExecutionStateKind::Rewritable => self.step(&state),
-            ExecutionStateKind::Remaining(None) => stuck(self.definition, &state.pattern),
-            ExecutionStateKind::Remaining(Some(undecided)) => {
-                Ok(undecided.clone().into_result(state.pattern.clone()))
-            }
+        //
+        // Path facts (`crate::path_facts`) the step noted outside a candidate's own right-hand
+        // side are on this state's path whatever the step's answer: they include the attempts
+        // that did not apply, the alternatives refuted to bottom and the groups not followed,
+        // on which every successor's existence rests. A candidate's own facts travel with its
+        // diagnostics (`apply.rs`).
+        let ((rewritten, step_diagnostics), step_facts) = crate::path_facts::collect(|| {
+            diagnostic::collect(|| match &state.kind {
+                ExecutionStateKind::Rewritable => self.step(&state),
+                ExecutionStateKind::Remaining(None) => stuck(self.definition, &state.pattern),
+                ExecutionStateKind::Remaining(Some(undecided)) => {
+                    Ok(undecided.clone().into_result(state.pattern.clone()))
+                }
+            })
         });
+        let mut state = state;
+        state
+            .diagnostics
+            .extend(&crate::path_facts::diagnostics(&step_facts.shared));
+        // A leaf the step ends, or a stop cuts off, takes the candidates' own facts too.
+        let owned_step_facts = crate::path_facts::diagnostics(&step_facts.owned);
+        let leaves_from = self.leaves.len();
         // A stopped step has no successor set: the state is the leaf, with the step's work.
         let rewritten = match rewritten {
             Ok(rewritten) => rewritten,
             Err(stop) => {
+                if self.may_halt_on_successor_count() {
+                    state.diagnostics.extend(&owned_step_facts);
+                }
                 return Err(interrupted_with(
                     self.stopped_leaf(state, stop),
-                    &[&step_diagnostics],
+                    &[&step_diagnostics, &owned_step_facts],
                 ));
             }
         };
+        // Where a halt rests on how many candidates survive, every candidate's own work decides
+        // what becomes of each other: whether this state branches, or its one successor is a
+        // cut point or terminal (`halts_on_successor_count`). Its facts are then this state's.
+        let halts_on_successor_count = self.halts_on_successor_count(&rewritten);
+        if halts_on_successor_count {
+            state.diagnostics.extend(&owned_step_facts);
+        }
         // The step answered, whatever its answer: the state is expanded (`Work::expand`). A stop
         // inside the step returned above without an answer; a remainder takes no step.
         if let ExecutionStateKind::Rewritable = state.kind {
@@ -553,7 +634,12 @@ impl<'a> Execution<'a> {
         }
         let mut state = match self.check_interrupted(state) {
             Ok(state) => state,
-            Err(leaf) => return Err(interrupted_with(leaf, &[&step_diagnostics])),
+            Err(leaf) => {
+                return Err(interrupted_with(
+                    leaf,
+                    &[&step_diagnostics, &owned_step_facts],
+                ));
+            }
         };
         match rewritten {
             RewriteResult::Stuck(_)
@@ -562,11 +648,20 @@ impl<'a> Execution<'a> {
             | RewriteResult::Indeterminate { .. }
             | RewriteResult::Simplification { .. } => {
                 state.diagnostics.extend(&step_diagnostics);
+                state.diagnostics.extend(&owned_step_facts);
                 Err(self.halt_leaf(state, rewritten, deferred_initial_vacuity))
             }
             RewriteResult::Finished(applied) => {
-                let (expanded, diagnostics) = diagnostic::collect(|| self.finished(state, applied));
-                expanded.map_err(|leaf| interrupted_with(leaf, &[&step_diagnostics, &diagnostics]))
+                let (expanded, diagnostics) =
+                    crate::path_facts::collect_with_diagnostics(|| self.finished(state, applied));
+                let expanded = expanded.map_err(|leaf| {
+                    interrupted_with(leaf, &[&step_diagnostics, &owned_step_facts, &diagnostics])
+                });
+                if halts_on_successor_count {
+                    self.spread_facts(expanded, &diagnostics, leaves_from)
+                } else {
+                    expanded
+                }
             }
             RewriteResult::Branch {
                 original,
@@ -574,10 +669,120 @@ impl<'a> Execution<'a> {
                 remainder,
                 trivial,
             } => {
-                let (expanded, diagnostics) = diagnostic::collect(|| {
+                let (expanded, diagnostics) = crate::path_facts::collect_with_diagnostics(|| {
                     self.branch(state, original, branches, remainder, trivial)
                 });
-                expanded.map_err(|leaf| interrupted_with(leaf, &[&step_diagnostics, &diagnostics]))
+                let expanded = expanded.map_err(|leaf| {
+                    interrupted_with(leaf, &[&step_diagnostics, &owned_step_facts, &diagnostics])
+                });
+                if halts_on_successor_count {
+                    self.spread_facts(expanded, &diagnostics, leaves_from)
+                } else {
+                    expanded
+                }
+            }
+        }
+    }
+
+    /// Whether the request's options let a state's halt rest on how many of its step's
+    /// candidates survive: under `StopAtBranch` a state with one surviving candidate goes on and
+    /// one with several is a `Branch` leaf, and a cut-point or terminal rule stops a run only as
+    /// the state's one successor.
+    fn may_halt_on_successor_count(&self) -> bool {
+        self.options.branch_mode == ExecutionBranchMode::StopAtBranch
+            || !self.options.cut_point_rules.is_empty()
+            || !self.options.terminal_rules.is_empty()
+    }
+
+    /// Whether the halt of the state whose step answered `rewritten` can rest on how many of the
+    /// step's candidates survive ([`Self::may_halt_on_successor_count`]). A candidate's survival
+    /// rests on its own right-hand side and normalization, so there every candidate's work is on
+    /// the path of whatever the state becomes.
+    ///
+    /// Without `StopAtBranch`, only a cut-point or terminal rule makes the count matter, as the
+    /// one survivor. Under strategy all the step tries every candidate of every priority group it
+    /// visits, and lists each that applied, defined (`Finished`, `Branch::branches`) or not
+    /// (`Branch::trivial`); which groups it visits, and which candidates apply, rests on the
+    /// matching and conditions, whose work is on the state's path anyway. A state none of whose
+    /// listed candidates is a selected stop rule cannot halt by one, whatever survives, so its
+    /// candidates' facts stay on their own paths. The sequential step does not try a candidate
+    /// whose instances an earlier one took, and in another model the earlier one may be
+    /// undefined there: under strategy any every state keeps the rule above. A result that halts
+    /// the state gives its leaf every fact of the step anyway.
+    fn halts_on_successor_count(&self, rewritten: &RewriteResult) -> bool {
+        if !self.may_halt_on_successor_count() {
+            return false;
+        }
+        if self.options.branch_mode == ExecutionBranchMode::StopAtBranch
+            || self.options.mode == ExecutionMode::Any
+        {
+            return true;
+        }
+        let stop_rule = |label: &Option<String>, unique_id: &String| {
+            [&self.options.cut_point_rules, &self.options.terminal_rules]
+                .into_iter()
+                .any(|selected| {
+                    label.as_ref().is_some_and(|label| selected.contains(label))
+                        || selected.contains(unique_id)
+                })
+        };
+        match rewritten {
+            RewriteResult::Finished(applied) => stop_rule(&applied.label, &applied.unique_id),
+            RewriteResult::Branch {
+                branches, trivial, ..
+            } => {
+                branches
+                    .iter()
+                    .any(|applied| stop_rule(&applied.label, &applied.unique_id))
+                    || trivial
+                        .iter()
+                        .any(|entry| stop_rule(&entry.label, &entry.rule_id))
+            }
+            RewriteResult::Stuck(_)
+            | RewriteResult::Trivial(_, _)
+            | RewriteResult::Vacuous(_)
+            | RewriteResult::Indeterminate { .. }
+            | RewriteResult::Simplification { .. } => true,
+        }
+    }
+
+    /// Under [`Self::halts_on_successor_count`], give the path facts among `phase_diagnostics`,
+    /// those of the phase that derived what `expanded` holds from a state's step (its candidates'
+    /// normalizations and their stop rules), to all of it: the leaves the phase pushed from
+    /// `leaves_from` on, the successors, and the leaf it ended the state with. Which of them
+    /// exist rests on every candidate's normalization.
+    fn spread_facts(
+        &mut self,
+        expanded: Phase<Vec<ExecutionState>>,
+        phase_diagnostics: &[BackendDiagnostic],
+        leaves_from: usize,
+    ) -> Phase<Vec<ExecutionState>> {
+        let facts = phase_diagnostics
+            .iter()
+            .filter(|diagnostic| {
+                matches!(
+                    diagnostic,
+                    BackendDiagnostic::ImplementationChosenValue { .. }
+                )
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        if facts.is_empty() {
+            return expanded;
+        }
+        for leaf in &mut self.leaves[leaves_from..] {
+            extend_distinct(&mut leaf.diagnostics, &facts);
+        }
+        match expanded {
+            Ok(mut successors) => {
+                for successor in &mut successors {
+                    successor.diagnostics.extend(&facts);
+                }
+                Ok(successors)
+            }
+            Err(mut leaf) => {
+                extend_distinct(&mut leaf.diagnostics, &facts);
+                Err(leaf)
             }
         }
     }
@@ -629,7 +834,7 @@ impl<'a> Execution<'a> {
                 Ok(Ok(normalization.constraints.clone())),
                 normalization.constraint_diagnostics.clone(),
             ),
-            None => diagnostic::collect(|| {
+            None => crate::path_facts::collect_with_diagnostics(|| {
                 simplify_predicates_with_solver(
                     self.definition,
                     &state.pattern.constraints,
@@ -735,7 +940,7 @@ impl<'a> Execution<'a> {
                 normalized_io = io;
                 (Ok(Ok(simplified)), diagnostics)
             }
-            None => diagnostic::collect(|| match io_evaluation.as_mut() {
+            None => crate::path_facts::collect_with_diagnostics(|| match io_evaluation.as_mut() {
                 Some(execution) => simplify_in_execution_with_solver(
                     self.definition,
                     &state.pattern.term,
@@ -816,7 +1021,7 @@ impl<'a> Execution<'a> {
                 // (`assume_initial_defined`), since asserting a false fact leaves nothing. A
                 // successor needs no such decision: its step decided its right-hand side's
                 // definedness, and term simplification conjoins its own obligations.
-                let (verdict, diagnostics) = diagnostic::collect(|| {
+                let (verdict, diagnostics) = crate::path_facts::collect_with_diagnostics(|| {
                     UndecidedFacts::of_pattern(self.definition, &state.pattern).decide(
                         self.definition,
                         SimplificationOptions {
@@ -893,7 +1098,7 @@ impl<'a> Execution<'a> {
         &mut self,
         mut state: ExecutionState,
     ) -> Phase<ExecutionState> {
-        let (definedness, diagnostics) = diagnostic::collect(|| {
+        let (definedness, diagnostics) = crate::path_facts::collect_with_diagnostics(|| {
             initial_definedness(
                 self.definition,
                 &state.pattern,
@@ -1048,7 +1253,7 @@ impl<'a> Execution<'a> {
                 &mut self.observation_log,
                 self.observation,
             );
-            let (simplified, diagnostics) = diagnostic::collect(|| {
+            let (simplified, diagnostics) = crate::path_facts::collect_with_diagnostics(|| {
                 simplify_result_pattern(
                     self.definition,
                     &applied.pattern,
@@ -1120,7 +1325,7 @@ impl<'a> Execution<'a> {
         );
         next.producer = Some(std::rc::Rc::new(producer));
         if let Some(rule) = terminal_rule {
-            let (simplified, diagnostics) = diagnostic::collect(|| {
+            let (simplified, diagnostics) = crate::path_facts::collect_with_diagnostics(|| {
                 simplify_result_pattern(
                     self.definition,
                     &next.pattern,
@@ -1232,19 +1437,20 @@ impl<'a> Execution<'a> {
             let parent = state.clone();
             // The branch leaf is the parent state: its diagnostics are the parent path's and its
             // pattern's simplification; each candidate it reports carries its own.
-            let (simplified_original, diagnostics) = diagnostic::collect(|| {
-                simplify_result_pattern(
-                    self.definition,
-                    &original,
-                    self.options.max_simplification_iterations,
-                    self.solver,
-                    state.depth,
-                    &mut state.trace,
-                    Some(&mut state.observation),
-                    &mut self.observation_log,
-                    self.observation,
-                )
-            });
+            let (simplified_original, diagnostics) =
+                crate::path_facts::collect_with_diagnostics(|| {
+                    simplify_result_pattern(
+                        self.definition,
+                        &original,
+                        self.options.max_simplification_iterations,
+                        self.solver,
+                        state.depth,
+                        &mut state.trace,
+                        Some(&mut state.observation),
+                        &mut self.observation_log,
+                        self.observation,
+                    )
+                });
             state.diagnostics.extend(&diagnostics);
             let original = match simplified_original {
                 Ok(Ok(simplified)) => {
@@ -1287,7 +1493,7 @@ impl<'a> Execution<'a> {
                     &mut self.observation_log,
                     self.observation,
                 );
-                let (simplified, diagnostics) = diagnostic::collect(|| {
+                let (simplified, diagnostics) = crate::path_facts::collect_with_diagnostics(|| {
                     simplify_result_pattern(
                         self.definition,
                         &applied.pattern,
@@ -1326,7 +1532,7 @@ impl<'a> Execution<'a> {
                             .io
                             .as_ref()
                             .or(state.io_enabled.then_some(&state.io));
-                        let (undefined, work) = diagnostic::collect(|| {
+                        let (undefined, work) = crate::path_facts::collect_with_diagnostics(|| {
                             successor_undefinedness(
                                 self.definition,
                                 &built,
@@ -1412,7 +1618,7 @@ impl<'a> Execution<'a> {
                     &mut self.observation_log,
                     self.observation,
                 );
-                let (simplified, diagnostics) = diagnostic::collect(|| {
+                let (simplified, diagnostics) = crate::path_facts::collect_with_diagnostics(|| {
                     simplify_result_pattern(
                         self.definition,
                         &candidate.pattern,
@@ -1566,7 +1772,7 @@ impl<'a> Execution<'a> {
         normalized: &Pattern,
         diagnostics: &mut PathDiagnostics,
     ) -> Stoppable<HaltReason> {
-        let (undefined, work) = diagnostic::collect(|| {
+        let (undefined, work) = crate::path_facts::collect_with_diagnostics(|| {
             successor_undefinedness(
                 self.definition,
                 built,
@@ -1631,7 +1837,7 @@ impl<'a> Execution<'a> {
         for sibling in &producer.siblings {
             // The sibling's simplification decides this leaf's constraint, so its work is the
             // leaf's.
-            let (undefined, work) = diagnostic::collect(|| {
+            let (undefined, work) = crate::path_facts::collect_with_diagnostics(|| {
                 successor_undefinedness(
                     self.definition,
                     sibling,
@@ -1656,7 +1862,7 @@ impl<'a> Execution<'a> {
             term: producer.before.term.clone(),
             constraints,
         };
-        let (simplified, work) = diagnostic::collect(|| {
+        let (simplified, work) = crate::path_facts::collect_with_diagnostics(|| {
             simplify_predicates_with_solver(
                 self.definition,
                 &pattern.constraints,
@@ -1755,7 +1961,7 @@ impl<'a> Execution<'a> {
         state: &ExecutionState,
         entry: &TrivialApplication,
     ) -> Stoppable<Option<ExecutionLeaf>> {
-        let (pattern, diagnostics) = diagnostic::collect(|| {
+        let (pattern, diagnostics) = crate::path_facts::collect_with_diagnostics(|| {
             entry.decided_undefined_instances(
                 self.definition,
                 self.options.max_simplification_iterations,
@@ -1877,7 +2083,9 @@ impl<'a> Execution<'a> {
             // outside the execution, in `Proof` mode.
             // Nor does it report to the run's coverage.
             crate::evaluation::with_evaluation(crate::evaluation::EvaluationMode::Proof, || {
-                crate::coverage::suspend(|| (self.observe)(effect));
+                crate::coverage::suspend(|| {
+                    crate::path_facts::suspend(|| (self.observe)(effect));
+                });
             });
         }
         (
@@ -1892,6 +2100,7 @@ impl<'a> Execution<'a> {
                 stack_stops: 0,
                 smt_unknowns: 0,
                 stopped: self.stopped,
+                implementation_chosen_values: Vec::new(),
             },
             InitialSimplificationStatus {
                 simplified_to_bottom: self.initial_input_count != 0
@@ -2173,17 +2382,86 @@ fn merge_class(halt: &HaltReason) -> MergeClass {
 ///   it does not recover that it is final. A terminal-rule leaf therefore absorbs, and is absorbed
 ///   by, only leaves that also say the configuration is final (stuck or terminal-rule).
 fn may_absorb(retained: &HaltReason, later: &HaltReason) -> bool {
-    let final_in_its_own_right =
-        |halt: &HaltReason| matches!(halt, HaltReason::Stuck | HaltReason::TerminalRule { .. });
-    match (merge_class(retained), merge_class(later)) {
-        (MergeClass::ByArrival, _) | (_, MergeClass::ByArrival) => {
-            final_in_its_own_right(retained) && final_in_its_own_right(later)
-        }
-        (MergeClass::ByConfiguration, _) | (MergeClass::Unexplored, MergeClass::Unexplored) => true,
-        (MergeClass::Unexplored, _) | (MergeClass::NoConfiguration | MergeClass::RunEnding, _) => {
-            false
+    Standing::of(retained).absorbs(Standing::of(later))
+}
+
+/// What of a leaf's halt [`may_absorb`] reads: its merge class, and whether the halt says the
+/// configuration is final in its own right (stuck or terminal-rule).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct Standing {
+    class: MergeClass,
+    final_in_its_own_right: bool,
+}
+
+impl Standing {
+    fn of(halt: &HaltReason) -> Self {
+        Self {
+            class: merge_class(halt),
+            final_in_its_own_right: matches!(
+                halt,
+                HaltReason::Stuck | HaltReason::TerminalRule { .. }
+            ),
         }
     }
+
+    /// The table of [`may_absorb`].
+    fn absorbs(self, later: Self) -> bool {
+        match (self.class, later.class) {
+            (MergeClass::ByArrival, _) | (_, MergeClass::ByArrival) => {
+                self.final_in_its_own_right && later.final_in_its_own_right
+            }
+            (MergeClass::ByConfiguration, _) | (MergeClass::Unexplored, MergeClass::Unexplored) => {
+                true
+            }
+            (MergeClass::Unexplored, _)
+            | (MergeClass::NoConfiguration | MergeClass::RunEnding, _) => false,
+        }
+    }
+
+    /// The standing of every halt a leaf of a run under `options` can have: those every run can
+    /// reach (trivial and vacuous, a run-ending stop, an unexplored or undecided subtree, stuck),
+    /// and those only an option gives (branch, cut point, terminal rule).
+    fn possible(options: &ExecutionOptions) -> Vec<Self> {
+        let standing = |class, final_in_its_own_right| Self {
+            class,
+            final_in_its_own_right,
+        };
+        let mut possible = vec![
+            standing(MergeClass::NoConfiguration, false),
+            standing(MergeClass::RunEnding, false),
+            standing(MergeClass::Unexplored, false),
+            standing(MergeClass::ByConfiguration, true),
+        ];
+        if options.branch_mode == ExecutionBranchMode::StopAtBranch
+            || !options.cut_point_rules.is_empty()
+        {
+            possible.push(standing(MergeClass::ByConfiguration, false));
+        }
+        if !options.terminal_rules.is_empty() {
+            possible.push(standing(MergeClass::ByArrival, true));
+        }
+        possible
+    }
+}
+
+/// Whether, in a state-set result, a leaf of halt `halt` may be absorbed into a leaf of another
+/// merge class (`possible`, the [`Standing::possible`] of the request's options): in another
+/// model of the definition, the path of such a leaf may exist and be met first, and the leaf's
+/// configuration is then reported with that other halt.
+///
+/// Absorption within one class needs nothing more. An unexplored or undecided leaf can also be
+/// absorbed by a stuck one, so it carries the list anyway. Two leaves of the by-configuration
+/// class with one configuration have the halt that the configuration's own step decides (the
+/// same step on the same configuration), and that step's work is on both leaves' paths. A leaf
+/// that absorbs another keeps its configuration and halt: which path's witness (depth, trace,
+/// observations) the configuration is reported with depends on the path met first, which the
+/// state-set guarantee does not cover, so that direction needs nothing either.
+fn replaceable_in_state_set(possible: &[Standing], halt: &HaltReason) -> bool {
+    let standing = Standing::of(halt);
+    standing.class.mergeable()
+        && possible
+            .iter()
+            .any(|other| other.class != standing.class && other.absorbs(standing))
 }
 
 fn selected_stop_rule(applied: &AppliedRule, selected: &BTreeSet<String>) -> Option<String> {
@@ -2408,7 +2686,7 @@ pub(crate) fn normalize_successor(
     let retained_substitution =
         normalize_pattern_substitution(&mut pattern, definition.sort_graph());
     let added = beyond(&pattern.constraints, base);
-    let (simplified, constraint_diagnostics) = diagnostic::collect(|| {
+    let (simplified, constraint_diagnostics) = crate::path_facts::collect_with_diagnostics(|| {
         simplify_predicates_with_solver(definition, &pattern.constraints, &[], options, solver)
     });
     let Ok(simplified) = simplified? else {
@@ -2443,23 +2721,24 @@ pub(crate) fn normalize_successor(
     let mut evaluation = io
         .filter(|_| pattern_supports_execution_io(&pattern))
         .map(ExecutionIoState::begin_evaluation);
-    let (simplified, diagnostics) = diagnostic::collect(|| match evaluation.as_mut() {
-        Some(evaluation) => simplify_in_execution_with_solver(
-            definition,
-            &pattern.term,
-            &pattern.constraints,
-            options,
-            solver,
-            evaluation,
-        ),
-        None => simplify_with_solver(
-            definition,
-            &pattern.term,
-            &pattern.constraints,
-            options,
-            solver,
-        ),
-    });
+    let (simplified, diagnostics) =
+        crate::path_facts::collect_with_diagnostics(|| match evaluation.as_mut() {
+            Some(evaluation) => simplify_in_execution_with_solver(
+                definition,
+                &pattern.term,
+                &pattern.constraints,
+                options,
+                solver,
+                evaluation,
+            ),
+            None => simplify_with_solver(
+                definition,
+                &pattern.term,
+                &pattern.constraints,
+                options,
+                solver,
+            ),
+        });
     let Ok(simplified) = simplified? else {
         return Ok(failed);
     };
@@ -2543,7 +2822,7 @@ fn externalise_leaf(
     observation_log: &mut ObservationLog,
     observation_options: Option<&ObservationOptions>,
 ) -> ExecutionLeaf {
-    let (simplified, diagnostics) = diagnostic::collect(|| {
+    let (simplified, diagnostics) = crate::path_facts::collect_with_diagnostics(|| {
         simplify_result_pattern(
             definition,
             &pattern,

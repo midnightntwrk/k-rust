@@ -11,6 +11,12 @@
 //! reason, effects and console, with no diagnostic the other lacks: the final merge would absorb
 //! every one of them. Its expansion is skipped.
 //!
+//! Path facts (`BackendDiagnostic::ImplementationChosenValue`) are left out of the comparison of
+//! diagnostics: they record which paths read a value the definition leaves open, not what a
+//! leaf means, so a mark never causes or prevents a merge and the run explores what an unmarked
+//! run explores. An absorbed arrival's marks are on the run's list
+//! (`ExecutionResult::implementation_chosen_values`), which holds every mark the run noted.
+//!
 //! The table is used under depth-first exploration: `pending`'s depths do not increase from front
 //! to back, so no state can later arrive at a depth below the back of `pending`, and those depths
 //! are evicted ([`ExplorationMerge::evict_below`]).
@@ -79,7 +85,9 @@ impl Arrival {
     fn absorbed_by(&self, recorded: &Self, names: &RequestNames) -> bool {
         recorded.io_enabled == self.io_enabled
             && recorded.effects.fingerprint() == self.effects.fingerprint()
-            && self.diagnostics.is_subset_of(&recorded.diagnostics)
+            && self
+                .diagnostics
+                .is_subset_ignoring_facts(&recorded.diagnostics)
             && recorded.key(names) == self.key(names)
             && recorded.effects == self.effects
             && recorded.io.observed_alike(&self.io)

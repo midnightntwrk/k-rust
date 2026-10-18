@@ -25,6 +25,7 @@ pub mod fresh;
 pub mod implication;
 pub mod matching;
 pub mod model;
+pub mod path_facts;
 pub mod proof;
 pub mod rewrite;
 pub mod rule;

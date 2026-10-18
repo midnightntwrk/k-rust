@@ -750,9 +750,50 @@ fn undefined_initial_instances_message(definedness: &[Predicate], result_sort: &
     )
 }
 
+/// The warning for an `ImplementationChosenValue` diagnostic, printed once per run: a path to a
+/// result read a value the definition leaves open, so that result is one model's.
+fn implementation_chosen_value_message(
+    hook: &str,
+    class: k_rust_backend::builtin::ChosenClass,
+) -> String {
+    format!(
+        "a path to a result read a value of {hook} the definition leaves open ({}); in another model of the definition such a result may differ or be absent",
+        class.name()
+    )
+}
+
+/// Print, once each, the marks of `listed`, the run's list, that no result's warning printed
+/// (`run_wide`): work on no reported path read them, a vanished candidate or an absorbed
+/// arrival, and in another model of the definition that work may give other results.
+fn report_unprinted_marks(
+    listed: &[k_rust_backend::builtin::ChosenValue],
+    run_wide: &HashSet<&BackendDiagnostic>,
+) {
+    let printed = run_wide
+        .iter()
+        .filter_map(|diagnostic| {
+            if let BackendDiagnostic::ImplementationChosenValue { hook, class } = diagnostic {
+                Some((hook.as_str(), *class))
+            } else {
+                None
+            }
+        })
+        .collect::<HashSet<_>>();
+    for chosen in listed {
+        if !printed.contains(&(&*chosen.hook, chosen.class)) {
+            eprintln!(
+                "warning: the run read a value of {} the definition leaves open ({}) on no path to a result; another model of the definition may give other results",
+                chosen.hook,
+                chosen.class.name()
+            );
+        }
+    }
+}
+
 /// Print the warnings of `diagnostics`, one result's path, each once. A diagnostic about the
-/// initial configuration is on every result's path; `run_wide` keeps those already printed for
-/// another result of the run, so each is printed once per run.
+/// initial configuration is on every result's path, and a mark of an open value names no result;
+/// `run_wide` keeps those already printed for another result of the run, so each is printed
+/// once per run.
 fn report_diagnostics<'a>(
     definition: &BackendDefinition,
     diagnostics: impl IntoIterator<Item = &'a BackendDiagnostic>,
@@ -766,6 +807,14 @@ fn report_diagnostics<'a>(
             continue;
         }
         match diagnostic {
+            BackendDiagnostic::ImplementationChosenValue { hook, class } => {
+                if run_wide.insert(diagnostic) {
+                    eprintln!(
+                        "warning: {}",
+                        implementation_chosen_value_message(hook, *class)
+                    );
+                }
+            }
             BackendDiagnostic::UndefinedInitialInstances { definedness } => {
                 if run_wide.insert(diagnostic) {
                     eprintln!(
@@ -1256,6 +1305,7 @@ fn run_backend_in_execution(
                 &mut run_wide,
             );
         }
+        report_unprinted_marks(&result.implementation_chosen_values, &run_wide);
         return Ok(BackendRunOutput {
             pattern: RunPattern::Matches(search_output(
                 &result,
@@ -1355,6 +1405,7 @@ fn run_backend_in_execution(
             &mut run_wide,
         );
     }
+    report_unprinted_marks(&execution.implementation_chosen_values, &run_wide);
     if let Some(path) = options.stop_leaves {
         let depth_bounded = execution
             .leaves
