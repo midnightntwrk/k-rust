@@ -444,15 +444,18 @@ export type ObservedIn = 'load' | 'run'
 /**
  * A claim of the definition an evaluation found contradicted by the definition's own equations:
  * `claim: 'total'`, a symbol declared total (or functional) whose equation reduced an application
- * to defined arguments to bottom, with the fields of `ContradictedTotal`. `rewriteRule*` name the
+ * to defined arguments to bottom, with the fields of `ContradictedTotal`; or
+ * `claim: 'preserves-definedness'`, a rule declared so (`ruleId`, `ruleLabel`, `origin`) whose
+ * result term as the step built it (`application`) has an undefined subterm (`undefined`), with
+ * no `symbol` or `kLabel`. `rewriteRule*` name the
  * rewrite rule whose attempt or successor's normalization observed it, absent when no rule's work
  * did. `ground`: the application is variable-free, so the definition has no model with the claim
  * at that input; a non-ground record shows nothing. `observedIn`: whether the definition's load or
  * this run observed it; a leaf's records are always 'run'.
  */
 export interface ContradictedClaim {
-  claim: 'total'
-  symbol: string
+  claim: 'total' | 'preserves-definedness'
+  symbol?: string
   kLabel?: string
   ruleId: string
   ruleLabel?: string
@@ -690,8 +693,8 @@ export type BackendDiagnostic =
    */
   | {
       kind: 'contradicted-claim'
-      claim: 'total'
-      symbol: string
+      claim: 'total' | 'preserves-definedness'
+      symbol?: string
       kLabel?: string
       ruleId: string
       ruleLabel?: string

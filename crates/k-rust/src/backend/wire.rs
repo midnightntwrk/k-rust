@@ -148,6 +148,11 @@ pub enum ContradictedClaimKind {
     /// A symbol declared `total` (or `functional`) whose own equation reduced an application to
     /// defined arguments to bottom; the record carries the fields of [`ContradictedTotalOutput`].
     Total,
+    /// A rewrite rule declared `preserves-definedness` whose result term, as a step that applied
+    /// it built it, has a subterm the normalization found undefined; the record names the rule
+    /// (`ruleId`, `ruleLabel`, `origin`), its result term (`application`) and that subterm
+    /// (`undefined`), and has no `symbol`.
+    PreservesDefinedness,
 }
 
 /// Who observed a run-level record (`k_rust_backend::path_facts::ObservedIn`): the load of the
@@ -173,8 +178,12 @@ impl From<k_rust_backend::path_facts::ObservedIn> for ObservedInOutput {
 /// definition's own equations (`k_rust_backend::path_facts::ContradictedClaim`): a leaf's
 /// `contradicted-claim` path fact and an entry of the result's `contradictedClaims`.
 ///
-/// `symbol` to `undefined` are those of [`ContradictedTotalOutput`]: the contradicted symbol, the
-/// equation that reduced the application to bottom, the application and the undefined term.
+/// For `claim: total`, `symbol` to `undefined` are those of [`ContradictedTotalOutput`]: the
+/// contradicted symbol, the equation that reduced the application to bottom, the application and
+/// the undefined term. For `claim: preserves-definedness`, `ruleId`, `ruleLabel` and `origin`
+/// name the rule whose attribute is contradicted, `application` is its result term as the step
+/// built it and `undefined` the undefined subterm its normalization reached; `symbol` and
+/// `kLabel` are absent.
 /// `rewriteRule*` name the rewrite rule whose attempt (match, conditions, right-hand side) or
 /// whose successor's normalization observed it, absent when no rule's work did (an initial
 /// state's normalization, the load). `ground` says whether the application is variable-free:
@@ -186,7 +195,8 @@ impl From<k_rust_backend::path_facts::ObservedIn> for ObservedInOutput {
 #[serde(bound(deserialize = "K: Deserialize<'de>"))]
 pub struct ContradictedClaimOutput<K = Value> {
     pub claim: ContradictedClaimKind,
-    pub symbol: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub symbol: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub k_label: Option<String>,
     pub rule_id: String,
@@ -209,20 +219,43 @@ pub struct ContradictedClaimOutput<K = Value> {
 pub(super) fn contradicted_claim_output<K: WireKore>(
     claim: &k_rust_backend::path_facts::ContradictedClaim,
 ) -> Result<ContradictedClaimOutput<K>, BackendError> {
-    let total = claim
-        .total()
-        .expect("a contradicted claim of this backend is a contradicted total");
-    let ContradictedTotalOutput {
-        symbol,
-        k_label,
-        rule_id,
-        rule_label,
-        origin,
-        application,
-        undefined,
-    } = contradicted_total_output(total)?;
+    let (kind, symbol, k_label, rule_id, rule_label, origin, application, undefined) =
+        match &claim.claim {
+            k_rust_backend::path_facts::Claim::Total(total) => {
+                let ContradictedTotalOutput {
+                    symbol,
+                    k_label,
+                    rule_id,
+                    rule_label,
+                    origin,
+                    application,
+                    undefined,
+                } = contradicted_total_output(total)?;
+                (
+                    ContradictedClaimKind::Total,
+                    Some(symbol),
+                    k_label,
+                    rule_id,
+                    rule_label,
+                    origin,
+                    application,
+                    undefined,
+                )
+            }
+            k_rust_backend::path_facts::Claim::PreservesDefinedness(preservation) => (
+                ContradictedClaimKind::PreservesDefinedness,
+                None,
+                None,
+                preservation.rule_id.clone(),
+                preservation.label.clone(),
+                preservation.origin.as_ref().map(Into::into),
+                encode_term(&preservation.instance)?,
+                encode_term(&preservation.undefined_term)?,
+            ),
+            _ => unreachable!("every claim kind of this backend is written"),
+        };
     Ok(ContradictedClaimOutput {
-        claim: ContradictedClaimKind::Total,
+        claim: kind,
         symbol,
         k_label,
         rule_id,
@@ -2926,7 +2959,7 @@ mod tests {
     fn a_contradicted_claim_round_trips_on_the_wire() {
         let output = BackendDiagnosticOutput::<Value>::ContradictedClaim(ContradictedClaimOutput {
             claim: ContradictedClaimKind::Total,
-            symbol: "Lbltd".into(),
+            symbol: Some("Lbltd".into()),
             k_label: Some("td".into()),
             rule_id: "eq".into(),
             rule_label: Some("MAIN.tdeq".into()),
@@ -2967,7 +3000,7 @@ mod tests {
         assert!(serde_json::from_value::<BackendDiagnosticOutput>(unknown).is_err());
         let fields = [
             "claim",
-            "symbol",
+            "symbol?",
             "kLabel?",
             "ruleId",
             "ruleLabel?",
@@ -2981,6 +3014,16 @@ mod tests {
             "observedIn",
         ];
         assert_typescript_variant_fields("BackendDiagnostic", "contradicted-claim", &fields);
+        // The claim kinds' words.
+        for (kind, word) in [
+            (ContradictedClaimKind::Total, "total"),
+            (
+                ContradictedClaimKind::PreservesDefinedness,
+                "preserves-definedness",
+            ),
+        ] {
+            assert_eq!(serde_json::to_value(kind).unwrap(), word);
+        }
         // Where a record was observed is one of two words.
         for (observed_in, word) in [
             (ObservedInOutput::Load, "load"),

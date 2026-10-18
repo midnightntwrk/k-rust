@@ -7,8 +7,10 @@
 //! - an evaluation that read a value the definition leaves open ([`PathFact::ChosenValue`],
 //!   `builtin::chosen_value`): a leaf whose path read one is one model's answer;
 //! - an evaluation that found a claim of the definition contradicted by its own equations
-//!   ([`PathFact::ContradictedClaim`]): a leaf whose path's decisions rest on one rests on an
-//!   input where the definition has no model with the claim;
+//!   ([`PathFact::ContradictedClaim`]): a `total` claim one of the symbol's equations refutes,
+//!   or a rule's `preserves-definedness` claim its result term's normalization refutes; a leaf
+//!   whose path's decisions rest on one rests on an input where the definition has no model
+//!   with the claim;
 //! - a `Bytes` result the memory allowance refused ([`PathFact::AllowanceRefusal`]) and an
 //!   application left unevaluated as an unsupported hook ([`PathFact::UnsupportedHook`]): facts
 //!   of the run only ([`PathFact::on_paths`]), which reach the run record and no path.
@@ -153,7 +155,8 @@ impl PathFact {
 /// A claim of the definition that an evaluation found contradicted by the definition's own
 /// equations, and where: the rewrite rule whose attempt or successor observed it.
 ///
-/// A record is a fact about the definition at the contradicted application. When it is
+/// A record is a fact about the definition at the contradicted application (for a
+/// `preserves-definedness` claim, the rule's result term). When it is
 /// [`ground`](Self::ground), the application is variable-free, so the definition has no model
 /// with the claim at that input. A non-ground record comes from a state whose constraints may be
 /// unsatisfiable without being refuted, and refutes nothing.
@@ -165,7 +168,8 @@ pub struct ContradictedClaim {
     /// produced successor's normalization observed the contradiction; `None` when no rule's
     /// work did (the normalization of an initial state, or work outside a run's steps).
     pub rule: Option<ObservingRule>,
-    /// Whether the contradicted application is ground (variable-free).
+    /// Whether the contradicted application (for a `preserves-definedness` claim, the result
+    /// term) is ground (variable-free).
     pub ground: bool,
     /// Whether the definition's load or the run that reports it observed the contradiction. A
     /// leaf's records are the run's; the load's are on the result's lists only.
@@ -191,9 +195,33 @@ pub enum Claim {
     /// A symbol declared `total` (or `functional`) whose own equation reduced an application to
     /// defined arguments to bottom.
     Total(ContradictedTotal),
+    /// A rewrite rule declared `preserves-definedness` whose result term, as a step that applied
+    /// it built it, has a subterm the normalization found undefined.
+    PreservesDefinedness(ContradictedPreservation),
 }
 
-/// A rewrite rule by the parts a report names it by.
+/// A rewrite rule's `preserves-definedness` claim refuted at one instance: the attribute claims
+/// that the result term is defined wherever the left-hand side and the `requires` hold, so a
+/// step that applied the rule (its match and its `requires` held on a defined state) and whose
+/// result term the normalization reduced to an undefined subterm shows the claim false there.
+/// An `ensures` and a condition the step carries are no part of the result term, so their
+/// failures refute nothing of it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContradictedPreservation {
+    /// The rule's `UNIQUE_ID`.
+    pub rule_id: String,
+    pub label: Option<String>,
+    /// Where the rule is written (its first origin), when the KORE carries it.
+    pub origin: Option<RuleOrigin>,
+    /// The rule's result term as the step built it.
+    pub instance: Term,
+    /// The undefined subterm the normalization of `instance` reached.
+    pub undefined_term: Term,
+}
+
+/// A rewrite rule by the parts a report names it by, and whether it claims that its result is
+/// defined (`preserves_definedness`), the claim a normalization of its result can refute
+/// ([`note_contradicted_preservation`]).
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ObservingRule {
     /// The rule's `UNIQUE_ID`.
@@ -201,6 +229,9 @@ pub struct ObservingRule {
     pub label: Option<String>,
     /// Where the rule is written (its first origin), when the KORE carries it.
     pub origin: Option<RuleOrigin>,
+    /// Whether the rule is declared `preserves-definedness` (the author's claim, as written,
+    /// `RuleAttributes::preserves_definedness`), a function of the rule.
+    pub(crate) preserves_definedness: bool,
 }
 
 impl ObservingRule {
@@ -209,43 +240,68 @@ impl ObservingRule {
             unique_id: rule.attributes.unique_id.clone(),
             label: rule.attributes.label.clone(),
             origin: rule.attributes.origins.first().cloned(),
+            preserves_definedness: rule.attributes.preserves_definedness,
         }
     }
 }
 
-/// What tells two records apart: everything but the equation's attributes, which its id and
-/// origin fix.
-type ClaimKey<'a> = (
-    &'a Term,
-    &'a str,
-    Option<&'a str>,
-    Option<&'a RuleOrigin>,
-    &'a Term,
-    &'a Option<ObservingRule>,
-    bool,
-    ObservedIn,
-);
+/// What tells two claims apart: for a `total` claim everything but the equation's attributes,
+/// which its id and origin fix; for a `preserves-definedness` claim every field.
+#[derive(Eq, Hash, Ord, PartialEq, PartialOrd)]
+enum ClaimPart<'a> {
+    Total(
+        &'a Term,
+        &'a str,
+        Option<&'a str>,
+        Option<&'a RuleOrigin>,
+        &'a Term,
+    ),
+    PreservesDefinedness(
+        &'a str,
+        Option<&'a str>,
+        Option<&'a RuleOrigin>,
+        &'a Term,
+        &'a Term,
+    ),
+}
+
+/// What tells two records apart: the claim, the observing rule, groundness and who observed it.
+type ClaimKey<'a> = (ClaimPart<'a>, &'a Option<ObservingRule>, bool, ObservedIn);
 
 impl ContradictedClaim {
     fn key(&self) -> ClaimKey<'_> {
-        match &self.claim {
-            Claim::Total(total) => (
+        let claim = match &self.claim {
+            Claim::Total(total) => ClaimPart::Total(
                 &total.application,
                 &total.rule_id,
                 total.label.as_deref(),
                 total.origin.as_ref(),
                 &total.undefined_term,
-                &self.rule,
-                self.ground,
-                self.observed_in,
             ),
-        }
+            Claim::PreservesDefinedness(preservation) => ClaimPart::PreservesDefinedness(
+                &preservation.rule_id,
+                preservation.label.as_deref(),
+                preservation.origin.as_ref(),
+                &preservation.instance,
+                &preservation.undefined_term,
+            ),
+        };
+        (claim, &self.rule, self.ground, self.observed_in)
     }
 
     /// The contradicted `total` application, when the claim is one.
     pub fn total(&self) -> Option<&ContradictedTotal> {
         match &self.claim {
             Claim::Total(total) => Some(total),
+            Claim::PreservesDefinedness(_) => None,
+        }
+    }
+
+    /// The contradicted `preserves-definedness` claim, when the claim is one.
+    pub fn preservation(&self) -> Option<&ContradictedPreservation> {
+        match &self.claim {
+            Claim::PreservesDefinedness(preservation) => Some(preservation),
+            Claim::Total(_) => None,
         }
     }
 }
@@ -475,6 +531,36 @@ pub(crate) fn note_contradicted_total(total: &ContradictedTotal) {
         ground: total.application.attributes().variables.is_empty(),
         claim: Claim::Total(total.clone()),
         rule,
+        observed_in: ObservedIn::Run,
+    })));
+}
+
+/// Note that the normalization of `instance`, the result term a step of the innermost rule whose
+/// work is under way built ([`observed_by`]), reduced it to `undefined_term`, an undefined
+/// subterm, with the successor's constraints `\bottom`: when that rule is declared
+/// `preserves-definedness`, its claim is refuted at this instance, a contradicted claim observed
+/// by the rule itself. A rule that is not declared so claims nothing (a discharged rule's
+/// obligation is a load fact, not an attribute), and nothing is noted.
+pub(crate) fn note_contradicted_preservation(instance: &Term, undefined_term: &Term) {
+    if !OPEN.get() {
+        return;
+    }
+    let Some(rule) = STATE.with_borrow(|state| state.rules.last().cloned().flatten()) else {
+        return;
+    };
+    if !rule.preserves_definedness {
+        return;
+    }
+    note(PathFact::ContradictedClaim(Box::new(ContradictedClaim {
+        ground: instance.attributes().variables.is_empty(),
+        claim: Claim::PreservesDefinedness(ContradictedPreservation {
+            rule_id: rule.unique_id.clone(),
+            label: rule.label.clone(),
+            origin: rule.origin.clone(),
+            instance: instance.clone(),
+            undefined_term: undefined_term.clone(),
+        }),
+        rule: Some(rule),
         observed_in: ObservedIn::Run,
     })));
 }
@@ -827,6 +913,7 @@ mod tests {
                 unique_id: "r".to_owned(),
                 label: None,
                 origin: None,
+                preserves_definedness: false,
             })
         };
         assert_eq!(observed_by(rule, || 1), 1);

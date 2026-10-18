@@ -120,7 +120,7 @@ use crate::{
     rewrite::{
         AppliedRule, IndeterminateReason, InitialDefinedness, Pattern, RemainderBranch,
         RewriteResult, TraceEntry, TraceKind, Truth, UndecidedStep, initial_definedness,
-        path_trace::PathTrace, predicates_truth, rewrite_step_restricted,
+        note_undefined_result, path_trace::PathTrace, predicates_truth, rewrite_step_restricted,
         rewrite_step_with_options, simplify_result_pattern, stuck,
     },
     rule::Predicate,
@@ -1029,13 +1029,22 @@ fn search_graph_collecting(
             crate::path_facts::observed_by(
                 || rule.clone(),
                 || {
-                    simplify_with_solver(
+                    let simplified = simplify_with_solver(
                         definition,
                         &state.pattern.term,
                         &state.pattern.constraints,
                         SimplificationOptions::keep_partial(options.max_simplification_iterations),
                         solver,
-                    )
+                    );
+                    // A successor's term is the result term its step built.
+                    if let Ok(Ok(simplified)) = &simplified {
+                        note_undefined_result(
+                            &state.pattern.term,
+                            &state.pattern.constraints,
+                            simplified,
+                        );
+                    }
+                    simplified
                 },
             )
         });
@@ -2185,13 +2194,22 @@ fn search_paths_collecting(
             crate::path_facts::observed_by(
                 || rule.clone(),
                 || {
-                    simplify_with_solver(
+                    let simplified = simplify_with_solver(
                         definition,
                         &path.state.pattern.term,
                         &path.state.pattern.constraints,
                         SimplificationOptions::keep_partial(options.max_simplification_iterations),
                         solver,
-                    )
+                    );
+                    // A successor's term is the result term its step built.
+                    if let Ok(Ok(simplified)) = &simplified {
+                        note_undefined_result(
+                            &path.state.pattern.term,
+                            &path.state.pattern.constraints,
+                            simplified,
+                        );
+                    }
+                    simplified
                 },
             )
         });

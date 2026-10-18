@@ -2603,8 +2603,8 @@ mod tests {
             assert_typescript_member("BackendCapabilities", &format!("{capability}: boolean"));
         }
         for member in [
-            "claim: 'total'",
-            "symbol: string",
+            "claim: 'total' | 'preserves-definedness'",
+            "symbol?: string",
             "kLabel?: string",
             "ruleId: string",
             "ruleLabel?: string",

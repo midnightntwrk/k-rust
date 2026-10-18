@@ -1181,3 +1181,253 @@ endmodule
         "{load}"
     );
 }
+
+/// Contradicted `preserves-definedness` attributes (docs/compatibility.md, "A contradicted
+/// `preserves-definedness` attribute is named, not repaired"): a rule declared so claims that its
+/// result term is defined wherever its left-hand side and `requires` hold. The step applies, and
+/// when the normalization of the result term it built finds a subterm undefined, the claim is
+/// refuted at that instance: a `contradicted-claim` record with `claim: preserves-definedness`
+/// naming the rule, its result term and the undefined subterm, on every leaf whose path rests on
+/// it and on the result's list. An undefined `ensures` or a refuted carried condition is not
+/// covered by the claim, and a rule that is not declared so (discharged or not) claims nothing.
+mod preservation {
+    use std::collections::BTreeSet;
+
+    use k_rust::backend::{ExecutionStrategy, ResultModalityOutput};
+    use serde_json::Value;
+
+    use super::observed::{
+        Record, backend, compile, each_run, leaf_with, leaves, record, records, run_records,
+    };
+
+    pub(super) const PRESERVATION: &str = r#"
+module MAIN
+  imports INT
+  syntax Pgm ::= "done" | val(Int) | pd(Int) | npd(Int) | pdt(Int) | pdp(Int) | pdens(Int)
+               | pdsib(Int) | two(Int) | ja(Int) | jb(Int) | join(Int) | tdiv(Int)
+  syntax Int ::= td(Int) [function, total]
+               | tp(Int) [function]
+  configuration <k> $PGM:Pgm </k>
+  rule [tdeq]:   td(I) => 10 /Int (I +Int 0)
+  rule [tpeq]:   tp(I) => 10 /Int (I +Int 0)
+  rule [pd]:     pd(X) => val(X /Int 0) [preserves-definedness]
+  rule [npd]:    npd(X) => val(X /Int 0)
+  rule [pdt]:    pdt(X) => val(td(X)) [preserves-definedness]
+  rule [pdp]:    pdp(X) => val(tp(X)) [preserves-definedness]
+  rule [pdens]:  pdens(X) => done ensures X >Int 0 [preserves-definedness]
+  rule [pdsiba]: pdsib(X) => val(X /Int 0) [preserves-definedness]
+  rule [pdsibb]: pdsib(_) => done
+  rule [twoa]:   two(X) => ja(X)
+  rule [twob]:   two(X) => jb(X)
+  rule [ja]:     ja(X) => join(X)
+  rule [jb]:     jb(X) => join(X)
+  rule [join]:   join(X) => val(X /Int 0) [preserves-definedness]
+  rule [tdiv]:   tdiv(I) => val(td(I))
+endmodule
+"#;
+
+    /// The definition with no claim at all: no `total` and no `preserves-definedness`.
+    fn claim_free(source: &str) -> String {
+        super::observed::claim_free(source).replace(" [preserves-definedness]", "")
+    }
+
+    /// The record of `rule`'s `preserves-definedness` claim, observed by the rule's own step, at
+    /// a ground instance.
+    pub(super) fn preservation(rule: &str) -> Record {
+        (
+            "preserves-definedness".to_owned(),
+            "?".to_owned(),
+            format!("MAIN.{rule}"),
+            Some(format!("MAIN.{rule}")),
+            true,
+        )
+    }
+
+    /// The printed `undefined` subterm of each preserves-definedness record of `result`'s list.
+    fn undefined_subterms(result: &Value) -> Vec<String> {
+        result["contradictedClaims"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|entry| entry["claim"] == "preserves-definedness")
+            .map(|entry| {
+                k_rust::kore::printer::Printer::compact()
+                    .print_pattern(&k_rust::kore::codec::from_value(&entry["undefined"]).unwrap())
+            })
+            .collect()
+    }
+
+    /// Every leaf of `program` and the result's list carry exactly `expected`, in every
+    /// combination, and the claim-free definition gives the same leaves' reasons with no record.
+    fn assert_recorded(program: &str, expected: &[Record]) {
+        let (kore, initial) = compile(PRESERVATION, program);
+        let (free, free_initial) = compile(&claim_free(PRESERVATION), program);
+        for (name, strategy, modality, result) in each_run(&kore, &initial) {
+            let context = format!("{program} under {name}: {result:#}");
+            assert!(!leaves(&result).is_empty(), "{context}");
+            for leaf in leaves(&result) {
+                assert_eq!(
+                    records(leaf),
+                    expected.iter().cloned().collect::<BTreeSet<_>>(),
+                    "{context}"
+                );
+            }
+            assert_eq!(run_records(&result), expected, "{context}");
+            let free = super::observed::execute(&free, &free_initial, modality, strategy);
+            let reasons = |result: &Value| {
+                leaves(result)
+                    .iter()
+                    .map(|leaf| leaf["reason"].clone())
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(reasons(&free), reasons(&result), "claim-free {context}");
+            assert!(
+                free.get("contradictedClaims").is_none(),
+                "claim-free {free:#}"
+            );
+        }
+    }
+
+    /// `pd(0)` steps to `val(0 /Int 0)`: the attribute is trusted, so the step applies, and the
+    /// result term's normalization finds `0 /Int 0` undefined. The `trivial` leaf and the list
+    /// name the rule, as they would without the attribute only by the halt.
+    #[test]
+    fn a_result_found_undefined_refutes_the_rule_s_preserves_definedness() {
+        assert_recorded("pd(0)", &[preservation("pd")]);
+        let (kore, initial) = compile(PRESERVATION, "pd(0)");
+        for (name, _, _, result) in each_run(&kore, &initial) {
+            assert_eq!(
+                undefined_subterms(&result),
+                ["Lbl'UndsSlsh'Int'Unds'{}(\\dv{SortInt{}}(\"0\"), \\dv{SortInt{}}(\"0\"))"],
+                "{name}: {result:#}"
+            );
+            for leaf in leaves(&result) {
+                assert_eq!(leaf["reason"], "trivial", "{name}: {result:#}");
+            }
+        }
+        // Through a partial callee the result is undefined alike.
+        assert_recorded("pdp(0)", &[preservation("pdp")]);
+    }
+
+    /// No claim, no record: `npd` is not declared, so its step carries the obligation and finds
+    /// the result undefined itself; `pdens`'s undefined `ensures` is no part of its result term;
+    /// `tdiv`'s result is undefined only through a contradicted `total` callee, whose record is
+    /// the one named.
+    #[test]
+    fn a_rule_that_claims_nothing_about_the_undefinedness_is_not_named() {
+        assert_recorded("npd(0)", &[]);
+        assert_recorded("pdens(0)", &[]);
+        assert_recorded("tdiv(0)", &[record("td", "tdeq", Some("tdiv"))]);
+    }
+
+    /// `pdt(0)` steps to `val(td(0))`, and `td(0)` is bottom through `td`'s own equation, which
+    /// contradicts `td`'s `total` claim; the result is undefined, which contradicts `pdt`'s claim
+    /// too. Both are named, the callee's first.
+    #[test]
+    fn a_step_through_a_contradicted_total_callee_names_both_claims() {
+        assert_recorded(
+            "pdt(0)",
+            &[record("td", "tdeq", Some("pdt")), preservation("pdt")],
+        );
+    }
+
+    /// `pdsiba`'s result is undefined and `pdsibb` covers every instance. Under strategy all the
+    /// candidate vanishes after the step: the `done` leaf is clean and the result lists the
+    /// record. Under strategy any the sequential step decides the candidate undefined before it
+    /// takes `pdsibb`, so the `done` leaf rests on it.
+    #[test]
+    fn a_candidate_a_defined_sibling_covers_is_on_the_list_and_on_the_leaves_that_rest_on_it() {
+        let (kore, initial) = compile(PRESERVATION, "pdsib(0)");
+        let expected = preservation("pdsiba");
+        for (name, strategy, _, result) in each_run(&kore, &initial) {
+            let context = format!("{name}: {result:#}");
+            assert_eq!(leaves(&result).len(), 1, "{context}");
+            let on_leaf = match strategy {
+                ExecutionStrategy::All => BTreeSet::new(),
+                _ => BTreeSet::from([expected.clone()]),
+            };
+            assert_eq!(records(leaf_with(&result, "Lbldone")), on_leaf, "{context}");
+            assert_eq!(
+                run_records(&result),
+                std::slice::from_ref(&expected),
+                "{context}"
+            );
+        }
+    }
+
+    /// `two(0)` reaches `join(0)` on two paths, and `join`'s result is undefined: the state-set
+    /// result has one `trivial` leaf, the path-set result one per path, and each carries the
+    /// record (strategy any takes `twoa` alone).
+    #[test]
+    fn converging_paths_each_rest_on_the_contradiction() {
+        let (kore, initial) = compile(PRESERVATION, "two(0)");
+        let expected = BTreeSet::from([preservation("join")]);
+        for (name, strategy, modality, result) in each_run(&kore, &initial) {
+            let context = format!("{name}: {result:#}");
+            let count = match (strategy, modality) {
+                (ExecutionStrategy::All, ResultModalityOutput::PathSet) => 2,
+                _ => 1,
+            };
+            assert_eq!(leaves(&result).len(), count, "{context}");
+            for leaf in leaves(&result) {
+                assert_eq!(leaf["reason"], "trivial", "{context}");
+                assert_eq!(records(leaf), expected, "{context}");
+            }
+            assert_eq!(run_records(&result), [preservation("join")], "{context}");
+        }
+    }
+
+    /// A search names the contradiction as an execution does: every search response lists it.
+    #[test]
+    fn every_search_lists_a_contradicted_preserves_definedness() {
+        use k_rust::backend::{SearchRequest, SearchTypeArg};
+        let (kore, initial) = compile(PRESERVATION, "pd(0)");
+        for search_type in [SearchTypeArg::Final, SearchTypeArg::All] {
+            let search = SearchRequest {
+                search_type,
+                ..SearchRequest::new(initial.clone())
+            };
+            let mut backend = backend(&kore);
+            for response in [
+                serde_json::to_value(backend.search(search.clone()).unwrap()).unwrap(),
+                serde_json::to_value(backend.search_paths(search).unwrap()).unwrap(),
+            ] {
+                assert_eq!(
+                    run_records(&response),
+                    [preservation("pd")],
+                    "{search_type:?}: {response:#}"
+                );
+            }
+        }
+    }
+
+    /// `krun`'s warning names the rule and its undefined result.
+    #[test]
+    fn the_warning_names_the_rule_and_the_undefined_result() {
+        use k_rust::backend::execution::contradicted_claim_message;
+        use k_rust_backend::{rewrite::execute_with_solver, smt::NoSolver};
+        let (kore, initial) = compile(PRESERVATION, "pd(0)");
+        let mut backend = backend(&kore);
+        let definition = backend.select_definition(None).unwrap();
+        let pattern = definition
+            .admit_unverified(&initial, &[])
+            .internalize_pattern()
+            .unwrap();
+        let result = execute_with_solver(&definition, pattern, Default::default(), &NoSolver);
+        let messages = result
+            .contradicted_claims
+            .iter()
+            .map(contradicted_claim_message)
+            .collect::<Vec<_>>();
+        let [message] = <[String; 1]>::try_from(messages).unwrap();
+        assert!(
+            message
+                .starts_with("the `preserves-definedness` attribute of rule MAIN.pd at claims.k:")
+                && message.contains("is contradicted on this input: its result ")
+                && message.contains("is undefined at Lbl'UndsSlsh'Int'Unds'{}")
+                && message.contains("so the definition is inconsistent here")
+                && message.ends_with("(observed by rule MAIN.pd)"),
+            "{message}"
+        );
+    }
+}

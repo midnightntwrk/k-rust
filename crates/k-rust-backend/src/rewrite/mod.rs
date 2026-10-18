@@ -26,7 +26,7 @@ use apply::{
     BooleanSplit, EqualitySplit, MapNotInKeysSplit, PartialRuleMatch, RuleAttempt, apply_rule,
 };
 use execute::execute_using;
-pub(crate) use execute::{simplify_leaf_pattern, simplify_result_pattern};
+pub(crate) use execute::{note_undefined_result, simplify_leaf_pattern, simplify_result_pattern};
 pub use predicates::substitute_predicates;
 use predicates::{StateNames, extend_unique, pattern_variable_names};
 pub(crate) use predicates::{
@@ -159,6 +159,10 @@ pub struct AppliedRule {
     /// and `label`, what a contradicted claim its successor's normalization observes names
     /// (`crate::path_facts::ObservingRule`).
     pub(crate) origin: Option<crate::rule::RuleOrigin>,
+    /// Whether the rule is declared `preserves-definedness`: its claim that `pattern`'s term is
+    /// defined, which the successor's normalization can refute
+    /// (`crate::path_facts::note_contradicted_preservation`).
+    pub(crate) preserves_definedness: bool,
     pub substitution: Substitution,
     /// Rule-variable bindings suitable for execution diagnostics. Variables introduced solely as
     /// term aliases (`P #as X`) are implementation details and are omitted from this view.
@@ -192,12 +196,13 @@ impl AppliedRule {
             unique_id: self.unique_id.clone(),
             label: self.label.clone(),
             origin: self.origin.clone(),
+            preserves_definedness: self.preserves_definedness,
         }
     }
 }
 
 /// Every field but the `normalized` cache, which is work derived from `pattern`, and the rule's
-/// `origin`, which `unique_id` names within a definition.
+/// `origin` and `preserves_definedness`, which `unique_id` names within a definition.
 impl std::fmt::Debug for AppliedRule {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter

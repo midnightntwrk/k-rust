@@ -959,22 +959,39 @@ impl<'a> Execution<'a> {
                 normalized_io = io;
                 (Ok(Ok(simplified)), diagnostics)
             }
-            None => crate::path_facts::collect_with_diagnostics(|| match io_evaluation.as_mut() {
-                Some(execution) => simplify_in_execution_with_solver(
-                    self.definition,
-                    &state.pattern.term,
-                    &state.pattern.constraints,
-                    SimplificationOptions::keep_partial(self.options.max_simplification_iterations),
-                    self.solver,
-                    execution,
-                ),
-                None => simplify_with_solver(
-                    self.definition,
-                    &state.pattern.term,
-                    &state.pattern.constraints,
-                    SimplificationOptions::keep_partial(self.options.max_simplification_iterations),
-                    self.solver,
-                ),
+            None => crate::path_facts::collect_with_diagnostics(|| {
+                let simplified = match io_evaluation.as_mut() {
+                    Some(execution) => simplify_in_execution_with_solver(
+                        self.definition,
+                        &state.pattern.term,
+                        &state.pattern.constraints,
+                        SimplificationOptions::keep_partial(
+                            self.options.max_simplification_iterations,
+                        ),
+                        self.solver,
+                        execution,
+                    ),
+                    None => simplify_with_solver(
+                        self.definition,
+                        &state.pattern.term,
+                        &state.pattern.constraints,
+                        SimplificationOptions::keep_partial(
+                            self.options.max_simplification_iterations,
+                        ),
+                        self.solver,
+                    ),
+                };
+                // A successor's normalization is its producing rule's work
+                // (`crate::path_facts::observed_by` in `expand`), whose result term is the one
+                // the step built.
+                if let (Ok(Ok(simplified)), Some(producer)) = (&simplified, &state.producer) {
+                    note_undefined_result(
+                        &producer.successor.term,
+                        &state.pattern.constraints,
+                        simplified,
+                    );
+                }
+                simplified
             }),
         };
         state.diagnostics.extend(&diagnostics);
@@ -2792,8 +2809,8 @@ pub(crate) fn normalize_successor(
     let mut evaluation = io
         .filter(|_| pattern_supports_execution_io(&pattern))
         .map(ExecutionIoState::begin_evaluation);
-    let (simplified, diagnostics) =
-        crate::path_facts::collect_with_diagnostics(|| match evaluation.as_mut() {
+    let (simplified, diagnostics) = crate::path_facts::collect_with_diagnostics(|| {
+        let simplified = match evaluation.as_mut() {
             Some(evaluation) => simplify_in_execution_with_solver(
                 definition,
                 &pattern.term,
@@ -2809,7 +2826,12 @@ pub(crate) fn normalize_successor(
                 options,
                 solver,
             ),
-        });
+        };
+        if let Ok(Ok(simplified)) = &simplified {
+            note_undefined_result(&successor.term, &pattern.constraints, simplified);
+        }
+        simplified
+    });
     let Ok(simplified) = simplified? else {
         return Ok(failed);
     };
@@ -2833,6 +2855,27 @@ pub(crate) fn normalize_successor(
         },
         normalization: Some(normalization),
     })
+}
+
+/// Note a contradicted `preserves-definedness` (`crate::path_facts::note_contradicted_preservation`)
+/// when `simplified`, the simplification of a successor's term under `constraints`, shows the
+/// successor undefined as [`normalize_successor`] and `Execution::simplify_term` read it: a
+/// subterm reduced to an undefined term, with the constraints `\bottom`. `instance` is the
+/// result term as the step that produced the successor built it. The claim is that of the rule
+/// whose work the normalization is (`crate::path_facts::observed_by`), when it declares one.
+pub(crate) fn note_undefined_result(
+    instance: &crate::term::Term,
+    constraints: &[Predicate],
+    simplified: &Simplification,
+) {
+    let Some(undefined) = &simplified.undefined_term else {
+        return;
+    };
+    let mut all = constraints.to_vec();
+    all.extend(simplified.conjoined().cloned());
+    if predicates_truth(&all) == Truth::False {
+        crate::path_facts::note_contradicted_preservation(instance, undefined);
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

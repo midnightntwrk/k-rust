@@ -1943,6 +1943,9 @@ fn apply_rhs_alternative(
     });
     let mut condition_knowledge = condition_knowledge.to_vec();
     let mut io_evaluation = io.map(ExecutionIoState::begin_evaluation);
+    // The result term as the step built it, which a declared `preserves-definedness` claims
+    // defined (`crate::path_facts::note_contradicted_preservation`).
+    let instance = rule.attributes.preserves_definedness.then(|| rhs.clone());
     let (rhs, rhs_conditions, effects, undefined_term, contradicted_total) =
         if rule.computed_attributes.undefined_symbols.is_empty() && io_evaluation.is_none() {
             (rhs, ResultConditions::default(), Vec::new(), None, None)
@@ -1981,6 +1984,13 @@ fn apply_rhs_alternative(
             }
         };
     if let Some(term) = undefined_term.clone() {
+        // The step applied (its match and `requires` held), and the result term's own
+        // simplification reached an undefined subterm: a declared `preserves-definedness` is
+        // refuted at this instance. Only the console route simplifies a declared rule's result
+        // here; the others leave it to the successor's normalization (`normalize_successor`).
+        if let Some(instance) = &instance {
+            crate::path_facts::note_contradicted_preservation(instance, &term);
+        }
         return Ok(RhsAlternativeAttempt::Trivial {
             obligation: Predicate::Ceil(term),
             effects,
@@ -2136,6 +2146,7 @@ fn apply_rhs_alternative(
             label: rule.attributes.label.clone(),
             unique_id: rule.attributes.unique_id.clone(),
             origin: rule.attributes.origins.first().cloned(),
+            preserves_definedness: rule.attributes.preserves_definedness,
             substitution: substitution.clone(),
             rule_substitution,
             rule_predicates,
