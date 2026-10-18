@@ -36,7 +36,14 @@
 //!   `find`/`replace` or `delete`). Its `id` only names the row and its `note` is never read by
 //!   resolution;
 //! - kink's build (`kink_build`, which also fixes the linked k-rust, the load options and every
-//!   algorithm with or without a version) and its semantics identity (`kink`).
+//!   algorithm with or without a version) and its semantics identity (`kink`);
+//! - the record's format and meaning ([`RESOLUTION_MEMO_VERSION`]).
+//!
+//! kink-flow `tests/memo.rs` builds both keys member by member from these inputs and requires
+//! them equal to the keys built here, and `tests/results.rs` requires the specification digest
+//! to change with each `[spec]` field, so a key or digest that drops an input fails a test; so
+//! does a run that reads a record after a source file changed (re-pin L1-4-tail, review L1-4-2
+//! N1).
 //!
 //! The facts derived from the resolved patch (identity, typing diagnostics, claims) are
 //! functions of the patch and the baseline, so of the same inputs. A typing diagnostic that says
@@ -46,18 +53,24 @@
 //! **The host premise** (re-pin L1-4 fix 1; review L1-4-1 D4 and its new premise). A record exists
 //! only because resolution succeeded where it was written, and success itself can depend on the
 //! host: the patch codec's native stack segment (live, a refused segment is the row `error`,
-//! reason `host-stack-refused`) and the heap and address space of the edited load (live, an
-//! exhausted allocation aborts the process). The key does not name the host's capacity, and kink
-//! does not try to: a memo hit returns the tier-1-decided row that a host which could resolve the
-//! mutation computed for the same mutant identity, where live resolution on a smaller host would
-//! end `host-stack-refused` or abort. That cannot make a false kill or hide a survivor (the row is
-//! the verdict of the same mutant, judged where the host granted the stack, as the README
-//! recommends for `host-stack-refused`), but it is a premise the uncached path does not have:
-//! before L1-4 every resolution was recomputed in every command, so nothing stored a success the
-//! reading host could not reproduce. So the documents of a run with and without memos are equal
-//! on a host that grants the stack and heap resolution needs; on a smaller one, the run with
-//! memos can give a decided row where the run without gives `host-stack-refused` or aborts
-//! (kink-flow README, **Memos**).
+//! reason `host-stack-refused`), the heap and address space of the edited load (live, an
+//! exhausted allocation aborts the process), and the native stack segment each edited rule is
+//! typed on, sized from the rule's depth apart from the codec's (kink-patch `apply`; live, a host
+//! that grants the codec's segment and refuses the typing segment resolves the mutation with a
+//! typing diagnostic that says the rule was not typed, and the row's status is unchanged). The
+//! key does not name the host's capacity, and kink does not try to: a memo hit returns the
+//! tier-1-decided row that a host which could resolve the mutation computed for the same mutant
+//! identity, where live resolution on a smaller host would end `host-stack-refused`, abort, or
+//! give the same row with a typing diagnostic that says the rule was not typed where the memo
+//! gives the writer's typing diagnostics (re-pin L1-4-tail; review L1-4-2 N2). That cannot make a
+//! false kill or hide a survivor (the row is the verdict of the same mutant, judged where the host
+//! granted the stack, as the README recommends for `host-stack-refused`, and typing diagnostics
+//! decide nothing), but it is a premise the uncached path does not have: before L1-4 every
+//! resolution was recomputed in every command, so nothing stored a success the reading host could
+//! not reproduce. So the documents of a run with and without memos are equal on a host that
+//! grants the stack and heap resolution needs; on a smaller one, the run with memos can give a
+//! decided row where the run without gives `host-stack-refused` or aborts, or the writer's typing
+//! diagnostics where the run without says a rule was not typed (kink-flow README, **Memos**).
 //!
 //! **The census memo** holds the specification's declaration census (kink-native
 //! `declaration_census`, the VI-T13 admission gate), a function of the compiled baseline and of

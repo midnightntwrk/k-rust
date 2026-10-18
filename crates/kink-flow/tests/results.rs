@@ -6,16 +6,17 @@ use kink_campaign::{
 use kink_corpus::ProgramSource;
 use kink_corpus::{load_source, runner::all_normal};
 use kink_flow::{
-    FlowManifest, Program, admit,
+    FlowManifest, Program, SpecSection, admit,
     admit::{admit_spec, corpus_source},
     cli::{EXIT_CORPUS, EXIT_OK, EXIT_USAGE, results},
-    digest::{program_digest, spec_digest},
+    digest::{program_digest, spec_digest, spec_payload},
     results::{
         BaselineRunner, CACHE_DIRECTORY, RESULT_SCHEMA_VERSION, ResultClass, ResultsOptions,
         execution_budget, fixed_oracles, run_digest,
     },
 };
-use kink_patch::{Discovery, Patch, SelectionPolicy, select};
+use kink_native::{K_RUST_REVISION, execution::SolverProfile};
+use kink_patch::{Discovery, Patch, SelectionPolicy, select, sha256};
 use serde_json::{Value, json};
 use std::{
     fs,
@@ -255,6 +256,55 @@ fn the_spec_digest_covers_every_required_file_and_nothing_else() {
     let mut other_selector = manifest.clone();
     other_selector.spec.md_selector = "k | other".into();
     assert_ne!(manifest_spec_digest(&other_selector), after_main);
+    // Re-pin L1-4-tail (review L1-4-2 N1): so is every other field of `[spec]`, over the same
+    // files. Two manifests that differ only in their main or syntax module load different
+    // definitions from the same files, and the result cache, tier 1 and the resolution and
+    // census memos are keyed by this digest: a field it dropped would let one definition's
+    // results, outcomes and memos serve the other.
+    let files = load_source(&corpus_source(&manifest)).unwrap().files;
+    assert_eq!(spec_digest(&manifest, &files).to_string(), after_main);
+    let with = |change: &dyn Fn(&mut SpecSection)| {
+        let mut other = manifest.clone();
+        change(&mut other.spec);
+        spec_digest(&other, &files).to_string()
+    };
+    for (field, digest) in [
+        ("entry", with(&|spec| spec.entry = "include/lib.k".into())),
+        ("main_module", with(&|spec| spec.main_module = "LIB".into())),
+        (
+            "syntax_module",
+            with(&|spec| spec.syntax_module = Some("LIB".into())),
+        ),
+        (
+            "include_dirs",
+            with(&|spec| spec.include_dirs.push("more".into())),
+        ),
+        (
+            "md_selector",
+            with(&|spec| spec.md_selector = "k | other".into()),
+        ),
+    ] {
+        assert_ne!(digest, after_main, "the spec digest does not name {field}");
+    }
+    // The whole payload, built here from the manifest's values and the files' own bytes, also
+    // pins the build constants (the k-rust revision, the solver profile), which no manifest
+    // varies.
+    let expected_files = ["include/lib.k", "main.k"].map(|name| {
+        json!({"name": name, "sha256": sha256(&fs::read(dir.join(name)).unwrap()).to_string()})
+    });
+    assert_eq!(
+        spec_payload(&manifest, &files),
+        json!({
+            "k_rust_revision": K_RUST_REVISION,
+            "profile": SolverProfile::BUILD.name(),
+            "entry": "main.k",
+            "main_module": "MAIN",
+            "syntax_module": null,
+            "md_selector": manifest.spec.md_selector,
+            "include_dirs": ["include"],
+            "files": expected_files,
+        })
+    );
 }
 
 #[test]

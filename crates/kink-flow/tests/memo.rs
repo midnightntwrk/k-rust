@@ -7,23 +7,35 @@
 //! - A forged record under exactly the current key is used (the positive control that the memo
 //!   is read at all), and `run --verify` reports it and writes nothing.
 //! - The same forged record under a key that differs in any one input (kink's build, one
-//!   component of kink's semantics identity, the specification digest, the mutation's edits) is
-//!   not used: the row is the live one and the record is rewritten. So is every record after a
-//!   byte of a source file or of the mutation's text changes.
+//!   component of kink's semantics identity, the memo version, the specification digest, the
+//!   mutation's edits) is not used: the row is the live one and the record is rewritten. So is
+//!   every record after a byte of a source file or of the mutation's text changes.
+//! - Re-pin L1-4-tail (review L1-4-2 N1): each key is built here member by member from its inputs
+//!   (`resolution_key_of`, `census_key_of`), not from `memo`'s functions, and must equal `memo`'s:
+//!   a key that omits an input fails, which a stale key made by editing a copy of `memo`'s key
+//!   cannot show (the copy keeps the member the key omits). A source file changed after the
+//!   admission read it and before resolution reads no record (`memo::sources_unchanged`).
 
 use kink_corpus::Store;
 use kink_flow::{
-    FlowManifest, Mutation, MutationList, admit_spec,
+    EditAction, FlowManifest, Mutation, MutationList, admit_spec,
     digest::spec_digest,
-    memo::{self, Facts, MemoUse},
+    memo::{self, CENSUS_MEMO_VERSION, Facts, MemoUse, RESOLUTION_MEMO_VERSION},
     results::CACHE_DIRECTORY,
     search::{ProgramOrder, RunMode, RunOptions, run_with},
 };
+use kink_patch::Sha256Digest;
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
     fs,
+    io::Write,
     path::{Path, PathBuf},
+    process::Command,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 fn copy_dir(from: &Path, to: &Path) {
@@ -166,6 +178,68 @@ fn key_parts(dir: &Path, list: &str, id: &str) -> KeyParts {
     }
 }
 
+/// A mutation's edits as the resolution key names them, built here from the edits (not by
+/// `memo::mutation_entry`): every field of every edit, in order.
+fn edits_of(mutation: &Mutation) -> Value {
+    mutation
+        .edits
+        .iter()
+        .map(|edit| {
+            let (find, replace, delete) = match &edit.action {
+                EditAction::Replace { find, replace } => (json!(find), json!(replace), false),
+                EditAction::Delete => (Value::Null, Value::Null, true),
+            };
+            json!({
+                "file": edit.file,
+                "rule": edit.rule,
+                "line": edit.line,
+                "find": find,
+                "replace": replace,
+                "delete": delete,
+            })
+        })
+        .collect()
+}
+
+/// A resolution memo key built here, member by member, from every input it must name (memo
+/// module docs): the memo version, kink's build, kink's semantics identity, the specification
+/// digest and the mutation's edits. Re-pin L1-4-tail: a key `memo::resolution_key` builds
+/// without one of them differs from this one.
+fn resolution_key_of(
+    version: &str,
+    build: Sha256Digest,
+    kink: &Value,
+    spec: Sha256Digest,
+    mutation: &Mutation,
+) -> Value {
+    json!({
+        "version": version,
+        "kink_build": build.to_string(),
+        "kink": kink,
+        "spec": spec.to_string(),
+        "mutation": edits_of(mutation),
+    })
+}
+
+/// A census memo key built here from every input it must name: the memo version, kink's build,
+/// kink's semantics identity and the specification digest.
+fn census_key_of(version: &str, build: Sha256Digest, kink: &Value, spec: Sha256Digest) -> Value {
+    json!({
+        "version": version,
+        "kink_build": build.to_string(),
+        "kink": kink,
+        "spec": spec.to_string(),
+    })
+}
+
+/// kink's semantics identity with one component changed: the identity of another kink.
+fn another_identity() -> Value {
+    let mut identity = kink_campaign::kink_identity();
+    identity["mutant_consistency"] = json!("kink-native/mutant-consistency/v0");
+    assert_ne!(identity, kink_campaign::kink_identity());
+    identity
+}
+
 fn compare(name: &str, list: &str) {
     let with = fixture(name, &format!("{list}-on"));
     let without = fixture(name, &format!("{list}-off"));
@@ -253,7 +327,21 @@ fn a_resolution_record_is_used_under_exactly_its_key() {
     let (cold, _) = search(&dir, LIST, MemoUse::On, RunMode::Search);
     let live_rules = row(&cold, SURVIVOR)["rules"].clone();
     let parts = key_parts(&dir, LIST, SURVIVOR);
-    let key = memo::resolution_key(parts.spec, parts.build, &parts.mutation);
+    // Re-pin L1-4-tail: the key, built here from every input, is the one `memo` builds, so the
+    // positive control below reads the record under a key that names each of them.
+    let identity = kink_campaign::kink_identity();
+    let key = resolution_key_of(
+        RESOLUTION_MEMO_VERSION,
+        parts.build,
+        &identity,
+        parts.spec,
+        &parts.mutation,
+    );
+    assert_eq!(
+        memo::resolution_key(parts.spec, parts.build, &parts.mutation),
+        key,
+        "the resolution key does not name each of its inputs"
+    );
     let path = memo::resolution_path(&cache, parts.spec, &parts.mutation);
     let facts = memo::read_facts(&path, &key).expect("the cold run wrote the facts");
     let lie = forged(&facts);
@@ -319,34 +407,90 @@ fn a_resolution_record_is_used_under_exactly_its_key() {
         "--verify --only wrote a memo"
     );
 
-    // The same lie under a key that differs in one input is not used, and is rewritten.
-    let mut identity = kink_campaign::kink_identity();
-    identity["mutant_consistency"] = json!("kink-native/mutant-consistency/v0");
+    // The same lie under a key that differs in one input is not used, and is rewritten. Each
+    // stale key is built from the inputs, with that one input another (re-pin L1-4-tail: not by
+    // editing a copy of the key, which would keep a member the key omits); where `memo` takes
+    // the input as an argument, its key under the other input is that stale key.
     let other_build = kink_patch::sha256(b"another build of kink");
     let other_spec = kink_patch::sha256(b"another specification");
     let mut other_mutation = parts.mutation.clone();
-    if let kink_flow::EditAction::Replace { replace, .. } = &mut other_mutation.edits[0].action {
+    if let EditAction::Replace { replace, .. } = &mut other_mutation.edits[0].action {
         replace.push(' ');
     }
-    let mut kink = key.clone();
-    kink["kink"] = identity;
     let stale_keys = [
         (
             "build",
-            memo::resolution_key(parts.spec, other_build, &parts.mutation),
+            resolution_key_of(
+                RESOLUTION_MEMO_VERSION,
+                other_build,
+                &identity,
+                parts.spec,
+                &parts.mutation,
+            ),
+            Some(memo::resolution_key(
+                parts.spec,
+                other_build,
+                &parts.mutation,
+            )),
         ),
-        ("kink", kink),
+        (
+            "kink",
+            resolution_key_of(
+                RESOLUTION_MEMO_VERSION,
+                parts.build,
+                &another_identity(),
+                parts.spec,
+                &parts.mutation,
+            ),
+            None,
+        ),
+        (
+            "version",
+            resolution_key_of(
+                "kink-flow/resolution-memo/v0",
+                parts.build,
+                &identity,
+                parts.spec,
+                &parts.mutation,
+            ),
+            None,
+        ),
         (
             "spec",
-            memo::resolution_key(other_spec, parts.build, &parts.mutation),
+            resolution_key_of(
+                RESOLUTION_MEMO_VERSION,
+                parts.build,
+                &identity,
+                other_spec,
+                &parts.mutation,
+            ),
+            Some(memo::resolution_key(
+                other_spec,
+                parts.build,
+                &parts.mutation,
+            )),
         ),
         (
             "mutation",
-            memo::resolution_key(parts.spec, parts.build, &other_mutation),
+            resolution_key_of(
+                RESOLUTION_MEMO_VERSION,
+                parts.build,
+                &identity,
+                parts.spec,
+                &other_mutation,
+            ),
+            Some(memo::resolution_key(
+                parts.spec,
+                parts.build,
+                &other_mutation,
+            )),
         ),
     ];
-    for (component, stale) in stale_keys {
-        assert_ne!(stale, key);
+    for (component, stale, from_memo) in stale_keys {
+        assert_ne!(stale, key, "{component}");
+        if let Some(from_memo) = from_memo {
+            assert_eq!(from_memo, stale, "{component}");
+        }
         memo::write_facts(&store, &path, &stale, &lie);
         let (again, _) = search(&dir, LIST, MemoUse::On, RunMode::Search);
         assert_eq!(
@@ -445,7 +589,14 @@ fn a_census_record_is_used_under_exactly_its_key() {
     let (cold, ok) = search(&dir, LIST, MemoUse::On, RunMode::Search);
     assert!(ok, "{cold:#}");
     let parts = key_parts(&dir, LIST, SURVIVOR);
-    let key = memo::census_key(parts.spec, parts.build);
+    // Re-pin L1-4-tail: the key, built here from every input, is the one `memo` builds.
+    let identity = kink_campaign::kink_identity();
+    let key = census_key_of(CENSUS_MEMO_VERSION, parts.build, &identity, parts.spec);
+    assert_eq!(
+        memo::census_key(parts.spec, parts.build),
+        key,
+        "the census key does not name each of its inputs"
+    );
     let path = memo::census_path(&cache, parts.spec);
     let census = memo::read_census(&path, &key).expect("the cold run wrote the census");
     assert!(census.findings().is_empty());
@@ -482,19 +633,46 @@ fn a_census_record_is_used_under_exactly_its_key() {
     assert_eq!(mismatch["cached"]["census"], lie.value());
     assert_eq!(mismatch["live"]["census"], census.value());
     assert_eq!(fs::read(&path).unwrap(), before, "--verify wrote a memo");
-    let mut kink = key.clone();
-    kink["kink"]["definition_exclusion"] = json!("kink-native/definition-exclusion/v0");
-    for (component, stale) in [
+    // Each stale key is built from the inputs with one input another (re-pin L1-4-tail), and
+    // where `memo` takes that input as an argument, its key under the other input is that key.
+    let other_build = kink_patch::sha256(b"another build");
+    let other_spec = kink_patch::sha256(b"another specification");
+    for (component, stale, from_memo) in [
         (
             "build",
-            memo::census_key(parts.spec, kink_patch::sha256(b"another build")),
+            census_key_of(CENSUS_MEMO_VERSION, other_build, &identity, parts.spec),
+            Some(memo::census_key(parts.spec, other_build)),
         ),
-        ("kink", kink),
+        (
+            "kink",
+            census_key_of(
+                CENSUS_MEMO_VERSION,
+                parts.build,
+                &another_identity(),
+                parts.spec,
+            ),
+            None,
+        ),
+        (
+            "version",
+            census_key_of(
+                "kink-flow/census-memo/v0",
+                parts.build,
+                &identity,
+                parts.spec,
+            ),
+            None,
+        ),
         (
             "spec",
-            memo::census_key(kink_patch::sha256(b"another specification"), parts.build),
+            census_key_of(CENSUS_MEMO_VERSION, parts.build, &identity, other_spec),
+            Some(memo::census_key(other_spec, parts.build)),
         ),
     ] {
+        assert_ne!(stale, key, "{component}");
+        if let Some(from_memo) = from_memo {
+            assert_eq!(from_memo, stale, "{component}");
+        }
         memo::write_census(&store, &path, &stale, &lie);
         let (again, ok) = search(&dir, LIST, MemoUse::On, RunMode::Search);
         assert!(ok, "{component}: {again:#}");
@@ -775,4 +953,139 @@ fn mutations_differing_in_one_field_never_share_a_record() {
             fs::copy(&base, &path).unwrap();
         }
     }
+}
+
+/// Re-pin L1-4-tail (review L1-4-2 N1): both memo keys name every input, each as a member built
+/// here (`resolution_key_of`, `census_key_of`): the memo version, kink's build, kink's semantics
+/// identity (`kink_campaign::kink_identity`, a constant of this build, which no stale key made
+/// from `memo`'s functions can vary), the specification digest and, for a resolution, every field
+/// of the mutation's edits. A key that omits any of them, or adds one, fails here.
+#[test]
+fn the_memo_keys_name_every_input() {
+    let list = MutationList::decode(&field_list()).unwrap();
+    let spec = kink_patch::sha256(b"a specification");
+    let build = kink_patch::sha256(b"a build");
+    let identity = kink_campaign::kink_identity();
+    for mutation in &list.mutations {
+        assert_eq!(
+            memo::resolution_key(spec, build, mutation),
+            resolution_key_of(RESOLUTION_MEMO_VERSION, build, &identity, spec, mutation),
+            "{}",
+            mutation.id
+        );
+    }
+    assert_eq!(
+        memo::census_key(spec, build),
+        census_key_of(CENSUS_MEMO_VERSION, build, &identity, spec)
+    );
+}
+
+/// Serves the bytes of the fixture file `file` once, through a named pipe at its path, while
+/// `run` runs: when the pipe is first opened, `change` runs, then a regular file with the same
+/// bytes replaces the pipe (every later open reads it), and only then are the bytes served. So
+/// `change` happens after everything `run` does before it first opens `file`, and before
+/// everything it does after reading it. Returns `run`'s result and whether the pipe was read.
+fn with_change_on_first_read<T>(
+    file: &Path,
+    change: impl FnOnce() + Send + 'static,
+    run: impl FnOnce() -> T,
+) -> (T, bool) {
+    let bytes = fs::read(file).unwrap();
+    let regular = file.with_extension("regular");
+    fs::write(&regular, &bytes).unwrap();
+    fs::remove_file(file).unwrap();
+    let made = Command::new("mkfifo").arg(file).status().unwrap();
+    assert!(made.success(), "mkfifo {}", file.display());
+    let served = Arc::new(AtomicBool::new(false));
+    let writer = {
+        let (file, served) = (file.to_owned(), served.clone());
+        std::thread::spawn(move || {
+            // Opening a pipe for writing blocks until a reader opens it.
+            let Ok(mut pipe) = fs::OpenOptions::new().write(true).open(&file) else {
+                return;
+            };
+            served.store(true, Ordering::SeqCst);
+            change();
+            fs::rename(&regular, &file).unwrap();
+            let _ = pipe.write_all(&bytes);
+        })
+    };
+    let result = run();
+    // A reader of the pipe reads to its end, which comes only when the writer is done, so the
+    // pipe was never opened when nothing was served: release the writer.
+    let served = served.load(Ordering::SeqCst);
+    if !served && !writer.is_finished() {
+        drop(fs::File::open(file).unwrap());
+    }
+    writer.join().unwrap();
+    (result, served)
+}
+
+/// Re-pin L1-4-tail (review L1-4-2 N1): a source file that changes after the admission read it
+/// and before resolution reads no resolution record (`memo::sources_unchanged`). Every record of
+/// the run is under the admitted digest, so its key still matches: only the guard keeps a memo
+/// row, made from the admitted bytes, from standing in for live resolution, which sees the new
+/// bytes. The change is made deterministically between the two: the first program's file is a
+/// named pipe, which the run first reads after the admission (`update_results` reads each
+/// program's text) and before any resolution, and the pipe serves the program only after
+/// `calc.k` changed. With memos the run gives the document a run without memos gives under the
+/// same change, the survivor's forged record (under exactly the admitted key) is not read, and
+/// the memo directory is unchanged.
+#[test]
+fn a_source_changed_after_admission_reads_no_record() {
+    let with = fixture("calc", "changed-after-admission-on");
+    let without = fixture("calc", "changed-after-admission-off");
+    let (cold, _) = search(&with, LIST, MemoUse::On, RunMode::Search);
+    let (cold_off, _) = search(&without, LIST, MemoUse::Off, RunMode::Search);
+    assert_eq!(timeless(&cold), timeless(&cold_off));
+    let cache = with.join(CACHE_DIRECTORY);
+    let parts = key_parts(&with, LIST, SURVIVOR);
+    let key = memo::resolution_key(parts.spec, parts.build, &parts.mutation);
+    let path = memo::resolution_path(&cache, parts.spec, &parts.mutation);
+    let lie = forged(&memo::read_facts(&path, &key).expect("the cold run wrote the facts"));
+    memo::write_facts(&Store::new(&cache), &path, &key, &lie);
+    // The positive control: unchanged, the forged record is read.
+    let (warm, _) = search(&with, LIST, MemoUse::On, RunMode::Search);
+    assert_eq!(
+        row(&warm, SURVIVOR)["rules"][0]["after"],
+        "rule [add]: I1 + I2 => FORGED",
+        "the memo was not read"
+    );
+    search(&without, LIST, MemoUse::Off, RunMode::Search);
+    let memos = files(&cache, memo::MEMO_DIRECTORY);
+
+    let changed_run = |dir: &Path, memo: MemoUse| {
+        let source = dir.join("calc.k");
+        let change = move || {
+            let mut text = fs::read_to_string(&source).unwrap();
+            text.push_str("\n// changed after the admission\n");
+            fs::write(&source, text).unwrap();
+        };
+        let ((document, _), served) =
+            with_change_on_first_read(&dir.join("programs/add.calc"), change, || {
+                search(dir, LIST, memo, RunMode::Search)
+            });
+        assert!(served, "the run did not read the program");
+        document
+    };
+    let on = changed_run(&with, MemoUse::On);
+    let off = changed_run(&without, MemoUse::Off);
+    // The admission read calc.k before the change, and resolution after it.
+    assert_eq!(on["spec"]["files"], cold["spec"]["files"], "{on:#}");
+    let survivor = row(&on, SURVIVOR);
+    assert_eq!(
+        survivor["status"], "invalid-mutation",
+        "a record was read for a source changed after the admission: {survivor:#}"
+    );
+    assert_eq!(survivor["reason"], "source-changed", "{survivor:#}");
+    assert_eq!(
+        timeless(&on),
+        timeless(&off),
+        "STOP: a source changed after the admission: the memos changed the run document"
+    );
+    assert_eq!(
+        files(&cache, memo::MEMO_DIRECTORY),
+        memos,
+        "a memo was written"
+    );
 }
