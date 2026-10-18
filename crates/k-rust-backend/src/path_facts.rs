@@ -7,8 +7,10 @@
 //! - an evaluation that read a value the definition leaves open ([`PathFact::ChosenValue`],
 //!   `builtin::chosen_value`): a leaf whose path read one is one model's answer;
 //! - an evaluation that found a claim of the definition contradicted by its own equations
-//!   ([`PathFact::ContradictedClaim`]): a leaf whose path's decisions rest on one rests on an
-//!   input where the definition has no model with the claim;
+//!   ([`PathFact::ContradictedClaim`]): a `total` claim one of the symbol's equations refutes,
+//!   or a rule's `preserves-definedness` claim its result term's normalization refutes; a leaf
+//!   whose path's decisions rest on one rests on an input where the definition has no model
+//!   with the claim;
 //! - a `Bytes` result the memory allowance refused ([`PathFact::AllowanceRefusal`]) and an
 //!   application left unevaluated as an unsupported hook ([`PathFact::UnsupportedHook`]): facts
 //!   of the run only ([`PathFact::on_paths`]), which reach the run record and no path.
@@ -53,7 +55,7 @@ use std::{
 use crate::{
     builtin::{ChosenValue, UnsupportedHookReason},
     diagnostic::{self, BackendDiagnostic},
-    rule::{RewriteRule, RuleOrigin},
+    rule::{RewriteRule, RuleOrigin, RuleRhs},
     simplify::ContradictedTotal,
     term::Term,
 };
@@ -141,6 +143,22 @@ impl PathFact {
         }
     }
 
+    /// Whether the fact is a ground record ([`ContradictedClaim::ground`]): the work that found
+    /// it depended on nothing that may differ between models, so work that observed it in turn
+    /// depends on nothing through it ([`State::depends_since`]).
+    fn is_ground_record(&self) -> bool {
+        matches!(self, Self::ContradictedClaim(claim) if claim.ground)
+    }
+
+    /// Whether the fact is a record of the `total` claim contradicted at `application`.
+    pub(crate) fn is_total_record_of(&self, application: &Term) -> bool {
+        matches!(
+            self,
+            Self::ContradictedClaim(claim)
+                if claim.total().is_some_and(|total| total.application == *application)
+        )
+    }
+
     /// The chosen value, when the fact is one.
     pub(crate) fn chosen_value(&self) -> Option<&ChosenValue> {
         match self {
@@ -153,10 +171,14 @@ impl PathFact {
 /// A claim of the definition that an evaluation found contradicted by the definition's own
 /// equations, and where: the rewrite rule whose attempt or successor observed it.
 ///
-/// A record is a fact about the definition at the contradicted application. When it is
-/// [`ground`](Self::ground), the application is variable-free, so the definition has no model
-/// with the claim at that input. A non-ground record comes from a state whose constraints may be
-/// unsatisfiable without being refuted, and refutes nothing.
+/// A record is a fact about the definition at the contradicted application (for a
+/// `preserves-definedness` claim, the rule's result term). When it is
+/// [`ground`](Self::ground), the application is variable-free and the work that found it
+/// `\bottom` depended on nothing that may differ between models of the definition that agree
+/// with the request's inputs (on the I/O route, the console state too) and with k-rust's stated
+/// readings, so the claim is false at that input in every such model. A non-ground record rests on
+/// something that may differ (an assumption that is not `\top`, or a value the definition
+/// leaves open) and refutes nothing.
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct ContradictedClaim {
@@ -165,7 +187,14 @@ pub struct ContradictedClaim {
     /// produced successor's normalization observed the contradiction; `None` when no rule's
     /// work did (the normalization of an initial state, or work outside a run's steps).
     pub rule: Option<ObservingRule>,
-    /// Whether the contradicted application is ground (variable-free).
+    /// Whether the record refutes the claim at a ground input ([`ground`]): the contradicted
+    /// application is variable-free, the work that found it `\bottom` noted no path fact of any
+    /// kind but ground records, and it assumed nothing but `\top`. For a `total` claim that work
+    /// is the evaluation of the application from its equation's selection on, under no known
+    /// predicate and no path condition but `\top`. For a `preserves-definedness` claim it is the
+    /// step's attempt (its match and `requires`) and the normalization of its result, with every
+    /// constraint of the successor (the pre-step state's and what the step added: a carried
+    /// `requires`, `ensures` or obligation) simplified to `\top`.
     pub ground: bool,
     /// Whether the definition's load or the run that reports it observed the contradiction. A
     /// leaf's records are the run's; the load's are on the result's lists only.
@@ -191,61 +220,189 @@ pub enum Claim {
     /// A symbol declared `total` (or `functional`) whose own equation reduced an application to
     /// defined arguments to bottom.
     Total(ContradictedTotal),
+    /// A rewrite rule declared `preserves-definedness` whose result term, as a step that applied
+    /// it built it, the normalization found `\bottom`, or whose right-hand side is `#Bottom`.
+    PreservesDefinedness(ContradictedPreservation),
 }
 
-/// A rewrite rule by the parts a report names it by.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+/// A rewrite rule's `preserves-definedness` claim refuted at one instance: the attribute claims
+/// that the result term is defined wherever the left-hand side and the `requires` hold, so a
+/// step that applied the rule (its match and its `requires` held on a defined state) and whose
+/// result term the normalization found `\bottom`, by any route (an undefined builtin
+/// application, an equation whose own result is `\bottom`), shows the claim false there, when
+/// the premises were decided rather than carried ([`ContradictedClaim::ground`]). The
+/// definedness of a disjunctive right-hand side is the disjunction of its alternatives', so
+/// such a rule is named only when every alternative's result is `\bottom`. An `ensures` and a
+/// condition the step carries are no part of the result term, so their failures refute nothing
+/// of it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContradictedPreservation {
+    /// The rule's `UNIQUE_ID`.
+    pub rule_id: String,
+    pub label: Option<String>,
+    /// Where the rule is written (its first origin), when the KORE carries it.
+    pub origin: Option<RuleOrigin>,
+    /// The rule's result term as the step built it (for a disjunctive right-hand side, its first
+    /// alternative; for a `#Bottom` right-hand side, which builds none, the configuration the
+    /// step applied to).
+    pub instance: Term,
+    /// The undefined term the normalization of `instance` reached: a subterm of it, or of a
+    /// callee's equation result; where the normalization found `\bottom` otherwise (for a
+    /// `#Bottom` right-hand side, the configuration the step applied to).
+    pub undefined_term: Term,
+}
+
+/// A rewrite rule by the parts a report names it by, and whether it claims that its result term
+/// is defined (`claims_defined_result`), the claim a normalization of its result can refute
+/// ([`note_contradicted_preservation`]).
+#[derive(Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ObservingRule {
     /// The rule's `UNIQUE_ID`.
     pub unique_id: String,
     pub label: Option<String>,
     /// Where the rule is written (its first origin), when the KORE carries it.
     pub origin: Option<RuleOrigin>,
+    /// Whether one successor's normalization can refute the rule's `preserves-definedness`
+    /// ([`claims_defined_result`]), a function of the rule.
+    pub(crate) claims_defined_result: bool,
+    /// For the normalization of a successor a step built, whether the step's attempt depended on
+    /// something that may differ between models ([`Dependence`]): the work that decided its
+    /// premises, which a record of the rule's claim rests on too.
+    pub(crate) premises_depend: Dependence,
+}
+
+/// The parts that name the rule; `premises_depend` is a fact of one step's work, not of the
+/// rule.
+impl std::fmt::Debug for ObservingRule {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ObservingRule")
+            .field("unique_id", &self.unique_id)
+            .field("label", &self.label)
+            .field("origin", &self.origin)
+            .field("claims_defined_result", &self.claims_defined_result)
+            .finish()
+    }
+}
+
+/// Whether some work depended on something that may differ between models of the definition: it
+/// noted a path fact other than a ground record ([`State::depends_since`]). A fact of the work that
+/// carries it, not of the value that carries it: every comparison ignores it, so two steps of one
+/// rule, or two equal successors, are equal whatever their work noted.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct Dependence(pub(crate) bool);
+
+impl PartialEq for Dependence {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for Dependence {}
+
+impl PartialOrd for Dependence {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Dependence {
+    fn cmp(&self, _other: &Self) -> Ordering {
+        Ordering::Equal
+    }
+}
+
+impl Hash for Dependence {
+    fn hash<H: Hasher>(&self, _state: &mut H) {}
+}
+
+/// Whether `rule` is declared `preserves-definedness` (the author's claim, as written,
+/// `RuleAttributes::preserves_definedness`, not the load's `definedness_discharged`) with one
+/// right-hand side term, so that one successor's result found `\bottom` refutes the claim. The
+/// definedness of a disjunctive right-hand side is the disjunction of its alternatives'
+/// definedness, so its claim is refuted only when every alternative is found `\bottom`, which
+/// the step that builds them all decides (`rewrite::apply`).
+pub(crate) fn claims_defined_result(rule: &RewriteRule) -> bool {
+    rule.attributes.preserves_definedness && matches!(rule.rhs, RuleRhs::Term(_))
 }
 
 impl ObservingRule {
+    /// The rule as a record names it: without what one step's work depended on.
+    fn named(&self) -> Self {
+        Self {
+            premises_depend: Dependence::default(),
+            ..self.clone()
+        }
+    }
+
     pub(crate) fn of(rule: &RewriteRule) -> Self {
         Self {
             unique_id: rule.attributes.unique_id.clone(),
             label: rule.attributes.label.clone(),
             origin: rule.attributes.origins.first().cloned(),
+            claims_defined_result: claims_defined_result(rule),
+            premises_depend: Dependence::default(),
         }
     }
 }
 
-/// What tells two records apart: everything but the equation's attributes, which its id and
-/// origin fix.
-type ClaimKey<'a> = (
-    &'a Term,
-    &'a str,
-    Option<&'a str>,
-    Option<&'a RuleOrigin>,
-    &'a Term,
-    &'a Option<ObservingRule>,
-    bool,
-    ObservedIn,
-);
+/// What tells two claims apart: for a `total` claim everything but the equation's attributes,
+/// which its id and origin fix; for a `preserves-definedness` claim every field.
+#[derive(Eq, Hash, Ord, PartialEq, PartialOrd)]
+enum ClaimPart<'a> {
+    Total(
+        &'a Term,
+        &'a str,
+        Option<&'a str>,
+        Option<&'a RuleOrigin>,
+        &'a Term,
+    ),
+    PreservesDefinedness(
+        &'a str,
+        Option<&'a str>,
+        Option<&'a RuleOrigin>,
+        &'a Term,
+        &'a Term,
+    ),
+}
+
+/// What tells two records apart: the claim, the observing rule, groundness and who observed it.
+type ClaimKey<'a> = (ClaimPart<'a>, &'a Option<ObservingRule>, bool, ObservedIn);
 
 impl ContradictedClaim {
     fn key(&self) -> ClaimKey<'_> {
-        match &self.claim {
-            Claim::Total(total) => (
+        let claim = match &self.claim {
+            Claim::Total(total) => ClaimPart::Total(
                 &total.application,
                 &total.rule_id,
                 total.label.as_deref(),
                 total.origin.as_ref(),
                 &total.undefined_term,
-                &self.rule,
-                self.ground,
-                self.observed_in,
             ),
-        }
+            Claim::PreservesDefinedness(preservation) => ClaimPart::PreservesDefinedness(
+                &preservation.rule_id,
+                preservation.label.as_deref(),
+                preservation.origin.as_ref(),
+                &preservation.instance,
+                &preservation.undefined_term,
+            ),
+        };
+        (claim, &self.rule, self.ground, self.observed_in)
     }
 
     /// The contradicted `total` application, when the claim is one.
     pub fn total(&self) -> Option<&ContradictedTotal> {
         match &self.claim {
             Claim::Total(total) => Some(total),
+            Claim::PreservesDefinedness(_) => None,
+        }
+    }
+
+    /// The contradicted `preserves-definedness` claim, when the claim is one.
+    pub fn preservation(&self) -> Option<&ContradictedPreservation> {
+        match &self.claim {
+            Claim::PreservesDefinedness(preservation) => Some(preservation),
+            Claim::Total(_) => None,
         }
     }
 }
@@ -372,12 +529,22 @@ struct Sink {
     owned: bool,
 }
 
+/// The work of one rule under way ([`observed_by`]): the rule, or `None` for work of no rule's,
+/// and the point at which its work began, from which a record it observes asks what that work
+/// depended on ([`ground`]).
+struct RuleScope {
+    rule: Option<ObservingRule>,
+    start: Marker,
+}
+
 #[derive(Default)]
 struct State {
     sinks: Vec<Sink>,
     suspended: bool,
+    /// Inside [`aside`]: notes are stamped and go nowhere.
+    aside: bool,
     /// The rules whose work is under way, innermost last ([`observed_by`]).
-    rules: Vec<Option<ObservingRule>>,
+    rules: Vec<RuleScope>,
     run: Option<Vec<PathFact>>,
     /// The number of notes made while something was open.
     sequence: u64,
@@ -390,6 +557,27 @@ impl State {
         !self.sinks.is_empty() || self.run.is_some()
     }
 
+    /// Whether a fact other than a ground record was noted since `marker`, suspended or aside
+    /// included ([`State::depends_since`]).
+    fn depends_since(&self, marker: Marker) -> bool {
+        self.stamps
+            .iter()
+            .any(|(fact, stamp)| *stamp > marker.0 && !fact.is_ground_record())
+    }
+
+    /// Whether the work of the innermost rule under way depended on something that may differ
+    /// between models: since it began, or, for a successor's normalization, in the step that
+    /// built the successor (`ObservingRule::premises_depend`).
+    fn rule_work_depends(&self) -> bool {
+        self.rules.last().is_some_and(|scope| {
+            scope
+                .rule
+                .as_ref()
+                .is_some_and(|rule| rule.premises_depend.0)
+                || self.depends_since(scope.start)
+        })
+    }
+
     /// Note `fact`; returns it when it is a fact of an open run noted outside every phase of the
     /// run, which only the run record receives, so that the caller can report the stray note once
     /// the state is no longer borrowed.
@@ -400,7 +588,7 @@ impl State {
             Some((_, stamp)) => *stamp = sequence,
             None => self.stamps.push((fact.clone(), sequence)),
         }
-        if self.suspended && fact.suspends() {
+        if self.aside || (self.suspended && fact.suspends()) {
             return None;
         }
         let on_paths = fact.on_paths();
@@ -453,6 +641,59 @@ fn with_state<T>(action: impl FnOnce(&mut State) -> T) -> T {
     })
 }
 
+/// Whether a note has somewhere to go: a collection or a run record is open, so that work done
+/// only to note a fact is worth doing.
+pub(crate) fn is_open() -> bool {
+    OPEN.get()
+}
+
+#[cfg(feature = "test-switches")]
+thread_local! {
+    /// Whether this thread checks claims ([`without_claim_checks`]).
+    static CLAIM_CHECKS: Cell<bool> = const { Cell::new(true) };
+}
+
+/// Run `action` with the claim checks turned off on this thread: no contradicted claim is noted,
+/// and none of the work done only to find one runs (where a result term or an equation's result
+/// was found `\bottom`, the normalization of a disjunctive right-hand side's alternatives). A
+/// claim attribute's check observes and decides nothing, so every result must be the same apart
+/// from the records; tests compare the two. Only with the `test-switches` feature, which no
+/// normal build enables.
+#[cfg(feature = "test-switches")]
+pub fn without_claim_checks<T>(action: impl FnOnce() -> T) -> T {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            CLAIM_CHECKS.set(self.0);
+        }
+    }
+    let _restore = Restore(CLAIM_CHECKS.replace(false));
+    action()
+}
+
+/// Whether claims are checked: always, except under `without_claim_checks` (feature
+/// `test-switches`). The bookkeeping that serves only the check (`simplify::FoundBottom`) runs
+/// only then.
+#[inline(always)]
+pub(crate) fn claims_checked() -> bool {
+    #[cfg(feature = "test-switches")]
+    {
+        CLAIM_CHECKS.get()
+    }
+    #[cfg(not(feature = "test-switches"))]
+    {
+        true
+    }
+}
+
+/// Whether a contradicted claim found now would be noted: claims are checked
+/// ([`claims_checked`]) and a note has somewhere to go ([`is_open`]). Work done only to find one
+/// runs only then.
+#[inline]
+pub(crate) fn checking_claims() -> bool {
+    is_open() && claims_checked()
+}
+
 /// Note `fact`: it reaches the innermost open collection and the run record, unless notes are
 /// suspended.
 pub(crate) fn note(fact: PathFact) {
@@ -463,20 +704,125 @@ pub(crate) fn note(fact: PathFact) {
     report_stray(stray);
 }
 
+/// Whether a record of a claim contradicted at `application` is
+/// [`ground`](ContradictedClaim::ground): the application is variable-free, the work that found
+/// it `\bottom` assumed nothing but `\top` (`unassumed`), and that work depended on nothing that
+/// may differ between models of the definition (`depends` is false: it noted no path fact of any
+/// kind but ground records, [`State::depends_since`]). Every dependence on a model, a value the
+/// definition leaves open or anything else, is a path fact where it arises (this module's
+/// guarantee), so this one test covers them all. A ground record the work observed is no such
+/// dependence: the work that found it depended on nothing, and anything else the enclosing work
+/// depended on is a fact or an assumption of its own.
+fn ground(application: &Term, unassumed: bool, depends: bool) -> bool {
+    unassumed && !depends && application.attributes().variables.is_empty()
+}
+
 /// Note that an equation reduced `total`, an application of a symbol declared `total` to
 /// defined arguments, to bottom: a contradicted claim, observed by the innermost rule whose work
-/// is under way ([`observed_by`]).
-pub(crate) fn note_contradicted_total(total: &ContradictedTotal) {
-    if !OPEN.get() {
+/// is under way ([`observed_by`]). The work that found it began at `from`, just before the
+/// equation was selected for the application, and `unconditional` says whether it ran under no
+/// assumption other than `\top` (no known predicate and no path condition); the record is
+/// [`ground`] by them. The arguments' own evaluation is no part of that work: the claim is about
+/// the application as it is, whatever built it.
+pub(crate) fn note_contradicted_total(
+    total: &ContradictedTotal,
+    unconditional: bool,
+    from: Marker,
+) {
+    if !checking_claims() {
         return;
     }
-    let rule = STATE.with_borrow(|state| state.rules.last().cloned().flatten());
+    let (rule, depends) = STATE.with_borrow(|state| {
+        (
+            state
+                .rules
+                .last()
+                .and_then(|scope| scope.rule.as_ref().map(ObservingRule::named)),
+            state.depends_since(from),
+        )
+    });
     note(PathFact::ContradictedClaim(Box::new(ContradictedClaim {
-        ground: total.application.attributes().variables.is_empty(),
+        ground: ground(&total.application, unconditional, depends),
         claim: Claim::Total(total.clone()),
         rule,
         observed_in: ObservedIn::Run,
     })));
+}
+
+/// Note that the normalization of `instance`, the result term a step of the innermost rule whose
+/// work is under way built ([`observed_by`]), is `\bottom`, when that rule claims its result
+/// defined ([`claims_defined_result`]): `found` (called only then) gives the term where
+/// `\bottom` was found and whether nothing but `\top` was assumed (every constraint `\top`), or
+/// `None` when the result is not `\bottom`. The claim is refuted at this instance, a
+/// contradicted claim observed by the rule itself, [`ground`] by what the step and the
+/// normalization depended on ([`note_preservation`]). A rule that is not declared so claims
+/// nothing (a discharged rule's obligation is a load fact, not an attribute), and nothing is
+/// noted.
+pub(crate) fn note_contradicted_preservation(
+    instance: &Term,
+    found: impl FnOnce() -> Option<(Term, bool)>,
+) {
+    if !checking_claims() {
+        return;
+    }
+    let claims = STATE.with_borrow(|state| {
+        state
+            .rules
+            .last()
+            .and_then(|scope| scope.rule.as_ref())
+            .is_some_and(|rule| rule.claims_defined_result)
+    });
+    if !claims {
+        return;
+    }
+    let Some((undefined_term, unassumed)) = found() else {
+        return;
+    };
+    let rule = STATE.with_borrow(|state| {
+        state
+            .rules
+            .last()
+            .and_then(|scope| scope.rule.clone())
+            .expect("the rule was read above")
+    });
+    note_preservation(rule, instance, undefined_term, unassumed);
+}
+
+/// Note that `rule`'s result `instance` is `\bottom` at `undefined_term`: its
+/// `preserves-definedness` is refuted there. The work that found it is that of the innermost rule
+/// under way ([`observed_by`]): the step's attempt, whose match and `requires` decided its
+/// premises, or the normalization of the successor it built, together with that step's attempt
+/// (`ObservingRule::premises_depend`). The record is [`ground`] by that work and by `unassumed`,
+/// whether the step's premises were decided on the instance alone (nothing but `\top` assumed).
+pub(crate) fn note_preservation(
+    rule: ObservingRule,
+    instance: &Term,
+    undefined_term: Term,
+    unassumed: bool,
+) {
+    if !checking_claims() {
+        return;
+    }
+    let depends = STATE.with_borrow(State::rule_work_depends);
+    note(PathFact::ContradictedClaim(Box::new(ContradictedClaim {
+        ground: ground(instance, unassumed, depends),
+        claim: Claim::PreservesDefinedness(ContradictedPreservation {
+            rule_id: rule.unique_id.clone(),
+            label: rule.label.clone(),
+            origin: rule.origin.clone(),
+            instance: instance.clone(),
+            undefined_term,
+        }),
+        rule: Some(rule.named()),
+        observed_in: ObservedIn::Run,
+    })));
+}
+
+/// Whether the work of the innermost rule under way has depended so far on something that may
+/// differ between models ([`Dependence`]): what a successor that work builds inherits
+/// (`ObservingRule::premises_depend`).
+pub(crate) fn rule_work_depends() -> Dependence {
+    Dependence(STATE.with_borrow(State::rule_work_depends))
 }
 
 /// Note that an application of `hook` was left unevaluated for `reason`, by the memory
@@ -517,7 +863,35 @@ pub(crate) fn observed_by<T>(
         return action();
     }
     let rule = rule();
-    with_state(|state| state.rules.push(rule));
+    with_state(|state| {
+        let start = Marker(state.sequence);
+        state.rules.push(RuleScope { rule, start });
+    });
+    let _pop = Pop;
+    action()
+}
+
+/// [`observed_by`], for work that continues the work of the same rule begun at `from` (a
+/// successor's term normalization after its constraints' own): what a record it observes rests
+/// on is asked from `from` on ([`ground`]).
+pub(crate) fn observed_from<T>(
+    from: Marker,
+    rule: impl FnOnce() -> Option<ObservingRule>,
+    action: impl FnOnce() -> T,
+) -> T {
+    struct Pop;
+    impl Drop for Pop {
+        fn drop(&mut self) {
+            with_state(|state| {
+                state.rules.pop();
+            });
+        }
+    }
+    if !OPEN.get() {
+        return action();
+    }
+    let rule = rule();
+    with_state(|state| state.rules.push(RuleScope { rule, start: from }));
     let _pop = Pop;
     action()
 }
@@ -615,6 +989,24 @@ pub(crate) fn emit(facts: &FactSet) {
     for diagnostic in diagnostics(facts) {
         diagnostic::emit(diagnostic);
     }
+}
+
+/// Run `action`, an evaluation whose outcome decides nothing in the run, with what it notes going
+/// to no collection and no run record. The notes are still stamped ([`since`], [`noted_since`]),
+/// so a memo entry made inside it carries them, and a later use of the entry replays them where
+/// the run does decide on it. Restored on every exit.
+pub(crate) fn aside<T>(action: impl FnOnce() -> T) -> T {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            let previous = self.0;
+            with_state(|state| state.aside = previous);
+        }
+    }
+    let _restore = Restore(with_state(|state| {
+        std::mem::replace(&mut state.aside, true)
+    }));
+    action()
 }
 
 /// Run `action` with the notes of chosen values suspended: an evaluation whose value decides
@@ -827,6 +1219,8 @@ mod tests {
                 unique_id: "r".to_owned(),
                 label: None,
                 origin: None,
+                claims_defined_result: false,
+                premises_depend: Dependence::default(),
             })
         };
         assert_eq!(observed_by(rule, || 1), 1);

@@ -433,18 +433,33 @@ export interface UnevaluatedHook {
 export type ObservedIn = 'load' | 'run'
 
 /**
- * A claim of the definition an evaluation found contradicted by the definition's own equations:
- * `claim: 'total'`, a symbol declared total (or functional) whose equation reduced an application
- * to defined arguments to bottom, with the fields of `ContradictedTotal`. `rewriteRule*` name the
- * rewrite rule whose attempt or successor's normalization observed it, absent when no rule's work
- * did. `ground`: the application is variable-free, so the definition has no model with the claim
- * at that input; a non-ground record shows nothing. `observedIn`: whether the definition's load or
- * this run observed it; a leaf's records are always 'run'.
+ * A claim of the definition an evaluation found contradicted by the definition's own equations,
+ * one of two kinds told apart by `claim`:
+ * - `claim: 'total'`: a symbol declared total (or functional) whose equation reduced an
+ *   application to defined arguments to bottom, with the fields of `ContradictedTotal`;
+ * - `claim: 'preserves-definedness'`: a rule declared so (`ruleId`, `ruleLabel`, `origin`) whose
+ *   result term as the step built it (`application`; for a disjunctive right-hand side, every
+ *   alternative's, of which the first is named) its normalization found bottom (`undefined`:
+ *   where, a subterm of it or of a callee's equation result), with no `symbol` or `kLabel`.
+ * The other fields are `ContradictedClaimFields`.
  */
-export interface ContradictedClaim {
-  claim: 'total'
-  symbol: string
-  kLabel?: string
+export type ContradictedClaim =
+  | ({ claim: 'total'; symbol: string; kLabel?: string } & ContradictedClaimFields)
+  | ({ claim: 'preserves-definedness' } & ContradictedClaimFields)
+
+/**
+ * The fields of a `ContradictedClaim` of either kind. `rewriteRule*` name the rewrite rule whose
+ * attempt or successor's normalization observed it, absent when no rule's work did. `ground`: the
+ * application is variable-free and the work that refuted the claim depended on nothing that may
+ * differ between models (it read no value the definition leaves open, among the other path facts,
+ * and assumed nothing but true: for `total`, no constraint of the state; for
+ * `preserves-definedness`, every constraint of the step simplified to true, so its `requires` was
+ * decided), so the claim is false at that input in every model that agrees with the request's
+ * inputs (on the I/O route, the console state too) and with k-rust's stated readings; a
+ * non-ground record shows nothing. `observedIn`: whether the definition's
+ * load or this run observed it; a leaf's records are always 'run'.
+ */
+export interface ContradictedClaimFields {
   ruleId: string
   ruleLabel?: string
   origin?: RuleOrigin
@@ -679,22 +694,7 @@ export type BackendDiagnostic =
    * the paths that depend on the work that found it, whatever became of that work, and never
    * causes or prevents a `state-set` merge.
    */
-  | {
-      kind: 'contradicted-claim'
-      claim: 'total'
-      symbol: string
-      kLabel?: string
-      ruleId: string
-      ruleLabel?: string
-      origin?: RuleOrigin
-      application: Kore
-      undefined: Kore
-      rewriteRuleId?: string
-      rewriteRuleLabel?: string
-      rewriteRuleOrigin?: RuleOrigin
-      ground: boolean
-      observedIn: ObservedIn
-    }
+  | ({ kind: 'contradicted-claim' } & ContradictedClaim)
 
 export type SmtFailure =
   | { kind: 'translation'; error: TranslationFailure }

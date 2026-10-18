@@ -120,7 +120,7 @@ use crate::{
     rewrite::{
         AppliedRule, IndeterminateReason, InitialDefinedness, Pattern, RemainderBranch,
         RewriteResult, TraceEntry, TraceKind, Truth, UndecidedStep, initial_definedness,
-        path_trace::PathTrace, predicates_truth, rewrite_step_restricted,
+        note_undefined_result, path_trace::PathTrace, predicates_truth, rewrite_step_restricted,
         rewrite_step_with_options, simplify_result_pattern, stuck,
     },
     rule::Predicate,
@@ -985,6 +985,9 @@ fn search_graph_collecting(
         // The state's own constraint and term simplification is on its path: every result,
         // incomplete entry and successor derived from this state carries it. It is the work of
         // the rule that produced the state: a contradicted claim it observes names that rule.
+        // One normalization in two phases: what a record the term phase observes rests on is
+        // asked from the constraints' phase on (`crate::path_facts::observed_from`).
+        let normalization = crate::path_facts::marker();
         let (simplified_constraints, emitted) = crate::path_facts::collect_with_diagnostics(|| {
             crate::path_facts::observed_by(
                 || rule.clone(),
@@ -1026,16 +1029,26 @@ fn search_graph_collecting(
         }
         let pattern_before_simplification = state.pattern.clone();
         let (simplified_term, emitted) = crate::path_facts::collect_with_diagnostics(|| {
-            crate::path_facts::observed_by(
+            crate::path_facts::observed_from(
+                normalization,
                 || rule.clone(),
                 || {
-                    simplify_with_solver(
+                    let simplified = simplify_with_solver(
                         definition,
                         &state.pattern.term,
                         &state.pattern.constraints,
                         SimplificationOptions::keep_partial(options.max_simplification_iterations),
                         solver,
-                    )
+                    );
+                    // A successor's term is the result term its step built.
+                    if let Ok(Ok(simplified)) = &simplified {
+                        note_undefined_result(
+                            &state.pattern.term,
+                            &state.pattern.constraints,
+                            simplified,
+                        );
+                    }
+                    simplified
                 },
             )
         });
@@ -2154,6 +2167,9 @@ fn search_paths_collecting(
         // entry and extension derived from it carries it. It is the work of the rule that
         // produced the state, as in the state-set search.
         let rule = path.rule.clone();
+        // One normalization in two phases: what a record the term phase observes rests on is
+        // asked from the constraints' phase on (`crate::path_facts::observed_from`).
+        let normalization = crate::path_facts::marker();
         let (simplified_constraints, emitted) = crate::path_facts::collect_with_diagnostics(|| {
             crate::path_facts::observed_by(
                 || rule.clone(),
@@ -2182,16 +2198,26 @@ fn search_paths_collecting(
         }
         let pattern_before_simplification = path.state.pattern.clone();
         let (simplified_term, emitted) = crate::path_facts::collect_with_diagnostics(|| {
-            crate::path_facts::observed_by(
+            crate::path_facts::observed_from(
+                normalization,
                 || rule.clone(),
                 || {
-                    simplify_with_solver(
+                    let simplified = simplify_with_solver(
                         definition,
                         &path.state.pattern.term,
                         &path.state.pattern.constraints,
                         SimplificationOptions::keep_partial(options.max_simplification_iterations),
                         solver,
-                    )
+                    );
+                    // A successor's term is the result term its step built.
+                    if let Ok(Ok(simplified)) = &simplified {
+                        note_undefined_result(
+                            &path.state.pattern.term,
+                            &path.state.pattern.constraints,
+                            simplified,
+                        );
+                    }
+                    simplified
                 },
             )
         });

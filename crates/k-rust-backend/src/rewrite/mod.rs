@@ -26,7 +26,7 @@ use apply::{
     BooleanSplit, EqualitySplit, MapNotInKeysSplit, PartialRuleMatch, RuleAttempt, apply_rule,
 };
 use execute::execute_using;
-pub(crate) use execute::{simplify_leaf_pattern, simplify_result_pattern};
+pub(crate) use execute::{note_undefined_result, simplify_leaf_pattern, simplify_result_pattern};
 pub use predicates::substitute_predicates;
 use predicates::{StateNames, extend_unique, pattern_variable_names};
 pub(crate) use predicates::{
@@ -159,6 +159,14 @@ pub struct AppliedRule {
     /// and `label`, what a contradicted claim its successor's normalization observes names
     /// (`crate::path_facts::ObservingRule`).
     pub(crate) origin: Option<crate::rule::RuleOrigin>,
+    /// Whether the rule claims `pattern`'s term defined, which the successor's normalization can
+    /// refute (`crate::path_facts::claims_defined_result`).
+    pub(crate) claims_defined_result: bool,
+    /// Whether the attempt that built this candidate depended on something that may differ
+    /// between models before the candidate was built (it decided the step's premises), which a
+    /// record of the rule's claim the successor's normalization observes rests on too
+    /// (`crate::path_facts::Dependence`; equality ignores it).
+    pub(crate) premises_depend: crate::path_facts::Dependence,
     pub substitution: Substitution,
     /// Rule-variable bindings suitable for execution diagnostics. Variables introduced solely as
     /// term aliases (`P #as X`) are implementation details and are omitted from this view.
@@ -192,12 +200,15 @@ impl AppliedRule {
             unique_id: self.unique_id.clone(),
             label: self.label.clone(),
             origin: self.origin.clone(),
+            claims_defined_result: self.claims_defined_result,
+            premises_depend: self.premises_depend,
         }
     }
 }
 
 /// Every field but the `normalized` cache, which is work derived from `pattern`, and the rule's
-/// `origin`, which `unique_id` names within a definition.
+/// `origin` and `claims_defined_result`, which `unique_id` names within a definition, and
+/// `premises_depend`, a fact of the work that built it.
 impl std::fmt::Debug for AppliedRule {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter

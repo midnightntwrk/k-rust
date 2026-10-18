@@ -1145,6 +1145,10 @@ pub struct BackendDefinition {
     /// `\and` of term patterns). The term simplifier never tries it. Set by `internalize`; see
     /// [`Self::equation_selection_complete`].
     term_equation_in_predicate_theory: bool,
+    /// Whether the definition makes a claim that evaluation can find contradicted: a rewrite rule
+    /// declared `preserves-definedness`, or an equation of a symbol declared `total` (or
+    /// `functional`). Set by `internalize`; see [`Self::declares_claims`].
+    declares_claims: bool,
     /// Every term equation's left-hand side by root symbol, for the normal-form checker; built
     /// on first use by `normal_form_catalog`.
     #[cfg(feature = "check-normal-forms")]
@@ -2753,6 +2757,7 @@ impl BackendDefinition {
             load_record: Vec::new(),
             discharge_counts: DischargeCounts::default(),
             term_equation_in_predicate_theory: false,
+            declares_claims: false,
             deepest,
             #[cfg(feature = "check-normal-forms")]
             normal_form_catalog: OnceLock::new(),
@@ -2774,10 +2779,19 @@ impl BackendDefinition {
         for rule in rules {
             match rule {
                 InternalizedRule::Term(RuleKind::Rewrite, rule) => {
+                    result.declares_claims |= rule.attributes.preserves_definedness;
                     let index = rule_index(&result, &rule.lhs);
                     insert_rewrite_theory(&mut result.rewrite_theory, rule, index);
                 }
                 InternalizedRule::Term(kind, rule) => {
+                    result.declares_claims |=
+                        matches!(kind, RuleKind::Function | RuleKind::Simplification)
+                            && matches!(
+                                rule.lhs.kind(),
+                                TermKind::Application { symbol, .. }
+                                    if symbol.attributes.symbol_type
+                                        == SymbolType::Function(FunctionType::Total)
+                            );
                     let theory = match kind {
                         RuleKind::Function => &mut result.function_theory,
                         RuleKind::Simplification => &mut result.simplification_theory,
@@ -2979,6 +2993,15 @@ impl BackendDefinition {
     ) -> Option<&PredicateTheory> {
         self.predicate_theory_by_connective
             .get(&std::mem::discriminant(predicate))
+    }
+
+    /// Whether the definition makes a claim that evaluation can find contradicted
+    /// (`crate::path_facts::ContradictedClaim`): a rewrite rule declared `preserves-definedness`,
+    /// or an equation of a symbol declared `total`, whose result is the only place a `total`
+    /// claim can be refuted. The work done only to find a contradicted claim is done only for
+    /// such a definition.
+    pub(crate) fn declares_claims(&self) -> bool {
+        self.declares_claims
     }
 
     /// Whether the term simplifier's equation selection (`rule::applicable_groups` on

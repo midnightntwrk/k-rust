@@ -265,11 +265,13 @@ pub struct BackendCapabilities {
     /// (`SearchResponse::implementation_chosen_values` and the other search responses').
     pub implementation_chosen_values: bool,
     /// `execute` and `execute_observed` mark each leaf whose path's decisions rest on a
-    /// contradicted claim the run observed (`BackendDiagnosticOutput::ContradictedClaim`) and
-    /// list every such record the run and its definition's load observed
-    /// ([`ExecutionResult::contradicted_claims`]); every search marks its states, witnesses and
-    /// matches alike and lists the records (`SearchResponse::contradicted_claims` and the other
-    /// search responses').
+    /// contradicted claim the run observed (`BackendDiagnosticOutput::ContradictedClaim`), a
+    /// `total` attribute or a rule's `preserves-definedness`, and list every such record the run
+    /// and its definition's load observed ([`ExecutionResult::contradicted_claims`]); every search
+    /// marks its states, witnesses and matches alike and lists the records
+    /// (`SearchResponse::contradicted_claims` and the other search responses'). Proofs name a
+    /// contradicted total on their empty leaves only (docs/compatibility.md, "A contradicted
+    /// `preserves-definedness` attribute is named, not repaired").
     pub contradicted_claims: bool,
     /// `execute`, `execute_observed` and every search list every `Bytes` result the memory
     /// allowance refused ([`ExecutionResult::allowance_refusals`]), whatever became of the work
@@ -489,12 +491,16 @@ pub struct ExecutionResult<K = Value> {
     pub implementation_chosen_values: Vec<ChosenValueOutput>,
     /// Every distinct contradicted claim the run observed (wire `contradictedClaims`), and those
     /// the load of its definition observed, in first-observed order; absent when empty
-    /// (docs/compatibility.md, "A contradicted total attribute is named, not repaired"). It holds
-    /// the records of the leaves' paths (`BackendDiagnosticOutput::ContradictedClaim`) and those
-    /// of work that ended on no reported leaf: a candidate a defined sibling covered, a state a
-    /// `state-set` merge absorbed. It is complete for contradictions found by evaluation on
-    /// ground arguments; a symbolic state trusts the claim, so an empty list says nothing about
-    /// a non-ground run. Each record says who observed it (`observedIn`): the load's records are
+    /// (docs/compatibility.md, "A contradicted total attribute is named, not repaired" and "A
+    /// contradicted `preserves-definedness` attribute is named, not repaired"). It holds the
+    /// records of the leaves' paths (`BackendDiagnosticOutput::ContradictedClaim`) and those of
+    /// work that ended on no reported leaf: a candidate a defined sibling covered, a state a
+    /// `state-set` merge absorbed. It is complete for the `total` contradictions evaluation finds
+    /// on ground arguments, and for the `preserves-definedness` contradictions a successor's
+    /// normalization finds: a declared rule's result term found `\bottom`, by any route (for a
+    /// disjunctive right-hand side, every alternative's; a `#Bottom` right-hand side). A symbolic
+    /// state trusts the claims, so an empty list says nothing about a non-ground run. Each record
+    /// says who observed it (`observedIn`): the load's records are
     /// facts about the definition, on this list and on no leaf, and a contradiction the load and
     /// the run both observed is listed once for each.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -2603,9 +2609,6 @@ mod tests {
             assert_typescript_member("BackendCapabilities", &format!("{capability}: boolean"));
         }
         for member in [
-            "claim: 'total'",
-            "symbol: string",
-            "kLabel?: string",
             "ruleId: string",
             "ruleLabel?: string",
             "origin?: RuleOrigin",
@@ -2617,7 +2620,7 @@ mod tests {
             "ground: boolean",
             "observedIn: ObservedIn",
         ] {
-            assert_typescript_member("ContradictedClaim", member);
+            assert_typescript_member("ContradictedClaimFields", member);
         }
         assert_typescript_member("UnevaluatedHook", "hook: string");
         assert_typescript_member("UnevaluatedHook", "reason: string");

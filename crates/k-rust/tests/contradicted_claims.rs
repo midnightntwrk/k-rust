@@ -199,12 +199,17 @@ endmodule
     /// Compile `source` (main and syntax module `MAIN`) with the prelude and assemble the
     /// initial configuration whose `$PGM` is `program` at sort `Pgm`.
     pub(super) fn compile(source: &str, program: &str) -> (String, Pattern) {
+        compile_in(source, "MAIN", program)
+    }
+
+    /// [`compile`] with main and syntax module `main`.
+    pub(super) fn compile_in(source: &str, main: &str, program: &str) -> (String, Pattern) {
         let mut resolver = |_: &str, required: &str| {
             embedded(required).ok_or_else(|| format!("unexpected require {required}"))
         };
         let loaded = load_with_options(
             ResolvedSource::new("claims.k", source),
-            "MAIN",
+            main,
             &mut resolver,
             &LoadOptions {
                 implicit_sources: vec![embedded("prelude.md").unwrap()],
@@ -215,18 +220,19 @@ endmodule
         let artifacts = compile_loaded_definition(&loaded, CompileOptions::default()).unwrap();
         let frontend = loaded.into_definition();
         let grammar = ProgramGrammar::new(&frontend).unwrap();
-        let mut assembler = ConfigurationAssembler::new(
-            &grammar,
-            "MAIN",
-            "MAIN",
-            &artifacts.configuration_variables,
-        );
+        let mut assembler =
+            ConfigurationAssembler::new(&grammar, main, main, &artifacts.configuration_variables);
         assembler.program(&Sort::new("Pgm"), program).unwrap();
         (artifacts.definition_kore, assembler.finish().unwrap())
     }
 
     pub(super) fn backend(kore: &str) -> Backend {
-        Backend::new(kore, "MAIN", BackendOptions::default()).unwrap()
+        backend_in(kore, "MAIN")
+    }
+
+    /// [`backend`] for main module `main`.
+    pub(super) fn backend_in(kore: &str, main: &str) -> Backend {
+        Backend::new(kore, main, BackendOptions::default()).unwrap()
     }
 
     /// One record as a consumer reads it: the claim, the contradicted symbol's K label, the
@@ -596,6 +602,21 @@ fn a_symbolic_run_observes_no_contradiction() {
     }
 }
 
+/// `a_refutation_that_observed_a_contradiction_is_not_reused_without_its_record`'s
+/// definition.
+const LOOP: &str = r#"
+module MAIN
+  imports INT
+  syntax Pgm ::= loop(Int) | done(Int)
+  syntax Int ::= td(Int) [function, total]
+  configuration <k> $PGM:Pgm </k>
+  rule [tdeq]: td(I) => 10 /Int (I +Int 0)
+  rule [hit]: loop(N) => done(N) requires td(0) >Int N
+  rule loop(N) => loop(N -Int 1) requires N >Int 0 [priority(60)]
+  rule loop(0) => done(0) [priority(60)]
+endmodule
+"#;
+
 /// The sequential step keeps one refutation memo for the run, shared by its initial patterns.
 /// `hit`'s `requires` is refuted through `td(0)` on the first pattern; a memo that stored that
 /// refutation would answer the second pattern's attempt without evaluating `td(0)`, and that
@@ -609,18 +630,6 @@ fn a_refutation_that_observed_a_contradiction_is_not_reused_without_its_record()
         search::ResultModality,
         smt::NoSolver,
     };
-    const LOOP: &str = r#"
-module MAIN
-  imports INT
-  syntax Pgm ::= loop(Int) | done(Int)
-  syntax Int ::= td(Int) [function, total]
-  configuration <k> $PGM:Pgm </k>
-  rule [tdeq]: td(I) => 10 /Int (I +Int 0)
-  rule [hit]: loop(N) => done(N) requires td(0) >Int N
-  rule loop(N) => loop(N -Int 1) requires N >Int 0 [priority(60)]
-  rule loop(0) => done(0) [priority(60)]
-endmodule
-"#;
     let (kore, initial) = compile_program(LOOP, "loop(2)");
     let mut backend = observed::backend(&kore);
     let definition = backend.select_definition(None).unwrap();
@@ -667,7 +676,7 @@ mod refusals {
     /// equation reads `countAllOccurrences("a", "")`, which the definition does not determine,
     /// and is passed over alike. `cnt(S, "")`'s equation needs the same application again, so its
     /// attempt, which met the refusal, is undone.
-    const REFUSALS: &str = r#"
+    pub(super) const REFUSALS: &str = r#"
 module MAIN
   imports INT
   imports BYTES
@@ -1118,15 +1127,8 @@ fn a_search_successor_s_normalization_names_its_rule() {
     }
 }
 
-/// `krun`'s warning says what a record shows. A ground record is a refutation of the claim at
-/// that input, so the definition is inconsistent there; a non-ground one (`rz(X)`, through
-/// `tz(_) => 10 /Int 0`) holds at each instance of a state that may have none, so it is worded as
-/// contradicted only. A record of the load says so.
-#[test]
-fn the_warning_says_what_a_record_shows() {
-    use k_rust::backend::execution::contradicted_claim_message;
-    use k_rust_backend::{rewrite::execute_with_solver, smt::NoSolver};
-    const NON_GROUND: &str = r#"
+/// `the_warning_says_what_a_record_shows`'s definition: a non-ground record.
+const NON_GROUND: &str = r#"
 module MAIN
   imports INT
   syntax Pgm ::= "done" | rz(Int)
@@ -1136,6 +1138,15 @@ module MAIN
   rule [rz]:   rz(I) => done requires tz(I) >Int 0
 endmodule
 "#;
+
+/// `krun`'s warning says what a record shows. A ground record is a refutation of the claim at
+/// that input, so the definition is inconsistent there under k-rust's stated readings; a
+/// non-ground one (`rz(X)`, through `tz(_) => 10 /Int 0`) holds at each instance of a state that
+/// may have none, so it is worded as contradicted only. A record of the load says so.
+#[test]
+fn the_warning_says_what_a_record_shows() {
+    use k_rust::backend::execution::contradicted_claim_message;
+    use k_rust_backend::{rewrite::execute_with_solver, smt::NoSolver};
     let messages = |source: &str, program: &str, symbolic: bool| {
         let (kore, ground) = compile_program(source, program);
         let initial = if symbolic {
@@ -1162,7 +1173,8 @@ endmodule
     let [ground] = <[String; 1]>::try_from(messages(CONTRADICTIONS, "r(0)", false)).unwrap();
     assert!(
         ground.contains("is contradicted on this input")
-            && ground.contains("so the definition is inconsistent here")
+            && ground
+                .contains("so the definition is inconsistent here under k-rust's stated readings")
             && ground.ends_with("(observed by rule MAIN.r)"),
         "{ground}"
     );
@@ -1180,4 +1192,2187 @@ endmodule
         load.ends_with("(observed when the definition was loaded)"),
         "{load}"
     );
+}
+
+/// Contradicted `preserves-definedness` attributes (docs/compatibility.md, "A contradicted
+/// `preserves-definedness` attribute is named, not repaired"): a rule declared so claims that its
+/// result term is defined wherever its left-hand side and `requires` hold. The step applies, and
+/// when the normalization of the result term it built finds a subterm undefined, the claim is
+/// refuted at that instance: a `contradicted-claim` record with `claim: preserves-definedness`
+/// naming the rule, its result term and the undefined subterm, on every leaf whose path rests on
+/// it and on the result's list. An undefined `ensures` or a refuted carried condition is not
+/// covered by the claim, and a rule that is not declared so (discharged or not) claims nothing.
+mod preservation {
+    use std::collections::BTreeSet;
+
+    use k_rust::backend::{ExecutionStrategy, ResultModalityOutput};
+    use serde_json::Value;
+
+    use super::observed::{
+        Record, backend, compile, each_run, leaf_with, leaves, record, records, run_records,
+    };
+
+    pub(super) const PRESERVATION: &str = r#"
+module MAIN
+  imports INT
+  syntax Pgm ::= "done" | val(Int) | pd(Int) | npd(Int) | pdt(Int) | pdp(Int) | pdens(Int)
+               | pdsib(Int) | two(Int) | ja(Int) | jb(Int) | join(Int) | tdiv(Int)
+  syntax Int ::= td(Int) [function, total]
+               | tp(Int) [function]
+  configuration <k> $PGM:Pgm </k>
+  rule [tdeq]:   td(I) => 10 /Int (I +Int 0)
+  rule [tpeq]:   tp(I) => 10 /Int (I +Int 0)
+  rule [pd]:     pd(X) => val(X /Int 0) [preserves-definedness]
+  rule [npd]:    npd(X) => val(X /Int 0)
+  rule [pdt]:    pdt(X) => val(td(X)) [preserves-definedness]
+  rule [pdp]:    pdp(X) => val(tp(X)) [preserves-definedness]
+  rule [pdens]:  pdens(X) => done ensures X >Int 0 [preserves-definedness]
+  rule [pdsiba]: pdsib(X) => val(X /Int 0) [preserves-definedness]
+  rule [pdsibb]: pdsib(_) => done
+  rule [twoa]:   two(X) => ja(X)
+  rule [twob]:   two(X) => jb(X)
+  rule [ja]:     ja(X) => join(X)
+  rule [jb]:     jb(X) => join(X)
+  rule [join]:   join(X) => val(X /Int 0) [preserves-definedness]
+  rule [tdiv]:   tdiv(I) => val(td(I))
+endmodule
+"#;
+
+    /// The definition with no claim at all: no `total` and no `preserves-definedness`.
+    fn claim_free(source: &str) -> String {
+        super::observed::claim_free(source).replace(" [preserves-definedness]", "")
+    }
+
+    /// The record of `rule`'s `preserves-definedness` claim, observed by the rule's own step, at
+    /// a ground instance.
+    pub(super) fn preservation(rule: &str) -> Record {
+        (
+            "preserves-definedness".to_owned(),
+            "?".to_owned(),
+            format!("MAIN.{rule}"),
+            Some(format!("MAIN.{rule}")),
+            true,
+        )
+    }
+
+    /// The printed `undefined` subterm of each preserves-definedness record of `result`'s list.
+    fn undefined_subterms(result: &Value) -> Vec<String> {
+        result["contradictedClaims"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|entry| entry["claim"] == "preserves-definedness")
+            .map(|entry| {
+                k_rust::kore::printer::Printer::compact()
+                    .print_pattern(&k_rust::kore::codec::from_value(&entry["undefined"]).unwrap())
+            })
+            .collect()
+    }
+
+    /// Every leaf of `program` and the result's list carry exactly `expected`, in every
+    /// combination, and the claim-free definition gives the same leaves' reasons with no record.
+    fn assert_recorded(program: &str, expected: &[Record]) {
+        let (kore, initial) = compile(PRESERVATION, program);
+        let (free, free_initial) = compile(&claim_free(PRESERVATION), program);
+        for (name, strategy, modality, result) in each_run(&kore, &initial) {
+            let context = format!("{program} under {name}: {result:#}");
+            assert!(!leaves(&result).is_empty(), "{context}");
+            for leaf in leaves(&result) {
+                assert_eq!(
+                    records(leaf),
+                    expected.iter().cloned().collect::<BTreeSet<_>>(),
+                    "{context}"
+                );
+            }
+            assert_eq!(run_records(&result), expected, "{context}");
+            let free = super::observed::execute(&free, &free_initial, modality, strategy);
+            let reasons = |result: &Value| {
+                leaves(result)
+                    .iter()
+                    .map(|leaf| leaf["reason"].clone())
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(reasons(&free), reasons(&result), "claim-free {context}");
+            assert!(
+                free.get("contradictedClaims").is_none(),
+                "claim-free {free:#}"
+            );
+        }
+    }
+
+    /// `pd(0)` steps to `val(0 /Int 0)`: the attribute is trusted, so the step applies, and the
+    /// result term's normalization finds `0 /Int 0` undefined. The `trivial` leaf and the list
+    /// name the rule, as they would without the attribute only by the halt.
+    #[test]
+    fn a_result_found_undefined_refutes_the_rule_s_preserves_definedness() {
+        assert_recorded("pd(0)", &[preservation("pd")]);
+        let (kore, initial) = compile(PRESERVATION, "pd(0)");
+        for (name, _, _, result) in each_run(&kore, &initial) {
+            assert_eq!(
+                undefined_subterms(&result),
+                ["Lbl'UndsSlsh'Int'Unds'{}(\\dv{SortInt{}}(\"0\"), \\dv{SortInt{}}(\"0\"))"],
+                "{name}: {result:#}"
+            );
+            for leaf in leaves(&result) {
+                assert_eq!(leaf["reason"], "trivial", "{name}: {result:#}");
+            }
+        }
+        // Through a partial callee the result is undefined alike.
+        assert_recorded("pdp(0)", &[preservation("pdp")]);
+    }
+
+    /// No claim, no record: `npd` is not declared, so its step carries the obligation and finds
+    /// the result undefined itself; `pdens`'s undefined `ensures` is no part of its result term;
+    /// `tdiv`'s result is undefined only through a contradicted `total` callee, whose record is
+    /// the one named.
+    #[test]
+    fn a_rule_that_claims_nothing_about_the_undefinedness_is_not_named() {
+        assert_recorded("npd(0)", &[]);
+        assert_recorded("pdens(0)", &[]);
+        assert_recorded("tdiv(0)", &[record("td", "tdeq", Some("tdiv"))]);
+    }
+
+    /// `pdt(0)` steps to `val(td(0))`, and `td(0)` is bottom through `td`'s own equation, which
+    /// contradicts `td`'s `total` claim; the result is undefined, which contradicts `pdt`'s claim
+    /// too. Both are named, the callee's first.
+    #[test]
+    fn a_step_through_a_contradicted_total_callee_names_both_claims() {
+        assert_recorded(
+            "pdt(0)",
+            &[record("td", "tdeq", Some("pdt")), preservation("pdt")],
+        );
+    }
+
+    /// `pdsiba`'s result is undefined and `pdsibb` covers every instance. Under strategy all the
+    /// candidate vanishes after the step: the `done` leaf is clean and the result lists the
+    /// record. Under strategy any the sequential step decides the candidate undefined before it
+    /// takes `pdsibb`, so the `done` leaf rests on it.
+    #[test]
+    fn a_candidate_a_defined_sibling_covers_is_on_the_list_and_on_the_leaves_that_rest_on_it() {
+        let (kore, initial) = compile(PRESERVATION, "pdsib(0)");
+        let expected = preservation("pdsiba");
+        for (name, strategy, _, result) in each_run(&kore, &initial) {
+            let context = format!("{name}: {result:#}");
+            assert_eq!(leaves(&result).len(), 1, "{context}");
+            let on_leaf = match strategy {
+                ExecutionStrategy::All => BTreeSet::new(),
+                _ => BTreeSet::from([expected.clone()]),
+            };
+            assert_eq!(records(leaf_with(&result, "Lbldone")), on_leaf, "{context}");
+            assert_eq!(
+                run_records(&result),
+                std::slice::from_ref(&expected),
+                "{context}"
+            );
+        }
+    }
+
+    /// `two(0)` reaches `join(0)` on two paths, and `join`'s result is undefined: the state-set
+    /// result has one `trivial` leaf, the path-set result one per path, and each carries the
+    /// record (strategy any takes `twoa` alone).
+    #[test]
+    fn converging_paths_each_rest_on_the_contradiction() {
+        let (kore, initial) = compile(PRESERVATION, "two(0)");
+        let expected = BTreeSet::from([preservation("join")]);
+        for (name, strategy, modality, result) in each_run(&kore, &initial) {
+            let context = format!("{name}: {result:#}");
+            let count = match (strategy, modality) {
+                (ExecutionStrategy::All, ResultModalityOutput::PathSet) => 2,
+                _ => 1,
+            };
+            assert_eq!(leaves(&result).len(), count, "{context}");
+            for leaf in leaves(&result) {
+                assert_eq!(leaf["reason"], "trivial", "{context}");
+                assert_eq!(records(leaf), expected, "{context}");
+            }
+            assert_eq!(run_records(&result), [preservation("join")], "{context}");
+        }
+    }
+
+    /// A search names the contradiction as an execution does: every search response lists it.
+    #[test]
+    fn every_search_lists_a_contradicted_preserves_definedness() {
+        use k_rust::backend::{SearchRequest, SearchTypeArg};
+        let (kore, initial) = compile(PRESERVATION, "pd(0)");
+        for search_type in [SearchTypeArg::Final, SearchTypeArg::All] {
+            let search = SearchRequest {
+                search_type,
+                ..SearchRequest::new(initial.clone())
+            };
+            let mut backend = backend(&kore);
+            for response in [
+                serde_json::to_value(backend.search(search.clone()).unwrap()).unwrap(),
+                serde_json::to_value(backend.search_paths(search).unwrap()).unwrap(),
+            ] {
+                assert_eq!(
+                    run_records(&response),
+                    [preservation("pd")],
+                    "{search_type:?}: {response:#}"
+                );
+            }
+        }
+    }
+
+    /// `krun`'s warning names the rule and its undefined result.
+    #[test]
+    fn the_warning_names_the_rule_and_the_undefined_result() {
+        use k_rust::backend::execution::contradicted_claim_message;
+        use k_rust_backend::{rewrite::execute_with_solver, smt::NoSolver};
+        let (kore, initial) = compile(PRESERVATION, "pd(0)");
+        let mut backend = backend(&kore);
+        let definition = backend.select_definition(None).unwrap();
+        let pattern = definition
+            .admit_unverified(&initial, &[])
+            .internalize_pattern()
+            .unwrap();
+        let result = execute_with_solver(&definition, pattern, Default::default(), &NoSolver);
+        let messages = result
+            .contradicted_claims
+            .iter()
+            .map(contradicted_claim_message)
+            .collect::<Vec<_>>();
+        let [message] = <[String; 1]>::try_from(messages).unwrap();
+        assert!(
+            message
+                .starts_with("the `preserves-definedness` attribute of rule MAIN.pd at claims.k:")
+                && message.contains("is contradicted on this input: its result ")
+                && message.contains("is undefined at Lbl'UndsSlsh'Int'Unds'{}")
+                && message.contains(
+                    "so the definition is inconsistent here under k-rust's stated readings",
+                )
+                && message.ends_with("(observed by rule MAIN.pd)"),
+            "{message}"
+        );
+    }
+
+    /// The shapes of the fix round: a disjunctive right-hand side, a result that reaches
+    /// `\bottom` through an equation whose right-hand side is `#Bottom` (`bot` is partial, `tb`
+    /// and `tb2` are declared `total`), and two rules whose `requires` no instance satisfies.
+    pub(super) const ROUTES: &str = r#"
+module MAIN
+  imports INT
+  imports BOOL
+  imports STRING
+  syntax Pgm ::= "done" | val(Int) | pdo(Int) | pdoo(Int) | bt(Int) | bts(Int)
+               | tbt(Int) | tbn(Int) | pa(Int) | pb(Int)
+  syntax Int ::= bot(Int) [function]
+               | tb(Int) [function, total]
+               | tb2(Int) [function, total]
+  configuration <k> $PGM:Pgm </k>
+  rule [pdo]:    pdo(X) => (val(X /Int 0) #Or done) [preserves-definedness]
+  rule [pdoo]:   pdoo(X) => (val(X /Int 0) #Or val((X /Int 0) +Int 1)) [preserves-definedness]
+  rule [boteq]:  bot(I) => #Bottom requires I ==Int 0
+  rule [boteq2]: bot(I) => I requires I =/=Int 0
+  rule [btr]:    bt(X) => val(bot(X)) [preserves-definedness]
+  rule [btsa]:   bts(X) => val(bot(X)) [preserves-definedness]
+  rule [btsb]:   bts(_) => done
+  rule [tbeq]:   tb(I) => #Bottom requires I ==Int 0
+  rule [tbeq2]:  tb(I) => I requires I =/=Int 0
+  rule [tbt]:    tbt(X) => val(tb(X))
+  rule [tb2eq]:  tb2(I) => bot(I) +Int 1
+  rule [tbn]:    tbn(X) => val(tb2(X))
+  rule [pa]:     pa(X) => val(1 /Int 0) requires 2 ^Int X ==Int 3 [preserves-definedness]
+  rule [pb]:     pb(X) => val(1 /Int 0) requires lengthString(Int2String(X)) ==Int 0 [preserves-definedness]
+endmodule
+"#;
+
+    /// Each run of `program` over [`ROUTES`] and over its claim-free variant, by name.
+    fn route_runs(program: &str) -> Vec<(String, ExecutionStrategy, Value, Value)> {
+        let (kore, initial) = compile(ROUTES, program);
+        let (free, free_initial) = compile(&claim_free(ROUTES), program);
+        each_run(&kore, &initial)
+            .into_iter()
+            .map(|(name, strategy, modality, result)| {
+                let free = super::observed::execute(&free, &free_initial, modality, strategy);
+                (format!("{program} under {name}"), strategy, result, free)
+            })
+            .collect()
+    }
+
+    /// The leaves' reasons, in order.
+    fn reasons(result: &Value) -> Vec<Value> {
+        leaves(result)
+            .iter()
+            .map(|leaf| leaf["reason"].clone())
+            .collect()
+    }
+
+    /// The claim-free run records nothing.
+    fn assert_claim_free_records_nothing(name: &str, free: &Value) {
+        assert!(
+            leaves(free).iter().all(|leaf| records(leaf).is_empty()),
+            "claim-free {name}: {free:#}"
+        );
+        assert!(
+            free.get("contradictedClaims").is_none(),
+            "claim-free {name}: {free:#}"
+        );
+    }
+
+    /// The printed `undefined` term of every record of `result`'s list.
+    fn undefined_terms(result: &Value) -> Vec<String> {
+        result["contradictedClaims"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|entry| {
+                k_rust::kore::printer::Printer::compact()
+                    .print_pattern(&k_rust::kore::codec::from_value(&entry["undefined"]).unwrap())
+            })
+            .collect()
+    }
+
+    /// The definedness of a disjunction is the disjunction of its alternatives' definedness:
+    /// `pdo(0)`'s result `val(0 /Int 0) #Or done` is defined, since `done` is, so the claim holds
+    /// and nothing is named, as without the attribute. `pdoo(0)`'s alternatives are both
+    /// undefined, so the claim is refuted at the instance, and the one record names the first
+    /// alternative; each alternative is an undefined step, with or without the attribute.
+    #[test]
+    fn a_disjunctive_result_is_undefined_only_when_every_alternative_is() {
+        for (name, _, result, free) in route_runs("pdo(0)") {
+            assert!(!leaves(&result).is_empty(), "{name}: {result:#}");
+            for leaf in leaves(&result) {
+                assert_eq!(records(leaf), BTreeSet::new(), "{name}: {result:#}");
+            }
+            assert!(
+                result.get("contradictedClaims").is_none(),
+                "{name}: {result:#}"
+            );
+            assert_eq!(reasons(&free), reasons(&result), "claim-free {name}");
+            assert_claim_free_records_nothing(&name, &free);
+        }
+        for (name, _, result, free) in route_runs("pdoo(0)") {
+            let expected = preservation("pdoo");
+            assert!(!leaves(&result).is_empty(), "{name}: {result:#}");
+            for leaf in leaves(&result) {
+                assert_eq!(
+                    records(leaf),
+                    BTreeSet::from([expected.clone()]),
+                    "{name}: {result:#}"
+                );
+            }
+            assert_eq!(run_records(&result), [expected], "{name}: {result:#}");
+            assert_eq!(
+                undefined_terms(&result),
+                ["Lbl'UndsSlsh'Int'Unds'{}(\\dv{SortInt{}}(\"0\"), \\dv{SortInt{}}(\"0\"))"],
+                "{name}: {result:#}"
+            );
+            for run in [&result, &free] {
+                assert!(
+                    reasons(run).iter().all(|reason| reason == "trivial"),
+                    "{name}: {run:#}"
+                );
+            }
+            assert_claim_free_records_nothing(&name, &free);
+        }
+    }
+
+    /// `bt(0)`'s result `val(bot(0))` reaches `\bottom` through `bot`'s `#Bottom` equation, with
+    /// no undefined builtin application: the declared rule's step is taken (its result is
+    /// trusted), its successor is a vacuous state, and the record names the rule with
+    /// `undefined` at `bot(0)`. Without the attribute the step decides the result itself and
+    /// the leaf is the undefined step's `trivial` one.
+    #[test]
+    fn a_result_found_bottom_through_an_equation_refutes_the_claim() {
+        for (name, _, result, free) in route_runs("bt(0)") {
+            let expected = preservation("btr");
+            assert!(!leaves(&result).is_empty(), "{name}: {result:#}");
+            for leaf in leaves(&result) {
+                assert_eq!(leaf["reason"], "vacuous", "{name}: {result:#}");
+                assert_eq!(
+                    records(leaf),
+                    BTreeSet::from([expected.clone()]),
+                    "{name}: {result:#}"
+                );
+            }
+            assert_eq!(run_records(&result), [expected], "{name}: {result:#}");
+            assert_eq!(
+                undefined_terms(&result),
+                ["Lblbot'LParUndsRParUnds'MAIN'Unds'Int'Unds'Int{}(\\dv{SortInt{}}(\"0\"))"],
+                "{name}: {result:#}"
+            );
+            for leaf in leaves(&free) {
+                assert_eq!(leaf["reason"], "trivial", "claim-free {name}: {free:#}");
+            }
+            assert_claim_free_records_nothing(&name, &free);
+        }
+    }
+
+    /// `bts(0)` under strategy any: `btsa`'s successor is a vacuous state the sequential step
+    /// keeps, so the run ends on a vacuous leaf that exists only because of the false claim, and
+    /// the leaf and the list name it. Without the attribute `btsa`'s step is undefined and
+    /// `btsb` covers it: `done`, nothing named. Under strategy all the `done` leaf is reached
+    /// either way, and the record is on the list.
+    #[test]
+    fn a_vacuous_leaf_resting_on_a_false_claim_names_it() {
+        for (name, strategy, result, free) in route_runs("bts(0)") {
+            let expected = preservation("btsa");
+            assert_eq!(
+                run_records(&result),
+                std::slice::from_ref(&expected),
+                "{name}: {result:#}"
+            );
+            assert!(
+                leaves(&result)
+                    .iter()
+                    .any(|leaf| records(leaf) == BTreeSet::from([expected.clone()])),
+                "{name}: {result:#}"
+            );
+            if matches!(strategy, ExecutionStrategy::Any) {
+                let [leaf] = leaves(&result).as_slice() else {
+                    panic!("{name}: {result:#}");
+                };
+                assert_eq!(leaf["reason"], "vacuous", "{name}: {result:#}");
+                assert!(
+                    leaves(&free)
+                        .iter()
+                        .all(|leaf| super::observed::printed(leaf).contains("Lbldone")),
+                    "claim-free {name}: {free:#}"
+                );
+            }
+            assert_claim_free_records_nothing(&name, &free);
+        }
+    }
+
+    /// A `total` symbol whose own equation's right-hand side is `#Bottom` on a defined argument
+    /// contradicts its claim as an equation whose result reaches an undefined builtin does:
+    /// `tbt(0)` names `tb` and `tbeq`, at `tb(0)`. `tbn(0)` reaches `\bottom` inside `tb2`'s
+    /// result, through the partial `bot`: `tb2` and `tb2eq` are named, at `bot(0)`. The trusted
+    /// claim discharges the rule's obligation, so its successor is a vacuous state; without the
+    /// claim the step decides its result itself and the leaf is the undefined step's `trivial`
+    /// one.
+    #[test]
+    fn a_total_symbol_whose_result_is_found_bottom_through_an_equation_is_named() {
+        for (program, symbol, equation, rule, undefined) in [
+            (
+                "tbt(0)",
+                "tb",
+                "tbeq",
+                "tbt",
+                "Lbltb'LParUndsRParUnds'MAIN'Unds'Int'Unds'Int{}(\\dv{SortInt{}}(\"0\"))",
+            ),
+            (
+                "tbn(0)",
+                "tb2",
+                "tb2eq",
+                "tbn",
+                "Lblbot'LParUndsRParUnds'MAIN'Unds'Int'Unds'Int{}(\\dv{SortInt{}}(\"0\"))",
+            ),
+        ] {
+            for (name, _, result, free) in route_runs(program) {
+                let expected = record(symbol, equation, Some(rule));
+                assert!(!leaves(&result).is_empty(), "{name}: {result:#}");
+                for leaf in leaves(&result) {
+                    assert_eq!(
+                        records(leaf),
+                        BTreeSet::from([expected.clone()]),
+                        "{name}: {result:#}"
+                    );
+                }
+                assert_eq!(run_records(&result), [expected], "{name}: {result:#}");
+                assert_eq!(undefined_terms(&result), [undefined], "{name}: {result:#}");
+                for (run, reason) in [(&result, "vacuous"), (&free, "trivial")] {
+                    assert!(
+                        reasons(run).iter().all(|found| found == reason),
+                        "{name}: {run:#}"
+                    );
+                }
+                assert_claim_free_records_nothing(&name, &free);
+            }
+        }
+    }
+
+    /// A ground result term found undefined refutes the claim only where the step's premises
+    /// hold. `pa` and `pb` have `requires` no integer satisfies, so their claims hold vacuously;
+    /// from the symbolic `pa(X)` and `pb(X)` a solver that cannot decide the `requires` lets the
+    /// step carry it, and its successor's undefined `val(1 /Int 0)` is named non-ground: it
+    /// refutes nothing. Without a solver the `requires` is undecided and the step is not taken.
+    #[test]
+    fn a_result_under_a_carried_requires_refutes_nothing() {
+        for (program, rule) in [("pa(0)", "pa"), ("pb(0)", "pb")] {
+            let symbolic = |source: &str| {
+                let (kore, ground) = compile(source, program);
+                let printed = k_rust::kore::printer::Printer::compact().print_pattern(&ground);
+                let symbolic = printed.replacen("\\dv{SortInt{}}(\"0\")", "VarX:SortInt{}", 1);
+                assert_ne!(symbolic, printed);
+                (
+                    kore,
+                    k_rust::kore::parser::parse_pattern(&symbolic).unwrap(),
+                )
+            };
+            let (kore, initial) = symbolic(ROUTES);
+            let (free, free_initial) = symbolic(&claim_free(ROUTES));
+            for (name, strategy, modality, result) in each_run(&kore, &initial) {
+                let context = format!("{program} symbolic under {name}: {result:#}");
+                let listed = run_records(&result);
+                if cfg!(feature = "z3-inference") {
+                    assert!(!listed.is_empty(), "{context}");
+                }
+                for record in listed {
+                    assert_eq!(
+                        record,
+                        (
+                            "preserves-definedness".to_owned(),
+                            "?".to_owned(),
+                            format!("MAIN.{rule}"),
+                            Some(format!("MAIN.{rule}")),
+                            false,
+                        ),
+                        "{context}"
+                    );
+                }
+                let free = super::observed::execute(&free, &free_initial, modality, strategy);
+                assert_claim_free_records_nothing(&name, &free);
+            }
+        }
+    }
+
+    /// The console route: with a console, a ground unconstrained step simplifies its right-hand
+    /// side within the step (`apply_rhs_alternative`), and an undefined result ends the step
+    /// there. `pd(0)`'s `trivial` leaf and the list carry the record under either strategy;
+    /// `pdsib(0)` under strategy any reaches `done` through `pdsibb` after finding `pdsiba`'s
+    /// result undefined, so its leaf rests on the record. Without the attribute, nothing.
+    #[test]
+    fn the_console_route_names_a_contradicted_preserves_definedness() {
+        use k_rust_backend::{
+            definition::BackendDefinition,
+            diagnostic::BackendDiagnostic,
+            rewrite::{ExecutionMode, ExecutionOptions, execute_with_io_state},
+            transition::ExecutionIoState,
+        };
+        let run = |source: &str, program: &str, mode: ExecutionMode| {
+            let (kore, initial) = compile(source, program);
+            let syntax = k_rust::kore::parser::parse_definition(&kore).unwrap();
+            let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+            let initial = definition
+                .admit_unverified(&initial, &[])
+                .internalize_pattern()
+                .unwrap();
+            execute_with_io_state(
+                &definition,
+                initial,
+                ExecutionOptions {
+                    mode,
+                    ..ExecutionOptions::default()
+                },
+                ExecutionIoState::new(Vec::new()),
+            )
+        };
+        let labels = |diagnostics: &[BackendDiagnostic]| {
+            diagnostics
+                .iter()
+                .filter_map(|diagnostic| match diagnostic {
+                    BackendDiagnostic::ContradictedClaim(claim) => claim
+                        .preservation()
+                        .map(|preservation| (preservation.label.clone(), claim.ground)),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        for (program, rule, modes) in [
+            (
+                "pd(0)",
+                "MAIN.pd",
+                &[ExecutionMode::All, ExecutionMode::Any][..],
+            ),
+            ("pdsib(0)", "MAIN.pdsiba", &[ExecutionMode::Any][..]),
+        ] {
+            for &mode in modes {
+                let context = format!("{program} under {mode:?}");
+                let result = run(PRESERVATION, program, mode);
+                let expected = vec![(Some(rule.to_owned()), true)];
+                let listed = result
+                    .contradicted_claims
+                    .iter()
+                    .filter_map(|claim| {
+                        claim
+                            .preservation()
+                            .map(|preservation| (preservation.label.clone(), claim.ground))
+                    })
+                    .collect::<Vec<_>>();
+                assert_eq!(listed, expected, "{context}: {result:#?}");
+                let [leaf] = result.leaves.as_slice() else {
+                    panic!("{context}: {result:#?}");
+                };
+                assert_eq!(labels(&leaf.diagnostics), expected, "{context}: {leaf:#?}");
+                let free = run(&claim_free(PRESERVATION), program, mode);
+                assert!(free.contradicted_claims.is_empty(), "claim-free {context}");
+                assert!(
+                    free.leaves
+                        .iter()
+                        .all(|leaf| labels(&leaf.diagnostics).is_empty()),
+                    "claim-free {context}"
+                );
+            }
+        }
+    }
+}
+
+/// What a record rests on, and the shapes the second fix round adds: a record is ground only
+/// when nothing but `\top` was assumed to refute the claim, for a `total` claim (`tb3`, whose
+/// `ensures` the path condition refutes, and `td2`, whose builtin result the path condition
+/// makes undefined) as for a `preserves-definedness` one; a declared `#Bottom` right-hand side
+/// (`pdb`) refutes the claim; deciding a disjunctive right-hand side emits nothing (`pdy`); and a
+/// lineage whose result is `\bottom` is reused as any other (`un3`, through the `Unspecified`
+/// `cntw(S, "")`, whose equation's result is the `#Bottom` of the partial `bot`).
+mod premises {
+    use std::collections::BTreeSet;
+
+    use k_rust::kore::{ast::Pattern, parser::parse_pattern, printer::Printer};
+    use serde_json::Value;
+
+    use super::observed::{Record, compile, each_run, leaf_with, leaves, records, run_records};
+
+    pub(super) const PREMISES: &str = r#"
+module MAIN
+  imports INT
+  imports BOOL
+  imports STRING
+  syntax Pgm ::= "done" | val(Int) | w(Int) | mid(Int) | mid2(Int) | pdq(Int)
+               | pdb(Int) | npdb(Int) | pdy(Int) | npdy(Int) | pdz(Int) | un3(String)
+  syntax Int ::= q(Int) [function, total]
+               | tb3(Int) [function, total]
+               | td2(Int) [function, total]
+               | grow(Int) [function]
+               | bot(Int) [function]
+               | pair(Int, Int) [function]
+               | cntw(String, String) [function, total, hook(STRING.countAllOccurrences)]
+               | cntx(String, String) [function, total, hook(STRING.countAllOccurrences)]
+  configuration <k> $PGM:Pgm </k>
+  rule [tb3eq]: tb3(I) => 1 ensures q(I) ==Int 1
+  rule [td2eq]: td2(I) => 10 /Int q(I)
+  rule [m]:     mid(X) => val(tb3(X))
+  rule [m2]:    mid2(X) => val(td2(X))
+  rule [pdq]:   pdq(X) => val(10 /Int q(X)) [preserves-definedness]
+  rule [pdb]:   pdb(_) => #Bottom [preserves-definedness]
+  rule [npdb]:  npdb(_) => #Bottom
+  rule grow(I) => grow(I +Int 1) [simplification]
+  rule [pdy]:   pdy(X) => (w(grow(X)) #Or done) [preserves-definedness]
+  rule [npdy]:  npdy(X) => (w(grow(X)) #Or done)
+  rule [pdz]:   pdz(X) => (done #Or w(grow(X))) [preserves-definedness]
+  rule [boteq]: bot(I) => #Bottom requires I ==Int 0
+  rule [boteq2]: bot(I) => I requires I =/=Int 0
+  rule [cntw]:  cntw(_, "") => bot(0)
+  rule [cntx]:  cntx(S, "") => pair(cntw(S, ""), cntw(S, ""))
+  rule [un3]:   un3(S) => val(cntx(S, ""))
+endmodule
+"#;
+
+    /// The definition with no claim at all.
+    pub(super) fn claim_free(source: &str) -> String {
+        super::checks_off::strip(source)
+    }
+
+    /// `program`'s initial configuration conjoined with `q(0) ==Int value`.
+    pub(super) fn constrained(source: &str, program: &str, value: i64) -> (String, Pattern) {
+        let (kore, ground) = compile(source, program);
+        (kore, with_q(&ground, value))
+    }
+
+    /// `pattern` conjoined with `q(0) ==Int value`.
+    pub(super) fn with_q(pattern: &Pattern, value: i64) -> Pattern {
+        let printed = Printer::compact().print_pattern(pattern);
+        let text = format!(
+            "\\and{{SortGeneratedTopCell{{}}}}({printed}, \\equals{{SortInt{{}}, SortGeneratedTopCell{{}}}}(Lblq'LParUndsRParUnds'MAIN'Unds'Int'Unds'Int{{}}(\\dv{{SortInt{{}}}}(\"0\")), \\dv{{SortInt{{}}}}(\"{value}\")))"
+        );
+        parse_pattern(&text).unwrap()
+    }
+
+    fn total(symbol: &str, equation: &str, rule: &str, ground: bool) -> Record {
+        (
+            "total".to_owned(),
+            format!("{symbol}(_)_MAIN_Int_Int"),
+            format!("MAIN.{equation}"),
+            Some(format!("MAIN.{rule}")),
+            ground,
+        )
+    }
+
+    /// Every run of `initial` over `kore` lists exactly `expected`.
+    fn assert_listed(kore: &str, initial: &Pattern, expected: &[Record], context: &str) {
+        for (name, _, _, result) in each_run(kore, initial) {
+            assert_eq!(
+                run_records(&result),
+                expected,
+                "{context} under {name}: {result:#}"
+            );
+        }
+    }
+
+    /// `mid(0)` under `q(0) ==Int 2`: `tb3(0)`'s `ensures q(0) ==Int 1` is refuted only by the
+    /// path condition, and `q(0) = 1`, `tb3(0) = 1` is a model of the definition with the claim,
+    /// so the record is not ground; under `q(0) ==Int 1` the `ensures` holds and nothing is
+    /// named. `mid2(0)` under `q(0) ==Int 0` reaches `10 /Int 0` only through the path
+    /// condition, the builtin route: not ground; under `q(0) ==Int 1` it is `10`. The same
+    /// premise test makes `pdq(0)`'s preservation record under `q(0) ==Int 0` non-ground.
+    #[test]
+    fn a_claim_refuted_through_an_assumption_is_not_ground() {
+        let free = claim_free(PREMISES);
+        for (program, value, expected) in [
+            ("mid(0)", 2, vec![total("tb3", "tb3eq", "m", false)]),
+            ("mid(0)", 1, vec![]),
+            ("mid2(0)", 0, vec![total("td2", "td2eq", "m2", false)]),
+            ("mid2(0)", 1, vec![]),
+            (
+                "pdq(0)",
+                0,
+                vec![(
+                    "preserves-definedness".to_owned(),
+                    "?".to_owned(),
+                    "MAIN.pdq".to_owned(),
+                    Some("MAIN.pdq".to_owned()),
+                    false,
+                )],
+            ),
+        ] {
+            let context = format!("{program} under q(0) ==Int {value}");
+            let (kore, initial) = constrained(PREMISES, program, value);
+            assert_listed(&kore, &initial, &expected, &context);
+            let (kore, initial) = constrained(&free, program, value);
+            assert_listed(&kore, &initial, &[], &format!("claim-free {context}"));
+        }
+    }
+
+    /// A declared rule whose right-hand side is `#Bottom` claims a result defined that is defined
+    /// nowhere: `pdb(0)`'s step applies, its `trivial` leaf and the list name the rule, ground.
+    /// The undeclared `npdb(0)` has the same leaf and names nothing.
+    #[test]
+    fn a_declared_bottom_right_hand_side_refutes_the_claim() {
+        let expected = (
+            "preserves-definedness".to_owned(),
+            "?".to_owned(),
+            "MAIN.pdb".to_owned(),
+            Some("MAIN.pdb".to_owned()),
+            true,
+        );
+        let (kore, initial) = compile(PREMISES, "pdb(0)");
+        let (undeclared, undeclared_initial) = compile(PREMISES, "npdb(0)");
+        let reasons = |result: &Value| {
+            leaves(result)
+                .iter()
+                .map(|leaf| leaf["reason"].clone())
+                .collect::<Vec<_>>()
+        };
+        let plain = each_run(&undeclared, &undeclared_initial);
+        for ((name, _, _, result), (_, _, _, npdb)) in
+            each_run(&kore, &initial).into_iter().zip(plain)
+        {
+            let context = format!("pdb(0) under {name}: {result:#}");
+            assert!(!leaves(&result).is_empty(), "{context}");
+            for leaf in leaves(&result) {
+                assert_eq!(
+                    records(leaf),
+                    BTreeSet::from([expected.clone()]),
+                    "{context}"
+                );
+            }
+            assert_eq!(
+                run_records(&result),
+                std::slice::from_ref(&expected),
+                "{context}"
+            );
+            assert_eq!(reasons(&result), reasons(&npdb), "{context}");
+            assert!(
+                run_records(&npdb).is_empty(),
+                "npdb(0) under {name}: {npdb:#}"
+            );
+        }
+    }
+
+    /// Deciding whether every alternative of `pdy`'s disjunctive result is `\bottom` normalizes
+    /// `w(grow(0))`, whose simplification exhausts its budget; that normalization decides
+    /// nothing in the run, so its diagnostics reach no leaf: the `done` leaf is clean, as it is
+    /// for `pdz(0)`, whose `done` alternative comes first.
+    #[test]
+    fn deciding_a_disjunctive_result_emits_nothing() {
+        for program in ["pdy(0)", "pdz(0)"] {
+            let (kore, initial) = compile(PREMISES, program);
+            for (name, _, _, result) in each_run(&kore, &initial) {
+                let done = leaf_with(&result, "Lbldone");
+                assert!(
+                    done["diagnostics"]
+                        .as_array()
+                        .is_none_or(|diagnostics| diagnostics.is_empty()),
+                    "{program} under {name}: {result:#}"
+                );
+                assert!(run_records(&result).is_empty(), "{program} under {name}");
+            }
+        }
+    }
+
+    /// `cntx("a", "")`'s value holds `cntw("a", "")` twice, and the first evaluation of it,
+    /// whose result is `\bottom` through the partial `bot`, serves the second, as for a lineage
+    /// whose result is defined: the claim-free run attempts fewer equations with the reuse of
+    /// `Unspecified` evaluations than without it, and gives the same result.
+    #[test]
+    fn a_lineage_whose_result_is_bottom_is_reused() {
+        use k_rust::backend::{ExecuteRequest, ExecutionStrategy};
+        use k_rust_backend::simplify::without_unspecified_reuse;
+        use k_rust_kore::measure::{Counter, snapshot};
+        let (kore, initial) = compile(&claim_free(PREMISES), "un3(\"a\")");
+        let run = || {
+            let before = snapshot();
+            let result = super::observed::backend(&kore)
+                .execute(ExecuteRequest {
+                    strategy: ExecutionStrategy::All,
+                    ..ExecuteRequest::new(initial.clone())
+                })
+                .unwrap();
+            let attempts = snapshot()
+                .delta(&before)
+                .get(Counter::SimplifyEquationAttempts);
+            (serde_json::to_value(&result).unwrap(), attempts)
+        };
+        let (reused, with_reuse) = run();
+        let (fresh, without_reuse) = without_unspecified_reuse(run);
+        assert_eq!(reused, fresh);
+        assert!(
+            with_reuse < without_reuse,
+            "equation attempts: {with_reuse} with reuse, {without_reuse} without"
+        );
+    }
+}
+
+/// What a ground record rests on (docs/compatibility.md, "A contradicted `total` attribute is
+/// named, not repaired"): a record is ground only when the work that found `\bottom` depended on
+/// nothing that may differ between models of the definition, which every such dependence
+/// states as a path fact (an implementation-chosen value, among others), and assumed nothing but
+/// `\top`. For a `total` claim that work is the evaluation from the application on (the
+/// equation's selection, its conditions and its result); for a `preserves-definedness` claim it
+/// is the step's attempt (its match and `requires`) and the normalization of its result. Each
+/// case runs next to its mirror, whose chosen value leads away from `\bottom`.
+mod derivations {
+    use std::collections::BTreeSet;
+
+    use super::observed::{Record, compile, each_run, leaves, records, run_records};
+
+    pub(super) const CHOSEN: &str = r#"
+module MAIN
+  imports INT
+  imports BOOL
+  imports STRING
+  imports MAP
+  imports LIST
+  imports K-EQUAL
+  syntax Pgm ::= "done" | val(Int) | ka(Int) | kb(Int) | ca(Int) | cb(Int) | pka(Int) | pkb(Int)
+               | kr(Int) | ks(Int) | pkr(Int) | pks(Int) | karg(Int)
+  syntax Int ::= tka(Int) [function, total]
+               | tkb(Int) [function, total]
+               | tca(Int) [function, total]
+               | tcb(Int) [function, total]
+               | tkr(Int) [function, total]
+               | tks(Int) [function, total]
+               | td(Int) [function, total]
+  configuration <k> $PGM:Pgm </k>
+  rule [tkaeq]: tka(I) => 10 /Int (#if keys_list(1 |-> I 2 |-> I) ==K ListItem(1) ListItem(2) #then 0 #else 1 #fi)
+  rule [tkbeq]: tkb(I) => 10 /Int (#if keys_list(1 |-> I 2 |-> I) ==K ListItem(2) ListItem(1) #then 0 #else 1 #fi)
+  rule [tcaeq]: tca(I) => 10 /Int (#if Base2String(10, 16) ==String "a" #then I #else 1 #fi)
+  rule [tcbeq]: tcb(I) => 10 /Int (#if Base2String(10, 16) ==String "A" #then I #else 1 #fi)
+  rule [tkreq]: tkr(I) => 10 /Int I requires keys_list(1 |-> I 2 |-> I) ==K ListItem(1) ListItem(2)
+  rule [tkseq]: tks(I) => 10 /Int I requires keys_list(1 |-> I 2 |-> I) ==K ListItem(2) ListItem(1)
+  rule [tdeq]:  td(I) => 10 /Int I
+  rule [ka]: ka(X) => val(tka(X))
+  rule [kb]: kb(X) => val(tkb(X))
+  rule [ca]: ca(X) => val(tca(X))
+  rule [cb]: cb(X) => val(tcb(X))
+  rule [kr]: kr(X) => val(tkr(X))
+  rule [ks]: ks(X) => val(tks(X))
+  rule [pka]: pka(X) => val(10 /Int (#if keys_list(1 |-> X 2 |-> X) ==K ListItem(1) ListItem(2) #then 0 #else 1 #fi)) [preserves-definedness]
+  rule [pkb]: pkb(X) => val(10 /Int (#if keys_list(1 |-> X 2 |-> X) ==K ListItem(2) ListItem(1) #then 0 #else 1 #fi)) [preserves-definedness]
+  rule [pkr]: pkr(X) => val(10 /Int X) requires keys_list(1 |-> X 2 |-> X) ==K ListItem(1) ListItem(2) [preserves-definedness]
+  rule [pks]: pks(X) => val(10 /Int X) requires keys_list(1 |-> X 2 |-> X) ==K ListItem(2) ListItem(1) [preserves-definedness]
+  rule [karg]: karg(X) => val(td(#if keys_list(1 |-> X 2 |-> X) ==K ListItem(1) ListItem(2) #then 0 #else 1 #fi))
+endmodule
+"#;
+
+    fn total(symbol: &str, equation: &str, rule: &str, ground: bool) -> Record {
+        (
+            "total".to_owned(),
+            format!("{symbol}(_)_MAIN_Int_Int"),
+            format!("MAIN.{equation}"),
+            Some(format!("MAIN.{rule}")),
+            ground,
+        )
+    }
+
+    fn preservation(rule: &str, ground: bool) -> Record {
+        (
+            "preserves-definedness".to_owned(),
+            "?".to_owned(),
+            format!("MAIN.{rule}"),
+            Some(format!("MAIN.{rule}")),
+            ground,
+        )
+    }
+
+    /// Every leaf and the list of every run of `program` carry exactly `expected`, and the
+    /// claim-free definition names nothing.
+    fn assert_recorded(program: &str, expected: &[Record]) {
+        let (kore, initial) = compile(CHOSEN, program);
+        let (free, free_initial) = compile(&super::premises::claim_free(CHOSEN), program);
+        for (name, _, _, result) in each_run(&kore, &initial) {
+            let context = format!("{program} under {name}: {result:#}");
+            assert!(!leaves(&result).is_empty(), "{context}");
+            for leaf in leaves(&result) {
+                assert_eq!(
+                    records(leaf),
+                    expected.iter().cloned().collect::<BTreeSet<_>>(),
+                    "{context}"
+                );
+            }
+            assert_eq!(run_records(&result), expected, "{context}");
+        }
+        for (name, _, _, result) in each_run(&free, &free_initial) {
+            assert!(
+                run_records(&result).is_empty(),
+                "claim-free {program} under {name}: {result:#}"
+            );
+        }
+    }
+
+    /// `tka(0)`'s result is `\bottom` only because `keys_list` listed `1` first, a value the
+    /// definition leaves open: in a model that lists `2` first, `tka(0)` is `10`, as the mirror
+    /// `kb(0)` shows, so the record refutes nothing and is not ground.
+    #[test]
+    fn a_total_bottom_that_rests_on_a_chosen_order_is_not_ground() {
+        assert_recorded("ka(0)", &[total("tka", "tkaeq", "ka", false)]);
+        assert_recorded("kb(0)", &[]);
+    }
+
+    /// The same for `Base2String`'s letter case (`ca(0)`, mirror `cb(0)`).
+    #[test]
+    fn a_total_bottom_that_rests_on_a_chosen_letter_case_is_not_ground() {
+        assert_recorded("ca(0)", &[total("tca", "tcaeq", "ca", false)]);
+        assert_recorded("cb(0)", &[]);
+    }
+
+    /// The same for a `preserves-definedness` result term (`pka(0)`, mirror `pkb(0)`).
+    #[test]
+    fn a_result_bottom_that_rests_on_a_chosen_value_is_not_ground() {
+        assert_recorded("pka(0)", &[preservation("pka", false)]);
+        assert_recorded("pkb(0)", &[]);
+    }
+
+    /// A chosen value that decided a premise of the work is a dependence too: `tkr`'s equation
+    /// applies to `tkr(0)` because its `requires` read `keys_list`'s order. Its mirror does not
+    /// apply (`tks(0)` stays unevaluated) and names nothing.
+    #[test]
+    fn an_equation_requires_decided_by_a_chosen_value_is_a_dependence() {
+        assert_recorded("kr(0)", &[total("tkr", "tkreq", "kr", false)]);
+        assert_recorded("ks(0)", &[]);
+    }
+
+    /// `pkr`'s step applies to `pkr(0)` because its `requires` read `keys_list`'s order; the
+    /// mirror `pks(0)` is stuck and names nothing.
+    #[test]
+    fn a_rule_requires_decided_by_a_chosen_value_is_a_dependence() {
+        assert_recorded("pkr(0)", &[preservation("pkr", false)]);
+        assert_recorded("pks(0)", &[]);
+    }
+
+    /// A chosen value that only built the contradicted application is no part of the work that
+    /// found `\bottom`: `karg(0)`'s configuration holds `td(0)` because `keys_list` listed `1`
+    /// first, and `td(0)` is `\bottom` through `td`'s own equation in every model. The record is
+    /// ground; the leaf's chosen-value mark says that the path is one model's.
+    #[test]
+    fn a_chosen_value_that_only_built_the_application_leaves_the_record_ground() {
+        assert_recorded("karg(0)", &[total("td", "tdeq", "karg", true)]);
+    }
+
+    pub(super) const REUSE: &str = r#"
+module MAIN
+  imports INT
+  imports BOOL
+  imports STRING
+  syntax Pgm ::= "done" | val(Int) | un7(String) | un8(String)
+  syntax Int ::= tt(String) [function, total]
+               | tt2(String) [function, total]
+               | bot(Int) [function]
+               | pair(Int, Int) [function]
+               | cnt2(String, String) [function, hook(STRING.countAllOccurrences)]
+               | cntz(String, String) [function, hook(STRING.countAllOccurrences)]
+               | cnty(String, String) [function, hook(STRING.countAllOccurrences)]
+  configuration <k> $PGM:Pgm </k>
+  rule [boteq]: bot(I) => #Bottom requires I ==Int 0
+  rule [boteq2]: bot(I) => I requires I =/=Int 0
+  rule [cnt2eq]: cnt2(_, "") => bot(0)
+  rule [tteq]: tt(S) => cnt2(S, "")
+  rule [tt2eq]: tt2(S) => cnt2(S, "")
+  rule [cntzeq]: cntz(S, "") => pair(tt(S), tt2(S))
+  rule [cntyeq]: cnty(S, "") => pair(cnt2(S, ""), tt2(S))
+  rule [un7]: un7(S) => val(cntz(S, ""))
+  rule [un8]: un8(S) => val(cnty(S, ""))
+endmodule
+"#;
+
+    /// The `Unspecified` application `cnt2("a", "")` is `\bottom` through the partial `bot`, and
+    /// its first evaluation serves the second. Its result reaches `\bottom` under `tt`'s
+    /// equation and again under `tt2`'s, so both `total` claims are contradicted, with the reuse
+    /// of `Unspecified` evaluations as without it: in `un7`, the first evaluation ran under
+    /// `tt`'s step, which named it, and the served value does not carry that naming to `tt2`'s
+    /// step; in `un8`, the first ran outside every `total` step. Reuse still serves the value
+    /// (fewer equation attempts).
+    #[test]
+    fn a_reused_bottom_names_every_total_step_it_is_served_under() {
+        use k_rust::backend::ExecuteRequest;
+        use k_rust_backend::simplify::without_unspecified_reuse;
+        use k_rust_kore::measure::{Counter, snapshot};
+        let record = |symbol: &str, equation: &str, rule: &str| {
+            (
+                "total".to_owned(),
+                format!("{symbol}(_)_MAIN_Int_String"),
+                format!("MAIN.{equation}"),
+                Some(format!("MAIN.{rule}")),
+                true,
+            )
+        };
+        for (program, rule) in [("un7(\"a\")", "un7"), ("un8(\"a\")", "un8")] {
+            // `un7` evaluates `tt` first; `un8` has no `tt`.
+            let expected = if rule == "un7" {
+                vec![record("tt", "tteq", rule), record("tt2", "tt2eq", rule)]
+            } else {
+                vec![record("tt2", "tt2eq", rule)]
+            };
+            let (kore, initial) = compile(REUSE, program);
+            for strategy in super::observed::STRATEGIES {
+                let run = || {
+                    let before = snapshot();
+                    let result = super::observed::backend(&kore)
+                        .execute(ExecuteRequest {
+                            strategy,
+                            ..ExecuteRequest::new(initial.clone())
+                        })
+                        .unwrap();
+                    let attempts = snapshot()
+                        .delta(&before)
+                        .get(Counter::SimplifyEquationAttempts);
+                    (serde_json::to_value(&result).unwrap(), attempts)
+                };
+                let (reused, with_reuse) = run();
+                let (fresh, without_reuse) = without_unspecified_reuse(run);
+                let context = format!("{program} under {strategy:?}");
+                assert_eq!(
+                    run_records(&reused),
+                    expected,
+                    "{context} with reuse: {reused:#}"
+                );
+                assert_eq!(
+                    run_records(&fresh),
+                    expected,
+                    "{context} without reuse: {fresh:#}"
+                );
+                assert_eq!(reused, fresh, "{context}");
+                assert!(
+                    with_reuse < without_reuse,
+                    "{context}: equation attempts {with_reuse} with reuse, {without_reuse} without"
+                );
+            }
+        }
+    }
+}
+
+/// The claim checks observe and decide nothing (docs/compatibility.md, "A contradicted `total`
+/// attribute is named, not repaired"): every run is the same with the checks on and with them
+/// off (`k_rust_backend::path_facts::without_claim_checks`, which notes no record and does none
+/// of the work done only to find one), apart from the records. The oracle runs every definition
+/// of this file, each probe definition of the reviews of the change that added the records, the
+/// claim-free variant of each (no `total`, no `preserves-definedness`), and the light IMP corpus,
+/// under both strategies and both result modalities, by every route: executed (plain, stopping
+/// at a branch, collecting coverage, with a breadth bound, assuming the state defined), executed
+/// observed, searched (graph final and all, paths) and, for ground inputs, executed with a
+/// console; and per input, simplified, implied by itself and asked for a model. Claims are
+/// proved by the same pairs ([`the_proof_route`]). Every output must be equal once the records
+/// (`contradicted-claim` diagnostics and `contradictedClaims`) are taken out: leaves, their
+/// states, reasons, order, other diagnostics, halts, `work` and the run-level lists. A
+/// claim-free definition must also count the same work: every `measure` counter is equal. A
+/// claim-carrying definition may count more where a claim is checked (the counters that differ
+/// are printed); a proof counts the same in every case.
+///
+/// The fixtures and probes run with no work, depth, breadth or result bound: a bound that is set
+/// puts every path fact the run noted so far on every leaf (docs/compatibility.md, "`maxWork`"),
+/// which would hide which leaf carries which fact. The IMP corpus alone runs bounded
+/// ([`Tier::Bounded`]).
+///
+/// A later finding of the same kind becomes an input here.
+mod checks_off {
+    use k_rust::{
+        backend::{
+            ExecuteRequest, ExecutionStrategy, ObservedRequest, ResultModalityOutput,
+            SearchRequest, SearchTypeArg,
+        },
+        kore::{ast::Pattern, parser::parse_pattern, printer::Printer},
+    };
+    use k_rust_backend::path_facts::without_claim_checks;
+    use k_rust_kore::measure::{self, Snapshot};
+    use serde_json::Value;
+
+    use super::observed::{MODALITIES, STRATEGIES, backend_in, compile_in};
+
+    /// The definition with every claim attribute removed.
+    pub(super) fn strip(source: &str) -> String {
+        source
+            .replace("[function, total", "[function")
+            .replace(" [preserves-definedness]", "")
+    }
+
+    /// Whether `source` writes a claim attribute.
+    fn claims(source: &str) -> bool {
+        source.contains("total") || source.contains("preserves-definedness")
+    }
+
+    /// One input of a definition.
+    #[derive(Clone, Copy)]
+    enum Input {
+        /// A program, at sort `Pgm`.
+        Ground(&'static str),
+        /// A program whose `777`s become the variable `X`.
+        Symbolic(&'static str),
+        /// A program conjoined with `q(0) ==Int value`.
+        Constrained(&'static str, i64),
+    }
+
+    impl Input {
+        fn pattern(self, source: &str, main: &str) -> (String, Pattern) {
+            match self {
+                Input::Ground(program) => compile_in(source, main, program),
+                Input::Symbolic(program) => {
+                    let (kore, ground) = compile_in(source, main, program);
+                    let printed = Printer::compact().print_pattern(&ground);
+                    let symbolic = printed.replace("\\dv{SortInt{}}(\"777\")", "VarX:SortInt{}");
+                    assert_ne!(symbolic, printed, "{program}");
+                    (kore, parse_pattern(&symbolic).unwrap())
+                }
+                Input::Constrained(program, value) => {
+                    let (kore, ground) = compile_in(source, main, program);
+                    (kore, super::premises::with_q(&ground, value))
+                }
+            }
+        }
+
+        fn name(self) -> String {
+            match self {
+                Input::Ground(program) => program.to_owned(),
+                Input::Symbolic(program) => format!("{program} with X for 777"),
+                Input::Constrained(program, value) => format!("{program} /\\ q(0) ==Int {value}"),
+            }
+        }
+    }
+
+    /// Everything a run gives, with the records taken out: each response's JSON, the console
+    /// run's result printed, and the counters of the whole run (the definition's load included).
+    struct Outputs {
+        responses: Vec<Value>,
+        counters: Snapshot,
+    }
+
+    /// `value` without its records: every `contradicted-claim` diagnostic and every
+    /// `contradictedClaims` list, a `diagnostics` list left empty removed as an absent one is.
+    fn without_records(value: &mut Value) {
+        match value {
+            Value::Object(object) => {
+                object.remove("contradictedClaims");
+                if let Some(Value::Array(diagnostics)) = object.get_mut("diagnostics") {
+                    diagnostics.retain(|diagnostic| diagnostic["kind"] != "contradicted-claim");
+                    if diagnostics.is_empty() {
+                        object.remove("diagnostics");
+                    }
+                }
+                for value in object.values_mut() {
+                    without_records(value);
+                }
+            }
+            Value::Array(values) => values.iter_mut().for_each(without_records),
+            _ => {}
+        }
+    }
+
+    /// The console run's result without its records, printed.
+    fn console_without_records(mut result: k_rust_backend::rewrite::ExecutionResult) -> Value {
+        use k_rust_backend::diagnostic::BackendDiagnostic;
+        result.contradicted_claims.clear();
+        for leaf in &mut result.leaves {
+            leaf.diagnostics.retain(|diagnostic| {
+                !matches!(diagnostic, BackendDiagnostic::ContradictedClaim(_))
+            });
+        }
+        Value::String(format!("{result:#?}"))
+    }
+
+    /// How a definition's inputs are run. IMP's `strict` and `seqstrict` attributes admit every
+    /// evaluation order, so under strategy `all` an unbounded run enumerates every interleaving:
+    /// the path-set execution, the observed execution's per-leaf traces and the path search of
+    /// the three-line `sum` program alone took one process to 39 GB. Bounded, a bound that fires
+    /// fires alike with the checks on and off, so the comparison holds; it only puts every fact
+    /// of the run on every leaf, alike on both sides.
+    #[derive(Clone, Copy)]
+    enum Tier {
+        /// No work, depth, breadth or result bound: every fixture and probe.
+        Unbounded,
+        /// The IMP corpus.
+        Bounded,
+    }
+
+    const MAX_WORK: u64 = 400;
+    const MAX_DEPTH: u64 = 400;
+    const MAX_BREADTH: usize = 16;
+    const MAX_SIMPLIFICATION_ITERATIONS: usize = 100;
+
+    /// A response as JSON, an error as its message.
+    fn json<T: serde::Serialize>(response: Result<T, k_rust::backend::BackendError>) -> Value {
+        match response {
+            Ok(response) => serde_json::to_value(&response).unwrap(),
+            Err(error) => Value::String(format!("error: {}", error.message())),
+        }
+    }
+
+    /// Run `work` on a thread of its own, with the claim checks on or off, and count it.
+    fn counted<T: Send + 'static>(
+        checks: bool,
+        work: impl FnOnce() -> T + Send + 'static,
+    ) -> (T, Snapshot) {
+        std::thread::Builder::new()
+            .stack_size(64 << 20)
+            .spawn(move || {
+                let work = move || {
+                    let before = measure::snapshot();
+                    let result = work();
+                    (result, measure::snapshot().delta(&before))
+                };
+                if checks {
+                    work()
+                } else {
+                    without_claim_checks(work)
+                }
+            })
+            .unwrap()
+            .join()
+            .unwrap()
+    }
+
+    /// Run `initial` over `kore` by every execution and search route, under one strategy and
+    /// modality, with the claim checks on or off.
+    #[allow(clippy::too_many_arguments)]
+    fn run(
+        kore: &str,
+        main: &str,
+        initial: &Pattern,
+        strategy: ExecutionStrategy,
+        modality: ResultModalityOutput,
+        console: bool,
+        tier: Tier,
+        checks: bool,
+    ) -> Outputs {
+        let (kore, main, initial) = (kore.to_owned(), main.to_owned(), initial.clone());
+        let bounded = matches!(tier, Tier::Bounded);
+        let (mut responses, counters) = counted(checks, move || {
+            let request = || {
+                let request = ExecuteRequest {
+                    result_modality: modality,
+                    strategy,
+                    ..ExecuteRequest::new(initial.clone())
+                };
+                if bounded {
+                    ExecuteRequest {
+                        max_work: Some(MAX_WORK),
+                        max_depth: Some(MAX_DEPTH),
+                        max_simplification_iterations: MAX_SIMPLIFICATION_ITERATIONS,
+                        ..request
+                    }
+                } else {
+                    request
+                }
+            };
+            let search = |search_type| {
+                let request = SearchRequest {
+                    search_type,
+                    ..SearchRequest::new(initial.clone())
+                };
+                if bounded {
+                    SearchRequest {
+                        max_depth: Some(MAX_DEPTH),
+                        max_breadth: Some(MAX_BREADTH),
+                        max_results: Some(MAX_BREADTH),
+                        max_simplification_iterations: MAX_SIMPLIFICATION_ITERATIONS,
+                        ..request
+                    }
+                } else {
+                    request
+                }
+            };
+            let mut backend = backend_in(&kore, &main);
+            let mut responses = vec![
+                json(backend.execute(request())),
+                json(backend.execute(ExecuteRequest {
+                    stop_at_branch: true,
+                    ..request()
+                })),
+                json(backend.execute(ExecuteRequest {
+                    collect_coverage: true,
+                    ..request()
+                })),
+                json(backend.execute(ExecuteRequest {
+                    max_breadth: Some(1),
+                    ..request()
+                })),
+                json(backend.execute(ExecuteRequest {
+                    assume_state_defined: true,
+                    ..request()
+                })),
+                json(backend.execute_observed(ObservedRequest {
+                    request: request(),
+                    rules: None,
+                })),
+                json(backend.search(search(SearchTypeArg::Final))),
+                json(backend.search(search(SearchTypeArg::All))),
+                json(backend.search_paths(search(SearchTypeArg::Final))),
+            ];
+            if console {
+                use k_rust_backend::{
+                    rewrite::{ExecutionMode, ExecutionOptions, execute_with_io_state},
+                    transition::ExecutionIoState,
+                };
+                let definition = backend.select_definition(None).unwrap();
+                let pattern = definition
+                    .admit_unverified(&initial, &[])
+                    .internalize_pattern()
+                    .unwrap();
+                let mode = match strategy {
+                    ExecutionStrategy::All => ExecutionMode::All,
+                    _ => ExecutionMode::Any,
+                };
+                let options = if bounded {
+                    ExecutionOptions {
+                        mode,
+                        max_work: Some(MAX_WORK),
+                        max_depth: MAX_DEPTH,
+                        max_simplification_iterations: MAX_SIMPLIFICATION_ITERATIONS,
+                        ..ExecutionOptions::default()
+                    }
+                } else {
+                    ExecutionOptions {
+                        mode,
+                        ..ExecutionOptions::default()
+                    }
+                };
+                responses.push(console_without_records(execute_with_io_state(
+                    &definition,
+                    pattern,
+                    options,
+                    ExecutionIoState::new(Vec::new()),
+                )));
+            }
+            responses
+        });
+        responses.iter_mut().for_each(without_records);
+        Outputs {
+            responses,
+            counters,
+        }
+    }
+
+    /// Simplify `initial`, ask whether it implies itself and ask for a model of it, with the
+    /// claim checks on or off: the routes that do not depend on a strategy.
+    fn requests(kore: &str, main: &str, initial: &Pattern, checks: bool) -> Outputs {
+        use k_rust::backend::{ImplicationRequest, PatternRequest};
+        let (kore, main, initial) = (kore.to_owned(), main.to_owned(), initial.clone());
+        let (mut responses, counters) = counted(checks, move || {
+            let mut backend = backend_in(&kore, &main);
+            vec![
+                json(backend.simplify(PatternRequest::new(initial.clone()))),
+                json(backend.implies(ImplicationRequest::new(initial.clone(), initial.clone()))),
+                json(backend.get_model(PatternRequest::new(initial.clone()))),
+            ]
+        });
+        responses.iter_mut().for_each(without_records);
+        Outputs {
+            responses,
+            counters,
+        }
+    }
+
+    /// The counters that differ between `on` and `off`, by name.
+    fn differing(on: &Snapshot, off: &Snapshot) -> Vec<(&'static str, u64, u64)> {
+        on.iter()
+            .zip(off.iter())
+            .filter(|((_, on), (_, off))| on != off)
+            .map(|((name, on), (_, off))| (name, on, off))
+            .collect()
+    }
+
+    /// The oracle over `source` (main module `main`) and its claim-free variant, each input
+    /// under both strategies and both modalities, unbounded.
+    fn assert_inert(case: &str, source: &str, main: &str, inputs: &[Input]) {
+        assert_inert_in(Tier::Unbounded, case, source, main, inputs);
+    }
+
+    /// The equality and the counters of one pair of runs.
+    fn assert_pair(context: &str, on: &Outputs, off: &Outputs, claim_free: bool) {
+        assert_eq!(on.responses.len(), off.responses.len(), "{context}");
+        for (on, off) in on.responses.iter().zip(&off.responses) {
+            assert_eq!(on, off, "{context}: checks on, then off");
+        }
+        let counters = differing(&on.counters, &off.counters);
+        if claim_free {
+            assert!(
+                counters.is_empty(),
+                "{context}: counters (name, on, off) {counters:?}"
+            );
+        } else if !counters.is_empty() {
+            eprintln!("counter growth, {context}: (name, on, off) {counters:?}");
+        }
+    }
+
+    /// [`assert_inert`] in `tier`.
+    fn assert_inert_in(tier: Tier, case: &str, source: &str, main: &str, inputs: &[Input]) {
+        let stripped = strip(source);
+        assert!(
+            !claims(&stripped),
+            "{case}: the stripped variant claims nothing"
+        );
+        let variants = if claims(source) {
+            vec![
+                (case.to_owned(), source.to_owned()),
+                (format!("{case} claim-free"), stripped),
+            ]
+        } else {
+            vec![(format!("{case} (claim-free)"), source.to_owned())]
+        };
+        for (variant, source) in variants {
+            let claim_free = !claims(&source);
+            let mut warmed = false;
+            for &input in inputs {
+                let (kore, initial) = input.pattern(&source, main);
+                let console = matches!(input, Input::Ground(_));
+                for strategy in STRATEGIES {
+                    for modality in MODALITIES {
+                        let context = format!(
+                            "{variant}: {} under {strategy:?} {modality:?}",
+                            input.name()
+                        );
+                        let run_once = |checks| {
+                            run(
+                                &kore, main, &initial, strategy, modality, console, tier, checks,
+                            )
+                        };
+                        if !warmed {
+                            run_once(true);
+                            warmed = true;
+                        }
+                        let on = run_once(true);
+                        let off = run_once(false);
+                        assert_pair(&context, &on, &off, claim_free);
+                    }
+                }
+                let context = format!("{variant}: {} by request", input.name());
+                let on = requests(&kore, main, &initial, true);
+                let off = requests(&kore, main, &initial, false);
+                assert_pair(&context, &on, &off, claim_free);
+            }
+        }
+    }
+
+    use Input::{Constrained, Ground, Symbolic};
+
+    #[test]
+    fn the_total_fixtures() {
+        assert_inert(
+            "CLAIMS",
+            super::observed::CLAIMS,
+            "MAIN",
+            &[
+                Ground("r(0)"),
+                Ground("r(1)"),
+                Ground("ro(0)"),
+                Ground("e(0)"),
+                Ground("rc(0)"),
+                Ground("rp(0)"),
+                Ground("rq(0)"),
+                Ground("sib(0)"),
+                Ground("s3(0)"),
+                Ground("m2(0)"),
+                Ground("un(\"a\")"),
+                Symbolic("r(777)"),
+                Symbolic("sib(777)"),
+            ],
+        );
+    }
+
+    #[test]
+    fn the_load_loop_and_non_ground_fixtures() {
+        assert_inert("LOOP", super::LOOP, "MAIN", &[Ground("loop(2)")]);
+        assert_inert(
+            "LOAD",
+            super::LOAD,
+            "MAIN",
+            &[Ground("go(1)"), Ground("val(fe(0))")],
+        );
+        assert_inert(
+            "NON_GROUND",
+            super::NON_GROUND,
+            "MAIN",
+            &[Ground("rz(0)"), Symbolic("rz(777)")],
+        );
+    }
+
+    #[test]
+    fn the_refusal_fixtures() {
+        assert_inert(
+            "REFUSALS",
+            super::refusals::REFUSALS,
+            "MAIN",
+            &[
+                Ground("run(1)"),
+                Ground("run(1099511627776)"),
+                Ground("runh(1)"),
+                Ground("runc(\"1099511627776\")"),
+            ],
+        );
+    }
+
+    #[test]
+    fn the_preservation_fixtures() {
+        assert_inert(
+            "PRESERVATION",
+            super::preservation::PRESERVATION,
+            "MAIN",
+            &[
+                Ground("pd(0)"),
+                Ground("npd(0)"),
+                Ground("pdt(0)"),
+                Ground("pdp(0)"),
+                Ground("pdens(0)"),
+                Ground("pdsib(0)"),
+                Ground("two(0)"),
+                Ground("tdiv(0)"),
+                Symbolic("pd(777)"),
+            ],
+        );
+        assert_inert(
+            "ROUTES",
+            super::preservation::ROUTES,
+            "MAIN",
+            &[
+                Ground("pdo(0)"),
+                Ground("pdoo(0)"),
+                Ground("bt(0)"),
+                Ground("bts(0)"),
+                Ground("tbt(0)"),
+                Ground("tbn(0)"),
+                Symbolic("pa(777)"),
+                Symbolic("pb(777)"),
+            ],
+        );
+    }
+
+    #[test]
+    fn the_premise_fixtures() {
+        assert_inert(
+            "PREMISES",
+            super::premises::PREMISES,
+            "MAIN",
+            &[
+                Constrained("mid(0)", 0),
+                Constrained("mid(0)", 1),
+                Constrained("mid(0)", 2),
+                Constrained("mid2(0)", 0),
+                Constrained("mid2(0)", 1),
+                Constrained("mid2(0)", 2),
+                Constrained("pdq(0)", 0),
+                Constrained("pdq(0)", 1),
+                Constrained("pdq(0)", 2),
+                Ground("pdb(0)"),
+                Ground("npdb(0)"),
+                Ground("pdy(0)"),
+                Ground("npdy(0)"),
+                Ground("pdz(0)"),
+                Ground("un3(\"a\")"),
+            ],
+        );
+    }
+
+    // The probe definitions of code-reviews/KINK-18-3.toml (p1 to p7).
+
+    const P1: &str = r#"
+module MAIN
+  imports INT
+  syntax Pgm ::= "done" | val(Int) | c(Int, Int) | cr(Int, Int) | bt(Int) | own(Int)
+  syntax Int ::= bot(Int) [function]
+               | tp(Int) [function]
+  configuration <k> $PGM:Pgm </k>
+  rule [boteq]: bot(I) => #Bottom requires I ==Int 0
+  rule [boteq2]: bot(I) => I requires I =/=Int 0
+  rule [tpeq]: tp(I) => 10 /Int I
+  rule [cz]: c(0, Y) => val(Y) [preserves-definedness]
+  rule [crr]: cr(X, Y) => val(Y) requires X ==Int 0 [preserves-definedness]
+  rule [btr]: bt(X) => val(bot(X)) [preserves-definedness]
+  rule [ownr]: own(X) => val(X) ensures #Ceil(10 /Int X) [preserves-definedness]
+endmodule
+"#;
+
+    const P2: &str = r#"
+module MAIN
+  imports INT
+  syntax Pgm ::= "done" | val(Int) | bt(Int) | nbt(Int) | tbt(Int)
+  syntax Int ::= bot(Int) [function]
+               | tb(Int) [function, total]
+  configuration <k> $PGM:Pgm </k>
+  rule [boteq]: bot(I) => #Bottom requires I ==Int 0
+  rule [boteq2]: bot(I) => I requires I =/=Int 0
+  rule [tbeq]: tb(I) => #Bottom requires I ==Int 0
+  rule [tbeq2]: tb(I) => I requires I =/=Int 0
+  rule [btr]: bt(X) => val(bot(X)) [preserves-definedness]
+  rule [nbtr]: nbt(X) => val(bot(X))
+  rule [tbtr]: tbt(X) => val(tb(X))
+endmodule
+"#;
+
+    const P3: &str = r#"
+module MAIN
+  imports INT
+  syntax Pgm ::= "done" | val(Int) | pd(Int) | npd(Int) | pdt(Int)
+  syntax Int ::= td(Int) [function, total]
+  configuration <k> $PGM:Pgm </k>
+  rule [tdeq]: td(I) => 10 /Int (I +Int 0)
+  rule [pd]: pd(X) => val(X /Int 0) [preserves-definedness]
+  rule [npd]: npd(X) => val(X /Int 0)
+  rule [pdt]: pdt(X) => val(td(X))
+endmodule
+"#;
+
+    const P4: &str = r#"
+module MAIN
+  imports INT
+  imports BOOL
+  syntax Pgm ::= "done" | val(Int) | pdr(Int) | pds(Int)
+  syntax Int ::= q(Int) [function, total]
+  configuration <k> $PGM:Pgm </k>
+  rule [pdr]: pdr(X) => val(1 /Int 0) requires X *Int X <Int 0 [preserves-definedness]
+  rule [pds]: pds(X) => val(1 /Int 0) requires (q(X) ==Int 1) andBool (q(X) ==Int 2) [preserves-definedness]
+endmodule
+"#;
+
+    const P5: &str = r#"
+module MAIN
+  imports INT
+  imports BOOL
+  imports STRING
+  syntax Pgm ::= "done" | val(Int) | pa(Int) | pb(Int) | pc(Int) | na(Int)
+  configuration <k> $PGM:Pgm </k>
+  rule [pa]: pa(X) => val(1 /Int 0) requires 2 ^Int X ==Int 3 [preserves-definedness]
+  rule [pb]: pb(X) => val(1 /Int 0) requires lengthString(Int2String(X)) ==Int 0 [preserves-definedness]
+  rule [pc]: pc(X) => val(1 /Int 0) requires X *Int X *Int X ==Int 2 [preserves-definedness]
+  rule [na]: na(X) => val(1 /Int 0) requires lengthString(Int2String(X)) ==Int 0
+endmodule
+"#;
+
+    const P6: &str = r#"
+module MAIN
+  imports INT
+  imports BOOL
+  syntax Pgm ::= "done" | val(Int) | bts(Int) | nbts(Int) | pds(Int)
+  syntax Int ::= bot(Int) [function]
+  configuration <k> $PGM:Pgm </k>
+  rule [boteq]: bot(I) => #Bottom requires I ==Int 0
+  rule [boteq2]: bot(I) => I requires I =/=Int 0
+  rule [btsa]: bts(X) => val(bot(X)) [preserves-definedness]
+  rule [btsb]: bts(_) => done
+  rule [nbtsa]: nbts(X) => val(bot(X))
+  rule [nbtsb]: nbts(_) => done
+  rule [pdsa]: pds(X) => val(X /Int 0) [preserves-definedness]
+  rule [pdsb]: pds(_) => done
+endmodule
+"#;
+
+    const P7: &str = r#"
+module MAIN
+  imports INT
+  imports BOOL
+  syntax Pgm ::= "done" | val(Int) | pdo(Int) | npdo(Int)
+  configuration <k> $PGM:Pgm </k>
+  rule [pdo]: pdo(X) => (val(X /Int 0) #Or done) [preserves-definedness]
+  rule [npdo]: npdo(X) => (val(X /Int 0) #Or done)
+endmodule
+"#;
+
+    #[test]
+    fn the_first_review_s_probes() {
+        assert_inert(
+            "p1",
+            P1,
+            "MAIN",
+            &[
+                Ground("c(7, 8)"),
+                Ground("c(0, 8)"),
+                Ground("bt(0)"),
+                Ground("own(0)"),
+                Ground("own(1)"),
+                Symbolic("c(777, 10 /Int 777)"),
+                Symbolic("cr(777, 10 /Int 777)"),
+            ],
+        );
+        assert_inert(
+            "p2",
+            P2,
+            "MAIN",
+            &[Ground("bt(0)"), Ground("nbt(0)"), Ground("tbt(0)")],
+        );
+        assert_inert(
+            "p3",
+            P3,
+            "MAIN",
+            &[Ground("pd(0)"), Ground("npd(0)"), Ground("pdt(0)")],
+        );
+        assert_inert(
+            "p4",
+            P4,
+            "MAIN",
+            &[Ground("pdr(7)"), Symbolic("pdr(777)"), Symbolic("pds(777)")],
+        );
+        assert_inert(
+            "p5",
+            P5,
+            "MAIN",
+            &[
+                Ground("pa(7)"),
+                Symbolic("pa(777)"),
+                Symbolic("pb(777)"),
+                Symbolic("pc(777)"),
+                Symbolic("na(777)"),
+            ],
+        );
+        assert_inert(
+            "p6",
+            P6,
+            "MAIN",
+            &[Ground("bts(0)"), Ground("nbts(0)"), Ground("pds(0)")],
+        );
+        assert_inert("p7", P7, "MAIN", &[Ground("pdo(0)"), Ground("npdo(0)")]);
+    }
+
+    // The probe definitions of code-reviews/KINK-18-3-fix1.toml (q1 to q7; q2 is PREMISES's
+    // `mid`, `mid2` and `pdq`).
+
+    const Q1: &str = r#"
+module MAIN
+  imports INT
+  imports BOOL
+  syntax Pgm ::= "done" | val(Int) | w(Int)
+               | pd3(Int) | npd3(Int) | pd3b(Int) | pdn(Int) | npdn(Int)
+               | pdi(Int) | npdi(Int) | pdm(Int) | npdm(Int)
+               | pdb(Int) | npdb(Int) | pdc(Int) | npdc(Int) | pdc2(Int)
+  syntax Pgm ::= mac(Int) [macro]
+  rule mac(X) => (val(X /Int 0) #Or done)
+  configuration <k> $PGM:Pgm </k> <aux> 0 </aux>
+  rule [pd3]:  pd3(X) => (val(X /Int 0) #Or val(X /Int 0 +Int 1) #Or done) [preserves-definedness]
+  rule [npd3]: npd3(X) => (val(X /Int 0) #Or val(X /Int 0 +Int 1) #Or done)
+  rule [pd3b]: pd3b(X) => (val(X /Int 0) #Or (val(X /Int 0 +Int 1) #Or val(X /Int 0 +Int 2))) [preserves-definedness]
+  rule [pdn]:  pdn(X) => (val(X /Int 0) #Or (done #Or val(X /Int 0 +Int 2))) [preserves-definedness]
+  rule [npdn]: npdn(X) => (val(X /Int 0) #Or (done #Or val(X /Int 0 +Int 2)))
+  rule [pdi]:  pdi(X) => val((X /Int 0) #Or 1) [preserves-definedness]
+  rule [npdi]: npdi(X) => val((X /Int 0) #Or 1)
+  rule [pdm]:  pdm(X) => mac(X) [preserves-definedness]
+  rule [npdm]: npdm(X) => mac(X)
+  rule [pdb]:  pdb(_) => #Bottom [preserves-definedness]
+  rule [npdb]: npdb(_) => #Bottom
+  rule [pdc]:  <k> pdc(X) => (val(X /Int 0) #Or done) </k> <aux> _ => 1 </aux> [preserves-definedness]
+  rule [npdc]: <k> npdc(X) => (val(X /Int 0) #Or done) </k> <aux> _ => 1 </aux>
+  rule [pdc2]: <k> pdc2(X) => (val(X /Int 0) #Or val(X /Int 0 +Int 1)) </k> <aux> _ => 1 </aux> [preserves-definedness]
+endmodule
+"#;
+
+    const Q3: &str = r#"
+module MAIN
+  imports INT
+  imports BOOL
+  syntax Pgm ::= "done" | val(Int) | w(Int)
+               | pdw(Int) | npdw(Int) | pdw2(Int) | npdw2(Int)
+  syntax Bool ::= g(Int) [function, total]
+  syntax Int ::= f(Int) [function]
+  configuration <k> $PGM:Pgm </k>
+  rule f(I) => 1 requires g(I)
+  rule [pdw]:   pdw(X) => (w(f(X)) #Or val(X /Int 0)) [preserves-definedness]
+  rule [npdw]:  npdw(X) => (w(f(X)) #Or val(X /Int 0))
+  rule [pdw2]:  pdw2(X) => (val(X /Int 0) #Or w(f(X))) [preserves-definedness]
+  rule [npdw2]: npdw2(X) => (val(X /Int 0) #Or w(f(X)))
+endmodule
+"#;
+
+    const Q4: &str = r#"
+module MAIN
+  imports INT
+  imports BOOL
+  syntax Pgm ::= "done" | val(Int) | pdoc(Int) | pdod(Int)
+  configuration <k> $PGM:Pgm </k>
+  rule [pdoc]: pdoc(X) => (val(1 /Int X) #Or val(2 /Int X)) [preserves-definedness]
+  rule [pdod]: pdod(X) => (val(1 /Int X) #Or done) [preserves-definedness]
+endmodule
+"#;
+
+    const Q5: &str = r#"
+module MAIN
+  imports INT
+  imports BOOL
+  syntax Pgm ::= "done" | val(Int) | w(Int)
+               | pdg(Int) | npdg(Int) | pdg2(Int) | npdg2(Int) | pdg3(Int) | npdg3(Int)
+               | pdx(Int) | npdx(Int)
+  syntax Int ::= grow(Int) [function]
+  configuration <k> $PGM:Pgm </k>
+  rule grow(I) => grow(I +Int 1) [simplification]
+  rule [pdg]:   pdg(X) => (w(grow(X)) #Or val(X /Int 0)) [preserves-definedness]
+  rule [npdg]:  npdg(X) => (w(grow(X)) #Or val(X /Int 0))
+  rule [pdg2]:  pdg2(X) => (val(X /Int 0) #Or w(grow(X))) [preserves-definedness]
+  rule [npdg2]: npdg2(X) => (val(X /Int 0) #Or w(grow(X)))
+  rule [pdg3]:  pdg3(X) => (val(X /Int 0) #Or val(1 /Int 0) #Or w(grow(X))) [preserves-definedness]
+  rule [npdg3]: npdg3(X) => (val(X /Int 0) #Or val(1 /Int 0) #Or w(grow(X)))
+  rule [pdx]:   pdx(X) => (w(grow(X)) #Or val(X /Int 0)) [preserves-definedness]
+  rule [pdxo]:  pdx(_) => done
+  rule [npdx]:  npdx(X) => (w(grow(X)) #Or val(X /Int 0))
+  rule [npdxo]: npdx(_) => done
+endmodule
+"#;
+
+    const Q6: &str = r#"
+module MAIN
+  imports INT
+  imports BOOL
+  syntax Pgm ::= "done" | val(Int) | "k0" | "k1" | "start"
+  syntax Int ::= tb(Int) [function, total]
+               | td(Int) [function, total]
+  configuration <k> $PGM:Pgm </k>
+  rule [tbeq]:  tb(I) => #Bottom requires I ==Int 0
+  rule [tbeq2]: tb(I) => I requires I =/=Int 0
+  rule [tdeq]:  td(I) => 10 /Int I
+  rule [k0]: k0 => val(tb(0))
+  rule [k1]: k1 => val(td(0))
+  rule [st]: start => done
+endmodule
+"#;
+
+    const Q7: &str = r#"
+module MAIN
+  imports INT
+  imports BOOL
+  imports STRING
+  syntax Pgm ::= "done" | val(Int) | un(String) | un2(String)
+  syntax Int ::= tb(Int) [function, total]
+               | cntu(String, String) [function, total, hook(STRING.countAllOccurrences)]
+               | cntv(String, String) [function, total, hook(STRING.countAllOccurrences)]
+               | gu(Int) [function, total]
+               | gv(Int) [function, total]
+  configuration <k> $PGM:Pgm </k>
+  rule [tbeq]:  tb(I) => #Bottom requires I ==Int 0
+  rule [tbeq2]: tb(I) => I requires I =/=Int 0
+  rule [cntu]:  cntu(S, "") => gu(cntu(S, ""))
+  rule [gu1]:   gu(X) => X requires tb(0) >Int X
+  rule [un]:    un(S) => val(cntu(S, ""))
+  rule [cntv]:  cntv(S, "") => gv(cntv(S, ""))
+  rule [gv1]:   gv(X) => X +Int tb(0)
+  rule [un2]:   un2(S) => val(cntv(S, ""))
+endmodule
+"#;
+
+    #[test]
+    fn the_second_review_s_probes() {
+        assert_inert(
+            "q1",
+            Q1,
+            "MAIN",
+            &[
+                Ground("pd3(0)"),
+                Ground("npd3(0)"),
+                Ground("pd3b(0)"),
+                Ground("pdn(0)"),
+                Ground("npdn(0)"),
+                Ground("pdi(0)"),
+                Ground("npdi(0)"),
+                Ground("pdm(0)"),
+                Ground("npdm(0)"),
+                Ground("pdb(0)"),
+                Ground("npdb(0)"),
+                Ground("pdc(0)"),
+                Ground("npdc(0)"),
+                Ground("pdc2(0)"),
+            ],
+        );
+        assert_inert(
+            "q3",
+            Q3,
+            "MAIN",
+            &[
+                Ground("pdw(0)"),
+                Ground("npdw(0)"),
+                Ground("pdw2(0)"),
+                Ground("npdw2(0)"),
+            ],
+        );
+        assert_inert(
+            "q4",
+            Q4,
+            "MAIN",
+            &[
+                Ground("pdoc(0)"),
+                Ground("pdod(0)"),
+                Symbolic("pdoc(777)"),
+                Symbolic("pdod(777)"),
+            ],
+        );
+        assert_inert(
+            "q5",
+            Q5,
+            "MAIN",
+            &[
+                Ground("pdg(0)"),
+                Ground("npdg(0)"),
+                Ground("pdg2(0)"),
+                Ground("npdg2(0)"),
+                Ground("pdg3(0)"),
+                Ground("npdg3(0)"),
+                Ground("pdx(0)"),
+                Ground("npdx(0)"),
+            ],
+        );
+        assert_inert(
+            "q6",
+            Q6,
+            "MAIN",
+            &[Ground("k0"), Ground("k1"), Ground("start")],
+        );
+        assert_inert(
+            "q7",
+            Q7,
+            "MAIN",
+            &[Ground("un(\"a\")"), Ground("un2(\"a\")")],
+        );
+    }
+
+    // The probe definitions of code-reviews/KINK-18-3-fix2.toml: the chosen values and the
+    // reuse are `derivations`'s; the `#Bottom` right-hand sides follow.
+
+    const BOTTOMS: &str = r#"
+module MAIN
+  imports INT
+  imports BOOL
+  syntax Pgm ::= "done" | val(Int) | w(Int) | pdbn(Int) | pdbq(Int) | pdbr(Int) | go(Int) | pdo(Int)
+               | pds(Int) | pdc(Int)
+  syntax Int ::= q(Int) [function, total]
+               | f(Int) [function, total]
+  configuration <k> $PGM:Pgm </k>
+  rule [feq]: f(X) => X +Int 1
+  rule [pdbn]: pdbn(X) => #Bottom requires X ==Int 1 [preserves-definedness]
+  rule [pdbq]: pdbq(X) => #Bottom requires q(X) ==Int 0 [preserves-definedness]
+  rule [pdbr]: pdbr(X) => #Bottom requires X ==Int 0 [preserves-definedness]
+  rule [pdbrb]: pdbr(_) => done
+  rule [go]: go(X) => (w(f(X)) #Or done) [preserves-definedness]
+  rule [w]: w(Y) => val(Y)
+  rule [pdo]: pdo(X) => (val(X /Int 0) #Or val(f(X))) [preserves-definedness]
+  rule [pdsa]: pds(X) => val(X /Int 0) [preserves-definedness]
+  rule [pdsb]: pds(_) => done
+  rule [pdc]: pdc(X) => val(10 /Int X) requires X <Int 1 [preserves-definedness]
+  rule [pdc2]: pdc(X) => done requires X >=Int 1
+endmodule
+"#;
+
+    #[test]
+    fn the_third_review_s_probes() {
+        assert_inert(
+            "chosen",
+            super::derivations::CHOSEN,
+            "MAIN",
+            &[
+                Ground("ka(0)"),
+                Ground("kb(0)"),
+                Ground("ca(0)"),
+                Ground("cb(0)"),
+                Ground("pka(0)"),
+                Ground("pkb(0)"),
+                Ground("kr(0)"),
+                Ground("ks(0)"),
+                Ground("pkr(0)"),
+                Ground("pks(0)"),
+                Ground("karg(0)"),
+            ],
+        );
+        assert_inert(
+            "reuse",
+            super::derivations::REUSE,
+            "MAIN",
+            &[Ground("un7(\"a\")"), Ground("un8(\"a\")")],
+        );
+        assert_inert(
+            "bottoms",
+            BOTTOMS,
+            "MAIN",
+            &[
+                Ground("pdbn(0)"),
+                Ground("pdbq(0)"),
+                Ground("pdbr(0)"),
+                Ground("go(0)"),
+                Ground("pdo(0)"),
+                Ground("pds(0)"),
+                Ground("pdc(0)"),
+                Symbolic("go(777)"),
+                Symbolic("pdo(777)"),
+                Symbolic("pdbr(777)"),
+                Symbolic("pdc(777)"),
+                Symbolic("pds(777)"),
+                Constrained("pdbq(0)", 0),
+                Constrained("pdbq(0)", 1),
+            ],
+        );
+    }
+
+    /// Claims of the fixtures' shapes, with their contradictions on the proof's path.
+    const PROOF: &str = r#"
+module MAIN
+  imports INT
+  imports BOOL
+  imports MAP
+  imports LIST
+  imports K-EQUAL
+  syntax Pgm ::= "done" | val(Int) | pd(Int) | pdt(Int) | tbt(Int) | pdb(Int) | pdo(Int) | bt(Int)
+               | ka(Int)
+  syntax Int ::= td(Int) [function, total]
+               | tb(Int) [function, total]
+               | bot(Int) [function]
+               | tka(Int) [function, total]
+  configuration <k> $PGM:Pgm </k>
+  rule [tdeq]: td(I) => 10 /Int I
+  rule [tbeq]: tb(I) => #Bottom requires I ==Int 0
+  rule [tbeq2]: tb(I) => I requires I =/=Int 0
+  rule [boteq]: bot(I) => #Bottom requires I ==Int 0
+  rule [boteq2]: bot(I) => I requires I =/=Int 0
+  rule [tkaeq]: tka(I) => 10 /Int (#if keys_list(1 |-> I 2 |-> I) ==K ListItem(1) ListItem(2) #then 0 #else 1 #fi)
+  rule [pd]: pd(X) => val(X /Int 0) [preserves-definedness]
+  rule [pdt]: pdt(X) => val(td(X)) [preserves-definedness]
+  rule [tbt]: tbt(X) => val(tb(X))
+  rule [pdb]: pdb(_) => #Bottom [preserves-definedness]
+  rule [pdo]: pdo(X) => (val(X /Int 0) #Or done) [preserves-definedness]
+  rule [bt]: bt(X) => val(bot(X)) [preserves-definedness]
+  rule [ka]: ka(X) => val(tka(X))
+  rule val(_) => done
+endmodule
+
+module MAIN-SPEC
+  imports MAIN
+  claim [c-pd]: <k> pd(0) => done </k>
+  claim [c-pdt]: <k> pdt(0) => done </k>
+  claim [c-tbt]: <k> tbt(0) => done </k>
+  claim [c-pdb]: <k> pdb(0) => done </k>
+  claim [c-pdo]: <k> pdo(0) => done </k>
+  claim [c-bt]: <k> bt(0) => done </k>
+  claim [c-ka]: <k> ka(0) => done </k>
+  claim [c-pdx]: <k> pd(X) => done </k>
+  claim [c-tbx]: <k> tbt(X) => done </k>
+endmodule
+"#;
+
+    /// The compiled KORE of the spec module `spec` of `source`, its definition module `main`.
+    fn compile_spec(source: &str, spec: &str, main: &str) -> String {
+        use k_rust::{
+            builtin::embedded,
+            definition::CheckMode,
+            kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
+            outer::{LoadOptions, ResolvedSource, load_with_options},
+        };
+        let mut resolver = |_: &str, required: &str| {
+            embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+        };
+        let loaded = load_with_options(
+            ResolvedSource::new("spec.k", source),
+            spec,
+            &mut resolver,
+            &LoadOptions {
+                implicit_sources: vec![embedded("prelude.md").unwrap()],
+                configuration_module: Some(main.to_owned()),
+                ..CompilationBackend::Rust.load_options()
+            },
+        )
+        .unwrap();
+        compile_loaded_definition(
+            &loaded,
+            CompileOptions {
+                backend: CompilationBackend::Rust,
+                default_claims_to_all_path: true,
+                check_mode: CheckMode::Proof {
+                    definition_module: main.to_owned(),
+                },
+                ..CompileOptions::default()
+            },
+        )
+        .unwrap()
+        .definition_kore
+    }
+
+    /// The proof route: each claim proved with the checks on and off, with and without
+    /// `allowVacuous`, of the definition and of its claim-free variant. A proof notes no record
+    /// (`docs/compatibility.md`), so it does none of the work done only to find one: the
+    /// responses and every counter are equal, claims or none.
+    #[test]
+    fn the_proof_route() {
+        use k_rust::backend::ProveRequest;
+        for source in [PROOF.to_owned(), strip(PROOF)] {
+            let kore = compile_spec(&source, "MAIN-SPEC", "MAIN");
+            for claim in [
+                "c-pd", "c-pdt", "c-tbt", "c-pdb", "c-pdo", "c-bt", "c-ka", "c-pdx", "c-tbx",
+            ] {
+                for allow_vacuous in [false, true] {
+                    let run = |checks| {
+                        let kore = kore.clone();
+                        let (response, counters) = counted(checks, move || {
+                            let mut backend = backend_in(&kore, "MAIN-SPEC");
+                            json(backend.prove(ProveRequest {
+                                claim: Some(format!("MAIN-SPEC.{claim}")),
+                                allow_vacuous,
+                                ..ProveRequest::default()
+                            }))
+                        });
+                        Outputs {
+                            responses: vec![response],
+                            counters,
+                        }
+                    };
+                    let context = format!(
+                        "{claim} (allowVacuous {allow_vacuous}, claims {})",
+                        claims(&source)
+                    );
+                    let on = run(true);
+                    let off = run(false);
+                    assert_pair(&context, &on, &off, true);
+                }
+            }
+        }
+    }
+
+    /// IMP of the K tutorial, which writes no claim attribute: the light corpus.
+    const IMP: &str = include_str!("fixtures/kink/imp-lesson-4.k");
+
+    #[test]
+    fn the_light_imp_corpus() {
+        assert_inert_in(
+            Tier::Bounded,
+            "IMP",
+            IMP,
+            "IMP",
+            &[
+                Ground(
+                    "int n, sum; n = 3; sum = 0; while (!(n <= 0)) { sum = sum + n; n = n + -1; }",
+                ),
+                Ground(
+                    "int i, m, n, q, r, s, t, x, y, z; m = 4; n = 2; \
+                     while (n <= m) { i = 2; q = n/i; t = 1; \
+                     while (i<=q && 1<=t) { x = i; y = q; z = 0; \
+                     while (!(x <= 0)) { q = x/2; r = q + q + 1; if (r <= x) { z = z + y; } else {} \
+                     x = q; y = y + y; } \
+                     if (n <= z) { t = 0; } else { i = i + 1; q = n/i; } } \
+                     if (1 <= t) { s = s + 1; } else {} n = n + 1; }",
+                ),
+                Ground("int a; a = 1 / 0;"),
+                Ground("int a, b, c; a = 2 + 3; b = 7 / 2; c = -4;"),
+                Ground(
+                    "int a, b; if (1 <= 2 && 2 <= 1) { a = 1; } else { a = 2; } \
+                     if (2 <= 1 && 1 <= 2) { b = 1; } else { b = 2; }",
+                ),
+            ],
+        );
+    }
 }

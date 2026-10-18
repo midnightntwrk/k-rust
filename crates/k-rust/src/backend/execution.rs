@@ -191,11 +191,12 @@ pub fn run(
 ///
 /// The attribute is an axiom k-rust trusts, and the equation is another axiom of the same
 /// definition; on this application they contradict each other, so the definition is
-/// inconsistent there. Nothing about the run changes: the message explains a record of the
-/// contradiction, which may be a leaf's halt, a decision on a path, or work on no reported path.
+/// inconsistent there under k-rust's stated readings. Nothing about the run changes: the message
+/// explains a record of the contradiction, which may be a leaf's halt, a decision on a path, or
+/// work on no reported path.
 pub fn contradicted_total_message(contradicted: &ContradictedTotal) -> String {
     format!(
-        "{} on this input: {}; the attribute is trusted, so the definition is inconsistent here",
+        "{} on this input: {}; the attribute is trusted, so the definition is inconsistent here under k-rust's stated readings",
         contradicted_attribute(contradicted),
         contradicting_equation(contradicted),
     )
@@ -225,20 +226,32 @@ fn contradicting_equation(contradicted: &ContradictedTotal) -> String {
 /// (`k_rust_backend::path_facts::ContradictedClaim`), and who observed it: the rewrite rule whose
 /// work did, or the load of the definition.
 ///
-/// A ground record is [`contradicted_total_message`]: the definition has no model with the claim
-/// at that input. A non-ground record comes from a state that may have no instance, so it shows
-/// no inconsistency and is worded as a contradiction at each instance of the state only.
+/// A ground `total` record is [`contradicted_total_message`]: the claim is false at that input in
+/// every model that agrees with the request's inputs (on the I/O route, the console state too)
+/// and with k-rust's stated readings, and a ground `preserves-definedness` record says the same
+/// of the rule's result. A non-ground record rests on something that may differ between models
+/// of the definition (the state's variables, an assumption that may hold nowhere, a value the
+/// definition leaves open), so it shows no inconsistency and is worded as a contradiction where
+/// that holds only.
 pub fn contradicted_claim_message(claim: &k_rust_backend::path_facts::ContradictedClaim) -> String {
-    let total = claim
-        .total()
-        .expect("a contradicted claim of this backend is a contradicted total");
+    let (attribute, finding) = if let Some(total) = claim.total() {
+        (contradicted_attribute(total), contradicting_equation(total))
+    } else if let Some(preservation) = claim.preservation() {
+        contradicted_preservation(preservation)
+    } else {
+        unreachable!("every claim kind of this backend is printed")
+    };
     let message = if claim.ground {
-        contradicted_total_message(total)
+        format!(
+            "{attribute} on this input: {finding}; the attribute is trusted, so the definition is inconsistent here under k-rust's stated readings"
+        )
+    } else if claim.preservation().is_some() {
+        format!(
+            "{attribute}: {finding}; the step was not decided on a ground instance alone (it rests on the state's variables, an assumption or a value the definition leaves open), so the attribute is contradicted only where the step applies so, which may be nowhere"
+        )
     } else {
         format!(
-            "{}: {}; the application is not ground, so the attribute is contradicted at each instance of the state, which may have none",
-            contradicted_attribute(total),
-            contradicting_equation(total),
+            "{attribute}: {finding}; the refutation is not ground (it rests on the state's variables, an assumption or a value the definition leaves open), so the attribute is contradicted only where those hold, which may be nowhere"
         )
     };
     match (&claim.rule, claim.observed_in) {
@@ -251,6 +264,31 @@ pub fn contradicted_claim_message(claim: &k_rust_backend::path_facts::Contradict
         ),
         (None, k_rust_backend::path_facts::ObservedIn::Run) => message,
     }
+}
+
+/// The opening and the finding of a contradicted-`preserves-definedness` message: the rule, with
+/// its written position, its result term as the step built it, and where its normalization found
+/// it undefined.
+fn contradicted_preservation(
+    preservation: &k_rust_backend::path_facts::ContradictedPreservation,
+) -> (String, String) {
+    let rule = preservation
+        .label
+        .as_deref()
+        .unwrap_or(&preservation.rule_id);
+    let position = preservation
+        .origin
+        .as_ref()
+        .and_then(k_rust_backend::rule::RuleOrigin::written_position)
+        .map(|position| format!(" at {position}"))
+        .unwrap_or_default();
+    let instance = KorePrinter::compact().print_pattern(&externalize::term(&preservation.instance));
+    let undefined =
+        KorePrinter::compact().print_pattern(&externalize::term(&preservation.undefined_term));
+    (
+        format!("the `preserves-definedness` attribute of rule {rule}{position} is contradicted"),
+        format!("its result {instance} is undefined at {undefined}"),
+    )
 }
 
 /// What kind of finding of the load-time critical-pair check a [`ValueClaimFinding`] is, named

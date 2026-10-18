@@ -42,6 +42,28 @@ pub struct Simplification {
     /// Set together with `undefined_term` when the undefined term arose in the result of an
     /// equation for a symbol declared `total` (or `functional`): see [`ContradictedTotal`].
     pub contradicted_total: Option<Box<ContradictedTotal>>,
+    /// Where the simplification found `\bottom` when no `undefined_term` reports it: an
+    /// equation's own result (a `#Bottom` right-hand side, a refuted `ensures`) or a subject
+    /// whose bindings an equation found empty ([`FoundBottom`]).
+    pub(crate) bottom: Option<Box<FoundBottom>>,
+}
+
+/// The innermost term a simplification found `\bottom` at, other than through a builtin's
+/// undefined result or a repeated collection (`Simplification::undefined_term`).
+///
+/// A subject whose bindings an equation found empty is reported by the equation's result
+/// ([`Simplification::bottom_subject`]); the subject of a root step whose own result conjoins
+/// `\bottom` is reported by the lineage that took the step (`simplify_on_stack`), which alone
+/// knows that the subject's arguments were not `\bottom` already.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct FoundBottom {
+    pub(crate) term: Term,
+    /// The `total` applications whose contradicted claim was noted for it, so that an enclosing
+    /// lineage names no second one (the innermost equation is the one contradicted): none, or
+    /// the one `total` step whose result reached it. An evaluation recorded for reuse keeps only
+    /// the namings its own steps made ([`Accumulated::since`]), so that the step it is served
+    /// under names its own claim.
+    pub(crate) named: Vec<Term>,
 }
 
 /// A [`Simplification`] taken apart, every field public. There is no conversion back: a
@@ -111,6 +133,7 @@ impl Simplification {
             exhausted: None,
             undefined_term: None,
             contradicted_total: None,
+            bottom: None,
         }
     }
 
@@ -125,6 +148,7 @@ impl Simplification {
             exhausted: None,
             undefined_term: Some(term.clone()),
             contradicted_total: None,
+            bottom: None,
         }
     }
 
@@ -167,6 +191,7 @@ impl Simplification {
             exhausted: None,
             undefined_term,
             contradicted_total: None,
+            bottom: None,
         })
     }
 
@@ -189,13 +214,33 @@ impl Simplification {
             exhausted: None,
             undefined_term: None,
             contradicted_total: None,
+            bottom: None,
         }
     }
 
-    /// The result of `rule` on a subject `term` that is empty under the path condition: the
-    /// subject is retained and `\bottom` is its only constraint, so the caller merges it as it
-    /// merges any other constraint set and the pattern becomes `\bottom` as a whole.
-    pub(super) fn bottom_subject(rule: &RewriteRule, term: &Term) -> Self {
+    /// The result of `rule` on a subject `term` that is empty under the path condition because
+    /// a binding of the equation's instance is (a subterm of the subject): the subject is
+    /// retained and `\bottom` is its only constraint, so the caller merges it as it merges any
+    /// other constraint set and the pattern becomes `\bottom` as a whole. The subject is
+    /// reported as where `\bottom` was found; the equation's own result is not that place.
+    /// Only the claim check reads where, so it is reported only when `claims_checked`
+    /// (`simplify::claims_checked_in`).
+    pub(super) fn bottom_subject(rule: &RewriteRule, term: &Term, claims_checked: bool) -> Self {
+        Self {
+            bottom: claims_checked.then(|| {
+                Box::new(FoundBottom {
+                    term: term.clone(),
+                    named: Vec::new(),
+                })
+            }),
+            ..Self::bottom_result(rule, term)
+        }
+    }
+
+    /// The result of `rule` on a subject `term` when the equation's own result is `\bottom`
+    /// (every alternative's `ensures` refuted): as [`Self::bottom_subject`], but the lineage that
+    /// applied the equation reports where (`FoundBottom`).
+    pub(super) fn bottom_result(rule: &RewriteRule, term: &Term) -> Self {
         crate::coverage::note_applied(&rule.attributes.unique_id);
         Self {
             term: term.clone(),
@@ -205,7 +250,14 @@ impl Simplification {
             exhausted: None,
             undefined_term: None,
             contradicted_total: None,
+            bottom: None,
         }
+    }
+
+    /// Whether the simplification conjoins `\bottom` to its term.
+    pub(super) fn conjoins_bottom(&self) -> bool {
+        self.conjoined()
+            .any(|predicate| *predicate == Predicate::False)
     }
 }
 
@@ -218,8 +270,8 @@ fn conjuncts(conditions: ResultConditions) -> Log<Conjunct> {
 ///
 /// [`Accumulated::absorb`] appends a part's conditions, applied rules and effects, and keeps the
 /// first budget exhaustion; the caller resolves the part's undefined-term reports, which depend on
-/// the lineage, and sets `undefined_term` and `contradicted_total` itself. Appending shares the
-/// part's logs ([`Log::append`]), so absorbing a part costs the same whatever it holds.
+/// the lineage, and sets `undefined_term`, `contradicted_total` and `bottom` itself. Appending
+/// shares the part's logs ([`Log::append`]), so absorbing a part costs the same whatever it holds.
 ///
 /// The methods `simplify_on_stack` calls between its recursive calls are not inlined: inlined,
 /// their temporaries would be part of every frame of that recursion, whose stack per level
@@ -232,6 +284,7 @@ pub(super) struct Accumulated {
     pub(super) exhausted: Option<BudgetExhaustion>,
     pub(super) undefined_term: Option<Term>,
     pub(super) contradicted_total: Option<Box<ContradictedTotal>>,
+    pub(super) bottom: Option<Box<FoundBottom>>,
 }
 
 /// A point of an [`Accumulated`] result ([`Accumulated::mark`]): its conditions, applied rules and
@@ -244,6 +297,7 @@ pub(super) struct AccumulatedMark {
     exhausted: Option<BudgetExhaustion>,
     undefined_term: Option<Term>,
     contradicted_total: Option<Box<ContradictedTotal>>,
+    bottom: Option<Box<FoundBottom>>,
 }
 
 impl AccumulatedMark {
@@ -253,6 +307,7 @@ impl AccumulatedMark {
         self.undefined_term.clone_from(&accumulated.undefined_term);
         self.contradicted_total
             .clone_from(&accumulated.contradicted_total);
+        self.bottom.clone_from(&accumulated.bottom);
     }
 }
 
@@ -261,6 +316,7 @@ pub(super) struct Absorbed {
     pub(super) term: Term,
     pub(super) undefined_term: Option<Term>,
     pub(super) contradicted_total: Option<Box<ContradictedTotal>>,
+    pub(super) bottom: Option<Box<FoundBottom>>,
 }
 
 impl Accumulated {
@@ -276,6 +332,7 @@ impl Accumulated {
             exhausted,
             undefined_term,
             contradicted_total,
+            bottom,
         } = part;
         self.conditions.append(conditions);
         self.applied_rules.append(applied_rules);
@@ -285,6 +342,7 @@ impl Accumulated {
             term,
             undefined_term,
             contradicted_total,
+            bottom,
         }
     }
 
@@ -308,6 +366,7 @@ impl Accumulated {
             exhausted: self.exhausted,
             undefined_term: self.undefined_term.clone(),
             contradicted_total: self.contradicted_total.clone(),
+            bottom: self.bottom.clone(),
         }
     }
 
@@ -321,6 +380,7 @@ impl Accumulated {
         self.exhausted = mark.exhausted;
         self.undefined_term.clone_from(&mark.undefined_term);
         self.contradicted_total.clone_from(&mark.contradicted_total);
+        self.bottom.clone_from(&mark.bottom);
     }
 
     /// The conditions absorbed since `mark`.
@@ -328,9 +388,17 @@ impl Accumulated {
         self.conditions.since(&mark.conditions)
     }
 
-    /// What was absorbed since `mark`, as the result for `term`, without reports: the caller
-    /// takes it only where no report was raised. It shares what was absorbed.
-    pub(super) fn since(&self, mark: &AccumulatedMark, term: Term) -> Simplification {
+    /// What was absorbed since `mark`, as the result for `term`, without undefined-term reports:
+    /// the caller takes it only where none was raised. Where `\bottom` was found since `mark`
+    /// ([`FoundBottom`]) is kept, without a naming by `outside`, the lineage's `total` step taken
+    /// before `mark`: that naming was the step's, not the work since `mark`'s. It shares what was
+    /// absorbed.
+    pub(super) fn since(
+        &self,
+        mark: &AccumulatedMark,
+        term: Term,
+        outside: Option<&Term>,
+    ) -> Simplification {
         Simplification {
             term,
             conditions: self.conditions.since(&mark.conditions),
@@ -339,6 +407,18 @@ impl Accumulated {
             exhausted: None,
             undefined_term: None,
             contradicted_total: None,
+            // Where `\bottom` was found since `mark`, when it was: the part's own report, which a
+            // lineage that takes the part as a step's result reads as it reads a fresh one's.
+            bottom: if self.bottom == mark.bottom {
+                None
+            } else {
+                self.bottom.clone().map(|mut found| {
+                    if let Some(outside) = outside {
+                        found.named.retain(|named| named != outside);
+                    }
+                    found
+                })
+            },
         }
     }
 
@@ -353,6 +433,7 @@ impl Accumulated {
             exhausted: self.exhausted,
             undefined_term: self.undefined_term,
             contradicted_total: self.contradicted_total,
+            bottom: self.bottom,
         }
     }
 }
