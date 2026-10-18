@@ -226,6 +226,55 @@ def validate_lifted_cells(manifest: dict) -> None:
             raise ValueError(f"lifted-cells on compile case {name} need a written lifted-cells-reason")
 
 
+UNIQUE_ID = re.compile(r"[0-9a-f]{64}")
+
+
+def validate_divergent_axioms(manifest: dict) -> None:
+    """An accepted [[compile]] case lists the axioms, by UNIQUE'Unds'ID, whose KORE k-rust writes
+    differently from the pinned frontend because the two state different things
+    (divergent-axioms), and says why in divergent-axioms-reason. The semantic KORE comparison
+    reads nothing else; it requires each listed axiom once on each side, different, and leaves
+    both out."""
+    keys = ("divergent-axioms", "divergent-axioms-reason")
+    for section in ("kast", "execution", "proof", "rpc", "symbolic"):
+        for case in manifest.get(section, []):
+            for key in keys:
+                if key in case:
+                    raise ValueError(
+                        f"{key} on {section} case {case.get('name')} is only read for compile"
+                    )
+    for case in manifest.get("compile", []):
+        name = case.get("name")
+        entries = case.get("divergent-axioms")
+        reason = case.get("divergent-axioms-reason")
+        if entries is None:
+            if reason is not None:
+                raise ValueError(
+                    f"divergent-axioms-reason on compile case {name} has no divergent-axioms"
+                )
+            continue
+        if case.get("expect", "accept") != "accept":
+            raise ValueError(f"divergent-axioms on compile case {name} needs an accept case")
+        if not isinstance(entries, list) or not entries:
+            raise ValueError(f"divergent-axioms on compile case {name} must be a non-empty array")
+        seen = set()
+        for entry in entries:
+            if not isinstance(entry, str) or not UNIQUE_ID.fullmatch(entry):
+                raise ValueError(
+                    f"divergent-axioms entry {entry!r} on compile case {name} must be an axiom's "
+                    "UNIQUE'Unds'ID (64 lowercase hexadecimal digits)"
+                )
+            if entry in seen:
+                raise ValueError(
+                    f"divergent-axioms entry {entry!r} on compile case {name} is repeated"
+                )
+            seen.add(entry)
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError(
+                f"divergent-axioms on compile case {name} need a written divergent-axioms-reason"
+            )
+
+
 def main() -> int:
     try:
         with MANIFEST.open("rb") as source:
@@ -236,6 +285,7 @@ def main() -> int:
         validate_reference_kompile_options(manifest)
         validate_reference_result_simplification(manifest)
         validate_lifted_cells(manifest)
+        validate_divergent_axioms(manifest)
     except (OSError, tomllib.TOMLDecodeError, KeyError, ValueError) as error:
         print(f"error: invalid differential manifest: {error}", file=sys.stderr)
         return 2

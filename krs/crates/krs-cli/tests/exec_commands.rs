@@ -670,3 +670,112 @@ fn a_disjunctive_claim_is_proven_disjunct_by_disjunct() {
         .map(|(claim, verdict)| (format!("ORG-KRS-CLI-EXEC-SPEC.{claim}"), verdict.to_owned()))
     );
 }
+
+/// A simplification whose `requires` is a predicate disjunction (`ml::or`, K's `#Or`, which a
+/// simplification's condition admits): `h`, which has no equation, is 7 on 1 and on 2. The lemma
+/// applies on both disjuncts (`go-one`, `go-two` proven) and nowhere else (`go-three`, whose
+/// `h(3)` is the uninterpreted `probeH(3)`, is not).
+const DISJUNCTIVE_LEMMA: &str = r#"
+use krs::builtin::{Int, KSequence};
+use krs::ml;
+use krs::{KItem, Term};
+
+krs::sorts! {
+    Exp: KItem;
+    impl Exp for Int;
+}
+
+#[krs::constructors(sort = Exp, result = krs::KResult)]
+#[krs::precedence((Go))]
+#[rustfmt::skip]
+pub enum ExpSyntax {
+    #[krs::syntax("go({value})")] Go { value: Int },
+}
+
+/// A function with no equation: only the lemma says what `h` is.
+#[krs::function(total, sort = Int, syntax = "h({value})", smtlib = "probeH")]
+pub struct H {
+    pub value: Term<Int>,
+}
+
+/// `h(x) = 7` where `x` is 1 or 2.
+#[krs::simplification]
+#[krs::requires(ml::or(ml::equals(x, 1), ml::equals(x, 2)))]
+fn h_one_or_two(krs::term![H(x)]: Term<Int>) -> Term<Int> {
+    7
+}
+
+#[krs::configuration]
+pub struct Machine {
+    #[krs::cell]
+    pub k: KSequence,
+}
+
+impl Machine {
+    #[krs::init]
+    pub fn init(pgm: Exp) -> Self {
+        Self { k: krs::k![pgm] }
+    }
+}
+
+#[krs::rule(label = "go")]
+fn go(krs::term![ExpSyntax::Go { value }]: Term<Exp>) -> Term<Exp> {
+    H(value)
+}
+
+mod claims {
+    use crate::{ExpSyntax, Machine};
+
+    #[krs::claim(all_paths, label = "go-one")]
+    fn go_one(
+        krs::cells! { k: krs::configuration::KCell(ExpSyntax::Go(1), tail @ ..), state @ .. }: Machine,
+    ) -> Machine {
+        krs::cells! { k: krs::configuration::KCell(7, ..tail), ..state }
+    }
+
+    #[krs::claim(all_paths, label = "go-two")]
+    fn go_two(
+        krs::cells! { k: krs::configuration::KCell(ExpSyntax::Go(2), tail @ ..), state @ .. }: Machine,
+    ) -> Machine {
+        krs::cells! { k: krs::configuration::KCell(7, ..tail), ..state }
+    }
+
+    #[krs::claim(all_paths, label = "go-three")]
+    fn go_three(
+        krs::cells! { k: krs::configuration::KCell(ExpSyntax::Go(3), tail @ ..), state @ .. }: Machine,
+    ) -> Machine {
+        krs::cells! { k: krs::configuration::KCell(7, ..tail), ..state }
+    }
+}
+"#;
+
+#[test]
+fn a_simplification_with_a_disjunctive_requires_applies_on_each_disjunct() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = materialize(temporary.path(), DISJUNCTIVE_LEMMA);
+
+    let prove = krs(target.path(), &manifest, "prove", &["--output", "json"]);
+    let verdicts = json(&prove)["prove"]
+        .as_array()
+        .unwrap_or_else(|| panic!("no claim reports: {}", stderr(&prove)))
+        .iter()
+        .map(|report| {
+            (
+                report["claim"].as_str().unwrap().to_owned(),
+                report["verdict"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let verdict = |claim: &str| {
+        verdicts
+            .iter()
+            .find(|(label, _)| label == &format!("ORG-KRS-CLI-EXEC-SPEC.{claim}"))
+            .map(|(_, verdict)| verdict.as_str())
+    };
+    assert_eq!(verdict("go-one"), Some("proven"), "{verdicts:?}");
+    assert_eq!(verdict("go-two"), Some("proven"), "{verdicts:?}");
+    assert_ne!(verdict("go-three"), Some("proven"), "{verdicts:?}");
+    assert!(verdict("go-three").is_some(), "{verdicts:?}");
+    assert_eq!(prove.status.code(), Some(1), "{}", stderr(&prove));
+}

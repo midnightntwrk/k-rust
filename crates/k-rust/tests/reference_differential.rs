@@ -772,6 +772,13 @@ fn emitted_kore_matches_the_reference_frontend() {
          variable (N45): {lifted_cells} in {} axioms",
         lifted.len()
     );
+    let divergent = divergent_axioms_from_environment();
+    let removed = remove_divergent_axioms(&mut reference, &mut actual, &divergent)
+        .unwrap_or_else(|error| panic!("{error}"));
+    println!(
+        "axioms that state different things on the two sides, recorded as divergences and left \
+         out: {removed} pairs"
+    );
     compare_definitions(reference, actual);
 }
 
@@ -2019,6 +2026,174 @@ fn lifted_cells_from_environment() -> Vec<LiftedCell> {
         .collect()
 }
 
+/// The `divergent-axioms` entries of a compile case (UNIQUE'Unds'ID strings) the compile gate
+/// passes in `K_DIFFERENTIAL_DIVERGENT_AXIOMS`, a JSON array; none when the variable is unset or
+/// empty.
+fn divergent_axioms_from_environment() -> Vec<String> {
+    let Ok(json) = env::var("K_DIFFERENTIAL_DIVERGENT_AXIOMS") else {
+        return Vec::new();
+    };
+    if json.trim().is_empty() {
+        return Vec::new();
+    }
+    let entries: serde_json::Value = serde_json::from_str(&json)
+        .unwrap_or_else(|error| panic!("K_DIFFERENTIAL_DIVERGENT_AXIOMS is not JSON: {error}"));
+    entries
+        .as_array()
+        .expect("K_DIFFERENTIAL_DIVERGENT_AXIOMS is a JSON array")
+        .iter()
+        .map(|entry| {
+            entry
+                .as_str()
+                .filter(|id| !id.is_empty())
+                .unwrap_or_else(|| {
+                    panic!("divergent-axioms entry {entry} must be a UNIQUE'Unds'ID")
+                })
+                .to_owned()
+        })
+        .collect()
+}
+
+/// Leave out of the comparison the axioms a compile case records as divergent: axioms the two
+/// frontends write differently because their conditions state different things, so no
+/// normalization may identify them. Each listed UNIQUE'Unds'ID must name exactly one axiom on each
+/// side, and the two must differ as the comparison sees them; an entry whose axioms agree there (or are missing) is stale and
+/// refused. The divergence is in the condition only: the two axioms must be equal, as the
+/// comparison sees them, once each one's requires operand ([`requires_operand`]) is replaced by
+/// the same placeholder, so a difference anywhere else (a right side, an attribute) fails the
+/// gate. Returns the number of pairs removed.
+fn remove_divergent_axioms(
+    reference: &mut Definition,
+    actual: &mut Definition,
+    ids: &[String],
+) -> Result<usize, String> {
+    let locate = |definition: &Definition, id: &str| {
+        definition
+            .modules
+            .iter()
+            .enumerate()
+            .flat_map(|(module, declarations)| {
+                declarations
+                    .sentences
+                    .iter()
+                    .enumerate()
+                    .map(move |(index, sentence)| (module, index, sentence))
+            })
+            .filter(|(_, _, sentence)| {
+                matches!(sentence, Sentence::Axiom { .. })
+                    && sentence_attribute(sentence, "UNIQUE'Unds'ID").as_deref() == Some(id)
+            })
+            .map(|(module, index, _)| (module, index))
+            .collect::<Vec<_>>()
+    };
+    for id in ids {
+        let [(reference_module, reference_index)] = locate(reference, id)[..] else {
+            return Err(format!(
+                "divergent-axioms: the reference must state exactly one axiom {id}"
+            ));
+        };
+        let [(actual_module, actual_index)] = locate(actual, id)[..] else {
+            return Err(format!(
+                "divergent-axioms: k-rust must state exactly one axiom {id}"
+            ));
+        };
+        let reference_axiom = &reference.modules[reference_module].sentences[reference_index];
+        let actual_axiom = &actual.modules[actual_module].sentences[actual_index];
+        // Staleness is decided on what the comparison sees: the two frontends write different
+        // source positions for the same sentence, so raw sentences never agree.
+        if as_compared(reference_axiom) == as_compared(actual_axiom) {
+            return Err(format!(
+                "divergent-axioms: the two sides state axiom {id} alike, so the entry is stale"
+            ));
+        }
+        let (Some(reference_rest), Some(actual_rest)) = (
+            without_requires(reference_axiom),
+            without_requires(actual_axiom),
+        ) else {
+            return Err(format!(
+                "divergent-axioms: axiom {id} has no requires operand on both sides"
+            ));
+        };
+        if reference_rest != actual_rest {
+            return Err(format!(
+                "divergent-axioms: the two sides' axiom {id} differs outside its requires \
+                 operand, which a recorded divergence does not cover:\n  reference: \
+                 {reference_rest}\n  k-rust:    {actual_rest}"
+            ));
+        }
+        reference.modules[reference_module]
+            .sentences
+            .remove(reference_index);
+        actual.modules[actual_module].sentences.remove(actual_index);
+    }
+    Ok(ids.len())
+}
+
+/// The requires operand of an axiom: the condition conjunct of a rewrite rule's left side
+/// (`\rewrites(\and(left, requires), ..)`), or the antecedent of an equation's or a
+/// simplification's root `\implies`, without the argument matches an equation conjoins to it
+/// (`\and(requires, \and(\in(X0, ..), .. \top))`). `None` for any other axiom.
+fn requires_operand(pattern: &mut Pattern) -> Option<&mut Pattern> {
+    fn is_argument_matches(pattern: &Pattern) -> bool {
+        match pattern {
+            Pattern::Top { .. } => true,
+            Pattern::And { arguments, .. } => match &arguments[..] {
+                [Pattern::In { .. }, rest] => is_argument_matches(rest),
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+    match pattern {
+        Pattern::Rewrites { left, .. } => match left.as_mut() {
+            Pattern::And { arguments, .. } if arguments.len() == 2 => arguments.get_mut(1),
+            _ => None,
+        },
+        Pattern::Implies { left, .. } => {
+            let matches = matches!(
+                left.as_ref(),
+                Pattern::And { arguments, .. }
+                    if arguments.len() == 2 && is_argument_matches(&arguments[1])
+            );
+            if !matches {
+                return Some(left.as_mut());
+            }
+            match left.as_mut() {
+                Pattern::And { arguments, .. } => arguments.get_mut(0),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// A sentence as the comparison sees it: without source metadata ([`strip_attributes`]), in its
+/// canonical form ([`canonical_sentence`]).
+fn as_compared(sentence: &Sentence) -> String {
+    let mut sentence = sentence.clone();
+    if let Sentence::Axiom { attributes, .. } = &mut sentence {
+        strip_attributes(attributes);
+    }
+    canonical_sentence(&sentence)
+}
+
+/// An axiom as the comparison sees it ([`strip_source_metadata`], [`canonical_sentence`]), with
+/// its requires operand ([`requires_operand`]) replaced by a placeholder.
+fn without_requires(sentence: &Sentence) -> Option<String> {
+    let mut sentence = sentence.clone();
+    let Sentence::Axiom {
+        pattern,
+        attributes,
+        ..
+    } = &mut sentence
+    else {
+        return None;
+    };
+    strip_attributes(attributes);
+    *requires_operand(pattern)? = Pattern::String("divergent requires".into());
+    Some(canonical_sentence(&sentence))
+}
+
 /// N45: compare an axiom whose rule writes a cell inside a cell that does not contain it in the
 /// configuration against the reference axiom in which that cell is absent. For each entry, the
 /// axiom labelled `rule` must exist exactly once on each side; the two axioms are walked in
@@ -2610,6 +2785,141 @@ fn lifted_cell_entry(rule: &str, cell: &str) -> [LiftedCell; 1] {
         rule: rule.into(),
         cell: cell.into(),
     }]
+}
+
+/// A recorded divergence removes exactly the listed pair of axioms; an entry naming an axiom one
+/// side lacks, or whose two axioms agree, is refused.
+#[test]
+fn divergent_axioms_remove_exactly_the_listed_differing_pair() {
+    let definition = |condition: &str| {
+        parse_definition(&format!(
+            r#"[] module TEST
+            sort SortInt{{}} []
+            sort SortBool{{}} []
+            symbol Lblh{{}}(SortInt{{}}) : SortBool{{}} [function{{}}()]
+            axiom{{R}} \implies{{R}}({condition}, \equals{{SortBool{{}}, R}}(Lblh{{}}(VarX:SortInt{{}}), \dv{{SortBool{{}}}}("true"))) [UNIQUE'Unds'ID{{}}("d")]
+            axiom{{R}} \implies{{R}}(\top{{R}}(), \equals{{SortBool{{}}, R}}(Lblh{{}}(\dv{{SortInt{{}}}}("0")), \dv{{SortBool{{}}}}("false"))) [UNIQUE'Unds'ID{{}}("k")]
+            endmodule []"#
+        ))
+        .unwrap()
+    };
+    let literal = r#"\equals{SortBool{}, R}(\exists{SortBool{}}(VarY:SortInt{}, Lblh{}(VarY:SortInt{})), \dv{SortBool{}}("true"))"#;
+    let predicate = r#"\exists{R}(VarY:SortInt{}, \equals{SortBool{}, R}(Lblh{}(VarY:SortInt{}), \dv{SortBool{}}("true")))"#;
+    let ids = |ids: &[&str]| ids.iter().map(|id| (*id).to_owned()).collect::<Vec<_>>();
+
+    let (mut reference, mut actual) = (definition(literal), definition(predicate));
+    assert_eq!(
+        remove_divergent_axioms(&mut reference, &mut actual, &ids(&["d"])),
+        Ok(1)
+    );
+    assert_eq!(reference.modules[0].sentences.len(), 4);
+    assert_eq!(reference, actual);
+
+    let (mut reference, mut actual) = (definition(literal), definition(predicate));
+    assert_eq!(
+        remove_divergent_axioms(&mut reference, &mut actual, &[]),
+        Ok(0)
+    );
+    assert_ne!(reference, actual);
+
+    let (mut reference, mut actual) = (definition(literal), definition(literal));
+    let error = remove_divergent_axioms(&mut reference, &mut actual, &ids(&["d"])).unwrap_err();
+    assert!(error.contains("stale"), "{error}");
+    let error =
+        remove_divergent_axioms(&mut reference, &mut actual, &ids(&["missing"])).unwrap_err();
+    assert!(error.contains("exactly one axiom missing"), "{error}");
+}
+
+/// A recorded divergence covers the requires operand only: two axioms that also differ in their
+/// right side or in an attribute the comparison reads are refused, while a Location the
+/// comparison does not read is no difference, so an entry whose conditions agree is stale even
+/// where the Locations differ. Rewrite rules and equations whose antecedent carries
+/// argument matches are masked at their requires alone.
+#[test]
+fn divergent_axioms_refuse_a_difference_outside_the_requires() {
+    let literal = r#"\equals{SortBool{}, R}(\exists{SortBool{}}(VarY:SortInt{}, Lblh{}(VarY:SortInt{})), \dv{SortBool{}}("true"))"#;
+    let predicate = r#"\exists{R}(VarY:SortInt{}, \equals{SortBool{}, R}(Lblh{}(VarY:SortInt{}), \dv{SortBool{}}("true")))"#;
+    let definition = |axiom: String| {
+        parse_definition(&format!(
+            r#"[] module TEST
+            sort SortInt{{}} []
+            sort SortBool{{}} []
+            symbol Lblh{{}}(SortInt{{}}) : SortBool{{}} [function{{}}()]
+            symbol Lblf{{}}(SortInt{{}}) : SortInt{{}} [function{{}}()]
+            {axiom}
+            endmodule []"#
+        ))
+        .unwrap()
+    };
+    let simplification = |condition: &str, value: &str, attributes: &str| {
+        definition(format!(
+            r#"axiom{{R}} \implies{{R}}({condition}, \equals{{SortBool{{}}, R}}(Lblh{{}}(VarX:SortInt{{}}), \dv{{SortBool{{}}}}("{value}"))) [UNIQUE'Unds'ID{{}}("d"){attributes}]"#
+        ))
+    };
+    let remove = |reference: Definition, actual: Definition| {
+        let (mut reference, mut actual) = (reference, actual);
+        remove_divergent_axioms(&mut reference, &mut actual, &["d".to_owned()])
+    };
+    let location = r#", org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,1,2)")"#;
+
+    assert_eq!(
+        remove(
+            simplification(literal, "true", ""),
+            simplification(predicate, "true", location)
+        ),
+        Ok(1)
+    );
+    // Converged conditions are stale although the Locations differ, as they do between the two
+    // frontends.
+    let error = remove(
+        simplification(literal, "true", ""),
+        simplification(literal, "true", location),
+    )
+    .unwrap_err();
+    assert!(error.contains("stale"), "{error}");
+    let error = remove(
+        simplification(literal, "true", ""),
+        simplification(predicate, "false", ""),
+    )
+    .unwrap_err();
+    assert!(error.contains("differs outside its requires"), "{error}");
+    let error = remove(
+        simplification(literal, "true", ""),
+        simplification(predicate, "true", ", simplification{}()"),
+    )
+    .unwrap_err();
+    assert!(error.contains("differs outside its requires"), "{error}");
+
+    // A function equation: `\implies(\and(requires, matches), ..)`; the matches are compared.
+    let equation = |condition: &str, argument: &str| {
+        definition(format!(
+            r#"axiom{{R}} \implies{{R}}(\and{{R}}({condition}, \and{{R}}(\in{{SortInt{{}}, R}}(VarX0:SortInt{{}}, {argument}), \top{{R}}())), \equals{{SortInt{{}}, R}}(Lblf{{}}(VarX0:SortInt{{}}), \and{{SortInt{{}}}}(\dv{{SortInt{{}}}}("0"), \top{{SortInt{{}}}}()))) [UNIQUE'Unds'ID{{}}("d")]"#
+        ))
+    };
+    let x = "VarX:SortInt{}";
+    assert_eq!(remove(equation(literal, x), equation(predicate, x)), Ok(1));
+    let error = remove(
+        equation(literal, x),
+        equation(predicate, r#"\dv{SortInt{}}("1")"#),
+    )
+    .unwrap_err();
+    assert!(error.contains("differs outside its requires"), "{error}");
+
+    // A rewrite rule: `\rewrites(\and(left, requires), right)`.
+    let rule = |condition: &str, right: &str| {
+        definition(format!(
+            r#"axiom{{}} \rewrites{{SortInt{{}}}}(\and{{SortInt{{}}}}(VarX:SortInt{{}}, {condition}), \and{{SortInt{{}}}}(\dv{{SortInt{{}}}}("{right}"), \top{{SortInt{{}}}}())) [UNIQUE'Unds'ID{{}}("d")]"#
+        ))
+    };
+    let (literal, predicate) = (
+        literal.replace(", R}", ", SortInt{}}"),
+        predicate
+            .replace("{R}", "{SortInt{}}")
+            .replace(", R}", ", SortInt{}}"),
+    );
+    assert_eq!(remove(rule(&literal, "1"), rule(&predicate, "1")), Ok(1));
+    let error = remove(rule(&literal, "1"), rule(&predicate, "2")).unwrap_err();
+    assert!(error.contains("differs outside its requires"), "{error}");
 }
 
 /// N45 accepts the lifted shape: with the port's `<stack>` applications replaced by the

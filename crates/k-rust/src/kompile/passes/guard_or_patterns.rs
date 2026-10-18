@@ -1,7 +1,25 @@
 //! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
 //! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
 //!
-//! Give matching-logic disjunctions explicit aliases.
+//! Name each matching-logic disjunction at a shared position of a rule or context with a fresh
+//! alias, so that the built side reuses the term the disjunction matched.
+//!
+//! A term of a rule's body outside every rewrite is on both sides of the rule: it is matched, and
+//! the same term is part of the result. There `A #Or B` must stand for the term it matched, not for
+//! the disjunction of its alternatives, so the pass writes it as `(A #Or B) #as _GenN`. The walk
+//! stops at every rewrite, inside which a term is on one side only, and at every `#as`, whose alias
+//! already names the matched term; in practice the pass therefore names the disjunctions at shared
+//! positions only.
+//!
+//! Conditions are not roots. A `requires` or `ensures` is matched against nothing and is part of
+//! no right side, so an alias there would name no matched term: in an `ensures` it would be a free
+//! variable of the result, in a `requires` a variable that no match binds. A disjunction in a
+//! condition is the predicate disjunction its text states and stays as written. Claims are not
+//! transformed.
+//!
+//! In the compile pipeline the stage `resolve contexts` runs before this one, so a context has
+//! already become the heating and cooling rules that this pass transforms as rules; the context
+//! arm serves a definition given to [`guard_or_patterns`] directly.
 #![deny(clippy::wildcard_enum_match_arm)]
 
 use std::fmt;
@@ -31,8 +49,9 @@ impl fmt::Display for GuardOrPatternsError {
 
 impl std::error::Error for GuardOrPatternsError {}
 
-/// Alias every `#Or` pattern of a rule or context that lies outside its rewrites and aliases
-/// with a fresh variable, so that the right-hand side reuses the term the disjunction matched.
+/// Alias every `#Or` pattern of a rule's or context's body that lies outside its rewrites and
+/// aliases with a fresh variable, so that the right-hand side reuses the term the disjunction
+/// matched. Conditions and claims are left as written (see the module documentation).
 pub fn guard_or_patterns(definition: &Definition) -> Result<Definition, GuardOrPatternsError> {
     super::super::pipeline::run_standalone(
         definition,
@@ -62,14 +81,9 @@ pub(crate) fn guard_or_patterns_pass(
             let sentence = crate::definition::sentence_mut(sentence);
             let attributes = sentence.attributes().clone();
             let mut fresh = FreshNames::for_sentence(sentence);
+            // A condition is matched against nothing, so only the body has positions to name.
             let roots = match sentence {
-                Sentence::Rule {
-                    body,
-                    requires,
-                    ensures,
-                    ..
-                } => vec![body, requires, ensures],
-                Sentence::Context { body, requires, .. } => vec![body, requires],
+                Sentence::Rule { body, .. } | Sentence::Context { body, .. } => vec![body],
                 Sentence::SyntaxSort { .. }
                 | Sentence::SortSynonym { .. }
                 | Sentence::SyntaxLexical { .. }

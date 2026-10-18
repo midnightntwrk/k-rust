@@ -36,7 +36,7 @@ use super::invariants::emitted::{EmittedTheory, emitted_from};
 
 use axioms::generated_axioms;
 use equations::{
-    OwiseCompetitors, RuleEmissionContext, check_variable_sorts, emit_rule_or_claim,
+    ConditionForm, OwiseCompetitors, RuleEmissionContext, check_variable_sorts, emit_rule_or_claim,
     resolve_equation_production,
 };
 use roles::{Declaration, SymbolClaims, SymbolRoles};
@@ -340,6 +340,12 @@ pub enum ModuleToKoreError {
         production: usize,
         message: String,
     },
+    /// A condition of the Rust target whose spine holds an `#Equals` whose operands are not both
+    /// terms and not both predicates: it states no condition.
+    MixedConditionEquality {
+        /// The sentence, by kind, label and source position.
+        sentence: String,
+    },
 }
 
 impl fmt::Display for ModuleToKoreError {
@@ -418,6 +424,10 @@ impl fmt::Display for ModuleToKoreError {
             } => write!(
                 formatter,
                 "cannot generate MAP definedness axiom for production #{production}: {message}"
+            ),
+            Self::MixedConditionEquality { sentence } => write!(
+                formatter,
+                "the condition of {sentence} has an #Equals, outside any term, whose operands are not both terms (an equality of values) or both predicates (their iff); a predicate at sort Bool denotes all of Bool or nothing (at any sort, all of it or nothing), so it never equals one value, and a connective over terms denotes a set of values, which is not a Boolean condition. To state that a predicate P holds, write P itself as the condition (#Not(P) that it fails); to combine Bool values, use Bool operations such as andBool and orBool"
             ),
         }
     }
@@ -911,6 +921,7 @@ pub(crate) fn module_to_kore_from_resolved_with_options_and_sources(
         module_rules: &module_rules,
         default_reachability,
         roles: &roles,
+        condition_form: ConditionForm::for_backend(options.backend),
     };
     let mut emitted_sources = Vec::new();
     // Invariant: `modules.macros` and `modules.semantics.sentences` hold the emitted sentences of the rules of `module_rules` before `rule`, and `owise_competitors` holds the module's owise competitors once an owise equation has scanned for them; each rule is emitted once.

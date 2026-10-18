@@ -1319,6 +1319,109 @@ fn lifted_cells_need_a_reason_and_an_accepted_compile_case() {
     );
 }
 
+/// `divergent-axioms` is a non-empty array of distinct UNIQUE'Unds'ID strings on an accepted
+/// `[[compile]]` case with a written `divergent-axioms-reason`; the renderer refuses anything
+/// else, only `exists-anon` carries it, and the compile gate passes it to the semantic KORE
+/// comparison only.
+#[test]
+fn divergent_axioms_need_a_reason_and_an_accepted_compile_case() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let fixture = environment_fixture("manifest-divergent-axioms");
+    let helper = fixture.join("reference-manifest.py");
+    fs::copy(workspace.join("scripts/reference-manifest.py"), &helper).unwrap();
+    let case = |section: &str, extra: &str| {
+        format!("[[{section}]]\nname = \"fixture\"\nrequires = [\"reference-toolchain\"]\n{extra}")
+    };
+    let id = "a03b6e5bfaee958064e4c0f7a65da88eb50ef12a680f47601ad791534df4cd1b";
+    let entry = format!("divergent-axioms = [\"{id}\"]\n");
+    let reason = "divergent-axioms-reason = \"the two frontends state different conditions\"\n";
+    for (manifest, valid) in [
+        (case("compile", &format!("{entry}{reason}")), true),
+        (case("compile", &entry), false),
+        (case("compile", reason), false),
+        (
+            case(
+                "compile",
+                &format!("{entry}divergent-axioms-reason = \" \"\n"),
+            ),
+            false,
+        ),
+        (
+            case("compile", &format!("divergent-axioms = []\n{reason}")),
+            false,
+        ),
+        (
+            case(
+                "compile",
+                &format!("divergent-axioms = [\"P.p\"]\n{reason}"),
+            ),
+            false,
+        ),
+        (
+            case(
+                "compile",
+                &format!("divergent-axioms = [\"{id}\", \"{id}\"]\n{reason}"),
+            ),
+            false,
+        ),
+        (
+            case("compile", &format!("expect = \"reject\"\n{entry}{reason}")),
+            false,
+        ),
+        (case("execution", &format!("{entry}{reason}")), false),
+    ] {
+        fs::write(fixture.join("reference-differential.toml"), &manifest).unwrap();
+        let output = Command::new("python3")
+            .arg(&helper)
+            .arg("--validate")
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(
+            output.status.code(),
+            Some(if valid { 0 } else { 2 }),
+            "{manifest}: {stderr}"
+        );
+    }
+    fs::remove_dir_all(fixture).unwrap();
+
+    let manifest = MANIFEST.parse::<Value>().expect("valid differential TOML");
+    let with_divergences = manifest["compile"]
+        .as_array()
+        .expect("compile cases")
+        .iter()
+        .filter(|entry| entry.get("divergent-axioms").is_some())
+        .map(|entry| entry["name"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(with_divergences, ["exists-anon"]);
+
+    let uses = COMPILE_SCRIPT
+        .match_indices("K_DIFFERENTIAL_DIVERGENT_AXIOMS=")
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    let [use_index] = uses.as_slice() else {
+        panic!("the compile gate passes the divergent axioms once: {uses:?}");
+    };
+    let rest = &COMPILE_SCRIPT[*use_index..];
+    assert!(
+        rest.starts_with("K_DIFFERENTIAL_DIVERGENT_AXIOMS=\"$divergent_axioms\" \\\n"),
+        "the divergent axioms are passed as the manifest renders them"
+    );
+    let command = &rest[..rest.find("); then").expect("the comparison is a condition")];
+    assert!(
+        command.contains("compare_artifacts emitted_kore_matches_the_reference_frontend"),
+        "the divergent axioms are an environment entry of the semantic comparison command"
+    );
+    let section = &COMPILE_SCRIPT[..*use_index];
+    let start = section
+        .rfind("comparing semantic KORE")
+        .expect("the semantic KORE comparison precedes the divergent axioms");
+    assert!(
+        !section[start..].contains("compare_artifacts"),
+        "the divergent axioms belong to the semantic KORE comparison"
+    );
+}
+
 /// Run the execution gate on `case` against fake reference tools, a fake reference RPC server
 /// that only listens, a fake RPC client that answers `simplify` with `\bottom` (or with an error
 /// when `FAKE_RPC_ERROR=1`), and a fake comparator that records which reference result it got

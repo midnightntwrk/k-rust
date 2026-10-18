@@ -408,6 +408,8 @@ comparisons = [
   "macro-kore",
   "parsed-definition",
 ]
+divergent-axioms = ["a03b6e5bfaee958064e4c0f7a65da88eb50ef12a680f47601ad791534df4cd1b"]
+divergent-axioms-reason = "k-rust emits the condition #Exists _ . (X ==Int _ +Int 1) as the predicate \\exists{R}(Y, \\equals{Bool,R}(t, true)); the pinned frontend emits \\equals{Bool,R}(\\exists{Bool}(Y, t), true), which as a pattern states that t holds for every Y; docs/compatibility.md#solver-decisions-over-partial-operations (the bullet on an \\equals whose operands are not both terms)"
 
 [[compile]]
 name = "fun-int-list-config"

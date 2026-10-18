@@ -49,6 +49,8 @@ pub(super) struct RuleEmissionContext<'a, 'definition> {
     pub default_reachability: Option<ReachabilityMode>,
     /// The claims of every production of `productions`; the equation-head check reads them.
     pub roles: &'a SymbolRoles,
+    /// How the target writes conditions.
+    pub condition_form: ConditionForm,
 }
 
 pub(super) fn emit_rule_or_claim(
@@ -65,6 +67,7 @@ pub(super) fn emit_rule_or_claim(
         module_rules,
         default_reachability,
         roles,
+        condition_form,
     } = context;
     let (injected, sort_variables) = injector.inject_sentence_bound(sentence)?;
     let converter = converter.with_sort_variables(&sort_variables);
@@ -144,6 +147,7 @@ pub(super) fn emit_rule_or_claim(
             module_rules,
             owise_competitors,
             &sort_variables,
+            *condition_form,
         );
     }
     if is_macro_rule(&injected) {
@@ -183,8 +187,15 @@ pub(super) fn emit_rule_or_claim(
     let result_sort = converter.convert_sort(&body_sort)?;
     let left = converter.convert(left)?;
     let right = converter.convert(right)?;
-    let requires = side_condition(requires, &result_sort, converter)?;
-    let ensures = side_condition(ensures, &result_sort, converter)?;
+    let sentence = || located_sentence(claim, attributes);
+    let requires = side_condition(
+        requires,
+        &result_sort,
+        converter,
+        *condition_form,
+        &sentence,
+    )?;
+    let ensures = side_condition(ensures, &result_sort, converter, *condition_form, &sentence)?;
     // `concrete` and `symbolic` carry lists of free variables, not string
     // values.  For rewrite rules and claims K resolves those names against
     // the left-hand side and its requires condition only (variables that are
@@ -461,6 +472,7 @@ fn emit_equation(
     module_rules: &[Sentence],
     owise_competitors: &mut OwiseCompetitors,
     sort_variables: &SentenceSortVariables,
+    condition_form: ConditionForm,
 ) -> Result<KoreSentence, ModuleToKoreError> {
     let parameters = std::iter::once("R")
         .chain(sort_variables.names())
@@ -469,8 +481,15 @@ fn emit_equation(
     let predicate_sort = KoreSort::Variable("R".into());
     let result_sort = converter.convert_sort(&equation.result_sort)?;
     let avoid_variables = variable_names([left, requires]);
-    let requires = side_condition(requires, &predicate_sort, converter)?;
-    let ensures = side_condition(ensures, &result_sort, converter)?;
+    let sentence = || located_sentence(claim, attributes);
+    let requires = side_condition(
+        requires,
+        &predicate_sort,
+        converter,
+        condition_form,
+        &sentence,
+    )?;
+    let ensures = side_condition(ensures, &result_sort, converter, condition_form, &sentence)?;
     let right = Pattern::And {
         sort: result_sort.clone(),
         arguments: vec![converter.convert(right)?, ensures],
@@ -494,6 +513,7 @@ fn emit_equation(
             owise_competitors,
             sort_variables,
             &avoid_variables,
+            condition_form,
         );
     }
     let equals = if equation.direct || claim {
@@ -590,6 +610,7 @@ fn emit_owise_equation(
     owise_competitors: &mut OwiseCompetitors,
     sort_variables: &SentenceSortVariables,
     avoid_variables: &BTreeSet<String>,
+    condition_form: ConditionForm,
 ) -> Result<KoreSentence, ModuleToKoreError> {
     owise_competitors.scan_once(module_rules, injector, productions);
     let (candidates, failure) = owise_competitors.candidates(&equation);
@@ -637,6 +658,7 @@ fn emit_owise_equation(
             Sentence::Rule {
                 body,
                 requires: competitor_requires,
+                attributes: competitor_attributes,
                 ..
             },
             _,
@@ -664,7 +686,14 @@ fn emit_owise_equation(
                 kind: "non-application function competitor for owise".into(),
             });
         };
-        let condition = side_condition(&refreshed_requires, &predicate_sort, converter)?;
+        // A competitor's condition is its own: a refusal of it names the competitor.
+        let condition = side_condition(
+            &refreshed_requires,
+            &predicate_sort,
+            converter,
+            condition_form,
+            &|| located_sentence(false, competitor_attributes),
+        )?;
         let matches = equation_matches(
             &variables,
             competitor_children,
@@ -1114,26 +1143,352 @@ pub(super) fn substitute_equation_sort(sort: &Sort, substitution: &BTreeMap<Sort
     })
 }
 
+/// How a sentence's `requires` and `ensures` are written in the emitted KORE.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum ConditionForm {
+    /// The predicate the condition states ([`predicate_at`]): the Rust target, whose backend
+    /// reads a condition as a predicate.
+    Predicate,
+    /// The whole condition as one Bool term, `\equals{SortBool{}, R}(c, true)`: the LLVM
+    /// target, whose interpreter evaluates a side condition as a Bool term. A predicate condition
+    /// has no evaluation there in either form, so that target keeps its output.
+    BoolTerm,
+}
+
+impl ConditionForm {
+    pub(super) fn for_backend(backend: CompilationBackend) -> Self {
+        match backend {
+            CompilationBackend::Llvm => ConditionForm::BoolTerm,
+            CompilationBackend::Rust => ConditionForm::Predicate,
+        }
+    }
+}
+
+/// The condition `condition` of the sentence `sentence` names, at `result_sort`, in the form
+/// `form`.
+///
+/// In the predicate form, a condition whose spine holds an author's `#Equals` whose operands are
+/// not both terms and not both predicates ([`mixed_spine_equality`]) is refused: it states no
+/// condition (a predicate is all of its sort or nothing, and a connective over terms a set of
+/// values), and written as a predicate, `{P #Equals true}` would be the pattern
+/// `\equals{SortBool{}, R}(P, \dv{SortBool{}}("true"))`, the form in which KORE written by other
+/// tools states that a whole condition P holds, which k-rust's backend reads as P.
 fn side_condition(
     condition: &Term,
     result_sort: &KoreSort,
     converter: &TermConverter<'_, '_>,
-) -> Result<Pattern, TermConversionError> {
+    form: ConditionForm,
+    sentence: &dyn Fn() -> String,
+) -> Result<Pattern, ModuleToKoreError> {
     if is_true(condition) {
         return Ok(Pattern::Top {
             sort: result_sort.clone(),
         });
     }
     let bool_sort = encode_kore_sort(&Sort::builtin(BuiltinSort::Bool));
-    Ok(Pattern::Equals {
+    let converted = converter.convert(condition)?;
+    Ok(match form {
+        ConditionForm::Predicate => {
+            if mixed_spine_equality(&converted) {
+                return Err(ModuleToKoreError::MixedConditionEquality {
+                    sentence: sentence(),
+                });
+            }
+            predicate_at(&converted, result_sort, &bool_sort)
+        }
+        ConditionForm::BoolTerm => bool_leaf(converted, result_sort, &bool_sort),
+    })
+}
+
+/// A sentence as a compile refusal names it: its kind, its label and its source position.
+fn located_sentence(claim: bool, attributes: &KAttributes) -> String {
+    let kind = if claim { "claim" } else { "rule" };
+    let label = attributes
+        .string(AttributeKey::Label)
+        .map(|label| format!(" [{label}]"));
+    let position = match (attributes.source(), attributes.location()) {
+        (Some(source), Some(location)) => Some(format!(
+            " at {source}:{}:{}",
+            location.start_line, location.start_column
+        )),
+        (Some(source), None) => Some(format!(" in {source}")),
+        (None, Some(location)) => Some(format!(
+            " at line {}, column {}",
+            location.start_line, location.start_column
+        )),
+        (None, None) => None,
+    };
+    match (label, position) {
+        (None, None) => match attributes.string(AttributeKey::UniqueId) {
+            Some(id) => format!("{kind} {id}"),
+            None => format!("{kind} with no label or position"),
+        },
+        (label, position) => format!(
+            "{kind}{}{}",
+            label.unwrap_or_default(),
+            position.unwrap_or_default()
+        ),
+    }
+}
+
+/// The shape of an operand of an `#Equals` on a condition's spine ([`mixed_spine_equality`]).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum OperandShape {
+    /// A term: it denotes one value.
+    Term,
+    /// A predicate: a pattern that is not a term and has no term directly below its spine
+    /// (`{X #Equals 1}`, `#Ceil(..)`, `#Not` of one). It denotes all of its sort or nothing.
+    Predicate,
+    /// A matching-logic connective with a term directly below its spine
+    /// (`(X ==Int 1) #Or (X ==Int 2)`, `1 #Or 2`): the set of values its connectives build from
+    /// the terms.
+    Connective,
+}
+
+/// The shape of an operand, read through its sort injections: `inj` is the identity on values, so
+/// an injected connective or predicate has the shape of what it injects.
+fn operand_shape(pattern: &Pattern) -> OperandShape {
+    let pattern = without_injections(pattern);
+    if is_term(pattern) {
+        OperandShape::Term
+    } else if has_term_below_spine(pattern) {
+        OperandShape::Connective
+    } else {
+        OperandShape::Predicate
+    }
+}
+
+/// Whether the spine of `condition` (the condition as converted) holds an `#Equals` whose
+/// operands are not both terms and not both predicates ([`OperandShape`]).
+///
+/// The spine is the condition's root and every operand of a connective (`\and`, `\or`, `\not`,
+/// `\implies`, `\iff`, `\exists`, `\forall`) on it; the operands of an atom (`\equals`,
+/// `\ceil`, `\floor`, `\in`) and of a term are not on it. On the spine an `#Equals` of two terms
+/// is an equality of values and one of two predicates their `\iff`, and both are conditions. Any
+/// other pair states none: a predicate denotes all of its sort or nothing, so it never equals one
+/// value, and a connective over terms denotes a set of values, so an equality with it compares
+/// sets (`{(A #Or B) #Equals true}` holds only where A and B are both true).
+fn mixed_spine_equality(condition: &Pattern) -> bool {
+    match condition {
+        Pattern::And { arguments, .. } | Pattern::Or { arguments, .. } => {
+            arguments.iter().any(mixed_spine_equality)
+        }
+        Pattern::Not { argument, .. } => mixed_spine_equality(argument),
+        Pattern::Implies { left, right, .. } | Pattern::Iff { left, right, .. } => {
+            mixed_spine_equality(left) || mixed_spine_equality(right)
+        }
+        Pattern::Exists { body, .. } | Pattern::Forall { body, .. } => mixed_spine_equality(body),
+        Pattern::Equals { left, right, .. } => !matches!(
+            (operand_shape(left), operand_shape(right)),
+            (OperandShape::Term, OperandShape::Term)
+                | (OperandShape::Predicate, OperandShape::Predicate)
+        ),
+        Pattern::Top { .. }
+        | Pattern::Bottom { .. }
+        | Pattern::Ceil { .. }
+        | Pattern::Floor { .. }
+        | Pattern::In { .. }
+        | Pattern::Next { .. }
+        | Pattern::Rewrites { .. }
+        | Pattern::Mu { .. }
+        | Pattern::Nu { .. }
+        | Pattern::String(_)
+        | Pattern::Variable(_)
+        | Pattern::Application { .. }
+        | Pattern::AssociativeApplication { .. }
+        | Pattern::DomainValue { .. } => false,
+    }
+}
+
+/// Whether `pattern` is a term: no matching-logic connective or atom at its root.
+fn is_term(pattern: &Pattern) -> bool {
+    match pattern {
+        Pattern::String(_)
+        | Pattern::Variable(_)
+        | Pattern::Application { .. }
+        | Pattern::AssociativeApplication { .. }
+        | Pattern::DomainValue { .. } => true,
+        Pattern::Top { .. }
+        | Pattern::Bottom { .. }
+        | Pattern::And { .. }
+        | Pattern::Or { .. }
+        | Pattern::Not { .. }
+        | Pattern::Next { .. }
+        | Pattern::Implies { .. }
+        | Pattern::Iff { .. }
+        | Pattern::Rewrites { .. }
+        | Pattern::Exists { .. }
+        | Pattern::Forall { .. }
+        | Pattern::Mu { .. }
+        | Pattern::Nu { .. }
+        | Pattern::Ceil { .. }
+        | Pattern::Floor { .. }
+        | Pattern::Equals { .. }
+        | Pattern::In { .. } => false,
+    }
+}
+
+/// `pattern` without the sort injections `inj{_, _}(..)` wrapped around it.
+fn without_injections(mut pattern: &Pattern) -> &Pattern {
+    while let Pattern::Application { symbol, arguments } = pattern
+        && symbol.name == "inj"
+        && let [argument] = arguments.as_slice()
+    {
+        pattern = argument;
+    }
+    pattern
+}
+
+/// Whether a term stands directly below the spine of `pattern` (`pattern` itself included),
+/// reading through sort injections.
+fn has_term_below_spine(pattern: &Pattern) -> bool {
+    match without_injections(pattern) {
+        Pattern::And { arguments, .. } | Pattern::Or { arguments, .. } => {
+            arguments.iter().any(has_term_below_spine)
+        }
+        Pattern::Not { argument, .. } => has_term_below_spine(argument),
+        Pattern::Implies { left, right, .. } | Pattern::Iff { left, right, .. } => {
+            has_term_below_spine(left) || has_term_below_spine(right)
+        }
+        Pattern::Exists { body, .. } | Pattern::Forall { body, .. } => has_term_below_spine(body),
+        Pattern::Top { .. }
+        | Pattern::Bottom { .. }
+        | Pattern::Ceil { .. }
+        | Pattern::Floor { .. }
+        | Pattern::Equals { .. }
+        | Pattern::In { .. }
+        | Pattern::Next { .. }
+        | Pattern::Rewrites { .. }
+        | Pattern::Mu { .. }
+        | Pattern::Nu { .. } => false,
+        Pattern::String(_)
+        | Pattern::Variable(_)
+        | Pattern::Application { .. }
+        | Pattern::AssociativeApplication { .. }
+        | Pattern::DomainValue { .. } => true,
+    }
+}
+
+/// `\equals{SortBool{}, R}(term, \dv{SortBool{}}("true"))`: the predicate "term is true".
+fn bool_leaf(term: Pattern, result_sort: &KoreSort, bool_sort: &KoreSort) -> Pattern {
+    Pattern::Equals {
         operand_sort: Box::new(bool_sort.clone()),
         result_sort: result_sort.clone(),
-        left: Box::new(converter.convert(condition)?),
+        left: Box::new(term),
         right: Box::new(Pattern::DomainValue {
-            sort: bool_sort,
+            sort: bool_sort.clone(),
             value: "true".into(),
         }),
-    })
+    }
+}
+
+/// A condition as the predicate it states, at the sentence's sort `result_sort`.
+///
+/// A condition is a matching-logic spine over Bool terms. The spine's connectives (`\top`,
+/// `\bottom`, `\and`, `\or`, `\not`, `\implies`, `\iff`, `\exists`, `\forall`) are predicate
+/// connectives, re-sorted at `result_sort` with their operands rebuilt the same way; its atoms
+/// (`\equals`, `\ceil`, `\floor`, `\in`) keep their operand sort and operands and take
+/// `result_sort`; any other pattern directly below the spine is a Bool term t, which stands for
+/// the predicate `t = true` ([`bool_leaf`]). Writing the whole condition as one Bool term
+/// instead would state something else whenever its root is a connective: a predicate at sort
+/// Bool is all of Bool or empty, never `{true}`, and `\exists{Bool}(Y, t)` and
+/// `\implies{Bool}(a, b)` are sets of Bool values, not the conditions `exists Y. t` and
+/// `a implies b`. A plain Bool condition is one leaf, written as before.
+///
+/// The operands of an atom are terms and are not rebuilt: a connective there is a set
+/// operation on values, which the definition checks refuse.
+pub(crate) fn predicate_at(
+    pattern: &Pattern,
+    result_sort: &KoreSort,
+    bool_sort: &KoreSort,
+) -> Pattern {
+    let at = |pattern: &Pattern| predicate_at(pattern, result_sort, bool_sort);
+    let sort = result_sort.clone();
+    match pattern {
+        Pattern::Top { .. } => Pattern::Top { sort },
+        Pattern::Bottom { .. } => Pattern::Bottom { sort },
+        Pattern::And { arguments, .. } => Pattern::And {
+            sort,
+            arguments: arguments.iter().map(at).collect(),
+        },
+        Pattern::Or { arguments, .. } => Pattern::Or {
+            sort,
+            arguments: arguments.iter().map(at).collect(),
+        },
+        Pattern::Not { argument, .. } => Pattern::Not {
+            sort,
+            argument: Box::new(at(argument)),
+        },
+        Pattern::Implies { left, right, .. } => Pattern::Implies {
+            sort,
+            left: Box::new(at(left)),
+            right: Box::new(at(right)),
+        },
+        Pattern::Iff { left, right, .. } => Pattern::Iff {
+            sort,
+            left: Box::new(at(left)),
+            right: Box::new(at(right)),
+        },
+        Pattern::Exists { variable, body, .. } => Pattern::Exists {
+            sort,
+            variable: variable.clone(),
+            body: Box::new(at(body)),
+        },
+        Pattern::Forall { variable, body, .. } => Pattern::Forall {
+            sort,
+            variable: variable.clone(),
+            body: Box::new(at(body)),
+        },
+        Pattern::Equals {
+            operand_sort,
+            left,
+            right,
+            ..
+        } => Pattern::Equals {
+            operand_sort: operand_sort.clone(),
+            result_sort: sort,
+            left: left.clone(),
+            right: right.clone(),
+        },
+        Pattern::Ceil {
+            operand_sort,
+            argument,
+            ..
+        } => Pattern::Ceil {
+            operand_sort: operand_sort.clone(),
+            result_sort: sort,
+            argument: argument.clone(),
+        },
+        Pattern::Floor {
+            operand_sort,
+            argument,
+            ..
+        } => Pattern::Floor {
+            operand_sort: operand_sort.clone(),
+            result_sort: sort,
+            argument: argument.clone(),
+        },
+        Pattern::In {
+            operand_sort,
+            left,
+            right,
+            ..
+        } => Pattern::In {
+            operand_sort: operand_sort.clone(),
+            result_sort: sort,
+            left: left.clone(),
+            right: right.clone(),
+        },
+        term @ (Pattern::String(_)
+        | Pattern::Variable(_)
+        | Pattern::Application { .. }
+        | Pattern::AssociativeApplication { .. }
+        | Pattern::DomainValue { .. }
+        | Pattern::Next { .. }
+        | Pattern::Rewrites { .. }
+        | Pattern::Mu { .. }
+        | Pattern::Nu { .. }) => bool_leaf(term.clone(), result_sort, bool_sort),
+    }
 }
 
 fn is_true(term: &Term) -> bool {
@@ -1264,6 +1619,122 @@ mod tests {
             resolve_equation_production(&ambiguous, &label, &catalog),
             Err(ModuleToKoreError::AmbiguousEquationProduction { productions: 2, .. })
         ));
+    }
+
+    /// `predicate_at` of a KORE pattern written at sort Bool, at sort `R`.
+    fn predicate(condition: &str) -> String {
+        let pattern = crate::kore::parser::parse_pattern(condition).unwrap();
+        let bool_sort = encode_kore_sort(&Sort::builtin(BuiltinSort::Bool));
+        let predicate = predicate_at(&pattern, &KoreSort::Variable("R".into()), &bool_sort);
+        crate::kore::printer::Printer::compact().print_pattern(&predicate)
+    }
+
+    fn printed(pattern: &str) -> String {
+        crate::kore::printer::Printer::compact()
+            .print_pattern(&crate::kore::parser::parse_pattern(pattern).unwrap())
+    }
+
+    const A: &str = r#"Lbla{}(VarX:SortInt{})"#;
+    const B: &str = r#"Lblb{}(VarX:SortInt{})"#;
+
+    fn leaf_at_r(term: &str) -> String {
+        format!(r#"\equals{{SortBool{{}}, R}}({term}, \dv{{SortBool{{}}}}("true"))"#)
+    }
+
+    #[test]
+    fn predicate_at_reads_a_bool_term_as_one_leaf() {
+        assert_eq!(predicate(A), printed(&leaf_at_r(A)));
+    }
+
+    #[test]
+    fn predicate_at_resorts_every_connective_of_the_spine() {
+        let (a, b) = (leaf_at_r(A), leaf_at_r(B));
+        for (condition, expected) in [
+            (r"\top{SortBool{}}()".to_owned(), r"\top{R}()".to_owned()),
+            (
+                r"\bottom{SortBool{}}()".to_owned(),
+                r"\bottom{R}()".to_owned(),
+            ),
+            (
+                format!(r"\and{{SortBool{{}}}}({A}, {B})"),
+                format!(r"\and{{R}}({a}, {b})"),
+            ),
+            (
+                format!(r"\or{{SortBool{{}}}}({A}, {B})"),
+                format!(r"\or{{R}}({a}, {b})"),
+            ),
+            (
+                format!(r"\not{{SortBool{{}}}}({A})"),
+                format!(r"\not{{R}}({a})"),
+            ),
+            (
+                format!(r"\implies{{SortBool{{}}}}({A}, {B})"),
+                format!(r"\implies{{R}}({a}, {b})"),
+            ),
+            (
+                format!(r"\iff{{SortBool{{}}}}({A}, {B})"),
+                format!(r"\iff{{R}}({a}, {b})"),
+            ),
+            (
+                format!(r"\exists{{SortBool{{}}}}(VarX:SortInt{{}}, {A})"),
+                format!(r"\exists{{R}}(VarX:SortInt{{}}, {a})"),
+            ),
+            (
+                format!(r"\forall{{SortBool{{}}}}(VarX:SortInt{{}}, {A})"),
+                format!(r"\forall{{R}}(VarX:SortInt{{}}, {a})"),
+            ),
+        ] {
+            assert_eq!(predicate(&condition), printed(&expected), "{condition}");
+        }
+    }
+
+    #[test]
+    fn predicate_at_resorts_atoms_and_keeps_their_operands() {
+        for (condition, expected) in [
+            (
+                r#"\equals{SortInt{}, SortBool{}}(VarX:SortInt{}, \dv{SortInt{}}("1"))"#,
+                r#"\equals{SortInt{}, R}(VarX:SortInt{}, \dv{SortInt{}}("1"))"#,
+            ),
+            (
+                r"\ceil{SortInt{}, SortBool{}}(Lblf{}(VarX:SortInt{}))",
+                r"\ceil{SortInt{}, R}(Lblf{}(VarX:SortInt{}))",
+            ),
+            (
+                r"\floor{SortInt{}, SortBool{}}(Lblf{}(VarX:SortInt{}))",
+                r"\floor{SortInt{}, R}(Lblf{}(VarX:SortInt{}))",
+            ),
+            (
+                r"\in{SortInt{}, SortBool{}}(VarX:SortInt{}, Lblf{}(VarX:SortInt{}))",
+                r"\in{SortInt{}, R}(VarX:SortInt{}, Lblf{}(VarX:SortInt{}))",
+            ),
+        ] {
+            assert_eq!(predicate(condition), printed(expected), "{condition}");
+        }
+    }
+
+    #[test]
+    fn predicate_at_rebuilds_a_nested_spine_and_quantified_leaves() {
+        let condition = format!(
+            r#"\not{{SortBool{{}}}}(\or{{SortBool{{}}}}(\exists{{SortBool{{}}}}(VarY:SortInt{{}}, {A}), \ceil{{SortInt{{}}, SortBool{{}}}}(Lblf{{}}(VarY:SortInt{{}}))))"#
+        );
+        let expected = format!(
+            r#"\not{{R}}(\or{{R}}(\exists{{R}}(VarY:SortInt{{}}, {}), \ceil{{SortInt{{}}, R}}(Lblf{{}}(VarY:SortInt{{}}))))"#,
+            leaf_at_r(A)
+        );
+        assert_eq!(predicate(&condition), printed(&expected));
+    }
+
+    /// A connective inside an atom's operand is a set operation on values, not part of the
+    /// spine: it is left as written.
+    #[test]
+    fn predicate_at_leaves_a_connective_inside_an_atom_operand() {
+        let operand = format!(r"\or{{SortBool{{}}}}({A}, {B})");
+        let condition = format!(
+            r#"\equals{{SortBool{{}}, SortBool{{}}}}({operand}, \dv{{SortBool{{}}}}("true"))"#
+        );
+        let expected =
+            format!(r#"\equals{{SortBool{{}}, R}}({operand}, \dv{{SortBool{{}}}}("true"))"#);
+        assert_eq!(predicate(&condition), printed(&expected));
     }
 
     #[test]
@@ -1400,6 +1871,7 @@ mod tests {
             &mut cache,
             &SentenceSortVariables::default(),
             &BTreeSet::from(["X".into()]),
+            ConditionForm::Predicate,
         )
         .unwrap();
         let KoreSentence::Axiom { parameters, .. } = &emitted else {
@@ -1414,6 +1886,102 @@ mod tests {
         assert!(kore.contains("\\equals{SortInt{},Q1}"), "{kore}");
         assert!(kore.contains("\\equals{SortInt{},Q2}"), "{kore}");
         assert!(!kore.contains("Sort'Hash'SortParam"), "{kore}");
+    }
+
+    /// An owise equation reads its competitors' conditions itself: a competitor that is not
+    /// among the emitted rules (`module_rules` is empty) and whose condition is a mixed equality
+    /// is refused by the owise route, which names the competitor.
+    #[test]
+    fn the_owise_route_refuses_a_competitor_condition_with_a_mixed_equality() {
+        let parsed = crate::outer::parse(
+            "owise-mixed.k",
+            indoc! {r#"
+                module MAIN
+                  syntax Bool
+                  syntax Int ::= "f(" Int ")" [function, total, symbol(f)]
+                endmodule
+            "#},
+        )
+        .unwrap();
+        let definition = crate::outer::lower(&parsed, "MAIN").unwrap();
+        let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+        let catalog = resolved.production_catalog(resolved.main_module_id());
+        let injector = SortInjector::new(&resolved, "MAIN").unwrap();
+        let converter = TermConverter::new(&resolved, "MAIN").unwrap();
+        let int = Sort::new("Int");
+        let bool_sort = Sort::new("Bool");
+        let x = Term::Variable {
+            name: "X".into(),
+            sort: Some(int.clone()),
+        };
+        let left = Term::apply("f", vec![x.clone()]);
+        let truth = Term::Token {
+            token: "true".into(),
+            sort: bool_sort.clone(),
+        };
+        // `{ {X #Equals X} #Equals true }`: a predicate against a Bool term.
+        let requires = Term::Apply {
+            label: Label::with_parameters(
+                InternalLabel::Equals.as_str(),
+                vec![bool_sort.clone(), bool_sort.clone()],
+            ),
+            arguments: vec![
+                Term::Apply {
+                    label: Label::with_parameters(
+                        InternalLabel::Equals.as_str(),
+                        vec![int.clone(), bool_sort.clone()],
+                    ),
+                    arguments: vec![x.clone(), x.clone()],
+                },
+                truth.clone(),
+            ],
+        };
+        let mut competitor_attributes = KAttributes::default();
+        competitor_attributes.insert(AttributeKey::Label.as_str(), json!("MAIN.c"));
+        let competitor = Sentence::Rule {
+            body: Term::Rewrite {
+                left: Box::new(left.clone()),
+                right: Box::new(x.clone()),
+            },
+            requires: requires.clone(),
+            ensures: truth,
+            attributes: competitor_attributes,
+        };
+        let mut cache = OwiseCompetitors {
+            scanned: true,
+            injected: vec![Some((
+                competitor,
+                injector.sentence_sort_variables([&requires]).unwrap(),
+            ))],
+            by_signature: BTreeMap::from([((Label::new("f"), vec![int]), vec![0])]),
+            failure: None,
+        };
+        let attributes = KAttributes::default();
+        let equation = equation_info(&left, &attributes, &catalog)
+            .unwrap()
+            .unwrap();
+        let error = emit_owise_equation(
+            equation,
+            converter.convert(&x).unwrap(),
+            Pattern::Top {
+                sort: KoreSort::Variable("R".into()),
+            },
+            &attributes,
+            &BTreeSet::new(),
+            &converter,
+            &catalog,
+            &injector,
+            &[],
+            &mut cache,
+            &SentenceSortVariables::default(),
+            &BTreeSet::from(["X".into()]),
+            ConditionForm::Predicate,
+        )
+        .unwrap_err();
+        let ModuleToKoreError::MixedConditionEquality { sentence } = &error else {
+            panic!("expected a mixed condition equality, got {error}");
+        };
+        assert_eq!(sentence, "rule [MAIN.c]");
     }
 
     #[test]
