@@ -274,14 +274,27 @@ fn pinned_collision_free_macro_roots_match_exactly() {
 
 #[test]
 fn pinned_ground_and_explicit_binder_patterns_match_exactly() {
-    for (contents, reference) in [
-        (GROUND, REFERENCE_GROUND),
-        (EXPLICIT_GEN_BINDER, REFERENCE_EXPLICIT_GEN_BINDER),
-    ] {
-        let reference = parse_pattern(reference.trim()).unwrap();
-        let rust = compile(contents).unwrap().pattern;
-        assert_eq!(rust, reference);
-    }
+    let reference = parse_pattern(REFERENCE_GROUND.trim()).unwrap();
+    let rust = compile(GROUND).unwrap().pattern;
+    assert_eq!(rust, reference);
+}
+
+/// The sort tests of the pattern's variables are conjoined with its condition, a predicate
+/// (`#Exists`), by the predicate conjunction `#And`, where the pinned frontend writes `_andBool_`, a
+/// Bool function applied to a predicate. Apart from that conjunction the two patterns are equal.
+#[test]
+fn the_explicit_binder_pattern_conjoins_its_predicate_condition_as_a_predicate() {
+    let outer = "Lbl'Unds'andBool'Unds'{}(";
+    let reference = REFERENCE_EXPLICIT_GEN_BINDER.trim();
+    let at = reference.find(outer).expect("the pinned conjunction");
+    let reference = format!(
+        "{}\\and{{SortBool{{}}}}({}",
+        &reference[..at],
+        &reference[at + outer.len()..]
+    );
+    let reference = parse_pattern(&reference).unwrap();
+    let rust = compile(EXPLICIT_GEN_BINDER).unwrap().pattern;
+    assert_eq!(rust, reference);
 }
 
 #[test]

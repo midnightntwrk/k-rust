@@ -171,7 +171,7 @@ pub(crate) fn resolve_heat_cool_attributes_pass(
                 predicate
             };
             let original = mem::replace(requires, Term::Sequence(Vec::new()));
-            *requires = Term::apply("_andBool_", vec![original, condition]);
+            *requires = crate::kompile::ml_constructs::conjoin_condition(original, condition);
             if first_lowered.is_none() {
                 first_lowered = Some(Diagnostic::error(
                     DiagnosticCode::InvalidHeatCool,

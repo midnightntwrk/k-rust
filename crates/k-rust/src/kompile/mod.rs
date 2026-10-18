@@ -14,6 +14,7 @@ pub mod initial_configuration;
 #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
 mod invariants;
 mod label_graph;
+mod ml_constructs;
 mod module_to_kore;
 pub(crate) use module_to_kore::attribute_value_string;
 mod passes;

@@ -375,26 +375,6 @@ const CELL_COUNT: usize = 507;
 /// and the builds in which it deviates (see the module documentation).
 #[rustfmt::skip]
 pub const PENDING: &[(&str, &str, Class, Class)] = &[
-    // MLP/2 (19): a predicate context condition is conjoined by `_andBool_`: Backend::new refuses it, or the context never heats.
-    ("cond/context-requires__and-bt", "MLP/2", Class::Undecided, Class::Undecided),
-    ("cond/context-requires__and-pr", "MLP/2", Class::Refused, Class::Refused),
-    ("cond/context-requires__bottom", "MLP/2", Class::Refused, Class::Refused),
-    ("cond/context-requires__ceil", "MLP/2", Class::Refused, Class::Refused),
-    ("cond/context-requires__eq", "MLP/2", Class::Refused, Class::Refused),
-    ("cond/context-requires__eq-bool", "MLP/2", Class::Refused, Class::Refused),
-    ("cond/context-requires__ex-bt", "MLP/2", Class::Refused, Class::Refused),
-    ("cond/context-requires__ex-pr", "MLP/2", Class::Refused, Class::Refused),
-    ("cond/context-requires__fa-bt", "MLP/2", Class::Refused, Class::Refused),
-    ("cond/context-requires__fa-pr", "MLP/2", Class::Refused, Class::Refused),
-    ("cond/context-requires__floor", "MLP/2", Class::Refused, Class::Refused),
-    ("cond/context-requires__imp-bt", "MLP/2", Class::Refused, Class::Refused),
-    ("cond/context-requires__imp-pr", "MLP/2", Class::Refused, Class::Refused),
-    ("cond/context-requires__not-bt", "MLP/2", Class::Refused, Class::Refused),
-    ("cond/context-requires__not-pr", "MLP/2", Class::Refused, Class::Refused),
-    ("cond/context-requires__or-bt", "MLP/2", Class::Refused, Class::Refused),
-    ("cond/context-requires__or-mix", "MLP/2", Class::Refused, Class::Refused),
-    ("cond/context-requires__or-pr", "MLP/2", Class::Refused, Class::Refused),
-    ("cond/context-requires__top", "MLP/2", Class::Refused, Class::Refused),
     // MLP/7 (8): a term-level `t1 #And t2` at a built position or in a claim's left side is neither lowered nor normalized.
     ("left/claim-lhs__and-term", "MLP/7", Class::Undecided, Class::Undecided),
     ("left/claim-lhs__as", "MLP/7", Class::Undecided, Class::Undecided),

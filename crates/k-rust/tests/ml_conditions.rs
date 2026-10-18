@@ -854,3 +854,47 @@ fn compiled_conditions_hold_no_guard_alias() {
         .count();
     assert_eq!(aliased, 1, "the shared disjunction keeps its alias");
 }
+
+// ---------------------------------------------------------------- predicate context conditions
+
+/// `go(N)` steps to `foo(N, e(N))`; the context heats `e(N)` only where its condition holds,
+/// `e(N)` evaluates to `N`, which cools back: `foo(N, N)`.
+fn foo_context(condition: &str) -> String {
+    format!(
+        "  syntax Exp ::= Int | e(Int) [symbol(e)]\n  syntax KResult ::= Int\n  syntax KItem ::= foo(Int, Exp) [symbol(foo)]\n  rule [e]: <k> e(N) => N ... </k>\n  rule [g]: <k> go(N) => foo(N, e(N)) ... </k>\n  context [p]: foo(N:Int, HOLE:Exp) requires {condition}\n"
+    )
+}
+
+/// A context whose condition is a predicate heats exactly where the predicate holds.
+#[test]
+fn a_predicate_context_heats_only_where_it_holds() {
+    for condition in [
+        "{HOLE #Equals e(1)}",
+        "{N #Equals 1}",
+        "(N ==Int 1) #Or (N ==Int 2)",
+    ] {
+        let sentences = foo_context(condition);
+        assert_eq!(run(&sentences, 1), stuck("foo(1, 1)"), "{condition}");
+        assert_eq!(run(&sentences, 3), stuck("foo(3, e(3))"), "{condition}");
+    }
+}
+
+/// A context whose condition is a Bool term keeps it as one Bool conjunct beside the heating
+/// test (`_andBool_`), as before predicate conditions were conjoined as predicates.
+#[test]
+fn a_bool_context_condition_stays_a_bool_conjunct() {
+    let sentences = foo_context("N ==Int 1");
+    let kore = compile(&sentences);
+    let heat = axiom(&kore, "P.p-heat");
+    // The whole requires is one Bool leaf whose term is the `_andBool_` conjunction.
+    assert_contains(
+        &heat,
+        &format!(
+            "\\equals{{SortBool{{}}, {TOP}}}(Lbl'Unds'andBool'Unds'{{}}({}, LblnotBool'Unds'{{}}(",
+            eq_int("VarN:SortInt{}", &int("1"))
+        ),
+    );
+    assert_lacks(&heat, "\\and{SortGeneratedTopCell{}}(\\equals{SortBool{}");
+    assert_eq!(run(&sentences, 1), stuck("foo(1, 1)"));
+    assert_eq!(run(&sentences, 3), stuck("foo(3, e(3))"));
+}

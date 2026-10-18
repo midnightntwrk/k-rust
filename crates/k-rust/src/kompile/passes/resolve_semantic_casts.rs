@@ -301,7 +301,7 @@ fn resolve_semantic_casts_in_sentence_mut(
     *requires = if is_true(&prior) {
         predicate
     } else {
-        Term::apply("_andBool_", vec![predicate, prior])
+        crate::kompile::ml_constructs::conjoin_condition(predicate, prior)
     };
     Ok(())
 }

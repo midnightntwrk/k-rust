@@ -514,7 +514,8 @@ fn generate_contexts(
             } else {
                 bool_token(true)
             };
-            let requires = Term::apply("_andBool_", vec![requires, alias.requires.clone()]);
+            let requires =
+                crate::kompile::ml_constructs::conjoin_condition(requires, alias.requires.clone());
             let mut attributes = merge_attributes(production.attributes(), &alias.attributes);
             let source_label = attribute_text(production.attributes(), AttributeKey::Klabel)
                 .unwrap_or_else(|| production.label().name.clone());
