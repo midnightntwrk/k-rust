@@ -14,6 +14,7 @@
 //! Generated KORE syntax and semantic axiom families.
 //! Complexity: O(P² + S(P + S log S) + O²) over productions, sorts, and overloads; no dedicated counter.
 
+use super::binders::{generated_exists, generated_exists_all};
 use super::equations::substitute_equation_sort;
 use super::*;
 use crate::definition::production_kind::{
@@ -443,18 +444,11 @@ fn no_junk_axioms(
                             )
                         })
                         .collect::<Vec<_>>();
-                    let mut alternative = Pattern::Application {
+                    let alternative = Pattern::Application {
                         symbol: production.symbol,
                         arguments: variables.iter().cloned().map(Pattern::Variable).collect(),
                     };
-                    for variable in variables.into_iter().rev() {
-                        alternative = Pattern::Exists {
-                            sort: result_sort.clone(),
-                            variable: Box::new(variable),
-                            body: Box::new(alternative),
-                        };
-                    }
-                    alternative
+                    generated_exists_all(&result_sort, variables, alternative)
                 }
                 NoJunkAlternative::Injection(witness) => {
                     let variable = consistent_generated_variable(
@@ -464,13 +458,11 @@ fn no_junk_axioms(
                         &mut used_variable_names,
                         &mut variable_suffixes,
                     );
-                    Pattern::Exists {
-                        sort: result_sort.clone(),
-                        variable: Box::new(variable.clone()),
-                        body: Box::new(
-                            witness.clone().apply_kore(Pattern::Variable(variable), &[]),
-                        ),
-                    }
+                    generated_exists(
+                        result_sort.clone(),
+                        variable.clone(),
+                        witness.clone().apply_kore(Pattern::Variable(variable), &[]),
+                    )
                 }
             })
             .collect::<Vec<_>>();
@@ -628,10 +620,10 @@ fn functional_axiom(production: &Sentence) -> Option<KoreSentence> {
     };
     Some(KoreSentence::Axiom {
         parameters: generated_axiom_parameters(parameters),
-        pattern: Box::new(Pattern::Exists {
-            sort: KoreSort::Variable("R".into()),
-            variable: Box::new(value.clone()),
-            body: Box::new(Pattern::Equals {
+        pattern: Box::new(generated_exists(
+            KoreSort::Variable("R".into()),
+            value.clone(),
+            Pattern::Equals {
                 operand_sort: Box::new(result_sort),
                 result_sort: KoreSort::Variable("R".into()),
                 left: Box::new(Pattern::Variable(value)),
@@ -639,8 +631,8 @@ fn functional_axiom(production: &Sentence) -> Option<KoreSentence> {
                     symbol: encode_kore_label_with_formals(label, parameters),
                     arguments,
                 }),
-            }),
-        }),
+            },
+        )),
         attributes: marker_attribute(KoreAttribute::Functional),
     })
 }
@@ -971,16 +963,16 @@ fn subsort_axiom(production: &Sentence) -> Option<KoreSentence> {
     };
     Some(KoreSentence::Axiom {
         parameters: vec!["R".into()],
-        pattern: Box::new(Pattern::Exists {
-            sort: KoreSort::Variable("R".into()),
-            variable: Box::new(value.clone()),
-            body: Box::new(Pattern::Equals {
+        pattern: Box::new(generated_exists(
+            KoreSort::Variable("R".into()),
+            value.clone(),
+            Pattern::Equals {
                 operand_sort: Box::new(sort.clone()),
                 result_sort: KoreSort::Variable("R".into()),
                 left: Box::new(Pattern::Variable(value)),
                 right: Box::new(injection),
-            }),
-        }),
+            },
+        )),
         attributes: Attributes(vec![Pattern::Application {
             symbol: Symbol {
                 name: KoreAttribute::Subsort.as_str().into(),

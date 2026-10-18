@@ -12,10 +12,12 @@
 //!   claims, and the search route (`search-anon-*`, and `search-macro-anon`, where the macro's
 //!   binder captures the use site's `_`).
 //! - `BIND/A4` (FU-33/D2): existential lifting reads the `?` variables of the right side and the
-//!   `ensures` through their binders. On an anonymous `?_` binder the outer binder is vacuous and
-//!   the kompile invariant K3 panics, so the base itself fails (rules and claims); on a named `?`
-//!   binder beside a free right-side `?Y` the outer existentials follow the spellings, and a
-//!   `?` binder renamed apart from `?Y` is lifted as well.
+//!   `ensures` through their binders, so a `?` variable that only a binder of the right side or
+//!   the `ensures` binds is lifted to an outer binder that binds nothing, and the kompile
+//!   invariant K3, checked where the emitter builds that binder, panics. Where the base has such
+//!   a binder (an anonymous `?_` or a named `?` binder; rules and claims) the base itself fails;
+//!   where only a variant has one (a `?` binder renamed apart from a free right-side `?Y`) the
+//!   variant panics.
 //! - `BIND/A5` (FU-34/D3, FU-39): the definition check treats a binder as binding its name in the
 //!   whole sentence, so a right-side variable spelled like an `ensures` binder passes the check;
 //!   and the parser's sort inference gives one name one sort across scopes, so a binder spelled
@@ -266,19 +268,17 @@ pub const EXPECTED: &[Expected] = &[
     expected("search/patterns", "search-macro-anon/anon-named", A3, Kind::Kore, "pattern: base «Var'Unds'B1:SortInt{}, \\forall{SortBool{}}(Var'Unds'B2:SortInt{}» variant «Var'Unds'B1:SortInt{}, \\equals{SortBool{}, SortBool{}}(Lbl'UndsE»"),
     expected("search/shapes", "anon-E-anon-binder/anon-named", A3, Kind::Kore, "pattern: base «Bool{}}(Var'Unds'B1:SortInt{}, \\equals{SortInt{}, SortBool{}}(Va» variant «Bool{}}(Var'Unds'B1:SortK{}, \\equals{SortInt{}, SortBool{}}(VarF»"),
     expected("search/shapes", "anon-F-anon-binder/anon-named", A3, Kind::Kore, "pattern: base «Bool{}}(Var'Unds'B1:SortInt{}, Lbl'UndsEqlsSlshEqls'Int'Unds'{}(» variant «Bool{}}(Var'Unds'B1:SortK{}, Lbl'UndsEqlsSlshEqls'Int'Unds'{}(Va»"),
-    // A4 (12)
+    // A4 (10)
     expected("anon/E-anon-binder-ensures", "*", A4, Kind::BasePanic, "the base panics: kompile invariant K3 (generated binder) violated: \\exists binds the compiler-generated variable Var'QuesUnds'Gen1:SortInt{}, which does not occur free in its bo"),
+    expected("anon/E-named-binder-ensures", "*", A4, Kind::BasePanic, "the base panics: kompile invariant K3 (generated binder) violated: \\exists binds the compiler-generated variable Var'Ques'B:SortInt{}, which does not occur free in its body gene"),
     expected("claim-d2-ensures-exists-anonymous", "*", A4, Kind::BasePanic, "the base panics: kompile invariant K3 (generated binder) violated: \\exists binds the compiler-generated variable Var'QuesUnds'Gen1:SortInt{}, which does not occur free in its bo"),
     expected("claim/E-anon-binder-ensures", "*", A4, Kind::BasePanic, "the base panics: kompile invariant K3 (generated binder) violated: \\exists binds the compiler-generated variable Var'QuesUnds'Gen1:SortInt{}, which does not occur free in its bo"),
     expected("d2-ensures-exists-anonymous", "*", A4, Kind::BasePanic, "the base panics: kompile invariant K3 (generated binder) violated: \\exists binds the compiler-generated variable Var'QuesUnds'Gen1:SortInt{}, which does not occur free in its bo"),
-    expected("ensures-exists-existential-beside-existential", "binder-apart", A4, Kind::Kore, "EQ.EQ.p: base «em'Unds'Int{}(Var'Ques'B1:SortInt{}), Var'Unds'F1:SortK{})), Var» variant «em'Unds'Int{}(Var'Ques'B2:SortInt{}), Var'Unds'F1:SortK{})), Var»"),
-    expected("ensures-exists-existential-beside-existential", "rotate", A4, Kind::Kore, "EQ.EQ.p: base «em'Unds'Int{}(Var'Ques'B1:SortInt{}), Var'Unds'F1:SortK{})), Var» variant «em'Unds'Int{}(Var'Ques'B2:SortInt{}), Var'Unds'F1:SortK{})), Var»"),
-    expected("existential/E-q-apart", "binder-apart", A4, Kind::Kore, "G.G.p: base «em'Unds'Int{}(Var'Ques'B1:SortInt{}), Var'Unds'F1:SortK{})), Var» variant «em'Unds'Int{}(Var'Ques'B2:SortInt{}), Var'Unds'F1:SortK{})), Var»"),
-    expected("existential/E-q-apart", "rotate", A4, Kind::Kore, "G.G.p: base «em'Unds'Int{}(Var'Ques'B1:SortInt{}), Var'Unds'F1:SortK{})), Var» variant «em'Unds'Int{}(Var'Ques'B2:SortInt{}), Var'Unds'F1:SortK{})), Var»"),
-    expected("existential/E-q-shadow", "binder-apart", A4, Kind::Kore, "G.G.p: base «Var'Ques'B1:SortInt{}, \\and{SortGeneratedTopCell{}}(Lbl'-LT-'gen» variant «Var'Ques'B1:SortInt{}, \\exists{SortGeneratedTopCell{}}(Var'Ques'»"),
-    expected("existential/F-q-apart", "binder-apart", A4, Kind::Kore, "G.G.p: base «em'Unds'Int{}(Var'Ques'B1:SortInt{}), Var'Unds'F1:SortK{})), Var» variant «em'Unds'Int{}(Var'Ques'B2:SortInt{}), Var'Unds'F1:SortK{})), Var»"),
-    expected("existential/F-q-apart", "rotate", A4, Kind::Kore, "G.G.p: base «em'Unds'Int{}(Var'Ques'B1:SortInt{}), Var'Unds'F1:SortK{})), Var» variant «em'Unds'Int{}(Var'Ques'B2:SortInt{}), Var'Unds'F1:SortK{})), Var»"),
-    expected("existential/F-q-shadow", "binder-apart", A4, Kind::Kore, "G.G.p: base «Var'Ques'B1:SortInt{}, \\and{SortGeneratedTopCell{}}(Lbl'-LT-'gen» variant «Var'Ques'B1:SortInt{}, \\exists{SortGeneratedTopCell{}}(Var'Ques'»"),
+    expected("ensures-exists-existential-beside-existential", "*", A4, Kind::BasePanic, "the base panics: kompile invariant K3 (generated binder) violated: \\exists binds the compiler-generated variable Var'Ques'Z:SortInt{}, which does not occur free in its body gene"),
+    expected("existential/E-q-apart", "*", A4, Kind::BasePanic, "the base panics: kompile invariant K3 (generated binder) violated: \\exists binds the compiler-generated variable Var'Ques'Z:SortInt{}, which does not occur free in its body gene"),
+    expected("existential/E-q-shadow", "binder-apart", A4, Kind::VariantPanic, "the variant panics: kompile invariant K3 (generated binder) violated: \\exists binds the compiler-generated variable Var'Ques'Bq0:SortInt{}, which does not occur free in its body ge"),
+    expected("existential/F-q-apart", "*", A4, Kind::BasePanic, "the base panics: kompile invariant K3 (generated binder) violated: \\exists binds the compiler-generated variable Var'Ques'Z:SortInt{}, which does not occur free in its body gene"),
+    expected("existential/F-q-shadow", "binder-apart", A4, Kind::VariantPanic, "the variant panics: kompile invariant K3 (generated binder) violated: \\exists binds the compiler-generated variable Var'Ques'Bq0:SortInt{}, which does not occur free in its body ge"),
     // A5 (26)
     expected("d3-rhs-variable-under-ensures-binder", "binder-apart", A5, Kind::VariantRefused, "variant refused UnboundVariable@5: Found variable Y on right hand side of rule, not bound on left hand side. Did you mean \"?Y\"?"),
     expected("parse-binder-apart-inferred", "text-shadow-lhs-parse", A5, Kind::Parse, "PA.PA.p: base « #Exists(#SemanticCastToK(X),#Equals(#SemanticCastToK(X),#token(» variant « #Exists(#SemanticCastToInt(X),#Equals(#SemanticCastToInt(X),#to»"),
