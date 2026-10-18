@@ -1034,7 +1034,8 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
                 ensures,
                 attributes,
             } => {
-                let body = self.inject_rule_body(body)?;
+                let equation = self.places_right_side_at_left_sort(body, attributes);
+                let body = self.inject_rule_body(body, equation)?;
                 let requires = self.inject(requires, &Sort::builtin(BuiltinSort::Bool))?;
                 let ensures = self.inject(ensures, &Sort::builtin(BuiltinSort::Bool))?;
                 let variables = self.sentence_sort_variables([&body, &requires, &ensures])?;
@@ -1054,7 +1055,7 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
                 ensures,
                 attributes,
             } => {
-                let body = self.inject_rule_body(body)?;
+                let body = self.inject_rule_body(body, false)?;
                 let requires = self.inject(requires, &Sort::builtin(BuiltinSort::Bool))?;
                 let ensures = self.inject(ensures, &Sort::builtin(BuiltinSort::Bool))?;
                 let variables = self.sentence_sort_variables([&body, &requires, &ensures])?;
@@ -1081,7 +1082,66 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         }
     }
 
-    fn inject_rule_body(&self, body: &Term) -> Result<Term, SortInjectionError> {
+    /// Whether the rewrite of a rule with `body` and `attributes` states an equation at its left
+    /// side's sort, whose right side must therefore lie at or below that sort: an `anywhere`
+    /// rule, or a rule whose top rewrite's left side is a function application. A macro-like or
+    /// simplification rule is not one: a macro's right side is injected where it is expanded,
+    /// and a simplification is compiled as written.
+    ///
+    /// The function test is the computation-cell pass's `is_function`, read with this
+    /// injector's catalog (the main module's, at the injection stage), which the typing view
+    /// also uses; the pass reads it with the declaring module's catalog at its own stage. The
+    /// two can differ only where a label has no resolvable production and one candidate, and
+    /// there the difference can only skip the check, never add a refusal: a body the pass wraps
+    /// has no top rewrite here.
+    pub(crate) fn places_right_side_at_left_sort(
+        &self,
+        body: &Term,
+        attributes: &crate::definition::Attributes,
+    ) -> bool {
+        if attributes.has_any(&AttributeKey::MACRO_LIKE)
+            || attributes.has(AttributeKey::Simplification)
+            || !has_rewrite(body)
+        {
+            return false;
+        }
+        attributes.has(AttributeKey::Anywhere)
+            || (matches!(body.unannotated(), Term::Rewrite { .. })
+                && super::passes::is_function_rule_body(body, &self.productions))
+    }
+
+    /// Reject the rewrite `body`, of sort `actual`, of a rule that states an equation at its left
+    /// side's sort ([`Self::places_right_side_at_left_sort`]) when its right side does not lie
+    /// at or below that sort: the sort of the left side is then not `actual`, the bound of the
+    /// two sides. A comparison that a sort variable of the sentence enters is left to injection.
+    fn check_equation_right_side(
+        &self,
+        body: &Term,
+        actual: &Sort,
+        top: &Sort,
+    ) -> Result<(), SortInjectionError> {
+        let Term::Rewrite { left, right } = body else {
+            return Ok(());
+        };
+        // The sides' sorts are read again without keeping the sort variables a reading
+        // allocates, so the injection below numbers its variables as without this check.
+        let parameters = self.next_sort_parameter.get();
+        let sides = self
+            .term_sort(left, Some(top))
+            .and_then(|left| Ok((left, self.term_sort(right, Some(top))?)));
+        self.next_sort_parameter.set(parameters);
+        let (left, found) = sides?;
+        if left == *actual || mentions_sort_parameter(&left) || mentions_sort_parameter(actual) {
+            return Ok(());
+        }
+        Err(SortInjectionError::IllSortedTerm(Box::new(SortMismatch {
+            term: render_term(right),
+            found,
+            required: left,
+        })))
+    }
+
+    fn inject_rule_body(&self, body: &Term, equation: bool) -> Result<Term, SortInjectionError> {
         let body = if has_rewrite(body) {
             Term::Rewrite {
                 left: Box::new(rewrite_projection(body, false, &self.subsorts)),
@@ -1108,6 +1168,9 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         let top = self.fresh_sort_parameter();
         self.memoized(|| {
             let actual = self.term_sort(&body, Some(&top))?;
+            if equation {
+                self.check_equation_right_side(&body, &actual, &top)?;
+            }
             self.inject_with_position(&body, &actual, false)
         })
     }

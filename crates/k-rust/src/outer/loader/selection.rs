@@ -72,6 +72,10 @@ pub fn resolve_syntax_module(
     })
 }
 
+/// The modules a fresh compilation keeps: the roots [`load_for_compilation`] lists and their
+/// transitive imports, in the definition's order.
+///
+/// [`load_for_compilation`]: super::load_for_compilation
 pub(super) fn select_modules(
     mut definition: Definition,
     resolved: &ResolvedDefinition,

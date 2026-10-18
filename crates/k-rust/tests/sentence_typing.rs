@@ -132,12 +132,11 @@ fn reports_sorts_and_required_sorts_of_a_loaded_rule() {
     let loaded = load();
     let typing = typing(&loaded, "TYPED.increment");
 
-    // Both branches of the top-level rewrite are Counter, placed at their bound Counter.
-    assert_eq!(at(&typing, &[0]), &sorted(Some("Counter"), Some("Counter")));
-    assert_eq!(
-        at(&typing, &[0, 1]),
-        &sorted(Some("Counter"), Some("Counter"))
-    );
+    // The rule is cell-free, so compilation wraps it in the computation cell, where each branch
+    // of the top-level rewrite, a Counter, is placed at the cell's content sort K. (This expected
+    // the branches' bound Counter, the typing of a sentence compilation never builds.)
+    assert_eq!(at(&typing, &[0]), &sorted(Some("Counter"), Some("K")));
+    assert_eq!(at(&typing, &[0, 1]), &sorted(Some("Counter"), Some("K")));
     assert_eq!(at(&typing, &[0, 1, 0]), &sorted(Some("Nat"), Some("Nat")));
     assert_eq!(
         at(&typing, &[0, 1, 0, 0]),
@@ -153,8 +152,11 @@ fn reports_sorts_and_required_sorts_of_a_loaded_rule() {
     assert_eq!(typing.variables.get("L"), Some(&Sort::new("Nat")));
 }
 
-// A rewrite's sides are placed at their least upper bound, as the injector places them; the
-// rewrite's own position holds a different side in each branch.
+// A rewrite's sides are placed at their least upper bound, as the injector places them, in a
+// sentence compilation does not wrap in the computation cell (a claim of one item); the rewrite's
+// own position holds a different side in each branch. In the rule compilation wraps, each side is
+// placed at the cell's content sort K instead. (This expected the bound KItem for the rule, the
+// typing of a sentence compilation never builds.)
 #[test]
 fn rewrite_sides_require_their_least_upper_bound() {
     let loaded = load();
@@ -167,20 +169,36 @@ fn rewrite_sides_require_their_least_upper_bound() {
             sort: Sort::new("Bool"),
         },
     );
-    let typing = sentence_typing(loaded.resolved(), "TYPED", &sentence).unwrap();
-
-    assert_eq!(
-        typing.branches.get(&[0]),
-        Some(&BranchTyping {
-            left: sorted(Some("Counter"), Some("KItem")),
-            right: sorted(Some("Bool"), Some("KItem")),
-        })
-    );
-    assert_eq!(
-        at(&typing, &[0, 0]),
-        &sorted(Some("Counter"), Some("KItem"))
-    );
-    assert_eq!(at(&typing, &[0, 1]), &sorted(Some("Bool"), Some("KItem")));
+    let Sentence::Rule {
+        body,
+        requires,
+        ensures,
+        attributes,
+    } = sentence.clone()
+    else {
+        unreachable!("a rule")
+    };
+    let claim = Sentence::Claim {
+        body,
+        requires,
+        ensures,
+        attributes,
+    };
+    for (sentence, required) in [(&claim, "KItem"), (&sentence, "K")] {
+        let typing = sentence_typing(loaded.resolved(), "TYPED", sentence).unwrap();
+        assert_eq!(
+            typing.branches.get(&[0]),
+            Some(&BranchTyping {
+                left: sorted(Some("Counter"), Some(required)),
+                right: sorted(Some("Bool"), Some(required)),
+            })
+        );
+        assert_eq!(
+            at(&typing, &[0, 0]),
+            &sorted(Some("Counter"), Some(required))
+        );
+        assert_eq!(at(&typing, &[0, 1]), &sorted(Some("Bool"), Some(required)));
+    }
 }
 
 // The overloaded `neg` resolves to the production the parser chose at each position: the Small
@@ -553,7 +571,9 @@ fn a_cast_as_pattern_places_both_sides_at_the_cast_sort() {
 
 // A nested rewrite is typed per branch, as compilation projects it:
 // `id(z => counter(z, z))` instantiates `id` at `Nat` in the left branch
-// and at `Counter` in the right one.
+// and at `Counter` in the right one. Each branch of the cell-free rule is placed at the
+// computation cell's content sort K (this expected the bound KItem, the typing of a sentence
+// compilation never builds).
 #[test]
 fn a_nested_rewrite_is_typed_in_each_branch() {
     let loaded = load();
@@ -573,8 +593,8 @@ fn a_nested_rewrite_is_typed_in_each_branch() {
     assert_eq!(
         typing.branches.get(&[0]),
         Some(&BranchTyping {
-            left: sorted(Some("Nat"), Some("KItem")),
-            right: sorted(Some("Counter"), Some("KItem")),
+            left: sorted(Some("Nat"), Some("K")),
+            right: sorted(Some("Counter"), Some("K")),
         })
     );
     assert_eq!(
@@ -595,7 +615,9 @@ fn a_nested_rewrite_is_typed_in_each_branch() {
 }
 
 // Typing computes the instance without placing it; compilation rejects the value-building
-// `id{Bool}(true)` because Bool's values are fixed by its hook and domain values.
+// `id{Bool}(true)` because Bool's values are fixed by its hook and domain values. Each branch of
+// the cell-free rule is placed at the computation cell's content sort K (this expected the bound
+// KItem, the typing of a sentence compilation never builds).
 #[test]
 fn typing_reports_a_fixed_sort_schema_instance_that_compilation_rejects() {
     let loaded = load();
@@ -618,8 +640,8 @@ fn typing_reports_a_fixed_sort_schema_instance_that_compilation_rejects() {
     assert_eq!(
         typing.branches.get(&[0]),
         Some(&BranchTyping {
-            left: sorted(Some("Nat"), Some("KItem")),
-            right: sorted(Some("Bool"), Some("KItem")),
+            left: sorted(Some("Nat"), Some("K")),
+            right: sorted(Some("Bool"), Some("K")),
         })
     );
     assert_eq!(
@@ -1208,61 +1230,7 @@ fn a_structured_ill_sorted_predicate_fails_typing_and_compilation_alike() {
     );
 }
 
-/// The definitions of the corpus property: the single-module reference fixtures, the
-/// sentence-typing fixtures, and copies of K regression definitions (`pyk/regression-new`, files
-/// kept byte for byte) whose rules use local functions, `:=K`, field projections, `#withConfig`
-/// and a module that lacks `K`. K's withConfig2 is not among them: krust refuses its
-/// fresh-variable function rule, and its own test types its `#withConfig` rule.
-fn corpus() -> Vec<(String, String, String, Option<std::path::PathBuf>)> {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
-    let mut corpus = Vec::new();
-    let reference = root.join("reference");
-    let mut files = std::fs::read_dir(&reference)
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .filter(|path| path.extension().is_some_and(|extension| extension == "k"))
-        .collect::<Vec<_>>();
-    files.sort();
-    for path in files {
-        let text = std::fs::read_to_string(&path).unwrap();
-        let main = text
-            .lines()
-            .rev()
-            .find_map(|line| line.trim_start().strip_prefix("module "))
-            .unwrap()
-            .trim()
-            .to_owned();
-        corpus.push((
-            path.file_name().unwrap().to_string_lossy().into_owned(),
-            text,
-            main,
-            Some(reference.clone()),
-        ));
-    }
-    for (file, main) in [
-        ("regression/equals-pattern.k", "TEST"),
-        ("regression/let-test.k", "TEST"),
-        ("regression/total-proj.k", "TEST"),
-        ("regression/issue-2114.k", "TEST"),
-        ("generated-rule-syntax.k", "TYPER-PROBE"),
-        ("private-helpers.k", "PRIV"),
-        ("inferred-parent.k", "INFERRED-PARENT"),
-        ("regression/withConfig.k", "TEST"),
-        ("configuration-context.k", "TYPER-CFG"),
-        ("transaction-data.k", "TX-DATA"),
-        ("collection-cell-content.k", "TEST"),
-        ("private-configuration-context.k", "P"),
-    ] {
-        let path = root.join("sentence-typing").join(file);
-        corpus.push((
-            file.to_owned(),
-            std::fs::read_to_string(&path).unwrap(),
-            main.to_owned(),
-            None,
-        ));
-    }
-    corpus
-}
+include!("support/typing_corpus.rs");
 
 // The typing contract: if compilation accepts a definition, every rule and claim of its main
 // module's import closure (the prelude included) types with the main module's typer.
@@ -2507,4 +2475,303 @@ fn a_claims_cell_fragment_variable_has_the_sorts_cell_completion_gives_it() {
             Some(Sort::new("AccountsCellFragment"))
         ]
     );
+}
+
+const CELL_LESS_BOUND: &str = include_str!("fixtures/sentence-typing/cell-less-bound.k");
+
+/// The cell-less `ab: a(X) => b(X)` of module LUBBB, with `inner` the supersorts of `A` and `B`
+/// LUBBB declares and `outer` those the main module CL adds.
+fn cell_less_lattice(inner: &str, outer: &str) -> String {
+    format!(
+        "module CL-SYNTAX
+  imports INT-SYNTAX
+  syntax Pgm ::= go(Int) [symbol(go)]
+endmodule
+
+module LUBBB
+  imports INT-SYNTAX
+  syntax A ::= a(Int) [symbol(a)]
+  syntax B ::= b(Int) [symbol(b)]
+{inner}
+  rule [ab]: a(X) => b(X)
+endmodule
+
+module CL
+  imports CL-SYNTAX
+  imports LUBBB
+  imports INT
+{outer}
+  configuration <k> $PGM:Pgm </k>
+  rule [go]: go(X) => a(X)
+endmodule
+"
+    )
+}
+
+/// A cell-less rule is wrapped in the computation cell before injection, so compilation's view
+/// places each side at the cell's content sort `K`, whatever common supersorts the sides have:
+/// two (`C` in LUBBB and `D` in the main module), one of either, or none.
+#[test]
+fn a_cell_less_rule_is_typed_inside_the_computation_cell() {
+    for (lattice, inner, outer) in [
+        ("CD", "  syntax C ::= A | B", "  syntax D ::= A | B"),
+        ("C", "  syntax C ::= A | B", ""),
+        ("D", "", "  syntax D ::= A | B"),
+        ("none", "", ""),
+    ] {
+        let loaded = load_main("cl.k", &cell_less_lattice(inner, outer), "CL", None);
+        assert_compiles(&loaded, lattice);
+        let typer = SentenceTyper::for_compilation(loaded.resolved()).unwrap();
+        let sentence = labelled(loaded.definition(), "LUBBB.ab");
+        assert_eq!(
+            typer.computation_cell_content(sentence, "LUBBB").unwrap(),
+            Some(Sort::new("K")),
+            "{lattice}"
+        );
+        let typing = typer
+            .typing_in(sentence, "LUBBB")
+            .unwrap_or_else(|error| panic!("{lattice}: {error}"));
+        assert_eq!(
+            typing.branches.get(&[0]),
+            Some(&BranchTyping {
+                left: sorted(Some("A"), Some("K")),
+                right: sorted(Some("B"), Some("K")),
+            }),
+            "{lattice}"
+        );
+        assert_eq!(
+            at(&typing, &[0, 0]),
+            &sorted(Some("A"), Some("K")),
+            "{lattice}"
+        );
+        assert_eq!(
+            at(&typing, &[0, 1]),
+            &sorted(Some("B"), Some("K")),
+            "{lattice}"
+        );
+        assert_eq!(
+            at(&typing, &[0, 0, 0]),
+            &sorted(Some("Int"), Some("Int")),
+            "{lattice}"
+        );
+    }
+}
+
+/// The label of the definition's main cell.
+fn main_cell_label(loaded: &LoadedDefinition) -> k_rust::kast::Label {
+    let resolved = loaded.resolved();
+    let catalog = resolved.production_catalog(resolved.main_module_id());
+    let mut main_cells = catalog
+        .productions()
+        .filter_map(|(_, production)| match production {
+            Sentence::Production {
+                label: Some(label),
+                attributes,
+                ..
+            } if attributes.has(AttributeKey::Cell) && attributes.has(AttributeKey::Maincell) => {
+                Some(label.clone())
+            }
+            _ => None,
+        });
+    let label = main_cells.next().expect("a main cell");
+    assert!(main_cells.next().is_none(), "one main cell");
+    label
+}
+
+/// `sentence` with its body written inside the computation cell, as compilation wraps it:
+/// `<k>(#noDots, body, #dots)`.
+fn in_computation_cell(sentence: &Sentence, cell: &k_rust::kast::Label) -> Sentence {
+    let mut wrapped = sentence.clone();
+    let (Sentence::Rule { body, .. } | Sentence::Claim { body, .. }) = &mut wrapped else {
+        unreachable!("a rule or claim")
+    };
+    let content = std::mem::replace(body, Term::apply("#placeholder", Vec::new()));
+    *body = Term::Apply {
+        label: cell.clone(),
+        arguments: vec![
+            Term::apply(InternalLabel::NoDots.as_str(), Vec::new()),
+            content,
+            Term::apply(InternalLabel::Dots.as_str(), Vec::new()),
+        ],
+    };
+    wrapped
+}
+
+/// The path of the authored computation-cell form that `path` of the loaded rule names: a body
+/// path `[0, p..]` is `[0, 1, p..]`, the cell's body; a condition path is itself.
+fn in_cell_path(path: &[u32]) -> Vec<u32> {
+    match path {
+        [0, rest @ ..] => [0, 1].iter().chain(rest).copied().collect(),
+        _ => path.to_vec(),
+    }
+}
+
+/// Every rule compilation wraps in the computation cell types as the rule with that cell
+/// written around its body: the same sort and requirement at each corresponding position and in
+/// each branch, and the same variable sorts. The rules are those `computation_cell_content`
+/// wraps; that this is what compilation wraps, and that the instances (crate-internal) agree too,
+/// is the crate test
+/// `kompile::passes::add_implicit_computation_cell::tests::the_shared_decision_matches_the_compiled_wrapping`.
+#[test]
+fn a_cell_less_rule_types_as_its_authored_computation_cell_form() {
+    let mut compared = 0;
+    let mut failures = Vec::new();
+    for (name, text, main, directory) in corpus() {
+        let loaded = load_main(&name, &text, &main, directory.as_deref());
+        if compile_loaded_definition(&loaded, CompileOptions::default()).is_err() {
+            continue;
+        }
+        let typer = main_typer(&loaded);
+        let mut cell = None;
+        for (module, sentence) in closure_sentences(&loaded) {
+            if typer
+                .computation_cell_content(sentence, module)
+                .unwrap()
+                .is_none()
+            {
+                continue;
+            }
+            let cell = cell.get_or_insert_with(|| main_cell_label(&loaded));
+            let typing = typer
+                .typing_in(sentence, module)
+                .unwrap_or_else(|error| panic!("{name} {module}: {error}"));
+            let authored = typer
+                .typing_in(&in_computation_cell(sentence, cell), module)
+                .unwrap_or_else(|error| panic!("{name} {module} in the cell: {error}"));
+            for (path, position) in typing.positions.iter() {
+                if authored.positions.get(&in_cell_path(&path)) != Some(position) {
+                    failures.push(format!(
+                        "{name} {module} {path:?}: {position:?} against {:?}",
+                        authored.positions.get(&in_cell_path(&path))
+                    ));
+                }
+            }
+            for (path, branches) in typing.branches.iter() {
+                if authored.branches.get(&in_cell_path(&path)) != Some(branches) {
+                    failures.push(format!(
+                        "{name} {module} branch {path:?}: {branches:?} against {:?}",
+                        authored.branches.get(&in_cell_path(&path))
+                    ));
+                }
+            }
+            if typing.variables != authored.variables {
+                failures.push(format!(
+                    "{name} {module}: variables {:?} against {:?}",
+                    typing.variables, authored.variables
+                ));
+            }
+            compared += 1;
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+    assert!(compared >= 20, "only {compared} wrapped rules compared");
+}
+
+/// A parametric application on a cell-less side has the instance compilation builds: `pz(X)`
+/// with `{S} S ::= pz(Int)` is placed at the computation cell's content sort, so its result
+/// parameter is `K`, and every placement the view reports is an injection the compiled
+/// definition holds.
+#[test]
+fn a_parametric_application_on_a_cell_less_side_has_its_compiled_instance() {
+    let loaded = load_main(
+        "cell-less-bound.k",
+        CELL_LESS_BOUND,
+        "CELL-LESS-BOUND",
+        None,
+    );
+    let typer = main_typer(&loaded);
+    let typing = typer
+        .typing_in(
+            labelled(loaded.definition(), "CELL-LESS-BOUND.pz"),
+            "CELL-LESS-BOUND",
+        )
+        .unwrap();
+    assert_eq!(
+        typing.branches.get(&[0]),
+        Some(&BranchTyping {
+            left: sorted(Some("A"), Some("K")),
+            right: sorted(Some("K"), Some("K")),
+        })
+    );
+    let kore = compiled_kore(&loaded).unwrap();
+    assert!(
+        axiom_of(&kore, "CELL-LESS-BOUND.pz").contains("Lblpz{SortK{}}"),
+        "{}",
+        axiom_of(&kore, "CELL-LESS-BOUND.pz")
+    );
+    assert!(assert_view_injections_are_emitted(&loaded, "CELL-LESS-BOUND") > 0);
+}
+
+/// Macro expansion runs before compilation wraps a cell-free rule in the computation cell, and
+/// its typer types such a rule at its sides' least upper bound: a parametric macro on a side
+/// under two common supersorts of the sides has no instance there, so compilation fails, while
+/// compilation's view, which types the wrapped rule, types it.
+#[test]
+fn macro_expansion_types_a_cell_less_rule_at_its_sides_bound() {
+    let source = "module M-SYNTAX
+  imports INT-SYNTAX
+  syntax Pgm ::= go(Int) [symbol(go)]
+endmodule
+
+module M
+  imports M-SYNTAX
+  imports INT
+  syntax A ::= a(Int) [symbol(a)]
+  syntax B ::= b(Int) [symbol(b)]
+  syntax C ::= A | B
+  syntax D ::= A | B
+  syntax {S} S ::= m(S) [macro]
+  rule m(X) => X
+  configuration <k> $PGM:Pgm </k>
+  rule [go]: go(X) => a(X)
+  rule [ab]: a(X) => m(b(X))
+endmodule
+";
+    let loaded = load_main("m.k", source, "M", None);
+    let typer = main_typer(&loaded);
+    typer
+        .typing_in(labelled(loaded.definition(), "M.ab"), "M")
+        .unwrap();
+    let error = compiled_kore(&loaded).expect_err("the macro has no instance at the bound");
+    assert_eq!(error.stage, "expand macros", "{error}");
+    assert!(
+        format!("{:?}", error.diagnostics)
+            .contains("Rule contains macro symbol that was not expanded"),
+        "{error} {:?}",
+        error.diagnostics
+    );
+}
+
+const GENERATED_HEADS: &str = include_str!("fixtures/sentence-typing/generated-heads.k");
+
+/// A rule whose left side is headed by a sort predicate or a sort projection, which compilation
+/// declares as a function before it wraps cell-free rules, is a function rule: it is not wrapped,
+/// and its sides are placed at their bound.
+#[test]
+fn a_rule_headed_by_a_generated_helper_is_not_wrapped() {
+    let loaded = load_main(
+        "generated-heads.k",
+        GENERATED_HEADS,
+        "GENERATED-HEADS",
+        None,
+    );
+    assert_compiles(&loaded, "generated-heads.k");
+    let typer = main_typer(&loaded);
+    for label in ["GENERATED-HEADS.pred", "GENERATED-HEADS.proj"] {
+        let sentence = labelled(loaded.definition(), label);
+        assert_eq!(
+            typer
+                .computation_cell_content(sentence, "GENERATED-HEADS")
+                .unwrap(),
+            None,
+            "{label}"
+        );
+    }
+    let typing = typer
+        .typing_in(
+            labelled(loaded.definition(), "GENERATED-HEADS.pred"),
+            "GENERATED-HEADS",
+        )
+        .unwrap();
+    assert_eq!(at(&typing, &[0, 1]), &sorted(Some("Bool"), Some("Bool")));
 }

@@ -94,9 +94,14 @@ pub fn concretize_cells_in_sentence(
     let productions = views.production_catalog(module_id);
     let values = ValueFacts::new(definition, module_id);
     let mut concretizer = Concretizer::new(&model, productions, &values);
-    let transformed = concretizer
-        .sentence(sentence)
-        .map_err(|message| sentence_error(message, &original))?;
+    let transformed = concretizer.sentence(sentence).map_err(|message| {
+        let message = if model_module == main_id {
+            message
+        } else {
+            outside_closure_message(message, &original, module, &definition.main_module().name)
+        };
+        sentence_error(message, &original)
+    })?;
     Ok((transformed, concretizer.generated))
 }
 
@@ -259,6 +264,7 @@ pub(crate) fn concretize_cells_pass(
         return Ok(input.definition.clone());
     }
 
+    let main_name = resolved.main_module().name.clone();
     let mut output = input.definition.clone();
     let mut diagnostics = Vec::new();
     for module in &mut output.modules {
@@ -294,11 +300,18 @@ pub(crate) fn concretize_cells_pass(
                     }
                     *crate::definition::sentence_mut(sentence) = transformed;
                 }
-                Err(message) => diagnostics.push(Diagnostic::error(
-                    DiagnosticCode::InvalidCellConcretization,
-                    message,
-                    sentence,
-                )),
+                Err(message) => {
+                    let message = if main_modules.contains(&module_id) {
+                        message
+                    } else {
+                        outside_closure_message(message, sentence, &module.name, &main_name)
+                    };
+                    diagnostics.push(Diagnostic::error(
+                        DiagnosticCode::InvalidCellConcretization,
+                        message,
+                        sentence,
+                    ));
+                }
             }
         }
         if let Some(missing_bool) = first_conjunction
@@ -613,7 +626,7 @@ impl CellModel {
         } else {
             match roots.as_slice() {
                 [root] => root.clone(),
-                [] => return Err("No root cell found".into()),
+                [] => return Err(NO_ROOT_CELL.into()),
                 _ => {
                     return Err(format!(
                         "Too many top cells: {}",
@@ -1435,7 +1448,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             .model
             .cells
             .get(&self.model.root)
-            .ok_or_else(|| "No root cell found".to_owned())?;
+            .ok_or_else(|| NO_ROOT_CELL.to_owned())?;
         if let Term::Apply { label, arguments } = term.unannotated() {
             if is_matching_logic_builtin(&label.name)
                 && let Some(recurse) =
@@ -4871,6 +4884,61 @@ fn plain_error(message: impl Into<String>) -> Diagnostic {
         location: None,
         input_addresses: Vec::new(),
     }
+}
+
+/// The refusal of a sentence whose cell model has no root cell to place it under.
+const NO_ROOT_CELL: &str = "No root cell found";
+
+/// The message concretization reports for a sentence of `module`, which lies outside the import
+/// closure of the main module `main`, when completing it failed with `message`.
+///
+/// Such a sentence is completed with the cell model of its own module, since the main module's
+/// configuration is not in its view; where that model has no root cell (the module sees no
+/// configuration), the sentence names no cell compilation could place it under, and the message
+/// says so, naming the sentence by its label, else its location. Every other failure keeps its
+/// message.
+fn outside_closure_message(
+    message: String,
+    sentence: &Sentence,
+    module: &str,
+    main: &str,
+) -> String {
+    if message != NO_ROOT_CELL {
+        return message;
+    }
+    let kind = match sentence {
+        Sentence::Claim { .. } => "claim",
+        Sentence::Context { .. } | Sentence::ContextAlias { .. } => "context",
+        Sentence::Rule { .. }
+        | Sentence::SyntaxSort { .. }
+        | Sentence::SortSynonym { .. }
+        | Sentence::SyntaxLexical { .. }
+        | Sentence::Production { .. }
+        | Sentence::SyntaxAssociativity { .. }
+        | Sentence::SyntaxPriority { .. }
+        | Sentence::Configuration { .. }
+        | Sentence::Bubble { .. } => "rule",
+    };
+    let attributes = sentence.attributes();
+    let name = match (
+        attributes.string(AttributeKey::Label),
+        attributes.source(),
+        attributes.location(),
+    ) {
+        (Some(label), _, _) => format!("{kind} {label}"),
+        (None, Some(source), Some(location)) => format!(
+            "{kind} at {source}:{}:{}",
+            location.start_line, location.start_column
+        ),
+        (None, None, Some(location)) => format!(
+            "{kind} at {}:{}",
+            location.start_line, location.start_column
+        ),
+        (None, Some(_) | None, None) => format!("a {kind}"),
+    };
+    format!(
+        "{name} in module {module} lies outside the main module {main}'s import closure: compilation completes its cells with module {module}'s own configuration, which has no root cell; import {module} from {main} or move the {kind}"
+    )
 }
 
 fn sentence_error(message: impl Into<String>, sentence: &Sentence) -> ConcretizeCellsError {

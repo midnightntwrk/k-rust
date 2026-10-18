@@ -136,6 +136,10 @@ impl std::error::Error for RuleError {}
 
 /// Parse one complete rule-content string with a resolved module's rule grammar.
 ///
+/// The whole contents are read with that grammar, the `requires` and `ensures` clauses
+/// included: a clause is a term of sort `Bool`, at which KAST prefix terms parse as at every
+/// other sort of `K` terms.
+///
 /// The returned rule retains the caller-supplied attributes, including source and
 /// content offsets used by parser metadata and diagnostics.
 pub fn parse_rule_content(
@@ -930,6 +934,19 @@ fn rule_grammar(resolved: &ResolvedDefinition, module: ModuleId) -> Result<Gramm
             add_casts(&mut grammar, &CastTarget::member(&member))?;
         }
     }
+    // `Bool` is the sort of every requires and ensures clause, so its variables and its
+    // parse-time bottom terms come from `Bool ::= KBott` (and `KBott ::= #KVariable |
+    // KConfigVar`) whether or not a sentence of the view mentions it, as they do for a member of
+    // the universe. With the parametric bottom production the member loop adds no
+    // `S ::= KBott`, and `Bool` takes its variables directly, as the kernel syntax gives them
+    // to the configuration grammar.
+    let bool_sort = KernelSort::Bool.sort();
+    if has_generated_bottom_sort {
+        add_subsort(&mut grammar, "Bool", FrontendSort::KVariable.as_str())?;
+        add_subsort(&mut grammar, "Bool", KernelSort::KConfigVar.name())?;
+    } else if universe.member(&bool_sort).is_none() {
+        add_subsort(&mut grammar, "Bool", FrontendSort::KBott.as_str())?;
+    }
     add_synonym_casts(&mut grammar, &universe, &RULE_GRAMMAR)?;
     #[cfg(not(feature = "z3-inference"))]
     {
@@ -1594,6 +1611,112 @@ mod tests {
             SortUniverse::new(&visible, &SortSynonyms::of(visible.iter().copied())),
             declared,
         )
+    }
+
+    fn unary_production(child: &str) -> [ProductionItem; 1] {
+        [nonterminal(child)]
+    }
+
+    /// The rule grammar of `module`.
+    fn module_grammar(resolved: &ResolvedDefinition, module: &str) -> Grammar {
+        rule_grammar(
+            resolved,
+            resolved.module_id(module).expect("the module is resolved"),
+        )
+        .expect("the rule grammar builds")
+    }
+
+    /// A requires or ensures clause is a term of sort `Bool`, at which the rule grammar places
+    /// the parse-time bottom, as at every sort of `K` terms. `Bool`'s variables come only through
+    /// it (`Bool ::= KBott`, `KBott ::= #KVariable | KConfigVar`), so each `Bool` variable has
+    /// one derivation.
+    #[test]
+    fn bool_takes_its_variables_through_the_parse_time_bottom() {
+        let loaded = load_with_prelude("module MAIN\n  imports BOOL\nendmodule\n");
+        let grammar = module_grammar(loaded.resolved(), "MAIN");
+        let bool_sort = Sort::new("Bool");
+        assert_eq!(
+            grammar.equivalent_production_count(&bool_sort, &unary_production("KBott"), false),
+            1,
+            "Bool ::= KBott"
+        );
+        for child in ["#KVariable", "KConfigVar"] {
+            assert!(
+                !grammar.has_equivalent_production(&bool_sort, &unary_production(child), false),
+                "no Bool ::= {child}"
+            );
+            assert!(
+                grammar.has_equivalent_production(
+                    &Sort::new("KBott"),
+                    &unary_production(child),
+                    false
+                ),
+                "KBott ::= {child}"
+            );
+        }
+    }
+
+    /// With the parametric bottom production (`K-BOTTOM-SORT`), which gives every sort `S ::=
+    /// KBott` in place of the member loop, `Bool` keeps its direct variable subsorts beside it, so
+    /// there a `Bool` variable has two derivations, as before the parse-time bottom was placed
+    /// below `Bool`.
+    #[test]
+    fn with_the_parametric_bottom_production_bool_keeps_its_direct_variables() {
+        let loaded =
+            load_with_prelude("module MAIN\n  imports BOOL\n  imports K-BOTTOM-SORT\nendmodule\n");
+        let grammar = module_grammar(loaded.resolved(), "MAIN");
+        let bool_sort = Sort::new("Bool");
+        for child in ["#KVariable", "KConfigVar"] {
+            assert!(
+                grammar.has_equivalent_production(&bool_sort, &unary_production(child), false),
+                "Bool ::= {child}"
+            );
+        }
+        // The parametric production gives `Bool ::= KBott` too, once: the member loop adds no
+        // second copy, so a `Bool` variable has exactly the two derivations.
+        assert_eq!(
+            grammar.equivalent_production_count(&bool_sort, &unary_production("KBott"), false),
+            1,
+            "Bool ::= KBott, from the parametric production"
+        );
+    }
+
+    /// A view in which no sentence mentions `Bool` has no `Bool` member, but its clauses are
+    /// still terms of sort `Bool`: the rule grammar gives `Bool` the parse-time bottom all the
+    /// same, so a variable stands there.
+    #[test]
+    fn a_view_without_bool_places_variables_at_bool() {
+        let parsed = crate::outer::parse(
+            "main.k",
+            "module MAIN\n  syntax Exp ::= \"a\" [symbol(a)]\nendmodule\n",
+        )
+        .unwrap();
+        let definition = crate::outer::lower(&parsed, "MAIN").unwrap();
+        let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+        let (universe, _) = rule_grammar_universe(&resolved, "MAIN");
+        let bool_sort = Sort::new("Bool");
+        assert!(universe.member(&bool_sort).is_none(), "Bool is no member");
+        let grammar = module_grammar(&resolved, "MAIN");
+        assert_eq!(
+            grammar.equivalent_production_count(&bool_sort, &unary_production("KBott"), false),
+            1,
+            "Bool ::= KBott"
+        );
+        let rule = parse_rule_content(
+            &resolved,
+            "MAIN",
+            "a => a requires X",
+            Attributes::default(),
+        )
+        .expect("a variable stands at Bool");
+        let Sentence::Rule { requires, .. } = rule else {
+            panic!("a rule");
+        };
+        assert!(
+            matches!(requires.unannotated(), Term::Variable { name, .. } if name == "X")
+                || requires.to_string().contains('X'),
+            "{requires}"
+        );
     }
 
     /// 86a21b90: the parameters `Sort`, `Sort1` and `Sort2` of the ML productions are bound by

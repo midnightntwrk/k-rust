@@ -673,8 +673,14 @@ pub(super) fn add_k_syntax(
             false,
         )?;
     }
-    add_subsort(grammar, "Bool", "#KVariable")?;
-    add_subsort(grammar, "Bool", "KConfigVar")?;
+    // The rule grammar gives `Bool` its variables through `Bool ::= KBott` and `KBott ::=
+    // #KVariable | KConfigVar` (`rule_member_productions`), or, where the module declares the
+    // parametric bottom production, beside it (`rule_grammar`); stating them here as well would
+    // give each `Bool` variable of a rule two derivations.
+    if which == BuiltinTokenGrammar::Configuration {
+        add_subsort(grammar, "Bool", "#KVariable")?;
+        add_subsort(grammar, "Bool", "KConfigVar")?;
+    }
     add_casts(grammar, &CastTarget::kernel(KernelSort::Bool))?;
     grammar.add(
         Sort::new("#RuleContent"),
@@ -1028,6 +1034,23 @@ endmodule
 
     fn unary(child: &str) -> [ProductionItem; 1] {
         [nonterminal(child)]
+    }
+
+    /// The configuration grammar has no parse-time bottom, so `Bool` takes its variables
+    /// directly from the kernel syntax there.
+    #[test]
+    fn the_configuration_grammar_places_variables_at_bool_directly() {
+        let loaded = load_with_prelude("module MAIN\n  imports BOOL\nendmodule\n")
+            .unwrap_or_else(|error| panic!("MAIN loads: {error}"));
+        let resolved = loaded.resolved();
+        let module = resolved.module_id("MAIN").expect("MAIN is resolved");
+        let grammar = configuration_grammar(resolved, module).expect("the grammar builds");
+        for child in ["KConfigVar", "#KVariable"] {
+            assert!(
+                grammar.has_equivalent_production(&Sort::new("Bool"), &unary(child), false),
+                "Bool ::= {child}"
+            );
+        }
     }
 
     /// 86a21b90 in the configuration grammar: the parameters `Sort`, `Sort1` and `Sort2` of the
