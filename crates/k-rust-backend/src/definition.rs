@@ -2170,11 +2170,15 @@ impl BackendDefinition {
                                 });
                             counts.budget_stops += usize::from(stops.budget_exhausted);
                             counts.stack_stops += usize::from(stops.stack_exhausted);
+                            // A rule declared `preserves-definedness` had its obligation cleared
+                            // when it was built, so its discharge succeeds without showing
+                            // anything: the load records no discharge for it.
+                            let declared = rule.rule.attributes.preserves_definedness;
                             discharged.push((
                                 index.clone(),
                                 *priority,
                                 position,
-                                is_defined && !stops.any(),
+                                is_defined && !stops.any() && !declared,
                                 coverage,
                             ));
                         }
@@ -2202,7 +2206,8 @@ impl BackendDefinition {
             if !rule.computed_attributes.undefined_symbols.is_empty() {
                 rule.computed_attributes.discharged_by = coverage;
             }
-            rule.attributes.preserves_definedness = true;
+            // The declared attribute stays the author's claim; the discharge is recorded apart.
+            rule.computed_attributes.definedness_discharged = true;
             rule.computed_attributes.undefined_symbols.clear();
         }
     }

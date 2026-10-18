@@ -417,6 +417,15 @@ pub struct ComputedRuleAttributes {
     /// (`crate::coverage::RunCoverage`): the discharge removed the obligations the run would
     /// otherwise decide, and a change to any of these equations can change the discharge.
     pub discharged_by: crate::coverage::RunCoverage,
+    /// For a rewrite rule, whether the definition's load discharged its definedness
+    /// (`BackendDefinition::discharge_rewrite_definedness`): the rule is not declared
+    /// `preserves-definedness`, and the load showed its terms defined wherever its left-hand side
+    /// and `requires` hold, from the definition's ceil equations and value claims (at once when
+    /// its terms hold only total symbols). False for a declared rule, whose definedness is the
+    /// author's claim ([`RuleAttributes::preserves_definedness`]) and which the load did not
+    /// show; for a rule that keeps a run-time obligation (`undefined_symbols` not empty); and for
+    /// every other rule. The load sets it once: a second discharge keeps it.
+    pub definedness_discharged: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -769,6 +778,10 @@ pub struct RuleAttributes {
     pub label: Option<String>,
     pub unique_id: String,
     pub simplification: bool,
+    /// The author's claim, as written: the axiom is declared `preserves-definedness`, which
+    /// states that its right-hand side is defined wherever its left-hand side and `requires` are.
+    /// Never changed after parsing; what the load showed is
+    /// [`ComputedRuleAttributes::definedness_discharged`].
     pub preserves_definedness: bool,
     pub concreteness: Concreteness,
     pub smt_lemma: bool,
@@ -3353,6 +3366,7 @@ where
             unbound_result_variables: computed.unbound_result_variables.clone(),
             unread_map_frames: rename_set(&computed.unread_map_frames),
             discharged_by: computed.discharged_by.clone(),
+            definedness_discharged: computed.definedness_discharged,
         },
         existentials: rename_set(&rule.existentials),
     };

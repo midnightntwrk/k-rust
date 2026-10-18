@@ -489,8 +489,8 @@ fn vp_equation(pattern: &str, right: &str) -> String {
     w_equation(pattern, right).replace("w{}(X0", "vp{}(X0")
 }
 
-/// Whether every rewrite rule of a definition whose value production `vp` the check withdraws
-/// (`vp(z) = m(z)` beside `vp(z) = m(s(z))`) is marked as preserving definedness; its one rule
+/// Whether the load discharged the definedness of every rewrite rule of a definition whose value
+/// production `vp` the check withdraws (`vp(z) = m(z)` beside `vp(z) = m(s(z))`); its one rule
 /// rewrites `m(s(z))` to the irreducible `vp(s(z))`.
 fn withdrawn_rule_preserves_definedness() -> bool {
     let definition = definition(&format!(
@@ -511,7 +511,7 @@ fn withdrawn_rule_preserves_definedness() -> bool {
         .rewrite_theory()
         .values()
         .flat_map(|groups| groups.values().flatten())
-        .all(|rule| rule.rule.attributes.preserves_definedness)
+        .all(|rule| rule.rule.computed_attributes.definedness_discharged)
 }
 
 /// The rewrite rules' definedness is discharged after the check and reads its verdict: the
@@ -533,6 +533,58 @@ fn discharging_before_the_check_is_caught() {
         switches,
         withdrawn_rule_preserves_definedness
     ));
+}
+
+/// What the load records about each rewrite rule's definedness, by label: the declared attribute,
+/// the discharge, and whether the run-time obligation is cleared.
+fn definedness_records() -> Vec<(String, bool, bool, bool)> {
+    let definition = definition(
+        r#"axiom{} \rewrites{SortS{}}(\and{SortS{}}(m{}(z{}()), \top{SortS{}}()),
+            \and{SortS{}}(m{}(s{}(z{}())), \top{SortS{}}())) [label{}("plain")]
+        axiom{} \rewrites{SortS{}}(\and{SortS{}}(m{}(s{}(z{}())), \top{SortS{}}()),
+            \and{SortS{}}(m{}(f{}(z{}())), \top{SortS{}}())) [label{}("declared"), preserves-definedness{}()]
+        axiom{} \rewrites{SortS{}}(\and{SortS{}}(m{}(k{}(z{}(), z{}())), \top{SortS{}}()),
+            \and{SortS{}}(m{}(f{}(z{}())), \top{SortS{}}())) [label{}("open")]"#,
+    );
+    let mut records = definition
+        .rewrite_theory()
+        .values()
+        .flat_map(|groups| groups.values().flatten())
+        .map(|rule| {
+            let rule = &rule.rule;
+            (
+                rule.attributes.label.clone().unwrap_or_default(),
+                rule.attributes.preserves_definedness,
+                rule.computed_attributes.definedness_discharged,
+                rule.computed_attributes.undefined_symbols.is_empty(),
+            )
+        })
+        .collect::<Vec<_>>();
+    records.sort();
+    records
+}
+
+/// The declared attribute is the author's claim and the discharge a separate fact: a rule over
+/// constructors only is discharged and not declared, a declared rule over the partial `f` (no
+/// ceil equation) is declared and not discharged, and the same rule undeclared is neither and
+/// keeps its obligation. Under `discharge_before_check` the load discharges twice, and the
+/// second discharge keeps what the first recorded.
+#[test]
+fn the_discharge_is_recorded_apart_from_the_declared_attribute_and_once() {
+    let expected = [
+        ("declared".to_owned(), true, false, true),
+        ("open".to_owned(), false, false, false),
+        ("plain".to_owned(), false, true, true),
+    ];
+    assert_eq!(definedness_records(), expected);
+    let switches = super::switches::Switches {
+        discharge_before_check: true,
+        ..super::switches::Switches::default()
+    };
+    assert_eq!(
+        super::switches::with(switches, definedness_records),
+        expected
+    );
 }
 
 /// `f(a) = s(b)` and `\ceil(f(b))`, as one conjunction over the variables named `a` and `b`.
