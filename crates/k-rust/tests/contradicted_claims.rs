@@ -1963,7 +1963,11 @@ endmodule
                     "{context}"
                 );
             }
-            assert_eq!(run_records(&result), [expected.clone()], "{context}");
+            assert_eq!(
+                run_records(&result),
+                std::slice::from_ref(&expected),
+                "{context}"
+            );
             assert_eq!(reasons(&result), reasons(&npdb), "{context}");
             assert!(
                 run_records(&npdb).is_empty(),
