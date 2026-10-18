@@ -13640,6 +13640,61 @@ endmodule
     assert_eq!(warnings, 1, "{stderr}");
 }
 
+/// A mark on the run's list alone still warns, once: under strategy all, the candidate that read
+/// the listing is undefined on two keys and vanishes beside its defined sibling, so no result
+/// carries the mark, but in another model the candidate may be defined and give another result.
+#[test]
+fn krun_warns_of_a_mark_on_the_run_list_alone() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module ALONE
+  imports DOMAINS
+  syntax Pgm ::= s(Map) | x(Int) | y(Int)
+  configuration <k> $PGM:Pgm </k>
+  rule s(M) => x(1 /Int (size(keys_list(M)) -Int 2))
+  rule s(_) => y(1)
+endmodule
+"#,
+    )
+    .unwrap();
+    for extra in [&["--strategy", "all"][..], &["--search-final"][..]] {
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args(["krun", definition.to_str().unwrap()])
+            .args(["--main-module", "ALONE", "--syntax-module", "ALONE"])
+            .args([
+                "--sort",
+                "Pgm",
+                "--expression",
+                "s(1 |-> 0 2 |-> 0)",
+                "--io",
+                "off",
+            ])
+            .args(extra)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(output.status.success(), "{extra:?}: {stdout}\n{stderr}");
+        assert!(
+            stdout.contains("Lbly'LPar") && !stdout.contains("Lblx'LPar"),
+            "{extra:?}: {stdout}"
+        );
+        let warnings = stderr
+            .lines()
+            .filter(|line| line.starts_with("warning: ") && line.contains("MAP.keys_list"))
+            .collect::<Vec<_>>();
+        assert_eq!(warnings.len(), 1, "{extra:?}: {stderr}");
+        assert!(
+            warnings[0].contains("another model of the definition may give other results"),
+            "{extra:?}: {stderr}"
+        );
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// An execution evaluates every listing in its documented order, also in the conditions it
 /// decides: a rule `requires` (on 1) and a function equation's `requires` (on 2), with `krun` and
 /// with `krun --search-final`.

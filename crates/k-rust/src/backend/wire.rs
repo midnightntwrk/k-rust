@@ -575,14 +575,18 @@ pub enum BackendDiagnosticOutput<K = Value> {
     /// of [`ChosenValueOutput`](super::ChosenValueOutput)): in another model of the definition
     /// that agrees with the request's inputs and k-rust's stated readings this leaf may differ
     /// or be absent (`BackendDiagnostic::ImplementationChosenValue`). A leaf without one is, on
-    /// its own recorded path, a leaf in every such model; a search result or witness without one
-    /// is reached in every such model. It is a path fact: it stays on the paths that depend on
-    /// the work that found it whatever became of that work (an attempt that did not apply, a
-    /// refuted alternative, an undone attempt, a duplicate dropped for the kept state), and it
-    /// never causes or prevents a `state-set` merge. Where a halt rests on how many candidates
-    /// survive (`stopAtBranch`, `cutPointRules`, `terminalRules`) every candidate's marks are on
-    /// the state's path, and in a run with `maxWork` or `maxBreadth` every leaf carries all the
-    /// run's marks (docs/compatibility.md, "Marks in executions").
+    /// its own recorded path, a leaf in every such model (under `state-set`, its configuration
+    /// and halt, not its depth and trace); a search result or witness without one is reached in
+    /// every such model. It is a path fact: it stays on the paths that depend on the work that
+    /// found it whatever became of that work (an attempt that did not apply, a refuted
+    /// alternative, an undone attempt, a duplicate dropped for the kept state), and it never
+    /// causes or prevents a `state-set` merge. Where a halt rests on how many candidates survive
+    /// (`stopAtBranch`; with `cutPointRules` or `terminalRules`, a state one of whose candidates is
+    /// such a rule) every candidate's marks are on the state's path. A leaf carries all the run's
+    /// marks in a run with `maxWork` or `maxBreadth`, and under `state-set` when a leaf of
+    /// another halt class may stand for it (a `depth-bound` or other unexplored or undecided
+    /// leaf, and with `terminalRules` a `stuck` or `terminal` one) (docs/compatibility.md, "Marks
+    /// in executions").
     ImplementationChosenValue {
         hook: String,
         class: String,

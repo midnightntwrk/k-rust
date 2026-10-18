@@ -648,6 +648,148 @@ fn a_run_bounded_by_work_or_breadth_marks_every_leaf_with_its_list() {
     }
 }
 
+/// Without a stop rule among `w`'s candidates, `w` cannot halt by one, whatever survives:
+/// `wx`'s mark stays on its own paths. Under `path-set` the `h(0)` that `wz` leads to is
+/// unmarked with `zh` as the terminal or the cut-point rule (the leaf is `h(0)` or `z(0)`).
+/// Where a candidate of the state is a stop rule, its marks are on the state's path even when it
+/// vanished: with `wx` as the terminal rule, `wx` is undefined on the first map and `wz` is `w`'s
+/// one successor, while in the other order `wx` survives too, so every leaf carries the mark.
+#[test]
+fn a_state_whose_candidates_use_no_stop_rule_keeps_their_marks_on_their_own_paths() {
+    let keys = BTreeSet::from([mark("MAP.keys_list", "order")]);
+    let unselected: [(RequestEdit, &str); 2] = [
+        (
+            ("terminal-zh", |request| {
+                request.terminal_rules = vec!["MAIN.zh".to_owned()];
+            }),
+            "Lblh'LPar",
+        ),
+        (
+            ("cut-point-zh", |request| {
+                request.cut_point_rules = vec!["MAIN.zh".to_owned()];
+            }),
+            "Lblz'LPar",
+        ),
+    ];
+    let modality = ResultModalityOutput::PathSet;
+    for program in SURVIVOR_PROGRAMS {
+        let (kore, initial) = compile(SURVIVORS, program);
+        for ((option, edit), reached) in unselected {
+            let result = execute_edited(&kore, &initial, modality, ExecutionStrategy::All, edit);
+            let context = format!("{program}, {option}: {result:#}");
+            assert_eq!(
+                marks(leaf_with(&result, reached)),
+                BTreeSet::new(),
+                "{context}"
+            );
+            for leaf in leaves(&result) {
+                if printed(leaf).contains("Lblx'LPar") {
+                    assert_eq!(marks(leaf), keys, "{context}");
+                }
+            }
+        }
+        for strategy in [ExecutionStrategy::All, ExecutionStrategy::Any] {
+            let result = execute_edited(&kore, &initial, modality, strategy, |request| {
+                request.terminal_rules = vec!["MAIN.wx".to_owned()];
+            });
+            let context = format!("{program}, terminal-wx, {strategy:?}: {result:#}");
+            assert!(!leaves(&result).is_empty(), "{context}");
+            for leaf in leaves(&result) {
+                assert_eq!(marks(leaf), keys, "{context}");
+            }
+        }
+    }
+}
+
+const MERGE: &str = r#"
+module MAIN
+  imports INT
+  imports MAP
+  imports LIST
+  syntax Pgm ::= a(Map) | b(Int) | c(Map) | x(Int)
+  configuration <k> $PGM:Pgm </k>
+  rule [ac]: a(M) => c(M)
+  rule [ab]: a(_) => b(3)
+  rule [cx]: c(M) => x(0) requires {keys_list(M)[0]}:>Int ==Int 2
+  rule [bb]: b(N) => b(N -Int 1) requires N >Int 0
+  rule [bx]: b(0) => x(0)
+endmodule
+"#;
+
+/// [`MERGE`] with `ab` first, so that the `b` chain is explored first.
+const MERGE_AB_FIRST: &str = r#"
+module MAIN
+  imports INT
+  imports MAP
+  imports LIST
+  syntax Pgm ::= a(Map) | b(Int) | c(Map) | x(Int)
+  configuration <k> $PGM:Pgm </k>
+  rule [ab]: a(_) => b(3)
+  rule [ac]: a(M) => c(M)
+  rule [cx]: c(M) => x(0) requires {keys_list(M)[0]}:>Int ==Int 2
+  rule [bb]: b(N) => b(N -Int 1) requires N >Int 0
+  rule [bx]: b(0) => x(0)
+endmodule
+"#;
+
+/// `x(0)` is reached through the `b` chain at depth 5 in every model and, in the model that lists
+/// the keys of the map the other way, also through `c` at depth 2 (`cx`'s condition reads the
+/// listing; k-rust's run of `a(2 |-> 0 3 |-> 0)` behaves like it). A `state-set` result keeps the
+/// first `x(0)` leaf it meets, which may stand for a later one of another halt: in that model,
+/// with `maxDepth` 5 the depth-2 `stuck` leaf stands for the depth-5 `depth-bound` one, and with
+/// `cx` as the terminal rule the `terminal` leaf stands for the `stuck` one. k-rust's unmarked
+/// `x(0)` leaf is then absent there, so under `state-set` it carries the run's list, in either
+/// rule order. A halt that only a leaf of its own class can stand for (`stuck` without terminal
+/// rules, beside `cut-point`) keeps its configuration and halt in every model, and only its witness
+/// (depth and trace) may change, so it stays unmarked; a `path-set` result merges nothing and is
+/// unchanged.
+#[test]
+fn under_state_set_a_leaf_another_halt_can_stand_for_carries_the_list() {
+    let keys = BTreeSet::from([mark("MAP.keys_list", "order")]);
+    let cases: [(RequestEdit, bool); 4] = [
+        (("plain", |_| {}), false),
+        (("max-depth-5", |request| request.max_depth = Some(5)), true),
+        (
+            ("terminal-cx", |request| {
+                request.terminal_rules = vec!["MAIN.cx".to_owned()];
+            }),
+            true,
+        ),
+        (
+            ("cut-point-cx", |request| {
+                request.cut_point_rules = vec!["MAIN.cx".to_owned()];
+            }),
+            false,
+        ),
+    ];
+    for source in [MERGE, MERGE_AB_FIRST] {
+        let (kore, initial) = compile(source, "a(1 |-> 0 2 |-> 0)");
+        for modality in MODALITIES {
+            for ((option, edit), replaceable) in cases {
+                let result =
+                    execute_edited(&kore, &initial, modality, ExecutionStrategy::All, edit);
+                let context = format!("{option}, {modality:?}: {result:#}");
+                assert_eq!(
+                    run_marks(&result),
+                    [mark("MAP.keys_list", "order")],
+                    "{context}"
+                );
+                let expected = if replaceable && modality == ResultModalityOutput::StateSet {
+                    keys.clone()
+                } else {
+                    BTreeSet::new()
+                };
+                assert_eq!(
+                    marks(leaf_with(&result, "Lblx'LPar")),
+                    expected,
+                    "{context}"
+                );
+                assert_eq!(marks(leaf_with(&result, "Lblc'LPar")), keys, "{context}");
+            }
+        }
+    }
+}
+
 const SEARCH_ON: &str = r#"
 module MAIN
   imports INT
@@ -747,6 +889,65 @@ fn a_search_duplicates_marks_reach_the_kept_states_descendants_and_every_search_
         [mark("MAP.keys_list", "order")],
         "{matched_paths:#}"
     );
+}
+
+const PATTERN_EXISTENTIAL: &str = r#"
+module MAIN
+  imports INT
+  imports MAP
+  imports LIST
+  syntax Pgm ::= go(Map) | c(Int) | t(Int)
+  configuration <k> $PGM:Pgm </k>
+  rule [g1]: go(M) => t(size(keys_list(M)))
+  rule [t]: t(N) => c(N)
+  rule [g2]: go(_) => c(?X) ensures ?X ==Int 2
+endmodule
+"#;
+
+/// Two distinct search states can have one solution: `g2` gives `c(?X)` with `?X` equal to 2,
+/// whose state differs from the `c(2)` that `g1` and `t` give by its constraint on the minted
+/// variable, and a target that names only the term matches both with the same bindings. The
+/// graph search keeps both, the unmarked one at depth 1 and the one that read the listing at
+/// depth 2. The pattern search keeps the first match for the solution, and it carries the mark of
+/// the dropped one.
+#[test]
+fn a_pattern_match_dropped_as_the_same_solution_gives_its_marks_to_the_kept_match() {
+    let (kore, initial) = compile(PATTERN_EXISTENTIAL, "go(1 |-> 0 2 |-> 0)");
+    let keys = BTreeSet::from([mark("MAP.keys_list", "order")]);
+    let search = SearchRequest {
+        search_type: SearchTypeArg::All,
+        ..SearchRequest::new(initial.clone())
+    };
+    let response = serde_json::to_value(backend(&kore).search(search).unwrap()).unwrap();
+    let mut found = response["states"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|state| {
+            printed(state)
+                .contains(r#"Lblc'LParUndsRParUnds'MAIN'Unds'Pgm'Unds'Int{}(\dv{SortInt{}}("2"))"#)
+        })
+        .map(|state| (state["depth"].as_u64().unwrap(), marks(state)))
+        .collect::<Vec<_>>();
+    found.sort();
+    assert_eq!(
+        found,
+        [(1, BTreeSet::new()), (2, keys.clone())],
+        "{response:#}"
+    );
+    let target = parse_pattern(
+        r"Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortPgm{}, SortKItem{}}(Lblc'LParUndsRParUnds'MAIN'Unds'Pgm'Unds'Int{}(VarN:SortInt{})), dotk{}())), VarG:SortGeneratedCounterCell{})",
+    )
+    .unwrap();
+    let pattern = SearchPatternRequest {
+        search_type: SearchTypeArg::All,
+        ..SearchPatternRequest::new(initial, target)
+    };
+    let matched = serde_json::to_value(backend(&kore).search_pattern(pattern).unwrap()).unwrap();
+    let matches = matched["matches"].as_array().unwrap();
+    assert_eq!(matches.len(), 1, "{matched:#}");
+    assert_eq!(matches[0]["state"]["depth"], 1, "{matched:#}");
+    assert_eq!(marks(&matches[0]["state"]), keys, "{matched:#}");
 }
 
 const SEARCH_END: &str = r#"

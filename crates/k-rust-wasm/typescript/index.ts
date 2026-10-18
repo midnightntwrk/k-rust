@@ -393,7 +393,10 @@ export interface ExecutionResult {
    * the values read by work that ended on no reported leaf (a vanished candidate, a state a
    * `state-set` merge absorbed). When absent, every model of the definition that agrees with the
    * request's inputs and k-rust's stated readings gives the run the same leaves. In a run with
-   * `maxWork` or `maxBreadth` every leaf carries every value listed here.
+   * `maxWork` or `maxBreadth` every leaf carries every value listed here, and so does, under
+   * `state-set`, every leaf a leaf of another halt class may stand for in the final merge (a
+   * `depth-bound` or other unexplored or undecided leaf, and with `terminalRules` a `stuck` or
+   * `terminal` one).
    */
   implementationChosenValues?: ChosenValue[]
 }
@@ -606,9 +609,10 @@ export type BackendDiagnostic =
   | { kind: 'undefined-initial-instances'; definedness: Kore[] }
   /**
    * The path read a value of `hook` the definition leaves open: in another model of the
-   * definition this leaf may differ or be absent. A path fact: it stays on the paths that depend
-   * on the work that found it, whatever became of that work, and never causes or prevents a
-   * `state-set` merge.
+   * definition this leaf may differ or be absent. A leaf without one is a leaf in every such
+   * model; under `state-set` that covers its configuration and halt, not its depth and trace. A
+   * path fact: it stays on the paths that depend on the work that found it, whatever became of
+   * that work, and never causes or prevents a `state-set` merge.
    */
   | { kind: 'implementation-chosen-value'; hook: string; class: ChosenClass }
 

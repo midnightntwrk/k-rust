@@ -459,6 +459,11 @@ pub struct ExecutionResult<K = Value> {
     /// definition that agrees with the request's inputs and k-rust's stated readings gives the
     /// run the same leaves. In a run that sets `maxWork` or `maxBreadth` every leaf carries every
     /// mark of this list, since where those bounds cut the run rests on the work of every path.
+    /// Under `state-set` so does every leaf a leaf of another halt class may stand for in the
+    /// final merge (a `depth-bound` or other unexplored or undecided leaf, and with
+    /// `terminalRules` a `stuck` or `terminal` one), since the leaf it is merged into may come
+    /// from a path of another model; an unmarked `state-set` leaf's configuration and halt are
+    /// in every such model, its depth and trace may not be.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub implementation_chosen_values: Vec<ChosenValueOutput>,
 }
