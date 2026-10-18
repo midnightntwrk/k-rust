@@ -492,7 +492,7 @@ fn vp_equation(pattern: &str, right: &str) -> String {
 /// Whether the load discharged the definedness of every rewrite rule of a definition whose value
 /// production `vp` the check withdraws (`vp(z) = m(z)` beside `vp(z) = m(s(z))`); its one rule
 /// rewrites `m(s(z))` to the irreducible `vp(s(z))`.
-fn withdrawn_rule_preserves_definedness() -> bool {
+fn withdrawn_rule_is_discharged() -> bool {
     let definition = definition(&format!(
         r#"symbol vp{{}}(SortNat{{}}) : SortS{{}} [anywhere{{}}(), value-production{{}}()]
         {} {}
@@ -519,7 +519,7 @@ fn withdrawn_rule_preserves_definedness() -> bool {
 /// obligation.
 #[test]
 fn a_rewrite_rule_over_a_withdrawn_head_keeps_its_definedness_obligation() {
-    assert!(!withdrawn_rule_preserves_definedness());
+    assert!(!withdrawn_rule_is_discharged());
 }
 
 /// V7: discharging before the check (with every claim admitted) is caught by the test above.
@@ -531,7 +531,7 @@ fn discharging_before_the_check_is_caught() {
     };
     assert!(super::switches::with(
         switches,
-        withdrawn_rule_preserves_definedness
+        withdrawn_rule_is_discharged
     ));
 }
 
