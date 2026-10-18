@@ -561,8 +561,11 @@ endmodule
 /// other order: `w` has two successors.
 const SURVIVOR_PROGRAMS: [&str; 2] = ["w(1 |-> 0 2 |-> 0)", "w(2 |-> 0 3 |-> 0)"];
 
+/// A named change to a request.
+type RequestEdit = (&'static str, fn(&mut ExecuteRequest));
+
 /// The requests whose halts rest on how many candidates of a step survive.
-const COUNT_OPTIONS: [(&str, fn(&mut ExecuteRequest)); 3] = [
+const COUNT_OPTIONS: [RequestEdit; 3] = [
     ("terminal-rules", |request| {
         request.terminal_rules = vec!["MAIN.wz".to_owned()];
     }),
@@ -619,7 +622,7 @@ fn a_halt_that_rests_on_how_many_candidates_survive_carries_every_candidates_mar
 /// successors. Every leaf of such a run carries every mark of the run's list.
 #[test]
 fn a_run_bounded_by_work_or_breadth_marks_every_leaf_with_its_list() {
-    let bounds: [(&str, fn(&mut ExecuteRequest)); 2] = [
+    let bounds: [RequestEdit; 2] = [
         ("max-work", |request| request.max_work = Some(3)),
         ("max-breadth", |request| request.max_breadth = Some(1)),
     ];
@@ -686,12 +689,12 @@ fn a_search_duplicates_marks_reach_the_kept_states_descendants_and_every_search_
     let states = response["states"].as_array().unwrap();
     assert_eq!(
         state_marks(states, "Lblc'LPar"),
-        [keys.clone()],
+        std::slice::from_ref(&keys),
         "{response:#}"
     );
     assert_eq!(
         state_marks(states, "Lble'LPar"),
-        [keys.clone()],
+        std::slice::from_ref(&keys),
         "{response:#}"
     );
     assert_eq!(
@@ -722,6 +725,21 @@ fn a_search_duplicates_marks_reach_the_kept_states_descendants_and_every_search_
         [mark("MAP.keys_list", "order")],
         "{matched:#}"
     );
+    // The match of the kept `c(2)` was taken before the duplicate was dropped; it takes the marks
+    // its result received since, and so does the match of `e(2)`.
+    let matched_states = matched["matches"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|found| found["state"].clone())
+        .collect::<Vec<_>>();
+    for head in ["Lblc'LPar", "Lble'LPar"] {
+        assert_eq!(
+            state_marks(&matched_states, head),
+            std::slice::from_ref(&keys),
+            "{matched:#}"
+        );
+    }
     let matched_paths =
         serde_json::to_value(backend(&kore).search_pattern_paths(pattern).unwrap()).unwrap();
     assert_eq!(
