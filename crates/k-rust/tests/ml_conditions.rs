@@ -8,9 +8,12 @@
 use k_rust::{
     backend::{Backend, BackendOptions, ExecuteRequest},
     builtin::embedded,
-    definition::CheckMode,
-    kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
-    kore::{ast::Pattern, codec, parser::parse_pattern},
+    definition::{CheckMode, Sentence},
+    kast::Term,
+    kompile::{
+        CompilationBackend, CompileOptions, CompiledKoreArtifacts, compile_loaded_definition,
+    },
+    kore::{ast::Pattern, codec, parser::parse_pattern, printer::Printer},
     outer::{LoadOptions, ResolvedSource, load_for_compilation, load_with_options},
 };
 
@@ -35,6 +38,10 @@ const TRUE: &str = "\\dv{SortBool{}}(\"true\")";
 const TOP: &str = "SortGeneratedTopCell{}";
 
 fn compile_for(sentences: &str, backend: CompilationBackend) -> String {
+    compile_artifacts(sentences, backend).definition_kore
+}
+
+fn compile_artifacts(sentences: &str, backend: CompilationBackend) -> CompiledKoreArtifacts {
     let source = format!("{HEADER}{sentences}endmodule\n");
     let mut resolver = |_: &str, required: &str| {
         embedded(required).ok_or_else(|| format!("unexpected require {required}"))
@@ -62,7 +69,6 @@ fn compile_for(sentences: &str, backend: CompilationBackend) -> String {
         },
     )
     .expect("the definition compiles")
-    .definition_kore
 }
 
 fn compile(sentences: &str) -> String {
@@ -164,8 +170,8 @@ fn a_disjunction_of_a_bool_term_and_a_predicate_is_a_predicate_disjunction() {
         "  rule [p]: <k> go(X) => done(X) ... </k> requires (X ==Int 1) #Or {X #Equals 2}\n",
     );
     let axiom = axiom(&kore, "P.p");
-    // Until guard_or_patterns stops aliasing conditions (MLP/1), the disjunction is conjoined
-    // with its alias read as a Bool leaf; the spine is a predicate either way.
+    // The disjunction is the whole condition: no alias of it is conjoined.
+    assert_lacks(&axiom, "Var'Unds'Gen");
     assert_contains(
         &axiom,
         &format!(
@@ -317,6 +323,14 @@ fn the_exists_anon_condition_is_an_existential_predicate() {
 // ---------------------------------------------------------------- partial Bool leaves
 
 fn run(sentences: &str, n: i64) -> Vec<(String, String)> {
+    run_states(sentences, n)
+        .into_iter()
+        .map(|(reason, k, _)| (reason, k))
+        .collect()
+}
+
+/// The leaves of go(n): halt reason, the first item of `<k>`, and the whole state as KORE text.
+fn run_states(sentences: &str, n: i64) -> Vec<(String, String, String)> {
     let kore = compile(sentences);
     let mut backend = Backend::new(&kore, "P", BackendOptions::default()).unwrap();
     let state = parse_pattern(&format!(
@@ -331,12 +345,16 @@ fn run(sentences: &str, n: i64) -> Vec<(String, String)> {
             ..ExecuteRequest::new(state)
         })
         .unwrap();
-    let mut leaves: Vec<(String, String)> = result
+    let mut leaves: Vec<(String, String, String)> = result
         .leaves
         .iter()
         .map(|leaf| {
             let state = codec::from_value(&leaf.state).unwrap();
-            (format!("{:?}", leaf.reason), k_cell(&state))
+            (
+                format!("{:?}", leaf.reason),
+                k_cell(&state),
+                Printer::compact().print_pattern(&state),
+            )
         })
         .collect();
     leaves.sort();
@@ -367,6 +385,7 @@ fn k_cell(state: &Pattern) -> String {
                 }
             },
             Pattern::DomainValue { value, .. } => value.as_utf8().unwrap().to_owned(),
+            Pattern::Variable(_) => "var".to_owned(),
             other => format!("{other:?}"),
         }
     }
@@ -670,4 +689,173 @@ fn the_llvm_target_compiles_a_mixed_equality_as_before() {
             &format!("\\equals{{SortBool{{}}, {TOP}}}("),
         );
     }
+}
+
+// ---------------------------------------------------------------- disjunctions in conditions
+
+/// The variables named like a guard alias (`_Gen<N>`) that `term` holds.
+fn generated_variables(term: &Term) -> Vec<String> {
+    let mut names = Vec::new();
+    term.visit_preorder(&mut |node| {
+        if let Term::Variable { name, .. } = node.unannotated()
+            && name.starts_with("_Gen")
+            && !names.contains(name)
+        {
+            names.push(name.clone());
+        }
+    });
+    names
+}
+
+/// A condition is matched against nothing, so no variable that only a condition holds can name a
+/// matched term: every generated variable of a compiled rule's or context's conditions is one of
+/// its body's. `sentences` hold no anonymous variable, the other source of `_Gen` names.
+#[track_caller]
+fn assert_conditions_hold_no_alias(sentences: &str) {
+    let artifacts = compile_artifacts(sentences, CompilationBackend::Rust);
+    let mut checked = 0;
+    for module in &artifacts.execution_definition.modules {
+        for sentence in &module.local_sentences {
+            let (body, conditions) = match sentence.as_ref() {
+                Sentence::Rule {
+                    body,
+                    requires,
+                    ensures,
+                    ..
+                } => (body, vec![requires, ensures]),
+                Sentence::Context { body, requires, .. } => (body, vec![requires]),
+                _ => continue,
+            };
+            let bound = generated_variables(body);
+            for condition in conditions {
+                checked += 1;
+                for name in generated_variables(condition) {
+                    assert!(
+                        bound.contains(&name),
+                        "the condition {condition:?} holds {name}, which its body {body:?} does not hold"
+                    );
+                }
+            }
+        }
+    }
+    assert!(checked > 0, "no rule was compiled");
+}
+
+const ONE_OR_TWO: &str = "(X ==Int 1) #Or (X ==Int 2)";
+
+/// An equation whose condition is a disjunction of Bool terms applies wherever one of them is
+/// true: f(1) and f(2) are 1, and f(3) has no equation that applies.
+#[test]
+fn an_equation_with_a_bool_term_disjunction_in_its_requires_applies() {
+    let sentences = format!("{F}  rule [p]: f(X) => 1 requires {ONE_OR_TWO}\n{G}");
+    assert_eq!(run(&sentences, 1), stuck("done(1)"));
+    assert_eq!(run(&sentences, 2), stuck("done(1)"));
+    let three = run(&sentences, 3);
+    assert!(
+        three.contains(&("Stuck".to_owned(), "done(f(3))".to_owned())),
+        "f(3) stays unevaluated: {three:?}"
+    );
+    assert!(
+        !three.iter().any(|(_, term)| term == "done(1)"),
+        "{three:?}"
+    );
+}
+
+/// The same disjunction introduced by a macro is the same condition.
+#[test]
+fn a_macro_introduced_disjunction_gives_the_same_equation() {
+    let direct = format!("{F}  rule [p]: f(X) => 1 requires {ONE_OR_TWO}\n{G}");
+    let macro_sentences = format!(
+        "  syntax Bool ::= oneOrTwo(Int) [macro]\n  rule oneOrTwo(X) => {ONE_OR_TWO}\n{F}  rule [p]: f(X) => 1 requires oneOrTwo(X)\n{G}"
+    );
+    for n in 1..=3 {
+        assert_eq!(run(&macro_sentences, n), run(&direct, n), "go({n})");
+    }
+}
+
+/// A rewrite rule with a Bool-term disjunction in its requires steps exactly where it holds, and
+/// its leaf carries no constraint over a variable the condition introduced.
+#[test]
+fn a_rule_with_a_bool_term_disjunction_steps_without_a_residual_alias() {
+    let sentences = format!("  rule [p]: <k> go(X) => done(X) ... </k> requires {ONE_OR_TWO}\n");
+    for n in [1, 2] {
+        let leaves = run_states(&sentences, n);
+        assert_eq!(leaves.len(), 1, "go({n}): {leaves:?}");
+        let (reason, k, state) = &leaves[0];
+        assert_eq!(
+            (reason.as_str(), k.as_str()),
+            ("Stuck", format!("done({n})").as_str())
+        );
+        assert!(!state.contains("Unds'Gen"), "go({n}): {state}");
+    }
+    assert_eq!(run(&sentences, 3), stuck("go(3)"));
+}
+
+/// An existential ensures that is a disjunction: the step reaches done(?W) under that
+/// disjunction (no alias states it false on every instance).
+#[test]
+fn an_existential_ensures_disjunction_constrains_the_new_value() {
+    let sentences =
+        "  rule [p]: <k> go(0) => done(?W) ... </k> ensures (?W ==Int 1) #Or (?W ==Int 2)\n";
+    let leaves = run_states(sentences, 0);
+    // A build that cannot decide whether the ensures is satisfiable may also report the step as
+    // possibly undefined (Trivial at the pre-state); the meaning neither requires nor excludes it.
+    let (reached, undecided): (Vec<_>, Vec<_>) = leaves
+        .iter()
+        .partition(|(reason, _, _)| reason != "Trivial");
+    assert!(undecided.iter().all(|(_, k, _)| k == "go(0)"), "{leaves:?}");
+    assert_eq!(reached.len(), 1, "{leaves:?}");
+    let (reason, k, state) = reached[0];
+    assert_eq!((reason.as_str(), k.as_str()), ("Stuck", "done(var)"));
+    assert!(
+        state.contains(&int("1")) && state.contains(&int("2")),
+        "{state}"
+    );
+    assert!(!state.contains("Unds'Gen"), "{state}");
+}
+
+/// No compiled condition holds a guard alias: rule, equation, simplification and context
+/// conditions with a disjunction, and a rule with a disjunction at a shared position (outside its
+/// rewrite, so the right side reuses the matched term through the alias) beside a disjunction in
+/// its requires.
+#[test]
+fn compiled_conditions_hold_no_guard_alias() {
+    let conditions = [
+        ONE_OR_TWO,
+        "{X #Equals 1} #Or {X #Equals 2}",
+        "{X #Equals 1} #Or (X ==Int 2)",
+        "#Forall Y:Int . (#Not({Y #Equals X}) #Or {Y #Equals X})",
+    ];
+    for condition in conditions {
+        assert_conditions_hold_no_alias(&format!(
+            "  rule [p]: <k> go(X) => done(X) ... </k> requires {condition}\n"
+        ));
+        assert_conditions_hold_no_alias(&format!(
+            "{F}  rule [p]: f(X) => X requires {condition}\n{G}"
+        ));
+        assert_conditions_hold_no_alias(&format!(
+            "{F}  rule [p]: f(X) => X requires {condition} [simplification]\n{G}"
+        ));
+    }
+    assert_conditions_hold_no_alias(
+        "  syntax Exp ::= Int | e(Int) [symbol(e)]\n  syntax KResult ::= Int\n  syntax KItem ::= c2(Int, Exp) [symbol(c2)]\n  rule [e]: <k> e(N) => N ... </k>\n  rule [g]: <k> go(N) => c2(N, e(N)) ... </k>\n  context [p]: c2(N:Int, HOLE:Exp) requires (N ==Int 1) #Or (N ==Int 2)\n",
+    );
+    let shared = format!(
+        "  syntax KItem ::= pair(Int, Int) [symbol(pair)]\n  rule [p]: <k> pair(1 #Or 2, (X => 0)) ... </k> requires {ONE_OR_TWO}\n"
+    );
+    assert_conditions_hold_no_alias(&shared);
+    let artifacts = compile_artifacts(&shared, CompilationBackend::Rust);
+    let aliased = artifacts
+        .execution_definition
+        .modules
+        .iter()
+        .filter(|module| module.name == "P")
+        .flat_map(|module| &module.local_sentences)
+        .filter_map(|sentence| match sentence.as_ref() {
+            Sentence::Rule { body, .. } => Some(generated_variables(body)),
+            _ => None,
+        })
+        .filter(|names| !names.is_empty())
+        .count();
+    assert_eq!(aliased, 1, "the shared disjunction keeps its alias");
 }

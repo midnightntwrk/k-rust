@@ -51,7 +51,12 @@
 //!
 //! Independently of PENDING, the compiled KORE of every `Accept` cell must write each condition
 //! as the predicate it states: no `\equals{SortBool{}, R}(P, ..)` whose operand P is a
-//! matching-logic pattern (the root encoding of a whole condition as one Bool term).
+//! matching-logic pattern (the root encoding of a whole condition as one Bool term). And the
+//! compiled KORE of every cell that compiles must hold no axiom whose result side (a rewrite's
+//! right side, an equation's value and `ensures`) has a free generated variable (`_Gen<N>`) that
+//! its matched side does not hold: such a variable, universal over the axiom, would make the
+//! result empty (a guard alias of a disjunction in an `ensures`). This holds independently of the
+//! kompile invariant R3, which catches the same defect only where kompile invariants run.
 //!
 //! # PENDING
 //!
@@ -92,7 +97,11 @@ use k_rust::{
         CompilationBackend, CompileOptions, CompileSearchPatternError, compile_loaded_definition,
         compile_search_pattern,
     },
-    kore::{ast::Pattern, codec},
+    kore::{
+        ast::{Pattern, Sentence as KoreSentence},
+        codec,
+        parser::parse_definition,
+    },
     outer::{
         LoadOptions, LoadedDefinition, ResolvedSource, load_for_compilation, load_with_options,
     },
@@ -366,36 +375,6 @@ const CELL_COUNT: usize = 507;
 /// and the builds in which it deviates (see the module documentation).
 #[rustfmt::skip]
 pub const PENDING: &[(&str, &str, Class, Class)] = &[
-    // MLP/1 (29): guard_or_patterns aliases a disjunction in a condition: R3 panics in debug, the equation is never applied, or the predicate form fails sort inference on `_Gen0`.
-    ("cond/claim-ensures__exists-or-bt", "MLP/1", Class::Panic, Class::Panic),
-    ("cond/fun-ensures__fa-pr", "MLP/1", Class::Panic, Class::Panic),
-    ("cond/fun-ensures__or-bt", "MLP/1", Class::Panic, Class::Panic),
-    ("cond/fun-ensures__or-mix", "MLP/1", Class::Panic, Class::Panic),
-    ("cond/fun-ensures__or-pr", "MLP/1", Class::Panic, Class::Panic),
-    ("cond/fun-requires__fa-pr", "MLP/1", Class::Refused, Class::Refused),
-    ("cond/fun-requires__or-bt", "MLP/1", Class::Undecided, Class::Undecided),
-    ("cond/fun-requires__or-mix", "MLP/1", Class::Undecided, Class::Undecided),
-    ("cond/fun-requires__or-pr", "MLP/1", Class::Refused, Class::Refused),
-    ("cond/fun-requires__partial-or", "MLP/1", Class::Undecided, Class::Undecided),
-    ("cond/owise-requires__or-bt", "MLP/1", Class::Undecided, Class::Undecided),
-    ("cond/rule-ensures__exists-or-bt", "MLP/1", Class::Panic, Class::Panic),
-    ("cond/rule-ensures__fa-pr", "MLP/1", Class::Panic, Class::Panic),
-    ("cond/rule-ensures__or-bt", "MLP/1", Class::Panic, Class::Panic),
-    ("cond/rule-ensures__or-mix", "MLP/1", Class::Panic, Class::Panic),
-    ("cond/rule-ensures__or-pr", "MLP/1", Class::Panic, Class::Panic),
-    ("cond/rule-requires__fa-pr", "MLP/1", Class::Refused, Class::Refused),
-    ("cond/rule-requires__or-bt", "MLP/1", Class::Undecided, Class::Conforms),
-    ("cond/rule-requires__or-mix", "MLP/1", Class::Undecided, Class::Conforms),
-    ("cond/rule-requires__or-pr", "MLP/1", Class::Refused, Class::Refused),
-    ("cond/rule-requires__partial-or", "MLP/1", Class::Undecided, Class::Conforms),
-    ("cond/simp-ensures__fa-pr", "MLP/1", Class::Panic, Class::Panic),
-    ("cond/simp-ensures__or-bt", "MLP/1", Class::Panic, Class::Panic),
-    ("cond/simp-ensures__or-mix", "MLP/1", Class::Panic, Class::Panic),
-    ("cond/simp-ensures__or-pr", "MLP/1", Class::Panic, Class::Panic),
-    ("cond/simp-requires__fa-pr", "MLP/1", Class::Refused, Class::Refused),
-    ("cond/simp-requires__or-bt", "MLP/1", Class::Undecided, Class::Undecided),
-    ("cond/simp-requires__or-mix", "MLP/1", Class::Undecided, Class::Undecided),
-    ("cond/simp-requires__or-pr", "MLP/1", Class::Refused, Class::Refused),
     // MLP/2 (19): a predicate context condition is conjoined by `_andBool_`: Backend::new refuses it, or the context never heats.
     ("cond/context-requires__and-bt", "MLP/2", Class::Undecided, Class::Undecided),
     ("cond/context-requires__and-pr", "MLP/2", Class::Refused, Class::Refused),
@@ -428,6 +407,7 @@ pub const PENDING: &[(&str, &str, Class, Class)] = &[
     // MLP/4 (147): shapes no k-rust route loads or the backend misreads: refused at compile with MlConstructPosition.
     // Since MLP/8 the backend refuses at load, naming the axiom, an #Equals with a connective operand and a connective over terms conjoined at a matched or shared position (Refused).
     // An #Equals on a condition's spine whose operands are not both terms or both predicates is refused at compile since MLP/3, without that code (Refused).
+    // Since MLP/1 (no guard alias in a condition): the `__or-inner` ensures are refused at Backend::new instead of panicking.
     ("cond/claim-ensures__as", "MLP/4", Class::Conforms, Class::Refused),
     ("cond/claim-ensures__fun", "MLP/4", Class::Refused, Class::Refused),
     ("cond/claim-ensures__let", "MLP/4", Class::Refused, Class::Refused),
@@ -452,7 +432,7 @@ pub const PENDING: &[(&str, &str, Class, Class)] = &[
     ("cond/context-requires__or-inner", "MLP/4", Class::Refused, Class::Refused),
     ("cond/context-requires__predarg", "MLP/4", Class::Refused, Class::Refused),
     ("cond/fun-ensures__as", "MLP/4", Class::Conforms, Class::Refused),
-    ("cond/fun-ensures__or-inner", "MLP/4", Class::Panic, Class::Panic),
+    ("cond/fun-ensures__or-inner", "MLP/4", Class::Refused, Class::Refused),
     ("cond/fun-ensures__predarg", "MLP/4", Class::Refused, Class::Refused),
     ("cond/fun-requires__as", "MLP/4", Class::Conforms, Class::Undecided),
     ("cond/fun-requires__ceilop-and", "MLP/4", Class::Wrong, Class::Wrong),
@@ -468,7 +448,7 @@ pub const PENDING: &[(&str, &str, Class, Class)] = &[
     ("cond/fun-requires__or-inner", "MLP/4", Class::Refused, Class::Refused),
     ("cond/fun-requires__predarg", "MLP/4", Class::Refused, Class::Refused),
     ("cond/rule-ensures__as", "MLP/4", Class::Conforms, Class::Refused),
-    ("cond/rule-ensures__or-inner", "MLP/4", Class::Panic, Class::Panic),
+    ("cond/rule-ensures__or-inner", "MLP/4", Class::Refused, Class::Refused),
     ("cond/rule-ensures__predarg", "MLP/4", Class::Refused, Class::Refused),
     ("cond/rule-requires__as", "MLP/4", Class::Conforms, Class::Accepted),
     ("cond/rule-requires__ceilop-and", "MLP/4", Class::Wrong, Class::Wrong),
@@ -484,7 +464,7 @@ pub const PENDING: &[(&str, &str, Class, Class)] = &[
     ("cond/rule-requires__or-inner", "MLP/4", Class::Refused, Class::Refused),
     ("cond/rule-requires__predarg", "MLP/4", Class::Refused, Class::Refused),
     ("cond/simp-ensures__as", "MLP/4", Class::Conforms, Class::Refused),
-    ("cond/simp-ensures__or-inner", "MLP/4", Class::Panic, Class::Panic),
+    ("cond/simp-ensures__or-inner", "MLP/4", Class::Refused, Class::Refused),
     ("cond/simp-ensures__predarg", "MLP/4", Class::Refused, Class::Refused),
     ("cond/simp-requires__as", "MLP/4", Class::Conforms, Class::Undecided),
     ("cond/simp-requires__or-inner", "MLP/4", Class::Refused, Class::Refused),
@@ -971,12 +951,14 @@ fn prove(backend: &mut Backend, claim: &str) -> Result<String, String> {
     }
 }
 
-/// The cell's outcome, and the first condition its compiled KORE writes in the root encoding
-/// (see [`root_encoding`]) when it compiles.
-fn observe(cell: &CellSpec) -> (Outcome, Option<String>) {
+/// The cell's outcome, the first condition its compiled KORE writes in the root encoding (see
+/// [`root_encoding`]) and the first axiom with an unbound generated variable (see
+/// [`unbound_generated_variable`]), when it compiles.
+fn observe(cell: &CellSpec) -> (Outcome, Option<String>, Option<String>) {
     let mut encoded = None;
-    let result = guarded(|| observe_unguarded(cell, &mut encoded));
-    (result.unwrap_or_else(Outcome::Panic), encoded)
+    let mut unbound = None;
+    let result = guarded(|| observe_unguarded(cell, &mut encoded, &mut unbound));
+    (result.unwrap_or_else(Outcome::Panic), encoded, unbound)
 }
 
 /// The first `\equals{SortBool{}, R}(P, ..)` of `kore` whose left operand P is a matching-logic
@@ -1003,7 +985,62 @@ fn root_encoding(kore: &str) -> Option<String> {
     None
 }
 
-fn observe_unguarded(cell: &CellSpec, encoded: &mut Option<String>) -> Outcome {
+/// The first axiom of `kore` whose result side holds a generated variable (`_Gen<N>`, the name
+/// of a guard alias or of an anonymous variable) free in the axiom that its matched side does not
+/// hold. Such a variable is universally quantified over the whole axiom, so the axiom states its
+/// result for every value of it; a variable of a result that no match binds (a guard alias of a
+/// disjunction in an `ensures`) makes the result, read for every value, empty. The matched side
+/// is the first operand of `\rewrites`, and of `\implies` the premise together with the left
+/// operand of the conclusion's `\equals` (the function application an equation defines); the
+/// result side is the rest of the axiom.
+fn unbound_generated_variable(kore: &str) -> Option<String> {
+    let definition = parse_definition(kore).expect("compiled KORE parses");
+    for module in &definition.modules {
+        for sentence in &module.sentences {
+            let KoreSentence::Axiom { pattern, .. } = sentence else {
+                continue;
+            };
+            let (matched, result): (Vec<&Pattern>, &Pattern) = match pattern.as_ref() {
+                Pattern::Rewrites { left, right, .. } => (vec![left], right),
+                Pattern::Implies { left, right, .. } => match right.as_ref() {
+                    Pattern::Equals {
+                        left: defined,
+                        right: value,
+                        ..
+                    } => (vec![left, defined], value),
+                    _ => (vec![left], right),
+                },
+                _ => continue,
+            };
+            let bound: BTreeSet<String> = matched
+                .iter()
+                .flat_map(|side| side.free_variables())
+                .map(|variable| variable.name)
+                .collect();
+            if let Some(variable) = result.free_variables().into_iter().find(|variable| {
+                variable.name.starts_with("Var'Unds'Gen") && !bound.contains(&variable.name)
+            }) {
+                let text = kore_text(pattern);
+                return Some(format!(
+                    "{} in {}",
+                    variable.name,
+                    text.chars().take(240).collect::<String>()
+                ));
+            }
+        }
+    }
+    None
+}
+
+fn kore_text(pattern: &Pattern) -> String {
+    k_rust::kore::printer::Printer::compact().print_pattern(pattern)
+}
+
+fn observe_unguarded(
+    cell: &CellSpec,
+    encoded: &mut Option<String>,
+    unbound: &mut Option<String>,
+) -> Outcome {
     let loaded = match load(cell) {
         Ok(loaded) => loaded,
         Err(message) => return Outcome::LoadRefused(message),
@@ -1029,6 +1066,7 @@ fn observe_unguarded(cell: &CellSpec, encoded: &mut Option<String>) -> Outcome {
         }
     };
     *encoded = root_encoding(&artifacts.definition_kore);
+    *unbound = unbound_generated_variable(&artifacts.definition_kore);
     let main = if cell.route == Route::Kprove {
         "P-SPEC"
     } else {
@@ -1460,11 +1498,18 @@ fn run_shard(shard: &str, cells: Vec<CellSpec>) {
     let mut lines = Vec::new();
     let mut counts = BTreeMap::new();
     for cell in &cells {
-        let (outcome, encoded) = observe(cell);
+        let (outcome, encoded, unbound) = observe(cell);
         let verdict = conforms(cell, build, &outcome);
         if let (Expect::Accept { .. }, Some(snippet)) = (&cell.expect, &encoded) {
             failures.push(format!(
                 "{} ({}) compiles a condition in the root encoding: {snippet}",
+                cell.name,
+                build.name()
+            ));
+        }
+        if let Some(snippet) = &unbound {
+            failures.push(format!(
+                "{} ({}) compiles an axiom whose result holds a generated variable its matched side does not bind: {snippet}",
                 cell.name,
                 build.name()
             ));
