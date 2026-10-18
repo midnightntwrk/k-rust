@@ -191,6 +191,63 @@ pub(crate) fn is_impure_symbol(definition: &BackendDefinition, symbol: &Symbol) 
             .is_some_and(|hook| hook.starts_with("IO."))
 }
 
+/// Whether `term` holds an application that may perform a console effect when it is
+/// evaluated: of a console hook (`IO.getc`, `IO.read`, `IO.putc`, `IO.write`), or of a symbol
+/// the definition declares `impure`. Every `IO.` hook is `impure`, so this over-approximates the
+/// console effects, which is sound for the marks it decides. Its completeness rests on the
+/// frontend propagating `impure` to every function whose equations reach an impure symbol: the
+/// backend reads the declared attribute only.
+///
+/// The walk stops at every constructor-like subterm (a domain value, a free-constructor
+/// application, a collection of them), which holds no application of a function, so it visits
+/// only the subterms that may hold one: a large evaluated state is one node. It keeps one work
+/// list per call, which allocates only when a node has children to visit, and none per node.
+pub(crate) fn holds_console_effect(definition: &BackendDefinition, term: &Term) -> bool {
+    let mut pending: Vec<&Term> = Vec::new();
+    let mut next = Some(term);
+    while let Some(term) = next.take().or_else(|| pending.pop()) {
+        #[cfg(test)]
+        tests::CONSOLE_SCAN_NODES.with(|count| count.set(count.get() + 1));
+        if term.attributes().constructor_like {
+            continue;
+        }
+        match term.kind() {
+            TermKind::Application {
+                symbol, arguments, ..
+            } => {
+                if definition.is_impure(&symbol.name)
+                    || matches!(
+                        symbol.attributes.hook.as_deref(),
+                        Some("IO.getc" | "IO.read" | "IO.putc" | "IO.write")
+                    )
+                {
+                    return true;
+                }
+                pending.extend(arguments.iter());
+            }
+            TermKind::And(left, right) => pending.extend([left, right]),
+            TermKind::Injection { term, .. } => next = Some(term),
+            TermKind::Map { entries, rest, .. } => {
+                pending.extend(entries.iter().flat_map(|(key, value)| [key, value]));
+                pending.extend(rest);
+            }
+            TermKind::List { heads, rest, .. } => {
+                pending.extend(heads.iter());
+                if let Some((middle, tails)) = rest {
+                    pending.push(middle);
+                    pending.extend(tails.iter());
+                }
+            }
+            TermKind::Set { elements, rest, .. } => {
+                pending.extend(elements.iter());
+                pending.extend(rest);
+            }
+            TermKind::DomainValue { .. } | TermKind::Variable(_) => {}
+        }
+    }
+    false
+}
+
 /// Whether `application`, a console hook application, has arguments in the console's domain,
 /// where it denotes an element whatever the console holds (domains.md: an IO operation returns
 /// its result or an `IOError`): `#write`/`#putc` on descriptor 1 or 2 with code points in
@@ -1537,16 +1594,19 @@ mod tests {
         definition::BackendDefinition,
         evaluation::EvaluationMode,
         proof::{ProofOptions, ProofStatus, prove_claim},
-        rewrite::{ExecutionOptions, Pattern, execute},
+        rewrite::{ExecutionOptions, Pattern, execute, execute_with_io_state},
         smt::NoSolver,
         stop::{CancellationToken, StopCause},
         term::{Sort, Symbol, Term, TermKind},
+        transition::ExecutionIoState,
     };
     use std::sync::Arc;
 
     thread_local! {
         /// Test builds: the evaluator calls [`super::evaluate_pure_hook`] made on this thread.
         pub(super) static HOOK_EVALUATIONS: Cell<usize> = const { Cell::new(0) };
+        /// Test builds: the nodes [`super::holds_console_effect`] visited on this thread.
+        pub(super) static CONSOLE_SCAN_NODES: Cell<usize> = const { Cell::new(0) };
     }
 
     fn hook_evaluations() -> usize {
@@ -1848,5 +1908,114 @@ mod tests {
             [1, 1, 0]
         );
         assert_eq!(one_read(&definition, &at_state), 1);
+    }
+
+    /// `loop(I, M) => loop(I -Int 1, #if true #then M #else M #fi)` while `I > 0`: every step
+    /// decides an `#if` whose discarded operand is the map `M`.
+    fn map_loop_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-sort SortMap{}
+                    [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
+                hooked-symbol mapUnit{}() : SortMap{} [function{}(), total{}(), hook{}("MAP.unit")]
+                hooked-symbol mapItem{}(SortInt{}, SortInt{}) : SortMap{}
+                    [function{}(), total{}(), hook{}("MAP.element")]
+                hooked-symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
+                    [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
+                hooked-symbol subInt{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), total{}(), hook{}("INT.sub"), smt-hook{}("-")]
+                hooked-symbol gtInt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.gt"), smt-hook{}(">")]
+                hooked-symbol ite{}(SortBool{}, SortMap{}, SortMap{}) : SortMap{}
+                    [function{}(), total{}(), hook{}("KEQUAL.ite")]
+                sort SortState{} []
+                symbol loop{}(SortInt{}, SortMap{}) : SortState{} [constructor{}()]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(
+                        loop{}(I:SortInt{}, M:SortMap{}),
+                        \equals{SortBool{}, SortState{}}(
+                            gtInt{}(I:SortInt{}, \dv{SortInt{}}("0")),
+                            \dv{SortBool{}}("true")
+                        )
+                    ),
+                    loop{}(
+                        subInt{}(I:SortInt{}, \dv{SortInt{}}("1")),
+                        ite{}(\dv{SortBool{}}("true"), M:SortMap{}, M:SortMap{})
+                    )
+                ) [label{}("step")]
+            endmodule []"#,
+        )
+        .expect("the definition parses");
+        BackendDefinition::internalize(&syntax, "MAIN").expect("the definition internalizes")
+    }
+
+    #[test]
+    fn the_effect_scan_of_a_decided_if_stops_at_a_constructor_like_operand() {
+        // In a run with a console, each step scans the discarded `M`, a map of 20000 bindings of
+        // literals, for a console effect (`super::holds_console_effect`). `M` is constructor-like
+        // and so holds no function application: the scan visits its root alone, one node per
+        // step, rather than the 40001 nodes of the map.
+        const STEPS: usize = 50;
+        const BINDINGS: usize = 20_000;
+        let definition = map_loop_definition();
+        let small = term(
+            &definition,
+            r#"mapItem{}(\dv{SortInt{}}("0"), \dv{SortInt{}}("0"))"#,
+        );
+        let TermKind::Map {
+            definition: map_definition,
+            ..
+        } = small.kind()
+        else {
+            panic!("{small:?} is no map");
+        };
+        let map = Term::map(
+            map_definition.clone(),
+            (0..BINDINGS)
+                .map(|index| (Term::int(index), Term::int(index)))
+                .collect(),
+            None,
+        );
+        assert!(map.attributes().constructor_like);
+        let TermKind::Application { symbol, .. } =
+            term(&definition, r#"loop{}(\dv{SortInt{}}("0"), mapUnit{}())"#)
+                .kind()
+                .clone()
+        else {
+            panic!("loop is an application");
+        };
+        let initial = |steps: usize| {
+            Term::application(
+                symbol.clone(),
+                Vec::new(),
+                vec![Term::int(steps), map.clone()],
+            )
+        };
+        let before = CONSOLE_SCAN_NODES.with(Cell::get);
+        let result = execute_with_io_state(
+            &definition,
+            Pattern {
+                term: initial(STEPS),
+                constraints: Vec::new(),
+            },
+            ExecutionOptions {
+                evaluation: EvaluationMode::Execution,
+                ..ExecutionOptions::default()
+            },
+            ExecutionIoState::new(Vec::new()),
+        );
+        let scanned = CONSOLE_SCAN_NODES.with(Cell::get) - before;
+        let [leaf] = result.leaves.as_slice() else {
+            panic!("{:?}", result.leaves);
+        };
+        assert_eq!(leaf.pattern.term, initial(0));
+        assert!(result.implementation_chosen_values.is_empty());
+        assert_eq!(
+            scanned, STEPS,
+            "nodes the effect scans visited over {STEPS} steps"
+        );
     }
 }

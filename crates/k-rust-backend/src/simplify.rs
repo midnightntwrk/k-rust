@@ -4807,6 +4807,17 @@ fn top_equation_instance(
     ))
 }
 
+/// Note that the path met an effect order the definition leaves open
+/// ([`crate::builtin::ChosenClass::EffectOrder`]): a console effect of an operand that a decided
+/// `andBool`, `orBool` or `impliesBool` (`hook`) made irrelevant was performed, or one that such
+/// a connective or a decided `#if` (`KEQUAL.ite`) left unevaluated was not, in a run with a
+/// console ([`crate::evaluation::console_attached`]).
+fn note_effect_order(hook: &str) {
+    crate::path_facts::note(crate::path_facts::PathFact::ChosenValue(
+        crate::builtin::ChosenValue::new(Arc::from(hook), crate::builtin::ChosenClass::EffectOrder),
+    ));
+}
+
 #[allow(clippy::too_many_arguments)]
 fn simplify_children(
     definition: &BackendDefinition,
@@ -4823,11 +4834,18 @@ fn simplify_children(
     // The refutation of a discarded short-circuit operand that builtin hooks show undefined,
     // absorbed once `child` is no longer borrowed.
     let mut discarded_bottom = None;
+    // Whether the latest `child` call changed the console as a process observes it (for the
+    // effect order of `andBool`, `orBool` and `impliesBool`, `note_effect_order`).
+    let child_moved_console = Cell::new(false);
     let mut child = |term: &Term| {
+        child_moved_console.set(false);
         if term.attributes().evaluated && !assumptions.path_condition.can_change(term) {
             measure::bump(Counter::SimplifyNodesSkippedEvaluated);
             return Ok::<_, Unwind<SimplificationError>>(term.clone());
         }
+        let console_before = execution
+            .as_deref()
+            .map(ExecutionEvaluationContext::observable_position);
         // The iteration limit bounds one fixed-point lineage, not the total amount of productive
         // work in an entire term. Siblings receive independent copies of the current budget, while
         // descendants produced by a rewrite inherit that rewrite's reduced budget. This permits
@@ -4842,8 +4860,14 @@ fn simplify_children(
             active_conditions,
             solver,
             execution.as_deref_mut(),
-        )?;
-        let result = accumulated.absorb(result);
+        );
+        child_moved_console.set(
+            execution
+                .as_deref()
+                .map(ExecutionEvaluationContext::observable_position)
+                != console_before,
+        );
+        let result = accumulated.absorb(result?);
         if accumulated.undefined_term.is_none() {
             accumulated.undefined_term = result.undefined_term;
             accumulated.contradicted_total = result.contradicted_total;
@@ -4901,6 +4925,17 @@ fn simplify_children(
                         if Some(position) == selected {
                             operands.push(child(operand)?);
                         } else if Some(position) == discarded {
+                            // A decided `#if` does not perform the console effects of the operand
+                            // it discards, which the contract leaves to the backend in a run with
+                            // a console, also where this simplification has none (a function
+                            // equation's condition); the short-circuit of `andThenBool` and
+                            // `orElseBool` is specified.
+                            if kind == ShortCircuit::Ite
+                                && crate::evaluation::console_attached()
+                                && crate::deferred::holds_console_effect(definition, operand)
+                            {
+                                note_effect_order("KEQUAL.ite");
+                            }
                             // Only its definedness is read (`crate::deferred`).
                             match crate::deferred::fold_hooks_for_definedness(definition, operand)?
                             {
@@ -4931,6 +4966,40 @@ fn simplify_children(
                 }
             }
             Term::application(symbol.clone(), sort_arguments.clone(), operands)
+        }
+        // `andBool`, `orBool` and `impliesBool` simplify both operands, left first, with their
+        // effects. Where the left one decides the value (`false andBool B`, `true orBool B`,
+        // `false impliesBool B`, which is `notBool false orBool B`), whether `B`'s console effects
+        // happen is left to the backend, so a path rests on that choice when they changed the
+        // console, or when the run has a console and `B` still holds an effect k-rust did not
+        // perform (this simplification has no console, as in a function equation's condition).
+        // Only a deciding left operand matters: every admitted order evaluates the left operand,
+        // since short-circuiting skips only the right one, so `B andBool false` is determined.
+        TermKind::Application {
+            symbol,
+            sort_arguments,
+            arguments,
+        } if arguments.len() == 2
+            && let Some(hook @ ("BOOL.and" | "BOOL.or" | "BOOL.implies")) =
+                symbol.attributes.hook.as_deref() =>
+        {
+            let left = child(&arguments[0])?;
+            let right = child(&arguments[1]);
+            // A right operand whose simplification failed, as a console hook does where this
+            // simplification has no console, performed nothing; the solver may still decide the
+            // connective from the left operand alone.
+            if bool_literal(&left) == Some(hook == "BOOL.or")
+                && (child_moved_console.get()
+                    || (crate::evaluation::console_attached()
+                        && crate::deferred::holds_console_effect(
+                            definition,
+                            right.as_ref().unwrap_or(&arguments[1]),
+                        )))
+            {
+                note_effect_order(hook);
+            }
+            let right = right?;
+            Term::application(symbol.clone(), sort_arguments.clone(), vec![left, right])
         }
         TermKind::Application {
             symbol,
