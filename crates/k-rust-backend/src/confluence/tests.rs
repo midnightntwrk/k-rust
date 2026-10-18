@@ -1339,6 +1339,88 @@ fn group_counts_sum_to_the_totals() {
     }
 }
 
+/// Three priority groups at the index `f` (priority 10, the default, owise), a simplification
+/// equation of `f`, and a bare-variable equation `listConcat(L, listUnit) = listUnit` beside
+/// `hl(z) = listItem(1)`. Under `CheckScope::All` each group of `f` is counted apart: its root
+/// pairs are formed within it and never across the priorities, so only the default group's two
+/// equations make a root pair. The simplification equation is in no group and no count. The
+/// bare-variable equation has its own group at `TermIndex::Variable`, and its root overlap with
+/// `hl(z) = listItem(1)` (both apply at the root of `hl(z)`) is formed in neither group: the
+/// precondition row for the Variable index is what says so.
+#[test]
+fn group_counts_keep_priorities_and_the_bare_variable_group_apart() {
+    use super::{CheckScope, GroupKey, ViolationKind};
+    use crate::rule::TermIndex;
+    let nat = ("SortNat{}", "SortNat{}");
+    let variable = r#"axiom{R} \implies{R}(
+            \and{R}(\top{R}(), \and{R}(\in{SortList{}, R}(X0:SortList{}, L:SortList{}),
+                \and{R}(\in{SortList{}, R}(X1:SortList{}, listUnit{}()), \top{R}()))),
+            \equals{SortList{}, R}(listConcat{}(X0:SortList{}, X1:SortList{}),
+                \and{SortList{}}(listUnit{}(), \top{SortList{}}()))
+        ) []"#;
+    let definition = definition(&format!(
+        "symbol hl{{}}(SortNat{{}}) : SortList{{}} [function{{}}()] {variable} {} {} {} {} {} {}",
+        unary_equation("f", nat, "z{}()", "z{}()", r#"priority{}("10")"#),
+        unary_equation("f", nat, "s{}(X:SortNat{})", "X:SortNat{}", ""),
+        unary_equation("f", nat, "s{}(z{}())", "z{}()", ""),
+        unary_equation("f", nat, "X:SortNat{}", "z{}()", "owise{}()"),
+        unary_equation(
+            "f",
+            nat,
+            "k{}(X:SortNat{}, Y:SortNat{})",
+            "z{}()",
+            "simplification{}()"
+        ),
+        unary_equation(
+            "hl",
+            ("SortNat{}", "SortList{}"),
+            "z{}()",
+            r#"listItem{}(\dv{SortElement{}}("1"))"#,
+            ""
+        ),
+    ));
+    let claims = definition.value_claims_in_scope(CheckScope::All);
+    let at = |index: TermIndex, priority: u8| {
+        claims
+            .group_counts()
+            .get(&GroupKey { index, priority })
+            .copied()
+            .unwrap_or_else(|| panic!("{:?}", claims.group_counts()))
+    };
+    let f = |priority| at(TermIndex::Symbol("f".into()), priority);
+    let shape = |group: super::GroupCounts| (group.equations, group.root_pairs, group.not_joined);
+    assert_eq!(shape(f(10)), (1, 0, 0), "{:?}", f(10));
+    assert_eq!(shape(f(50)), (2, 1, 0), "{:?}", f(50));
+    assert_eq!(f(50).joined, 1, "{:?}", f(50));
+    assert_eq!(shape(f(255)), (1, 0, 0), "{:?}", f(255));
+    let f_groups = claims
+        .group_counts()
+        .keys()
+        .filter(|key| key.index == TermIndex::Symbol("f".into()))
+        .count();
+    assert_eq!(f_groups, 3, "{:?}", claims.group_counts());
+    let hl = at(TermIndex::Symbol("hl".into()), 50);
+    let variable = at(TermIndex::Variable, 50);
+    assert_eq!(shape(hl), (1, 0, 0), "{hl:?}");
+    assert_eq!(shape(variable), (1, 0, 0), "{variable:?}");
+    // The groups of `f` hold its four executable equations, not the simplification equation,
+    // and the groups together count exactly the check's executable equations.
+    assert_eq!(f(10).equations + f(50).equations + f(255).equations, 4);
+    assert_eq!(
+        summed_group_counts(&claims).equations,
+        claims.counts().equations
+    );
+    assert!(
+        claims
+            .violations()
+            .iter()
+            .any(|violation| violation.kind == ViolationKind::IndexedAt(TermIndex::Variable)),
+        "{:?}",
+        claims.violations()
+    );
+    assert!(claims.unjoined().is_empty(), "{:?}", claims.unjoined());
+}
+
 /// The head-free `f` with the complementary guards `X >Int 0` and `X <=Int 0`: its group's one
 /// root pair is refuted, and the group says so.
 #[test]

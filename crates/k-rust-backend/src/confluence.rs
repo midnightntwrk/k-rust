@@ -402,10 +402,9 @@ impl ValueClaims {
         }
     }
 
-    /// The work the check did in each index and priority group of executable equations, the
-    /// groups equation selection offers together and within which root pairs are formed; a
-    /// group that holds only `[symbolic]` function equations is listed too. Empty for a
-    /// withheld verdict.
+    /// The work the check did in each index and priority group of executable equations
+    /// ([`GroupKey`]), within which root pairs are formed; a group that holds only `[symbolic]`
+    /// function equations is listed too. Empty for a withheld verdict: nothing was classified.
     ///
     /// Summed over the groups, `equations` is [`CheckCounts::equations`], `root_pairs +
     /// inner_pairs` is [`CheckCounts::pairs`], `self_pairs` is [`CheckCounts::several_matches`],
@@ -414,9 +413,20 @@ impl ValueClaims {
     /// [`Self::unjoined`] that are not per-equation reports
     /// ([`UnjoinedReason::describes_one_equation`]); debug builds assert it on every check.
     /// Under [`CheckScope::All`] each group of `n` executable equations has `n(n-1)/2`
-    /// `root_pairs` and no `skipped` pair. The load's shortcut ([`CheckScope::Gate`] on a
-    /// definition where no pair can change a claim or be named) classifies and skips no pair, so
-    /// its groups count only their equations.
+    /// `root_pairs` and no `skipped` pair by construction: that scope forms and classifies every
+    /// root pair of every group. The identity is therefore no evidence that an overlap was
+    /// classified; checking it guards only against reading a [`CheckScope::Gate`] verdict. The
+    /// overlaps no group counts are those the [`CheckScope::All`] contract leaves unformed or
+    /// unpaired: an equation a precondition row of [`Self::violations`] reports (a bare-variable
+    /// equation is offered beside every index, and its root overlaps with other indexes are not
+    /// formed); `[symbolic]` function equations, simplification equations and rewrite rules,
+    /// which no check pairs; and root overlaps across the priority groups of one index, which
+    /// are not overlaps under the priority reading. A pair is counted only in its first
+    /// equation's group ([`GroupCounts`]), so the non-joined pairs touching one equation are
+    /// [`Self::unjoined`] filtered by [`UnjoinedPair::first`] and [`UnjoinedPair::second`].
+    /// The load's shortcut ([`CheckScope::Gate`] on a definition where no pair can change a
+    /// claim or be named) classifies and skips no pair, so its groups count only their
+    /// equations.
     #[must_use]
     pub fn group_counts(&self) -> &BTreeMap<GroupKey, GroupCounts> {
         static NONE: BTreeMap<GroupKey, GroupCounts> = BTreeMap::new();
@@ -686,8 +696,12 @@ impl CheckCounts {
     }
 }
 
-/// An index and priority group of the function theory: the equations equation selection offers
-/// together at a term whose index is `index`, at priority `priority`.
+/// An index and priority group of the function theory: the executable equations indexed at
+/// `index` with priority `priority`. Equation selection offers them, at a term with that index,
+/// together with the equations of the [`TermIndex::Variable`] group of the same priority, which
+/// the check does not root-pair with them (a precondition row reports each Variable-indexed
+/// equation, [`ValueClaims::violations`]). It is the lookup key of
+/// [`ValueClaims::group_counts`], so a client builds one to read a group.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct GroupKey {
     /// The index of the group's left-hand sides.
@@ -701,8 +715,10 @@ pub struct GroupKey {
 /// equations (an overload family's stage-1 pairs in their member's group), an inner pair in the
 /// group of the equation whose left-hand side holds the position (whatever group the second
 /// equation is in), a self pair in its equation's group. The precondition rows and the
-/// per-equation reports are not pairs and are not counted here.
+/// per-equation reports are not pairs and are not counted here. Fields may be added, so a client
+/// outside this crate reads one and cannot build or exhaustively destructure it.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[non_exhaustive]
 pub struct GroupCounts {
     /// The group's executable equations.
     pub equations: usize,
