@@ -352,6 +352,7 @@ test('searches and observes the persistent native backend graph', () => {
   assert.equal(backend.capabilities.smtUnknowns, true)
   assert.equal(backend.capabilities.implementationChosenValues, true)
   assert.equal(backend.execute({ state: a }).implementationChosenValues, undefined)
+  assert.equal(backend.search({ state: a }).implementationChosenValues, undefined)
   assert.equal(backend.execute({ state: a }).smtUnknowns, undefined)
   assert.equal(backend.execute({ state: a }).coverage, undefined)
   assert.deepEqual(backend.execute({ state: a, collectCoverage: true }).coverage, {

@@ -208,7 +208,7 @@ export interface BackendCapabilities {
   stackStops: boolean
   /** `execute` and `executeObserved` report `smtUnknowns`. */
   smtUnknowns: boolean
-  /** `execute` and `executeObserved` mark leaves with 'implementation-chosen-value' and report `implementationChosenValues`. */
+  /** `execute`, `executeObserved` and every search mark leaves, states, witnesses and matches with 'implementation-chosen-value' and report `implementationChosenValues`. */
   implementationChosenValues: boolean
 }
 
@@ -383,7 +383,8 @@ export interface ExecutionResult {
    * absent when none (docs/compatibility.md, "Implementation-chosen hook values"). It includes
    * the values read by work that ended on no reported leaf (a vanished candidate, a state a
    * `state-set` merge absorbed). When absent, every model of the definition that agrees with the
-   * request's inputs and k-rust's stated readings gives the run the same leaves.
+   * request's inputs and k-rust's stated readings gives the run the same leaves. In a run with
+   * `maxWork` or `maxBreadth` every leaf carries every value listed here.
    */
   implementationChosenValues?: ChosenValue[]
 }
@@ -670,6 +671,12 @@ export interface SearchResult {
   incomplete: SearchIncomplete[]
   /** Every initial state had no instance before any step; absent when false. */
   initialBottom?: true
+  /**
+   * Every distinct value the definition leaves open that the search read, in first-read order;
+   * absent when none. When absent, every model of the definition that agrees with the request's
+   * inputs and k-rust's stated readings gives the same results, entries and end.
+   */
+  implementationChosenValues?: ChosenValue[]
 }
 
 export interface PathSearchResult {
@@ -680,6 +687,12 @@ export interface PathSearchResult {
   incomplete: SearchIncomplete[]
   /** Every initial state had no instance before any step; absent when false. */
   initialBottom?: true
+  /**
+   * Every distinct value the definition leaves open that the search read, in first-read order;
+   * absent when none. When absent, every model of the definition that agrees with the request's
+   * inputs and k-rust's stated readings gives the same results, entries and end.
+   */
+  implementationChosenValues?: ChosenValue[]
 }
 
 export interface SearchMatch {
@@ -698,6 +711,12 @@ export interface PatternSearchResult {
   incomplete: SearchIncomplete[]
   /** Every initial state had no instance before any step; absent when false. */
   initialBottom?: true
+  /**
+   * Every distinct value the definition leaves open that the search read, in first-read order;
+   * absent when none. When absent, every model of the definition that agrees with the request's
+   * inputs and k-rust's stated readings gives the same results, entries and end.
+   */
+  implementationChosenValues?: ChosenValue[]
 }
 
 export interface PathSearchMatch {
@@ -716,6 +735,12 @@ export interface PathPatternSearchResult {
   incomplete: SearchIncomplete[]
   /** Every initial state had no instance before any step; absent when false. */
   initialBottom?: true
+  /**
+   * Every distinct value the definition leaves open that the search read, in first-read order;
+   * absent when none. When absent, every model of the definition that agrees with the request's
+   * inputs and k-rust's stated readings gives the same results, entries and end.
+   */
+  implementationChosenValues?: ChosenValue[]
 }
 
 export interface PatternOptions {

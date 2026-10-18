@@ -14,7 +14,7 @@ use std::collections::BTreeSet;
 use k_rust::{
     backend::{
         Backend, BackendOptions, ExecuteRequest, ExecutionStrategy, ObservedRequest,
-        ResultModalityOutput, SearchRequest, SearchTypeArg,
+        ResultModalityOutput, SearchPatternRequest, SearchRequest, SearchTypeArg,
     },
     builtin::embedded,
     kast::Sort,
@@ -22,7 +22,7 @@ use k_rust::{
         CompilationBackend, CompileOptions, ConfigurationAssembler, ProgramGrammar,
         compile_loaded_definition,
     },
-    kore::{ast::Pattern, codec, printer::Printer},
+    kore::{ast::Pattern, codec, parser::parse_pattern, printer::Printer},
     outer::{LoadOptions, ResolvedSource, load_with_options},
 };
 use serde_json::Value;
@@ -88,12 +88,26 @@ fn execute_with(
     modality: ResultModalityOutput,
     strategy: ExecutionStrategy,
 ) -> Value {
-    let plain = backend(kore)
-        .execute(request(initial, modality, strategy))
-        .unwrap();
+    execute_edited(kore, initial, modality, strategy, |_| {})
+}
+
+/// [`execute_with`] of the request `edit` changes.
+fn execute_edited(
+    kore: &str,
+    initial: &Pattern,
+    modality: ResultModalityOutput,
+    strategy: ExecutionStrategy,
+    edit: impl Fn(&mut ExecuteRequest),
+) -> Value {
+    let edited = || {
+        let mut request = request(initial, modality, strategy);
+        edit(&mut request);
+        request
+    };
+    let plain = backend(kore).execute(edited()).unwrap();
     let observed = backend(kore)
         .execute_observed(ObservedRequest {
-            request: request(initial, modality, strategy),
+            request: edited(),
             rules: None,
         })
         .unwrap();
@@ -346,6 +360,33 @@ fn only_the_candidate_whose_right_hand_side_read_an_open_value_is_marked() {
     }
 }
 
+/// Under the sequential strategy the instances on which a candidate is undefined go to the
+/// candidates after it, so whether `y` is taken rests on the first candidate's own work: the
+/// step notes the facts of an undefined alternative (`v`, in `apply`) and of a candidate it
+/// rejects after normalizing it (`w`, a function trusted as total) again on the state's path,
+/// and the `y` leaf carries the mark.
+#[test]
+fn under_the_sequential_strategy_a_rejected_candidates_mark_is_on_the_leaf_taken_after_it() {
+    for program in ["v(1 |-> 0 2 |-> 0)", "w(1 |-> 0 2 |-> 0)"] {
+        let (kore, initial) = compile(CANDIDATES, program);
+        for modality in MODALITIES {
+            let result = execute_with(&kore, &initial, modality, ExecutionStrategy::Any);
+            let context = format!("{program}, {modality:?}: {result:#}");
+            assert_eq!(leaves(&result).len(), 1, "{context}");
+            assert_eq!(
+                marks(leaf_with(&result, "Lbly'LPar")),
+                BTreeSet::from([mark("MAP.keys_list", "order")]),
+                "{context}"
+            );
+            assert_eq!(
+                run_marks(&result),
+                [mark("MAP.keys_list", "order")],
+                "{context}"
+            );
+        }
+    }
+}
+
 /// A candidate that read an open value and vanished (its instances are its defined sibling's)
 /// leaves no leaf, but in another model it may give one: the result's list names its mark.
 #[test]
@@ -496,6 +537,236 @@ fn a_search_duplicate_that_carries_a_mark_gives_it_to_the_kept_state() {
     assert_eq!(
         marks(c[0]),
         BTreeSet::from([mark("MAP.keys_list", "order")]),
+        "{response:#}"
+    );
+}
+
+const SURVIVORS: &str = r#"
+module MAIN
+  imports INT
+  imports MAP
+  imports LIST
+  syntax Pgm ::= w(Map) | x(Int) | z(Int) | h(Int)
+  configuration <k> $PGM:Pgm </k>
+  rule [wx]: w(M) => x(1 /Int ({keys_list(M)[0]}:>Int -Int 1))
+  rule [wz]: w(_) => z(3)
+  rule [zz]: z(N) => z(N -Int 1) requires N >Int 0
+  rule [zh]: z(0) => h(0)
+endmodule
+"#;
+
+/// Whether `wx` is defined rests on the listing order. k-rust lists the keys of the first map
+/// as 1, 2, so the divisor is 0 and `wx` is undefined: `wz` is the state's one successor. On the
+/// second map the divisor is 1 and `wx` gives `x(1)`, which is what the first map gives in the
+/// other order: `w` has two successors.
+const SURVIVOR_PROGRAMS: [&str; 2] = ["w(1 |-> 0 2 |-> 0)", "w(2 |-> 0 3 |-> 0)"];
+
+/// The requests whose halts rest on how many candidates of a step survive.
+const COUNT_OPTIONS: [(&str, fn(&mut ExecuteRequest)); 3] = [
+    ("terminal-rules", |request| {
+        request.terminal_rules = vec!["MAIN.wz".to_owned()];
+    }),
+    ("cut-point-rules", |request| {
+        request.cut_point_rules = vec!["MAIN.wz".to_owned()];
+    }),
+    ("stop-at-branch", |request| request.stop_at_branch = true),
+];
+
+/// With no such option, `h(0)` is reached through `wz` whatever `wx` gives, and it is unmarked;
+/// `x(1)` is marked. A terminal or cut-point rule, or a stop at a branch, ends the run at `w` or
+/// `z(3)` only where `wz` is `w`'s one successor, which rests on `wx`'s undefinedness: in the other
+/// order the first map's run ends with `x(1)` and `h(0)` instead. So under each of them every leaf
+/// carries `wx`'s mark (the halting state's path takes every candidate's marks).
+#[test]
+fn a_halt_that_rests_on_how_many_candidates_survive_carries_every_candidates_marks() {
+    let keys = BTreeSet::from([mark("MAP.keys_list", "order")]);
+    for program in SURVIVOR_PROGRAMS {
+        let (kore, initial) = compile(SURVIVORS, program);
+        for modality in MODALITIES {
+            let plain = execute(&kore, &initial, modality);
+            assert_eq!(
+                marks(leaf_with(&plain, "Lblh'LPar")),
+                BTreeSet::new(),
+                "{program}, {modality:?}: {plain:#}"
+            );
+            for leaf in leaves(&plain) {
+                if printed(leaf).contains("Lblx'LPar") {
+                    assert_eq!(marks(leaf), keys, "{program}, {modality:?}: {plain:#}");
+                }
+            }
+            for (option, edit) in COUNT_OPTIONS {
+                let result =
+                    execute_edited(&kore, &initial, modality, ExecutionStrategy::All, edit);
+                let context = format!("{program}, {option}, {modality:?}: {result:#}");
+                assert!(!leaves(&result).is_empty(), "{context}");
+                for leaf in leaves(&result) {
+                    assert_eq!(marks(leaf), keys, "{context}");
+                }
+                assert_eq!(
+                    run_marks(&result),
+                    [mark("MAP.keys_list", "order")],
+                    "{context}"
+                );
+            }
+        }
+    }
+}
+
+/// `maxWork` and `maxBreadth` count the states of every path, so where they cut a run rests on
+/// the paths off a leaf's own: on the second map, with `maxWork` 3, `z(3)` is a `work-bound`
+/// leaf because `x(1)` took a state, and in the other order the first map's run cuts at `z(1)`;
+/// with `maxBreadth` 1, `x(1)` and `z(3)` are `breadth-bound` leaves only because `w` has two
+/// successors. Every leaf of such a run carries every mark of the run's list.
+#[test]
+fn a_run_bounded_by_work_or_breadth_marks_every_leaf_with_its_list() {
+    let bounds: [(&str, fn(&mut ExecuteRequest)); 2] = [
+        ("max-work", |request| request.max_work = Some(3)),
+        ("max-breadth", |request| request.max_breadth = Some(1)),
+    ];
+    for program in SURVIVOR_PROGRAMS {
+        let (kore, initial) = compile(SURVIVORS, program);
+        for modality in MODALITIES {
+            for (bound, edit) in bounds {
+                let result =
+                    execute_edited(&kore, &initial, modality, ExecutionStrategy::All, edit);
+                let context = format!("{program}, {bound}, {modality:?}: {result:#}");
+                let list = run_marks(&result);
+                assert_eq!(list, [mark("MAP.keys_list", "order")], "{context}");
+                assert!(!leaves(&result).is_empty(), "{context}");
+                for leaf in leaves(&result) {
+                    assert_eq!(
+                        marks(leaf),
+                        list.iter().cloned().collect::<BTreeSet<_>>(),
+                        "{context}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+const SEARCH_ON: &str = r#"
+module MAIN
+  imports INT
+  imports MAP
+  imports LIST
+  syntax Pgm ::= s(Map) | a(Map) | b(Map) | c(Int) | e(Int)
+  configuration <k> $PGM:Pgm </k>
+  rule s(M) => b(M)
+  rule s(M) => a(M)
+  rule b(_) => c(2)
+  rule a(M) => c(size(keys_list(M)))
+  rule c(N) => e(N)
+endmodule
+"#;
+
+/// The marks among a search response's states (or witnesses, or matches' states), by printed
+/// head.
+fn state_marks(states: &[Value], head: &str) -> Vec<BTreeSet<Mark>> {
+    states
+        .iter()
+        .filter(|state| printed(state).contains(head))
+        .map(marks)
+        .collect()
+}
+
+/// The `c(2)` reached through `a`, which read the listing, is dropped as a duplicate of the one
+/// reached through `b`. The kept state carries its mark, and so does every state derived from
+/// it (`e(2)`): the dropped state's successors are the kept one's. Every search response lists
+/// the mark.
+#[test]
+fn a_search_duplicates_marks_reach_the_kept_states_descendants_and_every_search_lists_them() {
+    let (kore, initial) = compile(SEARCH_ON, "s(1 |-> 0 2 |-> 0)");
+    let keys = BTreeSet::from([mark("MAP.keys_list", "order")]);
+    let search = SearchRequest {
+        search_type: SearchTypeArg::All,
+        ..SearchRequest::new(initial.clone())
+    };
+    let response = serde_json::to_value(backend(&kore).search(search.clone()).unwrap()).unwrap();
+    let states = response["states"].as_array().unwrap();
+    assert_eq!(
+        state_marks(states, "Lblc'LPar"),
+        [keys.clone()],
+        "{response:#}"
+    );
+    assert_eq!(
+        state_marks(states, "Lble'LPar"),
+        [keys.clone()],
+        "{response:#}"
+    );
+    assert_eq!(
+        run_marks(&response),
+        [mark("MAP.keys_list", "order")],
+        "{response:#}"
+    );
+    // A path search keeps both paths: only those through `a` are marked.
+    let paths = serde_json::to_value(backend(&kore).search_paths(search).unwrap()).unwrap();
+    let witnesses = paths["witnesses"].as_array().unwrap();
+    let mut e = state_marks(witnesses, "Lble'LPar");
+    e.sort();
+    assert_eq!(e, [BTreeSet::new(), keys.clone()], "{paths:#}");
+    assert_eq!(
+        run_marks(&paths),
+        [mark("MAP.keys_list", "order")],
+        "{paths:#}"
+    );
+    let target = parse_pattern("VarResult:SortGeneratedTopCell{}").unwrap();
+    let pattern = SearchPatternRequest {
+        search_type: SearchTypeArg::All,
+        ..SearchPatternRequest::new(initial, target)
+    };
+    let matched =
+        serde_json::to_value(backend(&kore).search_pattern(pattern.clone()).unwrap()).unwrap();
+    assert_eq!(
+        run_marks(&matched),
+        [mark("MAP.keys_list", "order")],
+        "{matched:#}"
+    );
+    let matched_paths =
+        serde_json::to_value(backend(&kore).search_pattern_paths(pattern).unwrap()).unwrap();
+    assert_eq!(
+        run_marks(&matched_paths),
+        [mark("MAP.keys_list", "order")],
+        "{matched_paths:#}"
+    );
+}
+
+const SEARCH_END: &str = r#"
+module MAIN
+  imports INT
+  imports MAP
+  imports LIST
+  syntax Pgm ::= go(Map) | c(Int)
+  configuration <k> $PGM:Pgm </k>
+  rule go(M) => c(size(keys_list(M)))
+endmodule
+"#;
+
+/// With one result allowed, the search stops at the initial state, and whether it ends
+/// `exhausted` or at its result bound rests on that state's step, which reads the listing: the
+/// result is unmarked (its path read nothing), and the search's list names the mark.
+#[test]
+fn the_end_of_a_bounded_search_rests_on_its_list() {
+    let (kore, initial) = compile(SEARCH_END, "go(1 |-> 0 2 |-> 0)");
+    let response = serde_json::to_value(
+        backend(&kore)
+            .search(SearchRequest {
+                search_type: SearchTypeArg::All,
+                max_results: Some(1),
+                ..SearchRequest::new(initial)
+            })
+            .unwrap(),
+    )
+    .unwrap();
+    let states = response["states"].as_array().unwrap();
+    assert_eq!(
+        state_marks(states, "Lblgo'LPar"),
+        [BTreeSet::new()],
+        "{response:#}"
+    );
+    assert_eq!(
+        run_marks(&response),
+        [mark("MAP.keys_list", "order")],
         "{response:#}"
     );
 }

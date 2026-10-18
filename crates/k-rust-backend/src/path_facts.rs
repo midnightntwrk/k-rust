@@ -129,7 +129,10 @@ impl State {
         !self.sinks.is_empty() || self.run.is_some()
     }
 
-    fn note(&mut self, fact: PathFact) {
+    /// Note `fact`; returns it when it is a fact of an open run noted outside every phase of the
+    /// run, which only the run record receives, so that the caller can report the stray note once
+    /// the state is no longer borrowed.
+    fn note(&mut self, fact: PathFact) -> Option<PathFact> {
         self.sequence += 1;
         let sequence = self.sequence;
         match self.stamps.iter_mut().find(|(stamped, _)| *stamped == fact) {
@@ -137,12 +140,9 @@ impl State {
             None => self.stamps.push((fact.clone(), sequence)),
         }
         if self.suspended {
-            return;
+            return None;
         }
-        debug_assert!(
-            self.run.is_none() || !self.sinks.is_empty(),
-            "a fact of a run is noted outside every phase of it: {fact:?}"
-        );
+        let stray = (self.run.is_some() && self.sinks.is_empty()).then(|| fact.clone());
         if let Some(run) = &mut self.run
             && !run.contains(&fact)
         {
@@ -151,6 +151,7 @@ impl State {
         if let Some(sink) = self.sinks.last_mut() {
             sink.facts.shared.insert(fact);
         }
+        stray
     }
 
     fn close(&mut self) -> Sink {
@@ -196,7 +197,19 @@ pub(crate) fn note(fact: PathFact) {
     if !OPEN.get() {
         return;
     }
-    with_state(|state| state.note(fact));
+    let stray = with_state(|state| state.note(fact));
+    report_stray(stray);
+}
+
+/// Every evaluation of a run is inside one of its phases, which attribute what it notes to
+/// paths; a note outside all of them would reach the run's list and no leaf. Asserted after the
+/// state's borrow is released, so that a failure unwinds through the scopes' restores (which
+/// borrow it again) instead of aborting.
+fn report_stray(stray: Option<PathFact>) {
+    debug_assert!(
+        stray.is_none(),
+        "a fact of a run is noted outside every phase of it: {stray:?}"
+    );
 }
 
 /// Note each of `facts` again, where a stored evaluation that noted them is reused.
@@ -204,11 +217,14 @@ pub(crate) fn replay<'a>(facts: impl IntoIterator<Item = &'a PathFact>) {
     if !OPEN.get() {
         return;
     }
-    with_state(|state| {
+    let stray = with_state(|state| {
+        let mut stray = None;
         for fact in facts {
-            state.note(fact.clone());
+            stray = stray.or(state.note(fact.clone()));
         }
+        stray
     });
+    report_stray(stray);
 }
 
 /// Closes the innermost collection on every exit, unwinding included: a fact noted is never
@@ -408,6 +424,20 @@ mod tests {
         assert_eq!(run, [fact("O"), fact("S")]);
         // Nothing is open: a note goes nowhere.
         note(fact("N"));
+        assert!(!OPEN.get());
+    }
+
+    /// A note of a run outside every phase of it fails the debug assertion as an ordinary
+    /// panic, raised once the state is no longer borrowed, and the unwinding run record hands its
+    /// facts on and is closed.
+    #[cfg(debug_assertions)]
+    #[test]
+    fn a_stray_note_of_a_run_fails_cleanly_and_the_record_is_restored() {
+        let ((), outer) = run(|| {
+            let stray = std::panic::catch_unwind(|| run(|| note(fact("A"))));
+            assert!(stray.is_err());
+        });
+        assert_eq!(outer, [fact("A")]);
         assert!(!OPEN.get());
     }
 }

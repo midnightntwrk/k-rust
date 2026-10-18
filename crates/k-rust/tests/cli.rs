@@ -13591,6 +13591,55 @@ fn krun_lists_keys_in_the_documented_order() {
     );
 }
 
+/// Both results of the search read the listing order, a value the definition leaves open
+/// (docs/compatibility.md, "Marks in executions"): `krun` warns of the mark once per run, not
+/// once per result.
+#[test]
+fn krun_warns_of_a_mark_once_per_run() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module ONCE
+  imports DOMAINS
+  syntax Pgm ::= s(Map) | a(List) | b(List)
+  configuration <k> $PGM:Pgm </k>
+  rule s(M) => a(keys_list(M))
+  rule s(M) => b(keys_list(M))
+endmodule
+"#,
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["krun", definition.to_str().unwrap()])
+        .args(["--main-module", "ONCE", "--syntax-module", "ONCE"])
+        .args([
+            "--sort",
+            "Pgm",
+            "--expression",
+            "s(1 |-> 0 2 |-> 0)",
+            "--io",
+            "off",
+        ])
+        .arg("--search-final")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    fs::remove_dir_all(root).unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(output.status.success(), "{stdout}\n{stderr}");
+    assert!(
+        stdout.contains("Lbla'LPar") && stdout.contains("Lblb'LPar"),
+        "{stdout}"
+    );
+    let warnings = stderr
+        .lines()
+        .filter(|line| line.starts_with("warning: ") && line.contains("MAP.keys_list"))
+        .count();
+    assert_eq!(warnings, 1, "{stderr}");
+}
+
 /// An execution evaluates every listing in its documented order, also in the conditions it
 /// decides: a rule `requires` (on 1) and a function equation's `requires` (on 2), with `krun` and
 /// with `krun --search-final`.

@@ -261,7 +261,8 @@ pub struct BackendCapabilities {
     /// `execute` and `execute_observed` mark each leaf whose path read a value the definition
     /// leaves open (`BackendDiagnosticOutput::ImplementationChosenValue`) and list every such
     /// value the run read ([`ExecutionResult::implementation_chosen_values`]); a search marks its
-    /// states alike.
+    /// states, witnesses and matches alike and lists every such value it read
+    /// (`SearchResponse::implementation_chosen_values` and the other search responses').
     pub implementation_chosen_values: bool,
 }
 
@@ -456,7 +457,8 @@ pub struct ExecutionResult<K = Value> {
     /// that ended on no reported leaf: a candidate that vanished, a state a `state-set` merge
     /// absorbed, a state whose successors were all absorbed. When it is empty, every model of the
     /// definition that agrees with the request's inputs and k-rust's stated readings gives the
-    /// run the same leaves.
+    /// run the same leaves. In a run that sets `maxWork` or `maxBreadth` every leaf carries every
+    /// mark of this list, since where those bounds cut the run rests on the work of every path.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub implementation_chosen_values: Vec<ChosenValueOutput>,
 }
@@ -2505,10 +2507,15 @@ mod tests {
     #[test]
     fn the_implementation_chosen_values_match_typescript_declarations() {
         use k_rust_backend::builtin::ChosenClass;
-        assert_typescript_member(
+        for interface in [
             "ExecutionResult",
-            "implementationChosenValues?: ChosenValue[]",
-        );
+            "SearchResult",
+            "PathSearchResult",
+            "PatternSearchResult",
+            "PathPatternSearchResult",
+        ] {
+            assert_typescript_member(interface, "implementationChosenValues?: ChosenValue[]");
+        }
         assert_typescript_member("BackendCapabilities", "implementationChosenValues: boolean");
         assert_typescript_member("ChosenValue", "hook: string");
         assert_typescript_member("ChosenValue", "class: ChosenClass");

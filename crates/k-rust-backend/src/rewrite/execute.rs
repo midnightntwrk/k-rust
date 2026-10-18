@@ -149,6 +149,9 @@ fn execute_counted(
         moving_average: options.moving_average_timeout,
     });
     let collect_coverage = options.collect_coverage;
+    // Whether a bound that counts the whole run's exploration can end it: then every leaf rests
+    // on the work of every path, off its own included.
+    let bounded_by_run = options.max_work.is_some() || options.max_breadth.is_some();
     let run = || {
         let mut execution = Execution::seed(
             definition,
@@ -173,6 +176,21 @@ fn execute_counted(
             .filter_map(crate::path_facts::PathFact::chosen_value)
             .cloned()
             .collect();
+        // `max_work` and `max_breadth` count the states of every path: whether either bound
+        // fires, and where, rests on exploration off a leaf's path, so in another model a leaf
+        // may be cut elsewhere or not at all. Every leaf of such a run carries every mark the
+        // run noted.
+        if bounded_by_run && !facts.is_empty() {
+            let facts = crate::path_facts::diagnostics(
+                &facts
+                    .iter()
+                    .cloned()
+                    .collect::<crate::path_facts::FactSet>(),
+            );
+            for leaf in &mut result.leaves {
+                extend_distinct(&mut leaf.diagnostics, &facts);
+            }
+        }
         (result, status)
     };
     if !collect_coverage {
@@ -571,6 +589,14 @@ impl<'a> Execution<'a> {
             .extend(&crate::path_facts::diagnostics(&step_facts.shared));
         // A leaf the step ends, or a stop cuts off, takes the candidates' own facts too.
         let owned_step_facts = crate::path_facts::diagnostics(&step_facts.owned);
+        // Where a halt rests on how many candidates survive, every candidate's own work decides
+        // what becomes of each other: whether this state branches, or its one successor is a
+        // cut point or terminal (`halts_on_successor_count`). Its facts are then this state's.
+        let halts_on_successor_count = self.halts_on_successor_count();
+        if halts_on_successor_count {
+            state.diagnostics.extend(&owned_step_facts);
+        }
+        let leaves_from = self.leaves.len();
         // A stopped step has no successor set: the state is the leaf, with the step's work.
         let rewritten = match rewritten {
             Ok(rewritten) => rewritten,
@@ -608,9 +634,14 @@ impl<'a> Execution<'a> {
             RewriteResult::Finished(applied) => {
                 let (expanded, diagnostics) =
                     crate::path_facts::collect_with_diagnostics(|| self.finished(state, applied));
-                expanded.map_err(|leaf| {
+                let expanded = expanded.map_err(|leaf| {
                     interrupted_with(leaf, &[&step_diagnostics, &owned_step_facts, &diagnostics])
-                })
+                });
+                if halts_on_successor_count {
+                    self.spread_facts(expanded, &diagnostics, leaves_from)
+                } else {
+                    expanded
+                }
             }
             RewriteResult::Branch {
                 original,
@@ -621,9 +652,66 @@ impl<'a> Execution<'a> {
                 let (expanded, diagnostics) = crate::path_facts::collect_with_diagnostics(|| {
                     self.branch(state, original, branches, remainder, trivial)
                 });
-                expanded.map_err(|leaf| {
+                let expanded = expanded.map_err(|leaf| {
                     interrupted_with(leaf, &[&step_diagnostics, &owned_step_facts, &diagnostics])
-                })
+                });
+                if halts_on_successor_count {
+                    self.spread_facts(expanded, &diagnostics, leaves_from)
+                } else {
+                    expanded
+                }
+            }
+        }
+    }
+
+    /// Whether a state's halt can rest on how many of its step's candidates survive: under
+    /// `StopAtBranch` a state with one surviving candidate goes on and one with several is a
+    /// `Branch` leaf, and a cut-point or terminal rule stops a run only as the state's one
+    /// successor. A candidate's survival rests on its own right-hand side and normalization, so
+    /// there every candidate's work is on the path of whatever the state becomes.
+    fn halts_on_successor_count(&self) -> bool {
+        self.options.branch_mode == ExecutionBranchMode::StopAtBranch
+            || !self.options.cut_point_rules.is_empty()
+            || !self.options.terminal_rules.is_empty()
+    }
+
+    /// Under [`Self::halts_on_successor_count`], give the path facts among `phase_diagnostics`,
+    /// those of the phase that derived what `expanded` holds from a state's step (its candidates'
+    /// normalizations and their stop rules), to all of it: the leaves the phase pushed from
+    /// `leaves_from` on, the successors, and the leaf it ended the state with. Which of them
+    /// exist rests on every candidate's normalization.
+    fn spread_facts(
+        &mut self,
+        expanded: Phase<Vec<ExecutionState>>,
+        phase_diagnostics: &[BackendDiagnostic],
+        leaves_from: usize,
+    ) -> Phase<Vec<ExecutionState>> {
+        let facts = phase_diagnostics
+            .iter()
+            .filter(|diagnostic| {
+                matches!(
+                    diagnostic,
+                    BackendDiagnostic::ImplementationChosenValue { .. }
+                )
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        if facts.is_empty() {
+            return expanded;
+        }
+        for leaf in &mut self.leaves[leaves_from..] {
+            extend_distinct(&mut leaf.diagnostics, &facts);
+        }
+        match expanded {
+            Ok(mut successors) => {
+                for successor in &mut successors {
+                    successor.diagnostics.extend(&facts);
+                }
+                Ok(successors)
+            }
+            Err(mut leaf) => {
+                extend_distinct(&mut leaf.diagnostics, &facts);
+                Err(leaf)
             }
         }
     }

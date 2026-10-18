@@ -986,6 +986,11 @@ impl IdSet {
         })
     }
 
+    /// Whether no id is in the set (a block exists only once an id of it was inserted).
+    fn is_empty(&self) -> bool {
+        self.blocks.iter().all(Option::is_none)
+    }
+
     fn insert(&mut self, id: u32) {
         let (block, word, bit) = Self::position(id);
         let blocks = Rc::make_mut(&mut self.blocks);
@@ -1074,6 +1079,11 @@ impl PathDiagnostics {
             "paths of one request share one numbering"
         );
         self.members.is_subset_of(&other.members)
+    }
+
+    /// Whether the path holds a path fact ([`BackendDiagnostic::ImplementationChosenValue`]).
+    pub(crate) fn has_facts(&self) -> bool {
+        !self.facts.is_empty()
     }
 
     pub(crate) fn to_vec(&self) -> Vec<BackendDiagnostic> {

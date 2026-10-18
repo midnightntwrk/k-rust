@@ -8323,6 +8323,155 @@ mod tests {
         assert_eq!(evaluate(&NoSolver), fresh);
     }
 
+    /// The definition of `a_value_computed_with_a_solver_is_not_reused_without_it`: `U =
+    /// substr("abc", 4, 1)` is `"a"` if `g(3) > 0`, else `"v"`, `g` given no equation.
+    fn substr_by_condition_definition() -> BackendDefinition {
+        let equation = |requires: &str, rhs: &str, priority: &str| {
+            format!(
+                r#"
+                axiom{{R}} \implies{{R}}(
+                    \and{{R}}(
+                        \equals{{SortBool{{}}, R}}({requires}, \dv{{SortBool{{}}}}("true")),
+                        \and{{R}}(
+                            \in{{SortString{{}}, R}}(X0:SortString{{}}, S:SortString{{}}),
+                            \and{{R}}(
+                                \in{{SortInt{{}}, R}}(X1:SortInt{{}}, \dv{{SortInt{{}}}}("4")),
+                                \and{{R}}(
+                                    \in{{SortInt{{}}, R}}(X2:SortInt{{}}, \dv{{SortInt{{}}}}("1")),
+                                    \top{{R}}()
+                                )
+                            )
+                        )
+                    ),
+                    \equals{{SortString{{}}, R}}(
+                        substr{{}}(X0:SortString{{}}, X1:SortInt{{}}, X2:SortInt{{}}),
+                        \and{{SortString{{}}}}({rhs}, \top{{SortString{{}}}}())
+                    )
+                ) [priority{{}}("{priority}")]"#
+            )
+        };
+        let source = format!(
+            r#"[]
+            module MAIN
+                hooked-sort SortBool{{}} [hook{{}}("BOOL.Bool"), hasDomainValues{{}}()]
+                hooked-sort SortString{{}} [hook{{}}("STRING.String"), hasDomainValues{{}}()]
+                hooked-sort SortInt{{}} [hook{{}}("INT.Int"), hasDomainValues{{}}()]
+                hooked-symbol substr{{}}(SortString{{}}, SortInt{{}}, SortInt{{}}) : SortString{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("STRING.substr")]
+                hooked-symbol gtInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("INT.gt"), smt-hook{{}}(">")]
+                symbol g{{}}(SortInt{{}}) : SortInt{{}} [function{{}}(), total{{}}()]
+                {}
+                {}
+            endmodule []"#,
+            equation(
+                r#"gtInt{}(g{}(\dv{SortInt{}}("3")), \dv{SortInt{}}("0"))"#,
+                r#"\dv{SortString{}}("a")"#,
+                "10"
+            ),
+            equation(
+                r#"\dv{SortBool{}}("true")"#,
+                r#"\dv{SortString{}}("v")"#,
+                "20"
+            ),
+        );
+        let syntax = parse_definition(&source).expect("definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+    }
+
+    /// A served record notes again the path facts its evaluation noted (`crate::path_facts`), so
+    /// that the serving evaluation's path carries the values the recorded one took. `U`'s
+    /// evaluation under a refuting solver records the value `"v"`; that record, given a fact, and
+    /// a recorded failure in its place, given the fact, are each served inside a collection,
+    /// which receives the fact.
+    #[test]
+    fn a_served_record_notes_the_path_facts_of_its_evaluation_again() {
+        /// Refutes every condition; not zero-sized, so it has an address of its own.
+        struct Refuting(#[allow(dead_code)] u8);
+        impl SmtSolver for Refuting {
+            fn is_sat(
+                &self,
+                _predicates: &[Predicate],
+                _substitution: &Substitution,
+            ) -> Stoppable<Result<crate::smt::Satisfiability, SmtError>> {
+                unreachable!()
+            }
+
+            fn check_predicates(
+                &self,
+                _known: &[Predicate],
+                _substitution: &Substitution,
+                _checked: &[Predicate],
+            ) -> Stoppable<Result<Validity, SmtError>> {
+                Ok(Ok(Validity::Refuted))
+            }
+        }
+        let definition = substr_by_condition_definition();
+        let u = term(
+            &definition,
+            r#"substr{}(\dv{SortString{}}("abc"), \dv{SortInt{}}("4"), \dv{SortInt{}}("1"))"#,
+        );
+        let v = term(&definition, r#"\dv{SortString{}}("v")"#);
+        let fact = crate::path_facts::PathFact::ChosenValue(crate::builtin::ChosenValue::new(
+            Arc::from("MAP.keys_list"),
+            crate::builtin::ChosenClass::Order,
+        ));
+        let refuting = Refuting(0);
+        let evaluate = || {
+            let ((result, _), facts) = crate::path_facts::collect(|| {
+                diagnostic::collect(|| {
+                    simplify_with_solver(
+                        &definition,
+                        &u,
+                        &[],
+                        SimplificationOptions::default(),
+                        &refuting,
+                    )
+                })
+            });
+            (unstopped(result).expect("no error").term, facts.all())
+        };
+        // Change every record of the table, as if its evaluation had noted the fact.
+        let edit =
+            |change: &dyn Fn(&mut RecordedOutcome)| {
+                UNSPECIFIED_VALUES.with_borrow_mut(|table| {
+                    let mut edited = 0;
+                    for record in table.records.values_mut().flat_map(|by_hash| {
+                        by_hash.values_mut().flat_map(|records| records.iter_mut())
+                    }) {
+                        change(&mut record.outcome);
+                        edited += 1;
+                    }
+                    edited
+                })
+            };
+        let give_value_the_fact = |outcome: &mut RecordedOutcome| match outcome {
+            RecordedOutcome::Value(_, _, facts) | RecordedOutcome::Failed { facts, .. } => {
+                facts.insert(fact.clone());
+            }
+        };
+        let fail_with_the_fact = |outcome: &mut RecordedOutcome| {
+            *outcome = RecordedOutcome::Failed {
+                excluded: Vec::new(),
+                contingent: None,
+                facts: FactSet::from([fact.clone()]),
+            };
+        };
+        for change in [
+            &give_value_the_fact as &dyn Fn(&mut RecordedOutcome),
+            &fail_with_the_fact,
+        ] {
+            let _scope = UnspecifiedValues::open();
+            let (first, noted) = evaluate();
+            assert_eq!(first, v);
+            assert!(noted.is_empty(), "{noted:?}");
+            assert!(edit(change) > 0, "the evaluation is recorded");
+            let (served, noted) = evaluate();
+            assert_eq!(served, v);
+            assert_eq!(noted, FactSet::from([fact.clone()]));
+        }
+    }
+
     /// A rule-condition key that was active around an evaluation stays among what it read, even
     /// if the evaluation also found it inactive (in a nested simplification with no rule
     /// condition active, as a ceil equation's predicates are): where that key is not active, a
