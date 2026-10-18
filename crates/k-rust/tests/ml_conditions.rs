@@ -8,9 +8,10 @@
 use k_rust::{
     backend::{Backend, BackendOptions, ExecuteRequest},
     builtin::embedded,
+    definition::CheckMode,
     kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
     kore::{ast::Pattern, codec, parser::parse_pattern},
-    outer::{LoadOptions, ResolvedSource, load_for_compilation},
+    outer::{LoadOptions, ResolvedSource, load_for_compilation, load_with_options},
 };
 
 const HEADER: &str = "module P-SYNTAX
@@ -405,4 +406,210 @@ fn a_negated_leaf_holds_where_its_bool_term_is_undefined() {
         !unevaluated.iter().any(|(_, term)| term == "done(0)"),
         "{unevaluated:?}"
     );
+}
+
+// ---------------------------------------------------------------- an equality of a predicate and a Bool term
+
+/// The conditions whose spine holds an `#Equals` between a non-term pattern and a Bool term,
+/// each with the case its refusal explains: `predicate` (a predicate at sort Bool is all of Bool
+/// or nothing, never one Bool value) or `connective` (a connective over Bool terms denotes a set
+/// of values, not a condition).
+const EQUALITIES_OF_A_PREDICATE_AND_A_BOOL_TERM: &[(&str, &str)] = &[
+    ("{ {X #Equals 1} #Equals true }", "predicate"),
+    ("{ #Ceil(1 /Int (X -Int 1)) #Equals true }", "predicate"),
+    ("#Not({ {X #Equals 1} #Equals true })", "predicate"),
+    ("{ {X #Equals 1} #Equals false }", "predicate"),
+    (
+        "(X >Int 0) #And { (X >Int 5) #Equals #Ceil(1 /Int X) }",
+        "predicate",
+    ),
+    (
+        "{ true #Equals ((X ==Int 1) #Or (X ==Int 2)) }",
+        "connective",
+    ),
+    (
+        "{ ((X ==Int 1) #And (X ==Int 2)) #Equals false }",
+        "connective",
+    ),
+];
+
+/// The first line of the probed sentence: the line after [`HEADER`] and any declarations.
+fn line_after(prefix: &str) -> usize {
+    HEADER.lines().count() + prefix.lines().count() + 1
+}
+
+fn try_compile(sentences: &str) -> Result<String, String> {
+    let source = format!("{HEADER}{sentences}endmodule\n");
+    let mut resolver = |_: &str, required: &str| {
+        embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let options = LoadOptions {
+        implicit_sources: vec![
+            embedded("kast.md").unwrap(),
+            embedded("prelude.md").unwrap(),
+        ],
+        ..CompilationBackend::Rust.load_options()
+    };
+    let (loaded, _) = load_for_compilation(
+        ResolvedSource::new("ml_conditions.k", source),
+        "P",
+        Some("P-SYNTAX"),
+        &mut resolver,
+        &options,
+    )
+    .expect("the definition loads");
+    compile_loaded_definition(&loaded, CompileOptions::default())
+        .map(|artifacts| artifacts.definition_kore)
+        .map_err(|error| error.to_string())
+}
+
+/// `kcompile --for-proving` of module P-SPEC (`claims`) over P (`sentences`).
+fn try_compile_spec(sentences: &str, claims: &str) -> Result<String, String> {
+    let source =
+        format!("{HEADER}{sentences}endmodule\n\nmodule P-SPEC\n  imports P\n{claims}endmodule\n");
+    let mut resolver = |_: &str, required: &str| {
+        embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let loaded = load_with_options(
+        ResolvedSource::new("ml_conditions.k", source),
+        "P-SPEC",
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![embedded("prelude.md").unwrap()],
+            configuration_module: Some("P".to_owned()),
+            ..CompilationBackend::Rust.load_options()
+        },
+    )
+    .expect("the specification loads");
+    compile_loaded_definition(
+        &loaded,
+        CompileOptions {
+            backend: CompilationBackend::Rust,
+            default_claims_to_all_path: true,
+            check_mode: CheckMode::Proof {
+                definition_module: "P".to_owned(),
+            },
+            ..CompileOptions::default()
+        },
+    )
+    .map(|artifacts| artifacts.definition_kore)
+    .map_err(|error| error.to_string())
+}
+
+/// The refusal names the sentence by kind, label and position, and explains its case.
+#[track_caller]
+fn assert_refused(
+    result: Result<String, String>,
+    sentence: &str,
+    line: usize,
+    case: &str,
+    condition: &str,
+) {
+    let message = match result {
+        Ok(_) => panic!("{condition}: the {sentence} compiles"),
+        Err(message) => message,
+    };
+    let at = format!("{sentence} at ml_conditions.k:{line}:");
+    assert!(message.contains(&at), "{condition}: no {at:?} in {message}");
+    let reason = match case {
+        "predicate" => "a predicate at sort Bool denotes all of Bool or nothing",
+        "connective" => "a connective over Bool terms denotes a set of values",
+        _ => unreachable!(),
+    };
+    assert!(
+        message.contains(reason),
+        "{condition}: no {reason:?} in {message}"
+    );
+    assert!(
+        message.contains("andBool"),
+        "{condition}: no remedy in {message}"
+    );
+}
+
+#[test]
+fn a_rule_whose_condition_equates_a_predicate_with_a_bool_term_is_refused() {
+    for (condition, case) in EQUALITIES_OF_A_PREDICATE_AND_A_BOOL_TERM {
+        let result = try_compile(&format!(
+            "  rule [p]: <k> go(X) => done(X) ... </k> requires {condition}\n"
+        ));
+        assert_refused(result, "rule [P.p]", line_after(""), case, condition);
+    }
+}
+
+#[test]
+fn a_function_equation_whose_condition_equates_a_predicate_with_a_bool_term_is_refused() {
+    for (condition, case) in EQUALITIES_OF_A_PREDICATE_AND_A_BOOL_TERM {
+        let result = try_compile(&format!(
+            "{F}  rule [p]: f(X) => X requires {condition}\n{G}"
+        ));
+        assert_refused(result, "rule [P.p]", line_after(F), case, condition);
+    }
+    // In an ensures, at the equation's sort.
+    let (condition, case) = EQUALITIES_OF_A_PREDICATE_AND_A_BOOL_TERM[0];
+    let result = try_compile(&format!(
+        "{F}  rule [p]: f(X) => X ensures {condition}\n{G}"
+    ));
+    assert_refused(result, "rule [P.p]", line_after(F), case, condition);
+}
+
+#[test]
+fn a_claim_whose_condition_equates_a_predicate_with_a_bool_term_is_refused() {
+    let rule = "  rule [g]: <k> go(X) => done(X) ... </k> requires X =/=Int 1\n";
+    // The claim's line: HEADER, the rule, `endmodule`, a blank line, `module P-SPEC`, `imports P`.
+    let line = HEADER.lines().count() + 1 + 4 + 1;
+    for (condition, case) in EQUALITIES_OF_A_PREDICATE_AND_A_BOOL_TERM {
+        let result = try_compile_spec(
+            rule,
+            &format!("  claim [q]: <k> go(X) => done(X) ... </k> requires {condition}\n"),
+        );
+        assert_refused(result, "claim [P-SPEC.q]", line, case, condition);
+    }
+}
+
+/// An owise equation reads its competitors' conditions; the refusal names the competitor.
+#[test]
+fn an_owise_competitor_whose_condition_equates_a_predicate_with_a_bool_term_is_refused() {
+    let (condition, case) = EQUALITIES_OF_A_PREDICATE_AND_A_BOOL_TERM[0];
+    let result = try_compile(&format!(
+        "{F}  rule [o]: f(_) => 0 [owise]\n  rule [p]: f(X) => 1 requires {condition}\n{G}"
+    ));
+    assert_refused(result, "rule [P.p]", line_after(F) + 1, case, condition);
+}
+
+/// An equality of two predicates is their iff, and an equality of two terms an equality of
+/// values: both are conditions, and compile.
+#[test]
+fn equalities_of_two_predicates_or_two_terms_compile() {
+    for condition in [
+        "{ {X #Equals 1} #Equals #Ceil(1 /Int X) }",
+        "{ true #Equals (X ==Int 1) }",
+        "{ (X ==Int 1) #Equals (X >Int 0) }",
+    ] {
+        let kore = try_compile(&format!(
+            "  rule [p]: <k> go(X) => done(X) ... </k> requires {condition}\n"
+        ))
+        .unwrap_or_else(|message| panic!("{condition}: {message}"));
+        assert!(kore.contains("label{}(\"P.p\")"), "{condition}");
+    }
+}
+
+/// The LLVM target keeps its output, these conditions included. The `#Or` condition is left out:
+/// guard_or_patterns aliases a disjunction there, which the test profile's kompile invariants
+/// refuse for that target at the base already (MLP/1).
+#[test]
+fn the_llvm_target_compiles_an_equality_of_a_predicate_and_a_bool_term_as_before() {
+    for (condition, _) in EQUALITIES_OF_A_PREDICATE_AND_A_BOOL_TERM
+        .iter()
+        .filter(|(condition, _)| !condition.contains("#Or"))
+    {
+        let kore = compile_for(
+            &format!("  rule [p]: <k> go(X) => done(X) ... </k> requires {condition}\n"),
+            CompilationBackend::Llvm,
+        );
+        // The whole condition stays one Bool term, as before.
+        assert_contains(
+            &axiom(&kore, "P.p"),
+            &format!("\\equals{{SortBool{{}}, {TOP}}}("),
+        );
+    }
 }

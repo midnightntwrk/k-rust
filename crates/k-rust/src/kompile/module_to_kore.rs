@@ -35,6 +35,7 @@ mod roles;
 use super::invariants::emitted::{EmittedTheory, emitted_from};
 
 use axioms::generated_axioms;
+pub use equations::EqualityOperand;
 use equations::{
     ConditionForm, OwiseCompetitors, RuleEmissionContext, check_variable_sorts, emit_rule_or_claim,
     resolve_equation_production,
@@ -340,6 +341,13 @@ pub enum ModuleToKoreError {
         production: usize,
         message: String,
     },
+    /// A condition of the Rust target whose spine holds an `#Equals` between a Bool term and a
+    /// pattern that is not a term: it states no condition.
+    ConditionEqualsBoolTerm {
+        /// The sentence, by kind, label and source position.
+        sentence: String,
+        operand: EqualityOperand,
+    },
 }
 
 impl fmt::Display for ModuleToKoreError {
@@ -419,6 +427,22 @@ impl fmt::Display for ModuleToKoreError {
                 formatter,
                 "cannot generate MAP definedness axiom for production #{production}: {message}"
             ),
+            Self::ConditionEqualsBoolTerm { sentence, operand } => {
+                let (operand, reason) = match operand {
+                    EqualityOperand::Predicate => (
+                        "a predicate",
+                        "a predicate at sort Bool denotes all of Bool or nothing, so it never equals one Bool value",
+                    ),
+                    EqualityOperand::Connective => (
+                        "a matching-logic connective over Bool terms",
+                        "a connective over Bool terms denotes a set of values, which is not a Boolean condition",
+                    ),
+                };
+                write!(
+                    formatter,
+                    "the condition of {sentence} equates {operand} with a Bool term (#Equals outside any term); {reason}. To state that a predicate P holds, write P itself as the condition (#Not(P) that it fails); to combine Bool values, use Bool operations such as andBool and orBool"
+                )
+            }
         }
     }
 }

@@ -265,8 +265,9 @@ const CONDITIONS: &[Condition] = &[
     ),
 ];
 
-/// Matching-logic connectives inside an operand of a predicate atom (review finding 1): each
-/// operand is a term position, where the connective is a set operation no route reads.
+/// Matching-logic connectives and predicates inside an operand of a predicate atom (review
+/// finding 1): each operand is a term position, where a connective is a set operation no route
+/// reads and a predicate at sort Bool is all of Bool or nothing.
 const OPERAND_CONDITIONS: &[Condition] = &[
     condition(
         "eqop-and",
@@ -302,6 +303,36 @@ const OPERAND_CONDITIONS: &[Condition] = &[
         |x| x == 1,
         Kind::TermLevel,
         "X ∩ {1} is defined where X = 1; a connective in the operand of #Ceil is refused (PredicateOperand)",
+    ),
+    // A predicate as an operand of #Equals beside a Bool term: at sort Bool a predicate is all of
+    // Bool or nothing, never one Bool value.
+    condition(
+        "eqop-eq-true",
+        "{ {X #Equals 1} #Equals true }",
+        never,
+        Kind::TermLevel,
+        "{X #Equals 1} at Bool is all of Bool or nothing, never {true}: never; refused (PredicateOperand)",
+    ),
+    condition(
+        "eqop-ceil-true",
+        "{ #Ceil(1 /Int (X -Int 1)) #Equals true }",
+        never,
+        Kind::TermLevel,
+        "#Ceil(..) at Bool is all of Bool or nothing, never {true}: never; refused (PredicateOperand)",
+    ),
+    condition(
+        "eqop-eq-false",
+        "{ {X #Equals 1} #Equals false }",
+        never,
+        Kind::TermLevel,
+        "{X #Equals 1} at Bool is all of Bool or nothing, never {false}: never; refused (PredicateOperand)",
+    ),
+    condition(
+        "eqop-not-eq-true",
+        "#Not({ {X #Equals 1} #Equals true })",
+        |_| true,
+        Kind::TermLevel,
+        "the negation of an equality that never holds: always; refused (PredicateOperand)",
     ),
 ];
 
