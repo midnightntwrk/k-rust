@@ -27,10 +27,11 @@
 //! on the key naming every input; it does not rest on k-rust's determinism: a `hit` and a final
 //! `no` are facts about the definition and the program, which a later search can only fail to
 //! re-derive (an unknown), never contradict. `--verify` re-derives every answer of the selected
-//! patterns live, compares it with each stored record that has the current key, reports every
-//! difference (`mismatches`: `{pattern, program, record, cached, live}`) and exits 1 on one; it
-//! writes no record. The cache is off under the Z3 profile, as tier 1 is, and when kink's build
-//! identity is unknown.
+//! patterns live, compares it with each stored record a command without `--verify` would use,
+//! reports every difference (`mismatches`: `{pattern, program, record, cached, live}`) and exits 1
+//! on one; it writes no pattern record. Each live answer is judged with the program's live
+//! baseline run (`ProgramRow::live`), not with a stored result record `--verify` found different.
+//! The cache is off under the Z3 profile, as tier 1 is, and when kink's build identity is unknown.
 //!
 //! No answer enters a result record, an outcome record, a hint or a run document: pattern answers
 //! feed no kill and no mutation verdict.
@@ -202,6 +203,18 @@ fn cache_refusal(build: Option<Sha256Digest>) -> Option<String> {
 /// `kink-flow query`: the query document and whether the command found no corpus or
 /// infrastructure error (the caller's exit status).
 pub fn query(manifest: &FlowManifest, list: &PatternList, options: &QueryOptions) -> (Value, bool) {
+    query_with(manifest, list, options, &|_| {})
+}
+
+/// [`query`], with `adjust` applied to the definition exclusions of the searcher's load before
+/// any answer is judged: the unit tests' seam for a load fact a test cannot provoke (a load
+/// stack stop depends on the host's stack).
+pub(crate) fn query_with(
+    manifest: &FlowManifest,
+    list: &PatternList,
+    options: &QueryOptions,
+    adjust: &dyn Fn(&mut kink_native::exclusion::DefinitionExclusions),
+) -> (Value, bool) {
     if let Err(error) = list.check_programs(manifest) {
         return (pattern_list_refused(&error), false);
     }
@@ -241,7 +254,8 @@ pub fn query(manifest: &FlowManifest, list: &PatternList, options: &QueryOptions
             return (refused_document(&record), false);
         }
     };
-    let exclusions = searcher.exclusions().clone();
+    let mut exclusions = searcher.exclusions().clone();
+    adjust(&mut exclusions);
     let build = kink_campaign::kink_build().ok();
     let refusal = cache_refusal(build);
     let cache_build = build.filter(|_| refusal.is_none());
@@ -396,16 +410,23 @@ fn ask(
         },
     };
     let state = searcher.state_exclusion(&test.initial_state);
+    // The stored result record decides which stored no may be used (as a command without
+    // --verify would); the answer is judged with this command's own baseline run, which under
+    // --verify is the live run, not a stored record it may differ from.
     let baseline_run = result
         .record
         .as_ref()
         .and_then(|record| record["run_sha256"].as_str())
         .map(str::to_owned);
+    let baseline = result.live.as_ref().or(result.record.as_ref());
     let facts = Facts {
         exclusions: context.exclusions,
         state,
-        baseline_class: result.class(),
-        baseline_cause: result.row["cause"].as_str(),
+        baseline_class: baseline.and_then(|record| record["class"].as_str()),
+        baseline_cause: baseline.map_or_else(
+            || result.row["cause"].as_str(),
+            |record| record["cause"].as_str(),
+        ),
         profile: SolverProfile::BUILD,
     };
     let keyed = context.build.map(|build| {
@@ -607,4 +628,110 @@ pub fn pattern_list_refused(error: &ManifestError) -> Value {
         "profile": SolverProfile::BUILD.name(),
         "pattern_list": {"outcome": "refused", "detail": error.to_string()},
     })
+}
+
+#[cfg(test)]
+mod tests {
+    //! A cached answer is judged again with the current command's facts (F-18 fix 1): the load
+    //! facts a test cannot provoke are set through [`query_with`].
+    use super::*;
+    use kink_native::exclusion::{DefinitionExclusions, HookReference};
+
+    fn calc() -> (FlowManifest, PatternList) {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/flow/calc");
+        (
+            FlowManifest::read(&dir.join("FLOW.toml")).unwrap(),
+            PatternList::read(&dir.join("PATTERNS.toml")).unwrap(),
+        )
+    }
+
+    /// `query_with` on calc with the cache `cache`, on a thread with the command's stack.
+    fn run(
+        cache: &Path,
+        adjust: impl Fn(&mut DefinitionExclusions) + Send + 'static,
+    ) -> (Value, bool) {
+        let cache = cache.to_path_buf();
+        std::thread::Builder::new()
+            .stack_size(kink_corpus::cli::DEFINITION_STACK_BYTES)
+            .spawn(move || {
+                let (manifest, list) = calc();
+                let options = QueryOptions {
+                    cache: Some(cache),
+                    ..QueryOptions::default()
+                };
+                query_with(&manifest, &list, &options, &adjust)
+            })
+            .unwrap()
+            .join()
+            .unwrap()
+    }
+
+    fn row<'a>(document: &'a Value, pattern: &str, program: &str) -> &'a Value {
+        document["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["pattern"] == pattern && row["program"] == program)
+            .unwrap_or_else(|| panic!("no row ({pattern}, {program}) in {document:#}"))
+    }
+
+    #[test]
+    fn a_cached_answer_is_judged_with_the_current_facts() {
+        let cache =
+            std::env::temp_dir().join(format!("kink-flow-query-rejudge-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&cache);
+        let (first, ok) = run(&cache, |_| {});
+        assert!(ok, "{first:#}");
+        assert_eq!(row(&first, "result-three", "add")["answer"], "hit");
+        assert_eq!(row(&first, "result-four", "add")["answer"], "no");
+        assert_eq!(row(&first, "result-four", "add")["cached"], false);
+
+        // The same facts: both answers come from the cache.
+        let (second, _) = run(&cache, |_| {});
+        for (pattern, answer) in [("result-three", "hit"), ("result-four", "no")] {
+            let row = row(&second, pattern, "add");
+            assert_eq!(row["answer"], answer, "{row:#}");
+            assert_eq!(row["cached"], true, "{row:#}");
+        }
+
+        // This command's load counts a stack stop: neither cached answer stands.
+        let (stopped, _) = run(&cache, |exclusions| exclusions.load_stack_stops = 1);
+        for pattern in ["result-three", "result-four"] {
+            let row = row(&stopped, pattern, "add");
+            assert_eq!(row["cached"], true, "{row:#}");
+            assert_eq!(row["answer"], "unknown", "{row:#}");
+            assert!(
+                row["cause"].as_str().unwrap().contains("load-stack-stop"),
+                "{row:#}"
+            );
+        }
+
+        // This command's census flags a hook: the cached no is unknown, the cached hit stands.
+        let (census, _) = run(&cache, |exclusions| {
+            exclusions.implementation_chosen.push(HookReference {
+                module: "M".into(),
+                sentence: "r".into(),
+                symbol: "Lblkeys'Unds'list".into(),
+                hook: "MAP.keys_list".into(),
+            });
+        });
+        let no = row(&census, "result-four", "add");
+        assert_eq!(
+            (no["cached"].clone(), no["answer"].clone()),
+            (json!(true), json!("unknown"))
+        );
+        assert!(
+            no["cause"]
+                .as_str()
+                .unwrap()
+                .contains("implementation-chosen-hook"),
+            "{no:#}"
+        );
+        let hit = row(&census, "result-three", "add");
+        assert_eq!(
+            (hit["cached"].clone(), hit["answer"].clone()),
+            (json!(true), json!("hit"))
+        );
+        let _ = fs::remove_dir_all(&cache);
+    }
 }

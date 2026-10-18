@@ -103,7 +103,7 @@ Any rebuild of kink therefore refuses every store an earlier build wrote: delete
 
 **Checking a pattern.** When you write a program to exercise a situation, write the situation as a K pattern in `PATTERNS.toml` (`pattern = "<k> _:Int / 0 ~> _ </k>"`, as a rule's left-hand side is written) and claim the program hits it (`programs = ["divzero"]`).
 `kink-flow query FLOW.toml PATTERNS.toml` answers, per (pattern, program), whether some run reaches a configuration that matches: `hit` with the matching configuration and the rules of a run to it, `no` (the claim is refuted: the program never does what you said it tests), or `unknown` with its cause.
-A `no` needs the program's whole state space explored within the budget, a comparable baseline run and a definition that leaves no value to the implementation (decision 1's census), so a bounded or open run is `unknown`, never `no`; a `hit` needs only the run it found.
+A `no` needs the program's whole state space explored within the budget, a comparable baseline run and a definition that leaves no value to the implementation (decision 1's census), so a bounded or open run is `unknown`, never `no`; a `hit` needs only the run it found and a matched configuration k-rust shows defined (one holding an unevaluated call of a partial function is `unknown`), and stands under k-rust's choice of an open value and its strict reading of `andBool`, `orBool` and `#if`, one reading K allows.
 Definitive answers are cached under a key that names the specification, the program, the compiled pattern, the budget and kink's build, `--verify` re-derives them, and no answer ever decides a mutation ([`crates/kink-flow/README.md`](crates/kink-flow/README.md), "Checking a pattern").
 
 ### Commands

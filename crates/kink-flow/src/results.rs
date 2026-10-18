@@ -676,6 +676,10 @@ pub struct ProgramRow {
     pub row: Value,
     /// The program's current record (stored or just written), if it has one.
     pub record: Option<Value>,
+    /// Under `--verify`, when the program has a stored record: the record this command's own run
+    /// gives, which `record` (the stored one) was compared with. `None` otherwise (`record` is
+    /// then this command's run, or the stored record a command without `--verify` uses).
+    pub live: Option<Value>,
     /// The program was refused, its run failed or its record could not be written.
     pub failed: bool,
     /// The program's digest, when its text could be read.
@@ -941,6 +945,7 @@ fn program_row(
                 Value::Null,
             ),
             record: None,
+            live: None,
             failed: true,
             digest,
             text: None,
@@ -973,6 +978,7 @@ fn program_row(
             ),
             failed: record["class"] == ResultClass::Error.as_str(),
             record: stored,
+            live: None,
             digest: Some(digest),
             text: Some(text),
             test: None,
@@ -1004,6 +1010,7 @@ fn program_row(
             ),
             failed: record["class"] == ResultClass::Error.as_str(),
             record: stored,
+            live: None,
             digest: Some(digest),
             text: Some(text),
             test: Some(test),
@@ -1037,6 +1044,7 @@ fn program_row(
             ),
             failed: record["class"] == ResultClass::Error.as_str(),
             record: Some(record),
+            live: Some(record_value(spec, &key, &program.id, &result)),
             digest: Some(digest),
             text: Some(text),
             test: Some(test),
@@ -1066,6 +1074,7 @@ fn program_row(
     ProgramRow {
         row,
         record: Some(record),
+        live: None,
         failed,
         digest: Some(digest),
         text: Some(text),

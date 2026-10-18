@@ -1227,3 +1227,262 @@ fn a_witness_binds_only_the_authors_variables() {
         json!([{"variable": "VarN:SortInt{}", "value": {"kore": "\\dv{SortInt{}}(\"2\")", "truncated": false}}])
     );
 }
+
+/// The F-18 review's repro (scratch-F-18-review/repro-partial2): `f` is partial, and no
+/// equation covers `f(3)`.
+const PARTIAL_SPEC: &str = r#"
+module CALCP-SYNTAX
+  imports INT-SYNTAX
+  syntax Exp ::= Int
+               | "(" Exp ")" [bracket]
+               > left:
+                 Exp "+" Exp [strict, symbol(add)]
+endmodule
+
+module CALCP
+  imports CALCP-SYNTAX
+  imports INT
+  configuration <k> $PGM:Exp </k>
+  syntax KResult ::= Int
+  syntax Exp ::= g(Int) [symbol(g)]
+  // f is partial: its only equation covers 0
+  syntax Int ::= f(Int) [function, symbol(f)]
+  rule f(0) => 7
+  rule [add]: I1:Int + I2:Int => I1 +Int I2
+  rule [tof]: <k> 3 => g(f(3)) </k>
+  rule [done]: <k> g(_) => 100 </k>
+endmodule
+"#;
+
+/// The review's contrast (scratch-F-18-review/repro-partial): `h` is declared total, with no
+/// equation at 3 either, so `g(h(3))` exists in every model.
+const TOTAL_SPEC: &str = r#"
+module CALCG-SYNTAX
+  imports INT-SYNTAX
+  syntax Exp ::= Int
+               | "(" Exp ")" [bracket]
+               > left:
+                 Exp "+" Exp [strict, symbol(add)]
+endmodule
+
+module CALCG
+  imports CALCG-SYNTAX
+  imports INT
+  configuration <k> $PGM:Exp </k>
+  syntax KResult ::= Int
+  syntax Exp ::= g(Int) [symbol(g)]
+  syntax Int ::= f(Int) [function, symbol(f)]
+  syntax Int ::= h(Int) [function, total, symbol(h)]
+  rule f(0) => 7
+  rule h(0) => 7
+  rule [add]: I1:Int + I2:Int => I1 +Int I2
+  rule [tof]: <k> 3 => g(f(3)) </k>
+  rule [toh]: <k> 4 => g(h(3)) </k>
+endmodule
+"#;
+
+/// A state with a map, whose element, concatenation and unit k-rust holds as one collection.
+const STORE_SPEC: &str = r#"
+module STORE-SYNTAX
+  imports INT-SYNTAX
+  syntax Exp ::= Int | "start" [symbol(start)]
+endmodule
+module STORE
+  imports STORE-SYNTAX
+  imports INT
+  imports MAP
+  configuration <T> <k> $PGM:Exp </k> <store> .Map </store> </T>
+  rule <k> start => 0 </k> <store> _ => (1 |-> 10) (2 |-> 20) </store>
+endmodule
+"#;
+
+fn spec_dir(
+    test: &str,
+    file: &str,
+    module: &str,
+    spec: &str,
+    programs: &str,
+    patterns: &str,
+) -> PathBuf {
+    let dir = scratch(test);
+    write(&dir.join(file), spec);
+    write(
+        &dir.join("FLOW.toml"),
+        &format!(
+            "[spec]\nentry = \"{file}\"\nmain_module = \"{module}\"\nsyntax_module = \
+             \"{module}-SYNTAX\"\n\n{programs}"
+        ),
+    );
+    write(&dir.join("PATTERNS.toml"), patterns);
+    dir
+}
+
+/// F-18 review 1, critical: a hit needs the matched state's term to be defined. A reached state
+/// holding `f(3)`, an application of a partial function no equation reduces, may denote no
+/// configuration, and k-rust's match does not carry that undecided fact as a condition: it is
+/// `unknown` (`undefined-state`), never a confirmed claim, and nothing is cached. The same state
+/// with a total function, and a state holding a map, stay hits.
+#[test]
+fn a_hit_needs_a_defined_state() {
+    let dir = spec_dir(
+        "partial",
+        "calcp.k",
+        "CALCP",
+        PARTIAL_SPEC,
+        "[[program]]\nid = \"partial\"\ntext = \"1 + 2\"\n",
+        "[[pattern]]\nid = \"g-holds-an-int\"\npattern = \"<k> g(I:Int) </k>\"\nprograms = \
+         [\"partial\"]\n\n[[pattern]]\nid = \"reaches-100\"\npattern = \"<k> 100 </k>\"\nprograms \
+         = [\"partial\"]\n\n[[pattern]]\nid = \"never\"\npattern = \"<k> 5 </k>\"\nprograms = \
+         [\"partial\"]\n",
+    );
+    let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
+    assert_eq!(status, EXIT_OK, "{document:#}");
+    let partial = row(&document, "g-holds-an-int", "partial");
+    assert_eq!(partial["answer"], "unknown", "{partial:#}");
+    assert_eq!(partial["claim"], "unconfirmed");
+    assert_eq!(partial["witness"], Value::Null);
+    let cause = partial["cause"].as_str().unwrap();
+    assert!(cause.contains("undefined-state"), "{cause}");
+    assert!(cause.contains("(depth 2)"), "{cause}");
+    for pattern in ["reaches-100", "never"] {
+        assert_eq!(row(&document, pattern, "partial")["answer"], "unknown");
+    }
+    assert_eq!(document["counts"]["hit"], 0);
+    assert_eq!(document["pattern_cache"]["records_written"], 0);
+    assert!(records(&dir).is_empty());
+
+    let dir = spec_dir(
+        "total",
+        "calcg.k",
+        "CALCG",
+        TOTAL_SPEC,
+        "[[program]]\nid = \"partial\"\ntext = \"1 + 2\"\n\n[[program]]\nid = \"total\"\ntext = \
+         \"1 + 3\"\n",
+        "[[pattern]]\nid = \"g-any\"\npattern = \"<k> g(_) </k>\"\n",
+    );
+    let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
+    assert_eq!(status, EXIT_OK, "{document:#}");
+    let total = row(&document, "g-any", "total");
+    assert_eq!(total["answer"], "hit", "{total:#}");
+    assert!(
+        total["witness"]["state"]["kore"]
+            .as_str()
+            .unwrap()
+            .contains("Lblh{}"),
+        "{total:#}"
+    );
+    let partial = row(&document, "g-any", "partial");
+    assert_eq!(partial["answer"], "unknown", "{partial:#}");
+    assert!(
+        partial["cause"]
+            .as_str()
+            .unwrap()
+            .contains("undefined-state")
+    );
+
+    let dir = spec_dir(
+        "store",
+        "store.k",
+        "STORE",
+        STORE_SPEC,
+        "[[program]]\nid = \"start\"\ntext = \"start\"\n",
+        "[[pattern]]\nid = \"two-holds\"\npattern = \"<store> ... 2 |-> V:Int ... </store>\"\nprograms \
+         = [\"start\"]\n",
+    );
+    let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
+    assert_eq!(status, EXIT_OK, "{document:#}");
+    let store = row(&document, "two-holds", "start");
+    assert_eq!(store["answer"], "hit", "{store:#}");
+    assert_eq!(
+        store["witness"]["bindings"],
+        json!([{"variable": "VarV:SortInt{}", "value": {"kore": "\\dv{SortInt{}}(\"20\")", "truncated": false}}])
+    );
+}
+
+/// The result record of `program` in `document`'s cache under `dir`.
+fn result_record(dir: &Path, document: &Value, program: &str) -> PathBuf {
+    let digest = document["programs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["id"] == program)
+        .unwrap()["digest"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    dir.join(CACHE_DIRECTORY)
+        .join("results")
+        .join(document["spec"]["digest"].as_str().unwrap())
+        .join(format!("{digest}.json"))
+}
+
+/// Rewrite one field of a JSON file.
+fn forge(path: &Path, field: &str, value: Value) {
+    let mut record: Value = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+    record[field] = value;
+    fs::write(path, serde_json::to_string(&record).unwrap()).unwrap();
+}
+
+/// F-18 review 1, minor: a cached `no` is used only while the program's current result record is
+/// comparable with the baseline run digest the `no` was given against. A result record with
+/// another run digest, or of class timeout, under the same key makes the command search again
+/// (a timeout then gives unknown); a cached hit does not depend on the baseline.
+#[test]
+fn a_cached_no_needs_the_same_comparable_baseline() {
+    let dir = fixture("calc", "stored-no");
+    let manifest = dir.join("FLOW.toml");
+    let patterns = dir.join("PATTERNS.toml");
+    let (first, status) = plain(&manifest, &patterns);
+    assert_eq!(status, EXIT_OK, "{first:#}");
+    assert_eq!(row(&first, "result-four", "add")["answer"], "no");
+    let path = result_record(&dir, &first, "add");
+    let original: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(original["class"], "comparable");
+
+    // Another baseline run digest: the stored no is not used; the live search says no again.
+    forge(&path, "run_sha256", json!("00".repeat(32)));
+    let (digest, _) = plain(&manifest, &patterns);
+    let no = row(&digest, "result-four", "add");
+    assert_eq!(
+        (no["cached"].clone(), no["answer"].clone()),
+        (json!(false), json!("no")),
+        "{no:#}"
+    );
+    assert_eq!(row(&digest, "result-three", "add")["cached"], true);
+
+    // A timeout under the same key: the no is not used, and the live answer is unknown.
+    fs::write(&path, serde_json::to_string(&original).unwrap()).unwrap();
+    let (again, _) = plain(&manifest, &patterns);
+    assert_eq!(row(&again, "result-four", "add")["answer"], "no");
+    forge(&path, "class", json!("timeout"));
+    let (timeout, _) = plain(&manifest, &patterns);
+    let unknown = row(&timeout, "result-four", "add");
+    assert_eq!(unknown["cached"], false, "{unknown:#}");
+    assert_eq!(unknown["answer"], "unknown", "{unknown:#}");
+    assert!(
+        unknown["cause"]
+            .as_str()
+            .unwrap()
+            .contains("and it is timeout")
+    );
+    let hit = row(&timeout, "result-three", "add");
+    assert_eq!(
+        (hit["cached"].clone(), hit["answer"].clone()),
+        (json!(true), json!("hit"))
+    );
+
+    // Under --verify the answer is judged with the live baseline run, not the stale record: the
+    // live no is printed, and the command exits 1 for the result record's difference.
+    let (verified, status) = verify(&manifest, &patterns);
+    assert_eq!(status, EXIT_CORPUS, "{verified:#}");
+    assert_eq!(row(&verified, "result-four", "add")["answer"], "no");
+    assert!(
+        verified["mismatches"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["program"] == "add"
+                && m["detail"].as_str().is_some_and(|d| d.contains("class"))),
+        "{verified:#}"
+    );
+}

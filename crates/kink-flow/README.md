@@ -521,6 +521,7 @@ pattern = "<k> I:Int </k> requires I >Int 5"
 ```
 
 - `pattern` is parsed by the specification's own grammar, as the content of a rule in the main module: write a configuration fragment, with `...` and omitted cells completed as in a rule (`<k> 1 / 0 ~> _ </k>`, `<state> ... X |-> 3 ... </state>`), variables (`I:Int`, `_`) and an optional `requires` condition over them. A rewrite (`=>`) in a pattern denotes its left side. An `ensures` is refused, and so is a variable that occurs only on a rewrite's right side.
+- A `requires` that is undefined at a state (`10 /Int (I -Int 3) >Int 0` where `I` is 3) does not hold there, as for a rule's condition: that state does not match. So a pattern whose only matches make its condition undefined gets a `no`, and a claim of it is refuted, although the program does reach the configuration you meant; write the condition so that it is defined at every state it is matched against. A condition whose definedness k-rust cannot decide (a partial function with no equation for its argument) gives `unknown`.
 - `programs` lists the corpus programs you claim hit the pattern (the per-input claims). Without it, every program of the corpus is asked ("which programs already hit it?").
 - An unknown key, a value of the wrong type, a duplicate or empty id, an empty or duplicated `programs` entry, and a claimed program the manifest does not have are errors that name the key; the command then runs nothing and exits 1.
 
@@ -539,14 +540,14 @@ and `rows` one row per (pattern, program asked) `{pattern, program, claimed, ans
 | `no` | No run reaches one: the whole state space of the program was explored, within the budget, on a definition where nothing is left to the implementation. | The program does not do what you meant: change the program, or the pattern. |
 | `unknown` | No definitive answer; `cause` says why (below). | Read the cause; usually make the program terminate within the budget, or accept that the definition leaves the question open. |
 | `invalid-pattern` | The pattern does not parse, sort or compile; `cause` is k-rust's message. It never runs. | Fix the pattern. |
-| `error` | The program is not admitted, or k-rust refused the search; `cause` says which. | Fix the program, or report it. |
+| `error` | The program is not admitted, k-rust refused the search, or its result lacks the `matches` or `incomplete` list kink reads (never read as empty); `cause` says which. | Fix the program, or report it. |
 
 `claim` is null for a program the corpus form asked; for a claimed program it is `confirmed` (`hit`), `refuted` (`no`) or `unconfirmed` (anything else).
 **A refuted claim** (also listed in `refuted_claims`) means the program, run exactly as kink runs it, never reaches the situation you said it tests: the purpose you gave the test is not what it does.
 An `unconfirmed` claim is neither confirmed nor refuted.
 
 The witness of a hit is `{depth, state: {kore, truncated}, bindings, rules, rendering, note}`:
-the matching configuration as KORE text (cut to 4000 characters) and the number of rewrite steps to it, the values of the variables you wrote (`[{variable, value}]`; the variables k-rust generates to complete cells are left out),
+the matching configuration as KORE text (cut to 4000 characters) and the number of rewrite steps to it, the values of the variables you wrote (`[{variable, value}]`; the variables k-rust generates to complete cells are left out, and so is every variable spelled as k-rust spells a generated one, `_Gen<n>` or `_DotVar<n>`, so a variable of your own with such a name is not shown: the witness is for display only, and no answer reads it),
 and `rules`, the rewrite steps of one run from the initial configuration to it, each named by its label, else by the file and line of the rule written for it, else by its compiled id.
 k-rust 501f18b9 has no unparser from KORE back to the specification's syntax, so `rendering` is `kore`.
 
@@ -556,9 +557,17 @@ k-rust 501f18b9 has no unparser from KORE back to the specification's syntax, so
 - the definition leaves nothing to the implementation: no rule depends on a hook whose value the definition leaves open and k-rust chooses (`implementation-chosen-hook`, decision 1's census: `keys_list`, `choice`, `String2Bytes`, ...), or on whether `andBool`, `orBool` or `#if` skip an undefined operand (`short-circuit-reading`), and neither does the program's initial configuration; with such a value another implementation could reach the pattern, so the exploration of k-rust's choice says nothing about it;
 - the build is not the Z3 profile (a solver query can time out silently).
 
-A `hit` needs none of these: it is a run that exists, and k-rust's choice of an open value is one model of the definition. A hit is found even in a program that never ends, or that the budget stops: the search stops at the first match.
+A `hit` needs none of these. It is a run k-rust found to a configuration that exists, and k-rust's choice of an open value is one model of the definition. A hit is found even in a program that never ends, or that the budget stops: the search stops at the first match.
+That choice includes the short-circuit reading. K leaves it open: `domains.md` says `andBool` and `orBool` "may be short-circuited in concrete backends", and that `#if` "does not short-circuit on symbolic backends". k-rust reads them strictly: a condition with an undefined operand is undefined, so its rule does not apply. That is one reading K allows, so a `short-circuit-reading` flag on the definition or on the initial configuration makes a `no` unknown but leaves a `hit` standing.
+The consequence: a hit may be on a configuration that only the strict reading reaches. For example, an `owise` rule fires because another rule's condition was undefined, and a short-circuiting backend might not reach that configuration. The census (`implementation-chosen-hook`) is treated the same way: a hit stands, a `no` does not.
 Two conditions make every answer unknown: the definition's load counted a stop for lack of native stack (`load-stack-stop`), or a rule or equation has a condition equating two terms (`equals-condition`, a gap of k-rust's own answers).
-A match that holds only under a condition k-rust did not decide, or whose path emitted a backend diagnostic, is not a hit; the search stops at its first match, so the answer is then unknown.
+A match is a hit only when it is decided, and the search stops at its first match, so otherwise the answer is unknown. A match is not decided when any of these holds:
+- it holds only under a condition k-rust did not decide;
+- its path emitted a backend diagnostic;
+- its configuration's term is not shown defined (`undefined-state`).
+
+The last case is a configuration holding an application of a function the definition does not declare `total` that no equation reduced, such as `f(3)` for a function with an equation for `f(0)` only, or `1 /Int 0`. Wherever that application is undefined, such a configuration denotes nothing: there is no run to it, although k-rust's search lists it and its match carries no condition. kink therefore requires the matched configuration, and with it every binding, to be defined by construction (k-rust's `ceil_free`). Every application must be of a constructor or of a function declared total, and every map or set must have keys k-rust shows distinct by their shape.
+Constructors, functions declared total (a `total` helper with no equation for its argument included), lists, and maps or sets over domain values such as IMP's `<state>` and IMP++'s `<store>` pass. A configuration holding a partial function's unevaluated call does not, and neither does a map whose keys k-rust cannot show apart by their shape. Then the claim is `unconfirmed`, never confirmed; usually the program calls a function outside the cases its equations cover.
 
 ### How it runs, and what it costs
 
@@ -580,13 +589,15 @@ A used record is judged again with the current command's facts (the definition's
 Editing the specification, the program, the budget or the pattern, or rebuilding kink, recomputes the answer; an `unknown` is recomputed every time.
 
 A cached answer stands without a search. It rests on the integrity of the cache directory (whoever can write it can forge an answer, as for every kink cache) and on the key naming every input; not on k-rust's determinism: a `hit` and a `no` are facts about the definition and the program, which a later search can fail to re-derive (an unknown) but cannot contradict.
-`--verify` searches every selected (pattern, program) live, compares each with its stored record, lists every difference in `mismatches` (`{pattern, program, record, cached, live}`; the row's `verify` is `match` or `mismatch`), writes no record, and exits 1 on a difference; it also updates the results with `--verify`.
+`--verify` searches every selected (pattern, program) live, compares each with the stored record a command without `--verify` would use, lists every difference in `mismatches` (`{pattern, program, record, cached, live}`; the row's `verify` is `match` or `mismatch`), writes no pattern record, and exits 1 on a difference; it also updates the results with `--verify` (which writes a result record for a program that has none).
+Each live answer is judged with the program's live baseline run, not with a stored result record that `--verify` found different, so the printed answers are those of this command's own runs; a stale result record shows as a mismatch of the results, and the command exits 1.
 The cache is off under the Z3 profile, as tier 1 is, and when the executable cannot be read (`pattern_cache.enabled` false, with the reason).
 
 What every answer trusts, besides the cache:
 - k-rust's search is sound and exact for "some reachable configuration matches" under the state set (re-pin M-2 found the same distinct states and hits by stepping on IMP and IMP++; `tests/query.rs` walks every fixture program's states one step at a time and requires the same answers);
 - k-rust's parser and pattern compiler decide what a pattern denotes;
 - the baseline's own claims (`total`, `preserves-definedness`, lemmas) are trusted, as for every baseline run. A contradiction k-rust detects ends its path (the undefined step has no successor), so a witness's run passes through none;
+- k-rust's `ceil_free` decides that a matched configuration's term is defined (by construction; k-rust proves it in Lean, `ceilFree_sound`), and the definition's `total` attributes are among the trusted claims above;
 - a search does not count the stops for lack of native stack it dismisses while it only refines a result (k-rust `docs/compatibility.md`, "Execute"). k-rust states at every such site a search reaches that the kept result is sound (a definedness condition left unsimplified, a fold forgone), so such a stop can leave a step or a match undecided (an unknown) but cannot make a decided match or a completed exploration false: whether an answer is definitive can depend on the host's stack, its truth cannot. A `no` also requires the baseline run's own count to be zero.
 
 **Answers never decide a mutation.** No answer enters a result record, an outcome record, a hint or a run document, and `run` does not read the pattern cache: a kill needs the final configurations to differ, and a pattern-only difference stays unknown by design.

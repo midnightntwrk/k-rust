@@ -18,8 +18,11 @@
 //! injection as a left-hand side) against the execution definition of the specification's own
 //! compile (`CompiledKoreArtifacts::execution_definition`, which k-rust documents as the context a
 //! standalone surface pattern must use). The KORE target is `\and(body, \equals(C, true)...)` for
-//! each conjunct `C` of a `requires`, or `\and(body, \top)`: a `requires` is supported. k-rust
-//! refuses an `ensures` and a variable that occurs only on a rewrite's right side (a pattern
+//! each conjunct `C` of a `requires`, or `\and(body, \top)`: a `requires` is supported. As for a
+//! rule's condition, k-rust instantiates it with the definedness of its atoms, so a `requires`
+//! undefined at a state does not hold there: that state does not match, which can give a final
+//! `no` (a refuted claim); one whose definedness k-rust cannot decide is undecided (`unknown`).
+//! k-rust refuses an `ensures` and a variable that occurs only on a rewrite's right side (a pattern
 //! denotes the configurations its left side matches). The compiled target must then pass the
 //! backend's verified admission of a standalone pattern (`verify_standalone_pattern`), as `krun`
 //! requires, so a pattern naming a symbol the baseline's compiled definition lacks is refused.
@@ -37,9 +40,30 @@
 //! **Answers** ([`judge`]):
 //! - `hit`: the search returned a decided match: no condition (`constraints` empty), no
 //!   diagnostic of the match or of the matching state's path, a state that carries no predicate,
-//!   and the watchdog did not fire. A hit is sound even when the run read a value the definition
-//!   leaves open (an implementation-chosen hook, the short-circuit reading): k-rust's choice is one
-//!   model of the definition, and the claim is existential.
+//!   a state whose term is defined (below), and the watchdog did not fire. A hit is sound even
+//!   when the run read a value the definition leaves open (an implementation-chosen hook, the
+//!   short-circuit reading, an initial state flagged for either): k-rust's choice is one model of
+//!   the definition, and the claim is existential. For the short-circuit reading this is K's own
+//!   latitude: `domains.md` says `andBool` and `orBool` "may be short-circuited in concrete
+//!   backends" and that `#if` "does not short-circuit on symbolic backends", so k-rust's strict
+//!   reading (a condition with an undefined operand is undefined, and the rule does not apply) is
+//!   one reading K allows. The consequence: a hit may be on a state that only the strict reading
+//!   reaches (for example an `owise` rule that fired because another rule's condition was
+//!   undefined), which a short-circuiting backend might not reach.
+//!
+//!   **A defined state.** k-rust's match decides the subject's facts, but an undecided fact stays
+//!   a fact about the subject, not a condition of the match (k-rust-backend `search.rs`,
+//!   `match_condition`), and k-rust's results do not assert that a state has an instance
+//!   (`docs/backend-port.md`). A reached state that holds an irreducible application of a function
+//!   not declared total (a user function with no equation for its argument, `1 /Int 0`) denotes
+//!   no configuration wherever that application is undefined, yet the search lists it and its
+//!   match carries no condition. So a hit also needs the matched state's term, and with it every
+//!   binding, to be defined: the state is internalized on the searcher's definition and must be
+//!   `ceil_free` (k-rust-backend `term::TermAttributes::ceil_free`: its definedness obligation is
+//!   empty for every definition by construction; every application's symbol is a constructor or
+//!   a function the definition declares total, every collection a map or set whose keys k-rust
+//!   shows distinct, a list, over such subterms). A state that is not, or whose definedness kink
+//!   cannot read, makes the answer `unknown` (`undefined-state`).
 //! - `no`: the exploration completed (k-rust's `incomplete` list is empty and the watchdog did not
 //!   fire), and also the program's baseline run, kink's plain state-set run of the same initial
 //!   state under the same budget (the result cache), is `comparable`: complete and free of every
@@ -51,8 +75,9 @@
 //!   the Z3 profile. Another model of an open value could reach the pattern, so a `no` is relative
 //!   to the definition only when no implementation-chosen value is in play.
 //! - `unknown`, with its cause, in every other case: a depth bound, the clock, an undecided step
-//!   or match, a stack-exhausted state, the census, a load stack stop, a baseline run that is not
-//!   comparable, the Z3 profile.
+//!   or match, a matched state not shown defined, a stack-exhausted state, the census, a load
+//!   stack stop, a baseline run that is not comparable, the Z3 profile, a response of k-rust's
+//!   without its `matches` or `incomplete` list (an `error`).
 //! - `invalid-pattern` (above) and `error` (a program that is not admitted, a search k-rust
 //!   refuses).
 //!
@@ -649,8 +674,16 @@ impl Searcher {
         let time = Duration::from_millis(self.budget.time_ms);
         let started = Instant::now();
         let (result, fired) = watchdog(time, || self.backend.search_pattern_json(request));
+        let definition = &self.definition;
+        let outcome = outcome(
+            result,
+            fired,
+            self.budget,
+            lowered,
+            &self.rule_names,
+            &|state| defined_state(definition, state),
+        );
         let wall_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
-        let outcome = outcome(result, fired, self.budget, lowered, &self.rule_names);
         (outcome, wall_ms)
     }
 }
@@ -706,13 +739,57 @@ fn term(value: &Value) -> &Value {
     value.get("term").unwrap_or(value)
 }
 
+/// The cause a hit is refused for when its state is not shown defined (module docs).
+const UNDEFINED_STATE: &str = "undefined-state";
+
+/// Whether the term of a matched state (`state`, its KORE JSON) is defined: k-rust's `ceil_free`
+/// of the state internalized on `definition`, the definition the search ran on (module docs).
+/// `Err` says why the state is not shown defined, or why kink could not tell.
+fn defined_state(definition: &BackendDefinition, state: &Value) -> Result<(), String> {
+    let envelope = if state.get("format").is_some() {
+        state.clone()
+    } else {
+        json!({"format": "KORE", "version": 1, "term": state})
+    };
+    let pattern = from_value(&envelope)
+        .map_err(|e| format!("its KORE does not decode ({e}), so its definedness is not known"))?;
+    let unknown = |why: String| format!("{why}, so its definedness is not known");
+    // The internalized term is dropped inside the work, on the stack k-rust sizes for it.
+    let work = || {
+        definition.with_stack_for(&[&pattern], || {
+            definition
+                .verify_standalone_pattern(&pattern, &[])
+                .and_then(|admitted| admitted.internalize_term())
+                .map(|term| term.attributes().ceil_free())
+                .map_err(|e| format!("it does not internalize on the searched definition ({e})"))
+        })
+    };
+    let free = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work))
+        .map_err(|_| unknown("k-rust panicked while internalizing it".to_owned()))?
+        .map_err(|e| unknown(format!("k-rust provides no stack to internalize it ({e})")))?
+        .map_err(unknown)?;
+    if free {
+        Ok(())
+    } else {
+        Err(format!(
+            "k-rust does not show its term defined ({UNDEFINED_STATE}): it holds an application \
+             of a function the definition does not declare total that no equation reduced (such \
+             as a function with no equation for its argument, or `1 /Int 0`), or a map or set \
+             whose keys k-rust does not show distinct, so the state may denote no configuration"
+        ))
+    }
+}
+
 /// The search's outcome (module docs: what makes a match decided and an exploration complete).
+/// `defined` decides whether a decided match's state is defined ([`defined_state`] on the
+/// searcher's definition; the unit tests pass their own).
 fn outcome(
     result: Result<String, BackendError>,
     fired: bool,
     budget: Budget,
     lowered: &LoweredPattern,
     rule_names: &BTreeMap<String, String>,
+    defined: &dyn Fn(&Value) -> Result<(), String>,
 ) -> SearchOutcome {
     let clock = || {
         SearchOutcome::Incomplete(format!(
@@ -738,12 +815,26 @@ fn outcome(
             return SearchOutcome::Failed(format!("cannot read k-rust's search result: {error}"));
         }
     };
-    let incomplete = response["incomplete"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
-    if let Some(found) = response["matches"].as_array().and_then(|m| m.first()) {
-        return match decided(found) {
+    // Both lists are always present at the pin (k-rust `wire.rs`, `PatternSearchResponse`); a
+    // response without one is not read as an empty list, which would make a final no of it.
+    let (Some(incomplete), Some(matches)) = (
+        response["incomplete"].as_array(),
+        response["matches"].as_array(),
+    ) else {
+        return SearchOutcome::Failed(
+            "k-rust's search result has no `matches` or no `incomplete` list, so kink cannot \
+             read it"
+                .to_owned(),
+        );
+    };
+    if response["initialBottom"] == true {
+        return SearchOutcome::Incomplete(
+            "the initial state has no instance (k-rust's initial_bottom), so no run starts"
+                .to_owned(),
+        );
+    }
+    if let Some(found) = matches.first() {
+        return match decided(found).and_then(|()| defined(&found["state"]["state"])) {
             Ok(()) => SearchOutcome::Hit(witness(found, lowered, rule_names)),
             Err(why) => SearchOutcome::Incomplete(format!(
                 "the first matching state the search found (depth {}) is not a decided match: \
@@ -752,16 +843,10 @@ fn outcome(
             )),
         };
     }
-    if response["initialBottom"] == true {
-        return SearchOutcome::Incomplete(
-            "the initial state has no instance (k-rust's initial_bottom), so no run starts"
-                .to_owned(),
-        );
-    }
     if incomplete.is_empty() {
         return SearchOutcome::Complete;
     }
-    SearchOutcome::Incomplete(incomplete_cause(&incomplete, budget))
+    SearchOutcome::Incomplete(incomplete_cause(incomplete, budget))
 }
 
 /// Why a match is not a decided hit, or `Ok`.
@@ -897,4 +982,190 @@ fn incomplete_cause(incomplete: &[Value], budget: Budget) -> String {
         "the exploration did not complete: {}",
         kinds.into_iter().collect::<Vec<_>>().join("; ")
     )
+}
+
+#[cfg(test)]
+mod tests {
+    //! The outcome of hand-built k-rust search responses (F-18 fix 1): what makes a match a
+    //! decided hit and an exploration complete, one condition at a time.
+    use super::*;
+    use std::cell::Cell;
+
+    fn lowered() -> LoweredPattern {
+        let target = from_value(&json!({
+            "format": "KORE",
+            "version": 1,
+            "term": {"tag": "Top", "sort": {"tag": "SortApp", "name": "SortInt", "args": []}},
+        }))
+        .unwrap();
+        LoweredPattern {
+            target,
+            generated: BTreeSet::new(),
+            digest: payload_digest(PATTERN_DOMAIN, b"test"),
+        }
+    }
+
+    /// A configuration term without predicates.
+    fn configuration() -> Value {
+        json!({"tag": "App", "name": "Lbl'-LT-'k'-GT-'", "sorts": [], "args": []})
+    }
+
+    /// A decided match at depth 2: no condition, no diagnostic, a term state.
+    fn decided_match() -> Value {
+        json!({
+            "bindings": [],
+            "constraints": [],
+            "state": {"state": configuration(), "depth": 2, "trace": []},
+        })
+    }
+
+    fn response(matches: Vec<Value>, incomplete: Vec<Value>) -> Value {
+        json!({
+            "schemaVersion": BACKEND_SCHEMA_VERSION,
+            "modality": "state-set",
+            "matches": matches,
+            "effects": [],
+            "incomplete": incomplete,
+        })
+    }
+
+    fn run(response: &Value, defined: &dyn Fn(&Value) -> Result<(), String>) -> SearchOutcome {
+        outcome(
+            Ok(response.to_string()),
+            false,
+            Budget::default(),
+            &lowered(),
+            &BTreeMap::new(),
+            defined,
+        )
+    }
+
+    fn always(_: &Value) -> Result<(), String> {
+        Ok(())
+    }
+
+    #[track_caller]
+    fn incomplete(outcome: &SearchOutcome, cause: &str) {
+        match outcome {
+            SearchOutcome::Incomplete(why) => assert!(why.contains(cause), "{why}"),
+            other => panic!("expected an unknown with {cause:?}, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_decided_match_on_a_defined_state_is_a_hit() {
+        let asked = Cell::new(0);
+        let outcome = run(&response(vec![decided_match()], vec![]), &|state| {
+            asked.set(asked.get() + 1);
+            assert_eq!(*state, configuration());
+            Ok(())
+        });
+        assert!(
+            matches!(&outcome, SearchOutcome::Hit(w) if w["depth"] == 2),
+            "{outcome:?}"
+        );
+        assert_eq!(asked.get(), 1, "the state's definedness is asked once");
+    }
+
+    #[test]
+    fn a_match_on_a_state_not_shown_defined_is_not_a_hit() {
+        let outcome = run(&response(vec![decided_match()], vec![]), &|_| {
+            Err(format!(
+                "k-rust does not show its term defined ({UNDEFINED_STATE})"
+            ))
+        });
+        incomplete(&outcome, UNDEFINED_STATE);
+        incomplete(&outcome, "is not a decided match");
+    }
+
+    #[test]
+    fn a_conditional_or_diagnosed_match_is_not_a_hit() {
+        let diagnostic = json!({"kind": "undecided-condition"});
+        let mut constrained = decided_match();
+        constrained["constraints"] =
+            json!([{"tag": "Top", "sort": {"tag": "SortApp", "name": "SortBool", "args": []}}]);
+        let mut diagnosed = decided_match();
+        diagnosed["diagnostics"] = json!([diagnostic]);
+        let mut path = decided_match();
+        path["state"]["diagnostics"] = json!([diagnostic]);
+        let mut predicate = decided_match();
+        let top = json!({"tag": "SortApp", "name": "SortGeneratedTopCell", "args": []});
+        predicate["state"]["state"] = json!({
+            "tag": "And",
+            "sort": top,
+            "patterns": [configuration(), {"tag": "Top", "sort": top}],
+        });
+        let mut enveloped = decided_match();
+        enveloped["state"]["state"] =
+            json!({"format": "KORE", "version": 1, "term": predicate["state"]["state"]});
+        for (found, cause) in [
+            (constrained, "under a condition k-rust did not decide"),
+            (diagnosed, "matching it emitted a backend diagnostic"),
+            (path, "its path emitted a backend diagnostic"),
+            (predicate, "the state is a And pattern"),
+            (enveloped, "the state is a And pattern"),
+        ] {
+            // The definedness check is not what refuses these.
+            incomplete(&run(&response(vec![found], vec![]), &always), cause);
+        }
+    }
+
+    #[test]
+    fn an_initial_state_without_instance_gives_no_answer() {
+        let mut bottom = response(vec![], vec![]);
+        bottom["initialBottom"] = json!(true);
+        incomplete(&run(&bottom, &always), "initial_bottom");
+        // Even beside a match (k-rust gives none then), it is not a hit.
+        let mut both = response(vec![decided_match()], vec![]);
+        both["initialBottom"] = json!(true);
+        incomplete(&run(&both, &always), "initial_bottom");
+    }
+
+    #[test]
+    fn a_complete_exploration_needs_both_lists() {
+        assert_eq!(
+            run(&response(vec![], vec![]), &always),
+            SearchOutcome::Complete
+        );
+        incomplete(
+            &run(
+                &response(vec![], vec![json!({"kind": "depth-bound"})]),
+                &always,
+            ),
+            "max_depth",
+        );
+        for missing in ["matches", "incomplete"] {
+            let mut shape = response(vec![], vec![]);
+            shape.as_object_mut().unwrap().remove(missing);
+            let outcome = run(&shape, &always);
+            assert!(
+                matches!(&outcome, SearchOutcome::Failed(why) if why.contains("no `matches`")),
+                "{missing}: {outcome:?}"
+            );
+            // A list of another type is no list.
+            let mut shape = response(vec![], vec![]);
+            shape[missing] = json!({});
+            assert!(
+                matches!(run(&shape, &always), SearchOutcome::Failed(_)),
+                "{missing}"
+            );
+        }
+        // A decided match is not read from a response without its incomplete list either.
+        let mut shape = response(vec![decided_match()], vec![]);
+        shape.as_object_mut().unwrap().remove("incomplete");
+        assert!(matches!(run(&shape, &always), SearchOutcome::Failed(_)));
+    }
+
+    #[test]
+    fn a_fired_watchdog_leaves_no_answer() {
+        let fired = outcome(
+            Ok(response(vec![decided_match()], vec![]).to_string()),
+            true,
+            Budget::default(),
+            &lowered(),
+            &BTreeMap::new(),
+            &always,
+        );
+        incomplete(&fired, "time_ms");
+    }
 }
