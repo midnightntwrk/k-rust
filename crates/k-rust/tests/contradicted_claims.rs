@@ -2224,11 +2224,11 @@ endmodule
             )
         };
         for (program, rule) in [("un7(\"a\")", "un7"), ("un8(\"a\")", "un8")] {
-            let expected = vec![record("tt2", "tt2eq", rule), record("tt", "tteq", rule)];
+            // `un7` evaluates `tt` first; `un8` has no `tt`.
             let expected = if rule == "un7" {
-                vec![expected[1].clone(), expected[0].clone()]
+                vec![record("tt", "tteq", rule), record("tt2", "tt2eq", rule)]
             } else {
-                vec![expected[0].clone()]
+                vec![record("tt2", "tt2eq", rule)]
             };
             let (kore, initial) = compile(REUSE, program);
             for strategy in super::observed::STRATEGIES {
