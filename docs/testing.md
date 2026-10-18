@@ -269,6 +269,30 @@ Workers load the prelude once and compile each case against it, about 0.26 s of 
 The corpus is not committed, since the seed and count reproduce it.
 A finding becomes a focused regression in its owning subsystem as described above; `expected.toml` holds only rejections of invalid input, each with its reason.
 
+## Alpha-invariance harness
+
+`crates/k-rust/tests/alpha_invariance.rs` checks one property of the compiler on whole definitions: a sentence and any renaming of its variables that keeps sigils (`?`, `!`, `@`), `_` prefixes and the fixed names `HOLE`, `HERE` and `#Configuration` compile to alpha-equivalent KORE and give the same `krun` answers.
+The binding rule it assumes is the KORE rule: after anonymous resolution, anonymity never affects binding, `#Exists V . P` and `#Forall V . P` bind exactly `V` with lexical scope, each `_` is its own variable, and every other variable is bound by its sentence.
+A difference is a defect of the compiler whichever spelling it gets wrong, so the harness needs no expected answer for a definition.
+
+Each case loads one definition, renames the sentences in its scope on the parsed definition, relinks the result (`LoadedDefinition::with_definition`), and compiles base and variant through the library route of `kcompile`.
+The strategies (`alpha_invariance/rename.rs`) are: every named variable to a fresh name; every named variable to `K<i>`, the spelling of the strictness variables the compiler mints; within each class of sigil and `_` prefix, every name to the name of another variable of the sentence; every quantifier's variable to a fresh name within its scope; every quantifier's variable to the name of another variable of the sentence that does not occur in its body, at the same sort, so that the binder shadows it; and every anonymous variable to its own `_`-prefixed name.
+The comparison reads `definition.kore` and the macros' KORE; it renames each axiom's free variables by first occurrence and its binders by position, keeping the encoded sigil and `_` prefix (`alpha_invariance/kore_alpha.rs`); it renames the `#lambda` symbols the compiler mints by first occurrence, since their names carry a variable argument's spelling; it compares each sentence's `UNIQUE_ID`, a digest of the sentence, on its own; and it compares the leaves of every program the case runs through the backend's `execute`, from the initial configuration `krun` assembles with `--io off` and empty standard input.
+A refused base must be refused by every variant with the same error codes at the same lines, and a panic, such as a kompile invariant of the test profile, never passes.
+
+The harness has two modes:
+
+- the corpus mode renames every sentence of a corpus definition: the manifest's compile and execution cases (`scripts/reference-differential.toml`), the prelude's own rules, and, in the whole corpus, every tracked K file under `crates/k-rust/tests` and the manifest cases in the `k` and `imp-semantics` checkouts when they are present;
+- the generated mode (`alpha_invariance/generate.rs`) builds small definitions with up to three binders per sentence, along the axes binder kind, the bound name's relation to the sentence's other names (fresh, the left side's variable, another binder, a macro parameter, a context alias's variable, a function or `owise` rule's variable, a minted name, anonymous), sort, and position (`requires`, `ensures`, a function argument in the condition, the right side), and the defect probes (`alpha_invariance/probes.rs`) add one definition per known binding defect.
+
+`EXPECTED` (`alpha_invariance/expected.rs`) lists every result that fails today, with the ticket whose fix makes it pass, its kind of failure and a text its report holds.
+A listed result must still fail that way and an unlisted one must pass, so a fix shows as entries leaving the list.
+A binding finding is stated as a new axis value or family of the generator, or as a new probe, and its failing results become entries of the list; it is never fixed as a one-off shape without one.
+
+`cargo test --test alpha_invariance` runs the probes, the prelude, the manifest's runnable workspace cases and a sample of the generated grammar (the first case of each family and every sixth after it), on up to four worker threads (`ALPHA_INVARIANCE_JOBS`).
+The whole corpus and the whole generated grammar are ignored tests, run in the portable and the native build by the `alpha-invariance` gate (`scripts/alpha-invariance.sh`, `scripts/gates.toml`), which a change to krust's sources owes.
+`ALPHA_INVARIANCE_OUT=<directory>` writes one line per result to `<directory>/<test>.tsv`.
+
 ## Durable regression descriptions
 
 Committed filenames, test names, fixture metadata, and comments must identify the behavior or scenario they describe.
