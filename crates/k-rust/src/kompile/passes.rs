@@ -117,7 +117,8 @@ pub use resolve_semantic_casts::{
     resolve_semantic_casts_with_predicates_in_sentence,
 };
 pub(crate) use resolve_semantic_casts::{
-    resolve_semantic_casts_pass, semantic_cast_variable_sorts,
+    resolve_semantic_casts_pass, resolve_semantic_casts_with_pending_predicates_in_sentence,
+    semantic_cast_variable_sorts,
 };
 pub(crate) use resolve_strict::resolve_strict_pass;
 pub use resolve_strict::{ResolveStrictError, resolve_strict};

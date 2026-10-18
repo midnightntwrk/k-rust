@@ -8,10 +8,14 @@
 use k_rust::{
     backend::{Backend, BackendOptions, ExecuteRequest},
     builtin::embedded,
-    definition::{CheckMode, Sentence},
+    definition::{
+        Attributes, CheckMode, LOCATION_ATTRIBUTE, ResolvedDefinition, SOURCE_ATTRIBUTE, Sentence,
+    },
+    inner::definition_with_named_projections,
     kast::Term,
     kompile::{
         CompilationBackend, CompileOptions, CompiledKoreArtifacts, compile_loaded_definition,
+        compile_search_pattern,
     },
     kore::{ast::Pattern, codec, parser::parse_pattern, printer::Printer},
     outer::{LoadOptions, ResolvedSource, load_for_compilation, load_with_options},
@@ -42,7 +46,11 @@ fn compile_for(sentences: &str, backend: CompilationBackend) -> String {
 }
 
 fn compile_artifacts(sentences: &str, backend: CompilationBackend) -> CompiledKoreArtifacts {
-    let source = format!("{HEADER}{sentences}endmodule\n");
+    compile_source(format!("{HEADER}{sentences}endmodule\n"), backend)
+}
+
+/// The whole definition `source`, main module `P` and syntax module `P-SYNTAX`, compiled.
+fn compile_source(source: String, backend: CompilationBackend) -> CompiledKoreArtifacts {
     let mut resolver = |_: &str, required: &str| {
         embedded(required).ok_or_else(|| format!("unexpected require {required}"))
     };
@@ -853,4 +861,241 @@ fn compiled_conditions_hold_no_guard_alias() {
         .filter(|names| !names.is_empty())
         .count();
     assert_eq!(aliased, 1, "the shared disjunction keeps its alias");
+}
+
+// ---------------------------------------------------------------- predicate context conditions
+
+/// `go(N)` steps to `foo(N, e(N))`; the context heats `e(N)` only where its condition holds,
+/// `e(N)` evaluates to `N`, which cools back: `foo(N, N)`.
+fn foo_context(condition: &str) -> String {
+    format!(
+        "  syntax Exp ::= Int | e(Int) [symbol(e)]\n  syntax KResult ::= Int\n  syntax KItem ::= foo(Int, Exp) [symbol(foo)]\n  rule [e]: <k> e(N) => N ... </k>\n  rule [g]: <k> go(N) => foo(N, e(N)) ... </k>\n  context [p]: foo(N:Int, HOLE:Exp) requires {condition}\n"
+    )
+}
+
+/// A context whose condition is a predicate heats exactly where the predicate holds.
+#[test]
+fn a_predicate_context_heats_only_where_it_holds() {
+    for condition in [
+        "{HOLE #Equals e(1)}",
+        "{N #Equals 1}",
+        "(N ==Int 1) #Or (N ==Int 2)",
+    ] {
+        let sentences = foo_context(condition);
+        assert_eq!(run(&sentences, 1), stuck("foo(1, 1)"), "{condition}");
+        assert_eq!(run(&sentences, 3), stuck("foo(3, e(3))"), "{condition}");
+    }
+}
+
+/// A context whose condition is a Bool term keeps it as one Bool conjunct beside the heating
+/// test (`_andBool_`), as before predicate conditions were conjoined as predicates.
+#[test]
+fn a_bool_context_condition_stays_a_bool_conjunct() {
+    let sentences = foo_context("N ==Int 1");
+    let kore = compile(&sentences);
+    let heat = axiom(&kore, "P.p-heat");
+    // The whole requires is one Bool leaf whose term is the `_andBool_` conjunction.
+    assert_contains(
+        &heat,
+        &format!(
+            "\\equals{{SortBool{{}}, {TOP}}}(Lbl'Unds'andBool'Unds'{{}}({}, LblnotBool'Unds'{{}}(",
+            eq_int("VarN:SortInt{}", &int("1"))
+        ),
+    );
+    assert_lacks(&heat, "\\and{SortGeneratedTopCell{}}(\\equals{SortBool{}");
+    assert_eq!(run(&sentences, 1), stuck("foo(1, 1)"));
+    assert_eq!(run(&sentences, 3), stuck("foo(3, e(3))"));
+}
+
+/// Macros, aliases and semantic casts that state a predicate condition. The conjunction a context
+/// gains is chosen on the condition the backend reads, after expansion and cast resolution, so
+/// each spelling heats exactly where its predicate holds, as the direct spelling does.
+const SPELLED_PREDICATES: &str = "  syntax Bool ::= isOne(Int) [macro]\n  rule isOne(N) => {N #Equals 1}\n  syntax Bool ::= isOneAlias(Int) [alias]\n  rule isOneAlias(N) => {N #Equals 1}\n  syntax Bool ::= small(Int) [macro]\n  rule small(N) => (N ==Int 1) #Or (N ==Int 2)\n";
+
+#[test]
+fn a_predicate_context_condition_spelled_through_a_macro_an_alias_or_a_cast_heats_where_it_holds() {
+    for (condition, heats_at_two) in [
+        ("isOne(N)", false),
+        ("isOneAlias(N)", false),
+        ("({N #Equals 1}):Bool", false),
+        ("small(N)", true),
+    ] {
+        let sentences = format!("{SPELLED_PREDICATES}{}", foo_context(condition));
+        assert_eq!(run(&sentences, 1), stuck("foo(1, 1)"), "{condition}");
+        let two = if heats_at_two {
+            "foo(2, 2)"
+        } else {
+            "foo(2, e(2))"
+        };
+        assert_eq!(run(&sentences, 2), stuck(two), "{condition}");
+        assert_eq!(run(&sentences, 3), stuck("foo(3, e(3))"), "{condition}");
+    }
+}
+
+/// A strict production heats through its context alias, whose condition here is a predicate
+/// spelled through a macro: `#Top` lets every argument heat, `#Bottom` none.
+#[test]
+fn a_strict_alias_condition_spelled_through_a_macro_is_conjoined_as_a_predicate() {
+    let strict = "  syntax Exp ::= Int | e(Int) [symbol(e)] | bar(Exp) [strict(c), symbol(bar)]\n  syntax KResult ::= Int\n  rule [e]: <k> e(N) => N ... </k>\n  rule [g]: <k> go(N) => bar(e(N)) ... </k>\n  syntax Bool ::= always() [macro] | never() [macro]\n  rule always() => #Top\n  rule never() => #Bottom\n";
+    for (condition, leaf) in [("always()", "bar(1)"), ("never()", "bar(e(1))")] {
+        let sentences =
+            format!("{strict}  context alias [c]: <k> HERE ... </k> requires {condition}\n");
+        assert_eq!(run(&sentences, 1), stuck(leaf), "{condition}");
+    }
+}
+
+/// The search-pattern route chooses the conjunction of its sort tests with the condition after
+/// macro expansion too: a predicate spelled through a macro compiles to the pattern its direct
+/// spelling compiles to.
+#[test]
+fn a_search_pattern_condition_spelled_through_a_macro_compiles_as_its_expansion() {
+    let sentences = format!("{SPELLED_PREDICATES}  syntax KItem ::= box(Int) [symbol(box)]\n");
+    let direct = compile_pattern(&sentences, "<k> box(X:Int) </k> requires {X #Equals 1}");
+    for spelled in ["isOne(X)", "isOneAlias(X)"] {
+        let pattern = format!("<k> box(X:Int) </k> requires {spelled}");
+        assert_eq!(compile_pattern(&sentences, &pattern), direct, "{spelled}");
+    }
+}
+
+/// `contents` compiled as a search pattern of the definition `sentences`, as KORE text.
+fn compile_pattern(sentences: &str, contents: &str) -> String {
+    let source = format!("{HEADER}{sentences}endmodule\n");
+    let mut resolver = |_: &str, required: &str| {
+        embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let options = LoadOptions {
+        implicit_sources: vec![
+            embedded("kast.md").unwrap(),
+            embedded("prelude.md").unwrap(),
+        ],
+        ..CompilationBackend::Rust.load_options()
+    };
+    let (loaded, _) = load_for_compilation(
+        ResolvedSource::new("ml_conditions.k", source),
+        "P",
+        Some("P-SYNTAX"),
+        &mut resolver,
+        &options,
+    )
+    .expect("the definition loads");
+    let artifacts = compile_loaded_definition(&loaded, CompileOptions::default())
+        .expect("the definition compiles");
+    let parsing = definition_with_named_projections(loaded.definition());
+    let parsing = ResolvedDefinition::resolve(&parsing).unwrap();
+    let execution = ResolvedDefinition::resolve(&artifacts.execution_definition).unwrap();
+    let mut attributes = Attributes::default();
+    attributes.insert(SOURCE_ATTRIBUTE, serde_json::json!("<pattern>"));
+    attributes.insert(
+        LOCATION_ATTRIBUTE,
+        serde_json::json!([1, 1, 1, contents.len() + 1]),
+    );
+    let compiled = compile_search_pattern(&parsing, &execution, "P", contents, attributes)
+        .unwrap_or_else(|error| panic!("{contents}: {error}"));
+    Printer::compact().print_pattern(&compiled.pattern)
+}
+
+/// An anonymous existential in an ensures (`?_`) is renamed like `_`; the renamed variable is the
+/// authored one, so the stage checker (C1 in the test profile) accepts it, and the rule runs as
+/// its named spelling does.
+#[test]
+fn an_anonymous_existential_in_an_ensures_compiles_and_runs_as_a_named_one() {
+    let anonymous = run(
+        "  rule [p]: <k> go(X) => done(X) ... </k> ensures ?_ ==Int 1\n",
+        1,
+    );
+    let named = run(
+        "  rule [p]: <k> go(X) => done(X) ... </k> ensures ?W ==Int 1\n",
+        1,
+    );
+    assert_eq!(anonymous, named);
+    assert!(
+        anonymous.contains(&("Stuck".to_owned(), "done(1)".to_owned())),
+        "{anonymous:?}"
+    );
+}
+
+// ---------------------------------------------------------------- the configuration in conditions
+
+/// A definition whose configuration has a `<flag>` cell, which `isZero()` reads; `isZeroM()` is a
+/// macro for it, so macro expansion inlines a condition that reads the configuration.
+const FLAG_HEADER: &str = "module P-SYNTAX
+  imports INT-SYNTAX
+  imports BOOL-SYNTAX
+  syntax Pgm ::= go(Int) [symbol(go)]
+endmodule
+
+module P
+  imports P-SYNTAX
+  imports INT
+  imports BOOL
+  configuration <k> $PGM:Pgm </k> <flag> $FLAG:Int </flag>
+  syntax KItem ::= done(Int) [symbol(done)]
+  syntax Bool ::= isZero() [function, symbol(isZero)]
+  rule [[ isZero() => F ==Int 0 ]] <flag> F </flag>
+  syntax Bool ::= isZeroM() [macro]
+  rule isZeroM() => isZero()
+";
+
+/// The leaves of go(n) with `<flag>` holding `flag`: halt reason and the first item of `<k>`.
+fn run_with_flag(sentences: &str, n: i64, flag: i64) -> Vec<(String, String)> {
+    let kore = compile_source(
+        format!("{FLAG_HEADER}{sentences}endmodule\n"),
+        CompilationBackend::Rust,
+    )
+    .definition_kore;
+    let mut backend = Backend::new(&kore, "P", BackendOptions::default()).unwrap();
+    let state = parse_pattern(&format!(
+        "Lbl'-LT-'generatedTop'-GT-'{{}}(Lbl'-LT-'k'-GT-'{{}}(kseq{{}}(inj{{SortPgm{{}}, SortKItem{{}}}}(Lblgo{{}}({})), dotk{{}}())), Lbl'-LT-'flag'-GT-'{{}}({}), Lbl'-LT-'generatedCounter'-GT-'{{}}({}))",
+        int(&n.to_string()),
+        int(&flag.to_string()),
+        int("0")
+    ))
+    .unwrap();
+    let result = backend
+        .execute(ExecuteRequest {
+            max_depth: Some(5),
+            ..ExecuteRequest::new(state)
+        })
+        .unwrap();
+    let mut leaves: Vec<(String, String)> = result
+        .leaves
+        .iter()
+        .map(|leaf| {
+            let state = codec::from_value(&leaf.state).unwrap();
+            (format!("{:?}", leaf.reason), k_cell(&state))
+        })
+        .collect();
+    leaves.sort();
+    leaves
+}
+
+/// `#Configuration` names the current configuration, which `resolve function configuration`
+/// passes to `isZero` in the macro's right side and macro expansion then inlines into a
+/// condition; it is a free variable of no condition until the configuration-binding stage binds
+/// it, so the stage checker (C1 in the test profile) accepts each of these, and each condition
+/// reads the `<flag>` cell.
+#[test]
+fn a_rule_requires_reading_the_configuration_through_a_macro_compiles_and_reads_it() {
+    let rule = "  rule [g]: <k> go(N) => done(N) ... </k> requires isZeroM()\n";
+    assert_eq!(run_with_flag(rule, 3, 0), stuck("done(3)"));
+    assert_eq!(run_with_flag(rule, 3, 1), stuck("go(3)"));
+}
+
+#[test]
+fn a_context_requires_reading_the_configuration_through_a_macro_compiles_and_reads_it() {
+    let context = "  syntax Exp ::= Int | e(Int) [symbol(e)]\n  syntax KResult ::= Int\n  syntax KItem ::= foo(Int, Exp) [symbol(foo)]\n  rule [e]: <k> e(N) => N ... </k>\n  rule [g]: <k> go(N) => foo(N, e(N)) ... </k>\n  context [p]: foo(_:Int, HOLE:Exp) requires isZeroM()\n";
+    assert_eq!(run_with_flag(context, 3, 0), stuck("foo(3, 3)"));
+    assert_eq!(run_with_flag(context, 3, 1), stuck("foo(3, e(3))"));
+}
+
+#[test]
+fn an_ensures_reading_the_configuration_through_a_macro_compiles_and_reads_it() {
+    let ensures = "  rule [g]: <k> go(N) => done(N) ... </k> ensures isZeroM()\n";
+    assert_eq!(run_with_flag(ensures, 3, 0), stuck("done(3)"));
+    // With a nonzero flag the ensures is false, so the step has no successor: its result is
+    // empty, which the backend reports as a Trivial leaf at the pre-state.
+    assert_eq!(
+        run_with_flag(ensures, 3, 1),
+        vec![("Trivial".to_owned(), "go(3)".to_owned())]
+    );
 }

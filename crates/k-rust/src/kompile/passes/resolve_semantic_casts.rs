@@ -151,7 +151,24 @@ pub fn resolve_semantic_casts_in_sentence(
 /// Standalone search patterns (`compile_search_pattern`) use this mode. Macro and alias
 /// sentences suppress predicates because their casts describe matching syntax rather than
 /// runtime side conditions. `subsorts` is the visible order of the sentence's module.
+///
+/// The sort predicates are conjoined with the prior condition by `#And` when either reads as a
+/// predicate as the sentence stands and by `_andBool_` otherwise. `compile_search_pattern` makes
+/// that choice after macro expansion instead, so a condition spelled through a macro that expands
+/// to a predicate is conjoined as a predicate there and as a Bool term here.
 pub fn resolve_semantic_casts_with_predicates_in_sentence(
+    subsorts: &PartialOrder<Sort>,
+    sentence: Sentence,
+) -> Result<Sentence, ResolveSemanticCastsError> {
+    resolve_semantic_casts_with_pending_predicates_in_sentence(subsorts, sentence)
+        .map(crate::kompile::ml_constructs::resolve_condition_conjunctions_in_sentence)
+}
+
+/// [`resolve_semantic_casts_with_predicates_in_sentence`] with the conjunction of the sort
+/// predicates and the prior condition left pending when a later macro expansion may change its
+/// choice; the caller resolves it after macro expansion
+/// ([`crate::kompile::ml_constructs::resolve_condition_conjunctions`]).
+pub(crate) fn resolve_semantic_casts_with_pending_predicates_in_sentence(
     subsorts: &PartialOrder<Sort>,
     mut sentence: Sentence,
 ) -> Result<Sentence, ResolveSemanticCastsError> {
@@ -301,7 +318,7 @@ fn resolve_semantic_casts_in_sentence_mut(
     *requires = if is_true(&prior) {
         predicate
     } else {
-        Term::apply("_andBool_", vec![predicate, prior])
+        crate::kompile::ml_constructs::conjoin_condition(predicate, prior)
     };
     Ok(())
 }

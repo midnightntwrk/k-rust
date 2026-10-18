@@ -178,12 +178,19 @@ struct Alias {
 }
 
 /// Generate evaluation contexts from `strict`, `seqstrict` and `hybrid` productions.
+///
+/// The condition of each generated context conjoins its strictness test with the alias's
+/// condition, by `#And` when either reads as a predicate as the definition stands and by
+/// `_andBool_` otherwise. The compile pipeline makes that choice after macro expansion instead,
+/// so a condition spelled through a macro that expands to a predicate is conjoined as a predicate
+/// there and as a Bool term here.
 pub fn resolve_strict(definition: &Definition) -> Result<Definition, ResolveStrictError> {
     super::super::pipeline::run_standalone(
         definition,
         resolve_strict_pass,
         Some(GeneratingPass::ResolveStrict),
     )
+    .map(crate::kompile::ml_constructs::resolve_condition_conjunctions_in_definition)
 }
 
 pub(crate) fn resolve_strict_pass(
@@ -514,7 +521,8 @@ fn generate_contexts(
             } else {
                 bool_token(true)
             };
-            let requires = Term::apply("_andBool_", vec![requires, alias.requires.clone()]);
+            let requires =
+                crate::kompile::ml_constructs::conjoin_condition(requires, alias.requires.clone());
             let mut attributes = merge_attributes(production.attributes(), &alias.attributes);
             let source_label = attribute_text(production.attributes(), AttributeKey::Klabel)
                 .unwrap_or_else(|| production.label().name.clone());
@@ -773,6 +781,8 @@ endmodule
         let (mut added, removed) = rendered_changes(&run);
         added.sort();
         let truth = r#"#token("true","Bool")"#;
+        // Two tokens are conjoined at once; a conjunction with `isKResult(K0)`, which may be a
+        // macro until macros are expanded, is left pending for the stage after macro expansion.
         let unconditional = format!("`_andBool_`({truth},{truth})");
         let mut expected = vec![
             format!(
@@ -788,10 +798,10 @@ endmodule
                 "context seq(#SemanticCastToExp(HOLE),#SemanticCastToExp(K1),#SemanticCastToExp(K2)) requires {unconditional}"
             ),
             format!(
-                "context seq(#SemanticCastToExp(K0),#SemanticCastToExp(HOLE),#SemanticCastToExp(K2)) requires `_andBool_`(isKResult(K0),{truth})"
+                "context seq(#SemanticCastToExp(K0),#SemanticCastToExp(HOLE),#SemanticCastToExp(K2)) requires #krustPendingConditionAnd(isKResult(K0),{truth})"
             ),
             format!(
-                "context seq(#SemanticCastToExp(K0),#SemanticCastToExp(K1),#SemanticCastToExp(HOLE)) requires `_andBool_`(`_andBool_`(isKResult(K0),isKResult(K1)),{truth})"
+                "context seq(#SemanticCastToExp(K0),#SemanticCastToExp(K1),#SemanticCastToExp(HOLE)) requires #krustPendingConditionAnd(`_andBool_`(isKResult(K0),isKResult(K1)),{truth})"
             ),
         ];
         expected.sort();

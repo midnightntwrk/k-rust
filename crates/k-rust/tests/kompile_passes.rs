@@ -3264,6 +3264,51 @@ fn lowers_heat_and_cool_attributes_to_result_predicates() {
     assert_generated_by(&transformed, GeneratingPass::ResolveHeatCool);
 }
 
+/// The public pass returns no conjunction internal to the pipeline: each side condition is
+/// conjoined by `#And` with a condition that reads as a predicate and by `_andBool_` otherwise.
+#[test]
+fn heat_cool_conjoins_a_predicate_condition_as_a_predicate() {
+    let source = indoc! {r#"
+        module BOOL
+        endmodule
+        module MAIN
+          syntax KResult
+          syntax Exp ::= heat(Exp) [symbol(heat)]
+                       | cool(Exp) [symbol(cool)]
+          rule heat(HOLE) => cool(HOLE) [heat, result(KResult)]
+        endmodule
+    "#};
+    let mut definition = parsed(source);
+    let main = definition
+        .modules
+        .iter_mut()
+        .find(|module| module.name == "MAIN")
+        .unwrap();
+    for sentence in &mut main.local_sentences {
+        if let Sentence::Rule { requires, .. } = std::sync::Arc::make_mut(sentence) {
+            *requires = Term::apply(
+                "#Equals",
+                vec![Term::variable("HOLE"), Term::variable("HOLE")],
+            );
+        }
+    }
+    let transformed = resolve_heat_cool_attributes(&definition).unwrap();
+    let requires = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match &**sentence {
+            Sentence::Rule { requires, .. } => Some(Printer::new().print_term(requires)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        requires,
+        ["#And(#Equals(HOLE,HOLE),`notBool_`(isKResult(HOLE)))"]
+    );
+}
+
 /// A heat or cool condition is a `Bool` formula built from `BOOL`'s connectives, so the module
 /// stating the rule is given a private `BOOL` import; a definition without `BOOL` is told so at
 /// the rule.
