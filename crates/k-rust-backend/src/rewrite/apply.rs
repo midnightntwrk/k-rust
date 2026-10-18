@@ -1937,9 +1937,7 @@ fn note_disjunction_bottom(
     }
     .into_iter()
     .zip(built)
-    .map(|((undefined, premises_hold), successor)| {
-        (successor.term.clone(), undefined, premises_hold)
-    });
+    .map(|((undefined, unassumed), successor)| (successor.term.clone(), undefined, unassumed));
     let mut alternatives = Vec::with_capacity(shown.len());
     for found in shown {
         match found.or_else(|| normalized.next()) {
@@ -1947,15 +1945,15 @@ fn note_disjunction_bottom(
             None => return Ok(()),
         }
     }
-    let premises_hold = alternatives.iter().all(|(instance, _, premises_hold)| {
-        *premises_hold && instance.attributes().variables.is_empty()
-    });
+    let unassumed = alternatives
+        .iter()
+        .all(|(instance, _, unassumed)| *unassumed && instance.attributes().variables.is_empty());
     if let Some((instance, undefined, _)) = alternatives.into_iter().next() {
         crate::path_facts::note_preservation(
             crate::path_facts::ObservingRule::of(context.rule),
             &instance,
             undefined,
-            premises_hold,
+            unassumed,
         );
     }
     Ok(())

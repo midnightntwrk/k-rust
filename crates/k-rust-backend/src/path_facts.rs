@@ -174,8 +174,9 @@ impl PathFact {
 /// A record is a fact about the definition at the contradicted application (for a
 /// `preserves-definedness` claim, the rule's result term). When it is
 /// [`ground`](Self::ground), the application is variable-free and the work that found it
-/// `\bottom` depended on nothing that may differ between models of the definition, so the
-/// definition has no model with the claim at that input. A non-ground record rests on
+/// `\bottom` depended on nothing that may differ between models of the definition that agree
+/// with the request's inputs (on the I/O route, the console state too) and with k-rust's stated
+/// readings, so the claim is false at that input in every such model. A non-ground record rests on
 /// something that may differ (an assumption that is not `\top`, or a value the definition
 /// leaves open) and refutes nothing.
 #[derive(Clone, Debug)]

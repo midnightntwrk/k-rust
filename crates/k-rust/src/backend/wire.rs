@@ -193,9 +193,10 @@ impl From<k_rust_backend::path_facts::ObservedIn> for ObservedInOutput {
 /// no path fact but ground records (no value the definition leaves open, for one) and assumed
 /// nothing but `\top` (for `total`, no constraint of the state and no path condition; for
 /// `preserves-definedness`, every constraint of the step simplified to `\top`, so its `requires`
-/// was decided rather than carried): a ground record shows that the definition has no model with
-/// the claim at that input; a non-ground one rests on something that may not hold in every
-/// model, and shows nothing. `observedIn` says
+/// was decided rather than carried): a ground record shows that the claim is false at that input
+/// in every model that agrees with the request's inputs (on the I/O route, the console state too)
+/// and with k-rust's stated readings; a non-ground one rests on something that may not hold in
+/// every model, and shows nothing. `observedIn` says
 /// whether the definition's load or this run observed it; a leaf's records are always `run`.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]

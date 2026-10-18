@@ -454,8 +454,9 @@ export type ContradictedClaim =
  * differ between models (it read no value the definition leaves open, among the other path facts,
  * and assumed nothing but true: for `total`, no constraint of the state; for
  * `preserves-definedness`, every constraint of the step simplified to true, so its `requires` was
- * decided), so the definition has no model with the claim at that input; a non-ground record
- * shows nothing. `observedIn`: whether the definition's
+ * decided), so the claim is false at that input in every model that agrees with the request's
+ * inputs (on the I/O route, the console state too) and with k-rust's stated readings; a
+ * non-ground record shows nothing. `observedIn`: whether the definition's
  * load or this run observed it; a leaf's records are always 'run'.
  */
 export interface ContradictedClaimFields {

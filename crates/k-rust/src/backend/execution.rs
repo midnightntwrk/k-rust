@@ -191,11 +191,12 @@ pub fn run(
 ///
 /// The attribute is an axiom k-rust trusts, and the equation is another axiom of the same
 /// definition; on this application they contradict each other, so the definition is
-/// inconsistent there. Nothing about the run changes: the message explains a record of the
-/// contradiction, which may be a leaf's halt, a decision on a path, or work on no reported path.
+/// inconsistent there under k-rust's stated readings. Nothing about the run changes: the message
+/// explains a record of the contradiction, which may be a leaf's halt, a decision on a path, or
+/// work on no reported path.
 pub fn contradicted_total_message(contradicted: &ContradictedTotal) -> String {
     format!(
-        "{} on this input: {}; the attribute is trusted, so the definition is inconsistent here",
+        "{} on this input: {}; the attribute is trusted, so the definition is inconsistent here under k-rust's stated readings",
         contradicted_attribute(contradicted),
         contradicting_equation(contradicted),
     )
@@ -225,12 +226,13 @@ fn contradicting_equation(contradicted: &ContradictedTotal) -> String {
 /// (`k_rust_backend::path_facts::ContradictedClaim`), and who observed it: the rewrite rule whose
 /// work did, or the load of the definition.
 ///
-/// A ground `total` record is [`contradicted_total_message`]: the definition has no model with
-/// the claim at that input, and a ground `preserves-definedness` record says the same of the
-/// rule's result. A non-ground record rests on something that may differ between models of the
-/// definition (the state's variables, an assumption that may hold nowhere, a value the definition
-/// leaves open), so it shows no inconsistency and is worded as a contradiction where that holds
-/// only.
+/// A ground `total` record is [`contradicted_total_message`]: the claim is false at that input in
+/// every model that agrees with the request's inputs (on the I/O route, the console state too)
+/// and with k-rust's stated readings, and a ground `preserves-definedness` record says the same
+/// of the rule's result. A non-ground record rests on something that may differ between models
+/// of the definition (the state's variables, an assumption that may hold nowhere, a value the
+/// definition leaves open), so it shows no inconsistency and is worded as a contradiction where
+/// that holds only.
 pub fn contradicted_claim_message(claim: &k_rust_backend::path_facts::ContradictedClaim) -> String {
     let (attribute, finding) = if let Some(total) = claim.total() {
         (contradicted_attribute(total), contradicting_equation(total))
@@ -241,7 +243,7 @@ pub fn contradicted_claim_message(claim: &k_rust_backend::path_facts::Contradict
     };
     let message = if claim.ground {
         format!(
-            "{attribute} on this input: {finding}; the attribute is trusted, so the definition is inconsistent here"
+            "{attribute} on this input: {finding}; the attribute is trusted, so the definition is inconsistent here under k-rust's stated readings"
         )
     } else if claim.preservation().is_some() {
         format!(
