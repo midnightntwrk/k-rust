@@ -845,7 +845,7 @@ impl AlphaComparable for AppliedRule {
             label: self.label.clone(),
             unique_id: self.unique_id.clone(),
             origin: self.origin.clone(),
-            preserves_definedness: self.preserves_definedness,
+            claims_defined_result: self.claims_defined_result,
             substitution: rename_substitution(&self.substitution, context),
             rule_substitution: rename_substitution(&self.rule_substitution, context),
             rule_predicates: rename_predicates(&self.rule_predicates, context),

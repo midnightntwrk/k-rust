@@ -2023,6 +2023,9 @@ fn be08_s1_definition() -> BackendDefinition {
     symbolic_remainder_definition(&rules)
 }
 
+/// The BE08 fixtures' definition. `dead` is declared `total` and its lemma's result is
+/// `\bottom`, so a step whose result applies it observes a contradicted claim: the captures of
+/// such steps hold its records, on the leaves that rest on them and on the result's list.
 fn be08_portable_definition(rules: &str) -> BackendDefinition {
     let source = r#"[]
         module MAIN
@@ -3419,7 +3422,7 @@ fn later_group_simplification_error_is_reported_on_the_remainder() {
     assert_be08_capture(
         "T8 result and solver transcript",
         &(&result, &transcript),
-        "d1eb00f17911d5054c3e23aab017300a8ea49940bf76122377959894a6f58c0e",
+        "57412dfb7fb55d0e02a32a8f7755bd228906063f202965841b58f200ff8ce72a",
     );
 }
 
@@ -3489,7 +3492,7 @@ fn cancellation_during_lower_group_work_is_observed_after_the_step() {
     assert_be08_capture(
         "T9 result and solver transcript",
         &(&result, &transcript),
-        "f11f228ffecd74a300be32e38daeb01e05f94459a65e940b5f7daa9da226bc6e",
+        "7c44d39490e8fbe4c6b582fc8bd9e5107d0c9cb8ea99857b7df368e63cb5761d",
     );
     assert_eq!(leaf.halt_reason, HaltReason::Stopped(StopCause::Cancelled));
     assert!(result.discarded.is_empty(), "{result:#?}");
@@ -3703,7 +3706,7 @@ fn complete_step_classifies_effects_from_every_group() {
     assert_be08_capture(
         "T13 result and solver transcript",
         &(&result, &transcript),
-        "14041fcfe6558abbf0a0ac0a7d99f0fb445056940b18f0c0c1a907cfa6ff29e9",
+        "efbfaaa4cbf6d35b6efe5652a320029d052a14dd990a4805225bae5726560b82",
     );
 }
 
@@ -3822,7 +3825,7 @@ fn cut_point_and_terminal_rules_after_a_cascade_that_leaves_one_survivor() {
             &terminal,
             &*terminal_solver.transcript.borrow(),
         ),
-        "2d028eb15cd6e61641acbb03dbd2f25401037a32d3cb6f7621679e3052437fad",
+        "a9c8b076458e82fc625145d7485e1ebcadc992012b400a1987c871af87dcfd30",
     );
     assert!(cut_solver.answers.borrow().is_empty());
     assert!(cut_solver.validity.borrow().is_empty());
@@ -8719,7 +8722,10 @@ fn a_cut_point_candidate_owns_both_the_diagnostics_and_the_evaluations_of_its_wo
 
 /// `start` rewrites to `g(a)` (`to-g`) and to `dead(a)` (`to-dead`). At a branch stop the
 /// `dead` simplification refutes `to-dead`'s candidate, so `to-g`'s is the unique successor; its
-/// normalization applies the `grow` simplification and exhausts a budget of 3.
+/// normalization applies the `grow` simplification and exhausts a budget of 3. `dead` is declared
+/// `functional` and its own equation's result is `\bottom` on `a`, so the refutation observes a
+/// contradicted claim ([`is_dead_contradiction`]), which the path that rests on the removed
+/// candidate carries.
 fn pruned_to_growing_survivor_definition() -> BackendDefinition {
     let syntax = parse_definition(
         r#"[]
@@ -8755,6 +8761,19 @@ fn pruned_to_growing_survivor_definition() -> BackendDefinition {
     )
     .expect("definition should parse");
     BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+}
+
+/// The contradicted `functional` claim of `dead` at `dead(a)`, observed by `to-dead`'s candidate.
+fn is_dead_contradiction(diagnostic: &BackendDiagnostic) -> bool {
+    let BackendDiagnostic::ContradictedClaim(claim) = diagnostic else {
+        return false;
+    };
+    claim.total().is_some_and(|total| total.symbol() == "dead")
+        && claim
+            .rule
+            .as_ref()
+            .is_some_and(|rule| rule.label.as_deref() == Some("to-dead"))
+        && claim.ground
 }
 
 fn execute_pruned_to_growing_survivor(
@@ -8807,7 +8826,13 @@ fn a_sole_branch_survivor_on_a_cut_point_rule_is_a_proposed_successor() {
     let [next] = next_states.as_slice() else {
         panic!("expected one proposed successor");
     };
-    assert!(leaf.diagnostics.is_empty(), "{:?}", leaf.diagnostics);
+    let [contradiction] = leaf.diagnostics.as_slice() else {
+        panic!(
+            "expected the removed candidate's record: {:?}",
+            leaf.diagnostics
+        );
+    };
+    assert!(is_dead_contradiction(contradiction), "{contradiction:?}");
     assert!(leaf.branch.is_empty());
     assert!(leaf.observations.is_empty(), "{:?}", leaf.observations);
     assert_eq!(next.diagnostics, [term_budget_exhausted(3)]);
@@ -8854,7 +8879,11 @@ fn a_sole_branch_survivor_on_a_terminal_rule_ends_the_path_after_it() {
         }
     );
     assert_eq!(leaf.depth, 1);
-    assert_eq!(leaf.diagnostics, [term_budget_exhausted(3)]);
+    let [budget, contradiction] = leaf.diagnostics.as_slice() else {
+        panic!("expected the budget and the record: {:?}", leaf.diagnostics);
+    };
+    assert_eq!(*budget, term_budget_exhausted(3));
+    assert!(is_dead_contradiction(contradiction), "{contradiction:?}");
     assert_observations_anchor_into_branch(leaf);
     let stream = observed(leaf);
     assert_eq!(

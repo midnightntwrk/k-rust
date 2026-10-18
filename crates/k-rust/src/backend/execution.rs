@@ -227,8 +227,9 @@ fn contradicting_equation(contradicted: &ContradictedTotal) -> String {
 ///
 /// A ground `total` record is [`contradicted_total_message`]: the definition has no model with
 /// the claim at that input, and a ground `preserves-definedness` record says the same of the
-/// rule's result. A non-ground record comes from a state that may have no instance, so it shows
-/// no inconsistency and is worded as a contradiction at each instance of the state only.
+/// rule's result. A non-ground record comes from a state that may have no instance, or (for
+/// `preserves-definedness`) from a step whose `requires` was carried and may hold nowhere, so it
+/// shows no inconsistency and is worded as a contradiction at each instance only.
 pub fn contradicted_claim_message(claim: &k_rust_backend::path_facts::ContradictedClaim) -> String {
     let (attribute, finding) = if let Some(total) = claim.total() {
         (contradicted_attribute(total), contradicting_equation(total))
@@ -240,6 +241,10 @@ pub fn contradicted_claim_message(claim: &k_rust_backend::path_facts::Contradict
     let message = if claim.ground {
         format!(
             "{attribute} on this input: {finding}; the attribute is trusted, so the definition is inconsistent here"
+        )
+    } else if claim.preservation().is_some() {
+        format!(
+            "{attribute}: {finding}; the step was not decided on a ground instance, so the attribute is contradicted at each instance the step applies to, which may be none"
         )
     } else {
         format!(
@@ -259,7 +264,8 @@ pub fn contradicted_claim_message(claim: &k_rust_backend::path_facts::Contradict
 }
 
 /// The opening and the finding of a contradicted-`preserves-definedness` message: the rule, with
-/// its written position, its result term as the step built it, and the undefined subterm.
+/// its written position, its result term as the step built it, and where its normalization found
+/// it undefined.
 fn contradicted_preservation(
     preservation: &k_rust_backend::path_facts::ContradictedPreservation,
 ) -> (String, String) {

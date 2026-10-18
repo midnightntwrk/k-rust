@@ -1430,4 +1430,366 @@ endmodule
             "{message}"
         );
     }
+
+    /// The shapes of the fix round: a disjunctive right-hand side, a result that reaches
+    /// `\bottom` through an equation whose right-hand side is `#Bottom` (`bot` is partial, `tb`
+    /// and `tb2` are declared `total`), and two rules whose `requires` no instance satisfies.
+    pub(super) const ROUTES: &str = r#"
+module MAIN
+  imports INT
+  imports BOOL
+  imports STRING
+  syntax Pgm ::= "done" | val(Int) | pdo(Int) | pdoo(Int) | bt(Int) | bts(Int)
+               | tbt(Int) | tbn(Int) | pa(Int) | pb(Int)
+  syntax Int ::= bot(Int) [function]
+               | tb(Int) [function, total]
+               | tb2(Int) [function, total]
+  configuration <k> $PGM:Pgm </k>
+  rule [pdo]:    pdo(X) => (val(X /Int 0) #Or done) [preserves-definedness]
+  rule [pdoo]:   pdoo(X) => (val(X /Int 0) #Or val((X /Int 0) +Int 1)) [preserves-definedness]
+  rule [boteq]:  bot(I) => #Bottom requires I ==Int 0
+  rule [boteq2]: bot(I) => I requires I =/=Int 0
+  rule [btr]:    bt(X) => val(bot(X)) [preserves-definedness]
+  rule [btsa]:   bts(X) => val(bot(X)) [preserves-definedness]
+  rule [btsb]:   bts(_) => done
+  rule [tbeq]:   tb(I) => #Bottom requires I ==Int 0
+  rule [tbeq2]:  tb(I) => I requires I =/=Int 0
+  rule [tbt]:    tbt(X) => val(tb(X))
+  rule [tb2eq]:  tb2(I) => bot(I) +Int 1
+  rule [tbn]:    tbn(X) => val(tb2(X))
+  rule [pa]:     pa(X) => val(1 /Int 0) requires 2 ^Int X ==Int 3 [preserves-definedness]
+  rule [pb]:     pb(X) => val(1 /Int 0) requires lengthString(Int2String(X)) ==Int 0 [preserves-definedness]
+endmodule
+"#;
+
+    /// Each run of `program` over [`ROUTES`] and over its claim-free variant, by name.
+    fn route_runs(program: &str) -> Vec<(String, ExecutionStrategy, Value, Value)> {
+        let (kore, initial) = compile(ROUTES, program);
+        let (free, free_initial) = compile(&claim_free(ROUTES), program);
+        each_run(&kore, &initial)
+            .into_iter()
+            .map(|(name, strategy, modality, result)| {
+                let free = super::observed::execute(&free, &free_initial, modality, strategy);
+                (format!("{program} under {name}"), strategy, result, free)
+            })
+            .collect()
+    }
+
+    /// The leaves' reasons, in order.
+    fn reasons(result: &Value) -> Vec<Value> {
+        leaves(result)
+            .iter()
+            .map(|leaf| leaf["reason"].clone())
+            .collect()
+    }
+
+    /// The claim-free run records nothing.
+    fn assert_claim_free_records_nothing(name: &str, free: &Value) {
+        assert!(
+            leaves(free).iter().all(|leaf| records(leaf).is_empty()),
+            "claim-free {name}: {free:#}"
+        );
+        assert!(
+            free.get("contradictedClaims").is_none(),
+            "claim-free {name}: {free:#}"
+        );
+    }
+
+    /// The printed `undefined` term of every record of `result`'s list.
+    fn undefined_terms(result: &Value) -> Vec<String> {
+        result["contradictedClaims"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|entry| {
+                k_rust::kore::printer::Printer::compact()
+                    .print_pattern(&k_rust::kore::codec::from_value(&entry["undefined"]).unwrap())
+            })
+            .collect()
+    }
+
+    /// The definedness of a disjunction is the disjunction of its alternatives' definedness:
+    /// `pdo(0)`'s result `val(0 /Int 0) #Or done` is defined, since `done` is, so the claim holds
+    /// and nothing is named, as without the attribute. `pdoo(0)`'s alternatives are both
+    /// undefined, so the claim is refuted at the instance, and the one record names the first
+    /// alternative; each alternative is an undefined step, with or without the attribute.
+    #[test]
+    fn a_disjunctive_result_is_undefined_only_when_every_alternative_is() {
+        for (name, _, result, free) in route_runs("pdo(0)") {
+            assert!(!leaves(&result).is_empty(), "{name}: {result:#}");
+            for leaf in leaves(&result) {
+                assert_eq!(records(leaf), BTreeSet::new(), "{name}: {result:#}");
+            }
+            assert!(
+                result.get("contradictedClaims").is_none(),
+                "{name}: {result:#}"
+            );
+            assert_eq!(reasons(&free), reasons(&result), "claim-free {name}");
+            assert_claim_free_records_nothing(&name, &free);
+        }
+        for (name, _, result, free) in route_runs("pdoo(0)") {
+            let expected = preservation("pdoo");
+            assert!(!leaves(&result).is_empty(), "{name}: {result:#}");
+            for leaf in leaves(&result) {
+                assert_eq!(
+                    records(leaf),
+                    BTreeSet::from([expected.clone()]),
+                    "{name}: {result:#}"
+                );
+            }
+            assert_eq!(run_records(&result), [expected], "{name}: {result:#}");
+            assert_eq!(
+                undefined_terms(&result),
+                ["Lbl'UndsSlsh'Int'Unds'{}(\\dv{SortInt{}}(\"0\"), \\dv{SortInt{}}(\"0\"))"],
+                "{name}: {result:#}"
+            );
+            for run in [&result, &free] {
+                assert!(
+                    reasons(run).iter().all(|reason| reason == "trivial"),
+                    "{name}: {run:#}"
+                );
+            }
+            assert_claim_free_records_nothing(&name, &free);
+        }
+    }
+
+    /// `bt(0)`'s result `val(bot(0))` reaches `\bottom` through `bot`'s `#Bottom` equation, with
+    /// no undefined builtin application: the declared rule's step is taken (its result is
+    /// trusted), its successor is a vacuous state, and the record names the rule with
+    /// `undefined` at `bot(0)`. Without the attribute the step decides the result itself and
+    /// the leaf is the undefined step's `trivial` one.
+    #[test]
+    fn a_result_found_bottom_through_an_equation_refutes_the_claim() {
+        for (name, _, result, free) in route_runs("bt(0)") {
+            let expected = preservation("btr");
+            assert!(!leaves(&result).is_empty(), "{name}: {result:#}");
+            for leaf in leaves(&result) {
+                assert_eq!(leaf["reason"], "vacuous", "{name}: {result:#}");
+                assert_eq!(
+                    records(leaf),
+                    BTreeSet::from([expected.clone()]),
+                    "{name}: {result:#}"
+                );
+            }
+            assert_eq!(run_records(&result), [expected], "{name}: {result:#}");
+            assert_eq!(
+                undefined_terms(&result),
+                ["Lblbot'LParUndsRParUnds'MAIN'Unds'Int'Unds'Int{}(\\dv{SortInt{}}(\"0\"))"],
+                "{name}: {result:#}"
+            );
+            for leaf in leaves(&free) {
+                assert_eq!(leaf["reason"], "trivial", "claim-free {name}: {free:#}");
+            }
+            assert_claim_free_records_nothing(&name, &free);
+        }
+    }
+
+    /// `bts(0)` under strategy any: `btsa`'s successor is a vacuous state the sequential step
+    /// keeps, so the run ends on a vacuous leaf that exists only because of the false claim, and
+    /// the leaf and the list name it. Without the attribute `btsa`'s step is undefined and
+    /// `btsb` covers it: `done`, nothing named. Under strategy all the `done` leaf is reached
+    /// either way, and the record is on the list.
+    #[test]
+    fn a_vacuous_leaf_resting_on_a_false_claim_names_it() {
+        for (name, strategy, result, free) in route_runs("bts(0)") {
+            let expected = preservation("btsa");
+            assert_eq!(
+                run_records(&result),
+                std::slice::from_ref(&expected),
+                "{name}: {result:#}"
+            );
+            assert!(
+                leaves(&result)
+                    .iter()
+                    .any(|leaf| records(leaf) == BTreeSet::from([expected.clone()])),
+                "{name}: {result:#}"
+            );
+            if matches!(strategy, ExecutionStrategy::Any) {
+                let [leaf] = leaves(&result).as_slice() else {
+                    panic!("{name}: {result:#}");
+                };
+                assert_eq!(leaf["reason"], "vacuous", "{name}: {result:#}");
+                assert!(
+                    leaves(&free)
+                        .iter()
+                        .all(|leaf| super::observed::printed(leaf).contains("Lbldone")),
+                    "claim-free {name}: {free:#}"
+                );
+            }
+            assert_claim_free_records_nothing(&name, &free);
+        }
+    }
+
+    /// A `total` symbol whose own equation's right-hand side is `#Bottom` on a defined argument
+    /// contradicts its claim as an equation whose result reaches an undefined builtin does:
+    /// `tbt(0)` names `tb` and `tbeq`, at `tb(0)`. `tbn(0)` reaches `\bottom` inside `tb2`'s
+    /// result, through the partial `bot`: `tb2` and `tb2eq` are named, at `bot(0)`. The trusted
+    /// claim discharges the rule's obligation, so its successor is a vacuous state; without the
+    /// claim the step decides its result itself and the leaf is the undefined step's `trivial`
+    /// one.
+    #[test]
+    fn a_total_symbol_whose_result_is_found_bottom_through_an_equation_is_named() {
+        for (program, symbol, equation, rule, undefined) in [
+            (
+                "tbt(0)",
+                "tb",
+                "tbeq",
+                "tbt",
+                "Lbltb'LParUndsRParUnds'MAIN'Unds'Int'Unds'Int{}(\\dv{SortInt{}}(\"0\"))",
+            ),
+            (
+                "tbn(0)",
+                "tb2",
+                "tb2eq",
+                "tbn",
+                "Lblbot'LParUndsRParUnds'MAIN'Unds'Int'Unds'Int{}(\\dv{SortInt{}}(\"0\"))",
+            ),
+        ] {
+            for (name, _, result, free) in route_runs(program) {
+                let expected = record(symbol, equation, Some(rule));
+                assert!(!leaves(&result).is_empty(), "{name}: {result:#}");
+                for leaf in leaves(&result) {
+                    assert_eq!(
+                        records(leaf),
+                        BTreeSet::from([expected.clone()]),
+                        "{name}: {result:#}"
+                    );
+                }
+                assert_eq!(run_records(&result), [expected], "{name}: {result:#}");
+                assert_eq!(undefined_terms(&result), [undefined], "{name}: {result:#}");
+                for (run, reason) in [(&result, "vacuous"), (&free, "trivial")] {
+                    assert!(
+                        reasons(run).iter().all(|found| found == reason),
+                        "{name}: {run:#}"
+                    );
+                }
+                assert_claim_free_records_nothing(&name, &free);
+            }
+        }
+    }
+
+    /// A ground result term found undefined refutes the claim only where the step's premises
+    /// hold. `pa` and `pb` have `requires` no integer satisfies, so their claims hold vacuously;
+    /// from the symbolic `pa(X)` and `pb(X)` a solver that cannot decide the `requires` lets the
+    /// step carry it, and its successor's undefined `val(1 /Int 0)` is named non-ground: it
+    /// refutes nothing. Without a solver the `requires` is undecided and the step is not taken.
+    #[test]
+    fn a_result_under_a_carried_requires_refutes_nothing() {
+        for (program, rule) in [("pa(0)", "pa"), ("pb(0)", "pb")] {
+            let symbolic = |source: &str| {
+                let (kore, ground) = compile(source, program);
+                let printed = k_rust::kore::printer::Printer::compact().print_pattern(&ground);
+                let symbolic = printed.replacen("\\dv{SortInt{}}(\"0\")", "VarX:SortInt{}", 1);
+                assert_ne!(symbolic, printed);
+                (
+                    kore,
+                    k_rust::kore::parser::parse_pattern(&symbolic).unwrap(),
+                )
+            };
+            let (kore, initial) = symbolic(ROUTES);
+            let (free, free_initial) = symbolic(&claim_free(ROUTES));
+            for (name, strategy, modality, result) in each_run(&kore, &initial) {
+                let context = format!("{program} symbolic under {name}: {result:#}");
+                let listed = run_records(&result);
+                if cfg!(feature = "z3-inference") {
+                    assert!(!listed.is_empty(), "{context}");
+                }
+                for record in listed {
+                    assert_eq!(
+                        record,
+                        (
+                            "preserves-definedness".to_owned(),
+                            "?".to_owned(),
+                            format!("MAIN.{rule}"),
+                            Some(format!("MAIN.{rule}")),
+                            false,
+                        ),
+                        "{context}"
+                    );
+                }
+                let free = super::observed::execute(&free, &free_initial, modality, strategy);
+                assert_claim_free_records_nothing(&name, &free);
+            }
+        }
+    }
+
+    /// The console route: with a console, a ground unconstrained step simplifies its right-hand
+    /// side within the step (`apply_rhs_alternative`), and an undefined result ends the step
+    /// there. `pd(0)`'s `trivial` leaf and the list carry the record under either strategy;
+    /// `pdsib(0)` under strategy any reaches `done` through `pdsibb` after finding `pdsiba`'s
+    /// result undefined, so its leaf rests on the record. Without the attribute, nothing.
+    #[test]
+    fn the_console_route_names_a_contradicted_preserves_definedness() {
+        use k_rust_backend::{
+            definition::BackendDefinition,
+            diagnostic::BackendDiagnostic,
+            rewrite::{ExecutionMode, ExecutionOptions, execute_with_io_state},
+            transition::ExecutionIoState,
+        };
+        let run = |source: &str, program: &str, mode: ExecutionMode| {
+            let (kore, initial) = compile(source, program);
+            let syntax = k_rust::kore::parser::parse_definition(&kore).unwrap();
+            let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+            let initial = definition
+                .admit_unverified(&initial, &[])
+                .internalize_pattern()
+                .unwrap();
+            execute_with_io_state(
+                &definition,
+                initial,
+                ExecutionOptions {
+                    mode,
+                    ..ExecutionOptions::default()
+                },
+                ExecutionIoState::new(Vec::new()),
+            )
+        };
+        let labels = |diagnostics: &[BackendDiagnostic]| {
+            diagnostics
+                .iter()
+                .filter_map(|diagnostic| match diagnostic {
+                    BackendDiagnostic::ContradictedClaim(claim) => claim
+                        .preservation()
+                        .map(|preservation| (preservation.label.clone(), claim.ground)),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        for (program, rule, modes) in [
+            (
+                "pd(0)",
+                "MAIN.pd",
+                &[ExecutionMode::All, ExecutionMode::Any][..],
+            ),
+            ("pdsib(0)", "MAIN.pdsiba", &[ExecutionMode::Any][..]),
+        ] {
+            for &mode in modes {
+                let context = format!("{program} under {mode:?}");
+                let result = run(PRESERVATION, program, mode);
+                let expected = vec![(Some(rule.to_owned()), true)];
+                let listed = result
+                    .contradicted_claims
+                    .iter()
+                    .filter_map(|claim| {
+                        claim
+                            .preservation()
+                            .map(|preservation| (preservation.label.clone(), claim.ground))
+                    })
+                    .collect::<Vec<_>>();
+                assert_eq!(listed, expected, "{context}: {result:#?}");
+                let [leaf] = result.leaves.as_slice() else {
+                    panic!("{context}: {result:#?}");
+                };
+                assert_eq!(labels(&leaf.diagnostics), expected, "{context}: {leaf:#?}");
+                let free = run(&claim_free(PRESERVATION), program, mode);
+                assert!(free.contradicted_claims.is_empty(), "claim-free {context}");
+                assert!(
+                    free.leaves
+                        .iter()
+                        .all(|leaf| labels(&leaf.diagnostics).is_empty()),
+                    "claim-free {context}"
+                );
+            }
+        }
+    }
 }

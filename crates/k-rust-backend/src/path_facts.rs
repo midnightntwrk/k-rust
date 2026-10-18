@@ -55,7 +55,7 @@ use std::{
 use crate::{
     builtin::{ChosenValue, UnsupportedHookReason},
     diagnostic::{self, BackendDiagnostic},
-    rule::{RewriteRule, RuleOrigin},
+    rule::{RewriteRule, RuleOrigin, RuleRhs},
     simplify::ContradictedTotal,
     term::Term,
 };
@@ -157,9 +157,11 @@ impl PathFact {
 ///
 /// A record is a fact about the definition at the contradicted application (for a
 /// `preserves-definedness` claim, the rule's result term). When it is
-/// [`ground`](Self::ground), the application is variable-free, so the definition has no model
-/// with the claim at that input. A non-ground record comes from a state whose constraints may be
-/// unsatisfiable without being refuted, and refutes nothing.
+/// [`ground`](Self::ground), the application is variable-free (and, for a
+/// `preserves-definedness` claim, the step's premises were decided to hold), so the definition
+/// has no model with the claim at that input. A non-ground record comes from a state whose
+/// constraints may be unsatisfiable without being refuted, or from a step whose `requires` was
+/// carried rather than decided, and refutes nothing.
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct ContradictedClaim {
@@ -168,8 +170,11 @@ pub struct ContradictedClaim {
     /// produced successor's normalization observed the contradiction; `None` when no rule's
     /// work did (the normalization of an initial state, or work outside a run's steps).
     pub rule: Option<ObservingRule>,
-    /// Whether the contradicted application (for a `preserves-definedness` claim, the result
-    /// term) is ground (variable-free).
+    /// Whether the contradicted application is ground (variable-free). For a
+    /// `preserves-definedness` claim: the result term is variable-free and every constraint of
+    /// the successor (the pre-step state's and what the step added: a carried `requires`,
+    /// `ensures` or obligation) simplified to `\top`, so the step's premises hold on the
+    /// instance alone.
     pub ground: bool,
     /// Whether the definition's load or the run that reports it observed the contradiction. A
     /// leaf's records are the run's; the load's are on the result's lists only.
@@ -196,16 +201,20 @@ pub enum Claim {
     /// defined arguments to bottom.
     Total(ContradictedTotal),
     /// A rewrite rule declared `preserves-definedness` whose result term, as a step that applied
-    /// it built it, has a subterm the normalization found undefined.
+    /// it built it, the normalization found `\bottom`.
     PreservesDefinedness(ContradictedPreservation),
 }
 
 /// A rewrite rule's `preserves-definedness` claim refuted at one instance: the attribute claims
 /// that the result term is defined wherever the left-hand side and the `requires` hold, so a
 /// step that applied the rule (its match and its `requires` held on a defined state) and whose
-/// result term the normalization reduced to an undefined subterm shows the claim false there.
-/// An `ensures` and a condition the step carries are no part of the result term, so their
-/// failures refute nothing of it.
+/// result term the normalization found `\bottom`, by any route (an undefined builtin
+/// application, an equation whose own result is `\bottom`), shows the claim false there, when
+/// the premises were decided rather than carried ([`ContradictedClaim::ground`]). The
+/// definedness of a disjunctive right-hand side is the disjunction of its alternatives', so
+/// such a rule is named only when every alternative's result is `\bottom`. An `ensures` and a
+/// condition the step carries are no part of the result term, so their failures refute nothing
+/// of it.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContradictedPreservation {
     /// The rule's `UNIQUE_ID`.
@@ -213,14 +222,16 @@ pub struct ContradictedPreservation {
     pub label: Option<String>,
     /// Where the rule is written (its first origin), when the KORE carries it.
     pub origin: Option<RuleOrigin>,
-    /// The rule's result term as the step built it.
+    /// The rule's result term as the step built it (for a disjunctive right-hand side, its first
+    /// alternative).
     pub instance: Term,
-    /// The undefined subterm the normalization of `instance` reached.
+    /// The undefined term the normalization of `instance` reached: a subterm of it, or of a
+    /// callee's equation result; where the normalization found `\bottom` otherwise.
     pub undefined_term: Term,
 }
 
-/// A rewrite rule by the parts a report names it by, and whether it claims that its result is
-/// defined (`preserves_definedness`), the claim a normalization of its result can refute
+/// A rewrite rule by the parts a report names it by, and whether it claims that its result term
+/// is defined (`claims_defined_result`), the claim a normalization of its result can refute
 /// ([`note_contradicted_preservation`]).
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ObservingRule {
@@ -229,9 +240,19 @@ pub struct ObservingRule {
     pub label: Option<String>,
     /// Where the rule is written (its first origin), when the KORE carries it.
     pub origin: Option<RuleOrigin>,
-    /// Whether the rule is declared `preserves-definedness` (the author's claim, as written,
-    /// `RuleAttributes::preserves_definedness`), a function of the rule.
-    pub(crate) preserves_definedness: bool,
+    /// Whether one successor's normalization can refute the rule's `preserves-definedness`
+    /// ([`claims_defined_result`]), a function of the rule.
+    pub(crate) claims_defined_result: bool,
+}
+
+/// Whether `rule` is declared `preserves-definedness` (the author's claim, as written,
+/// `RuleAttributes::preserves_definedness`, not the load's `definedness_discharged`) with one
+/// right-hand side term, so that one successor's result found `\bottom` refutes the claim. The
+/// definedness of a disjunctive right-hand side is the disjunction of its alternatives'
+/// definedness, so its claim is refuted only when every alternative is found `\bottom`, which
+/// the step that builds them all decides (`rewrite::apply`).
+pub(crate) fn claims_defined_result(rule: &RewriteRule) -> bool {
+    rule.attributes.preserves_definedness && matches!(rule.rhs, RuleRhs::Term(_))
 }
 
 impl ObservingRule {
@@ -240,7 +261,7 @@ impl ObservingRule {
             unique_id: rule.attributes.unique_id.clone(),
             label: rule.attributes.label.clone(),
             origin: rule.attributes.origins.first().cloned(),
-            preserves_definedness: rule.attributes.preserves_definedness,
+            claims_defined_result: claims_defined_result(rule),
         }
     }
 }
@@ -432,6 +453,8 @@ struct Sink {
 struct State {
     sinks: Vec<Sink>,
     suspended: bool,
+    /// Inside [`aside`]: notes are stamped and go nowhere.
+    aside: bool,
     /// The rules whose work is under way, innermost last ([`observed_by`]).
     rules: Vec<Option<ObservingRule>>,
     run: Option<Vec<PathFact>>,
@@ -456,7 +479,7 @@ impl State {
             Some((_, stamp)) => *stamp = sequence,
             None => self.stamps.push((fact.clone(), sequence)),
         }
-        if self.suspended && fact.suspends() {
+        if self.aside || (self.suspended && fact.suspends()) {
             return None;
         }
         let on_paths = fact.on_paths();
@@ -509,6 +532,12 @@ fn with_state<T>(action: impl FnOnce(&mut State) -> T) -> T {
     })
 }
 
+/// Whether a note has somewhere to go: a collection or a run record is open, so that work done
+/// only to note a fact is worth doing.
+pub(crate) fn is_open() -> bool {
+    OPEN.get()
+}
+
 /// Note `fact`: it reaches the innermost open collection and the run record, unless notes are
 /// suspended.
 pub(crate) fn note(fact: PathFact) {
@@ -536,29 +565,50 @@ pub(crate) fn note_contradicted_total(total: &ContradictedTotal) {
 }
 
 /// Note that the normalization of `instance`, the result term a step of the innermost rule whose
-/// work is under way built ([`observed_by`]), reduced it to `undefined_term`, an undefined
-/// subterm, with the successor's constraints `\bottom`: when that rule is declared
-/// `preserves-definedness`, its claim is refuted at this instance, a contradicted claim observed
-/// by the rule itself. A rule that is not declared so claims nothing (a discharged rule's
-/// obligation is a load fact, not an attribute), and nothing is noted.
-pub(crate) fn note_contradicted_preservation(instance: &Term, undefined_term: &Term) {
+/// work is under way built ([`observed_by`]), is `\bottom`, when that rule claims its result
+/// defined ([`claims_defined_result`]): `found` (called only then) gives the term where
+/// `\bottom` was found and whether the step's premises hold (every constraint `\top`), or
+/// `None` when the result is not `\bottom`. The claim is refuted at this instance, a
+/// contradicted claim observed by the rule itself; it is [`ground`](ContradictedClaim::ground)
+/// when the instance is variable-free and the premises hold. A rule that is not declared so
+/// claims nothing (a discharged rule's obligation is a load fact, not an attribute), and
+/// nothing is noted.
+pub(crate) fn note_contradicted_preservation(
+    instance: &Term,
+    found: impl FnOnce() -> Option<(Term, bool)>,
+) {
     if !OPEN.get() {
         return;
     }
     let Some(rule) = STATE.with_borrow(|state| state.rules.last().cloned().flatten()) else {
         return;
     };
-    if !rule.preserves_definedness {
+    if !rule.claims_defined_result {
         return;
     }
+    let Some((undefined_term, premises_hold)) = found() else {
+        return;
+    };
+    note_preservation(rule, instance, undefined_term, premises_hold);
+}
+
+/// Note that `rule`'s result `instance` is `\bottom` at `undefined_term`: its
+/// `preserves-definedness` is refuted there, ground when `instance` is variable-free and the
+/// step's premises hold (`premises_hold`).
+pub(crate) fn note_preservation(
+    rule: ObservingRule,
+    instance: &Term,
+    undefined_term: Term,
+    premises_hold: bool,
+) {
     note(PathFact::ContradictedClaim(Box::new(ContradictedClaim {
-        ground: instance.attributes().variables.is_empty(),
+        ground: premises_hold && instance.attributes().variables.is_empty(),
         claim: Claim::PreservesDefinedness(ContradictedPreservation {
             rule_id: rule.unique_id.clone(),
             label: rule.label.clone(),
             origin: rule.origin.clone(),
             instance: instance.clone(),
-            undefined_term: undefined_term.clone(),
+            undefined_term,
         }),
         rule: Some(rule),
         observed_in: ObservedIn::Run,
@@ -701,6 +751,24 @@ pub(crate) fn emit(facts: &FactSet) {
     for diagnostic in diagnostics(facts) {
         diagnostic::emit(diagnostic);
     }
+}
+
+/// Run `action`, an evaluation whose outcome decides nothing in the run, with what it notes going
+/// to no collection and no run record. The notes are still stamped ([`since`], [`noted_since`]),
+/// so a memo entry made inside it carries them, and a later use of the entry replays them where
+/// the run does decide on it. Restored on every exit.
+pub(crate) fn aside<T>(action: impl FnOnce() -> T) -> T {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            let previous = self.0;
+            with_state(|state| state.aside = previous);
+        }
+    }
+    let _restore = Restore(with_state(|state| {
+        std::mem::replace(&mut state.aside, true)
+    }));
+    action()
 }
 
 /// Run `action` with the notes of chosen values suspended: an evaluation whose value decides
@@ -913,7 +981,7 @@ mod tests {
                 unique_id: "r".to_owned(),
                 label: None,
                 origin: None,
-                preserves_definedness: false,
+                claims_defined_result: false,
             })
         };
         assert_eq!(observed_by(rule, || 1), 1);

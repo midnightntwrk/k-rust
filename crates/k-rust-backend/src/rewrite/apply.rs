@@ -1776,6 +1776,14 @@ fn instantiate(
     let mut applications = Vec::new();
     let mut trivial = Vec::new();
     let mut trivial_work = Vec::new();
+    // A declared `preserves-definedness` over a disjunctive right-hand side claims the
+    // disjunction defined, which is refuted only when every alternative's result is `\bottom`:
+    // what each alternative showed, `None` while its successor is still to be normalized, as
+    // long as every one may be `\bottom` (`DisjunctionBottom`).
+    let mut disjunction = (rule.attributes.preserves_definedness
+        && matches!(rule.rhs, RuleRhs::Disjunction(_))
+        && crate::path_facts::is_open())
+    .then(Vec::new);
     for (rhs, alternative_ensures) in alternatives {
         let ensures = rule.ensures.merged(alternative_ensures);
         // The alternative's own work (its right-hand side's construction and simplification)
@@ -1806,7 +1814,20 @@ fn instantiate(
                 attempt
             })
         });
-        match attempt? {
+        let attempt = attempt?;
+        if let Some(shown) = &mut disjunction {
+            match &attempt {
+                RhsAlternativeAttempt::Applied(_) => shown.push(None),
+                RhsAlternativeAttempt::Trivial {
+                    result_bottom: Some(found),
+                    ..
+                } => shown.push(Some((**found).clone())),
+                RhsAlternativeAttempt::Trivial { .. }
+                | RhsAlternativeAttempt::Indeterminate(_)
+                | RhsAlternativeAttempt::Simplification(_) => disjunction = None,
+            }
+        }
+        match attempt {
             RhsAlternativeAttempt::Applied(mut application) => {
                 if let Some(carried) = application.carried.take() {
                     trivial.push(carried_trivial_application(
@@ -1824,6 +1845,7 @@ fn instantiate(
                 obligation,
                 effects,
                 contradicted_total,
+                result_bottom: _,
             } => {
                 trivial.push(trivial_application(
                     rule,
@@ -1843,6 +1865,9 @@ fn instantiate(
             }
         }
     }
+    if let Some(shown) = disjunction {
+        note_disjunction_bottom(&context, &applications, shown)?;
+    }
     Ok(RuleAttempt::Unified {
         groups: vec![RuleApplicationGroup {
             applied: applications,
@@ -1851,6 +1876,61 @@ fn instantiate(
             trivial_work,
         }],
     })
+}
+
+/// Note the contradicted `preserves-definedness` of `context`'s rule, whose right-hand side is a
+/// disjunction, when every alternative's result term is `\bottom`: `shown` holds, per
+/// alternative in order, what the step found of its result (`Some`), or `None` for an
+/// alternative whose successor (in `applications`, in the same order) is normalized here to
+/// decide it (`execute::alternatives_bottom`). The record names the first alternative, and is
+/// ground when every alternative's is.
+fn note_disjunction_bottom(
+    context: &RuleContext<'_>,
+    applications: &[RuleApplication],
+    shown: Vec<Option<(Term, Term, bool)>>,
+) -> Stoppable<()> {
+    let built = applications
+        .iter()
+        .map(|application| &application.applied.pattern)
+        .collect::<Vec<_>>();
+    let mut normalized = if built.is_empty() {
+        Vec::new()
+    } else {
+        match super::execute::alternatives_bottom(
+            context.definition,
+            &built,
+            &context.pattern.constraints,
+            context.simplification_options,
+            context.solver,
+        )? {
+            Some(found) => found,
+            None => return Ok(()),
+        }
+    }
+    .into_iter()
+    .zip(built)
+    .map(|((undefined, premises_hold), successor)| {
+        (successor.term.clone(), undefined, premises_hold)
+    });
+    let mut alternatives = Vec::with_capacity(shown.len());
+    for found in shown {
+        match found.or_else(|| normalized.next()) {
+            Some(found) => alternatives.push(found),
+            None => return Ok(()),
+        }
+    }
+    let premises_hold = alternatives.iter().all(|(instance, _, premises_hold)| {
+        *premises_hold && instance.attributes().variables.is_empty()
+    });
+    if let Some((instance, undefined, _)) = alternatives.into_iter().next() {
+        crate::path_facts::note_preservation(
+            crate::path_facts::ObservingRule::of(context.rule),
+            &instance,
+            undefined,
+            premises_hold,
+        );
+    }
+    Ok(())
 }
 
 // Returned once per right-hand-side alternative and unpacked at once; `Applied` is the common
@@ -1862,6 +1942,9 @@ enum RhsAlternativeAttempt {
         obligation: Predicate,
         effects: Vec<BuiltinEffect>,
         contradicted_total: Option<Box<ContradictedTotal>>,
+        /// For a declared `preserves-definedness`, when the result term itself is `\bottom`:
+        /// the instance, where `\bottom` was found, and whether the premises hold.
+        result_bottom: Option<Box<(Term, Term, bool)>>,
     },
     Indeterminate(IndeterminateReason),
     Simplification(SimplificationError),
@@ -1946,9 +2029,16 @@ fn apply_rhs_alternative(
     // The result term as the step built it, which a declared `preserves-definedness` claims
     // defined (`crate::path_facts::note_contradicted_preservation`).
     let instance = rule.attributes.preserves_definedness.then(|| rhs.clone());
-    let (rhs, rhs_conditions, effects, undefined_term, contradicted_total) =
+    let (rhs, rhs_conditions, effects, undefined_term, contradicted_total, bottom) =
         if rule.computed_attributes.undefined_symbols.is_empty() && io_evaluation.is_none() {
-            (rhs, ResultConditions::default(), Vec::new(), None, None)
+            (
+                rhs,
+                ResultConditions::default(),
+                Vec::new(),
+                None,
+                None,
+                None,
+            )
         } else {
             let simplified = match io_evaluation.as_mut() {
                 Some(execution) => simplify_in_execution_with_solver(
@@ -1969,6 +2059,7 @@ fn apply_rhs_alternative(
             }?;
             match simplified {
                 Ok(simplified) => {
+                    let bottom = simplified.bottom.as_ref().map(|found| found.term.clone());
                     let simplified = simplified.into_parts();
                     (
                         simplified.term,
@@ -1976,6 +2067,7 @@ fn apply_rhs_alternative(
                         simplified.effects,
                         simplified.undefined_term,
                         simplified.contradicted_total,
+                        bottom,
                     )
                 }
                 Err(error) => {
@@ -1983,15 +2075,24 @@ fn apply_rhs_alternative(
                 }
             }
         };
+    // The step applied (its match and `requires` held), and the result term's own
+    // simplification is `\bottom`, by any route: a declared `preserves-definedness` is refuted at
+    // this instance, ground when the premises were decided on the instance alone. Only the
+    // console route simplifies a declared rule's result here; the others leave it to the
+    // successor's normalization (`normalize_successor`).
+    let result_bottom = |undefined: Term| {
+        instance.as_ref().map(|instance| {
+            let premises_hold = predicates_truth(&pattern.constraints) == Truth::True
+                && match_conditions.is_empty()
+                && unclear_requires.is_empty();
+            let found = (undefined, premises_hold);
+            crate::path_facts::note_contradicted_preservation(instance, || Some(found.clone()));
+            Box::new((instance.clone(), found.0, found.1))
+        })
+    };
     if let Some(term) = undefined_term.clone() {
-        // The step applied (its match and `requires` held), and the result term's own
-        // simplification reached an undefined subterm: a declared `preserves-definedness` is
-        // refuted at this instance. Only the console route simplifies a declared rule's result
-        // here; the others leave it to the successor's normalization (`normalize_successor`).
-        if let Some(instance) = &instance {
-            crate::path_facts::note_contradicted_preservation(instance, &term);
-        }
         return Ok(RhsAlternativeAttempt::Trivial {
+            result_bottom: result_bottom(term.clone()),
             obligation: Predicate::Ceil(term),
             effects,
             contradicted_total,
@@ -1999,6 +2100,7 @@ fn apply_rhs_alternative(
     }
     if predicates_truth(rhs_conditions.as_slice()) == Truth::False {
         return Ok(RhsAlternativeAttempt::Trivial {
+            result_bottom: result_bottom(bottom.unwrap_or_else(|| rhs.clone())),
             obligation: conjunction(rhs_conditions.as_slice()),
             effects,
             contradicted_total: None,
@@ -2042,6 +2144,7 @@ fn apply_rhs_alternative(
             ObligationVerdict::Discharged => {}
             ObligationVerdict::Trivial => {
                 return Ok(RhsAlternativeAttempt::Trivial {
+                    result_bottom: None,
                     obligation: reported_obligation,
                     effects,
                     contradicted_total: None,
@@ -2072,6 +2175,7 @@ fn apply_rhs_alternative(
         EnsuresStepVerdict::Cleared => ensures.clear(),
         EnsuresStepVerdict::Trivial => {
             return Ok(RhsAlternativeAttempt::Trivial {
+                result_bottom: None,
                 obligation: reported_ensures,
                 effects,
                 contradicted_total: None,
@@ -2146,7 +2250,7 @@ fn apply_rhs_alternative(
             label: rule.attributes.label.clone(),
             unique_id: rule.attributes.unique_id.clone(),
             origin: rule.attributes.origins.first().cloned(),
-            preserves_definedness: rule.attributes.preserves_definedness,
+            claims_defined_result: crate::path_facts::claims_defined_result(rule),
             substitution: substitution.clone(),
             rule_substitution,
             rule_predicates,

@@ -95,8 +95,8 @@ use super::{
     exploration_merge::{Arrival, ExplorationMerge},
     initial_definedness, normalize_pattern_substitution,
     path_trace::PathTrace,
-    predicates_truth, retain_substitution_predicates, rewrite_step_with_optional_execution, stuck,
-    trivial_halt, vacuous_halt,
+    predicate_truth, predicates_truth, retain_substitution_predicates,
+    rewrite_step_with_optional_execution, stuck, trivial_halt, vacuous_halt,
 };
 
 pub(super) fn execute_using(
@@ -2717,6 +2717,9 @@ pub(crate) struct SuccessorNormalization {
 
 struct TermNormalization {
     simplified: Simplification,
+    /// Where the result term was found `\bottom`, and whether the step's premises hold
+    /// ([`result_bottom`]).
+    bottom: Option<(crate::term::Term, bool)>,
     diagnostics: Vec<BackendDiagnostic>,
     /// The console state the evaluation committed, when the successor admitted one.
     io: Option<ExecutionIoState>,
@@ -2809,7 +2812,7 @@ pub(crate) fn normalize_successor(
     let mut evaluation = io
         .filter(|_| pattern_supports_execution_io(&pattern))
         .map(ExecutionIoState::begin_evaluation);
-    let (simplified, diagnostics) = crate::path_facts::collect_with_diagnostics(|| {
+    let ((simplified, bottom), diagnostics) = crate::path_facts::collect_with_diagnostics(|| {
         let simplified = match evaluation.as_mut() {
             Some(evaluation) => simplify_in_execution_with_solver(
                 definition,
@@ -2827,10 +2830,14 @@ pub(crate) fn normalize_successor(
                 solver,
             ),
         };
-        if let Ok(Ok(simplified)) = &simplified {
-            note_undefined_result(&successor.term, &pattern.constraints, simplified);
+        let bottom = match &simplified {
+            Ok(Ok(simplified)) => result_bottom(&pattern.constraints, simplified),
+            _ => None,
+        };
+        if bottom.is_some() {
+            crate::path_facts::note_contradicted_preservation(&successor.term, || bottom.clone());
         }
-        simplified
+        (simplified, bottom)
     });
     let Ok(simplified) = simplified? else {
         return Ok(failed);
@@ -2838,6 +2845,7 @@ pub(crate) fn normalize_successor(
     let parts = simplified.clone().into_parts();
     normalization.term = Some(TermNormalization {
         simplified,
+        bottom,
         diagnostics,
         io: evaluation.map(|evaluation| evaluation.commit()),
     });
@@ -2859,23 +2867,86 @@ pub(crate) fn normalize_successor(
 
 /// Note a contradicted `preserves-definedness` (`crate::path_facts::note_contradicted_preservation`)
 /// when `simplified`, the simplification of a successor's term under `constraints`, shows the
-/// successor undefined as [`normalize_successor`] and `Execution::simplify_term` read it: a
-/// subterm reduced to an undefined term, with the constraints `\bottom`. `instance` is the
-/// result term as the step that produced the successor built it. The claim is that of the rule
-/// whose work the normalization is (`crate::path_facts::observed_by`), when it declares one.
+/// result term `\bottom` ([`result_bottom`]). `instance` is the result term as the step that
+/// produced the successor built it. The claim is that of the rule whose work the normalization
+/// is (`crate::path_facts::observed_by`), when it makes one.
 pub(crate) fn note_undefined_result(
     instance: &crate::term::Term,
     constraints: &[Predicate],
     simplified: &Simplification,
 ) {
-    let Some(undefined) = &simplified.undefined_term else {
-        return;
-    };
-    let mut all = constraints.to_vec();
-    all.extend(simplified.conjoined().cloned());
-    if predicates_truth(&all) == Truth::False {
-        crate::path_facts::note_contradicted_preservation(instance, undefined);
+    crate::path_facts::note_contradicted_preservation(instance, || {
+        result_bottom(constraints, simplified)
+    });
+}
+
+/// Where a successor's result term is `\bottom`, and whether the step's premises are known to
+/// hold, when `simplified`, the simplification of the term under `constraints` (the successor's
+/// constraints after their own simplification), is `\bottom` while `constraints` are not: by
+/// any route, an undefined builtin application or repeated collection (`undefined_term`), an
+/// equation whose own result is `\bottom`, or anything else the simplification conjoins
+/// `\bottom` for. The term named is the undefined term, else where the simplification found
+/// `\bottom` (`FoundBottom`), else the simplified result.
+///
+/// The premises hold when every constraint is `\top`: the step's match and `requires` were then
+/// decided on the instance alone, as was everything the step added (a carried `requires`,
+/// `ensures` or definedness obligation stays a constraint). A constraint left open, the
+/// pre-step state's included, restricts the models the step applies in, so a `\bottom` result
+/// under it shows the claim false only where the constraint is satisfiable.
+pub(crate) fn result_bottom(
+    constraints: &[Predicate],
+    simplified: &Simplification,
+) -> Option<(crate::term::Term, bool)> {
+    let truth = predicates_truth(constraints);
+    if truth == Truth::False
+        || !simplified
+            .conjoined()
+            .any(|predicate| predicate_truth(predicate) == Truth::False)
+    {
+        return None;
     }
+    let undefined = simplified
+        .undefined_term
+        .clone()
+        .or_else(|| simplified.bottom.as_ref().map(|found| found.term.clone()))
+        .unwrap_or_else(|| simplified.term.clone());
+    Some((undefined, truth == Truth::True))
+}
+
+/// Whether every alternative of a disjunctive right-hand side, each a successor `built` from a
+/// pattern with the constraints `base`, has a result term found `\bottom` ([`result_bottom`]),
+/// and where for each: the definedness of a disjunction is the disjunction of its alternatives'
+/// definedness, so a declared `preserves-definedness` of such a rule is refuted only then
+/// (`apply`). The normalizations are taken aside: they decide nothing in the run, so what they
+/// observe reaches no path and no list, they use no console and they cover nothing; the
+/// successors' own normalizations observe it where the run decides on them.
+pub(crate) fn alternatives_bottom(
+    definition: &BackendDefinition,
+    built: &[&Pattern],
+    base: &[Predicate],
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> Stoppable<Option<Vec<(crate::term::Term, bool)>>> {
+    crate::coverage::suspend(|| {
+        crate::path_facts::aside(|| {
+            let (found, _) = diagnostic::collect_unit(|| {
+                let mut found = Vec::with_capacity(built.len());
+                for successor in built {
+                    let checked =
+                        normalize_successor(definition, successor, base, options, solver, None)?;
+                    let bottom = checked
+                        .normalization
+                        .and_then(|normalization| normalization.term?.bottom);
+                    match bottom {
+                        Some(bottom) => found.push(bottom),
+                        None => return Ok(None),
+                    }
+                }
+                Ok(Some(found))
+            });
+            found
+        })
+    })
 }
 
 #[allow(clippy::too_many_arguments)]

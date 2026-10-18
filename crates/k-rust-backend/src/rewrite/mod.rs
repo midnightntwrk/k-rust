@@ -159,10 +159,9 @@ pub struct AppliedRule {
     /// and `label`, what a contradicted claim its successor's normalization observes names
     /// (`crate::path_facts::ObservingRule`).
     pub(crate) origin: Option<crate::rule::RuleOrigin>,
-    /// Whether the rule is declared `preserves-definedness`: its claim that `pattern`'s term is
-    /// defined, which the successor's normalization can refute
-    /// (`crate::path_facts::note_contradicted_preservation`).
-    pub(crate) preserves_definedness: bool,
+    /// Whether the rule claims `pattern`'s term defined, which the successor's normalization can
+    /// refute (`crate::path_facts::claims_defined_result`).
+    pub(crate) claims_defined_result: bool,
     pub substitution: Substitution,
     /// Rule-variable bindings suitable for execution diagnostics. Variables introduced solely as
     /// term aliases (`P #as X`) are implementation details and are omitted from this view.
@@ -196,13 +195,13 @@ impl AppliedRule {
             unique_id: self.unique_id.clone(),
             label: self.label.clone(),
             origin: self.origin.clone(),
-            preserves_definedness: self.preserves_definedness,
+            claims_defined_result: self.claims_defined_result,
         }
     }
 }
 
 /// Every field but the `normalized` cache, which is work derived from `pattern`, and the rule's
-/// `origin` and `preserves_definedness`, which `unique_id` names within a definition.
+/// `origin` and `claims_defined_result`, which `unique_id` names within a definition.
 impl std::fmt::Debug for AppliedRule {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
