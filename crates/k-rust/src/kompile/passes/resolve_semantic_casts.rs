@@ -152,11 +152,23 @@ pub fn resolve_semantic_casts_in_sentence(
 /// sentences suppress predicates because their casts describe matching syntax rather than
 /// runtime side conditions. `subsorts` is the visible order of the sentence's module.
 ///
-/// The sort predicates are conjoined with the prior condition by `#And` when it is a predicate
-/// and by `_andBool_` when it is a token or a variable; when it is any other application, which
-/// may be a macro or an alias, the conjunction is left pending, and the caller chooses it after
-/// macro expansion, as `compile_search_pattern` does.
+/// The sort predicates are conjoined with the prior condition by `#And` when either reads as a
+/// predicate as the sentence stands and by `_andBool_` otherwise. `compile_search_pattern` makes
+/// that choice after macro expansion instead, so a condition spelled through a macro that expands
+/// to a predicate is conjoined as a predicate there and as a Bool term here.
 pub fn resolve_semantic_casts_with_predicates_in_sentence(
+    subsorts: &PartialOrder<Sort>,
+    sentence: Sentence,
+) -> Result<Sentence, ResolveSemanticCastsError> {
+    resolve_semantic_casts_with_pending_predicates_in_sentence(subsorts, sentence)
+        .map(crate::kompile::ml_constructs::resolve_condition_conjunctions_in_sentence)
+}
+
+/// [`resolve_semantic_casts_with_predicates_in_sentence`] with the conjunction of the sort
+/// predicates and the prior condition left pending when a later macro expansion may change its
+/// choice; the caller resolves it after macro expansion
+/// ([`crate::kompile::ml_constructs::resolve_condition_conjunctions`]).
+pub(crate) fn resolve_semantic_casts_with_pending_predicates_in_sentence(
     subsorts: &PartialOrder<Sort>,
     mut sentence: Sentence,
 ) -> Result<Sentence, ResolveSemanticCastsError> {

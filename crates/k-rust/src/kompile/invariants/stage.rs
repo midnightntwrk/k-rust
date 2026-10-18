@@ -34,24 +34,35 @@
 //!   alias after a stage occurs in the sentence's body, or occurred free in a condition of the
 //!   same sentence before the stage, or is `HOLE` of a context alias. A variable a `#Exists` or
 //!   `#Forall` of the condition binds is not free.
-//!   The same sentence before the stage is every rule-like sentence before it that shares one of
-//!   its input addresses ([`Attributes::input_addresses`], which provenance carries through every
-//!   stage), so a stage that copies an authored condition into a sentence it derives from it
-//!   (contexts into heating and cooling rules, a strict alias into its contexts) keeps C1, and one
-//!   that invents a name does not, whatever other sentences of the module hold. Only a sentence
-//!   without an input address is compared with every condition of its module before the stage.
-//!   Two stages generate a name into conditions by protocol, and each is exempt at that stage
-//!   only:
-//!   `resolve anonymous variables` renames each anonymous variable `_`, `?_`, `!_` or `@_` to its
-//!   prefix followed by `_Gen` and digits, so at that stage such a name is exempt in a sentence
-//!   whose conditions held the anonymous variable of that prefix before it (the stage renames an
-//!   authored variable, it adds none);
-//!   `resolve function configuration` passes `#Configuration` to the configuration-reading
-//!   functions a condition calls, so at that stage `#Configuration` is exempt. After it,
-//!   `#Configuration` is checked like any other condition variable, until a stage providing
-//!   [`Artifacts::CONFIGURATION_VARIABLES_BOUND`] has run; from then on it must occur in the body
-//!   of a sentence that is not macro-like, whatever the conditions held before (that stage binds
-//!   it in the body of every rule whose conditions hold it).
+//!   The same sentence before the stage is the family of rule-like sentences before it that
+//!   share one of its input addresses ([`Attributes::input_addresses`], which provenance carries
+//!   through every stage): the heating and cooling rules of one context, every context of one
+//!   strict production and their heating and cooling rules, and the sentences that equivalence
+//!   merging made one. Every sentence of a family is derived from one authored sentence and
+//!   carries its condition, so a stage that copies that condition into a derived sentence keeps
+//!   C1, and one that invents a name does not, whatever sentences outside the family hold; a
+//!   name already in the condition of one member is not new to another. Only a sentence without
+//!   an input address is compared with every condition of its module before the stage.
+//!   `resolve anonymous variables` generates names into conditions by protocol, and is exempt at
+//!   that stage only: it renames each anonymous variable `_`, `?_`, `!_` or `@_` to its prefix
+//!   followed by `_Gen` and digits, so at that stage such a name is exempt in a sentence whose
+//!   conditions held the anonymous variable of that prefix before it (the stage renames an
+//!   authored variable, it adds none).
+//!   `#Configuration` names the current configuration. Until a stage providing
+//!   [`Artifacts::CONFIGURATION_VARIABLES_BOUND`] gives it a binder, it is reserved, not a free
+//!   variable of a condition: `resolve function configuration` passes it to the
+//!   configuration-reading functions a condition calls, and `expand macros` inlines a macro's
+//!   right side that the former stage made read it, so C1 neither checks nor records it at any
+//!   stage before that one. From that stage on it is checked like any other condition variable;
+//!   as no earlier condition recorded it, the binding stage must have bound it in the body of
+//!   every sentence whose condition holds it.
+//!
+//! [`StageChecks`] also checks rule C2 at every stage boundary once a stage providing
+//! [`Artifacts::CONDITION_CONJUNCTIONS_RESOLVED`] has run:
+//!
+//! - C2: no term of any sentence holds a pending condition conjunction
+//!   ([`crate::kompile::ml_constructs`]). A pending conjunction is internal to the pipeline: no
+//!   production declares its label, so one that survived would reach emission undeclared.
 //!
 //! C1 holds on the pipeline input by definition, so it needs no obligation decided there.
 //!
@@ -68,24 +79,21 @@ use crate::kompile::pipeline::{Artifacts, Stage};
 use crate::provenance::InputAddress;
 
 use super::emitted::emitted_from;
+use crate::kompile::ml_constructs::holds_pending_conjunction;
 
 /// The variable that names the whole configuration in a rule of a function that reads it.
 const CONFIGURATION_VARIABLE: &str = "#Configuration";
 
-/// The stage that renames anonymous variables (C1's first exemption).
+/// The stage that renames anonymous variables (C1's exemption).
 const ANONYMOUS_RENAMING_STAGE: &str = "resolve anonymous variables";
-
-/// The stage that passes `#Configuration` to the configuration-reading functions a condition
-/// calls (C1's second exemption).
-const CONFIGURATION_PASSING_STAGE: &str = "resolve function configuration";
 
 /// Whether `name` is an anonymous variable as written: `_`, `?_`, `!_` or `@_`.
 fn is_anonymous(name: &str) -> bool {
     matches!(name, "_" | "?_" | "!_" | "@_")
 }
 
-/// Checks every stage boundary of the table-driven pipeline against R3 and C1 and names the first
-/// stage that breaks one.
+/// Checks every stage boundary of the table-driven pipeline against R3, C1 and C2 and names the
+/// first stage that breaks one.
 #[derive(Debug)]
 pub(crate) struct StageChecks {
     binding: Obligation,
@@ -105,7 +113,9 @@ struct ConditionVariables {
 }
 
 impl ConditionVariables {
-    fn of(definition: &Definition) -> Self {
+    /// The condition variables of `definition`, `#Configuration` among them only when
+    /// `configuration_bound`.
+    fn of(definition: &Definition, configuration_bound: bool) -> Self {
         let mut variables = Self::default();
         for module in &definition.modules {
             let in_module = variables.by_module.entry(module.name.clone()).or_default();
@@ -116,6 +126,9 @@ impl ConditionVariables {
                 let mut names = BTreeSet::new();
                 for (_, condition) in conditions {
                     names.extend(free_variables(condition));
+                }
+                if !configuration_bound {
+                    names.remove(CONFIGURATION_VARIABLE);
                 }
                 for address in sentence.attributes().input_addresses() {
                     variables
@@ -147,17 +160,6 @@ impl ConditionVariables {
     }
 }
 
-/// How C1 treats `#Configuration` in a condition at a boundary.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum ConfigurationRule {
-    /// At the stage that passes it to configuration-reading functions: exempt.
-    Introduced,
-    /// Like any other condition variable.
-    Ordinary,
-    /// Once a stage has bound it, in a sentence that is not macro-like: it must occur in the body.
-    Bound,
-}
-
 impl Default for StageChecks {
     fn default() -> Self {
         Self {
@@ -186,7 +188,11 @@ impl StageChecks {
     /// the emission run keeps the decision of the transform run.
     pub(crate) fn start(&mut self, input: &Definition, options: &CompileOptions) {
         if self.conditions.is_none() {
-            self.conditions = Some(ConditionVariables::of(input));
+            self.conditions = Some(ConditionVariables::of(
+                input,
+                self.available
+                    .contains(Artifacts::CONFIGURATION_VARIABLES_BOUND),
+            ));
         }
         if self.binding != Obligation::Pending {
             return;
@@ -210,6 +216,7 @@ impl StageChecks {
     pub(crate) fn after(&mut self, stage: &Stage, output: &Definition, options: &CompileOptions) {
         self.available = self.available.union(stage.provides);
         self.check_conditions(stage, output);
+        self.check_conjunctions(stage, output);
         if self.binding != Obligation::Preserved {
             return;
         }
@@ -239,27 +246,19 @@ impl StageChecks {
     /// Check C1 on the output of `stage` against the conditions before it, then record the
     /// output's conditions for the next boundary; panics like R3 when it is broken.
     fn check_conditions(&mut self, stage: &Stage, output: &Definition) {
+        let configuration_bound = self
+            .available
+            .contains(Artifacts::CONFIGURATION_VARIABLES_BOUND);
         if let Some(earlier) = &self.conditions {
             let renames_anonymous = stage.name == ANONYMOUS_RENAMING_STAGE;
             for module in &output.modules {
                 // Invariant: every sentence of `module` before `index` satisfies C1.
                 for (index, sentence) in module.local_sentences.iter().enumerate() {
-                    let configuration = if stage.name == CONFIGURATION_PASSING_STAGE {
-                        ConfigurationRule::Introduced
-                    } else if self
-                        .available
-                        .contains(Artifacts::CONFIGURATION_VARIABLES_BOUND)
-                        && !sentence.attributes().has_any(&AttributeKey::MACRO_LIKE)
-                    {
-                        ConfigurationRule::Bound
-                    } else {
-                        ConfigurationRule::Ordinary
-                    };
                     let introduced = introduced_condition_variables(
                         sentence,
                         &earlier.before(&module.name, sentence),
                         renames_anonymous,
-                        configuration,
+                        configuration_bound,
                     );
                     if !introduced.is_empty() {
                         panic!(
@@ -278,7 +277,39 @@ impl StageChecks {
                 }
             }
         }
-        self.conditions = Some(ConditionVariables::of(output));
+        self.conditions = Some(ConditionVariables::of(output, configuration_bound));
+    }
+
+    /// Check C2 on the output of `stage` once the resolving stage has run; panics like R3 when a
+    /// pending conjunction survives.
+    fn check_conjunctions(&self, stage: &Stage, output: &Definition) {
+        if !self
+            .available
+            .contains(Artifacts::CONDITION_CONJUNCTIONS_RESOLVED)
+        {
+            return;
+        }
+        for module in &output.modules {
+            // Invariant: no sentence of `module` before `index` holds a pending conjunction.
+            for (index, sentence) in module.local_sentences.iter().enumerate() {
+                if sentence
+                    .terms()
+                    .any(|(_, term)| holds_pending_conjunction(term))
+                {
+                    panic!(
+                        "kompile invariant C2 (resolved conjunctions) broken by stage {:?} ({}): \
+                         a pending condition conjunction survives its resolution\n  in {}\n  sentence: {}",
+                        stage.name,
+                        stage.call,
+                        emitted_from(
+                            &format!("sentence {index} of module {}", module.name),
+                            sentence.attributes().origin_record(),
+                        ),
+                        render_sentence(sentence),
+                    );
+                }
+            }
+        }
     }
 
     /// The right-hand-side variables of `sentence`, per checked root, outside the exemptions of
@@ -353,12 +384,13 @@ fn rule_like_parts(sentence: &Sentence) -> Option<RuleLikeParts<'_>> {
 }
 
 /// The condition variables of `sentence` that break C1 against `before`, the condition variables
-/// of the same sentence before the stage, per condition.
+/// of the same sentence before the stage, per condition; `#Configuration` counts only when
+/// `configuration_bound`.
 fn introduced_condition_variables(
     sentence: &Sentence,
     before: &BTreeSet<String>,
     renames_anonymous: bool,
-    configuration: ConfigurationRule,
+    configuration_bound: bool,
 ) -> Vec<(CheckedRoot, BTreeSet<String>)> {
     let Some((body, conditions, is_alias)) = rule_like_parts(sentence) else {
         return Vec::new();
@@ -374,22 +406,13 @@ fn introduced_condition_variables(
         .filter_map(|(root, condition)| {
             let mut names = free_variables(condition);
             names.retain(|name| {
-                let allowed = if name == CONFIGURATION_VARIABLE {
-                    match configuration {
-                        ConfigurationRule::Introduced => true,
-                        ConfigurationRule::Ordinary => {
-                            in_body.contains(name) || before.contains(name)
-                        }
-                        ConfigurationRule::Bound => in_body.contains(name),
-                    }
-                } else {
-                    in_body.contains(name)
-                        || before.contains(name)
-                        || is_alias && name == "HOLE"
-                        || renames_anonymous
-                            && renamed_anonymous_prefix(name)
-                                .is_some_and(|prefix| before.contains(&format!("{prefix}_")))
-                };
+                let allowed = !configuration_bound && name == CONFIGURATION_VARIABLE
+                    || in_body.contains(name)
+                    || before.contains(name)
+                    || is_alias && name == "HOLE"
+                    || renames_anonymous
+                        && renamed_anonymous_prefix(name)
+                            .is_some_and(|prefix| before.contains(&format!("{prefix}_")));
                 !allowed
             });
             (!names.is_empty()).then_some((root, names))
@@ -1116,11 +1139,13 @@ mod tests {
         assert!(message.contains("sentence 1 of module MAIN"), "{message}");
     }
 
-    /// `#Configuration` is exempt only at the stage that passes it to configuration-reading
-    /// functions; any other stage that introduces it into a condition breaks C1, and a stage that
-    /// copies a condition holding it into a sentence of the same input keeps C1.
+    /// `#Configuration` is reserved, not a condition variable, at every stage before the binding
+    /// stage: `resolve function configuration` passes it to a function a condition calls, and
+    /// `expand macros` inlines a macro's right side that reads it. From the binding stage on it is
+    /// an ordinary condition variable: the binding stage must bind it in the body, and a later
+    /// stage must not introduce it.
     #[test]
-    fn only_the_function_configuration_stage_introduces_a_condition_configuration() {
+    fn configuration_is_no_condition_variable_until_the_binding_stage() {
         fn configure(
             input: &PassInput<'_>,
             _: &mut PipelineState,
@@ -1129,13 +1154,18 @@ mod tests {
                 Term::apply("isZero", vec![Term::variable("#Configuration")])
             })
         }
-        fn copy_first(
-            input: &PassInput<'_>,
-            _: &mut PipelineState,
-        ) -> Result<PassOutcome, PassError> {
+        /// Binds `#Configuration` in the body, as `resolve configuration variables` does.
+        fn bind(input: &PassInput<'_>, _: &mut PipelineState) -> Result<PassOutcome, PassError> {
             let mut output = input.definition.clone();
-            let copy = output.modules[0].local_sentences[0].clone();
-            output.modules[0].local_sentences.push(copy);
+            for sentence in &mut output.modules[0].local_sentences {
+                if let Sentence::Rule { body, .. } = crate::definition::sentence_mut(sentence) {
+                    let taken = std::mem::replace(body, Term::Sequence(Vec::new()));
+                    *body = Term::As {
+                        pattern: Box::new(taken),
+                        alias: Box::new(Term::variable("#Configuration")),
+                    };
+                }
+            }
             Ok(PassOutcome::Changed(output))
         }
         let input = || {
@@ -1144,22 +1174,85 @@ mod tests {
                 0,
             )])
         };
-        let output = run(
-            &[
-                stage("resolve function configuration", configure, Artifacts::NONE),
-                stage("copying stage", copy_first, Artifacts::NONE),
-            ],
-            input(),
-        );
-        assert_eq!(output.modules[0].local_sentences.len(), 2);
+        for introducing in ["resolve function configuration", "expand macros"] {
+            let output = run(
+                &[
+                    stage(introducing, configure, Artifacts::NONE),
+                    stage(
+                        "binding stage",
+                        bind,
+                        Artifacts::CONFIGURATION_VARIABLES_BOUND,
+                    ),
+                    stage("later stage", identity, Artifacts::NONE),
+                ],
+                input(),
+            );
+            assert_eq!(output.modules[0].local_sentences.len(), 1, "{introducing}");
+        }
         let message = panic_message(|| {
             run(
-                &[stage("another stage", configure, Artifacts::NONE)],
+                &[
+                    stage(
+                        "binding stage",
+                        identity,
+                        Artifacts::CONFIGURATION_VARIABLES_BOUND,
+                    ),
+                    stage("later stage", configure, Artifacts::NONE),
+                ],
                 input(),
             );
         });
         assert!(message.contains("C1"), "{message}");
-        assert!(message.contains("\"another stage\""), "{message}");
+        assert!(message.contains("\"later stage\""), "{message}");
         assert!(message.contains("#Configuration in requires"), "{message}");
+    }
+
+    /// A pending conjunction may live until the resolving stage; a stage after it that leaves one
+    /// breaks C2.
+    #[test]
+    fn a_pending_conjunction_after_the_resolving_stage_breaks_c2() {
+        fn conjoin(input: &PassInput<'_>, _: &mut PipelineState) -> Result<PassOutcome, PassError> {
+            replace_requires(input, |requires| {
+                crate::kompile::ml_constructs::conjoin_condition(
+                    is_int("X"),
+                    Term::apply("isOne", vec![requires]),
+                )
+            })
+        }
+        fn resolve(input: &PassInput<'_>, _: &mut PipelineState) -> Result<PassOutcome, PassError> {
+            Ok(PassOutcome::Changed(
+                crate::kompile::ml_constructs::resolve_condition_conjunctions_in_definition(
+                    input.definition.clone(),
+                ),
+            ))
+        }
+        let input = || definition(vec![conditioned(Term::apply("true", Vec::new()))]);
+        let output = run(
+            &[
+                stage("conjoining stage", conjoin, Artifacts::NONE),
+                stage(
+                    "resolve condition conjunctions",
+                    resolve,
+                    Artifacts::CONDITION_CONJUNCTIONS_RESOLVED,
+                ),
+            ],
+            input(),
+        );
+        assert_eq!(output.modules[0].local_sentences.len(), 1);
+        let message = panic_message(|| {
+            run(
+                &[
+                    stage(
+                        "resolve condition conjunctions",
+                        identity,
+                        Artifacts::CONDITION_CONJUNCTIONS_RESOLVED,
+                    ),
+                    stage("conjoining stage", conjoin, Artifacts::NONE),
+                ],
+                input(),
+            );
+        });
+        assert!(message.contains("C2"), "{message}");
+        assert!(message.contains("\"conjoining stage\""), "{message}");
     }
 }

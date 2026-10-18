@@ -474,6 +474,7 @@ files = [
   "crates/k-rust/src/kompile/passes/resolve_function_with_config.rs",
   "crates/k-rust/src/kompile/passes/resolve_heat_cool.rs",
   "crates/k-rust/src/kompile/passes/resolve_semantic_casts.rs",
+  "crates/k-rust/src/kompile/ml_constructs.rs",
 ]
 classification = "phase-only"
 reason = "stage-table transformations with no independent algorithm identity or distinct cost claim"
@@ -529,6 +530,12 @@ stage = "resolve fresh configuration constants"
 call = "resolve_fresh_config_constants"
 file = "crates/k-rust/src/kompile/passes/resolve_fresh_config_constants.rs"
 reason = "allocates integer constants for fresh configuration variables; one pass over configuration terms"
+
+[[phase_only_stage]]
+stage = "resolve condition conjunctions"
+call = "resolve_condition_conjunctions"
+file = "crates/k-rust/src/kompile/ml_constructs.rs"
+reason = "chooses each conjunction that strictness, heating and cooling added to a condition on the condition after macro expansion; one pass over the sentences that hold a pending conjunction"
 
 [[phase_only_stage]]
 stage = "add implicit computation cell"

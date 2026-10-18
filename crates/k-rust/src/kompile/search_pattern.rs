@@ -29,7 +29,7 @@ use crate::names::BuiltinSort;
 use super::fresh_names::GeneratedVariableIdentity;
 use super::passes::{
     ResolveSemanticCastsError, expand_macros_in_terms_from_resolved, resolve_anon_vars_in_sentence,
-    resolve_semantic_casts_with_predicates_in_sentence,
+    resolve_semantic_casts_with_pending_predicates_in_sentence,
 };
 use super::sort_injections::{GroundInput, SortInjectionError, SortInjector, rewrite_projection};
 use super::term_to_kore::{TermConversionError, TermConverter};
@@ -183,7 +183,7 @@ pub fn compile_search_pattern(
     })?;
 
     let (sentence, mut generated) = resolve_anon_vars_in_sentence(sentence);
-    let sentence = resolve_semantic_casts_with_predicates_in_sentence(subsorts, sentence)?;
+    let sentence = resolve_semantic_casts_with_pending_predicates_in_sentence(subsorts, sentence)?;
     let (sentence, cell_generated) =
         concretize_cells_in_sentence(execution_definition, module, sentence)?;
     generated.extend(cell_generated);

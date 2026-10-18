@@ -178,12 +178,19 @@ struct Alias {
 }
 
 /// Generate evaluation contexts from `strict`, `seqstrict` and `hybrid` productions.
+///
+/// The condition of each generated context conjoins its strictness test with the alias's
+/// condition, by `#And` when either reads as a predicate as the definition stands and by
+/// `_andBool_` otherwise. The compile pipeline makes that choice after macro expansion instead,
+/// so a condition spelled through a macro that expands to a predicate is conjoined as a predicate
+/// there and as a Bool term here.
 pub fn resolve_strict(definition: &Definition) -> Result<Definition, ResolveStrictError> {
     super::super::pipeline::run_standalone(
         definition,
         resolve_strict_pass,
         Some(GeneratingPass::ResolveStrict),
     )
+    .map(crate::kompile::ml_constructs::resolve_condition_conjunctions_in_definition)
 }
 
 pub(crate) fn resolve_strict_pass(

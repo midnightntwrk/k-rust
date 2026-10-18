@@ -46,7 +46,11 @@ fn compile_for(sentences: &str, backend: CompilationBackend) -> String {
 }
 
 fn compile_artifacts(sentences: &str, backend: CompilationBackend) -> CompiledKoreArtifacts {
-    let source = format!("{HEADER}{sentences}endmodule\n");
+    compile_source(format!("{HEADER}{sentences}endmodule\n"), backend)
+}
+
+/// The whole definition `source`, main module `P` and syntax module `P-SYNTAX`, compiled.
+fn compile_source(source: String, backend: CompilationBackend) -> CompiledKoreArtifacts {
     let mut resolver = |_: &str, required: &str| {
         embedded(required).ok_or_else(|| format!("unexpected require {required}"))
     };
@@ -1007,5 +1011,91 @@ fn an_anonymous_existential_in_an_ensures_compiles_and_runs_as_a_named_one() {
     assert!(
         anonymous.contains(&("Stuck".to_owned(), "done(1)".to_owned())),
         "{anonymous:?}"
+    );
+}
+
+// ---------------------------------------------------------------- the configuration in conditions
+
+/// A definition whose configuration has a `<flag>` cell, which `isZero()` reads; `isZeroM()` is a
+/// macro for it, so macro expansion inlines a condition that reads the configuration.
+const FLAG_HEADER: &str = "module P-SYNTAX
+  imports INT-SYNTAX
+  imports BOOL-SYNTAX
+  syntax Pgm ::= go(Int) [symbol(go)]
+endmodule
+
+module P
+  imports P-SYNTAX
+  imports INT
+  imports BOOL
+  configuration <k> $PGM:Pgm </k> <flag> $FLAG:Int </flag>
+  syntax KItem ::= done(Int) [symbol(done)]
+  syntax Bool ::= isZero() [function, symbol(isZero)]
+  rule [[ isZero() => F ==Int 0 ]] <flag> F </flag>
+  syntax Bool ::= isZeroM() [macro]
+  rule isZeroM() => isZero()
+";
+
+/// The leaves of go(n) with `<flag>` holding `flag`: halt reason and the first item of `<k>`.
+fn run_with_flag(sentences: &str, n: i64, flag: i64) -> Vec<(String, String)> {
+    let kore = compile_source(
+        format!("{FLAG_HEADER}{sentences}endmodule\n"),
+        CompilationBackend::Rust,
+    )
+    .definition_kore;
+    let mut backend = Backend::new(&kore, "P", BackendOptions::default()).unwrap();
+    let state = parse_pattern(&format!(
+        "Lbl'-LT-'generatedTop'-GT-'{{}}(Lbl'-LT-'k'-GT-'{{}}(kseq{{}}(inj{{SortPgm{{}}, SortKItem{{}}}}(Lblgo{{}}({})), dotk{{}}())), Lbl'-LT-'flag'-GT-'{{}}({}), Lbl'-LT-'generatedCounter'-GT-'{{}}({}))",
+        int(&n.to_string()),
+        int(&flag.to_string()),
+        int("0")
+    ))
+    .unwrap();
+    let result = backend
+        .execute(ExecuteRequest {
+            max_depth: Some(5),
+            ..ExecuteRequest::new(state)
+        })
+        .unwrap();
+    let mut leaves: Vec<(String, String)> = result
+        .leaves
+        .iter()
+        .map(|leaf| {
+            let state = codec::from_value(&leaf.state).unwrap();
+            (format!("{:?}", leaf.reason), k_cell(&state))
+        })
+        .collect();
+    leaves.sort();
+    leaves
+}
+
+/// `#Configuration` names the current configuration, which `resolve function configuration`
+/// passes to `isZero` in the macro's right side and macro expansion then inlines into a
+/// condition; it is a free variable of no condition until the configuration-binding stage binds
+/// it, so the stage checker (C1 in the test profile) accepts each of these, and each condition
+/// reads the `<flag>` cell.
+#[test]
+fn a_rule_requires_reading_the_configuration_through_a_macro_compiles_and_reads_it() {
+    let rule = "  rule [g]: <k> go(N) => done(N) ... </k> requires isZeroM()\n";
+    assert_eq!(run_with_flag(rule, 3, 0), stuck("done(3)"));
+    assert_eq!(run_with_flag(rule, 3, 1), stuck("go(3)"));
+}
+
+#[test]
+fn a_context_requires_reading_the_configuration_through_a_macro_compiles_and_reads_it() {
+    let context = "  syntax Exp ::= Int | e(Int) [symbol(e)]\n  syntax KResult ::= Int\n  syntax KItem ::= foo(Int, Exp) [symbol(foo)]\n  rule [e]: <k> e(N) => N ... </k>\n  rule [g]: <k> go(N) => foo(N, e(N)) ... </k>\n  context [p]: foo(_:Int, HOLE:Exp) requires isZeroM()\n";
+    assert_eq!(run_with_flag(context, 3, 0), stuck("foo(3, 3)"));
+    assert_eq!(run_with_flag(context, 3, 1), stuck("foo(3, e(3))"));
+}
+
+#[test]
+fn an_ensures_reading_the_configuration_through_a_macro_compiles_and_reads_it() {
+    let ensures = "  rule [g]: <k> go(N) => done(N) ... </k> ensures isZeroM()\n";
+    assert_eq!(run_with_flag(ensures, 3, 0), stuck("done(3)"));
+    // With a nonzero flag the ensures is false, so the step has no successor: its result is
+    // empty, which the backend reports as a Trivial leaf at the pre-state.
+    assert_eq!(
+        run_with_flag(ensures, 3, 1),
+        vec![("Trivial".to_owned(), "go(3)".to_owned())]
     );
 }

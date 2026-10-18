@@ -18,11 +18,17 @@
 //! before macro expansion, decides a pending conjunction whose operands it has made tokens
 //! ([`settle_conjunction`]), so it folds it as it would fold `_andBool_` of two tokens. Every one
 //! of these sites chooses the conjunction with [`condition_conjunction`].
+//!
+//! A pending conjunction is internal to the pipeline: no production declares its label. The public
+//! functions of the conjoining passes (`resolve_strict`, `resolve_heat_cool_attributes`,
+//! `resolve_semantic_casts_with_predicates_in_sentence`) therefore resolve it before they return,
+//! on the condition as it stands, and the stage checker panics on one that survives the
+//! resolving stage (C2, [`crate::kompile::invariants::stage`]).
 #![deny(clippy::wildcard_enum_match_arm)]
 
 use std::convert::Infallible;
 
-use crate::definition::Sentence;
+use crate::definition::{Definition, Sentence};
 use crate::kast::{GeneratedLabel, InternalLabel, Label, Term, TermParts};
 
 /// The matching-logic connectives and predicate atoms of the frontend's term language.
@@ -150,7 +156,8 @@ pub(crate) fn hashed_label(label: &Label) -> Option<Label> {
     (label.name == PENDING_CONJUNCTION).then(|| Label::new(AND_BOOL))
 }
 
-fn holds_pending_conjunction(term: &Term) -> bool {
+/// Whether `term` holds a pending conjunction.
+pub(crate) fn holds_pending_conjunction(term: &Term) -> bool {
     let mut found = false;
     term.visit_preorder(&mut |node| {
         found |= matches!(node, Term::Apply { label, .. } if label.name == PENDING_CONJUNCTION);
@@ -199,6 +206,52 @@ fn resolve_in(term: Term) -> Term {
     })
 }
 
+fn sentence_holds_pending_conjunction(sentence: &Sentence) -> bool {
+    sentence
+        .terms()
+        .any(|(_, term)| holds_pending_conjunction(term))
+}
+
+fn definition_holds_pending_conjunction(definition: &Definition) -> bool {
+    definition.modules.iter().any(|module| {
+        module
+            .local_sentences
+            .iter()
+            .any(|sentence| sentence_holds_pending_conjunction(sentence))
+    })
+}
+
+fn resolve_terms(sentence: &mut Sentence) {
+    for (_, term) in sentence.terms_mut() {
+        let taken = std::mem::replace(term, Term::Sequence(Vec::new()));
+        *term = resolve_condition_conjunctions(taken);
+    }
+}
+
+/// `sentence` with every pending conjunction of its terms resolved by
+/// [`resolve_condition_conjunctions`].
+pub(crate) fn resolve_condition_conjunctions_in_sentence(mut sentence: Sentence) -> Sentence {
+    if sentence_holds_pending_conjunction(&sentence) {
+        resolve_terms(&mut sentence);
+    }
+    sentence
+}
+
+/// `definition` with every pending conjunction of every sentence resolved by
+/// [`resolve_condition_conjunctions`]; a sentence without one is kept as it is.
+pub(crate) fn resolve_condition_conjunctions_in_definition(
+    mut definition: Definition,
+) -> Definition {
+    for module in &mut definition.modules {
+        for sentence in &mut module.local_sentences {
+            if sentence_holds_pending_conjunction(sentence) {
+                resolve_terms(crate::definition::sentence_mut(sentence));
+            }
+        }
+    }
+    definition
+}
+
 /// The stage `resolve condition conjunctions`, right after `expand macros`: every pending
 /// conjunction of every sentence resolved by [`resolve_condition_conjunctions`]. A sentence
 /// without one is kept as it is, shared, and a definition without one is unchanged.
@@ -206,32 +259,12 @@ pub(crate) fn resolve_condition_conjunctions_pass(
     input: &super::pipeline::PassInput<'_>,
     _: &mut super::pipeline::PipelineState,
 ) -> Result<super::pipeline::PassOutcome, Infallible> {
-    let holds = |sentence: &Sentence| {
-        sentence
-            .terms()
-            .any(|(_, term)| holds_pending_conjunction(term))
-    };
-    if !input.definition.modules.iter().any(|module| {
-        module
-            .local_sentences
-            .iter()
-            .any(|sentence| holds(sentence))
-    }) {
+    if !definition_holds_pending_conjunction(input.definition) {
         return Ok(super::pipeline::PassOutcome::Unchanged);
     }
-    let mut output = input.definition.clone();
-    for module in &mut output.modules {
-        for sentence in &mut module.local_sentences {
-            if !holds(sentence) {
-                continue;
-            }
-            for (_, term) in crate::definition::sentence_mut(sentence).terms_mut() {
-                let taken = std::mem::replace(term, Term::Sequence(Vec::new()));
-                *term = resolve_condition_conjunctions(taken);
-            }
-        }
-    }
-    Ok(super::pipeline::PassOutcome::Changed(output))
+    Ok(super::pipeline::PassOutcome::Changed(
+        resolve_condition_conjunctions_in_definition(input.definition.clone()),
+    ))
 }
 
 #[cfg(test)]

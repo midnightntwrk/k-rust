@@ -309,6 +309,10 @@ impl Artifacts {
     /// Every `#Configuration` on the right-hand side of a rule that is not macro-like is bound by
     /// the rule's left-hand side.
     pub(crate) const CONFIGURATION_VARIABLES_BOUND: Self = Self(1 << 4);
+    /// No condition holds a pending conjunction (`ml_constructs`): every conjunction a pass added
+    /// to a condition is chosen. A stage that conjoins conditions must run before the one that
+    /// provides it; the stage checker panics on a pending conjunction once it is available (C2).
+    pub(crate) const CONDITION_CONJUNCTIONS_RESOLVED: Self = Self(1 << 5);
 
     pub(crate) const fn union(self, other: Self) -> Self {
         Self(self.0 | other.0)
@@ -667,7 +671,9 @@ const TRANSFORM_STAGE_TABLE: &[Stage] = &[
         "resolve_condition_conjunctions",
         resolve_condition_conjunctions_stage,
         Provenance::None,
-        "metadata-only"
+        "metadata-only",
+        requires = Artifacts::NONE,
+        provides = Artifacts::CONDITION_CONJUNCTIONS_RESOLVED
     ),
     stage!(
         "add implicit computation cell",
