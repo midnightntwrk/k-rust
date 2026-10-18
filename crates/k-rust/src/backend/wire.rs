@@ -571,6 +571,18 @@ pub enum BackendDiagnosticOutput<K = Value> {
     UndefinedInitialInstances {
         definedness: Vec<K>,
     },
+    /// The path read a value of `hook` the definition leaves open, of class `class` (the names
+    /// of [`ChosenValueOutput`](super::ChosenValueOutput)): in another model of the definition
+    /// that agrees with the request's inputs and k-rust's stated readings this leaf may differ
+    /// or be absent (`BackendDiagnostic::ImplementationChosenValue`). A leaf without one is, on
+    /// its own recorded path, a leaf in every such model. It is a path fact: it stays on the
+    /// paths that depend on the work that found it whatever became of that work (an attempt that
+    /// did not apply, a refuted alternative, an undone attempt), and it never causes or prevents
+    /// a `state-set` merge.
+    ImplementationChosenValue {
+        hook: String,
+        class: String,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -1352,6 +1364,12 @@ fn diagnostic_output<K: WireKore>(
                     .collect::<Result<_, _>>()?,
             }
         }
+        BackendDiagnostic::ImplementationChosenValue { hook, class } => {
+            BackendDiagnosticOutput::ImplementationChosenValue {
+                hook,
+                class: class.name().to_owned(),
+            }
+        }
     })
 }
 
@@ -1788,6 +1806,11 @@ pub(super) fn execution_response<K: WireKore>(
         expanded: result.expanded,
         stack_stops: result.stack_stops,
         smt_unknowns: result.smt_unknowns,
+        implementation_chosen_values: result
+            .implementation_chosen_values
+            .iter()
+            .map(Into::into)
+            .collect(),
     })
 }
 
@@ -2629,6 +2652,38 @@ mod tests {
             "BackendDiagnostic",
             "rule-condition-failed",
             &["ruleId", "origin?", "failure"],
+        );
+    }
+
+    /// A mark of an open value is written with its hook and class name and read back.
+    #[test]
+    fn an_implementation_chosen_value_round_trips_on_the_wire() {
+        let sort = Sort::simple("SortS");
+        let output = diagnostic_output::<Value>(
+            BackendDiagnostic::ImplementationChosenValue {
+                hook: "MAP.keys_list".into(),
+                class: k_rust_backend::builtin::ChosenClass::Order,
+            },
+            &sort,
+        )
+        .unwrap();
+        let value = serde_json::to_value(&output).unwrap();
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "kind": "implementation-chosen-value",
+                "hook": "MAP.keys_list",
+                "class": "order"
+            })
+        );
+        assert_eq!(
+            serde_json::from_value::<BackendDiagnosticOutput>(value).unwrap(),
+            output
+        );
+        assert_typescript_variant_fields(
+            "BackendDiagnostic",
+            "implementation-chosen-value",
+            &["hook", "class"],
         );
     }
 

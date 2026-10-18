@@ -258,6 +258,11 @@ pub struct BackendCapabilities {
     /// were taken from ([`ExecutionResult::smt_unknowns`]); in a build without a solver the count
     /// is always zero.
     pub smt_unknowns: bool,
+    /// `execute` and `execute_observed` mark each leaf whose path read a value the definition
+    /// leaves open (`BackendDiagnosticOutput::ImplementationChosenValue`) and list every such
+    /// value the run read ([`ExecutionResult::implementation_chosen_values`]); a search marks its
+    /// states alike.
+    pub implementation_chosen_values: bool,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -444,6 +449,36 @@ pub struct ExecutionResult<K = Value> {
     /// A build without a solver always reports zero.
     #[serde(skip_serializing_if = "is_zero")]
     pub smt_unknowns: usize,
+    /// Every distinct value the definition leaves open that the run read (wire
+    /// `implementationChosenValues`), in the order the run first read it; absent when empty
+    /// (docs/compatibility.md, "Implementation-chosen hook values"). It holds the marks of the
+    /// leaves' paths (`BackendDiagnosticOutput::ImplementationChosenValue`) and those of work
+    /// that ended on no reported leaf: a candidate that vanished, a state a `state-set` merge
+    /// absorbed, a state whose successors were all absorbed. When it is empty, every model of the
+    /// definition that agrees with the request's inputs and k-rust's stated readings gives the
+    /// run the same leaves.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub implementation_chosen_values: Vec<ChosenValueOutput>,
+}
+
+/// A value the definition leaves open that a run read: the hook that computed it and what the
+/// definition leaves open about it (`class`, docs/compatibility.md, "Implementation-chosen hook
+/// values": `order`, `item`, `float-destination`, `nan-sign`, `letter-case`, `signed-zero`,
+/// `fresh-name`, `read-count`, `effect-order`).
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct ChosenValueOutput {
+    pub hook: String,
+    pub class: String,
+}
+
+impl From<&k_rust_backend::builtin::ChosenValue> for ChosenValueOutput {
+    fn from(chosen: &k_rust_backend::builtin::ChosenValue) -> Self {
+        Self {
+            hook: chosen.hook.to_string(),
+            class: chosen.class.name().to_owned(),
+        }
+    }
 }
 
 /// The rules and equations an execution used, by `UNIQUE_ID`, each list sorted and without
@@ -521,7 +556,11 @@ pub struct ExecutionLeaf<K = Value> {
     /// The backend diagnostics of the work this leaf's path went through, each distinct one once.
     /// A leaf of a `state-set` result also carries those of every path whose equal configuration
     /// was merged into it, so its list may name work that is not on its own `trace`, and the
-    /// result is free of diagnostics exactly when the `path-set` result of the same request is.
+    /// result is free of diagnostics exactly when the `path-set` result of the same request is,
+    /// but for the `implementation-chosen-value` marks of a state merged during exploration,
+    /// which are on [`ExecutionResult::implementation_chosen_values`] instead. Those marks are
+    /// path facts: they stay on every path whose decisions rest on the work that found them,
+    /// whatever became of that work (docs/compatibility.md, "Marks in executions").
     /// A merged diagnostic names variables as the path that met it named them, so a variable the
     /// request does not name may not occur in this leaf's `state` (it is never one of the leaf's
     /// own variables), and diagnostics equal up to such names are each listed.
@@ -1137,6 +1176,7 @@ impl Backend {
             coverage: true,
             stack_stops: true,
             smt_unknowns: true,
+            implementation_chosen_values: true,
         }
     }
 
@@ -2458,6 +2498,68 @@ mod tests {
         let capabilities = serde_json::to_value(backend.capabilities()).unwrap();
         assert_eq!(capabilities["smtUnknowns"], true);
         assert_eq!(capabilities["stackStops"], true);
+    }
+
+    /// The marks of open values are declared where the facade writes them: the result's optional
+    /// list of `{hook, class}`, the class names, and a capability flag, true in every build.
+    #[test]
+    fn the_implementation_chosen_values_match_typescript_declarations() {
+        use k_rust_backend::builtin::ChosenClass;
+        assert_typescript_member(
+            "ExecutionResult",
+            "implementationChosenValues?: ChosenValue[]",
+        );
+        assert_typescript_member("BackendCapabilities", "implementationChosenValues: boolean");
+        assert_typescript_member("ChosenValue", "hook: string");
+        assert_typescript_member("ChosenValue", "class: ChosenClass");
+        let classes = [
+            ChosenClass::Order,
+            ChosenClass::Item,
+            ChosenClass::FloatDestination,
+            ChosenClass::NanSign,
+            ChosenClass::LetterCase,
+            ChosenClass::SignedZero,
+            ChosenClass::FreshName,
+            ChosenClass::ReadCount,
+            ChosenClass::EffectOrder,
+        ]
+        .map(|class| class.name().to_owned())
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+        for package in ["k-rust-napi", "k-rust-wasm"] {
+            let path = format!(
+                "{}/../{package}/typescript/index.ts",
+                env!("CARGO_MANIFEST_DIR")
+            );
+            let declaration = std::fs::read_to_string(&path).unwrap();
+            let union = declaration
+                .split_once("export type ChosenClass =\n")
+                .unwrap()
+                .1;
+            let declared: BTreeSet<String> = union
+                .lines()
+                .take_while(|line| line.trim_start().starts_with('|'))
+                .map(|line| {
+                    line.trim()
+                        .trim_start_matches('|')
+                        .trim()
+                        .trim_matches('\'')
+                        .to_owned()
+                })
+                .collect();
+            assert_eq!(declared, classes, "{path} ChosenClass");
+        }
+        let backend = Backend::new(
+            r#"[] module MAIN sort SortK{} [] endmodule []"#,
+            "MAIN",
+            BackendOptions::default(),
+        )
+        .unwrap();
+        let capabilities = serde_json::to_value(backend.capabilities()).unwrap();
+        assert_eq!(capabilities["implementationChosenValues"], true);
+        let value = serde_json::json!({"hook": "MAP.choice", "class": "item"});
+        let output: ChosenValueOutput = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&output).unwrap(), value);
     }
 
     #[test]

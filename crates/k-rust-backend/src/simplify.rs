@@ -99,7 +99,7 @@ use crate::{
     },
     deferred::{
         DeferredDecision, DeferredOutcome, Folded, ShortCircuit, bool_literal,
-        deferred_obligations, deferred_positions, fold_hooks,
+        deferred_obligations, deferred_positions,
     },
     definedness::{ceil_term, terms_apart},
     definition::BackendDefinition,
@@ -110,6 +110,7 @@ use crate::{
         MatchMode, MatchResult, match_collection_remainders_all_in_definition,
         match_equation_in_definition, match_injection_equality, match_term_pairs_in_definition,
     },
+    path_facts::FactSet,
     rewrite::{
         Pattern, Truth, check_concreteness, normalize_pattern_substitution, predicate_root_truth,
         predicate_truth, predicates_truth, retain_substitution_predicates,
@@ -2641,8 +2642,11 @@ fn defined_uncomputed(definition: &BackendDefinition, term: &Term) -> SimplifyRe
     {
         return Ok(false);
     }
+    // Only the application's own definedness is read, which a value the definition leaves open
+    // has in every model: the evaluation marks no path (`crate::path_facts`).
     Ok(matches!(
-        evaluate_builtin(term, definition)?.map_err(SimplificationError::Builtin)?,
+        crate::path_facts::suspend(|| evaluate_builtin(term, definition))?
+            .map_err(SimplificationError::Builtin)?,
         BuiltinResult::Value(_)
             | BuiltinResult::Unsupported(
                 UnsupportedHookReason::ResultTooLarge { .. }
@@ -4897,7 +4901,9 @@ fn simplify_children(
                         if Some(position) == selected {
                             operands.push(child(operand)?);
                         } else if Some(position) == discarded {
-                            match fold_hooks(definition, operand)? {
+                            // Only its definedness is read (`crate::deferred`).
+                            match crate::deferred::fold_hooks_for_definedness(definition, operand)?
+                            {
                                 Folded::Term(folded) => {
                                     if !folded.ptr_eq(operand) {
                                         children_unchanged.set(false);
@@ -5310,8 +5316,9 @@ fn simplify_root(
         // retry continues the application's evaluation.
         let mut history = match (retry, recorded) {
             (Some(history), _) => history,
-            (None, Some((RecordedOutcome::Value(result, rule), reads))) => {
+            (None, Some((RecordedOutcome::Value(result, rule, facts), reads))) => {
                 UnspecifiedEvaluation::reach(&reads);
+                crate::path_facts::replay(&facts);
                 let step = if term.attributes().variables.is_empty() && result.is_unconditional() {
                     RootStep::DeterminedFunctionStep
                 } else {
@@ -5325,19 +5332,26 @@ fn simplify_root(
                     RecordedOutcome::Failed {
                         excluded,
                         contingent,
+                        facts,
                     },
                     reads,
                 )),
             ) => {
                 UnspecifiedEvaluation::reach(&reads);
+                let facts_from = crate::path_facts::marker();
+                crate::path_facts::replay(&facts);
                 UnspecifiedRetry {
                     excluded,
                     contingent,
                     reads,
                     exhausted: false,
+                    facts_from,
                 }
             }
-            (None, None) => UnspecifiedRetry::default(),
+            (None, None) => UnspecifiedRetry {
+                facts_from: crate::path_facts::marker(),
+                ..UnspecifiedRetry::default()
+            },
         };
         let diagnostics = diagnostic::mark();
         let mut opened = None;
@@ -5584,12 +5598,16 @@ struct UnspecifiedStep {
 /// failure, or any undecided `requires`, was contingent on, `reads` what its attempts read of
 /// their surroundings ([`Reads`]), and `exhausted` whether an attempt's lineage ran out of
 /// iteration budget, in which case its failure may be the budget's and it is not recorded.
+///
+/// `facts_from` is where the application's evaluation began among the path facts noted
+/// (`crate::path_facts`): what was noted since then is the evaluation's, kept with its record.
 #[derive(Default)]
 struct UnspecifiedRetry {
     excluded: Vec<Arc<RewriteRule>>,
     contingent: Option<usize>,
     reads: Reads,
     exhausted: bool,
+    facts_from: crate::path_facts::Marker,
 }
 
 /// A rule condition being evaluated (`simplify_rule_predicates`): the rule and the term it is
@@ -6225,12 +6243,17 @@ impl AssumptionContent {
 /// gave it, with the equation of its first step, or a failed evaluation, which ended with it
 /// unevaluated after some attempt failed: the equations that failed and the contingency it
 /// handed on ([`UnspecifiedRetry`]).
+///
+/// Each records the path facts its evaluation noted (`crate::path_facts`), undone attempts
+/// included, which a served record notes again: the serving evaluation takes the values the
+/// recorded one took.
 #[derive(Clone)]
 enum RecordedOutcome {
-    Value(Simplification, Arc<RewriteRule>),
+    Value(Simplification, Arc<RewriteRule>, FactSet),
     Failed {
         excluded: Vec<Arc<RewriteRule>>,
         contingent: Option<usize>,
+        facts: FactSet,
     },
 }
 
@@ -6379,7 +6402,9 @@ struct RecordTable {
 /// evaluation would. Diagnostics may differ: serving a record emits none of the diagnostics its
 /// evaluation emitted, so one that the evaluation would emit again at the point of reuse is
 /// missing there, and is not reported at all when the recorded evaluation emitted it inside an
-/// attempt that was undone, which discarded it. What the record read is added to the evaluation
+/// attempt that was undone, which discarded it. Path facts do not differ: a record keeps the
+/// marks of open values its evaluation noted, undone attempts included, and serving it notes
+/// them again (`crate::path_facts`). What the record read is added to the evaluation
 /// that serves it ([`UnspecifiedEvaluation::reach`]).
 ///
 /// A conjunct of a rule condition is evaluated under the other conjuncts not yet decided as
@@ -6489,6 +6514,7 @@ impl UnspecifiedValues {
             RecordedOutcome::Failed {
                 excluded: history.excluded.clone(),
                 contingent: history.contingent,
+                facts: crate::path_facts::since(history.facts_from),
             },
             history.reads.clone(),
             depth,
@@ -6535,6 +6561,7 @@ impl UnspecifiedValues {
             RecordedOutcome::Value(
                 accumulated.since(&first.before.accumulated, end.clone()),
                 Arc::clone(&first.rule),
+                crate::path_facts::since(first.history.facts_from),
             ),
             reads,
             depth,
@@ -8352,6 +8379,7 @@ mod tests {
             RecordedOutcome::Failed {
                 excluded: Vec::new(),
                 contingent: None,
+                facts: FactSet::new(),
             },
             reads,
             0,
@@ -8407,6 +8435,7 @@ mod tests {
             RecordedOutcome::Failed {
                 excluded: Vec::new(),
                 contingent: None,
+                facts: FactSet::new(),
             },
             reads,
             1,
@@ -8458,6 +8487,7 @@ mod tests {
                     RecordedOutcome::Failed {
                         excluded: Vec::new(),
                         contingent: None,
+                        facts: FactSet::new(),
                     },
                     Reads::default(),
                     0,
@@ -8518,6 +8548,7 @@ mod tests {
                 RecordedOutcome::Failed {
                     excluded: Vec::new(),
                     contingent: Some(contingent),
+                    facts: FactSet::new(),
                 },
                 reads,
                 0,
@@ -8575,6 +8606,7 @@ mod tests {
                     RecordedOutcome::Failed {
                         excluded: Vec::new(),
                         contingent: None,
+                        facts: FactSet::new(),
                     },
                     Reads::default(),
                     0,

@@ -97,7 +97,7 @@
 
 #![deny(clippy::wildcard_enum_match_arm)]
 
-use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque, btree_map::Entry};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque, btree_map::Entry};
 
 use k_rust_kore::measure::{self, Algorithm, Counter};
 
@@ -135,7 +135,7 @@ mod retention;
 pub use retention::{BreadthExceeded, Exhausted, FurtherResult, Truncation, UnexploredWork};
 use retention::{
     Remaining, StateRetention, WitnessRetention, breadth_exceeded, pop_or_exhausted, remaining,
-    retain_pattern_match, retain_state_result, retain_witness,
+    retain_pattern_match, retain_state_result, retain_witness, union_path_facts,
 };
 
 pub use crate::transition::{PatternDigest, TransitionId};
@@ -735,8 +735,8 @@ fn search_graph_collecting(
     let mut observation_log = ObservationLog::default();
     let request_diagnostics = PathDiagnostics::new_request();
     let mut states = Vec::new();
-    // The `RequestNames::state_key` of every state in `states`.
-    let mut retained = HashSet::new();
+    // The `RequestNames::state_key` of every state in `states`, with its index there.
+    let mut retained = HashMap::new();
     let mut effects = Vec::new();
     let mut incomplete = Vec::new();
     // One request: every name the search mints is apart from every variable of the initial
@@ -865,7 +865,7 @@ fn search_graph_collecting(
         }
         // The state's own constraint and term simplification is on its path: every result,
         // incomplete entry and successor derived from this state carries it.
-        let (simplified_constraints, emitted) = diagnostic::collect(|| {
+        let (simplified_constraints, emitted) = crate::path_facts::collect_with_diagnostics(|| {
             simplify_predicates_with_solver(
                 definition,
                 &state.pattern.constraints,
@@ -900,7 +900,7 @@ fn search_graph_collecting(
             ),
         }
         let pattern_before_simplification = state.pattern.clone();
-        let (simplified_term, emitted) = diagnostic::collect(|| {
+        let (simplified_term, emitted) = crate::path_facts::collect_with_diagnostics(|| {
             simplify_with_solver(
                 definition,
                 &state.pattern.term,
@@ -1010,12 +1010,16 @@ fn search_graph_collecting(
             ),
         };
         // A duplicate takes its own path's diagnostics with it: the state kept for this key
-        // reports the path recorded first, like its trace.
-        if !expanded.entry(state.depth).or_default().insert((
-            fresh_counter.request().state_key(&state.pattern),
-            is_rewritable,
-        )) {
+        // reports the path recorded first, like its trace. Its path facts are not dropped: the
+        // result kept for its key carries them too (`retention::union_path_facts`).
+        let key = fresh_counter.request().state_key(&state.pattern);
+        if !expanded
+            .entry(state.depth)
+            .or_default()
+            .insert((key.clone(), is_rewritable))
+        {
             measure::bump(Counter::SearchStatesDeduplicated);
+            union_path_facts(&mut states, &retained, &key, &diagnostics.to_vec());
             continue;
         }
         let at_depth_bound = state.depth >= options.max_depth;
@@ -1094,7 +1098,7 @@ fn search_graph_collecting(
             continue;
         }
 
-        let (rewrite, step_diagnostics) = step_search_state(
+        let (rewrite, step_diagnostics, step_facts) = step_search_state(
             definition,
             &state.pattern,
             &defined_where,
@@ -1103,6 +1107,7 @@ fn search_graph_collecting(
             &options,
             solver,
         );
+        diagnostics.extend(&step_facts);
         // A stopped step has no successor set: the state's entry carries the step's work.
         let rewrite = match rewrite {
             Ok(rewrite) => rewrite,
@@ -1414,15 +1419,16 @@ fn initial_state_definedness(
         max_iterations: max_simplification_iterations,
         ..SimplificationOptions::default()
     };
-    let (verdict, emitted) = diagnostic::collect(|| {
+    let (verdict, emitted) = crate::path_facts::collect_with_diagnostics(|| {
         UndecidedFacts::of_pattern(definition, &state.pattern).decide(definition, options, solver)
     });
     diagnostics.extend(&emitted);
     if let FactsVerdict::Refuted = verdict? {
         return Ok(Ok(None));
     }
-    let (definedness, emitted) =
-        diagnostic::collect(|| initial_definedness(definition, &state.pattern, options, solver));
+    let (definedness, emitted) = crate::path_facts::collect_with_diagnostics(|| {
+        initial_definedness(definition, &state.pattern, options, solver)
+    });
     diagnostics.extend(&emitted);
     Ok(match definedness? {
         InitialDefinedness::Undefined => Ok(None),
@@ -1453,7 +1459,48 @@ fn materialize_search_state(
 /// step has already attributed them to its candidates (`AppliedRule::diagnostics`,
 /// `RemainderBranch::diagnostics`), so the collection is for a step that ends the state's
 /// exploration ([`halts`]) or that stopped, whose entry carries the whole step.
+///
+/// The third list is the path facts the step noted outside its candidates' own right-hand sides
+/// (`crate::path_facts`), which are on the state's path whatever the step's answer: the caller
+/// adds them to it before deriving its successors. The candidates' own facts travel with their
+/// diagnostics, and the first list holds them too, for a step that halts or stopped.
 fn step_search_state(
+    definition: &BackendDefinition,
+    pattern: &Pattern,
+    defined_where: &[Predicate],
+    kind: QueuedStateKind,
+    fresh_counter: &mut FreshCounter,
+    options: &SearchOptions,
+    solver: &dyn SmtSolver,
+) -> (
+    Stoppable<RewriteResult>,
+    Vec<BackendDiagnostic>,
+    Vec<BackendDiagnostic>,
+) {
+    let ((rewrite, mut step_diagnostics), facts) = crate::path_facts::collect(|| {
+        step_search_diagnostics(
+            definition,
+            pattern,
+            defined_where,
+            kind,
+            fresh_counter,
+            options,
+            solver,
+        )
+    });
+    extend_distinct(
+        &mut step_diagnostics,
+        &crate::path_facts::diagnostics(&facts.owned),
+    );
+    (
+        rewrite,
+        step_diagnostics,
+        crate::path_facts::diagnostics(&facts.shared),
+    )
+}
+
+/// [`step_search_state`] without its path facts.
+fn step_search_diagnostics(
     definition: &BackendDefinition,
     pattern: &Pattern,
     defined_where: &[Predicate],
@@ -1519,7 +1566,7 @@ fn externalise_result(
     observation_log: &mut ObservationLog,
     observation_options: Option<&ObservationOptions>,
 ) -> Result<Option<SearchState>, StopCause> {
-    let (simplified, emitted) = diagnostic::collect(|| {
+    let (simplified, emitted) = crate::path_facts::collect_with_diagnostics(|| {
         simplify_result_pattern(
             definition,
             &state.pattern,
@@ -1848,7 +1895,7 @@ fn search_paths_collecting(
         }
         // The path's own simplification of this state is on the path: every witness, incomplete
         // entry and extension derived from it carries it.
-        let (simplified_constraints, emitted) = diagnostic::collect(|| {
+        let (simplified_constraints, emitted) = crate::path_facts::collect_with_diagnostics(|| {
             simplify_predicates_with_solver(
                 definition,
                 &path.state.pattern.constraints,
@@ -1870,7 +1917,7 @@ fn search_paths_collecting(
             Err(stop) => publish_stop!(stop),
         }
         let pattern_before_simplification = path.state.pattern.clone();
-        let (simplified_term, emitted) = diagnostic::collect(|| {
+        let (simplified_term, emitted) = crate::path_facts::collect_with_diagnostics(|| {
             simplify_with_solver(
                 definition,
                 &path.state.pattern.term,
@@ -2022,7 +2069,7 @@ fn search_paths_collecting(
             continue;
         }
 
-        let (rewrite, step_diagnostics) = step_search_state(
+        let (rewrite, step_diagnostics, step_facts) = step_search_state(
             definition,
             &path.state.pattern,
             &defined_where,
@@ -2031,6 +2078,7 @@ fn search_paths_collecting(
             &options,
             solver,
         );
+        path.diagnostics.extend(&step_facts);
         // A stopped step has no successor set: the path's entry carries the step's work.
         let rewrite = match rewrite {
             Ok(rewrite) => rewrite,
@@ -2587,7 +2635,7 @@ fn match_search_result(
     Stoppable<Result<Vec<PatternMatch>, PatternMatchError>>,
     Vec<BackendDiagnostic>,
 ) {
-    let (found, emitted) = diagnostic::collect(|| {
+    let (found, emitted) = crate::path_facts::collect_with_diagnostics(|| {
         match_pattern_with_variables(
             definition,
             target,

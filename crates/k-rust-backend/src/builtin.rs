@@ -400,7 +400,7 @@ impl ChosenClass {
 }
 
 /// An evaluated hook application whose value is one of several the definition admits.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[non_exhaustive]
 pub struct ChosenValue {
     /// The hook applied.
@@ -410,6 +410,20 @@ pub struct ChosenValue {
     /// Whether an evaluation outside an execution leaves the application unevaluated, as the
     /// defined value it is, rather than take k-rust's value.
     pub withheld_in_proof: bool,
+}
+
+impl ChosenValue {
+    /// The value of class `class` of an application of `hook`.
+    pub(crate) fn new(hook: Arc<str>, class: ChosenClass) -> Self {
+        Self {
+            hook,
+            class,
+            // Every class that is a value but `ReadCount`: a proof route has no console, and an
+            // execution of the backend that runs in `Proof` by default reads the console it is
+            // given.
+            withheld_in_proof: class != ChosenClass::ReadCount,
+        }
+    }
 }
 
 /// Whether the application of `hook` to `arguments`, whose evaluator's value is `value` when it
@@ -484,13 +498,7 @@ pub fn chosen_value(hook: &str, arguments: &[Term], value: Option<&Term>) -> Opt
             float::signed_zeros(hook, arguments),
         ),
     }?;
-    Some(ChosenValue {
-        hook: hook.into(),
-        class,
-        // Every class that is a value but `ReadCount`: a proof route has no console, and an
-        // execution of the backend that runs in `Proof` by default reads the console it is given.
-        withheld_in_proof: class != ChosenClass::ReadCount,
-    })
+    Some(ChosenValue::new(hook.into(), class))
 }
 
 /// `value` without the injection into its declared sort a hook value of a strict subsort of
@@ -712,6 +720,13 @@ fn evaluate_composed(
                     defined: true,
                 },
             ));
+        }
+        // The value is taken: the paths that read it are one model's (`crate::path_facts`). In
+        // `Execution` that is every class; in `Proof` only a `#read`'s count gets here, read
+        // from the console of a backend execution that runs in `Proof` by default, whose leaves
+        // depend on it as an execution's do. The context-free evaluation (no mode) is no run's.
+        if mode.is_some() {
+            crate::path_facts::note(crate::path_facts::PathFact::ChosenValue(chosen));
         }
     }
     Ok(result)

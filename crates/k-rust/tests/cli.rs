@@ -3716,7 +3716,17 @@ fn krun_io_on_preserves_descriptor_order_and_arbitrary_bytes() {
         String::from_utf8_lossy(&arbitrary.stderr)
     );
     assert_eq!(arbitrary.stdout, bytes);
-    assert!(arbitrary.stderr.is_empty());
+    // `#read(0, 4)` returned four characters, a count the definition leaves open (`read-count`,
+    // docs/compatibility.md, "Marks in executions"): the result's path is marked, and krun warns
+    // once.
+    let warning = String::from_utf8(arbitrary.stderr).unwrap();
+    assert_eq!(warning.lines().count(), 1, "{warning}");
+    assert!(
+        warning.starts_with("warning: ")
+            && warning.contains("IO.read")
+            && warning.contains("(read-count)"),
+        "{warning}"
+    );
 
     fs::remove_dir_all(root).unwrap();
 }

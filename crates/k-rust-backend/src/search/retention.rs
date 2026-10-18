@@ -12,7 +12,7 @@
 
 #![deny(clippy::wildcard_enum_match_arm)]
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use super::{
     IncompleteSearch, PathSearchState, PathWitness, SearchEnd, SearchMatch, SearchOptions,
@@ -21,6 +21,7 @@ use super::{
 use crate::{
     builtin::BuiltinEffect,
     definition::BackendDefinition,
+    diagnostic::BackendDiagnostic,
     fresh::{RequestNames, SolutionKey},
     rewrite::Pattern,
     smt::SmtSolver,
@@ -157,17 +158,24 @@ pub(super) enum StateRetention {
 /// the request does not name (their `RequestNames::state_key`s are equal, `retained` holds the
 /// keys of `states`): such a result denotes the same configurations, so listing it again would
 /// list one state twice and take a result slot from a different one.
+///
+/// A result dropped as a duplicate gives its path facts (`crate::path_facts`) to the result kept
+/// for its key ([`union_path_facts`]): it is dropped anyway, so this changes no result but the
+/// kept one's marks.
 pub(super) fn retain_state_result(
     states: &mut Vec<SearchState>,
-    retained: &mut HashSet<Pattern>,
+    retained: &mut HashMap<Pattern, usize>,
     request: &RequestNames,
     state: SearchState,
     max_results: Option<usize>,
     pattern_bound_reached: &mut impl FnMut(&SearchState) -> bool,
 ) -> StateRetention {
-    if !retained.insert(request.state_key(&state.pattern)) {
+    let key = request.state_key(&state.pattern);
+    if retained.contains_key(&key) {
+        union_path_facts(states, retained, &key, &state.diagnostics);
         return StateRetention::Continue;
     }
+    retained.insert(key, states.len());
     let pattern_bound_reached = pattern_bound_reached(&state);
     states.push(state);
     if pattern_bound_reached {
@@ -176,6 +184,34 @@ pub(super) fn retain_state_result(
         StateRetention::ResultBound
     } else {
         StateRetention::Continue
+    }
+}
+
+/// Add the path facts among `diagnostics` (`BackendDiagnostic::ImplementationChosenValue`), those
+/// of a state dropped as a duplicate of the state `key` names, to the result retained for `key`,
+/// if any, so that the kept result names every value the definition leaves open that a path
+/// reaching it read. The dropped state's other diagnostics stay with its path.
+pub(super) fn union_path_facts(
+    states: &mut [SearchState],
+    retained: &HashMap<Pattern, usize>,
+    key: &Pattern,
+    diagnostics: &[BackendDiagnostic],
+) {
+    let Some(&index) = retained.get(key) else {
+        return;
+    };
+    let facts = diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            matches!(
+                diagnostic,
+                BackendDiagnostic::ImplementationChosenValue { .. }
+            )
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    if !facts.is_empty() {
+        crate::diagnostic::extend_distinct(&mut states[index].diagnostics, &facts);
     }
 }
 

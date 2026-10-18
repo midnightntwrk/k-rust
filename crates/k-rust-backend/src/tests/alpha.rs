@@ -1509,6 +1509,10 @@ impl AlphaComparable for ExecutionResult {
         if self.coverage != other.coverage {
             return Err("execution coverage differs".into());
         }
+        // Marks name hooks and classes, not variables.
+        if self.implementation_chosen_values != other.implementation_chosen_values {
+            return Err("execution marks differ".into());
+        }
         Ok(())
     }
 
@@ -1524,6 +1528,7 @@ impl AlphaComparable for ExecutionResult {
             stack_stops: self.stack_stops,
             smt_unknowns: self.smt_unknowns,
             stopped: self.stopped.clone(),
+            implementation_chosen_values: self.implementation_chosen_values.clone(),
         })
     }
 }
@@ -1574,6 +1579,7 @@ fn result_with_transition(name: &str) -> ExecutionResult {
         stack_stops: 0,
         smt_unknowns: 0,
         stopped: None,
+        implementation_chosen_values: Vec::new(),
         modality: crate::search::ResultModality::StateSet,
         leaves: vec![ExecutionLeaf {
             pattern: after.clone(),

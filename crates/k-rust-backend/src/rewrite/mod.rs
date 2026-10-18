@@ -563,7 +563,8 @@ pub struct ExecutionOptions {
     /// trace, branch identity, and observations. A `StateSet` run that explores every branch also
     /// expands each distinct state of a depth once: a state equal at its depth to one whose
     /// expansion completed, with the same effects, console and console availability and no
-    /// diagnostic the other's path lacks, is merged into it, so converging paths cost the distinct
+    /// diagnostic the other's path lacks (path facts aside, whose marks go to
+    /// [`ExecutionResult::implementation_chosen_values`]), is merged into it, so converging paths cost the distinct
     /// states; exploration stays depth-first, and the leaves are those of the unmerged run but for
     /// the duplicates of `Trivial` and `Vacuous` leaves in a merged subtree. Such a run's
     /// `max_breadth` bounds the pending states of the merged exploration, so where the unmerged run
@@ -925,6 +926,16 @@ pub struct ExecutionResult {
     /// drain or the state-set final merge) observed such a stop. Under `discard_stopped` a run
     /// with a cause here has no leaves.
     pub stopped: Option<StopCause>,
+    /// Every distinct value the definition leaves open that the run read, in the order the run
+    /// first noted it (`builtin::chosen_value`, `crate::path_facts`): those on the paths of its
+    /// leaves (`BackendDiagnostic::ImplementationChosenValue`), and those of work that ended on
+    /// no reported leaf, such as a candidate that vanished, a state a state-set merge absorbed,
+    /// or a state whose successors were all absorbed. Empty exactly when no evaluation of the
+    /// run took a value the definition leaves open: then every model of the definition that
+    /// agrees with the request's inputs and k-rust's stated readings gives the run the same
+    /// leaves. An evaluation that only decided a definedness every model gives alike does not
+    /// count.
+    pub implementation_chosen_values: Vec<crate::builtin::ChosenValue>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

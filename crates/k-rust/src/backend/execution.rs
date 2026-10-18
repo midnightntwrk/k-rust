@@ -750,6 +750,19 @@ fn undefined_initial_instances_message(definedness: &[Predicate], result_sort: &
     )
 }
 
+/// The warning for an `ImplementationChosenValue` diagnostic: the result's path read a value the
+/// definition leaves open, so the result is one model's.
+fn implementation_chosen_value_message(
+    hook: &str,
+    class: k_rust_backend::builtin::ChosenClass,
+    depth: u64,
+) -> String {
+    format!(
+        "the path to the result at depth {depth} read a value of {hook} the definition leaves open ({}); in another model of the definition the result may differ or be absent",
+        class.name()
+    )
+}
+
 /// Print the warnings of `diagnostics`, one result's path, each once. A diagnostic about the
 /// initial configuration is on every result's path; `run_wide` keeps those already printed for
 /// another result of the run, so each is printed once per run.
@@ -766,6 +779,10 @@ fn report_diagnostics<'a>(
             continue;
         }
         match diagnostic {
+            BackendDiagnostic::ImplementationChosenValue { hook, class } => eprintln!(
+                "warning: {}",
+                implementation_chosen_value_message(hook, *class, depth)
+            ),
             BackendDiagnostic::UndefinedInitialInstances { definedness } => {
                 if run_wide.insert(diagnostic) {
                     eprintln!(

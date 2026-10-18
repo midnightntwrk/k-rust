@@ -165,6 +165,16 @@ fn execute_counted(
         execution.run(&timeout_controller);
         execution.collect()
     };
+    // Every mark the run notes, whatever becomes of the work that noted it.
+    let run = || {
+        let ((mut result, status), facts) = crate::path_facts::run(run);
+        result.implementation_chosen_values = facts
+            .iter()
+            .filter_map(crate::path_facts::PathFact::chosen_value)
+            .cloned()
+            .collect();
+        (result, status)
+    };
     if !collect_coverage {
         return run();
     }
@@ -273,10 +283,16 @@ impl<'a> Execution<'a> {
             // resumed from a reported one does not evaluate the operands its run left
             // unevaluated. One over an operand whose definedness depends on an impure
             // application is the unsupported-hook outcome.
-            match crate::deferred::resumed_constraints(
-                definition,
-                std::mem::take(&mut state.pattern.constraints),
-            ) {
+            let (resumed, facts) = crate::path_facts::collect(|| {
+                crate::deferred::resumed_constraints(
+                    definition,
+                    std::mem::take(&mut state.pattern.constraints),
+                )
+            });
+            state
+                .diagnostics
+                .extend(&crate::path_facts::diagnostics(&facts.all()));
+            match resumed {
                 Ok(constraints) => state.pattern.constraints = constraints,
                 Err(outcome) => {
                     leaves.push(state.leaf(
@@ -344,6 +360,7 @@ impl<'a> Execution<'a> {
                 stack_stops: 0,
                 smt_unknowns: 0,
                 stopped: self.stopped,
+                implementation_chosen_values: Vec::new(),
             },
             InitialSimplificationStatus {
                 simplified_to_bottom: false,
@@ -369,7 +386,11 @@ impl<'a> Execution<'a> {
     ///   that leaf or candidate.
     ///
     /// Work no reported successor is derived from is on no path: a rule attempt that does not
-    /// apply, an alternative refuted to bottom, a group the sequential step does not follow. A
+    /// apply, an alternative refuted to bottom, a group the sequential step does not follow. Its
+    /// path facts are not dropped with its diagnostics (`crate::path_facts`): the marks of open
+    /// values the step noted outside a candidate's own right-hand side are on the state's path,
+    /// every successor's, and every mark of the run is on its list
+    /// (`ExecutionResult::implementation_chosen_values`). A
     /// leaf cut off by a stop during or after the step carries all the work of the step and of
     /// its candidates done before it. Every collection forwards to any collector the caller
     /// holds around the execution, which therefore sees every diagnostic.
@@ -529,20 +550,34 @@ impl<'a> Execution<'a> {
         }
         // A `Finished` or `Branch` step attributes its diagnostics to its candidates; any other
         // result halts the state, whose leaf takes the step's whole collection.
-        let (rewritten, step_diagnostics) = diagnostic::collect(|| match &state.kind {
-            ExecutionStateKind::Rewritable => self.step(&state),
-            ExecutionStateKind::Remaining(None) => stuck(self.definition, &state.pattern),
-            ExecutionStateKind::Remaining(Some(undecided)) => {
-                Ok(undecided.clone().into_result(state.pattern.clone()))
-            }
+        //
+        // Path facts (`crate::path_facts`) the step noted outside a candidate's own right-hand
+        // side are on this state's path whatever the step's answer: they include the attempts
+        // that did not apply, the alternatives refuted to bottom and the groups not followed,
+        // on which every successor's existence rests. A candidate's own facts travel with its
+        // diagnostics (`apply.rs`).
+        let ((rewritten, step_diagnostics), step_facts) = crate::path_facts::collect(|| {
+            diagnostic::collect(|| match &state.kind {
+                ExecutionStateKind::Rewritable => self.step(&state),
+                ExecutionStateKind::Remaining(None) => stuck(self.definition, &state.pattern),
+                ExecutionStateKind::Remaining(Some(undecided)) => {
+                    Ok(undecided.clone().into_result(state.pattern.clone()))
+                }
+            })
         });
+        let mut state = state;
+        state
+            .diagnostics
+            .extend(&crate::path_facts::diagnostics(&step_facts.shared));
+        // A leaf the step ends, or a stop cuts off, takes the candidates' own facts too.
+        let owned_step_facts = crate::path_facts::diagnostics(&step_facts.owned);
         // A stopped step has no successor set: the state is the leaf, with the step's work.
         let rewritten = match rewritten {
             Ok(rewritten) => rewritten,
             Err(stop) => {
                 return Err(interrupted_with(
                     self.stopped_leaf(state, stop),
-                    &[&step_diagnostics],
+                    &[&step_diagnostics, &owned_step_facts],
                 ));
             }
         };
@@ -553,7 +588,12 @@ impl<'a> Execution<'a> {
         }
         let mut state = match self.check_interrupted(state) {
             Ok(state) => state,
-            Err(leaf) => return Err(interrupted_with(leaf, &[&step_diagnostics])),
+            Err(leaf) => {
+                return Err(interrupted_with(
+                    leaf,
+                    &[&step_diagnostics, &owned_step_facts],
+                ));
+            }
         };
         match rewritten {
             RewriteResult::Stuck(_)
@@ -562,11 +602,15 @@ impl<'a> Execution<'a> {
             | RewriteResult::Indeterminate { .. }
             | RewriteResult::Simplification { .. } => {
                 state.diagnostics.extend(&step_diagnostics);
+                state.diagnostics.extend(&owned_step_facts);
                 Err(self.halt_leaf(state, rewritten, deferred_initial_vacuity))
             }
             RewriteResult::Finished(applied) => {
-                let (expanded, diagnostics) = diagnostic::collect(|| self.finished(state, applied));
-                expanded.map_err(|leaf| interrupted_with(leaf, &[&step_diagnostics, &diagnostics]))
+                let (expanded, diagnostics) =
+                    crate::path_facts::collect_with_diagnostics(|| self.finished(state, applied));
+                expanded.map_err(|leaf| {
+                    interrupted_with(leaf, &[&step_diagnostics, &owned_step_facts, &diagnostics])
+                })
             }
             RewriteResult::Branch {
                 original,
@@ -574,10 +618,12 @@ impl<'a> Execution<'a> {
                 remainder,
                 trivial,
             } => {
-                let (expanded, diagnostics) = diagnostic::collect(|| {
+                let (expanded, diagnostics) = crate::path_facts::collect_with_diagnostics(|| {
                     self.branch(state, original, branches, remainder, trivial)
                 });
-                expanded.map_err(|leaf| interrupted_with(leaf, &[&step_diagnostics, &diagnostics]))
+                expanded.map_err(|leaf| {
+                    interrupted_with(leaf, &[&step_diagnostics, &owned_step_facts, &diagnostics])
+                })
             }
         }
     }
@@ -629,7 +675,7 @@ impl<'a> Execution<'a> {
                 Ok(Ok(normalization.constraints.clone())),
                 normalization.constraint_diagnostics.clone(),
             ),
-            None => diagnostic::collect(|| {
+            None => crate::path_facts::collect_with_diagnostics(|| {
                 simplify_predicates_with_solver(
                     self.definition,
                     &state.pattern.constraints,
@@ -735,7 +781,7 @@ impl<'a> Execution<'a> {
                 normalized_io = io;
                 (Ok(Ok(simplified)), diagnostics)
             }
-            None => diagnostic::collect(|| match io_evaluation.as_mut() {
+            None => crate::path_facts::collect_with_diagnostics(|| match io_evaluation.as_mut() {
                 Some(execution) => simplify_in_execution_with_solver(
                     self.definition,
                     &state.pattern.term,
@@ -816,7 +862,7 @@ impl<'a> Execution<'a> {
                 // (`assume_initial_defined`), since asserting a false fact leaves nothing. A
                 // successor needs no such decision: its step decided its right-hand side's
                 // definedness, and term simplification conjoins its own obligations.
-                let (verdict, diagnostics) = diagnostic::collect(|| {
+                let (verdict, diagnostics) = crate::path_facts::collect_with_diagnostics(|| {
                     UndecidedFacts::of_pattern(self.definition, &state.pattern).decide(
                         self.definition,
                         SimplificationOptions {
@@ -893,7 +939,7 @@ impl<'a> Execution<'a> {
         &mut self,
         mut state: ExecutionState,
     ) -> Phase<ExecutionState> {
-        let (definedness, diagnostics) = diagnostic::collect(|| {
+        let (definedness, diagnostics) = crate::path_facts::collect_with_diagnostics(|| {
             initial_definedness(
                 self.definition,
                 &state.pattern,
@@ -1048,7 +1094,7 @@ impl<'a> Execution<'a> {
                 &mut self.observation_log,
                 self.observation,
             );
-            let (simplified, diagnostics) = diagnostic::collect(|| {
+            let (simplified, diagnostics) = crate::path_facts::collect_with_diagnostics(|| {
                 simplify_result_pattern(
                     self.definition,
                     &applied.pattern,
@@ -1120,7 +1166,7 @@ impl<'a> Execution<'a> {
         );
         next.producer = Some(std::rc::Rc::new(producer));
         if let Some(rule) = terminal_rule {
-            let (simplified, diagnostics) = diagnostic::collect(|| {
+            let (simplified, diagnostics) = crate::path_facts::collect_with_diagnostics(|| {
                 simplify_result_pattern(
                     self.definition,
                     &next.pattern,
@@ -1232,19 +1278,20 @@ impl<'a> Execution<'a> {
             let parent = state.clone();
             // The branch leaf is the parent state: its diagnostics are the parent path's and its
             // pattern's simplification; each candidate it reports carries its own.
-            let (simplified_original, diagnostics) = diagnostic::collect(|| {
-                simplify_result_pattern(
-                    self.definition,
-                    &original,
-                    self.options.max_simplification_iterations,
-                    self.solver,
-                    state.depth,
-                    &mut state.trace,
-                    Some(&mut state.observation),
-                    &mut self.observation_log,
-                    self.observation,
-                )
-            });
+            let (simplified_original, diagnostics) =
+                crate::path_facts::collect_with_diagnostics(|| {
+                    simplify_result_pattern(
+                        self.definition,
+                        &original,
+                        self.options.max_simplification_iterations,
+                        self.solver,
+                        state.depth,
+                        &mut state.trace,
+                        Some(&mut state.observation),
+                        &mut self.observation_log,
+                        self.observation,
+                    )
+                });
             state.diagnostics.extend(&diagnostics);
             let original = match simplified_original {
                 Ok(Ok(simplified)) => {
@@ -1287,7 +1334,7 @@ impl<'a> Execution<'a> {
                     &mut self.observation_log,
                     self.observation,
                 );
-                let (simplified, diagnostics) = diagnostic::collect(|| {
+                let (simplified, diagnostics) = crate::path_facts::collect_with_diagnostics(|| {
                     simplify_result_pattern(
                         self.definition,
                         &applied.pattern,
@@ -1326,7 +1373,7 @@ impl<'a> Execution<'a> {
                             .io
                             .as_ref()
                             .or(state.io_enabled.then_some(&state.io));
-                        let (undefined, work) = diagnostic::collect(|| {
+                        let (undefined, work) = crate::path_facts::collect_with_diagnostics(|| {
                             successor_undefinedness(
                                 self.definition,
                                 &built,
@@ -1412,7 +1459,7 @@ impl<'a> Execution<'a> {
                     &mut self.observation_log,
                     self.observation,
                 );
-                let (simplified, diagnostics) = diagnostic::collect(|| {
+                let (simplified, diagnostics) = crate::path_facts::collect_with_diagnostics(|| {
                     simplify_result_pattern(
                         self.definition,
                         &candidate.pattern,
@@ -1566,7 +1613,7 @@ impl<'a> Execution<'a> {
         normalized: &Pattern,
         diagnostics: &mut PathDiagnostics,
     ) -> Stoppable<HaltReason> {
-        let (undefined, work) = diagnostic::collect(|| {
+        let (undefined, work) = crate::path_facts::collect_with_diagnostics(|| {
             successor_undefinedness(
                 self.definition,
                 built,
@@ -1631,7 +1678,7 @@ impl<'a> Execution<'a> {
         for sibling in &producer.siblings {
             // The sibling's simplification decides this leaf's constraint, so its work is the
             // leaf's.
-            let (undefined, work) = diagnostic::collect(|| {
+            let (undefined, work) = crate::path_facts::collect_with_diagnostics(|| {
                 successor_undefinedness(
                     self.definition,
                     sibling,
@@ -1656,7 +1703,7 @@ impl<'a> Execution<'a> {
             term: producer.before.term.clone(),
             constraints,
         };
-        let (simplified, work) = diagnostic::collect(|| {
+        let (simplified, work) = crate::path_facts::collect_with_diagnostics(|| {
             simplify_predicates_with_solver(
                 self.definition,
                 &pattern.constraints,
@@ -1755,7 +1802,7 @@ impl<'a> Execution<'a> {
         state: &ExecutionState,
         entry: &TrivialApplication,
     ) -> Stoppable<Option<ExecutionLeaf>> {
-        let (pattern, diagnostics) = diagnostic::collect(|| {
+        let (pattern, diagnostics) = crate::path_facts::collect_with_diagnostics(|| {
             entry.decided_undefined_instances(
                 self.definition,
                 self.options.max_simplification_iterations,
@@ -1877,7 +1924,9 @@ impl<'a> Execution<'a> {
             // outside the execution, in `Proof` mode.
             // Nor does it report to the run's coverage.
             crate::evaluation::with_evaluation(crate::evaluation::EvaluationMode::Proof, || {
-                crate::coverage::suspend(|| (self.observe)(effect));
+                crate::coverage::suspend(|| {
+                    crate::path_facts::suspend(|| (self.observe)(effect));
+                });
             });
         }
         (
@@ -1892,6 +1941,7 @@ impl<'a> Execution<'a> {
                 stack_stops: 0,
                 smt_unknowns: 0,
                 stopped: self.stopped,
+                implementation_chosen_values: Vec::new(),
             },
             InitialSimplificationStatus {
                 simplified_to_bottom: self.initial_input_count != 0
@@ -2408,7 +2458,7 @@ pub(crate) fn normalize_successor(
     let retained_substitution =
         normalize_pattern_substitution(&mut pattern, definition.sort_graph());
     let added = beyond(&pattern.constraints, base);
-    let (simplified, constraint_diagnostics) = diagnostic::collect(|| {
+    let (simplified, constraint_diagnostics) = crate::path_facts::collect_with_diagnostics(|| {
         simplify_predicates_with_solver(definition, &pattern.constraints, &[], options, solver)
     });
     let Ok(simplified) = simplified? else {
@@ -2443,23 +2493,24 @@ pub(crate) fn normalize_successor(
     let mut evaluation = io
         .filter(|_| pattern_supports_execution_io(&pattern))
         .map(ExecutionIoState::begin_evaluation);
-    let (simplified, diagnostics) = diagnostic::collect(|| match evaluation.as_mut() {
-        Some(evaluation) => simplify_in_execution_with_solver(
-            definition,
-            &pattern.term,
-            &pattern.constraints,
-            options,
-            solver,
-            evaluation,
-        ),
-        None => simplify_with_solver(
-            definition,
-            &pattern.term,
-            &pattern.constraints,
-            options,
-            solver,
-        ),
-    });
+    let (simplified, diagnostics) =
+        crate::path_facts::collect_with_diagnostics(|| match evaluation.as_mut() {
+            Some(evaluation) => simplify_in_execution_with_solver(
+                definition,
+                &pattern.term,
+                &pattern.constraints,
+                options,
+                solver,
+                evaluation,
+            ),
+            None => simplify_with_solver(
+                definition,
+                &pattern.term,
+                &pattern.constraints,
+                options,
+                solver,
+            ),
+        });
     let Ok(simplified) = simplified? else {
         return Ok(failed);
     };
@@ -2543,7 +2594,7 @@ fn externalise_leaf(
     observation_log: &mut ObservationLog,
     observation_options: Option<&ObservationOptions>,
 ) -> ExecutionLeaf {
-    let (simplified, diagnostics) = diagnostic::collect(|| {
+    let (simplified, diagnostics) = crate::path_facts::collect_with_diagnostics(|| {
         simplify_result_pattern(
             definition,
             &pattern,
