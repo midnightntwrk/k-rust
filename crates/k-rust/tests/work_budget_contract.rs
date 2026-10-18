@@ -1,15 +1,17 @@
 //! The work budget's prefix contract through the facade (`docs/compatibility.md`, "Work budget"):
 //! every leaf finished before the `work-bound` leaf is a leaf of every run of the same request
 //! with a larger budget or none, at the same position. Under `path-set` it is the same leaf in
-//! every field; under `state-set` it is the same leaf but for its diagnostics, which are among
-//! the larger run's. A budget of at least the unbounded run's `work` gives the unbounded result.
+//! every field but its path facts; under `state-set` it is the same leaf but for its
+//! diagnostics, which are among the larger run's. A budget of at least the unbounded run's
+//! `work` gives the unbounded result but for the leaves' diagnostics, which gain the run's
+//! path facts (its implementation-chosen marks and the contradicted claims it observed).
 //!
 //! The fixture is a run in which two paths reach one configuration (`d(4)`) at different depths,
 //! so that under `maxDepth` 4 one path ends `stuck` and the other at the depth bound, and the
 //! `state-set` merge absorbs the later leaf into the earlier one. The same fixture pins the
 //! completeness of such a `state-set` result (`docs/compatibility.md`, "Search results"): an
 //! earlier `stuck` leaf stands for a later bound leaf of its configuration, whatever the
-//! console's availability on either path.
+//! console's availability on either path. A second fixture has paths that meet path facts.
 
 use k_rust::{
     backend::{
@@ -133,19 +135,61 @@ fn run_shaped(
     }
 }
 
-/// A leaf as JSON, and the same leaf without its diagnostics.
-fn leaf_values(leaf: &k_rust::backend::ExecutionLeaf) -> (Value, Value) {
-    let full = serde_json::to_value(leaf).unwrap();
+/// A leaf as JSON without its diagnostics.
+fn stripped(leaf: &k_rust::backend::ExecutionLeaf) -> Value {
     let mut stripped = leaf.clone();
     stripped.diagnostics.clear();
-    (full, serde_json::to_value(stripped).unwrap())
+    serde_json::to_value(stripped).unwrap()
 }
 
-fn diagnostics(leaf: &k_rust::backend::ExecutionLeaf) -> Vec<Value> {
+/// Whether a diagnostic is a path fact: a mark of an open value or a contradicted-claim record,
+/// which a run with a work or breadth bound puts on every leaf.
+fn is_path_fact(diagnostic: &Value) -> bool {
+    diagnostic["kind"] == "implementation-chosen-value"
+        || diagnostic["kind"] == "contradicted-claim"
+}
+
+/// A leaf's diagnostics, split into those that are not path facts and the path facts.
+fn diagnostics(leaf: &k_rust::backend::ExecutionLeaf) -> (Vec<Value>, Vec<Value>) {
     leaf.diagnostics
         .iter()
         .map(|diagnostic| serde_json::to_value(diagnostic).unwrap())
-        .collect()
+        .partition(|diagnostic| !is_path_fact(diagnostic))
+}
+
+/// The path facts a run noted, as the diagnostics a leaf carries them as: its marks and the
+/// contradicted claims it observed (not those of its definition's load, which no leaf carries).
+fn run_path_facts(result: &ExecutionResult) -> Vec<Value> {
+    let result = serde_json::to_value(result).unwrap();
+    let marks = result["implementationChosenValues"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|mark| {
+            let mut diagnostic = mark.clone();
+            diagnostic["kind"] = "implementation-chosen-value".into();
+            diagnostic
+        });
+    let records = result["contradictedClaims"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|record| record["observedIn"] == "run")
+        .map(|record| {
+            let mut diagnostic = record.clone();
+            diagnostic["kind"] = "contradicted-claim".into();
+            diagnostic
+        });
+    marks.chain(records).collect()
+}
+
+/// The result without its leaves' diagnostics.
+fn without_diagnostics(result: &ExecutionResult) -> Value {
+    let mut result = result.clone();
+    for leaf in &mut result.leaves {
+        leaf.diagnostics.clear();
+    }
+    serde_json::to_value(result).unwrap()
 }
 
 /// Run the request at every budget from 0 to the unbounded run's `work` + 1 and check the prefix
@@ -165,7 +209,14 @@ fn assert_prefix_contract(
 }
 
 /// [`assert_prefix_contract`] for a request of the given shape. Under `path-set` the leaves are
-/// compared in every field, which includes an observed run's branch identities and observations.
+/// compared in every field but their path facts, which includes an observed run's branch
+/// identities and observations.
+///
+/// A budget of at least `work` gives the unbounded result in every field but the leaves'
+/// diagnostics, and each leaf's diagnostics are the unbounded leaf's with every path fact of the
+/// run added: in a run with a bound set, whether the bound fires rests on the exploration of
+/// every path. A leaf finished before the stop carries the path facts the run noted so far, which
+/// are among the larger run's.
 fn assert_shaped_prefix_contract(
     name: &str,
     backend: &mut Backend,
@@ -182,16 +233,40 @@ fn assert_shaped_prefix_contract(
             .all(|leaf| leaf.reason != HaltReasonOutput::WorkBound),
         "{context}: {unbounded:#?}"
     );
+    let run_facts = run_path_facts(&unbounded);
     let work = unbounded.work;
     for budget in 0..=work + 1 {
         let bounded = run_shaped(backend, initial, modality, shape, Some(budget));
         let context = format!("{context}, maxWork {budget}");
         if budget >= work {
             assert_eq!(
-                serde_json::to_value(&bounded).unwrap(),
-                serde_json::to_value(&unbounded).unwrap(),
-                "{context}: a budget of at least `work` changes nothing"
+                without_diagnostics(&bounded),
+                without_diagnostics(&unbounded),
+                "{context}: a budget of at least `work` changes no configuration, halt, order or count"
             );
+            for (position, (leaf, unbounded_leaf)) in
+                bounded.leaves.iter().zip(&unbounded.leaves).enumerate()
+            {
+                let mut expected = serde_json::to_value(&unbounded_leaf.diagnostics)
+                    .unwrap()
+                    .as_array()
+                    .unwrap()
+                    .clone();
+                for fact in &run_facts {
+                    if !expected.contains(fact) {
+                        expected.push(fact.clone());
+                    }
+                }
+                let actual = serde_json::to_value(&leaf.diagnostics).unwrap();
+                let actual = actual.as_array().unwrap();
+                assert!(
+                    actual.len() == expected.len()
+                        && expected
+                            .iter()
+                            .all(|diagnostic| actual.contains(diagnostic)),
+                    "{context}, leaf {position}: the diagnostics gain the run's path facts: {actual:?} against {expected:?}"
+                );
+            }
             continue;
         }
         assert_eq!(bounded.work, budget, "{context}");
@@ -205,22 +280,31 @@ fn assert_shaped_prefix_contract(
         );
         assert!(before.len() <= unbounded.leaves.len(), "{context}");
         for (position, (leaf, larger)) in before.iter().zip(&unbounded.leaves).enumerate() {
-            let (leaf_full, leaf_stripped) = leaf_values(leaf);
-            let (larger_full, larger_stripped) = leaf_values(larger);
+            assert_eq!(
+                stripped(leaf),
+                stripped(larger),
+                "{context}, leaf {position}"
+            );
+            let (leaf_other, leaf_facts) = diagnostics(leaf);
+            let (larger_other, larger_facts) = diagnostics(larger);
             match modality {
                 ResultModalityOutput::PathSet => {
-                    assert_eq!(leaf_full, larger_full, "{context}, leaf {position}");
+                    assert_eq!(leaf_other, larger_other, "{context}, leaf {position}");
                 }
                 ResultModalityOutput::StateSet => {
-                    assert_eq!(leaf_stripped, larger_stripped, "{context}, leaf {position}");
-                    let larger_diagnostics = diagnostics(larger);
-                    for diagnostic in diagnostics(leaf) {
+                    for diagnostic in &leaf_other {
                         assert!(
-                            larger_diagnostics.contains(&diagnostic),
-                            "{context}, leaf {position}: {diagnostic} is not among {larger_diagnostics:?}"
+                            larger_other.contains(diagnostic),
+                            "{context}, leaf {position}: {diagnostic} is not among {larger_other:?}"
                         );
                     }
                 }
+            }
+            for fact in &leaf_facts {
+                assert!(
+                    larger_facts.contains(fact) || run_facts.contains(fact),
+                    "{context}, leaf {position}: {fact} is no path fact of the larger run"
+                );
             }
         }
     }
@@ -560,4 +644,73 @@ fn a_stuck_leaf_reached_with_the_console_off_absorbs_one_reached_with_it_on() {
         (on.halt_reason.clone(), on.depth),
         (HaltReason::DepthBound, 3)
     );
+}
+
+/// Two paths of `g2(0)` reach `val(2)`: the `ga` path's `fe(0)` meets a contradicted `total`
+/// claim (`td(0)` is bottom), the `gc` path reads the order of a two-key listing (whose size is the same in every order), and the `gb`
+/// path meets neither. Without a budget each `path-set` leaf carries its own path's facts only.
+/// With a budget set, whether it fires rests on every path, so every leaf carries every path fact
+/// of the run, at a budget well above `work` too; the leaves are otherwise those of the unbounded
+/// run, in both modalities, at every budget.
+#[test]
+fn a_budget_puts_the_run_s_path_facts_on_every_leaf_and_changes_nothing_else() {
+    const FACTS: &str = r#"
+module FACTS
+  imports INT
+  imports MAP
+  imports LIST
+  syntax Pgm ::= g2(Int) | ga(Int) | gb(Int) | gc(Int) | val(Int)
+  syntax Int ::= td(Int) [function, total]
+               | fe(Int) [function, total]
+  rule [tdeq]: td(I) => 10 /Int (I +Int 0)
+  rule [fe1]:  fe(I) => 1 requires td(I) >Int 0
+  rule [fe2]:  fe(_) => 2 [owise]
+  rule [g2a]:  g2(X) => ga(X)
+  rule [g2b]:  g2(X) => gb(X)
+  rule [g2c]:  g2(X) => gc(X)
+  rule [gar]:  ga(X) => val(fe(X))
+  rule [gbr]:  gb(_) => val(2)
+  rule [gcr]:  gc(X) => val(size(keys_list(X |-> 0 (X +Int 1) |-> 0)))
+endmodule
+"#;
+    let (kore, initial) = compile(FACTS, "FACTS", "g2(0)");
+    let mut backend = Backend::new(&kore, "FACTS", BackendOptions::default()).unwrap();
+    let kinds = |leaf: &k_rust::backend::ExecutionLeaf| {
+        let (_, facts) = diagnostics(leaf);
+        let mut kinds = facts
+            .iter()
+            .map(|fact| fact["kind"].as_str().unwrap().to_owned())
+            .collect::<Vec<_>>();
+        kinds.sort();
+        kinds
+    };
+    let both = ["contradicted-claim", "implementation-chosen-value"];
+    for modality in MODALITIES {
+        let unbounded = assert_prefix_contract("facts", &mut backend, &initial, modality, None);
+        let facts = run_path_facts(&unbounded);
+        assert_eq!(facts.len(), 2, "{modality:?}: {unbounded:#?}");
+        if modality == ResultModalityOutput::PathSet {
+            let mut per_leaf = unbounded.leaves.iter().map(kinds).collect::<Vec<_>>();
+            per_leaf.sort();
+            assert_eq!(
+                per_leaf,
+                [
+                    vec![],
+                    vec!["contradicted-claim".to_owned()],
+                    vec!["implementation-chosen-value".to_owned()],
+                ],
+                "{unbounded:#?}"
+            );
+        }
+        let generous = run(&mut backend, &initial, modality, None, Some(100));
+        assert_eq!(
+            without_diagnostics(&generous),
+            without_diagnostics(&unbounded),
+            "{modality:?}"
+        );
+        assert!(
+            generous.leaves.iter().all(|leaf| kinds(leaf) == both),
+            "{modality:?}: {generous:#?}"
+        );
+    }
 }

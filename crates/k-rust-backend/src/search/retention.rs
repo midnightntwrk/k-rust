@@ -190,7 +190,7 @@ pub(super) fn retain_state_result(
     (retention, index)
 }
 
-/// Add the path facts among `diagnostics` (`BackendDiagnostic::ImplementationChosenValue`), those
+/// Add the path facts among `diagnostics` (`BackendDiagnostic::is_path_fact`), those
 /// of a result or a match dropped as a duplicate, to `kept`, the diagnostics of the one retained
 /// for its key, so that the kept one names every value the definition leaves open that a path
 /// reaching it read. The dropped one's other diagnostics stay with its path.
@@ -199,11 +199,7 @@ pub(super) fn union_path_facts(
     diagnostics: &[BackendDiagnostic],
 ) {
     for diagnostic in diagnostics {
-        if matches!(
-            diagnostic,
-            BackendDiagnostic::ImplementationChosenValue { .. }
-        ) && !kept.contains(diagnostic)
-        {
+        if diagnostic.is_path_fact() && !kept.contains(diagnostic) {
             kept.push(diagnostic.clone());
         }
     }

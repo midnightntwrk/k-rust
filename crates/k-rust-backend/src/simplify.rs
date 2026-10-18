@@ -228,6 +228,10 @@ impl SimplificationOptions {
 /// Only the equation applied last to a `total` application before the undefined term appeared
 /// in the same lineage is named, and an application nested in the result reports itself first
 /// (innermost), so the named equation is the one whose own result is undefined.
+///
+/// Each one is also noted where it is found, as a contradicted claim of the paths whose
+/// decisions rest on it and of the run (`crate::path_facts::ContradictedClaim`), whatever becomes
+/// of the simplification's result.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContradictedTotal {
     /// The application the equation rewrote, with its arguments already simplified.
@@ -2787,13 +2791,14 @@ pub(crate) fn refuse_uncomputed_applications(
                 let TermKind::Application { symbol, .. } = term.kind() else {
                     unreachable!("only a hooked application is refused");
                 };
+                let hook = symbol
+                    .attributes
+                    .hook
+                    .as_deref()
+                    .expect("a hooked application");
+                crate::path_facts::note_unevaluated_hook(hook, &reason, false);
                 return Err(SimplificationError::UnsupportedHook {
-                    hook: symbol
-                        .attributes
-                        .hook
-                        .as_deref()
-                        .expect("a hooked application")
-                        .to_owned(),
+                    hook: hook.to_owned(),
                     reason,
                     term: term.clone(),
                 }
@@ -4403,7 +4408,16 @@ fn simplify_on_stack(
                 if let Some(undefined) = &undefined {
                     accumulated.contradicted_total = contradicted.or_else(|| {
                         total_step.as_ref().map(|(application, rule)| {
-                            ContradictedTotal::new(application.clone(), rule, undefined.clone())
+                            let contradicted = ContradictedTotal::new(
+                                application.clone(),
+                                rule,
+                                undefined.clone(),
+                            );
+                            // Observed here, whatever becomes of this lineage's result: the
+                            // paths whose decisions rest on it carry the record
+                            // (`crate::path_facts`).
+                            crate::path_facts::note_contradicted_total(&contradicted);
+                            contradicted
                         })
                     });
                 }
@@ -5596,6 +5610,7 @@ fn simplify_root(
                 },
             };
             if let Some(reason) = reason {
+                crate::path_facts::note_unevaluated_hook(hook, &reason, false);
                 return Err(SimplificationError::UnsupportedHook {
                     hook: hook.to_owned(),
                     reason,

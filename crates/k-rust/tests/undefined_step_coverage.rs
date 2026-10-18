@@ -755,6 +755,23 @@ fn a_ground_undefined_step_through_a_total_function_names_the_contradicted_attri
     let wire = serde_json::to_value(&ground.leaves[0]).unwrap();
     assert_eq!(wire["contradictedTotal"]["ruleLabel"], "UNDEF.tdeq");
     assert_eq!(wire["contradictedTotal"]["kLabel"], "td");
+    // The halt's cause is also the leaf's path fact, naming the step's rule, and the run's.
+    assert_eq!(
+        contradicted_claims(&wire),
+        [(
+            "td".to_owned(),
+            "UNDEF.tdeq".to_owned(),
+            Some("UNDEF.tdiv".to_owned()),
+            true
+        )],
+        "{wire:#}"
+    );
+    let run = serde_json::to_value(&ground).unwrap();
+    assert_eq!(
+        run["contradictedClaims"].as_array().map(Vec::len),
+        Some(1),
+        "{run:#}"
+    );
     let decoded: ExecutionLeaf = serde_json::from_value(wire.clone()).unwrap();
     assert_eq!(serde_json::to_value(decoded).unwrap(), wire);
 
@@ -768,6 +785,15 @@ fn a_ground_undefined_step_through_a_total_function_names_the_contradicted_attri
         "{:#?}",
         summary(&symbolic)
     );
+    assert!(
+        symbolic
+            .leaves
+            .iter()
+            .all(|leaf| contradicted_claims(&serde_json::to_value(leaf).unwrap()).is_empty())
+            && serde_json::to_value(&symbolic).unwrap()["contradictedClaims"].is_null(),
+        "{:#?}",
+        summary(&symbolic)
+    );
     // An argument that is bottom before the equation fires is not the equation's doing: the
     // step is undefined, and no attribute is named.
     let argument = execute(&mut backend, &format!("Lbltdarg{{}}({})", int(0)));
@@ -778,6 +804,29 @@ fn a_ground_undefined_step_through_a_total_function_names_the_contradicted_attri
         summary(&argument)
     );
     assert!(argument.leaves[0].contradicted_total.is_none());
+    assert!(
+        contradicted_claims(&serde_json::to_value(&argument.leaves[0]).unwrap()).is_empty()
+            && serde_json::to_value(&argument).unwrap()["contradictedClaims"].is_null()
+    );
+}
+
+/// The `contradicted-claim` path facts among a leaf's diagnostics (wire form): the symbol's K
+/// label, the equation's label, the rewrite rule's label and whether the application is ground.
+fn contradicted_claims(leaf: &serde_json::Value) -> Vec<(String, String, Option<String>, bool)> {
+    leaf["diagnostics"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|diagnostic| diagnostic["kind"] == "contradicted-claim")
+        .map(|diagnostic| {
+            (
+                diagnostic["kLabel"].as_str().unwrap_or("?").to_owned(),
+                diagnostic["ruleLabel"].as_str().unwrap_or("?").to_owned(),
+                diagnostic["rewriteRuleLabel"].as_str().map(str::to_owned),
+                diagnostic["ground"].as_bool().unwrap_or(false),
+            )
+        })
+        .collect()
 }
 
 /// `dup(1)` is declared `total`, but its equation builds `(1 |-> 1) (1 |-> 2)`, a map with a
@@ -808,6 +857,17 @@ fn a_repeated_key_built_by_a_total_function_is_a_trivial_step_of_the_pre_step_co
             ground.leaves[0].contradicted_total.is_some(),
             "{strategy:?}: {:#?}",
             summary(&ground)
+        );
+        let wire = serde_json::to_value(&ground.leaves[0]).unwrap();
+        assert_eq!(
+            contradicted_claims(&wire),
+            [(
+                "dup".to_owned(),
+                "UNDEF.dupeq".to_owned(),
+                Some("UNDEF.pdup".to_owned()),
+                true
+            )],
+            "{strategy:?}: {wire:#}"
         );
     }
 }

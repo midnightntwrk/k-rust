@@ -127,6 +127,28 @@ pub enum BackendDiagnostic {
         hook: String,
         class: crate::builtin::ChosenClass,
     },
+    /// The path's decisions rest on an evaluation that found a claim of the definition
+    /// contradicted by its own equations ([`crate::path_facts::ContradictedClaim`]): a symbol
+    /// declared `total` whose equation reduced an application to defined arguments to bottom,
+    /// observed by the named rewrite rule's attempt or successor. The definition has no model
+    /// with the claim at that input when the record is ground; k-rust keeps reading the undefined
+    /// value as undefined (a condition over it is not true), which is the answer without the
+    /// claim, so in a model of the claim the decision may differ. A path fact, as
+    /// `ImplementationChosenValue` is: never withdrawn with the work that found it, noted again
+    /// wherever a stored evaluation is reused, and no part of a state-set merge's comparison.
+    ContradictedClaim(Box<crate::path_facts::ContradictedClaim>),
+}
+
+impl BackendDiagnostic {
+    /// Whether the diagnostic states a path fact (`crate::path_facts`): it is kept on every path
+    /// that depends on the work that found it, whatever became of that work, and takes no part
+    /// in a state-set merge's comparison of paths.
+    pub(crate) fn is_path_fact(&self) -> bool {
+        matches!(
+            self,
+            Self::ImplementationChosenValue { .. } | Self::ContradictedClaim(_)
+        )
+    }
 }
 
 /// A free variable of an [`BackendDiagnostic::UndecidedCondition`]'s predicates that is a
@@ -312,7 +334,13 @@ pub(crate) struct Sequenced {
 }
 
 /// Record a diagnostic when the current thread has an active collector.
+///
+/// An unsupported hook is also noted in the run-level record (`crate::path_facts`), which keeps
+/// it when the work that emitted it is undone, passed over or dropped, and so its report with it.
 pub fn emit(diagnostic: BackendDiagnostic) {
+    if let BackendDiagnostic::UnsupportedHookUnevaluated { hook, reason } = &diagnostic {
+        crate::path_facts::note_unevaluated_hook(hook, reason, false);
+    }
     record_in_sink(EmissionKind::Single(diagnostic));
 }
 
@@ -1019,7 +1047,7 @@ pub(crate) struct PathDiagnostics {
     newest: Option<Rc<PathNode>>,
     /// The diagnostics held other than path facts.
     members: IdSet,
-    /// The path facts held ([`BackendDiagnostic::ImplementationChosenValue`]).
+    /// The path facts held ([`BackendDiagnostic::is_path_fact`]).
     facts: IdSet,
 }
 
@@ -1051,10 +1079,7 @@ impl PathDiagnostics {
         let mut interner = self.interner.borrow_mut();
         for diagnostic in diagnostics {
             let (id, shared) = interner.intern(diagnostic);
-            let set = if matches!(
-                diagnostic,
-                BackendDiagnostic::ImplementationChosenValue { .. }
-            ) {
+            let set = if diagnostic.is_path_fact() {
                 &mut self.facts
             } else {
                 &mut self.members
@@ -1081,7 +1106,7 @@ impl PathDiagnostics {
         self.members.is_subset_of(&other.members)
     }
 
-    /// Whether the path holds a path fact ([`BackendDiagnostic::ImplementationChosenValue`]).
+    /// Whether the path holds a path fact ([`BackendDiagnostic::is_path_fact`]).
     pub(crate) fn has_facts(&self) -> bool {
         !self.facts.is_empty()
     }

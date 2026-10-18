@@ -622,6 +622,44 @@ pub(super) fn apply_rule_with_match(
     }
     let _span = measure::algorithm_span(Algorithm::BackendRewriteApply);
     measure::bump(Counter::RewriteRuleAttempts);
+    // Every contradicted claim the attempt observes, in its match, its conditions or its
+    // right-hand side, names this rule (`crate::path_facts`).
+    crate::path_facts::observed_by(
+        || Some(crate::path_facts::ObservingRule::of(rule)),
+        || {
+            attempt_rule(
+                definition,
+                rule,
+                pattern,
+                fresh_counter,
+                simplification_options,
+                solver,
+                assume_initial_defined,
+                matched,
+                io,
+                ground_halt,
+                site,
+            )
+        },
+    )
+}
+
+/// The attempt of [`apply_rule_with_match`], of a rule renamed apart from the subject where it
+/// has to be.
+#[allow(clippy::too_many_arguments)]
+fn attempt_rule(
+    definition: &BackendDefinition,
+    rule: &RewriteRule,
+    pattern: &Pattern,
+    fresh_counter: &mut FreshCounter,
+    simplification_options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+    assume_initial_defined: bool,
+    matched: Option<PartialRuleMatch>,
+    io: Option<&ExecutionIoState>,
+    ground_halt: bool,
+    site: Option<&Cell<RefutationSite>>,
+) -> Stoppable<RuleAttempt> {
     let nested_units = RefCell::new(Vec::new());
     let context = RuleContext {
         definition,
@@ -2097,6 +2135,7 @@ fn apply_rhs_alternative(
             },
             label: rule.attributes.label.clone(),
             unique_id: rule.attributes.unique_id.clone(),
+            origin: rule.attributes.origins.first().cloned(),
             substitution: substitution.clone(),
             rule_substitution,
             rule_predicates,

@@ -1068,13 +1068,20 @@ pub(super) fn rewrite_step_any(
                             applied_group.push(application);
                             continue;
                         }
-                        let checked = normalize_successor(
-                            definition,
-                            &application.applied.pattern,
-                            &application.applied.before.constraints,
-                            simplification_options,
-                            solver,
-                            application.applied.io.as_ref().or(io),
+                        // The successor's normalization is its rule's work: a contradicted
+                        // claim it observes names the rule (`crate::path_facts`).
+                        let checked = crate::path_facts::observed_by(
+                            || Some(application.applied.observing_rule()),
+                            || {
+                                normalize_successor(
+                                    definition,
+                                    &application.applied.pattern,
+                                    &application.applied.before.constraints,
+                                    simplification_options,
+                                    solver,
+                                    application.applied.io.as_ref().or(io),
+                                )
+                            },
                         )?;
                         match checked.undefined {
                             Some(undefined) => {

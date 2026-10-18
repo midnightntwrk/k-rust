@@ -413,7 +413,8 @@ pub enum SearchEnd<E> {
 /// use k_rust_backend::search::SearchResult;
 ///
 /// let result = SearchResult { states: vec![], effects: vec![], incomplete: vec![],
-/// initial_bottom: false, implementation_chosen_values: vec![] };
+/// initial_bottom: false, implementation_chosen_values: vec![], contradicted_claims: vec![],
+/// allowance_refusals: vec![], unsupported_hooks: vec![] };
 /// ```
 ///
 /// ```
@@ -421,7 +422,8 @@ pub enum SearchEnd<E> {
 ///
 /// let result = SearchResult { states: vec![], effects: vec![], incomplete: vec![], end:
 /// SearchEnd::Stopped(StopCause::Cancelled), initial_bottom: false,
-/// implementation_chosen_values: vec![] };
+/// implementation_chosen_values: vec![], contradicted_claims: vec![], allowance_refusals: vec![],
+/// unsupported_hooks: vec![] };
 /// ```
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SearchResult {
@@ -447,6 +449,21 @@ pub struct SearchResult {
     /// agrees with the request's inputs and k-rust's stated readings gives the same results,
     /// entries and end.
     pub implementation_chosen_values: Vec<ChosenValue>,
+    /// Every distinct contradicted claim the search observed and those the load of its
+    /// definition observed, first, in first-observed order, as for
+    /// [`crate::rewrite::ExecutionResult::contradicted_claims`]: those on the paths of its results
+    /// and entries (`BackendDiagnostic::ContradictedClaim`), and those of work on no reported
+    /// path. It is complete for contradictions found by evaluation on ground arguments.
+    pub contradicted_claims: Vec<crate::path_facts::ContradictedClaim>,
+    /// Every distinct `Bytes` result the memory allowance refused in the search or in the load of
+    /// its definition, whatever became of the work that met it, as for
+    /// [`crate::rewrite::ExecutionResult::allowance_refusals`]: when it is empty, the search gives
+    /// the same results under every allowance of at least as many bytes.
+    pub allowance_refusals: Vec<crate::path_facts::UnevaluatedHook>,
+    /// Every distinct application the search, or the load of its definition, left unevaluated as
+    /// an unsupported hook other than an allowance refusal, whatever became of the work that met
+    /// it, as for [`crate::rewrite::ExecutionResult::unsupported_hooks`].
+    pub unsupported_hooks: Vec<crate::path_facts::UnevaluatedHook>,
 }
 
 impl SearchResult {
@@ -492,6 +509,12 @@ pub struct PathSearchResult {
     pub initial_bottom: bool,
     /// As for [`SearchResult::implementation_chosen_values`].
     pub implementation_chosen_values: Vec<ChosenValue>,
+    /// As for [`SearchResult::contradicted_claims`].
+    pub contradicted_claims: Vec<crate::path_facts::ContradictedClaim>,
+    /// As for [`SearchResult::allowance_refusals`].
+    pub allowance_refusals: Vec<crate::path_facts::UnevaluatedHook>,
+    /// As for [`SearchResult::unsupported_hooks`].
+    pub unsupported_hooks: Vec<crate::path_facts::UnevaluatedHook>,
 }
 
 impl PathSearchResult {
@@ -547,6 +570,12 @@ pub struct PatternSearchResult {
     pub initial_bottom: bool,
     /// As for [`SearchResult::implementation_chosen_values`].
     pub implementation_chosen_values: Vec<ChosenValue>,
+    /// As for [`SearchResult::contradicted_claims`].
+    pub contradicted_claims: Vec<crate::path_facts::ContradictedClaim>,
+    /// As for [`SearchResult::allowance_refusals`].
+    pub allowance_refusals: Vec<crate::path_facts::UnevaluatedHook>,
+    /// As for [`SearchResult::unsupported_hooks`].
+    pub unsupported_hooks: Vec<crate::path_facts::UnevaluatedHook>,
 }
 
 impl PatternSearchResult {
@@ -582,6 +611,12 @@ pub struct PatternPathSearchResult {
     pub initial_bottom: bool,
     /// As for [`SearchResult::implementation_chosen_values`].
     pub implementation_chosen_values: Vec<ChosenValue>,
+    /// As for [`SearchResult::contradicted_claims`].
+    pub contradicted_claims: Vec<crate::path_facts::ContradictedClaim>,
+    /// As for [`SearchResult::allowance_refusals`].
+    pub allowance_refusals: Vec<crate::path_facts::UnevaluatedHook>,
+    /// As for [`SearchResult::unsupported_hooks`].
+    pub unsupported_hooks: Vec<crate::path_facts::UnevaluatedHook>,
 }
 
 impl PatternPathSearchResult {
@@ -756,6 +791,10 @@ fn search_graph_using(
         )
     });
     result.implementation_chosen_values = chosen_values(&facts);
+    let record = run_record(definition, &facts);
+    result.contradicted_claims = record.contradicted_claims;
+    result.allowance_refusals = record.allowance_refusals;
+    result.unsupported_hooks = record.unsupported_hooks;
     result
 }
 
@@ -766,6 +805,15 @@ fn chosen_values(facts: &[crate::path_facts::PathFact]) -> Vec<ChosenValue> {
         .filter_map(crate::path_facts::PathFact::chosen_value)
         .cloned()
         .collect()
+}
+
+/// The run-level lists of a search's run record, after its definition's load record, as an
+/// execution's (`crate::rewrite::ExecutionResult::contradicted_claims`).
+fn run_record(
+    definition: &BackendDefinition,
+    facts: &[crate::path_facts::PathFact],
+) -> crate::path_facts::RunRecord {
+    crate::path_facts::RunRecord::of(definition.load_record().iter().chain(facts))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -831,6 +879,7 @@ fn search_graph_collecting(
             observation: None,
             diagnostics: request_diagnostics.empty_like(),
             kind: QueuedStateKind::Rewritable,
+            rule: None,
             parent: None,
         };
         if let Some(symbol) = work.state.pattern.macro_or_alias_symbol() {
@@ -858,6 +907,9 @@ fn search_graph_collecting(
             end: SearchEnd::BreadthBound(exceeded),
             initial_bottom: false,
             implementation_chosen_values: Vec::new(),
+            contradicted_claims: Vec::new(),
+            allowance_refusals: Vec::new(),
+            unsupported_hooks: Vec::new(),
         };
     }
     if options.max_results == Some(0) {
@@ -868,6 +920,9 @@ fn search_graph_collecting(
             end: remaining(&pending, || false).result_bound(|unexplored| unexplored),
             initial_bottom: false,
             implementation_chosen_values: Vec::new(),
+            contradicted_claims: Vec::new(),
+            allowance_refusals: Vec::new(),
+            unsupported_hooks: Vec::new(),
         };
     }
 
@@ -910,6 +965,7 @@ fn search_graph_collecting(
             observation: mut observation_head,
             mut diagnostics,
             kind,
+            rule,
             // Taken by `inherit` above.
             parent: _,
         } = work;
@@ -927,14 +983,20 @@ fn search_graph_collecting(
             continue;
         }
         // The state's own constraint and term simplification is on its path: every result,
-        // incomplete entry and successor derived from this state carries it.
+        // incomplete entry and successor derived from this state carries it. It is the work of
+        // the rule that produced the state: a contradicted claim it observes names that rule.
         let (simplified_constraints, emitted) = crate::path_facts::collect_with_diagnostics(|| {
-            simplify_predicates_with_solver(
-                definition,
-                &state.pattern.constraints,
-                &[],
-                SimplificationOptions::keep_partial(options.max_simplification_iterations),
-                solver,
+            crate::path_facts::observed_by(
+                || rule.clone(),
+                || {
+                    simplify_predicates_with_solver(
+                        definition,
+                        &state.pattern.constraints,
+                        &[],
+                        SimplificationOptions::keep_partial(options.max_simplification_iterations),
+                        solver,
+                    )
+                },
             )
         });
         diagnostics.extend(&emitted);
@@ -964,12 +1026,17 @@ fn search_graph_collecting(
         }
         let pattern_before_simplification = state.pattern.clone();
         let (simplified_term, emitted) = crate::path_facts::collect_with_diagnostics(|| {
-            simplify_with_solver(
-                definition,
-                &state.pattern.term,
-                &state.pattern.constraints,
-                SimplificationOptions::keep_partial(options.max_simplification_iterations),
-                solver,
+            crate::path_facts::observed_by(
+                || rule.clone(),
+                || {
+                    simplify_with_solver(
+                        definition,
+                        &state.pattern.term,
+                        &state.pattern.constraints,
+                        SimplificationOptions::keep_partial(options.max_simplification_iterations),
+                        solver,
+                    )
+                },
             )
         });
         diagnostics.extend(&emitted);
@@ -1364,6 +1431,9 @@ fn search_graph_collecting(
         end,
         initial_bottom: initial_count != 0 && initial_without_instance == initial_count,
         implementation_chosen_values: Vec::new(),
+        contradicted_claims: Vec::new(),
+        allowance_refusals: Vec::new(),
+        unsupported_hooks: Vec::new(),
     }
 }
 
@@ -1459,6 +1529,10 @@ struct SearchWorkState {
     /// materialised into `SearchState::diagnostics` when the state is reported.
     diagnostics: PathDiagnostics,
     kind: QueuedStateKind,
+    /// The rule whose step produced this state, `None` for an initial state and a remainder: the
+    /// state's normalization is that rule's work, so a contradicted claim it observes names it
+    /// (`crate::path_facts::observed_by`).
+    rule: Option<crate::path_facts::ObservingRule>,
     /// The state this one was derived from by a step, as the per-depth deduplication kept it
     /// ([`KeptState`]): the path facts of the duplicates dropped for it are on this state's path
     /// too. `None` for an initial state.
@@ -1500,12 +1574,7 @@ impl KeptState {
     ) {
         let facts = diagnostics
             .iter()
-            .filter(|diagnostic| {
-                matches!(
-                    diagnostic,
-                    BackendDiagnostic::ImplementationChosenValue { .. }
-                )
-            })
+            .filter(|diagnostic| diagnostic.is_path_fact())
             .cloned()
             .collect::<Vec<_>>();
         if facts.is_empty() {
@@ -1805,6 +1874,7 @@ fn next_search_work_state(
         );
     }
     let observation = observation_log.append_applied(observation, &applied, observation_options);
+    let rule = Some(applied.observing_rule());
     let state = next_state(
         depth,
         &mut RetainedTrace::new(&mut trace, retain_trace),
@@ -1816,6 +1886,7 @@ fn next_search_work_state(
         observation,
         diagnostics,
         kind: QueuedStateKind::Rewritable,
+        rule,
         parent: None,
     }
 }
@@ -1853,6 +1924,7 @@ fn remaining_search_work_state(
         observation,
         diagnostics,
         kind,
+        rule: None,
         parent: None,
     }
 }
@@ -1951,6 +2023,10 @@ fn search_paths_using(
         )
     });
     result.implementation_chosen_values = chosen_values(&facts);
+    let record = run_record(definition, &facts);
+    result.contradicted_claims = record.contradicted_claims;
+    result.allowance_refusals = record.allowance_refusals;
+    result.unsupported_hooks = record.unsupported_hooks;
     result
 }
 
@@ -1991,6 +2067,7 @@ fn search_paths_collecting(
         observation: None,
         diagnostics: PathDiagnostics::new_request(),
         kind: QueuedStateKind::Rewritable,
+        rule: None,
     };
     let mut pending = VecDeque::with_capacity(1);
     // `pending` holds the initial path unless its state has a surviving macro or alias symbol,
@@ -2019,6 +2096,9 @@ fn search_paths_collecting(
             end: SearchEnd::BreadthBound(exceeded),
             initial_bottom: false,
             implementation_chosen_values: Vec::new(),
+            contradicted_claims: Vec::new(),
+            allowance_refusals: Vec::new(),
+            unsupported_hooks: Vec::new(),
         };
     }
     if options.max_results == Some(0) {
@@ -2029,6 +2109,9 @@ fn search_paths_collecting(
             end: remaining(&pending, || false).result_bound(Truncation::UnexploredWork),
             initial_bottom: false,
             implementation_chosen_values: Vec::new(),
+            contradicted_claims: Vec::new(),
+            allowance_refusals: Vec::new(),
+            unsupported_hooks: Vec::new(),
         };
     }
 
@@ -2068,14 +2151,21 @@ fn search_paths_collecting(
             continue;
         }
         // The path's own simplification of this state is on the path: every witness, incomplete
-        // entry and extension derived from it carries it.
+        // entry and extension derived from it carries it. It is the work of the rule that
+        // produced the state, as in the state-set search.
+        let rule = path.rule.clone();
         let (simplified_constraints, emitted) = crate::path_facts::collect_with_diagnostics(|| {
-            simplify_predicates_with_solver(
-                definition,
-                &path.state.pattern.constraints,
-                &[],
-                SimplificationOptions::keep_partial(options.max_simplification_iterations),
-                solver,
+            crate::path_facts::observed_by(
+                || rule.clone(),
+                || {
+                    simplify_predicates_with_solver(
+                        definition,
+                        &path.state.pattern.constraints,
+                        &[],
+                        SimplificationOptions::keep_partial(options.max_simplification_iterations),
+                        solver,
+                    )
+                },
             )
         });
         path.diagnostics.extend(&emitted);
@@ -2092,12 +2182,17 @@ fn search_paths_collecting(
         }
         let pattern_before_simplification = path.state.pattern.clone();
         let (simplified_term, emitted) = crate::path_facts::collect_with_diagnostics(|| {
-            simplify_with_solver(
-                definition,
-                &path.state.pattern.term,
-                &path.state.pattern.constraints,
-                SimplificationOptions::keep_partial(options.max_simplification_iterations),
-                solver,
+            crate::path_facts::observed_by(
+                || rule.clone(),
+                || {
+                    simplify_with_solver(
+                        definition,
+                        &path.state.pattern.term,
+                        &path.state.pattern.constraints,
+                        SimplificationOptions::keep_partial(options.max_simplification_iterations),
+                        solver,
+                    )
+                },
             )
         });
         path.diagnostics.extend(&emitted);
@@ -2387,6 +2482,9 @@ fn search_paths_collecting(
         end,
         initial_bottom,
         implementation_chosen_values: Vec::new(),
+        contradicted_claims: Vec::new(),
+        allowance_refusals: Vec::new(),
+        unsupported_hooks: Vec::new(),
     }
 }
 
@@ -2400,6 +2498,8 @@ struct PathSearchState {
     /// The diagnostics of this path so far, shared with the paths that extend it.
     diagnostics: PathDiagnostics,
     kind: QueuedStateKind,
+    /// The rule whose step produced this state, as for `SearchWorkState::rule`.
+    rule: Option<crate::path_facts::ObservingRule>,
 }
 
 impl PathSearchState {
@@ -2438,6 +2538,7 @@ fn next_path_state(
     }
     path.observation =
         observation_log.append_applied(path.observation, &applied, observation_options);
+    path.rule = Some(applied.observing_rule());
     let mut trace = std::mem::take(&mut path.state.trace);
     path.state = next_state(path.state.depth, &mut trace, applied);
     path.state.trace = trace;
@@ -2470,6 +2571,7 @@ fn remaining_path_state(
     path.state = remaining_state(path.state.depth, &mut trace, remainder);
     path.state.trace = trace;
     path.kind = kind;
+    path.rule = None;
     path
 }
 
@@ -2564,6 +2666,9 @@ fn search_pattern_using(
             end: remaining(initial.as_slice(), || false).result_bound(|unexplored| unexplored),
             initial_bottom: false,
             implementation_chosen_values: Vec::new(),
+            contradicted_claims: Vec::new(),
+            allowance_refusals: Vec::new(),
+            unsupported_hooks: Vec::new(),
         };
     }
     let graph_options = SearchOptions {
@@ -2666,6 +2771,7 @@ fn search_pattern_using(
         }
     }
     let incomplete = merge_pattern_incomplete(graph.incomplete, match_incomplete);
+    let record = run_record(definition, &facts);
 
     PatternSearchResult {
         matches,
@@ -2674,6 +2780,9 @@ fn search_pattern_using(
         end: graph.end,
         initial_bottom: graph.initial_bottom,
         implementation_chosen_values: chosen_values(&facts),
+        contradicted_claims: record.contradicted_claims,
+        allowance_refusals: record.allowance_refusals,
+        unsupported_hooks: record.unsupported_hooks,
     }
 }
 
@@ -2757,6 +2866,9 @@ fn search_pattern_paths_using(
                 .result_bound(Truncation::UnexploredWork),
             initial_bottom: false,
             implementation_chosen_values: Vec::new(),
+            contradicted_claims: Vec::new(),
+            allowance_refusals: Vec::new(),
+            unsupported_hooks: Vec::new(),
         };
     }
     let graph_options = SearchOptions {
@@ -2819,6 +2931,7 @@ fn search_pattern_paths_using(
         )
     });
     let incomplete = merge_pattern_incomplete(graph.incomplete, match_incomplete);
+    let record = run_record(definition, &facts);
 
     PatternPathSearchResult {
         matches,
@@ -2827,6 +2940,9 @@ fn search_pattern_paths_using(
         end: graph.end,
         initial_bottom: graph.initial_bottom,
         implementation_chosen_values: chosen_values(&facts),
+        contradicted_claims: record.contradicted_claims,
+        allowance_refusals: record.allowance_refusals,
+        unsupported_hooks: record.unsupported_hooks,
     }
 }
 
@@ -5227,6 +5343,7 @@ mod tests {
             observation: None,
             diagnostics: PathDiagnostics::new_request(),
             kind: QueuedStateKind::Rewritable,
+            rule: None,
             parent: None,
         };
         let mut frontier = SearchFrontier::with_capacity(4);

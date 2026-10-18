@@ -3187,7 +3187,7 @@ fn cascades_a_remainder_through_every_lower_priority_group() {
     assert_be08_capture(
         "T1 complete ExecutionResult",
         &result,
-        "0e7b53ab893ad9728871be20abd99f181041ad908c458eed67e3946c9b013961",
+        "d0b37f0c6e819d3079bc15bf9afb21a80ce2e0d430014baae840c60e12ebd5a9",
     );
 }
 
@@ -3228,7 +3228,7 @@ fn stopped_branch_reports_lower_groups_before_the_first_productive_group() {
     assert_be08_capture(
         "T2 complete ExecutionResult",
         &result,
-        "a5d284f3d7fde56b4d18fd19d89b2c2a0d318a2f29f86dc6f8ad0a419677dcc6",
+        "6ef3ecc4e959515a9dc66bd8c25c6a0aa4b0694a0a23a15b0315e6f0f2d1cde9",
     );
 }
 
@@ -3285,7 +3285,7 @@ fn cascade_keeps_the_remainder_when_lower_groups_are_stuck() {
     assert_be08_capture(
         "T7 complete ExecutionResult",
         &result,
-        "db440b2298649247bb580befa9e29af10203dbe0fa56bfab28db97724e35ee1f",
+        "6e7558a9a2470cfe3955b82616df30c5c75ea2f7e328511633f181270c781df6",
     );
 }
 
@@ -3346,7 +3346,7 @@ fn any_mode_stopped_branch_uses_the_steps_remainder() {
     assert_be08_capture(
         "T15 complete ExecutionResult",
         &result,
-        "438b23fb32e4957dc4ce0f8a95596d1f302b4f76ba698558040559041e2e966e",
+        "392682992702fa47ae6bf695ce1b60d5a1e98834c02a0b4eb5a99784a7fa20e8",
     );
 }
 
@@ -3419,7 +3419,7 @@ fn later_group_simplification_error_is_reported_on_the_remainder() {
     assert_be08_capture(
         "T8 result and solver transcript",
         &(&result, &transcript),
-        "c86d9f64c170827ad7e50532d3a859ec18c957de1dd126ce37769cc712d62cf0",
+        "d1eb00f17911d5054c3e23aab017300a8ea49940bf76122377959894a6f58c0e",
     );
 }
 
@@ -3489,7 +3489,7 @@ fn cancellation_during_lower_group_work_is_observed_after_the_step() {
     assert_be08_capture(
         "T9 result and solver transcript",
         &(&result, &transcript),
-        "b43e1bf6faaaca322af9d56c13a5e1a9ae60e70d62f50c575e780377b8152a15",
+        "f11f228ffecd74a300be32e38daeb01e05f94459a65e940b5f7daa9da226bc6e",
     );
     assert_eq!(leaf.halt_reason, HaltReason::Stopped(StopCause::Cancelled));
     assert!(result.discarded.is_empty(), "{result:#?}");
@@ -3639,7 +3639,7 @@ fn lower_group_budget_exhaustion_keeps_partial_successors_under_diagnostic_colle
     assert_be08_capture(
         "T12 result, diagnostics, and solver transcript",
         &(&result, &diagnostics, &transcript),
-        "6dfacb0ade320395f185a73e6e17257762b51951f113c4f054d59bddad97bc77",
+        "f642df92d6d84f6f7e4b3ea7c01068a949bd13d5e4d88c8a8abc667aa0da34db",
     );
 }
 
@@ -3703,7 +3703,7 @@ fn complete_step_classifies_effects_from_every_group() {
     assert_be08_capture(
         "T13 result and solver transcript",
         &(&result, &transcript),
-        "8c5a9ad1ca743a6e6488bdc6648ef009c0bba28c186af08fe0bd84ac204ea492",
+        "14041fcfe6558abbf0a0ac0a7d99f0fb445056940b18f0c0c1a907cfa6ff29e9",
     );
 }
 
@@ -3765,7 +3765,7 @@ fn ground_io_candidates_are_rejected_without_touching_the_retained_cursor_across
     assert_be08_capture(
         "T14 result and solver transcript",
         &(&result, &transcript),
-        "73bfbd0c8a56e675552292b497026842e3914286947ad037f255b1c6edf9fb3a",
+        "55ce5c43d7f86432f45b6f67a98dc86c6951119e90ae66959999cdc9f1bd83cd",
     );
 }
 
@@ -3822,7 +3822,7 @@ fn cut_point_and_terminal_rules_after_a_cascade_that_leaves_one_survivor() {
             &terminal,
             &*terminal_solver.transcript.borrow(),
         ),
-        "4c33a84969d2f985caf64c3f60609316754f57ffeb69c363a2f719bffe975079",
+        "2d028eb15cd6e61641acbb03dbd2f25401037a32d3cb6f7621679e3052437fad",
     );
     assert!(cut_solver.answers.borrow().is_empty());
     assert!(cut_solver.validity.borrow().is_empty());

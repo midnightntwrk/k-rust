@@ -155,6 +155,10 @@ pub struct AppliedRule {
     pub pattern: Pattern,
     pub label: Option<String>,
     pub unique_id: String,
+    /// Where the rule is written (its first origin), when the KORE carries it: with `unique_id`
+    /// and `label`, what a contradicted claim its successor's normalization observes names
+    /// (`crate::path_facts::ObservingRule`).
+    pub(crate) origin: Option<crate::rule::RuleOrigin>,
     pub substitution: Substitution,
     /// Rule-variable bindings suitable for execution diagnostics. Variables introduced solely as
     /// term aliases (`P #as X`) are implementation details and are omitted from this view.
@@ -181,7 +185,19 @@ pub struct AppliedRule {
     pub observations: Vec<ObservationEvent>,
 }
 
-/// Every field but the `normalized` cache, which is work derived from `pattern`.
+impl AppliedRule {
+    /// The rule, as a contradicted claim its successor's normalization observes names it.
+    pub(crate) fn observing_rule(&self) -> crate::path_facts::ObservingRule {
+        crate::path_facts::ObservingRule {
+            unique_id: self.unique_id.clone(),
+            label: self.label.clone(),
+            origin: self.origin.clone(),
+        }
+    }
+}
+
+/// Every field but the `normalized` cache, which is work derived from `pattern`, and the rule's
+/// `origin`, which `unique_id` names within a definition.
 impl std::fmt::Debug for AppliedRule {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
@@ -563,8 +579,9 @@ pub struct ExecutionOptions {
     /// trace, branch identity, and observations. A `StateSet` run that explores every branch also
     /// expands each distinct state of a depth once: a state equal at its depth to one whose
     /// expansion completed, with the same effects, console and console availability and no
-    /// diagnostic the other's path lacks (path facts aside, whose marks go to
-    /// [`ExecutionResult::implementation_chosen_values`]), is merged into it, so converging paths cost the distinct
+    /// diagnostic the other's path lacks (path facts aside, whose marks and records go to
+    /// [`ExecutionResult::implementation_chosen_values`] and
+    /// [`ExecutionResult::contradicted_claims`]), is merged into it, so converging paths cost the distinct
     /// states; exploration stays depth-first, and the leaves are those of the unmerged run but for
     /// the duplicates of `Trivial` and `Vacuous` leaves in a merged subtree. Such a run's
     /// `max_breadth` bounds the pending states of the merged exploration, so where the unmerged run
@@ -612,21 +629,28 @@ pub struct ExecutionOptions {
     /// Z3, a run whose result reports a nonzero [`ExecutionResult::smt_unknowns`]. When a state
     /// remains after `max_work` states, that state becomes the one [`HaltReason::WorkBound`]
     /// leaf, the last of the result, and the other pending states are dropped unexplored; a
-    /// budget at least the unbounded run's count changes nothing, and a budget of 0 makes the
-    /// first initial state, as given, that leaf.
+    /// budget at least the unbounded run's count leaves every leaf's configuration, halt and
+    /// order, the counts and the result's lists unchanged, and its only change is that every
+    /// leaf's diagnostics gain the run's path facts (below); a budget of 0 makes the first
+    /// initial state, as given, that leaf.
     ///
     /// The budget bounds the states, the leaves and the worklist; it does not bound the work of
     /// one state's step (a ground function evaluation runs to its value), the size of values, or
     /// the length of traces. Under `StateSet` a leaf finished before the stop carries the
     /// diagnostics of the paths merged into it before the stop only, so they may differ from the
-    /// same leaf's in a run with a larger budget.
+    /// same leaf's in a run with a larger budget. In a run with `max_work` or `max_breadth` set,
+    /// every leaf carries every path fact the run noted so far (each mark of
+    /// [`ExecutionResult::implementation_chosen_values`] and each record of
+    /// [`ExecutionResult::contradicted_claims`] the run observed), since whether a bound fires
+    /// rests on the exploration of every path, in every model.
     ///
     /// Every leaf finished before the [`HaltReason::WorkBound`] leaf is a leaf of every run of the
     /// same request with a larger budget or none, at the same position: the result without its
     /// `WorkBound` leaf is a prefix of theirs. Under `PathSet` the leaf is the same in every
-    /// field; under `StateSet` it is the same in every field but its diagnostics, which are among
-    /// the larger run's (a later path merged into it adds its own). This holds within the determinism contract above (docs/compatibility.md,
-    /// "Work budget").
+    /// field but its path facts, which are among the larger run's; under `StateSet` it is the
+    /// same in every field but its diagnostics, which are among the larger run's (a later path
+    /// merged into it adds its own). This holds within the determinism contract above
+    /// (docs/compatibility.md, "Work budget").
     pub max_work: Option<u64>,
     /// Build no result after a stop that ends the run (a cancellation, a failed solver prelude),
     /// for a caller that will not read a stopped run's leaves (`false`, the default: the leaves
@@ -936,6 +960,30 @@ pub struct ExecutionResult {
     /// leaves. An evaluation that only decided a definedness every model gives alike does not
     /// count.
     pub implementation_chosen_values: Vec<crate::builtin::ChosenValue>,
+    /// Every distinct contradicted claim the run observed, in the order the run first noted it
+    /// (`crate::path_facts::ContradictedClaim`), and those the load of its definition observed
+    /// (`BackendDefinition::load_record`), first: those on the paths of its leaves
+    /// (`BackendDiagnostic::ContradictedClaim`), and those of work that ended on no reported
+    /// leaf (a candidate a defined sibling covered, a state a state-set merge absorbed). Empty
+    /// when no evaluation of the run, and none of the load, reduced an application of a symbol
+    /// declared `total` to defined arguments to bottom through one of its own equations. The
+    /// list is complete for contradictions found by evaluation; a symbolic state trusts the
+    /// claim, so it gives no evidence that a non-ground run rests on no false claim. Each record
+    /// says who observed it (`ContradictedClaim::observed_in`); the load's are on no leaf, and a
+    /// contradiction the load and the run both observed is listed once for each.
+    pub contradicted_claims: Vec<crate::path_facts::ContradictedClaim>,
+    /// Every distinct `Bytes` result the memory allowance refused (`crate::allowance`) in the
+    /// run or in the load of its definition, in the order first met, whatever became of the work
+    /// that met it: a refusal inside an attempt that was undone or passed over, which leaves no
+    /// diagnostic, is listed too. When it is empty, every application of a hook the allowance
+    /// bounds was computed, so the run gives the same result under every allowance of at least
+    /// as many bytes (docs/compatibility.md, "Resource bounds").
+    pub allowance_refusals: Vec<crate::path_facts::UnevaluatedHook>,
+    /// Every distinct application the run, or the load of its definition, left unevaluated as an
+    /// unsupported hook other than an allowance refusal, in the order first met, whatever became
+    /// of the work that met it (the `UnsupportedHookUnevaluated` reports and the unsupported-hook
+    /// failures, kept or dropped).
+    pub unsupported_hooks: Vec<crate::path_facts::UnevaluatedHook>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -1136,6 +1136,10 @@ pub struct BackendDefinition {
     /// The stops the load's discharge of rewrite-rule definedness met
     /// (`discharge_rewrite_definedness`).
     discharge_counts: DischargeCounts,
+    /// What the load's analyses met that undone work never rolls back (`crate::path_facts`):
+    /// the contradicted claims, allowance refusals and unsupported hooks of the critical-pair
+    /// check, the discharge and the claims' definedness, in first-observed order.
+    load_record: Vec<crate::path_facts::PathFact>,
     /// Whether some simplification axiom states an equation between terms but was filed in
     /// `predicate_simplification_theory`, because its left-hand side is not a term pattern (an
     /// `\and` of term patterns). The term simplifier never tries it. Set by `internalize`; see
@@ -2746,6 +2750,7 @@ impl BackendDefinition {
             kvar_sorts: OnceLock::new(),
             inhabited_sorts: OnceLock::new(),
             value_claims: crate::confluence::ValueClaims::withheld(),
+            load_record: Vec::new(),
             discharge_counts: DischargeCounts::default(),
             term_equation_in_predicate_theory: false,
             deepest,
@@ -2817,33 +2822,56 @@ impl BackendDefinition {
         }
         result.finite_sort_constructors = collect_finite_sort_constructors(&result)?;
         result.console_reach = crate::deferred::ConsoleReach::of(&result);
-        // The check runs while the definition still withholds every claim, and before the
-        // rewrite rules' definedness is discharged, which reads the claims.
-        #[cfg(test)]
-        {
-            let switches = crate::confluence::switches::active();
-            if switches.claims_during_check || switches.discharge_before_check {
-                result.value_claims = crate::confluence::ValueClaims::admitting_everything();
-            }
-            if switches.discharge_before_check {
+        // The load's analyses evaluate the definition's own terms; what they met that steers
+        // every later use of their verdicts (a contradicted claim, an allowance refusal, an
+        // unsupported hook) is the load's record, which every run reports with its own
+        // (`crate::path_facts`).
+        let (((), _facts), record) = crate::path_facts::run(|| {
+            crate::path_facts::collect(|| {
+                // The check runs while the definition still withholds every claim, and before
+                // the rewrite rules' definedness is discharged, which reads the claims.
+                #[cfg(test)]
+                {
+                    let switches = crate::confluence::switches::active();
+                    if switches.claims_during_check || switches.discharge_before_check {
+                        result.value_claims =
+                            crate::confluence::ValueClaims::admitting_everything();
+                    }
+                    if switches.discharge_before_check {
+                        result.discharge_rewrite_definedness();
+                    }
+                }
+                result.value_claims = crate::confluence::check(
+                    &result,
+                    crate::confluence::CheckScope::Gate,
+                    crate::confluence::ConditionMemo::On,
+                );
+                result.record_pattern_tokens();
                 result.discharge_rewrite_definedness();
-            }
-        }
-        result.value_claims = crate::confluence::check(
-            &result,
-            crate::confluence::CheckScope::Gate,
-            crate::confluence::ConditionMemo::On,
-        );
-        result.record_pattern_tokens();
-        result.discharge_rewrite_definedness();
-        // A claim's constraints are stated with their definedness once the definition is
-        // complete: the statement reads its ceil equations and value claims.
-        let claims = std::mem::take(&mut result.reachability_claims);
-        result.reachability_claims = claims
+                // A claim's constraints are stated with their definedness once the definition is
+                // complete: the statement reads its ceil equations and value claims.
+                let claims = std::mem::take(&mut result.reachability_claims);
+                result.reachability_claims = claims
+                    .into_iter()
+                    .map(|claim| crate::claim::with_explicit_definedness(&result, claim))
+                    .collect();
+            })
+        });
+        // Chosen values are withheld at load (the analyses run in `Proof`); none is kept. What
+        // is kept is a fact about the definition, tagged so (`path_facts::ObservedIn::Load`).
+        result.load_record = record
             .into_iter()
-            .map(|claim| crate::claim::with_explicit_definedness(&result, claim))
+            .filter(|fact| fact.chosen_value().is_none())
+            .map(crate::path_facts::PathFact::observed_at_load)
             .collect();
         Ok(result)
+    }
+
+    /// What the load's analyses met that undone work never rolls back (`crate::path_facts`), which
+    /// every run on this definition, execution or search, lists before its own
+    /// (`rewrite::ExecutionResult`, `search::SearchResult`), and no leaf carries.
+    pub(crate) fn load_record(&self) -> &[crate::path_facts::PathFact] {
+        &self.load_record
     }
 
     /// The verdict of the load-time critical-pair check: which term indexes may carry value
