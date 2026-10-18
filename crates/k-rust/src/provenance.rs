@@ -383,6 +383,7 @@ pub enum GeneratingPass {
     GenerateSortPredicateSyntax,
     GenerateSortProjections,
     MacroExpansion,
+    LowerTermConjunctions,
     AddImplicitComputationCell,
     ResolveFreshConstants,
     ConcretizeCells,
@@ -394,7 +395,7 @@ pub enum GeneratingPass {
 }
 
 impl GeneratingPass {
-    pub const ALL: [Self; 25] = [
+    pub const ALL: [Self; 26] = [
         Self::ConfigurationExpansion,
         Self::ResolveComm,
         Self::ResolveIo,
@@ -412,6 +413,7 @@ impl GeneratingPass {
         Self::GenerateSortPredicateSyntax,
         Self::GenerateSortProjections,
         Self::MacroExpansion,
+        Self::LowerTermConjunctions,
         Self::AddImplicitComputationCell,
         Self::ResolveFreshConstants,
         Self::ConcretizeCells,
@@ -441,6 +443,7 @@ impl GeneratingPass {
             Self::GenerateSortPredicateSyntax => "generate-sort-predicate-syntax",
             Self::GenerateSortProjections => "generate-sort-projections",
             Self::MacroExpansion => "macro-expansion",
+            Self::LowerTermConjunctions => "lower-term-conjunctions",
             Self::AddImplicitComputationCell => "add-implicit-computation-cell",
             Self::ResolveFreshConstants => "resolve-fresh-constants",
             Self::ConcretizeCells => "concretize-cells",
@@ -3456,6 +3459,7 @@ mod tests {
             include_str!("kompile/passes/resolve_fresh_config_constants.rs"),
             include_str!("kompile/passes/generate_sort_helpers.rs"),
             include_str!("kompile/passes/expand_macros.rs"),
+            include_str!("kompile/ml_constructs.rs"),
             include_str!("kompile/passes/add_implicit_computation_cell.rs"),
             include_str!("kompile/passes/resolve_fresh_constants.rs"),
             include_str!("kompile/passes/concretize_cells.rs"),

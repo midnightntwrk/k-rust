@@ -19,6 +19,7 @@ use k_rust::{
     },
     kore::{ast::Pattern, codec, parser::parse_pattern, printer::Printer},
     outer::{LoadOptions, ResolvedSource, load_for_compilation, load_with_options},
+    provenance::GeneratingPass,
 };
 
 const HEADER: &str = "module P-SYNTAX
@@ -1210,5 +1211,80 @@ fn a_claim_left_side_conjunction_of_two_terms_and_alias_are_lowered() {
     assert_contains(
         &axiom(&kore, "P-SPEC.d"),
         &format!("Lblgo{{}}({})", lowered(X, "VarY:SortInt{}")),
+    );
+}
+
+/// The annotated `#Equals` nodes of `term`, with their annotations.
+fn annotated_equalities(term: &Term, found: &mut Vec<Term>) {
+    match term {
+        Term::Annotated { term: inner, .. } => {
+            if matches!(inner.unannotated(), Term::Apply { label, .. } if label.name == "#Equals") {
+                found.push(term.clone());
+            }
+            annotated_equalities(inner, found);
+        }
+        Term::Apply { arguments, .. } | Term::Sequence(arguments) => {
+            for argument in arguments {
+                annotated_equalities(argument, found);
+            }
+        }
+        Term::Rewrite { left, right } => {
+            annotated_equalities(left, found);
+            annotated_equalities(right, found);
+        }
+        Term::As { pattern, alias } => {
+            annotated_equalities(pattern, found);
+            annotated_equalities(alias, found);
+        }
+        Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. } => {}
+    }
+}
+
+/// The lowering generates the equality, so the equality records it as its origin; the copy of the
+/// first operand keeps that operand's source position. A function equation has no cells, so no
+/// later stage rebuilds its right side: in a rule, cell concretization rebuilds the `<k>` cell and
+/// receipts every node of it, the equality included, under its own pass.
+#[test]
+fn a_generated_equality_records_the_lowering_as_its_origin() {
+    let artifacts = compile_artifacts(
+        &format!("{F}  rule [p]: f(X) => X #And 1\n{G}"),
+        CompilationBackend::Rust,
+    );
+    let mut equalities = Vec::new();
+    for module in &artifacts.execution_definition.modules {
+        if module.name != "P" {
+            continue;
+        }
+        for sentence in &module.local_sentences {
+            if let Sentence::Rule { body, .. } = &**sentence {
+                annotated_equalities(body, &mut equalities);
+            }
+        }
+    }
+    let [equality] = &equalities[..] else {
+        panic!(
+            "one generated equality in module P, found {}",
+            equalities.len()
+        )
+    };
+    let origin = equality
+        .metadata()
+        .and_then(|metadata| metadata.origin.as_deref())
+        .expect("the generated equality has an origin");
+    assert_eq!(origin.pass.as_str(), "lower-term-conjunctions");
+    assert_eq!(
+        GeneratingPass::from_name("lower-term-conjunctions"),
+        Some(origin.pass)
+    );
+    let Term::Apply { arguments, .. } = equality.unannotated() else {
+        unreachable!("an equality is an application")
+    };
+    assert!(
+        arguments[0]
+            .metadata()
+            .and_then(|metadata| metadata.span)
+            .is_some(),
+        "the copy of X keeps its source position: {:?}",
+        arguments[0]
     );
 }

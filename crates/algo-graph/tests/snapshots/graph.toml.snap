@@ -7049,7 +7049,8 @@ area = "kompile"
 name = "lower term conjunctions"
 table = "TRANSFORM_STAGES"
 call = "lower_term_conjunctions"
-behavior = "metadata-only"
+behavior = "generating"
+generating_passes = ["lower-term-conjunctions"]
 sequence = 37
 
 [node.anchor]

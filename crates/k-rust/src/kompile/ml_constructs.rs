@@ -45,12 +45,18 @@
 //! conjunction is left as written. A conjunction at a matched position (a rule's left side or a
 //! position its rewrites share) is left as written too: matching unifies its operands. A
 //! macro-like rule defines an abbreviation and is lowered only through its uses.
+//!
+//! The stage generates the equality and the copy of the first operand in it, so it is a
+//! generating stage: the pipeline records [`LOWER_TERM_CONJUNCTIONS`] as the origin of each node it
+//! changes or creates, linked to the origins of the node it came from, and the copy, cloned from
+//! the operand, keeps the operand's span, production and sort.
 #![deny(clippy::wildcard_enum_match_arm)]
 
 use std::convert::Infallible;
 
 use crate::definition::{AttributeKey, Definition, Sentence};
 use crate::kast::{GeneratedLabel, InternalLabel, Label, Term, TermParts};
+use crate::provenance::GeneratingPass;
 
 /// The matching-logic connectives and predicate atoms of the frontend's term language.
 const CONNECTIVES: [InternalLabel; 12] = [
@@ -469,6 +475,10 @@ fn lower_sentence(sentence: &Sentence) -> Option<Sentence> {
     }
     Some(sentence)
 }
+
+/// The pass the stage `lower term conjunctions` records as the origin of the nodes it generates:
+/// the equality, and the copy of its first operand.
+pub(crate) const LOWER_TERM_CONJUNCTIONS: GeneratingPass = GeneratingPass::LowerTermConjunctions;
 
 /// The stage `lower term conjunctions`, after macro expansion: every rule and claim lowered by
 /// [`lower_sentence`] (see the module documentation). A sentence that does not change is kept as

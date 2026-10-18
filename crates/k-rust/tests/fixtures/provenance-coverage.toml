@@ -165,8 +165,9 @@ reason = "Condition-conjunction resolution relabels the pending conjunctions tha
 [[pipeline]]
 call = "lower_term_conjunctions"
 occurrences = 1
-behavior = "metadata-only"
-reason = "Term-conjunction lowering writes a conjunction of two connective-free terms at a built position or in a claim, and an alias in a claim's left side, as the first operand guarded by their equality; every node it keeps keeps its metadata and origin, the copied operand carries its original's, and it records no origin of its own."
+behavior = "generating"
+generating_passes = ["lower-term-conjunctions"]
+reason = "Term-conjunction lowering writes a conjunction of two connective-free terms at a built position or in a claim, and an alias in a claim's left side, as the first operand guarded by their equality, which it generates together with the copy of the first operand."
 
 [[pipeline]]
 call = "add_implicit_computation_cell"
