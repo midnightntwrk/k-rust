@@ -965,7 +965,8 @@ impl RpcService {
                         encode_kore_source_raw(externalize::External::Predicate {
                             predicate: printable.source(),
                             sort: externalize::ResultSort::Given(&result_sort),
-                            preserve_terms: true,
+                            // A Boolean term is printed as the predicate it stands for, `true = t`.
+                            preserve_terms: false,
                         })?,
                     )]))
                 }
@@ -5715,6 +5716,25 @@ endmodule
                 "{pattern}: {response:#}"
             );
         }
+    }
+
+    /// A `simplify` response to a predicate prints a Boolean term `t` it keeps as a predicate as
+    /// `true = t`, so the response, sent back, is read as the same predicate and simplifies to
+    /// itself; a bare `\not(X)` would be the set `Bool ∖ {X}`, which is refused.
+    #[test]
+    fn a_simplified_predicate_reads_back_as_the_same_predicate() {
+        let mut service = simplify_validation_service();
+        let pattern = r#"\not{SortBool{}}(\equals{SortBool{}, SortBool{}}(X:SortBool{}, \dv{SortBool{}}("true")))"#;
+        let first = request(
+            &mut service,
+            1,
+            "simplify",
+            json!({ "state": encode_kore(&parse_pattern(pattern).unwrap()).unwrap() }),
+        );
+        let state = first["result"]["state"].clone();
+        assert!(state.is_object(), "{first:#}");
+        let second = request(&mut service, 2, "simplify", json!({ "state": state }));
+        assert_eq!(second["result"]["state"], state, "{second:#}");
     }
 
     #[test]

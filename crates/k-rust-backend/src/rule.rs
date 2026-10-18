@@ -2752,7 +2752,10 @@ fn internalize_rule_pattern_with_position(
 ///   conjunct when it has two or more ([`ConditionSlot::RewriteRight`]).
 ///
 /// pyk also flattens an author's `R #And {P}` into that list of arguments, so in its output an
-/// author's condition and the frontend's are not told apart: both are read as a condition.
+/// author's condition and the frontend's are not told apart: both are read as a condition. An
+/// author's encoding-shaped `{C #Equals true}` there has the bytes of a frontend's condition and
+/// is read as `C`, which is not its meaning when `C` is a connective over terms; only a frontend
+/// can refuse it.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ConditionSlot {
     /// No slot: a standalone pattern, or a hand-written side of another shape.
@@ -3254,11 +3257,13 @@ pub(crate) fn internalize_predicate_reading(
 
 /// The predicate part of a get-model request: its atoms (`\equals`, `\ceil`, `\floor`, `\in`, read
 /// by [`internalize_predicate`]) under the connectives it is built from, with the term conjuncts
-/// of its top `\and` dropped (and of the top `\and` of each disjunct of a top `\or`), so that a
-/// pattern `t ∧ φ` is satisfiable only where its predicate part `φ` is. `None` when the pattern has no
-/// predicate part, or when a term stands below `\not`, `\implies`, `\iff`, `\exists` or
-/// `\forall`, where dropping it would change what the pattern states (`\not(X ∧ X = true)` at
-/// sort Bool is not `X ≠ true`).
+/// of each conjunction in a positive position dropped: the top `\and`, and an `\and` reached
+/// from it through `\or`, `\exists` and the right operand of `\implies` only. There `t ∧ φ` is
+/// nonempty only where `φ` is (`∃X.(t ∧ φ)` only where `∃X.φ`, `φ1 → (t ∧ φ2)` only where
+/// `¬φ1 ∨ φ2`), so a model of the predicate part is one of the pattern wherever `t` is defined.
+/// `None` when the pattern has no predicate part, or when a term stands below `\not`, `\forall`,
+/// `\iff` or the left operand of `\implies`, where the complement of `t ∧ φ` is not the
+/// complement of `φ` (`\not(X ∧ X = true)` at sort Bool is not `X ≠ true`).
 pub(crate) fn internalize_model_predicate(
     definition: &BackendDefinition,
     pattern: &kore::Pattern,
@@ -3268,8 +3273,8 @@ pub(crate) fn internalize_model_predicate(
     internalize_model_predicate_below(definition, pattern, sort_parameters, injection_role, false)
 }
 
-/// [`internalize_model_predicate`] of `pattern`, which is below a connective that no term may be
-/// dropped from when `strict`.
+/// [`internalize_model_predicate`] of `pattern`, with `strict` when `pattern` is below `\not`,
+/// `\forall`, `\iff` or the left operand of `\implies`, where no term may be dropped.
 fn internalize_model_predicate_below(
     definition: &BackendDefinition,
     pattern: &kore::Pattern,
@@ -3319,7 +3324,7 @@ fn internalize_model_predicate_below(
             recurse(argument, true)?.map(|inner| Predicate::Not(Arc::new(inner)))
         }
         kore::Pattern::Implies { left, right, .. } => {
-            match (recurse(left, true)?, recurse(right, true)?) {
+            match (recurse(left, true)?, recurse(right, strict)?) {
                 (Some(left), Some(right)) => {
                     Some(Predicate::Implies(Arc::new(left), Arc::new(right)))
                 }
@@ -3332,7 +3337,7 @@ fn internalize_model_predicate_below(
                 _ => None,
             }
         }
-        kore::Pattern::Exists { variable, body, .. } => recurse(body, true)?
+        kore::Pattern::Exists { variable, body, .. } => recurse(body, strict)?
             .map(|inner| {
                 definition
                     .internalize_variable(variable, sort_parameters)

@@ -4163,7 +4163,7 @@ mod tests {
                 .map_err(|error| {
                     io::Error::other(format!("could not simplify KORE pattern: {error:?}"))
                 })?;
-                Ok(externalize::ml_pattern(&simplified, &result_sort))
+                Ok(externalize::predicate_pattern(&simplified, &result_sort))
             }
         }
     }

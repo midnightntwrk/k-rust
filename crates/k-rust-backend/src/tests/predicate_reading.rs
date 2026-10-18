@@ -556,11 +556,13 @@ fn a_request_with_no_term_and_a_term_in_a_predicate_position_is_refused() {
     read(&format!(r#"\not{{SortBool{{}}}}({x_true})"#)).expect("a predicate is read");
 }
 
-/// The get-model reader drops the term conjuncts of a request's top `\and`, but not a term below
-/// a connective: `\not(X ∧ X = true)` has no predicate part (`not(X = true)` is not what it
-/// states), while `X ∧ X = true` has `X = true`.
+/// The get-model reader drops the term conjuncts of a conjunction in a positive position (the top
+/// `\and`, below `\or` and `\exists`, on the right of `\implies`), where `t ∧ φ` is nonempty only
+/// where `φ` is, but no term below `\not`, `\forall`, `\iff` or on the left of `\implies`, where
+/// the complement of `t ∧ φ` is not that of `φ`: `\not(X ∧ X = true)` has no predicate part
+/// (`not(X = true)` is not what it states), while `X ∧ X = true` has `X = true`.
 #[test]
-fn the_model_predicate_drops_no_term_below_a_connective() {
+fn the_model_predicate_drops_terms_only_in_positive_positions() {
     let definition = load("").expect("the definition loads");
     let model = |pattern: &str| {
         let pattern =
@@ -571,13 +573,40 @@ fn the_model_predicate_drops_no_term_below_a_connective() {
             .expect("the pattern internalizes")
             .map(|(predicate, _)| predicate)
     };
-    let conjunction = format!(
-        r#"\and{{SortBool{{}}}}(X:SortBool{{}}, \equals{{SortBool{{}}, SortBool{{}}}}(X:SortBool{{}}, {TRUE}))"#
+    let x_true = format!(r#"\equals{{SortBool{{}}, SortBool{{}}}}(X:SortBool{{}}, {TRUE})"#);
+    let conjunction = format!(r#"\and{{SortBool{{}}}}(X:SortBool{{}}, {x_true})"#);
+    let one = format!(
+        r#"\equals{{SortInt{{}}, SortBool{{}}}}(Y:SortInt{{}}, {})"#,
+        int(1)
     );
-    assert_eq!(
-        model(&format!(r#"\not{{SortBool{{}}}}({conjunction})"#)),
-        None
-    );
+    let positive = [
+        conjunction.clone(),
+        format!(r#"\or{{SortBool{{}}}}({conjunction}, {x_true})"#),
+        format!(
+            r#"\exists{{SortBool{{}}}}(Y:SortInt{{}}, \and{{SortBool{{}}}}(X:SortBool{{}}, {one}))"#
+        ),
+        format!(r#"\implies{{SortBool{{}}}}({x_true}, {conjunction})"#),
+    ];
+    let strict = [
+        format!(r#"\not{{SortBool{{}}}}({conjunction})"#),
+        format!(
+            r#"\forall{{SortBool{{}}}}(Y:SortInt{{}}, \and{{SortBool{{}}}}(X:SortBool{{}}, {one}))"#
+        ),
+        format!(r#"\iff{{SortBool{{}}}}({conjunction}, {x_true})"#),
+        format!(r#"\implies{{SortBool{{}}}}({conjunction}, {x_true})"#),
+    ];
+    let mut wrong = Vec::new();
+    for pattern in &positive {
+        if model(pattern).is_none() {
+            wrong.push(format!("{pattern}: no predicate part"));
+        }
+    }
+    for pattern in &strict {
+        if let Some(predicate) = model(pattern) {
+            wrong.push(format!("{pattern}: {predicate:?}"));
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
     assert!(
         matches!(model(&conjunction), Some(Predicate::And(conjuncts))
             if matches!(conjuncts.as_ref(), [Predicate::Equals(..)])),

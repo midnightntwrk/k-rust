@@ -18,7 +18,10 @@ use k_rust::{
     builtin::embedded,
     definition::CheckMode,
     kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
-    kore::{codec, parser::parse_definition, parser::parse_pattern, printer::Printer},
+    kore::{
+        ast::Pattern as KorePattern, codec, parser::parse_definition, parser::parse_pattern,
+        printer::Printer,
+    },
     outer::{LoadOptions, ResolvedSource, load_for_compilation},
 };
 use k_rust_backend::definition::{Admission, BackendDefinition, DefinitionError};
@@ -559,6 +562,46 @@ fn a_simplify_request_with_no_term_reads_no_term_as_a_predicate() {
     let predicate = format!(r#"\not{{SortBool{{}}}}({b_true})"#);
     if let Err(error) = simplify(&mut backend, &predicate) {
         wrong.push(format!("{predicate}: {error}"));
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+/// A `simplify` response to a predicate states its meaning: a Boolean term `t` the simplifier
+/// keeps as a predicate is printed as `true = t`, not as the bare term (which, as a pattern, is
+/// the value `t`, and at a result sort other than Bool is ill-sorted). Sent back, the response is
+/// read as the same predicate and simplifies to itself.
+#[test]
+fn a_simplified_predicate_reads_back_as_the_same_predicate() {
+    let kore = compile(&source("rule [p]: <k> go(X) => done(X) ... </k>", ""));
+    let mut backend = Backend::new(&kore, MAIN, BackendOptions::default()).expect("it loads");
+    let simplify = |backend: &mut Backend, pattern: &KorePattern| {
+        backend.simplify_kore(None, pattern, Admission::Verified)
+    };
+    let mut wrong = Vec::new();
+    for sort in ["SortBool{}", "SortInt{}"] {
+        let b_true = format!(
+            r#"\equals{{SortBool{{}}, {sort}}}(VarB:SortBool{{}}, \dv{{SortBool{{}}}}("true"))"#
+        );
+        for pattern in [
+            format!(r#"\not{{{sort}}}({b_true})"#),
+            b_true.clone(),
+            format!(
+                r#"\equals{{SortBool{{}}, {sort}}}(VarB:SortBool{{}}, \dv{{SortBool{{}}}}("false"))"#
+            ),
+        ] {
+            let input = parse_pattern(&pattern).expect("the pattern parses");
+            let first = match simplify(&mut backend, &input) {
+                Ok(first) => first,
+                Err(error) => {
+                    wrong.push(format!("{pattern}: {error}"));
+                    continue;
+                }
+            };
+            match simplify(&mut backend, &first) {
+                Ok(second) if second == first => {}
+                again => wrong.push(format!("{pattern} gives {first:?}, then {again:?}")),
+            }
+        }
     }
     assert!(wrong.is_empty(), "{wrong:#?}");
 }
