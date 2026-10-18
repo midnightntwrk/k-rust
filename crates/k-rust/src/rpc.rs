@@ -66,7 +66,7 @@ use k_rust_backend::{
         AppliedRule, ExecutionBranchMode, ExecutionMode, ExecutionOptions, HaltReason, Pattern,
         TraceKind, substitute_predicates,
     },
-    rule::Predicate,
+    rule::{Predicate, RulePatternError, SentenceKey},
     session::{SessionError, module_id},
     simplify::{DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError, SimplificationOptions},
     smt::{ModelResult, SmtError, SmtSolver},
@@ -1400,7 +1400,8 @@ fn module_verification_detail(
             | k_rust::kore::ast::Sentence::SymbolDeclaration { .. } => None,
         }
     }
-    let pattern = if let DefinitionError::UnlicensedInjection { sentence, .. } = error {
+    let located = located_sentence(error);
+    let pattern = if let Some(sentence) = located {
         (sentence.0.as_ref() == module.name)
             .then(|| module.sentences.get(sentence.1).and_then(sentence_pattern))
             .flatten()
@@ -1408,6 +1409,15 @@ fn module_verification_detail(
         module.sentences.iter().find_map(sentence_pattern)
     };
     match (error, pattern) {
+        // A refusal of what an axiom's predicates state points at that axiom.
+        (
+            DefinitionError::AxiomReadsTermAsPredicate { .. } | DefinitionError::RulePattern(_),
+            Some(pattern),
+        ) if located.is_some() => ErrorDetail {
+            error: error.to_string(),
+            context: None,
+            term: encode_kore(pattern).ok(),
+        },
         (DefinitionError::Verification(verification), Some(pattern))
             if verification
                 .message
@@ -1429,6 +1439,27 @@ fn module_verification_detail(
         }
         (_, Some(pattern)) => verification_detail(error, pattern),
         (_, None) => ErrorDetail::message(error.to_string()),
+    }
+}
+
+/// The sentence of the added module that an error about one of its axioms names: an unlicensed
+/// injection, and the refusals of the predicate reading.
+fn located_sentence(error: &DefinitionError) -> Option<&SentenceKey> {
+    match error {
+        DefinitionError::UnlicensedInjection { sentence, .. }
+        | DefinitionError::AxiomReadsTermAsPredicate { sentence, .. }
+        | DefinitionError::RulePattern(
+            RulePatternError::NegatedConfiguration { sentence, .. }
+            | RulePatternError::TermConnectiveInConjunction {
+                sentence: Some(sentence),
+                ..
+            }
+            | RulePatternError::NonBoolTermAsPredicate {
+                sentence: Some(sentence),
+                ..
+            },
+        ) => Some(sentence),
+        _ => None,
     }
 }
 
@@ -5605,6 +5636,51 @@ endmodule
             }),
             "{response:#}",
         );
+    }
+
+    /// An added module whose axiom conjoins a connective over terms to a term is refused with
+    /// that axiom named, and the error detail's term is that axiom, not the module's first
+    /// sentence.
+    #[test]
+    fn add_module_locates_a_refused_predicate_reading() {
+        let mut service = RpcService::new(BackendSession::new(
+            parse_definition(
+                r#"[] module TEST
+            sort SortB{} []
+            symbol b{}() : SortB{} [constructor{}(), total{}()]
+            symbol c{}() : SortB{} [constructor{}(), total{}()]
+        endmodule []"#,
+            )
+            .unwrap(),
+            "TEST",
+        ));
+        let response = request(
+            &mut service,
+            1,
+            "add-module",
+            json!({
+            "module": r#"module BAD-AXIOM
+                import TEST []
+                axiom{} \rewrites{SortB{}}(
+                    \and{SortB{}}(b{}(), \top{SortB{}}()), c{}()
+                ) [label{}("benign")]
+                axiom{} \rewrites{SortB{}}(
+                    \and{SortB{}}(c{}(), \top{SortB{}}()),
+                    \and{SortB{}}(\and{SortB{}}(b{}(), \not{SortB{}}(c{}())), \top{SortB{}}())
+                ) [label{}("conjoined-negation")]
+            endmodule []"#,
+            }),
+        );
+        let error = &response["error"];
+        assert_eq!(error["code"], 8, "{response:#}");
+        let message = error["data"]["error"].as_str().unwrap_or_default();
+        assert!(
+            message.contains("axiom conjoined-negation") && message.contains("\\not"),
+            "{response:#}"
+        );
+        let term = &error["data"]["term"]["term"];
+        assert_eq!(term["tag"], "Rewrites", "{response:#}");
+        assert_eq!(term["dest"]["tag"], "And", "{response:#}");
     }
 
     #[test]

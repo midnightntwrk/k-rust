@@ -12,8 +12,8 @@
 
 use k_rust::{
     backend::{
-        Backend, BackendOptions, ExecuteRequest, HaltReasonOutput, ProveRequest,
-        ResultModalityOutput, UnstatedDefinedness,
+        Backend, BackendOptions, ExecuteRequest, HaltReasonOutput, ImplicationRequest,
+        ProveRequest, ResultModalityOutput, UnstatedDefinedness,
     },
     builtin::embedded,
     definition::CheckMode,
@@ -245,13 +245,66 @@ fn a_connective_over_terms_at_a_matched_position_is_refused_at_load() {
     ] {
         let error = refusal(&compile(&source(rule, "")));
         assert!(
-            is(&error, "RulePattern(TermConnectiveInConjunction")
-                || is(&error, "RulePattern(NonBoolTermAsPredicate"),
+            is(&error, "RulePattern(TermConnectiveInConjunction"),
             "{rule}: {error:?}"
         );
+        assert_names_the_rule(&error);
         let text = error.to_string();
-        assert!(text.contains("implies"), "{text}");
+        assert!(text.contains("\\implies"), "{text}");
         assert!(text.contains("module MLP"), "{text}");
+    }
+}
+
+/// A connective over terms conjoined to a term of a right-hand side is the same set of values:
+/// `B #And #Not(true)` is `B` where `B` is `false`, and `B #And (B #Implies false)` is `B` where
+/// `B` is `false`, not the conditions `not(true = true)` and `B = true -> false = true`. Each is
+/// refused naming the rule, in a rewrite's and in a function equation's right-hand side.
+#[test]
+fn a_connective_over_terms_conjoined_to_a_right_hand_side_is_refused_at_load() {
+    for (rule, extra) in [
+        (
+            "rule [p]: <k> test(B) => test(B #And #Not(true)) ... </k>",
+            "",
+        ),
+        (
+            "rule [p]: g(B) => B #And (B #Implies false)",
+            "syntax Bool ::= g(Bool) [function, symbol(g)]
+  rule <k> test(B) => test(g(B)) ... </k>",
+        ),
+    ] {
+        let error = refusal(&compile(&source(rule, extra)));
+        assert!(
+            is(&error, "RulePattern(TermConnectiveInConjunction"),
+            "{rule}: {error:?}"
+        );
+        assert_names_the_rule(&error);
+    }
+}
+
+/// A simplification's sides are the author's: an `#Equals` whose operand is a connective over
+/// terms there is read as written and refused, as in a condition, also where it has the shape of
+/// a condition's encoding (`{P #Equals true}`). `{X >=Int 7, X <=Int 7} = {true}` holds exactly
+/// where `X = 7`, `h(X) = X #And {..}` is `\bottom` where `X =/= 7`, and
+/// `{A, B} = {true}` is `A = B = true`; reading any of them as `P` holds misreads it.
+#[test]
+fn a_simplification_whose_side_has_a_connective_operand_is_refused_at_load() {
+    for (rule, extra) in [
+        (
+            "rule [p]: {X:Int #Equals 7} => {((X >=Int 7) #Or (X <=Int 7)) #Equals true} [simplification]",
+            "rule <k> go(X) => done(X) ... </k> requires {X #Equals 7}",
+        ),
+        (
+            "rule [p]: f(X) => X #And {((X >=Int 7) #Or (X <=Int 7)) #Equals true} [simplification]",
+            "",
+        ),
+        (
+            "rule [p]: {(A:Bool #Or B:Bool) #Equals true} => {A #Equals true} #And {B #Equals true} [simplification]",
+            "rule <k> go(X) => done(X) ... </k> requires (X ==Int 1) #Or (X ==Int 2)",
+        ),
+    ] {
+        let error = refusal(&compile(&source(rule, extra)));
+        assert!(is(&error, "AxiomReadsTermAsPredicate"), "{rule}: {error:?}");
+        assert_names_the_rule(&error);
     }
 }
 
@@ -339,8 +392,8 @@ fn predicate_conditions_load_and_answer_as_written() {
     assert!(wrong.is_empty(), "{wrong:#?}");
 }
 
-/// The KORE of `claims`, a module `MLP-SPEC` over [`source`] with a rule `go(X) => done(X)`,
-/// compiled for proving as `kprove` compiles it.
+/// The KORE of `claims`, a module `MLP-SPEC` over [`source`] with the rules `go(X) => done(X)`
+/// and `test(_) => done(0)`, compiled for proving as `kprove` compiles it.
 fn spec(claims: &str) -> String {
     let spec = format!(
         "{}
@@ -349,7 +402,10 @@ module MLP-SPEC
 {claims}
 endmodule
 ",
-        source("rule [p]: <k> go(X) => done(X) ... </k>", "")
+        source(
+            "rule [p]: <k> go(X) => done(X) ... </k>",
+            "rule <k> test(_B) => done(0) ... </k>"
+        )
     );
     compile_with(
         &spec,
@@ -403,19 +459,111 @@ fn a_claim_whose_equality_has_a_connective_operand_is_refused() {
     );
 }
 
-/// A claim that reads an Int term as a predicate (`{X #Equals (1 #Or 2)}`, whose operand
-/// `1 #Or 2` would be read as `1 = true \/ 2 = true`) is refused when the spec loads, as a
-/// definition axiom with one is, since such a term has no reading as a predicate at all.
+/// The status of proving the claim `MLP-SPEC.<claim>` of `backend`, or the refusal's reason
+/// (its debug form, so that this file builds against a backend without the reason's variant).
+fn prove(backend: &mut Backend, claim: &str) -> Result<String, String> {
+    backend
+        .prove(ProveRequest {
+            claim: Some(format!("MLP-SPEC.{claim}")),
+            max_depth: Some(4),
+            ..ProveRequest::default()
+        })
+        .map(|result| result.status)
+        .map_err(|error| match error.claim_refusal() {
+            Some(reason) => format!("{reason:?}"),
+            None => format!("not a claim refusal: {error}"),
+        })
+}
+
+/// A claim whose predicate the backend's reading refuses is refused alone, with the reason, and
+/// the spec module and its other claims load and prove: an `#Equals` with a connective operand,
+/// in a `requires` (`{X #Equals (1 #Or 2)}`, `{X} = {1, 2}`) or conjoined to the target's term
+/// (`{X} ∖ {1, 2}` and `{X} = {1}` here, both false at some instance of `go(X)`), and a
+/// connective over terms conjoined to a term (`B #And #Not(true)` is `B` where `B` is `false`).
+/// The control claim [ok] proves.
 #[test]
-fn a_claim_that_reads_an_int_term_as_a_predicate_is_refused_at_load() {
-    let kore = spec("  claim [r]: <k> go(X) => done(X) ... </k> requires {X #Equals (1 #Or 2)}");
-    let error = Backend::new(&kore, "MLP-SPEC", BackendOptions::default())
-        .err()
-        .expect("the spec is refused");
-    assert!(
-        error
-            .message()
-            .contains("a term of sort SortInt{} is read as a predicate"),
-        "{error}"
+fn a_claim_with_a_refused_predicate_is_refused_alone() {
+    let kore = spec(
+        "  claim [r]: <k> go(X) => done(X) ... </k> requires {X #Equals (1 #Or 2)}
+  claim [a]: <k> go(X) => done(X #And {((X ==Int 1) #And (X ==Int 2)) #Equals false}) ... </k>
+  claim [b]: <k> go(X) => done(X #And {((X ==Int 1) #And true) #Equals (X ==Int 1)}) ... </k>
+  claim [c]: <k> test(B #And #Not(true)) => done(1) ... </k>
+  claim [d]: <k> test(B #And (B #Implies false)) => done(1) ... </k>
+  claim [ok]: <k> go(X) => done(X) ... </k>",
     );
+    let mut backend = Backend::new(&kore, "MLP-SPEC", BackendOptions::default())
+        .unwrap_or_else(|error| panic!("the spec loads: {error}"));
+    let mut wrong = Vec::new();
+    for (claim, reason) in [
+        ("r", "TermReadAsPredicate"),
+        ("a", "TermReadAsPredicate"),
+        ("b", "TermReadAsPredicate"),
+        (
+            "c",
+            "RefusedReading(TermConnectiveInConjunction { connective: \"not\"",
+        ),
+        (
+            "d",
+            "RefusedReading(TermConnectiveInConjunction { connective: \"implies\"",
+        ),
+    ] {
+        match prove(&mut backend, claim) {
+            Err(refusal) if refusal.starts_with(reason) => {}
+            outcome => wrong.push(format!("[{claim}]: {outcome:?}")),
+        }
+    }
+    let ok = prove(&mut backend, "ok");
+    if !matches!(&ok, Ok(status) if status == "proven") {
+        wrong.push(format!("[ok]: {ok:?}"));
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+/// The configuration `<k> program </k>` with a symbolic counter, for implication requests.
+fn configuration_of(program: &str) -> String {
+    format!(
+        "Lbl'-LT-'generatedTop'-GT-'{{}}(Lbl'-LT-'k'-GT-'{{}}(kseq{{}}(inj{{SortPgm{{}}, \
+         SortKItem{{}}}}({program}), Var'Unds'DotVar1:SortK{{}})), \
+         Lbl'-LT-'generatedCounter'-GT-'{{}}(VarC:SortInt{{}}))"
+    )
+}
+
+/// An implication request has no condition slot: an `#Equals` with a connective operand
+/// conjoined inside its term, and a connective over terms conjoined to a term, are refused, not
+/// misread. `go(X) /\ X = 1` does not imply `go(X #And {(X ==Int 1 #And X ==Int 2) #Equals
+/// false})` (which needs `X ∉ {1, 2}`), and `test(B #And #Not(true))`, which is `test(false)`,
+/// does not imply `test(true)`.
+#[test]
+fn an_implication_request_reads_its_predicates_as_written() {
+    let kore = compile(&source("rule [p]: <k> go(X) => done(X) ... </k>", ""));
+    let mut backend = Backend::new(&kore, MAIN, BackendOptions::default()).expect("it loads");
+    let eq = |value: i64| {
+        format!(
+            "Lbl'UndsEqlsEqls'Int'Unds'{{}}(VarX:SortInt{{}}, \\dv{{SortInt{{}}}}(\"{value}\"))"
+        )
+    };
+    let go_one = format!(
+        "\\and{{SortGeneratedTopCell{{}}}}({}, \\equals{{SortInt{{}}, SortGeneratedTopCell{{}}}}(VarX:SortInt{{}}, \\dv{{SortInt{{}}}}(\"1\")))",
+        configuration_of("Lblgo{}(VarX:SortInt{})")
+    );
+    let go_conjoined = configuration_of(&format!(
+        "Lblgo{{}}(\\and{{SortInt{{}}}}(VarX:SortInt{{}}, \\equals{{SortBool{{}}, SortInt{{}}}}(\\and{{SortBool{{}}}}({}, {}), \\dv{{SortBool{{}}}}(\"false\"))))",
+        eq(1),
+        eq(2)
+    ));
+    let test_negated = configuration_of(
+        "Lbltest{}(\\and{SortBool{}}(VarB:SortBool{}, \\not{SortBool{}}(\\dv{SortBool{}}(\"true\"))))",
+    );
+    let test_true = configuration_of("Lbltest{}(\\dv{SortBool{}}(\"true\"))");
+    let mut wrong = Vec::new();
+    for (antecedent, consequent) in [(&go_one, &go_conjoined), (&test_negated, &test_true)] {
+        let request = ImplicationRequest::new(
+            parse_pattern(antecedent).unwrap(),
+            parse_pattern(consequent).unwrap(),
+        );
+        if let Ok(result) = backend.implies(request) {
+            wrong.push(format!("{antecedent} => {consequent}: {}", result.status));
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
 }

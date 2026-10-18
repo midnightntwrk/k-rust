@@ -84,9 +84,9 @@ use crate::{
     rewrite::Pattern,
     rule::{
         AxiomError, ClassifiedAxiom, InternalizedRule, MALFORMED_OVERLOAD, Predicate,
-        PredicateTheory, RewriteTheory, RuleKind, RulePatternError, SentenceKey, TermIndex, Theory,
-        algebraic_axiom_roots, classify_axiom, collapse_equal_axioms, insert_rewrite_theory,
-        insert_theory, internalize_axiom,
+        PredicateReading, PredicateTheory, RewriteTheory, RuleKind, RulePatternError, SentenceKey,
+        TermIndex, Theory, algebraic_axiom_roots, classify_axiom, collapse_equal_axioms,
+        insert_rewrite_theory, insert_theory, internalize_axiom,
         internalize_model_predicate as internalize_rule_model_predicate,
         internalize_predicate as internalize_rule_predicate, internalize_rule_pattern,
         overload_pair, rule_index,
@@ -651,7 +651,6 @@ impl<'a> Admitted<'a> {
     ///
     /// The constraints are definedness-explicit (`Admitted::explicit_constraints`).
     pub fn internalize_pattern(self) -> Result<Pattern, DefinitionError> {
-        self.refuse_terms_read_as_predicates()?;
         let pattern = self
             .definition
             .internalize_pattern(self.pattern, self.sort_variables)?;
@@ -663,7 +662,6 @@ impl<'a> Admitted<'a> {
     /// The constraints, or the predicate, are definedness-explicit
     /// (`Admitted::explicit_constraints`).
     pub fn internalize_pattern_or_predicate(self) -> Result<PatternOrPredicate, DefinitionError> {
-        self.refuse_terms_read_as_predicates()?;
         Ok(
             match self
                 .definition
@@ -683,7 +681,6 @@ impl<'a> Admitted<'a> {
     ///
     /// The predicate is definedness-explicit (`Admitted::explicit_constraints`).
     pub fn internalize_predicate(self) -> Result<(crate::rule::Predicate, Sort), DefinitionError> {
-        self.refuse_terms_read_as_predicates()?;
         let (predicate, sort) = self
             .definition
             .internalize_predicate(self.pattern, self.sort_variables)?;
@@ -696,7 +693,6 @@ impl<'a> Admitted<'a> {
     pub fn internalize_model_predicate(
         self,
     ) -> Result<Option<(crate::rule::Predicate, Sort)>, DefinitionError> {
-        self.refuse_terms_read_as_predicates()?;
         self.definition
             .internalize_model_predicate(self.pattern, self.sort_variables)?
             .map(|(predicate, sort)| Ok((self.explicit_predicate(predicate)?, sort)))
@@ -709,7 +705,6 @@ impl<'a> Admitted<'a> {
     pub fn internalize_implication_pattern(
         self,
     ) -> Result<(Pattern, BTreeSet<Variable>), DefinitionError> {
-        self.refuse_terms_read_as_predicates()?;
         let (pattern, existentials) = self
             .definition
             .internalize_implication_pattern(self.pattern, self.sort_variables)?;
@@ -721,7 +716,6 @@ impl<'a> Admitted<'a> {
     /// The constraints of each alternative are definedness-explicit
     /// (`Admitted::explicit_constraints`).
     pub fn internalize_disjunction(self) -> Result<Vec<Pattern>, DefinitionError> {
-        self.refuse_terms_read_as_predicates()?;
         self.definition
             .internalize_disjunction(self.pattern, self.sort_variables)?
             .into_iter()
@@ -750,36 +744,16 @@ impl<'a> Admitted<'a> {
     ///
     /// A predicate whose definedness depends on an impure application in an operand a
     /// conditional does not evaluate, or an atom over a term-level `\and`, has no such form and
-    /// is refused ([`DefinitionError::UnstatedDefinedness`]).
+    /// is refused ([`DefinitionError::UnstatedDefinedness`]). A request with an `\equals` that
+    /// would read a term as a predicate is refused before, by the reading of its predicates
+    /// itself ([`crate::rule::PredicateReading`]), with
+    /// [`UnstatedDefinedness::TermReadAsPredicate`].
     fn explicit_constraints(
         self,
         predicates: Vec<crate::rule::Predicate>,
     ) -> Result<Vec<crate::rule::Predicate>, DefinitionError> {
         crate::definedness::request_definedness(self.definition, predicates)
             .map_err(|failure| DefinitionError::UnstatedDefinedness(failure.into()))
-    }
-
-    /// Refuse a request that equates a pattern holding a term in predicate position, such as
-    /// `\equals{Bool, R}(\and{Bool}(B1, B2), false)` or `\equals{Bool, R}(B, \top{Bool}())`.
-    ///
-    /// An `\equals` whose operands are not both terms is internalized as the `\iff` of its
-    /// operands read as predicates, and a term read as a predicate means `t = true`. That is the
-    /// meaning of neither example: `B1 /\ B2` of two Boolean values is their intersection,
-    /// `\bottom` where they differ, and `B = \top` is false, since a sort with two elements is not
-    /// a singleton. Such a request has no reading k-rust decides faithfully, so it is refused
-    /// before internalization, its aliases unfolded as the internalizer unfolds them. The
-    /// operands are searched through the connectives that read their arguments as predicates,
-    /// not below `\equals`, `\ceil`, `\floor` or `\in`, whose arguments are terms.
-    fn refuse_terms_read_as_predicates(self) -> Result<(), DefinitionError> {
-        // An alias applied in the request is read as its body, so the walk reads the unfolded
-        // pattern, as the internalizer does next.
-        let expanded = expand_aliases(self.pattern, &self.definition.aliases)?;
-        if equates_a_term_read_as_predicate(&expanded, HoldsEncoding::Refused) {
-            return Err(DefinitionError::UnstatedDefinedness(
-                UnstatedDefinedness::TermReadAsPredicate,
-            ));
-        }
-        Ok(())
     }
 
     fn explicit_pattern(self, mut pattern: Pattern) -> Result<Pattern, DefinitionError> {
@@ -1478,14 +1452,15 @@ pub enum DefinitionError {
         failure: PriorityConjunctFailure,
     },
     RulePattern(RulePatternError),
-    /// An axiom whose condition holds an `\equals` with an operand that is a matching-logic
-    /// connective over terms ([`equates_a_term_read_as_predicate`]), such as
-    /// `\equals{Bool, R}(\and{Bool}(B1, B2), false)` or `\equals{Int, R}(X, \or{Int}(1, 2))`:
-    /// such an operand denotes a set of values, which no predicate the backend reads states, so
-    /// the equality would be read with a meaning it does not have. A condition floated from a
-    /// term position (`t #And {P}`) is searched with every operand read as written. Carries the
-    /// axiom's name and position ([`RuleAttributes::diagnostic_name`](crate::rule::RuleAttributes::diagnostic_name))
-    /// and its sentence.
+    /// An axiom with an `\equals` whose operands are not both terms and not both predicates
+    /// ([`PredicateReading`]), such as `\equals{Bool, R}(\and{Bool}(B1, B2), false)` or
+    /// `\equals{Int, R}(X, \or{Int}(1, 2))`, outside the encoding `\equals{Bool, R}(P, true)`
+    /// of a condition at a frontend's condition slot ([`crate::rule::ConditionSlot`]): an operand
+    /// that is a matching-logic connective over terms denotes a set of values, and a term beside a
+    /// predicate is no predicate, so no predicate the backend reads states what the equality
+    /// states. Carries the axiom's name and position
+    /// ([`RuleAttributes::diagnostic_name`](crate::rule::RuleAttributes::diagnostic_name)) and
+    /// its sentence.
     AxiomReadsTermAsPredicate {
         axiom: String,
         sentence: Box<SentenceKey>,
@@ -1511,97 +1486,14 @@ pub enum UnstatedDefinedness {
     /// An `\equals` whose operands are not both terms holds a term where a predicate is read
     /// (`\equals{Bool, R}(\and{Bool}(B1, B2), false)`, `\equals{Bool, R}(B, \top{Bool}())`):
     /// that equality would be read as the `\iff` of its operands taken as predicates, which is
-    /// not its meaning.
+    /// not its meaning ([`PredicateReading`]). Outside an axiom, this is also the error the
+    /// reading itself returns for such an equality.
     TermReadAsPredicate,
-}
-
-/// Whether an `\equals` of a predicate `P` and the Boolean `true`, the form in which a K
-/// `requires P` or `ensures P` whose `P` is an ML predicate (`{ A #Equals B }`, `#Not(..)`) is
-/// emitted, counts as an equality that reads a term as a predicate.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum HoldsEncoding {
-    /// A request's predicates: such an equality is refused like any other.
-    Refused,
-    /// A claim's or an axiom's constraints, which the compiler writes: such an equality reached
-    /// from the pattern's root through connectives (`\and`, `\or`, `\not`, `\implies`,
-    /// `\iff`, `\exists`, `\forall`) is the encoding of "`P` holds" at a condition's root, and
-    /// its internalized reading, the `\iff` of `P` and `true = true`, is `P`, so it is read
-    /// faithfully. Only there: `P` itself, and the operands of every other `\equals`, are
-    /// searched as [`Self::Refused`] searches them, since an `\equals(P, true)` inside them is
-    /// an author's equality whose operand `P` is a term position.
-    Holds,
-}
-
-/// Whether `pattern` holds an `\equals` whose operands are not both terms and that holds a
-/// term where a predicate is read, such as `\equals{Bool, R}(\and{Bool}(B1, B2), false)` or
-/// `\equals{Bool, R}(B, \top{Bool}())`. Such an equality is internalized as the `\iff` of its
-/// operands read as predicates, with a term read as `t = true`, which is not its meaning:
-/// `B1 /\ B2` of two Boolean values is their intersection, `\bottom` where they differ, and
-/// `B = \top` is false, since a sort with two elements is not a singleton. An `\equals` of two
-/// predicate-shaped patterns (no term read as a predicate) is their `\iff` literally, since a
-/// predicate is all of its sort or empty, and is not one. With [`HoldsEncoding::Holds`], the
-/// encoding `\equals(P, true)` reached from the root through connectives is not one either
-/// ([`HoldsEncoding::Holds`]). The operands are searched through the connectives that read their
-/// arguments as predicates and through the operands of `\equals`, not below an application,
-/// `\ceil`, `\floor` or `\in`, whose arguments are terms. `pattern` has its aliases unfolded.
-pub(crate) fn equates_a_term_read_as_predicate(
-    pattern: &kore::Pattern,
-    holds: HoldsEncoding,
-) -> bool {
-    fn reads_a_term(pattern: &kore::Pattern) -> bool {
-        use kore::Pattern as P;
-        match pattern {
-            pattern if crate::rule::is_term_pattern(pattern) => true,
-            P::And { arguments, .. } | P::Or { arguments, .. } => {
-                arguments.iter().any(reads_a_term)
-            }
-            P::Not { argument, .. } => reads_a_term(argument),
-            P::Implies { left, right, .. } | P::Iff { left, right, .. } => {
-                reads_a_term(left) || reads_a_term(right)
-            }
-            P::Exists { body, .. } | P::Forall { body, .. } => reads_a_term(body),
-            _ => false,
-        }
-    }
-    fn is_true(pattern: &kore::Pattern) -> bool {
-        matches!(
-            pattern,
-            kore::Pattern::DomainValue {
-                sort: kore::Sort::Application { name, arguments },
-                value,
-            } if name == "SortBool" && arguments.is_empty() && value.as_utf8().ok() == Some("true")
-        )
-    }
-    // Through a connective the walk stays at the condition's root; below an `\equals` it reads
-    // operands, where no equality is the encoding.
-    let walk = |pattern: &kore::Pattern| equates_a_term_read_as_predicate(pattern, holds);
-    let operand =
-        |pattern: &kore::Pattern| equates_a_term_read_as_predicate(pattern, HoldsEncoding::Refused);
-    use kore::Pattern as P;
-    match pattern {
-        P::Equals { left, right, .. }
-            if holds == HoldsEncoding::Holds
-                && ((is_true(right) && !crate::rule::is_term_pattern(left))
-                    || (is_true(left) && !crate::rule::is_term_pattern(right))) =>
-        {
-            if is_true(right) {
-                operand(left)
-            } else {
-                operand(right)
-            }
-        }
-        P::Equals { left, right, .. } => {
-            let terms = crate::rule::is_term_pattern(left) && crate::rule::is_term_pattern(right);
-            (!terms && (reads_a_term(left) || reads_a_term(right)))
-                || operand(left)
-                || operand(right)
-        }
-        P::And { arguments, .. } | P::Or { arguments, .. } => arguments.iter().any(walk),
-        P::Not { argument, .. } => walk(argument),
-        P::Implies { left, right, .. } | P::Iff { left, right, .. } => walk(left) || walk(right),
-        P::Exists { body, .. } | P::Forall { body, .. } => walk(body),
-        _ => false,
-    }
+    /// A claim's side has a predicate the backend's reading refuses
+    /// ([`PredicateReading`]): a connective over terms conjoined to a term
+    /// ([`RulePatternError::TermConnectiveInConjunction`]) or a term of another sort than Bool
+    /// read as a predicate ([`RulePatternError::NonBoolTermAsPredicate`]).
+    RefusedReading(Box<RulePatternError>),
 }
 
 impl From<crate::definedness::RequestDefinednessFailure> for UnstatedDefinedness {
@@ -1632,6 +1524,7 @@ impl fmt::Display for UnstatedDefinedness {
                 "an \\equals whose operands are not both terms holds a term where a predicate is \
                  read",
             ),
+            Self::RefusedReading(error) => write!(formatter, "{error}"),
         }
     }
 }
@@ -1900,9 +1793,10 @@ impl fmt::Display for DefinitionError {
                 write!(
                     formatter,
                     "Axiom {axiom} (sentence {index} of module {module}) has an equality whose \
-                     operand is a matching-logic connective over terms; such an operand denotes \
-                     a set of values, which the backend does not read; write the connective at \
-                     the root of the condition, or use a Bool operation"
+                     operand is a matching-logic connective over terms, or a predicate beside a \
+                     term; such an operand denotes a set of values, which the backend does not \
+                     read; write the connective at the root of the condition, or use a Bool \
+                     operation"
                 )
             }
             Self::Claim(error) => write!(formatter, "Invalid claim: {error}"),
@@ -1916,6 +1810,10 @@ impl fmt::Display for DefinitionError {
                     "The predicates of the request cannot be read faithfully: an \\equals whose \
                      operands are not both terms holds a term where a predicate is read",
                 ),
+            Self::UnstatedDefinedness(UnstatedDefinedness::RefusedReading(error)) => write!(
+                formatter,
+                "The predicates of the pattern cannot be read faithfully: {error}"
+            ),
             Self::UnstatedDefinedness(UnstatedDefinedness::TermConjunction) => formatter.write_str(
                 "The definedness of a predicate of the request cannot be stated: an atom holds a \
                  term-level \\and",
@@ -2025,6 +1923,7 @@ impl Drop for BackendDefinition {
 
 impl BackendDefinition {
     /// The aliases of the definition, by name.
+    #[cfg(test)]
     pub(crate) fn aliases(&self) -> &BTreeMap<String, AliasDefinition> {
         &self.aliases
     }
@@ -3129,12 +3028,15 @@ impl BackendDefinition {
         injection_role: UnlicensedInjectionSite,
     ) -> Result<Term, DefinitionError> {
         let mut floated = Vec::new();
+        // A condition conjoined to a term here is refused whatever it states, so it is read
+        // without the refusals of the predicate reading, which would only replace this error.
         let term = self.internalize_term_collecting(
             pattern,
             sort_variables,
             injection_role,
             &mut floated,
             None,
+            PredicateReading::Unchecked,
         )?;
         if !floated.is_empty() {
             return Err(DefinitionError::PredicateInTermPosition {
@@ -3151,6 +3053,7 @@ impl BackendDefinition {
         injection_role: UnlicensedInjectionSite,
         floated: &mut Vec<crate::rule::Predicate>,
         deferred_predicates: Option<&mut Vec<kore::Pattern>>,
+        reading: PredicateReading,
     ) -> Result<Term, DefinitionError> {
         let known = sort_variables.iter().cloned().collect::<BTreeSet<_>>();
         let pattern = expand_aliases(pattern, &self.aliases)?;
@@ -3160,6 +3063,7 @@ impl BackendDefinition {
             injection_role,
             floated,
             deferred_predicates,
+            reading,
         )
     }
 
@@ -3433,6 +3337,7 @@ impl BackendDefinition {
         injection_role: UnlicensedInjectionSite,
         floated: &mut Vec<crate::rule::Predicate>,
         mut deferred_predicates: Option<&mut Vec<kore::Pattern>>,
+        reading: PredicateReading,
     ) -> Result<Term, DefinitionError> {
         match pattern {
             kore::Pattern::String(value) => {
@@ -3461,6 +3366,7 @@ impl BackendDefinition {
                             injection_role,
                             floated,
                             deferred_predicates.as_deref_mut(),
+                            reading,
                         )
                     })
                     .collect::<Result<Vec<_>, _>>()?;
@@ -3480,11 +3386,15 @@ impl BackendDefinition {
                     if let Some(deferred) = deferred_predicates.as_deref_mut() {
                         deferred.push(predicate.clone());
                     } else {
-                        floated.push(internalize_rule_predicate(
+                        // A condition conjoined to a term is read as written; a connective over
+                        // terms there is a set of values, not a condition.
+                        crate::rule::refuse_term_connective(predicate, reading)?;
+                        floated.push(crate::rule::internalize_predicate_reading(
                             self,
                             predicate,
                             &sort_variables,
                             injection_role,
+                            reading,
                         )?);
                     }
                 }
@@ -3498,6 +3408,7 @@ impl BackendDefinition {
                             injection_role,
                             floated,
                             deferred_predicates.as_deref_mut(),
+                            reading,
                         )
                     })
                     .collect::<Result<Vec<_>, _>>()?;
@@ -3524,6 +3435,7 @@ impl BackendDefinition {
                             injection_role,
                             floated,
                             deferred_predicates.as_deref_mut(),
+                            reading,
                         )
                     })
                     .collect::<Result<Vec<_>, _>>()?;
@@ -6216,6 +6128,12 @@ mod tests {
             parse_pattern(r"\and{SortBool{}}(\not{SortBool{}}(X:SortBool{}), X:SortBool{})")
                 .unwrap();
         let predicate = parse_pattern(
+            r"\equals{SortBool{}, SortBool{}}(\not{SortBool{}}(\top{SortBool{}}()), \bottom{SortBool{}}())",
+        )
+        .unwrap();
+        // `Bool ∖ {X} = {X}` equates two sets of Boolean values, which no backend predicate
+        // states.
+        let set_equality = parse_pattern(
             r"\equals{SortBool{}, SortBool{}}(\not{SortBool{}}(X:SortBool{}), X:SortBool{})",
         )
         .unwrap();
@@ -6228,6 +6146,12 @@ mod tests {
             definition.internalize_model_predicate(&predicate, &[]),
             Ok(Some((crate::rule::Predicate::Iff(..), _)))
         ));
+        assert_eq!(
+            definition.internalize_model_predicate(&set_equality, &[]),
+            Err(DefinitionError::UnstatedDefinedness(
+                UnstatedDefinedness::TermReadAsPredicate
+            ))
+        );
     }
 
     #[test]

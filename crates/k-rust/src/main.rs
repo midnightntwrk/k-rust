@@ -4542,10 +4542,15 @@ mod tests {
         );
     }
 
+    /// A conjunction with no term component is a predicate. (`\and(\not(X), X)` is not one: its
+    /// component `X` is a term, to which a `\not` over a term would be conjoined, a set of
+    /// values, and the request is refused.)
     #[test]
     fn standalone_simplification_detects_contradictions() {
         assert_eq!(
-            simplify_predicate(r"\and{SortBool{}}(\not{SortBool{}}(X:SortBool{}), X:SortBool{})"),
+            simplify_predicate(
+                r"\and{SortBool{}}(\not{SortBool{}}(X:SortBool{}), \not{SortBool{}}(\not{SortBool{}}(X:SortBool{})))"
+            ),
             parse_kore_pattern(r"\bottom{SortBool{}}()").unwrap()
         );
     }
