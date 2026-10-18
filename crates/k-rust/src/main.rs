@@ -4163,7 +4163,7 @@ mod tests {
                 .map_err(|error| {
                     io::Error::other(format!("could not simplify KORE pattern: {error:?}"))
                 })?;
-                Ok(externalize::ml_pattern(&simplified, &result_sort))
+                Ok(externalize::predicate_pattern(&simplified, &result_sort))
             }
         }
     }
@@ -4513,46 +4513,78 @@ mod tests {
         assert_eq!(binary, expected);
     }
 
+    /// A definition with only the sort Bool, over whose terms the predicates below are written.
     fn empty_predicate_definition() -> BackendDefinition {
         let syntax = parse_kore_definition(
             r#"[]
             module MAIN
-              sort SortK{} []
+              hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
             endmodule []"#,
         )
         .unwrap();
         BackendDefinition::internalize(&syntax, "MAIN").unwrap()
     }
 
-    fn simplify_predicate(source: &str) -> KorePattern {
+    fn simplify_predicate(source: &str) -> Result<KorePattern, Box<dyn Error>> {
         let syntax = parse_kore_pattern(source).unwrap();
-        simplify_kore_pattern(&empty_predicate_definition(), &syntax).unwrap()
+        simplify_kore_pattern(&empty_predicate_definition(), &syntax)
     }
+
+    /// The predicate `X = Y` over two Boolean variables, which is all of its sort or empty.
+    const EQUAL: &str = r"\equals{SortBool{}, SortBool{}}(X:SortBool{}, Y:SortBool{})";
 
     #[test]
     fn standalone_simplification_deduplicates_conjunctions() {
         assert_eq!(
-            simplify_predicate(
-                r"\and{SortK{}}(\not{SortK{}}(X:SortK{}), \not{SortK{}}(X:SortK{}))"
-            ),
-            parse_kore_pattern(r"\not{SortK{}}(X:SortK{})").unwrap()
+            simplify_predicate(&format!(
+                r"\and{{SortBool{{}}}}(\not{{SortBool{{}}}}({EQUAL}), \not{{SortBool{{}}}}({EQUAL}))"
+            ))
+            .unwrap(),
+            parse_kore_pattern(&format!(r"\not{{SortBool{{}}}}({EQUAL})")).unwrap()
         );
     }
 
+    /// A pattern that states no term and has no term in a predicate position is a predicate, read
+    /// as one: `not(X = Y) ∧ not(not(X = Y))` is a contradiction.
     #[test]
     fn standalone_simplification_detects_contradictions() {
         assert_eq!(
-            simplify_predicate(r"\and{SortK{}}(\not{SortK{}}(X:SortK{}), X:SortK{})"),
-            parse_kore_pattern(r"\bottom{SortK{}}()").unwrap()
+            simplify_predicate(&format!(
+                r"\and{{SortBool{{}}}}(\not{{SortBool{{}}}}({EQUAL}), \not{{SortBool{{}}}}(\not{{SortBool{{}}}}({EQUAL})))"
+            ))
+            .unwrap(),
+            parse_kore_pattern(r"\bottom{SortBool{}}()").unwrap()
         );
     }
 
     #[test]
     fn standalone_simplification_eliminates_double_negation() {
         assert_eq!(
-            simplify_predicate(r"\not{SortK{}}(\not{SortK{}}(X:SortK{}))"),
-            parse_kore_pattern("X:SortK{}").unwrap()
+            simplify_predicate(&format!(
+                r"\not{{SortBool{{}}}}(\not{{SortBool{{}}}}({EQUAL}))"
+            ))
+            .unwrap(),
+            parse_kore_pattern(EQUAL).unwrap()
         );
+    }
+
+    /// A pattern that states no term but has a term in a predicate position is a connective over
+    /// terms, a set of values, not a predicate: `\not(true)` and `\implies(true, false)` over Bool
+    /// are `{false}`, and `\not(X ∧ X = true)` is `{false}` where `X` is `true`. Each is refused,
+    /// not read with its terms as `t = true` (which answers `\bottom`, `\bottom` and `\not(X)`).
+    #[test]
+    fn standalone_simplification_refuses_a_term_below_a_connective_with_no_term() {
+        for pattern in [
+            r#"\not{SortBool{}}(\dv{SortBool{}}("true"))"#,
+            r#"\implies{SortBool{}}(\dv{SortBool{}}("true"), \dv{SortBool{}}("false"))"#,
+            r#"\not{SortBool{}}(\and{SortBool{}}(X:SortBool{}, \equals{SortBool{}, SortBool{}}(X:SortBool{}, \dv{SortBool{}}("true"))))"#,
+        ] {
+            let error = simplify_predicate(pattern).expect_err(pattern);
+            assert!(
+                error.to_string().contains("states no term"),
+                "{pattern}: {error}"
+            );
+        }
     }
 
     #[test]

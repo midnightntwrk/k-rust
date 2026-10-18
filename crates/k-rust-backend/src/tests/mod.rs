@@ -10,6 +10,7 @@ pub(crate) mod lean_bridge;
 mod matching;
 mod matching_oracle;
 mod parametric_subsorts;
+mod predicate_reading;
 mod rewrite;
 mod several_matchings;
 mod unread_frames;

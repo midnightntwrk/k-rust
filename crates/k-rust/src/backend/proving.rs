@@ -124,12 +124,22 @@ pub fn definition_digest(definition: &Definition, spec_module: &str) -> String {
 ///   read as total;
 /// - `claim-constraints-with-definedness-1`: a claim's own constraints, on both sides, are read
 ///   with their matching-logic meaning, definedness included (`ReachabilityClaim`), and a claim
-///   whose constraints have no such form is refused.
+///   whose constraints have no such form is refused;
+/// - `claim-predicates-as-written-2`: as the previous, with every predicate read as written
+///   outside the frontend's condition slots, so a claim with an `\equals` whose operand is a
+///   connective over terms or a predicate beside a term, a connective over terms conjoined to a
+///   term, or a term of another sort than Bool read as a predicate is refused; the previous
+///   reading gave some of them a meaning they do not have, and proved some. A refused claim is
+///   refused before any saved proof is looked up, but a proof saved under the previous reading
+///   may prove another claim that used a now-refused claim as a circularity, and would be
+///   reused as proven on a false assumption; no saved proof records the circularities it used,
+///   so every proof saved under the previous reading is set aside.
 ///
 /// The backend gives a claim its reading when it internalizes it
-/// (`k_rust_backend::claim::with_explicit_definedness`); a change there that changes what a
+/// (`k_rust_backend::claim::internalize_reachability_claim` and
+/// `k_rust_backend::claim::with_explicit_definedness`); a change there that changes what a
 /// claim's KORE means must name a new reading here.
-const CLAIM_READING: &str = "claim-constraints-with-definedness-1";
+const CLAIM_READING: &str = "claim-predicates-as-written-2";
 
 /// The assumptions of a proof run that change what a `proven` claim certifies, beside the
 /// compiled definition ([`saved_proofs_digest`]).
