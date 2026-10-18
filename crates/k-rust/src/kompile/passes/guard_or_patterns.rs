@@ -16,6 +16,10 @@
 //! variable of the result, in a `requires` a variable that no match binds. A disjunction in a
 //! condition is the predicate disjunction its text states and stays as written. Claims are not
 //! transformed.
+//!
+//! In the compile pipeline the stage `resolve contexts` runs before this one, so a context has
+//! already become the heating and cooling rules that this pass transforms as rules; the context
+//! arm serves a definition given to [`guard_or_patterns`] directly.
 #![deny(clippy::wildcard_enum_match_arm)]
 
 use std::fmt;

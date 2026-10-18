@@ -197,6 +197,8 @@ const CONNECTIVE_OPERANDS: &[&str] = &[
     "{true #Equals ((X ==Int 1) #Or (X ==Int 2))}",
     "{((X ==Int 1) #Or (X ==Int 2)) #Equals true}",
     "{X #Equals (1 #Or 2)}",
+    // {X ==Int 1} = {X ==Int 1, false} holds where X =/= 1: an equality of two sets of values.
+    "{((X ==Int 1) #Or (X ==Int 1)) #Equals ((X ==Int 1) #Or false)}",
 ];
 
 /// The compiler refuses `sentence` (such as `rule [MLP.p]`), written on `line` of `mlp.k`, for
@@ -246,11 +248,6 @@ fn assert_refused_at_compile_and_in_the_encoding(rule: &str) {
         "rule [MLP.p]",
         RULE_LINE,
     );
-    // guard_or_patterns still aliases a disjunction in a condition, which the test profile's
-    // kompile invariants refuse for the LLVM target (MLP/1 removes the alias).
-    if rule.contains("#Or") {
-        return;
-    }
     let encoded = compile_with(
         &source(rule, ""),
         MAIN,

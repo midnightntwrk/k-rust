@@ -670,15 +670,10 @@ fn equalities_of_two_predicates_or_two_terms_compile() {
     }
 }
 
-/// The LLVM target keeps its output, these conditions included. The `#Or` condition is left out:
-/// guard_or_patterns aliases a disjunction there, which the test profile's kompile invariants
-/// refuse for that target at the base already (MLP/1).
+/// The LLVM target keeps its output, these conditions included.
 #[test]
 fn the_llvm_target_compiles_a_mixed_equality_as_before() {
-    for (condition, _) in MIXED_EQUALITIES
-        .iter()
-        .filter(|(condition, _)| !condition.contains("#Or"))
-    {
+    for (condition, _) in MIXED_EQUALITIES {
         let kore = compile_for(
             &format!("  rule [p]: <k> go(X) => done(X) ... </k> requires {condition}\n"),
             CompilationBackend::Llvm,
