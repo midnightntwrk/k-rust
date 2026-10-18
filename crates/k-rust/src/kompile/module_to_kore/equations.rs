@@ -36,6 +36,7 @@
 
 use super::roles::{EmittedEquation, SymbolRoles};
 use super::*;
+use crate::kompile::fresh_names::{GeneratedVariableIdentity, is_generated_anonymous};
 use crate::kompile::sort_injections::SentenceSortVariables;
 use k_rust_kore::measure::{self, Counter};
 use k_rust_kore::names::DEFAULT_RULE_PRIORITY;
@@ -677,6 +678,16 @@ fn emit_owise_equation(
         let mut renames = BTreeMap::new();
         let refreshed_left = refresh_variables(competitor_left, &mut fresh, &mut renames);
         let refreshed_requires = refresh_variables(competitor_requires, &mut fresh, &mut renames);
+        // Every refreshed name is spelled like a generated anonymous variable, so the competitor
+        // is converted with anonymity taken from the variable each name replaces: a quantifier
+        // over a named variable binds that variable only.
+        let anonymous = renames
+            .iter()
+            .filter(|((original, _), _)| is_generated_anonymous(original))
+            .map(|(_, refreshed)| GeneratedVariableIdentity::element(refreshed.clone()))
+            .collect();
+        let competitor_converter = converter.with_generated_anonymous(anonymous);
+        let converter = &competitor_converter;
         let Term::Apply {
             arguments: competitor_children,
             ..
@@ -706,27 +717,32 @@ fn emit_owise_equation(
             arguments: vec![condition, matches],
         };
         // The competitor holds where some instance of its free variables matches and satisfies
-        // it; a variable an `#Exists` or `#Forall` of its arguments or condition binds already
-        // has its binder.
-        let mut quantified = free_variable_terms([&refreshed_left, &refreshed_requires])
-            .into_values()
-            .collect::<Vec<_>>();
-        quantified.sort_by(|left, right| {
+        // it. Its free variables are those of the converted pattern, whose binders are the ones
+        // the backend reads; a variable a quantifier of the competitor binds has its binder. They
+        // are bound in the (sort, name) order of the refreshed variables they convert from.
+        let free = candidate.free_variables();
+        let mut quantified = Vec::new();
+        // Invariant: `quantified` holds the key and the KORE variable of every refreshed
+        // variable before `term` whose conversion is free in `candidate`.
+        for term in variable_terms([&refreshed_left, &refreshed_requires]).into_values() {
             #[expect(
                 clippy::wildcard_enum_match_arm,
                 reason = "Term is not a sentence kind; only the listed variants are special here"
             )]
-            let key = |term: &Term| match term.unannotated() {
+            let key = match term.unannotated() {
                 Term::Variable { name, sort } => (sort.clone(), name.clone()),
-                _ => unreachable!("free_variable_terms returns variables"),
+                _ => unreachable!("variable_terms returns variables"),
             };
-            key(left).cmp(&key(right))
-        });
-        // Invariant: `candidate` is wrapped in one existential per variable of `quantified` after `term`, so after the reverse traversal the first sorted variable is the outermost binder; each iteration consumes one variable.
-        for term in quantified.into_iter().rev() {
             let Some(variable) = take_kore_variable(converter.convert(&term)?) else {
                 unreachable!("collected terms are variables")
             };
+            if free.contains(&variable) {
+                quantified.push((key, variable));
+            }
+        }
+        quantified.sort_by(|(left, _), (right, _)| left.cmp(right));
+        // Invariant: `candidate` is wrapped in one existential per variable of `quantified` after `variable`, so after the reverse traversal the first sorted variable is the outermost binder; each iteration consumes one variable.
+        for (_, variable) in quantified.into_iter().rev() {
             candidate = Pattern::Exists {
                 sort: predicate_sort.clone(),
                 variable: Box::new(variable),
@@ -948,58 +964,6 @@ fn variable_terms<'a>(roots: impl IntoIterator<Item = &'a Term>) -> BTreeMap<Str
                     .or_insert_with(|| term.clone());
             }
         });
-    }
-    variables
-}
-
-/// The variables free in `roots`, each name mapped to its first free occurrence in preorder: an
-/// occurrence inside the body of an `#Exists` or `#Forall` whose first argument holds its name is
-/// bound there, and the first argument itself only names binders.
-fn free_variable_terms<'a>(roots: impl IntoIterator<Item = &'a Term>) -> BTreeMap<String, Term> {
-    let mut variables = BTreeMap::new();
-    let mut bound: Vec<String> = Vec::new();
-    // Each item is a term and the number of entries of `bound` in its scope; children are pushed
-    // in reverse, so terms are popped in preorder.
-    let mut pending: Vec<(&Term, usize)> = Vec::new();
-    // Invariant: `variables` maps every name with a free occurrence among the terms popped so
-    // far to its first one; every term popped is a subterm of a root, visited once, so the loop
-    // ends; `bound[..scope]` is the binders in scope of each pending term.
-    for root in roots {
-        pending.push((root, 0));
-        while let Some((term, scope)) = pending.pop() {
-            bound.truncate(scope);
-            match term.unannotated() {
-                Term::Variable { name, .. } => {
-                    if !bound.contains(name) {
-                        variables
-                            .entry(name.clone())
-                            .or_insert_with(|| term.clone());
-                    }
-                }
-                Term::Apply { label, arguments }
-                    if (label.is(InternalLabel::Exists) || label.is(InternalLabel::Forall))
-                        && arguments.len() == 2 =>
-                {
-                    arguments[0].visit_preorder(&mut |binder| {
-                        if let Term::Variable { name, .. } = binder.unannotated() {
-                            bound.push(name.clone());
-                        }
-                    });
-                    pending.push((&arguments[1], bound.len()));
-                }
-                other @ (Term::InjectedLabel(_)
-                | Term::Rewrite { .. }
-                | Term::As { .. }
-                | Term::Sequence(_)
-                | Term::Apply { .. }
-                | Term::Token { .. }
-                | Term::Annotated { .. }) => {
-                    for child in other.children().into_iter().rev() {
-                        pending.push((child, scope));
-                    }
-                }
-            }
-        }
     }
     variables
 }
@@ -2047,35 +2011,252 @@ mod tests {
         }
     }
 
-    /// A name bound by a quantifier in one place and free in another is free; a name only a
-    /// quantifier binds is not.
-    #[test]
-    fn free_variable_terms_skip_only_the_quantified_occurrences() {
-        let exists = |binder: &str, body: Term| {
-            Term::apply(
-                InternalLabel::Exists.as_str(),
-                vec![Term::variable(binder), body],
-            )
+    /// The owise axiom of `f(X) => 0 [owise]` beside the one competitor `f(left) => 1 requires
+    /// requires`, in a module with the constructor `g(Int, Int)` of sort `Pair` and the function
+    /// `h(Int)`, as structured input or a generated competitor can state it.
+    fn owise_axiom_beside(left: Term, requires: Term) -> Result<KoreSentence, ModuleToKoreError> {
+        let parsed = crate::outer::parse(
+            "owise-competitor.k",
+            indoc! {r#"
+                module MAIN
+                  syntax Bool
+                  syntax Int ::= r"[0-9]+" [token]
+                  syntax Pair ::= "g(" Int "," Int ")" [symbol(g)]
+                  syntax Int ::= "f(" Pair ")" [function, total, symbol(f)]
+                               | "h(" Int ")" [function, total, symbol(h)]
+                endmodule
+            "#},
+        )
+        .unwrap();
+        let definition = crate::outer::lower(&parsed, "MAIN").unwrap();
+        let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+        let catalog = resolved.production_catalog(resolved.main_module_id());
+        let injector = SortInjector::new(&resolved, "MAIN").unwrap();
+        let converter = TermConverter::new(&resolved, "MAIN").unwrap();
+        let pair = Sort::new("Pair");
+        let competitor = Sentence::Rule {
+            body: Term::Rewrite {
+                left: Box::new(Term::apply("f", vec![left])),
+                right: Box::new(Term::Token {
+                    token: "1".into(),
+                    sort: Sort::new("Int"),
+                }),
+            },
+            requires,
+            ensures: Term::Token {
+                token: "true".into(),
+                sort: Sort::new("Bool"),
+            },
+            attributes: KAttributes::default(),
         };
-        let term = Term::apply(
-            "pair",
-            vec![
-                Term::variable("Y"),
-                exists("Y", Term::variable("Y")),
-                exists(
-                    "W",
-                    Term::apply("g", vec![Term::variable("W"), Term::variable("V")]),
+        let mut cache = OwiseCompetitors {
+            scanned: true,
+            injected: vec![Some((competitor, SentenceSortVariables::default()))],
+            by_signature: BTreeMap::from([((Label::new("f"), vec![pair.clone()]), vec![0])]),
+            failure: None,
+        };
+        let x = Term::Variable {
+            name: "X".into(),
+            sort: Some(pair),
+        };
+        let left = Term::apply("f", vec![x.clone()]);
+        let attributes = KAttributes::default();
+        let equation = equation_info(&left, &attributes, &catalog)
+            .unwrap()
+            .unwrap();
+        emit_owise_equation(
+            equation,
+            converter.convert(&x).unwrap(),
+            Pattern::Top {
+                sort: KoreSort::Variable("R".into()),
+            },
+            &attributes,
+            &BTreeSet::new(),
+            &converter,
+            &catalog,
+            &injector,
+            &[],
+            &mut cache,
+            &SentenceSortVariables::default(),
+            &BTreeSet::from(["X".into()]),
+            ConditionForm::Predicate,
+        )
+    }
+
+    fn int_variable(name: &str) -> Term {
+        Term::Variable {
+            name: name.into(),
+            sort: Some(Sort::new("Int")),
+        }
+    }
+
+    fn quantified(quantifier: InternalLabel, sort: &str, binder: Term, body: Term) -> Term {
+        Term::Apply {
+            label: Label::with_parameters(quantifier.as_str(), vec![Sort::new(sort)]),
+            arguments: vec![binder, body],
+        }
+    }
+
+    /// `{X #Equals h(Y)}`, a predicate condition at Bool.
+    fn x_equals_h(y: &str) -> Term {
+        Term::Apply {
+            label: Label::with_parameters(
+                InternalLabel::Equals.as_str(),
+                vec![Sort::new("Int"), Sort::new("Bool")],
+            ),
+            arguments: vec![int_variable("X"), Term::apply("h", vec![int_variable(y)])],
+        }
+    }
+
+    /// Every binder of `pattern`, outermost first along each path, with the binders enclosing it.
+    fn binders_with_scope(
+        pattern: &Pattern,
+        enclosing: &mut Vec<String>,
+        binders: &mut Vec<(String, bool, bool)>,
+    ) {
+        let bound = if let Pattern::Exists { variable, body, .. }
+        | Pattern::Forall { variable, body, .. } = pattern
+        {
+            binders.push((
+                variable.name.clone(),
+                body.free_variables().contains(variable.as_ref()),
+                enclosing.contains(&variable.name),
+            ));
+            enclosing.push(variable.name.clone());
+            true
+        } else {
+            false
+        };
+        for child in crate::kore::walk::children(pattern) {
+            binders_with_scope(child, enclosing, binders);
+        }
+        if bound {
+            enclosing.pop();
+        }
+    }
+
+    /// The owise axiom of each competitor shape: every binder binds a variable free in its body
+    /// (K3), no binder rebinds a name an enclosing binder binds (a competitor variable is never
+    /// captured, and no shape here shadows a name), no competitor variable is left free, and the
+    /// axiom has `binders` binders over generated names: one per free competitor variable and
+    /// one per variable its own quantifiers bind.
+    #[test]
+    fn owise_binds_each_competitor_variable_once_and_captures_none() {
+        let y = || int_variable("Y");
+        let shapes = [
+            (
+                "#Exists Y . g(Y, Z)",
+                quantified(
+                    InternalLabel::Exists,
+                    "Pair",
+                    y(),
+                    Term::apply("g", vec![y(), int_variable("Z")]),
                 ),
-            ],
-        );
-        assert_eq!(
-            free_variable_terms([&term]).into_keys().collect::<Vec<_>>(),
-            ["V", "Y"]
-        );
-        assert_eq!(
-            variable_terms([&term]).into_keys().collect::<Vec<_>>(),
-            ["V", "W", "Y"]
-        );
+                Term::Token {
+                    token: "true".into(),
+                    sort: Sort::new("Bool"),
+                },
+                2,
+            ),
+            (
+                "#Exists _ . g(_, 0)",
+                quantified(
+                    InternalLabel::Exists,
+                    "Pair",
+                    int_variable("_Gen0"),
+                    Term::apply(
+                        "g",
+                        vec![
+                            int_variable("_Gen1"),
+                            Term::Token {
+                                token: "0".into(),
+                                sort: Sort::new("Int"),
+                            },
+                        ],
+                    ),
+                ),
+                Term::Token {
+                    token: "true".into(),
+                    sort: Sort::new("Bool"),
+                },
+                1,
+            ),
+            (
+                "g(X, _) requires #Forall Y . {X #Equals h(Y)}",
+                Term::apply("g", vec![int_variable("X"), int_variable("_Gen0")]),
+                quantified(InternalLabel::Forall, "Bool", y(), x_equals_h("Y")),
+                3,
+            ),
+            (
+                "g(X, _) requires #Exists Y . {X #Equals h(Y)}",
+                Term::apply("g", vec![int_variable("X"), int_variable("_Gen0")]),
+                quantified(InternalLabel::Exists, "Bool", y(), x_equals_h("Y")),
+                3,
+            ),
+            (
+                "#Exists Y . #Exists W . g(Y, W)",
+                quantified(
+                    InternalLabel::Exists,
+                    "Pair",
+                    y(),
+                    quantified(
+                        InternalLabel::Exists,
+                        "Pair",
+                        int_variable("W"),
+                        Term::apply("g", vec![y(), int_variable("W")]),
+                    ),
+                ),
+                Term::Token {
+                    token: "true".into(),
+                    sort: Sort::new("Bool"),
+                },
+                2,
+            ),
+        ];
+        // Every shape is checked, and every problem of every shape reported.
+        let mut problems = Vec::new();
+        for (shape, left, requires, expected) in shapes {
+            let emitted = match owise_axiom_beside(left, requires) {
+                Ok(emitted) => emitted,
+                Err(error) => {
+                    problems.push(format!("{shape}: {error}"));
+                    continue;
+                }
+            };
+            let kore = crate::kore::printer::Printer::compact().print_sentence(&emitted);
+            let KoreSentence::Axiom { pattern, .. } = &emitted else {
+                panic!("{shape}: an owise equation must emit an axiom");
+            };
+            let mut binders = Vec::new();
+            binders_with_scope(pattern, &mut Vec::new(), &mut binders);
+            for (name, binds_free, rebinds) in &binders {
+                if !binds_free {
+                    problems.push(format!("{shape}: {name} is bound vacuously in {kore}"));
+                }
+                if *rebinds {
+                    problems.push(format!(
+                        "{shape}: {name} is bound twice on one path in {kore}"
+                    ));
+                }
+            }
+            let generated = binders
+                .iter()
+                .filter(|(name, _, _)| name.starts_with("Var'Unds'Gen"))
+                .count();
+            if generated != expected {
+                problems.push(format!(
+                    "{shape}: {generated} binders over generated names, expected {expected}, in {kore}"
+                ));
+            }
+            if pattern
+                .free_variables()
+                .iter()
+                .any(|variable| variable.name.starts_with("Var'Unds'Gen"))
+            {
+                problems.push(format!("{shape}: a competitor variable is free in {kore}"));
+            }
+        }
+        assert!(problems.is_empty(), "{}", problems.join("\n"));
     }
 
     /// Every `\exists` and `\forall` of `pattern`: its variable's name and whether that variable

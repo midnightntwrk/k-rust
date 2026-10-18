@@ -521,8 +521,12 @@ impl CondPos {
                     Run::new(go(n), vec![unheated]).undecided(vec![heated])
                 }
             }
+            // A build that cannot decide the competitor's condition can apply neither the
+            // competitor nor the owise equation: f(n) stays unevaluated, as for a function
+            // requires.
             CondPos::OwiseRequires => Run::new(go(n), vec![stuck(done(if holds { 1 } else { 0 }))])
-                .undecided(vec![stuck(done(if holds { 0 } else { 1 }))]),
+                .undecided(vec![stuck(done(if holds { 0 } else { 1 })), trivial(go(n))])
+                .unevaluated(unevaluated()),
             CondPos::ClaimRequires | CondPos::ClaimEnsures | CondPos::Search => {
                 unreachable!("{self:?} has no go(n) runs")
             }
@@ -694,6 +698,23 @@ fn condition_cells(cells: &mut Vec<CellSpec>) {
             "#Not({X #Equals 3})",
             |x| x != 3,
             Kind::Plain,
+            "f(1) = f(2) = 1, f(3) = 0",
+        ),
+        // A quantifier in a competitor's condition: the owise equation's antecedent states that
+        // no instance of the competitor's free variables satisfies it, the quantified Y staying
+        // bound by its own quantifier.
+        condition(
+            "ex-pr",
+            "#Exists Y:Int . ({X #Equals Y} #And {true #Equals Y <Int 3})",
+            |x| x < 3,
+            Kind::Quantified,
+            "f(1) = f(2) = 1, f(3) = 0",
+        ),
+        condition(
+            "fa-pr",
+            "#Forall Y:Int . (#Not({Y #Equals X}) #Or {true #Equals Y <Int 3})",
+            |x| x < 3,
+            Kind::Quantified,
             "f(1) = f(2) = 1, f(3) = 0",
         ),
     ] {
