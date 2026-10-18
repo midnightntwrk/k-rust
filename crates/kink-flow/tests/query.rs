@@ -757,6 +757,75 @@ fn verify_reports_a_forged_record() {
     assert_eq!(row(&recomputed, "result-three", "add")["cached"], false);
 }
 
+/// Flow F-18 tail: `--verify` compares a stored hit's witness too. A record that keeps the hit
+/// but carries another witness (its digest recomputed) is used as it is by a plain query, and
+/// `--verify` reports it as a mismatch although both answers are hits.
+#[test]
+fn verify_reports_a_forged_witness() {
+    let dir = fixture("calc", "forged-witness");
+    let manifest = dir.join("FLOW.toml");
+    let patterns = dir.join("PATTERNS.toml");
+    let (first, _) = plain(&manifest, &patterns);
+    let hit = row(&first, "result-three", "add");
+    assert_eq!(hit["answer"], "hit");
+    let live_witness = hit["witness"].clone();
+    assert!(live_witness.is_object(), "{hit:#}");
+    let path = records(&dir)
+        .into_iter()
+        .find(|path| {
+            let record: Value = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+            record["pattern_id"] == "result-three" && record["program_id"] == "add"
+        })
+        .unwrap();
+    let mut record: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(record["answer"], "hit");
+    assert_eq!(record["witness"], live_witness);
+    let mut witness = live_witness.clone();
+    witness["depth"] = json!(99);
+    witness["rules"] = json!(["forged"]);
+    record["witness"] = witness.clone();
+    record["record_sha256"] = json!(
+        record_sha256(
+            &record["key"],
+            "hit",
+            &witness,
+            &record["baseline_run_sha256"]
+        )
+        .to_string()
+    );
+    let forged = serde_json::to_string(&record).unwrap();
+    fs::write(&path, &forged).unwrap();
+
+    // The digest recomputes, so a plain query uses the record, forged witness and all.
+    let (trusted, status) = plain(&manifest, &patterns);
+    assert_eq!(status, EXIT_OK, "{trusted:#}");
+    let cached = row(&trusted, "result-three", "add");
+    assert_eq!(cached["answer"], "hit");
+    assert_eq!(cached["cached"], true);
+    assert_eq!(cached["witness"], witness);
+
+    let (verified, status) = verify(&manifest, &patterns);
+    assert_eq!(status, EXIT_CORPUS, "{verified:#}");
+    let live = row(&verified, "result-three", "add");
+    assert_eq!(live["answer"], "hit");
+    assert_eq!(live["witness"], live_witness);
+    assert_eq!(live["verify"], "mismatch");
+    assert_eq!(row(&verified, "result-three", "sub")["verify"], "match");
+    let mismatches = verified["mismatches"].as_array().unwrap();
+    assert_eq!(mismatches.len(), 1, "{verified:#}");
+    assert_eq!(mismatches[0]["pattern"], "result-three");
+    assert_eq!(mismatches[0]["program"], "add");
+    assert_eq!(mismatches[0]["cached"]["answer"], "hit");
+    assert_eq!(mismatches[0]["cached"]["witness"], witness);
+    assert_eq!(mismatches[0]["live"]["answer"], "hit");
+    assert_eq!(mismatches[0]["live"]["witness"], live_witness);
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        forged,
+        "--verify writes nothing"
+    );
+}
+
 /// Flow F-18: answers feed no verdict store. A query writes result records and pattern records
 /// only: no outcome, hint, memo or run document.
 #[test]

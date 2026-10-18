@@ -55,15 +55,22 @@
 //!   a fact about the subject, not a condition of the match (k-rust-backend `search.rs`,
 //!   `match_condition`), and k-rust's results do not assert that a state has an instance
 //!   (`docs/backend-port.md`). A reached state that holds an irreducible application of a function
-//!   not declared total (a user function with no equation for its argument, `1 /Int 0`) denotes
-//!   no configuration wherever that application is undefined, yet the search lists it and its
-//!   match carries no condition. So a hit also needs the matched state's term, and with it every
-//!   binding, to be defined: the state is internalized on the searcher's definition and must be
-//!   `ceil_free` (k-rust-backend `term::TermAttributes::ceil_free`: its definedness obligation is
-//!   empty for every definition by construction; every application's symbol is a constructor or
-//!   a function the definition declares total, every collection a map or set whose keys k-rust
-//!   shows distinct, a list, over such subterms). A state that is not, or whose definedness kink
-//!   cannot read, makes the answer `unknown` (`undefined-state`).
+//!   not declared total (a user function with no equation for its argument: `f(3)` where `f` has
+//!   an equation for `f(0)` only) denotes no configuration wherever that application is
+//!   undefined, yet the search lists it and its match carries no condition. (A hooked partial
+//!   operation k-rust evaluates is not such a case: k-rust evaluates `7 /Int 0` or a lookup of a
+//!   missing map key to bottom, so the step to it has no successor, the state is never reached,
+//!   and the answer is a correct `no`.) So a hit also needs the matched state's term, and with it
+//!   every binding, to be defined: the state is internalized on the searcher's definition and
+//!   must be `ceil_free` (k-rust-backend `term::TermAttributes::ceil_free`: its definedness
+//!   obligation is empty for every definition by construction; every application's symbol is a
+//!   constructor or a function the definition declares total, every collection a map or set
+//!   whose keys k-rust shows distinct, a list, over such subterms) and hold no term-level `\and`
+//!   anywhere (`ceil_free` of `\and(a, b)` is that of `a` and `b`, but the conjunction is empty
+//!   when they differ; no K rule writes one on a right-hand side, so this refuses no state known
+//!   to be reached). A state that is not, or whose definedness kink cannot read (it does not
+//!   decode, verify or internalize on that definition, k-rust provides no stack for it, or
+//!   k-rust panics), makes the answer `unknown` (`undefined-state`).
 //! - `no`: the exploration completed (k-rust's `incomplete` list is empty and the watchdog did not
 //!   fire), and also the program's baseline run, kink's plain state-set run of the same initial
 //!   state under the same budget (the result cache), is `comparable`: complete and free of every
@@ -112,7 +119,7 @@ use k_rust::{
     },
     definition::{AttributeKey, Attributes, ResolvedDefinition},
     k_rust_backend::{
-        definition::BackendDefinition,
+        definition::{BackendDefinition, DefinitionError},
         stop::{CancellationToken, StopCause},
     },
     kompile::{ProgramGrammar, compile_search_pattern},
@@ -742,10 +749,34 @@ fn term(value: &Value) -> &Value {
 /// The cause a hit is refused for when its state is not shown defined (module docs).
 const UNDEFINED_STATE: &str = "undefined-state";
 
+/// Runs the internalization of a matched state on a stack sized for its pattern:
+/// `BackendDefinition::with_stack_for` itself in [`defined_state`] (its `Err` is a refused
+/// stack). The unit tests' seam for a k-rust panic and a stack refusal, which no fixture
+/// provokes (a refusal needs a state about a million levels deep, or a host that refuses to map
+/// the segment).
+type StackFor<'a> = &'a dyn Fn(
+    &Pattern,
+    &dyn Fn() -> Result<bool, String>,
+) -> Result<Result<bool, String>, DefinitionError>;
+
 /// Whether the term of a matched state (`state`, its KORE JSON) is defined: k-rust's `ceil_free`
 /// of the state internalized on `definition`, the definition the search ran on (module docs).
 /// `Err` says why the state is not shown defined, or why kink could not tell.
 fn defined_state(definition: &BackendDefinition, state: &Value) -> Result<(), String> {
+    defined_state_with(definition, state, &|pattern, work| {
+        definition.with_stack_for(&[pattern], work)
+    })
+}
+
+/// [`defined_state`] whose internalization runs under `stack_for` ([`StackFor`]). Only an
+/// internalized term that k-rust shows `ceil_free` is `Ok`: a state that does not decode, holds
+/// a term-level `\and`, does not verify or internalize, a refused stack and a k-rust panic are
+/// each `Err` (the answer is then unknown, never a hit).
+fn defined_state_with(
+    definition: &BackendDefinition,
+    state: &Value,
+    stack_for: StackFor<'_>,
+) -> Result<(), String> {
     let envelope = if state.get("format").is_some() {
         state.clone()
     } else {
@@ -753,10 +784,17 @@ fn defined_state(definition: &BackendDefinition, state: &Value) -> Result<(), St
     };
     let pattern = from_value(&envelope)
         .map_err(|e| format!("its KORE does not decode ({e}), so its definedness is not known"))?;
+    if holds_conjunction(&pattern) {
+        return Err(format!(
+            "it holds a term-level \\and ({UNDEFINED_STATE}): k-rust's ceil_free reads a \
+             conjunction by its conjuncts only, which does not show that they denote one \
+             configuration, so the state may denote none"
+        ));
+    }
     let unknown = |why: String| format!("{why}, so its definedness is not known");
     // The internalized term is dropped inside the work, on the stack k-rust sizes for it.
     let work = || {
-        definition.with_stack_for(&[&pattern], || {
+        stack_for(&pattern, &|| {
             definition
                 .verify_standalone_pattern(&pattern, &[])
                 .and_then(|admitted| admitted.internalize_term())
@@ -774,10 +812,26 @@ fn defined_state(definition: &BackendDefinition, state: &Value) -> Result<(), St
         Err(format!(
             "k-rust does not show its term defined ({UNDEFINED_STATE}): it holds an application \
              of a function the definition does not declare total that no equation reduced (such \
-             as a function with no equation for its argument, or `1 /Int 0`), or a map or set \
-             whose keys k-rust does not show distinct, so the state may denote no configuration"
+             as `f(3)` for a function with an equation for `f(0)` only), or a map or set whose \
+             keys k-rust does not show distinct, so the state may denote no configuration"
         ))
     }
+}
+
+/// Whether `pattern` holds a term-level `\and`, at its root or below: k-rust's `ceil_free` of a
+/// conjunction is that of its conjuncts, and `\and(a, b)` is empty when `a` and `b` differ, so a
+/// state holding one is not shown defined (module docs). An associative application of `\and`
+/// counts too. The walk keeps its pending nodes on k-rust's explicit stack.
+fn holds_conjunction(pattern: &Pattern) -> bool {
+    let mut found = false;
+    k_rust::kore::walk::for_each_post_order(pattern, |node| {
+        found |= match node {
+            Pattern::And { .. } => true,
+            Pattern::AssociativeApplication { symbol, .. } => symbol.name == "\\and",
+            _ => false,
+        };
+    });
+    found
 }
 
 /// The search's outcome (module docs: what makes a match decided and an exploration complete).
@@ -1167,5 +1221,223 @@ mod tests {
             &always,
         );
         incomplete(&fired, "time_ms");
+    }
+
+    /// calc's searcher and the state its search for `<k> 3 </k>` reached from `add` (the KORE
+    /// JSON of a real defined configuration), given to `body` on a thread with the command's
+    /// stack.
+    fn on_calc(body: impl FnOnce(&Searcher, Value) + Send + 'static) {
+        std::thread::Builder::new()
+            .stack_size(kink_corpus::cli::DEFINITION_STACK_BYTES)
+            .spawn(move || {
+                let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/flow/calc");
+                let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
+                let (_, admitted) = crate::admit::admit_spec(&manifest);
+                let (spec, mut inputs) = admitted.expect("calc is admitted");
+                let main = &manifest.spec.main_module;
+                let mut searcher = Searcher::new(&spec, main, manifest.budget).unwrap();
+                let lowered = Lowering::new(&spec, main)
+                    .unwrap()
+                    .lower("<k> 3 </k>", searcher.definition())
+                    .unwrap();
+                let program = manifest.programs.iter().find(|p| p.id == "add").unwrap();
+                let text = inputs.text(program).unwrap();
+                let test = inputs.test_case(&spec, program, text).unwrap();
+                let response = searcher
+                    .backend
+                    .search_pattern_json(SearchPatternRequest {
+                        state: test.initial_state.clone(),
+                        pattern: lowered.target.clone(),
+                        module_name: None,
+                        search_type: SearchTypeArg::All,
+                        max_depth: Some(manifest.budget.max_depth),
+                        max_breadth: None,
+                        max_results: Some(1),
+                        max_simplification_iterations: SIMPLIFICATION_ITERATIONS,
+                        schema_version: BACKEND_SCHEMA_VERSION,
+                    })
+                    .unwrap();
+                let response = kink_patch::parse_json(&response).unwrap();
+                let state = response["matches"][0]["state"]["state"].clone();
+                assert_eq!(term(&state)["tag"], "App", "{response:#}");
+                body(&searcher, state);
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    /// `state` with the symbol of every application named `from` renamed `to`.
+    fn rename(state: &Value, from: &str, to: &str) -> Value {
+        match state {
+            Value::Object(object) => Value::Object(
+                object
+                    .iter()
+                    .map(|(key, value)| {
+                        let value = if key == "name" && value == from && object["tag"] == "App" {
+                            json!(to)
+                        } else {
+                            rename(value, from, to)
+                        };
+                        (key.clone(), value)
+                    })
+                    .collect(),
+            ),
+            Value::Array(items) => {
+                Value::Array(items.iter().map(|v| rename(v, from, to)).collect())
+            }
+            other => other.clone(),
+        }
+    }
+
+    /// The first argument of the state's top cell: calc's `<k>` cell.
+    fn k_cell(state: &mut Value) -> &mut Value {
+        let root = if state.get("format").is_some() {
+            &mut state["term"]
+        } else {
+            state
+        };
+        assert_eq!(root["name"], "Lbl'-LT-'generatedTop'-GT-'", "{root:#}");
+        let cell = &mut root["args"][0];
+        assert_eq!(cell["name"], "Lbl'-LT-'k'-GT-'", "{cell:#}");
+        cell
+    }
+
+    #[track_caller]
+    fn not_defined(result: Result<(), String>, cause: &str) {
+        match result {
+            Err(why) => assert!(why.contains(cause), "{why}"),
+            Ok(()) => panic!("expected a state not shown defined ({cause:?}), got Ok"),
+        }
+    }
+
+    /// The seam run on the caller's stack.
+    fn here(
+        _: &Pattern,
+        work: &dyn Fn() -> Result<bool, String>,
+    ) -> Result<Result<bool, String>, DefinitionError> {
+        Ok(work())
+    }
+
+    /// F-18 tail: every failure arm of `defined_state` is not-defined, never defined. A state
+    /// naming a symbol calc does not declare does not verify; a k-rust panic and a refused stack
+    /// (the seam, on calc's real defined state and on the unverifiable one) are each `Err`; and
+    /// through `outcome` each is an unknown, while the real defined state is a hit.
+    #[test]
+    fn a_state_whose_definedness_kink_cannot_read_is_not_a_hit() {
+        on_calc(|searcher, state| {
+            let definition = searcher.definition();
+            // The control: calc's reached state is defined, on the real stack and on the seam's.
+            assert_eq!(defined_state(definition, &state), Ok(()));
+            assert_eq!(defined_state_with(definition, &state, &here), Ok(()));
+            let undeclared = rename(&state, "Lbl'-LT-'k'-GT-'", "Lblundeclared'Unds'symbol");
+            assert_ne!(undeclared, state);
+            not_defined(
+                defined_state(definition, &undeclared),
+                "does not internalize",
+            );
+            let panics: StackFor<'_> = &|_, _| panic!("a k-rust panic (test)");
+            let refuses: StackFor<'_> = &|_, _| {
+                Err(DefinitionError::InsufficientStack {
+                    depth: 1 << 20,
+                    required: 8 << 30,
+                    limit: 4 << 30,
+                })
+            };
+            let cases: [(&str, StackFor<'_>, &Value, Option<&str>); 6] = [
+                ("defined", &here, &state, None),
+                (
+                    "undeclared",
+                    &here,
+                    &undeclared,
+                    Some("does not internalize"),
+                ),
+                ("panic", panics, &state, Some("panicked")),
+                ("panic, undeclared", panics, &undeclared, Some("panicked")),
+                ("no stack", refuses, &state, Some("no stack")),
+                (
+                    "no stack, undeclared",
+                    refuses,
+                    &undeclared,
+                    Some("no stack"),
+                ),
+            ];
+            for (name, stack_for, subject, cause) in cases {
+                let result = defined_state_with(definition, subject, stack_for);
+                let mut found = decided_match();
+                found["state"]["state"] = subject.clone();
+                let outcome = run(&response(vec![found], vec![]), &|s| {
+                    defined_state_with(definition, s, stack_for)
+                });
+                match cause {
+                    None => {
+                        assert_eq!(result, Ok(()), "{name}");
+                        assert!(
+                            matches!(outcome, SearchOutcome::Hit(_)),
+                            "{name}: {outcome:?}"
+                        );
+                    }
+                    Some(cause) => {
+                        not_defined(result, cause);
+                        incomplete(&outcome, cause);
+                        incomplete(&outcome, "so its definedness is not known");
+                    }
+                }
+            }
+        });
+    }
+
+    /// F-18 tail: a term-level `\and` anywhere in the state, below the root included, is not
+    /// shown defined (`undefined-state`), although k-rust's `ceil_free` alone accepts it.
+    #[test]
+    fn a_state_holding_a_conjunction_is_not_a_hit() {
+        on_calc(|searcher, state| {
+            let definition = searcher.definition();
+            let mut nested = state.clone();
+            let cell = k_cell(&mut nested);
+            let conjunct = cell.clone();
+            *cell = json!({
+                "tag": "And",
+                "sort": {"tag": "SortApp", "name": "SortKCell", "args": []},
+                "patterns": [conjunct.clone(), conjunct],
+            });
+            not_defined(defined_state(definition, &nested), "term-level \\and");
+            not_defined(defined_state(definition, &nested), UNDEFINED_STATE);
+            // What the refusal adds: the conjunction verifies, internalizes and is ceil_free.
+            let pattern =
+                from_value(&json!({"format": "KORE", "version": 1, "term": term(&nested)}))
+                    .unwrap();
+            let free = definition.with_stack_for(&[&pattern], || {
+                definition
+                    .verify_standalone_pattern(&pattern, &[])
+                    .and_then(|admitted| admitted.internalize_term())
+                    .map(|term| term.attributes().ceil_free())
+                    .map_err(|e| e.to_string())
+            });
+            assert_eq!(free.map_err(|e| e.to_string()), Ok(Ok(true)));
+            // The same conjunction at the root.
+            let root = term(&state).clone();
+            let top = json!({"tag": "SortApp", "name": "SortGeneratedTopCell", "args": []});
+            let at_root = json!({"tag": "And", "sort": top, "patterns": [root.clone(), root]});
+            not_defined(defined_state(definition, &at_root), "term-level \\and");
+            // An associative application of `\and` below the root.
+            let mut assoc = state.clone();
+            let cell = k_cell(&mut assoc);
+            let conjunct = cell.clone();
+            *cell = json!({
+                "tag": "LeftAssoc",
+                "symbol": "\\and",
+                "sorts": [{"tag": "SortApp", "name": "SortKCell", "args": []}],
+                "argss": [conjunct.clone(), conjunct],
+            });
+            not_defined(defined_state(definition, &assoc), "term-level \\and");
+            // Through `outcome`: an unknown with undefined-state, not a hit.
+            let mut found = decided_match();
+            found["state"]["state"] = nested.clone();
+            let outcome = run(&response(vec![found], vec![]), &|s| {
+                defined_state(definition, s)
+            });
+            incomplete(&outcome, UNDEFINED_STATE);
+        });
     }
 }
