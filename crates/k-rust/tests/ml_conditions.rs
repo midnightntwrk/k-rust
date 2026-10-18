@@ -581,7 +581,11 @@ fn a_claim_whose_condition_has_a_mixed_equality_is_refused() {
     }
 }
 
-/// An owise equation reads its competitors' conditions; the refusal names the competitor.
+/// An owise equation reads its competitors' conditions; the refusal names the competitor. The owise
+/// rule comes first, so its emission meets the competitor's condition before the competitor's own
+/// emission does; that the owise route itself refuses it, with no help from the competitor's
+/// emission, is the unit test `the_owise_route_refuses_a_competitor_condition_with_a_mixed_equality`
+/// in module_to_kore/equations.rs.
 #[test]
 fn an_owise_competitor_whose_condition_has_a_mixed_equality_is_refused() {
     let (condition, shapes) = MIXED_EQUALITIES[0];
@@ -589,6 +593,45 @@ fn an_owise_competitor_whose_condition_has_a_mixed_equality_is_refused() {
         "{F}  rule [o]: f(_) => 0 [owise]\n  rule [p]: f(X) => 1 requires {condition}\n{G}"
     ));
     assert_refused(result, "rule [P.p]", line_after(F) + 1, shapes, condition);
+}
+
+/// `go(1) #Or go(2)` at a KItem position is a connective under a sort injection
+/// (`inj{SortPgm{}, SortKItem{}}(\or{SortPgm{}}(..))`); `inj` is the identity on values, so the
+/// equality still compares a value with a set of values and is refused, in each sentence kind.
+#[test]
+fn an_injected_connective_in_a_condition_equality_is_refused() {
+    const C: &str = "{ K #Equals (go(1) #Or go(2)) }";
+    let result = try_compile(&format!(
+        "  rule [p]: <k> K:KItem => done(0) ... </k> requires {C}\n"
+    ));
+    assert_refused(
+        result,
+        "rule [P.p]",
+        line_after(""),
+        "KItem term, injected connective",
+        C,
+    );
+    let h = "  syntax Int ::= h(KItem) [function, symbol(h)]\n";
+    let result = try_compile(&format!("{h}  rule [p]: h(K) => 0 requires {C}\n"));
+    assert_refused(
+        result,
+        "rule [P.p]",
+        line_after(h),
+        "KItem term, injected connective",
+        C,
+    );
+    let line = HEADER.lines().count() + 1 + 4 + 1;
+    let result = try_compile_spec(
+        "  rule [g]: <k> go(X) => done(X) ... </k>\n",
+        &format!("  claim [q]: <k> K:KItem => done(0) ... </k> requires {C}\n"),
+    );
+    assert_refused(
+        result,
+        "claim [P-SPEC.q]",
+        line,
+        "KItem term, injected connective",
+        C,
+    );
 }
 
 /// An equality of two predicates is their iff, and an equality of two terms an equality of

@@ -1245,7 +1245,10 @@ enum OperandShape {
     Connective,
 }
 
+/// The shape of an operand, read through its sort injections: `inj` is the identity on values, so
+/// an injected connective or predicate has the shape of what it injects.
 fn operand_shape(pattern: &Pattern) -> OperandShape {
+    let pattern = without_injections(pattern);
     if is_term(pattern) {
         OperandShape::Term
     } else if has_term_below_spine(pattern) {
@@ -1325,9 +1328,21 @@ fn is_term(pattern: &Pattern) -> bool {
     }
 }
 
-/// Whether a term stands directly below the spine of `pattern` (`pattern` itself included).
+/// `pattern` without the sort injections `inj{_, _}(..)` wrapped around it.
+fn without_injections(mut pattern: &Pattern) -> &Pattern {
+    while let Pattern::Application { symbol, arguments } = pattern
+        && symbol.name == "inj"
+        && let [argument] = arguments.as_slice()
+    {
+        pattern = argument;
+    }
+    pattern
+}
+
+/// Whether a term stands directly below the spine of `pattern` (`pattern` itself included),
+/// reading through sort injections.
 fn has_term_below_spine(pattern: &Pattern) -> bool {
-    match pattern {
+    match without_injections(pattern) {
         Pattern::And { arguments, .. } | Pattern::Or { arguments, .. } => {
             arguments.iter().any(has_term_below_spine)
         }
@@ -1871,6 +1886,102 @@ mod tests {
         assert!(kore.contains("\\equals{SortInt{},Q1}"), "{kore}");
         assert!(kore.contains("\\equals{SortInt{},Q2}"), "{kore}");
         assert!(!kore.contains("Sort'Hash'SortParam"), "{kore}");
+    }
+
+    /// An owise equation reads its competitors' conditions itself: a competitor that is not
+    /// among the emitted rules (`module_rules` is empty) and whose condition is a mixed equality
+    /// is refused by the owise route, which names the competitor.
+    #[test]
+    fn the_owise_route_refuses_a_competitor_condition_with_a_mixed_equality() {
+        let parsed = crate::outer::parse(
+            "owise-mixed.k",
+            indoc! {r#"
+                module MAIN
+                  syntax Bool
+                  syntax Int ::= "f(" Int ")" [function, total, symbol(f)]
+                endmodule
+            "#},
+        )
+        .unwrap();
+        let definition = crate::outer::lower(&parsed, "MAIN").unwrap();
+        let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+        let catalog = resolved.production_catalog(resolved.main_module_id());
+        let injector = SortInjector::new(&resolved, "MAIN").unwrap();
+        let converter = TermConverter::new(&resolved, "MAIN").unwrap();
+        let int = Sort::new("Int");
+        let bool_sort = Sort::new("Bool");
+        let x = Term::Variable {
+            name: "X".into(),
+            sort: Some(int.clone()),
+        };
+        let left = Term::apply("f", vec![x.clone()]);
+        let truth = Term::Token {
+            token: "true".into(),
+            sort: bool_sort.clone(),
+        };
+        // `{ {X #Equals X} #Equals true }`: a predicate against a Bool term.
+        let requires = Term::Apply {
+            label: Label::with_parameters(
+                InternalLabel::Equals.as_str(),
+                vec![bool_sort.clone(), bool_sort.clone()],
+            ),
+            arguments: vec![
+                Term::Apply {
+                    label: Label::with_parameters(
+                        InternalLabel::Equals.as_str(),
+                        vec![int.clone(), bool_sort.clone()],
+                    ),
+                    arguments: vec![x.clone(), x.clone()],
+                },
+                truth.clone(),
+            ],
+        };
+        let mut competitor_attributes = KAttributes::default();
+        competitor_attributes.insert(AttributeKey::Label.as_str(), json!("MAIN.c"));
+        let competitor = Sentence::Rule {
+            body: Term::Rewrite {
+                left: Box::new(left.clone()),
+                right: Box::new(x.clone()),
+            },
+            requires: requires.clone(),
+            ensures: truth,
+            attributes: competitor_attributes,
+        };
+        let mut cache = OwiseCompetitors {
+            scanned: true,
+            injected: vec![Some((
+                competitor,
+                injector.sentence_sort_variables([&requires]).unwrap(),
+            ))],
+            by_signature: BTreeMap::from([((Label::new("f"), vec![int]), vec![0])]),
+            failure: None,
+        };
+        let attributes = KAttributes::default();
+        let equation = equation_info(&left, &attributes, &catalog)
+            .unwrap()
+            .unwrap();
+        let error = emit_owise_equation(
+            equation,
+            converter.convert(&x).unwrap(),
+            Pattern::Top {
+                sort: KoreSort::Variable("R".into()),
+            },
+            &attributes,
+            &BTreeSet::new(),
+            &converter,
+            &catalog,
+            &injector,
+            &[],
+            &mut cache,
+            &SentenceSortVariables::default(),
+            &BTreeSet::from(["X".into()]),
+            ConditionForm::Predicate,
+        )
+        .unwrap_err();
+        let ModuleToKoreError::MixedConditionEquality { sentence } = &error else {
+            panic!("expected a mixed condition equality, got {error}");
+        };
+        assert_eq!(sentence, "rule [MAIN.c]");
     }
 
     #[test]

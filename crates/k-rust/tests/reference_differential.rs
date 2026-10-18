@@ -2057,7 +2057,7 @@ fn divergent_axioms_from_environment() -> Vec<String> {
 /// Leave out of the comparison the axioms a compile case records as divergent: axioms the two
 /// frontends write differently because their conditions state different things, so no
 /// normalization may identify them. Each listed UNIQUE'Unds'ID must name exactly one axiom on each
-/// side, and the two must differ; an entry whose axioms agree (or are missing) is stale and
+/// side, and the two must differ as the comparison sees them; an entry whose axioms agree there (or are missing) is stale and
 /// refused. The divergence is in the condition only: the two axioms must be equal, as the
 /// comparison sees them, once each one's requires operand ([`requires_operand`]) is replaced by
 /// the same placeholder, so a difference anywhere else (a right side, an attribute) fails the
@@ -2099,7 +2099,9 @@ fn remove_divergent_axioms(
         };
         let reference_axiom = &reference.modules[reference_module].sentences[reference_index];
         let actual_axiom = &actual.modules[actual_module].sentences[actual_index];
-        if reference_axiom == actual_axiom {
+        // Staleness is decided on what the comparison sees: the two frontends write different
+        // source positions for the same sentence, so raw sentences never agree.
+        if as_compared(reference_axiom) == as_compared(actual_axiom) {
             return Err(format!(
                 "divergent-axioms: the two sides state axiom {id} alike, so the entry is stale"
             ));
@@ -2163,6 +2165,16 @@ fn requires_operand(pattern: &mut Pattern) -> Option<&mut Pattern> {
         }
         _ => None,
     }
+}
+
+/// A sentence as the comparison sees it: without source metadata ([`strip_attributes`]), in its
+/// canonical form ([`canonical_sentence`]).
+fn as_compared(sentence: &Sentence) -> String {
+    let mut sentence = sentence.clone();
+    if let Sentence::Axiom { attributes, .. } = &mut sentence {
+        strip_attributes(attributes);
+    }
+    canonical_sentence(&sentence)
 }
 
 /// An axiom as the comparison sees it ([`strip_source_metadata`], [`canonical_sentence`]), with
@@ -2820,7 +2832,8 @@ fn divergent_axioms_remove_exactly_the_listed_differing_pair() {
 
 /// A recorded divergence covers the requires operand only: two axioms that also differ in their
 /// right side or in an attribute the comparison reads are refused, while a Location the
-/// comparison does not read is no difference. Rewrite rules and equations whose antecedent carries
+/// comparison does not read is no difference, so an entry whose conditions agree is stale even
+/// where the Locations differ. Rewrite rules and equations whose antecedent carries
 /// argument matches are masked at their requires alone.
 #[test]
 fn divergent_axioms_refuse_a_difference_outside_the_requires() {
@@ -2856,6 +2869,14 @@ fn divergent_axioms_refuse_a_difference_outside_the_requires() {
         ),
         Ok(1)
     );
+    // Converged conditions are stale although the Locations differ, as they do between the two
+    // frontends.
+    let error = remove(
+        simplification(literal, "true", ""),
+        simplification(literal, "true", location),
+    )
+    .unwrap_err();
+    assert!(error.contains("stale"), "{error}");
     let error = remove(
         simplification(literal, "true", ""),
         simplification(predicate, "false", ""),
