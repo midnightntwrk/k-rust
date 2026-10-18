@@ -23,6 +23,11 @@ ALPHA_INVARIANCE_OUT a directory for one TSV line per result. The whole corpus a
 manifest's cases in the k and imp-semantics checkouts beside the workspace when they are present
 (K_CHECKOUT, IMP_SEMANTICS_CHECKOUT). Exit status 0 when every result matches the harness's
 expected failures in both builds, 1 otherwise, 2 on a usage error.
+
+Without a TEST filter it then runs the binding module's property tests and substitution census
+(crates/k-rust/src/kast/binding.rs) in the portable build from their fixed seeds at
+KAST_BINDING_CASES cases and KAST_BINDING_CENSUS draws (default 50,000 each), so a property
+that a rare input breaks fails here rather than passing by luck in the 256-case cargo test run.
 EOF_USAGE
 }
 
@@ -58,3 +63,9 @@ echo "[alpha-invariance] portable build" >&2
 harness || exit 1
 echo "[alpha-invariance] native build (features $native_features)" >&2
 harness --features "$native_features" || exit 1
+if ((${#tests[@]} == 0)); then
+  echo "[alpha-invariance] binding properties and census, portable build" >&2
+  KAST_BINDING_CASES=${KAST_BINDING_CASES:-50000} KAST_BINDING_CENSUS=${KAST_BINDING_CENSUS:-50000} \
+    cargo test --locked --manifest-path "$workspace/Cargo.toml" --target-dir "$target_dir" \
+    -p k-rust --no-default-features --lib kast::binding -- --show-output || exit 1
+fi
