@@ -6,6 +6,7 @@ description: Write an executable specification in Rust, and use it to measure an
 import { Climb } from '../components/story/Climb'
 import { Corpus } from '../components/story/Corpus'
 import { EveryTool } from '../components/story/EveryTool'
+import { GreenButWrong } from '../components/story/GreenButWrong'
 import { MutateTheSpec } from '../components/story/MutateTheSpec'
 import { MutationReputation } from '../components/story/MutationReputation'
 import { PastFullCoverage } from '../components/story/PastFullCoverage'
@@ -13,7 +14,7 @@ import { RewriteMachine } from '../components/story/RewriteMachine'
 import { SpecCoverage } from '../components/story/SpecCoverage'
 import { SpecIsRust } from '../components/story/SpecIsRust'
 import { StandingOnK } from '../components/story/StandingOnK'
-import { TestsThatCheckNothing } from '../components/story/TestsThatCheckNothing'
+import { VersionTest } from '../components/story/VersionTest'
 import { WhyTests } from '../components/story/WhyTests'
 import { WriteItDown } from '../components/story/WriteItDown'
 
@@ -23,13 +24,17 @@ KRS lets you write a specification of your program in Rust, run it, and use it t
 k-rust, a Rust implementation of the K Framework, runs it.
 
 Each scene below starts in a readable state; press Play to animate it, or step through it.
-From the second scene on, every scene follows one small example, a `plus` function on natural numbers, and every result shown as output is one that `krs` printed for it.
+After the two scenes of the problem, every scene follows one small example, a `plus` function on natural numbers, and every result shown as output is one that `krs` printed for it.
 
 ## The problem
 
-### Tests that check nothing
+### A test that checks nothing
 
-<TestsThatCheckNothing />
+<VersionTest />
+
+### Green tests, wrong code
+
+<GreenButWrong />
 
 ## A specification you can run
 
