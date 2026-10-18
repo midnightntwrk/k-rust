@@ -750,15 +750,32 @@ fn undefined_initial_instances_message(definedness: &[Predicate], result_sort: &
     )
 }
 
+/// What a path met for a mark of `hook` and `class`: a value the definition leaves open, or, for
+/// `effect-order`, which is not a value, an effect order it leaves open.
+fn chosen_value_met(hook: &str, class: k_rust_backend::builtin::ChosenClass) -> String {
+    if class == k_rust_backend::builtin::ChosenClass::EffectOrder {
+        format!(
+            "met an effect order of {hook} the definition leaves open ({})",
+            class.name()
+        )
+    } else {
+        format!(
+            "read a value of {hook} the definition leaves open ({})",
+            class.name()
+        )
+    }
+}
+
 /// The warning for an `ImplementationChosenValue` diagnostic, printed once per run: a path to a
-/// result read a value the definition leaves open, so that result is one model's.
+/// result read a value the definition leaves open, or met an effect order it leaves open, so
+/// that result is one model's.
 fn implementation_chosen_value_message(
     hook: &str,
     class: k_rust_backend::builtin::ChosenClass,
 ) -> String {
     format!(
-        "a path to a result read a value of {hook} the definition leaves open ({}); in another model of the definition such a result may differ or be absent",
-        class.name()
+        "a path to a result {}; in another model of the definition such a result may differ or be absent",
+        chosen_value_met(hook, class)
     )
 }
 
@@ -782,9 +799,8 @@ fn report_unprinted_marks(
     for chosen in listed {
         if !printed.contains(&(&*chosen.hook, chosen.class)) {
             eprintln!(
-                "warning: the run read a value of {} the definition leaves open ({}) on no path to a result; another model of the definition may give other results",
-                chosen.hook,
-                chosen.class.name()
+                "warning: the run {} on no path to a result; another model of the definition may give other results",
+                chosen_value_met(&chosen.hook, chosen.class)
             );
         }
     }

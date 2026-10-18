@@ -1162,4 +1162,266 @@ endmodule
             }
         }
     }
+
+    const EFFECTS: &str = r#"
+module MAIN
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  imports K-IO
+  imports STRING
+  imports SET
+  imports MAP
+  imports LIST
+  syntax Pgm ::= "pAnd" | "pOr" | "pAndThen" | "pImplies" | "pImpliesWrite" | "pRelevant"
+               | "pPure" | "pEmpty" | "pIte" | "pNest" | "pFun" | "pWrite" | "pCondAnd"
+               | "pCondIte" | "pAnyIte" | "pAnyFunIte" | "pAnyCond" | "pAnyCondIte"
+               | "pIteOnly" | "pSet" | "pSetRev" | "pMap" | "pMapRev" | "pList" | "pListRev"
+  syntax KItem ::= res(K)
+  configuration <k> $PGM:Pgm </k>
+  rule pAnd => (false andBool (#getc(0) ==K 65)) ~> #getc(0)
+  rule pOr => (true orBool (#getc(0) ==K 65)) ~> #getc(0)
+  rule pAndThen => (false andThenBool (#getc(0) ==K 65)) ~> #getc(0)
+  rule pImplies => (false impliesBool (#getc(0) ==K 65)) ~> #getc(0)
+  rule pImpliesWrite => (false impliesBool wrote(#write(1, "y"))) ~> #getc(0)
+  rule pRelevant => (true andBool (#getc(0) ==K 65)) ~> #getc(0)
+  rule pPure => (false andBool (1 ==Int 1)) ~> #getc(0)
+  rule pEmpty => (false andBool wrote(#write(1, substrString("a", 0, 0)))) ~> #getc(0)
+  syntax Bool ::= wrote(K) [function, total]
+  rule wrote(_) => true
+  rule pIte => #if true #then .K #else #write(1, "x") #fi ~> #getc(0)
+  rule pNest => (false andBool (true orBool (#getc(0) ==K 65))) ~> #getc(0)
+  syntax Bool ::= rd() [function]
+  rule rd() => #getc(0) ==K 65
+  rule pFun => (false andBool rd()) ~> #getc(0)
+  rule pWrite => (false andBool wrote(#write(1, "x"))) ~> #getc(0)
+  syntax Int ::= g() [function] | g3() [function]
+  rule g() => 1 requires false andBool (#getc(0) ==K 65)
+  rule g() => 2 [owise]
+  rule pCondAnd => res(g()) ~> #getc(0)
+  rule g3() => 1 requires #if true #then true #else wrote(#write(1, "x")) #fi
+  rule g3() => 2 [owise]
+  rule pCondIte => res(g3()) ~> #getc(0)
+  syntax KItem ::= viaAny(Int)
+  rule viaAny(N) => #getc(N) [anywhere]
+  syntax K ::= fa() [function, total]
+  rule fa() => viaAny(0)
+  rule pAnyIte => #if true #then .K #else viaAny(0) #fi ~> #getc(0)
+  rule pAnyFunIte => #if true #then .K #else fa() #fi ~> #getc(0)
+  syntax Int ::= g4() [function] | g5() [function]
+  rule g4() => 1 requires false andBool wrote(fa())
+  rule g4() => 2 [owise]
+  rule pAnyCond => res(g4()) ~> #getc(0)
+  rule g5() => 1 requires #if true #then true #else wrote(fa()) #fi
+  rule g5() => 2 [owise]
+  rule pAnyCondIte => res(g5()) ~> #getc(0)
+  rule pIteOnly => #if true #then .K #else #write(1, "x") #fi
+  syntax KItem ::= zz(Int) | aa(Int)
+  syntax Int ::= aOfSet(Set) [function] | aOfMap(Map) [function] | aOfList(List) [function]
+  rule aOfSet(SetItem(aa(I)) _) => I
+  rule aOfMap((aa(I) |-> _) _) => I
+  rule aOfList(ListItem(aa(I)) ListItem(zz(_))) => I
+  rule aOfList(ListItem(zz(_)) ListItem(aa(I))) => I
+  rule pSet => aOfSet(SetItem(zz({#getc(0)}:>Int)) SetItem(aa({#getc(0)}:>Int)))
+  rule pSetRev => aOfSet(SetItem(aa({#getc(0)}:>Int)) SetItem(zz({#getc(0)}:>Int)))
+  rule pMap => aOfMap((zz({#getc(0)}:>Int) |-> 1) (aa({#getc(0)}:>Int) |-> 2))
+  rule pMapRev => aOfMap((aa({#getc(0)}:>Int) |-> 1) (zz({#getc(0)}:>Int) |-> 2))
+  rule pList => aOfList(ListItem(zz({#getc(0)}:>Int)) ListItem(aa({#getc(0)}:>Int)))
+  rule pListRev => aOfList(ListItem(aa({#getc(0)}:>Int)) ListItem(zz({#getc(0)}:>Int)))
+endmodule
+"#;
+
+    /// The marks of the run's one leaf and the run's list, by hook, and the code its last
+    /// `#getc(0)` read; with Z3 when `z3` holds, without a solver otherwise.
+    fn effect_run(program: &str, z3: bool) -> (Vec<String>, Vec<String>, Option<&'static str>) {
+        effect_run_with(program, z3, true)
+    }
+
+    /// [`effect_run`], with a console (input `AB`) only when `console` holds.
+    fn effect_run_with(
+        program: &str,
+        z3: bool,
+        console: bool,
+    ) -> (Vec<String>, Vec<String>, Option<&'static str>) {
+        let (kore, initial) = compile(EFFECTS, program);
+        let (mut backend, pattern) = internal(&kore, &initial);
+        let definition = backend.select_definition(None).unwrap();
+        let options = ExecutionOptions {
+            evaluation: EvaluationMode::Execution,
+            ..ExecutionOptions::default()
+        };
+        let io = ExecutionIoState::new(b"AB".to_vec());
+        let result = if z3 {
+            #[cfg(feature = "z3-inference")]
+            {
+                let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
+                k_rust_backend::rewrite::execute_disjunction_with_solver_and_io_state_and_observer_with_initial_status(
+                    &definition,
+                    vec![pattern],
+                    options,
+                    &solver,
+                    io,
+                    |_| {},
+                )
+                .0
+            }
+            #[cfg(not(feature = "z3-inference"))]
+            unreachable!("no Z3 in this build")
+        } else if console {
+            execute_with_io_state(&definition, pattern, options, io)
+        } else {
+            k_rust_backend::rewrite::execute(&definition, pattern, options)
+        };
+        assert_eq!(result.leaves.len(), 1, "{program}: {result:#?}");
+        let leaf = format!("{:?}", result.leaves[0].pattern);
+        let read = ["65", "66"]
+            .into_iter()
+            .find(|code| leaf.contains(&format!("\"{code}\"")));
+        let mut marks: Vec<String> = result.leaves[0]
+            .diagnostics
+            .iter()
+            .filter_map(|diagnostic| {
+                if let k_rust_backend::diagnostic::BackendDiagnostic::ImplementationChosenValue {
+                    hook,
+                    class,
+                } = diagnostic
+                {
+                    Some(format!("{hook}/{}", class.name()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        marks.sort();
+        let mut listed: Vec<String> = result
+            .implementation_chosen_values
+            .iter()
+            .map(|chosen| format!("{}/{}", chosen.hook, chosen.class.name()))
+            .collect();
+        listed.sort();
+        (marks, listed, read)
+    }
+
+    /// Whether an operand a decided connective makes irrelevant performs its console effects is
+    /// the backend's choice for `andBool`, `orBool`, `impliesBool` (`notBool P orBool Q`) and
+    /// `#if`, so a leaf whose console rests on the choice is marked `effect-order`, and so is the
+    /// run's list. k-rust performs the right operand of `andBool`, `orBool` and `impliesBool`
+    /// (the second `#getc` reads `B`, 66; `pImpliesWrite` writes `y`) and skips `#if`'s discarded
+    /// one. A nested connective marks both, an operand that reaches the read through a function
+    /// equation marks, and so does a non-empty `#write`. `andThenBool` skips its right operand
+    /// (65), which is specified, and is unmarked. A right operand the left one does not make
+    /// irrelevant, one without effects, and one whose only effect writes nothing (the console is
+    /// observably unchanged) are unmarked.
+    /// In a function equation's condition, which k-rust simplifies without the console, a decided
+    /// `#if` leaves its discarded operand's effect unperformed (`pCondIte` writes nothing); the run
+    /// has a console, so another backend may perform the effect, and the leaf is marked
+    /// (`pCondAnd`, which needs the solver to decide its condition, is
+    /// `a_decided_connective_in_an_equation_condition_is_marked`).
+    /// An operand that reaches the read through an anywhere rule (`viaAny(0)`, and `fa()`, whose
+    /// equation gives `viaAny(0)`) holds a console effect too, in a discarded `#if` branch and in
+    /// a condition (`pAnyCondIte`): whether an application may perform an effect is closed over
+    /// the definition's equations, not read from the `impure` attribute alone.
+    /// The operands compare the read with `==K`, which is defined whatever is read, so that the
+    /// discarded `andThenBool` operand's definedness does not rest on a read that is not
+    /// performed (that is the unsupported-hook outcome).
+    #[test]
+    fn a_console_effect_a_decided_connective_made_irrelevant_is_marked() {
+        let effect_order = |hooks: &[&str]| {
+            hooks
+                .iter()
+                .map(|hook| format!("{hook}/effect-order"))
+                .collect()
+        };
+        let expected: [(&str, Vec<String>, &str); 16] = [
+            ("pAnd", effect_order(&["BOOL.and"]), "66"),
+            ("pOr", effect_order(&["BOOL.or"]), "66"),
+            ("pAndThen", Vec::new(), "65"),
+            ("pImplies", effect_order(&["BOOL.implies"]), "66"),
+            ("pImpliesWrite", effect_order(&["BOOL.implies"]), "65"),
+            ("pRelevant", Vec::new(), "66"),
+            ("pPure", Vec::new(), "65"),
+            ("pEmpty", Vec::new(), "65"),
+            ("pIte", effect_order(&["KEQUAL.ite"]), "65"),
+            ("pNest", effect_order(&["BOOL.and", "BOOL.or"]), "66"),
+            ("pFun", effect_order(&["BOOL.and"]), "66"),
+            ("pWrite", effect_order(&["BOOL.and"]), "65"),
+            ("pCondIte", effect_order(&["KEQUAL.ite"]), "65"),
+            ("pAnyIte", effect_order(&["KEQUAL.ite"]), "65"),
+            ("pAnyFunIte", effect_order(&["KEQUAL.ite"]), "65"),
+            ("pAnyCondIte", effect_order(&["KEQUAL.ite"]), "65"),
+        ];
+        // A run with one leaf lists exactly that leaf's marks.
+        let expected =
+            expected.map(|(program, marks, read)| (program, marks.clone(), marks, Some(read)));
+        let found = expected.clone().map(|(program, _, _, _)| {
+            let (marks, listed, read) = effect_run(program, false);
+            (program, marks, listed, read)
+        });
+        assert_eq!(found, expected);
+    }
+
+    /// `g()` with `rule g() => 1 requires false andBool (#getc(0) ==K 65)` and
+    /// `rule g() => 2 [owise]`: the condition is simplified without the console, so k-rust leaves
+    /// the read unperformed, and the solver decides the condition false from the left operand
+    /// (`res(2)`, and the last `#getc` reads `A`, 65). A backend that evaluates `andBool`'s right
+    /// operand with its effects reads `A` there, and the last read gives 66, so the leaf is marked.
+    #[cfg(feature = "z3-inference")]
+    #[test]
+    fn a_decided_connective_in_an_equation_condition_is_marked() {
+        let marks = vec!["BOOL.and/effect-order".to_owned()];
+        assert_eq!(
+            effect_run("pCondAnd", true),
+            (marks.clone(), marks, Some("65"))
+        );
+    }
+
+    /// The anywhere form of `a_decided_connective_in_an_equation_condition_is_marked`:
+    /// `g4()` with `rule g4() => 1 requires false andBool wrote(fa())`, where `fa()` reaches the
+    /// read through the anywhere rule of `viaAny`, takes the `owise` equation and reads nothing.
+    #[cfg(feature = "z3-inference")]
+    #[test]
+    fn a_decided_connective_over_an_anywhere_reached_effect_in_a_condition_is_marked() {
+        let marks = vec!["BOOL.and/effect-order".to_owned()];
+        assert_eq!(
+            effect_run("pAnyCond", true),
+            (marks.clone(), marks, Some("65"))
+        );
+    }
+
+    /// A run without a console performs no effect, so a decided `#if` over a discarded `#write`
+    /// marks nothing, on the leaf or on the run's list; with a console it is marked.
+    #[test]
+    fn a_run_without_a_console_marks_no_effect_order() {
+        assert_eq!(
+            effect_run_with("pIteOnly", false, false),
+            (Vec::new(), Vec::new(), None)
+        );
+        let marks = vec!["KEQUAL.ite/effect-order".to_owned()];
+        assert_eq!(
+            effect_run_with("pIteOnly", false, true),
+            (marks.clone(), marks, None)
+        );
+    }
+
+    /// The items of a `Set` or `Map` literal perform their effects in k-rust's order of the item
+    /// terms, whatever their source order (`aa(..)` before `zz(..)`, so `aa` reads `A`, 65);
+    /// `List` items, like the arguments of an application, left to right (the second item reads
+    /// `B`, 66). Nothing is marked: the order is k-rust's stated reading.
+    #[test]
+    fn collection_items_perform_their_effects_in_the_documented_order() {
+        let found = ["pSet", "pSetRev", "pMap", "pMapRev", "pList", "pListRev"]
+            .map(|program| (program, effect_run(program, false)));
+        let unmarked = |read| (Vec::new(), Vec::new(), Some(read));
+        assert_eq!(
+            found,
+            [
+                ("pSet", unmarked("65")),
+                ("pSetRev", unmarked("65")),
+                ("pMap", unmarked("65")),
+                ("pMapRev", unmarked("65")),
+                ("pList", unmarked("66")),
+                ("pListRev", unmarked("65")),
+            ]
+        );
+    }
 }

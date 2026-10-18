@@ -141,8 +141,9 @@ fn execute_counted(
     let _span = measure::algorithm_span(Algorithm::BackendRewriteExecute);
     let _apart = crate::rule::ApartScope::enter();
     // Every evaluation of the run, its rule and equation conditions included, runs in the mode
-    // the request asks for (`crate::evaluation`).
-    let _evaluation = crate::evaluation::EvaluationScope::enter(options.evaluation);
+    // the request asks for (`crate::evaluation`), and knows whether the run has a console.
+    let _evaluation =
+        crate::evaluation::EvaluationScope::enter_run(options.evaluation, initial_io.is_some());
     let _domain = crate::term::domain::DomainScope::enter(definition);
     let _hook_values = crate::deferred::HookValueScope::enter(definition);
     let timeout_controller = StepTimeoutController::new(StepTimeoutOptions {

@@ -427,6 +427,14 @@ impl ExecutionEvaluationContext {
         self.state.cursor
     }
 
+    /// The console as far as a process observes it, in constant time: the input consumed and
+    /// the bytes written. Input is only consumed and the transcript only grows, so equal
+    /// positions at two times mean that nothing observable was read or written between them; an
+    /// empty write changes neither ([`ExecutionIoState::observable`]).
+    pub(crate) const fn observable_position(&self) -> (usize, usize) {
+        (self.state.cursor, self.state.written)
+    }
+
     /// Whether nothing was read or written since `snapshot`: input is only consumed and the
     /// transcript only grows.
     pub(crate) fn unchanged_since(&self, snapshot: &ExecutionIoState) -> bool {
