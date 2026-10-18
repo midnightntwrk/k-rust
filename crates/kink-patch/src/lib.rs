@@ -74,7 +74,7 @@ pub use operator::{
     Action, BUILTIN_CELL_SYNTAX_SORTS, Clause, OPERATOR_DOMAIN, OperatorSpec, generate,
 };
 pub use semantic_input::{SemanticInput, SemanticInputError};
-pub use stack::StackRefusal;
+pub use stack::{StackRefusal, sentence_depth};
 pub use universe::{ExclusionReason, ResolvedUniverse, Universe, resolve_universe};
 
 use k_rust::definition::{Definition, Sentence};

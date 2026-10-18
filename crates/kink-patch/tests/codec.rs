@@ -98,6 +98,9 @@ fn round_trip(patch: &Patch) {
     assert_eq!(read.digest().unwrap(), patch.digest().unwrap());
     assert_eq!(patch.digest().unwrap(), patch.digest().unwrap());
     let value = patch.canonical_value().unwrap();
+    // Re-pin L1-3-tail: the depth the codec sizes its stack from is the document's exactly.
+    assert_eq!(patch.document_depth().unwrap(), value_depth(&value));
+    assert_eq!(json_depth(&text), value_depth(&value));
     keys(&value, &["version", "edits", "pins"]);
     for pin in value["pins"].as_array().unwrap() {
         keys(pin, &["module", "index", "fingerprint"]);
@@ -279,6 +282,89 @@ fn deep_terms_round_trip_past_serde_jsons_recursion_limit() {
                     round_trip(&patch);
                 }
             }
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+/// Re-pin L1-3-tail (review L1-3-fix-2-1 D1): `Patch::document_depth`, which the codec sizes its
+/// stack from and refuses past the limit by, is the depth of the patch's canonical document, for
+/// every edit kind and for terms, sentences and attribute values of any depth, pinned or not. At
+/// L1-3-fix-2 the codec took a segment sized for `MAX_JSON_DEPTH` (768 MB in release) for every
+/// patch more than 48 term levels deep, which an address-space limit refused; a patch 60 term
+/// levels deep now needs a document of about 130 levels.
+#[test]
+fn the_document_depth_is_the_canonical_documents_depth() {
+    std::thread::Builder::new()
+        .stack_size(256 << 20)
+        .spawn(|| {
+            let baseline = support::load("counter.k");
+            let at = support::rule(&baseline, "COUNTER.increment");
+            let target = TermRef::new(at.clone(), [1]);
+            let mut attribute = json!("deep");
+            for _ in 0..300 {
+                attribute = json!([attribute]);
+            }
+            let mut edits = vec![
+                Edit::AddAttribute {
+                    at: at.clone(),
+                    key: "deep".into(),
+                    value: attribute.clone(),
+                },
+                Edit::ReplaceAttribute {
+                    at: at.clone(),
+                    key: AttributeKey::Label.as_str().into(),
+                    expected: json!("COUNTER.increment"),
+                    replacement: attribute,
+                },
+            ];
+            for depth in [1, 60, 200] {
+                let mut sentence = baseline.sentence(&at).unwrap().clone();
+                let Sentence::Rule { requires, .. } = &mut sentence else {
+                    panic!("a rule");
+                };
+                *requires = numeral(depth);
+                edits.push(Edit::ReplaceTerm {
+                    at: target.clone(),
+                    expected: baseline.term(&target).unwrap().clone(),
+                    replacement: numeral(depth),
+                });
+                edits.push(Edit::ReplaceSentence {
+                    at: at.clone(),
+                    replacement: sentence,
+                });
+            }
+            let mut checked = 0;
+            for patch in patches(&baseline).into_iter().chain(
+                edits
+                    .into_iter()
+                    .map(|edit| Patch::new(vec![edit]).unwrap().pinned(&baseline).unwrap()),
+            ) {
+                let value = patch.canonical_value().unwrap();
+                let depth = patch.document_depth().unwrap();
+                assert_eq!(depth, value_depth(&value), "{value}");
+                assert_eq!(json_depth(&patch.canonical_json().unwrap()), depth);
+                let unpinned = Patch::new(patch.edits().to_vec()).unwrap();
+                assert_eq!(unpinned.document_depth().unwrap(), depth);
+                checked += 1;
+            }
+            assert_eq!(checked, 18);
+            // The review's 60-deep mutation: a document of 2 x 60 levels and a constant, not
+            // MAX_JSON_DEPTH.
+            let mut sentence = baseline.sentence(&at).unwrap().clone();
+            let Sentence::Rule { requires, .. } = &mut sentence else {
+                panic!("a rule");
+            };
+            *requires = numeral(60);
+            let depth = Patch::new(vec![Edit::ReplaceSentence {
+                at,
+                replacement: sentence,
+            }])
+            .unwrap()
+            .document_depth()
+            .unwrap();
+            assert!((120..160).contains(&depth), "{depth}");
         })
         .unwrap()
         .join()

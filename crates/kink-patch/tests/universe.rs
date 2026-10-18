@@ -726,3 +726,75 @@ fn v1_discovery_refuses_an_un_authored_declaration() {
     );
     assert!(derive_sites_in(&baseline, &universe, &[]).is_err());
 }
+
+/// Re-pin L1-3-tail (review L1-3-fix-2-1 P1): resolving the universe and a sort-selected discovery
+/// type every baseline rule (`CompilationTyping::site_typing`), by k-rust's unguarded recursion,
+/// on a stack sized from the rule's depth. A baseline whose rule nests 5,000 terms deep, through a
+/// unary symbol and through `#if` conditions (a parametric production, the costliest shape
+/// measured), resolves on a 1 MiB thread exactly as on a 256 MiB one, every rule sorted and the
+/// discovery exhaustive. Before, typing ran on the calling thread: this thread overflowed and the
+/// process aborted, as kink-corpus's 256 MiB thread did near 230,000 levels.
+#[test]
+fn a_deep_baseline_rule_resolves_alike_on_a_thread_too_small_for_its_typing() {
+    const DEPTH: usize = 5_000;
+    let text = format!(
+        "module DEEP\n  imports INT\n  imports BOOL\n  imports K-EQUAL\n  syntax Peano ::= \"z\" | s(Peano)\n  \
+         syntax Exp ::= go(Int) | deep(Peano) | pick(Int)\n  rule [big]: go(I:Int) => \
+         deep({}z{}) requires I >Int 100\n  rule [pick]: go(I:Int) => pick(#if {}true{} #then 0 \
+         #else 1 #fi) requires I <Int 100\nendmodule\n",
+        "s(".repeat(DEPTH),
+        ")".repeat(DEPTH),
+        "#if ".repeat(DEPTH),
+        " #then true #else false #fi".repeat(DEPTH),
+    );
+    std::thread::Builder::new()
+        .stack_size(256 << 20)
+        .spawn(move || {
+            let baseline = load_module("DEEP", &text);
+            let resolved = |stack: usize| {
+                std::thread::scope(|scope| {
+                    std::thread::Builder::new()
+                        .stack_size(stack)
+                        .spawn_scoped(scope, || {
+                            let universe = resolve_universe(&baseline, &Universe::v1());
+                            let discovery = derive_sites_in(
+                                &baseline,
+                                &universe,
+                                &[
+                                    SiteSelector::Path(vec![1]),
+                                    SiteSelector::Sort(Sort::new("Bool")),
+                                ],
+                            )
+                            .expect("requires sites");
+                            let sites = discovery
+                                .tuples()
+                                .iter()
+                                .map(|tuple| tuple.sites[0].at.clone())
+                                .collect::<Vec<_>>();
+                            (
+                                universe.value(),
+                                universe.unsorted().to_vec(),
+                                discovery.exhaustive(),
+                                sites,
+                            )
+                        })
+                        .unwrap()
+                        .join()
+                        .unwrap()
+                })
+            };
+            let large = resolved(256 << 20);
+            assert!(large.1.is_empty(), "every rule is sorted: {:?}", large.1);
+            assert!(large.2, "the discovery is exhaustive");
+            assert_eq!(
+                large.3.len(),
+                2,
+                "both guards are Bool sites: {:?}",
+                large.3
+            );
+            assert_eq!(resolved(1 << 20), large);
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}

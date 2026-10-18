@@ -35,14 +35,31 @@ pub(crate) const OPTIMIZED: bool = cfg!(any(
 /// `apply` and for a parse or a serialization, in either profile (L1-3-fix-2 probe).
 pub(crate) const RED_ZONE: usize = 256 * 1024;
 
-/// Upper bound on the native stack that [`crate::apply`] takes per level of an edited rule's
-/// deepest term, as [`sentence_depth`] counts levels: k-rust's typing of the rule in
-/// compilation's view (`SentenceTyper::typing_in`, `resolve_semantic_casts`) and the rest of
-/// `apply`. Measured over a rule whose right-hand side nests a unary symbol 10,000 and 50,000
-/// levels deep, by the pages `apply` touched on a fresh segment: 2.0 KiB per level in the `dev`
-/// profile (k-rust at opt-level 2, as the workspace builds every dependency) and 1.7 KiB in a
-/// release build. The bound is twice the larger.
-pub(crate) const TYPING_STACK_PER_LEVEL: usize = 4 * 1024;
+/// Upper bound on the native stack that k-rust's typing of one rule or claim takes per level of
+/// its deepest term, as [`sentence_depth`] counts levels: compilation's typing
+/// (`SentenceTyper::typing_in`, `resolve_semantic_casts`) of an edited rule in [`crate::apply`],
+/// and either typing view of a baseline rule in `CompilationTyping::site_typing`.
+///
+/// Measured over 34 term shapes 3,000 levels deep (re-pin L1-3-tail, review L1-3-fix-2-1 D2;
+/// the probe is in the L1-3-tail handoff): unary and binary symbols on either side, semantic and
+/// syntactic casts, K sequences, lists, maps, overloads, `==K`, a six-argument function, a
+/// left-hand side, `requires` and `ensures` chains of `notBool`, `andBool` and `+Int`, `#if` in a
+/// branch, in the condition and around a cast, the ML connectives `#And`, `#Or`, `#Implies`,
+/// `#Not`, `#Equals` and `#Ceil`, and user productions with one, two and three sort parameters.
+/// By the pages the work touched on a fresh 3 GiB segment, a shape through a parametric
+/// production (`#if`, an ML connective, a `{S}` production) takes 3.9 to 4.1 KiB per level in
+/// the unoptimized test build (at most 4,191 bytes: `#Equals` nested in a `requires`) and 2.7
+/// KiB in a release build (at most 2,755 bytes), and every other shape about 2.0 KiB and 1.7
+/// KiB (at most 2,095 and 1,684); a K sequence's items take a few bytes. Part of that is
+/// k-rust's own guarded recursion, which maps a segment of its own when the stack runs short:
+/// every bisected shape, parametric ones included, fits a segment of 2,048 bytes per level plus
+/// [`RED_ZONE`] in the test build (1,792 in release) and overflows one of 1,792 (1,536). The
+/// bound is about twice the most any shape
+/// touched and four times the smallest segment that held each, so a shape costlier than any
+/// measured still fits (at L1-3-fix-2 it was 4 KiB, from the unary shape alone). At the bound a
+/// rule at kink's document limit (`MAX_JSON_DEPTH` / 2: 300,000 term levels in release, 64,000
+/// unoptimized) takes a 2.4 GiB segment, within k-rust's largest (`nesting::STACK_LIMIT`).
+pub(crate) const TYPING_STACK_PER_LEVEL: usize = 8 * 1024;
 
 /// Work that [`with_stack`] could not give the stack its input needs; it did not run.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -127,8 +144,13 @@ pub(crate) fn term_depth(term: &Term) -> usize {
     deepest
 }
 
-/// The deepest of `sentence`'s terms (its body, requires and ensures), as [`term_depth`] counts.
-pub(crate) fn sentence_depth(sentence: &Sentence) -> usize {
+/// The deepest of `sentence`'s terms (its body, requires and ensures): the number of terms on the
+/// longest path from one of them to a leaf, counted without recursion, with a sequence's items
+/// counted as the chain its conversion to KORE nests them into (k-rust's `stack::term_depth`
+/// convention). It is the depth kink sizes the typing of the sentence from, and the depth a
+/// refusal of a rule too deep for kink names.
+#[must_use]
+pub fn sentence_depth(sentence: &Sentence) -> usize {
     (0..3)
         .filter_map(|field| crate::field_term(sentence, field))
         .map(term_depth)

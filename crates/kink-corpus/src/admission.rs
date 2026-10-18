@@ -189,14 +189,12 @@ fn admit(
                 // kink-patch `parse_json`: a concrete state nests two JSON levels per KORE level,
                 // so serde_json's limit of 128 refused a state about 64 levels deep, a list of a
                 // few dozen elements, as an unparsable input (re-pin L1-3-fix-2). A state deeper
-                // than kink's limit is refused as such (`too-deep`), not as unparsable.
-                let value = kink_patch::parse_json(&input_texts[file]).map_err(|e| {
-                    let reason = match e {
-                        kink_patch::JsonError::TooDeep { .. } => "too-deep",
-                        _ => "parse",
-                    };
-                    AdmissionRefusal::new("inputs", reason, e)
-                })?;
+                // than kink's limit is refused as such (`too-deep`), not as unparsable, and a
+                // state whose parse needs a stack the host refuses as the host's limit
+                // (`host-stack-refused`), never as a fault of the input (re-pin L1-3-tail, review
+                // L1-3-fix-2-1 D1).
+                let value = kink_patch::parse_json(&input_texts[file])
+                    .map_err(|e| AdmissionRefusal::new("inputs", kore_input_reason(&e), e))?;
                 from_value(&value).map_err(|e| AdmissionRefusal::new("inputs", "parse", e))?
             }
         };
@@ -671,4 +669,43 @@ fn pinned_load(
         },
         texts,
     ))
+}
+
+/// The `inputs` reason of a file-backed KORE test input that [`kink_patch::parse_json`] refuses:
+/// `too-deep` past kink's limit, `host-stack-refused` when the host refused the stack its depth
+/// needs (the host's limit, not a fault of the input; re-pin L1-3-tail, review L1-3-fix-2-1 D1),
+/// and `parse` only for text that is not JSON.
+fn kore_input_reason(error: &kink_patch::JsonError) -> &'static str {
+    match error {
+        kink_patch::JsonError::TooDeep { .. } => "too-deep",
+        kink_patch::JsonError::Stack(_) => "host-stack-refused",
+        kink_patch::JsonError::Syntax(_) => "parse",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::kore_input_reason;
+    use k_rust::k_rust_backend::nesting::SegmentRefused;
+    use kink_patch::{JsonError, MAX_JSON_DEPTH, StackRefusal};
+
+    /// Re-pin L1-3-tail (review L1-3-fix-2-1 D1): a KORE input whose parse the host refuses the
+    /// stack for is refused as the host's limit, never as unparsable; past kink's limit it is
+    /// `too-deep`; only text that is not JSON is `parse`. Under `ulimit -v` the deep inputs the
+    /// L1-3-tail probe built exhausted the heap first (an `error`/`process` outcome), so the
+    /// refusal is pinned here.
+    #[test]
+    fn a_refused_stack_never_blames_the_kore_input() {
+        let refused = JsonError::Stack(StackRefusal::Refused(SegmentRefused { size: 1 << 30 }));
+        assert_eq!(kore_input_reason(&refused), "host-stack-refused");
+        assert_eq!(
+            kore_input_reason(&JsonError::TooDeep {
+                depth: MAX_JSON_DEPTH + 1,
+                limit: MAX_JSON_DEPTH
+            }),
+            "too-deep"
+        );
+        let syntax = kink_patch::parse_json("{").unwrap_err();
+        assert_eq!(kore_input_reason(&syntax), "parse");
+    }
 }

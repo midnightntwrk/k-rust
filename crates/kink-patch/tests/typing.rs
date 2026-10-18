@@ -573,6 +573,90 @@ fn a_deep_rule_is_typed_alike_on_a_thread_too_small_for_its_typing() {
     assert_eq!(typings(1 << 20), large);
 }
 
+/// Re-pin L1-3-tail (review L1-3-fix-2-1 D2): the typing of a rule through parametric
+/// productions (`#if`, the ML connectives) touches about twice the stack per level that a unary
+/// symbol's does (`stack::TYPING_STACK_PER_LEVEL` records the measurement). Rules 6,000 levels
+/// deep of two such shapes, `#if` nested in an `#if` condition and `#Not` nested in an `ensures`,
+/// get on a 1 MiB thread the typing they get on a 256 MiB one, with a `Bool` guard (typed in full)
+/// and with an `Int` one (a typing error). Typed on the calling thread, they overflow it.
+#[test]
+fn deep_parametric_rules_are_typed_alike_on_a_thread_too_small_for_their_typing() {
+    const DEPTH: usize = 6_000;
+    let text = format!(
+        "module DEEP\n  imports INT\n  imports BOOL\n  imports K-EQUAL\n  syntax Exp ::= go(Int) \
+         | deep(K)\n  rule [cond]: go(I:Int) => deep(#if {}true{} #then 0 #else 1 #fi) requires \
+         I >Int 100\n  rule [ml]: go(I:Int) => deep(0) requires I <Int 100 ensures {}#Top{}\n\
+         endmodule\n",
+        "#if ".repeat(DEPTH),
+        " #then true #else false #fi".repeat(DEPTH),
+        "#Not(".repeat(DEPTH),
+        ")".repeat(DEPTH),
+    );
+    let typings = |stack: usize| {
+        let text = text.clone();
+        std::thread::Builder::new()
+            .stack_size(256 << 20)
+            .spawn(move || {
+                let baseline = load("DEEP", &text);
+                let patches = [
+                    ("DEEP.cond", "true"),
+                    ("DEEP.cond", "1"),
+                    ("DEEP.ml", "true"),
+                    ("DEEP.ml", "1"),
+                ]
+                .map(|(label, token)| {
+                    let at = rule_ref(&baseline, label);
+                    let mut replacement = baseline.sentence(&at).unwrap().clone();
+                    let Sentence::Rule { requires, .. } = &mut replacement else {
+                        panic!("a rule");
+                    };
+                    *requires = Term::Token {
+                        token: token.into(),
+                        sort: Sort::new(if token == "1" { "Int" } else { "Bool" }),
+                    };
+                    Patch::new(vec![Edit::ReplaceSentence { at, replacement }]).unwrap()
+                });
+                std::thread::scope(|scope| {
+                    std::thread::Builder::new()
+                        .stack_size(stack)
+                        .spawn_scoped(scope, || {
+                            patches
+                                .iter()
+                                .map(|patch| {
+                                    let mutant = apply(&baseline, patch).unwrap();
+                                    mutant
+                                        .typing_diagnostics()
+                                        .iter()
+                                        .map(|d| d.message.clone())
+                                        .collect::<Vec<_>>()
+                                })
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap()
+                        .join()
+                        .unwrap()
+                })
+            })
+            .unwrap()
+            .join()
+            .unwrap()
+    };
+    let large = typings(256 << 20);
+    for (index, diagnostics) in large.iter().enumerate() {
+        if index % 2 == 0 {
+            assert!(diagnostics.is_empty(), "a Bool requires types: {large:?}");
+        } else {
+            assert_eq!(
+                diagnostics.len(),
+                1,
+                "an Int requires is a typing error: {large:?}"
+            );
+            assert!(!diagnostics[0].starts_with("not typed"), "{large:?}");
+        }
+    }
+    assert_eq!(typings(1 << 20), large);
+}
+
 /// The one authored sentence labelled `label`.
 fn rule_ref(baseline: &Baseline, label: &str) -> kink_patch::SentenceRef {
     support::rule(baseline, label)

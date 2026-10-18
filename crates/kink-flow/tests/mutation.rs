@@ -740,6 +740,11 @@ fn the_patched_baseline_compiles_to_the_kore_of_the_edited_sources() {
 /// unreachable on authored rules) and are listed separately.
 const DEFENSIVE: [InvalidReason; 2] = [InvalidReason::PatchRejected, InvalidReason::NoUsableSpan];
 
+/// Reasons only the host produces (re-pin L1-3-tail): `host-stack-refused`, when the system
+/// refuses the stack a deep patch's encoding needs (recorded with the release binary under
+/// `ulimit -v` in the L1-3-tail handoff). Their rows have status `error`.
+const HOST: [InvalidReason; 1] = [InvalidReason::HostStackRefused];
+
 #[test]
 fn every_invalid_mutation_reason_on_calc() {
     use InvalidReason::*;
@@ -1112,17 +1117,24 @@ fn every_reason_is_produced_or_listed_as_defensive() {
     let all = produced
         .iter()
         .chain(&DEFENSIVE)
+        .chain(&HOST)
         .map(|r| r.as_str())
         .collect::<BTreeSet<_>>();
-    assert_eq!(all.len(), produced.len() + DEFENSIVE.len());
-    // An exhaustive match: a new reason fails to compile here until it is listed.
+    assert_eq!(all.len(), produced.len() + DEFENSIVE.len() + HOST.len());
+    // Every reason but the host's is an `invalid-mutation` row.
     for reason in produced.iter().chain(&DEFENSIVE) {
+        assert_eq!(reason.status(), "invalid-mutation", "{}", reason.as_str());
+    }
+    assert_eq!(InvalidReason::HostStackRefused.status(), "error");
+    // An exhaustive match: a new reason fails to compile here until it is listed.
+    for reason in produced.iter().chain(&DEFENSIVE).chain(&HOST) {
         match reason {
             UnknownFile | FileRequired | UnknownLabel | AmbiguousLabel | LineOutsideRules
             | LineAmbiguous | AddressMismatch | NonRuleSentence | NoUsableSpan | FindNotFound
             | FindAmbiguous | EditOutsideRule | OverlappingEdits | SourceChanged
             | EditedLoadFailed | StructureChanged | LabelChanged | NoChange | PatchRejected
-            | SourceViewMismatch | MarkdownEnvelope | SpanChanged | EditedRuleTooDeep => {}
+            | SourceViewMismatch | MarkdownEnvelope | SpanChanged | EditedRuleTooDeep
+            | HostStackRefused => {}
         }
     }
 }

@@ -179,6 +179,60 @@ fn a_rule_too_deep_for_kink_is_refused_by_name_and_the_other_rows_stand() {
                 assert_eq!(deep["reason"], "edited-rule-too-deep", "{deep}");
                 let detail = deep["detail"].as_str().unwrap();
                 assert!(detail.contains("MAX_JSON_DEPTH"), "{detail}");
+                // Re-pin L1-3-tail (review L1-3-fix-2-1 D4): the advice is about the whole
+                // edited rule, whose specification's rule is shallow, so a shallower edit is
+                // judged.
+                assert!(
+                    detail.contains(&format!(
+                        "[DEEP.big] as edited nests {} term levels",
+                        depth + 3
+                    )),
+                    "{detail}"
+                );
+                assert!(detail.contains("the specification's rule 4)"), "{detail}");
+                assert!(!detail.contains("no mutation of this rule"), "{detail}");
+            }
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+/// Re-pin L1-3-tail (review L1-3-fix-2-1 D4): when the specification's rule is itself too deep
+/// for kink, a mutation that changes only its guard is `edited-rule-too-deep`, and the detail
+/// says that no mutation of that rule can be judged in this build (a patch holds the whole
+/// edited rule), not that a shallower edit is judged. The other row is still killed.
+#[test]
+fn a_mutation_of_a_rule_already_too_deep_for_kink_says_no_mutation_of_it_is_judged() {
+    std::thread::Builder::new()
+        .stack_size(256 << 20)
+        .spawn(|| {
+            let depth = kink_patch::MAX_JSON_DEPTH / 2;
+            let dir = fixture_with("too-deep-baseline", depth, MUTATIONS);
+            for rows in search_in(&dir, depth) {
+                let row = |id: &str| {
+                    rows.iter()
+                        .find(|row| row["id"] == id)
+                        .unwrap_or_else(|| panic!("no row {id}"))
+                        .clone()
+                };
+                assert_eq!(row("add-becomes-sub")["status"], "killed");
+                let guard = row("big-guard");
+                assert_eq!(guard["status"], "invalid-mutation", "{guard}");
+                assert_eq!(guard["reason"], "edited-rule-too-deep", "{guard}");
+                let detail = guard["detail"].as_str().unwrap();
+                assert!(detail.contains("MAX_JSON_DEPTH"), "{detail}");
+                assert!(
+                    detail.contains(&format!(
+                        "[DEEP.big] nests {} term levels in the specification",
+                        depth + 3
+                    )),
+                    "{detail}"
+                );
+                assert!(
+                    detail.contains("no mutation of this rule can be judged in this build"),
+                    "{detail}"
+                );
             }
         })
         .unwrap()

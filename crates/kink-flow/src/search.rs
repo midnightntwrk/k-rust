@@ -1528,10 +1528,12 @@ pub fn run_with(
     (document, ok)
 }
 
-/// The row of a mutation that does not resolve (or whose patch kink-patch refuses).
+/// The row of a mutation that does not resolve (or whose patch kink-patch refuses), or whose
+/// patch the host refused the stack to encode (status `error`;
+/// [`crate::mutation::InvalidReason::status`]).
 fn invalid(mut row: Map<String, Value>, invalid: InvalidMutation, digest: Value) -> Value {
     row.insert("digest".into(), digest);
-    row.insert("status".into(), json!(INVALID_MUTATION));
+    row.insert("status".into(), json!(invalid.reason.status()));
     row.insert("reason".into(), json!(invalid.reason.as_str()));
     row.insert("edit".into(), json!(invalid.edit));
     row.insert("detail".into(), json!(invalid.detail));

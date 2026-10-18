@@ -275,8 +275,9 @@ fn preflight(baseline: &Baseline, edit: &Edit) -> Result<(), PatchFailure> {
 /// patch, and at L2-2 a `Sort` or `SemanticCasts` error of compilation's view did.
 ///
 /// The typing recurses once per level of the rule's terms, with no stack guard in k-rust (about
-/// 2 KiB per level), so it runs on a stack sized from the rule's deepest term (`stack`, re-pin
-/// L1-3-fix-2): on the calling thread, it aborted the process near 230,000 levels on kink's
+/// 2 KiB per level, 4 KiB through parametric productions; `stack::TYPING_STACK_PER_LEVEL`), so it
+/// runs on a stack sized from the rule's deepest term (`stack`, re-pin L1-3-fix-2, L1-3-tail): on
+/// the calling thread, it aborted the process near 230,000 levels on kink's
 /// 256 MiB thread and near 1,500 on a worker's default stack (reviews L1-3-1 D1, L1-3-2 D1).
 /// The typing a rule gets is therefore a function of the rule, not of the thread. A rule too
 /// deep for the largest segment kink maps (over about a million levels), or one whose segment

@@ -189,6 +189,10 @@ pub fn action(status: &str, reason: Option<&str>) -> Option<&'static str> {
         }
         "invalid" => "fix the mutation: the mutant does not compile (reason)",
         "invalid-mutation" => "fix the mutation: it does not resolve (reason, edit, detail)",
+        "error" if reason == Some("host-stack-refused") => {
+            "rerun where the host grants more address space: the system refused the native stack \
+             kink needs to encode this mutation's patch (detail); the mutation is not at fault"
+        }
         "error" if reason == Some("outcome-conflict") => {
             "check the outcome cache: a cached agreement says the mutant ran, a live call says it \
              did not; run `kink-flow run FLOW.toml MUTATIONS.toml --verify`"
@@ -574,8 +578,11 @@ fn read_report(path: &Path) -> Result<Value, (&'static str, String)> {
             format!("no run report ({e}): run `kink-flow run FLOW.toml MUTATIONS.toml` first"),
         )
     })?;
-    let document = kink_patch::parse_json(&text)
-        .map_err(|e| ("unreadable", format!("the report is not JSON: {e}")))?;
+    let document = kink_patch::parse_json(&text).map_err(|e| match e {
+        kink_patch::JsonError::Syntax(_) => ("unreadable", format!("the report is not JSON: {e}")),
+        // Re-pin L1-3-tail: kink's depth limit or the host's refused stack, not a malformed file.
+        other => ("unreadable", format!("the report cannot be read: {other}")),
+    })?;
     if document["schema"] != RUN_SCHEMA || document["version"] != RUN_VERSION {
         return Err((
             "unreadable",

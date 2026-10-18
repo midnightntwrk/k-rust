@@ -33,6 +33,11 @@
 //!   corpus's and the fixtures' baselines k-rust's applied rewrite rules equal to what a stepped
 //!   path set's branches name (the reading before L1-1).
 //!
+//! On the flow corpus every mutant run is bounded by depth, not by the clock: a mutant that loops
+//! forever reaches the same depth bound under both modalities on any host, so its runs are
+//! compared, where a wall-clock cut raced the depth bound under load and flipped the result
+//! (re-pin L1-3-tail, review L1-3-fix-2-1 P2).
+//!
 //! On the flow corpus it also runs the campaign runner over the baseline and every mutation with
 //! `RunOptions::result_modality` `PathSet` and `StateSet`, and asserts equal baseline evidence,
 //! baseline coverage and, mutant by mutant, equal status, killers and plan: the corpus classifies
@@ -186,6 +191,11 @@ struct Tally {
     absorbed: Vec<String>,
     /// Pairs a run of which the adapter refused, with the failures (never compared).
     failed: Vec<String>,
+    /// Mutant pairs at least one run of which the time bound cut.
+    mutant_timeouts: Vec<String>,
+    /// Mutant pairs a run of which stopped at the differential's own depth bound
+    /// ([`CORPUS_MUTANT_DEPTH`]), below the manifest's: compared as bounded runs.
+    capped: Vec<String>,
     /// Mutant verdicts of the campaign runner compared under both modalities.
     campaign_verdicts: usize,
 }
@@ -203,6 +213,8 @@ impl Tally {
         self.replaced.extend(other.replaced);
         self.absorbed.extend(other.absorbed);
         self.failed.extend(other.failed);
+        self.mutant_timeouts.extend(other.mutant_timeouts);
+        self.capped.extend(other.capped);
         self.campaign_verdicts += other.campaign_verdicts;
     }
 
@@ -221,6 +233,8 @@ struct Side<'a> {
     /// Also compare the coverage with a stepped path set's branches (baselines only; off on IMP,
     /// where `primes`' observed path set runs out of a 24 GiB scope).
     stepped: bool,
+    /// The side's depth bound is the differential's own, below the manifest's.
+    capped: bool,
 }
 
 /// The differential of every program of `programs` on `side`; see the module documentation.
@@ -267,6 +281,19 @@ fn compare_side(
         };
         assert_eq!(path_set.modality(), ResultModality::PathSet, "{id}");
         assert_eq!(state_set.modality(), ResultModality::StateSet, "{id}");
+        if side.mutant && (path_set.timed_out() || state_set.timed_out()) {
+            tally.mutant_timeouts.push(id.clone());
+        }
+        if side.mutant
+            && side.capped
+            && [&path_set, &state_set].iter().any(|run| {
+                run.leaves()
+                    .iter()
+                    .any(|leaf| leaf.halt == HaltClass::DepthBound)
+            })
+        {
+            tally.capped.push(id.clone());
+        }
         match (path_set.timed_out(), state_set.timed_out()) {
             (true, true) => {
                 tally.timed_out_both += 1;
@@ -456,15 +483,16 @@ fn compare_side(
 /// beside it, each program under the manifest's budget. `baseline_time` raises the baseline runs'
 /// time bound (so that a program near the bound does not time out in one run and not in the
 /// other); `stepped` compares the baseline's coverage with its stepped path set's branches;
-/// `mutant_time` caps the time bound of the mutant runs and of the campaign (a mutant
-/// that loops forever then costs that long, not the manifest's bound; a run cut by it is counted,
-/// never compared); `campaign` also compares the campaign runner's verdicts under both
-/// modalities.
+/// `mutant_depth` bounds the mutant runs and the campaign by depth instead of by time: their
+/// depth bound becomes the smaller of the manifest's and `mutant_depth`, and their time bound
+/// [`MUTANT_BACKSTOP`], which only stops a run that hangs (a mutant that loops forever then
+/// reaches the same depth under both modalities and is compared, on any host); `campaign` also
+/// compares the campaign runner's verdicts under both modalities.
 fn differential(
     manifest_path: &Path,
     baseline_time: Option<Duration>,
     stepped: bool,
-    mutant_time: Option<Duration>,
+    mutant_depth: Option<u64>,
     campaign: bool,
 ) -> Tally {
     let mut tally = Tally::default();
@@ -492,8 +520,12 @@ fn differential(
         baseline_budget.time = baseline_budget.time.max(time);
     }
     let mut budget = budget;
-    if let Some(time) = mutant_time {
-        budget.time = budget.time.min(time);
+    let mut capped = false;
+    if let Some(depth) = mutant_depth {
+        let manifest_depth = budget.max_depth.unwrap_or(u64::MAX);
+        capped = depth < manifest_depth;
+        budget.max_depth = Some(depth.min(manifest_depth));
+        budget.time = MUTANT_BACKSTOP;
     }
     compare_side(
         &Side {
@@ -501,6 +533,7 @@ fn differential(
             compiled: &spec.compiled,
             mutant: false,
             stepped,
+            capped: false,
         },
         &manifest.spec.main_module,
         &programs,
@@ -549,6 +582,7 @@ fn differential(
                 compiled: &compiled,
                 mutant: true,
                 stepped: false,
+                capped,
             },
             &manifest.spec.main_module,
             &programs,
@@ -672,12 +706,28 @@ fn differential(
     tally
 }
 
+/// The depth bound of the corpus differential's mutant runs, where the manifest's is deeper
+/// (re-pin L1-3-tail, review L1-3-fix-2-1 P2). Every run of the corpus that ends, on the baseline
+/// and on every mutant, ends within 3,001 steps (loop `FLOW-cost.toml`'s `slow`, measured for
+/// L1-3-tail), so a run cut by this bound is one that does not end within 10,000 steps: a mutant
+/// that loops. Under the 3 s wall-clock cut it replaced, such a run was cut by whichever of the
+/// clock and the manifest's depth bound (100,000) came first, which the host's load decided:
+/// `countdown-escapes` on `countdown` reaches depth 100,000 in about 2.5 s, so one modality
+/// timed out and the other did not, in either direction (main and L1-3-fix-2 alike, 1 run in 4).
+const CORPUS_MUTANT_DEPTH: u64 = 10_000;
+
+/// The time bound of a depth-bounded mutant run: it never decides a run of the corpus (the
+/// slowest one, `countdown-escapes` on `slow`, reaches [`CORPUS_MUTANT_DEPTH`] in well under a
+/// second), it only stops a run that hangs, and the corpus test fails when it fires.
+const MUTANT_BACKSTOP: Duration = Duration::from_secs(600);
+
 #[test]
 fn state_set_results_equal_path_set_results_over_the_flow_corpus_and_its_mutants() {
     let mut all = Tally::default();
     for manifest in flow_manifests() {
-        // Every corpus program ends in milliseconds; a mutant that loops is cut after 3 s.
-        let tally = differential(&manifest, None, true, Some(Duration::from_secs(3)), true);
+        // Every corpus program ends in milliseconds; a mutant that loops is cut at depth
+        // CORPUS_MUTANT_DEPTH, never by the clock.
+        let tally = differential(&manifest, None, true, Some(CORPUS_MUTANT_DEPTH), true);
         assert!(
             tally.faster.is_empty(),
             "{}: a state set finished where the path set timed out: {:?}",
@@ -688,6 +738,9 @@ fn state_set_results_equal_path_set_results_over_the_flow_corpus_and_its_mutants
     }
     eprintln!("MODALITY {all:#?}");
     assert!(all.failed.is_empty(), "{:?}", all.failed);
+    // The depth bound decides every mutant run, never the clock: the comparison does not depend
+    // on the host's speed.
+    assert!(all.mutant_timeouts.is_empty(), "{:?}", all.mutant_timeouts);
     // No absorption on the corpus: every bounded leaf of a path set is one of the state set's.
     assert!(all.absorbed.is_empty(), "{:?}", all.absorbed);
     assert!(all.compared >= 250, "{}", all.compared);
@@ -848,6 +901,7 @@ fn state_set_results_equal_path_set_results_on_converging_fixtures() {
                         compiled: &baseline,
                         mutant: false,
                         stepped: true,
+                        capped: false,
                     },
                     module,
                     &programs,
@@ -866,6 +920,7 @@ fn state_set_results_equal_path_set_results_on_converging_fixtures() {
                             compiled: &mutant,
                             mutant: true,
                             stepped: false,
+                            capped: false,
                         },
                         module,
                         &programs,

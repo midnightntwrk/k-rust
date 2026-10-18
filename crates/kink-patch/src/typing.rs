@@ -26,6 +26,7 @@
 //! overloads or helpers that compilation sees (findings C-02, C-03 (a)), or may lack a supersort
 //! that makes a least upper bound non-unique in compilation's view (the counterexample above).
 
+use crate::stack::{TYPING_STACK_PER_LEVEL, sentence_depth, with_stack};
 use k_rust::definition::{ResolvedDefinition, Sentence};
 use k_rust::kompile::{SentenceTyper, SentenceTyping, SentenceTypingError};
 use std::collections::{BTreeMap, BTreeSet};
@@ -80,11 +81,28 @@ impl<'a> CompilationTyping<'a> {
     /// the view of `module`, the declaring module, else `None` (no site sorts). Neither view
     /// decides anything: a site sort only steers which candidates a generator builds, and
     /// compilation decides each of them.
+    ///
+    /// Both views type by a recursion over the sentence's terms that k-rust does not guard, so the
+    /// typing runs on a stack sized from the sentence's depth, as [`crate::apply`]'s does
+    /// ([`with_stack`]; re-pin L1-3-tail, review L1-3-fix-2-1 P1: on the calling thread a
+    /// baseline rule about 230,000 terms deep aborted kink-corpus's universe resolution). A
+    /// sentence too deep for the largest segment kink maps, or whose segment the system refuses,
+    /// gets no typing: a rule without site sorts, which a sort-selected discovery skips and
+    /// reports as not exhaustive, as for any rule neither view types.
     pub(crate) fn site_typing(
         &mut self,
         sentence: &Sentence,
         module: &str,
     ) -> Option<SentenceTyping> {
+        with_stack(sentence_depth(sentence), TYPING_STACK_PER_LEVEL, || {
+            self.site_typing_here(sentence, module)
+        })
+        .ok()
+        .flatten()
+    }
+
+    /// [`Self::site_typing`] on the calling thread's stack.
+    fn site_typing_here(&mut self, sentence: &Sentence, module: &str) -> Option<SentenceTyping> {
         if let Some(Ok(typing)) = self.typing(sentence, module) {
             return Some(typing);
         }

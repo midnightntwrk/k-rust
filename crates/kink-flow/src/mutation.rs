@@ -48,7 +48,7 @@ use kink_corpus::{LoadedSource, resolver::load_source_with_overlay};
 use kink_patch::{
     Baseline, Bindings, CandidateDisposition, CandidateGeneration, CodecError, Discovery,
     DiscoveryTuple, Edit, POSITION_KEYS, Patch, SelectionPolicy, SentenceFingerprint, SentenceRef,
-    Sha256Digest, Site, TermRef, select, sha256,
+    Sha256Digest, Site, StackRefusal, TermRef, select, sha256,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -368,8 +368,18 @@ pub enum InvalidReason {
     /// kink-patch `MAX_JSON_DEPTH` (two JSON levels per term level: terms about 64,000 levels
     /// deep in an unoptimized build, 300,000 in an optimized one), so the mutation has no
     /// encoding and no identity. It is kink's limit, not a fault of the mutation (re-pin
-    /// L1-3-fix-2; before, such a rule aborted the process in typing, review L1-3-2 D1).
+    /// L1-3-fix-2; before, such a rule aborted the process in typing, review L1-3-2 D1). A patch
+    /// holds the whole edited rule, so the detail gives the rule's depth as a whole, and says
+    /// when the specification's rule alone is already past the limit, so that no mutation of it
+    /// can be judged in this build (re-pin L1-3-tail, review L1-3-fix-2-1 D4).
     EditedRuleTooDeep,
+    /// The host refused the native stack that encoding the mutation's patch needs (the system
+    /// would not map a stack segment of the size the patch's depth needs: an address-space limit
+    /// such as `ulimit -v`, or memory it will not commit). It is the host's limit, neither a fault
+    /// of the mutation nor a verdict, so the row's status is `error`, not `invalid-mutation`
+    /// ([`Self::status`]); the same mutation is judged where the host grants the stack (re-pin
+    /// L1-3-tail, review L1-3-fix-2-1 D1).
+    HostStackRefused,
 }
 
 impl InvalidReason {
@@ -398,11 +408,22 @@ impl InvalidReason {
             Self::NoChange => "no-change",
             Self::PatchRejected => "patch-rejected",
             Self::EditedRuleTooDeep => "edited-rule-too-deep",
+            Self::HostStackRefused => "host-stack-refused",
+        }
+    }
+
+    /// The status of the row of a mutation refused for this reason: `error` for the host's
+    /// refusal ([`Self::HostStackRefused`]), `invalid-mutation` for every other reason.
+    pub const fn status(self) -> &'static str {
+        match self {
+            Self::HostStackRefused => "error",
+            _ => crate::search::INVALID_MUTATION,
         }
     }
 }
 
-/// A mutation that resolves to no patch (status `invalid-mutation`).
+/// A mutation that resolves to no patch (status `invalid-mutation`, or `error` for the host's
+/// refusal: [`InvalidReason::status`]).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InvalidMutation {
     /// The index of the offending edit in the mutation (`edit[i]`), when one edit is at fault.
@@ -1128,10 +1149,28 @@ pub fn resolve(
         CodecError::TooDeep { depth, limit } => InvalidMutation {
             edit: whole(),
             reason: InvalidReason::EditedRuleTooDeep,
+            detail: too_deep_detail(baseline, &patch, &rules, depth, limit),
+        },
+        CodecError::Stack(StackRefusal::Refused(refused)) => InvalidMutation {
+            edit: None,
+            reason: InvalidReason::HostStackRefused,
             detail: format!(
-                "the patch's JSON nests at least {depth} levels deep (two per term level), more \
-                 than kink's limit of {limit} in this build (kink-patch MAX_JSON_DEPTH); this is \
-                 kink's limit, not a fault of the mutation: a shallower edit is judged"
+                "{refused}: encoding this mutation's patch, whose JSON nests {} levels, needs \
+                 that native stack, and the host refused it (an address-space limit such as \
+                 `ulimit -v`, or memory the system will not commit); this is the host's limit, \
+                 not a fault of the mutation, and the mutation is judged where the host grants \
+                 the stack",
+                patch
+                    .document_depth()
+                    .map_or_else(|_| "an unknown number of".to_owned(), |d| d.to_string())
+            ),
+        },
+        CodecError::Stack(refusal @ StackRefusal::TooDeep { .. }) => InvalidMutation {
+            edit: whole(),
+            reason: InvalidReason::EditedRuleTooDeep,
+            detail: format!(
+                "{refusal}: encoding this mutation's patch needs more native stack than kink \
+                 maps; this is kink's limit, not a fault of the mutation"
             ),
         },
         other => rejected(other.to_string()),
@@ -1152,6 +1191,85 @@ pub fn resolve(
     // kink-patch applies the patch (and nothing else) once more when it folds the generation.
     resolved.generation(baseline)?;
     Ok(resolved)
+}
+
+/// The detail of an `edited-rule-too-deep` refusal of `patch`, whose document nests `depth` levels,
+/// past kink's limit `limit` (re-pin L1-3-tail, review L1-3-fix-2-1 D4). A patch holds each edited
+/// rule whole, so the advice is about the rule as a whole: the deepest replaced rule's depth as
+/// edited and in the specification, and, when the specification's rule alone already makes a
+/// patch past the limit, that no mutation of that rule can be judged in this build.
+fn too_deep_detail(
+    baseline: &kink_patch::Baseline,
+    patch: &Patch,
+    rules: &[EditedRule],
+    depth: usize,
+    limit: usize,
+) -> String {
+    // The document depth of the one-edit patch that replaces `at` by `sentence`.
+    let document_depth = |at: &SentenceRef, sentence: &Sentence| {
+        Patch::new(vec![Edit::ReplaceSentence {
+            at: at.clone(),
+            replacement: sentence.clone(),
+        }])
+        .ok()
+        .and_then(|patch| patch.document_depth().ok())
+        .unwrap_or(0)
+    };
+    let deepest = patch
+        .edits()
+        .iter()
+        .filter_map(|edit| match edit {
+            Edit::ReplaceSentence { at, replacement } => {
+                let original = baseline.sentence(at)?;
+                Some((
+                    at,
+                    replacement,
+                    original,
+                    document_depth(at, replacement),
+                    document_depth(at, original),
+                ))
+            }
+            _ => None,
+        })
+        .max_by_key(|(_, _, _, edited, original)| (*original > limit, *edited));
+    let limit_text = format!(
+        "kink's limit of {limit} in this build (kink-patch MAX_JSON_DEPTH; a patch holds each \
+         edited rule whole, about two JSON levels per term level)"
+    );
+    let Some((at, edited, original, _, original_depth)) = deepest else {
+        return format!(
+            "the patch's JSON nests {depth} levels, more than {limit_text}; this is kink's limit, \
+             not a fault of the mutation"
+        );
+    };
+    let name = rules
+        .iter()
+        .find(|rule| &rule.at == at)
+        .and_then(|rule| rule.label.as_deref())
+        .map_or_else(
+            || format!("sentence {} of module {}", at.index, at.module),
+            |label| format!("[{label}]"),
+        );
+    let (edited_levels, original_levels) = (
+        kink_patch::sentence_depth(edited),
+        kink_patch::sentence_depth(original),
+    );
+    if original_depth > limit {
+        format!(
+            "the rule {name} nests {original_levels} term levels in the specification, so the \
+             patch of any mutation of it nests at least {original_depth} JSON levels, more than \
+             {limit_text}: no mutation of this rule can be judged in this build, whatever it \
+             changes; this is kink's limit, not a fault of the mutation or of the rule"
+        )
+    } else {
+        format!(
+            "the rule {name} as edited nests {edited_levels} term levels as a whole (the \
+             specification's rule {original_levels}), so the patch's JSON nests {depth} levels, \
+             more than {limit_text}; this is kink's limit, not a fault of the mutation: a \
+             mutation that leaves the whole rule within about {} term levels is judged",
+            limit / 2
+        )
+    }
 }
 
 /// One edited source file: its edits in the K view and the text the edited load parsed.
