@@ -1837,7 +1837,10 @@ fn take_kore_variable(mut pattern: Pattern) -> Option<Variable> {
 }
 
 /// The variables a rule's or claim's right side quantifies existentially: the `?` variables that
-/// occur free in `right` or in `ensures`, by name, each converted from its first free occurrence.
+/// occur free in `right` or in `ensures`, in the order of their first free occurrences (`right`
+/// first, each in preorder), each converted from that occurrence. The order of nested
+/// existentials does not change what they state, so it follows positions, never spellings: a
+/// renaming leaves it as it is.
 ///
 /// A `?` variable is existential over the right side and the `ensures` together, so it is
 /// quantified once around both. A quantifier inside either binds its own variable there and
@@ -1845,14 +1848,18 @@ fn take_kore_variable(mut pattern: Pattern) -> Option<Variable> {
 /// quantified again outside, and every binder built over these variables has its variable free
 /// in its body (K3). `right` and `ensures` are separate terms: a quantifier in one binds nothing
 /// in the other.
-fn free_existentials<'t>(right: &'t Term, ensures: &'t Term) -> BTreeMap<&'t str, &'t Term> {
-    let mut found = BTreeMap::new();
-    // Invariant: `found` maps every `?` name with a free occurrence in the roots already walked
-    // (`right`, then `ensures`) to its first free occurrence, in preorder.
+fn free_existentials<'t>(right: &'t Term, ensures: &'t Term) -> Vec<(&'t str, &'t Term)> {
+    let (mut found, mut seen) = (Vec::new(), BTreeSet::new());
+    // Invariant: `found` lists, in the order of their first free occurrences in the roots already
+    // walked (`right`, then `ensures`, each in preorder), every `?` name with a free occurrence
+    // there, with that occurrence; `seen` holds the same names.
     for root in [right, ensures] {
         for occurrence in binding::occurrences(root) {
-            if occurrence.role == binding::Role::Free && occurrence.name.starts_with('?') {
-                found.entry(occurrence.name).or_insert(occurrence.node);
+            if occurrence.role == binding::Role::Free
+                && occurrence.name.starts_with('?')
+                && seen.insert(occurrence.name)
+            {
+                found.push((occurrence.name, occurrence.node));
             }
         }
     }
@@ -1865,18 +1872,20 @@ fn existential_variables(
     converter: &TermConverter<'_, '_>,
 ) -> Result<Vec<Variable>, TermConversionError> {
     free_existentials(right, ensures)
-        .into_values()
-        .map(|term| match take_kore_variable(converter.convert(term)?) {
-            Some(variable) => Ok(variable),
-            None => unreachable!("collected terms are variables"),
-        })
+        .into_iter()
+        .map(
+            |(_, term)| match take_kore_variable(converter.convert(term)?) {
+                Some(variable) => Ok(variable),
+                None => unreachable!("collected terms are variables"),
+            },
+        )
         .collect()
 }
 
 fn existential_names(right: &Term, ensures: &Term) -> Vec<String> {
     free_existentials(right, ensures)
-        .into_keys()
-        .map(str::to_owned)
+        .into_iter()
+        .map(|(name, _)| name.to_owned())
         .collect()
 }
 

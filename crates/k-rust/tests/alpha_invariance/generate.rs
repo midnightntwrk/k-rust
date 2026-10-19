@@ -42,7 +42,9 @@
 //!   binder, in a rewrite rule, a function rule with an `owise` competitor or a simplification
 //!   (`condition-only`);
 //! - a `?` variable of a macro's right side, alone beside a binder, used twice in one condition,
-//!   or bound by the macro's own quantifier (`macro-existential`).
+//!   or bound by the macro's own quantifier (`macro-existential`);
+//! - two free `?` variables of one sentence whose names and first occurrences are in opposite
+//!   orders, in the right side, the `ensures`, or one in each (`two-existentials`).
 //!
 //! The `owise` cross product of `owise_binders.rs` (its `shapes.rs`) is a family here too
 //! (`owise-cross`), so the competitors' binders are renamed under every strategy.
@@ -415,6 +417,30 @@ fn macro_existentials() -> Vec<Case> {
             &["go(3)"],
         )
     })
+    .collect()
+}
+
+/// Two free `?` variables in one sentence, written so that their first occurrences and their
+/// names are in opposite orders (`?B` before `?A`): in the right side, in the `ensures`, and one
+/// in each. The lifted existentials follow first occurrences, so a renaming that swaps the
+/// names' order leaves the nested binders as they are.
+fn two_existentials() -> Vec<Case> {
+    [
+        (
+            "rhs",
+            "  rule [p]: <k> go(X) => done(?B +Int ?A) ... </k>\n",
+        ),
+        (
+            "ensures",
+            "  rule [p]: <k> go(X) => done(X) ... </k> ensures {?B #Equals X} #And {?A #Equals ?B}\n",
+        ),
+        (
+            "rhs-ensures",
+            "  rule [p]: <k> go(X) => done(?B) ... </k> ensures {?A #Equals X} #And {?B #Equals ?A}\n",
+        ),
+    ]
+    .into_iter()
+    .map(|(form, rules)| case(format!("two-existentials/{form}"), "G", rules, &["go(3)"]))
     .collect()
 }
 
@@ -1305,6 +1331,7 @@ pub fn cases() -> Vec<Case> {
         anonymous_binders(),
         condition_only_variables(),
         macro_existentials(),
+        two_existentials(),
         context_aliases(),
         function_binders(),
         owise_binders(),
