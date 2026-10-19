@@ -132,6 +132,11 @@ pub struct Case {
     pub mains: Vec<String>,
     /// Compile as `kcompile --for-proving` does, so the main module's claims are emitted.
     pub for_proving: bool,
+    /// The compile target, `kcompile --backend` (the Rust backend by default). A sentence the
+    /// Rust target refuses for a reason that names no variable is refused alike in every
+    /// variant, so a binding defect of the compiled form of such a sentence is compared on a
+    /// target that compiles it.
+    pub target: CompilationBackend,
     pub twins: Vec<Twin>,
     pub searches: Vec<SearchTwin>,
     /// Search patterns, each with its result name, to which every strategy is applied: the
@@ -155,10 +160,18 @@ impl Case {
             skip_unloadable: false,
             mains: Vec::new(),
             for_proving: false,
+            target: CompilationBackend::Rust,
             twins: Vec::new(),
             searches: Vec::new(),
             patterns: Vec::new(),
         }
+    }
+
+    /// The case compiled for `target`, named with the target as its last axis.
+    pub fn on_target(mut self, target: CompilationBackend, axis: &str) -> Self {
+        self.name = format!("{}-{axis}", self.name);
+        self.target = target;
+        self
     }
 
     pub fn syntax(mut self, module: &str) -> Self {
@@ -464,8 +477,8 @@ fn read_source(path: &Path) -> Result<ResolvedSource, String> {
 
 type Loaded = (LoadedDefinition, String, String);
 
-/// Load `case` (with `text` in place of an inline case's own text) as `kcompile` does for the
-/// Rust backend: the embedded prelude, the case's requires beside it or in its include
+/// Load `case` (with `text` in place of an inline case's own text) as `kcompile` does for its
+/// target: the embedded prelude, the case's requires beside it or in its include
 /// directory.
 fn load_text(case: &Case, text: Option<&str>) -> Result<Loaded, String> {
     let (entry, include) = match (&case.text, text) {
@@ -493,7 +506,7 @@ fn load_text(case: &Case, text: Option<&str>) -> Result<Loaded, String> {
         .ok_or_else(|| format!("cannot resolve {required} from {requiring}"))
         .and_then(|path| read_source(&path))
     };
-    let backend = CompilationBackend::Rust;
+    let backend = case.target;
     let options = LoadOptions {
         implicit_sources: vec![prelude],
         excluded_module_attributes: vec![backend.excluded_module_attribute().into()],
@@ -622,7 +635,7 @@ fn runs(
 
 fn compile_options(case: &Case) -> CompileOptions {
     CompileOptions {
-        backend: CompilationBackend::Rust,
+        backend: case.target,
         hook_namespaces: case.hook_namespaces.clone(),
         // `kcompile --for-proving`: bare claims are all-path, and the checks are the proof
         // module's.

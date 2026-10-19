@@ -37,7 +37,9 @@
 //!   renamed to a binder's spelling or another variable's followed by U+E000 and digits, beside a
 //!   binder the parser renames apart (`mark`);
 //! - a local function's parameter spelled like a variable of the rule at another sort (`lambda`),
-//!   and a binder spelled like the variable of a list update (`list`).
+//!   and a binder spelled like the variable of a list update (`list`);
+//! - the compile target: the Rust backend, or the LLVM target (`-llvm`) for the shapes the Rust
+//!   target refuses at compile (a quantifier in a function's argument).
 //!
 //! The `owise` cross product of `owise_binders.rs` (its `shapes.rs`) is a family here too
 //! (`owise-cross`), so the competitors' binders are renamed under every strategy.
@@ -46,6 +48,8 @@
 //! finding becomes cases of the harness (`docs/testing.md`, "Alpha-invariance harness").
 //!
 //! The case name spells its axes: `<family>/<axis>-<axis>-...`.
+
+use k_rust::kompile::CompilationBackend;
 
 use super::{
     harness::Case,
@@ -1219,6 +1223,20 @@ fn owise_cross_product() -> Vec<Case> {
         .collect()
 }
 
+/// The cases of `family` with a quantifier in a function's argument (the `argument` position,
+/// or the `Argument` competitors of the `owise` cross product), compiled for the LLVM target
+/// too (axis `llvm`). The Rust target refuses each of them at compile (`MlConstructPosition`):
+/// a quantifier below a Bool symbol of a condition, or in an equation's argument, which no route
+/// of its backend reads. That refusal names no variable, so every variant is refused alike there,
+/// while the LLVM target compiles the sentence and its binders are compared.
+fn on_the_llvm_target(family: Vec<Case>) -> Vec<Case> {
+    family
+        .into_iter()
+        .filter(|case| case.name.ends_with("-argument") || case.name.contains("-Argument-"))
+        .map(|case| case.on_target(CompilationBackend::Llvm, "llvm"))
+        .collect()
+}
+
 /// Every generated case, in a fixed order.
 pub fn cases() -> Vec<Case> {
     [
@@ -1245,6 +1263,9 @@ pub fn cases() -> Vec<Case> {
         frozen_contexts(),
         search_patterns(),
         owise_cross_product(),
+        on_the_llvm_target(single_binder()),
+        on_the_llvm_target(source_twins()),
+        on_the_llvm_target(owise_cross_product()),
     ]
     .concat()
 }
