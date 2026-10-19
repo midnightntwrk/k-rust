@@ -698,13 +698,17 @@ pub(crate) fn effectful_labels(definition: &Definition) -> BTreeSet<String> {
 }
 
 /// The labels among the productions and equations of `sentences` (every local sentence of a
-/// definition) whose application's value certainly depends on an effect: the productions hooked
-/// to an effectful hook ([`EFFECTFUL_HOOK_NAMESPACE`], [`EFFECTFUL_HOOKS`]) other than
-/// [`VALUE_INDEPENDENT_HOOK`], and, transitively, every label that has a defining equation (a
-/// function's equation, an anywhere rule or a macro-like rule; simplifications restate values and
-/// are not counted) and all of whose defining equations, `owise` included, apply such a label in
-/// their right side or condition. Such a value depends on the state outside the term (the console,
-/// a file, the environment, a random source, the configuration) and on what the effect does to it.
+/// definition) whose application is judged to depend on an effect, by a syntactic rule: the
+/// productions hooked to an effectful hook ([`EFFECTFUL_HOOK_NAMESPACE`], [`EFFECTFUL_HOOKS`])
+/// other than [`VALUE_INDEPENDENT_HOOK`], and, transitively, every label that has a defining
+/// equation (a function's equation, an anywhere rule or a macro-like rule; simplifications restate
+/// values and are not counted) and all of whose defining equations, `owise` included, apply such a
+/// label somewhere in their right side or condition. A hook's value depends on the state outside
+/// the term (the console, a file, the environment, a random source, the configuration) and on what
+/// the effect does to it. The rule for equations is conservative: it counts an application the
+/// equation's value does not depend on, such as an operand a short-circuit makes irrelevant
+/// (`cf2(X) => X requires X >Int 0 orBool randInt(10) ==Int 3` is in the set, although `cf2(5)` is
+/// 5 whatever `randInt` gives).
 /// A label with one effect-free equation is not in the set: an application that equation decides
 /// has its ordinary value (`sel(5)` where `sel(N) => N requires N =/=Int 0`), and an application
 /// that reaches an effectful equation is left to the run. A production declared `impure` without

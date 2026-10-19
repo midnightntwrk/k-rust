@@ -210,8 +210,8 @@ fn check_module_with_options_and_catalog(
 /// target, a claim's right-side alias that `lower term conjunctions` does not lower is refused,
 /// its applications' effects judged by the productions and equations of `compiled`: no compiled
 /// form of the claim keeps the alias's pattern. For the Rust target, an application inside a
-/// predicate operand whose value certainly depends on an effect is refused, judged by the same
-/// productions and equations.
+/// predicate operand that applies an effect (directly, or through a function all of whose
+/// equations apply one) is refused, judged by the same productions and equations.
 pub(crate) fn check_ml_construct_positions_in_definition(
     definition: &ResolvedDefinition,
     compiled: &crate::definition::Definition,

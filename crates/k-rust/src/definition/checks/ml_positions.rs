@@ -86,12 +86,14 @@
 //! - BoolLeaf: every connective and predicate atom (`notBool {X #Equals 3}`,
 //!   `(X #Or 5) <Int 3`): a predicate where a Bool value is required. `#fun`, `#let` and the
 //!   matches `:=K`, `:/=K` are Bool-valued terms.
-//! - PredicateOperand: an application whose value certainly depends on an effect
-//!   (`ml_constructs::value_effect_labels`: an effectful hook such as a read of the console, a
-//!   write's status, a trace, a random number, the environment, or a function all of whose
-//!   defining equations apply one), judged where the definition's equations are known (the
-//!   pipeline stage and the search route): a predicate states a truth value about the matched
-//!   state, and such a value is no fact about it. A function with an effect-free equation is not
+//! - PredicateOperand: an application of an effectful hook (a read of the console, a write's
+//!   status, a trace, a random number, the environment), or of a function all of whose defining
+//!   equations apply one somewhere in their right side or condition
+//!   (`ml_constructs::value_effect_labels`), judged where the definition's equations are known
+//!   (the pipeline stage and the search route): a predicate states a truth value about the
+//!   matched state, and a value that depends on an effect is no fact about it. The rule is
+//!   syntactic and conservative for functions: it also refuses a function whose effect sits in an
+//!   operand its value does not depend on (a short-circuited `orBool` operand). A function with an effect-free equation is not
 //!   refused: an application that equation decides has its ordinary value. `#log` is not refused:
 //!   its value is `.K` whatever it writes, and a predicate does not perform its output.
 //!   Every connective, predicate atom and `#as`
@@ -164,8 +166,8 @@ pub(super) type InjectedOrPattern<'a> = dyn Fn(&Label, usize, &Term) -> bool + '
 
 /// The [`DiagnosticCode::MlConstructPosition`] refusals of `sentences` (module documentation).
 /// `injected` decides the or-patterns an injection places below a symbol, and `affects_value`
-/// the labels whose application's value certainly depends on an effect; without either, those are not
-/// judged.
+/// the labels judged to depend on an effect (`ml_constructs::value_effect_labels`); without
+/// either, those are not judged.
 pub(super) fn check_ml_construct_positions(
     sentences: &[&Sentence],
     productions: &ProductionCatalog<'_>,
@@ -188,7 +190,7 @@ pub(super) fn check_ml_construct_positions(
     diagnostics
 }
 
-/// Whether an application of a label has a value that certainly depends on an effect
+/// Whether an application of a label is judged to depend on an effect
 /// (`ml_constructs::value_effect_labels`).
 pub(super) type AffectsValue<'a> = dyn Fn(&Label) -> bool + 'a;
 
@@ -810,7 +812,7 @@ struct Walk<'s, 'o> {
     expanded: bool,
     /// The sort oracle of or-patterns at argument roots ([`InjectedOrPattern`]).
     injected: Option<&'o InjectedOrPattern<'o>>,
-    /// The labels whose application's value certainly depends on an effect ([`AffectsValue`]).
+    /// The labels judged to depend on an effect ([`AffectsValue`]).
     affects_value: Option<&'o AffectsValue<'o>>,
     /// Set for the next node judged: whether, at a position the sides of a rewrite rule share,
     /// the node is itself what the sides share, so that it is named alone where the right side
@@ -991,7 +993,7 @@ impl Walk<'_, '_> {
             {
                 self.refuse_at(
                     &format!(
-                        "an application of {} whose value depends on an effect",
+                        "an application of {} that applies an effect (directly, or through equations that all apply one)",
                         label.name
                     ),
                     context,
