@@ -87,6 +87,24 @@ pub(crate) fn rename_bound_apart_in_sentence(sentence: &mut Sentence) -> bool {
     .is_empty()
 }
 
+/// Rename the bound variables of `sentence` apart after a stage copied a subterm that holds a
+/// quantifier into a second position of it (a rewrite's shared context into both sides, a macro
+/// argument into each occurrence of its parameter); whether any changed.
+///
+/// This is [`rename_apart_in_sentence_beside`] over the sentence's terms with the names its
+/// variable-naming attributes list: in preorder, the first copy of a quantifier keeps its name and
+/// each later one takes a fresh name. Every binder is renamed so, including one spelled as a
+/// resolved anonymous variable, since by then each such spelling names one variable. A sentence
+/// that is still apart is left unchanged.
+pub(crate) fn rename_copies_apart(sentence: &mut Sentence) -> bool {
+    if !holds_quantifier(sentence) {
+        return false;
+    }
+    let named = attribute_variable_names(sentence.attributes());
+    let terms = sentence.terms_mut().map(|(_, term)| term);
+    !rename_apart_in_sentence_beside(terms, &named, |_| false, &mut Reservation::new()).is_empty()
+}
+
 /// The variable names `attributes` mention: the comma-separated entries of `concrete`,
 /// `symbolic` and `unboundVariables`.
 pub(crate) fn attribute_variable_names(attributes: &Attributes) -> BTreeSet<String> {
@@ -138,6 +156,11 @@ mod tests {
         (changed, sentence)
     }
 
+    fn renamed_copies(mut sentence: Sentence) -> (bool, Sentence) {
+        let changed = rename_copies_apart(&mut sentence);
+        (changed, sentence)
+    }
+
     /// A binder that shadows a free variable, reuses a sibling binder's name, or is spelled like a
     /// name an attribute mentions, is renamed to a fresh name; the free variable, the first
     /// binder of a name and every other binder keep theirs.
@@ -178,6 +201,40 @@ mod tests {
         let (changed, named) = renamed(rule("Y", exists("Z", g("Z")), attributes.clone()));
         assert!(changed);
         assert_eq!(named, rule("Y", exists("Z0", g("Z0")), attributes));
+    }
+
+    /// Copies of a quantifier, as a stage that copies a subterm leaves them, are renamed apart: the
+    /// first copy in preorder keeps its name and the later one takes a name the sentence does not
+    /// use, also when the binder is spelled as a resolved anonymous variable.
+    #[test]
+    fn the_later_copy_of_a_copied_quantifier_takes_a_fresh_name() {
+        for name in ["Y", "_Gen1"] {
+            let copy = |binder: &str| exists(binder, g(binder));
+            let (changed, renamed) = renamed_copies(rule(
+                "X",
+                Term::apply(
+                    "h",
+                    vec![copy(name), copy(name), Term::variable(format!("{name}0"))],
+                ),
+                Attributes::default(),
+            ));
+            assert!(changed, "{name}");
+            let fresh = if name == "Y" { "Y1" } else { "_Gen1_0" };
+            assert_eq!(
+                renamed,
+                rule(
+                    "X",
+                    Term::apply(
+                        "h",
+                        vec![copy(name), copy(fresh), Term::variable(format!("{name}0"))]
+                    ),
+                    Attributes::default()
+                ),
+                "{name}"
+            );
+        }
+        let apart = rule("X", exists("Y", g("Y")), Attributes::default());
+        assert_eq!(renamed_copies(apart.clone()), (false, apart));
     }
 
     /// A sentence already apart is unchanged, and so is a binder spelled as a resolved anonymous

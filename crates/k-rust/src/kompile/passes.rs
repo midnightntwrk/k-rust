@@ -88,7 +88,9 @@ pub use propagate_macro::propagate_macro_attributes;
 pub(crate) use propagate_macro::{propagate_macro_attribute, propagate_macro_attributes_pass};
 pub(crate) use remove_unit::remove_unit_pass;
 pub use remove_unit::{RemoveUnitError, remove_unit};
-pub(crate) use rename_bound_apart::{rename_bound_apart_in_sentence, rename_bound_apart_pass};
+pub(crate) use rename_bound_apart::{
+    rename_bound_apart_in_sentence, rename_bound_apart_pass, rename_copies_apart,
+};
 pub(crate) use resolve_anon_vars::resolve_anon_vars_pass;
 pub use resolve_anon_vars::{resolve_anon_vars, resolve_anon_vars_in_sentence};
 pub(crate) use resolve_contexts::resolve_contexts_pass;

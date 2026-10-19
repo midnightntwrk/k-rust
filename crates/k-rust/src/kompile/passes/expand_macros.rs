@@ -222,6 +222,9 @@ pub(crate) fn expand_macros_pass(
                 match expander.expand_sentence(original) {
                     Ok(expanded) => {
                         *sentence = expanded;
+                        // A parameter that occurs more than once copies its argument, and a copy
+                        // of a quantifier binds its name again: rename the copies apart.
+                        super::rename_copies_apart(sentence);
                         let internal_labels = internal_labels.get_or_insert_with(|| {
                             checks::internal_labels(expander.productions, expander.sorts)
                         });

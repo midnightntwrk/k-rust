@@ -1015,10 +1015,16 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         sentence: &Sentence,
     ) -> Result<(Sentence, SentenceSortVariables), SortInjectionError> {
         self.reset_sort_parameters();
-        self.naming(
+        let (mut injected, variables) = self.naming(
             || FreshNames::for_sentence(sentence),
             || self.inject_sentence_terms(sentence),
-        )
+        )?;
+        // Injection copies subterms: lifting a nested rewrite copies the body's shared context
+        // into both sides ([`rewrite_projection`]), and a map item repeats its element's key. A
+        // copy of a quantifier binds its name a second time, so the copies are renamed apart,
+        // which preserves meaning and keeps the bound names of the sentence unique.
+        super::passes::rename_copies_apart(&mut injected);
+        Ok((injected, variables))
     }
 
     /// [`Self::inject_sentence_bound`] once the sentence's variable names are reserved.

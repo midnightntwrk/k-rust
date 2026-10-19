@@ -24,6 +24,7 @@ use serde_json::Value;
 
 use crate::definition::AttributeKey;
 use crate::definition::production_kind::ProductionKind;
+use crate::kast::binding::quantifier;
 use crate::names::BuiltinSort;
 use crate::{
     definition::{Attributes, Definition, LabelHead, ProductionCatalog, ProductionItem, Sentence},
@@ -187,6 +188,7 @@ fn resolve_context(
         hole: None,
         variables: Vec::new(),
         seen: BTreeSet::new(),
+        bound: Vec::new(),
         current_hole_position: 0,
         final_hole_position: 0,
     };
@@ -346,12 +348,16 @@ struct HeatScan<'a, 'definition> {
     variables: Vec<Term>,
     /// The names in `variables`.
     seen: BTreeSet<String>,
+    /// The names the quantifiers around the visited term bind. A bound variable belongs to its
+    /// quantifier, which the freezer holds whole when it holds the term around it, so it is no
+    /// variable of the context: freezing it would put its name free beside its binder.
+    bound: Vec<String>,
     current_hole_position: usize,
     final_hole_position: usize,
 }
 
 impl HeatScan<'_, '_> {
-    // Invariant: `self.variables` holds the distinct non-`HOLE` variables visited so far in preorder, by first occurrence (`self.seen` their names), and `self.current_hole_position` counts their occurrences, where `self.in_main_cell || !self.has_main_cell` holds, and `self.hole` the last `HOLE` found there; each call recurses into the immediate subterms of `term`.
+    // Invariant: `self.variables` holds the distinct non-`HOLE` variables visited so far in preorder that no enclosing quantifier binds (`self.bound`), by first occurrence (`self.seen` their names), and `self.current_hole_position` counts their occurrences, where `self.in_main_cell || !self.has_main_cell` holds, and `self.hole` the last `HOLE` found there; each call recurses into the immediate subterms of `term`.
     fn visit(&mut self, term: &Term) {
         match term.unannotated() {
             Term::Rewrite { left, right } => {
@@ -373,9 +379,15 @@ impl HeatScan<'_, '_> {
                 if main_cell {
                     self.in_main_cell = true;
                 }
+                let scope = self.bound.len();
+                if let Some(quantifier) = quantifier(term) {
+                    self.bound
+                        .extend(quantifier.bound().into_iter().map(str::to_owned));
+                }
                 for argument in arguments {
                     self.visit(argument);
                 }
+                self.bound.truncate(scope);
                 if main_cell {
                     self.in_main_cell = false;
                 }
@@ -386,7 +398,7 @@ impl HeatScan<'_, '_> {
                         self.hole = Some(term.clone());
                         self.final_hole_position = self.current_hole_position;
                     } else {
-                        if self.seen.insert(name.clone()) {
+                        if !self.bound.contains(name) && self.seen.insert(name.clone()) {
                             self.variables.push(term.clone());
                         }
                         self.current_hole_position += 1;

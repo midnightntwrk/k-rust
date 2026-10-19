@@ -16,6 +16,9 @@
 //! - the sentence kind: a rewrite rule, an `anywhere` rule, a `simplification`, a function rule
 //!   with an `owise` competitor, a macro rule (`macro`, `macro-rec`, `alias`), a context with
 //!   `HOLE`, a context alias, or a claim (compiled `--for-proving`);
+//! - a binder in a part that a stage copies into a second position of its sentence: a rule's or
+//!   claim's context shared by both sides of its rewrite, the argument of a macro parameter that
+//!   occurs twice, and a context's body (`copy`);
 //! - the frozen variables of a context: two or more, written in a context (`f(HOLE, X, Y)`, in
 //!   occurrence order or not) or a context alias's variable beside the strictness variables
 //!   (`wrap(HERE, V)` with `V` spelled `S`, `K0` or `A`), with no cell or inside the main cell,
@@ -955,6 +958,64 @@ fn hole_contexts() -> Vec<Case> {
     cases
 }
 
+/// A binder in a part of a sentence that a stage copies into a second position of it: the context
+/// of a rule or claim outside its rewrite, which both sides share and injection copies into each
+/// when it lifts the rewrite to the top (also beside a condition binder spelled like the name a
+/// renamed copy would take), the argument of a macro parameter that occurs twice, and the body of
+/// a context, from which the freezer is built. The copies bind their names in disjoint scopes, so
+/// they are renamed apart, and every renaming of the written binder gives the same sentence.
+fn copied_binders() -> Vec<Case> {
+    let mut cases = Vec::new();
+    for kind in KINDS {
+        let quantifier = kind.text();
+        let tag = kind.tag();
+        let shared = format!("pair({quantifier} Y:Int . Y, (sa => sb))");
+        let pair = "  syntax KItem ::= pair(Int, KItem) | \"sa\" | \"sb\"\n";
+        cases.push(case(
+            format!("copy/{tag}-rule-shared"),
+            "G",
+            &format!("{pair}  rule [p]: <k> {shared} ... </k>\n"),
+            &[],
+        ));
+        cases.push(case(
+            format!("copy/{tag}-rule-shared-beside-mint"),
+            "G",
+            &format!(
+                "{pair}  rule [p]: <k> {shared} ... </k> requires #Exists Y0:Int . {{Y0 #Equals 1}}\n"
+            ),
+            &[],
+        ));
+        cases.push(
+            case(
+                format!("copy/{tag}-claim-shared"),
+                "G",
+                &format!(
+                    "{pair}  rule <k> pair(_, sa) => pair(1, sb) ... </k>\n  claim <k> {shared} ... </k>\n"
+                ),
+                &[],
+            )
+            .for_proving(),
+        );
+        cases.push(case(
+            format!("copy/{tag}-macro-parameter-twice"),
+            "G",
+            &format!(
+                "  syntax KItem ::= two(Int) [macro] | pr(Int, Int)\n  rule two(I) => pr(I, I)\n  rule [p]: <k> go(_) => two({quantifier} Y:Int . Y) ... </k>\n"
+            ),
+            &[],
+        ));
+        let module = "GC";
+        cases.push(Case::inline(
+            format!("copy/{tag}-context-body"),
+            module,
+            format!(
+                "module {module}\n  imports INT\n  imports BOOL\n  syntax Exp ::= Int | f(Exp, Int)\n  syntax KResult ::= Int\n  configuration <k> $PGM:Exp </k>\n  context f(HOLE, {quantifier} Y:Int . Y)\n  rule <k> f(I:Int, J) => I +Int J ... </k>\nendmodule\n"
+            ),
+        ));
+    }
+    cases
+}
+
 /// Contexts whose freezer holds two or more variables. A written context holds two variables
 /// besides `HOLE`, spelled in their occurrence order or against it; a context alias holds its
 /// variable `V` beside the argument variables strictness mints, spelled `S` (after the minted
@@ -1180,6 +1241,7 @@ pub fn cases() -> Vec<Case> {
         macro_attributes(),
         existential_binders(),
         hole_contexts(),
+        copied_binders(),
         frozen_contexts(),
         search_patterns(),
         owise_cross_product(),
