@@ -314,6 +314,22 @@ paths = [
   '^crates/k-rust/tests/ml_positions(\.rs|/)',
 ]
 
+# The alpha-invariance harness: every corpus definition and every definition of a generated
+# grammar of binders, compiled with each alpha-renaming of its sentences, against the base's KORE
+# up to alpha-equivalence and its krun answers, with the results that fail today listed in the
+# test with their tickets (crates/k-rust/tests/alpha_invariance.rs). Its whole-corpus and
+# whole-grammar tests are ignored tests, run here in both builds and the test profile.
+[[gate]]
+name = "alpha-invariance"
+run = "certification"
+command = "scripts/alpha-invariance.sh"
+paths = [
+  "@krust",
+  '^scripts/alpha-invariance\.sh$',
+  '^crates/k-rust/tests/alpha_invariance(\.rs|/)',
+  '^crates/k-rust/tests/owise_binders/',
+]
+
 # The Python unit tests of the scripts' helpers.
 [[gate]]
 name = "script-unit-tests"
