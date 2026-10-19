@@ -1077,20 +1077,12 @@ impl BinderScope {
         self.named.iter().any(|bound| bound == name)
     }
 
-    /// The scope of the body of `label(arguments)` when it is a quantifier: `None` for any other
-    /// term.
-    fn of_body(&self, label: &Label, arguments: &[Term]) -> Option<Self> {
-        if !(label.is(InternalLabel::Exists) || label.is(InternalLabel::Forall)) {
-            return None;
-        }
-        let [binder, _] = arguments else {
-            return None;
-        };
-        let Term::Variable { name, .. } = binder.unannotated() else {
-            return None;
-        };
+    /// The scope of the body of `term` when it is a quantifier over a variable
+    /// (`kast::binding::quantifier`): `None` for any other term.
+    fn of_body(&self, term: &Term) -> Option<Self> {
+        let (name, _) = binding::quantifier(term)?.variable()?;
         let mut body = self.clone();
-        body.named.push(name.clone());
+        body.named.push(name.to_owned());
         Some(body)
     }
 }
@@ -1175,7 +1167,7 @@ fn refresh_variables(
                 .map(|item| refresh_variables(item, scope, bound_renames, fresh, renames))
                 .collect(),
         ),
-        Term::Apply { label, arguments } => match scope.of_body(label, arguments) {
+        Term::Apply { label, arguments } => match scope.of_body(term.unannotated()) {
             Some(body) => Term::Apply {
                 label: label.clone(),
                 arguments: vec![

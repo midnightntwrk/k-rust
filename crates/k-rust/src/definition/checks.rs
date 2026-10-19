@@ -171,6 +171,7 @@ fn check_module_with_options_and_catalog(
         .chain(check_k_terms(&sentences))
         .chain(check_rewrites(&sentences))
         .chain(check_anonymous_variables(&sentences))
+        .chain(check_variable_naming_attributes(&sentences))
         .chain(check_rhs_variables(&sentences, options.clone()))
         .chain(if options.backend == StructuralCheckBackend::Rust {
             ml_positions::check_ml_construct_positions(&sentences, production_catalog)
@@ -356,7 +357,8 @@ pub fn check_rewrites(sentences: &[&Sentence]) -> Vec<Diagnostic> {
 }
 
 /// A named variable that occurs once is reported as unused, and an anonymous-named variable that
-/// occurs more than once as used; `HOLE` and `HERE` in contexts are exempt. A quantifier whose
+/// occurs more than once as used, each variable counted apart from another of its spelling that a
+/// quantifier binds; `HOLE` and `HERE` in contexts are exempt. A quantifier whose
 /// binder is an anonymous variable (`#Exists _ . P`) is reported as binding nothing.
 pub fn check_anonymous_variables(sentences: &[&Sentence]) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
@@ -365,15 +367,23 @@ pub fn check_anonymous_variables(sentences: &[&Sentence]) -> Vec<Diagnostic> {
             continue;
         }
         warn_anonymous_binders(sentence, &mut diagnostics);
-        let mut counts = BTreeMap::<String, usize>::new();
-        for (_, term) in sentence.terms() {
-            term.visit_preorder(&mut |term| {
-                if let Term::Variable { name, .. } = term {
-                    *counts.entry(name.clone()).or_default() += 1;
-                }
-            });
+        // Occurrences are counted per variable, not per spelling (`kast::binding`): the free
+        // occurrences of a name in any term of the sentence are one variable, and each quantifier
+        // binds a variable of its own, its binding occurrence included.
+        let mut counts = BTreeMap::<(Option<(usize, usize)>, String), usize>::new();
+        for (root, (_, term)) in sentence.terms().enumerate() {
+            for occurrence in crate::kast::binding::occurrences(term) {
+                let scope = match occurrence.role {
+                    crate::kast::binding::Role::Free => None,
+                    crate::kast::binding::Role::Bound { binder }
+                    | crate::kast::binding::Role::Binding { binder } => Some((root, binder)),
+                };
+                *counts
+                    .entry((scope, occurrence.name.to_owned()))
+                    .or_default() += 1;
+            }
         }
-        for (name, count) in counts {
+        for ((_, name), count) in counts {
             let named_anonymous = is_named_anonymous(&name);
             if count == 1
                 && !named_anonymous
@@ -396,6 +406,55 @@ pub fn check_anonymous_variables(sentences: &[&Sentence]) -> Vec<Diagnostic> {
                     DiagnosticCode::InvalidAnonymousVariable,
                     format!(
                         "Variable '{name}' declared as unused, but it is used. Remove underscore from variable name if this is intentional."
+                    ),
+                    sentence,
+                ));
+            }
+        }
+    }
+    diagnostics
+}
+
+/// FU-55: a `concrete` or `symbolic` attribute of a rule or claim names free variables of it. An
+/// attribute lies outside every quantifier's scope, so a name it lists can only be a variable free
+/// in the sentence's terms (`kast::binding`); a name that is none is refused at the sentence.
+pub fn check_variable_naming_attributes(sentences: &[&Sentence]) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    for sentence in sentences {
+        if !matches!(sentence, Sentence::Rule { .. } | Sentence::Claim { .. }) {
+            continue;
+        }
+        let attributes = sentence.attributes();
+        let keys = [AttributeKey::Concrete, AttributeKey::Symbolic];
+        if keys.iter().all(|key| attributes.string(*key).is_none()) {
+            continue;
+        }
+        let free = sentence
+            .terms()
+            .flat_map(|(_, term)| crate::kast::binding::free_variables(term))
+            .collect::<BTreeSet<_>>();
+        for key in keys {
+            let Some(value) = attributes.string(key) else {
+                continue;
+            };
+            // Invariant: every name of `value` before `name` was checked.
+            for name in value
+                .split(',')
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+            {
+                let element = name.trim_start_matches('@');
+                if free.contains(name)
+                    || free.contains(element)
+                    || free.contains(&format!("@{element}"))
+                {
+                    continue;
+                }
+                diagnostics.push(Diagnostic::error(
+                    DiagnosticCode::InvalidAttribute,
+                    format!(
+                        "The {} attribute names {name}, which is no free variable of the sentence: an attribute lies outside every quantifier, so a name it lists must be a variable the sentence uses free.",
+                        key.as_str()
                     ),
                     sentence,
                 ));

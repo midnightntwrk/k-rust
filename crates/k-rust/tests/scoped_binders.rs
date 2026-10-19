@@ -269,3 +269,69 @@ fn a_macro_existential_is_judged_as_written_at_its_use() {
         "{refusal:?}"
     );
 }
+
+/// FU-56: the function-symbol check reads a left-hand side's quantifier through
+/// `kast::binding`. In `go(#Exists Y . Y)` the quantifier's `Y` is its own variable, which the
+/// left-hand side does not bind, so the map key `f(Y)`, read by value, reads a `Y` the rule binds
+/// nowhere else; it is refused, as it is when the quantifier is named apart (`Z`).
+#[test]
+fn a_left_side_quantifier_binds_no_variable_a_by_value_read_needs() {
+    let refused = |binder: &str| {
+        let source = format!(
+            "module P\n  imports INT\n  imports MAP\n  syntax KItem ::= go(Int) | done(Int)\n  syntax Int ::= f(Int) [function]\n  rule f(X) => X\n  configuration <k> $PGM:KItem </k> <m> .Map </m>\n  rule [p]: <k> go(#Exists {binder}:Int . {binder}) => done(0) ... </k> <m> (f(Y) |-> _) ... </m>\nendmodule\n"
+        );
+        let loaded = load("P", &source);
+        let error = compile_loaded_definition(&loaded, CompileOptions::default())
+            .err()
+            .unwrap_or_else(|| panic!("the rule with binder {binder} should be refused"));
+        error
+            .diagnostics
+            .into_iter()
+            .filter(|diagnostic| diagnostic.code == DiagnosticCode::IllegalFunctionOnLhs)
+            .map(|diagnostic| diagnostic.message)
+            .collect::<Vec<_>>()
+    };
+    let shadowing = refused("Y");
+    assert!(
+        shadowing
+            .iter()
+            .any(|message| message.contains("this rule binds Y nowhere else")),
+        "{shadowing:?}"
+    );
+    assert_eq!(shadowing, refused("Z"));
+}
+
+/// FU-55: a `concrete` or `symbolic` attribute names free variables of its rule, since it lies
+/// outside every quantifier. One naming a variable only a quantifier binds, or none at all, is
+/// refused by the definition checks at its rule, whatever the binder is called.
+#[test]
+fn an_attribute_naming_no_free_variable_is_refused_at_its_rule() {
+    let message = |key: &str, name: &str| {
+        format!(
+            "InvalidAttribute@7: The {key} attribute names {name}, which is no free variable of the sentence: an attribute lies outside every quantifier, so a name it lists must be a variable the sentence uses free."
+        )
+    };
+    let rule = |binder: &str, attribute: &str| {
+        format!(
+            "syntax Int ::= f(Int) [function]\n  rule f(X) => X requires #Exists {binder}:Int . {{{binder} #Equals X}} [simplification, {attribute}]"
+        )
+    };
+    for key in ["concrete", "symbolic"] {
+        for binder in ["Z", "W"] {
+            assert_eq!(
+                compile_result(&rule(binder, &format!("{key}(Z)"))),
+                Err(message(key, "Z")),
+                "{key} {binder}"
+            );
+        }
+        assert_eq!(
+            compile_result(&rule("W", &format!("{key}(X)"))),
+            Ok(()),
+            "{key}(X) names the free X"
+        );
+    }
+    assert_eq!(
+        compile_result(&rule("W", "concrete(Q)")),
+        Err(message("concrete", "Q"))
+    );
+}

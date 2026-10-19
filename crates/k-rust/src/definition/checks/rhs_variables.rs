@@ -420,7 +420,9 @@ fn gather_variables(
         if position.lhs && !quantified.contains(name) {
             bound.insert(name.to_owned());
         }
-        if error_existential && name.starts_with('?') {
+        // Only a free `?` variable is an existential of the sentence; one a quantifier binds is
+        // that quantifier's variable, whatever its sigil.
+        if error_existential && name.starts_with('?') && !quantified.contains(name) {
             *unsupported_existentials += 1;
         }
         return;
@@ -445,15 +447,6 @@ fn gather_variables(
     // (`kast::binding`): the binder binds nothing at the sentence's positions, and inside the
     // body its names are the quantifier's own.
     if let Some(quantifier) = binding::quantifier(term) {
-        if error_existential {
-            quantifier.binder.visit_preorder(&mut |part| {
-                if let Term::Variable { name, .. } = part
-                    && name.starts_with('?')
-                {
-                    *unsupported_existentials += 1;
-                }
-            });
-        }
         let depth = quantified.len();
         quantified.extend(quantifier.bound().into_iter().map(str::to_owned));
         gather_variables(

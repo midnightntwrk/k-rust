@@ -201,12 +201,12 @@ local_function_cases! {
     }
     match_k {
         rule: "rule op(A) => val(0) requires A :=K 1",
-        loaded: "op(#SemanticCastToInt(A))=>val(#token(\"0\",\"Int\")) requires `_:=K_`(#SemanticCastToInt(A),#token(\"1\",\"Int\"))",
+        loaded: "op(#SemanticCastToInt(A))=>val(#token(\"0\",\"Int\")) requires `_:=K_`(#SemanticCastToK(A),#token(\"1\",\"Int\"))",
         portable: None,
     }
     mismatch_k {
         rule: "rule op(A) => val(0) requires A :/=K 1",
-        loaded: "op(#SemanticCastToInt(A))=>val(#token(\"0\",\"Int\")) requires `_:/=K_`(#SemanticCastToInt(A),#token(\"1\",\"Int\"))",
+        loaded: "op(#SemanticCastToInt(A))=>val(#token(\"0\",\"Int\")) requires `_:/=K_`(#SemanticCastToK(A),#token(\"1\",\"Int\"))",
         portable: None,
     }
 }

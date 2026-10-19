@@ -44,8 +44,10 @@
 //! - a `?` variable of a macro's right side, alone beside a binder, used twice in one condition,
 //!   or bound by the macro's own quantifier (`macro-existential`);
 //! - two free `?` variables of one sentence whose names and first occurrences are in opposite
-//!   orders, in the right side, the `ensures`, or one in each (`two-existentials`), and the
-//!   orders of lifted and macro existentials under renaming (`existential-order`).
+//!   orders, in the right side, the `ensures`, or one in each (`two-existentials`), the
+//!   orders of lifted and macro existentials under renaming (`existential-order`);
+//! - a match pattern's variable (`P :=K T`, `P :/=K T`) spelled like a variable of the rule, at
+//!   another sort or left to inference, as source text (`match`).
 //!
 //! The `owise` cross product of `owise_binders.rs` (its `shapes.rs`) is a family here too
 //! (`owise-cross`), so the competitors' binders are renamed under every strategy.
@@ -495,6 +497,34 @@ fn existential_orders() -> Vec<Case> {
     .into_iter()
     .map(|(form, rules)| case(format!("existential-order/{form}"), "G", rules, &["go(3)"]))
     .collect()
+}
+
+/// The pattern of a match `P :=K T` (and `P :/=K T`) binds its variables in itself only, so a
+/// pattern variable spelled like a variable of the rule is a variable of its own, with its own
+/// sort. Written as source text beside the base with the pattern variable renamed to the rule's
+/// `X` (`text-shadow-match`), annotated at another sort or left to sort inference.
+fn match_patterns() -> Vec<Case> {
+    let mut cases = Vec::new();
+    for (operator, program_result) in [(":=K", "match"), (":/=K", "mismatch")] {
+        for (form, apart, shadow) in [("annotated", "B:Bool", "X:Bool"), ("inferred", "B", "X")] {
+            cases.push(
+                case(
+                    format!("match/{program_result}-{form}"),
+                    "G",
+                    &format!(
+                        "  rule [p]: <k> go(X) => done(X) ... </k> requires {apart} {operator} X >Int 2\n"
+                    ),
+                    &["go(3)"],
+                )
+                .twin(
+                    "text-shadow-match",
+                    &format!("{apart} {operator}"),
+                    &format!("{shadow} {operator}"),
+                ),
+            );
+        }
+    }
+    cases
 }
 
 /// A context alias with one variable beside the strictness variables the compiler mints.
@@ -1386,6 +1416,7 @@ pub fn cases() -> Vec<Case> {
         macro_existentials(),
         two_existentials(),
         existential_orders(),
+        match_patterns(),
         context_aliases(),
         function_binders(),
         owise_binders(),
