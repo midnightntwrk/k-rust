@@ -48,7 +48,9 @@ impl std::error::Error for ResolveFunctionWithConfigError {}
 /// A function reads the configuration when its own rules do, or when a function or macro that its
 /// rules reach does: the requirement propagates backwards along every application in the body,
 /// `requires` and `ensures` of a function rule, and through a macro to what its right side
-/// applies, since expansion puts that right side where the macro is used. The set is the least
+/// applies, since expansion puts that right side where the macro is used. A rule counts for the
+/// label its head has once macros are expanded, so a simplification rule written with a macro or
+/// alias head is a rule of the function that head expands to. The set is the least
 /// fixed point of that relation, so a function that calls a configuration-reading function
 /// receives and forwards the same configuration value transitively. Only function labels receive
 /// it: a macro is a route only, and an `anywhere` symbol that is not a function is a call target
@@ -375,8 +377,33 @@ pub(crate) fn resolve_config_var_pass(
 /// without one) binds the configuration variable: it is the generated top cell aliased to it
 /// (`<generatedTop>(..) #as #Configuration`), or an application whose last argument is the
 /// variable or that alias, the left-hand side of a rule of a function that receives the
-/// configuration. This is the one predicate of the binding stage's rejection and of invariant CF1.
+/// configuration. This is the one predicate of the binding stage's rejection and of invariant CF1;
+/// CF1 also checks, through [`configuration_binder`], that the root of the second form is a function
+/// that receives the configuration.
 pub(crate) fn left_hand_side_binds_configuration(body: &Term) -> bool {
+    configuration_binder(body).is_some()
+}
+
+/// How the root of the left-hand side of `body` binds the configuration variable
+/// ([`left_hand_side_binds_configuration`]).
+pub(crate) enum ConfigurationBinder<'a> {
+    /// The generated top cell aliased to it.
+    TopCellAlias,
+    /// The last argument of the root application, whose label this is.
+    LastArgument(
+        #[cfg_attr(
+            not(any(debug_assertions, feature = "kompile-invariant-checks")),
+            expect(
+                dead_code,
+                reason = "only invariant CF1, absent from this build, reads the label"
+            )
+        )]
+        &'a Label,
+    ),
+}
+
+/// The binder of the configuration variable at the root of the left-hand side of `body`, if any.
+pub(crate) fn configuration_binder(body: &Term) -> Option<ConfigurationBinder<'_>> {
     #[expect(
         clippy::wildcard_enum_match_arm,
         reason = "Term is syntax; only a top rewrite has a left side other than the body"
@@ -386,15 +413,16 @@ pub(crate) fn left_hand_side_binds_configuration(body: &Term) -> bool {
         _ => body,
     };
     if is_configuration_alias(left) {
-        return true;
+        return Some(ConfigurationBinder::TopCellAlias);
     }
-    matches!(
-        left.unannotated(),
-        Term::Apply { arguments, .. }
-            if arguments.last().is_some_and(|last| {
-                is_exact_configuration_variable(last) || is_configuration_alias(last)
-            })
-    )
+    if let Term::Apply { label, arguments } = left.unannotated()
+        && arguments.last().is_some_and(|last| {
+            is_exact_configuration_variable(last) || is_configuration_alias(last)
+        })
+    {
+        return Some(ConfigurationBinder::LastArgument(label));
+    }
+    None
 }
 
 /// Whether `term` is the configuration variable. Reading the spelling is sound: a name that
@@ -533,12 +561,13 @@ fn compute_with_config_functions(
         Edges::READS,
     );
     let functions = productions.function_labels();
+    // A rule is a seed for the labels it is a rule of once macros are expanded, so a
+    // simplification rule written with a macro head seeds the function that head expands to.
     let seeds = rules
         .rules()
-        .filter_map(|(_, rule)| {
-            let label = LabelHead::from(&crate::definition::match_rule_label(rule));
-            (functions.contains(&label) && rule_needs_config(rule)).then_some(label)
-        })
+        .filter(|(_, rule)| rule_needs_config(rule))
+        .flat_map(|(_, rule)| graph.rule_heads(rule))
+        .filter(|label| functions.contains(label))
         .collect();
     // A macro label reaches the closure when a reader is reachable through its right side; it is
     // a route, not a receiver: its applications are expanded where they are used.

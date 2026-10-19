@@ -65,12 +65,14 @@
 //! - CF1: every rule, claim, context or context alias that holds `#Configuration` and is not
 //!   macro-like binds it at the root of its left-hand side (the left side of its top rewrite, or
 //!   its body without one): either the root is the generated top cell aliased to it
-//!   (`<generatedTop>(..) #as #Configuration`), or the root is an application, the left-hand side
-//!   of a configuration-reading function's rule, whose last argument is `#Configuration` or such
-//!   an alias. A macro-like rule is exempt, as in R3: its expansion substitutes the reference into
+//!   (`<generatedTop>(..) #as #Configuration`), or the root is an application of a function
+//!   production (the left-hand side of a configuration-reading function's rule) whose last
+//!   argument is `#Configuration` or such an alias, so no constructor or macro receives the
+//!   configuration. A macro-like rule is exempt, as in R3: its expansion substitutes the reference into
 //!   a use site, which binds it. The check reads the spelling, which is sound because a name that
 //!   starts with `#` is reserved for the compiler, so no authored variable is `#Configuration`.
-//!   The binding stage rejects, with a diagnostic and by the same predicate, every rule and claim
+//!   The binding stage rejects, with a diagnostic and by the same binder predicate (without the
+//!   function check, which only a compiler defect can fail), every rule and claim
 //!   that would break CF1 except the rules of functions: a function that a rule's reads reach
 //!   receives the configuration, so an unbound reference in a function rule would be a read that
 //!   this propagation missed, a compiler defect that CF1 is there to report.
@@ -89,12 +91,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 
+use crate::definition::LabelHead;
 use crate::definition::checks::{CheckedRoot, right_hand_side_binding};
 use crate::definition::{AttributeKey, Definition, Sentence, StructuralCheckOptions};
 use crate::kast::Term;
 use crate::kast::binding::free_variables;
 use crate::kompile::CompileOptions;
-use crate::kompile::passes::{is_exact_configuration_variable, left_hand_side_binds_configuration};
+use crate::kompile::passes::{
+    ConfigurationBinder, configuration_binder, is_exact_configuration_variable,
+};
 use crate::kompile::pipeline::{Artifacts, Stage};
 use crate::provenance::InputAddress;
 
@@ -268,17 +273,24 @@ impl StageChecks {
         {
             return;
         }
+        // The functions that receive the configuration, gathered only when a sentence binds it as
+        // the last argument of its root application, which few do.
+        let mut receivers = None;
         for module in &output.modules {
             // Invariant: every sentence of `module` before `index` satisfies CF1.
             for (index, sentence) in module.local_sentences.iter().enumerate() {
-                let unbound = unbound_configuration(sentence);
+                let unbound = unbound_configuration(sentence, &mut |label| {
+                    receivers
+                        .get_or_insert_with(|| configuration_receivers(output))
+                        .contains(label)
+                });
                 if !unbound.is_empty() {
                     let parts = unbound.iter().map(|root| root.as_str()).collect::<Vec<_>>();
                     panic!(
                         "kompile invariant CF1 (configuration binding) broken by stage {:?} ({}): \
                          {CONFIGURATION_VARIABLE} in {} is bound by no left-hand side: the root of the \
                          left-hand side is neither the generated top cell aliased to it nor an \
-                         application whose last argument is it\n  in {}\n  sentence: {}",
+                         application of a function whose last argument is it\n  in {}\n  sentence: {}",
                         stage.name,
                         stage.call,
                         parts.join(", "),
@@ -435,7 +447,10 @@ fn rule_like_parts(sentence: &Sentence) -> Option<RuleLikeParts<'_>> {
 
 /// The parts of `sentence` that hold a configuration reference which the root of its left-hand side
 /// does not bind (CF1); empty for a sentence that is not rule-like or is macro-like.
-fn unbound_configuration(sentence: &Sentence) -> Vec<CheckedRoot> {
+fn unbound_configuration(
+    sentence: &Sentence,
+    receives_configuration: &mut impl FnMut(&LabelHead) -> bool,
+) -> Vec<CheckedRoot> {
     let Some((body, conditions, _)) = rule_like_parts(sentence) else {
         return Vec::new();
     };
@@ -447,10 +462,43 @@ fn unbound_configuration(sentence: &Sentence) -> Vec<CheckedRoot> {
         .filter(|(_, term)| holds_configuration(term))
         .map(|(root, _)| root)
         .collect::<Vec<_>>();
-    if parts.is_empty() || left_hand_side_binds_configuration(body) {
+    if parts.is_empty() {
         return Vec::new();
     }
-    parts
+    match configuration_binder(body) {
+        Some(ConfigurationBinder::TopCellAlias) => Vec::new(),
+        Some(ConfigurationBinder::LastArgument(label))
+            if receives_configuration(&LabelHead::from(label)) =>
+        {
+            Vec::new()
+        }
+        Some(ConfigurationBinder::LastArgument(_)) | None => parts,
+    }
+}
+
+/// The labels of the function productions of `definition`, the only labels whose applications
+/// may receive the configuration (CF1).
+///
+/// The production's last argument sort is not checked: a sort predicate's production is
+/// regenerated with its one argument, so a predicate that the closure made read the configuration
+/// has a rule one argument longer than its production, and `add sort injections` rejects that
+/// definition with a diagnostic, which CF1 must not preempt.
+fn configuration_receivers(definition: &Definition) -> BTreeSet<LabelHead> {
+    let mut receivers = BTreeSet::new();
+    for module in &definition.modules {
+        for sentence in &module.local_sentences {
+            if let Sentence::Production {
+                label: Some(label),
+                attributes,
+                ..
+            } = &**sentence
+                && attributes.has(AttributeKey::Function)
+            {
+                receivers.insert(LabelHead::from(label));
+            }
+        }
+    }
+    receivers
 }
 
 /// Whether `term` holds the configuration variable.
@@ -1296,6 +1344,7 @@ mod tests {
     fn cf1_accepts_the_top_cell_alias_and_a_trailing_configuration_argument() {
         let k = |contents: Term| Term::apply("<k>", vec![contents]);
         let output = binding_run(definition(vec![
+            production_ending_in_the_top_cell("f", true),
             sentence(
                 rewrite(
                     configuration_alias(top(k(Term::variable("X")))),
@@ -1335,7 +1384,63 @@ mod tests {
                 macro_attributes(),
             ),
         ]));
-        assert_eq!(output.modules[0].local_sentences.len(), 4);
+        assert_eq!(output.modules[0].local_sentences.len(), 5);
+    }
+
+    /// `syntax S ::= NAME(Int, GeneratedTopCell)`, a function when `function`.
+    fn production_ending_in_the_top_cell(name: &str, function: bool) -> Sentence {
+        let mut attributes = Attributes::default();
+        if function {
+            attributes.mark(AttributeKey::Function);
+        }
+        Sentence::Production {
+            label: Some(crate::kast::Label::new(name)),
+            parameters: Vec::new(),
+            sort: crate::kast::Sort::new("S"),
+            items: vec![
+                crate::definition::ProductionItem::NonTerminal {
+                    sort: crate::kast::Sort::new("Int"),
+                    name: None,
+                },
+                crate::definition::ProductionItem::NonTerminal {
+                    sort: crate::kast::Sort::builtin(crate::names::BuiltinSort::GeneratedTopCell),
+                    name: None,
+                },
+            ],
+            attributes,
+        }
+    }
+
+    /// The trailing-argument form binds the configuration only at the root of a function that
+    /// receives it: a constructor, even one declared with a last argument of the generated top
+    /// cell sort, or a label no production declares, breaks CF1.
+    #[test]
+    fn cf1_requires_the_trailing_argument_root_to_receive_the_configuration() {
+        for (productions, root) in [
+            (vec![production_ending_in_the_top_cell("c", false)], "c"),
+            (Vec::new(), "undeclared"),
+        ] {
+            let mut sentences = productions;
+            sentences.push(sentence(
+                rewrite(
+                    Term::apply(
+                        root,
+                        vec![Term::variable("X"), Term::variable("#Configuration")],
+                    ),
+                    Term::variable("X"),
+                ),
+                reads_configuration(),
+                Attributes::default(),
+            ));
+            let message = panic_message(|| {
+                binding_run(definition(sentences.clone()));
+            });
+            assert!(message.contains("CF1"), "{root}: {message}");
+            assert!(
+                message.contains("#Configuration in body, requires"),
+                "{root}: {message}"
+            );
+        }
     }
 
     /// After the binding stage, a configuration reference that the root of the left-hand side
