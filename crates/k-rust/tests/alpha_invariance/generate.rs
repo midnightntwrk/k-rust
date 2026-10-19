@@ -47,7 +47,10 @@
 //!   orders, in the right side, the `ensures`, or one in each (`two-existentials`), the
 //!   orders of lifted and macro existentials under renaming (`existential-order`);
 //! - a match pattern's variable (`P :=K T`, `P :/=K T`) spelled like a variable of the rule, at
-//!   another sort or left to inference, as source text (`match`).
+//!   another sort or left to inference, as source text (`match`);
+//! - a `?` binder respelled without its sigil, in a `requires` (rewrite rule, function rule with
+//!   an `owise` competitor, claim) and below a constructor in a left side, as source text
+//!   (`sigil-binder`).
 //!
 //! The `owise` cross product of `owise_binders.rs` (its `shapes.rs`) is a family here too
 //! (`owise-cross`), so the competitors' binders are renamed under every strategy.
@@ -525,6 +528,76 @@ fn match_patterns() -> Vec<Case> {
                     ("Q", "X"),
                 ),
             );
+        }
+    }
+    cases
+}
+
+/// A `?` binder respelled without its sigil (`sigil-binder`). A quantifier binds exactly its own
+/// variable whatever its spelling, so `#Exists ?Y . P` and `#Exists QY . P` (P renamed alike)
+/// are alpha-variants, and the compiled result must not depend on the sigil. Each case is written
+/// with `?Y` and compared with its source twin `text-sigil` spelled `QY`: in the `requires` of a
+/// rewrite rule (`requires`), of a function rule with an `owise` competitor (`requires-owise`)
+/// and of a claim (`requires-claim`), and below a constructor in the left side of a rewrite rule
+/// (`lhs`) and of a function rule (`lhs-function`), compiled without runs.
+fn sigil_binders() -> Vec<Case> {
+    let mut cases = Vec::new();
+    for kind in KINDS {
+        let q = kind.text();
+        let tag = kind.tag();
+        let formula = match kind {
+            Quantifier::Exists => format!("{q} ?Y:Int . {{?Y #Equals X}}"),
+            Quantifier::Forall => format!("{q} ?Y:Int . {{?Y +Int 0 #Equals ?Y}}"),
+        };
+        let pattern = format!("{q} ?Y:Int . ?Y");
+        let shapes: [(&str, String, &[&str], bool); 5] = [
+            (
+                "requires",
+                format!("  rule [p]: <k> go(X) => done(X) ... </k> requires {formula}\n"),
+                &["go(3)"],
+                false,
+            ),
+            (
+                "requires-owise",
+                format!(
+                    "  syntax Int ::= f(Int) [function]\n  rule f(X) => 1 requires {formula}\n  rule f(_) => 0 [owise]\n  rule [p]: <k> go(X) => done(f(X)) ... </k>\n"
+                ),
+                &["go(3)"],
+                false,
+            ),
+            (
+                "requires-claim",
+                format!(
+                    "  rule <k> go(X) => done(X) ... </k>\n  claim <k> go(X) => done(X) ... </k> requires {formula}\n"
+                ),
+                &[],
+                true,
+            ),
+            (
+                "lhs",
+                format!("  rule [p]: <k> goS(s({pattern})) => done(0) ... </k>\n"),
+                &[],
+                false,
+            ),
+            (
+                "lhs-function",
+                format!(
+                    "  syntax Int ::= k(Wrap) [function]\n  rule [p]: k(s({pattern})) => 1\n  rule k(_) => 0 [owise]\n"
+                ),
+                &[],
+                false,
+            ),
+        ];
+        for (shape, rules, programs, proving) in shapes {
+            let mut case = case(format!("sigil-binder/{tag}-{shape}"), "G", &rules, programs).twin(
+                "text-sigil",
+                "?Y",
+                "QY",
+            );
+            if proving {
+                case = case.for_proving();
+            }
+            cases.push(case);
         }
     }
     cases
@@ -1433,6 +1506,7 @@ pub fn cases() -> Vec<Case> {
         connectives(),
         macro_attributes(),
         existential_binders(),
+        sigil_binders(),
         hole_contexts(),
         copied_binders(),
         frozen_contexts(),

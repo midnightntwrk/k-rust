@@ -336,3 +336,74 @@ fn an_attribute_naming_no_free_variable_is_refused_at_its_rule() {
         Err(message("concrete", "Q"))
     );
 }
+
+/// A `?` variable that a quantifier binds is that quantifier's own variable, whatever its
+/// spelling, so the check that refuses an existential variable outside a right side judges
+/// `#Exists ?Y . P` as it judges `#Exists Y . P`: in a `requires`, and below a constructor in the
+/// left side of a rewrite rule or of a function rule, the two spellings give the same result and
+/// neither is refused as an existential. A `?Y` free there is still refused, also beside a
+/// quantifier that binds `?Y` elsewhere.
+#[test]
+fn a_question_mark_binder_is_judged_as_its_plain_spelling() {
+    let existential = |result: &Result<(), String>| {
+        result
+            .as_ref()
+            .err()
+            .is_some_and(|errors| errors.contains("InvalidExistentialVariable"))
+    };
+    let shapes = [
+        "rule [p]: <k> go(X) => done(X) ... </k> requires #Exists $Y:Int . {$Y #Equals X}",
+        "rule [p]: <k> go(X) => done(X) ... </k> requires #Forall $Y:Int . {$Y +Int 0 #Equals $Y}",
+        "syntax KItem ::= box(Pair)\n  rule [p]: <k> box(f(#Exists $Y:Int . $Y, 1)) => done(0) ... </k>",
+        "syntax Int ::= k(Pair) [function]\n  rule [p]: k(f(#Forall $Y:Int . $Y, 1)) => 1\n  rule k(_) => 0 [owise]",
+    ];
+    for shape in shapes {
+        let written = |binder: &str| compile_result(&shape.replace("$Y", binder));
+        let sigil = written("?Y");
+        let plain = written("QY");
+        assert!(!existential(&sigil), "{shape}: {sigil:?}");
+        assert_eq!(
+            sigil.map_err(|errors| errors.replace("?Y", "QY")),
+            plain,
+            "{shape}"
+        );
+    }
+    assert_eq!(
+        compile_result(
+            "rule [p]: <k> go(X) => done(X) ... </k> requires #Exists ?Y:Int . {?Y #Equals X}"
+        ),
+        Ok(()),
+        "a requires binder over ?Y compiles"
+    );
+    let free = [
+        "rule [p]: <k> go(X) => done(X) ... </k> requires ?Y ==Int X",
+        "rule [p]: <k> go(?Y) => done(0) ... </k>",
+        "rule [p]: <k> go(X) => done(X) ... </k> requires {?Y #Equals X} #And (#Exists ?Y:Int . {?Y #Equals X})",
+    ];
+    for rule in free {
+        let errors = compile_result(rule).expect_err(rule);
+        assert_eq!(
+            errors
+                .matches("InvalidExistentialVariable@6: Existential variable ?Y found in LHS.")
+                .count(),
+            1,
+            "{rule}: {errors}"
+        );
+    }
+}
+
+/// A macro's `?` variable bound by a quantifier the macro writes is that quantifier's own
+/// variable at each use, so a use in a left side is not refused as an existential there.
+#[test]
+fn a_macro_question_mark_binder_is_not_an_existential_at_its_use() {
+    let source = format!(
+        "{MACRO_HEADER}  syntax Pair ::= mq(Int) [macro]\n  rule mq(N) => wrap(N, #Exists ?Y:Int . ?Y)\n  rule [p]: <k> go2(mq(X)) => done(X) ... </k>\nendmodule\n"
+    );
+    let result = compile_source(&source);
+    assert!(
+        result.as_ref().err().is_none_or(|errors| !errors
+            .iter()
+            .any(|error| error.starts_with("InvalidExistentialVariable"))),
+        "{result:?}"
+    );
+}

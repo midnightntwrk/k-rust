@@ -183,7 +183,8 @@ impl Case {
     }
 
     /// Add the source-text twin `name`: the case's text with `from` replaced by `to`, which must
-    /// have the same length and occur in the text.
+    /// have the same length and occur in the text. A name keeps its `?` sigil, so a twin may
+    /// respell a `?` binder without it (`?Y` to `QY`).
     pub fn twin(mut self, name: &str, from: &str, to: &str) -> Self {
         let Text::Inline(text) = &self.text else {
             panic!("{}: a twin is written beside an inline text", self.name);
@@ -200,10 +201,12 @@ impl Case {
             self.name
         );
         let names = |text: &str| -> Vec<String> {
-            text.split(|character: char| !(character.is_alphanumeric() || character == '_'))
-                .filter(|token| !token.is_empty())
-                .map(str::to_owned)
-                .collect()
+            text.split(|character: char| {
+                !(character.is_alphanumeric() || character == '_' || character == '?')
+            })
+            .filter(|token| !token.is_empty())
+            .map(str::to_owned)
+            .collect()
         };
         let mut pairs: Vec<(String, String)> = names(from)
             .into_iter()

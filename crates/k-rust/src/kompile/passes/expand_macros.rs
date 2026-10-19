@@ -301,7 +301,7 @@ fn check_macro_existentials(
         format!("{written} of macro {macro_label}")
     };
     let mut in_left = BTreeSet::new();
-    left_side_variables(body, false, &mut in_left);
+    left_side_variables(body, false, &mut Vec::new(), &mut in_left);
     for name in in_left
         .iter()
         .filter(|name| existentials.contains_key(*name))
@@ -363,18 +363,32 @@ fn check_macro_existentials(
     diagnostics
 }
 
-/// The names of the variables of `term` outside the right side of every rewrite in it, where a
-/// rule matches: the left side of a rewrite and every position no rewrite encloses.
-fn left_side_variables(term: &Term, in_right: bool, names: &mut BTreeSet<String>) {
+/// The names of the variables of `term` free outside the right side of every rewrite in it, where
+/// a rule matches: the left side of a rewrite and every position no rewrite encloses. A variable
+/// a quantifier binds (`kast::binding`; `quantified` holds the names bound around `term`) is the
+/// quantifier's own, not one the rule matches, so neither it nor its binder is a name here.
+fn left_side_variables(
+    term: &Term,
+    in_right: bool,
+    quantified: &mut Vec<String>,
+    names: &mut BTreeSet<String>,
+) {
+    if let Some(quantifier) = crate::kast::binding::quantifier(term) {
+        let depth = quantified.len();
+        quantified.extend(quantifier.bound().into_iter().map(str::to_owned));
+        left_side_variables(quantifier.body, in_right, quantified, names);
+        quantified.truncate(depth);
+        return;
+    }
     match term.unannotated() {
         Term::Variable { name, .. } => {
-            if !in_right {
+            if !in_right && !quantified.contains(name) {
                 names.insert(name.clone());
             }
         }
         Term::Rewrite { left, right } => {
-            left_side_variables(left, in_right, names);
-            left_side_variables(right, true, names);
+            left_side_variables(left, in_right, quantified, names);
+            left_side_variables(right, true, quantified, names);
         }
         other @ (Term::Apply { .. }
         | Term::As { .. }
@@ -383,7 +397,7 @@ fn left_side_variables(term: &Term, in_right: bool, names: &mut BTreeSet<String>
         | Term::Token { .. }
         | Term::Annotated { .. }) => {
             for child in other.children() {
-                left_side_variables(child, in_right, names);
+                left_side_variables(child, in_right, quantified, names);
             }
         }
     }

@@ -324,7 +324,13 @@ pub fn check_k_terms(sentences: &[&Sentence]) -> Vec<Diagnostic> {
 
 /// Where rewrites and `#as` may occur: a rule and a `#fun` have at least one rewrite, a rewrite is
 /// not nested in another, nor under a function rule's context or an `#as` pattern, `#as` is not
-/// on a right-hand side, and an existential variable is not on a left-hand side.
+/// on a right-hand side, and an existential variable is not on a left-hand side or in a
+/// `requires`.
+///
+/// An existential variable is a `?` variable free in the sentence, which the right side
+/// quantifies. A `?` variable that a quantifier binds (`#Exists ?Y . P`) is that quantifier's own
+/// variable, whatever its spelling (`kast::binding`), so it is judged as the same quantifier over
+/// `Y` is: neither its binder nor an occurrence it binds is refused.
 pub fn check_rewrites(sentences: &[&Sentence]) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     for sentence in sentences {
@@ -837,15 +843,28 @@ struct RewriteState {
     in_as: bool,
     in_function_context: bool,
     in_function_body: bool,
+    /// The names the quantifiers around the visited term bind there, innermost last.
+    quantified: Vec<String>,
 }
 
-// Invariant: the `state` flags describe the rewrite, `#as`, and `#fun` context enclosing `term`, and each recursive call descends into a strict subterm of `term`, so the size of the rule body bounds the calls.
+// Invariant: the `state` flags describe the rewrite, `#as`, and `#fun` context enclosing `term`, `state.quantified` the names the quantifiers around it bind, and each recursive call descends into a strict subterm of `term`, so the size of the rule body bounds the calls.
 fn visit_rewrite_term(
     term: &Term,
     state: &mut RewriteState,
     diagnostics: &mut Vec<Diagnostic>,
     sentence: &Sentence,
 ) {
+    // A quantifier's binder is its own variable, not an occurrence of the sentence's, and the
+    // names it binds are bound in its body (`kast::binding`).
+    if let Some(quantifier) = crate::kast::binding::quantifier(term) {
+        let depth = state.quantified.len();
+        state
+            .quantified
+            .extend(quantifier.bound().into_iter().map(str::to_owned));
+        visit_rewrite_term(quantifier.body, state, diagnostics, sentence);
+        state.quantified.truncate(depth);
+        return;
+    }
     match term.unannotated() {
         Term::Rewrite { left, right } => {
             let was_in_rewrite = state.in_rewrite;
@@ -894,7 +913,7 @@ fn visit_rewrite_term(
             state.in_as = was_in_as;
         }
         Term::Variable { name, .. } => {
-            if !state.in_rewrite_rhs && name.starts_with('?') {
+            if !state.in_rewrite_rhs && name.starts_with('?') && !state.quantified.contains(name) {
                 diagnostics.push(Diagnostic::error(
                     DiagnosticCode::InvalidExistentialVariable,
                     format!(
