@@ -25,7 +25,7 @@ use crate::{
     },
     substitution::{Substitution, substitute},
     term::{
-        Term, TermKind, Variable,
+        Term, TermKind, Variable, immediate_children,
         names::{FreshMarker, VariableProvenance, split_marker},
     },
 };
@@ -41,8 +41,10 @@ fn conjoin(mut predicates: Vec<Predicate>) -> Predicate {
 }
 
 /// The conjunction of `predicates`, with each of its free variables that `pattern` does not hold
-/// (neither its term nor its constraints) bound by an existential, outermost first in variable
-/// order.
+/// (neither its term nor its constraints) bound by an existential, outermost first in order of
+/// first occurrence in the conjunction ([`free_variables_by_first_occurrence`]). The order of the
+/// binders so depends on where the variables occur, not on their names, which a renaming of the
+/// rule that introduced them changes.
 ///
 /// The state's term is looked up variable by variable, never copied: a step on a configuration
 /// of `V` variables pays for the condition's variables, not for `V`. The constraints' variables
@@ -53,8 +55,7 @@ pub(crate) fn quantify_introduced_variables(
 ) -> Predicate {
     let mut condition = conjoin(predicates);
     let state_term_variables = &pattern.term.attributes().variables;
-    let mut introduced = condition
-        .free_variables()
+    let mut introduced = free_variables_by_first_occurrence(&condition)
         .into_iter()
         .filter(|variable| !state_term_variables.contains(variable))
         .collect::<Vec<_>>();
@@ -70,6 +71,72 @@ pub(crate) fn quantify_introduced_variables(
         condition = Predicate::Exists(variable, Arc::new(condition));
     }
     condition
+}
+
+/// The free variables of `predicate`, each once, in order of first occurrence: its terms in the
+/// order [`Predicate::visit_terms`] visits them, each in preorder ([`immediate_children`]). An
+/// occurrence that a quantifier of `predicate` binds is not free.
+pub(crate) fn free_variables_by_first_occurrence(predicate: &Predicate) -> Vec<Variable> {
+    fn term(term: &Term, bound: &[Variable], found: &mut Vec<Variable>) {
+        let mut pending = vec![term];
+        // Invariant: `found` holds the free variables of the subterms visited so far, in order
+        // of first occurrence; `pending` the unvisited subterms that hold a variable, the next
+        // on top.
+        while let Some(node) = pending.pop() {
+            if node.attributes().variables.is_empty() {
+                continue;
+            }
+            if let TermKind::Variable(variable) = node.kind() {
+                if !bound.contains(variable) && !found.contains(variable) {
+                    found.push(variable.clone());
+                }
+                continue;
+            }
+            pending.extend(immediate_children(node.kind()).into_iter().rev());
+        }
+    }
+    fn walk(predicate: &Predicate, bound: &mut Vec<Variable>, found: &mut Vec<Variable>) {
+        match predicate {
+            Predicate::True | Predicate::False => {}
+            Predicate::Term(inner)
+            | Predicate::Ceil(inner)
+            | Predicate::Defined(inner)
+            | Predicate::Floor(inner) => term(inner, bound, found),
+            Predicate::Equals(left, right) | Predicate::In(left, right) => {
+                term(left, bound, found);
+                term(right, bound, found);
+            }
+            Predicate::Absent(absence) => {
+                term(absence.key(), bound, found);
+                term(absence.rest(), bound, found);
+            }
+            Predicate::Not(inner) => walk(inner, bound, found),
+            Predicate::And(inner) | Predicate::Or(inner) => {
+                for predicate in inner.iter() {
+                    walk(predicate, bound, found);
+                }
+            }
+            Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
+                walk(left, bound, found);
+                walk(right, bound, found);
+            }
+            Predicate::Exists(variable, inner) | Predicate::Forall(variable, inner) => {
+                bound.push(variable.clone());
+                walk(inner, bound, found);
+                bound.pop();
+            }
+        }
+    }
+    let mut found = Vec::new();
+    walk(predicate, &mut Vec::new(), &mut found);
+    found
+}
+
+/// `predicate` with each bound variable renamed to a name given by its binder's position (the
+/// binders numbered in preorder), and its free variables as they are: two predicates that differ
+/// only in the names of bound variables have the same key.
+pub(crate) fn alpha_normal(predicate: &Predicate) -> Predicate {
+    alpha_normalize(predicate, &mut 0)
 }
 
 pub(crate) fn conjunctively_contains_alpha_equivalent(

@@ -31,7 +31,7 @@ use crate::{
     definedness::{ceil_term, condition_definedness},
     definition::BackendDefinition,
     diagnostic,
-    rewrite::{Truth, predicates_truth, substitute_predicates},
+    rewrite::{Truth, alpha_normal, predicates_truth, substitute_predicates},
     rule::{Predicate, rename_predicates},
     simplify::{RuleCondition, SimplificationError, hook_argument_definedness},
     stop::Stoppable,
@@ -385,8 +385,22 @@ impl MatchSolution {
     }
 
     /// Put the conjuncts in canonical order and remove repetitions.
+    ///
+    /// The order does not depend on the names of bound variables: conjuncts are compared with
+    /// each bound variable named by its binder's position ([`alpha_normal`]), free variables by
+    /// name, and only alpha-equivalent conjuncts, which differ in bound names alone, by those
+    /// names. A conjunction without a quantifier is ordered exactly as by the derived order.
     pub(crate) fn sort_conditions(&mut self) {
-        self.conditions.sort();
+        if self.conditions.iter().any(holds_quantifier) {
+            let mut keyed = std::mem::take(&mut self.conditions)
+                .into_iter()
+                .map(|condition| (alpha_normal(&condition), condition))
+                .collect::<Vec<_>>();
+            keyed.sort();
+            self.conditions = keyed.into_iter().map(|(_, condition)| condition).collect();
+        } else {
+            self.conditions.sort();
+        }
         self.conditions.dedup();
     }
 
@@ -401,6 +415,27 @@ impl MatchSolution {
             "a match condition mentions a variable its substitution binds: {self:?}"
         );
         (self.substitution, self.conditions)
+    }
+}
+
+/// Whether `predicate` holds a quantifier.
+fn holds_quantifier(predicate: &Predicate) -> bool {
+    match predicate {
+        Predicate::Exists(..) | Predicate::Forall(..) => true,
+        Predicate::Not(inner) => holds_quantifier(inner),
+        Predicate::And(inner) | Predicate::Or(inner) => inner.iter().any(holds_quantifier),
+        Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
+            holds_quantifier(left) || holds_quantifier(right)
+        }
+        Predicate::True
+        | Predicate::False
+        | Predicate::Term(_)
+        | Predicate::Equals(..)
+        | Predicate::Ceil(_)
+        | Predicate::Floor(_)
+        | Predicate::In(..)
+        | Predicate::Absent(_)
+        | Predicate::Defined(_) => false,
     }
 }
 
