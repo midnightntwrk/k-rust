@@ -837,9 +837,10 @@ mod offered {
     }
 }
 
-/// The equation selection sites outside the term scans (`fixtures/coverage/probes.k`): each one
+/// The equation selection sites outside the term scans (`fixtures/coverage/probes/`): each one
 /// offers the lower-priority equation it selected and never tried, which is in neither other
-/// list.
+/// list. Each probe is a definition of its own, so that one the compiler refuses does not hide
+/// the others.
 mod probes {
     use std::collections::BTreeSet;
 
@@ -852,7 +853,11 @@ mod probes {
 
     use super::int;
 
-    const SOURCE: &str = include_str!("fixtures/coverage/probes.k");
+    const CEIL: &str = include_str!("fixtures/coverage/probes/ceil.k");
+    const PRED: &str = include_str!("fixtures/coverage/probes/pred.k");
+    const DEF: &str = include_str!("fixtures/coverage/probes/def.k");
+    /// A KORE definition: its `#Top` lemmas and its states are not written in K source.
+    const TOP: &str = include_str!("fixtures/coverage/probes/top.kore");
 
     fn top(program: &str) -> String {
         format!(
@@ -860,11 +865,15 @@ mod probes {
         )
     }
 
-    /// The labels, without the module, of the (applied, matched, offered) lists of `program`
-    /// over module `main`, under both strategies, which must agree.
-    fn levels(main: &str, program: &str) -> (BTreeSet<String>, BTreeSet<String>, BTreeSet<String>) {
-        let kore = super::compile_source("probes.k", SOURCE, main);
-        let mut backend = Backend::new(&kore, main, BackendOptions::default()).unwrap();
+    /// The labels, without the module, of the (applied, matched, offered) lists of the run of
+    /// `initial` over the KORE definition `kore` with main module `main`, under both strategies,
+    /// which must agree.
+    fn levels(
+        kore: &str,
+        main: &str,
+        initial: &str,
+    ) -> (BTreeSet<String>, BTreeSet<String>, BTreeSet<String>) {
+        let mut backend = Backend::new(kore, main, BackendOptions::default()).unwrap();
         let catalog = super::catalog(&backend);
         let module = format!("{main}.");
         let mut answers = [ExecutionStrategy::All, ExecutionStrategy::Any].map(|strategy| {
@@ -875,7 +884,7 @@ mod probes {
                     collect_coverage: true,
                     collect_offered: true,
                     max_work: Some(50),
-                    ..ExecuteRequest::new(parse_pattern(&top(program)).unwrap())
+                    ..ExecuteRequest::new(parse_pattern(initial).unwrap())
                 })
                 .unwrap();
             let coverage = result.coverage.unwrap();
@@ -891,8 +900,18 @@ mod probes {
                 labels(&coverage.offered.unwrap()),
             )
         });
-        assert_eq!(answers[0], answers[1], "{main} {program}: All and Any");
+        assert_eq!(answers[0], answers[1], "{main} {initial}: All and Any");
         std::mem::take(&mut answers[0])
+    }
+
+    /// [`levels`] of `program`, a term of sort `Pgm`, over the K definition `source`.
+    fn program_levels(
+        source: &str,
+        main: &str,
+        program: &str,
+    ) -> (BTreeSet<String>, BTreeSet<String>, BTreeSet<String>) {
+        let kore = super::compile_source(&format!("{}.k", main.to_lowercase()), source, main);
+        levels(&kore, main, &top(program))
     }
 
     fn go(argument: &str) -> String {
@@ -903,7 +922,7 @@ mod probes {
     /// `gBottom`, at priority 60.
     #[test]
     fn the_ceil_scan_offers_its_lower_equation() {
-        let (applied, matched, offered) = levels("CEIL", &go(&int(5)));
+        let (applied, matched, offered) = program_levels(CEIL, "CEIL", &go(&int(5)));
         assert!(
             applied.contains("gTop") && applied.contains("go"),
             "{applied:?}"
@@ -916,7 +935,7 @@ mod probes {
     /// priority 60.
     #[test]
     fn the_predicate_scan_offers_its_lower_equation() {
-        let (applied, matched, offered) = levels("PRED", &go(&int(5)));
+        let (applied, matched, offered) = program_levels(PRED, "PRED", &go(&int(5)));
         assert!(
             applied.contains("hTop") && applied.contains("go"),
             "{applied:?}"
@@ -926,12 +945,13 @@ mod probes {
     }
 
     /// The `#Top` lemmas of the operand `tp(5)` of the term-level conjunction `5 #And tp(5)` in
-    /// the initial state (the compiler reads a rule's `X #And tp(X)` as a predicate): `tpHigh`
-    /// drops it, and `tpLow`, at priority 60, is never tried.
+    /// the state `done(5 #And tp(5))` of the KORE definition `TOP`: `tpHigh` drops it, and
+    /// `tpLow`, at priority 60, is never tried.
     #[test]
     fn the_top_lemmas_offer_their_lower_lemma() {
         let (applied, matched, offered) = levels(
-            "TOPDEF",
+            TOP,
+            "TOP",
             &format!(
                 "Lbldone{{}}(\\and{{SortInt{{}}}}({}, Lbltp{{}}({})))",
                 int(5),
@@ -947,7 +967,7 @@ mod probes {
     /// never tries `tBottom`, at priority 60.
     #[test]
     fn the_definedness_analysis_offers_its_lower_ceil_equation() {
-        let (applied, matched, offered) = levels("TOPDEF", "Lbldef{}(VarX:SortInt{})");
+        let (applied, matched, offered) = program_levels(DEF, "DEF", "Lbldef{}(VarX:SortInt{})");
         assert!(
             applied.contains("tCeil") && applied.contains("def"),
             "{applied:?}"

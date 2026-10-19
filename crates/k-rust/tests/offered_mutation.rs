@@ -92,24 +92,12 @@ enum Input {
     Symbolic(&'static str),
     /// [`Input::Symbolic`] under the constraint `X >=Int 0`.
     Constrained(&'static str),
-    /// A KORE term of sort `Pgm`, for a state no program of the definition's syntax writes.
-    Kore(&'static str),
 }
 
 impl Input {
     fn pattern(self, source: &str, main: &str, sort: &str) -> (String, Pattern) {
-        let program = match self {
-            Input::Ground(program) | Input::Symbolic(program) | Input::Constrained(program) => {
-                program
-            }
-            Input::Kore(term) => {
-                let (kore, _) = compile_in(source, main, sort, "go(0)");
-                let top = format!(
-                    "Lbl'-LT-'generatedTop'-GT-'{{}}(Lbl'-LT-'k'-GT-'{{}}(kseq{{}}(inj{{Sort{sort}{{}}, SortKItem{{}}}}({term}), dotk{{}}())), Lbl'-LT-'generatedCounter'-GT-'{{}}(\\dv{{SortInt{{}}}}(\"0\")))"
-                );
-                return (kore, parse_pattern(&top).unwrap());
-            }
-        };
+        let (Input::Ground(program) | Input::Symbolic(program) | Input::Constrained(program)) =
+            self;
         let (kore, ground) = compile_in(source, main, sort, program);
         if let Input::Ground(_) = self {
             return (kore, ground);
@@ -133,12 +121,11 @@ impl Input {
             Input::Ground(program) => program.to_owned(),
             Input::Symbolic(program) => format!("{program} with X for 777"),
             Input::Constrained(program) => format!("{program} with X >=Int 0 for 777"),
-            Input::Kore(term) => term.to_owned(),
         }
     }
 }
 
-use Input::{Constrained, Ground, Kore, Symbolic};
+use Input::{Constrained, Ground, Symbolic};
 
 fn request(initial: &Pattern, strategy: ExecutionStrategy, offered: bool) -> ExecuteRequest {
     ExecuteRequest {
@@ -419,7 +406,8 @@ struct Tally {
     runs: usize,
 }
 
-/// Run the mutation oracle over `inputs` of `source`; panics with every changed run.
+/// Run the mutation oracle over `inputs` of the K definition `source`; panics with every changed
+/// run.
 fn assert_unlisted_axioms_are_inert(
     case: &str,
     source: &str,
@@ -428,12 +416,31 @@ fn assert_unlisted_axioms_are_inert(
     inputs: &[Input],
 ) -> Tally {
     let mut kore = None;
+    let initials = inputs
+        .iter()
+        .map(|&input| {
+            let (compiled, initial) = input.pattern(source, main, sort);
+            kore.get_or_insert(compiled);
+            (input.name(), initial)
+        })
+        .collect::<Vec<_>>();
+    let kore = kore.expect("a case has an input");
+    assert_unlisted_axioms_of_kore_are_inert(case, &kore, main, &initials)
+}
+
+/// Run the mutation oracle over the named states `initials` of the KORE definition `kore`;
+/// panics with every changed run.
+fn assert_unlisted_axioms_of_kore_are_inert(
+    case: &str,
+    kore: &str,
+    main: &str,
+    initials: &[(String, Pattern)],
+) -> Tally {
     let mut originals = Vec::new();
-    for &input in inputs {
-        let (compiled, initial) = input.pattern(source, main, sort);
-        let mut backend = Backend::new(&compiled, main, BackendOptions::default()).unwrap();
+    for (input, initial) in initials {
+        let mut backend = Backend::new(kore, main, BackendOptions::default()).unwrap();
         for strategy in STRATEGIES {
-            let response = backend.execute(request(&initial, strategy, true)).unwrap();
+            let response = backend.execute(request(initial, strategy, true)).unwrap();
             let coverage = response.coverage.as_ref().unwrap();
             let listed = coverage
                 .applied
@@ -443,19 +450,17 @@ fn assert_unlisted_axioms_are_inert(
                 .cloned()
                 .collect();
             originals.push(Original {
-                input: input.name(),
+                input: input.clone(),
                 initial: initial.clone(),
                 strategy,
                 leaves: leaves(Ok(response)),
                 listed,
             });
         }
-        kore.get_or_insert(compiled);
     }
-    let kore = kore.expect("a case has an input");
-    let backend = Backend::new(&kore, main, BackendOptions::default()).unwrap();
+    let backend = Backend::new(kore, main, BackendOptions::default()).unwrap();
     let catalog = backend.rule_catalog(None).unwrap();
-    let definition = parse_definition(&kore).unwrap();
+    let definition = parse_definition(kore).unwrap();
     let ids = catalog
         .iter()
         .map(|rule| (rule.id.clone(), rule.label.clone()))
@@ -584,9 +589,16 @@ fn the_offer_fixtures() {
     );
 }
 
-/// The probe definitions: one per equation selection site outside the term scans, each with
-/// a lower-priority competitor that a raise lets decide in place of the higher one.
-const PROBES: &str = include_str!("fixtures/coverage/probes.k");
+// The probe definitions (`fixtures/coverage/probes/`): one per equation selection site outside
+// the term scans, each with a lower-priority competitor that a raise lets decide in place of the
+// higher one, and one for a lowering. Each probe is a definition of its own, so that one the
+// compiler refuses does not hide the others.
+const CEIL_PROBE: &str = include_str!("fixtures/coverage/probes/ceil.k");
+const PRED_PROBE: &str = include_str!("fixtures/coverage/probes/pred.k");
+const DEF_PROBE: &str = include_str!("fixtures/coverage/probes/def.k");
+const LOWER_PROBE: &str = include_str!("fixtures/coverage/probes/lower.k");
+/// A KORE definition: its `#Top` lemmas and its states are not written in K source.
+const TOP_PROBE: &str = include_str!("fixtures/coverage/probes/top.kore");
 
 /// Ceil equations selected by the predicate simplifier (`#Ceil` in a `requires`), on a ground
 /// argument, where the higher one decides.
@@ -594,7 +606,7 @@ const PROBES: &str = include_str!("fixtures/coverage/probes.k");
 fn the_ceil_probe() {
     assert_unlisted_axioms_are_inert(
         "CEIL",
-        PROBES,
+        CEIL_PROBE,
         "CEIL",
         "Pgm",
         &[
@@ -612,30 +624,34 @@ fn the_ceil_probe() {
 fn the_predicate_probe() {
     assert_unlisted_axioms_are_inert(
         "PRED",
-        PROBES,
+        PRED_PROBE,
         "PRED",
         "Pgm",
         &[Ground("go(5)"), Symbolic("go(777)"), Symbolic("eq(777)")],
     );
 }
 
-/// `#Top` lemmas on an operand of a term-level conjunction (in a KORE state: the compiler reads a
-/// rule's `X #And t` as a predicate), and the definedness analysis's ceil equations.
+/// `#Top` lemmas on an operand of a term-level conjunction, in states of the KORE definition
+/// `TOP`.
 #[test]
-fn the_top_and_definedness_probe() {
+fn the_top_probe() {
+    let initials = [
+        r#"Lbldone{}(\and{SortInt{}}(\dv{SortInt{}}("5"), Lbltp{}(\dv{SortInt{}}("5"))))"#,
+        r#"Lbldone{}(\and{SortInt{}}(VarX:SortInt{}, Lbltp{}(VarX:SortInt{})))"#,
+    ]
+    .map(|initial| (initial.to_owned(), parse_pattern(initial).unwrap()));
+    assert_unlisted_axioms_of_kore_are_inert("TOP", TOP_PROBE, "TOP", &initials);
+}
+
+/// The definedness analysis's ceil equations, on a right-hand side.
+#[test]
+fn the_definedness_probe() {
     assert_unlisted_axioms_are_inert(
-        "TOPDEF",
-        PROBES,
-        "TOPDEF",
+        "DEF",
+        DEF_PROBE,
+        "DEF",
         "Pgm",
-        &[
-            Kore(
-                r#"Lbldone{}(\and{SortInt{}}(\dv{SortInt{}}("5"), Lbltp{}(\dv{SortInt{}}("5"))))"#,
-            ),
-            Kore(r#"Lbldone{}(\and{SortInt{}}(VarX:SortInt{}, Lbltp{}(VarX:SortInt{})))"#),
-            Ground("def(5)"),
-            Symbolic("def(777)"),
-        ],
+        &[Ground("def(5)"), Symbolic("def(777)")],
     );
 }
 
@@ -646,7 +662,7 @@ fn the_top_and_definedness_probe() {
 fn the_lowering_probe() {
     assert_unlisted_axioms_are_inert(
         "LOWER",
-        PROBES,
+        LOWER_PROBE,
         "LOWER",
         "Pgm",
         &[Ground("ge(5)"), Symbolic("ge(777)"), Ground("val(5)")],
