@@ -774,8 +774,8 @@ fn emitted_kore_matches_the_reference_frontend() {
     );
     let fresh_offsets = normalize_fresh_offsets(&mut reference, &mut actual);
     println!(
-        "axioms whose fresh offsets differ by an injective renumbering, numbered by first \
-         occurrence on both sides (N50): {fresh_offsets}"
+        "axioms whose fresh offsets differ by a permutation of one set of literal offsets below \
+         the counter advance, numbered by first occurrence on both sides (N50): {fresh_offsets}"
     );
     let divergent = divergent_axioms_from_environment();
     let removed = remove_divergent_axioms(&mut reference, &mut actual, &divergent)
@@ -2134,28 +2134,32 @@ fn remove_divergent_axioms(
     Ok(ids.len())
 }
 
-/// The requires operand of an axiom: the condition conjunct of a rewrite rule's left side
-/// (`\rewrites(\and(left, requires), ..)`), or the antecedent of an equation's or a
-/// simplification's root `\implies`, without the argument matches an equation conjoins to it
-/// (`\and(requires, \and(\in(X0, ..), .. \top))`). `None` for any other axiom.
 /// The counter variable of fresh values, the integer addition that offsets it, and the counter
 /// cell, as KORE names them.
 const FRESH_COUNTER: &str = "Var'Hash'Fresh";
 const FRESH_OFFSET_ADDITION: &str = "Lbl'UndsPlus'Int'Unds'";
 const FRESH_COUNTER_CELL: &str = "Lbl'-LT-'generatedCounter'-GT-'";
 
-/// N50: compare an axiom's fresh offsets up to an injective renumbering. A fresh value of a rule
-/// is its generator applied to `#Fresh +Int n`, and the rule then advances the counter past
-/// every `n` it uses; the offsets are only required to be distinct, so two axioms that differ
-/// by a one-to-one renumbering of their offsets state the same rule.
+/// N50: compare an axiom's fresh offsets up to a permutation of one set of literal offsets. A
+/// fresh value of a rule is its generator applied to `#Fresh +Int n`, and the rule then advances
+/// the counter by `a`, so the next step draws from `#Fresh +Int a` on. A value is fresh only when
+/// its offset `n` lies in `[0, a)`: an offset at or beyond the advance gives a value a later step
+/// gives too. Within that range the offsets are only required to be distinct, so two axioms with
+/// the same advance and the same set of distinct offsets, all in range, that differ by a
+/// permutation of that set state the same rule.
 ///
-/// For each axiom whose UNIQUE'Unds'ID names exactly one axiom on each side, and whose two
-/// sides differ as the comparison sees them ([`as_compared`]), both are renumbered
-/// ([`renumber_fresh_offsets`]); when the renumbered axioms agree, both sides keep the
-/// renumbered form. Agreement after renumbering means a one-to-one map from the offsets of one
-/// side to those of the other takes one axiom to the other, so any other difference, or two
-/// distinct offsets on one side where the other has one, still differs. The counter cell's own
-/// advance is not an offset and stays compared. Returns the number of pairs renumbered.
+/// For each axiom whose UNIQUE'Unds'ID names exactly one axiom on each side, and whose two sides
+/// differ as the comparison sees them ([`as_compared`]), both are renumbered
+/// ([`renumber_fresh_offsets`]). Both sides keep the renumbered form only when every offset of each
+/// side is a literal in the range of its counter advance, the two sides' sets of distinct offset
+/// values are equal, and the renumbered axioms agree. Agreement after renumbering means a
+/// one-to-one map from the offsets of one side to those of the other takes one axiom to the other,
+/// and with equal sets that map is a permutation of one set of offsets, each in `[0, a)` for the
+/// advance `a` both sides share. So any other difference still differs: two distinct offsets on one
+/// side where the other has one, offsets shifted or off by one against the other side's, an offset
+/// at or beyond the advance, or an offset that is a variable the left side does not identify with
+/// an integer. The counter cell's own advance is not an offset and stays compared. Returns the
+/// number of pairs renumbered.
 fn normalize_fresh_offsets(reference: &mut Definition, actual: &mut Definition) -> usize {
     let positions = |definition: &Definition| {
         let mut positions = BTreeMap::<String, Vec<(usize, usize)>>::new();
@@ -2184,13 +2188,19 @@ fn normalize_fresh_offsets(reference: &mut Definition, actual: &mut Definition) 
         if as_compared(reference_axiom) == as_compared(actual_axiom) {
             continue;
         }
-        let (Some(reference_renumbered), Some(actual_renumbered)) = (
+        let (
+            Some((reference_renumbered, Some(reference_offsets))),
+            Some((actual_renumbered, Some(actual_offsets))),
+        ) = (
             renumber_fresh_offsets(reference_axiom),
             renumber_fresh_offsets(actual_axiom),
-        ) else {
+        )
+        else {
             continue;
         };
-        if as_compared(&reference_renumbered) == as_compared(&actual_renumbered) {
+        if reference_offsets == actual_offsets
+            && as_compared(&reference_renumbered) == as_compared(&actual_renumbered)
+        {
             reference.modules[*reference_module].sentences[*reference_index] = reference_renumbered;
             actual.modules[*actual_module].sentences[*actual_index] = actual_renumbered;
             renumbered += 1;
@@ -2201,15 +2211,26 @@ fn normalize_fresh_offsets(reference: &mut Definition, actual: &mut Definition) 
 
 /// `sentence` with the offset of each fresh value (the `n` of `#Fresh +Int n` outside the
 /// counter cell) replaced by the placeholder `\dv{SortInt{}}("fresh offset k")`, where `k`
-/// numbers the distinct offsets in the order they first occur; `None` when it has no such offset.
-fn renumber_fresh_offsets(sentence: &Sentence) -> Option<Sentence> {
-    fn renumber(pattern: &mut Pattern, in_counter_cell: bool, offsets: &mut Vec<Pattern>) {
+/// numbers the distinct offsets in the order they first occur, and the set of the distinct
+/// offsets' integer values. That set is `None` unless the counter cell advances once, by a
+/// literal `a` (`#Fresh +Int a`), and every offset is a literal ([`literal_offset`]) in
+/// `[0, a)`. `None` when the sentence has no such offset.
+fn renumber_fresh_offsets(sentence: &Sentence) -> Option<(Sentence, Option<BTreeSet<i128>>)> {
+    fn renumber(
+        pattern: &mut Pattern,
+        in_counter_cell: bool,
+        offsets: &mut Vec<Pattern>,
+        advances: &mut Vec<Pattern>,
+    ) {
         if let Pattern::Application { symbol, arguments } = pattern {
-            if !in_counter_cell
-                && symbol.name == FRESH_OFFSET_ADDITION
+            if symbol.name == FRESH_OFFSET_ADDITION
                 && let [Pattern::Variable(counter), offset] = arguments.as_mut_slice()
                 && counter.name == FRESH_COUNTER
             {
+                if in_counter_cell {
+                    advances.push(offset.clone());
+                    return;
+                }
                 let number = offsets
                     .iter()
                     .position(|seen| seen == offset)
@@ -2225,21 +2246,96 @@ fn renumber_fresh_offsets(sentence: &Sentence) -> Option<Sentence> {
             }
             let counter_cell = symbol.name == FRESH_COUNTER_CELL;
             for argument in arguments {
-                renumber(argument, counter_cell, offsets);
+                renumber(argument, counter_cell, offsets, advances);
             }
             return;
         }
         for child in pattern_children_mut(pattern) {
-            renumber(child, false, offsets);
+            renumber(child, false, offsets, advances);
         }
     }
     let mut sentence = sentence.clone();
     let Sentence::Axiom { pattern, .. } = &mut sentence else {
         return None;
     };
-    let mut offsets = Vec::new();
-    renumber(pattern, false, &mut offsets);
-    (!offsets.is_empty()).then_some(sentence)
+    let aliases = match &**pattern {
+        Pattern::Rewrites { left, .. } => literal_aliases(left),
+        _ => Vec::new(),
+    };
+    let (mut offsets, mut advances) = (Vec::new(), Vec::new());
+    renumber(pattern, false, &mut offsets, &mut advances);
+    if offsets.is_empty() {
+        return None;
+    }
+    let advance = match advances.as_slice() {
+        [advance] => integer_literal(advance),
+        _ => None,
+    };
+    let values = advance.and_then(|advance| {
+        offsets
+            .iter()
+            .map(|offset| {
+                literal_offset(offset, &aliases).filter(|value| (0..advance).contains(value))
+            })
+            .collect::<Option<BTreeSet<_>>>()
+    });
+    Some((sentence, values))
+}
+
+/// The integer a fresh offset denotes, when it is a literal: an integer domain value, or a
+/// variable the rewrite's left side identifies with exactly one integer domain value
+/// (`aliases`, from [`literal_aliases`]). `None` for any other offset, whose value the axiom
+/// does not fix.
+fn literal_offset(offset: &Pattern, aliases: &[(Variable, i128)]) -> Option<i128> {
+    match offset {
+        Pattern::Variable(variable) => {
+            let mut values = aliases
+                .iter()
+                .filter(|(alias, _)| alias == variable)
+                .map(|(_, value)| *value);
+            let value = values.next()?;
+            values.all(|other| other == value).then_some(value)
+        }
+        _ => integer_literal(offset),
+    }
+}
+
+/// The value of an integer domain value `\dv{SortInt{}}("n")`.
+fn integer_literal(pattern: &Pattern) -> Option<i128> {
+    let Pattern::DomainValue {
+        sort: Sort::Application { name, arguments },
+        value,
+    } = pattern
+    else {
+        return None;
+    };
+    if name != "SortInt" || !arguments.is_empty() {
+        return None;
+    }
+    std::str::from_utf8(value.as_bytes()).ok()?.parse().ok()
+}
+
+/// The variables a rewrite's left side identifies with an integer domain value, each with that
+/// value: every `\and(\dv{SortInt{}}("n"), V)` (in either order) in `left`. Matching such a
+/// conjunction binds `V` to `n`.
+fn literal_aliases(left: &Pattern) -> Vec<(Variable, i128)> {
+    let mut aliases = Vec::new();
+    let mut stack = vec![left];
+    while let Some(pattern) = stack.pop() {
+        if let Pattern::And { arguments, .. } = pattern
+            && let [first, second] = arguments.as_slice()
+        {
+            for (literal, alias) in [(first, second), (second, first)] {
+                if let (Some(value), Pattern::Variable(variable)) =
+                    (integer_literal(literal), alias)
+                {
+                    aliases.push((variable.clone(), value));
+                }
+            }
+        }
+        stack.extend(pattern_children(pattern));
+    }
+    aliases
 }
 
 /// The direct subpatterns of `pattern`, mutably, in the order [`pattern_children`] gives them.
@@ -2270,6 +2366,10 @@ fn pattern_children_mut(pattern: &mut Pattern) -> Vec<&mut Pattern> {
     }
 }
 
+/// The requires operand of an axiom: the condition conjunct of a rewrite rule's left side
+/// (`\rewrites(\and(left, requires), ..)`), or the antecedent of an equation's or a
+/// simplification's root `\implies`, without the argument matches an equation conjoins to it
+/// (`\and(requires, \and(\in(X0, ..), .. \top))`). `None` for any other axiom.
 fn requires_operand(pattern: &mut Pattern) -> Option<&mut Pattern> {
     fn is_argument_matches(pattern: &Pattern) -> bool {
         match pattern {
@@ -2967,16 +3067,25 @@ fn divergent_axioms_remove_exactly_the_listed_differing_pair() {
     assert!(error.contains("exactly one axiom missing"), "{error}");
 }
 
-/// N50 identifies two axioms whose fresh offsets differ by a one-to-one renumbering, and only
-/// those: a rule whose offsets are 1, 0, 0, 2 on one side and 0, 1, 1, 2 on the other is the same
-/// rule, while a different right side, two distinct offsets where the other side repeats one, or
-/// a different advance of the counter cell still differs and is left as it is.
+/// N50 identifies two axioms whose fresh offsets differ by a permutation of one set of literal
+/// offsets below the counter's advance, and only those: a rule whose offsets are 1, 0, 0, 2 on
+/// one side and 0, 1, 1, 2 on the other is the same rule, also when an offset is a variable the
+/// left side identifies with `0` (`\and(\dv 0, VarG)`). A different right side, two distinct
+/// offsets where the other side repeats one, a different advance of the counter cell, offsets off
+/// by one (2, 1, 1, 3) or shifted (8, 7, 7, 9) against the other side's, or an offset that is a
+/// variable only the right side holds, still differ and are left as they are; so does one set of
+/// offsets on both sides that holds an offset at the advance.
 #[test]
-fn fresh_offsets_compare_up_to_an_injective_renumbering_only() {
+fn fresh_offsets_compare_up_to_a_permutation_of_one_set_of_offsets_in_range_only() {
     let definition = |offsets: [&str; 4], symbol: &str, advance: &str| {
         let fresh = |offset: &str| {
+            let offset = if offset.starts_with("Var") {
+                format!("{offset}:SortInt{{}}")
+            } else {
+                format!(r#"\dv{{SortInt{{}}}}("{offset}")"#)
+            };
             format!(
-                r#"Lblfresh{{}}(Lbl'UndsPlus'Int'Unds'{{}}(Var'Hash'Fresh:SortInt{{}}, \dv{{SortInt{{}}}}("{offset}")))"#
+                r#"Lblfresh{{}}(Lbl'UndsPlus'Int'Unds'{{}}(Var'Hash'Fresh:SortInt{{}}, {offset}))"#
             )
         };
         parse_definition(&format!(
@@ -2990,8 +3099,8 @@ fn fresh_offsets_compare_up_to_an_injective_renumbering_only() {
             symbol Lbl'-LT-'generatedCounter'-GT-'{{}}(SortInt{{}}) : SortFoo{{}} []
             symbol Lbltop{{}}(SortFoo{{}}, SortFoo{{}}) : SortTop{{}} []
             symbol Lbl'UndsPlus'Int'Unds'{{}}(SortInt{{}}, SortInt{{}}) : SortInt{{}} [function{{}}()]
-            symbol Lblgo{{}}() : SortFoo{{}} []
-            axiom{{}} \rewrites{{SortTop{{}}}}(Lbltop{{}}(Lblgo{{}}(), Lbl'-LT-'generatedCounter'-GT-'{{}}(Var'Hash'Fresh:SortInt{{}})), Lbltop{{}}({symbol}{{}}({}, {}, {}, {}), Lbl'-LT-'generatedCounter'-GT-'{{}}(Lbl'UndsPlus'Int'Unds'{{}}(Var'Hash'Fresh:SortInt{{}}, \dv{{SortInt{{}}}}("{advance}"))))) [UNIQUE'Unds'ID{{}}("r")]
+            symbol Lblgo{{}}(SortInt{{}}) : SortFoo{{}} []
+            axiom{{}} \rewrites{{SortTop{{}}}}(Lbltop{{}}(Lblgo{{}}(\and{{SortInt{{}}}}(\dv{{SortInt{{}}}}("0"), VarG:SortInt{{}})), Lbl'-LT-'generatedCounter'-GT-'{{}}(Var'Hash'Fresh:SortInt{{}})), Lbltop{{}}({symbol}{{}}({}, {}, {}, {}), Lbl'-LT-'generatedCounter'-GT-'{{}}(Lbl'UndsPlus'Int'Unds'{{}}(Var'Hash'Fresh:SortInt{{}}, \dv{{SortInt{{}}}}("{advance}"))))) [UNIQUE'Unds'ID{{}}("r")]
             endmodule []"#,
             fresh(offsets[0]),
             fresh(offsets[1]),
@@ -3005,6 +3114,13 @@ fn fresh_offsets_compare_up_to_an_injective_renumbering_only() {
     let (mut reference, mut actual) = (
         spelled.clone(),
         definition(["0", "1", "1", "2"], "Lblfoo", "3"),
+    );
+    assert_eq!(normalize_fresh_offsets(&mut reference, &mut actual), 1);
+    assert_eq!(reference, actual);
+
+    let (mut reference, mut actual) = (
+        spelled.clone(),
+        definition(["VarG", "1", "1", "2"], "Lblfoo", "3"),
     );
     assert_eq!(normalize_fresh_offsets(&mut reference, &mut actual), 1);
     assert_eq!(reference, actual);
@@ -3026,6 +3142,18 @@ fn fresh_offsets_compare_up_to_an_injective_renumbering_only() {
             definition(["0", "1", "1", "2"], "Lblfoo", "4"),
             "the counter's advance",
         ),
+        (
+            definition(["2", "1", "1", "3"], "Lblfoo", "3"),
+            "offsets off by one",
+        ),
+        (
+            definition(["8", "7", "7", "9"], "Lblfoo", "3"),
+            "shifted offsets",
+        ),
+        (
+            definition(["1", "VarZ", "VarZ", "2"], "Lblfoo", "3"),
+            "a variable offset",
+        ),
     ] {
         let (mut reference, mut actual) = (spelled.clone(), different.clone());
         assert_eq!(
@@ -3036,6 +3164,14 @@ fn fresh_offsets_compare_up_to_an_injective_renumbering_only() {
         assert_eq!(reference, spelled, "{what}");
         assert_eq!(actual, different, "{what}");
     }
+
+    // One set of offsets on both sides, but 3 is not below the advance 3: its value is the one
+    // the next step draws first, so permuting it with another offset changes the rule.
+    let beyond = definition(["1", "0", "0", "3"], "Lblfoo", "3");
+    let permuted = definition(["3", "1", "1", "0"], "Lblfoo", "3");
+    let (mut reference, mut actual) = (beyond.clone(), permuted.clone());
+    assert_eq!(normalize_fresh_offsets(&mut reference, &mut actual), 0);
+    assert_eq!((reference, actual), (beyond, permuted));
 
     let (mut reference, mut actual) = (spelled.clone(), spelled.clone());
     assert_eq!(normalize_fresh_offsets(&mut reference, &mut actual), 0);
