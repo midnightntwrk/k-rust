@@ -22,7 +22,7 @@ use crate::{
     provenance::GeneratingPass,
 };
 
-use super::super::label_graph::LabelDependencyGraph;
+use super::super::label_graph::{Edges, LabelDependencyGraph};
 use super::retarget_production_identities;
 
 const CONFIGURATION_VARIABLE: &str = "#Configuration";
@@ -45,11 +45,16 @@ impl fmt::Display for ResolveFunctionWithConfigError {
 impl std::error::Error for ResolveFunctionWithConfigError {}
 
 /// Functions whose rules inspect configuration receive one final `GeneratedTopCell` argument.
-/// The requirement propagates backwards along calls from the rules of functions, to functions and
-/// to non-macro `anywhere` symbols, so a function that calls a configuration-reading function
+/// A function reads the configuration when its own rules do, or when a function or macro that its
+/// rules reach does: the requirement propagates backwards along every application in the body,
+/// `requires` and `ensures` of a function rule, and through a macro to what its right side
+/// applies, since expansion puts that right side where the macro is used. A rule counts for the
+/// label its head has once macros are expanded, so a simplification rule written with a macro or
+/// alias head is a rule of the function that head expands to. The set is the least
+/// fixed point of that relation, so a function that calls a configuration-reading function
 /// receives and forwards the same configuration value transitively. Only function labels receive
-/// it: an `anywhere` symbol that is not a function is a call target only, and its own rules give
-/// the closure no edges.
+/// it: a macro is a route only, and an `anywhere` symbol that is not a function is a call target
+/// only, whose own rules give the closure no edges.
 pub fn resolve_function_with_config(
     definition: &Definition,
 ) -> Result<Definition, ResolveFunctionWithConfigError> {
@@ -245,9 +250,10 @@ pub(crate) fn resolve_function_with_config_pass(
 /// the reference into a use site, which binds it.
 ///
 /// A rule whose head is a function is not rejected here: its function has the configuration in
-/// scope by meaning, and an unbound reference in it is a read that the propagation of
-/// [`resolve_function_with_config`] does not follow (through `ensures` or a macro), which CF1
-/// reports in invariant builds.
+/// scope by meaning, since [`resolve_function_with_config`] gives the configuration to every
+/// function whose rules reach a read, through `requires`, `ensures`, right-hand sides and macros.
+/// An unbound reference in such a rule would be a read that propagation missed, a compiler defect
+/// that CF1 reports in invariant builds.
 pub fn resolve_config_var(
     definition: &Definition,
 ) -> Result<Definition, ResolveFunctionWithConfigError> {
@@ -371,8 +377,33 @@ pub(crate) fn resolve_config_var_pass(
 /// without one) binds the configuration variable: it is the generated top cell aliased to it
 /// (`<generatedTop>(..) #as #Configuration`), or an application whose last argument is the
 /// variable or that alias, the left-hand side of a rule of a function that receives the
-/// configuration. This is the one predicate of the binding stage's rejection and of invariant CF1.
+/// configuration. This is the one predicate of the binding stage's rejection and of invariant CF1;
+/// CF1 also checks, through [`configuration_binder`], that the root of the second form is a function
+/// that receives the configuration.
 pub(crate) fn left_hand_side_binds_configuration(body: &Term) -> bool {
+    configuration_binder(body).is_some()
+}
+
+/// How the root of the left-hand side of `body` binds the configuration variable
+/// ([`left_hand_side_binds_configuration`]).
+pub(crate) enum ConfigurationBinder<'a> {
+    /// The generated top cell aliased to it.
+    TopCellAlias,
+    /// The last argument of the root application, whose label this is.
+    LastArgument(
+        #[cfg_attr(
+            not(any(debug_assertions, feature = "kompile-invariant-checks")),
+            expect(
+                dead_code,
+                reason = "only invariant CF1, absent from this build, reads the label"
+            )
+        )]
+        &'a Label,
+    ),
+}
+
+/// The binder of the configuration variable at the root of the left-hand side of `body`, if any.
+pub(crate) fn configuration_binder(body: &Term) -> Option<ConfigurationBinder<'_>> {
     #[expect(
         clippy::wildcard_enum_match_arm,
         reason = "Term is syntax; only a top rewrite has a left side other than the body"
@@ -382,15 +413,16 @@ pub(crate) fn left_hand_side_binds_configuration(body: &Term) -> bool {
         _ => body,
     };
     if is_configuration_alias(left) {
-        return true;
+        return Some(ConfigurationBinder::TopCellAlias);
     }
-    matches!(
-        left.unannotated(),
-        Term::Apply { arguments, .. }
-            if arguments.last().is_some_and(|last| {
-                is_exact_configuration_variable(last) || is_configuration_alias(last)
-            })
-    )
+    if let Term::Apply { label, arguments } = left.unannotated()
+        && arguments.last().is_some_and(|last| {
+            is_exact_configuration_variable(last) || is_configuration_alias(last)
+        })
+    {
+        return Some(ConfigurationBinder::LastArgument(label));
+    }
+    None
 }
 
 /// Whether `term` is the configuration variable. Reading the spelling is sound: a name that
@@ -522,18 +554,28 @@ fn compute_with_config_functions(
 ) -> BTreeSet<LabelHead> {
     let productions = definition.production_catalog(module);
     let rules = definition.rule_catalog(module);
-    let graph = LabelDependencyGraph::build(&productions, &rules, |rule| {
-        rule.attributes().has_any(&AttributeKey::MACRO_LIKE)
-    });
+    let graph = LabelDependencyGraph::build(
+        &productions,
+        &rules,
+        |rule| rule.attributes().has_any(&AttributeKey::MACRO_LIKE),
+        Edges::READS,
+    );
     let functions = productions.function_labels();
+    // A rule is a seed for the labels it is a rule of once macros are expanded, so a
+    // simplification rule written with a macro head seeds the function that head expands to.
     let seeds = rules
         .rules()
-        .filter_map(|(_, rule)| {
-            let label = LabelHead::from(&crate::definition::match_rule_label(rule));
-            (functions.contains(&label) && rule_needs_config(rule)).then_some(label)
-        })
+        .filter(|(_, rule)| rule_needs_config(rule))
+        .flat_map(|(_, rule)| graph.rule_heads(rule))
+        .filter(|label| functions.contains(label))
         .collect();
-    graph.backward_closure(seeds)
+    // A macro label reaches the closure when a reader is reachable through its right side; it is
+    // a route, not a receiver: its applications are expanded where they are used.
+    graph
+        .backward_closure(seeds)
+        .into_iter()
+        .filter(|label| functions.contains(label))
+        .collect()
 }
 
 fn rule_needs_config(rule: &Sentence) -> bool {
@@ -904,6 +946,70 @@ endmodule
         ] {
             assert_eq!(arguments(&run.input, label), before, "{label} before");
             assert_eq!(arguments(run.output(), label), after, "{label} after");
+        }
+    }
+
+    /// The need for the configuration also propagates through a function rule's `ensures` and
+    /// through macros: a function whose rule calls a macro whose right side calls a reader reads
+    /// the configuration, as the rule does once the macro is expanded. Only functions receive it:
+    /// the macro and the constructor in its right side keep their arity.
+    #[test]
+    fn the_configuration_reaches_a_function_through_its_ensures_and_through_macros() {
+        let run = run_to_stage(
+            r#"
+module MAIN
+  syntax K
+  syntax Int ::= r"[0-9]+" [token]
+  syntax Bool ::= "tt" [token]
+  syntax Int ::= reader() [function, symbol(reader)]
+               | viaEnsures() [function, symbol(viaEnsures)]
+  syntax Box ::= readerM() [macro, symbol(readerM)]
+               | viaMacro() [function, symbol(viaMacro)]
+               | wrap(Int) [symbol(wrap)]
+  syntax Bool ::= flag() [function, symbol(flag)]
+  syntax KItem ::= "go" [symbol(go)] | done(Box) [symbol(done)]
+  configuration <t> <k> go </k> <s> 0 </s> <b> tt </b> </t>
+  rule [[ reader() => V ]] <s> V </s>
+  rule [[ flag() => B ]] <b> B </b>
+  rule readerM() => wrap(reader())
+  rule viaMacro() => readerM()
+  rule viaEnsures() => 1 ensures flag()
+  rule <k> go => done(viaMacro()) </k> [label(go)]
+endmodule
+"#,
+            "resolve function configuration",
+        );
+        let arity = |label: &str| {
+            module(run.output(), "MAIN")
+                .local_sentences
+                .iter()
+                .find_map(|sentence| {
+                    let Sentence::Production {
+                        label: Some(production),
+                        items,
+                        ..
+                    } = &**sentence
+                    else {
+                        return None;
+                    };
+                    (production.name == label).then(|| {
+                        items
+                            .iter()
+                            .filter(|item| matches!(item, ProductionItem::NonTerminal { .. }))
+                            .count()
+                    })
+                })
+                .unwrap_or_else(|| panic!("no production {label}"))
+        };
+        for (label, expected) in [
+            ("reader", 1),
+            ("flag", 1),
+            ("viaMacro", 1),
+            ("viaEnsures", 1),
+            ("readerM", 0),
+            ("wrap", 1),
+        ] {
+            assert_eq!(arity(label), expected, "{label}");
         }
     }
 }

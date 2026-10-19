@@ -23717,6 +23717,156 @@ fn a_sentence_with_no_configuration_in_scope_cannot_read_it() {
 }
 
 #[test]
+fn a_function_reads_the_configuration_through_every_function_or_macro_it_reaches() {
+    // A function reads the configuration when its rules do, or when a function or macro that
+    // their requires, ensures or right-hand sides reach does: such a function receives the
+    // configuration, so its rules evaluate with the configuration of the application, and a
+    // rule with no configuration in scope that calls it is rejected. A simplification rule
+    // written with a macro or alias head is a rule of the function the head expands to. The
+    // debug krust checks invariant CF1 on each definition.
+    let run = |rules: &str, flag: &str| {
+        let source = configuration_reading_source(
+            &format!("{rules}\n  rule <k> foo2(N) => done(f(N)) ... </k>"),
+            "",
+        );
+        let output = krun_source(
+            &source,
+            &[
+                "--main-module",
+                "MAIN",
+                "--sort",
+                "Pgm",
+                "--expression",
+                "go(3)",
+                "-c",
+                &format!("FLAG={flag}"),
+                "--io",
+                "off",
+            ],
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        assert!(output.status.success(), "{source}\n{stderr}");
+        assert!(!stderr.contains("never applied"), "{source}\n{stderr}");
+        (String::from_utf8(output.stdout).unwrap(), stderr)
+    };
+    let done = |value: &str| format!(r#"Lbldone{{}}(\dv{{SortInt{{}}}}("{value}"))"#);
+    let alias = "syntax Int ::= fA(Int) [alias]\n  rule fA(N) => f(N)";
+    let mac = "syntax Int ::= fA(Int) [macro]\n  rule fA(N) => f(N)";
+    let mut table = vec![
+        // Through a macro in a condition (FU-29).
+        (
+            "rule f(_N) => 0 requires isZeroM()\n  rule f(N) => N [owise]".to_owned(),
+            [("0", "0"), ("1", "3")],
+        ),
+        // Through a macro whose right-hand side is a macro.
+        (
+            "syntax Bool ::= isZeroMM() [macro]\n  rule isZeroMM() => isZeroM()\n  \
+             rule f(_N) => 0 requires isZeroMM()\n  rule f(N) => N [owise]"
+                .to_owned(),
+            [("0", "0"), ("1", "3")],
+        ),
+        // Through an alias, and through a macro-rec chain.
+        (
+            "syntax Bool ::= isZeroA() [alias]\n  rule isZeroA() => isZero()\n  \
+             rule f(_N) => 0 requires isZeroA()\n  rule f(N) => N [owise]"
+                .to_owned(),
+            [("0", "0"), ("1", "3")],
+        ),
+        (
+            "syntax Bool ::= isZeroR() [macro-rec]\n  rule isZeroR() => isZeroM()\n  \
+             rule f(_N) => 0 requires isZeroR()\n  rule f(N) => N [owise]"
+                .to_owned(),
+            [("0", "0"), ("1", "3")],
+        ),
+        // Through a macro in an anywhere rule of the function.
+        (
+            "rule f(N) => N requires isZeroM() [anywhere]\n  rule f(_) => 0 [owise]".to_owned(),
+            [("0", "3"), ("1", "0")],
+        ),
+        // Through a function called in a condition of the function's rules.
+        (
+            "rule f(N) => N requires g()\n  rule f(_) => 0 [owise]".to_owned(),
+            [("0", "3"), ("1", "0")],
+        ),
+    ];
+    // A simplification rule with a macro or alias head, beside an equation of the function, in
+    // its requires and in its ensures (the equation decides the value).
+    for head in [alias, mac] {
+        for lemma in [
+            "rule fA(_N) => 0 requires isZero() [simplification]",
+            "rule fA(N) => N ensures isZero() [simplification]",
+        ] {
+            table.push((
+                format!("{head}\n  rule f(N) => N\n  {lemma}"),
+                [("0", "3"), ("1", "3")],
+            ));
+        }
+    }
+    for (rules, answers) in &table {
+        for (flag, value) in answers {
+            let (stdout, _) = run(rules, flag);
+            assert!(
+                stdout.contains(&done(value)),
+                "{rules} FLAG={flag}\n{stdout}"
+            );
+        }
+    }
+
+    // A function defined only by a simplification rule with a macro or alias head that reads the
+    // configuration: the rule applies where the configuration makes its condition hold, and the
+    // application stays, with the configuration it received, where it does not.
+    for head in [alias, mac] {
+        let rules = format!("{head}\n  rule fA(N) => N requires isZero() [simplification]");
+        let (stdout, _) = run(&rules, "0");
+        assert!(stdout.contains(&done("3")), "{rules}\n{stdout}");
+        let (stdout, _) = run(&rules, "1");
+        let compact = stdout.split_whitespace().collect::<String>();
+        assert!(
+            compact.contains(r#"Lblf{}(\dv{SortInt{}}("3"),Lbl'-LT-'generatedTop'-GT-'{}("#),
+            "{rules}\n{stdout}"
+        );
+    }
+
+    // Through an ensures: of a function rule, of an anywhere rule of the function, and of a
+    // callee through a macro. Where the ensures is false the application is undefined, so the
+    // step that builds it has an undefined result and no successor.
+    for rules in [
+        "rule f(N) => N ensures isZero()",
+        "rule f(N) => N ensures isZero() [anywhere]",
+        "syntax Int ::= h(Int) [function, symbol(h)]\n  rule h(N) => N ensures isZeroM()\n  \
+         rule f(N) => h(N)",
+    ] {
+        let (stdout, _) = run(rules, "0");
+        assert!(stdout.contains(&done("3")), "{rules}\n{stdout}");
+        let (stdout, stderr) = run(rules, "1");
+        assert!(
+            stderr.contains("no successor")
+                && stderr.contains("applied with an undefined result")
+                && !stdout.contains(&done("3")),
+            "{rules}\n{stdout}\n{stderr}"
+        );
+    }
+
+    // An anywhere rule on a constructor that calls a function reading the configuration through
+    // its ensures has no configuration to pass.
+    let source = configuration_reading_source(
+        "syntax Bool ::= ge() [function, symbol(ge)]\n  rule ge() => true ensures isZero()\n  \
+         rule foo2(N) => bar2(N) requires ge() [anywhere]",
+        "",
+    );
+    let output = kcompile_source(&source);
+    assert!(!output.status.success(), "{source}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(
+            "definition.k:18:3: Error[InvalidFunctionConfiguration]: An anywhere rule cannot read the configuration: its requires clause calls ge, which reads it, and the rule has no configuration in scope:"
+        ),
+        "{source}\n{stderr}"
+    );
+    assert!(!stderr.contains("panicked"), "{stderr}");
+}
+
+#[test]
 fn fresh_variables_outside_rewrite_steps_are_rejected_at_the_sentence() {
     // A fresh value is drawn from the configuration's counter cell by the rewrite step that
     // introduces it, so a `!X` in an equation or a claim would be a variable nothing binds.
