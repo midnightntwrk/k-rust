@@ -20,7 +20,7 @@ The status words below are part of the tour contract:
 
 Term islands, readable rule bodies, and configuration initializers accept a checked symbolic subset.
 Constructor applications, literals, binders, collection notation, and the documented builtin calls are available where their grammar permits them.
-Arbitrary operators, method calls, closures (except the quantifier binder of `ml::exists`, [matching-logic predicates](/verification/reachability-claims#matching-logic-predicates)), host `if`/loops, mutation, and generic constructor shapes other than K sort parameters (`S: ?Sized`) are not silently interpreted as semantics.
+Arbitrary operators and method calls (except `&&`, `||`, and domain method calls, [notation for builtin calls](/reference/language#operator-and-method-notation)), closures (except the quantifier binder of `ml::exists`, [matching-logic predicates](/verification/reachability-claims#matching-logic-predicates)), host `if`/loops, mutation, and generic constructor shapes other than K sort parameters (`S: ?Sized`) are not silently interpreted as semantics.
 
 This boundary keeps object-language meaning deterministic and collectable.
 If an expression is ordinary Rust, rustc executes or type-checks it as host code; if it is inside a KRS island, the island parser must recognize it as symbolic syntax.

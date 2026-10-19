@@ -207,7 +207,7 @@ Rust lets a spec module inside the crate name such an item, so KRS checks it ins
 K has two kinds of truth.
 `int::eq(a, b)` is an object-language Bool: a value a rule computes, stores, and branches on.
 `ml::equals(a, b)` is a statement about what two patterns denote, K's `{ A #Equals B }`, which only the prover reads.
-The connectives live in `k::ml` and are function shaped, like the builtin operations, with no operator or method sugar:
+The connectives live in `k::ml` and are function shaped, with no operator or method notation; `&&` and `||` are the object-language Bool connectives `bool::and_then` and `bool::or_else`, not `ml::and` and `ml::or`:
 
 | Rust | K | Meaning |
 | --- | --- | --- |

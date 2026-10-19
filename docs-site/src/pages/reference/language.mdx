@@ -177,7 +177,7 @@ In Rust, `|` tries its alternatives left to right; in K, `#Or` means "any of the
 KRS lets you write `|` only where the readings agree.
 Every alternative binds the same names (``variable `x` is not bound in all alternatives``, rustc's E0408), each at one sort, and two alternatives that bind names must not match one term with different bindings (`krs::analysis::ambiguous-or-pattern`): `Pick(Pair(x, Red()) | Pair(x, Green()))` is accepted, `Pick(Pair(x, y) | Pair(y, x))` is not, and alternatives that bind no names may overlap freely.
 The rule-overlap check treats an or-pattern as each of its alternatives.
-`|` in a result, a requires or ensures condition, or an initializer is a syntax error that points to `bool::or` or `k::or_bool!` for Boolean disjunction; so are `|` next to a `..` remainder, `|` between whole machine records, and `|` joining whole `k::term![..]` subjects, whose root is the matched constructor or function.
+`|` in a result, a requires or ensures condition, or an initializer is a syntax error that points to `||`, `bool::or`, or `k::or_bool!` for Boolean disjunction; so are `|` next to a `..` remainder, `|` between whole machine records, and `|` joining whole `k::term![..]` subjects, whose root is the matched constructor or function.
 
 ### Shape tests
 
@@ -528,7 +528,7 @@ Rust's `Any::is` and downcasts are the analogues, except that a downcast returns
 A projected collection lookup such as `k::project!(TypedLocal, list::get(locals, i))` keeps its `KItem` result, so the emitted term has exactly one cast.
 
 These are restricted object-language grammars embedded in Rust tokens.
-They do not evaluate arbitrary Rust expressions, methods, closures, or control flow.
+They do not evaluate arbitrary Rust expressions, methods, closures, or control flow; `&&`, `||`, and a method call with a domain turbofish are [notation for builtin calls](#operator-and-method-notation), and an island hands rustc the call each one denotes.
 The claim-only boundary is enforced during macro expansion rather than being a style convention.
 
 ## Literals
@@ -582,6 +582,7 @@ K's `String` sort is `string::String`: write `use k::builtin::string;` and `stri
 
 Operation paths below are tuple-struct constructor aliases.
 Calling them constructs a typed symbolic application; it does not run a Rust implementation.
+An operation of `int`, `bool`, `string`, `float`, `bytes`, or `kequal` may also be written as a method of its first operand, and `bool::and_then` and `bool::or_else` as `&&` and `||` ([Operator and method notation](#operator-and-method-notation)).
 
 | Module | Operations |
 | --- | --- |
@@ -621,6 +622,36 @@ They differ from `int::eq` only on symbolic terms.
 Its sort is the least sort of its two branches that fits where it occurs, the rule k-rust uses, so `ite(b, 1, 2)` in an `Exp` position has sort `Int`; branches with no unique such sort are an error that asks you to narrow one with a typed binder or `where`.
 k-rust keeps the definedness condition of the untaken branch, while Java K's LLVM and Haskell backends answer with the taken branch alone, so keep both branches defined and every backend agrees.
 There is deliberately no Rust `if` sugar for it, because a Rust `if` evaluates one branch.
+
+### Operator and method notation
+
+Two forms of a term expression are notation for a builtin call and have no meaning of their own.
+`a && b` is `bool::and_then(a, b)`, K's `andThenBool`, and `a || b` is `bool::or_else(a, b)`, K's `orElseBool`.
+These are the short-circuit connectives: k-rust evaluates the left operand first and the right one only when the left does not decide the result, so a guard such as `d.ne::<Int>(0) && n.div::<Int>(d).gt::<Int>(1)` evaluates in the order it reads, while the value keeps the definedness of an operand it does not evaluate, as for `kequal::ite` above.
+They group and associate as in Rust: `a || b && c` is `a || (b && c)`, both connectives associate to the left, and parentheses group subexpressions.
+The strict `bool::and` and `bool::or` remain available as calls.
+
+`recv.op::<D>(args..)` is `d::op(recv, args..)`, where `d` is the builtin module of the domain `D`:
+
+| `D` | Module | Example |
+| --- | --- | --- |
+| `Int` | `int` | `a.lt::<Int>(b)` is `int::lt(a, b)` |
+| `Bool` | `bool` | `a.not::<Bool>()` is `bool::not(a)` |
+| `String` | `string` | `s.concat::<String>(t)` is `string::concat(s, t)` |
+| `Float` | `float` | `x.sqrt::<Float>()` is `float::sqrt(x)` |
+| `Bytes` | `bytes` | `b.length::<Bytes>()` is `bytes::length(b)` |
+| `K` | `kequal` | `a.eq::<K>(b)` is `kequal::eq(a, b)`, K's `==K` |
+
+`op` is the name of any operation of that module in the catalog above, and the receiver is its first operand, so every operation that takes an operand has a method form.
+Method calls chain: `b.bit_and::<Int>(m).ne::<Int>(b)` is `int::ne(int::bit_and(b, m), b)`.
+The domain is a bare name from the table, not a Rust type path, and rustc never resolves it; it selects the module and is not an instance of the operation.
+Neither form needs an import: the call it denotes names the facade's `builtin` module itself, so it resolves under a renamed facade and in a module that does not import `bool`.
+
+Both forms are valid exactly where the call they denote is, and nowhere else: in results, `#[k::requires]` and `#[k::ensures]` conditions, initializers, claims, and the checked islands, which hand rustc the call.
+Sort inference, arity, SMT restrictions, and the emitted K are those of the call, and the reference projection of a rule prints the call, as in `k::builtin::bool::and_then(..)`.
+Neither form is a Rust pattern, so a left-hand side rejects both, naming the form and the call it denotes (`` `&&` is not a pattern: a left-hand side matches `bool::and_then` only as the call `bool::and_then(..)` ``).
+A method call without a domain turbofish (``write `lt::<Int>`, `lt::<String>`, or `lt::<Float>` ``), with a turbofish that holds anything but one domain name, with a domain outside the table, with an operation its module does not define, or with an operation that takes no operand (``write the call `bytes::empty()` ``) is an error (`krs::syntax::invalid-expression-notation`).
+`!`, `&`, comparison operators, and arithmetic operators remain unsupported, because the sorts of their operands do not determine a domain.
 
 Function hooks bind a production to backend code, and are a separate typed catalog selected in `#[k::function(total, ..., hook = krypto::sha256_raw)]`: a checked Rust path whose signature KRS checks against the hook.
 
