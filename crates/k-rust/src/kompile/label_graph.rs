@@ -15,7 +15,9 @@
 //! bound = "O((V + E) log V)"
 //! ```
 //!
-//! Backward dependency closure over function and non-macro anywhere labels.
+//! Backward dependency closure over the call graph of function rules: an edge goes from a function
+//! label to each function or non-macro anywhere label its rules apply, so anywhere labels are edge
+//! targets only, and only function labels propagate a property to their callers.
 //!
 //! Graph construction visits the rule catalog once; closure is O(V + E). No dedicated counter.
 

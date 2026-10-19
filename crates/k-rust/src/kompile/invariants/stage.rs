@@ -70,6 +70,9 @@
 //!   an alias. A macro-like rule is exempt, as in R3: its expansion substitutes the reference into
 //!   a use site, which binds it. The check reads the spelling, which is sound because a name that
 //!   starts with `#` is reserved for the compiler, so no authored variable is `#Configuration`.
+//!   The binding stage rejects, with a diagnostic and by the same predicate, every rule and claim
+//!   that would break CF1 except the rules of functions, whose unbound references are reads that
+//!   the propagation of the configuration to functions does not follow.
 //!
 //! [`StageChecks`] also checks rule C2 at every stage boundary once a stage providing
 //! [`Artifacts::CONDITION_CONJUNCTIONS_RESOLVED`] has run:
@@ -87,9 +90,10 @@ use std::fmt::Write as _;
 
 use crate::definition::checks::{CheckedRoot, right_hand_side_binding};
 use crate::definition::{AttributeKey, Definition, Sentence, StructuralCheckOptions};
+use crate::kast::Term;
 use crate::kast::binding::free_variables;
-use crate::kast::{GeneratedCell, Term};
 use crate::kompile::CompileOptions;
+use crate::kompile::passes::{is_exact_configuration_variable, left_hand_side_binds_configuration};
 use crate::kompile::pipeline::{Artifacts, Stage};
 use crate::provenance::InputAddress;
 
@@ -442,7 +446,7 @@ fn unbound_configuration(sentence: &Sentence) -> Vec<CheckedRoot> {
         .filter(|(_, term)| holds_configuration(term))
         .map(|(root, _)| root)
         .collect::<Vec<_>>();
-    if parts.is_empty() || binds_configuration(body) {
+    if parts.is_empty() || left_hand_side_binds_configuration(body) {
         return Vec::new();
     }
     parts
@@ -452,49 +456,9 @@ fn unbound_configuration(sentence: &Sentence) -> Vec<CheckedRoot> {
 fn holds_configuration(term: &Term) -> bool {
     let mut found = false;
     term.visit_preorder(&mut |node| {
-        found |= is_configuration(node);
+        found |= is_exact_configuration_variable(node);
     });
     found
-}
-
-fn is_configuration(term: &Term) -> bool {
-    matches!(term.unannotated(), Term::Variable { name, .. } if name == CONFIGURATION_VARIABLE)
-}
-
-/// Whether `term` is the generated top cell aliased to the configuration variable.
-fn is_configuration_alias(term: &Term) -> bool {
-    matches!(
-        term.unannotated(),
-        Term::As { pattern, alias }
-            if is_configuration(alias)
-                && matches!(
-                    pattern.unannotated(),
-                    Term::Apply { label, .. } if label.name == GeneratedCell::Top.label()
-                )
-    )
-}
-
-/// Whether the root of the left-hand side of `body` (the left side of its top rewrite, or `body`
-/// without one) binds the configuration variable (CF1).
-fn binds_configuration(body: &Term) -> bool {
-    #[expect(
-        clippy::wildcard_enum_match_arm,
-        reason = "Term is syntax; only a top rewrite has a left side other than the body"
-    )]
-    let left = match body.unannotated() {
-        Term::Rewrite { left, .. } => left.as_ref(),
-        _ => body,
-    };
-    if is_configuration_alias(left) {
-        return true;
-    }
-    matches!(
-        left.unannotated(),
-        Term::Apply { arguments, .. }
-            if arguments
-                .last()
-                .is_some_and(|last| is_configuration(last) || is_configuration_alias(last))
-    )
 }
 
 /// The condition variables of `sentence` that break C1 against `before`, the condition variables

@@ -45,8 +45,11 @@ impl fmt::Display for ResolveFunctionWithConfigError {
 impl std::error::Error for ResolveFunctionWithConfigError {}
 
 /// Functions whose rules inspect configuration receive one final `GeneratedTopCell` argument.
-/// The requirement propagates backwards through calls to functions and non-macro `anywhere`
-/// symbols, so callers receive and forward the same configuration value transitively.
+/// The requirement propagates backwards along calls from the rules of functions, to functions and
+/// to non-macro `anywhere` symbols, so a function that calls a configuration-reading function
+/// receives and forwards the same configuration value transitively. Only function labels receive
+/// it: an `anywhere` symbol that is not a function is a call target only, and its own rules give
+/// the closure no edges.
 pub fn resolve_function_with_config(
     definition: &Definition,
 ) -> Result<Definition, ResolveFunctionWithConfigError> {
@@ -229,12 +232,22 @@ pub(crate) fn resolve_function_with_config_pass(
 /// is the generated top cell only after cell concretization; the KORE pipeline runs it after
 /// cell concretization and semantics-module generation, and so after macro expansion.
 ///
-/// An anywhere rule that mentions the variable is rejected at the rule
-/// ([`DiagnosticCode::InvalidFunctionConfiguration`]): it holds wherever its left-hand side
-/// occurs, also outside any configuration, so the current configuration has no value in it and
-/// nothing can bind the variable. Its left-hand side is never the generated top cell, and an
-/// anywhere symbol never receives the configuration as an argument, since only the rules of
-/// functions propagate the need for it ([`resolve_function_with_config`]).
+/// After binding, a rule or claim that still holds the variable where the root of its left-hand
+/// side does not bind it ([`left_hand_side_binds_configuration`], the predicate of invariant CF1)
+/// has no configuration in scope, and is rejected at the sentence
+/// ([`DiagnosticCode::InvalidFunctionConfiguration`]). Reading the configuration needs one in
+/// scope: a rewrite of the configuration has it (its left-hand side is the generated top cell, which
+/// this stage aliases), and so has a rule of a function that receives it as its last argument. An
+/// anywhere rule whose head is not a function holds wherever its left-hand side occurs, also outside
+/// any configuration, and such a head never receives the configuration, since only the rules of
+/// functions propagate the need for it ([`resolve_function_with_config`]); an equational claim states
+/// the value of its left-hand side, a term. A macro-like rule is exempt: its expansion substitutes
+/// the reference into a use site, which binds it.
+///
+/// A rule whose head is a function is not rejected here: its function has the configuration in
+/// scope by meaning, and an unbound reference in it is a read that the propagation of
+/// [`resolve_function_with_config`] does not follow (through `ensures` or a macro), which CF1
+/// reports in invariant builds.
 pub fn resolve_config_var(
     definition: &Definition,
 ) -> Result<Definition, ResolveFunctionWithConfigError> {
@@ -250,13 +263,8 @@ pub(crate) fn resolve_config_var_pass(
     _: &mut super::super::pipeline::PipelineState,
 ) -> Result<Definition, ResolveFunctionWithConfigError> {
     let mut output = input.definition.clone();
-    let mut diagnostics = Vec::new();
     for module in &mut output.modules {
         for sentence in &mut module.local_sentences {
-            if let Some(diagnostic) = anywhere_configuration_read(sentence) {
-                diagnostics.push(diagnostic);
-                continue;
-            }
             // Only rules and claims change. The kind is decided before taking a mutable sentence,
             // which copies a shared one, so every other kind stays shared.
             match &**sentence {
@@ -321,6 +329,36 @@ pub(crate) fn resolve_config_var_pass(
             }
         }
     }
+    let mut diagnostics = Vec::new();
+    for module in &output.modules {
+        // Invariant: `diagnostics` holds the rejection of every sentence of `module` before
+        // `sentence` that reads the configuration with none in scope.
+        for sentence in &module.local_sentences {
+            let Some(read) = unscoped_configuration_read(sentence) else {
+                continue;
+            };
+            // The function heads are looked up only for such a sentence, which is rare.
+            let resolved =
+                input
+                    .resolved_raw()
+                    .map_err(|error| ResolveFunctionWithConfigError {
+                        diagnostics: vec![plain_error(error.to_string())],
+                    })?;
+            let function_rule = matches!(&**sentence, Sentence::Rule { .. })
+                && resolved.module_id(&module.name).is_some_and(|module| {
+                    resolved
+                        .production_catalog(module)
+                        .function_labels()
+                        .contains(&LabelHead::from(&crate::definition::match_rule_label(
+                            sentence,
+                        )))
+                });
+            if function_rule {
+                continue;
+            }
+            diagnostics.push(read);
+        }
+    }
     if !diagnostics.is_empty() {
         diagnostics.sort();
         diagnostics.dedup();
@@ -329,30 +367,89 @@ pub(crate) fn resolve_config_var_pass(
     Ok(output)
 }
 
-/// The rejection of `sentence` when it is an anywhere rule, not macro-like, that mentions the
-/// configuration variable where its left-hand side does not bind it ([`resolve_config_var`]).
-///
-/// The variable reaches such a rule only as the last argument of a configuration-reading
-/// function that the rule calls, directly or through a macro it uses, so the message names
-/// those functions and the parts of the rule that call them.
-fn anywhere_configuration_read(sentence: &Sentence) -> Option<Diagnostic> {
-    let Sentence::Rule {
-        body,
-        requires,
-        ensures,
-        attributes,
-    } = sentence
-    else {
-        return None;
+/// Whether the root of the left-hand side of `body` (the left side of its top rewrite, or `body`
+/// without one) binds the configuration variable: it is the generated top cell aliased to it
+/// (`<generatedTop>(..) #as #Configuration`), or an application whose last argument is the
+/// variable or that alias, the left-hand side of a rule of a function that receives the
+/// configuration. This is the one predicate of the binding stage's rejection and of invariant CF1.
+pub(crate) fn left_hand_side_binds_configuration(body: &Term) -> bool {
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "Term is syntax; only a top rewrite has a left side other than the body"
+    )]
+    let left = match body.unannotated() {
+        Term::Rewrite { left, .. } => left.as_ref(),
+        _ => body,
     };
-    if !attributes.has(AttributeKey::Anywhere) || attributes.has_any(&AttributeKey::MACRO_LIKE) {
+    if is_configuration_alias(left) {
+        return true;
+    }
+    matches!(
+        left.unannotated(),
+        Term::Apply { arguments, .. }
+            if arguments.last().is_some_and(|last| {
+                is_exact_configuration_variable(last) || is_configuration_alias(last)
+            })
+    )
+}
+
+/// Whether `term` is the configuration variable. Reading the spelling is sound: a name that
+/// starts with `#` is reserved for the compiler, so no authored variable has it.
+pub(crate) fn is_exact_configuration_variable(term: &Term) -> bool {
+    matches!(term.unannotated(), Term::Variable { name, .. } if name == CONFIGURATION_VARIABLE)
+}
+
+/// Whether `term` is the generated top cell aliased to the configuration variable.
+fn is_configuration_alias(term: &Term) -> bool {
+    matches!(
+        term.unannotated(),
+        Term::As { pattern, alias }
+            if is_exact_configuration_variable(alias)
+                && matches!(
+                    pattern.unannotated(),
+                    Term::Apply { label, .. } if label.name == GeneratedCell::Top.label()
+                )
+    )
+}
+
+/// The rejection of `sentence`, a bound rule or claim, when it is not macro-like and holds the
+/// configuration variable where the root of its left-hand side does not bind it
+/// ([`resolve_config_var`]); the caller exempts the rules of functions.
+///
+/// The variable reaches such a sentence as the last argument of a call to a function that
+/// receives the configuration, directly or through a macro it uses, so the message names those
+/// functions and the parts of the sentence that call them.
+fn unscoped_configuration_read(sentence: &Sentence) -> Option<Diagnostic> {
+    let (kind, body, requires, ensures, attributes) = match sentence {
+        Sentence::Rule {
+            body,
+            requires,
+            ensures,
+            attributes,
+        } => ("rule", body, requires, ensures, attributes),
+        Sentence::Claim {
+            body,
+            requires,
+            ensures,
+            attributes,
+        } => ("claim", body, requires, ensures, attributes),
+        Sentence::SyntaxSort { .. }
+        | Sentence::SortSynonym { .. }
+        | Sentence::SyntaxLexical { .. }
+        | Sentence::Production { .. }
+        | Sentence::SyntaxAssociativity { .. }
+        | Sentence::SyntaxPriority { .. }
+        | Sentence::ContextAlias { .. }
+        | Sentence::Context { .. }
+        | Sentence::Configuration { .. }
+        | Sentence::Bubble { .. } => return None,
+    };
+    if attributes.has_any(&AttributeKey::MACRO_LIKE) || left_hand_side_binds_configuration(body) {
         return None;
     }
-    if contains_exact_configuration_variable(&rewrite_left(body)) {
-        return None;
-    }
-    let right = rewrite_right(body);
+    let (left, right) = (rewrite_left(body), rewrite_right(body));
     let parts = [
+        ("left-hand side", &left),
         ("requires clause", requires),
         ("ensures clause", ensures),
         ("right-hand side", &right),
@@ -390,11 +487,30 @@ fn anywhere_configuration_read(sentence: &Sentence) -> Option<Diagnostic> {
         };
         format!("{verb} {}, which {relative} it", readers.join(", "))
     };
+    let (subject, scope) = if attributes.has(AttributeKey::Anywhere) {
+        (
+            "An anywhere rule",
+            "it applies to its left-hand side wherever that term occurs, also outside any \
+             configuration, and its head is not a function, which would receive the \
+             configuration as an argument",
+        )
+    } else if kind == "claim" {
+        (
+            "A claim",
+            "its left-hand side is neither the configuration nor an application of a function \
+             that receives it",
+        )
+    } else {
+        (
+            "A rule",
+            "its left-hand side is neither the configuration nor an application of a function \
+             that receives it",
+        )
+    };
     Some(error_at(
         format!(
-            "An anywhere rule cannot read the configuration: its {places} {calls}, and the rule \
-             applies to its left-hand side wherever that term occurs, also outside any \
-             configuration, so there is no current configuration to read."
+            "{subject} cannot read the configuration: its {places} {calls}, and the {kind} has no \
+             configuration in scope: {scope}."
         ),
         attributes,
     ))

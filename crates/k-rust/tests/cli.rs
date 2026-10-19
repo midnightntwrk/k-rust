@@ -23570,63 +23570,107 @@ endmodule
 }
 
 /// The definition of the configuration-reading probes: `isZero()` reads the `<flag>` cell,
-/// `isZeroM()` is a macro for it, and `go(N)` steps to `foo2(N)`, which `rule` (at line 12)
-/// rewrites.
-fn configuration_reading_source(rule: &str) -> String {
+/// `isZeroM()` is a macro for it, `g()` calls it in a condition, `f` is a function without rules
+/// of its own, and `go(N)` steps to `foo2(N)`; `rule` follows, at line 16, and `rest` after the
+/// module.
+fn configuration_reading_source(rule: &str, rest: &str) -> String {
     format!(
         "module MAIN\n  imports INT\n  imports BOOL\n  syntax Pgm ::= go(Int) [symbol(go)]\n  \
          configuration <k> $PGM:Pgm </k> <flag> $FLAG:Int </flag>\n  \
          syntax Bool ::= isZero() [function, symbol(isZero)]\n  \
          rule [[ isZero() => F ==Int 0 ]] <flag> F </flag>\n  \
          syntax Bool ::= isZeroM() [macro]\n  rule isZeroM() => isZero()\n  \
+         syntax Bool ::= g() [function, symbol(g)]\n  rule g() => true requires isZero()\n  \
+         rule g() => false [owise]\n  syntax Int ::= f(Int) [function, symbol(f)]\n  \
          syntax KItem ::= done(Int) [symbol(done)] | foo2(Int) [symbol(foo2)] | bar2(Int) [symbol(bar2)] | bar3(Bool) [symbol(bar3)]\n  \
-         rule <k> go(N) => foo2(N) ... </k>\n  {rule}\nendmodule\n"
+         rule <k> go(N) => foo2(N) ... </k>\n  {rule}\nendmodule\n{rest}"
     )
 }
 
 #[test]
-fn an_anywhere_rule_that_reads_the_configuration_is_rejected_at_the_rule() {
-    // An anywhere rule holds wherever its left-hand side occurs, also outside any configuration,
-    // so the current configuration has no value in it: a call to a configuration-reading
-    // function in its conditions or its right-hand side, directly or through a macro, has
-    // nothing to read. Each is rejected at the rule.
-    for (rule, part) in [
+fn a_sentence_with_no_configuration_in_scope_cannot_read_it() {
+    // Reading the configuration needs one in scope. An anywhere rule whose head is not a
+    // function holds wherever its left-hand side occurs, also outside any configuration, so a
+    // call to a function that receives the configuration (one whose rules read it, or that calls
+    // such a function) in its conditions or its right-hand side, directly or through a macro,
+    // has nothing to pass. Each is rejected at the rule.
+    for (rule, part, reader) in [
         (
             "rule foo2(N) => bar2(N) requires isZero() [anywhere]",
             "requires clause",
+            "isZero",
         ),
         (
             "rule foo2(N) => bar2(N) ensures isZero() [anywhere]",
             "ensures clause",
+            "isZero",
         ),
         (
             "rule foo2(_N) => bar3(isZero()) [anywhere]",
             "right-hand side",
+            "isZero",
         ),
         (
             "rule foo2(N) => bar2(N) requires isZeroM() [anywhere]",
             "requires clause",
+            "isZero",
+        ),
+        (
+            "rule foo2(N) => bar2(N) requires g() [anywhere]",
+            "requires clause",
+            "g",
         ),
     ] {
-        let source = configuration_reading_source(rule);
+        let source = configuration_reading_source(rule, "");
         let output = kcompile_source(&source);
         assert!(!output.status.success(), "{source}");
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(
             stderr.contains(&format!(
-                "definition.k:12:3: Error[InvalidFunctionConfiguration]: An anywhere rule cannot read the configuration: its {part} calls isZero, which reads it,"
+                "definition.k:16:3: Error[InvalidFunctionConfiguration]: An anywhere rule cannot read the configuration: its {part} calls {reader}, which reads it, and the rule has no configuration in scope:"
             )),
             "{source}\n{stderr}"
         );
         assert!(!stderr.contains("panicked"), "{stderr}");
     }
 
-    // The anywhere rule without the read compiles and runs, and so does a rewrite rule whose
-    // condition reads the configuration, directly or through a macro: its left-hand side
-    // matches the configuration that the condition reads.
+    // An equational claim states the value of a term, here an application of `f`, which does not
+    // receive the configuration: the claim is rejected at the claim when it is loaded.
+    let source = configuration_reading_source(
+        "",
+        "module SPEC\n  imports MAIN\n  claim f(3) => 3 requires isZero()\nendmodule\n",
+    );
+    let (root, definition) = fixture();
+    fs::write(&definition, &source).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kprove",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "SPEC",
+            "--definition-module",
+            "MAIN",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    fs::remove_dir_all(root).unwrap();
+    assert!(!output.status.success(), "{source}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(
+            "definition.k:20:3: Error[InvalidFunctionConfiguration]: A claim cannot read the configuration: its requires clause calls isZero, which reads it, and the claim has no configuration in scope:"
+        ),
+        "{source}\n{stderr}"
+    );
+    assert!(!stderr.contains("panicked"), "{stderr}");
+
+    // These have the configuration in scope: the anywhere rule without the read; a rewrite rule
+    // whose condition reads it, directly or through a macro, whose left-hand side matches the
+    // configuration; and anywhere rules on a function, whose applications receive it.
     let run = |rule: &str, flag: &str| {
         krun_success(
-            &configuration_reading_source(rule),
+            &configuration_reading_source(rule, ""),
             &[
                 "--main-module",
                 "MAIN",
@@ -23657,6 +23701,18 @@ fn an_anywhere_rule_that_reads_the_configuration_is_rejected_at_the_rule() {
             );
             assert!(stdout.contains(result), "{condition} FLAG={flag}\n{stdout}");
         }
+    }
+    for (flag, result) in [
+        ("0", r#"Lbldone{}(\dv{SortInt{}}("3"))"#),
+        ("1", r#"Lbldone{}(\dv{SortInt{}}("0"))"#),
+    ] {
+        let stdout = run(
+            "rule f(N) => N requires isZero() [anywhere]\n  \
+             rule f(_) => 0 requires notBool isZero() [anywhere]\n  \
+             rule <k> foo2(N) => done(f(N)) ... </k>",
+            flag,
+        );
+        assert!(stdout.contains(result), "FLAG={flag}\n{stdout}");
     }
 }
 

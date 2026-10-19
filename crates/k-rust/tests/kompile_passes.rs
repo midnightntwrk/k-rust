@@ -3131,23 +3131,29 @@ fn aliases_a_rewritten_top_cell_when_configuration_is_used() {
     assert_eq!(origin.destination.as_ref().unwrap().path, [0, 0]);
 }
 
-/// An anywhere rule holds wherever its left-hand side occurs, also outside any configuration, so
-/// nothing can bind the configuration variable that a configuration-reading call passes there:
-/// the binding stage rejects the rule at its location, and binds the other rules.
+/// Reading the configuration needs a configuration in scope. After binding, a rule or claim whose
+/// left-hand side neither is the aliased top cell nor passes the configuration to a function still
+/// holds an unbound reference: the binding stage rejects it at its location, and binds the other
+/// rules. An anywhere rule whose head is not a function applies outside any configuration; an
+/// equational claim states the value of a term.
 #[test]
-fn rejects_an_anywhere_rule_that_reads_the_configuration_at_the_rule() {
+fn rejects_a_rule_or_claim_that_reads_the_configuration_with_none_in_scope() {
     let top = application(
         "<generatedTop>",
         vec![application("<k>", vec![Term::variable("K")])],
     );
-    let anywhere = attributes(&[
-        ("anywhere", json!("")),
-        ("org.kframework.attributes.Source", json!("anywhere.k")),
-        ("org.kframework.attributes.Location", json!([12, 3, 12, 55])),
-    ]);
+    let located = |extra: &[(&str, Value)]| {
+        let mut entries = vec![
+            ("org.kframework.attributes.Source", json!("reads.k")),
+            ("org.kframework.attributes.Location", json!([12, 3, 12, 55])),
+        ];
+        entries.extend(extra.iter().cloned());
+        attributes(&entries)
+    };
     let reads = || application("isZero", vec![Term::variable("#Configuration")]);
-    let foo = application("foo2", vec![Term::variable("N")]);
-    let definition = |requires: Term, right: Term| Definition {
+    let foo = || application("foo2", vec![Term::variable("N")]);
+    let bar = || application("bar2", vec![Term::variable("N")]);
+    let definition = |sentence: Sentence| Definition {
         main_module: "MAIN".into(),
         modules: vec![module(
             "MAIN",
@@ -3158,36 +3164,50 @@ fn rejects_an_anywhere_rule_that_reads_the_configuration_at_the_rule() {
                     ensures: truth(),
                     attributes: Attributes::default(),
                 },
-                Sentence::Rule {
-                    body: rewrite(foo.clone(), right),
-                    requires,
-                    ensures: truth(),
-                    attributes: anywhere.clone(),
-                },
+                sentence,
             ],
         )],
         attributes: Attributes::default(),
     };
+    let anywhere = |requires: Term, right: Term| Sentence::Rule {
+        body: rewrite(foo(), right),
+        requires,
+        ensures: truth(),
+        attributes: located(&[("anywhere", json!(""))]),
+    };
 
-    let bar = application("bar2", vec![Term::variable("N")]);
-    for (requires, right, message) in [
+    for (sentence, message) in [
         (
-            reads(),
-            bar.clone(),
+            anywhere(reads(), bar()),
             "An anywhere rule cannot read the configuration: its requires clause calls isZero, \
-             which reads it, and the rule applies to its left-hand side wherever that term \
-             occurs, also outside any configuration, so there is no current configuration to read.",
+             which reads it, and the rule has no configuration in scope: it applies to its \
+             left-hand side wherever that term occurs, also outside any configuration, and its \
+             head is not a function, which would receive the configuration as an argument.",
         ),
         (
-            reads(),
-            application("bar3", vec![reads()]),
+            anywhere(reads(), application("bar3", vec![reads()])),
             "An anywhere rule cannot read the configuration: its requires clause and right-hand \
-             side call isZero, which reads it, and the rule applies to its left-hand side wherever \
-             that term occurs, also outside any configuration, so there is no current \
-             configuration to read.",
+             side call isZero, which reads it, and the rule has no configuration in scope: it \
+             applies to its left-hand side wherever that term occurs, also outside any \
+             configuration, and its head is not a function, which would receive the \
+             configuration as an argument.",
+        ),
+        (
+            Sentence::Claim {
+                body: rewrite(
+                    application("g", vec![Term::variable("N")]),
+                    Term::variable("N"),
+                ),
+                requires: reads(),
+                ensures: truth(),
+                attributes: located(&[]),
+            },
+            "A claim cannot read the configuration: its requires clause calls isZero, which \
+             reads it, and the claim has no configuration in scope: its left-hand side is \
+             neither the configuration nor an application of a function that receives it.",
         ),
     ] {
-        let error = resolve_config_var(&definition(requires, right)).unwrap_err();
+        let error = resolve_config_var(&definition(sentence)).unwrap_err();
         assert_eq!(error.diagnostics.len(), 1);
         let diagnostic = &error.diagnostics[0];
         assert_eq!(diagnostic.severity, k_rust::diagnostic::Severity::Error);
@@ -3196,7 +3216,7 @@ fn rejects_an_anywhere_rule_that_reads_the_configuration_at_the_rule() {
             k_rust::diagnostic::DiagnosticCode::InvalidFunctionConfiguration
         );
         assert_eq!(diagnostic.message, message);
-        assert_eq!(diagnostic.source.as_deref(), Some("anywhere.k"));
+        assert_eq!(diagnostic.source.as_deref(), Some("reads.k"));
         assert_eq!(
             diagnostic
                 .location
@@ -3206,9 +3226,22 @@ fn rejects_an_anywhere_rule_that_reads_the_configuration_at_the_rule() {
         );
     }
 
-    // Without the read the anywhere rule is left as it is, and the rewrite of the top cell is
-    // bound.
-    let transformed = resolve_config_var(&definition(truth(), bar)).unwrap();
+    // A claim about an application that receives the configuration has it in scope, and without
+    // the read the anywhere rule is left as it is; the rewrite of the top cell is bound.
+    let claim = Sentence::Claim {
+        body: rewrite(
+            application(
+                "h",
+                vec![Term::variable("N"), Term::variable("#Configuration")],
+            ),
+            Term::variable("N"),
+        ),
+        requires: reads(),
+        ensures: truth(),
+        attributes: located(&[]),
+    };
+    resolve_config_var(&definition(claim)).unwrap();
+    let transformed = resolve_config_var(&definition(anywhere(truth(), bar()))).unwrap();
     let sentences = &transformed.main_module().unwrap().local_sentences;
     let Sentence::Rule { body, .. } = &*sentences[0] else {
         panic!("the first sentence is a rule")
