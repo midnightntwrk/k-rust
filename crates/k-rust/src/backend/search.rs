@@ -617,10 +617,12 @@ mod tests {
             .iter()
             .map(kore_variable_identity)
             .collect::<BTreeSet<_>>();
-        left_variables.iter().all(|identity| {
-            generated_anonymous_variables.contains(identity)
-                && occurrences.get(identity) == Some(&1)
-        })
+        // A left side without a variable names no generated variable.
+        !left_variables.is_empty()
+            && left_variables.iter().all(|identity| {
+                generated_anonymous_variables.contains(identity)
+                    && occurrences.get(identity) == Some(&1)
+            })
     }
 
     fn filter_match_condition(
