@@ -5359,6 +5359,109 @@ fn reference_alias_variable_under_a_production_is_cast_at_the_argument_sort() {
     );
 }
 
+/// The rules of module `B` over `go(Int)` and `done(Int)` whose only rule is `rule`, each as
+/// `body requires condition ensures condition`, or the load error.
+fn scoped_binder_rules(rule: &str) -> Result<Vec<String>, String> {
+    let source = format!(
+        "module B\n  imports INT\n  imports BOOL\n  syntax KItem ::= go(Int) | done(Int)\n  {rule}\nendmodule\n"
+    );
+    let loaded = load_with_prelude(&source, "b.k", "B").map_err(|error| error.to_string())?;
+    Ok(loaded
+        .definition()
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match &**sentence {
+            Sentence::Rule {
+                body,
+                requires,
+                ensures,
+                attributes,
+            } if attributes.source() == Some("b.k") => {
+                Some(format!("{body} requires {requires} ensures {ensures}"))
+            }
+            _ => None,
+        })
+        .collect())
+}
+
+/// A quantifier binds its variable in its body only, so a binder is a variable of its own, with
+/// its own sort, wherever another variable of the rule has its spelling (FU-39): the rule parses
+/// exactly as its alpha-variant with the binder renamed apart does, the binder spelled as written.
+#[test]
+fn a_binder_takes_its_own_sort_beside_a_variable_of_its_spelling() {
+    let parse = |rule: &str| {
+        scoped_binder_rules(rule)
+            .unwrap_or_else(|error| panic!("{rule}: {error}"))
+            .join("\n")
+    };
+    for (shadowing, apart, bound) in [
+        // vireview/shsort: the left side's `Y:Int` beside a `Y:Bool` binder.
+        (
+            "rule [p]: <k> go(Y:Int) => done(Y) ... </k> requires #Exists Y:Bool . {Y #Equals true}",
+            "rule [p]: <k> go(Y:Int) => done(Y) ... </k> requires #Exists Fresh:Bool . {Fresh #Equals true}",
+            "Y",
+        ),
+        // vireview/twosort: two sibling binders, one at Int and one at Bool.
+        (
+            "rule [p]: <k> go(X) => done(X) ... </k> requires (#Exists Y:Int . {Y #Equals 1}) #And (#Exists Y:Bool . {Y #Equals true})",
+            "rule [p]: <k> go(X) => done(X) ... </k> requires (#Exists Y:Int . {Y #Equals 1}) #And (#Exists Fresh:Bool . {Fresh #Equals true})",
+            "Y",
+        ),
+        // A nested binder of the outer binder's spelling, at another sort.
+        (
+            "rule [p]: <k> go(X) => done(X) ... </k> requires #Exists Y:Int . ({Y #Equals X} #And (#Exists Y:Bool . {Y #Equals true}))",
+            "rule [p]: <k> go(X) => done(X) ... </k> requires #Exists Y:Int . ({Y #Equals X} #And (#Exists Fresh:Bool . {Fresh #Equals true}))",
+            "Y",
+        ),
+        // An unannotated binder is inferred from its own body only, not from the left side.
+        (
+            "rule [p]: <k> go(X:Int) => done(X) ... </k> requires #Exists X . {X #Equals 1}",
+            "rule [p]: <k> go(X:Int) => done(X) ... </k> requires #Exists Fresh . {Fresh #Equals 1}",
+            "X",
+        ),
+        (
+            "rule [p]: <k> go(X:Int) => done(X) ... </k> ensures #Exists X . {X #Equals 1}",
+            "rule [p]: <k> go(X:Int) => done(X) ... </k> ensures #Exists Fresh . {Fresh #Equals 1}",
+            "X",
+        ),
+    ] {
+        let renamed = parse(apart);
+        assert!(renamed.contains("Fresh"), "{renamed}");
+        assert_eq!(
+            parse(shadowing),
+            renamed.replace("Fresh", bound),
+            "{shadowing}"
+        );
+    }
+}
+
+/// The free occurrences of a binder's spelling keep the sort of their own variable, and a
+/// rejection inside a binder's scope names the variable as written.
+#[test]
+fn a_binder_leaves_the_free_variable_of_its_spelling_alone() {
+    let rules = scoped_binder_rules(
+        "rule [p]: <k> go(Y:Int) => done(Y) ... </k> requires #Exists Y:Bool . {Y #Equals true}",
+    )
+    .unwrap_or_else(|error| panic!("{error}"));
+    let [rule] = rules.as_slice() else {
+        panic!("{rules:?}")
+    };
+    assert!(rule.contains("(#SemanticCastToInt(Y))=>"), "{rule}");
+    assert!(rule.contains("#Exists(#SemanticCastToBool(Y)"), "{rule}");
+    let error = scoped_binder_rules(
+        "rule [p]: <k> go(Y:Int) => done(Y) ... </k> requires #Exists Y:Bool . {Y +Int 1 #Equals 2}",
+    )
+    .unwrap_err();
+    assert!(error.contains("could not parse rule"), "{error}");
+    // No spelling the parser gives a binder while it infers sorts reaches the message.
+    assert!(
+        error.is_ascii() && !error.to_ascii_lowercase().contains("e000"),
+        "{error}"
+    );
+}
+
 #[cfg(feature = "z3-inference")]
 #[test]
 fn reference_exists_binder_variable_is_inferred_at_k() {

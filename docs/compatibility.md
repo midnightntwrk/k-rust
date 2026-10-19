@@ -216,6 +216,13 @@ The reference checks are in `kernel/src/main/java/org/kframework/compile/checks/
 [Definition checks](../crates/k-rust/tests/definition_checks.rs) exercise these acceptance boundaries.
 Anywhere rules have the explicit supported-superset contract below.
 
+A quantifier `#Exists X . P` or `#Forall X . P` binds `X` in `P` and nowhere else, in the definition checks and in sort inference alike.
+A right-hand-side variable spelled like a binder outside that binder's body is unbound, so `rule <k> go(_) => done(Y) ... </k> ensures #Exists Y:Int . {Y #Equals 1}` is refused with `UnboundVariable` at its rule, as the same rule without the `ensures` is; a binder in a `requires` that the backend matches binds nothing outside its body either.
+A binder's variable has its own sort within its scope, so one name bound at two sorts in separate scopes, or bound beside a free variable of its spelling at another sort, parses as the rule with the binder renamed apart does: `requires (#Exists Y:Int . {Y #Equals 1}) #And (#Exists Y:Bool . {Y #Equals true})` loads.
+Compilation still reads a variable's semantic casts by spelling across the whole sentence, so such a rule is then refused with `variable Y has incomparable cast bounds`, or its binder is cast at the other variable's sort; renaming the binder apart compiles it as written.
+A binder is a variable, under an optional sort: `#Exists f(X, X) . P` is refused at its rule with `InvalidBinder`.
+An anonymous variable binds nothing: an occurrence of `_`, `?_`, `!_` or `@_` is a variable of its own, also where the function-symbol checks ask which variables a rule's left-hand side binds ([Definition checks](../crates/k-rust/tests/definition_checks.rs), [scoped_binders.rs](../crates/k-rust/tests/scoped_binders.rs)).
+
 A definition may use one parametric sort, `MInt` with one argument, the width of a machine integer.
 That argument is a sort parameter of the sentence, a numeral, or a sort of the module.
 Every instance notion the frontend builds (declared instances, the instance an operand names, the instances of a parametric production, the recognition placeholder `MInt{K}` and the numerals declared as widths) reads that one argument at depth one, so no other shape names a sort the compiled definition declares.

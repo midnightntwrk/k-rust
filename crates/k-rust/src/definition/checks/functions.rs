@@ -41,9 +41,9 @@
 
 use std::collections::BTreeSet;
 
-use super::Sentence;
 use super::labels::internal_labels;
 use super::term_position::{TermPosition, positioned_children};
+use super::{Sentence, is_anonymous};
 use crate::definition::AttributeKey;
 use crate::definition::{LabelHead, ProductionCatalog, SortCatalog};
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
@@ -190,12 +190,12 @@ impl Walk<'_> {
         by_value: bool,
     ) {
         let Term::Apply { label, .. } = term.unannotated() else {
-            // Each occurrence of the anonymous variable is a variable of its own, which binds
-            // nothing another position could read.
+            // Each occurrence of an anonymous variable (`_`, `?_`, `!_` or `@_`) is a variable of
+            // its own, which binds nothing another position could read.
             if let (Pass::Collect(bound), Term::Variable { name, .. }) =
                 (&mut self.pass, term.unannotated())
                 && position.lhs
-                && name != "_"
+                && !is_anonymous(name)
             {
                 bound.insert(name.clone());
             }
@@ -326,7 +326,7 @@ impl Walk<'_> {
         let mut unbound = BTreeSet::new();
         term.visit_preorder(&mut |subterm| {
             if let Term::Variable { name, .. } = subterm
-                && (name == "_" || !bound.contains(name))
+                && (is_anonymous(name) || !bound.contains(name))
             {
                 unbound.insert(name.clone());
             }
@@ -360,8 +360,8 @@ impl Walk<'_> {
         let Some(Term::Variable { name, .. }) = list else {
             return false;
         };
-        // Each occurrence of the anonymous variable is a variable of its own.
-        if name == "_" {
+        // Each occurrence of an anonymous variable is a variable of its own.
+        if is_anonymous(name) {
             return true;
         }
         let terms: &[&Term] = match self.sentence {

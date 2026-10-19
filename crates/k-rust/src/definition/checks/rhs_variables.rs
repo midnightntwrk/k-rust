@@ -8,7 +8,7 @@ use super::term_position::{Scope, TermPosition, positioned_children, scoped_chil
 use super::{Sentence, is_anonymous};
 use crate::definition::AttributeKey;
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
-use crate::kast::{GeneratedLabel, InternalLabel, Sort, Term};
+use crate::kast::{GeneratedLabel, InternalLabel, Sort, Term, binding};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum StructuralCheckBackend {
@@ -169,11 +169,42 @@ fn check_rule_variables(
     check_pattern_value(body, TermPosition::BODY, sentence, diagnostics);
     check_pattern_value(requires, TermPosition::CONDITION, sentence, diagnostics);
     check_pattern_value(ensures, TermPosition::CONDITION, sentence, diagnostics);
+    for term in [body, requires, ensures] {
+        check_binders(term, sentence, diagnostics);
+    }
     report_binding(
         rule_binding(sentence, body, requires, ensures, options),
         sentence,
         diagnostics,
     );
+}
+
+/// Report each quantifier of `term` whose binder is no variable: a quantifier binds one variable
+/// in its body (`kast::binding`), so `#Exists f(X, X) . P` has no meaning. The binder may stand
+/// under semantic casts, which only bound its sort.
+fn check_binders(term: &Term, sentence: &Sentence, diagnostics: &mut Vec<Diagnostic>) {
+    term.visit_preorder(&mut |node| {
+        let Some(quantifier) = binding::quantifier(node) else {
+            return;
+        };
+        let mut binder = quantifier.binder.unannotated();
+        while let Term::Apply { label, arguments } = binder
+            && label.semantic_cast_sort().is_some()
+            && let [argument] = arguments.as_slice()
+        {
+            binder = argument.unannotated();
+        }
+        if !matches!(binder, Term::Variable { .. }) {
+            diagnostics.push(Diagnostic::error(
+                DiagnosticCode::InvalidBinder,
+                format!(
+                    "The binder of {} must be a variable: a quantifier binds one variable in its body.",
+                    quantifier.label.name
+                ),
+                sentence,
+            ));
+        }
+    });
 }
 
 fn check_context_variables(
@@ -183,6 +214,9 @@ fn check_context_variables(
     is_alias: bool,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
+    for term in [body, requires] {
+        check_binders(term, sentence, diagnostics);
+    }
     report_binding(
         context_binding(body, requires, is_alias),
         sentence,
@@ -211,24 +245,24 @@ fn rule_binding(
     gather_variables(
         body,
         TermPosition::BODY,
-        false,
         error_existential,
+        &mut Vec::new(),
         &mut bound,
         &mut unsupported_existentials,
     );
     gather_variables(
         ensures,
         TermPosition::CONDITION,
-        false,
         error_existential,
+        &mut Vec::new(),
         &mut bound,
         &mut unsupported_existentials,
     );
     gather_variables(
         requires,
         requires_position,
-        false,
         error_existential,
+        &mut Vec::new(),
         &mut bound,
         &mut unsupported_existentials,
     );
@@ -262,7 +296,7 @@ fn context_binding(body: &Term, requires: &Term, is_alias: bool) -> RightHandSid
         body,
         TermPosition::BODY,
         false,
-        false,
+        &mut Vec::new(),
         &mut bound,
         &mut unsupported_existentials,
     );
@@ -270,7 +304,7 @@ fn context_binding(body: &Term, requires: &Term, is_alias: bool) -> RightHandSid
         requires,
         TermPosition::CONDITION,
         false,
-        false,
+        &mut Vec::new(),
         &mut bound,
         &mut unsupported_existentials,
     );
@@ -347,19 +381,22 @@ fn check_pattern_value(
 }
 
 // Invariant: `bound` holds the variables bound at the positions already visited and
-// `unsupported_existentials` counts the rejected `?X` occurrences among them, and each recursive
-// call, directly or through `visit_free`, receives a strict subterm of `term`, so the size of
-// `term` bounds the calls.
+// `unsupported_existentials` counts the rejected `?X` occurrences among them; `quantified` holds
+// the names the quantifiers around `term` bind there, innermost last, and is as it was on entry
+// when the call returns; each recursive call, directly or through `visit_free`, receives a strict
+// subterm of `term`, so the size of `term` bounds the calls.
 fn gather_variables(
     term: &Term,
     position: TermPosition,
-    in_binder_lhs: bool,
     error_existential: bool,
+    quantified: &mut Vec<String>,
     bound: &mut BTreeSet<VariableName>,
     unsupported_existentials: &mut usize,
 ) {
     if let Term::Variable { name, .. } = term.unannotated() {
-        if position.lhs || position.rhs && in_binder_lhs {
+        // An occurrence a quantifier binds is that quantifier's variable, which the positions
+        // of the sentence outside its body never read.
+        if position.lhs && !quantified.contains(name) {
             bound.insert(name.to_owned());
         }
         if error_existential && name.starts_with('?') {
@@ -375,46 +412,38 @@ fn gather_variables(
         gather_variables(
             argument,
             position,
-            in_binder_lhs,
             error_existential,
+            quantified,
             bound,
             unsupported_existentials,
         );
         return;
     }
 
-    if let Term::Apply { label, arguments } = term.unannotated()
-        && [InternalLabel::Exists, InternalLabel::Forall]
-            .iter()
-            .any(|internal| label.is(*internal))
-        && arguments.len() >= 2
-    {
-        gather_variables(
-            &arguments[0],
-            position,
-            true,
-            error_existential,
-            bound,
-            unsupported_existentials,
-        );
-        gather_variables(
-            &arguments[1],
-            position,
-            in_binder_lhs,
-            error_existential,
-            bound,
-            unsupported_existentials,
-        );
-        for argument in &arguments[2..] {
-            gather_variables(
-                argument,
-                position,
-                in_binder_lhs,
-                error_existential,
-                bound,
-                unsupported_existentials,
-            );
+    // A quantifier binds the variables of its binder in its body and nowhere else
+    // (`kast::binding`): the binder binds nothing at the sentence's positions, and inside the
+    // body its names are the quantifier's own.
+    if let Some(quantifier) = binding::quantifier(term) {
+        if error_existential {
+            quantifier.binder.visit_preorder(&mut |part| {
+                if let Term::Variable { name, .. } = part
+                    && name.starts_with('?')
+                {
+                    *unsupported_existentials += 1;
+                }
+            });
         }
+        let depth = quantified.len();
+        quantified.extend(quantifier.bound().into_iter().map(str::to_owned));
+        gather_variables(
+            quantifier.body,
+            position,
+            error_existential,
+            quantified,
+            bound,
+            unsupported_existentials,
+        );
+        quantified.truncate(depth);
         return;
     }
 
@@ -432,24 +461,26 @@ fn gather_variables(
             gather_variables(
                 child,
                 child_position,
-                false,
                 error_existential,
+                &mut Vec::new(),
                 &mut lambda_bound,
                 unsupported_existentials,
             );
         }
-        let binds = position.lhs || position.rhs && in_binder_lhs;
         for (child, child_position, scope) in children {
             match scope {
-                Scope::Lambda if binds => {
+                Scope::Lambda if position.lhs => {
                     visit_free(
                         child,
                         child_position,
                         false,
                         None,
                         &lambda_bound,
+                        &mut Vec::new(),
                         &mut |variable| {
-                            bound.insert(variable.name.to_owned());
+                            if !quantified.iter().any(|name| name == variable.name) {
+                                bound.insert(variable.name.to_owned());
+                            }
                         },
                     );
                 }
@@ -457,8 +488,8 @@ fn gather_variables(
                 Scope::Enclosing => gather_variables(
                     child,
                     child_position,
-                    in_binder_lhs,
                     error_existential,
+                    quantified,
                     bound,
                     unsupported_existentials,
                 ),
@@ -471,8 +502,8 @@ fn gather_variables(
         gather_variables(
             child,
             child_position,
-            in_binder_lhs,
             error_existential,
+            quantified,
             bound,
             unsupported_existentials,
         );
@@ -502,11 +533,19 @@ fn compute_unbound(
     bound: &BTreeSet<VariableName>,
     unbound: &mut BTreeSet<VariableName>,
 ) {
-    visit_free(term, position, false, None, bound, &mut |variable| {
-        if !variable.name.starts_with('!') {
-            unbound.insert(variable.name.to_owned());
-        }
-    });
+    visit_free(
+        term,
+        position,
+        false,
+        None,
+        bound,
+        &mut Vec::new(),
+        &mut |variable| {
+            if !variable.name.starts_with('!') {
+                unbound.insert(variable.name.to_owned());
+            }
+        },
+    );
 }
 
 /// An occurrence of a variable that its scope does not bind: the term enclosing the scope must
@@ -535,7 +574,7 @@ pub(crate) fn local_function_free_variables(equation: &Term) -> Vec<FreeVariable
         equation,
         TermPosition::BODY,
         false,
-        false,
+        &mut Vec::new(),
         &mut bound,
         &mut 0,
     );
@@ -546,6 +585,7 @@ pub(crate) fn local_function_free_variables(equation: &Term) -> Vec<FreeVariable
         false,
         None,
         &bound,
+        &mut Vec::new(),
         &mut |variable| {
             free.push(variable);
         },
@@ -579,8 +619,9 @@ fn is_free(
 
 // Invariant: `report` has received, in walk order, every variable occurrence visited so far that is
 // free at its position (`is_free`) in the scope enclosing it, a local function's own scope
-// included, and each recursive call receives a strict subterm of `term`, so the size of `term`
-// bounds the calls.
+// included, and that no quantifier around it binds; `quantified` holds the names the quantifiers
+// around `term` bind there, innermost last, and is as it was on entry when the call returns; each
+// recursive call receives a strict subterm of `term`, so the size of `term` bounds the calls.
 #[expect(
     clippy::wildcard_enum_match_arm,
     reason = "Term is not a sentence kind; only the listed variants are special here"
@@ -591,11 +632,12 @@ fn visit_free<'t>(
     in_k_lhs: bool,
     cast: Option<&'t str>,
     bound: &BTreeSet<VariableName>,
+    quantified: &mut Vec<String>,
     report: &mut dyn FnMut(FreeVariable<'t>),
 ) {
     match term.unannotated() {
         Term::Variable { name, sort } => {
-            if is_free(name, position, in_k_lhs, bound) {
+            if is_free(name, position, in_k_lhs, bound) && !quantified.contains(name) {
                 report(FreeVariable {
                     name,
                     sort: sort.as_ref(),
@@ -610,20 +652,70 @@ fn visit_free<'t>(
                 .any(|internal| label.is(*internal))
                 && arguments.len() >= 2
             {
-                visit_free(&arguments[0], position, true, cast, bound, report);
+                visit_free(
+                    &arguments[0],
+                    position,
+                    true,
+                    cast,
+                    bound,
+                    quantified,
+                    report,
+                );
                 for argument in &arguments[1..] {
-                    visit_free(argument, position, in_k_lhs, cast, bound, report);
+                    visit_free(
+                        argument, position, in_k_lhs, cast, bound, quantified, report,
+                    );
                 }
                 return;
             }
             if let Some(GeneratedLabel::SemanticCast { sort_text }) = label.generated()
                 && let Some(argument) = arguments.first()
             {
-                visit_free(argument, position, in_k_lhs, Some(sort_text), bound, report);
+                visit_free(
+                    argument,
+                    position,
+                    in_k_lhs,
+                    Some(sort_text),
+                    bound,
+                    quantified,
+                    report,
+                );
                 return;
             }
         }
         _ => {}
+    }
+
+    // A quantifier's binder holds binding occurrences, which read no value, and its body is the
+    // scope of the names it binds (`kast::binding`). An anonymous variable in a binder binds
+    // nothing, and is reported like any other anonymous variable at its position.
+    if let Some(quantifier) = binding::quantifier(term) {
+        visit_free(
+            quantifier.binder,
+            position,
+            in_k_lhs,
+            cast,
+            bound,
+            quantified,
+            &mut |variable| {
+                if is_anonymous(variable.name) {
+                    report(variable);
+                }
+            },
+        );
+        let depth = quantified.len();
+        quantified.extend(quantifier.bound().into_iter().map(str::to_owned));
+        visit_free(
+            quantifier.body,
+            position,
+            in_k_lhs,
+            cast,
+            bound,
+            quantified,
+            report,
+        );
+        quantified.truncate(depth);
+        return;
     }
 
     let children = scoped_children(term, position);
@@ -636,14 +728,22 @@ fn visit_free<'t>(
             child,
             child_position,
             false,
-            false,
+            &mut Vec::new(),
             &mut lambda_bound,
             &mut 0,
         );
     }
     for (child, child_position, scope) in children {
         match scope {
-            Scope::Enclosing => visit_free(child, child_position, in_k_lhs, cast, bound, report),
+            Scope::Enclosing => visit_free(
+                child,
+                child_position,
+                in_k_lhs,
+                cast,
+                bound,
+                quantified,
+                report,
+            ),
             // A variable free in a local function's own scope is an argument of the application
             // the construct is lowered to, so it is read at the construct's position here.
             Scope::Lambda => visit_free(
@@ -652,8 +752,11 @@ fn visit_free<'t>(
                 false,
                 cast,
                 &lambda_bound,
+                &mut Vec::new(),
                 &mut |variable| {
-                    if is_free(variable.name, position, in_k_lhs, bound) {
+                    if is_free(variable.name, position, in_k_lhs, bound)
+                        && !quantified.iter().any(|name| name == variable.name)
+                    {
                         report(variable);
                     }
                 },
@@ -684,7 +787,7 @@ mod tests {
             &Term::variable("_"),
             TermPosition::BODY,
             false,
-            false,
+            &mut Vec::new(),
             &mut bound,
             &mut 0,
         );
