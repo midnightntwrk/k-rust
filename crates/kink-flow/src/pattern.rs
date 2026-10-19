@@ -17,11 +17,17 @@
 //! goes through (anonymous variables, semantic casts, cell completion, macro expansion, sort
 //! injection as a left-hand side) against the execution definition of the specification's own
 //! compile (`CompiledKoreArtifacts::execution_definition`, which k-rust documents as the context a
-//! standalone surface pattern must use). The KORE target is `\and(body, \equals(C, true)...)` for
-//! each conjunct `C` of a `requires`, or `\and(body, \top)`: a `requires` is supported. As for a
-//! rule's condition, k-rust instantiates it with the definedness of its atoms, so a `requires`
-//! undefined at a state does not hold there: that state does not match, which can give a final
-//! `no` (a refuted claim); one whose definedness k-rust cannot decide is undecided (`unknown`).
+//! standalone surface pattern must use). The KORE target is `\and(body, P...)`, with one predicate
+//! `P` for each conjunct `C` of a `requires`, or `\and(body, \top)`: a `requires` is supported.
+//! k-rust emits each `P` as it emits a rule's condition (`module_to_kore::predicate_at`): for a
+//! plain Bool conjunct, which is every pattern kink has met, `P` is `\equals(C, true)`; since
+//! k-rust MLP/9 (head 8c34a8ab6, merge 7b516dfd0) a conjunct with matching-logic connectives on
+//! its spine (`#Equals`, `#Or`, `#Not`, `#Implies`, `#Ceil`, a quantifier) compiles too, its
+//! connectives as predicate connectives and each Bool term below them as `\equals(_, true)`.
+//! As for a rule's condition, k-rust instantiates it with the definedness of its atoms, so a
+//! `requires` undefined at a state does not hold there: that state does not match, which can give
+//! a final `no` (a refuted claim); one whose definedness k-rust cannot decide is undecided
+//! (`unknown`).
 //! k-rust refuses an `ensures` and a variable that occurs only on a rewrite's right side (a pattern
 //! denotes the configurations its left side matches). The compiled target must then pass the
 //! backend's verified admission of a standalone pattern (`verify_standalone_pattern`), as `krun`
@@ -34,7 +40,7 @@
 //! baseline, from the program's admitted initial state: search type all (`=>*`, every reachable
 //! configuration, the initial one included), state set, `max_results` 1 (the search stops at the
 //! first match), the manifest's `max_depth` and simplifier iterations, under kink's watchdog of
-//! `budget.time_ms`. A search has no work budget at k-rust 501f18b9 (KINK-24, drafted), so the
+//! `budget.time_ms`. A search has no work budget at k-rust 8f8ad57c5 (KINK-24, drafted), so the
 //! clock is its only bound on a runaway program.
 //!
 //! **Answers** ([`judge`]):
@@ -103,9 +109,19 @@
 //! with a condition), but it cannot make a decided match or a completed exploration false: whether
 //! an answer is definitive can depend on the host's stack, its truth cannot. For a `no` the
 //! baseline run's own count is required to be zero as well, over the same states. A detected
-//! contradicted claim ends its path (an undefined step has no successor), so a witness path passes
-//! through none; a `no` needs a comparable baseline run, which has none anywhere. No pattern answer
-//! ever feeds a kill or a mutation verdict: pattern-only differences stay unknown by design.
+//! contradicted claim does not end its path: since k-rust KINK-18/2 (head 16e88a6d4, merge
+//! 7d4c588f9) a path whose decisions rest on one goes on (a condition refuted through it, an `owise`
+//! alternative after it, a candidate it removed), and the `contradicted-claim` record is a path
+//! fact on the path's states, witnesses and matches, and on the search response's
+//! `contradictedClaims` list (k-rust `docs/compatibility.md`, "A contradicted `total` attribute is
+//! named, not repaired"). A hit needs a match and a state path with no diagnostic, so a witness
+//! whose path rests on a detected contradiction is `unknown`, never a hit. A `no` needs a
+//! comparable baseline run, and a record on a leaf of that run makes it incomplete (so the
+//! program is not comparable), as a contradicted `total` on a leaf excludes it. kink does not
+//! read the response's or the run's list, so a record of work that ended on no leaf, or of the
+//! load, is not seen; such a contradiction rests on the baseline's claims, which are a premise
+//! (above). No pattern answer ever feeds a kill or a mutation verdict: pattern-only differences
+//! stay unknown by design.
 
 use crate::{
     admit::AdmittedSpec,

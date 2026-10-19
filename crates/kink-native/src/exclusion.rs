@@ -94,19 +94,30 @@ use crate::execution::{AdaptedExecution, AdaptedLeaf, HaltClass};
 /// variables.
 pub const DEFINITION_EXCLUSION_VERSION: &str = "kink-native/definition-exclusion/v1";
 
-/// The hooks for which k-rust 501f18b9 says it may compute a value the definition leaves open,
-/// exactly the hooks for which its `implementation_chosen_in` (`k-rust-backend/src/builtin.rs`)
-/// can return `Some`: the match arms (`MAP.keys_list`, `MAP.values`, `SET.set2list`,
-/// `MAP.choice`, `SET.choice`), the six Float operations `float::mixed_destination` reads
-/// (`BinaryOperation::of`) and `FLOAT.sign` (`float::nan_sign`). Pinned against the k-rust
-/// source, and the source text of those functions by digest, by the kink-native test
-/// `implementation_chosen_hooks_are_k_rusts`.
+/// The hooks for which k-rust 8f8ad57c5 says it may compute a value the definition leaves open,
+/// exactly the hooks for which its classifier `chosen_value` (`k-rust-backend/src/builtin.rs`;
+/// KINK-17/2) can return `Some`: the match arms (`MAP.keys_list`, `MAP.values`, `SET.set2list`,
+/// `MAP.choice`, `SET.choice`, `STRING.base2string`, `SUBSTITUTION.substOne`, `IO.read`), the six
+/// Float operations `float::mixed_destination` reads (`BinaryOperation::of`), `FLOAT.sign`
+/// (`float::nan_sign`) and `FLOAT.min`/`FLOAT.max` (`float::signed_zeros`, already among the six).
+/// Pinned against the k-rust source, and the source text of those functions by digest, by the
+/// kink-native test `implementation_chosen_hooks_are_k_rusts`.
+///
+/// Re-pin L-1 (`draft/tasks/repin-58720d2e`): at 501f18b9 the classifier was
+/// `implementation_chosen_in`, with the first five arms and the Float helpers. KINK-17/2 (k-rust
+/// 1691bf61c, review 25fa4ccc9, merge 978d30070) added `STRING.base2string` (letter case),
+/// `SUBSTITUTION.substOne` (fresh names) and `IO.read` (read count). The census held all three
+/// already, as kink-side hooks ([`DOMAINS_OPEN_HOOKS`], [`BUILTIN_OPEN_HOOKS`]); they moved here,
+/// so [`IMPLEMENTATION_CHOSEN_HOOKS`] is the same set in another order.
 pub const K_RUST_IMPLEMENTATION_CHOSEN_HOOKS: &[&str] = &[
     "MAP.keys_list",
     "MAP.values",
     "SET.set2list",
     "MAP.choice",
     "SET.choice",
+    "STRING.base2string",
+    "SUBSTITUTION.substOne",
+    "IO.read",
     "FLOAT.add",
     "FLOAT.sub",
     "FLOAT.mul",
@@ -127,14 +138,19 @@ pub const K_RUST_IMPLEMENTATION_CHOSEN_HOOKS: &[&str] = &[
 /// - The pair `String2Bytes`/`Bytes2String` names no encoding (domains.md names one only for
 ///   `encodeBytes`/`decodeBytes`, which take it as an argument, line 2012); k-rust reads each
 ///   byte as the code point of the same number, "its chosen reading" (`bytes.rs:64-73`).
-/// - `Base2String`'s letter case and `Float2String`'s string are "determined by the backend";
-///   `Float2String` with a format is what `mpfr_printf` gives.
+/// - `Float2String`'s string is "determined by the backend"; with a format it is what
+///   `mpfr_printf` gives.
 /// - `RangeMap`'s `choice` is "arbitrarily chosen", and its `keys_list` and `values` state no
 ///   order, as `Map`'s, which k-rust names.
 /// - `randInt`/`srandInt` are pseudorandom on concrete backends and uninterpreted on symbolic
 ///   ones; the deprecated String hooks and the `K-REFLECTION` hooks that read the process or
 ///   the environment are "largely unsupported"; and every I/O hook returns what "the underlying
-///   system call" gives (a `#read` may return "fewer characters than requested").
+///   system call" gives.
+///
+/// `Base2String`'s letter case ("determined by the backend", domains.md 1829-1831) and the count
+/// a `#read` returns ("fewer characters than requested", 2548-2549) were kink-side hooks until
+/// re-pin L-1; k-rust's classifier names both since KINK-17/2, so they are on
+/// [`K_RUST_IMPLEMENTATION_CHOSEN_HOOKS`] (each hook is on one list).
 ///
 /// Not added, because domains.md fixes the value: `encodeBytes`/`decodeBytes` (a named
 /// encoding), the logging hooks (`IO.log`, `IO.logString`, `IO.traceTerm`, which return `.K`),
@@ -151,11 +167,6 @@ pub const DOMAINS_OPEN_HOOKS: &[(&str, &str, &str)] = &[
         "BYTES.bytes2string",
         "2089-2095",
         "You can convert between a `Bytes` and a `String`",
-    ),
-    (
-        "STRING.base2string",
-        "1829-1831",
-        "returned by `Base2String` are upper or lowercase is determined by the backend",
     ),
     (
         "STRING.float2string",
@@ -255,11 +266,6 @@ pub const DOMAINS_OPEN_HOOKS: &[(&str, &str, &str)] = &[
         "corresponding to the `errno` returned by the underlying system call",
     ),
     (
-        "IO.read",
-        "2548-2549",
-        "resulting read characters are returned, which may be fewer characters than",
-    ),
-    (
         "IO.putc",
         "2413-2414",
         "corresponding to the `errno` returned by the underlying system call",
@@ -328,6 +334,8 @@ pub const DOMAINS_OPEN_HOOKS: &[(&str, &str, &str)] = &[
 ///   will automatically assign unique names" with "a unique integer suffix", which "might be
 ///   different" depending on when rewriting halts; k-rust mints `{base}{n}` with its own counter
 ///   (`FreshNames::mint`), so an alpha-equivalent result can differ in k-rust's suffix alone.
+///   `substMany` is listed here; `substOne` is on [`K_RUST_IMPLEMENTATION_CHOSEN_HOOKS`] since
+///   re-pin L-1, as k-rust's classifier names it (`fresh-name`, KINK-17/2).
 /// - `unification.k`: seven hooks declared `impure` with no stated value (renaming, variable
 ///   sets, freezing, unifiability); the file leaves every value to the implementation.
 /// - `json.md`: `JSON2String` names no layout of the JSON text it gives, and `String2JSON` no
@@ -343,12 +351,6 @@ pub const DOMAINS_OPEN_HOOKS: &[(&str, &str, &str)] = &[
 /// compiled `<generatedCounter>` cell and its `freshGenerator` rules fix them, so they are a
 /// premise about the compiled definition, not a value the backend chooses.
 pub const BUILTIN_OPEN_HOOKS: &[(&str, &str, &str, &str)] = &[
-    (
-        "substitution.md",
-        "SUBSTITUTION.substOne",
-        "83-88",
-        "the rewriter will automatically assign unique names",
-    ),
     (
         "substitution.md",
         "SUBSTITUTION.substMany",
@@ -505,6 +507,9 @@ pub const IMPLEMENTATION_CHOSEN_HOOKS: &[&str] = &[
     "SET.set2list",
     "MAP.choice",
     "SET.choice",
+    "STRING.base2string",
+    "SUBSTITUTION.substOne",
+    "IO.read",
     "FLOAT.add",
     "FLOAT.sub",
     "FLOAT.mul",
@@ -514,7 +519,6 @@ pub const IMPLEMENTATION_CHOSEN_HOOKS: &[&str] = &[
     "FLOAT.sign",
     "BYTES.string2bytes",
     "BYTES.bytes2string",
-    "STRING.base2string",
     "STRING.float2string",
     "STRING.floatFormat",
     "STRING.category",
@@ -536,7 +540,6 @@ pub const IMPLEMENTATION_CHOSEN_HOOKS: &[&str] = &[
     "IO.seek",
     "IO.seekEnd",
     "IO.getc",
-    "IO.read",
     "IO.putc",
     "IO.write",
     "IO.close",
@@ -548,7 +551,6 @@ pub const IMPLEMENTATION_CHOSEN_HOOKS: &[&str] = &[
     "IO.system",
     "IO.mkstemp",
     "IO.remove",
-    "SUBSTITUTION.substOne",
     "SUBSTITUTION.substMany",
     "UNIFICATION.renameVariables",
     "UNIFICATION.variables",

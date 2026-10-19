@@ -49,9 +49,9 @@ updated = "2026-10-19"
 # ran in that gate (none is ignored). A fixed row whose status_basis names 927b9ce6 or an earlier pin keeps that
 # basis as the run that established it, and has an update_2026_10_17 where the new pin changed something about it.
 # Every open and partial row was re-screened at this pin on 2026-10-17.
-# CANDIDATE RE-PIN (branch repin/probe-8f8ad57c, packets P-1 and P-2 of draft/tasks/repin-58720d2e): the commit,
-# versions and checkout below are moved to k-rust main 8f8ad57c5 only so that kink-native tests/pin.rs holds; every
-# row in this file is still judged at 501f18b9 as described above. The round-D re-pin re-screens them.
+# RE-PIN to k-rust main 8f8ad57c5 (packets P-1, P-2 and L-1 of draft/tasks/repin-58720d2e): the commit, versions and
+# checkout below name the pin the workspace builds against (kink-native tests/pin.rs checks them); every row in this
+# file is still judged at 501f18b9 as described above. The round-D re-pin re-screens them.
 k_rust_commit = "8f8ad57c5f8c65d77014d2b89006055af3d8de7f"
 k_rust_version = "0.7.0"
 # kink-native also depends on k-rust-backend from the same checkout, for execution cancellation and diagnostics.

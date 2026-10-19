@@ -130,22 +130,36 @@ fn k_rust_backend() -> PathBuf {
 }
 
 /// `K_RUST_IMPLEMENTATION_CHOSEN_HOOKS` is exactly the set of hooks for which k-rust's
-/// `implementation_chosen_in` (k-rust-backend `builtin.rs`) can return `Some`, read from the
+/// classifier `chosen_value` (k-rust-backend `builtin.rs`) can return `Some`, read from the
 /// k-rust source the workspace builds against: its match arms, the hooks of the binary Float
-/// operations `float::mixed_destination` accepts (`BinaryOperation::of`) and the one hook
-/// `float::nan_sign` reads. `IMPLEMENTATION_CHOSEN_HOOKS` is that list and the kink-side
-/// `DOMAINS_OPEN_HOOKS`, `BUILTIN_OPEN_HOOKS` and `UNDOCUMENTED_EVALUATED_HOOKS`, each once. A change of any of them in k-rust fails this test, so a
-/// re-pin re-derives the list.
+/// operations `float::mixed_destination` accepts (`BinaryOperation::of`), the one hook
+/// `float::nan_sign` reads, and the two `float::signed_zeros` reads. The arms' other helpers
+/// (`lists_several_items`, `writes_a_letter_digit`, `substitutes_under_a_binder`, `read_string`)
+/// only narrow when an arm's hook fires, so they do not change the set. `IMPLEMENTATION_CHOSEN_HOOKS`
+/// is that list and the kink-side `DOMAINS_OPEN_HOOKS`, `BUILTIN_OPEN_HOOKS` and
+/// `UNDOCUMENTED_EVALUATED_HOOKS`, each once. A change of any of them in k-rust fails this test,
+/// so a re-pin re-derives the list.
 ///
-/// Re-pin R0c deliverable 5 (R0b review 1 minor): reading arms and two helper calls misses a
-/// third fallthrough helper or a widened `nan_sign` condition, so the source text of the four
+/// Re-pin R0c deliverable 5 (R0b review 1 minor): reading arms and the helper calls misses a
+/// further fallthrough helper or a widened helper condition, so the source text of the
 /// functions is pinned by digest as well.
+///
+/// Re-pin L-1 (`draft/tasks/repin-58720d2e`, k-rust 8f8ad57c5): KINK-17/2 (k-rust 1691bf61c,
+/// review 25fa4ccc9, merge 978d30070) replaced `implementation_chosen_in` with `chosen_value`,
+/// which adds the arms `STRING.base2string`, `SUBSTITUTION.substOne` and `IO.read` and the
+/// fallthrough `float::signed_zeros` (`FLOAT.min`, `FLOAT.max`); KINK-17/1 (375710b23, merge
+/// 3a196ed14) gave it its text at the pin (the `ChosenValue::new` constructor), with the same
+/// arms. So the reading moved to `chosen_value` and `signed_zeros`, the classifier's digest and
+/// the new helper's are pinned, and the three new arms' hooks moved from the kink-side lists to
+/// `K_RUST_IMPLEMENTATION_CHOSEN_HOOKS`. The census (`IMPLEMENTATION_CHOSEN_HOOKS`) is the same
+/// set of 88 hooks as at 501f18b9: none left it and none joined it, so no status moves. The
+/// three other helpers' texts are unchanged since 501f18b9.
 #[test]
 fn implementation_chosen_hooks_are_k_rusts() {
     let backend = k_rust_backend();
     let builtin = std::fs::read_to_string(backend.join("src/builtin.rs")).unwrap();
     let float = std::fs::read_to_string(backend.join("src/builtin/float.rs")).unwrap();
-    let chosen = function(&builtin, "implementation_chosen_in");
+    let chosen = function(&builtin, "chosen_value");
     let mixed = function(&float, "mixed_destination");
     let of = function(
         &float[float
@@ -154,20 +168,22 @@ fn implementation_chosen_hooks_are_k_rusts() {
         "of",
     );
     let nan = function(&float, "nan_sign");
-    // The exact texts at k-rust 501f18b9; a changed text needs the hook list re-derived from it.
+    let zeros = function(&float, "signed_zeros");
+    // The exact texts at k-rust 8f8ad57c5; a changed text needs the hook list re-derived from it.
     let digests = [
-        ("implementation_chosen_in", chosen),
+        ("chosen_value", chosen),
         ("float::mixed_destination", mixed),
         ("BinaryOperation::of", of),
         ("float::nan_sign", nan),
+        ("float::signed_zeros", zeros),
     ]
     .map(|(name, text)| (name, kink_patch::sha256(text.as_bytes()).to_string()));
     assert_eq!(
         digests,
         [
             (
-                "implementation_chosen_in",
-                "4c51bafff2346bfd456986f7165a3b4a76e7b93449d4dc035da4a9cd17191a8b".to_owned()
+                "chosen_value",
+                "a2f71c474f7546ada2a8d73480b9022cca1ab8ea8e16fffc3dbd71847ccebf6e".to_owned()
             ),
             (
                 "float::mixed_destination",
@@ -181,22 +197,32 @@ fn implementation_chosen_hooks_are_k_rusts() {
                 "float::nan_sign",
                 "c17041cfd7ea611ad2def7d98277f9204f00e410c066beb4ac6d7bc93c2f285a".to_owned()
             ),
+            (
+                "float::signed_zeros",
+                "4f3a6a28b4aa2a95fb9ef1d2c1b87a638bec25f8f459507ba5d48191a90566ff".to_owned()
+            ),
         ]
     );
-    // The fallthrough arm is exactly the two Float helpers.
+    // The fallthrough arms are exactly the three Float helpers.
     assert!(
-        chosen.contains("float::mixed_destination(hook, arguments)")
-            && chosen.contains(".or_else(|| float::nan_sign(hook, arguments))"),
+        chosen.contains("_ if float::mixed_destination(hook, arguments).is_some() =>")
+            && chosen.contains("_ if float::nan_sign(hook, arguments).is_some() =>")
+            && chosen.contains("float::signed_zeros(hook, arguments),"),
         "{chosen}"
     );
     let mut hooks = arm_hooks(chosen);
-    assert_eq!(hooks.len(), 5, "{chosen}");
+    assert_eq!(hooks.len(), 8, "{chosen}");
     assert!(mixed.contains("BinaryOperation::of(hook)?"), "{mixed}");
     let operations = arm_hooks(of);
     assert_eq!(operations.len(), 6, "{operations:?}");
     hooks.extend(operations);
     assert!(nan.contains(r#"if hook != "FLOAT.sign" {"#), "{nan}");
     hooks.insert("FLOAT.sign".to_owned());
+    assert!(
+        zeros.contains(r#"if !matches!(hook, "FLOAT.min" | "FLOAT.max") {"#),
+        "{zeros}"
+    );
+    hooks.extend(["FLOAT.min".to_owned(), "FLOAT.max".to_owned()]);
     let k_rust = K_RUST_IMPLEMENTATION_CHOSEN_HOOKS
         .iter()
         .map(|hook| (*hook).to_owned())
@@ -216,7 +242,107 @@ fn implementation_chosen_hooks_are_k_rusts() {
         all.len(),
         "each hook once"
     );
+    // Re-pin L-1: the census is a superset of the one judged at 501f18b9 (a hook that left it
+    // would let a definition that reads it be compared); here it is the same set.
+    let census = IMPLEMENTATION_CHOSEN_HOOKS
+        .iter()
+        .copied()
+        .collect::<BTreeSet<_>>();
+    assert!(census.is_superset(&CENSUS_AT_501F18B9.into_iter().collect()));
+    assert_eq!(census.len(), CENSUS_AT_501F18B9.len());
 }
+
+/// `IMPLEMENTATION_CHOSEN_HOOKS` at k-rust 501f18b9 (K-in-K2 main 71ab7d0), in its order then.
+const CENSUS_AT_501F18B9: [&str; 88] = [
+    "MAP.keys_list",
+    "MAP.values",
+    "SET.set2list",
+    "MAP.choice",
+    "SET.choice",
+    "FLOAT.add",
+    "FLOAT.sub",
+    "FLOAT.mul",
+    "FLOAT.div",
+    "FLOAT.min",
+    "FLOAT.max",
+    "FLOAT.sign",
+    "BYTES.string2bytes",
+    "BYTES.bytes2string",
+    "STRING.base2string",
+    "STRING.float2string",
+    "STRING.floatFormat",
+    "STRING.category",
+    "STRING.directionality",
+    "STRING.uuid",
+    "INT.rand",
+    "INT.srand",
+    "RANGEMAP.choice",
+    "RANGEMAP.keys_list",
+    "RANGEMAP.values",
+    "KREFLECTION.configuration",
+    "KREFLECTION.fresh",
+    "KREFLECTION.getenv",
+    "KREFLECTION.kompiledDir",
+    "KREFLECTION.argv",
+    "KREFLECTION.printKORE",
+    "IO.open",
+    "IO.tell",
+    "IO.seek",
+    "IO.seekEnd",
+    "IO.getc",
+    "IO.read",
+    "IO.putc",
+    "IO.write",
+    "IO.close",
+    "IO.lock",
+    "IO.unlock",
+    "IO.accept",
+    "IO.shutdownWrite",
+    "IO.time",
+    "IO.system",
+    "IO.mkstemp",
+    "IO.remove",
+    "SUBSTITUTION.substOne",
+    "SUBSTITUTION.substMany",
+    "UNIFICATION.renameVariables",
+    "UNIFICATION.variables",
+    "UNIFICATION.metaVariables",
+    "UNIFICATION.variablesMap",
+    "UNIFICATION.rename",
+    "UNIFICATION.freezeVariables",
+    "UNIFICATION.unifiable",
+    "JSON.json2string",
+    "JSON.string2json",
+    "TIMER.timerStart",
+    "TIMER.timerStop",
+    "FFI.call",
+    "FFI.call_variadic",
+    "FFI.address",
+    "FFI.alloc",
+    "FFI.bytes_address",
+    "FFI.read",
+    "FFI.write",
+    "HASH.keccak256",
+    "HASH.ripemd160",
+    "HASH.sha256",
+    "HASH.sha3_256",
+    "KRYPTO.bn128add",
+    "KRYPTO.bn128ate",
+    "KRYPTO.bn128g2valid",
+    "KRYPTO.bn128mul",
+    "KRYPTO.bn128valid",
+    "KRYPTO.ecdsaPubKey",
+    "KRYPTO.ecdsaRecover",
+    "KRYPTO.keccak256",
+    "KRYPTO.keccak256raw",
+    "KRYPTO.ripemd160",
+    "KRYPTO.ripemd160raw",
+    "KRYPTO.sha256",
+    "KRYPTO.sha256raw",
+    "KRYPTO.sha3256",
+    "KRYPTO.sha512_256raw",
+    "SECP256K1.ecdsaRecover",
+];
 
 /// Re-pin R0c deliverable 2 (R0b review 1 major 2): every kink-side census hook is one whose
 /// value `k-rust/builtin/domains.md` leaves to the backend, the implementation or the

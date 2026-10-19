@@ -148,12 +148,20 @@ fn unbound_mutants(validator: &NativeValidator) -> [(&'static str, Patch); 2] {
 /// constructor). The mutant evaluates the call (`freq(3) = 1`, `part(1) = 7`) and its leaf is
 /// the `Syntactic` `done(1)` or `done(7)`. Both definitions agree on every defined input, so the
 /// two ground terminals denote the same value in a model of the baseline, but they are distinct
-/// terms. Identical in both profiles. `fres(3)` (an unbound result variable) keeps the call with
-/// an `UndecidedCondition` diagnostic instead, which the bridge maps to `BackendLimit`.
+/// terms. `fres(3)` (an unbound result variable) keeps the call with an `UndecidedCondition`
+/// diagnostic instead, which the bridge maps to `BackendLimit`.
 ///
 /// Re-pin R0a (finding E-14; k-rust KINK-10): at 501f18b9 the baseline's kept-call leaves of
 /// `freq(3)` and `part(1)` carry an `UndefinedInitialInstances` diagnostic (the initial state's
 /// call may be undefined), so they are diagnosed (fail-closed); at 927b9ce6 they carried none.
+///
+/// Re-pin L-1: the outcome of `freq(3)` depends on the profile. Without Z3 the baseline keeps
+/// the call as above. Under Z3 the baseline evaluates it, as the mutant does: its leaf is the
+/// undiagnosed `Syntactic` `done(1)`. Since k-rust BIND/A3 (commit 3be422d93, head 6ddf8c236,
+/// merge 1c0cccc86) the condition-only `Z` is quantified existentially inside the condition
+/// (`exists Z. Z >Int 3`), which Z3 decides; that is the axiom closed over `Z` (decisions log
+/// 2026-10-20, "a variable of a rule's condition alone is read existentially"). `part(1)` and
+/// `fres(3)` are the same in both profiles.
 #[test]
 fn kept_calls_in_ground_terminals_are_not_values() {
     let validator = NativeValidator::bind(support::load("unbound.k"), CompileOptions::default());
@@ -173,29 +181,56 @@ fn kept_calls_in_ground_terminals_are_not_values() {
         let [leaf] = kept.as_slice() else {
             panic!("{call}: one baseline leaf, got {}", kept.len())
         };
-        assert_eq!(
-            (
-                leaf.halt,
-                leaf.feasibility,
-                bridge::discarded(leaf),
-                diagnosed(leaf)
-            ),
-            (HaltClass::Stuck, LeafFeasibility::Unknown, None, true),
-            "{call}"
-        );
-        assert!(
-            leaf.diagnostics.iter().any(|diagnostic| matches!(
-                diagnostic,
-                k_rust::backend::BackendDiagnosticOutput::UndefinedInitialInstances { .. }
-            )),
-            "{call}: {:?}",
-            leaf.diagnostics
-        );
-        assert_eq!(
-            state(leaf),
-            initial,
-            "{call}: the call is kept, unconstrained"
-        );
+        if call == "Lblfreq" && cfg!(feature = "z3") {
+            // Re-pin L-1: under Z3 the baseline leaf of `freq(3)` moves from the kept call
+            // (Stuck, Unknown, diagnosed with UndefinedInitialInstances) to the undiagnosed
+            // Syntactic `done(1)`, by k-rust BIND/A3 (commit 3be422d93, head 6ddf8c236, merge
+            // 1c0cccc86: a condition-only variable is read existentially, which Z3 decides),
+            // accepted by Sebastien (decisions log 2026-10-20, "a variable of a rule's condition
+            // alone is read existentially"). No-Z3 is unchanged (the other branch).
+            assert_eq!(
+                (
+                    leaf.halt,
+                    leaf.feasibility,
+                    bridge::discarded(leaf),
+                    diagnosed(leaf)
+                ),
+                (HaltClass::Stuck, LeafFeasibility::Syntactic, None, false),
+                "{call}"
+            );
+            assert_eq!(
+                state(leaf),
+                support::initial_state(
+                    support::app("Lbldone", vec![support::int(value)]),
+                    "SortProg"
+                ),
+                "{call}: the call is evaluated"
+            );
+        } else {
+            assert_eq!(
+                (
+                    leaf.halt,
+                    leaf.feasibility,
+                    bridge::discarded(leaf),
+                    diagnosed(leaf)
+                ),
+                (HaltClass::Stuck, LeafFeasibility::Unknown, None, true),
+                "{call}"
+            );
+            assert!(
+                leaf.diagnostics.iter().any(|diagnostic| matches!(
+                    diagnostic,
+                    k_rust::backend::BackendDiagnosticOutput::UndefinedInitialInstances { .. }
+                )),
+                "{call}: {:?}",
+                leaf.diagnostics
+            );
+            assert_eq!(
+                state(leaf),
+                initial,
+                "{call}: the call is kept, unconstrained"
+            );
+        }
         let mutant = validator.validate(&patch).expect("mutant compiles");
         let evaluated = leaves(&mutant, "UNBOUND", &initial);
         let [leaf] = evaluated.as_slice() else {

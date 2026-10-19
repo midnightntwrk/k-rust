@@ -3765,17 +3765,29 @@ fn audit_vi_unbound_result_equation_is_not_killed() {
 
 /// AT12 (b), requires-only variable: `freq(X) => 1 requires Z >Int X` against `freq(X) => 1`.
 /// kompile accepts the rule. Read as an axiom closed over `Z` the equation makes `freq(3) = 1`,
-/// but for a ground argument the condition is contingent, so k-rust keeps the call without a
-/// diagnostic (k-rust `simplify.rs:1171-1184, 1240-1242, 1264-1271`). Where a rule binds the
-/// call (`run`, `pass`) the step also leaves the remainder `not ceil(freq(3))`, whose
-/// feasibility is Unknown, so the baseline is refused. Where no rule touches it (`stuck`,
-/// `bare`), the baseline leaf is the ground `done(freq(3))` (or `freq(3)`), stuck, with no
-/// predicate, which the bridge previously took as a decided terminal; the mutant's leaf is `done(1)`
-/// (`1`), so the final-state slot was Distinguish and the mutant Killed, in both profiles and
-/// both schedules (TB-01, TV01-NEEDED; K-TERMINAL-CONSTRUCTOR). TV-01 makes those
-/// terminals incomplete (`SolverUnknown`), so both slots are Unknown and refused.
-/// The binding slot moves from Agree to Unknown because even an event-free terminal
-/// must be definition-independent. Every state is now refused in both profiles and schedules.
+/// so the mutant is equivalent and no profile may kill it. The outcome depends on the profile.
+///
+/// - No-Z3: every state is refused (`BaselineOracleFailed`) in both schedules. For a ground
+///   argument the condition is contingent to k-rust's portable build, which has no solver for
+///   the existential, so k-rust keeps the call without a diagnostic (k-rust
+///   `simplify.rs:1171-1184, 1240-1242, 1264-1271` at 927b9ce6). Where a rule binds the call
+///   (`run`, `pass`) the step also leaves the remainder `not ceil(freq(3))`, whose feasibility
+///   is Unknown, so the baseline is refused. Where no rule touches it (`stuck`, `bare`), the
+///   baseline leaf is the ground `done(freq(3))` (or `freq(3)`), stuck, with no predicate, which
+///   the bridge previously took as a decided terminal; the mutant's leaf is `done(1)` (`1`), so
+///   the final-state slot was Distinguish and the mutant Killed, in both profiles and both
+///   schedules (TB-01, TV01-NEEDED; K-TERMINAL-CONSTRUCTOR). TV-01 makes those terminals
+///   incomplete (`SolverUnknown`), so both slots are Unknown and refused. The binding slot moves
+///   from Agree to Unknown because even an event-free terminal must be definition-independent.
+/// - Z3: every state runs, and its one slot agrees (`[[Agree]]`, `Survived`) in both schedules.
+///   Since k-rust BIND/A3 (commit 3be422d93, head 6ddf8c236, merge 1c0cccc86) a variable of a
+///   rule's condition alone is quantified existentially inside the condition (`forall Z. (c(Z)
+///   -> phi)` is `(exists Z. c(Z)) -> phi` when `Z` is not in `phi`; k-rust `equations.rs`
+///   `quantify_condition_only`), and Z3 decides `exists Z. Z >Int 3`, so the baseline evaluates
+///   `freq(3)` (and `freq(N)`) to `1` like the mutant. That is the axiom's meaning, and
+///   Survived is the right status for this equivalent mutant (decisions log 2026-10-20, "a
+///   variable of a rule's condition alone is read existentially"; re-pin L-1). Before BIND/A3
+///   every row was refused under Z3 as well.
 #[test]
 fn audit_vi_unbound_requires_only_equation_is_not_killed() {
     with_stack(|| {
@@ -3790,19 +3802,29 @@ fn audit_vi_unbound_requires_only_equation_is_not_killed() {
         .expect("patch");
         let states = unbound_states("freq", "runReq", 3);
 
+        // Re-pin L-1: under Z3 every row moves Refused(BaselineOracleFailed) -> Ran([[Agree]],
+        // Survived) by k-rust BIND/A3 (commit 3be422d93, head 6ddf8c236, merge 1c0cccc86: a
+        // condition-only variable is read existentially, which Z3 decides), accepted by
+        // Sebastien (decisions log 2026-10-20, "a variable of a rule's condition alone is read
+        // existentially"). The no-Z3 rows are unchanged.
+        let row = if cfg!(feature = "z3") {
+            Some(UnboundAudit::Ran(vec![vec![A]], MutantStatus::Survived))
+        } else {
+            REFUSED
+        };
         let expected = [
-            ("run", "whole", REFUSED),
-            ("run", "bind", REFUSED),
-            ("pass", "whole", REFUSED),
-            ("pass", "bind", REFUSED),
-            ("stuck", "whole", REFUSED),
-            ("stuck", "bind", REFUSED),
-            ("bare", "whole", REFUSED),
-            ("bare", "bind", REFUSED),
-            ("sym-run", "whole", REFUSED),
-            ("sym-run", "bind", REFUSED),
-            ("sym-stuck", "whole", REFUSED),
-            ("sym-stuck", "bind", REFUSED),
+            ("run", "whole", row.clone()),
+            ("run", "bind", row.clone()),
+            ("pass", "whole", row.clone()),
+            ("pass", "bind", row.clone()),
+            ("stuck", "whole", row.clone()),
+            ("stuck", "bind", row.clone()),
+            ("bare", "whole", row.clone()),
+            ("bare", "bind", row.clone()),
+            ("sym-run", "whole", row.clone()),
+            ("sym-run", "bind", row.clone()),
+            ("sym-stuck", "whole", row.clone()),
+            ("sym-stuck", "bind", row),
         ];
         unbound_audit("requires-only", &patch, "UNBOUND.freq", &states, &expected);
     });

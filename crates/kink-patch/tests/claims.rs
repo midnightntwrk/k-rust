@@ -514,8 +514,8 @@ fn trusted_claims_are_pinned() {
 /// (a `#Bottom` right-hand side, a refuted `ensures`). The attribute is still the author's
 /// claim, trusted and named when evaluation observes it contradicted, which is what the `total`
 /// row cites; the new route only reports more contradictions, which kink reads as no evidence.
-/// `TRUSTED_CLAIMS`' citation strings still give the 501f18b9 lines (src is unchanged in the
-/// probe).
+/// `TRUSTED_CLAIMS`' citation strings gave the 501f18b9 lines until re-pin L-1, which moved them
+/// to the 8f8ad57c5 lines below.
 ///
 /// Re-pin P-2 (k-rust 8f8ad57c5): all seventeen passages are byte-identical to 58720d2e5's, and
 /// twelve only moved. compatibility.md grew by rounds 26-28 (the BIND/A5 "Frontend policy"
