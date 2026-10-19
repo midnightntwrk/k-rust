@@ -439,6 +439,7 @@ fn measure_offered_cost() {
         let mut resolver = |_: &str, required: &str| {
             embedded(required).map(Ok).unwrap_or_else(|| {
                 std::fs::read_to_string(imp_directory.join(required))
+                    .map(|text| ResolvedSource::new(required, text))
                     .map_err(|error| format!("{required}: {error}"))
             })
         };
@@ -458,12 +459,14 @@ fn measure_offered_cost() {
         let mut assembler =
             ConfigurationAssembler::new(&grammar, main, main, &artifacts.configuration_variables);
         assembler.program(&Sort::new(sort), program).unwrap();
+        // `calc.k` declares `$ENV:Map`, which `krun` initializes empty.
+        assembler.bind("ENV", ".Map").unwrap();
         (artifacts.definition_kore, assembler.finish().unwrap())
     };
     let mut cases = Vec::new();
     for example in [
+        // `gcd.imp` and `sumrec10.imp` use functions, which `imp.k` does not define.
         "sumto10.imp",
-        "gcd.imp",
         "gcd-while.imp",
         "dangling-else.imp",
         "while-and-following.imp",
