@@ -539,6 +539,14 @@ fn try_compile_spec(sentences: &str, claims: &str) -> Result<String, String> {
 
 /// The specification `source` (main module `P-SPEC`, definition module `P`), compiled.
 fn try_compile_spec_source(source: String) -> Result<String, String> {
+    try_compile_spec_source_for(source, CompilationBackend::Rust)
+}
+
+/// The specification `source` compiled for `backend` (see [`try_compile_spec_source`]).
+fn try_compile_spec_source_for(
+    source: String,
+    backend: CompilationBackend,
+) -> Result<String, String> {
     let mut resolver = |_: &str, required: &str| {
         embedded(required).ok_or_else(|| format!("unexpected require {required}"))
     };
@@ -549,14 +557,14 @@ fn try_compile_spec_source(source: String) -> Result<String, String> {
         &LoadOptions {
             implicit_sources: vec![embedded("prelude.md").unwrap()],
             configuration_module: Some("P".to_owned()),
-            ..CompilationBackend::Rust.load_options()
+            ..backend.load_options()
         },
     )
     .expect("the specification loads");
     compile_loaded_definition(
         &loaded,
         CompileOptions {
-            backend: CompilationBackend::Rust,
+            backend,
             default_claims_to_all_path: true,
             check_mode: CheckMode::Proof {
                 definition_module: "P".to_owned(),
@@ -2044,4 +2052,272 @@ fn an_or_pattern_of_a_function_equation_with_the_configuration_is_judged_at_its_
         line_after(declarations),
         &["matched only at the root of an argument"],
     );
+}
+
+// ---------------------------------------------------------------- MLP/4b fix round 1
+
+/// The rule every claim below is proved against.
+const GO_DONE: &str = "  rule [g]: <k> go(X) => done(X) ... </k>\n";
+
+/// The line of the first claim of `try_compile_spec(rules, claims)`.
+fn claim_line(rules: &str) -> usize {
+    HEADER.lines().count() + rules.lines().count() + 5
+}
+
+/// A claim's right side is the pattern every path must reach. `P #as V` there denotes `P #And V`,
+/// which is `P #And {P #Equals V}` where `P` denotes at most one value and evaluating it performs
+/// no effect, the form `lower term conjunctions` writes. Where `P` holds a connective or applies
+/// an effectful production, that form does not denote the alias, and no other compiled form
+/// keeps `P`: the claim is refused at compile, for every target, rather than proved against a
+/// right side that lost `P` (`(done(X +Int 1) #Or done(7)) #as ?Y` would become `?Y`, which
+/// every state matches).
+#[test]
+fn a_claim_right_side_alias_that_is_not_lowered_is_refused() {
+    let effectful =
+        "  syntax Int ::= eff(Int) [function, impure, symbol(eff)]\n  rule eff(X) => X\n";
+    // The LLVM target's checks refuse an existential variable beside an effectful production
+    // first, so the effectful claim is refused there by another code.
+    for (rules, claim, targets) in [
+        (
+            GO_DONE.to_owned(),
+            "  claim [p]: <k> go(X) => (done(X +Int 1) #Or done(7)) #as ?Y </k>\n",
+            2,
+        ),
+        (
+            GO_DONE.to_owned(),
+            "  claim [p]: <k> go(X) => done(((X +Int 1) #Or 7) #as ?Y) </k>\n",
+            2,
+        ),
+        (
+            GO_DONE.to_owned(),
+            "  claim [p]: <k> go(X) => (done(X) #Or done(0)) #as ?Y ... </k>\n",
+            2,
+        ),
+        (
+            format!("{effectful}{GO_DONE}"),
+            "  claim [p]: <k> go(X) => done(eff(X) #as ?Y) ... </k>\n",
+            1,
+        ),
+    ] {
+        for (index, backend) in [CompilationBackend::Rust, CompilationBackend::Llvm]
+            .into_iter()
+            .enumerate()
+        {
+            let source = format!(
+                "{HEADER}{rules}endmodule\n\nmodule P-SPEC\n  imports P\n{claim}endmodule\n"
+            );
+            let message = match try_compile_spec_source_for(source, backend) {
+                Ok(_) => panic!("{backend:?}: compiles:\n{claim}"),
+                Err(message) => message,
+            };
+            if index >= targets {
+                continue;
+            }
+            let at = format!(
+                "ml_conditions.k:{}:3: MlConstructPosition: ",
+                claim_line(&rules)
+            );
+            assert!(
+                message.contains(&at),
+                "{backend:?}: {claim}: not refused at {at:?}: {message}"
+            );
+            assert!(
+                message.contains("#as") && message.contains("right-hand side"),
+                "{backend:?}: {claim}: {message}"
+            );
+        }
+    }
+    // An alias of a plain term is lowered, so it compiles for both targets.
+    for backend in [CompilationBackend::Rust, CompilationBackend::Llvm] {
+        let source = format!(
+            "{HEADER}{GO_DONE}endmodule\n\nmodule P-SPEC\n  imports P\n  claim [p]: <k> go(X) => done(X #as ?Y) ... </k> ensures ?Y ==Int X\n  claim [q]: <k> go(X) => done((X #as ?Y) #as ?Z) ... </k>\nendmodule\n"
+        );
+        try_compile_spec_source_for(source, backend)
+            .unwrap_or_else(|error| panic!("{backend:?}: {error}"));
+    }
+}
+
+/// `#Bottom` denotes no value, so `X #Or #Bottom` is `X`: an equation's result whose
+/// alternatives other than `#Bottom` are at most one denotes at most one value, in a function, a
+/// simplification and an anywhere rule, at the root of the result or below a symbol.
+#[test]
+fn an_equation_result_with_bottom_alternatives_compiles_and_gives_its_value() {
+    for (rule, at_one) in [
+        ("  rule [p]: f(X) => X #Or #Bottom\n", "done(1)"),
+        ("  rule [p]: f(X) => #Bottom #Or X\n", "done(1)"),
+        (
+            "  rule [p]: f(X) => (X #Or #Bottom) #Or #Bottom\n",
+            "done(1)",
+        ),
+        ("  rule [p]: f(X) => 1 +Int (X #Or #Bottom)\n", "done(2)"),
+        (
+            "  syntax Int ::= s(Int) [function, symbol(s)]\n  rule s(X) => X\n  rule [p]: s(X) => X #Or #Bottom [simplification]\n  rule f(X) => s(X)\n",
+            "done(1)",
+        ),
+        (
+            "  syntax KItem ::= a(Int) [symbol(a)] | h(Int) [symbol(h)]\n  rule [p]: a(X) => h(X) #Or #Bottom [anywhere]\n  rule f(X) => X\n",
+            "done(1)",
+        ),
+    ] {
+        let sentences = format!("{F}{rule}{G}");
+        assert_compiles(&sentences);
+        assert_eq!(run(&sentences, 1), stuck(at_one), "{rule}");
+    }
+    // Two alternatives that are not #Bottom still denote two values.
+    assert_ml_construct_refused(
+        &format!("{F}  rule [p]: f(X) => (X #Or #Bottom) #Or 1\n{G}"),
+        line_after(F),
+        &["a disjunction of unguarded alternatives"],
+    );
+}
+
+/// An or-pattern at the root of an argument whose alternatives are of a sort below the
+/// argument's is placed there by an injection, or as the item of a one-item k-sequence for an
+/// argument of sort `K`: the or-pattern then stands below a symbol, where no equation reads it,
+/// and the equation is refused. Alternatives of the argument's own sort keep it at the root.
+#[test]
+fn an_or_pattern_below_the_injection_or_the_sequence_of_an_argument_is_refused() {
+    let reasons = ["#Or", "injection", "one equation per alternative"];
+    let kitem = "  syntax Int ::= fi(KItem) [function, symbol(fi)]\n";
+    let k = "  syntax Int ::= fk(K) [function, symbol(fk)]\n";
+    let exp = "  syntax Exp ::= Int | e(Int) [symbol(e)]\n  syntax Int ::= fe(Exp) [function, symbol(fe)]\n";
+    for (declarations, rule, rest) in [
+        (
+            kitem,
+            "  rule [p]: fi(1 #Or 2) => 5\n",
+            "  rule fi(_) => 0 [owise]\n  rule <k> go(X) => done(fi(X)) ... </k>\n",
+        ),
+        (
+            k,
+            "  rule [p]: fk(1 #Or 2) => 5\n",
+            "  rule fk(_) => 0 [owise]\n  rule <k> go(X) => done(fk(X)) ... </k>\n",
+        ),
+        (
+            k,
+            "  rule [p]: fk(done(1) #Or done(2)) => 5\n",
+            "  rule fk(_) => 0 [owise]\n  rule <k> go(X) => done(fk(done(X))) ... </k>\n",
+        ),
+        (
+            exp,
+            "  rule [p]: fe(1 #Or 2) => 5\n",
+            "  rule fe(_) => 0 [owise]\n  rule <k> go(X) => done(fe(X)) ... </k>\n",
+        ),
+        (
+            "  syntax KItem ::= a(KItem) [symbol(a)]\n",
+            "  rule [p]: a(1 #Or 2) => done(5) [anywhere]\n",
+            "  rule <k> go(X) => a(X) ... </k>\n",
+        ),
+    ] {
+        assert_ml_construct_refused(
+            &format!("{declarations}{rule}{rest}"),
+            line_after(declarations),
+            &reasons,
+        );
+    }
+    // The or-pattern is at the argument's sort: the alternatives are of that sort, or of two
+    // sorts whose join it is.
+    for (declarations, rules, (one, three)) in [
+        (
+            kitem,
+            "  rule fi(done(1) #Or done(2)) => 5\n  rule fi(_) => 0 [owise]\n  rule <k> go(X) => done(fi(done(X))) ... </k>\n",
+            ("done(5)", "done(0)"),
+        ),
+        (
+            kitem,
+            "  rule fi(1 #Or done(2)) => 5\n  rule fi(_) => 0 [owise]\n  rule <k> go(X) => done(fi(X)) ... </k>\n",
+            ("done(5)", "done(0)"),
+        ),
+        (
+            kitem,
+            "  rule fi(I:Int #Or done(I:Int)) => I\n  rule fi(_) => 0 [owise]\n  rule <k> go(X) => done(fi(X)) ... </k>\n",
+            ("done(1)", "done(3)"),
+        ),
+        (
+            exp,
+            "  rule fe(1 #Or e(2)) => 5\n  rule fe(_) => 0 [owise]\n  rule <k> go(X) => done(fe(X)) ... </k>\n",
+            ("done(5)", "done(0)"),
+        ),
+    ] {
+        let sentences = format!("{declarations}{rules}");
+        assert_compiles(&sentences);
+        assert_eq!(run(&sentences, 1), stuck(one), "{rules}");
+        assert_eq!(run(&sentences, 3), stuck(three), "{rules}");
+    }
+}
+
+/// A `#Top`, a `#Bottom` or a predicate at a position the sides of a rewrite rule share is read
+/// as the value it names only where that position is itself what the two sides share: an
+/// argument of a symbol whose other arguments hold the rewrite. As part of a larger shared
+/// term, or as an item of a k-sequence that holds the rewrite, it would stand below a symbol of
+/// the term the rule matches, where no rule reads it, and the rule is refused.
+#[test]
+fn a_shared_top_bottom_or_predicate_that_is_part_of_a_larger_shared_term_is_refused() {
+    let pair = "  syntax Step ::= \"sa\" [symbol(sa)] | \"sb\" [symbol(sb)]\n  syntax KItem ::= pair(Int, Step) [symbol(pair)]\n";
+    for (declarations, rule, construct) in [
+        (
+            pair,
+            "  rule [p]: <k> pair(#Top, sa) ~> (.K => done(0)) </k>\n",
+            "#Top",
+        ),
+        (
+            "",
+            "  rule [p]: <k> #Top ~> (go(X) => done(X)) </k>\n",
+            "#Top",
+        ),
+        (
+            "",
+            "  rule [p]: <k> (go(X) => done(X)) ~> #Top </k>\n",
+            "#Top",
+        ),
+        (
+            "",
+            "  rule [p]: <k> #Top ~> (go(X) => done(X)) ... </k>\n",
+            "#Top",
+        ),
+        (
+            pair,
+            "  rule [p]: <k> pair(#Bottom, sa) ~> (.K => done(0)) </k>\n",
+            "#Bottom",
+        ),
+        (
+            "",
+            "  rule [p]: <k> #Bottom ~> (go(X) => done(X)) </k>\n",
+            "#Bottom",
+        ),
+        (
+            "",
+            "  rule [p]: <k> {X #Equals 1} ~> (go(X) => done(X)) </k>\n",
+            "#Equals",
+        ),
+        (
+            pair,
+            "  rule [p]: <k> pair({1 #Equals 1}, sa) ~> (.K => done(0)) </k>\n",
+            "#Equals",
+        ),
+    ] {
+        assert_ml_construct_refused(
+            &format!("{declarations}{rule}"),
+            line_after(declarations),
+            &[
+                construct,
+                "at a position the sides of the rewrite rule share",
+            ],
+        );
+    }
+}
+
+/// An or-pattern at the root of an argument of an equation, under `#as`, is below the alias the
+/// equation matches; the remedy distributes the alias over the alternatives, which keeps them at
+/// the root.
+#[test]
+fn an_aliased_or_pattern_at_an_argument_root_is_told_to_distribute_the_alias() {
+    assert_ml_construct_refused(
+        &format!("{F}  rule [p]: f((1 #Or 2) #as Y) => Y +Int 10\n{G}"),
+        line_after(F),
+        &["below #as", "(1 #as Y) #Or (2 #as Y)"],
+    );
+    let distributed = format!("{F}  rule [p]: f((1 #as Y) #Or (2 #as Y)) => Y +Int 10\n{G}");
+    assert_compiles(&distributed);
+    assert_eq!(run(&distributed, 1), stuck("done(11)"));
+    assert_eq!(run(&distributed, 2), stuck("done(12)"));
 }

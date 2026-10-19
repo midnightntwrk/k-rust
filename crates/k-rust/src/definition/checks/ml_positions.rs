@@ -63,6 +63,8 @@
 //!   (`X #And {X #Equals 1}`) is a condition on that term and is judged as on a spine.
 //! - BoolLeaf: below a non-ML symbol on a spine, where a Bool value is required.
 //! - PredicateOperand: inside an operand of `#Equals`, `#Ceil` or `#Floor`, a term position.
+//!   (`#In` is no construct of the K term language: `kast.md` declares no production for it, so
+//!   a K sentence holds none; KORE `\in` input is the backend's to read.)
 //!
 //! A sentence's kind decides the body positions: an equation (function equation, anywhere rule,
 //! simplification) states one value of an application, a rewrite rule or a context a step, a
@@ -91,24 +93,38 @@
 //!   condition is read), any or-pattern of a simplification, and an or-pattern of a function or
 //!   anywhere equation that is not at the root of an argument of the application it defines (the
 //!   backend matches equation or-patterns only there; a symbol distributes over `#Or`, so
-//!   `g(1 #Or 2)` is `g(1) #Or g(2)`). Or-patterns, conjunctions of terms, predicates conjoined to
-//!   a term in a rewrite rule or a claim, and `#as` are matched.
+//!   `g(1 #Or 2)` is `g(1) #Or g(2)`, and `(1 #Or 2) #as Y` is `(1 #as Y) #Or (2 #as Y)`),
+//!   including one at the root whose alternatives are of a sort below the argument's, which sort
+//!   injection places below an injection or, for an argument of sort `K`, a k-sequence (judged
+//!   once the sorts are known, in the pipeline stage). Or-patterns, conjunctions of terms,
+//!   predicates conjoined to a term in a rewrite rule or a claim, and `#as` are matched.
 //! - Shared, in a rewrite rule, a context or a claim: `#Not`, `#Implies`, `#Iff` and a quantifier.
 //!   An or-pattern, `#Top` (any value), `#Bottom` (no value) and a predicate alone (a condition on
-//!   the match) are read. In an equation a shared position is matched.
+//!   the match) are read; in a rewrite rule, `#Top`, `#Bottom` and a predicate only where each is
+//!   itself what the sides share, an argument of a symbol that holds the rewrite in another
+//!   argument: the right side reuses a shared term by a name the left side gives it, so as part
+//!   of a larger shared term, or as an item of a k-sequence that holds the rewrite (which splices
+//!   the sequence), it stands below a symbol of the matched term, where no rule reads it. In an
+//!   equation a shared position is matched.
 //! - Built: `#Not`, `#Implies`, `#Iff`, a quantifier, `#Top` and a predicate alone; `#Bottom` in a
-//!   claim's right side; in an equation, an or-pattern with an alternative that conjoins no
-//!   predicate (an application has at most one value; guarded alternatives,
+//!   claim's right side; in an equation, an or-pattern with two alternatives other than `#Bottom`
+//!   (which denotes no value, so `X #Or #Bottom` is `X`) and one that conjoins no predicate (an
+//!   application has at most one value; guarded alternatives,
 //!   `({X #Equals 1} #And 10) #Or (#Not({X #Equals 1}) #And 20)`, denote at most one where their
 //!   guards exclude each other); a local function in a claim. `#Bottom` elsewhere (the step or the
 //!   application is undefined), `#Or` in a rewrite rule or a claim, a term conjoined with
 //!   predicates, and in a claim's right side, the pattern every path must reach, `P #as V`,
-//!   which names the reached term matching `P` (lowered as `P #And {P #Equals V}`), are read.
+//!   which names the reached term matching `P`, are read; that alias only where
+//!   `lower term conjunctions` writes it `P #And {P #Equals V}` (`P` a term with at most one value
+//!   that performs no effect), since no other compiled form keeps `P`: the rewrite checks refuse
+//!   the others, and the pipeline stage those whose pattern applies an effectful production, for
+//!   every target.
 //! - Everywhere: a quantifier over a set variable (`#Exists @T . ..`): a quantifier binds an
 //!   element variable; a set variable is bound only by a fixpoint.
 //!
 //! Where an existing check already refuses a construct cleanly, the walk leaves it to that check:
-//! `#as` where a rule builds its result (`InvalidRewrite`), and a local function in a pattern
+//! `#as` where a rule builds its result (`InvalidRewrite`), a claim's right-side alias that is not
+//! lowered (the rewrite checks, `MlConstructPosition`), and a local function in a pattern
 //! (`InvalidFunctionPattern`).
 #![deny(clippy::wildcard_enum_match_arm)]
 
@@ -120,23 +136,78 @@ use super::{Sentence, is_anonymous};
 use crate::definition::{AttributeKey, LabelHead, ProductionCatalog, match_rule_label};
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::binding::quantifier;
-use crate::kast::{InternalLabel, Term};
+use crate::kast::{InternalLabel, Label, Term};
 use crate::kompile::ml_constructs::{
     chain_operands, is_connective_free_term, is_ml_connective, is_predicate, read_through_casts,
 };
 use crate::provenance::GeneratingPass;
 
+/// Whether the or-pattern `argument`, the root of argument `index` of an application of
+/// `label` in an equation's left side, is placed below an injection or a k-sequence when it is
+/// placed at the argument's sort: an oracle of the sorts, which the definition checks do not
+/// have and the pipeline stage does.
+pub(super) type InjectedOrPattern<'a> = dyn Fn(&Label, usize, &Term) -> bool + 'a;
+
 /// The [`DiagnosticCode::MlConstructPosition`] refusals of `sentences` (module documentation).
+/// `injected` decides the or-patterns an injection places below a symbol; without it they are
+/// not judged.
 pub(super) fn check_ml_construct_positions(
     sentences: &[&Sentence],
     productions: &ProductionCatalog<'_>,
+    injected: Option<&InjectedOrPattern<'_>>,
 ) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     for sentence in sentences {
         diagnostics.extend(equation_diagnostics(sentence, productions));
-        diagnostics.extend(position_diagnostics(sentence, productions));
+        diagnostics.extend(position_diagnostics(sentence, productions, injected));
     }
     diagnostics
+}
+
+/// The refusal of an alias `P #as V` in the right side of a claim's rewrite that the stage
+/// `lower term conjunctions` does not lower (`ml_constructs::lowers_claim_alias`).
+pub(super) fn unlowered_claim_alias(sentence: &Sentence) -> Diagnostic {
+    Diagnostic::error(
+        DiagnosticCode::MlConstructPosition,
+        "#as where the claim builds its result (its right-hand side): `P #as V` there denotes \
+         `P #And V`, which a claim's right side keeps only as `P #And {P #Equals V}`, and that \
+         form denotes the alias only where P is a term with at most one value whose evaluation \
+         performs no effect (no matching-logic connective, alias or rewrite in it, and no \
+         application of an effectful production); this alias's pattern is not such a term, so \
+         no compiled form of the claim keeps it; write the alias around each alternative \
+         ((A #as ?Y) #Or (B #as ?Y)), or name the reached term with an existential variable \
+         and state the condition in the ensures",
+        sentence,
+    )
+}
+
+/// The refusals of the aliases in the right sides of the rewrites of the claim `sentence` that
+/// `lower term conjunctions` does not lower, `is_effectful` deciding which applications may
+/// perform an effect: one refusal per claim.
+pub(super) fn unlowered_claim_alias_diagnostics(
+    sentence: &Sentence,
+    is_effectful: &dyn Fn(&Label) -> bool,
+) -> Vec<Diagnostic> {
+    let Sentence::Claim { body, .. } = sentence else {
+        return Vec::new();
+    };
+    let mut pending = vec![(body, TermPosition::BODY)];
+    // Invariant: each step takes a subterm of `body` and pushes only its strict subterms.
+    while let Some((term, position)) = pending.pop() {
+        if position.rhs
+            && !position.lhs
+            && matches!(term.unannotated(), Term::As { .. })
+            && !crate::kompile::ml_constructs::lowers_claim_alias(term, is_effectful)
+        {
+            return vec![unlowered_claim_alias(sentence)];
+        }
+        pending.extend(
+            scoped_children(term, position)
+                .into_iter()
+                .map(|(child, position, _)| (child, position)),
+        );
+    }
+    Vec::new()
 }
 
 /// The refusals of the first three kinds of the module documentation: equations and
@@ -621,6 +692,7 @@ fn operand_shape(term: &Term) -> OperandShape {
 fn position_diagnostics(
     sentence: &Sentence,
     productions: &ProductionCatalog<'_>,
+    injected: Option<&InjectedOrPattern<'_>>,
 ) -> Vec<Diagnostic> {
     let Some(kind) = Kind::of(sentence, productions) else {
         return Vec::new();
@@ -630,6 +702,9 @@ fn position_diagnostics(
         sentence,
         diagnostics: Vec::new(),
         expanded: false,
+        injected,
+        alone: true,
+        under_root: None,
     };
     match sentence {
         Sentence::Rule {
@@ -669,16 +744,28 @@ fn position_diagnostics(
 }
 
 /// One sentence's walk: its kind, and the refusals found so far.
-struct Walk<'s> {
+struct Walk<'s, 'o> {
     kind: Kind,
     sentence: &'s Sentence,
     diagnostics: Vec<Diagnostic>,
     /// Whether the node being judged was written in the body of a macro or an alias, and placed
     /// here by its expansion at this use (its origin is macro expansion).
     expanded: bool,
+    /// The sort oracle of or-patterns at argument roots ([`InjectedOrPattern`]).
+    injected: Option<&'o InjectedOrPattern<'o>>,
+    /// Set for the next node judged: whether, at a position the sides of a rewrite rule share,
+    /// the node is itself what the sides share, so that it is named alone where the right side
+    /// reuses it: it is an argument of a symbol that holds a rewrite in another argument, or it
+    /// stands below a matching-logic connective. As part of a larger term the sides share (its
+    /// parent holds no rewrite) or as an item of a k-sequence (whose rewrite splices the
+    /// sequence), the larger term or the sequence is what the sides share. Reset at each node.
+    alone: bool,
+    /// Set for the next node judged: the connective (`#as`, `#And`) at the root of an argument
+    /// of an equation's application, directly below which the node stands. Reset at each node.
+    under_root: Option<&'static str>,
 }
 
-impl Walk<'_> {
+impl Walk<'_, '_> {
     fn refuse(&mut self, message: String) {
         self.diagnostics.push(Diagnostic::error(
             DiagnosticCode::MlConstructPosition,
@@ -762,7 +849,24 @@ impl Walk<'_> {
             Term::Apply { label, arguments }
                 if !is_ml_connective(pattern) && !is_local_function(label) =>
             {
-                for argument in arguments {
+                for (index, argument) in arguments.iter().enumerate() {
+                    if is_binary(read_through_casts(argument), InternalLabel::Or)
+                        && self
+                            .injected
+                            .is_some_and(|injected| injected(label, index, argument))
+                    {
+                        self.refuse_at(
+                            "#Or",
+                            Context::Body(TermPosition::LHS),
+                            "an or-pattern at the root of an argument whose alternatives are of \
+                             a sort below the argument's is placed there by an injection (for an \
+                             argument of sort K, as the item of a k-sequence), so it stands below \
+                             that symbol, where an equation reads no or-pattern (a symbol \
+                             distributes over #Or); write one equation per alternative, or give \
+                             the alternatives the argument's sort",
+                        );
+                        continue;
+                    }
                     self.term(argument, Context::Body(TermPosition::LHS), true);
                 }
             }
@@ -790,11 +894,13 @@ impl Walk<'_> {
     }
 
     fn node(&mut self, term: &Term, context: Context, root: bool) {
+        let alone = std::mem::replace(&mut self.alone, true);
+        let under_root = self.under_root.take();
         if let Some(quantifier) = quantifier(term) {
             return self.quantifier(term, quantifier.binder, quantifier.body, context);
         }
         match term {
-            Term::As { pattern, .. } => self.alias(pattern, context),
+            Term::As { pattern, .. } => self.alias(term, pattern, context, root),
             Term::Apply { label, .. } if is_local_function(label) => {
                 self.local_function(term, context)
             }
@@ -810,9 +916,17 @@ impl Walk<'_> {
                 };
                 self.term(&arguments[1], inner, false);
             }
-            Term::Apply { label, arguments } if is_ml_connective(term) => {
-                self.connective(term, label, arguments, context, root)
-            }
+            Term::Apply { label, arguments } if is_ml_connective(term) => self.connective(
+                term,
+                label,
+                arguments,
+                context,
+                Place {
+                    root,
+                    under_root,
+                    alone,
+                },
+            ),
             Term::Rewrite { .. }
             | Term::Apply { .. }
             | Term::Sequence(_)
@@ -831,7 +945,20 @@ impl Walk<'_> {
                         TermPosition::CONDITION
                     }
                 };
+                // A child is what the sides share alone where this term holds the rewrite in
+                // another of its arguments; a k-sequence's rewrite splices the whole sequence.
+                let children_alone = match term {
+                    Term::Sequence(_) => false,
+                    Term::Apply { .. } => holds_rewrite(term),
+                    Term::Rewrite { .. }
+                    | Term::As { .. }
+                    | Term::InjectedLabel(_)
+                    | Term::Variable { .. }
+                    | Term::Token { .. }
+                    | Term::Annotated { .. } => true,
+                };
                 for (child, position, _) in scoped_children(term, position) {
+                    self.alone = children_alone;
                     self.term(child, inner.unwrap_or(Context::Body(position)), false);
                 }
             }
@@ -867,7 +994,7 @@ impl Walk<'_> {
         }
     }
 
-    fn alias(&mut self, pattern: &Term, context: Context) {
+    fn alias(&mut self, term: &Term, pattern: &Term, context: Context, root: bool) {
         if context.in_condition() {
             return self.refuse_at(
                 "#as",
@@ -876,11 +1003,21 @@ impl Walk<'_> {
                  variable in the left-hand side, or write the term itself",
             );
         }
-        // An alias where a rule builds its result is refused by the rewrite checks
-        // (InvalidRewrite); a claim's right side is a pattern, which the alias names.
-        if !context.built() || self.kind == Kind::Claim {
-            self.term(pattern, context, false);
+        if context.built() {
+            // An alias where a rule builds its result is refused by the rewrite checks
+            // (InvalidRewrite); in a claim's right side, the pattern every path reaches, an
+            // alias is read where it is lowered, and refused by them where it is not.
+            if self.kind == Kind::Claim
+                && crate::kompile::ml_constructs::lowers_claim_alias(term, &|_| false)
+            {
+                self.term(pattern, context, false);
+            }
+            return;
         }
+        if root {
+            self.under_root = Some("#as");
+        }
+        self.term(pattern, context, false);
     }
 
     fn local_function(&mut self, term: &Term, context: Context) {
@@ -927,22 +1064,28 @@ impl Walk<'_> {
     fn connective(
         &mut self,
         term: &Term,
-        label: &crate::kast::Label,
+        label: &Label,
         arguments: &[Term],
         context: Context,
-        root: bool,
+        place: Place,
     ) {
         let name = label.name.as_str();
         if label.is(InternalLabel::Or) {
-            self.or(term, arguments, context, root)
+            self.or(term, arguments, context, place)
         } else if label.is(InternalLabel::And) {
-            self.and(term, arguments, context)
+            self.and(term, arguments, context, place)
         } else if label.is(InternalLabel::Equals) {
-            self.equals(arguments, context)
+            self.equals(arguments, context, place.alone)
         } else if label.is(InternalLabel::Ceil) || label.is(InternalLabel::Floor) {
-            self.definedness(name, label.is(InternalLabel::Ceil), arguments, context)
+            self.definedness(
+                name,
+                label.is(InternalLabel::Ceil),
+                arguments,
+                context,
+                place.alone,
+            )
         } else if label.is(InternalLabel::Top) || label.is(InternalLabel::Bottom) {
-            self.constant(name, label.is(InternalLabel::Bottom), context)
+            self.constant(name, label.is(InternalLabel::Bottom), context, place.alone)
         } else {
             // #Not, #Implies, #Iff.
             if matches!(context, Context::Spine) {
@@ -975,7 +1118,8 @@ impl Walk<'_> {
         self.refuse_at(name, context, reason);
     }
 
-    fn or(&mut self, term: &Term, arguments: &[Term], context: Context, root: bool) {
+    fn or(&mut self, term: &Term, arguments: &[Term], context: Context, place: Place) {
+        let root = place.root;
         match context {
             Context::Spine => {
                 for argument in arguments {
@@ -997,6 +1141,30 @@ impl Walk<'_> {
                      simplification per alternative",
                 );
             }
+            if matches!(self.kind, Kind::Function | Kind::Anywhere)
+                && !root
+                && let Some(connective) = place.under_root
+            {
+                return self.refuse_at(
+                    "#Or",
+                    context,
+                    &format!(
+                        "an or-pattern of an equation is matched only at the root of an argument \
+                         of the application it defines, not below {connective} there; \
+                         distribute the {} over the alternatives, which keeps them at the root{}",
+                        if connective == "#as" {
+                            "alias"
+                        } else {
+                            "conjunct"
+                        },
+                        if connective == "#as" {
+                            " ((1 #Or 2) #as Y is (1 #as Y) #Or (2 #as Y))"
+                        } else {
+                            ""
+                        }
+                    ),
+                );
+            }
             if matches!(self.kind, Kind::Function | Kind::Anywhere) && !root {
                 return self.refuse_at(
                     "#Or",
@@ -1007,14 +1175,7 @@ impl Walk<'_> {
                      root",
                 );
             }
-        } else if context.built()
-            && self.kind.is_equation()
-            && !or_alternatives(term).into_iter().all(|alternative| {
-                chain_operands(alternative, false)
-                    .iter()
-                    .any(|operand| is_predicate(operand))
-            })
-        {
+        } else if context.built() && self.kind.is_equation() && may_denote_several_values(term) {
             return self.refuse_at(
                 "#Or",
                 context,
@@ -1029,7 +1190,7 @@ impl Walk<'_> {
         }
     }
 
-    fn and(&mut self, term: &Term, arguments: &[Term], context: Context) {
+    fn and(&mut self, term: &Term, arguments: &[Term], context: Context, place: Place) {
         match context {
             Context::Spine => {
                 for argument in arguments {
@@ -1044,6 +1205,9 @@ impl Walk<'_> {
                 }
                 for operand in chain_operands(term, false) {
                     if !is_predicate(operand) {
+                        if place.root {
+                            self.under_root = Some("#And");
+                        }
                         self.term(operand, context, false);
                     } else if context.built() || !self.kind.is_equation() {
                         self.term(operand, Context::Spine, false);
@@ -1078,6 +1242,33 @@ impl Walk<'_> {
         }
     }
 
+    /// Whether a predicate, `#Top` or `#Bottom` at `context` is read: anywhere but at a position
+    /// the sides of a rewrite rule share, and there only where it is what the sides share alone
+    /// ([`Walk::alone`]), so that the right side reuses it by a name of its own. Otherwise the
+    /// term the sides share holds it below a symbol of the matched term, where no rule reads a
+    /// predicate.
+    fn shared_alone(&self, context: Context, alone: bool) -> bool {
+        alone
+            || !context.shared()
+            || self.kind != Kind::Rewrite
+            || !matches!(self.sentence, Sentence::Rule { .. })
+    }
+
+    /// A predicate, `#Top` or `#Bottom` that is part of a larger term the sides of a rewrite
+    /// rule share.
+    fn refuse_shared_part(&mut self, name: &str, context: Context) {
+        self.refuse_at(
+            name,
+            context,
+            "a pattern that denotes every value or none is read at a shared position only as an \
+             argument of a symbol that holds the rewrite in another argument, which the two sides \
+             share alone; here it is part of a larger term the sides share, or an item of a \
+             k-sequence that holds the rewrite, so it stands below a symbol of the matched term, \
+             where no rule reads it; write a variable (_) for #Top, drop a rule that matches \
+             #Bottom, or move a predicate to the requires",
+        );
+    }
+
     /// Whether a predicate stands where it is read as one: on a condition's spine, or at a
     /// position the sides of a rewrite rule, a context or a claim share, where it constrains the
     /// match.
@@ -1100,9 +1291,12 @@ impl Walk<'_> {
         }
     }
 
-    fn equals(&mut self, arguments: &[Term], context: Context) {
+    fn equals(&mut self, arguments: &[Term], context: Context, alone: bool) {
         if !self.reads_predicate(context) {
             return self.refuse_predicate("#Equals", context);
+        }
+        if !self.shared_alone(context, alone) {
+            return self.refuse_shared_part("#Equals", context);
         }
         let shapes = arguments.iter().map(operand_shape).collect::<Vec<_>>();
         match shapes.as_slice() {
@@ -1131,9 +1325,19 @@ impl Walk<'_> {
         }
     }
 
-    fn definedness(&mut self, name: &str, ceil: bool, arguments: &[Term], context: Context) {
+    fn definedness(
+        &mut self,
+        name: &str,
+        ceil: bool,
+        arguments: &[Term],
+        context: Context,
+        alone: bool,
+    ) {
         if !self.reads_predicate(context) {
             return self.refuse_predicate(name, context);
+        }
+        if !self.shared_alone(context, alone) {
+            return self.refuse_shared_part(name, context);
         }
         let atom = if ceil { Atom::Ceil } else { Atom::Floor };
         for argument in arguments {
@@ -1141,8 +1345,11 @@ impl Walk<'_> {
         }
     }
 
-    fn constant(&mut self, name: &str, bottom: bool, context: Context) {
+    fn constant(&mut self, name: &str, bottom: bool, context: Context, alone: bool) {
         if self.reads_predicate(context) {
+            if !self.shared_alone(context, alone) {
+                self.refuse_shared_part(name, context);
+            }
             return;
         }
         if context.built() && bottom {
@@ -1161,6 +1368,50 @@ impl Walk<'_> {
         }
         self.refuse_predicate(name, context);
     }
+}
+
+/// What the walk knows of a connective's place beyond its context.
+#[derive(Clone, Copy)]
+struct Place {
+    /// At the root of an argument of the application an equation defines, or an alternative of
+    /// an or-pattern there.
+    root: bool,
+    /// The connective at an argument root directly below which the node stands
+    /// ([`Walk::under_root`]).
+    under_root: Option<&'static str>,
+    /// What the sides of a rewrite rule share alone ([`Walk::alone`]).
+    alone: bool,
+}
+
+/// Whether the disjunction `term`, where an equation builds its result, may denote several
+/// values: two or more of its alternatives are not `#Bottom`, which denotes no value (so
+/// `X #Or #Bottom` is `X`), and one of them conjoins no predicate, which could exclude the others.
+fn may_denote_several_values(term: &Term) -> bool {
+    let values = or_alternatives(term)
+        .into_iter()
+        .filter(|alternative| !is_bottom(alternative))
+        .collect::<Vec<_>>();
+    values.len() > 1
+        && !values.iter().all(|alternative| {
+            chain_operands(alternative, false)
+                .iter()
+                .any(|operand| is_predicate(operand))
+        })
+}
+
+/// Whether `term` holds a rewrite at any depth.
+fn holds_rewrite(term: &Term) -> bool {
+    let mut found = false;
+    term.visit_preorder(&mut |node| found |= matches!(node, Term::Rewrite { .. }));
+    found
+}
+
+/// Whether `term`, read through casts, is `#Bottom`.
+fn is_bottom(term: &Term) -> bool {
+    matches!(
+        read_through_casts(term),
+        Term::Apply { label, .. } if label.is(InternalLabel::Bottom)
+    )
 }
 
 /// Whether `rule` defines a macro or an alias, by its own attribute or, before the attributes of

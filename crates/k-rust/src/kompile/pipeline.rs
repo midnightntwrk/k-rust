@@ -200,8 +200,9 @@ display_error!(
 #[derive(Default)]
 pub(crate) struct PipelineState {
     pub fresh_config_count: Option<usize>,
-    /// Whether the stage `check matching-logic positions` judges the expanded sentences: for the
-    /// Rust target, whose backend reads the compiled definition (`CompilationBackend::Rust`).
+    /// Whether the stage `check matching-logic positions` judges every position of the expanded
+    /// sentences: for the Rust target, whose backend reads the compiled definition
+    /// (`CompilationBackend::Rust`). For every target it judges claims' right-side aliases.
     pub check_ml_positions: bool,
     pub(super) covering_lambdas: Vec<passes::CoveringLambda>,
     /// The stage-boundary invariant checks, which span the transform and emission runs.
@@ -440,19 +441,22 @@ stage_adapter!(
 /// The matching-logic position check (`definition::checks`, module `ml_positions`) on the
 /// sentences as the backend will read them: macros and aliases expanded at their uses, and the
 /// conjunctions passes added to conditions chosen. The definition checks judged every sentence as
-/// written; a refusal here is a shape a macro or alias body takes in the context of a use.
+/// written; a refusal here is a shape a macro or alias body takes in the context of a use, or one
+/// that needs the sorts (an or-pattern an injection places below a symbol), for the Rust target;
+/// and, for every target, a claim's right-side alias that `lower term conjunctions` will not
+/// lower, whose pattern no compiled form of the claim would keep.
 fn check_ml_positions_stage(
     input: &PassInput<'_>,
     state: &mut PipelineState,
 ) -> Result<PassOutcome, PassError> {
-    if !state.check_ml_positions {
-        return Ok(PassOutcome::Unchanged);
-    }
     let resolved = input
         .resolved_raw()
         .map_err(|error| PassError::from(error.clone()))?;
-    let diagnostics =
-        crate::definition::checks::check_ml_construct_positions_in_definition(resolved);
+    let diagnostics = crate::definition::checks::check_ml_construct_positions_in_definition(
+        resolved,
+        input.definition,
+        state.check_ml_positions,
+    );
     if diagnostics.is_empty() {
         Ok(PassOutcome::Unchanged)
     } else {
@@ -735,7 +739,8 @@ const TRANSFORM_STAGE_TABLE: &[Stage] = &[
     // Matching-logic constructs are judged by the context of their position on the sentences as
     // the backend reads them, macros and aliases expanded at their uses and condition
     // conjunctions chosen; the definition checks judged the sentences as written. For the Rust
-    // target only, before any later stage renames a variable a refusal names.
+    // target (claims' right-side aliases for every target), before any later stage renames a
+    // variable a refusal names.
     stage!(
         "check matching-logic positions",
         "check_ml_positions",

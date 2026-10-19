@@ -638,6 +638,18 @@ impl Lowering<'_> {
     }
 }
 
+/// Whether `lower term conjunctions` lowers the alias `alias` (`P #as V`) standing in the right
+/// side of a claim's rewrite: the terms of its chain (`P`'s chain with `V`, the predicates
+/// beside them aside) are at least two, and each denotes at most one value and performs no
+/// effect, `is_effectful` deciding which labels may perform one ([`effectful_labels`]). Only
+/// then is `P #as V`, which denotes `P #And V`, written `P #And {P #Equals V}`: no other compiled
+/// form of a claim's right side keeps `P`.
+pub(crate) fn lowers_claim_alias(alias: &Term, is_effectful: &dyn Fn(&Label) -> bool) -> bool {
+    Lowering { is_effectful }
+        .lower_chain(alias, Position::ClaimRight)
+        .is_some()
+}
+
 /// The hook namespace whose hooks act on the world outside the term: the backend evaluates
 /// `IO.getc`, `IO.read`, `IO.putc`, `IO.write` and `IO.logString` with that effect, and every
 /// other hook of the namespace (files, sockets, `IO.system`, `IO.time`, logs) acts on it by its
@@ -664,7 +676,7 @@ const EFFECTFUL_HOOKS: [&str; 7] = [
 /// applies one of them, transitively. Lowering an operand that performs no effect is only
 /// declined, while lowering one that does would perform its effect again, or not at all, so the
 /// set errs on the side of keeping a conjunction as written.
-fn effectful_labels(definition: &Definition) -> BTreeSet<String> {
+pub(crate) fn effectful_labels(definition: &Definition) -> BTreeSet<String> {
     let sentences = || {
         definition
             .modules
