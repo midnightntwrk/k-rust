@@ -658,8 +658,8 @@ const EFFECTFUL_HOOK_NAMESPACE: &str = "IO.";
 
 /// The hooks outside [`EFFECTFUL_HOOK_NAMESPACE`] whose value depends on or changes state outside
 /// their arguments: a random number or seed, a fresh identifier or buffer, the environment, the
-/// configuration.
-const EFFECTFUL_HOOKS: [&str; 7] = [
+/// command line, the compiled definition's directory, the configuration, a timer.
+const EFFECTFUL_HOOKS: [&str; 11] = [
     "INT.rand",
     "INT.srand",
     "STRING.uuid",
@@ -667,7 +667,16 @@ const EFFECTFUL_HOOKS: [&str; 7] = [
     "KREFLECTION.configuration",
     "KREFLECTION.fresh",
     "KREFLECTION.getenv",
+    "KREFLECTION.argv",
+    "KREFLECTION.kompiledDir",
+    "TIMER.timerStart",
+    "TIMER.timerStop",
 ];
+
+/// The one effectful hook whose application k-rust evaluates inside a predicate: `IO.logString`
+/// (`#log`), whose value is `.K` by its declaration (`returnsUnit`) whatever its output does, and
+/// whose output a predicate does not perform.
+const VALUE_INDEPENDENT_HOOK: &str = "IO.logString";
 
 /// The labels of `definition` whose application may perform an effect when it is evaluated, an
 /// over-approximation: the productions declared `impure` or hooked to an effectful hook
@@ -677,12 +686,140 @@ const EFFECTFUL_HOOKS: [&str; 7] = [
 /// declined, while lowering one that does would perform its effect again, or not at all, so the
 /// set errs on the side of keeping a conjunction as written.
 pub(crate) fn effectful_labels(definition: &Definition) -> BTreeSet<String> {
-    let sentences = || {
-        definition
-            .modules
+    effect_closure(
+        || {
+            definition
+                .modules
+                .iter()
+                .flat_map(|module| module.local_sentences.iter().map(|sentence| &**sentence))
+        },
+        |attributes| attributes.has(AttributeKey::Impure) || has_effectful_hook(attributes),
+    )
+}
+
+/// The labels among the productions and equations of `sentences` (every local sentence of a
+/// definition) whose application is judged to depend on an effect, by a syntactic rule: the
+/// productions hooked to an effectful hook ([`EFFECTFUL_HOOK_NAMESPACE`], [`EFFECTFUL_HOOKS`])
+/// other than [`VALUE_INDEPENDENT_HOOK`], and, transitively, every label that has a defining
+/// equation (a function's equation, an anywhere rule or a macro-like rule; simplifications restate
+/// values and are not counted) and all of whose defining equations, `owise` included, apply such a
+/// label somewhere in their right side or condition. A hook's value depends on the state outside
+/// the term (the console, a file, the environment, a random source, the configuration) and on what
+/// the effect does to it. The rule for equations is conservative: it counts an application the
+/// equation's value does not depend on, such as an operand a short-circuit makes irrelevant
+/// (`cf2(X) => X requires X >Int 0 orBool randInt(10) ==Int 3` is in the set, although `cf2(5)` is
+/// 5 whatever `randInt` gives).
+/// A label with one effect-free equation is not in the set: an application that equation decides
+/// has its ordinary value (`sel(5)` where `sel(N) => N requires N =/=Int 0`), and an application
+/// that reaches an effectful equation is left to the run. A production declared `impure` without
+/// such a hook is evaluated by its equations from its arguments, so it is judged by them.
+pub(crate) fn value_effect_labels<'s, I>(sentences: impl Fn() -> I) -> BTreeSet<String>
+where
+    I: Iterator<Item = &'s Sentence>,
+{
+    let mut certain = BTreeSet::new();
+    let mut functions = BTreeSet::new();
+    for sentence in sentences() {
+        let Sentence::Production {
+            label: Some(label),
+            attributes,
+            ..
+        } = sentence
+        else {
+            continue;
+        };
+        if [
+            AttributeKey::Function,
+            AttributeKey::Functional,
+            AttributeKey::Total,
+        ]
+        .iter()
+        .any(|key| attributes.has(*key))
+        {
+            functions.insert(label.name.clone());
+        }
+        if has_effectful_hook(attributes)
+            && attributes.string(AttributeKey::Hook) != Some(VALUE_INDEPENDENT_HOOK)
+        {
+            certain.insert(label.name.clone());
+        }
+    }
+    // The labels each defining equation of each head applies in its right side or condition.
+    let mut equations: BTreeMap<String, Vec<BTreeSet<String>>> = BTreeMap::new();
+    for sentence in sentences() {
+        let Sentence::Rule {
+            body,
+            requires,
+            ensures,
+            attributes,
+        } = sentence
+        else {
+            continue;
+        };
+        let Term::Rewrite { left, right } = body.unannotated() else {
+            continue;
+        };
+        let Term::Apply { label: head, .. } = left.unannotated() else {
+            continue;
+        };
+        if attributes.has(AttributeKey::Simplification)
+            || !(functions.contains(&head.name)
+                || attributes.has(AttributeKey::Anywhere)
+                || attributes.has_any(&AttributeKey::MACRO_LIKE))
+        {
+            continue;
+        }
+        let mut applied = BTreeSet::new();
+        for root in [&**right, requires, ensures] {
+            root.visit_preorder(&mut |node| {
+                if let Term::Apply { label, .. } = node.unannotated() {
+                    applied.insert(label.name.clone());
+                }
+            });
+        }
+        equations
+            .entry(head.name.clone())
+            .or_default()
+            .push(applied);
+    }
+    // Invariant: `certain` holds the seeds and the heads found so far all of whose equations
+    // apply a member; each pass adds at least one head or stops, and the finite set of heads
+    // bounds the passes.
+    loop {
+        let found = equations
             .iter()
-            .flat_map(|module| module.local_sentences.iter().map(|sentence| &**sentence))
-    };
+            .filter(|(head, applied)| {
+                !certain.contains(*head)
+                    && applied
+                        .iter()
+                        .all(|labels| labels.iter().any(|label| certain.contains(label)))
+            })
+            .map(|(head, _)| head.clone())
+            .collect::<Vec<_>>();
+        if found.is_empty() {
+            return certain;
+        }
+        certain.extend(found);
+    }
+}
+
+/// Whether a production with `attributes` is hooked to an effectful hook.
+fn has_effectful_hook(attributes: &crate::definition::Attributes) -> bool {
+    attributes.string(AttributeKey::Hook).is_some_and(|hook| {
+        hook.starts_with(EFFECTFUL_HOOK_NAMESPACE) || EFFECTFUL_HOOKS.contains(&hook)
+    })
+}
+
+/// The labels of the productions of `sentences` that `seed` selects by their attributes, and every
+/// label with an equation (a function's, a simplification, an anywhere rule or a macro-like rule,
+/// in any module) that applies one of them, transitively.
+fn effect_closure<'s, I>(
+    sentences: impl Fn() -> I,
+    seed: impl Fn(&crate::definition::Attributes) -> bool,
+) -> BTreeSet<String>
+where
+    I: Iterator<Item = &'s Sentence>,
+{
     let mut effectful = BTreeSet::new();
     let mut functions = BTreeSet::new();
     for sentence in sentences() {
@@ -704,12 +841,7 @@ pub(crate) fn effectful_labels(definition: &Definition) -> BTreeSet<String> {
         {
             functions.insert(label.name.clone());
         }
-        let hook = attributes.string(AttributeKey::Hook);
-        if attributes.has(AttributeKey::Impure)
-            || hook.is_some_and(|hook| {
-                hook.starts_with(EFFECTFUL_HOOK_NAMESPACE) || EFFECTFUL_HOOKS.contains(&hook)
-            })
-        {
+        if seed(attributes) {
             effectful.insert(label.name.clone());
         }
     }

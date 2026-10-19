@@ -1090,6 +1090,11 @@ fn search_patterns() -> Vec<Case> {
             "<k> go(X) ~> done(W) </k> requires #Exists W:Int . {X #Equals W +Int 1}",
         ),
         (
+            "search-named-inner-test",
+            "<k> go(X) </k> requires #Exists Y . ({X #Equals Y:Int} #And #Ceil(Y:KItem))",
+            "<k> go(X) </k> requires #Exists Z . ({X #Equals Z:Int} #And #Ceil(Z:KItem))",
+        ),
+        (
             "search-macro-anon",
             "<k> go(X) </k> requires m(_)",
             "<k> go(X) </k> requires m(_A)",

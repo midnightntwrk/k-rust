@@ -70,6 +70,12 @@
 //! simplification) states one value of an application, a rewrite rule or a context a step, a
 //! claim the pattern every path reaches. Casts compute nothing and are read through.
 //!
+//! A search pattern is judged by the same walk ([`search_pattern_diagnostics`]), with the code
+//! [`DiagnosticCode::InvalidSearchPattern`]: it is matched against states as a rule's left side
+//! is, so its body (its rewrites projected to their left sides) is a matched position, and its
+//! `requires` is a condition on the match. Its route lowers no local function, so one is refused
+//! there as in a claim.
+//!
 //! What is refused, by context, each because no route reads it or the backend misreads it:
 //!
 //! - Spine: `#as` (a condition is matched against nothing, so the alias names nothing); a local
@@ -80,7 +86,17 @@
 //! - BoolLeaf: every connective and predicate atom (`notBool {X #Equals 3}`,
 //!   `(X #Or 5) <Int 3`): a predicate where a Bool value is required. `#fun`, `#let` and the
 //!   matches `:=K`, `:/=K` are Bool-valued terms.
-//! - PredicateOperand: every connective, predicate atom and `#as`
+//! - PredicateOperand: an application of an effectful hook (a read of the console, a write's
+//!   status, a trace, a random number, the environment), or of a function all of whose defining
+//!   equations apply one somewhere in their right side or condition
+//!   (`ml_constructs::value_effect_labels`), judged where the definition's equations are known
+//!   (the pipeline stage and the search route): a predicate states a truth value about the
+//!   matched state, and a value that depends on an effect is no fact about it. The rule is
+//!   syntactic and conservative for functions: it also refuses a function whose effect sits in an
+//!   operand its value does not depend on (a short-circuited `orBool` operand). A function with an effect-free equation is not
+//!   refused: an application that equation decides has its ordinary value. `#log` is not refused:
+//!   its value is `.K` whatever it writes, and a predicate does not perform its output.
+//!   Every connective, predicate atom and `#as`
 //!   (`{X #Equals (1 #Or 2)}`, `#Ceil({X #Equals 1})`), with one exception: below `#Ceil` a
 //!   conjunction of connective-free terms, whose definedness `⌈t1 ∧ t2⌉ = ⌈t1⌉ ∧ t1 = t2` the
 //!   backend decides. Below `#Floor` such a conjunction is refused: a term conjunction is at most
@@ -149,19 +165,51 @@ use crate::provenance::GeneratingPass;
 pub(super) type InjectedOrPattern<'a> = dyn Fn(&Label, usize, &Term) -> bool + 'a;
 
 /// The [`DiagnosticCode::MlConstructPosition`] refusals of `sentences` (module documentation).
-/// `injected` decides the or-patterns an injection places below a symbol; without it they are
-/// not judged.
+/// `injected` decides the or-patterns an injection places below a symbol, and `affects_value`
+/// the labels judged to depend on an effect (`ml_constructs::value_effect_labels`); without
+/// either, those are not judged.
 pub(super) fn check_ml_construct_positions(
     sentences: &[&Sentence],
     productions: &ProductionCatalog<'_>,
     injected: Option<&InjectedOrPattern<'_>>,
+    affects_value: Option<&AffectsValue<'_>>,
 ) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     for sentence in sentences {
         diagnostics.extend(equation_diagnostics(sentence, productions));
-        diagnostics.extend(position_diagnostics(sentence, productions, injected));
+        if let Some(kind) = Kind::of(sentence, productions) {
+            diagnostics.extend(position_diagnostics(
+                sentence,
+                kind,
+                DiagnosticCode::MlConstructPosition,
+                injected,
+                affects_value,
+            ));
+        }
     }
     diagnostics
+}
+
+/// Whether an application of a label is judged to depend on an effect
+/// (`ml_constructs::value_effect_labels`).
+pub(super) type AffectsValue<'a> = dyn Fn(&Label) -> bool + 'a;
+
+/// The refusals of the search pattern `sentence`, with [`DiagnosticCode::InvalidSearchPattern`],
+/// the code of every refusal of that route. A search pattern is matched against states as a
+/// rule's left side is, so its body (its rewrites already projected to their left sides) is a
+/// matched position, and its `requires` is a predicate over the match, a condition. The route
+/// lowers no local function, so one is refused, as in a claim.
+pub(super) fn search_pattern_diagnostics(
+    sentence: &Sentence,
+    affects_value: &AffectsValue<'_>,
+) -> Vec<Diagnostic> {
+    position_diagnostics(
+        sentence,
+        Kind::SearchPattern,
+        DiagnosticCode::InvalidSearchPattern,
+        None,
+        Some(affects_value),
+    )
 }
 
 /// The refusal of an alias `P #as V` in the right side of a claim's rewrite that the stage
@@ -539,6 +587,9 @@ enum Kind {
     /// A claim: its left side matches the states it starts from, its right side is the pattern
     /// every path must reach.
     Claim,
+    /// A search pattern: its body is matched against states as a rule's left side is, and its
+    /// `requires` is a condition on the match.
+    SearchPattern,
 }
 
 impl Kind {
@@ -592,6 +643,7 @@ impl Kind {
             Kind::Simplification => "simplification",
             Kind::PredicateSimplification => "predicate simplification",
             Kind::Claim => "claim",
+            Kind::SearchPattern => "search pattern",
         }
     }
 }
@@ -691,18 +743,19 @@ fn operand_shape(term: &Term) -> OperandShape {
 /// and conditions.
 fn position_diagnostics(
     sentence: &Sentence,
-    productions: &ProductionCatalog<'_>,
+    kind: Kind,
+    code: DiagnosticCode,
     injected: Option<&InjectedOrPattern<'_>>,
+    affects_value: Option<&AffectsValue<'_>>,
 ) -> Vec<Diagnostic> {
-    let Some(kind) = Kind::of(sentence, productions) else {
-        return Vec::new();
-    };
     let mut walk = Walk {
         kind,
+        code,
         sentence,
         diagnostics: Vec::new(),
         expanded: false,
         injected,
+        affects_value,
         alone: true,
         under_root: None,
     };
@@ -719,7 +772,11 @@ fn position_diagnostics(
             ensures,
             ..
         } => {
-            walk.body(body);
+            if kind == Kind::SearchPattern {
+                walk.term(body, Context::Body(TermPosition::LHS), false);
+            } else {
+                walk.body(body);
+            }
             walk.term(requires, Context::Spine, false);
             walk.term(ensures, Context::Spine, false);
         }
@@ -746,6 +803,8 @@ fn position_diagnostics(
 /// One sentence's walk: its kind, and the refusals found so far.
 struct Walk<'s, 'o> {
     kind: Kind,
+    /// The code of every refusal of the walk.
+    code: DiagnosticCode,
     sentence: &'s Sentence,
     diagnostics: Vec<Diagnostic>,
     /// Whether the node being judged was written in the body of a macro or an alias, and placed
@@ -753,6 +812,8 @@ struct Walk<'s, 'o> {
     expanded: bool,
     /// The sort oracle of or-patterns at argument roots ([`InjectedOrPattern`]).
     injected: Option<&'o InjectedOrPattern<'o>>,
+    /// The labels judged to depend on an effect ([`AffectsValue`]).
+    affects_value: Option<&'o AffectsValue<'o>>,
     /// Set for the next node judged: whether, at a position the sides of a rewrite rule share,
     /// the node is itself what the sides share, so that it is named alone where the right side
     /// reuses it: it is an argument of a symbol that holds a rewrite in another argument, or it
@@ -767,11 +828,8 @@ struct Walk<'s, 'o> {
 
 impl Walk<'_, '_> {
     fn refuse(&mut self, message: String) {
-        self.diagnostics.push(Diagnostic::error(
-            DiagnosticCode::MlConstructPosition,
-            message,
-            self.sentence,
-        ));
+        self.diagnostics
+            .push(Diagnostic::error(self.code, message, self.sentence));
     }
 
     /// A refusal of `construct` where `context` places it, with the reason and the remedy.
@@ -927,6 +985,25 @@ impl Walk<'_, '_> {
                     alone,
                 },
             ),
+            Term::Apply { label, .. }
+                if matches!(context, Context::PredicateOperand { .. })
+                    && self
+                        .affects_value
+                        .is_some_and(|affects_value| affects_value(label)) =>
+            {
+                self.refuse_at(
+                    &format!(
+                        "an application of {} that applies an effect (directly, or through equations that all apply one)",
+                        label.name
+                    ),
+                    context,
+                    "a predicate states a truth value about the matched state, while this value \
+                     depends on the state outside the term (the console, a file, the \
+                     environment, a random source) and on what the effect does to it, and no \
+                     predicate performs an effect; perform it where the rule builds its result \
+                     and test the value it gives in a later step",
+                );
+            }
             Term::Rewrite { .. }
             | Term::Apply { .. }
             | Term::Sequence(_)
@@ -1031,6 +1108,14 @@ impl Walk<'_, '_> {
                 context,
                 "a claim's local function is lowered to no function its proof can apply; define \
                  a function and apply it, or write its result",
+            );
+        }
+        if self.kind == Kind::SearchPattern {
+            return self.refuse_at(
+                "a local function (#fun or #let)",
+                context,
+                "a search pattern's local function is lowered to no function its search can \
+                 apply; define a function and apply it, or write its result",
             );
         }
         let position = match context {

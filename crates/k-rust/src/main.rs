@@ -5252,10 +5252,12 @@ mod tests {
             KorePattern::Equals { .. }
         ));
 
+        // A ground function equality names no generated variable: it is a condition of the
+        // match, and is printed.
         let ground = Predicate::Equals(test_function(Vec::new()), value);
         assert!(matches!(
             pattern01d_condition_output(Substitution::new(), vec![ground], BTreeSet::new()),
-            KorePattern::Top { .. }
+            KorePattern::Equals { .. }
         ));
 
         let functional_only = Predicate::Equals(

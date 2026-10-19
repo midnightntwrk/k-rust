@@ -4,7 +4,10 @@
 //! Remove semantic-cast applications while retaining their inferred sorts.
 #![deny(clippy::wildcard_enum_match_arm)]
 
-use std::{collections::BTreeMap, fmt};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+};
 
 use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
@@ -219,6 +222,7 @@ fn resolve_semantic_casts_in_sentence_mut(
     add_predicates: bool,
     subsorts: &PartialOrder<Sort>,
 ) -> Result<(), ResolveSemanticCastsError> {
+    let macro_like = sentence.attributes().has_any(&AttributeKey::MACRO_LIKE);
     let roots = match sentence {
         Sentence::Rule {
             body,
@@ -257,15 +261,25 @@ fn resolve_semantic_casts_in_sentence_mut(
                 .collect(),
         });
     }
+    let predicates = add_predicates && !casts.is_empty() && !macro_like;
+    let tests = CastTests {
+        casts: &casts,
+        typed_variables: &typed_variables,
+        subsorts,
+    };
+    // The casts with an occurrence that no quantifier owns: their tests go at the top of the
+    // condition. A test a quantifier owns goes inside it (`CastTests::place`).
+    let mut unowned = BTreeSet::new();
     for root in roots {
-        let taken = std::mem::replace(root, Term::Sequence(Vec::new()));
+        let mut taken = std::mem::replace(root, Term::Sequence(Vec::new()));
+        if predicates {
+            tests.collect_unowned(&taken, &mut Vec::new(), &mut unowned);
+            taken = tests.place(taken);
+        }
         *root = transform(taken, &casts, &typed_variables, subsorts);
     }
 
-    if !add_predicates
-        || casts.is_empty()
-        || sentence.attributes().has_any(&AttributeKey::MACRO_LIKE)
-    {
+    if !predicates {
         return Ok(());
     }
 
@@ -285,26 +299,10 @@ fn resolve_semantic_casts_in_sentence_mut(
             .cmp(cast_label(right))
             .then(left_first.cmp(right_first))
     });
-    let conjuncts = ordered.into_iter().filter_map(|(cast, _)| {
-        let label = cast_label(cast);
-        let sort = label
-            .semantic_cast_sort()
-            .expect("the cast set contains semantic-cast applications");
-        // A search pattern denotes its left projection (`compile_search_pattern` projects the
-        // body), so the cast constrains the value of its operand's left side: `(L => R):S` adds
-        // the test `L:S` adds.
-        match cast_condition(sort.role()) {
-            CastCondition::SortPredicate | CastCondition::CellFragment => Some(Term::Apply {
-                label: Label::sort_predicate(&sort),
-                arguments: vec![crate::kompile::sort_injections::rewrite_projection(
-                    &transform(cast.clone(), &casts, &typed_variables, subsorts),
-                    false,
-                    subsorts,
-                )],
-            }),
-            CastCondition::Static => None,
-        }
-    });
+    let conjuncts = ordered
+        .into_iter()
+        .filter(|(cast, _)| unowned.contains(*cast))
+        .filter_map(|(cast, _)| tests.test(cast));
     let Some(predicate) =
         conjuncts.reduce(|left, right| Term::apply("_andBool_", vec![left, right]))
     else {
@@ -332,6 +330,281 @@ fn resolve_semantic_casts_in_sentence_mut(
         crate::kompile::ml_constructs::conjoin_condition(predicate, prior)
     };
     Ok(())
+}
+
+/// The sort tests the casts of a search pattern add (predicate mode), and where each goes.
+///
+/// A quantifier's binder is in scope only in its body, so the test of a cast whose operand names
+/// a variable the quantifier binds reads that variable only inside the quantifier. The innermost
+/// quantifier binding one of the operand's variables owns the cast's occurrence, and the test
+/// goes inside it. A cast of the bound variable itself is the binder's annotation, which restricts
+/// the values the binder ranges over: `#Exists Y . P` becomes `#Exists Y . (test #And P)` and
+/// `#Forall Y . P` becomes `#Forall Y . (test #Implies P)`. A cast of a compound operand states
+/// that the operand's value is of the cast's sort, a conjunct of the body under either quantifier:
+/// `#Forall Y . (test #And P)`. Where the cast's operand is the bound
+/// variable itself and the variable's own sort is the cast's sort, the test holds for every value
+/// the binder ranges over and is dropped. An occurrence no quantifier owns gets its test at the
+/// top of the condition, where every variable it reads is free. Bound names are compared by
+/// spelling, which is the binding rule of the term as written.
+struct CastTests<'a> {
+    casts: &'a BTreeMap<Term, usize>,
+    typed_variables: &'a BTreeMap<String, Sort>,
+    subsorts: &'a PartialOrder<Sort>,
+}
+
+impl CastTests<'_> {
+    /// The sort test of the cast `cast`, or `None` for a cast that adds none (`cast_condition`).
+    ///
+    /// A search pattern denotes its left projection (`compile_search_pattern` projects the body),
+    /// so the cast constrains the value of its operand's left side: `(L => R):S` adds the test
+    /// `L:S` adds.
+    fn test(&self, cast: &Term) -> Option<Term> {
+        let Term::Apply { label, .. } = cast.unannotated() else {
+            unreachable!("only semantic-cast applications were collected")
+        };
+        let sort = label
+            .semantic_cast_sort()
+            .expect("the cast set contains semantic-cast applications");
+        match cast_condition(sort.role()) {
+            CastCondition::SortPredicate | CastCondition::CellFragment => Some(Term::Apply {
+                label: Label::sort_predicate(&sort),
+                arguments: vec![crate::kompile::sort_injections::rewrite_projection(
+                    &transform(
+                        cast.unannotated().clone(),
+                        self.casts,
+                        self.typed_variables,
+                        self.subsorts,
+                    ),
+                    false,
+                    self.subsorts,
+                )],
+            }),
+            CastCondition::Static => None,
+        }
+    }
+
+    /// Whether the test of `cast`, owned by a quantifier binding `bound`, holds for every value
+    /// the binder ranges over: the cast's operand, read through nested casts, is a variable the
+    /// quantifier binds, whose own sort is the cast's sort.
+    fn implied(&self, cast: &Term, bound: &[String]) -> bool {
+        let Term::Apply { label, .. } = cast.unannotated() else {
+            return false;
+        };
+        let Some(sort) = label.semantic_cast_sort() else {
+            return false;
+        };
+        Self::annotated_variable(cast, bound)
+            .is_some_and(|name| self.typed_variables.get(name) == Some(&sort))
+    }
+
+    /// The bound variable `cast` annotates: its operand, read through nested casts, when that is a
+    /// variable in `bound`; `None` for a cast of a compound operand.
+    fn annotated_variable<'c>(cast: &'c Term, bound: &[String]) -> Option<&'c str> {
+        let Term::Apply { arguments, .. } = cast.unannotated() else {
+            return None;
+        };
+        let [operand] = arguments.as_slice() else {
+            return None;
+        };
+        let mut operand = operand.unannotated();
+        // Invariant: `operand` is the operand of `cast` with the casts above it removed; each
+        // step removes one, so the finite term bounds the loop.
+        while let Term::Apply { label, arguments } = operand
+            && label.semantic_cast_sort().is_some()
+            && let [inner] = arguments.as_slice()
+        {
+            operand = inner.unannotated();
+        }
+        match operand {
+            Term::Variable { name, .. } if bound.contains(name) => Some(name),
+            Term::Apply { .. }
+            | Term::Variable { .. }
+            | Term::InjectedLabel(_)
+            | Term::Token { .. }
+            | Term::Rewrite { .. }
+            | Term::As { .. }
+            | Term::Sequence(_)
+            | Term::Annotated { .. } => None,
+        }
+    }
+
+    /// The named variables of the operand of the cast `cast`.
+    fn operand_variables(cast: &Term) -> BTreeSet<String> {
+        let mut names = BTreeSet::new();
+        cast.visit_preorder(&mut |node| {
+            if let Term::Variable { name, .. } = node.unannotated()
+                && !is_anonymous(name)
+            {
+                names.insert(name.clone());
+            }
+        });
+        names
+    }
+
+    /// Add to `unowned` each cast of `term` with an occurrence that no quantifier owns: no
+    /// quantifier enclosing it (`scope`, the bound names of the enclosing quantifiers) binds a
+    /// variable of its operand.
+    fn collect_unowned(
+        &self,
+        term: &Term,
+        scope: &mut Vec<Vec<String>>,
+        unowned: &mut BTreeSet<Term>,
+    ) {
+        crate::stack::guarded(|| {
+            if self.casts.contains_key(term.unannotated()) {
+                let variables = Self::operand_variables(term);
+                if !scope.iter().flatten().any(|name| variables.contains(name)) {
+                    unowned.insert(term.unannotated().clone());
+                }
+            }
+            if let Some(quantifier) = crate::kast::binding::quantifier(term) {
+                scope.push(quantifier.bound().into_iter().map(str::to_owned).collect());
+                self.collect_unowned(quantifier.binder, scope, unowned);
+                self.collect_unowned(quantifier.body, scope, unowned);
+                scope.pop();
+                return;
+            }
+            for child in term.unannotated().children() {
+                self.collect_unowned(child, scope, unowned);
+            }
+        });
+    }
+
+    /// The casts of `term` that a quantifier binding `bound` owns, in their order of first
+    /// occurrence: those whose operand names a variable in `bound` and no variable a quantifier
+    /// inside `term` binds around the cast (`inner`).
+    fn owned<'t>(
+        &self,
+        term: &'t Term,
+        bound: &[String],
+        inner: &mut Vec<Vec<String>>,
+        owned: &mut Vec<&'t Term>,
+    ) {
+        crate::stack::guarded(|| {
+            if self.casts.contains_key(term.unannotated()) {
+                let variables = Self::operand_variables(term);
+                if bound.iter().any(|name| variables.contains(name))
+                    && !inner.iter().flatten().any(|name| variables.contains(name))
+                    && !owned
+                        .iter()
+                        .any(|cast| cast.unannotated() == term.unannotated())
+                {
+                    owned.push(term);
+                }
+            }
+            if let Some(quantifier) = crate::kast::binding::quantifier(term) {
+                inner.push(quantifier.bound().into_iter().map(str::to_owned).collect());
+                self.owned(quantifier.binder, bound, inner, owned);
+                self.owned(quantifier.body, bound, inner, owned);
+                inner.pop();
+                return;
+            }
+            for child in term.unannotated().children() {
+                self.owned(child, bound, inner, owned);
+            }
+        });
+    }
+
+    /// `term` with the tests each of its quantifiers owns placed inside it (see the type's
+    /// documentation); every node keeps its metadata.
+    fn place(&self, term: Term) -> Term {
+        crate::stack::guarded(|| {
+            if let Some(quantifier) = crate::kast::binding::quantifier(&term) {
+                let bound = quantifier
+                    .bound()
+                    .into_iter()
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>();
+                let forall = quantifier.kind == crate::kast::binding::QuantifierKind::Forall;
+                let mut owned = Vec::new();
+                self.owned(quantifier.binder, &bound, &mut Vec::new(), &mut owned);
+                self.owned(quantifier.body, &bound, &mut Vec::new(), &mut owned);
+                owned.sort_by(|left, right| {
+                    let label = |cast: &Term| {
+                        let Term::Apply { label, .. } = cast.unannotated() else {
+                            unreachable!("only semantic-cast applications were collected")
+                        };
+                        label.clone()
+                    };
+                    label(left)
+                        .cmp(&label(right))
+                        .then(self.casts[left.unannotated()].cmp(&self.casts[right.unannotated()]))
+                });
+                // A test of the bound variable itself is the binder's annotation, which restricts
+                // the values the binder ranges over; a test of a compound operand states that its
+                // value is of the cast's sort, a conjunct of the body.
+                let (annotations, operands): (Vec<&Term>, Vec<&Term>) = owned
+                    .into_iter()
+                    .filter(|cast| !self.implied(cast, &bound))
+                    .partition(|cast| Self::annotated_variable(cast, &bound).is_some());
+                let conjoined = |casts: Vec<&Term>| {
+                    casts
+                        .into_iter()
+                        .filter_map(|cast| self.test(cast))
+                        .reduce(|left, right| Term::apply("_andBool_", vec![left, right]))
+                };
+                let (annotation, operand) = (conjoined(annotations), conjoined(operands));
+                let metadata = term.metadata().cloned();
+                let TermParts::Apply { label, arguments } = term.into_unannotated().into_parts()
+                else {
+                    unreachable!("a quantifier is an application")
+                };
+                let [binder, body]: [Term; 2] = arguments
+                    .try_into()
+                    .unwrap_or_else(|_| unreachable!("a quantifier has two arguments"));
+                let body = self.place(body);
+                let body = match operand {
+                    None => body,
+                    Some(test) => crate::kompile::ml_constructs::conjoin_condition(test, body),
+                };
+                let body = match annotation {
+                    None => body,
+                    Some(test) if forall => Term::Apply {
+                        label: Label::new(crate::kast::InternalLabel::Implies.as_str()),
+                        arguments: vec![test, body],
+                    },
+                    Some(test) => crate::kompile::ml_constructs::conjoin_condition(test, body),
+                };
+                let rebuilt = Term::Apply {
+                    label,
+                    arguments: vec![binder, body],
+                };
+                return match metadata {
+                    Some(metadata) => rebuilt.with_metadata(metadata),
+                    None => rebuilt,
+                };
+            }
+            let metadata = term.metadata().cloned();
+            let rebuilt = match term.into_unannotated().into_parts() {
+                TermParts::Rewrite { left, right } => Term::Rewrite {
+                    left: Box::new(self.place(*left)),
+                    right: Box::new(self.place(*right)),
+                },
+                TermParts::As { pattern, alias } => Term::As {
+                    pattern: Box::new(self.place(*pattern)),
+                    alias: Box::new(self.place(*alias)),
+                },
+                TermParts::Sequence(items) => {
+                    Term::Sequence(items.into_iter().map(|item| self.place(item)).collect())
+                }
+                TermParts::Apply { label, arguments } => Term::Apply {
+                    label,
+                    arguments: arguments
+                        .into_iter()
+                        .map(|argument| self.place(argument))
+                        .collect(),
+                },
+                leaf @ (TermParts::InjectedLabel(_)
+                | TermParts::Variable { .. }
+                | TermParts::Token { .. }) => Term::from(leaf),
+                TermParts::Annotated { .. } => unreachable!("into_unannotated strips metadata"),
+            };
+            match metadata {
+                Some(metadata) => rebuilt.with_metadata(metadata),
+                None => rebuilt,
+            }
+        })
+    }
 }
 
 /// The sort semantic-cast resolution gives each named variable of a sentence with the term roots

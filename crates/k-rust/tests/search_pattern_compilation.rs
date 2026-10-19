@@ -279,22 +279,35 @@ fn pinned_ground_and_explicit_binder_patterns_match_exactly() {
     assert_eq!(rust, reference);
 }
 
-/// The sort tests of the pattern's variables are conjoined with its condition, a predicate
-/// (`#Exists`), by the predicate conjunction `#And`, where the pinned frontend writes `_andBool_`, a
-/// Bool function applied to a predicate. Apart from that conjunction the two patterns are equal.
+/// The pattern's bound variable `_Gen0` is in scope only inside its binder, so the sort tests of
+/// its casts go inside the binder: `isExp`, which the variable's own sort `Exp` implies, is
+/// dropped, and `isK` of the binder's cast is conjoined with the binder's body. The pinned
+/// frontend writes both tests at the top of the condition, where `_Gen0` is free, so only the
+/// pattern's body is the reference's.
 #[test]
-fn the_explicit_binder_pattern_conjoins_its_predicate_condition_as_a_predicate() {
-    let outer = "Lbl'Unds'andBool'Unds'{}(";
-    let reference = REFERENCE_EXPLICIT_GEN_BINDER.trim();
-    let at = reference.find(outer).expect("the pinned conjunction");
-    let reference = format!(
-        "{}\\and{{SortBool{{}}}}({}",
-        &reference[..at],
-        &reference[at + outer.len()..]
-    );
-    let reference = parse_pattern(&reference).unwrap();
+fn the_explicit_binder_pattern_keeps_its_bound_variable_s_sort_test_inside_the_binder() {
+    let reference = parse_pattern(REFERENCE_EXPLICIT_GEN_BINDER.trim()).unwrap();
     let rust = compile(EXPLICIT_GEN_BINDER).unwrap().pattern;
-    assert_eq!(rust, reference);
+    let (
+        Pattern::And {
+            arguments: rust_parts,
+            ..
+        },
+        Pattern::And {
+            arguments: reference_parts,
+            ..
+        },
+    ) = (&rust, &reference)
+    else {
+        panic!("both patterns are conjunctions: {rust}");
+    };
+    assert_eq!(rust_parts[0], reference_parts[0], "the body");
+    let gen0 = "Var'Unds'Gen0:SortExp{}";
+    let expected = parse_pattern(&format!(
+        "\\exists{{SortGeneratedTopCell{{}}}}({gen0}, \\equals{{SortBool{{}}, SortGeneratedTopCell{{}}}}(Lbl'Unds'andBool'Unds'{{}}(LblisK{{}}(kseq{{}}(inj{{SortExp{{}}, SortKItem{{}}}}({gen0}), dotk{{}}())), Lblpredicate{{}}({gen0})), \\dv{{SortBool{{}}}}(\"true\")))"
+    ))
+    .unwrap();
+    assert_eq!(rust_parts[1..], [expected], "{rust}");
 }
 
 #[test]
@@ -330,9 +343,16 @@ fn search_pattern_compilation_user_gen0_is_named_in_ml_binder() {
             .generated_anonymous_variables
             .contains(&KoreVariableIdentity::element("Var'Unds'Gen0"))
     );
+    // The sort tests of `_Gen0` stand inside its binder (`isExp`, implied by its sort, dropped).
+    let mut inside = String::new();
+    walk(&compiled.pattern, &mut |pattern| {
+        if let Pattern::Exists { body, .. } = pattern {
+            inside = body.to_string();
+        }
+    });
     let rendered = compiled.pattern.to_string();
-    assert!(rendered.contains("LblisExp"), "{rendered}");
-    assert!(rendered.contains("LblisK"), "{rendered}");
+    assert!(inside.contains("LblisK"), "{rendered}");
+    assert!(!rendered.contains("LblisExp"), "{rendered}");
 }
 
 #[test]
