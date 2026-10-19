@@ -1411,7 +1411,10 @@ fn predicate_simplification_cells(cells: &mut Vec<CellSpec>) {
             meaning_runs: Meaning::Unstated,
         });
     }
-    // The lemma of eq-eq on a ground atom: a rewrite rule's condition {f(1) #Equals 1}.
+    // The lemma of eq-eq on a ground atom: a rewrite rule's condition {f(1) #Equals 1}. The
+    // lemma says nothing where the operand it consumes, f(1), is undefined (docs/compatibility.md,
+    // the predicate-lemma contract), so the condition is ⌈f(1)⌉, which no equation of f decides:
+    // go(1) gives done(1) under ⌈f(1)⌉ and is stuck otherwise, or halts undecided.
     cells.push(CellSpec {
         name: "psimp/pred-simp__eq-eq-ground".to_owned(),
         route: Route::Kompile,
@@ -1420,12 +1423,12 @@ fn predicate_simplification_cells(cells: &mut Vec<CellSpec>) {
         ),
         pattern: None,
         programs: vec![go(1), go(3)],
-        meaning: "f(X) = 1 iff X = 1, so go(1) steps to done(1) and go(3) is stuck".to_owned(),
+        meaning: "f(X) = 1 iff X = 1 where f(X) is defined, so go(1) steps to done(1) under \\ceil(f(1)) and is stuck otherwise, and go(3) is stuck".to_owned(),
         expect: Expect::runs(vec![
-            Run::new(go(1), vec![stuck(done(1))]),
+            Run::new(go(1), vec![stuck(done(1)), stuck(go(1))]),
             Run::new(go(3), vec![stuck(go(3))]),
         ]),
-        allow: Allow::None,
+        allow: Allow::Undecided,
         meaning_runs: Meaning::Unstated,
     });
     for (id, lemma, driver, runs, meaning) in table {

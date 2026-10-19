@@ -291,7 +291,8 @@ pub enum Meaning {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Allow {
     None,
-    /// `#Floor`: no build decides it.
+    /// `#Floor`, or the definedness of a partial function's application that no equation
+    /// gives: no build decides it.
     Undecided,
     /// A quantified predicate, or a claim's arithmetic implication: the portable build has no
     /// solver for it.
@@ -373,9 +374,6 @@ const CELL_COUNT: usize = 529;
 /// and the builds in which it deviates (see the module documentation).
 #[rustfmt::skip]
 pub const PENDING: &[(&str, &str, Class, Class)] = &[
-    // unassigned (1): follow-up FU-21 (decisions.toml, "MLP/0 questions"): a predicate lemma on a ground atom of a rewrite rule's condition leaves the step undecided.
-    // MLP/10 matches predicate lemmas against the atoms as written (FU-20 and FU-48: or-lhs now conforms), but this cell has another cause: a predicate lemma says nothing where an operand it consumes is undefined (docs/compatibility.md, the predicate-lemma contract), so `{f(1) #Equals 1}` simplifies to ⌈f(1)⌉ with or without hoisting, and f(1) has no equation. Deciding it needs the lemma read as an equality of predicates at the instances where f(1) is undefined, which the contract does not state. The answer is incomplete, not wrong.
-    ("psimp/pred-simp__eq-eq-ground", "unassigned", Class::Undecided, Class::Undecided),
 ];
 
 // ---------------------------------------------------------------- observation
