@@ -6,7 +6,8 @@
 //! - the binder kind: `#Exists` or `#Forall`;
 //! - the bound name's relation to the other names of the sentence: fresh, the left side's
 //!   variable, another binder's name, a macro parameter, a context alias's variable, a function
-//!   rule's variable, a name the compiler mints (`K0`), or an anonymous variable;
+//!   rule's variable, a name the compiler mints (`K0`), an anonymous variable, or a name only a
+//!   `concrete` or `symbolic` attribute of the rule mentions (`attribute`);
 //! - the bound variable's sort: the sort of the related variable (`Int`), or another (`Bool`);
 //! - the position: the `requires`, the `ensures`, an argument of a function in the condition, or
 //!   the right side;
@@ -611,6 +612,34 @@ fn marked_twins() -> Vec<Case> {
     cases
 }
 
+/// A simplification whose condition binds a name that only its `concrete` or `symbolic`
+/// attribute mentions, and its twin with the binder alone renamed (`text-attribute-binder`): the
+/// attribute is outside the binder's scope, so the two are judged alike.
+fn attribute_binders() -> Vec<Case> {
+    let mut cases = Vec::new();
+    for kind in KINDS {
+        let formula = |name: &str| match kind {
+            Quantifier::Exists => format!("#Exists {name}:Int . {{{name} #Equals X}}"),
+            Quantifier::Forall => format!("#Forall {name}:Int . {{{name} +Int 0 #Equals {name}}}"),
+        };
+        for attribute in ["concrete", "symbolic"] {
+            cases.push(
+                case(
+                    format!("attribute/{}-{attribute}", kind.tag()),
+                    "G",
+                    &format!(
+                        "  syntax Int ::= f(Int) [function, total]\n  rule f(_) => 0\n  rule f(X) => X requires {} [simplification, {attribute}(Z)]\n  rule [p]: <k> go(X) => done(f(X)) ... </k>\n",
+                        formula("Z")
+                    ),
+                    &["go(3)"],
+                )
+                .twin("text-attribute-binder", &formula("Z"), &formula("W")),
+            );
+        }
+    }
+    cases
+}
+
 /// A binder in the `requires` or `ensures` spelled apart from the variable of a list update the
 /// left side matches outside a collection argument, and its twin spelled like it
 /// (`text-shadow-list`): the binder reads no list, so the two are judged alike.
@@ -1036,6 +1065,7 @@ pub fn cases() -> Vec<Case> {
         source_twins(),
         marked_twins(),
         list_update_binders(),
+        attribute_binders(),
         claim_binders(),
         rule_kinds(),
         connectives(),

@@ -436,8 +436,26 @@ pub fn rename_apart_in_sentence<'a>(
     terms: impl IntoIterator<Item = &'a mut Term>,
     reserved: &mut Reservation,
 ) -> Vec<(String, String)> {
+    rename_apart_in_sentence_beside(terms, &BTreeSet::new(), |_| false, reserved)
+}
+
+/// [`rename_apart_in_sentence`] for a sentence whose parts other than its terms also name
+/// variables: every name of `named` (the variables a sentence's attributes list) counts as free
+/// in the sentence and is reserved, and a quantifier keeps, without reserving it, every name
+/// `keep` accepts.
+///
+/// Afterwards no name `keep` rejects is bound by two quantifiers, and none is both bound and
+/// free in the terms or in `named`. With an empty `named` and a `keep` that accepts nothing,
+/// this is [`rename_apart_in_sentence`].
+pub fn rename_apart_in_sentence_beside<'a>(
+    terms: impl IntoIterator<Item = &'a mut Term>,
+    named: &BTreeSet<String>,
+    keep: impl Fn(&str) -> bool,
+    reserved: &mut Reservation,
+) -> Vec<(String, String)> {
     let mut terms: Vec<&mut Term> = terms.into_iter().collect();
-    let mut free = BTreeSet::new();
+    reserved.extend(named.iter().cloned());
+    let mut free = named.clone();
     for term in &terms {
         reserved.reserve_names_of(term);
         free.extend(free_variables(term));
@@ -446,7 +464,7 @@ pub fn rename_apart_in_sentence<'a>(
     let mut renamed = Vec::new();
     for term in &mut terms {
         rename_bound(term, &mut |name| {
-            if !free.contains(name) && kept.insert(name.to_owned()) {
+            if keep(name) || (!free.contains(name) && kept.insert(name.to_owned())) {
                 return None;
             }
             let new = reserved.mint(name);

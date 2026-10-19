@@ -21,6 +21,8 @@
 //! none of its attributes (`concrete`, `symbolic`, `unboundVariables`), and bound by no earlier
 //! quantifier in preorder over the sentence's terms; it renames it to a fresh name
 //! (`kast::binding::Reservation::mint`, which keeps the sigil and the `_` prefix) otherwise.
+//! This is the shared rule of `kast::binding::rename_apart_in_sentence`, with the attributes'
+//! names counted as free (`rename_apart_in_sentence_beside`).
 //! A sentence that is already apart is left unchanged.
 //!
 //! Until anonymity stops being read from spellings, a binder spelled as a resolved anonymous
@@ -34,7 +36,7 @@ use std::convert::Infallible;
 use crate::definition::{AttributeKey, Attributes, Definition, Sentence};
 use crate::kast::Term;
 use crate::kast::binding::{
-    Reservation, free_variables, quantifier, reads_as_resolved_anonymous, rename_bound,
+    Reservation, quantifier, reads_as_resolved_anonymous, rename_apart_in_sentence_beside,
 };
 
 use super::super::pipeline::{PassInput, PassOutcome, PipelineState};
@@ -71,25 +73,18 @@ pub(crate) fn rename_bound_apart_pass(
 }
 
 /// Rename the bound variables of `sentence` apart (module documentation); whether any changed.
+/// This is [`rename_apart_in_sentence_beside`] over the sentence's terms, with the names its
+/// variable-naming attributes list as `named` and the resolved-anonymous spellings kept.
 pub(crate) fn rename_bound_apart_in_sentence(sentence: &mut Sentence) -> bool {
     let named = attribute_variable_names(sentence.attributes());
-    let mut reserved: Reservation = named.iter().cloned().collect();
-    let mut occupied = named;
-    for (_, term) in sentence.terms() {
-        reserved.reserve_names_of(term);
-        occupied.extend(free_variables(term));
-    }
-    let mut changed = false;
-    for (_, term) in sentence.terms_mut() {
-        rename_bound(term, &mut |name| {
-            if reads_as_resolved_anonymous(name) || occupied.insert(name.to_owned()) {
-                return None;
-            }
-            changed = true;
-            Some(reserved.mint(name))
-        });
-    }
-    changed
+    let terms = sentence.terms_mut().map(|(_, term)| term);
+    !rename_apart_in_sentence_beside(
+        terms,
+        &named,
+        reads_as_resolved_anonymous,
+        &mut Reservation::new(),
+    )
+    .is_empty()
 }
 
 /// The variable names `attributes` mention: the comma-separated entries of `concrete`,
