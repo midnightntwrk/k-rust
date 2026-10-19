@@ -107,7 +107,8 @@ pub(crate) use resolve_fun::{
 };
 pub use resolve_fun::{ResolveFunError, resolve_fun};
 pub(crate) use resolve_function_with_config::{
-    FunctionRuleWithContext, resolve_config_var_pass, resolve_function_with_config_pass,
+    FunctionRuleWithContext, is_exact_configuration_variable, left_hand_side_binds_configuration,
+    resolve_config_var_pass, resolve_function_with_config_pass,
 };
 pub use resolve_function_with_config::{
     ResolveFunctionWithConfigError, resolve_config_var, resolve_function_with_config,

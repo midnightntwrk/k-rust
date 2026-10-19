@@ -27,6 +27,9 @@
 //!   since only that code knows the binder is generated; it runs under the same gating.
 //!
 //! - [`stage`] checks the output of every stage of the table-driven pipeline:
+//!   CF1, once the configuration-binding stage has run, every `#Configuration` reference of a
+//!   rule-like sentence that is not macro-like is bound at the root of its left-hand side, by the
+//!   generated top cell aliased to it or as the last argument of the root application;
 //!   R3, every right-hand-side variable of a rule-like sentence stays bound by its left-hand side
 //!   or covered by an exemption once the pipeline input has that property;
 //!   C1, every variable free in a condition of a rule-like sentence occurs in its body or in a
