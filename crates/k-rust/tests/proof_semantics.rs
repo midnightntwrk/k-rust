@@ -2306,7 +2306,9 @@ endmodule
 /// successor leaves the configuration to the later rules of the priority: `sib(0)` reaches `done`
 /// by `sibok` although `sibtd` comes first, as `bis(0)` does in the other order, and so does
 /// `sibr(X)` where `X >Int 0`. Where no rule gives a defined result (`sibr(0)`, `one(0)`) the
-/// step is undefined and the claim is not proven.
+/// step is undefined and the claim is not proven. An all-path claim has no path through a
+/// successor that denotes no state, so `sib(0) => done` and `bis(0) => done` are proven too:
+/// `sibtd`'s successor is `\bottom`, and `sibok`'s reaches `done`.
 #[test]
 fn a_one_path_claim_takes_a_later_rule_where_a_result_is_undefined_after_the_step() {
     let statuses = claim_statuses(
@@ -2331,23 +2333,24 @@ fn a_one_path_claim_takes_a_later_rule_where_a_result_is_undefined_after_the_ste
             ("sibr-one", "proven"),
             ("sibr-zero-one", "failed"),
             ("one-zero-one", "failed"),
-            ("sib-all", "failed"),
-            ("bis-all", "failed"),
+            ("sib-all", "proven"),
+            ("bis-all", "proven"),
         ]
         .map(|(claim, status)| (claim.to_owned(), status.to_owned()))
     );
 }
 
-/// A one-path claim steps as strategy `any` does, so it reads a `\bottom` successor as no
-/// successor however the `\bottom` is found (design/undefined-successor.md §3, reading R): over
-/// the matrix of `undefined_step_coverage.rs`, `p(0) => done` is proven where a rule of the
-/// `\bottom` rule's priority rewrites `p(0)` to `done`, and fails where the step is undefined
-/// (a lower-priority rule, no other rule, two `\bottom` rules). The all-path claims keep their
-/// verdicts, which this change does not touch: a `\bottom` candidate the step itself decides
-/// is no successor there too, and one only its successor's normalization shows still fails the
-/// claim.
+/// Proofs read a `\bottom` successor as no successor however the `\bottom` is found
+/// (design/undefined-successor.md §3, reading R). An all-path claim `φ => ∀◇ψ` requires every
+/// path to reach `ψ`, and a `\bottom` successor is no state, so no path: it imposes no obligation.
+/// A one-path claim steps as strategy `any` does. Over the matrix of `undefined_step_coverage.rs`,
+/// `p(0) => done` is proven, one-path and all-path, where a rule of the `\bottom` rule's priority
+/// rewrites `p(0)` to `done`; where the step is undefined (a lower-priority rule, no other rule,
+/// two `\bottom` rules) it fails on the step's one `Trivial` leaf, the configuration `p(0)` one
+/// step below, never on a `Vacuous` leaf: the configuration has instances, and they have no
+/// successor.
 #[test]
-fn a_one_path_claim_reads_a_bottom_successor_as_no_successor() {
+fn a_proof_reads_a_bottom_successor_as_no_successor() {
     use undefined_successor::{Shape, matrix_source, programs};
     let mut claims = String::new();
     for (program, _, _) in programs() {
@@ -2362,36 +2365,418 @@ fn a_one_path_claim_reads_a_bottom_successor_as_no_successor() {
     let kore = compile(&source, "FU42-SPEC", "FU42");
     let mut wrong = Vec::new();
     for (program, route, shape) in programs() {
-        let one_path = if shape == Shape::Covering {
+        let expected = if shape == Shape::Covering {
             "proven"
         } else {
             "failed"
         };
-        let all_path = if shape == Shape::Covering && route.in_step {
-            "proven"
-        } else {
-            "failed"
-        };
-        for (claim, expected) in [
-            (format!("o-{program}"), one_path),
-            (format!("a-{program}"), all_path),
-        ] {
-            let status = prove(
+        for claim in [format!("o-{program}"), format!("a-{program}")] {
+            let result = prove(
                 &kore,
                 "FU42-SPEC",
                 &format!("FU42-SPEC.{claim}"),
                 ProveRequest::default(),
-            )
-            .status;
-            if status != expected {
+            );
+            let outcomes = result
+                .leaves
+                .iter()
+                .map(|leaf| leaf.outcome)
+                .collect::<Vec<_>>();
+            let states = leaf_text(&result);
+            let read_r = result.status == expected
+                && match expected {
+                    "proven" => outcomes
+                        .iter()
+                        .all(|outcome| *outcome == ProofLeafOutcomeOutput::Proven),
+                    _ => {
+                        outcomes == [ProofLeafOutcomeOutput::Trivial]
+                            && result.leaves[0].depth == 1
+                            && states[0].contains(&format!("Lbl{program}{{}}("))
+                    }
+                };
+            if !read_r {
                 wrong.push(format!(
-                    "{claim} ({}, {shape:?}): {status}, expected {expected}",
-                    route.name
+                    "{claim} ({}, {shape:?}): {} {outcomes:?} {states:?}, expected {expected}",
+                    route.name, result.status
                 ));
             }
         }
     }
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// Shapes beside the matrix whose candidate `<p>b` the step's normalization counts defined while
+/// its proof state is `\bottom`: its successor is defined by simplification, and only the
+/// solver, given the conditions of two equations' `ensures` together (`N > 5` and `N < 3`),
+/// finds it empty. `<p>a` is `\bottom` everywhere; `spc`/`sqc` take `N > 10`; in `sd` two such
+/// candidates sit beside `sda`. `sr` and `sq` declare their rules in the other order.
+///
+/// In `ha`, `hb` and `hc` such candidates come first and a defined rule last, so a one-path step
+/// that committed to them would drop the rule that gives their instances a successor: `haa`
+/// takes every `N` to `done`, `hba` gives every `N =/= 0` a successor, and `hca` takes `N > 0`
+/// to `done`.
+const SOLVER_BOTTOM_SIBLING: &str = r#"
+module FU42-SOLVER
+  imports FU42
+  syntax Prog ::= sa(Int) [symbol(sa)] | sr(Int) [symbol(sr)] | sp(Int) [symbol(sp)]
+                | sq(Int) [symbol(sq)] | sd(Int) [symbol(sd)]
+                | ha(Int) [symbol(ha)] | hb(Int) [symbol(hb)] | hc(Int) [symbol(hc)]
+  syntax Int ::= gtf(Int) [function, total, symbol(gtf)]
+               | ltf(Int) [function, total, symbol(ltf)]
+  rule [gtfeq]: gtf(I) => 1 ensures I >Int 5
+  rule [ltfeq]: ltf(I) => 2 ensures I <Int 3
+  rule [saa]: <k> sa(_) => val(tb(0)) </k>
+  rule [sab]: <k> sa(X) => w(gtf(X) +Int ltf(X)) </k>
+  rule [srb]: <k> sr(X) => w(gtf(X) +Int ltf(X)) </k>
+  rule [sra]: <k> sr(_) => val(tb(0)) </k>
+  rule [spa]: <k> sp(_) => val(tb(0)) </k>
+  rule [spb]: <k> sp(X) => w(gtf(X) +Int ltf(X)) </k> requires X >Int 0
+  rule [spc]: <k> sp(X) => done </k> requires X >Int 10
+  rule [sqc]: <k> sq(X) => done </k> requires X >Int 10
+  rule [sqb]: <k> sq(X) => w(gtf(X) +Int ltf(X)) </k> requires X >Int 0
+  rule [sqa]: <k> sq(_) => val(tb(0)) </k>
+  rule [sda]: <k> sd(_) => val(tb(0)) </k>
+  rule [sdb]: <k> sd(X) => w(gtf(X) +Int ltf(X)) </k>
+  rule [sdc]: <k> sd(X) => w(ltf(X) +Int gtf(X)) </k> requires X >Int -5
+  rule [hac]: <k> ha(X) => w(gtf(X) +Int ltf(X)) </k> requires X >Int -5
+  rule [hab]: <k> ha(X) => w(ltf(X) +Int gtf(X)) </k>
+  rule [haa]: <k> ha(_) => done </k>
+  rule [hbb]: <k> hb(X) => w(gtf(X) +Int ltf(X)) </k>
+  rule [hba]: <k> hb(X) => val(tb(X)) </k>
+  rule [hcb]: <k> hc(X) => w(gtf(X) +Int ltf(X)) </k>
+  rule [hca]: <k> hc(X) => done </k> requires X >Int 0
+endmodule
+"#;
+
+/// The instances of a proof leaf's state as KORE text over the claim's `N`: its constraints, and
+/// with `definedness` the definedness of its term too, with every other variable existentially
+/// closed; `None` when the state is `\bottom`.
+fn leaf_condition(state: &serde_json::Value, definedness: bool) -> Option<String> {
+    let pattern = codec::from_value(state).unwrap();
+    let (mut terms, mut predicates) = (Vec::new(), Vec::new());
+    if !leaf_conjuncts(&pattern, &mut terms, &mut predicates) {
+        return None;
+    }
+    let printer = Printer::compact();
+    let body = terms
+        .iter()
+        .filter(|_| definedness)
+        .map(|term| format!("\\ceil{{{TOP}, {TOP}}}({})", printer.print_pattern(term)))
+        .chain(
+            predicates
+                .iter()
+                .map(|predicate| printer.print_pattern(predicate)),
+        )
+        .reduce(|left, right| format!("\\and{{{TOP}}}({left}, {right})"))
+        .unwrap_or_else(|| format!("\\top{{{TOP}}}()"));
+    let variable =
+        regex::Regex::new(r"([A-Za-z][A-Za-z0-9'\-]*):(Sort[A-Za-z0-9'\-]*\{\})").unwrap();
+    let mut others = variable
+        .captures_iter(&body)
+        .map(|capture| (capture[1].to_owned(), capture[2].to_owned()))
+        .filter(|(name, _)| name != "VarN")
+        .collect::<Vec<_>>();
+    others.sort();
+    others.dedup();
+    Some(others.into_iter().fold(body, |body, (name, sort)| {
+        format!("\\exists{{{TOP}}}({name}:{sort}, {body})")
+    }))
+}
+
+/// Split a leaf's state into its term conjuncts and its predicate conjuncts; `false` when a
+/// conjunct is `\bottom`.
+fn leaf_conjuncts<'p>(
+    pattern: &'p k_rust::kore::ast::Pattern,
+    terms: &mut Vec<&'p k_rust::kore::ast::Pattern>,
+    predicates: &mut Vec<&'p k_rust::kore::ast::Pattern>,
+) -> bool {
+    use k_rust::kore::ast::Pattern;
+    match pattern {
+        Pattern::And { arguments, .. } => arguments
+            .iter()
+            .all(|argument| leaf_conjuncts(argument, terms, predicates)),
+        Pattern::Bottom { .. } => false,
+        Pattern::Top { .. } => true,
+        Pattern::Application { .. }
+        | Pattern::AssociativeApplication { .. }
+        | Pattern::Variable(_)
+        | Pattern::DomainValue { .. } => {
+            terms.push(pattern);
+            true
+        }
+        predicate => {
+            predicates.push(predicate);
+            true
+        }
+    }
+}
+
+/// The configuration of a proof leaf's state as KORE text, without its constraints.
+fn leaf_term(state: &serde_json::Value) -> String {
+    let pattern = codec::from_value(state).unwrap();
+    let (mut terms, mut predicates) = (Vec::new(), Vec::new());
+    leaf_conjuncts(&pattern, &mut terms, &mut predicates);
+    let printer = Printer::compact();
+    terms
+        .iter()
+        .map(|term| printer.print_pattern(term))
+        .collect::<Vec<_>>()
+        .join(" /\\ ")
+}
+
+const TOP: &str = "SortGeneratedTopCell{}";
+
+/// Whether the solver finds an instance of `condition` (KORE text over `N`), on a configuration
+/// that does not constrain `N`.
+fn has_instance(backend: &mut Backend, condition: &str) -> Result<bool, String> {
+    use k_rust::backend::PatternRequest;
+    use k_rust::kore::parser::parse_pattern;
+    let configuration = r#"Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortProg{}, SortKItem{}}(Lbldone{}()), dotk{}())), Lbl'-LT-'generatedCounter'-GT-'{}(\dv{SortInt{}}("0")))"#;
+    let pattern = parse_pattern(&format!("\\and{{{TOP}}}({configuration}, {condition})"))
+        .map_err(|error| format!("{error:?}"))?;
+    let model = backend
+        .get_model(PatternRequest::new(pattern))
+        .map_err(|error| format!("{error:?}"))?;
+    match model.satisfiable.as_str() {
+        "sat" => Ok(true),
+        "unsat" => Ok(false),
+        other => Err(format!("{other}: {:?}", model.reason)),
+    }
+}
+
+/// Reading R as a class property, decided by the solver: a `\bottom` successor is no successor,
+/// so the leaves of a proof partition its claim's instances. For every program of the matrix
+/// over a symbolic `N`, and for the shapes of [`SOLVER_BOTTOM_SIBLING`], one-path and
+/// all-path, (1) the leaves' constraints cover every `N` (no gap: an instance on no leaf would be
+/// neither a path nor an undefined step, and could let an all-path claim be proven over it; a
+/// leaf stands for its constraints' instances here, since a term a `preserves-definedness` rule
+/// or a `total` symbol built is trusted defined); (2) an undefined step (`Trivial` leaf) shares
+/// no instance with any other leaf, each leaf taken with its term's definedness (no overlap: an
+/// instance with no successor is on exactly one undefined-step leaf and on no path); (3) a
+/// `Vacuous` leaf has no instance. Path leaves may share instances: an instance two defined
+/// candidates take has two successors.
+///
+/// A one-path step follows one successor per instance, so a successor it drops leaves no leaf,
+/// and (1) and (2) cannot see it. A one-path claim holds when some path reaches its target, so an
+/// instance may end on an undefined step only when no rule that applies gives it a successor:
+/// (4) every instance of a one-path `Trivial` leaf lies on an all-path `Trivial` leaf of the same
+/// configuration. The all-path step takes every rule's successors, and (1) and (2) hold for its
+/// leaves, so its `Trivial` leaves are exactly the instances no rule gives a successor.
+///
+/// The `q` route (`te(X)` of the `total` `te`, whose equation `ensures X =/=Int 0`) has a gap
+/// at `N = 0` that is not a `\bottom` successor's: the equation's `ensures` joins the
+/// successor's constraints, so the successor stands for `N =/= 0` only, and the instance `0`,
+/// on which `te(0)` is `\bottom`, is on no leaf. The claims with that gap are listed exactly,
+/// and for them (1) is asked twice: some instance is on no leaf, and none other than `N = 0` is,
+/// so a change that closes the gap or widens it beyond `N = 0` fails here.
+#[test]
+fn the_leaves_of_a_symbolic_proof_partition_its_instances() {
+    use undefined_successor::{matrix_source, programs};
+    const EQUATION_ENSURES_GAP: [&str; 7] =
+        ["o-qc", "o-qp", "a-qp", "o-qo", "a-qo", "o-qw", "a-qw"];
+    let mut names = programs()
+        .into_iter()
+        .map(|(program, _, _)| program)
+        .collect::<Vec<_>>();
+    names.extend(["sa", "sr", "sp", "sq", "sd", "ha", "hb", "hc"].map(str::to_owned));
+    let mut claims = String::new();
+    for program in &names {
+        claims.push_str(&format!(
+            "  claim [o-{program}]: <k> {program}(N) => done </k> [one-path]\n  claim [a-{program}]: <k> {program}(N) => done </k>\n"
+        ));
+    }
+    for claim in EQUATION_ENSURES_GAP {
+        assert!(
+            names.iter().any(|program| claim[2..] == **program),
+            "{claim} is not a claim of this test"
+        );
+    }
+    let source = format!(
+        "{}{SOLVER_BOTTOM_SIBLING}\nmodule FU42-SPEC\n  imports FU42-SOLVER\n{claims}endmodule\n",
+        matrix_source()
+    );
+    let kore = compile(&source, "FU42-SPEC", "FU42-SOLVER");
+    let mut backend = Backend::new(&kore, "FU42-SPEC", BackendOptions::default()).unwrap();
+    let top = format!("\\top{{{TOP}}}()");
+    let not_zero = format!(
+        "\\not{{{TOP}}}(\\equals{{SortInt{{}}, {TOP}}}(VarN:SortInt{{}}, \\dv{{SortInt{{}}}}(\"0\")))"
+    );
+    let mut wrong = Vec::new();
+    for program in &names {
+        // The all-path claim first: its `Trivial` leaves, by configuration, are what the
+        // one-path claim's are checked against (4).
+        let mut all_path_trivial = Vec::<(String, String)>::new();
+        for claim in [format!("a-{program}"), format!("o-{program}")] {
+            let one_path = claim.starts_with("o-");
+            // Every leaf, not only the first counterexample: the leaves are the partition.
+            let result = backend
+                .prove(ProveRequest {
+                    claim: Some(format!("FU42-SPEC.{claim}")),
+                    max_counterexamples: 100,
+                    ..ProveRequest::default()
+                })
+                .unwrap_or_else(|error| panic!("{claim}: {error:?}"));
+            if result.unexplored_states != 0 {
+                wrong.push(format!(
+                    "{claim}: {} unexplored states",
+                    result.unexplored_states
+                ));
+                continue;
+            }
+            let leaves = result
+                .leaves
+                .iter()
+                .map(|leaf| {
+                    (
+                        leaf.outcome,
+                        leaf_condition(&leaf.state, false),
+                        leaf_condition(&leaf.state, true),
+                        leaf_term(&leaf.state),
+                    )
+                })
+                .collect::<Vec<_>>();
+            // A condition `\top` holds on every instance; the solver is asked about the rest.
+            let mut check = |what: String, conditions: Vec<&String>, expected: bool| {
+                let rest = conditions
+                    .into_iter()
+                    .filter(|condition| **condition != top)
+                    .cloned()
+                    .reduce(|left, right| format!("\\and{{{TOP}}}({left}, {right})"));
+                let Some(condition) = rest else {
+                    if expected {
+                        return;
+                    }
+                    wrong.push(format!(
+                        "{claim} ({}): {what}: every instance",
+                        result.status
+                    ));
+                    return;
+                };
+                match has_instance(&mut backend, &condition) {
+                    Ok(found) if found == expected => {}
+                    found => wrong.push(format!(
+                        "{claim} ({}): {what}: {found:?} on {condition}",
+                        result.status
+                    )),
+                }
+            };
+            let conditions = leaves
+                .iter()
+                .filter_map(|(_, condition, _, _)| condition.clone())
+                .collect::<Vec<_>>();
+            // The instances on no leaf; `None` when a leaf holds on every instance.
+            let gap = if conditions.is_empty() {
+                Some(top.clone())
+            } else if conditions.contains(&top) {
+                None
+            } else {
+                let union = conditions
+                    .into_iter()
+                    .reduce(|left, right| format!("\\or{{{TOP}}}({left}, {right})"))
+                    .unwrap();
+                Some(format!("\\not{{{TOP}}}({union})"))
+            };
+            if EQUATION_ENSURES_GAP.contains(&claim.as_str()) {
+                let gap = gap.unwrap_or_else(|| format!("\\bottom{{{TOP}}}()"));
+                check("no equation-ensures gap".into(), vec![&gap], true);
+                check(
+                    "an instance on no leaf other than N = 0".into(),
+                    vec![&gap, &not_zero],
+                    false,
+                );
+            } else if let Some(gap) = gap {
+                check("an instance on no leaf".into(), vec![&gap], false);
+            }
+            for (index, (outcome, _, condition, term)) in leaves.iter().enumerate() {
+                let Some(condition) = condition else { continue };
+                match outcome {
+                    ProofLeafOutcomeOutput::Vacuous => check(
+                        format!("an instance on the vacuous leaf {index}"),
+                        vec![condition],
+                        false,
+                    ),
+                    ProofLeafOutcomeOutput::Trivial => {
+                        for (other, (_, _, other_condition, _)) in leaves.iter().enumerate() {
+                            let Some(other_condition) =
+                                other_condition.as_ref().filter(|_| other != index)
+                            else {
+                                continue;
+                            };
+                            check(
+                                format!(
+                                    "an instance on the trivial leaf {index} and the leaf {other}"
+                                ),
+                                vec![condition, other_condition],
+                                false,
+                            );
+                        }
+                        if !one_path {
+                            all_path_trivial.push((term.clone(), condition.clone()));
+                            continue;
+                        }
+                        let undefined = all_path_trivial
+                            .iter()
+                            .filter(|(all_path_term, _)| all_path_term == term)
+                            .map(|(_, all_path_condition)| all_path_condition.clone())
+                            .reduce(|left, right| format!("\\or{{{TOP}}}({left}, {right})"))
+                            .map_or_else(
+                                || top.clone(),
+                                |undefined| format!("\\not{{{TOP}}}({undefined})"),
+                            );
+                        check(
+                            format!(
+                                "an instance on the one-path trivial leaf {index} that a rule gives a successor"
+                            ),
+                            vec![condition, &undefined],
+                            false,
+                        );
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// The one-point rule on a rule's `ensures`: `ra`'s existential `?Y`, equated with the defined
+/// `X *Int 2`, is replaced by it wherever the step's predicates mention it, so the leaf that
+/// keeps `ra`'s condition prints `N *Int 2 >Int 4` instead of
+/// `\exists ?Y. (?Y = N *Int 2 /\ N *Int 2 >Int 4)`, the same instances.
+#[test]
+fn a_rule_existential_equated_with_a_defined_term_prints_as_that_term() {
+    let source = r#"
+module ONEPOINT
+  imports INT
+  imports BOOL
+  syntax Pgm ::= "done" [symbol(done)] | val(Int) [symbol(val)] | r(Int) [symbol(r)]
+  configuration <k> $PGM:Pgm </k>
+  rule [ra]: <k> r(X) => val(?Y) </k> ensures ?Y ==Int X *Int 2 andBool ?Y >Int 4
+  rule [rb]: <k> r(_) => done </k> [priority(60)]
+endmodule
+module ONEPOINT-SPEC
+  imports ONEPOINT
+  claim [a-r]: <k> r(N) => done </k>
+endmodule
+"#;
+    let kore = compile(source, "ONEPOINT-SPEC", "ONEPOINT");
+    let result = prove(
+        &kore,
+        "ONEPOINT-SPEC",
+        "ONEPOINT-SPEC.a-r",
+        ProveRequest::default(),
+    );
+    let states = leaf_text(&result);
+    let condition = r#"\equals{SortBool{}, SortGeneratedTopCell{}}(\dv{SortBool{}}("true"), Lbl'Unds-GT-'Int'Unds'{}(Lbl'UndsStar'Int'Unds'{}(VarN:SortInt{}, \dv{SortInt{}}("2")), \dv{SortInt{}}("4")))"#;
+    assert_eq!(result.status, "failed", "{states:?}");
+    assert!(
+        states.iter().any(|state| state.contains(condition)),
+        "{states:?}"
+    );
+    assert!(
+        states.iter().all(|state| !state.contains("\\exists")),
+        "{states:?}"
+    );
 }
 
 /// A claim whose left-hand side is a disjunction is one claim per disjunct, all under the claim's

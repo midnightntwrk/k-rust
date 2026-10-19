@@ -1320,7 +1320,7 @@ mod matrix {
         search::ResultModality,
         transition::ExecutionIoState,
     };
-    use undefined_successor::{Shape, matrix_source, programs};
+    use undefined_successor::{ROUTES, Shape, matrix_source, programs};
 
     fn matrix_kore() -> std::sync::Arc<String> {
         static KORE: shared::Shared<String> = shared::Shared::new();
@@ -1673,7 +1673,7 @@ mod matrix {
             }
         }
         // The alone shape has no rule `<p>b` to stop at.
-        assert_eq!(rows, (7 * 4 * 10 - 7 * 4) * 2 * 2 * 2);
+        assert_eq!(rows, (ROUTES.len() * 4 * 10 - ROUTES.len() * 4) * 2 * 2 * 2);
         assert!(
             wrong.is_empty(),
             "{} wrong of {rows} rows:\n{}",
@@ -1722,7 +1722,7 @@ mod matrix {
                 }
             }
         }
-        assert_eq!(rows, (7 * 4 * 10 - 7 * 4) * 2 * 2 * 2);
+        assert_eq!(rows, (ROUTES.len() * 4 * 10 - ROUTES.len() * 4) * 2 * 2 * 2);
         assert!(
             wrong.is_empty(),
             "{} wrong of {rows} rows:\n{}",
@@ -1751,11 +1751,13 @@ module P
                | es(Int) | esb(Int) | ep(Int) | rq(Int) | rp(Int)
                | pc(Int) | pd(Int) | pl(Int) | nf(Int) | oc(Int) | ud(Int) | eb(Int) | ec(Int)
                | qc(Int) | br(Int) | kk(Int, Int) | km(Int, Int) | kn(Int, Int) | ko(Int, Int)
+               | ex(Int) | ey(Int) | eq(Int) | ew(Int) | ev(Int) | ez(Int)
   syntax Int ::= tb(Int) [function, total]
                | f1(Int) [function, total]
                | f2(Int) [function, total]
                | g(Int) [function, total]
                | td(Int) [function, total]
+               | tq(Int) [function]
   configuration <k> $PGM:Pgm </k> <c> 0 </c>
   rule [tbeq]:   tb(I) => #Bottom requires I ==Int 0
   rule [tbeq2]:  tb(I) => I requires I =/=Int 0
@@ -1803,6 +1805,20 @@ module P
   rule [knc]: kn(N, _) => done2 requires N <=Int -5 [priority(50)]
   rule [koa]: ko(N, _) => val(td(0)) requires N >Int 0 [priority(40)]
   rule [kob]: ko(N, _) => done requires N <=Int 0 [priority(50)]
+  rule [exa]: ex(X) => val(td(?Y)) ensures ?Y ==Int X
+  rule [eya]: ey(X) => val(tq(?Y)) ensures ?Y ==Int X
+  rule [eyb]: ey(X) => done requires X ==Int 0
+  rule [tqeq]: tq(I) => 10 /Int I
+  rule [eqa]: eq(X) => val(tq(?Y)) ensures ?Y ==Int X
+  rule [ewa]: ew(X) => val(td(?Y)) ensures ?Y ==Int X
+  rule [ewb]: ew(X) => done requires X <Int -3
+  rule [ewc]: ew(X) => done2 requires X >Int 5
+  rule [eva]: ev(X) => val(tq(?Y)) ensures ?Y ==Int X
+  rule [evb]: ev(X) => done requires X <Int -3
+  rule [evc]: ev(X) => done2 requires X >Int 5
+  rule [eza]: ez(X) => val(?Y) ensures ?Y ==Int X
+  rule [ezb]: ez(X) => done requires X <Int -3
+  rule [ezc]: ez(X) => done2 requires X >Int 5
 endmodule
 "#;
 
@@ -2023,6 +2039,81 @@ endmodule
                 },
             ),
             (
+                // An existential successor: the `ensures` binds the argument of `td`, whose
+                // equation's result is `10 /Int ?Y`. `td` is declared `total`, a claim symbolic
+                // execution trusts (docs/compatibility.md, "A contradicted `total` attribute is
+                // named, not repaired"), so the successor is defined for every `X` and the
+                // contradiction at `X = 0` shows only on the ground input. No instance is lost:
+                // `X = 0` is on the successor's leaf.
+                "ex(777)",
+                vec![],
+                vec![-2, 0, 3],
+                every_stop(&['a']),
+                |_, stops| match stops {
+                    Stops::CutPoint('a', _) => ("cut-point", 0, "pre", None),
+                    Stops::Terminal('a', _) => ("terminal", 1, "other", None),
+                    _ => ("stuck", 1, "other", None),
+                },
+            ),
+            (
+                // An existential successor through the partial `tq`, its undefined instance
+                // `X = 0` covered by a sibling of the same priority.
+                "ey(777)",
+                vec![],
+                vec![-2, 0, 3],
+                every_stop(&['a', 'b']),
+                // `eya` is defined where `X =/= 0` and `eyb` where `X = 0`: two candidates of
+                // one step, so it branches, and no stop rule selects its one successor.
+                |v, stops| match (v.unwrap(), stops) {
+                    (_, Stops::StopAtBranch)
+                    | (_, Stops::CutPoint(_, true))
+                    | (_, Stops::Terminal(_, true)) => ("branch", 0, "pre", None),
+                    (0, _) => ("stuck", 1, "done", None),
+                    _ => ("stuck", 1, "other", None),
+                },
+            ),
+            (
+                // An existential successor through the partial `tq`: the step is undefined on
+                // `X = 0` only.
+                "eq(777)",
+                vec![],
+                vec![-2, 0, 3],
+                vec![Stops::Plain, Stops::StopAtBranch],
+                |v, _| match v.unwrap() {
+                    0 => ("trivial", 0, "pre", Some("P.eqa")),
+                    _ => ("stuck", 1, "other", None),
+                },
+            ),
+            (
+                // The `ex` shape beside two constrained siblings, sampled where they do not
+                // apply, as `ev` (through the partial `tq`) and `ez` (no function at all): an
+                // existential the `ensures` equates with `X` is `X`, so the step's remainder is
+                // decided and the successor takes every instance. Stopping at branches, the
+                // symbolic siblings make the step a branch point under strategy all.
+                "ew(777)",
+                vec![],
+                vec![-2, 0, 3],
+                vec![Stops::Plain],
+                |_, _| ("stuck", 1, "other", None),
+            ),
+            (
+                "ev(777)",
+                vec![],
+                vec![-2, 0, 3],
+                vec![Stops::Plain],
+                |v, _| match v.unwrap() {
+                    0 => ("trivial", 0, "pre", Some("P.eva")),
+                    _ => ("stuck", 1, "other", None),
+                },
+            ),
+            (
+                "ez(777)",
+                vec![],
+                vec![-2, 0, 3],
+                vec![Stops::Plain],
+                |_, _| ("stuck", 1, "other", None),
+            ),
+            (
                 "br(777)",
                 vec![],
                 vec![-1, 0, 2, 4, 5, 6, 10],
@@ -2157,8 +2248,10 @@ endmodule
                             let mut holding = Vec::new();
                             for leaf in &result.leaves {
                                 let printed = text(leaf);
-                                // A ground program's leaves have no constraint to decide.
-                                let Some(value) = sample else {
+                                // A ground program's leaves, and a leaf with no constraint,
+                                // have no constraint to decide: every instance is on them.
+                                let Some(value) = sample.filter(|_| printed.starts_with("\\and{"))
+                                else {
                                     holding.push(leaf);
                                     continue;
                                 };
@@ -2196,8 +2289,15 @@ endmodule
                             let expected =
                                 vec![(reason.to_owned(), depth, state, label.map(str::to_owned))];
                             if found != expected {
+                                let leaves = result
+                                    .leaves
+                                    .iter()
+                                    .map(|leaf| {
+                                        format!("{:?}@{} {}", leaf.reason, leaf.depth, text(leaf))
+                                    })
+                                    .collect::<Vec<_>>();
                                 wrong.push(format!(
-                                    "{context} N = {sample:?}: {found:?}, expected {expected:?}"
+                                    "{context} N = {sample:?}: {found:?}, expected {expected:?}; leaves {leaves:?}"
                                 ));
                             }
                         }

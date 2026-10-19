@@ -16,7 +16,7 @@
 //!
 //! [[cost]]
 //! mode = "one proof"
-//! bound = "O(s) x (simplification + one is_sat + implication when depth >= min_depth + O(c) claim applications + one rewrite step), plus u leaf simplifications at the breadth limit, plus for each Stuck leaf on a certifiable trace (stuck_leaf) up to two is_sat queries and two rewrite steps"
+//! bound = "O(s) x (simplification + one is_sat + implication when depth >= min_depth + O(c) claim applications + one rewrite step), plus u leaf simplifications at the breadth limit, plus for each Stuck leaf on a certifiable trace (stuck_leaf) up to two is_sat queries and two rewrite steps, plus for a step's undefined step (decide_undefined_step, shared with executions) one normalization of each sibling candidate not yet normalized, one predicate simplification and one is_sat per undefined candidate and trivial entry, and one more simplification when several are non-empty over one term; a step with trivial entries and an applied candidate normalizes each candidate within the step"
 //! ```
 //!
 //! Reachability-logic proof search: per explored state one
@@ -57,12 +57,14 @@ use crate::{
         MatchMode, MatchResult, match_terms_in_definition, solve_collection_pairs_in_definition,
     },
     rewrite::{
-        IndeterminateReason, Pattern, RecoveredMatch, RemainderBranch, RewriteResult, TraceEntry,
-        TraceKind, TrivialApplication, Truth, UndecidedStep, collection_unification_definedness,
-        conjunctively_contains_alpha_equivalent, predicates_truth, quantify_introduced_variables,
-        recover_indeterminate_match, rewrite_step_sequential_tracking_dropped,
-        rewrite_step_sequential_with_options, rewrite_step_with_options, simplify_leaf_pattern,
-        substitute_predicates,
+        HaltReason, IndeterminateReason, Pattern, RecoveredMatch, RemainderBranch, RewriteResult,
+        Sibling, TraceEntry, TraceKind, Truth, UndecidedStep, UndefinedDecision, UndefinedGroup,
+        UndefinedPart, collection_unification_definedness, conjunctively_contains_alpha_equivalent,
+        decide_undefined_step, entry_undefined_part, predicates_truth,
+        quantify_introduced_variables, recover_indeterminate_match,
+        rewrite_step_sequential_tracking_dropped, rewrite_step_sequential_with_options,
+        rewrite_step_with_options, sibling_undefined_parts, simplify_leaf_pattern,
+        substitute_predicates, successor_undefinedness,
     },
     simplify::{
         ContradictedTotal, DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError,
@@ -311,6 +313,7 @@ pub fn prove_claim(
         kind: ProofStateKind::Rewritable,
         alternative_discarded: false,
         destination_undecided: false,
+        producer: None,
     }]);
     let mut leaves = Vec::new();
     // The claim's universals are fixed for the whole proof, including those that the path
@@ -440,6 +443,45 @@ pub fn prove_claim(
                 }
             }};
         }
+        // A state that denotes no state, found by its normalization: when a rule step produced
+        // it, it is no successor of that step, and its instances are the step's undefined step
+        // where no other candidate takes them (`proof_undefined_step`); otherwise, or when the
+        // configuration the step was taken from has no instance, it is `Vacuous`.
+        macro_rules! record_bottom {
+            ($contradicted_total:expr) => {{
+                let contradicted_total: Option<Box<ContradictedTotal>> = $contradicted_total;
+                match proof_undefined_step(
+                    definition,
+                    &state,
+                    contradicted_total.clone(),
+                    options,
+                    solver,
+                ) {
+                    Ok(ProofUndefined::Leaves(undefined)) => {
+                        for (undefined, contradicted_total) in undefined {
+                            let outcome =
+                                vacuous_outcome(&undefined, options, ProofLeafOutcome::Trivial);
+                            record_leaf!(
+                                undefined
+                                    .leaf(outcome)
+                                    .with_contradicted_total(contradicted_total)
+                            );
+                        }
+                    }
+                    Ok(ProofUndefined::Covered) => {}
+                    Ok(ProofUndefined::NoInstance) => {
+                        let outcome = vacuous_outcome(&state, options, ProofLeafOutcome::Vacuous);
+                        record_leaf!(
+                            state
+                                .leaf(outcome)
+                                .with_contradicted_total(contradicted_total)
+                        );
+                    }
+                    Err(stop) => publish_stop!(stop.into_cause()),
+                }
+                continue 'states;
+            }};
+        }
         finish_if_interrupted!();
         let simplified_constraints = match simplify_predicates_with_solver(
             definition,
@@ -462,9 +504,7 @@ pub fn prove_claim(
             }
         };
         if predicates_truth(&state.pattern.constraints) == Truth::False {
-            let outcome = vacuous_outcome(&state, options, ProofLeafOutcome::Vacuous);
-            record_leaf!(state.leaf(outcome));
-            continue;
+            record_bottom!(None);
         }
         let simplified = match simplify_with_solver(
             definition,
@@ -509,13 +549,7 @@ pub fn prove_claim(
             Err(stop) => publish_stop!(stop.into_cause()),
         };
         if bottom {
-            let outcome = vacuous_outcome(&state, options, ProofLeafOutcome::Vacuous);
-            record_leaf!(
-                state
-                    .leaf(outcome)
-                    .with_contradicted_total(contradicted_total)
-            );
-            continue;
+            record_bottom!(contradicted_total);
         }
 
         let mut implication_indeterminate = false;
@@ -546,9 +580,7 @@ pub fn prove_claim(
                     continue;
                 }
                 Coverage::Vacuous => {
-                    let outcome = vacuous_outcome(&state, options, ProofLeafOutcome::Vacuous);
-                    record_leaf!(state.leaf(outcome));
-                    continue;
+                    record_bottom!(None);
                 }
                 // Only a coverage condition says which part of the state already lies in the
                 // destination, so only its complement is the uncovered part. A refuted
@@ -774,7 +806,7 @@ pub fn prove_claim(
             RewriteResult::Finished(applied) => {
                 if extend_frontier(
                     &mut pending,
-                    std::iter::once(state.rewritten(applied)),
+                    state.successors(vec![applied], false, 0, StepUndefinedness::default()),
                     options.breadth_limit,
                 ) {
                     return Ok(finish_at_breadth_limit(
@@ -794,10 +826,116 @@ pub fn prove_claim(
                 trivial,
                 ..
             } => {
-                let mut successors = branches
-                    .into_iter()
-                    .map(|applied| state.clone().rewritten(applied))
-                    .collect::<Vec<_>>();
+                // The instances the step itself left without a defined successor (its trivial
+                // entries) are parts of its undefined step, with those of the candidates whose
+                // successors normalize to `\bottom`: one undefined step, whose instances fail the
+                // claim, as any instance with no successor does. With such entries the
+                // candidates are normalized here, so that the undefined step is decided once;
+                // otherwise each successor decides it if it turns out to denote no state.
+                let depth = state.depth + 1;
+                let offset = trivial.len();
+                let mut parts = Vec::new();
+                for (index, entry) in trivial.iter().enumerate() {
+                    match entry_undefined_part(
+                        definition,
+                        options.max_simplification_iterations,
+                        solver,
+                        index,
+                        entry,
+                        depth,
+                    ) {
+                        Ok(Some(part)) => parts.push(part),
+                        Ok(None) => {}
+                        Err(stop) => publish_stop!(stop.into_cause()),
+                    }
+                }
+                finish_if_interrupted!();
+                let has_remainder = remainder.is_some();
+                let successors = if parts.is_empty() {
+                    state.successors(branches, has_remainder, offset, Default::default())
+                } else {
+                    let mut defined = Vec::with_capacity(branches.len());
+                    for (candidate, applied) in branches.into_iter().enumerate() {
+                        let rule = applied.observing_rule();
+                        let undefined = match successor_undefinedness(
+                            definition,
+                            &applied.pattern,
+                            &applied.before.constraints,
+                            simplification,
+                            solver,
+                            None,
+                        ) {
+                            Ok(undefined) => undefined,
+                            Err(stop) => publish_stop!(stop.into_cause()),
+                        };
+                        match undefined {
+                            Some(undefined) => parts.push(UndefinedPart::candidate(
+                                offset + candidate,
+                                &applied.before,
+                                &applied.pattern,
+                                &applied.unique_id,
+                                &applied.label,
+                                rule,
+                                undefined.halt(depth),
+                                Vec::new(),
+                                applied.remainder_simplifications.clone(),
+                            )),
+                            None => defined.push(applied),
+                        }
+                    }
+                    let built = defined
+                        .iter()
+                        .map(|applied| applied.pattern.clone())
+                        .collect::<Vec<_>>();
+                    let others = !built.is_empty() || has_remainder;
+                    let decision = decide_undefined_step(
+                        definition,
+                        options.max_simplification_iterations,
+                        solver,
+                        parts,
+                        &built.iter().collect::<Vec<_>>(),
+                        others,
+                        &mut crate::diagnostic::PathDiagnostics::new_request(),
+                    );
+                    let reported = matches!(decision, Ok(UndefinedDecision::Groups(..)));
+                    match decision {
+                        Ok(UndefinedDecision::Groups(groups, _)) => {
+                            for group in groups {
+                                let (undefined, contradicted_total) = state.undefined_group(group);
+                                let outcome =
+                                    vacuous_outcome(&undefined, options, ProofLeafOutcome::Trivial);
+                                record_leaf!(
+                                    undefined
+                                        .leaf(outcome)
+                                        .with_contradicted_total(contradicted_total)
+                                );
+                            }
+                        }
+                        Ok(UndefinedDecision::Covered) => {}
+                        Ok(UndefinedDecision::NoInstance) => {
+                            // Nothing is dropped: no instance is left without a defined candidate
+                            // or a remainder to take it.
+                            debug_assert!(
+                                built.is_empty() && !has_remainder,
+                                "an undefined step with no instance leaves no defined candidate and no remainder"
+                            );
+                            let outcome =
+                                vacuous_outcome(&state, options, ProofLeafOutcome::Vacuous);
+                            record_leaf!(state.clone().leaf(outcome));
+                            continue;
+                        }
+                        Err(stop) => publish_stop!(stop.into_cause()),
+                    }
+                    finish_if_interrupted!();
+                    let count = defined.len();
+                    state.successors(
+                        defined,
+                        has_remainder,
+                        offset,
+                        StepUndefinedness::decided(offset, count, reported),
+                    )
+                };
+                let mut successors = successors;
                 if let Some(remainder) = remainder {
                     successors.push(state.clone().rewrite_remaining(remainder));
                 }
@@ -811,31 +949,6 @@ pub fn prove_claim(
                         options,
                         solver,
                     ));
-                }
-                // Every entry, refuted or carried, stands for the instances whose step is
-                // undefined: a rule applies to them, and neither it nor any applied sibling of
-                // its priority group gives them a defined successor. Such an instance reaches
-                // no configuration, so it fails the claim like any other empty result, unless
-                // the entry has no instance.
-                for trivial in trivial {
-                    let contradicted_total = trivial.contradicted_total.clone();
-                    // The stop is published before the poll, which would drop it unpublished.
-                    let trivial_state =
-                        match undefined_step_state(definition, &state, trivial, options, solver) {
-                            Ok(trivial_state) => trivial_state,
-                            Err(stop) => publish_stop!(stop.into_cause()),
-                        };
-                    finish_if_interrupted!();
-                    let Some(trivial_state) = trivial_state else {
-                        continue;
-                    };
-                    let outcome =
-                        vacuous_outcome(&trivial_state, options, ProofLeafOutcome::Trivial);
-                    record_leaf!(
-                        trivial_state
-                            .leaf(outcome)
-                            .with_contradicted_total(contradicted_total)
-                    );
                 }
             }
             RewriteResult::Stuck(_) => {
@@ -1195,6 +1308,48 @@ struct ProofState {
     /// was skipped (below the minimum depth) or undecided. Part of its configurations may then
     /// have satisfied the claim there, before the path went on.
     destination_undecided: bool,
+    /// The rule step that produced this state, for the undefined step it is when it turns out
+    /// to denote no state ([`proof_undefined_step`]); `None` for a state no rule step produced.
+    producer: Option<std::rc::Rc<ProofProducer>>,
+}
+
+/// The rule step that produced a proof state: the state it was taken from, the candidate whose
+/// successor the state is, the step's other applied candidates, whether it left a remainder,
+/// and what its successors have decided about its undefined step, shared among them.
+struct ProofProducer {
+    parent: ProofState,
+    candidate: Sibling,
+    siblings: Vec<Sibling>,
+    has_remainder: bool,
+    undefined: std::rc::Rc<std::cell::RefCell<StepUndefinedness>>,
+}
+
+/// What a step's undefined step has come to so far ([`proof_undefined_step`]).
+///
+/// A decision splits the step's candidates into parts, whose instances it reports where no
+/// candidate counted defined takes them, and candidates counted defined, whose instances it
+/// excludes. A candidate's normalization within the decision is not its proof state's: the
+/// state goes on to a satisfiability check of its whole constraint and to the destination
+/// check, either of which can show it denotes no state. A candidate counted defined whose state
+/// then denotes no state is no successor either, and its instances were excluded from every
+/// earlier decision; it takes its own decision, against the candidates still counted defined.
+#[derive(Clone, Debug, Default)]
+struct StepUndefinedness {
+    /// The candidates still counted defined; `None` until the step's first decision.
+    defined: Option<std::collections::BTreeSet<usize>>,
+    /// Whether a decision of the step reported an instance.
+    reported: bool,
+}
+
+impl StepUndefinedness {
+    /// A step whose undefined step was decided within it, counting every one of its `count`
+    /// successors (numbered from `offset`) defined; `reported` says whether it found instances.
+    fn decided(offset: usize, count: usize, reported: bool) -> Self {
+        Self {
+            defined: Some((offset..offset + count).collect()),
+            reported,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -1227,6 +1382,7 @@ impl ProofState {
     }
 
     fn rewritten(mut self, applied: crate::rewrite::AppliedRule) -> Self {
+        self.producer = None;
         for simplification in &applied.remainder_simplifications {
             self.trace.extend(
                 simplification
@@ -1254,6 +1410,7 @@ impl ProofState {
     }
 
     fn claimed(mut self, pattern: Pattern, label: Option<String>, unique_id: String) -> Self {
+        self.producer = None;
         self.depth += 1;
         self.trace.push(TraceEntry {
             depth: self.depth,
@@ -1267,6 +1424,7 @@ impl ProofState {
     }
 
     fn remaining(mut self, remainder: crate::rewrite::RemainderBranch) -> Self {
+        self.producer = None;
         self.trace.push(TraceEntry {
             depth: self.depth,
             kind: TraceKind::Remainder,
@@ -1294,6 +1452,104 @@ impl ProofState {
     fn rewrite_remaining(mut self, remainder: crate::rewrite::RemainderBranch) -> Self {
         self.kind = ProofStateKind::Remaining(remainder.indeterminate.clone());
         self.remaining(remainder)
+    }
+
+    /// The successors of the step `self` took, one per applied candidate, each knowing the
+    /// others for its undefined step; `offset` is the number of the step's trivial entries,
+    /// which come first among its candidates, and `undefined` what the step already decided
+    /// about its undefined step.
+    fn successors(
+        &self,
+        branches: Vec<crate::rewrite::AppliedRule>,
+        has_remainder: bool,
+        offset: usize,
+        undefined: StepUndefinedness,
+    ) -> Vec<ProofState> {
+        let parent = ProofState {
+            producer: None,
+            ..self.clone()
+        };
+        let candidates = branches
+            .iter()
+            .enumerate()
+            .map(|(index, applied)| Sibling::of(offset + index, applied))
+            .collect::<Vec<_>>();
+        let undefined = std::rc::Rc::new(std::cell::RefCell::new(undefined));
+        branches
+            .into_iter()
+            .zip(&candidates)
+            .map(|(applied, candidate)| {
+                let siblings = candidates
+                    .iter()
+                    .filter(|sibling| sibling.index != candidate.index)
+                    .cloned()
+                    .collect();
+                let mut successor = parent.clone().rewritten(applied);
+                successor.producer = Some(std::rc::Rc::new(ProofProducer {
+                    parent: parent.clone(),
+                    candidate: candidate.clone(),
+                    siblings,
+                    has_remainder,
+                    undefined: undefined.clone(),
+                }));
+                successor
+            })
+            .collect()
+    }
+
+    /// The proof state of one group of a step's undefined step taken from `self`: the
+    /// configuration under the group's conditions, one rewrite step below, on the path through
+    /// the remainder simplifications its first part went through, naming that part's rule.
+    fn undefined_group(
+        &self,
+        group: UndefinedGroup,
+    ) -> (ProofState, Option<Box<ContradictedTotal>>) {
+        let mut undefined = ProofState {
+            producer: None,
+            ..self.clone()
+        };
+        for simplification in &group.remainder_simplifications {
+            undefined.trace.extend(
+                simplification
+                    .applied_rules
+                    .iter()
+                    .cloned()
+                    .map(|unique_id| TraceEntry {
+                        depth: self.depth,
+                        kind: TraceKind::Simplification,
+                        label: None,
+                        unique_id,
+                    }),
+            );
+        }
+        let (rule_id, label, contradicted_total) = match group.halt {
+            HaltReason::Trivial {
+                rule_id,
+                label,
+                contradicted_total,
+                ..
+            } => (rule_id, label, contradicted_total),
+            HaltReason::Stopped(_)
+            | HaltReason::Stuck
+            | HaltReason::Vacuous { .. }
+            | HaltReason::Branch { .. }
+            | HaltReason::CutPointRule { .. }
+            | HaltReason::TerminalRule { .. }
+            | HaltReason::DepthBound
+            | HaltReason::BreadthBound
+            | HaltReason::WorkBound
+            | HaltReason::Indeterminate(_)
+            | HaltReason::Simplification(_) => (None, None, None),
+        };
+        undefined.pattern = group.pattern;
+        undefined.depth += 1;
+        undefined.trace.push(TraceEntry {
+            depth: undefined.depth,
+            kind: TraceKind::Rewrite,
+            label,
+            unique_id: rule_id.unwrap_or_else(|| "trivial".into()),
+        });
+        (undefined, contradicted_total)
     }
 }
 
@@ -1948,53 +2204,109 @@ fn is_proven(leaf: &ProofLeaf) -> bool {
     )
 }
 
-/// The proof state of the instances `trivial` leaves with an undefined step, one rewrite step
-/// below `state`, or `None` when that set is shown empty
-/// ([`TrivialApplication::decided_undefined_instances`]).
+/// What a proof state that denotes no state comes to ([`proof_undefined_step`]).
+enum ProofUndefined {
+    /// The undefined step of the step that produced it: its `Trivial` states.
+    Leaves(Vec<(ProofState, Option<Box<ContradictedTotal>>)>),
+    /// No instance is left undefined: another candidate or the remainder takes every instance,
+    /// or an earlier decision of the step already reported its instances.
+    Covered,
+    /// The configuration the step was taken from has no instance, or no rule step produced the
+    /// state: it is `Vacuous`.
+    NoInstance,
+}
+
+/// `state`, which its normalization showed to denote no state: when a rule step produced it, it
+/// is no successor of that step, an all-path claim has no path through it, and its instances
+/// are the step's undefined step where no other candidate takes them, decided as an execution
+/// decides it ([`decide_undefined_step`]).
 ///
-/// The state is `trivial.before` (the pattern the rule was applied to, which for a lower
-/// priority group is the remainder of the higher ones) constrained by `trivial.undefined`, so an
-/// instance that a higher group or an applied sibling takes is not in it. An empty set holds no
-/// instance of the claim, so it is dropped rather than reported as a vacuous path.
-fn undefined_step_state(
+/// The first successor of a step to find this decides for the step, after normalizing the
+/// step's other candidates: those shown undefined are parts with it, the others are counted
+/// defined ([`StepUndefinedness`]). A later successor that was a part is covered: its instances
+/// are in that decision. A later successor that was counted defined had its instances excluded
+/// from every decision so far, so it takes its own decision, excluded by the candidates still
+/// counted defined; the instances it reports are disjoint from every earlier decision's, and an
+/// instance on which every candidate that applies denotes no state is reported by the decision
+/// of the last of them to be found so.
+fn proof_undefined_step(
     definition: &BackendDefinition,
     state: &ProofState,
-    trivial: TrivialApplication,
+    contradicted_total: Option<Box<ContradictedTotal>>,
     options: ProofOptions,
     solver: &dyn SmtSolver,
-) -> Stoppable<Option<ProofState>> {
-    let Some(pattern) = trivial.decided_undefined_instances(
+) -> Stoppable<ProofUndefined> {
+    let Some(producer) = &state.producer else {
+        return Ok(ProofUndefined::NoInstance);
+    };
+    let candidate = &producer.candidate;
+    let earlier = producer.undefined.borrow().clone();
+    if let Some(defined) = &earlier.defined
+        && !defined.contains(&candidate.index)
+    {
+        return Ok(ProofUndefined::Covered);
+    }
+    let depth = producer.parent.depth + 1;
+    let halt = HaltReason::Trivial {
+        depth,
+        rule_id: None,
+        label: None,
+        obligation: crate::rule::Predicate::False,
+        contradicted_total,
+    };
+    let mut parts = vec![candidate.part(halt)];
+    let mut diagnostics = crate::diagnostic::PathDiagnostics::new_request();
+    let defined = match &earlier.defined {
+        Some(defined) => producer
+            .siblings
+            .iter()
+            .filter(|sibling| defined.contains(&sibling.index))
+            .collect::<Vec<_>>(),
+        None => {
+            let mut defined = Vec::with_capacity(producer.siblings.len());
+            sibling_undefined_parts(
+                definition,
+                options.max_simplification_iterations,
+                solver,
+                None,
+                &producer.siblings,
+                depth,
+                &mut parts,
+                &mut defined,
+                &mut diagnostics,
+            )?;
+            defined
+        }
+    };
+    // An earlier decision's instances are accounted for, so this one finding none is no sign
+    // that the configuration has no instance.
+    let others = producer.has_remainder || !defined.is_empty() || earlier.reported;
+    let decision = decide_undefined_step(
         definition,
         options.max_simplification_iterations,
         solver,
-    )?
-    else {
-        return Ok(None);
+        parts,
+        &defined
+            .iter()
+            .map(|sibling| sibling.built())
+            .collect::<Vec<_>>(),
+        others,
+        &mut diagnostics,
+    )?;
+    *producer.undefined.borrow_mut() = StepUndefinedness {
+        defined: Some(defined.iter().map(|sibling| sibling.index).collect()),
+        reported: earlier.reported || matches!(decision, UndefinedDecision::Groups(..)),
     };
-    let mut undefined = state.clone();
-    undefined.pattern = pattern;
-    for simplification in &trivial.remainder_simplifications {
-        undefined.trace.extend(
-            simplification
-                .applied_rules
-                .iter()
-                .cloned()
-                .map(|unique_id| TraceEntry {
-                    depth: state.depth,
-                    kind: TraceKind::Simplification,
-                    label: None,
-                    unique_id,
-                }),
-        );
-    }
-    undefined.depth += 1;
-    undefined.trace.push(TraceEntry {
-        depth: undefined.depth,
-        kind: TraceKind::Rewrite,
-        label: trivial.label,
-        unique_id: trivial.rule_id,
-    });
-    Ok(Some(undefined))
+    Ok(match decision {
+        UndefinedDecision::Groups(groups, _) => ProofUndefined::Leaves(
+            groups
+                .into_iter()
+                .map(|group| producer.parent.undefined_group(group))
+                .collect(),
+        ),
+        UndefinedDecision::Covered => ProofUndefined::Covered,
+        UndefinedDecision::NoInstance => ProofUndefined::NoInstance,
+    })
 }
 
 /// Whether the state's constraints are shown unsatisfiable. A stop of the solver's query is

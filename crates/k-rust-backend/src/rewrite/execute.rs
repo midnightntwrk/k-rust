@@ -2191,45 +2191,22 @@ impl<'a> Execution<'a> {
         )];
         let parent_io = producer.parent.io_enabled.then_some(&producer.parent.io);
         let mut defined = Vec::with_capacity(producer.siblings.len());
-        for sibling in &producer.siblings {
-            // The sibling's normalization decides this leaf, so its work is the leaf's; a
-            // contradiction it observes is its own rule's.
-            let (undefined, work) = crate::path_facts::collect_with_diagnostics(|| {
-                crate::path_facts::observed_by(
-                    || Some(sibling.rule.clone()),
-                    || {
-                        successor_undefinedness(
-                            self.definition,
-                            &sibling.built,
-                            &sibling.before.constraints,
-                            SimplificationOptions::keep_partial(
-                                self.options.max_simplification_iterations,
-                            ),
-                            self.solver,
-                            parent_io,
-                        )
-                    },
-                )
-            });
-            match undefined? {
-                Some(undefined) => parts.push(UndefinedPart::candidate(
-                    sibling.index,
-                    &sibling.before,
-                    &sibling.built,
-                    &sibling.rule_id,
-                    &sibling.label,
-                    sibling.rule.clone(),
-                    undefined.halt(depth),
-                    work,
-                    sibling.remainder_simplifications.clone(),
-                )),
-                None => {
-                    diagnostics.extend(&work);
-                    defined.push(&sibling.built);
-                }
-            }
-        }
+        sibling_undefined_parts(
+            self.definition,
+            self.options.max_simplification_iterations,
+            self.solver,
+            parent_io,
+            &producer.siblings,
+            depth,
+            &mut parts,
+            &mut defined,
+            &mut diagnostics,
+        )?;
         let others = producer.has_remainder || !defined.is_empty();
+        let defined = defined
+            .iter()
+            .map(|sibling| sibling.built())
+            .collect::<Vec<_>>();
         self.undefined_step(&producer.parent, diagnostics, parts, &defined, others)
     }
 
@@ -2280,92 +2257,27 @@ impl<'a> Execution<'a> {
         defined: &[&Pattern],
         others: bool,
     ) -> Stoppable<UndefinedStep> {
-        let mut found = Vec::with_capacity(parts.len());
-        for mut part in parts {
-            diagnostics.extend(&part.diagnostics);
-            if part.decided {
-                found.push(part);
-                continue;
-            }
-            for sibling in defined {
-                let applies = beyond(&sibling.constraints, &part.base);
-                part.pattern
-                    .constraints
-                    .push(Predicate::Not(Arc::new(conjunction(closed_over(
-                        applies,
-                        &part.bound,
-                    )))));
-            }
-            let rule = part.rule.clone();
-            let (simplified, work) = crate::path_facts::collect_with_diagnostics(|| {
-                crate::path_facts::observed_by(
-                    || rule,
-                    || {
-                        simplify_predicates_with_solver(
-                            self.definition,
-                            &part.pattern.constraints,
-                            &[],
-                            SimplificationOptions::keep_partial(
-                                self.options.max_simplification_iterations,
-                            ),
-                            self.solver,
-                        )
-                    },
-                )
-            });
-            diagnostics.extend(&work);
-            match simplified {
-                Ok(Ok(simplified)) => part.pattern.constraints = simplified,
-                // A failed simplification only loses precision.
-                Ok(Err(_failure)) => {}
-                Err(stop) => stop.forgo_refinement(),
-            }
-            let empty = predicates_truth(&part.pattern.constraints) == Truth::False
-                || matches!(
-                    self.solver
-                        .is_sat(&part.pattern.constraints, &Substitution::new())?,
-                    Ok(Satisfiability::Unsat)
-                );
-            if !empty {
-                found.push(part);
-            }
-        }
-        if found.is_empty() {
-            return Ok(if others {
-                UndefinedStep::Covered
-            } else {
-                UndefinedStep::NoInstance
-            });
-        }
-        found.sort_by_key(|part| part.index);
-        // The instances the leaves stand for, part by part, whatever their terms.
-        let excluded = Exclusion(
-            found
-                .iter()
-                .map(|part| part.pattern.constraints.clone())
-                .collect(),
-        );
-        // One leaf per pre-step term, in the order of their first parts.
-        let mut groups: Vec<Vec<UndefinedPart>> = Vec::new();
-        for part in found {
-            match groups
-                .iter_mut()
-                .find(|group| group[0].pattern.term == part.pattern.term)
-            {
-                Some(group) => group.push(part),
-                None => groups.push(vec![part]),
-            }
-        }
+        let decision = decide_undefined_step(
+            self.definition,
+            self.options.max_simplification_iterations,
+            self.solver,
+            parts,
+            defined,
+            others,
+            &mut diagnostics,
+        )?;
+        let (groups, excluded) = match decision {
+            UndefinedDecision::Groups(groups, excluded) => (groups, excluded),
+            UndefinedDecision::Covered => return Ok(UndefinedStep::Covered),
+            UndefinedDecision::NoInstance => return Ok(UndefinedStep::NoInstance),
+        };
         let mut leaves = Vec::with_capacity(groups.len());
         for group in groups {
-            let constraints = self.joined_conditions(&group)?;
-            let mut parts = group.into_iter();
-            let first = parts.next().expect("a group has a part");
             let mut leaf = ExecutionState {
                 diagnostics: diagnostics.clone(),
                 ..parent.clone()
             };
-            for simplification in &first.remainder_simplifications {
+            for simplification in &group.remainder_simplifications {
                 leaf.observation = self.observation_log.append_simplification(
                     leaf.observation,
                     self.definition,
@@ -2389,104 +2301,26 @@ impl<'a> Execution<'a> {
                         }),
                 );
             }
-            let pattern = Pattern {
-                term: first.pattern.term,
-                constraints,
-            };
-            leaves.push(leaf.leaf_with_pattern(pattern, first.halt, &self.observation_log));
+            leaves.push(leaf.leaf_with_pattern(group.pattern, group.halt, &self.observation_log));
         }
         Ok(UndefinedStep::Leaves(leaves, excluded))
     }
 
-    /// The constraints of one leaf for the non-empty `group` of parts over one term: the part's
-    /// own for one part; for several, the conjuncts they all have, and the disjunction of what
-    /// remains of each, simplified.
-    fn joined_conditions(&self, group: &[UndefinedPart]) -> Stoppable<Vec<Predicate>> {
-        if let [part] = group {
-            return Ok(part.pattern.constraints.clone());
-        }
-        let common = group[0]
-            .pattern
-            .constraints
-            .iter()
-            .filter(|predicate| {
-                group
-                    .iter()
-                    .all(|part| part.pattern.constraints.contains(predicate))
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-        let rests = group
-            .iter()
-            .map(|part| beyond(&part.pattern.constraints, &common))
-            .collect::<Vec<_>>();
-        if rests.iter().any(Vec::is_empty) {
-            return Ok(common);
-        }
-        let mut constraints = common;
-        constraints.push(Predicate::Or(
-            rests
-                .into_iter()
-                .map(conjunction)
-                .collect::<Vec<_>>()
-                .into(),
-        ));
-        let rule = group[0].rule.clone();
-        let (simplified, _work) = crate::path_facts::collect_with_diagnostics(|| {
-            crate::path_facts::observed_by(
-                || rule,
-                || {
-                    simplify_predicates_with_solver(
-                        self.definition,
-                        &constraints,
-                        &[],
-                        SimplificationOptions::keep_partial(
-                            self.options.max_simplification_iterations,
-                        ),
-                        self.solver,
-                    )
-                },
-            )
-        });
-        Ok(match simplified? {
-            Ok(simplified) => simplified,
-            Err(_failure) => constraints,
-        })
-    }
-
-    /// The part of `entry`, a bottom-result sub-case of a step the step itself found (at the
-    /// successor's `depth`): the pattern it was applied to, restricted to `entry.undefined`,
-    /// on the path through the higher-priority remainder simplifications it went through.
-    /// `None` when that set is shown empty ([`TrivialApplication::decided_undefined_instances`]).
+    /// [`entry_undefined_part`] with this run's simplifier and solver.
     fn entry_part(
         &mut self,
         index: usize,
         entry: &TrivialApplication,
         depth: u64,
     ) -> Stoppable<Option<UndefinedPart>> {
-        let (pattern, work) = crate::path_facts::collect_with_diagnostics(|| {
-            entry.decided_undefined_instances(
-                self.definition,
-                self.options.max_simplification_iterations,
-                self.solver,
-            )
-        });
-        let Some(pattern) = pattern? else {
-            return Ok(None);
-        };
-        let mut diagnostics = entry.diagnostics.clone();
-        extend_distinct(&mut diagnostics, &work);
-        Ok(Some(UndefinedPart {
+        entry_undefined_part(
+            self.definition,
+            self.options.max_simplification_iterations,
+            self.solver,
             index,
-            base: entry.before.constraints.clone(),
-            bound: pattern_variables(&entry.before),
-            pattern,
-            decided: true,
-            halt: applied_trivial_halt(depth, entry),
-            rule: None,
-            diagnostics,
-            remainder_simplifications: entry.remainder_simplifications.clone(),
-        }))
+            entry,
+            depth,
+        )
     }
 
     /// After a push: `BreadthBound` when `pending` exceeds `max_breadth` (the bound appends
@@ -3062,7 +2896,7 @@ pub(crate) struct UndefinedSuccessor {
 impl UndefinedSuccessor {
     /// The `Trivial` halt of the step that built the successor, at the successor's `depth`; the
     /// leaf names the step's rule ([`Execution::undefined_step_leaf`]).
-    fn halt(self, depth: u64) -> HaltReason {
+    pub(crate) fn halt(self, depth: u64) -> HaltReason {
         HaltReason::Trivial {
             depth,
             rule_id: None,
@@ -3098,6 +2932,11 @@ pub(crate) struct SuccessorCheck {
     /// The results of the normalization's phases, which the successor state's own
     /// normalization takes instead of repeating them; `None` when a phase failed.
     pub(crate) normalization: Option<SuccessorNormalization>,
+    /// The successor's constraints after both phases, with the conditions its term
+    /// simplification conjoined: the constraints of the state built from it, whose
+    /// satisfiability a one-path proof's sequential step asks (`rewrite::step`). `None` when a
+    /// phase failed or the constraint phase showed the successor undefined.
+    pub(crate) constraints: Option<Vec<Predicate>>,
 }
 
 /// The results of the two phases of a successor's normalization ([`normalize_successor`]), with
@@ -3209,6 +3048,7 @@ fn normalize_successor_with(
     let failed = SuccessorCheck {
         undefined: None,
         normalization: None,
+        constraints: None,
     };
     let mut pattern = successor.clone();
     let retained_substitution =
@@ -3248,6 +3088,7 @@ fn normalize_successor_with(
                     contradicted_total: None,
                 }),
                 normalization: Some(normalization),
+                constraints: None,
             },
             None,
         ));
@@ -3296,17 +3137,19 @@ fn normalize_successor_with(
         io: evaluation.map(|evaluation| evaluation.commit()),
     });
     pattern.constraints.extend(parts.conditions);
+    let undefined = (predicates_truth(&pattern.constraints) == Truth::False).then(|| {
+        term_phase_undefinedness(
+            parts.undefined_term,
+            parts.contradicted_total,
+            found_bottom,
+            &pattern,
+        )
+    });
     Ok((
         SuccessorCheck {
-            undefined: (predicates_truth(&pattern.constraints) == Truth::False).then(|| {
-                term_phase_undefinedness(
-                    parts.undefined_term,
-                    parts.contradicted_total,
-                    found_bottom,
-                    &pattern,
-                )
-            }),
+            undefined,
             normalization: Some(normalization),
+            constraints: Some(pattern.constraints),
         },
         bottom,
     ))
@@ -3808,8 +3651,8 @@ struct Producer {
 
 /// Another applied candidate of a successor's step ([`Producer::siblings`]).
 #[derive(Clone)]
-struct Sibling {
-    index: usize,
+pub(crate) struct Sibling {
+    pub(crate) index: usize,
     before: Pattern,
     built: Pattern,
     rule: crate::path_facts::ObservingRule,
@@ -3819,7 +3662,28 @@ struct Sibling {
 }
 
 impl Sibling {
-    fn of(index: usize, applied: &AppliedRule) -> Self {
+    /// This candidate as a part of its step's undefined step, its successor undefined (`halt`,
+    /// named for it here).
+    pub(crate) fn part(&self, halt: HaltReason) -> UndefinedPart {
+        UndefinedPart::candidate(
+            self.index,
+            &self.before,
+            &self.built,
+            &self.rule_id,
+            &self.label,
+            self.rule.clone(),
+            halt,
+            Vec::new(),
+            self.remainder_simplifications.clone(),
+        )
+    }
+
+    /// The candidate's successor as the step built it.
+    pub(crate) fn built(&self) -> &Pattern {
+        &self.built
+    }
+
+    pub(crate) fn of(index: usize, applied: &AppliedRule) -> Self {
         Self {
             index,
             before: applied.before.clone(),
@@ -3876,7 +3740,7 @@ impl Producer {
 /// One way a step leaves some of its instances without a successor: an applied candidate whose
 /// result is `\bottom`, found by the step itself (a trivial entry) or by its successor's
 /// normalization ([`Execution::undefined_step`]).
-struct UndefinedPart {
+pub(crate) struct UndefinedPart {
     /// The candidate's position among the step's reported candidates.
     index: usize,
     /// The instances the candidate leaves without a successor before the defined candidates
@@ -3903,7 +3767,7 @@ impl UndefinedPart {
     /// The part of a candidate applied to `before` whose successor, `built` as the step built
     /// it, is undefined (`halt`, named for the candidate here).
     #[allow(clippy::too_many_arguments)]
-    fn candidate(
+    pub(crate) fn candidate(
         index: usize,
         before: &Pattern,
         built: &Pattern,
@@ -3948,6 +3812,283 @@ impl UndefinedPart {
             remainder_simplifications,
         }
     }
+}
+
+/// One `Trivial` leaf of a step's undefined step ([`decide_undefined_step`]): the configuration
+/// the step was taken from under the joined conditions of its parts over one term, the halt of
+/// its first part, and the higher-priority remainder simplifications that part went through.
+pub(crate) struct UndefinedGroup {
+    pub(crate) pattern: Pattern,
+    pub(crate) halt: HaltReason,
+    pub(crate) remainder_simplifications: Vec<RemainderSimplification>,
+}
+
+/// What a step's undefined parts come to, before any route builds its leaves from them.
+pub(crate) enum UndefinedDecision {
+    /// The undefined step's leaves, one per pre-step term, and the instances they stand for.
+    Groups(Vec<UndefinedGroup>, Exclusion),
+    /// Every part is shown empty while a defined candidate or a remainder is left.
+    Covered,
+    /// Every part is shown empty and nothing else is left: the configuration has no instance.
+    NoInstance,
+}
+
+/// The undefined step of a step: the instances on which a candidate of the step applies and
+/// every candidate that applies is undefined (`parts`), outside the instances its defined
+/// candidates take (`defined`, their successors as the step built them). `others` says whether
+/// a defined candidate or a remainder takes some instance. Every part's work is added to
+/// `diagnostics`, since the leaf rests on every candidate being undefined. This is the one
+/// decision every route takes (executions and proofs alike); each builds its own leaves from
+/// the groups.
+///
+/// Each part not already decided is restricted, simplified and checked for emptiness. The
+/// non-empty parts make one leaf per pre-step term, under the disjunction of their conditions
+/// (their common conjuncts kept as they are), naming the first part. With no non-empty part the
+/// step is [`UndefinedDecision::Covered`] when another candidate or the remainder takes some
+/// instance, and otherwise has no instance at all ([`UndefinedDecision::NoInstance`]): every
+/// instance of a configuration either has a rule of its first applicable priority that
+/// applies, or is the remainder's. A stop is returned.
+pub(crate) fn decide_undefined_step(
+    definition: &BackendDefinition,
+    max_iterations: usize,
+    solver: &dyn SmtSolver,
+    parts: Vec<UndefinedPart>,
+    defined: &[&Pattern],
+    others: bool,
+    diagnostics: &mut PathDiagnostics,
+) -> Stoppable<UndefinedDecision> {
+    let mut found = Vec::with_capacity(parts.len());
+    for mut part in parts {
+        diagnostics.extend(&part.diagnostics);
+        if part.decided {
+            found.push(part);
+            continue;
+        }
+        for sibling in defined {
+            let applies = beyond(&sibling.constraints, &part.base);
+            part.pattern
+                .constraints
+                .push(Predicate::Not(Arc::new(conjunction(closed_over(
+                    applies,
+                    &part.bound,
+                )))));
+        }
+        let rule = part.rule.clone();
+        let (simplified, work) = crate::path_facts::collect_with_diagnostics(|| {
+            crate::path_facts::observed_by(
+                || rule,
+                || {
+                    simplify_predicates_with_solver(
+                        definition,
+                        &part.pattern.constraints,
+                        &[],
+                        SimplificationOptions::keep_partial(max_iterations),
+                        solver,
+                    )
+                },
+            )
+        });
+        diagnostics.extend(&work);
+        match simplified {
+            Ok(Ok(simplified)) => part.pattern.constraints = simplified,
+            // A failed simplification only loses precision.
+            Ok(Err(_failure)) => {}
+            Err(stop) => stop.forgo_refinement(),
+        }
+        let empty = predicates_truth(&part.pattern.constraints) == Truth::False
+            || matches!(
+                solver.is_sat(&part.pattern.constraints, &Substitution::new())?,
+                Ok(Satisfiability::Unsat)
+            );
+        if !empty {
+            found.push(part);
+        }
+    }
+    if found.is_empty() {
+        return Ok(if others {
+            UndefinedDecision::Covered
+        } else {
+            UndefinedDecision::NoInstance
+        });
+    }
+    found.sort_by_key(|part| part.index);
+    // The instances the leaves stand for, part by part, whatever their terms.
+    let excluded = Exclusion(
+        found
+            .iter()
+            .map(|part| part.pattern.constraints.clone())
+            .collect(),
+    );
+    // One leaf per pre-step term, in the order of their first parts.
+    let mut groups: Vec<Vec<UndefinedPart>> = Vec::new();
+    for part in found {
+        match groups
+            .iter_mut()
+            .find(|group| group[0].pattern.term == part.pattern.term)
+        {
+            Some(group) => group.push(part),
+            None => groups.push(vec![part]),
+        }
+    }
+    let mut leaves = Vec::with_capacity(groups.len());
+    for group in groups {
+        let constraints = joined_conditions(definition, max_iterations, solver, &group)?;
+        let first = group.into_iter().next().expect("a group has a part");
+        leaves.push(UndefinedGroup {
+            pattern: Pattern {
+                term: first.pattern.term,
+                constraints,
+            },
+            halt: first.halt,
+            remainder_simplifications: first.remainder_simplifications,
+        });
+    }
+    Ok(UndefinedDecision::Groups(leaves, excluded))
+}
+
+/// The constraints of one leaf for the non-empty `group` of parts over one term: the part's
+/// own for one part; for several, the conjuncts they all have, and the disjunction of what
+/// remains of each, simplified.
+fn joined_conditions(
+    definition: &BackendDefinition,
+    max_iterations: usize,
+    solver: &dyn SmtSolver,
+    group: &[UndefinedPart],
+) -> Stoppable<Vec<Predicate>> {
+    if let [part] = group {
+        return Ok(part.pattern.constraints.clone());
+    }
+    let common = group[0]
+        .pattern
+        .constraints
+        .iter()
+        .filter(|predicate| {
+            group
+                .iter()
+                .all(|part| part.pattern.constraints.contains(predicate))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let rests = group
+        .iter()
+        .map(|part| beyond(&part.pattern.constraints, &common))
+        .collect::<Vec<_>>();
+    if rests.iter().any(Vec::is_empty) {
+        return Ok(common);
+    }
+    let mut constraints = common;
+    constraints.push(Predicate::Or(
+        rests
+            .into_iter()
+            .map(conjunction)
+            .collect::<Vec<_>>()
+            .into(),
+    ));
+    let rule = group[0].rule.clone();
+    let (simplified, _work) = crate::path_facts::collect_with_diagnostics(|| {
+        crate::path_facts::observed_by(
+            || rule,
+            || {
+                simplify_predicates_with_solver(
+                    definition,
+                    &constraints,
+                    &[],
+                    SimplificationOptions::keep_partial(max_iterations),
+                    solver,
+                )
+            },
+        )
+    });
+    Ok(match simplified? {
+        Ok(simplified) => simplified,
+        Err(_failure) => constraints,
+    })
+}
+
+/// The part of `entry`, a bottom-result sub-case of a step the step itself found (at the
+/// successor's `depth`): the pattern it was applied to, restricted to `entry.undefined`, on the
+/// path through the higher-priority remainder simplifications it went through. `None` when that
+/// set is shown empty ([`TrivialApplication::decided_undefined_instances`]).
+pub(crate) fn entry_undefined_part(
+    definition: &BackendDefinition,
+    max_iterations: usize,
+    solver: &dyn SmtSolver,
+    index: usize,
+    entry: &TrivialApplication,
+    depth: u64,
+) -> Stoppable<Option<UndefinedPart>> {
+    let (pattern, work) = crate::path_facts::collect_with_diagnostics(|| {
+        entry.decided_undefined_instances(definition, max_iterations, solver)
+    });
+    let Some(pattern) = pattern? else {
+        return Ok(None);
+    };
+    let mut diagnostics = entry.diagnostics.clone();
+    extend_distinct(&mut diagnostics, &work);
+    Ok(Some(UndefinedPart {
+        index,
+        base: entry.before.constraints.clone(),
+        bound: pattern_variables(&entry.before),
+        pattern,
+        decided: true,
+        halt: applied_trivial_halt(depth, entry),
+        rule: None,
+        diagnostics,
+        remainder_simplifications: entry.remainder_simplifications.clone(),
+    }))
+}
+
+/// Normalize the step's other candidates `siblings` (not yet normalized) for the undefined step
+/// of a successor of it at `depth`: an undefined one is a part of it, added to `parts`; a defined
+/// one is added to `defined` (its successor as the step built it excludes the instances it
+/// takes), and the work of normalizing it to `diagnostics`. A contradiction a sibling's normalization observes is its own rule's.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn sibling_undefined_parts<'s>(
+    definition: &BackendDefinition,
+    max_iterations: usize,
+    solver: &dyn SmtSolver,
+    io: Option<&ExecutionIoState>,
+    siblings: &'s [Sibling],
+    depth: u64,
+    parts: &mut Vec<UndefinedPart>,
+    defined: &mut Vec<&'s Sibling>,
+    diagnostics: &mut PathDiagnostics,
+) -> Stoppable<()> {
+    for sibling in siblings {
+        let (undefined, work) = crate::path_facts::collect_with_diagnostics(|| {
+            crate::path_facts::observed_by(
+                || Some(sibling.rule.clone()),
+                || {
+                    successor_undefinedness(
+                        definition,
+                        &sibling.built,
+                        &sibling.before.constraints,
+                        SimplificationOptions::keep_partial(max_iterations),
+                        solver,
+                        io,
+                    )
+                },
+            )
+        });
+        match undefined? {
+            Some(undefined) => parts.push(UndefinedPart::candidate(
+                sibling.index,
+                &sibling.before,
+                &sibling.built,
+                &sibling.rule_id,
+                &sibling.label,
+                sibling.rule.clone(),
+                undefined.halt(depth),
+                work,
+                sibling.remainder_simplifications.clone(),
+            )),
+            None => {
+                diagnostics.extend(&work);
+                defined.push(sibling);
+            }
+        }
+    }
+    Ok(())
 }
 
 /// The candidates a step is left with once each is known defined or undefined
@@ -4044,15 +4185,25 @@ fn beyond(constraints: &[Predicate], base: &[Predicate]) -> Vec<Predicate> {
 
 /// `predicates` with the variables they mention outside `bound` (a rule's fresh variables)
 /// existentially closed: the conjunction under one `\exists` per such variable.
+///
+/// A fresh element variable that a conjunct equates with a defined term (`?Y = t`, `t` free of
+/// `?Y`, of the other fresh variables and of anything undefined) is eliminated first:
+/// `∃?Y. (?Y = t ∧ ψ)` is `ψ[t/?Y]`, since an element variable denotes a defined element and
+/// `t` is one. So an `ensures` that binds a rule's existential to the configuration's value
+/// states that value, not an existential over it.
 fn closed_over(
     predicates: Vec<Predicate>,
     bound: &BTreeSet<crate::term::Variable>,
 ) -> Vec<Predicate> {
-    let fresh = predicates
-        .iter()
-        .flat_map(Predicate::free_variables)
-        .filter(|variable| !bound.contains(variable))
-        .collect::<BTreeSet<_>>();
+    let free = |predicates: &[Predicate]| {
+        predicates
+            .iter()
+            .flat_map(Predicate::free_variables)
+            .filter(|variable| !bound.contains(variable))
+            .collect::<BTreeSet<_>>()
+    };
+    let predicates = super::predicates::eliminate_equated_variables(predicates, free);
+    let fresh = free(&predicates);
     if fresh.is_empty() {
         return predicates;
     }
@@ -4072,7 +4223,7 @@ fn closed_over(
 /// to (a lower priority's simplified remainder has the same instances under another term). No
 /// part means nothing is excluded.
 #[derive(Clone, Default)]
-struct Exclusion(Vec<Vec<Predicate>>);
+pub(crate) struct Exclusion(Vec<Vec<Predicate>>);
 
 impl Exclusion {
     /// Restrict `pattern`, a leaf of the step over the configuration it was taken from, to the

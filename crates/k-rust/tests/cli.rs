@@ -16145,8 +16145,8 @@ fn a_function_rule_applies_when_any_matching_of_its_map_pattern_satisfies_its_re
 
 /// An equation of a function declared `total` that reduces an application of it to bottom
 /// contradicts the attribute on that input (KK-81 probe). `krun` and `kprove` keep their
-/// outcomes (an undefined step; a failed claim with a `Vacuous` leaf, and a symbolic claim still
-/// proven, since the attribute is trusted), and name the symbol by its K label, the equation and
+/// outcomes (an undefined step; a failed claim on the undefined step's `Trivial` leaf, and a
+/// symbolic claim still proven, since the attribute is trusted), and name the symbol by its K label, the equation and
 /// its position.
 /// A partial function, or an argument that is bottom before the equation fires, names nothing;
 /// a nested total application names the innermost equation, and a total function whose equation
@@ -16241,7 +16241,7 @@ fn a_contradicted_total_attribute_is_named_without_changing_the_outcome() {
         let report = report(claim);
         assert!(
             report.starts_with("failed")
-                && report.contains("vacuous at depth 1")
+                && report.contains("trivial at depth 1")
                 && report.contains("attribute of")
                 && report.contains("is contradicted on this input"),
             "{claim}: {report}"

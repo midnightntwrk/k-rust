@@ -17,7 +17,7 @@
 //!
 //! [[cost]]
 //! mode = "Any"
-//! bound = "O(c) rule attempts plus one predicate simplification per applied application group and per priority whose rules left some applicable instance without a defined result, one SAT check per candidate of an application group after a rule's first (restricted to the instances the earlier groups left), one SAT check per step, and one normalization (a predicate simplification and a term simplification, execute::normalize_successor) of each applied candidate's successor when a later application group of its rule or a later rule of its priority is left, which a kept candidate's successor takes instead of normalizing itself (the one-path proof route normalizes it again)"
+//! bound = "O(c) rule attempts plus one predicate simplification per applied application group and per priority whose rules left some applicable instance without a defined result, one SAT check per candidate of an application group after a rule's first (restricted to the instances the earlier groups left), one SAT check per step, and one normalization (a predicate simplification and a term simplification, execute::normalize_successor) of each applied candidate's successor when a later application group of its rule or a later rule of its priority is left, which a kept candidate's successor takes instead of normalizing itself (the one-path proof route normalizes it again, and also asks one SAT check of each such normalized successor's constraints, SuccessorSatisfiability::Asked)"
 //!
 //! [[cost]]
 //! mode = "collecting the offered coverage level (ExecutionOptions::collect_offered)"
@@ -43,8 +43,9 @@
 //! group, one SAT check per candidate of a rule's application group after its first, one SAT
 //! check per step, and one normalization of each applied candidate's successor that a later
 //! group or rule could stand in for, which decides whether its result is undefined before the
-//! step commits to it and which the successor reuses (`Any`);
-//! `Counter::RewriteRulesApplied`. A one-path proof step also asks `Any` whether it may have
+//! step commits to it and which the successor reuses (`Any`); the one-path proof route also asks
+//! whether each such normalized successor's constraints have an instance
+//! (`SuccessorSatisfiability::Asked`); `Counter::RewriteRulesApplied`. A one-path proof step also asks `Any` whether it may have
 //! dropped a successor (`SequentialDeterminism`): a rule of a priority that already applied is
 //! attempted once more on the whole subject, and the sub-cases of one priority are compared
 //! pairwise for overlap.
@@ -79,7 +80,7 @@ use super::{
     Truth, UndecidedStep,
     apply::{exclude_defined, restrict_to_undefined, undefined_successor_application},
     apply_rule,
-    execute::normalize_successor,
+    execute::{SuccessorCheck, UndefinedSuccessor, normalize_successor},
     extend_unique, predicates_truth,
     refutation_memo::RefutationMemo,
     restricted_to,
@@ -964,6 +965,46 @@ fn close_priority(
     )
 }
 
+/// Whether the sequential step asks if a successor its normalization counts defined has an
+/// instance at all, before committing to it.
+///
+/// A successor denotes the states its constraints admit, so one whose constraints have none is
+/// no successor of its rule, however that was found. The one-path proof route reads a state
+/// whose constraints the solver refutes as no state (`proof::state_is_bottom`), so its step
+/// must choose among successors by the same reading: otherwise it commits to a rule that gives
+/// the instances no successor and drops the later rules of the priority that would give them
+/// one. Executions never read a state as empty by a solver query, so they do not ask.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum SuccessorSatisfiability {
+    /// The normalization alone decides whether a successor is undefined.
+    NotAsked,
+    /// A successor the normalization counts defined is undefined too when its normalized
+    /// constraints are refuted ([`may_have_instance`]).
+    Asked,
+}
+
+/// `checked`, a candidate's successor check, with a successor its normalization counted defined
+/// shown undefined when `satisfiability` asks and its normalized constraints have no instance.
+/// The obligation named is those refuted constraints.
+fn check_successor_satisfiability(
+    definition: &BackendDefinition,
+    mut checked: SuccessorCheck,
+    satisfiability: SuccessorSatisfiability,
+    solver: &dyn SmtSolver,
+) -> Stoppable<SuccessorCheck> {
+    if satisfiability == SuccessorSatisfiability::Asked
+        && checked.undefined.is_none()
+        && let Some(constraints) = &checked.constraints
+        && !may_have_instance(definition, constraints, solver)?
+    {
+        checked.undefined = Some(UndefinedSuccessor {
+            obligation: super::refuted_constraint(constraints),
+            contradicted_total: None,
+        });
+    }
+    Ok(checked)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn rewrite_step_any(
     definition: &BackendDefinition,
@@ -976,6 +1017,7 @@ pub(super) fn rewrite_step_any(
     ground_halt: bool,
     mut determinism: Option<&mut SequentialDeterminism>,
     mut memo: Option<&mut RefutationMemo>,
+    satisfiability: SuccessorSatisfiability,
 ) -> Stoppable<RewriteResult> {
     let _apart = crate::rule::ApartScope::enter();
     let _domain = crate::term::domain::DomainScope::enter(definition);
@@ -1137,7 +1179,11 @@ pub(super) fn rewrite_step_any(
                     // instances have no other successor, so the candidate is kept and its
                     // successor's normalization reports the undefined step, with the same
                     // instances. A kept candidate carries its normalization, which its successor
-                    // takes instead of repeating it.
+                    // takes instead of repeating it. When the caller reads a successor whose
+                    // constraints the solver refutes as no state (`SuccessorSatisfiability`), the
+                    // check asks that too: such a successor is undefined in the same way, and
+                    // committing to it would leave its instances on no rule's successor while a
+                    // later rule may give them one.
                     let later_alternative = !last_of_priority || group_index + 1 < group_count;
                     let mut applied_group = Vec::with_capacity(group.applied.len());
                     let mut undefined_work = Vec::new();
@@ -1160,6 +1206,12 @@ pub(super) fn rewrite_step_any(
                                     application.applied.io.as_ref().or(io),
                                 )
                             },
+                        )?;
+                        let checked = check_successor_satisfiability(
+                            definition,
+                            checked,
+                            satisfiability,
+                            solver,
                         )?;
                         match checked.undefined {
                             Some(undefined) => {

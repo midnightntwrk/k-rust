@@ -242,9 +242,11 @@ fn a_step_whose_rule_condition_fails_to_simplify_is_an_indeterminate_leaf() {
 }
 
 /// When the destination check finds a state empty, the state has no instance. At the claim's
-/// initial state the claim holds vacuously, so the leaf is proven; after a step the emptiness
-/// comes from the path's own conditions, so the leaf is `Vacuous` and fails the claim, unless
-/// vacuous proofs are allowed. Here the state's own constraints are satisfiable, and the
+/// initial state the claim holds vacuously, so the leaf is proven. After a step the state is a
+/// successor that denotes no state, so it is no successor: the configuration the step was taken
+/// from has instances, the step applies to them and gives them no successor, so they are the
+/// step's undefined step, a `Trivial` leaf over `start(X)` one step below, which fails the claim
+/// unless vacuous proofs are allowed. Here the state's own constraints are satisfiable, and the
 /// validity check of the destination's condition, which adds the facts the state's term
 /// implies, finds them inconsistent.
 #[test]
@@ -312,11 +314,12 @@ fn a_state_the_destination_check_shows_empty_is_vacuous_after_a_step_only() {
             panic!("{case}: expected one leaf, found {result:#?}");
         };
         assert_eq!(leaf.depth, depth, "{case}");
-        assert_eq!(head(&leaf.pattern.term), "wrap", "{case}");
+        let expected_head = if depth == 0 { "wrap" } else { "start" };
+        assert_eq!(head(&leaf.pattern.term), expected_head, "{case}");
         if status == ProofStatus::Proven {
             assert!(vacuous_proof(&leaf.outcome), "{case}: {leaf:#?}");
         } else {
-            assert_eq!(leaf.outcome, ProofLeafOutcome::Vacuous, "{case}");
+            assert_eq!(leaf.outcome, ProofLeafOutcome::Trivial, "{case}");
         }
         assert_eq!(result.status, status, "{case}");
     }
