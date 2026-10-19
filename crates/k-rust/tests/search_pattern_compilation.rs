@@ -854,3 +854,29 @@ fn a_compiled_search_condition_tests_only_variables_its_body_binds() {
     }
     assert!(failures.is_empty(), "{failures:#?}");
 }
+
+/// A pattern's sort tests do not depend on how its variables are spelled: the tests of the
+/// casts to one sort are conjoined in the order their casts first occur, so `pair(Y:Exp, X:Exp)`
+/// compiles to the pattern of `pair(X:Exp, Y:Exp)` with the two names exchanged.
+#[test]
+fn search_pattern_sort_tests_follow_first_occurrence_so_a_renaming_compiles_alike() {
+    let exchanged = |text: &str| {
+        text.replace("VarX:", "\u{0}")
+            .replace("VarY:", "VarX:")
+            .replace('\u{0}', "VarY:")
+    };
+    let renamed = compile("<k> pair(Y:Exp, X:Exp) </k>").unwrap().pattern;
+    let original = compile("<k> pair(X:Exp, Y:Exp) </k>").unwrap().pattern;
+    assert_eq!(exchanged(&renamed.to_string()), original.to_string());
+    let Pattern::And { arguments, .. } = &original else {
+        panic!("expected a conjunction: {original}")
+    };
+    let condition = arguments[1..]
+        .iter()
+        .map(ToString::to_string)
+        .collect::<String>();
+    assert!(
+        condition.find("VarX:").unwrap() < condition.find("VarY:").unwrap(),
+        "{original}"
+    );
+}

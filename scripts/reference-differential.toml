@@ -94,6 +94,10 @@ comparisons = [
   "parsed-definition",
 ]
 
+# The rule's fresh variables take their counter offsets in the order they first occur in k-rust
+# and in another order in the pinned reference; the offsets are only required to be distinct, so
+# the semantic KORE comparison compares them up to a one-to-one renumbering (N50 in
+# reference-normalisations.toml, docs/compatibility.md#comparison-contract).
 [[compile]]
 name = "fresh-variables"
 requires = ["reference-toolchain"]

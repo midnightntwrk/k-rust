@@ -167,11 +167,46 @@ pub fn probes() -> Vec<Case> {
     cases
 }
 
-/// The seeds of the BIND/A0 review and its claims, a test of their own so that it runs beside
-/// the probes.
+/// The seeds of the BIND/A0 review and its claims, and of the BIND/A7 review, a test of their
+/// own so that it runs beside the probes.
 pub fn seeds() -> Vec<Case> {
     let mut cases = review_seeds();
     cases.extend(claim_seeds());
+    cases.extend(freezer_seeds());
+    cases
+}
+
+/// The seeds of the BIND/A7 review (`code-reviews/BIND-A7.toml`): contexts whose freezer holds
+/// two variables. A written `f(HOLE, X, Y)`, whose rotation is `f(HOLE, Y, X)`, and a cell-less
+/// context alias `wrap(HERE, V:Int)` beside a strict production, with `V` spelled `S`, `K0` and
+/// `A`, so that the alias's variable sorts after, among and before the minted `K<i>`.
+fn freezer_seeds() -> Vec<Case> {
+    let mut cases = vec![
+        Case::inline(
+            "freezer-written-two-variables",
+            "FZ",
+            format!(
+                "module FZ\n{HEADER}  syntax Exp ::= Int | f(Exp, Int, Int)\n  syntax KResult ::= Int\n  configuration <k> $PGM:Exp </k>\n  context f(HOLE, X, Y)\n  rule <k> f(I:Int, J, L) => I +Int J *Int 10 +Int L *Int 100 ... </k>\nendmodule\n"
+            ),
+        )
+        .programs("Exp", &["f(f(1, 2, 3), 4, 5)"]),
+    ];
+    for (name, variable) in [
+        ("freezer-alias-variable-s", "S"),
+        ("freezer-alias-variable-k0", "K0"),
+        ("freezer-alias-variable-a", "A"),
+    ] {
+        let mut case = Case::inline(
+            name,
+            "WA",
+            format!(
+                "module WA\n{HEADER}  syntax Exp ::= Int | \"(\" Exp \")\" [bracket] | Exp \"+\" Exp [strict(c)] | wrap(Exp, Int)\n  syntax KResult ::= Int\n  configuration <k> $PGM:Exp </k>\n  context alias [c]: wrap(HERE, {variable}:Int)\n  rule <k> I1:Int + I2:Int => I1 +Int I2 ... </k>\n  rule <k> wrap(I:Int, J:Int) => I +Int J ... </k>\nendmodule\n"
+            ),
+        )
+        .programs("Exp", &["wrap((1 + 2) + (3 + 4), 5)"]);
+        case.depth = 40;
+        cases.push(case);
+    }
     cases
 }
 

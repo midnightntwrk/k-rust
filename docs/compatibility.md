@@ -989,7 +989,8 @@ So [kast.md](../crates/k-rust/builtin/kast.md) writes U+0085, U+2028 and U+2029 
 ## Compiler-resolved fresh constants
 
 Within one rule or context, each distinct `!` variable receives a distinct consecutive offset from the generated counter and every occurrence of the same full variable name reuses that offset.
-Rust assigns offsets in lexicographic order of the full names and advances the counter by the number of distinct names.
+Rust assigns offsets in the order the distinct names first occur, in preorder over the rule's body, `requires` and `ensures` (a context's body and `requires`), and advances the counter by the number of distinct names.
+The order depends on where the variables occur and not on how they are spelled, so a renaming of a rule's `!` variables compiles to the same rule.
 This deterministic association is Rust's stable compiler policy; portable programs must not depend on a particular association between names and offsets.
 The policy must not depend on source paths or emulate the iteration order of Java's `HashSet`.
 
@@ -997,7 +998,7 @@ Distinct offsets, consistent reuse, and counter advancement are portable fronten
 Generated-value freshness additionally relies on the selected sort's `freshGenerator` contract.
 Pinned K assigns names to offsets in unspecified `HashSet` iteration order, so its name-to-offset permutation is not a compiler oracle.
 Each backend executes the permutation in its compiled definition; differing concrete values in ordered result positions must remain visible and must not be normalized as alpha-equivalent.
-The `fresh-variables` compilation differential checks a case where the permutations happen to agree, while the focused Rust pass regression pins lexicographic allocation and repeated-name reuse.
+The `fresh-variables` compilation differential compares the offsets up to a permutation of one set of offsets below the counter advance (N50 in [Comparison contract](#comparison-contract)), while the focused Rust pass regression pins first-occurrence allocation and repeated-name reuse.
 
 Only a rewrite step of the configuration reads and advances the counter cell, so a `!` variable is accepted only in a rule applied as such a step.
 It is rejected with `InvalidFreshConstant` at the sentence in a function, simplification, anywhere, macro or alias rule, each an equation applied to the term its left-hand side matches without the configuration, and in a claim, which states which configurations a path reaches and takes no step of its own.
@@ -2539,6 +2540,14 @@ A supported claim stays, so a port that withholds it, or claims a projection the
 N49 applies only to the k-rust side of the semantic KORE compile comparison: it drops each `owise` equation of a generated `#lambda` symbol (name prefix `Lbl'Hash'lambda`) whose right-hand side is `\bottom`, the equation [Refuted local-function patterns](#refuted-local-function-patterns) adds for a lambda whose pattern does not cover its parameter sort.
 The reference states no value for such a lambda off its pattern, so it has no axiom to compare that equation with; a user cannot write an equation on a generated label, so the shape identifies exactly the added equations.
 The lambda's own equations, a match predicate's `owise` `false` equation, an `owise` `\bottom` equation of a written symbol and every other axiom stay compared; the comparison prints the number dropped (`let-list-binder`: its `SUB:Chunk .Chunks` binder on a `Chunks` parameter).
+N50 compares the fresh offsets of an axiom up to a permutation of one set of literal offsets, on both sides of the semantic KORE compile comparison.
+A fresh variable of a rule is its sort's generator applied to `#Fresh +Int n`, and the rule advances the counter by `a`, so the next step draws from `#Fresh +Int a` on.
+A value is fresh only when its offset lies in `[0, a)`; an offset at or beyond the advance gives a value a later step gives too.
+Within that range the offsets are only required to be distinct: k-rust numbers a rule's fresh variables by first occurrence ([Compiler-resolved fresh constants](#compiler-resolved-fresh-constants)), and two axioms with the same advance and the same set of distinct offsets in range that differ by a permutation of that set state the same rule.
+For an axiom whose `UNIQUE'Unds'ID` names one axiom on each side and whose sides differ, each side's offsets outside the `<generatedCounter>` cell are numbered by first occurrence.
+The pair is kept renumbered only when the counter cell of each side advances once by an integer, every offset of each side is a literal below that advance, the two sides' sets of distinct offset values are equal, and the two renumbered axioms agree.
+A literal offset is an integer domain value, or a variable the rewrite's left side identifies with one (`\and(\dv{SortInt{}}("0"), V)`, the form `fresh1`'s offset `0` takes).
+So a non-injective renumbering, offsets off by one or shifted against the other side's, an offset at or beyond the advance, an offset that is any other variable, a different counter advance or any other difference still fails (`fresh-variables`, regression-new `fresh1`).
 N45 applies only to the k-rust side of the semantic KORE compile comparison, and only to the axioms a compile case lists in its `lifted-cells` manifest key, each entry naming a rule label and a cell, with a written `lifted-cells-reason` that `scripts/reference-manifest.py` requires.
 It covers the divergence [Cells written inside another cell](#cells-written-inside-another-cell) states: the port compiles a cell the rule writes inside the wrong parent, the reference discards it, and the reference therefore has nothing to compare the cell against.
 The labelled axiom of each side is walked in parallel with the other through equal heads; where the port applies the listed cell's symbol and the reference has a variable of that cell's sort that its own completion generated, the application is replaced by one fresh generated variable per reference variable, so N4 numbers it as the reference's.

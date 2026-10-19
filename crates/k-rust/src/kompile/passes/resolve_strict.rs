@@ -32,7 +32,7 @@ use crate::{
         SortCatalog,
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
-    kast::{FrontendSort, Label, Sort, Term, TermParts, parser::parse_sort},
+    kast::{FrontendSort, Label, Sort, Term, TermParts, binding::Reservation, parser::parse_sort},
     provenance::{GeneratingPass, seed_generated_sentence_origin, sentence_origin_links},
 };
 
@@ -444,23 +444,27 @@ fn generate_contexts(
     module_name: &str,
     compiled: Option<(&ProductionCatalog<'_>, &SortCatalog<'_>)>,
 ) -> Result<(), Vec<Diagnostic>> {
+    let arity = production.nonterminals().len();
+    let alias_arguments = aliases
+        .iter()
+        .map(|alias| argument_names(arity, alias, production.attributes()))
+        .collect::<Vec<_>>();
     // Invariant: `generated` holds, for every position of `positions` before `position_index`, one context per alias of `aliases`; each iteration consumes one position, and the inner loop over `aliases` makes the work O(`positions` * `aliases`).
     for (position_index, position) in positions.iter().copied().enumerate() {
         let strict_index = position - 1;
-        let base_arguments = production
-            .nonterminals()
-            .iter()
-            .enumerate()
-            .map(|(index, sort)| semantic_cast(sort, Term::variable(format!("K{index}"))))
-            .collect::<Vec<_>>();
         let hole = semantic_cast(
             &production.nonterminals()[strict_index],
             Term::variable("HOLE"),
         );
 
         // Invariant: `generated` has gained one context at the strict position `position` for each alias of `aliases` before `alias`; each iteration consumes one alias.
-        for alias in aliases {
-            let mut arguments = base_arguments.clone();
+        for (alias, names) in aliases.iter().zip(&alias_arguments) {
+            let mut arguments = production
+                .nonterminals()
+                .iter()
+                .zip(names)
+                .map(|(sort, name)| semantic_cast(sort, Term::variable(name.clone())))
+                .collect::<Vec<_>>();
             let mut this_hole = hole.clone();
             if let Some(context_label) = attribute_text(&alias.attributes, AttributeKey::Context) {
                 this_hole = Term::Rewrite {
@@ -514,7 +518,7 @@ fn generate_contexts(
             }
             let side_condition = reduce_and(prior_positions.map(|prior| Term::Apply {
                 label: Label::sort_predicate(&result),
-                arguments: vec![Term::variable(format!("K{}", prior - 1))],
+                arguments: vec![Term::variable(names[prior - 1].clone())],
             }));
             let requires = if sequential {
                 side_condition.unwrap_or_else(|| bool_token(true))
@@ -542,6 +546,40 @@ fn generate_contexts(
         }
     }
     Ok(())
+}
+
+/// The variables that stand for the production's arguments in the contexts built from `alias`, in
+/// argument order: `K0`, `K1`, ... as [`Reservation::mint`] gives them from the stem `K`, over a
+/// reservation of every variable name of the alias (its body and condition, binders included)
+/// and of every name the context's attributes mention (`concrete`, `symbolic`,
+/// `unboundVariables`, from the production and the alias).
+///
+/// The alias's variables are its own, so a context must not identify one with an argument of the
+/// production: an alias variable spelled `K0` stays apart from the argument variables, which are
+/// then `K1`, `K2`, ... Since no alias variable, free or bound, has an argument variable's name,
+/// placing the production at `HERE` captures none of them, and an alpha-variant of the alias
+/// gives an alpha-variant of each context.
+fn argument_names(arity: usize, alias: &Alias, production: &Attributes) -> Vec<String> {
+    let mut reserved = Reservation::new();
+    reserved.reserve_names_of(&alias.body);
+    reserved.reserve_names_of(&alias.requires);
+    for attributes in [production, &alias.attributes] {
+        for key in [
+            AttributeKey::Concrete,
+            AttributeKey::Symbolic,
+            AttributeKey::UnboundVariables,
+        ] {
+            if let Some(names) = attributes.string(key) {
+                reserved.extend(
+                    names
+                        .split(',')
+                        .map(str::trim)
+                        .filter(|name| !name.is_empty()),
+                );
+            }
+        }
+    }
+    (0..arity).map(|_| reserved.mint("K")).collect()
 }
 
 fn parse_positions(
@@ -807,5 +845,46 @@ endmodule
         expected.sort();
         assert_eq!(added, expected);
         assert_eq!(removed, Vec::<String>::new());
+    }
+
+    /// A context alias's variables are its own, so the variables that stand for the production's
+    /// arguments avoid every name of the alias: beside an alias variable `K0`, the arguments of
+    /// `plus` are `K1` and `K2`, and the alias's `K0` stays a variable of its own.
+    #[test]
+    fn argument_variables_avoid_the_names_of_the_context_alias() {
+        let run = run_to_stage(
+            r#"
+module BOOL
+  syntax Bool ::= Bool "andBool" Bool [function, total, symbol(_andBool_), hook(BOOL.and)]
+                | "notBool" Bool [function, total, symbol(notBool_), hook(BOOL.not)]
+endmodule
+module MAIN
+  syntax K
+  syntax KResult
+  syntax Val ::= "v" [symbol(v)]
+  syntax KResult ::= Val
+  syntax Exp ::= Val
+               | plus(Exp, Exp) [strict(c), symbol(plus)]
+               | wrap(Exp, Exp) [symbol(wrap)]
+  context alias [c]: wrap(HERE, K0)
+  configuration <k> v </k>
+endmodule
+"#,
+            "resolve strictness",
+        );
+        let (mut added, _) = rendered_changes(&run);
+        added.sort();
+        let truth = r#"#token("true","Bool")"#;
+        let unconditional = format!("`_andBool_`({truth},{truth})");
+        let mut expected = vec![
+            format!(
+                "context wrap(#SemanticCastToExp(plus(#SemanticCastToExp(HOLE),#SemanticCastToExp(K2))),#SemanticCastToExp(K0)) requires {unconditional}"
+            ),
+            format!(
+                "context wrap(#SemanticCastToExp(plus(#SemanticCastToExp(K1),#SemanticCastToExp(HOLE))),#SemanticCastToExp(K0)) requires {unconditional}"
+            ),
+        ];
+        expected.sort();
+        assert_eq!(added, expected);
     }
 }

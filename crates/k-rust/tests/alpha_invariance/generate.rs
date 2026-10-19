@@ -15,6 +15,10 @@
 //! - the sentence kind: a rewrite rule, an `anywhere` rule, a `simplification`, a function rule
 //!   with an `owise` competitor, a macro rule (`macro`, `macro-rec`, `alias`), a context with
 //!   `HOLE`, a context alias, or a claim (compiled `--for-proving`);
+//! - the frozen variables of a context: two or more, written in a context (`f(HOLE, X, Y)`, in
+//!   occurrence order or not) or a context alias's variable beside the strictness variables
+//!   (`wrap(HERE, V)` with `V` spelled `S`, `K0` or `A`), with no cell or inside the main cell,
+//!   so the freezer's argument order meets every renaming;
 //! - the connective around the binder: none, `#Not`, `#Or`;
 //! - the sigil of the bound variable: none, or `?` beside a free right-side `?` variable;
 //! - the route: the parsed definition renamed and relinked (every strategy), source text written
@@ -720,6 +724,47 @@ fn hole_contexts() -> Vec<Case> {
     cases
 }
 
+/// Contexts whose freezer holds two or more variables. A written context holds two variables
+/// besides `HOLE`, spelled in their occurrence order or against it; a context alias holds its
+/// variable `V` beside the argument variables strictness mints, spelled `S` (after the minted
+/// names), `K0` (one of them) or `A` (before them). Each is written with no cell or inside the
+/// main cell. The heating and cooling rules of an alpha-variant must be alpha-variants of the
+/// base's, so the freezer's argument order must not depend on the names.
+fn frozen_contexts() -> Vec<Case> {
+    let mut cases = Vec::new();
+    for (cell, open, close) in [("bare", "", ""), ("cell", "<k> ", " ... </k>")] {
+        for (order, variables) in [("XY", "X, Y"), ("YX", "Y, X")] {
+            let module = "GZ";
+            cases.push(
+                Case::inline(
+                    format!("frozen/written-{cell}-{order}"),
+                    module,
+                    format!(
+                        "module {module}\n  imports INT\n  imports BOOL\n  syntax Exp ::= Int | f(Exp, Int, Int)\n  syntax KResult ::= Int\n  configuration <k> $PGM:Exp </k>\n  context {open}f(HOLE, {variables}){close}\n  rule <k> f(I:Int, J, L) => I +Int J *Int 10 +Int L *Int 100 ... </k>\nendmodule\n"
+                    ),
+                )
+                .programs("Exp", &["f(f(1, 2, 3), 4, 5)"]),
+            );
+        }
+        for strictness in ["strict", "seqstrict"] {
+            for variable in ["S", "K0", "A"] {
+                let module = "GW";
+                let mut case = Case::inline(
+                    format!("frozen/alias-{cell}-{strictness}-{variable}"),
+                    module,
+                    format!(
+                        "module {module}\n  imports INT\n  imports BOOL\n  syntax Exp ::= Int | \"(\" Exp \")\" [bracket] | Exp \"+\" Exp [{strictness}(c)] | wrap(Exp, Int)\n  syntax KResult ::= Int\n  configuration <k> $PGM:Exp </k>\n  context alias [c]: {open}wrap(HERE, {variable}:Int){close}\n  rule <k> I1:Int + I2:Int => I1 +Int I2 ... </k>\n  rule <k> wrap(I:Int, J:Int) => I +Int J ... </k>\nendmodule\n"
+                    ),
+                )
+                .programs("Exp", &["wrap((1 + 2) + (3 + 4), 5)"]);
+                case.depth = 40;
+                cases.push(case);
+            }
+        }
+    }
+    cases
+}
+
 /// Search patterns, compiled against a definition with a macro whose right side holds a binder:
 /// a pattern with an anonymous binder, with a named binder, and with the macro at a use site
 /// that passes an anonymous or a named variable. Each hand-written twin (`search-*`) renames the
@@ -901,6 +946,7 @@ pub fn cases() -> Vec<Case> {
         macro_attributes(),
         existential_binders(),
         hole_contexts(),
+        frozen_contexts(),
         search_patterns(),
         owise_cross_product(),
     ]
