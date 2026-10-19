@@ -391,6 +391,9 @@ struct ObservedLeaf {
     term: String,
     halt: String,
     constrained: bool,
+    /// A state the search left undecided (an incomplete entry), observed as a constrained
+    /// match: it stands for a match only under the cell's allowance.
+    incomplete: bool,
 }
 
 #[derive(Debug)]
@@ -715,6 +718,7 @@ fn observe_state(state: &serde_json::Value, halt: String) -> ObservedLeaf {
         term,
         halt,
         constrained,
+        incomplete: false,
     }
 }
 
@@ -951,18 +955,21 @@ fn observe_unguarded(
                                 match incomplete {
                                     // A state whose match the build could not decide (no solver
                                     // for the condition) may match under the undecided
-                                    // construct: a match constrained by it.
+                                    // construct: a match constrained by it, which conforms only
+                                    // under the cell's allowance (`run_conforms`).
                                     IncompleteSearchOutput::Smt { state, .. }
                                     | IncompleteSearchOutput::Indeterminate { state, .. } => {
                                         let mut leaf =
                                             observe_state(&state.state, "Match".to_owned());
                                         leaf.constrained = true;
+                                        leaf.incomplete = true;
                                         leaf
                                     }
                                     _ => ObservedLeaf {
                                         term: format!("<incomplete {incomplete:?}>"),
                                         halt: "Incomplete".to_owned(),
                                         constrained: false,
+                                        incomplete: false,
                                     },
                                 }
                             }))
@@ -1094,7 +1101,9 @@ fn run_conforms(run: &Run, observed: &[ObservedLeaf], allowed: bool) -> Result<(
     let some_leaf = !required.is_empty()
         || run.optional.is_empty()
         || seen.iter().any(|leaf| leaf.halt != "Trivial");
-    if required.is_subset(&seen) && seen.is_subset(&permitted) && some_leaf {
+    // An undecided search entry is no decided match: it conforms only under an allowance.
+    let decided = observed.iter().all(|leaf| !leaf.incomplete);
+    if decided && required.is_subset(&seen) && seen.is_subset(&permitted) && some_leaf {
         return Ok(());
     }
     if allowed {

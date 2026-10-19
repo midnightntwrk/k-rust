@@ -438,8 +438,8 @@ impl MatchOutput {
     }
 
     /// The variable identities of the left side of `conjunct` when it is an equality whose left
-    /// side is a variable or a function application and whose left-side variables are all
-    /// generated anonymous variables; `None` otherwise.
+    /// side is a variable or a function application that holds a variable, and whose left-side
+    /// variables are all generated anonymous variables; `None` otherwise.
     fn generated_equality_variables(
         &self,
         conjunct: External<'_>,
@@ -455,11 +455,14 @@ impl MatchOutput {
         if !eligible {
             return None;
         }
+        // A left side without a variable names no generated variable: a ground equality such as
+        // `uf(3) = 30` is a condition of the match and is kept.
         let identities = variable_identities(left);
-        identities
-            .iter()
-            .all(|identity| self.generated_anonymous_variables.contains(identity))
-            .then_some(identities)
+        (!identities.is_empty()
+            && identities
+                .iter()
+                .all(|identity| self.generated_anonymous_variables.contains(identity)))
+        .then_some(identities)
     }
 }
 

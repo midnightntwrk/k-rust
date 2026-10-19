@@ -337,9 +337,11 @@ fn resolve_semantic_casts_in_sentence_mut(
 /// A quantifier's binder is in scope only in its body, so the test of a cast whose operand names
 /// a variable the quantifier binds reads that variable only inside the quantifier. The innermost
 /// quantifier binding one of the operand's variables owns the cast's occurrence, and the test
-/// goes inside it: `#Exists Y . P` becomes `#Exists Y . (test #And P)` (the annotation restricts
-/// the values the witness ranges over) and `#Forall Y . P` becomes `#Forall Y . (test #Implies P)`
-/// (it restricts the values the claim ranges over). Where the cast's operand is the bound
+/// goes inside it. A cast of the bound variable itself is the binder's annotation, which restricts
+/// the values the binder ranges over: `#Exists Y . P` becomes `#Exists Y . (test #And P)` and
+/// `#Forall Y . P` becomes `#Forall Y . (test #Implies P)`. A cast of a compound operand states
+/// that the operand's value is of the cast's sort, a conjunct of the body under either quantifier:
+/// `#Forall Y . (test #And P)`. Where the cast's operand is the bound
 /// variable itself and the variable's own sort is the cast's sort, the test holds for every value
 /// the binder ranges over and is dropped. An occurrence no quantifier owns gets its test at the
 /// top of the condition, where every variable it reads is free. Bound names are compared by
@@ -385,11 +387,24 @@ impl CastTests<'_> {
     /// the binder ranges over: the cast's operand, read through nested casts, is a variable the
     /// quantifier binds, whose own sort is the cast's sort.
     fn implied(&self, cast: &Term, bound: &[String]) -> bool {
-        let Term::Apply { label, arguments } = cast.unannotated() else {
+        let Term::Apply { label, .. } = cast.unannotated() else {
             return false;
         };
-        let (Some(sort), [operand]) = (label.semantic_cast_sort(), arguments.as_slice()) else {
+        let Some(sort) = label.semantic_cast_sort() else {
             return false;
+        };
+        Self::annotated_variable(cast, bound)
+            .is_some_and(|name| self.typed_variables.get(name) == Some(&sort))
+    }
+
+    /// The bound variable `cast` annotates: its operand, read through nested casts, when that is a
+    /// variable in `bound`; `None` for a cast of a compound operand.
+    fn annotated_variable<'c>(cast: &'c Term, bound: &[String]) -> Option<&'c str> {
+        let Term::Apply { arguments, .. } = cast.unannotated() else {
+            return None;
+        };
+        let [operand] = arguments.as_slice() else {
+            return None;
         };
         let mut operand = operand.unannotated();
         // Invariant: `operand` is the operand of `cast` with the casts above it removed; each
@@ -400,11 +415,17 @@ impl CastTests<'_> {
         {
             operand = inner.unannotated();
         }
-        matches!(
-            operand,
-            Term::Variable { name, .. }
-                if bound.contains(name) && self.typed_variables.get(name) == Some(&sort)
-        )
+        match operand {
+            Term::Variable { name, .. } if bound.contains(name) => Some(name),
+            Term::Apply { .. }
+            | Term::Variable { .. }
+            | Term::InjectedLabel(_)
+            | Term::Token { .. }
+            | Term::Rewrite { .. }
+            | Term::As { .. }
+            | Term::Sequence(_)
+            | Term::Annotated { .. } => None,
+        }
     }
 
     /// The named variables of the operand of the cast `cast`.
@@ -509,11 +530,20 @@ impl CastTests<'_> {
                         .cmp(&label(right))
                         .then(self.casts[left.unannotated()].cmp(&self.casts[right.unannotated()]))
                 });
-                let test = owned
+                // A test of the bound variable itself is the binder's annotation, which restricts
+                // the values the binder ranges over; a test of a compound operand states that its
+                // value is of the cast's sort, a conjunct of the body.
+                let (annotations, operands): (Vec<&Term>, Vec<&Term>) = owned
                     .into_iter()
                     .filter(|cast| !self.implied(cast, &bound))
-                    .filter_map(|cast| self.test(cast))
-                    .reduce(|left, right| Term::apply("_andBool_", vec![left, right]));
+                    .partition(|cast| Self::annotated_variable(cast, &bound).is_some());
+                let conjoined = |casts: Vec<&Term>| {
+                    casts
+                        .into_iter()
+                        .filter_map(|cast| self.test(cast))
+                        .reduce(|left, right| Term::apply("_andBool_", vec![left, right]))
+                };
+                let (annotation, operand) = (conjoined(annotations), conjoined(operands));
                 let metadata = term.metadata().cloned();
                 let TermParts::Apply { label, arguments } = term.into_unannotated().into_parts()
                 else {
@@ -523,7 +553,11 @@ impl CastTests<'_> {
                     .try_into()
                     .unwrap_or_else(|_| unreachable!("a quantifier has two arguments"));
                 let body = self.place(body);
-                let body = match test {
+                let body = match operand {
+                    None => body,
+                    Some(test) => crate::kompile::ml_constructs::conjoin_condition(test, body),
+                };
+                let body = match annotation {
                     None => body,
                     Some(test) if forall => Term::Apply {
                         label: Label::new(crate::kast::InternalLabel::Implies.as_str()),

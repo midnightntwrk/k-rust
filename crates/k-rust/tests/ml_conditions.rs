@@ -1508,6 +1508,7 @@ module P
   imports BOOL
   imports STRING
   imports K-IO
+  imports K-REFLECTION
   configuration <k> $PGM:Pgm </k>
   syntax KItem ::= done(IOInt) [symbol(done)] | res(IOInt, IOInt) [symbol(res)] | wdone(K) [symbol(wdone)]
   syntax IOInt ::= rd() [function, symbol(rd)]
@@ -2652,11 +2653,25 @@ fn io_line() -> usize {
     io_source("").lines().count()
 }
 
-/// A predicate states a truth value about the matched state, so an effect whose result its
-/// operand reads (a read of the console, a write's status, a random number, the environment) has
-/// no meaning there: such an operand is refused at compile, located at the rule, directly or
-/// through a function whose equations apply the effect. The LLVM target, whose output the check
-/// does not judge, compiles each.
+/// `sel(0)` reads the console, and `sel(N)` is `N` elsewhere: one of its equations applies an
+/// effect and the other does not.
+const SEL: &str = "  syntax IOInt ::= sel(Int) [function, symbol(sel)]\n  rule sel(0) => #getc(0)\n  rule sel(N) => N requires N =/=Int 0\n";
+
+/// The line of the sentence labelled `p` when `rules` is placed by `io_source`.
+fn io_probed_line(rules: &str) -> u32 {
+    let offset = rules
+        .lines()
+        .position(|line| line.contains("[p]"))
+        .expect("a sentence labelled p");
+    (io_line() + offset) as u32
+}
+
+/// A predicate states a truth value about the matched state, so an application whose value
+/// certainly depends on an effect (a read of the console, a write's status, a trace, a random
+/// number, the environment, the command line) has no meaning inside its operand: such an operand
+/// is refused at compile, located at the sentence, directly, through a macro, or through a
+/// function all of whose equations apply the effect. The LLVM target, whose output the check does
+/// not judge, compiles each.
 #[test]
 fn an_effect_inside_a_predicate_operand_is_refused_at_compile() {
     for rule in [
@@ -2667,6 +2682,15 @@ fn an_effect_inside_a_predicate_operand_is_refused_at_compile() {
         "  rule [p]: <k> go(X) => done(X) ... </k> ensures {rdAny() #Equals 97}\n",
         "  rule [p]: <k> go(X) => done(X) ... </k> requires {#write(1, \"x\") #Equals .K}\n",
         "  rule [p]: <k> go(X) => done(X) ... </k> requires {randInt(10) #Equals 3}\n",
+        "  rule [p]: <k> go(X) => done(X) ... </k> requires {#trace(X) #Equals .K}\n",
+        "  rule [p]: <k> go(X) => done(X) ... </k> requires {#traceK(X) #Equals .K}\n",
+        "  rule [p]: <k> go(X) => done(X) ... </k> requires {#logToFile(\"f\", \"x\") #Equals .K}\n",
+        "  rule [p]: <k> go(X) => done(X) ... </k> requires #Ceil(#argv())\n",
+        "  rule [p]: <k> go(X) => done(X) ... </k> requires {#kompiledDirectory() #Equals \"\"}\n",
+        "  syntax IOInt ::= mrd() [macro]\n  rule mrd() => #getc(0)\n  rule [p]: <k> go(X) => done(X) ... </k> requires {mrd() #Equals 97}\n",
+        "  syntax IOInt ::= rdi() [function, impure, symbol(rdi)]\n  rule rdi() => #getc(0)\n  rule [p]: <k> go(X) => done(X) ... </k> requires {rdi() #Equals 97}\n",
+        "  syntax IOInt ::= both(Int) [function, symbol(both)]\n  rule both(0) => #getc(0)\n  rule both(_) => #getc(1) [owise]\n  rule [p]: <k> go(X) => done(X) ... </k> requires {both(X) #Equals 97}\n",
+        "  syntax Int ::= ff(Int) [function, symbol(ff)]\n  rule [p]: ff(_X) => 1 requires {#getc(0) #Equals 97}\n  rule ff(_) => 0 [owise]\n  rule <k> go(X) => done(ff(X)) ... </k>\n",
     ] {
         let errors = match source_compile_errors(io_source(rule), CompilationBackend::Rust) {
             Ok(()) => panic!("compiles:\n{rule}"),
@@ -2677,7 +2701,7 @@ fn an_effect_inside_a_predicate_operand_is_refused_at_compile() {
         };
         assert_eq!(
             (code.as_str(), *line),
-            ("MlConstructPosition", Some(io_line() as u32)),
+            ("MlConstructPosition", Some(io_probed_line(rule))),
             "{rule}: {message}"
         );
         assert!(message.contains("an effect"), "{rule}: {message}");
@@ -2689,9 +2713,11 @@ fn an_effect_inside_a_predicate_operand_is_refused_at_compile() {
     }
 }
 
-/// What the effect refusal leaves alone: a Bool condition (no predicate operand), an effect whose
-/// result its declaration fixes (`returnsUnit`: `#log` is `.K` whatever it writes), an `impure`
-/// function evaluated by its equations, and an effect outside every predicate.
+/// What the effect refusal leaves alone: a Bool condition (no predicate operand); `#log`, whose
+/// value is `.K` whatever it writes and whose output a predicate does not perform; an `impure`
+/// function evaluated by its equations; an effect outside every predicate; and a function with an
+/// effect-free equation (`sel`), whose application that equation decides has its ordinary value.
+/// The rules over `sel` give the answers they gave before the refusal existed.
 #[test]
 fn an_effect_outside_a_predicate_operand_or_with_a_declared_result_compiles() {
     for rule in [
@@ -2706,6 +2732,33 @@ fn an_effect_outside_a_predicate_operand_or_with_a_declared_result_compiles() {
             "{rule}"
         );
     }
+    // The `<k>` items the runs reach. A run reaching `done(V)` goes on to the rule of `io_source`
+    // that reads the console, which the library route leaves unevaluated, so only the reached
+    // term is compared.
+    let done = |n: &str| vec![format!("done({n})")];
+    let ground =
+        format!("{SEL}  rule [p]: <k> go(X) => done(X) ... </k> requires {{sel(5) #Equals 5}}\n");
+    let kore = compile_source(io_source(&ground), CompilationBackend::Rust).definition_kore;
+    let leaves = |n: i64| -> Vec<String> {
+        run_kore_states(&kore, n)
+            .into_iter()
+            .map(|(_, k, _)| k)
+            .collect()
+    };
+    assert_eq!(leaves(5), done("5"), "{ground}");
+    assert_eq!(leaves(97), done("97"), "{ground}");
+    let open =
+        format!("{SEL}  rule [p]: <k> go(X) => done(X) ... </k> requires {{sel(X) #Equals 5}}\n");
+    let kore = compile_source(io_source(&open), CompilationBackend::Rust).definition_kore;
+    let leaves = |n: i64| -> Vec<String> {
+        run_kore_states(&kore, n)
+            .into_iter()
+            .map(|(_, k, _)| k)
+            .collect()
+    };
+    assert_eq!(leaves(5), done("5"), "{open}");
+    // sel(97) = 97, so the condition does not hold and go(97) does not step.
+    assert_eq!(leaves(97), vec!["go(97)".to_owned()], "{open}");
 }
 
 /// On the search route, an effect inside a predicate operand of the condition is refused at
@@ -2715,6 +2768,7 @@ fn an_effect_inside_a_search_pattern_predicate_operand_is_refused() {
     for contents in [
         "<k> done(X) </k> requires {#getc(0) #Equals 97}",
         "<k> done(X) </k> requires #Ceil(rd())",
+        "<k> done(X) </k> requires {#trace(X) #Equals .K}",
     ] {
         let (code, line, message) = pattern_refusal(io_source(""), contents);
         assert_eq!(
@@ -2723,5 +2777,45 @@ fn an_effect_inside_a_search_pattern_predicate_operand_is_refused() {
             "{contents}: {message}"
         );
         assert!(message.contains("an effect"), "{contents}: {message}");
+    }
+    // `sel(5)` is 5 by an effect-free equation.
+    let pattern = "<k> done(X) </k> requires {sel(5) #Equals 5}";
+    try_compile_pattern_source(io_source(SEL), pattern)
+        .unwrap_or_else(|error| panic!("{pattern}: {error}"));
+}
+
+/// `krust krun --pattern` prints each found state under every condition the search left on it: a
+/// ground equality of a function application that no equation evaluates (`uf(3) = 30`, `pf(3) =
+/// 30`) is a condition of the match, as the library result states it, not the name of a
+/// generated variable.
+#[cfg(feature = "cli")]
+#[test]
+fn krun_pattern_prints_a_ground_function_equality_of_a_match() {
+    let sentences = format!(
+        "{BRANCHES}  syntax Int ::= uf(Int) [function, total, symbol(uf)]\n  syntax Int ::= pf(Int) [function, symbol(pf)]\n  rule pf(1) => 10\n  rule pf(2) => 20\n"
+    );
+    let equality = |function: &str, n: i64| {
+        format!(
+            "\\equals{{SortInt{{}},SortGeneratedTopCell{{}}}}(Lbl{function}{{}}(\\dv{{SortInt{{}}}}(\"{n}\")),\\dv{{SortInt{{}}}}(\"30\"))"
+        )
+    };
+    for (condition, function, states) in [
+        ("uf(X) ==Int 30", "uf", &[1, 2, 3][..]),
+        ("{uf(X) #Equals 30}", "uf", &[1, 2, 3][..]),
+        ("{pf(X) #Equals 30}", "pf", &[3][..]),
+    ] {
+        let (status, stdout, stderr) = krun_pattern(
+            &sentences,
+            &format!("<k> done(X) </k> requires {condition}"),
+        );
+        assert_eq!(status, 0, "{condition}: {stderr}");
+        let printed = stdout.split_whitespace().collect::<String>();
+        for n in states {
+            assert!(
+                printed.contains(&equality(function, *n)),
+                "{condition}: no {} in {printed}",
+                equality(function, *n)
+            );
+        }
     }
 }
