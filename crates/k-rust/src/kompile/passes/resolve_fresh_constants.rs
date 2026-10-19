@@ -298,17 +298,12 @@ fn transform_sentence_counting(
                 ensures: ensures.clone(),
                 attributes: attributes.clone(),
             };
-            let fresh = fresh_variables([&body, &requires, &ensures]);
-            let offsets = fresh
-                .keys()
-                .enumerate()
-                .map(|(offset, name)| (name.clone(), offset))
-                .collect::<BTreeMap<_, _>>();
-            let transformed_body = transform_term(body, &fresh, &offsets, generators)?;
+            let offsets = fresh_variables([&body, &requires, &ensures]);
+            let transformed_body = transform_term(body, &offsets, generators)?;
             let with_fresh = Sentence::Rule {
-                body: add_fresh_cell(transformed_body, fresh.len()),
-                requires: transform_term(requires, &fresh, &offsets, generators)?,
-                ensures: transform_term(ensures, &fresh, &offsets, generators)?,
+                body: add_fresh_cell(transformed_body, offsets.len()),
+                requires: transform_term(requires, &offsets, generators)?,
+                ensures: transform_term(ensures, &offsets, generators)?,
                 attributes,
             };
             if counter_cell
@@ -324,7 +319,7 @@ fn transform_sentence_counting(
                 // fresh variable in it (`definition::checks::fresh_variables`).
                 Ok(original)
             } else {
-                if !fresh.is_empty() {
+                if !offsets.is_empty() {
                     *counter = CounterUse::Advances;
                 }
                 Ok(with_fresh)
@@ -335,21 +330,13 @@ fn transform_sentence_counting(
             requires,
             attributes,
         } => {
-            let fresh = fresh_variables([&body, &requires]);
-            if !fresh.is_empty() {
+            let offsets = fresh_variables([&body, &requires]);
+            if !offsets.is_empty() {
                 *counter = CounterUse::Advances;
             }
-            let offsets = fresh
-                .keys()
-                .enumerate()
-                .map(|(offset, name)| (name.clone(), offset))
-                .collect::<BTreeMap<_, _>>();
             Ok(Sentence::Context {
-                body: add_fresh_cell(
-                    transform_term(body, &fresh, &offsets, generators)?,
-                    fresh.len(),
-                ),
-                requires: transform_term(requires, &fresh, &offsets, generators)?,
+                body: add_fresh_cell(transform_term(body, &offsets, generators)?, offsets.len()),
+                requires: transform_term(requires, &offsets, generators)?,
                 attributes,
             })
         }
@@ -463,34 +450,35 @@ fn add_claim_counter_cell(body: Term, before: String, after: String) -> Term {
     )
 }
 
-fn fresh_variables<'a>(
-    roots: impl IntoIterator<Item = &'a Term>,
-) -> BTreeMap<String, Option<Sort>> {
-    let mut fresh = BTreeMap::new();
+/// The counter offset of each fresh (`!`) variable of a sentence with the term roots `roots`: the
+/// `n`-th distinct fresh name to occur, in preorder over the roots in order, has offset `n`.
+///
+/// Distinct names take distinct offsets below the number of names, which is what the counter
+/// needs. The offsets follow where the variables occur, not how they are spelled, so a renaming
+/// of a sentence's fresh variables gives the same lowering.
+fn fresh_variables<'a>(roots: impl IntoIterator<Item = &'a Term>) -> BTreeMap<String, usize> {
+    let mut offsets = BTreeMap::new();
     for root in roots {
         root.visit_preorder(&mut |term| {
-            if let Term::Variable { name, sort } = term.unannotated()
+            if let Term::Variable { name, .. } = term.unannotated()
                 && name.starts_with('!')
+                && !offsets.contains_key(name)
             {
-                let inferred = sort
-                    .clone()
-                    .or_else(|| term.metadata().and_then(|metadata| metadata.sort.clone()));
-                fresh.entry(name.clone()).or_insert(inferred);
+                offsets.insert(name.clone(), offsets.len());
             }
         });
     }
-    fresh
+    offsets
 }
 
 fn transform_term(
     term: Term,
-    fresh: &BTreeMap<String, Option<Sort>>,
     offsets: &BTreeMap<String, usize>,
     generators: &BTreeMap<Sort, Label>,
 ) -> Result<Term, String> {
     let metadata = term.metadata().cloned();
     match term.into_unannotated().into_parts() {
-        TermParts::Variable { name, sort } if fresh.contains_key(&name) => {
+        TermParts::Variable { name, sort } if offsets.contains_key(&name) => {
             let sort = sort
                 .or_else(|| metadata.and_then(|metadata| metadata.sort))
                 .ok_or_else(|| "Fresh constant used without a declared sort.".to_owned())?;
@@ -516,22 +504,22 @@ fn transform_term(
                 label,
                 arguments: arguments
                     .into_iter()
-                    .map(|argument| transform_term(argument, fresh, offsets, generators))
+                    .map(|argument| transform_term(argument, offsets, generators))
                     .collect::<Result<_, _>>()?,
             },
             metadata,
         )),
         TermParts::Rewrite { left, right } => Ok(with_metadata(
             Term::Rewrite {
-                left: Box::new(transform_term(*left, fresh, offsets, generators)?),
-                right: Box::new(transform_term(*right, fresh, offsets, generators)?),
+                left: Box::new(transform_term(*left, offsets, generators)?),
+                right: Box::new(transform_term(*right, offsets, generators)?),
             },
             metadata,
         )),
         TermParts::As { pattern, alias } => Ok(with_metadata(
             Term::As {
-                pattern: Box::new(transform_term(*pattern, fresh, offsets, generators)?),
-                alias: Box::new(transform_term(*alias, fresh, offsets, generators)?),
+                pattern: Box::new(transform_term(*pattern, offsets, generators)?),
+                alias: Box::new(transform_term(*alias, offsets, generators)?),
             },
             metadata,
         )),
@@ -539,7 +527,7 @@ fn transform_term(
             Term::Sequence(
                 items
                     .into_iter()
-                    .map(|item| transform_term(item, fresh, offsets, generators))
+                    .map(|item| transform_term(item, offsets, generators))
                     .collect::<Result<_, _>>()?,
             ),
             metadata,
@@ -1137,6 +1125,59 @@ endmodule
                 "{generated}\n{added:#?}"
             );
         }
+    }
+
+    /// A rule's fresh variables take their counter offsets in the order they first occur, so a
+    /// renaming of them gives the same lowering: `triple(!Y, !X, !Y)` and its renaming
+    /// `triple(!X, !Y, !X)` both draw offset 0 for the first and third arguments and 1 for the
+    /// second.
+    #[test]
+    fn fresh_offsets_follow_first_occurrence_so_a_renaming_lowers_alike() {
+        let lowered = |source: &str| {
+            let run = run_to_stage(source, "resolve fresh constants");
+            render(labelled(run.output(), "MAIN", "fresh")[0])
+        };
+        let offset = |n: usize| format!(r#"freshId(`_+Int_`(#Fresh,#token("{n}","Int")))"#);
+        let expected = format!(
+            r#"rule #cells(`<k>`(#noDots(.KList),go(.KList)=>triple({},{},{}),#noDots(.KList)),`<generatedCounter>`(#noDots(.KList),#Fresh=>`_+Int_`(#Fresh,#token("2","Int")),#noDots(.KList))) requires #token("true","Bool") ensures #token("true","Bool")"#,
+            offset(0),
+            offset(1),
+            offset(0)
+        );
+        let renamed = lowered(
+            r#"
+module INT
+  syntax Int ::= Int "+Int" Int [function, total, symbol(_+Int_), hook(INT.add)]
+endmodule
+module MAIN
+  syntax K
+  syntax Int ::= r"[0-9]+" [token]
+  syntax Id ::= r"[a-z]+" [token]
+              | freshId(Int) [function, freshGenerator, symbol(freshId)]
+  syntax Exp ::= Int | Id | "go" [symbol(go)] | triple(Id, Id, Id) [symbol(triple)]
+  configuration <t> <k> go </k> <s> 0 </s> </t>
+  rule <k> go => triple(!Y:Id, !X:Id, !Y:Id) </k> [label(fresh)]
+endmodule
+"#,
+        );
+        let original = lowered(
+            r#"
+module INT
+  syntax Int ::= Int "+Int" Int [function, total, symbol(_+Int_), hook(INT.add)]
+endmodule
+module MAIN
+  syntax K
+  syntax Int ::= r"[0-9]+" [token]
+  syntax Id ::= r"[a-z]+" [token]
+              | freshId(Int) [function, freshGenerator, symbol(freshId)]
+  syntax Exp ::= Int | Id | "go" [symbol(go)] | triple(Id, Id, Id) [symbol(triple)]
+  configuration <t> <k> go </k> <s> 0 </s> </t>
+  rule <k> go => triple(!X:Id, !Y:Id, !X:Id) </k> [label(fresh)]
+endmodule
+"#,
+        );
+        assert_eq!(renamed, expected);
+        assert_eq!(original, expected);
     }
 
     /// A local function's fresh closure variable reaches this stage as an argument of the

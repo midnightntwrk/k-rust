@@ -42,12 +42,12 @@
 //!   shadowing binder renamed apart, a variable named in an attribute (`concrete(X)`), or a
 //!   `#let`/`#fun` whose minted label carries a variable's spelling changes the identifier of an
 //!   alpha-equivalent rule (kind `Id`).
-//! - `BIND/A7` (FU-37/D6, and orderings by spelling): fresh constants take their counter offsets
-//!   in the order of their spellings (`fresh-variables`). The strictness variables already avoid
-//!   every name of a context alias, and the search route already conjoins the sort tests of casts
-//!   to one sort by first occurrence; that also cleared the search-pattern `A6` entries whose
+//! - `BIND/A7` (FU-37/D6, and orderings by spelling) has landed and holds no entry: the
+//!   strictness variables avoid every name of a context alias, fresh constants take their counter
+//!   offsets by first occurrence, and the search route conjoins the sort tests of casts to one
+//!   sort by first occurrence. Its landing also cleared the search-pattern `A6` entries whose
 //!   renamings only reordered those tests (`search/shapes`, and `search-named-apart` and
-//!   `search-named-capture` under `binder-apart` or `rotate`), and the A6 search entries left are
+//!   `search-named-capture` under `binder-apart` or `rotate`); the A6 search entries left are
 //!   the captures, where a renaming merges or splits the tests.
 //!
 //! An entry's needle is its result's whole signature (every differing sentence, the first
@@ -930,6 +930,4 @@ pub const EXPECTED: &[Expected] = &[
     expected("two/FE-same-split", "binder-apart", A6, Kind::Id, "G.G.p: UNIQUE_ID not alpha-invariant"),
     expected_by_build("two/FE-same-split", "binder-capture", A6, Kind::Kore, "G.G.p: base «'Unds'KItem'Unds'Wrap{}(Lbls'LParUndsRParUnds'G'Unds'Wrap'Unds'I» variant «'Unds'KItem'Unds'Wrap{}(\\and{SortWrap{}}(Lbls'LParUndsRParUnds'G» // run goS(s(3)) under all: base [Stuck kseq(done((\"3\")), .)], variant [Stuck kseq(goS(s((\"3\"))), .)]", "G.G.p: base «'Unds'KItem'Unds'Wrap{}(Lbls'LParUndsRParUnds'G'Unds'Wrap'Unds'I» variant «'Unds'KItem'Unds'Wrap{}(\\and{SortWrap{}}(Lbls'LParUndsRParUnds'G» // run goS(s(3)) under all: base [Stuck kseq(done((\"3\")), .) (constrained) | Trivial kseq(goS(s((\"3\"))), .) (constrained)], variant [Indeterminate kseq(goS(s((\"3\"))), .)]"),
     expected_by_build("two/FE-same-split", "binder-capture-any-sort", A6, Kind::Kore, "G.G.p: base «'Unds'KItem'Unds'Wrap{}(Lbls'LParUndsRParUnds'G'Unds'Wrap'Unds'I» variant «'Unds'KItem'Unds'Wrap{}(\\and{SortWrap{}}(Lbls'LParUndsRParUnds'G» // run goS(s(3)) under all: base [Stuck kseq(done((\"3\")), .)], variant [Stuck kseq(goS(s((\"3\"))), .)]", "G.G.p: base «'Unds'KItem'Unds'Wrap{}(Lbls'LParUndsRParUnds'G'Unds'Wrap'Unds'I» variant «'Unds'KItem'Unds'Wrap{}(\\and{SortWrap{}}(Lbls'LParUndsRParUnds'G» // run goS(s(3)) under all: base [Stuck kseq(done((\"3\")), .) (constrained) | Trivial kseq(goS(s((\"3\"))), .) (constrained)], variant [Indeterminate kseq(goS(s((\"3\"))), .)]"),
-    // A7 (1)
-    expected("compile/fresh-variables", "rotate", A7, Kind::Kore, "TEST.test.k:14:3: base «tInt{}, \\dv{SortInt{}}(\"1\"))), LblfreshInt'LParUndsRParUnds'INT'» variant «tInt{}, \\dv{SortInt{}}(\"2\"))), LblfreshInt'LParUndsRParUnds'INT'»"),
 ];
