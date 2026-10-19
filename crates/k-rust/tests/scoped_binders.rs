@@ -145,7 +145,7 @@ fn an_anonymous_binder_is_no_use_and_its_body_reads_its_anonymous_variables() {
     );
 }
 
-/// A binder binds its own body: a variable that occurs only there is bound./// A binder binds its own body: a variable that occurs only there is bound.
+/// A binder binds its own body: a variable that occurs only there is bound.
 #[test]
 fn a_binder_binds_the_variable_in_its_body() {
     assert_eq!(

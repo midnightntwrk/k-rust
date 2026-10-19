@@ -231,6 +231,12 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
         converter
     }
 
+    /// Convert `term` to KORE.
+    ///
+    /// A quantifier binds exactly its own variable, so every anonymous variable must already have
+    /// its own name (`resolve anonymous variables`, which compilation runs before conversion): an
+    /// unresolved `_`, `?_`, `!_` or `@_` binder is a caller error, asserted in debug builds and
+    /// emitted as a binder of its own variable otherwise.
     pub fn convert(&self, term: &Term) -> Result<Pattern, TermConversionError> {
         self.pattern(term)
     }
@@ -826,6 +832,11 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
 }
 
 /// Resolve a definition and convert one K term in the selected module.
+///
+/// A quantifier binds exactly its own variable, so every anonymous variable must already have
+/// its own name (`resolve anonymous variables`, which compilation runs before conversion): an
+/// unresolved `_`, `?_`, `!_` or `@_` binder is a caller error, asserted in debug builds and
+/// emitted as a binder of its own variable otherwise.
 pub fn term_to_kore(
     definition: &Definition,
     module: &str,
@@ -837,6 +848,11 @@ pub fn term_to_kore(
 }
 
 /// Convert one K term while reusing an already-resolved definition.
+///
+/// A quantifier binds exactly its own variable, so every anonymous variable must already have
+/// its own name (`resolve anonymous variables`, which compilation runs before conversion): an
+/// unresolved `_`, `?_`, `!_` or `@_` binder is a caller error, asserted in debug builds and
+/// emitted as a binder of its own variable otherwise.
 pub fn term_to_kore_from_resolved(
     definition: &ResolvedDefinition,
     module: &str,
@@ -846,6 +862,11 @@ pub fn term_to_kore_from_resolved(
 }
 
 /// Convert applications with `module` while retaining lexical token hooks from `token_module`.
+///
+/// A quantifier binds exactly its own variable, so every anonymous variable must already have
+/// its own name (`resolve anonymous variables`, which compilation runs before conversion): an
+/// unresolved `_`, `?_`, `!_` or `@_` binder is a caller error, asserted in debug builds and
+/// emitted as a binder of its own variable otherwise.
 pub fn term_to_kore_from_resolved_with_token_module(
     definition: &ResolvedDefinition,
     module: &str,

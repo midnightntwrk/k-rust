@@ -1371,8 +1371,9 @@ impl ConditionForm {
 /// A rule's free variables are universally quantified over the whole rule. A variable `Z` of the
 /// condition alone does not occur in the conclusion, so `∀Z. (c(Z) → φ)` is `(∃Z. c(Z)) → φ`:
 /// the rule means the same, and it applies where some value of `Z` satisfies the condition,
-/// which can be decided without the value matching gives the variables of the left side. A claim
-/// is not a rule applied by matching, so its condition is left as written.
+/// which can be decided without the value matching gives the variables of the left side. A
+/// claim's condition means the same in either form, and is left as written so that a claim keeps
+/// its bytes.
 fn quantify_condition_only(
     condition: Pattern,
     sort: &KoreSort,
