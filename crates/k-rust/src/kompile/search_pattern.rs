@@ -22,6 +22,7 @@ use std::fmt;
 use crate::definition::{Attributes, LabelHead, ResolvedDefinition, Sentence};
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::inner::{RuleError, parse_rule_content};
+use crate::kast::binding::{Reservation, bound_names, rename_apart_in_sentence_beside};
 use crate::kast::{Sort, Term, TermParts, identifier};
 use crate::kore::ast::{Pattern, VariableKind};
 use crate::names::BuiltinSort;
@@ -213,10 +214,28 @@ pub fn compile_search_pattern(
     )
     .map_err(CompileSearchPatternError::MacroExpansion)?;
     generated.extend(expanded.generated_variables);
-    let [body, requires]: [Term; 2] = expanded
+    let [mut body, mut requires]: [Term; 2] = expanded
         .terms
         .try_into()
         .expect("two input roots produce two expanded roots");
+    // A macro parameter that occurs more than once copies its argument, and a copy of a
+    // quantifier binds its name again: the copies are renamed apart by the shared rule. Only
+    // names bound more than once are renamed; a bound name the pattern's sort tests also read
+    // free is FU-54's, and renaming it would change no meaning.
+    let mut seen = BTreeSet::new();
+    let copied: BTreeSet<String> = [&body, &requires]
+        .into_iter()
+        .flat_map(bound_names)
+        .filter(|name| !seen.insert(name.clone()))
+        .collect();
+    if !copied.is_empty() {
+        rename_apart_in_sentence_beside(
+            [&mut body, &mut requires],
+            &BTreeSet::new(),
+            |name| !copied.contains(name),
+            &mut Reservation::new(),
+        );
+    }
     // The sort tests were conjoined with the condition before its macros were expanded; the
     // conjunction is chosen now, on the condition as the backend reads it.
     let requires = crate::kompile::ml_constructs::resolve_condition_conjunctions(requires);
