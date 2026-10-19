@@ -2819,3 +2819,49 @@ fn krun_pattern_prints_a_ground_function_equality_of_a_match() {
         }
     }
 }
+
+/// Two quantifiers that spell their variables alike bind two variables, each at its own sort:
+/// `(#Exists Y:Int . {A #Equals Y}) #And (#Exists Y:KItem . {B #Equals Y})` holds where `A` is an
+/// Int and `B` is anything, as the spelling with `Z` does.
+const SAME_SPELLED_BINDERS: [&str; 2] = [
+    "(#Exists Y:Int . {A #Equals Y}) #And (#Exists Y:KItem . {B #Equals Y})",
+    "(#Exists Y:Int . {A #Equals Y}) #And (#Exists Z:KItem . {B #Equals Z})",
+];
+
+const PAIRS: &str = "  syntax KItem ::= pr(KItem, KItem) [symbol(pr)] | \"a\" [symbol(a)]\n  rule [s1]: <k> go(0) => pr(1, a) ... </k>\n  rule [s2]: <k> go(0) => pr(2, 2) ... </k>\n";
+
+/// A rule whose condition holds two same-spelled binders at different sorts fires where the
+/// condition holds. The quantified condition needs a solver, which the portable build lacks (it
+/// leaves the step indeterminate).
+#[cfg(feature = "z3-inference")]
+#[test]
+fn a_rule_with_same_spelled_binders_at_two_sorts_fires_where_its_condition_holds() {
+    for condition in SAME_SPELLED_BINDERS {
+        let sentences = format!(
+            "  syntax KItem ::= pr(KItem, KItem) [symbol(pr)] | \"a\" [symbol(a)]\n  rule [s1]: <k> go(0) => pr(1, a) ... </k>\n  rule [r]: <k> pr(A, B) => done(7) ... </k> requires {condition}\n"
+        );
+        assert_eq!(run(&sentences, 0), stuck("done(7)"), "{condition}");
+    }
+}
+
+/// A search pattern whose condition holds two same-spelled binders at different sorts finds
+/// both states where it holds.
+#[cfg(feature = "cli")]
+#[test]
+fn krun_pattern_with_same_spelled_binders_at_two_sorts_finds_both_states() {
+    let bound = |n: &str| {
+        format!("VarA:SortKItem{{}},inj{{SortInt{{}},SortKItem{{}}}}(\\dv{{SortInt{{}}}}(\"{n}\"))")
+    };
+    for condition in SAME_SPELLED_BINDERS {
+        let (status, stdout, stderr) =
+            krun_pattern(PAIRS, &format!("<k> pr(A, B) </k> requires {condition}"));
+        assert_eq!(status, 0, "{condition}: {stderr}");
+        let printed = stdout.split_whitespace().collect::<String>();
+        for n in ["1", "2"] {
+            assert!(
+                printed.contains(&bound(n)),
+                "{condition}: no A = {n} in {printed}"
+            );
+        }
+    }
+}
