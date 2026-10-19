@@ -33,7 +33,7 @@
 //! - C1: every variable free in the `requires` or `ensures` of a rule, claim, context or context
 //!   alias after a stage occurs in the sentence's body, or occurred free in a condition of the
 //!   same sentence before the stage, or is `HOLE` of a context alias. A variable a `#Exists` or
-//!   `#Forall` of the condition binds is not free.
+//!   `#Forall` of the condition binds is not free ([`crate::kast::binding`] states the rule).
 //!   The same sentence before the stage is the family of rule-like sentences before it that
 //!   share one of its input addresses ([`Attributes::input_addresses`], which provenance carries
 //!   through every stage): the heating and cooling rules of one context, every context of one
@@ -73,7 +73,8 @@ use std::fmt::Write as _;
 
 use crate::definition::checks::{CheckedRoot, right_hand_side_binding};
 use crate::definition::{AttributeKey, Definition, Sentence, StructuralCheckOptions};
-use crate::kast::{InternalLabel, Term};
+use crate::kast::Term;
+use crate::kast::binding::free_variables;
 use crate::kompile::CompileOptions;
 use crate::kompile::pipeline::{Artifacts, Stage};
 use crate::provenance::InputAddress;
@@ -86,11 +87,6 @@ const CONFIGURATION_VARIABLE: &str = "#Configuration";
 
 /// The stage that renames anonymous variables (C1's exemption).
 const ANONYMOUS_RENAMING_STAGE: &str = "resolve anonymous variables";
-
-/// Whether `name` is an anonymous variable as written: `_`, `?_`, `!_` or `@_`.
-fn is_anonymous(name: &str) -> bool {
-    matches!(name, "_" | "?_" | "!_" | "@_")
-}
 
 /// Checks every stage boundary of the table-driven pipeline against R3, C1 and C2 and names the
 /// first stage that breaks one.
@@ -418,53 +414,6 @@ fn introduced_condition_variables(
             (!names.is_empty()).then_some((root, names))
         })
         .collect()
-}
-
-/// The variables free in `term`: every variable occurrence outside the scope of a `#Exists` or
-/// `#Forall` that binds its name (the variables of a quantifier's first argument, in its second).
-/// Each anonymous variable is a variable of its own, so a quantified `_` binds no other `_`.
-fn free_variables(term: &Term) -> BTreeSet<String> {
-    let mut free = BTreeSet::new();
-    // Each item is a term and the number of entries of `bound` in its scope.
-    let mut bound: Vec<String> = Vec::new();
-    let mut pending: Vec<(&Term, usize)> = vec![(term, 0)];
-    // Invariant: every term popped from `pending` is a subterm of `term`, visited once, so the
-    // loop ends; `bound[..scope]` is the binders in scope of each pending term.
-    while let Some((node, scope)) = pending.pop() {
-        bound.truncate(scope);
-        match node.unannotated() {
-            Term::Variable { name, .. } => {
-                if !bound.contains(name) {
-                    free.insert(name.clone());
-                }
-            }
-            Term::Apply { label, arguments }
-                if (label.is(InternalLabel::Exists) || label.is(InternalLabel::Forall))
-                    && arguments.len() == 2 =>
-            {
-                arguments[0].visit_preorder(&mut |binder| {
-                    if let Term::Variable { name, .. } = binder.unannotated()
-                        && !is_anonymous(name)
-                    {
-                        bound.push(name.clone());
-                    }
-                });
-                pending.push((&arguments[1], bound.len()));
-            }
-            other @ (Term::InjectedLabel(_)
-            | Term::Rewrite { .. }
-            | Term::As { .. }
-            | Term::Sequence(_)
-            | Term::Apply { .. }
-            | Term::Token { .. }
-            | Term::Annotated { .. }) => {
-                for child in other.children() {
-                    pending.push((child, scope));
-                }
-            }
-        }
-    }
-    free
 }
 
 fn describe_condition_variables(introduced: &[(CheckedRoot, BTreeSet<String>)]) -> String {

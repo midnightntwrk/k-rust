@@ -312,6 +312,9 @@ A binding finding is stated as a new axis value or family of the generator, or a
 The whole corpus and the whole generated grammar are ignored tests, run in the portable and the native build by the `alpha-invariance` gate (`scripts/alpha-invariance.sh`, `scripts/gates.toml`), which a change to krust's sources owes; at the default of 4 jobs its tests take 7 to 8 minutes in each build, 14 to 15 minutes in all (2026-10-19, `--test-threads 1`, on a loaded host), with a maximum resident set of 0.9 to 1.3 GB and a memory peak of 1.4 to 3 GB for the whole script, the builds and the page cache included.
 `ALPHA_INVARIANCE_OUT=<directory>` writes one line per result to `<directory>/<test>.tsv` (the result, its kind, its signature and its report) and each case's wall time to `<directory>/<test>.times.tsv`.
 
+The binding module (`crates/k-rust/src/kast/binding.rs`), which states the binding rule for the compiler's passes, is checked by property tests against a locally nameless reference written in its tests and by a census of substitution cases that also states how often its generators reach each case (captures, simultaneous chains, captures in terms that bind a name twice, keys spelled like a fresh name).
+Both run from fixed seeds: `cargo test` runs 256 cases per property and 1,024 census draws, and the `alpha-invariance` gate runs 50,000 of each (`KAST_BINDING_CASES`, `KAST_BINDING_CENSUS`).
+
 ## Durable regression descriptions
 
 Committed filenames, test names, fixture metadata, and comments must identify the behavior or scenario they describe.
