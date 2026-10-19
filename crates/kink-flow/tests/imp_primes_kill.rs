@@ -95,6 +95,7 @@ fn single_path(backend: &mut Backend, state: &Pattern, budget: ExecutionBudget) 
             assume_state_defined: false,
             result_modality: ResultModalityOutput::PathSet,
             collect_coverage: false,
+            collect_offered: false,
             max_work: None,
             trace: false,
             cancelled_result: CancelledResultOutput::Error,

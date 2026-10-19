@@ -970,6 +970,7 @@ fn execute_request(state: Pattern, max_depth: u64) -> ExecuteRequest {
         assume_state_defined: false,
         result_modality: ResultModalityOutput::StateSet,
         collect_coverage: false,
+        collect_offered: false,
         max_work: None,
         trace: false,
         cancelled_result: CancelledResultOutput::Error,

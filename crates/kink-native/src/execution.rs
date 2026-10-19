@@ -507,6 +507,10 @@ pub enum ExecutionAdapterFailure {
 /// - `max_work`: `run.max_work` (none for a stepped run and by default); its `work-bound` leaf
 ///   is admitted exactly then ([`HaltClass::admitted_by`]).
 ///
+/// - `collect_offered: false` (k-rust 58720d2e5, KINK-04/3): no offered coverage is asked for,
+///   which is the behaviour before that field existed; asking changes no other field of the
+///   result, and adopting it is for the round-D re-pin (probe P-1, draft/tasks/repin-58720d2e).
+///
 /// Step timeouts stay off: a step deadline is host-dependent, which an Execute-promise run must
 /// not be (finding A-03).
 fn request(state: Pattern, budget: ExecutionBudget, run: ResultRun) -> ExecuteRequest {
@@ -525,6 +529,7 @@ fn request(state: Pattern, budget: ExecutionBudget, run: ResultRun) -> ExecuteRe
         assume_state_defined: false,
         result_modality: run.modality.output(),
         collect_coverage: true,
+        collect_offered: false,
         max_work: run.max_work,
         trace: false,
         cancelled_result: CancelledResultOutput::Error,
@@ -994,6 +999,13 @@ fn settle(
                 work: 0,
                 expanded: 0,
                 stack_stops: 0,
+                // A timed-out run publishes nothing (k-rust 58720d2e5 added these lists,
+                // KINK-19/1, KINK-17/1, KINK-18/2); its leaves are never decoded.
+                smt_unknowns: 0,
+                implementation_chosen_values: Vec::new(),
+                contradicted_claims: Vec::new(),
+                allowance_refusals: Vec::new(),
+                unsupported_hooks: Vec::new(),
             },
             true,
         )),
@@ -1553,6 +1565,11 @@ mod tests {
             work: 1,
             expanded: 0,
             stack_stops: 0,
+            smt_unknowns: 0,
+            implementation_chosen_values: Vec::new(),
+            contradicted_claims: Vec::new(),
+            allowance_refusals: Vec::new(),
+            unsupported_hooks: Vec::new(),
         };
         let one = NonZeroUsize::new(1).expect("nonzero");
         for (max_depth, max_breadth) in [

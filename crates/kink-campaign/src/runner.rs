@@ -2967,6 +2967,11 @@ mod tests {
                     work: 0,
                     expanded: 0,
                     stack_stops: 0,
+                    smt_unknowns: 0,
+                    implementation_chosen_values: Vec::new(),
+                    contradicted_claims: Vec::new(),
+                    allowance_refusals: Vec::new(),
+                    unsupported_hooks: Vec::new(),
                 };
                 let executed = |result: k_rust::backend::ExecutionResult| {
                     let feasibility = vec![LeafFeasibility::Syntactic; result.leaves.len()];
@@ -3183,6 +3188,11 @@ mod tests {
                     work: execution.work(),
                     expanded: 0,
                     stack_stops: 0,
+                    smt_unknowns: 0,
+                    implementation_chosen_values: Vec::new(),
+                    contradicted_claims: Vec::new(),
+                    allowance_refusals: Vec::new(),
+                    unsupported_hooks: Vec::new(),
                 };
                 let feasibility = execution
                     .leaves()

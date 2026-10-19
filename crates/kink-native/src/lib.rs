@@ -46,4 +46,4 @@ pub use validator::{
 };
 
 /// k-rust revision pinned by upstream/k-rust.toml.
-pub const K_RUST_REVISION: &str = "501f18b9bde3cba800924a0efef932b440e66bf0";
+pub const K_RUST_REVISION: &str = "8f8ad57c5f8c65d77014d2b89006055af3d8de7f";

@@ -4,8 +4,9 @@ k-in-k2 provides execution pattern matching and semantic mutation testing for K 
 It is built on k-rust,
 which the workspace consumes as a path dependency.
 The intended source is the on-disk checkout at `../inspirations/midnightntwrk/k-rust`, tracking k-rust main.
-The workspace builds against a read-only export of k-rust main commit `501f18b9bde3cba800924a0efef932b440e66bf0` (k-rust 0.7.0, k-rust-backend 0.4.0) at `../k-rust-501f18b9`,
-exported with `git -C ../inspirations/midnightntwrk/k-rust archive 501f18b9bde3cba800924a0efef932b440e66bf0 | tar -x -C ../k-rust-501f18b9`.
+The workspace builds against a read-only export of k-rust main commit `8f8ad57c5f8c65d77014d2b89006055af3d8de7f` (k-rust 0.7.0, k-rust-backend 0.4.0) at `../k-rust-8f8ad57c`,
+exported with `git -C ../inspirations/midnightntwrk/k-rust archive 8f8ad57c5f8c65d77014d2b89006055af3d8de7f | tar -x -C ../k-rust-8f8ad57c`.
+This is the candidate re-pin of branch `repin/probe-8f8ad57c` (draft/tasks/repin-58720d2e packets P-1 and P-2); kink's rules, exclusions and pinned values are still those judged at k-rust `501f18b9`, and none of the k-rust features added since is adopted.
 That commit carries variable identity version 3 (verbatim name reading, injective printing and request-unique free mints) and KRUST-PROVENANCE version 8.
 Moving back to the live checkout means changing the two paths in `Cargo.toml` `[workspace.dependencies]` and adapting to the new k-rust.
 The work is intended to be merged into k-rust together with KRS.
