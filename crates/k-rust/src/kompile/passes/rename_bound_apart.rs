@@ -23,11 +23,9 @@
 //! (`kast::binding::Reservation::mint`, which keeps the sigil and the `_` prefix) otherwise.
 //! This is the shared rule of `kast::binding::rename_apart_in_sentence`, with the attributes'
 //! names counted as free (`rename_apart_in_sentence_beside`).
-//! A sentence that is already apart is left unchanged.
-//!
-//! Until anonymity stops being read from spellings, a binder spelled as a resolved anonymous
-//! variable (`_Gen` and digits, and the like) is left as it is: the passes that give those names
-//! reserve every name of the sentence, so each such binder is already unique.
+//! A sentence that is already apart is left unchanged. How a binder is spelled plays no part:
+//! a binder spelled like a resolved anonymous variable (`_Gen` and digits), which only an author
+//! can have written this early, is renamed apart like any other.
 #![deny(clippy::wildcard_enum_match_arm)]
 
 use std::collections::BTreeSet;
@@ -35,9 +33,7 @@ use std::convert::Infallible;
 
 use crate::definition::{AttributeKey, Attributes, Definition, Sentence};
 use crate::kast::Term;
-use crate::kast::binding::{
-    Reservation, quantifier, reads_as_resolved_anonymous, rename_apart_in_sentence_beside,
-};
+use crate::kast::binding::{Reservation, quantifier, rename_apart_in_sentence_beside};
 
 use super::super::pipeline::{PassInput, PassOutcome, PipelineState};
 
@@ -74,35 +70,22 @@ pub(crate) fn rename_bound_apart_pass(
 
 /// Rename the bound variables of `sentence` apart (module documentation); whether any changed.
 /// This is [`rename_apart_in_sentence_beside`] over the sentence's terms, with the names its
-/// variable-naming attributes list as `named` and the resolved-anonymous spellings kept.
+/// variable-naming attributes list as `named` and no name kept.
 pub(crate) fn rename_bound_apart_in_sentence(sentence: &mut Sentence) -> bool {
     let named = attribute_variable_names(sentence.attributes());
     let terms = sentence.terms_mut().map(|(_, term)| term);
-    !rename_apart_in_sentence_beside(
-        terms,
-        &named,
-        reads_as_resolved_anonymous,
-        &mut Reservation::new(),
-    )
-    .is_empty()
+    !rename_apart_in_sentence_beside(terms, &named, |_| false, &mut Reservation::new()).is_empty()
 }
 
 /// Rename the bound variables of `sentence` apart after a stage copied a subterm that holds a
 /// quantifier into a second position of it (a rewrite's shared context into both sides, a macro
 /// argument into each occurrence of its parameter); whether any changed.
 ///
-/// This is [`rename_apart_in_sentence_beside`] over the sentence's terms with the names its
-/// variable-naming attributes list: in preorder, the first copy of a quantifier keeps its name and
-/// each later one takes a fresh name. Every binder is renamed so, including one spelled as a
-/// resolved anonymous variable, since by then each such spelling names one variable. A sentence
-/// that is still apart is left unchanged.
+/// This is the rule of [`rename_bound_apart_in_sentence`]: in preorder, the first copy of a
+/// quantifier keeps its name and each later one takes a fresh name, whatever the binder's
+/// spelling. A sentence that is still apart is left unchanged.
 pub(crate) fn rename_copies_apart(sentence: &mut Sentence) -> bool {
-    if !holds_quantifier(sentence) {
-        return false;
-    }
-    let named = attribute_variable_names(sentence.attributes());
-    let terms = sentence.terms_mut().map(|(_, term)| term);
-    !rename_apart_in_sentence_beside(terms, &named, |_| false, &mut Reservation::new()).is_empty()
+    holds_quantifier(sentence) && rename_bound_apart_in_sentence(sentence)
 }
 
 /// The variable names `attributes` mention: the comma-separated entries of `concrete`,
@@ -237,17 +220,29 @@ mod tests {
         assert_eq!(renamed_copies(apart.clone()), (false, apart));
     }
 
-    /// A sentence already apart is unchanged, and so is a binder spelled as a resolved anonymous
-    /// variable, which the passes minting those names keep unique.
+    /// A sentence already apart is unchanged, and a binder spelled like a resolved anonymous
+    /// variable is renamed apart like any other: its spelling has no bearing on what it binds.
     #[test]
-    fn an_apart_sentence_and_a_resolved_anonymous_binder_are_left_as_they_are() {
+    fn an_apart_sentence_is_unchanged_and_a_binder_spelled_as_generated_is_renamed_apart() {
         let apart = rule(
             "X",
             Term::apply("h", vec![exists("Y", g("Y")), exists("Z", g("Z"))]),
             Attributes::default(),
         );
         assert_eq!(renamed(apart.clone()), (false, apart));
-        let generated = rule("_Gen1", exists("_Gen1", g("_Gen1")), Attributes::default());
-        assert_eq!(renamed(generated.clone()), (false, generated));
+        let (changed, generated) = renamed(rule(
+            "_Gen1",
+            exists("_Gen1", g("_Gen1")),
+            Attributes::default(),
+        ));
+        assert!(changed);
+        assert_eq!(
+            generated,
+            rule(
+                "_Gen1",
+                exists("_Gen1_0", g("_Gen1_0")),
+                Attributes::default()
+            )
+        );
     }
 }

@@ -316,8 +316,9 @@ pub fn compile_search_pattern(
         })
         .collect::<Result<Vec<_>, CompileSearchPatternError>>()?;
 
-    let converter =
-        TermConverter::new_with_generated_anonymous(execution_definition, module, &generated)?;
+    // A quantifier binds exactly its own variable, so the converter needs no record of which
+    // variables were minted; `generated` serves only to hide those variables from the results.
+    let converter = TermConverter::new(execution_definition, module)?;
     let body = converter.convert(&body)?;
     let top_kore = converter.convert_sort(&top)?;
     let bool_kore = converter.convert_sort(&bool_sort)?;

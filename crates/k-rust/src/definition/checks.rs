@@ -486,13 +486,15 @@ pub fn check_rewrites(sentences: &[&Sentence]) -> Vec<Diagnostic> {
 }
 
 /// A named variable that occurs once is reported as unused, and an anonymous-named variable that
-/// occurs more than once as used; `HOLE` and `HERE` in contexts are exempt.
+/// occurs more than once as used; `HOLE` and `HERE` in contexts are exempt. A quantifier whose
+/// binder is an anonymous variable (`#Exists _ . P`) is reported as binding nothing.
 pub fn check_anonymous_variables(sentences: &[&Sentence]) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     for sentence in sentences {
         if sentence.attributes().string(AttributeKey::Label) == Some("STDIN-STREAM.stdinUnblock") {
             continue;
         }
+        warn_anonymous_binders(sentence, &mut diagnostics);
         let mut counts = BTreeMap::<String, usize>::new();
         for (_, term) in sentence.terms() {
             term.visit_preorder(&mut |term| {
@@ -531,6 +533,45 @@ pub fn check_anonymous_variables(sentences: &[&Sentence]) -> Vec<Diagnostic> {
         }
     }
     diagnostics
+}
+
+/// Warn of each quantifier of `sentence` whose binder is an anonymous variable. A quantifier
+/// binds exactly its own variable (`kast::binding`), and each anonymous variable is a variable of
+/// its own, so such a binder binds no occurrence of its body: `#Exists _ . P` states P with its
+/// anonymous variables free. The author almost certainly meant a named variable.
+fn warn_anonymous_binders(sentence: &Sentence, diagnostics: &mut Vec<Diagnostic>) {
+    // As for an unused variable, a generated sentence has nothing its author could fix.
+    if sentence.attributes().location().is_none() {
+        return;
+    }
+    for (_, term) in sentence.terms() {
+        term.visit_preorder(&mut |node| {
+            let Some(quantifier) = crate::kast::binding::quantifier(node) else {
+                return;
+            };
+            if !quantifier.bound().is_empty() {
+                return;
+            }
+            let mut anonymous = None;
+            quantifier.binder.visit_preorder(&mut |part| {
+                if let Term::Variable { name, .. } = part
+                    && is_anonymous(name)
+                {
+                    anonymous.get_or_insert_with(|| name.clone());
+                }
+            });
+            if let Some(name) = anonymous {
+                diagnostics.push(Diagnostic::warning(
+                    DiagnosticCode::UnusedVariable,
+                    format!(
+                        "The binder '{name}' of {} binds nothing: each anonymous variable is a variable of its own, so no occurrence in the quantifier's body is bound. Name the variable to bind its occurrences.",
+                        quantifier.label.name
+                    ),
+                    sentence,
+                ));
+            }
+        });
+    }
 }
 
 /// Two sentences of one module may not carry the same `label`. Context aliases are exempt:

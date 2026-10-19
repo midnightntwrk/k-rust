@@ -38,7 +38,6 @@ use super::binders::generated_exists_all;
 use super::roles::{EmittedEquation, SymbolRoles};
 use super::*;
 use crate::kast::binding;
-use crate::kompile::fresh_names::{GeneratedVariableIdentity, is_generated_anonymous};
 use crate::kompile::sort_injections::SentenceSortVariables;
 use k_rust_kore::measure::{self, Counter};
 use k_rust_kore::names::DEFAULT_RULE_PRIORITY;
@@ -216,6 +215,13 @@ pub(super) fn emit_rule_or_claim(
             arguments: vec![right, ensures],
         },
     );
+    let requires = if claim {
+        requires
+    } else {
+        quantify_condition_only(requires, &result_sort, attributes, || {
+            Ok(free_names([&left, &right]))
+        })?
+    };
     if let Some(mode) = reachability_mode(attributes).or(*default_reachability) {
         right = Pattern::Application {
             symbol: Symbol {
@@ -496,6 +502,13 @@ fn emit_equation(
         sort: result_sort.clone(),
         arguments: vec![converter.convert(right)?, ensures],
     };
+    let requires = if claim {
+        requires
+    } else {
+        quantify_condition_only(requires, &predicate_sort, attributes, || {
+            Ok(free_names([&converter.convert(left)?, &right]))
+        })?
+    };
     if attributes.has(AttributeKey::Owise) {
         if claim {
             return Err(ModuleToKoreError::UnsupportedRuleKind {
@@ -660,8 +673,8 @@ fn emit_owise_equation(
             Sentence::Rule {
                 body,
                 requires: competitor_requires,
+                ensures: competitor_ensures,
                 attributes: competitor_attributes,
-                ..
             },
             _,
         )) = &owise_competitors.injected[index]
@@ -672,48 +685,45 @@ fn emit_owise_equation(
             clippy::wildcard_enum_match_arm,
             reason = "Term is not a sentence kind; only the listed variants are special here"
         )]
-        let competitor_left = match body.unannotated() {
-            Term::Rewrite { left, .. } => left.as_ref(),
-            _ => body,
+        let (competitor_left, competitor_right) = match body.unannotated() {
+            Term::Rewrite { left, right } => (left.as_ref(), right.as_ref()),
+            _ => (body, body),
         };
         // The axiom is one scope for names: `fresh` holds every name in use in it so far (the
         // owise rule's variables, every name minted, and the bound names of the competitors
         // before this one), compared by name whatever the sort. The refresh renames the
         // competitor's free variables to minted names. A variable a quantifier of the
-        // competitor binds is local to that quantifier: it keeps its authored name unless the
-        // name is in use, and is otherwise renamed, binder and bound occurrences alike, to a
-        // fresh name read as authored or as anonymous as the original is. Every bound name is
-        // reserved before any name is minted for this competitor or a later one, so no minted
-        // name captures a bound one and no bound name meets another variable of its name.
-        let (mut bound, mut anonymous_binders) = (BTreeSet::new(), BTreeSet::new());
-        bound_variable_names(
-            competitor_left,
-            &BinderScope::default(),
-            &mut bound,
-            &mut anonymous_binders,
-        );
-        bound_variable_names(
+        // competitor binds is local to that quantifier (`kast::binding`): it keeps its name
+        // unless the name is in use, and is otherwise renamed, binder and bound occurrences
+        // alike, to a fresh name. Every bound name is reserved before any name is minted for
+        // this competitor or a later one, so no minted name captures a bound one and no bound
+        // name meets another variable of its name.
+        // A variable of the competitor's condition alone is bound inside the condition, as in the
+        // competitor's own axiom (`quantify_condition_only`), so it is a bound name here too.
+        let condition_only = condition_only_names(
             competitor_requires,
-            &BinderScope::default(),
-            &mut bound,
-            &mut anonymous_binders,
+            [competitor_left, competitor_right, competitor_ensures],
+            competitor_attributes,
         );
+        let bound = binding::bound_names(competitor_left)
+            .into_iter()
+            .chain(binding::bound_names(competitor_requires))
+            .chain(condition_only.iter().cloned())
+            .collect::<BTreeSet<_>>();
         let taken = bound
             .iter()
             .filter(|name| fresh.contains(name))
             .cloned()
             .collect::<Vec<_>>();
-        // An anonymous quantifier's own variable keeps its name: it is no variable of the axiom,
-        // but no minted name may take it, which the quantifier would read as anonymous.
-        // Invariant: `fresh` has reserved every bound name and anonymous binder before `name`.
-        for name in bound.iter().chain(&anonymous_binders) {
+        // Invariant: `fresh` has reserved every bound name before `name`.
+        for name in &bound {
             fresh.reserve(name.clone());
         }
         let mut bound_renames = BTreeMap::new();
         // Invariant: `bound_renames` maps every taken name before `name` to a name `fresh`
         // minted for it, after reserving every bound name.
         for name in taken {
-            let renamed = mint_bound_name(&mut fresh, &name);
+            let renamed = fresh.mint(&name);
             bound_renames.insert(name, renamed);
         }
         let mut renames = BTreeMap::new();
@@ -726,30 +736,13 @@ fn emit_owise_equation(
         );
         let refreshed_requires = refresh_variables(
             competitor_requires,
-            &BinderScope::default(),
+            &BinderScope {
+                named: condition_only.iter().cloned().collect(),
+            },
             &bound_renames,
             &mut fresh,
             &mut renames,
         );
-        // A free variable's refreshed name is spelled like a generated anonymous variable, so
-        // the competitor is converted with anonymity taken from origin: the refreshed names of
-        // anonymous variables and the emitted names of the anonymous variables a quantifier
-        // binds. Otherwise an anonymous binder would bind a refreshed named variable of its body.
-        let anonymous = renames
-            .iter()
-            .filter(|((original, _), _)| is_generated_anonymous(original))
-            .map(|(_, refreshed)| refreshed)
-            .chain(
-                bound
-                    .iter()
-                    .filter(|name| is_generated_anonymous(name))
-                    .map(|name| bound_renames.get(name).unwrap_or(name)),
-            )
-            .chain(&anonymous_binders)
-            .map(|name| GeneratedVariableIdentity::element(name.clone()))
-            .collect();
-        let competitor_converter = converter.with_generated_anonymous(anonymous);
-        let converter = &competitor_converter;
         let Term::Apply {
             arguments: competitor_children,
             ..
@@ -774,6 +767,23 @@ fn emit_owise_equation(
             &predicate_sort,
             converter,
         )?;
+        // The competitor's condition as its own axiom states it (`quantify_condition_only`):
+        // quantified inside over each variable of the condition alone, under the name the
+        // refresh kept or gave it, in the order of first occurrence.
+        let condition_only = condition_only
+            .iter()
+            .map(|name| {
+                identifier::encode_variable(
+                    bound_renames.get(name).unwrap_or(name),
+                    VariableKind::Element,
+                )
+            })
+            .collect::<BTreeSet<_>>();
+        let wrapped = free_element_variables_in_order(&condition)
+            .into_iter()
+            .filter(|variable| condition_only.contains(&variable.name))
+            .collect();
+        let condition = generated_exists_all(&predicate_sort, wrapped, condition);
         let candidate = Pattern::And {
             sort: predicate_sort.clone(),
             arguments: vec![condition, matches],
@@ -781,21 +791,37 @@ fn emit_owise_equation(
         // The competitor holds where some instance of its free variables matches and satisfies
         // it. Its free variables are those of the converted pattern, whose binders are the ones
         // the backend reads; a variable a quantifier of the competitor binds has its binder. They
-        // are bound in the (sort, name) order of the refreshed variables they convert from.
+        // are bound in the order of their sorts and, within a sort, of their first occurrences in
+        // the refreshed left side and condition, never of their spellings: the order of nested
+        // existentials does not change what they state, so it must not change with a renaming.
         let free = candidate.free_variables();
+        let terms = variable_terms([&refreshed_left, &refreshed_requires]);
+        let (mut first_occurrences, mut seen) = (Vec::new(), BTreeSet::new());
+        // Invariant: `first_occurrences` lists, in preorder, every variable name met so far once,
+        // and `seen` holds the same names.
+        for root in [&refreshed_left, &refreshed_requires] {
+            root.visit_preorder(&mut |node| {
+                if let Term::Variable { name, .. } = node.unannotated()
+                    && seen.insert(name.clone())
+                {
+                    first_occurrences.push(name.clone());
+                }
+            });
+        }
         let mut quantified = Vec::new();
         // Invariant: `quantified` holds the key and the KORE variable of every refreshed
-        // variable before `term` whose conversion is free in `candidate`.
-        for term in variable_terms([&refreshed_left, &refreshed_requires]).into_values() {
+        // variable before `name` whose conversion is free in `candidate`.
+        for (index, name) in first_occurrences.iter().enumerate() {
+            let term = &terms[name];
             #[expect(
                 clippy::wildcard_enum_match_arm,
                 reason = "Term is not a sentence kind; only the listed variants are special here"
             )]
             let key = match term.unannotated() {
-                Term::Variable { name, sort } => (sort.clone(), name.clone()),
+                Term::Variable { sort, .. } => (sort.clone(), index),
                 _ => unreachable!("variable_terms returns variables"),
             };
-            let Some(variable) = take_kore_variable(converter.convert(&term)?) else {
+            let Some(variable) = take_kore_variable(converter.convert(term)?) else {
                 unreachable!("collected terms are variables")
             };
             if free.contains(&variable) {
@@ -1030,19 +1056,16 @@ fn variable_terms<'a>(roots: impl IntoIterator<Item = &'a Term>) -> BTreeMap<Str
     variables
 }
 
-/// The variables a quantifier of a competitor binds where `term` stands: the names of the named
-/// binders in scope, and, below an anonymous binder, every anonymous variable (the converter
-/// binds every anonymous variable of an anonymous binder's body).
+/// The names the quantifiers of a competitor bind where a term stands: a quantifier binds exactly
+/// its own variable in its body (`kast::binding`).
 #[derive(Clone, Default)]
 struct BinderScope {
     named: Vec<String>,
-    anonymous: bool,
 }
 
 impl BinderScope {
     fn binds(&self, name: &str) -> bool {
         self.named.iter().any(|bound| bound == name)
-            || self.anonymous && is_generated_anonymous(name)
     }
 
     /// The scope of the body of `label(arguments)` when it is a quantifier: `None` for any other
@@ -1058,75 +1081,8 @@ impl BinderScope {
             return None;
         };
         let mut body = self.clone();
-        if is_generated_anonymous(name) {
-            body.anonymous = true;
-        } else {
-            body.named.push(name.clone());
-        }
+        body.named.push(name.clone());
         Some(body)
-    }
-}
-
-// Invariant: each call visits one node of `term` and recurses only into its direct subterms, so
-// the finite `term` bounds the calls; `bound` holds every name a quantifier of the competitor
-// binds at some node visited so far, and `anonymous_binders` the variable of every anonymous
-// quantifier visited so far.
-/// The names the quantifiers of `term` bind, into `bound`, and the variables of its anonymous
-/// quantifiers, into `anonymous_binders`. An anonymous quantifier binds the anonymous variables
-/// of its body, each a binder of the emitted pattern; its own variable is no variable of the
-/// emitted pattern, but marks the quantifier as anonymous.
-fn bound_variable_names(
-    term: &Term,
-    scope: &BinderScope,
-    bound: &mut BTreeSet<String>,
-    anonymous_binders: &mut BTreeSet<String>,
-) {
-    match term.unannotated() {
-        Term::Variable { name, .. } => {
-            if scope.binds(name) {
-                bound.insert(name.clone());
-            }
-        }
-        Term::Apply { label, arguments } => {
-            if let Some(body) = scope.of_body(label, arguments) {
-                if let Term::Variable { name, .. } = arguments[0].unannotated() {
-                    if is_generated_anonymous(name) {
-                        anonymous_binders.insert(name.clone());
-                    } else {
-                        bound.insert(name.clone());
-                    }
-                }
-                bound_variable_names(&arguments[1], &body, bound, anonymous_binders);
-            } else {
-                for argument in arguments {
-                    bound_variable_names(argument, scope, bound, anonymous_binders);
-                }
-            }
-        }
-        other @ (Term::Rewrite { .. }
-        | Term::As { .. }
-        | Term::Sequence(_)
-        | Term::InjectedLabel(_)
-        | Term::Token { .. }
-        | Term::Annotated { .. }) => {
-            for child in other.children() {
-                bound_variable_names(child, scope, bound, anonymous_binders);
-            }
-        }
-    }
-}
-
-/// A fresh name for the bound variable `name`, whose name is in use: a `_Gen` name for an
-/// anonymous variable, and otherwise `name` with a numeric suffix, never spelled like a generated
-/// anonymous variable, so the renamed variable is read as anonymous exactly when `name` is.
-fn mint_bound_name(fresh: &mut FreshNames, name: &str) -> String {
-    if is_generated_anonymous(name) {
-        return fresh.mint("_Gen");
-    }
-    if is_generated_anonymous(&format!("{name}0")) {
-        fresh.mint(&format!("{name}_"))
-    } else {
-        fresh.mint(name)
     }
 }
 
@@ -1403,6 +1359,124 @@ impl ConditionForm {
             CompilationBackend::Rust => ConditionForm::Predicate,
         }
     }
+}
+
+/// The condition `condition` of a rule, at `sort`, quantified existentially inside the condition
+/// over each element variable free in it and free nowhere else in the rule (`elsewhere`, the
+/// names of the free variables of the rest of the rule, computed only when the condition has a
+/// free variable; one name has one sort in an axiom),
+/// in the order of their first free occurrences, the first outermost. A variable a `concrete` or
+/// `symbolic` attribute names is left free: the attribute reads it.
+///
+/// A rule's free variables are universally quantified over the whole rule. A variable `Z` of the
+/// condition alone does not occur in the conclusion, so `∀Z. (c(Z) → φ)` is `(∃Z. c(Z)) → φ`:
+/// the rule means the same, and it applies where some value of `Z` satisfies the condition,
+/// which can be decided without the value matching gives the variables of the left side. A
+/// claim's condition means the same in either form, and is left as written so that a claim keeps
+/// its bytes.
+fn quantify_condition_only(
+    condition: Pattern,
+    sort: &KoreSort,
+    attributes: &KAttributes,
+    elsewhere: impl FnOnce() -> Result<BTreeSet<String>, TermConversionError>,
+) -> Result<Pattern, TermConversionError> {
+    let free = free_element_variables_in_order(&condition);
+    if free.is_empty() {
+        return Ok(condition);
+    }
+    let elsewhere = elsewhere()?;
+    let named = [AttributeKey::Concrete, AttributeKey::Symbolic]
+        .into_iter()
+        .filter_map(|key| attributes.string(key))
+        .flat_map(|value| value.split(','))
+        .map(str::trim)
+        .map(|name| identifier::encode_variable(name, VariableKind::Element))
+        .collect::<BTreeSet<_>>();
+    let only = free
+        .into_iter()
+        .filter(|variable| !elsewhere.contains(&variable.name) && !named.contains(&variable.name))
+        .collect::<Vec<_>>();
+    Ok(generated_exists_all(sort, only, condition))
+}
+
+/// The names of the element variables free in `condition` and in none of `elsewhere`, nor named by a
+/// `concrete` or `symbolic` attribute: the variables [`quantify_condition_only`] quantifies,
+/// read on the rule's terms.
+fn condition_only_names<'t>(
+    condition: &Term,
+    elsewhere: impl IntoIterator<Item = &'t Term>,
+    attributes: &KAttributes,
+) -> BTreeSet<String> {
+    // A set variable is left free, as `quantify_condition_only` leaves it.
+    let mut names = binding::free_variables(condition);
+    names.retain(|name| !name.starts_with('@'));
+    for term in elsewhere {
+        for name in binding::free_variables(term) {
+            names.remove(&name);
+        }
+    }
+    for key in [AttributeKey::Concrete, AttributeKey::Symbolic] {
+        for name in attributes
+            .string(key)
+            .into_iter()
+            .flat_map(|value| value.split(','))
+        {
+            names.remove(name.trim());
+        }
+    }
+    names
+}
+
+/// The names of the variables free in any of `patterns`.
+fn free_names<'p>(patterns: impl IntoIterator<Item = &'p Pattern>) -> BTreeSet<String> {
+    patterns
+        .into_iter()
+        .flat_map(Pattern::free_variables)
+        .map(|variable| variable.name)
+        .collect()
+}
+
+/// The element variables free in `pattern`, each once, in the order of their first free
+/// occurrence in preorder.
+fn free_element_variables_in_order(pattern: &Pattern) -> Vec<Variable> {
+    // Invariant: `variables` holds, in order, the element variables met free so far; `bound`
+    // the variables of the binders enclosing `pattern`, innermost last.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "only variables and binders are special; every other pattern is walked through"
+    )]
+    fn walk<'a>(
+        pattern: &'a Pattern,
+        bound: &mut Vec<&'a Variable>,
+        variables: &mut Vec<Variable>,
+    ) {
+        match pattern {
+            Pattern::Variable(variable) => {
+                if variable.kind == VariableKind::Element
+                    && !bound.contains(&variable)
+                    && !variables.contains(variable)
+                {
+                    variables.push(variable.clone());
+                }
+            }
+            Pattern::Exists { variable, body, .. }
+            | Pattern::Forall { variable, body, .. }
+            | Pattern::Mu { variable, body }
+            | Pattern::Nu { variable, body } => {
+                bound.push(variable);
+                walk(body, bound, variables);
+                bound.pop();
+            }
+            other => {
+                for child in crate::kore::walk::children(other) {
+                    walk(child, bound, variables);
+                }
+            }
+        }
+    }
+    let mut variables = Vec::new();
+    walk(pattern, &mut Vec::new(), &mut variables);
+    variables
 }
 
 /// The condition `condition` of the sentence `sentence` names, at `result_sort`, in the form
@@ -2228,13 +2302,20 @@ mod tests {
                     "{quantifier:?}: {name} is bound vacuously in {kore}"
                 );
             }
-            // One binder for the free `Z`, over a generated name, and the argument's quantifier,
-            // which keeps its authored `Y`.
+            // One binder for `Z`, a variable of the competitor's condition alone, which the
+            // condition binds as the competitor's own axiom does, under its own name, and the
+            // argument's quantifier, which keeps its authored `Y`.
             let generated = binders
                 .iter()
                 .filter(|(name, _)| name.starts_with("Var'Unds'Gen"))
                 .count();
-            assert_eq!((binders.len(), generated), (2, 1), "{quantifier:?}: {kore}");
+            assert_eq!((binders.len(), generated), (2, 0), "{quantifier:?}: {kore}");
+            assert!(
+                kore.contains(
+                    "\\exists{R}(VarZ:SortBool{}, \\equals{SortBool{}, R}(VarZ:SortBool{}"
+                ),
+                "{quantifier:?}: {kore}"
+            );
         }
     }
 
@@ -2384,11 +2465,12 @@ mod tests {
     }
 
     /// The owise axiom of each competitor shape: it holds each name at one sort, a binder over a
-    /// generated name binds a variable free in its body (K3), no binder rebinds a name an
+    /// generated name that the competitor does not write binds a variable free in its body (K3),
+    /// no binder rebinds a name an
     /// enclosing binder binds, no competitor variable is left free, and the axiom has
     /// `(binders, generated, outer)` binders: `binders` in all, `generated` of them over
     /// generated names (a variable a quantifier of the competitor binds keeps its authored name,
-    /// or takes a name not spelled like a generated one where the authored name is in use, so an
+    /// or takes a fresh name with its name as stem where the authored name is in use, so an
     /// authored binder whose variable does not occur in its body stays the author's), and `outer`
     /// of them wrapping the competitor's match and condition, one per free competitor variable (a
     /// free variable bound inside instead is captured). `tests/owise_binders.rs` checks the class
@@ -2435,7 +2517,7 @@ mod tests {
                     g(int_variable("_Gen1"), zero()),
                 ),
                 truth(),
-                (1, 1, 0),
+                (2, 2, 1),
             ),
             (
                 "g(X, _) requires #Forall Y . {X #Equals h(Y)}",
@@ -2487,8 +2569,8 @@ mod tests {
             ),
             // Shadowing both ways: a bound name equal to the owise rule's own variable `X` (at
             // Pair), which the binder must not keep, since one name has one sort in an axiom, and
-            // a free competitor variable beside an anonymous binder, whose generated names
-            // `_Gen0` and `_Gen1` no refreshed name may take.
+            // a free competitor variable beside an anonymous binder: the binder `_Gen0` binds
+            // nothing, and `_Gen1` is a free competitor variable like `Z`, each refreshed.
             (
                 "#Exists X . g(X, Z), X the owise rule's variable",
                 quantified(
@@ -2509,12 +2591,19 @@ mod tests {
                     g(int_variable("_Gen1"), int_variable("Z")),
                 ),
                 truth(),
-                (2, 2, 1),
+                (3, 3, 2),
             ),
         ];
         // Every shape is checked, and every problem of every shape reported.
         let mut problems = Vec::new();
         for (shape, left, requires, expected) in shapes {
+            // The competitor's own binders, which may bind nothing: a quantifier binds exactly
+            // its own variable, so `#Exists _ . g(_, 0)` (`_Gen0` over `g(_Gen1, 0)`) binds none.
+            let authored = binding::bound_names(&left)
+                .into_iter()
+                .chain(binding::bound_names(&requires))
+                .map(|name| identifier::encode_variable(&name, VariableKind::Element))
+                .collect::<BTreeSet<_>>();
             let emitted = match owise_axiom_beside(left, requires) {
                 Ok(emitted) => emitted,
                 Err(error) => {
@@ -2534,7 +2623,7 @@ mod tests {
             binders_with_scope(pattern, &mut Vec::new(), &mut binders);
             let is_generated = |name: &str| name.starts_with("Var'Unds'Gen");
             for (name, binds_free, rebinds) in &binders {
-                if is_generated(name) && !binds_free {
+                if is_generated(name) && !binds_free && !authored.contains(name) {
                     problems.push(format!("{shape}: {name} is bound vacuously in {kore}"));
                 }
                 if *rebinds {

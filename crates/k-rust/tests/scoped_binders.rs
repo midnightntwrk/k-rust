@@ -127,6 +127,24 @@ fn a_requires_binder_does_not_bind_a_right_side_variable_outside_it() {
     );
 }
 
+/// An anonymous binder binds nothing and reads nothing (BIND/A3): it is no unbound use at a
+/// built position, while an anonymous variable of its body is read there like any other.
+#[test]
+fn an_anonymous_binder_is_no_use_and_its_body_reads_its_anonymous_variables() {
+    assert_eq!(
+        compile_result(
+            "rule [p]: <k> go(X) => done(X) ... </k> ensures #Exists _:Int . {X #Equals X}"
+        ),
+        Ok(())
+    );
+    assert_eq!(
+        compile_result(
+            "rule [p]: <k> go(X) => done(X) ... </k> ensures #Exists _:Int . {X #Equals _}"
+        ),
+        compile_result("rule [p]: <k> go(X) => done(X) ... </k> ensures {X #Equals _}")
+    );
+}
+
 /// A binder binds its own body: a variable that occurs only there is bound.
 #[test]
 fn a_binder_binds_the_variable_in_its_body() {

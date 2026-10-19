@@ -39,7 +39,10 @@
 //! - a local function's parameter spelled like a variable of the rule at another sort (`lambda`),
 //!   and a binder spelled like the variable of a list update (`list`);
 //! - the compile target: the Rust backend, or the LLVM target (`-llvm`) for the shapes the Rust
-//!   target refuses at compile (a quantifier in a function's argument).
+//!   target refuses at compile (a quantifier in a function's argument);
+//! - a named variable that occurs only in a rule's condition, one or two of one sort or beside a
+//!   binder, in a rewrite rule, a function rule with an `owise` competitor or a simplification
+//!   (`condition-only`).
 //!
 //! The `owise` cross product of `owise_binders.rs` (its `shapes.rs`) is a family here too
 //! (`owise-cross`), so the competitors' binders are renamed under every strategy.
@@ -341,6 +344,47 @@ fn anonymous_binders() -> Vec<Case> {
             "G",
             &format!("  rule [p]: <k> done(X) => go(X) ... </k> ensures {formula}\n"),
             &["done(3)"],
+        ));
+    }
+    cases
+}
+
+/// Named variables that occur only in a rule's condition, which the rule quantifies existentially
+/// inside the condition, in the order of their first occurrences: one, two of one sort (so a
+/// renaming that swaps their spellings meets the order), and one beside a binder, in a rewrite
+/// rule, a function rule with an `owise` competitor, and a `simplification` the rewrite rule's
+/// condition needs.
+fn condition_only_variables() -> Vec<Case> {
+    let mut cases = Vec::new();
+    for (form, condition) in [
+        ("one", "X ==Int Z *Int 2"),
+        ("two", "X ==Int Z *Int 2 +Int W *Int 0"),
+        (
+            "binder",
+            "#Exists B:Int . {X #Equals Z *Int 2 +Int B *Int 0}",
+        ),
+    ] {
+        cases.push(case(
+            format!("condition-only/rule-{form}"),
+            "G",
+            &format!("  rule [p]: <k> go(X) => done(X) ... </k> requires {condition}\n"),
+            &["go(4)", "go(3)"],
+        ));
+        cases.push(case(
+            format!("condition-only/function-{form}-owise"),
+            "G",
+            &format!(
+                "  syntax Int ::= f(Int) [function]\n  rule f(X) => 1 requires {condition}\n  rule f(_) => 0 [owise]\n  rule [p]: <k> go(X) => done(f(X)) ... </k>\n"
+            ),
+            &["go(4)", "go(3)"],
+        ));
+        cases.push(case(
+            format!("condition-only/simplification-{form}"),
+            "G",
+            &format!(
+                "  syntax Bool ::= even(Int) [function, symbol(even)]\n  rule even(X) => true requires {condition} [simplification]\n  rule [p]: <k> go(X) => done(X) ... </k> requires even(X)\n"
+            ),
+            &["go(4)", "go(3)"],
         ));
     }
     cases
@@ -1250,6 +1294,7 @@ pub fn cases() -> Vec<Case> {
         three_binders(),
         macro_binders(),
         anonymous_binders(),
+        condition_only_variables(),
         context_aliases(),
         function_binders(),
         owise_binders(),
