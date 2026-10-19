@@ -4458,9 +4458,10 @@ fn a_predicate_lemma_needs_no_strictness_in_an_operand_the_path_states_defined()
 }
 
 /// `sf` is partial. `\or(\equals(sf(X), "c"), \equals(sf(X), "d"))` rewrites to
-/// `\equals(X, "c")`, and `\not(\and(\ceil(@Z), \equals(@Z, "c")))` (a left-hand side that only
-/// the hoisted form of an atom has; the set variable binds an operand with no obligation) rewrites
-/// to `\top`.
+/// `\equals(X, "c")`, and `\not(\and(\ceil(@W), \equals(@Z, "c")))` rewrites to `\top`: a
+/// left-hand side that only the hoisted form of an atom has, binding `@W` and `@Z` to the same
+/// operand. Its own atom does not imply its `\ceil`, so its written form is itself; the set
+/// variables bind operands with no obligation.
 fn written_predicate_definition() -> BackendDefinition {
     definition(
         r#"
@@ -4474,7 +4475,7 @@ fn written_predicate_definition() -> BackendDefinition {
             )) [label{}("or-lhs"), simplification{}()]
             axiom{R, Q} \implies{R}(\top{R}(), \equals{Q, R}(
                 \not{Q}(\and{Q}(
-                    \ceil{SortS{}, Q}(@Z:SortS{}),
+                    \ceil{SortS{}, Q}(@W:SortS{}),
                     \equals{SortS{}, Q}(@Z:SortS{}, \dv{SortS{}}("c"))
                 )),
                 \and{Q}(\top{Q}(), \top{Q}())
@@ -4535,7 +4536,7 @@ fn a_predicate_lemma_matches_a_disjunction_with_its_hoisted_definedness_set_asid
 }
 
 /// Negative control: a lemma whose left-hand side matches only the hoisted form of an atom
-/// (`\not(\and(\ceil(@Z), \equals(@Z, "c")))`) does not apply to the hoisted form of
+/// (`\not(\and(\ceil(@W), \equals(@Z, "c")))`) does not apply to the hoisted form of
 /// `\not(\equals(sf(Y), "c"))`, whose written atom it does not match.
 #[test]
 fn a_predicate_lemma_that_matches_only_the_hoisted_form_of_an_atom_is_not_applied() {
@@ -4554,6 +4555,113 @@ fn a_predicate_lemma_that_matches_only_the_hoisted_form_of_an_atom_is_not_applie
     )
     .expect("the predicate should simplify");
     assert_eq!(result, hoisted);
+}
+
+/// The conjuncts of `predicate`: itself when it is not a conjunction.
+fn conjuncts_of(predicate: &Predicate) -> Vec<Predicate> {
+    match predicate {
+        Predicate::And(conjuncts) => conjuncts.to_vec(),
+        other => vec![other.clone()],
+    }
+}
+
+/// `pf` and `pg` are partial. `\not(\equals(@T, pg(Y)))`, as written, rewrites to
+/// `\equals(Y, "d")`; `\not(\and(\ceil(@W), \equals(@T, pg(Y))))`, a left-hand side that only the
+/// hoisted form has where `pg(Y)` is known defined, rewrites to `\top`. The set variables bind
+/// `pf(A)` with no obligation, so only `pg(B)`, known defined, is a consumed operand.
+fn known_defined_side_definition() -> BackendDefinition {
+    definition(
+        r#"
+            symbol pf{}(SortS{}) : SortS{} [function{}()]
+            symbol pg{}(SortS{}) : SortS{} [function{}()]
+            axiom{R, Q} \implies{R}(\top{R}(), \equals{Q, R}(
+                \not{Q}(\equals{SortS{}, Q}(@T:SortS{}, pg{}(Y:SortS{}))),
+                \and{Q}(\equals{SortS{}, Q}(Y:SortS{}, \dv{SortS{}}("d")), \top{Q}())
+            )) [label{}("as-written"), simplification{}()]
+            axiom{R, Q} \implies{R}(\top{R}(), \equals{Q, R}(
+                \not{Q}(\and{Q}(
+                    \ceil{SortS{}, Q}(@W:SortS{}),
+                    \equals{SortS{}, Q}(@T:SortS{}, pg{}(Y:SortS{}))
+                )),
+                \and{Q}(\top{Q}(), \top{Q}())
+            )) [label{}("hoisted-only"), simplification{}()]
+            "#,
+    )
+}
+
+/// Where `\ceil(pg(B))` is known, hoisting reads `\equals(pf(A), pg(B))` as an atom over
+/// `pf(A)` and states `\ceil(pf(A))` beside it. The set-aside step decides the atom under the
+/// same known predicates, so the lemma written as `\not(\equals(@T, pg(Y)))` applies, and the
+/// lemma that matches only the hoisted form does not.
+#[test]
+fn a_predicate_lemma_matches_an_atom_whose_defined_side_is_known_defined() {
+    let definition = known_defined_side_definition();
+    let pf_a = term(&definition, r#"pf{}(A:SortS{})"#);
+    let pg_b = term(&definition, r#"pg{}(B:SortS{})"#);
+    let b = term(&definition, r#"B:SortS{}"#);
+    let d = term(&definition, r#"\dv{SortS{}}("d")"#);
+    let known = [Predicate::Ceil(pg_b.clone())];
+    let hoisted = Predicate::Not(Arc::new(Predicate::And(
+        vec![Predicate::Ceil(pf_a.clone()), Predicate::Equals(pf_a, pg_b)].into(),
+    )));
+    let result = simplify_predicate_with_solver(
+        &definition,
+        &hoisted,
+        &known,
+        SimplificationOptions::default(),
+        &NoSolver,
+    )
+    .expect("the predicate should simplify");
+    assert_ne!(
+        result,
+        Predicate::True,
+        "the hoisted-only lemma applied: {result:?}"
+    );
+    let conjuncts = conjuncts_of(&result);
+    assert!(
+        conjuncts.contains(&Predicate::Equals(b.clone(), d.clone()))
+            || conjuncts.contains(&Predicate::Equals(d, b)),
+        "the as-written lemma did not apply: {result:?}"
+    );
+}
+
+/// `sf` is partial. A lemma whose left-hand side states `\ceil(@T)` beside the atom
+/// `\equals(@T, "c")`, which implies it, is the lemma without that conjunct.
+fn written_ceil_lemma_definition() -> BackendDefinition {
+    definition(
+        r#"
+            symbol sf{}(SortS{}) : SortS{} [function{}()]
+            axiom{R, Q} \implies{R}(\top{R}(), \equals{Q, R}(
+                \not{Q}(\and{Q}(
+                    \ceil{SortS{}, Q}(@T:SortS{}),
+                    \equals{SortS{}, Q}(@T:SortS{}, \dv{SortS{}}("c"))
+                )),
+                \and{Q}(\top{Q}(), \top{Q}())
+            )) [label{}("written-ceil"), simplification{}()]
+            "#,
+    )
+}
+
+/// `\ceil(t) /\ a` is `a` when `a` implies `\ceil(t)`, so a lemma whose left-hand side has an
+/// author-written `\ceil` beside an implying atom is matched in the same written form as its
+/// subjects, and applies to a condition written identically.
+#[test]
+fn a_predicate_lemma_with_a_written_ceil_beside_an_implying_atom_applies() {
+    let definition = written_ceil_lemma_definition();
+    let sf_y = term(&definition, r#"sf{}(Y:SortS{})"#);
+    let c = term(&definition, r#"\dv{SortS{}}("c")"#);
+    let written = Predicate::Not(Arc::new(Predicate::And(
+        vec![Predicate::Ceil(sf_y.clone()), Predicate::Equals(sf_y, c)].into(),
+    )));
+    let result = simplify_predicate_with_solver(
+        &definition,
+        &written,
+        &[],
+        SimplificationOptions::default(),
+        &NoSolver,
+    )
+    .expect("the predicate should simplify");
+    assert_eq!(result, Predicate::True, "the lemma did not apply");
 }
 
 #[test]

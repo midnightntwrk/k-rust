@@ -2659,7 +2659,8 @@ fn simplify_predicate_on_stack(
     // (`WrittenPredicate`): the subject equals its written form, those set aside on the whole
     // subject hold wherever the instance is used, and they are conjoined to the result unless
     // the result implies them.
-    let written = written_predicate(definition, &simplified).map_err(SimplificationError::from)?;
+    let written = written_predicate(definition, &simplified, assumptions.terms.predicates)
+        .map_err(SimplificationError::from)?;
     let (subject, set_aside) = match &written {
         Some(written) => (&written.predicate, written.set_aside.as_slice()),
         None => (&simplified, &[][..]),
@@ -3162,12 +3163,13 @@ fn apply_ceil_equation_instance(
 /// A predicate as its author wrote it, beside the definedness conjuncts that hoisting stated
 /// (`definedness::condition_definedness`).
 ///
-/// Hoisting conjoins to an atom `a` the obligations of the Boolean term it asserts equal to a
-/// defined value, `\ceil(b) /\ a`, which equals `a` because `a` is empty wherever `b` is
-/// (`definedness::atom_definedness`). Those conjuncts are not part of the atom: a predicate
-/// equation `P = Q` states that `P` and `Q` are equal predicates, and its left-hand side is matched
-/// against the atoms the author wrote. So each definedness conjunct that an atom of the same
-/// conjunction implies is set aside:
+/// Hoisting conjoins to an atom `a` the obligations of the operand it asserts equal to a value
+/// defined under the known predicates, `\ceil(b) /\ a`, which equals `a` wherever the known
+/// predicates hold, because `a` is empty wherever `b` is (`definedness::atom_definedness`). A
+/// predicate equation `P = Q` states that `P` and `Q` are equal predicates, and is applied to a
+/// subject only where the known predicates hold, so its left-hand side is matched against the
+/// atoms without those conjuncts. Each definedness conjunct that an atom of the same conjunction
+/// implies is set aside, whether hoisting stated it or the author wrote it:
 /// - in a conjunction, it is removed, and it is a conjunct of the whole conjunction;
 /// - in a disjunction, each disjunct equals its own written form, and the conjuncts set aside
 ///   from every disjunct are conjuncts of the whole disjunction;
@@ -3195,6 +3197,7 @@ struct WrittenPredicate {
 fn written_predicate(
     definition: &BackendDefinition,
     predicate: &Predicate,
+    known: &[Predicate],
 ) -> Result<Option<WrittenPredicate>, DeferredOutcome> {
     let Some(theory) = definition.predicate_equations_for(predicate) else {
         return Ok(None);
@@ -3206,13 +3209,26 @@ fn written_predicate(
         .max()
         .unwrap_or(0);
     Ok(
-        set_aside_definedness(definition, predicate, depth)?.map(|(predicate, set_aside)| {
-            WrittenPredicate {
+        set_aside_definedness(definition, predicate, known, depth)?.map(
+            |(predicate, set_aside)| WrittenPredicate {
                 predicate,
                 set_aside,
-            }
-        }),
+            },
+        ),
     )
+}
+
+/// The written form of a predicate equation's left-hand side ([`WrittenPredicate`]), with no known
+/// predicates, against which subjects are matched in their own written form.
+///
+/// A conjunct set aside from the left-hand side `P` is implied by the written form `W`, so `P`,
+/// which is `W` conjoined with what was set aside on the whole of it, is `W`: the equation
+/// `W = Q` is the equation `P = Q`. Unchanged when a definedness question has no answer.
+pub(crate) fn written_lemma_left_side(definition: &BackendDefinition, lhs: Predicate) -> Predicate {
+    match set_aside_definedness(definition, &lhs, &[], usize::MAX) {
+        Ok(Some((written, _implied))) => written,
+        Ok(None) | Err(_) => lhs,
+    }
 }
 
 /// The number of predicate nodes on the longest path from the root of `predicate` to an atom.
@@ -3240,10 +3256,13 @@ fn connective_depth(predicate: &Predicate) -> usize {
 }
 
 /// The written form of `predicate` and the conjuncts set aside on the whole of it
-/// ([`WrittenPredicate`]), walking `depth` predicate nodes deep; `None` when nothing is set aside.
+/// ([`WrittenPredicate`]), walking `depth` predicate nodes deep, with the atoms decided under
+/// `known` (below a quantifier, only those that do not mention its variable); `None` when nothing
+/// is set aside.
 fn set_aside_definedness(
     definition: &BackendDefinition,
     predicate: &Predicate,
+    known: &[Predicate],
     depth: usize,
 ) -> Result<Option<(Predicate, Vec<Predicate>)>, DeferredOutcome> {
     if depth == 0 {
@@ -3251,7 +3270,25 @@ fn set_aside_definedness(
     }
     let below = depth - 1;
     let operand = |inner: &Predicate| -> Result<Option<Arc<Predicate>>, DeferredOutcome> {
-        Ok(set_aside_definedness(definition, inner, below)?.map(|(written, _)| Arc::new(written)))
+        Ok(set_aside_definedness(definition, inner, known, below)?
+            .map(|(written, _)| Arc::new(written)))
+    };
+    let under_binder = |variable: &Variable,
+                        inner: &Predicate|
+     -> Result<Option<Arc<Predicate>>, DeferredOutcome> {
+        let holds = |fact: &Predicate| !mentions_free(fact, variable);
+        if known.iter().all(holds) {
+            return operand(inner);
+        }
+        let unshadowed = known
+            .iter()
+            .filter(|fact| holds(fact))
+            .cloned()
+            .collect::<Vec<_>>();
+        Ok(
+            set_aside_definedness(definition, inner, &unshadowed, below)?
+                .map(|(written, _)| Arc::new(written)),
+        )
     };
     Ok(match predicate {
         Predicate::And(conjuncts) => {
@@ -3268,7 +3305,9 @@ fn set_aside_definedness(
             let mut implied = Vec::new();
             if conjuncts.iter().any(candidate) {
                 for conjunct in conjuncts.iter() {
-                    implied.extend(crate::definedness::atom_definedness(definition, conjunct)?);
+                    implied.extend(crate::definedness::atom_definedness(
+                        definition, conjunct, known,
+                    )?);
                 }
             }
             let mut changed = false;
@@ -3282,7 +3321,7 @@ fn set_aside_definedness(
                     }
                     continue;
                 }
-                match set_aside_definedness(definition, conjunct, below)? {
+                match set_aside_definedness(definition, conjunct, known, below)? {
                     Some((written, inner)) => {
                         changed = true;
                         kept.push(written);
@@ -3311,7 +3350,7 @@ fn set_aside_definedness(
             let mut common: Option<Vec<Predicate>> = None;
             for disjunct in disjuncts.iter() {
                 let (disjunct, set_aside) =
-                    match set_aside_definedness(definition, disjunct, below)? {
+                    match set_aside_definedness(definition, disjunct, known, below)? {
                         Some(parts) => {
                             changed = true;
                             parts
@@ -3349,12 +3388,10 @@ fn set_aside_definedness(
                 Vec::new(),
             ))
         }
-        Predicate::Exists(variable, inner) => {
-            operand(inner)?.map(|inner| (Predicate::Exists(variable.clone(), inner), Vec::new()))
-        }
-        Predicate::Forall(variable, inner) => {
-            operand(inner)?.map(|inner| (Predicate::Forall(variable.clone(), inner), Vec::new()))
-        }
+        Predicate::Exists(variable, inner) => under_binder(variable, inner)?
+            .map(|inner| (Predicate::Exists(variable.clone(), inner), Vec::new())),
+        Predicate::Forall(variable, inner) => under_binder(variable, inner)?
+            .map(|inner| (Predicate::Forall(variable.clone(), inner), Vec::new())),
         Predicate::True
         | Predicate::False
         | Predicate::Term(_)
@@ -3385,7 +3422,11 @@ fn reattach_set_aside(
     };
     let mut implied = conjuncts.clone();
     for conjunct in &conjuncts {
-        implied.extend(crate::definedness::atom_definedness(definition, conjunct)?);
+        implied.extend(crate::definedness::atom_definedness(
+            definition,
+            conjunct,
+            &[],
+        )?);
     }
     let mut reattached = set_aside
         .iter()
