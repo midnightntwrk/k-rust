@@ -772,6 +772,11 @@ fn emitted_kore_matches_the_reference_frontend() {
          variable (N45): {lifted_cells} in {} axioms",
         lifted.len()
     );
+    let fresh_offsets = normalize_fresh_offsets(&mut reference, &mut actual);
+    println!(
+        "axioms whose fresh offsets differ by an injective renumbering, numbered by first \
+         occurrence on both sides (N50): {fresh_offsets}"
+    );
     let divergent = divergent_axioms_from_environment();
     let removed = remove_divergent_axioms(&mut reference, &mut actual, &divergent)
         .unwrap_or_else(|error| panic!("{error}"));
@@ -2133,6 +2138,138 @@ fn remove_divergent_axioms(
 /// (`\rewrites(\and(left, requires), ..)`), or the antecedent of an equation's or a
 /// simplification's root `\implies`, without the argument matches an equation conjoins to it
 /// (`\and(requires, \and(\in(X0, ..), .. \top))`). `None` for any other axiom.
+/// The counter variable of fresh values, the integer addition that offsets it, and the counter
+/// cell, as KORE names them.
+const FRESH_COUNTER: &str = "Var'Hash'Fresh";
+const FRESH_OFFSET_ADDITION: &str = "Lbl'UndsPlus'Int'Unds'";
+const FRESH_COUNTER_CELL: &str = "Lbl'-LT-'generatedCounter'-GT-'";
+
+/// N50: compare an axiom's fresh offsets up to an injective renumbering. A fresh value of a rule
+/// is its generator applied to `#Fresh +Int n`, and the rule then advances the counter past
+/// every `n` it uses; the offsets are only required to be distinct, so two axioms that differ
+/// by a one-to-one renumbering of their offsets state the same rule.
+///
+/// For each axiom whose UNIQUE'Unds'ID names exactly one axiom on each side, and whose two
+/// sides differ as the comparison sees them ([`as_compared`]), both are renumbered
+/// ([`renumber_fresh_offsets`]); when the renumbered axioms agree, both sides keep the
+/// renumbered form. Agreement after renumbering means a one-to-one map from the offsets of one
+/// side to those of the other takes one axiom to the other, so any other difference, or two
+/// distinct offsets on one side where the other has one, still differs. The counter cell's own
+/// advance is not an offset and stays compared. Returns the number of pairs renumbered.
+fn normalize_fresh_offsets(reference: &mut Definition, actual: &mut Definition) -> usize {
+    let positions = |definition: &Definition| {
+        let mut positions = BTreeMap::<String, Vec<(usize, usize)>>::new();
+        for (module, declarations) in definition.modules.iter().enumerate() {
+            for (index, sentence) in declarations.sentences.iter().enumerate() {
+                if matches!(sentence, Sentence::Axiom { .. })
+                    && let Some(id) = sentence_attribute(sentence, "UNIQUE'Unds'ID")
+                {
+                    positions.entry(id).or_default().push((module, index));
+                }
+            }
+        }
+        positions
+    };
+    let reference_positions = positions(reference);
+    let mut renumbered = 0;
+    for (id, actual_positions) in positions(actual) {
+        let (Some([(reference_module, reference_index)]), [(actual_module, actual_index)]) = (
+            reference_positions.get(&id).map(Vec::as_slice),
+            actual_positions.as_slice(),
+        ) else {
+            continue;
+        };
+        let reference_axiom = &reference.modules[*reference_module].sentences[*reference_index];
+        let actual_axiom = &actual.modules[*actual_module].sentences[*actual_index];
+        if as_compared(reference_axiom) == as_compared(actual_axiom) {
+            continue;
+        }
+        let (Some(reference_renumbered), Some(actual_renumbered)) = (
+            renumber_fresh_offsets(reference_axiom),
+            renumber_fresh_offsets(actual_axiom),
+        ) else {
+            continue;
+        };
+        if as_compared(&reference_renumbered) == as_compared(&actual_renumbered) {
+            reference.modules[*reference_module].sentences[*reference_index] = reference_renumbered;
+            actual.modules[*actual_module].sentences[*actual_index] = actual_renumbered;
+            renumbered += 1;
+        }
+    }
+    renumbered
+}
+
+/// `sentence` with the offset of each fresh value (the `n` of `#Fresh +Int n` outside the
+/// counter cell) replaced by the placeholder `\dv{SortInt{}}("fresh offset k")`, where `k`
+/// numbers the distinct offsets in the order they first occur; `None` when it has no such offset.
+fn renumber_fresh_offsets(sentence: &Sentence) -> Option<Sentence> {
+    fn renumber(pattern: &mut Pattern, in_counter_cell: bool, offsets: &mut Vec<Pattern>) {
+        if let Pattern::Application { symbol, arguments } = pattern {
+            if !in_counter_cell
+                && symbol.name == FRESH_OFFSET_ADDITION
+                && let [Pattern::Variable(counter), offset] = arguments.as_mut_slice()
+                && counter.name == FRESH_COUNTER
+            {
+                let number = offsets
+                    .iter()
+                    .position(|seen| seen == offset)
+                    .unwrap_or_else(|| {
+                        offsets.push(offset.clone());
+                        offsets.len() - 1
+                    });
+                *offset = Pattern::DomainValue {
+                    sort: kore_sort("SortInt"),
+                    value: format!("fresh offset {number}").as_str().into(),
+                };
+                return;
+            }
+            let counter_cell = symbol.name == FRESH_COUNTER_CELL;
+            for argument in arguments {
+                renumber(argument, counter_cell, offsets);
+            }
+            return;
+        }
+        for child in pattern_children_mut(pattern) {
+            renumber(child, false, offsets);
+        }
+    }
+    let mut sentence = sentence.clone();
+    let Sentence::Axiom { pattern, .. } = &mut sentence else {
+        return None;
+    };
+    let mut offsets = Vec::new();
+    renumber(pattern, false, &mut offsets);
+    (!offsets.is_empty()).then_some(sentence)
+}
+
+/// The direct subpatterns of `pattern`, mutably, in the order [`pattern_children`] gives them.
+fn pattern_children_mut(pattern: &mut Pattern) -> Vec<&mut Pattern> {
+    match pattern {
+        Pattern::Application { arguments, .. }
+        | Pattern::And { arguments, .. }
+        | Pattern::Or { arguments, .. }
+        | Pattern::AssociativeApplication { arguments, .. } => arguments.iter_mut().collect(),
+        Pattern::Not { argument, .. }
+        | Pattern::Next { argument, .. }
+        | Pattern::Ceil { argument, .. }
+        | Pattern::Floor { argument, .. } => vec![argument],
+        Pattern::Implies { left, right, .. }
+        | Pattern::Iff { left, right, .. }
+        | Pattern::Rewrites { left, right, .. }
+        | Pattern::Equals { left, right, .. }
+        | Pattern::In { left, right, .. } => vec![left, right],
+        Pattern::Exists { body, .. }
+        | Pattern::Forall { body, .. }
+        | Pattern::Mu { body, .. }
+        | Pattern::Nu { body, .. } => vec![body],
+        Pattern::String(_)
+        | Pattern::Variable(_)
+        | Pattern::Top { .. }
+        | Pattern::Bottom { .. }
+        | Pattern::DomainValue { .. } => Vec::new(),
+    }
+}
+
 fn requires_operand(pattern: &mut Pattern) -> Option<&mut Pattern> {
     fn is_argument_matches(pattern: &Pattern) -> bool {
         match pattern {
@@ -2828,6 +2965,80 @@ fn divergent_axioms_remove_exactly_the_listed_differing_pair() {
     let error =
         remove_divergent_axioms(&mut reference, &mut actual, &ids(&["missing"])).unwrap_err();
     assert!(error.contains("exactly one axiom missing"), "{error}");
+}
+
+/// N50 identifies two axioms whose fresh offsets differ by a one-to-one renumbering, and only
+/// those: a rule whose offsets are 1, 0, 0, 2 on one side and 0, 1, 1, 2 on the other is the same
+/// rule, while a different right side, two distinct offsets where the other side repeats one, or
+/// a different advance of the counter cell still differs and is left as it is.
+#[test]
+fn fresh_offsets_compare_up_to_an_injective_renumbering_only() {
+    let definition = |offsets: [&str; 4], symbol: &str, advance: &str| {
+        let fresh = |offset: &str| {
+            format!(
+                r#"Lblfresh{{}}(Lbl'UndsPlus'Int'Unds'{{}}(Var'Hash'Fresh:SortInt{{}}, \dv{{SortInt{{}}}}("{offset}")))"#
+            )
+        };
+        parse_definition(&format!(
+            r#"[] module TEST
+            sort SortInt{{}} []
+            sort SortFoo{{}} []
+            sort SortTop{{}} []
+            symbol Lblfresh{{}}(SortInt{{}}) : SortFoo{{}} [function{{}}()]
+            symbol Lblfoo{{}}(SortFoo{{}}, SortFoo{{}}, SortFoo{{}}, SortFoo{{}}) : SortFoo{{}} []
+            symbol Lblbar{{}}(SortFoo{{}}, SortFoo{{}}, SortFoo{{}}, SortFoo{{}}) : SortFoo{{}} []
+            symbol Lbl'-LT-'generatedCounter'-GT-'{{}}(SortInt{{}}) : SortFoo{{}} []
+            symbol Lbltop{{}}(SortFoo{{}}, SortFoo{{}}) : SortTop{{}} []
+            symbol Lbl'UndsPlus'Int'Unds'{{}}(SortInt{{}}, SortInt{{}}) : SortInt{{}} [function{{}}()]
+            symbol Lblgo{{}}() : SortFoo{{}} []
+            axiom{{}} \rewrites{{SortTop{{}}}}(Lbltop{{}}(Lblgo{{}}(), Lbl'-LT-'generatedCounter'-GT-'{{}}(Var'Hash'Fresh:SortInt{{}})), Lbltop{{}}({symbol}{{}}({}, {}, {}, {}), Lbl'-LT-'generatedCounter'-GT-'{{}}(Lbl'UndsPlus'Int'Unds'{{}}(Var'Hash'Fresh:SortInt{{}}, \dv{{SortInt{{}}}}("{advance}"))))) [UNIQUE'Unds'ID{{}}("r")]
+            endmodule []"#,
+            fresh(offsets[0]),
+            fresh(offsets[1]),
+            fresh(offsets[2]),
+            fresh(offsets[3]),
+        ))
+        .unwrap()
+    };
+    let spelled = definition(["1", "0", "0", "2"], "Lblfoo", "3");
+
+    let (mut reference, mut actual) = (
+        spelled.clone(),
+        definition(["0", "1", "1", "2"], "Lblfoo", "3"),
+    );
+    assert_eq!(normalize_fresh_offsets(&mut reference, &mut actual), 1);
+    assert_eq!(reference, actual);
+
+    for (different, what) in [
+        (
+            definition(["0", "1", "1", "2"], "Lblbar", "3"),
+            "a right side",
+        ),
+        (
+            definition(["0", "0", "0", "2"], "Lblfoo", "3"),
+            "a non-injective offset map",
+        ),
+        (
+            definition(["0", "1", "2", "3"], "Lblfoo", "3"),
+            "a non-injective offset map",
+        ),
+        (
+            definition(["0", "1", "1", "2"], "Lblfoo", "4"),
+            "the counter's advance",
+        ),
+    ] {
+        let (mut reference, mut actual) = (spelled.clone(), different.clone());
+        assert_eq!(
+            normalize_fresh_offsets(&mut reference, &mut actual),
+            0,
+            "{what}"
+        );
+        assert_eq!(reference, spelled, "{what}");
+        assert_eq!(actual, different, "{what}");
+    }
+
+    let (mut reference, mut actual) = (spelled.clone(), spelled.clone());
+    assert_eq!(normalize_fresh_offsets(&mut reference, &mut actual), 0);
 }
 
 /// A recorded divergence covers the requires operand only: two axioms that also differ in their
