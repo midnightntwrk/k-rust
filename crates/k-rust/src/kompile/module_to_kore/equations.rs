@@ -791,21 +791,37 @@ fn emit_owise_equation(
         // The competitor holds where some instance of its free variables matches and satisfies
         // it. Its free variables are those of the converted pattern, whose binders are the ones
         // the backend reads; a variable a quantifier of the competitor binds has its binder. They
-        // are bound in the (sort, name) order of the refreshed variables they convert from.
+        // are bound in the order of their sorts and, within a sort, of their first occurrences in
+        // the refreshed left side and condition, never of their spellings: the order of nested
+        // existentials does not change what they state, so it must not change with a renaming.
         let free = candidate.free_variables();
+        let terms = variable_terms([&refreshed_left, &refreshed_requires]);
+        let (mut first_occurrences, mut seen) = (Vec::new(), BTreeSet::new());
+        // Invariant: `first_occurrences` lists, in preorder, every variable name met so far once,
+        // and `seen` holds the same names.
+        for root in [&refreshed_left, &refreshed_requires] {
+            root.visit_preorder(&mut |node| {
+                if let Term::Variable { name, .. } = node.unannotated()
+                    && seen.insert(name.clone())
+                {
+                    first_occurrences.push(name.clone());
+                }
+            });
+        }
         let mut quantified = Vec::new();
         // Invariant: `quantified` holds the key and the KORE variable of every refreshed
-        // variable before `term` whose conversion is free in `candidate`.
-        for term in variable_terms([&refreshed_left, &refreshed_requires]).into_values() {
+        // variable before `name` whose conversion is free in `candidate`.
+        for (index, name) in first_occurrences.iter().enumerate() {
+            let term = &terms[name];
             #[expect(
                 clippy::wildcard_enum_match_arm,
                 reason = "Term is not a sentence kind; only the listed variants are special here"
             )]
             let key = match term.unannotated() {
-                Term::Variable { name, sort } => (sort.clone(), name.clone()),
+                Term::Variable { sort, .. } => (sort.clone(), index),
                 _ => unreachable!("variable_terms returns variables"),
             };
-            let Some(variable) = take_kore_variable(converter.convert(&term)?) else {
+            let Some(variable) = take_kore_variable(converter.convert(term)?) else {
                 unreachable!("collected terms are variables")
             };
             if free.contains(&variable) {

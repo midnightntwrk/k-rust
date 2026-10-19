@@ -4,17 +4,14 @@
 //! it keeps its kind and changes its signature only in that ticket's own sentences.
 //!
 //! The tickets, and the reason each of their results fails:
-//! - `BIND/A3` (FU-26, FU-32/D1) has landed: the converter binds exactly a quantifier's own
-//!   variable, whatever its spelling, so a quantifier over an anonymous variable binds nothing
-//!   but itself, and a variable of a rule's condition alone is quantified existentially inside
-//!   the condition, in the rule's axiom and in the owise competitor that restates it (a search
-//!   pattern's free variables are existential already). The four entries still tagged A3 are not that shape: in an owise axiom
-//!   the outer binders of a competitor's free variables follow the (sort, spelling) order of the
-//!   names minted for them, so where a renaming moves the mint counter across a power of ten
-//!   (`_Gen9`, `_Gen10`) two binders of one sort swap (`owise-cross/*-minted-*`). The two orders
-//!   mean the same; the order is by spelling, a defect of the owise emitter that A3's renaming of
-//!   taken anonymous binders exposed and does not fix, since ordering by first occurrence moves
-//!   the KEVM owise axioms.
+//! - `BIND/A3` (FU-26, FU-32/D1) has landed and holds no entry: the converter binds exactly a
+//!   quantifier's own variable, whatever its spelling, so a quantifier over an anonymous
+//!   variable binds nothing but itself; a variable of a rule's condition alone is quantified
+//!   existentially inside the condition, in the rule's axiom and in the owise competitor that
+//!   restates it (a search pattern's free variables are existential already), in the order of
+//!   first occurrence; and an owise competitor's outer binders follow their sorts and first
+//!   occurrences, never the spellings of the names minted for them (`condition-only/*`,
+//!   `owise-cross/*-minted-*`).
 //! - `BIND/A4` (FU-33/D2) has landed and holds no entry of its own: existential lifting
 //!   quantifies the `?` variables free in the right side or the `ensures`, so a `?` variable that
 //!   only a binder there binds is not lifted again (named `?` binders, and a `?` binder renamed
@@ -212,11 +209,6 @@ const fn expected_by_build(
 
 #[rustfmt::skip]
 pub const EXPECTED: &[Expected] = &[
-    // A3 (4)
-    expected("owise-cross/Anonymous-Argument-owise-Absent-other-OtherSort-minted-SameSort", "anon-named", A3, Kind::Kore, "P.P.o: base «nt{}, Lblg{}(Var'Unds'B11:SortInt{}, Var'Unds'B10:SortInt{}))), » variant «nt{}, Lblg{}(Var'Unds'B10:SortInt{}, Var'Unds'B11:SortInt{}))), »"),
-    expected("owise-cross/Anonymous-Argument-owise-Absent-other-SameSort-minted-SameSort", "anon-named", A3, Kind::Kore, "P.P.o: base «nt{}, Lblg{}(Var'Unds'B11:SortInt{}, Var'Unds'B10:SortInt{}))), » variant «nt{}, Lblg{}(Var'Unds'B10:SortInt{}, Var'Unds'B11:SortInt{}))), »"),
-    expected("owise-cross/Anonymous-Condition-owise-Absent-other-OtherSort-minted-OtherSort", "anon-named", A3, Kind::Kore, "P.P.o: base «SortInt{}, R}(Var'Unds'B10:SortInt{}, Lbl'UndsStar'Int'Unds'{}(V» variant «SortInt{}, R}(Var'Unds'B9:SortInt{}, Lbl'UndsStar'Int'Unds'{}(Va»"),
-    expected("owise-cross/Anonymous-Condition-owise-Absent-other-SameSort-minted-OtherSort", "anon-named", A3, Kind::Kore, "P.P.o: base «SortInt{}, R}(Var'Unds'B10:SortInt{}, Lbl'UndsStar'Int'Unds'{}(V» variant «SortInt{}, R}(Var'Unds'B9:SortInt{}, Lbl'UndsStar'Int'Unds'{}(Va»"),
     // FU53 (43)
     expected("compile/concrete-rw2", "fresh", FU53, Kind::Id, "CONCRETE-RW2.test.k:4:3: UNIQUE_ID not alpha-invariant; CONCRETE-RW2.test.k:5:3: UNIQUE_ID not alpha-invariant; CONCRETE-RW2.test.k:7:3: UNIQUE_ID not alpha-invariant"),
     expected("compile/concrete-rw2", "k-index", FU53, Kind::Id, "CONCRETE-RW2.test.k:4:3: UNIQUE_ID not alpha-invariant; CONCRETE-RW2.test.k:5:3: UNIQUE_ID not alpha-invariant; CONCRETE-RW2.test.k:7:3: UNIQUE_ID not alpha-invariant"),

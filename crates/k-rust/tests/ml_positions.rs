@@ -379,6 +379,7 @@ pub const PENDING: &[(&str, &str, Class, Class)] = &[
     // Since MLP/8 the backend refuses at load, naming the axiom, an #Equals with a connective operand and a connective over terms conjoined at a matched or shared position (Refused).
     // An #Equals on a condition's spine whose operands are not both terms or both predicates is refused at compile since MLP/3, without that code (Refused).
     // Since MLP/1 (no guard alias in a condition): the `__or-inner` ensures are refused at Backend::new instead of panicking.
+    // Since BIND/A3 the Z3 build answers `cond/{fun,simp}-requires__as` (`requires (X ==Int 1) #as B`; go(1): done(f(1)) -> done(1)): the alias variable B occurs in the condition alone, so it was a free variable of the equation that matching never binds and the condition went undecided; the equation now quantifies it existentially inside the condition, which holds exactly where X = 1 (Accepted).
     ("cond/claim-ensures__as", "MLP/4", Class::Conforms, Class::Refused),
     ("cond/claim-ensures__fun", "MLP/4", Class::Refused, Class::Refused),
     ("cond/claim-ensures__let", "MLP/4", Class::Refused, Class::Refused),
@@ -404,7 +405,7 @@ pub const PENDING: &[(&str, &str, Class, Class)] = &[
     ("cond/fun-ensures__as", "MLP/4", Class::Conforms, Class::Refused),
     ("cond/fun-ensures__or-inner", "MLP/4", Class::Refused, Class::Refused),
     ("cond/fun-ensures__predarg", "MLP/4", Class::Refused, Class::Refused),
-    ("cond/fun-requires__as", "MLP/4", Class::Conforms, Class::Undecided),
+    ("cond/fun-requires__as", "MLP/4", Class::Conforms, Class::Accepted), // BIND/A3: Undecided before, see the MLP/4 note
     ("cond/fun-requires__eqop-and", "MLP/4", Class::Refused, Class::Refused),
     ("cond/fun-requires__eqop-ceil-true", "MLP/4", Class::Refused, Class::Refused),
     ("cond/fun-requires__eqop-eq-false", "MLP/4", Class::Refused, Class::Refused),
@@ -434,7 +435,7 @@ pub const PENDING: &[(&str, &str, Class, Class)] = &[
     ("cond/simp-ensures__as", "MLP/4", Class::Conforms, Class::Refused),
     ("cond/simp-ensures__or-inner", "MLP/4", Class::Refused, Class::Refused),
     ("cond/simp-ensures__predarg", "MLP/4", Class::Refused, Class::Refused),
-    ("cond/simp-requires__as", "MLP/4", Class::Conforms, Class::Undecided),
+    ("cond/simp-requires__as", "MLP/4", Class::Conforms, Class::Accepted), // BIND/A3: Undecided before, see the MLP/4 note
     ("cond/simp-requires__or-inner", "MLP/4", Class::Refused, Class::Refused),
     ("cond/simp-requires__predarg", "MLP/4", Class::Refused, Class::Refused),
     ("left/claim-lhs__bottom", "MLP/4", Class::Refused, Class::Refused),
