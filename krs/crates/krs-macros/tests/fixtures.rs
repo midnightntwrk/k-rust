@@ -98,6 +98,21 @@ fn non_bool_guard_is_rejected_after_real_collection_and_sort_inference() {
 }
 
 #[test]
+fn expression_notation_emits_the_k_of_the_calls_it_denotes() {
+    let manifest = fixture("negative");
+    let output = cargo_fixture(&manifest)
+        .args(&["--quiet", "--bin", "expression_notation_emits_call_form"])
+        .run();
+    assert!(
+        output.status.success(),
+        "expression-notation fixture failed:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    expect_test::expect_file!["golden/expression_notation_rule.txt"]
+        .assert_eq(std::str::from_utf8(&output.stdout).unwrap());
+}
+
+#[test]
 fn map_update_lookalike_is_rejected_after_type_identity_resolution() {
     let manifest = fixture("negative");
     let output = cargo_fixture(&manifest)

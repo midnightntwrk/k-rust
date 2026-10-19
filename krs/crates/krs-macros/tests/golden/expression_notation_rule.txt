@@ -1,0 +1,2 @@
+rule noted ( Value:Int , Limit:Int ) => verdict ( (Value:Int ==K Limit:Int) orElseBool (notBool (Value:Int <=Int Limit:Int)) )
+    requires (Value:Int >Int 0) andThenBool ((Value:Int <Int Limit:Int) orElseBool ((Limit:Int &Int Value:Int) =/=Int Limit:Int))
