@@ -11,6 +11,7 @@
 use std::{marker::PhantomData, sync::Arc};
 
 use crate::{
+    coverage::{Selection, by_priority, every},
     definition::BackendDefinition,
     diagnostic::{self, Buffered, Subject},
     matching::MatchFailed,
@@ -137,12 +138,17 @@ pub(super) fn scan_term_theory<K: TermTheory>(
     ) -> SimplifyResult<EquationAttempt<Simplification, MatchFailed>>,
 ) -> SimplifyResult<TheoryScan<K>> {
     let groups = applicable_groups(K::theory(definition), &term_index(term));
+    // The scan stops at the group that applies or blocks: the equations it never tries are
+    // offered (`crate::coverage::Selection`).
+    let selection = Selection::new(
+        by_priority(&groups),
+        every,
+        equation_probe(definition, term),
+    );
     let mut blocked = false;
     let mut not_cacheable = false;
     let last = groups.len().saturating_sub(1);
-    // The equations of the groups after `position`: never tried once the scan returns there.
-    let later = |position: usize| groups.values().skip(position + 1).flatten();
-    for (position, rules) in groups.values().enumerate() {
+    for (position, (_, rules)) in selection.groups().enumerate() {
         let set_aside =
             if K::INDETERMINATE_EQUATION == IndeterminateEquation::Block && position < last {
                 SetAsideRequires::Decide
@@ -161,25 +167,11 @@ pub(super) fn scan_term_theory<K: TermTheory>(
                 EquationAttempt::Recurred => EquationAttempt::Recurred,
             })
         })? {
-            GroupScan::Applied((result, rule)) => {
-                if crate::coverage::offering() {
-                    let after = rules
-                        .iter()
-                        .position(|candidate| Arc::ptr_eq(candidate, &rule))
-                        .map_or(rules.len(), |index| index + 1);
-                    offer_untried_equations(
-                        definition,
-                        term,
-                        rules[after..].iter().chain(later(position)),
-                    );
-                }
-                return Ok(TheoryScan::Applied(result, rule));
-            }
+            GroupScan::Applied((result, rule)) => return Ok(TheoryScan::Applied(result, rule)),
             GroupScan::Blocked if K::INDETERMINATE_EQUATION == IndeterminateEquation::Block => {
                 // A rule at this priority may apply after the symbolic subject becomes more
                 // concrete. Function evaluation must preserve the application and must not fall
                 // through to an owise or otherwise lower-priority equation.
-                offer_untried_equations(definition, term, later(position));
                 return Ok(TheoryScan::Blocked);
             }
             GroupScan::Blocked => blocked = true,
@@ -187,7 +179,6 @@ pub(super) fn scan_term_theory<K: TermTheory>(
             // used: the lower-priority function equations' premises exclude the term, so they
             // must not apply in its place.
             GroupScan::Unused if K::INDETERMINATE_EQUATION == IndeterminateEquation::Block => {
-                offer_untried_equations(definition, term, later(position));
                 return Ok(TheoryScan::Blocked);
             }
             GroupScan::NotCacheable | GroupScan::Unused => not_cacheable = true,
@@ -205,26 +196,21 @@ pub(super) fn scan_term_theory<K: TermTheory>(
     })
 }
 
-/// Offer each of `rules`, equations a scan selected for `term` and never tried, that has an
-/// instance at `term` (`crate::coverage::offer`): one whose left-hand side matches it, or whose
-/// matching is undecided, by the enumeration every use of an equation shares
-/// (`simplify::equation_instances`), without deciding any `requires`. Nothing is done unless the
-/// run collects the offered level.
-pub(crate) fn offer_untried_equations<'a>(
+/// The probe of an equation a selection site selected for `term` and never tried
+/// (`crate::coverage::Selection`): whether it has an instance at `term`, one whose left-hand
+/// side matches it or whose matching is undecided, by the enumeration every use of an equation
+/// shares (`simplify::equation_instances`), without deciding any `requires`. The known
+/// predicates only widen the renaming to the variables they mention, which does not change
+/// whether the left-hand side matches the term, so none are passed.
+pub(crate) fn equation_probe(
     definition: &BackendDefinition,
     term: &Term,
-    rules: impl IntoIterator<Item = &'a Arc<RewriteRule>>,
-) {
-    if !crate::coverage::offering() {
-        return;
-    }
-    for rule in rules {
-        crate::coverage::offer(&rule.attributes.unique_id, || {
-            !matches!(
-                equation_instances(definition, rule, term, &[]).1,
-                EquationInstances::NotMatched(_)
-            )
-        });
+) -> impl FnMut(&RewriteRule) -> bool {
+    move |rule| {
+        !matches!(
+            equation_instances(definition, rule, term, &[]).1,
+            EquationInstances::NotMatched(_)
+        )
     }
 }
 
@@ -385,10 +371,10 @@ fn scan_alternatives<A, T, N>(
 /// were otherwise context dependent is not cacheable. The diagnostics of the undecided attempts are held in `indeterminate_attempts`,
 /// for the caller to commit if the subject is kept.
 #[deny(clippy::wildcard_enum_match_arm)]
-pub(super) fn scan_group<R, T, N>(
-    rules: &[Arc<R>],
+pub(super) fn scan_group<'r, R: 'r, T, N>(
+    rules: impl IntoIterator<Item = &'r Arc<R>>,
     indeterminate_attempts: &mut IndeterminateAttempts,
-    attempt: impl FnMut(&Arc<R>) -> SimplifyResult<EquationAttempt<T, N>>,
+    attempt: impl FnMut(&'r Arc<R>) -> SimplifyResult<EquationAttempt<T, N>>,
 ) -> SimplifyResult<GroupScan<T>> {
     let (combined, undecided) = scan_alternatives(rules, attempt)?;
     indeterminate_attempts.0.extend(undecided);

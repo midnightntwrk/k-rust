@@ -1057,3 +1057,113 @@ fn offered_costs_at_most_one_match_per_skipped_candidate() {
     };
     assert_eq!(others(&on), others(&off));
 }
+
+/// `loop(N, A) => loop(N - 1, A + f(0)) requires N > 0`, with the function `f` given by twenty
+/// ground equations `f(K) = K`, `K` in 0 to 19, one priority group in declaration order.
+fn non_matching_candidates() -> String {
+    let mut equations = String::new();
+    for value in 0..20 {
+        equations.push_str(&format!(
+            r#"
+    axiom{{R}} \implies{{R}}(
+        \and{{R}}(
+            \top{{R}}(),
+            \and{{R}}(\in{{SortInt{{}}, R}}(X0:SortInt{{}}, \dv{{SortInt{{}}}}("{value}")), \top{{R}}())
+        ),
+        \equals{{SortInt{{}}, R}}(
+            f{{}}(X0:SortInt{{}}),
+            \and{{SortInt{{}}}}(\dv{{SortInt{{}}}}("{value}"), \top{{SortInt{{}}}}())
+        )
+    ) [label{{}}("f{value}")]"#
+        ));
+    }
+    format!(
+        r#"[]
+module MAIN
+    hooked-sort SortInt{{}} [hook{{}}("INT.Int"), hasDomainValues{{}}()]
+    hooked-sort SortBool{{}} [hook{{}}("BOOL.Bool"), hasDomainValues{{}}()]
+    sort SortS{{}} []
+    hooked-symbol plusInt{{}}(SortInt{{}}, SortInt{{}}) : SortInt{{}}
+        [function{{}}(), total{{}}(), hook{{}}("INT.add"), smt-hook{{}}("+")]
+    hooked-symbol minusInt{{}}(SortInt{{}}, SortInt{{}}) : SortInt{{}}
+        [function{{}}(), total{{}}(), hook{{}}("INT.sub"), smt-hook{{}}("-")]
+    hooked-symbol gtInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+        [function{{}}(), total{{}}(), hook{{}}("INT.gt"), smt-hook{{}}(">")]
+    symbol loop{{}}(SortInt{{}}, SortInt{{}}) : SortS{{}} [constructor{{}}()]
+    symbol done{{}}(SortInt{{}}) : SortS{{}} [constructor{{}}()]
+    symbol f{{}}(SortInt{{}}) : SortInt{{}} [function{{}}()]{equations}
+    axiom{{}} \rewrites{{SortS{{}}}}(
+        \and{{SortS{{}}}}(
+            loop{{}}(N:SortInt{{}}, A:SortInt{{}}),
+            \equals{{SortBool{{}}, SortS{{}}}}(
+                gtInt{{}}(N:SortInt{{}}, \dv{{SortInt{{}}}}("0")),
+                \dv{{SortBool{{}}}}("true")
+            )
+        ),
+        loop{{}}(
+            minusInt{{}}(N:SortInt{{}}, \dv{{SortInt{{}}}}("1")),
+            plusInt{{}}(A:SortInt{{}}, f{{}}(\dv{{SortInt{{}}}}("0")))
+        )
+    ) [label{{}}("step")]
+    axiom{{}} \rewrites{{SortS{{}}}}(
+        \and{{SortS{{}}}}(loop{{}}(\dv{{SortInt{{}}}}("0"), A:SortInt{{}}), \top{{SortS{{}}}}()),
+        done{{}}(A:SortInt{{}})
+    ) [label{{}}("stop")]
+endmodule []"#
+    )
+}
+
+/// The offered level's cost where the skipped candidates do not match: a candidate is probed
+/// again at every scan that skips it while it has not matched, so the cost grows with the scans
+/// times the skipped candidates, and it adds nothing to the list.
+///
+/// Each of the 30 steps evaluates `f(0)`: its scan applies `f0`, the first equation of the group,
+/// and skips the 19 others, none of which matches `f(0)`. So `coverage.offer_matches` is exactly
+/// 19 per step, 570 over the run, while `matching.problems` of the run itself is 92 (measured);
+/// `offered` equals `matched`, and every other counter is the same as without the option.
+#[test]
+fn offered_costs_one_match_per_skipped_candidate_and_scan_while_it_does_not_match() {
+    const SKIPPED: u64 = 19;
+    const STEPS: u64 = 30;
+    let definition = definition(&non_matching_candidates());
+    let run = |offered: bool| {
+        let initial = pattern(
+            &definition,
+            r#"loop{}(\dv{SortInt{}}("30"), \dv{SortInt{}}("0"))"#,
+        );
+        measured(|| {
+            execute(
+                &definition,
+                initial,
+                ExecutionOptions {
+                    collect_coverage: true,
+                    collect_offered: offered,
+                    ..ExecutionOptions::default()
+                },
+            )
+        })
+    };
+    let (mut with, on) = run(true);
+    let (mut without, off) = run(false);
+    let offered = with.coverage.take().unwrap();
+    let plain = without.coverage.take().unwrap();
+    assert_eq!(with, without);
+    assert_eq!(offered.applied, plain.applied);
+    assert_eq!(offered.matched, plain.matched);
+    assert_eq!(offered.offered.as_ref(), Some(&plain.matched));
+    let matches = on.get(Counter::CoverageOfferMatches);
+    eprintln!(
+        "coverage.offer_matches over {STEPS} steps with {SKIPPED} skipped candidates: {matches}; matching.problems {}",
+        off.get(Counter::MatchingProblems)
+    );
+    assert_eq!(matches, SKIPPED * STEPS);
+    assert_eq!(off.get(Counter::MatchingProblems), 92);
+    assert_eq!(off.get(Counter::CoverageOfferMatches), 0);
+    let others = |snapshot: &Snapshot| {
+        snapshot
+            .iter()
+            .filter(|(name, _)| *name != Counter::CoverageOfferMatches.name())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(others(&on), others(&off));
+}

@@ -1165,21 +1165,16 @@ fn ceil_equation(
         _ => &[],
     };
     let groups = applicable_groups(definition.ceil_theory(), &term_index(term));
-    for (position, rules) in groups.values().enumerate() {
-        for (index, rule) in rules.iter().enumerate() {
-            if !unconditional_ceil(rule) {
-                continue;
-            }
+    // A decision ends the selection: the unconditional ceil equations after the one that
+    // decided are offered (`crate::coverage::Selection`).
+    let selection = crate::coverage::Selection::new(
+        crate::coverage::by_priority(&groups),
+        unconditional_ceil,
+        crate::simplify::scan::equation_probe(definition, term),
+    );
+    for (_, rules) in selection.groups() {
+        for rule in rules {
             if let Some(decision) = ceil_equation_decision(definition, term, arguments, rule)? {
-                // The decision ends the selection: the unconditional ceil equations after this
-                // one are never tried.
-                if crate::coverage::offering() {
-                    let untried = rules[index + 1..]
-                        .iter()
-                        .chain(groups.values().skip(position + 1).flatten())
-                        .filter(|rule| unconditional_ceil(rule));
-                    crate::simplify::scan::offer_untried_equations(definition, term, untried);
-                }
                 return Ok(Some(decision));
             }
         }
@@ -1203,11 +1198,19 @@ fn ceil_equation_decision(
     arguments: &[Term],
     rule: &RewriteRule,
 ) -> Stoppable<Option<DeferredDecision>> {
-    let (rule, EquationInstances::Matched(instances)) =
-        equation_instances(definition, rule, term, &[])
-    else {
-        return Ok(None);
+    let (rule, instances) = equation_instances(definition, rule, term, &[]);
+    let instances = match instances {
+        EquationInstances::NotMatched(_) => return Ok(None),
+        EquationInstances::Undecided => {
+            // The matching is undecided: the equation competed here (`crate::coverage`).
+            crate::coverage::note_offered(&rule.attributes.unique_id);
+            return Ok(None);
+        }
+        EquationInstances::Matched(instances) => instances,
     };
+    // The left-hand side matched: whatever its instances give, the equation competed at this
+    // operand (`crate::coverage`).
+    crate::coverage::note_offered(&rule.attributes.unique_id);
     let RuleRhs::Predicates(predicates) = &rule.rhs else {
         unreachable!("renaming keeps the kind of the right-hand side");
     };
@@ -1396,26 +1399,18 @@ fn select_single_step(
     }
     let groups = applicable_groups(definition.function_theory(), &term_index(term));
     let mut arguments_normal = None;
-    // The selection stops in group `position` before trying `untried` of its equations: those,
-    // and every equation of the later groups, are offered (`crate::coverage`), with the held
-    // candidate, whose left-hand side matched, when the selection gave up after taking it.
-    let give_up = |position: usize,
-                   untried: &[Arc<RewriteRule>],
-                   candidate: Option<&(RewriteRule, Substitution)>| {
-        if let Some((rule, _)) = candidate {
-            crate::coverage::note_offered(&rule.attributes.unique_id);
-        }
-        crate::simplify::scan::offer_untried_equations(
-            definition,
-            term,
-            untried
-                .iter()
-                .chain(groups.values().skip(position + 1).flatten()),
-        );
-    };
-    for (position, rules) in groups.values().enumerate() {
+    // The selection stops in some group before trying the rest of it (and every later group):
+    // those equations are offered (`crate::coverage::Selection`); the held candidate, whose
+    // left-hand side matched, is offered where it matched.
+    let selection = crate::coverage::Selection::new(
+        crate::coverage::by_priority(&groups),
+        crate::coverage::every,
+        crate::simplify::scan::equation_probe(definition, term),
+    );
+    let mut selected = None;
+    for (_, rules) in selection.groups() {
         let mut candidate: Option<(RewriteRule, Substitution)> = None;
-        for (index, rule) in rules.iter().enumerate() {
+        for rule in rules {
             if function_below_root(&rule.lhs)
                 && !*arguments_normal.get_or_insert_with(|| {
                     arguments
@@ -1423,7 +1418,8 @@ fn select_single_step(
                         .all(|argument| definition.instance_normal(argument).is_some())
                 })
             {
-                give_up(position, &rules[index..], candidate.as_ref());
+                // The selection gives up before trying this equation.
+                selection.give_back();
                 return Ok(None);
             }
             let (renamed, instances) = equation_instances(definition, rule, term, &[]);
@@ -1432,32 +1428,35 @@ fn select_single_step(
                 EquationInstances::Undecided => {
                     // An undecided matching counts as a match of its left-hand side.
                     crate::coverage::note_offered(&rule.attributes.unique_id);
-                    give_up(position, &rules[index + 1..], candidate.as_ref());
                     return Ok(None);
                 }
                 EquationInstances::Matched(mut instances) => {
                     crate::coverage::note_offered(&rule.attributes.unique_id);
                     if candidate.is_some() || instances.len() != 1 {
-                        give_up(position, &rules[index + 1..], candidate.as_ref());
                         return Ok(None);
                     }
                     let Some(Instance::Usable(substitution)) = instances.pop() else {
-                        give_up(position, &rules[index + 1..], None);
                         return Ok(None);
                     };
                     candidate = Some((renamed.into_owned(), substitution));
                 }
             }
         }
-        if let Some((rule, substitution)) = candidate {
-            give_up(position, &[], None);
-            return Ok(
-                selected_instance_applies(definition, &rule, &substitution, arguments)?
-                    .then_some((rule, substitution)),
-            );
+        if candidate.is_some() {
+            selected = candidate;
+            break;
         }
     }
-    Ok(None)
+    // The groups after the selected equation's are never tried; they are offered here, before
+    // the selected instance's check.
+    drop(selection);
+    let Some((rule, substitution)) = selected else {
+        return Ok(None);
+    };
+    Ok(
+        selected_instance_applies(definition, &rule, &substitution, arguments)?
+            .then_some((rule, substitution)),
+    )
 }
 
 /// Whether the selected instance of [`single_step`] applies: no `ensures`, no unbound result

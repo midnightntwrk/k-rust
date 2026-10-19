@@ -343,10 +343,11 @@ pub struct ExecuteRequest {
     pub collect_coverage: bool,
     /// With [`Self::collect_coverage`], also report [`RunCoverageOutput::offered`] (wire
     /// `collectOffered`): the rules and equations whose left-hand side matched a subject the run
-    /// selected candidates for and which it never tried there. Off by default; a request that
-    /// sets it without `collect_coverage` is refused. Asking changes no other field of the
-    /// result; each offered axiom costs one left-hand-side match (docs/compatibility.md, "Run
-    /// coverage").
+    /// selected them as candidates for, tried there or not. Off by default; a request that sets
+    /// it without `collect_coverage` is refused. Asking changes no other field of the result. A
+    /// candidate a site never tried costs one left-hand-side match at every visit of the site
+    /// while it has not matched, so the cost grows with the visits times the skipped candidates
+    /// (docs/compatibility.md, "Run coverage").
     #[serde(default)]
     pub collect_offered: bool,
     /// The most states the run may visit across all its paths (wire `maxWork`; absent: no
@@ -602,13 +603,12 @@ impl From<&k_rust_backend::builtin::ChosenValue> for ChosenValueOutput {
 ///
 /// - `offered`, present exactly when the request set `collect_offered`: `matched`, plus every
 ///   rule and equation whose left-hand side matched (or was left undecided against) a subject
-///   the run selected candidates for, where the run never began to decide its condition: a
-///   rewrite rule below the step's first productive or undecided priority group (or, under
-///   strategy `any`, after the rule that took the state), an equation after the one an equation
-///   scan applied or below a function group that blocked it, an equation tried and set aside
-///   without deciding a condition, and an equation a definedness decision of an unevaluated
-///   operand never tried. It reaches priority raises, `owise` removals and removed
-///   `concrete`/`symbolic` set-asides; no list reaches a left-hand-side edit, nor the load-time
+///   the run selected it as a candidate for at a site that selects by priority group (a rewrite
+///   step and the fold of its lower groups, an equation scan of an application or a predicate,
+///   the `#Top` lemmas of a conjunction operand, the definedness analysis and the decisions of an
+///   unevaluated operand), whether the site tried it or stopped before it. An axiom in no list
+///   cannot change the run under a priority raise, an `owise` removal or a removed
+///   `concrete`/`symbolic` set-aside; no list reaches a left-hand-side edit, nor the load-time
 ///   uses of an axiom.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]

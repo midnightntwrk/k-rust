@@ -26,11 +26,12 @@
 //!
 //! An execution that also asks for the offered level (`rewrite::ExecutionOptions::collect_offered`)
 //! opens an offering collection. The backend reports to it, besides, where a site that selected
-//! candidates for a subject stops before trying some of them (a rewrite step, a function or
-//! simplification equation scan, a definedness decision of an unevaluated operand) or tries one
-//! without deciding its condition: each candidate left untried is matched against the subject by
+//! candidates for a subject by priority group (a rewrite step, an equation scan of a term or a
+//! predicate, a definedness decision) stops before trying some of them, and where it tries one
+//! whose left-hand side matched: each candidate left untried is matched against the subject by
 //! a probe ([`offer`]) that runs isolated from the run, so that asking for the level changes
-//! nothing else ([`RunCoverage::offered`] states what it holds).
+//! nothing else ([`RunCoverage::offered`] states what it holds). Such a site takes its
+//! candidates from a [`Selection`], which offers what the site never took on every exit.
 //!
 //! Collection is crate-private: only the execute entry point opens one around a run, and the
 //! definition load around a rule's discharge. A caller that could open one around its own calls
@@ -40,6 +41,7 @@
 use std::{
     cell::{Cell, RefCell},
     collections::BTreeSet,
+    sync::Arc,
 };
 
 use k_rust_kore::measure::{self, Counter};
@@ -104,24 +106,34 @@ use rustc_hash::FxHashSet;
 /// with the number of leaves.
 ///
 /// `offered`, present exactly when the collection offered (`collect_offering`), holds
-/// `matched`, plus the id of an axiom whose left-hand side matched the subject of a site where
-/// the backend selected candidates for it and never began to decide the axiom's condition there:
-/// - a rewrite step (`rewrite::step`): a rule of a priority group below the step's first
-///   productive or undecided group, of that undecided group after the rule whose attempt left
-///   the step undecided, and, under `ExecutionMode::Any`, after the rule that took the state;
-///   matched against the step's subject with `matching::match_rule_in_definition`;
-/// - a function or simplification equation scan (`simplify::scan::scan_term_theory`): an
-///   equation after the one that applied, in its group or a later one, and one of a group after
-///   a function group that blocked the scan; matched by `simplify::equation_instances`;
-/// - an equation the scan tried whose instances exist but whose condition it did not decide
-///   (`simplify::apply_equation`): a set-aside or unused instance, or an undecided matching;
-/// - a definedness decision of an operand a conditional does not evaluate (`deferred`): the
-///   function equations after the group the one-step selection returned at, with the other
-///   matching equations of that group when it gave up on several, and the unconditional ceil
-///   equations after the one that decided.
+/// `matched`, plus the id of an axiom whose left-hand side matched a subject at a site where the
+/// backend selected the axiom as a candidate for it, whether or not the site went on to decide
+/// the axiom's condition there. Two kinds of report add to it:
+/// - a candidate never tried: every site that selects candidates by priority group and stops
+///   before trying them all takes them from a [`Selection`], which offers each candidate the
+///   site never took, matched against the site's subject by a probe ([`offer`]). The sites are
+///   the rewrite steps (`rewrite::step`: the rules of the groups below the step's first
+///   productive or undecided group and of that undecided group after the rule that left it
+///   undecided, the rules after the one that took the state under `ExecutionMode::Any`, and, in
+///   the fold of the lower groups through the remainder, the rules of a group after the one
+///   that left the remainder undecided and of the groups after it, against the remainder),
+///   the function and simplification term scans (`simplify::scan::scan_term_theory`), the ceil
+///   and predicate scans of the predicate simplifier (`simplify::apply_ceil_theory`,
+///   `simplify::apply_predicate_theory`), the `#Top` lemmas of an operand of a term-level
+///   conjunction (`simplify::matches_top_equation`), the ceil equations of the definedness
+///   analysis (`definedness::ceil_theory_condition`), and the definedness decisions of an
+///   operand a conditional does not evaluate (`deferred`: the one-step function selection and
+///   the unconditional ceil equations);
+/// - a candidate tried: every attempt at those sites whose match of the left-hand side
+///   succeeded or was left undecided notes the axiom, however the attempt then ends: refuted
+///   before its condition (a rewrite rule's narrowing, an undefined binding), set aside by
+///   `concrete` or `symbolic`, read as unused, undecided, or decided.
 ///
 /// A match left undecided counts. Each probe is one match attempt, isolated from the run
-/// ([`offer`]), and an axiom already in a set is not probed again.
+/// ([`offer`]). An axiom already in a set is not probed again, but one whose probe failed is
+/// probed again at the next site that skips it: the probes cost at most one match per candidate
+/// a site skipped, at every visit of the site while the candidate has not matched, so over a
+/// run they grow with the visits times the skipped candidates.
 ///
 /// The type is `non_exhaustive` so that further sets of the run can be added beside these.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -297,6 +309,185 @@ pub(crate) fn note_offered(id: &str) {
     if offering() {
         SINK.with_borrow_mut(|sink| insert(&mut sink.offered, id));
     }
+}
+
+/// An axiom a selection site selects as a candidate for a subject, by its coverage id.
+pub(crate) trait Candidate {
+    /// The id the coverage sets hold for the axiom (`UNIQUE_ID`).
+    fn coverage_id(&self) -> &str;
+}
+
+impl Candidate for crate::rule::RewriteRule {
+    fn coverage_id(&self) -> &str {
+        &self.attributes.unique_id
+    }
+}
+
+impl Candidate for crate::rule::PredicateRewriteRule {
+    fn coverage_id(&self) -> &str {
+        &self.attributes.unique_id
+    }
+}
+
+/// The candidates one selection site selected for one subject, by priority group in trial
+/// order, which the site takes from here as it tries them. However the site ends (it returns at
+/// a group that applied or blocked, it gives up, or an error or stop propagates), every candidate
+/// it never took is offered ([`offer`]), matched against the subject by `probe`. Every site that
+/// selects by priority group and can stop before trying every candidate takes its candidates
+/// from a `Selection`, so that no exit of it leaves a candidate unoffered.
+///
+/// `groups` are the selected groups, each with its priority, in the order the site tries them.
+/// `candidate` says which axioms of a group are this site's candidates (a site may use only some
+/// of the axioms selection offers, such as the unconditional ceil equations): only those are
+/// taken and only those are offered.
+///
+/// The site takes the groups in order ([`Self::groups`]) and each group's candidates in order,
+/// and takes a later group only once the earlier one is exhausted; it may stop anywhere. A
+/// candidate is taken when its group yields it. A site that then ends without trying it gives it
+/// back ([`Self::give_back`]).
+///
+/// Unless the run collects the offered level nothing is probed: taking a candidate writes its
+/// position, and the end of the selection reads the thread's flag.
+pub(crate) struct Selection<'a, R, G, P>
+where
+    R: Candidate + 'a,
+    G: Iterator<Item = (u8, &'a [Arc<R>])> + Clone,
+    P: FnMut(&R) -> bool,
+{
+    groups: G,
+    candidate: fn(&R) -> bool,
+    /// The position of a group and the index in it of the first candidate not taken: every
+    /// candidate before it was taken.
+    taken: Cell<(usize, usize)>,
+    probe: P,
+}
+
+impl<'a, R, G, P> Selection<'a, R, G, P>
+where
+    R: Candidate + 'a,
+    G: Iterator<Item = (u8, &'a [Arc<R>])> + Clone,
+    P: FnMut(&R) -> bool,
+{
+    pub(crate) fn new(groups: G, candidate: fn(&R) -> bool, probe: P) -> Self {
+        Self {
+            groups,
+            candidate,
+            taken: Cell::new((0, 0)),
+            probe,
+        }
+    }
+
+    /// The groups in order, each with its priority and its candidates, which it yields in order.
+    pub(crate) fn groups(&self) -> impl Iterator<Item = (u8, Group<'_, 'a, R>)> + '_ {
+        self.groups
+            .clone()
+            .enumerate()
+            .map(move |(position, (priority, rules))| {
+                debug_assert_eq!(
+                    self.taken.get(),
+                    (position, 0),
+                    "a selection site takes a group only after exhausting the one before"
+                );
+                (
+                    priority,
+                    Group {
+                        taken: &self.taken,
+                        candidate: self.candidate,
+                        position,
+                        rules: rules.iter().enumerate(),
+                    },
+                )
+            })
+    }
+
+    /// The candidate taken last was not tried: it is offered with the candidates not taken.
+    pub(crate) fn give_back(&self) {
+        let (position, index) = self.taken.get();
+        debug_assert!(index > 0, "a candidate of this group was taken");
+        self.taken.set((position, index.saturating_sub(1)));
+    }
+}
+
+impl<'a, R, G, P> Drop for Selection<'a, R, G, P>
+where
+    R: Candidate + 'a,
+    G: Iterator<Item = (u8, &'a [Arc<R>])> + Clone,
+    P: FnMut(&R) -> bool,
+{
+    fn drop(&mut self) {
+        if !offering() || std::thread::panicking() {
+            return;
+        }
+        let (taken_group, taken_index) = self.taken.get();
+        for (position, (_, rules)) in self.groups.clone().enumerate().skip(taken_group) {
+            let start = if position == taken_group {
+                taken_index
+            } else {
+                0
+            };
+            for rule in rules.iter().skip(start) {
+                if (self.candidate)(rule) {
+                    let probe = &mut self.probe;
+                    offer(rule.coverage_id(), || probe(rule));
+                }
+            }
+        }
+    }
+}
+
+/// The candidates of one group of a [`Selection`], in trial order; each one it yields is taken.
+pub(crate) struct Group<'s, 'a, R> {
+    taken: &'s Cell<(usize, usize)>,
+    candidate: fn(&R) -> bool,
+    position: usize,
+    rules: std::iter::Enumerate<std::slice::Iter<'a, Arc<R>>>,
+}
+
+impl<R> Group<'_, '_, R> {
+    /// Whether no candidate of the group is left to take.
+    pub(crate) fn is_exhausted(&self) -> bool {
+        !self.rules.clone().any(|(_, rule)| (self.candidate)(rule))
+    }
+}
+
+impl<'a, R> Iterator for Group<'_, 'a, R> {
+    type Item = &'a Arc<R>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        for (index, rule) in self.rules.by_ref() {
+            if (self.candidate)(rule) {
+                self.taken.set((self.position, index + 1));
+                return Some(rule);
+            }
+        }
+        self.taken.set((self.position + 1, 0));
+        None
+    }
+}
+
+/// The groups of a selection stored by priority, as a [`Selection`] takes them.
+pub(crate) fn by_priority<R>(
+    groups: &std::collections::BTreeMap<u8, Vec<Arc<R>>>,
+) -> impl Iterator<Item = (u8, &[Arc<R>])> + Clone {
+    groups
+        .iter()
+        .map(|(priority, rules)| (*priority, rules.as_slice()))
+}
+
+/// Every axiom of the groups is a candidate of the site.
+pub(crate) fn every<R>(_: &R) -> bool {
+    true
+}
+
+/// Offer every candidate of `groups`, which a site never tries: a [`Selection`] from which
+/// nothing is taken.
+pub(crate) fn offer_all<'a, R, G, P>(groups: G, candidate: fn(&R) -> bool, probe: P)
+where
+    R: Candidate + 'a,
+    G: Iterator<Item = (u8, &'a [Arc<R>])> + Clone,
+    P: FnMut(&R) -> bool,
+{
+    drop(Selection::new(groups, candidate, probe));
 }
 
 /// Offer the axiom `id` when `probe`, a match of its left-hand side against a site's subject,

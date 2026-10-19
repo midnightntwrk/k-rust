@@ -836,3 +836,123 @@ mod offered {
         assert_eq!(offered, names(&["k", "pdk50", "pdk60"]));
     }
 }
+
+/// The equation selection sites outside the term scans (`fixtures/coverage/probes.k`): each one
+/// offers the lower-priority equation it selected and never tried, which is in neither other
+/// list.
+mod probes {
+    use std::collections::BTreeSet;
+
+    use k_rust::{
+        backend::{
+            Backend, BackendOptions, ExecuteRequest, ExecutionStrategy, ResultModalityOutput,
+        },
+        kore::parser::parse_pattern,
+    };
+
+    use super::int;
+
+    const SOURCE: &str = include_str!("fixtures/coverage/probes.k");
+
+    fn top(program: &str) -> String {
+        format!(
+            "Lbl'-LT-'generatedTop'-GT-'{{}}(Lbl'-LT-'k'-GT-'{{}}(kseq{{}}(inj{{SortPgm{{}}, SortKItem{{}}}}({program}), dotk{{}}())), Lbl'-LT-'generatedCounter'-GT-'{{}}(\\dv{{SortInt{{}}}}(\"0\")))"
+        )
+    }
+
+    /// The labels, without the module, of the (applied, matched, offered) lists of `program`
+    /// over module `main`, under both strategies, which must agree.
+    fn levels(main: &str, program: &str) -> (BTreeSet<String>, BTreeSet<String>, BTreeSet<String>) {
+        let kore = super::compile_source("probes.k", SOURCE, main);
+        let mut backend = Backend::new(&kore, main, BackendOptions::default()).unwrap();
+        let catalog = super::catalog(&backend);
+        let module = format!("{main}.");
+        let mut answers = [ExecutionStrategy::All, ExecutionStrategy::Any].map(|strategy| {
+            let result = backend
+                .execute(ExecuteRequest {
+                    result_modality: ResultModalityOutput::PathSet,
+                    strategy,
+                    collect_coverage: true,
+                    collect_offered: true,
+                    max_work: Some(50),
+                    ..ExecuteRequest::new(parse_pattern(&top(program)).unwrap())
+                })
+                .unwrap();
+            let coverage = result.coverage.unwrap();
+            let labels = |ids: &[String]| {
+                super::labels_in(&module, &catalog, ids)
+                    .into_iter()
+                    .filter(|label| !label.starts_with("other:"))
+                    .collect::<BTreeSet<_>>()
+            };
+            (
+                labels(&coverage.applied),
+                labels(&coverage.matched),
+                labels(&coverage.offered.unwrap()),
+            )
+        });
+        assert_eq!(answers[0], answers[1], "{main} {program}: All and Any");
+        std::mem::take(&mut answers[0])
+    }
+
+    fn go(argument: &str) -> String {
+        format!("Lblgo{{}}({argument})")
+    }
+
+    /// The predicate simplifier's ceil scan of `#Ceil(g(5))` applies `gTop` and never tries
+    /// `gBottom`, at priority 60.
+    #[test]
+    fn the_ceil_scan_offers_its_lower_equation() {
+        let (applied, matched, offered) = levels("CEIL", &go(&int(5)));
+        assert!(
+            applied.contains("gTop") && applied.contains("go"),
+            "{applied:?}"
+        );
+        assert!(!matched.contains("gBottom"), "{matched:?}");
+        assert!(offered.contains("gBottom"), "{offered:?}");
+    }
+
+    /// The predicate scan of `{h(5) #Equals 0}` applies `hTop` and never tries `hBottom`, at
+    /// priority 60.
+    #[test]
+    fn the_predicate_scan_offers_its_lower_equation() {
+        let (applied, matched, offered) = levels("PRED", &go(&int(5)));
+        assert!(
+            applied.contains("hTop") && applied.contains("go"),
+            "{applied:?}"
+        );
+        assert!(!matched.contains("hBottom"), "{matched:?}");
+        assert!(offered.contains("hBottom"), "{offered:?}");
+    }
+
+    /// The `#Top` lemmas of the operand `tp(5)` of the term-level conjunction `5 #And tp(5)` in
+    /// the initial state (the compiler reads a rule's `X #And tp(X)` as a predicate): `tpHigh`
+    /// drops it, and `tpLow`, at priority 60, is never tried.
+    #[test]
+    fn the_top_lemmas_offer_their_lower_lemma() {
+        let (applied, matched, offered) = levels(
+            "TOPDEF",
+            &format!(
+                "Lbldone{{}}(\\and{{SortInt{{}}}}({}, Lbltp{{}}({})))",
+                int(5),
+                int(5)
+            ),
+        );
+        assert!(applied.contains("tpHigh"), "{applied:?}");
+        assert!(!matched.contains("tpLow"), "{matched:?}");
+        assert!(offered.contains("tpLow"), "{offered:?}");
+    }
+
+    /// The definedness of the right-hand side `done(t(X))` takes the condition of `tCeil` and
+    /// never tries `tBottom`, at priority 60.
+    #[test]
+    fn the_definedness_analysis_offers_its_lower_ceil_equation() {
+        let (applied, matched, offered) = levels("TOPDEF", "Lbldef{}(VarX:SortInt{})");
+        assert!(
+            applied.contains("tCeil") && applied.contains("def"),
+            "{applied:?}"
+        );
+        assert!(!matched.contains("tBottom"), "{matched:?}");
+        assert!(offered.contains("tBottom"), "{offered:?}");
+    }
+}

@@ -728,6 +728,12 @@ fn apply_rule_phases(
     matched: Option<PartialRuleMatch>,
 ) -> Phase<RuleAttempt> {
     let (matching, mut inherited_conditions) = initial_match(context, matched);
+    if !matches!(matching, MatchResult::Failed(_)) {
+        // The left-hand side matched the subject, or its match is undecided: whatever the later
+        // phases decide, before or after the `requires`, the rule competed at this subject
+        // (`crate::coverage`).
+        crate::coverage::note_offered(&context.rule.attributes.unique_id);
+    }
     let (path_knowledge, mut inherited_knowledge) = knowledge(context, &inherited_conditions);
     let (substitution, match_conditions) = dispatch_match(
         context,

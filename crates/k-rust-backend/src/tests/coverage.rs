@@ -806,6 +806,50 @@ fn a_narrowed_rule_with_an_undecided_requires_is_matched_only() {
     assert_coverage(coverage(&result), &[], &["nar"], "nw(Y)");
 }
 
+/// A solver that refutes every satisfiability query: a narrowing condition ends the attempt.
+struct UnsatisfiableSolver;
+
+impl SmtSolver for UnsatisfiableSolver {
+    fn is_sat(
+        &self,
+        _predicates: &[Predicate],
+        _substitution: &Substitution,
+    ) -> Stoppable<Result<Satisfiability, SmtError>> {
+        Ok(Ok(Satisfiability::Unsat))
+    }
+
+    fn check_predicates(
+        &self,
+        _known: &[Predicate],
+        _substitution: &Substitution,
+        checked: &[Predicate],
+    ) -> Stoppable<Result<Validity, SmtError>> {
+        Ok(if checked.is_empty() {
+            Ok(Validity::Valid)
+        } else {
+            Err(SmtError::Unavailable)
+        })
+    }
+}
+
+/// A rule whose left-hand side matched the state but whose attempt ended before its `requires`,
+/// here at a narrowing condition the solver refutes, competed at the state: it is offered, and
+/// in neither other list, since no condition of it was decided.
+#[test]
+fn a_rule_refuted_before_its_requires_is_offered_only() {
+    let definition = definition();
+    let initial = ground(&definition, "nw{}(Y:SortW{})");
+    let options = ExecutionOptions {
+        collect_offered: true,
+        ..collecting()
+    };
+    let result = execute_with_solver(&definition, initial, options, &UnsatisfiableSolver);
+    let coverage = coverage(&result);
+    assert_eq!(coverage.applied, ids(&[]));
+    assert_eq!(coverage.matched, ids(&[]));
+    assert_eq!(coverage.offered, Some(ids(&["nar"])));
+}
+
 /// (i) A nested collection feeds the outer one; `suspend` hides what is reported inside it.
 #[test]
 fn a_nested_collection_feeds_the_outer_one_and_suspend_hides_reports() {
@@ -1070,4 +1114,188 @@ fn asking_for_offered_changes_no_result_and_no_counter() {
         }
     }
     assert!(probing > 0, "some run offers an axiom it never tried");
+}
+
+/// A [`crate::coverage::Selection`] offers exactly the candidates its site never took: after the
+/// candidate the site stopped at, in its group and the later ones, the one it gave back, and
+/// none that the site's filter excludes.
+#[test]
+fn a_selection_offers_the_candidates_its_site_never_took() {
+    use std::{collections::BTreeMap, sync::Arc};
+
+    use crate::coverage::{Candidate, Selection, by_priority, every, offer_all};
+
+    struct Axiom(&'static str);
+    impl Candidate for Axiom {
+        fn coverage_id(&self) -> &str {
+            self.0
+        }
+    }
+    let groups = BTreeMap::from([
+        (10, vec![Arc::new(Axiom("a1")), Arc::new(Axiom("a2"))]),
+        (20, vec![Arc::new(Axiom("b1")), Arc::new(Axiom("skip"))]),
+        (30, vec![Arc::new(Axiom("c1"))]),
+    ]);
+    let not_skipped = |axiom: &Axiom| axiom.0 != "skip";
+    let offered = |site: &dyn Fn()| {
+        let ((), coverage) = collect_offering(true, site);
+        coverage.offered.unwrap().into_iter().collect::<Vec<_>>()
+    };
+    // Stops after taking `a1`: `a2` and every later candidate are offered, `skip` is not.
+    assert_eq!(
+        offered(&|| {
+            let selection = Selection::new(by_priority(&groups), not_skipped, |_| true);
+            let (_, mut group) = selection.groups().next().unwrap();
+            assert_eq!(group.next().unwrap().0, "a1");
+        }),
+        ["a2", "b1", "c1"]
+    );
+    // Exhausts the first group, takes `b1` and gives it back: `b1` and `c1` are offered.
+    assert_eq!(
+        offered(&|| {
+            let selection = Selection::new(by_priority(&groups), not_skipped, |_| true);
+            let mut groups = selection.groups();
+            let (_, first) = groups.next().unwrap();
+            assert_eq!(first.map(|axiom| axiom.0).collect::<Vec<_>>(), ["a1", "a2"]);
+            let (_, mut second) = groups.next().unwrap();
+            assert_eq!(second.next().unwrap().0, "b1");
+            assert!(second.is_exhausted());
+            selection.give_back();
+        }),
+        ["b1", "c1"]
+    );
+    // Takes every candidate: nothing is offered; a probe that does not match offers nothing.
+    assert!(
+        offered(&|| {
+            let selection = Selection::new(by_priority(&groups), every, |_| true);
+            for (_, group) in selection.groups() {
+                group.for_each(drop);
+            }
+        })
+        .is_empty()
+    );
+    assert_eq!(
+        offered(&|| offer_all(by_priority(&groups), every, |axiom: &Axiom| axiom.0 != "a2")),
+        ["a1", "b1", "c1", "skip"]
+    );
+    // Without an offering collection no probe runs.
+    let probed = std::cell::Cell::new(false);
+    offer_all(by_priority(&groups), every, |_: &Axiom| {
+        probed.set(true);
+        true
+    });
+    assert!(!probed.get());
+}
+
+/// Every site of the backend that selects candidates by priority group
+/// (`rule::applicable_groups`, `rule::applicable_rewrite_groups`,
+/// `BackendDefinition::predicate_equations_for`) or scans a group (`scan::scan_group`) takes its
+/// candidates from a `coverage::Selection` or offers them with `coverage::offer_all` in the same
+/// function, so that a site that stops early offers what it never tried. The sites that are not
+/// part of a run are listed with the reason.
+#[test]
+fn every_priority_group_selection_offers_what_it_never_tries() {
+    use std::path::Path;
+
+    /// Functions that select by priority group outside every run, or that define the selection.
+    const OUTSIDE_RUNS: &[(&str, &str)] = &[
+        // The definitions of the selections themselves.
+        ("rule.rs", "applicable_groups"),
+        ("rule.rs", "applicable_rewrite_groups"),
+        ("definition.rs", "predicate_equations_for"),
+        ("simplify/scan.rs", "scan_group"),
+        // The load-time confluence check, which no run's coverage includes.
+        ("confluence/join.rs", "*"),
+        // The former lazy step, a differential-test oracle compiled only in tests.
+        ("rewrite/step.rs", "rewrite_step_all_first_group_for_tests"),
+    ];
+    const CALLS: &[&str] = &[
+        "applicable_groups(",
+        "applicable_rewrite_groups(",
+        "predicate_equations_for(",
+        "scan_group(",
+    ];
+
+    fn sources(directory: &Path, root: &Path, into: &mut Vec<(String, String)>) {
+        for entry in std::fs::read_dir(directory).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                if path.file_name().is_some_and(|name| name != "tests") {
+                    sources(&path, root, into);
+                }
+            } else if path.extension().is_some_and(|extension| extension == "rs") {
+                let relative = path
+                    .strip_prefix(root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned();
+                into.push((relative, std::fs::read_to_string(&path).unwrap()));
+            }
+        }
+    }
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut files = Vec::new();
+    sources(&root, &root, &mut files);
+
+    let mut sites = 0;
+    let mut missing = Vec::new();
+    for (file, text) in &files {
+        let lines = text.lines().collect::<Vec<_>>();
+        // A file's test module ends its production code.
+        let test_module = lines
+            .iter()
+            .position(|line| line.starts_with("mod tests {"))
+            .unwrap_or(lines.len());
+        for (number, line) in lines[..test_module].iter().enumerate() {
+            let code = line.split("//").next().unwrap_or("");
+            if !CALLS.iter().any(|call| code.contains(call)) || code.contains("fn ") {
+                continue;
+            }
+            // The enclosing function: the nearest line above that opens one, and the line
+            // closing it at the same indentation.
+            let start = (0..=number)
+                .rev()
+                .find(|&index| {
+                    let trimmed = lines[index].trim_start();
+                    trimmed.starts_with("fn ")
+                        || trimmed.starts_with("pub fn ")
+                        || trimmed.starts_with("pub(crate) fn ")
+                        || trimmed.starts_with("pub(super) fn ")
+                })
+                .unwrap_or_else(|| panic!("{file}:{}: no enclosing function", number + 1));
+            let indent = lines[start].len() - lines[start].trim_start().len();
+            let close = format!("{}}}", " ".repeat(indent));
+            let finish = (number..lines.len())
+                .find(|&index| lines[index] == close)
+                .unwrap_or(lines.len());
+            let name = lines[start]
+                .trim_start()
+                .split("fn ")
+                .nth(1)
+                .unwrap()
+                .split(['(', '<'])
+                .next()
+                .unwrap()
+                .to_owned();
+            if OUTSIDE_RUNS.iter().any(|(outside, function)| {
+                outside == file && (*function == "*" || *function == name)
+            }) {
+                continue;
+            }
+            sites += 1;
+            let body = lines[start..finish].join("\n");
+            if !body.contains("Selection::new(") && !body.contains("offer_all(") {
+                missing.push(format!("{file}:{} in {name}", number + 1));
+            }
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "a priority group selection that offers nothing: {missing:?}"
+    );
+    // The sites: the term scans, the ceil and predicate scans, the `\top` lemmas, the
+    // definedness analysis, the two deferred decisions, the three rewrite steps and the
+    // re-selection of the lower groups.
+    eprintln!("{sites} priority group selections in runs");
+    assert!(sites >= 12, "{sites} sites found");
 }

@@ -928,19 +928,32 @@ fn apply_ceil_equation(definition: &BackendDefinition, term: &Term) -> Option<Ve
 /// (`simplify::evaluate_equation_condition`).
 fn ceil_theory_condition(definition: &BackendDefinition, term: &Term) -> Option<Vec<Predicate>> {
     let groups = applicable_groups(definition.ceil_theory(), &term_index(term));
-    for rules in groups.values() {
+    // The first usable instance ends the selection: the unconditional ceil equations after its
+    // equation are offered (`crate::coverage::Selection`).
+    let selection = crate::coverage::Selection::new(
+        crate::coverage::by_priority(&groups),
+        |rule: &RewriteRule| {
+            rule.requires.is_empty()
+                && rule.computed_attributes.unbound_result_variables.is_empty()
+                && matches!(rule.rhs, RuleRhs::Predicates(_))
+        },
+        crate::simplify::scan::equation_probe(definition, term),
+    );
+    for (_, rules) in selection.groups() {
         for rule in rules {
-            if !rule.requires.is_empty()
-                || !rule.computed_attributes.unbound_result_variables.is_empty()
-                || !matches!(rule.rhs, RuleRhs::Predicates(_))
-            {
-                continue;
-            }
-            let (rule, EquationInstances::Matched(instances)) =
-                equation_instances(definition, rule, term, &[])
-            else {
-                continue;
+            let (rule, instances) = equation_instances(definition, rule, term, &[]);
+            let instances = match instances {
+                EquationInstances::NotMatched(_) => continue,
+                EquationInstances::Undecided => {
+                    // The matching is undecided: the equation competed here (`crate::coverage`).
+                    crate::coverage::note_offered(&rule.attributes.unique_id);
+                    continue;
+                }
+                EquationInstances::Matched(instances) => instances,
             };
+            // The left-hand side matched: whatever its instances give, the equation competed
+            // at this application (`crate::coverage`).
+            crate::coverage::note_offered(&rule.attributes.unique_id);
             let RuleRhs::Predicates(predicates) = &rule.rhs else {
                 unreachable!("renaming keeps the kind of the right-hand side");
             };

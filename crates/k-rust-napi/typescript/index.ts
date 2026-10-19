@@ -255,8 +255,9 @@ export interface ExecuteOptions {
   collectCoverage?: boolean
   /**
    * With `collectCoverage`, also report `RunCoverage.offered`: the rules and equations whose
-   * left-hand side matched a subject the run selected candidates for and which it never tried
-   * there. A request that sets it without `collectCoverage` is refused (docs/compatibility.md,
+   * left-hand side matched a subject the run selected them as candidates for, tried there or
+   * not. A request that sets it without `collectCoverage` is refused. A candidate never tried
+   * costs one match at every visit of its site while it has not matched (docs/compatibility.md,
    * "Run coverage").
    */
   collectOffered?: boolean
@@ -508,8 +509,8 @@ export interface RunCoverage {
   matched: string[]
   /**
    * Present exactly when the request set `collectOffered`: `matched` plus every rule and equation
-   * whose left-hand side matched a subject the run selected candidates for, where it never began
-   * to decide the axiom's condition.
+   * whose left-hand side matched a subject the run selected it as a candidate for, whether or not
+   * the run went on to decide its condition there.
    */
   offered?: string[]
 }
