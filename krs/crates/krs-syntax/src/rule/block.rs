@@ -1120,7 +1120,9 @@ impl RuleBlock {
                 )?);
                 continue;
             }
-            let (pattern, signs) = parse_pattern_with_signs(input)?;
+            let fork = input.fork();
+            let (pattern, signs) = parse_pattern_with_signs(input)
+                .map_err(|error| crate::notation::pattern_parse_error(&fork, error))?;
             input.parse::<Token![=>]>()?;
             let result_tokens = input.fork();
             let result = input.parse::<Expr>();

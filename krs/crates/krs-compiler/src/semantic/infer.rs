@@ -18,7 +18,7 @@ use super::error::DescriptorLoweringError;
 use super::origin::{semantic_cell_id, semantic_origin};
 
 /// The reason given for `A | B` outside a left-hand side (KF-030).
-const PATTERN_OR_OUTSIDE_LHS: &str = "`|` is a pattern alternative (K's #Or) and occurs only on a left-hand side; for Bool disjunction use bool::or or k::or_bool!";
+const PATTERN_OR_OUTSIDE_LHS: &str = "`|` is a pattern alternative (K's #Or) and occurs only on a left-hand side; for Bool disjunction use `||`, bool::or, or k::or_bool!";
 
 pub(super) struct StructuredTermBuilder<'a> {
     pub(super) descriptor: &'a Descriptor,

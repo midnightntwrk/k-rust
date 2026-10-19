@@ -909,9 +909,11 @@ impl TermSymbol {
 /// A validated Rust-expression term in the deliberately small term grammar.
 ///
 /// Accepted nodes are plain paths, named calls, named record construction,
-/// parentheses/groups, and Rust literals below a named root. No operator,
-/// method, closure, control-flow, assignment, macro, update-rest, or arbitrary
-/// block expression is silently retained.
+/// parentheses/groups, and Rust literals below a named root, and the notation
+/// forms `a && b`, `a || b`, and `recv.op::<D>(..)`, each of which is the
+/// builtin call it denotes. No other operator, method, closure, control-flow,
+/// assignment, macro, update-rest, or arbitrary block expression is silently
+/// retained.
 #[derive(Clone, Debug)]
 pub struct TermExpression {
     expression: TermSource,
@@ -962,6 +964,8 @@ impl TermExpression {
                     binary.op.span(),
                 ));
             }
+            // `a && b`, `a || b`, and `recv.op::<D>(..)` denote builtin calls.
+            other if crate::notation::is_expression_notation(other) => TermRootKind::Call,
             Expr::Macro(value) => special_macro_kind(&value.mac.path)
                 .ok_or_else(|| {
                     SyntaxError::new(
@@ -1017,6 +1021,10 @@ impl TermExpression {
                     if let Some(span) = first_block(&expression) {
                         return Err(let_error(LET_IN_PATTERN.to_owned(), span));
                     }
+                    // Nor is `&&`, `||`, or a method call.
+                    if let Some(error) = crate::notation::notation_in_pattern(&expression) {
+                        return Err(error);
+                    }
                     Self::from_expression(expression)?;
                 }
                 return Err(error.into());
@@ -1054,6 +1062,22 @@ impl TermExpression {
     #[must_use]
     pub const fn expression(&self) -> &TermSource {
         &self.expression
+    }
+
+    /// Returns the Rust tokens for code that rustc checks: the authored
+    /// expression with each notation form replaced by the builtin call it
+    /// denotes, whose head is qualified by `builtin`, the facade's `builtin`
+    /// module. A pattern payload, which has no notation, keeps its tokens.
+    #[must_use]
+    pub fn denoted_tokens(&self, builtin: &Path) -> TokenStream {
+        match &self.expression {
+            TermSource::Expression(expression) => {
+                let mut expression = expression.clone();
+                crate::notation::denote_notation(&mut expression, builtin);
+                expression.into_token_stream()
+            }
+            TermSource::Pattern { .. } => self.expression.to_token_stream(),
+        }
     }
 
     /// Returns the syntactic root kind.
@@ -1456,7 +1480,7 @@ fn pattern_or_error(reason: String, span: Span) -> SyntaxError {
 
 /// The reason given for `|` in a result or condition.
 pub(crate) const PATTERN_OR_OUTSIDE_LHS: &str =
-    "`|` is a pattern alternative; for Bool disjunction use bool::or or k::or_bool!";
+    "`|` is a pattern alternative; for Bool disjunction use `||`, bool::or, or k::or_bool!";
 
 /// The reason given for `|` next to a `..` remainder.
 pub(crate) const PATTERN_OR_REMAINDER: &str = "or-patterns combine terms, not remainders";
@@ -1740,6 +1764,10 @@ fn validate_expression(
     symbols: &mut Vec<TermSymbol>,
     nodes: &mut Vec<TermNode>,
 ) -> Result<TermTree, SyntaxError> {
+    // A notation form is the builtin application it denotes.
+    if let Some(call) = crate::notation::denoted_call(expression)? {
+        return validate_call(&call, context, symbols, nodes);
+    }
     match expression {
         Expr::Path(path) => validate_path_expression(path, symbols, nodes),
         Expr::Call(call) => validate_call(call, context, symbols, nodes),
@@ -3623,7 +3651,7 @@ fn transparent_expression(mut expression: &Expr) -> &Expr {
     }
 }
 
-fn reject_attributes(
+pub(crate) fn reject_attributes(
     attributes: &[syn::Attribute],
     span: proc_macro2::Span,
 ) -> Result<(), SyntaxError> {

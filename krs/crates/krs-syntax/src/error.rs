@@ -255,6 +255,13 @@ pub enum SyntaxErrorKind {
         /// Specific restriction, naming the fix.
         reason: String,
     },
+    /// A domain method call (`recv.op::<D>(..)`) names no domain, an unknown
+    /// domain, or an operation its domain does not define, or a notation
+    /// form (`&&`, `||`, a method call) occurs in a pattern.
+    InvalidExpressionNotation {
+        /// Specific restriction, naming the fix.
+        reason: String,
+    },
     /// A `k::rewrite!` (K's local `=>`) is malformed or misplaced, or a
     /// single-body rule has none (KF-011).
     InvalidLocalRewrite {
@@ -419,6 +426,7 @@ impl SyntaxErrorKind {
             Self::InvalidFunctionContext { .. } => codes::syntax::INVALID_FUNCTION_CONTEXT,
             Self::InvalidSortParameter { .. } => codes::syntax::INVALID_SORT_PARAMETER,
             Self::InvalidTurbofish { .. } => codes::syntax::INVALID_TURBOFISH,
+            Self::InvalidExpressionNotation { .. } => codes::syntax::INVALID_EXPRESSION_NOTATION,
             Self::InvalidLocalRewrite { .. } => codes::syntax::INVALID_LOCAL_REWRITE,
             Self::MissingTokenEndpoint => codes::syntax::MISSING_TOKEN_ENDPOINT,
             Self::TooManyProvenanceOccurrences { .. } => {
@@ -686,6 +694,7 @@ impl fmt::Display for SyntaxError {
             | SyntaxErrorKind::InvalidFunctionContext { reason }
             | SyntaxErrorKind::InvalidSortParameter { reason }
             | SyntaxErrorKind::InvalidTurbofish { reason }
+            | SyntaxErrorKind::InvalidExpressionNotation { reason }
             | SyntaxErrorKind::InvalidLocalRewrite { reason } => formatter.write_str(reason),
         }
     }

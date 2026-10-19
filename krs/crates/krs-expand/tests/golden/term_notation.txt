@@ -1,0 +1,1 @@
+{ let _krs_typecheck_named_term = || { let _ = Check (:: k :: builtin :: bool :: and_then (a , :: k :: builtin :: int :: lt (b , c)) , :: k :: builtin :: kequal :: eq ((:: k :: builtin :: bool :: or_else (a , b)) , c)) ; } ; :: core :: panic ! ("`term!` has no runtime value in KRS") }

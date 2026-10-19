@@ -277,13 +277,13 @@ fn inject_initializer_value(
     Ok(())
 }
 
-/// A literal or call term (`1`, `-1`, `list::empty()`), which is not a Rust value of the cell's
-/// marker type; a binding path and a state macro are.
+/// A literal or call term (`1`, `-1`, `list::empty()`, or notation for a call such as `a && b`),
+/// which is not a Rust value of the cell's marker type; a binding path and a state macro are.
 fn is_ground_initializer_term(expression: &syn::Expr) -> bool {
     matches!(
         expression,
         syn::Expr::Lit(_) | syn::Expr::Unary(_) | syn::Expr::Call(_)
-    )
+    ) || krs_syntax::is_expression_notation(expression)
 }
 
 fn qualify_initializer_state_macro(expression: &mut syn::Expr, facade: &Path) -> crate::Result<()> {

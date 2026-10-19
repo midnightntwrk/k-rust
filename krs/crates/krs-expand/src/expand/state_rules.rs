@@ -1053,7 +1053,7 @@ impl<'a> StateRuleBuilder<'a> {
                     return Err(ExpandError::new(
                         expand::PATTERN_OR_OUTSIDE_LHS,
                         range.first(),
-                        "`A | B` alternatives occur only on a left-hand side (K's #Or); for Bool disjunction use bool::or or k::or_bool!",
+                        "`A | B` alternatives occur only on a left-hand side (K's #Or); for Bool disjunction use `||`, bool::or, or k::or_bool!",
                     ));
                 }
                 let key = self.terms.take_pattern_or(range.first())?;

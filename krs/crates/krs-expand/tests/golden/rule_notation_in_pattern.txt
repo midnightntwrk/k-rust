@@ -1,0 +1,1 @@
+error[krs::syntax::invalid-expression-notation] 3:32-3:34: a method call is not a pattern: a left-hand side matches `int::gt` only as the call `int::gt(..)`

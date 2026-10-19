@@ -968,7 +968,7 @@ impl<'a> TermBuilder<'a> {
                     return Err(ExpandError::new(
                         expand::PATTERN_OR_OUTSIDE_LHS,
                         range.first(),
-                        "`A | B` alternatives occur only on a left-hand side (K's #Or); for Bool disjunction use bool::or or k::or_bool!",
+                        "`A | B` alternatives occur only on a left-hand side (K's #Or); for Bool disjunction use `||`, bool::or, or k::or_bool!",
                     ));
                 }
                 let key = self.take_pattern_or(range.first())?;
@@ -1215,7 +1215,12 @@ impl<'a> TermBuilder<'a> {
         slots: &mut WireSlots,
     ) -> crate::Result<TargetSlot> {
         check_ml_item(authored)?;
-        let (owner, variant) = if authored.leading_colon.is_none()
+        let (owner, variant) = if let Some(operation) = krs_syntax::notation_operation(authored) {
+            // Notation names the facade's builtin operation, which resolves
+            // whether or not the author imported its module.
+            let facade = self.facade;
+            (syn::parse_quote!(#facade::builtin::#operation), None)
+        } else if authored.leading_colon.is_none()
             && authored.segments.len() == 1
             && let Some(imported_owner) = self.enum_glob
             && let Some(imported_variant) = authored.segments.first()
@@ -1399,6 +1404,10 @@ impl<'a> TermBuilder<'a> {
     }
 
     pub(super) fn application_authored_path(&self, path: &Path) -> String {
+        // Notation is spelled as the call it denotes.
+        if let Some(operation) = krs_syntax::notation_operation(path) {
+            return spelling(&operation);
+        }
         if path.leading_colon.is_none()
             && path.segments.len() == 1
             && let Some(owner) = self.enum_glob

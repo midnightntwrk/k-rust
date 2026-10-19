@@ -1761,9 +1761,10 @@ fn parse_state_item(
     match context {
         StateMacroContext::Pattern => {
             let start = input.cursor();
+            let fork = input.fork();
             let pattern = input
                 .call(syn::Pat::parse_multi)
-                .map_err(SyntaxError::from)?;
+                .map_err(|error| crate::notation::pattern_parse_error(&fork, error))?;
             let mut tokens = TokenStream::new();
             let mut cursor = start;
             while cursor != input.cursor() {

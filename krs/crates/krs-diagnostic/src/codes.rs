@@ -308,6 +308,7 @@ register_codes! {
         INVALID_SPEC_MODULE: "krs::syntax::invalid-spec-module" => "A `#[k::spec_module]` was malformed: it is not on an inline `mod`, repeats or misspells a key, or names an invalid K module or one ending in the reserved `-SYNTAX` suffix.",
         INVALID_SORT_PARAMETER: "krs::syntax::invalid-sort-parameter" => "A production struct's generic parameter is not a K sort parameter `S: ?Sized` used by a field: a lifetime, const, default, other bound, or where clause.",
         INVALID_TURBOFISH: "krs::syntax::invalid-turbofish" => "A turbofish on a term head is not a list of sort markers (`Choose::<k::builtin::Int>`, `Choose::<dyn ExpSort>`): it has lifetimes, consts, or other types, or sits on a path segment other than the last.",
+        INVALID_EXPRESSION_NOTATION: "krs::syntax::invalid-expression-notation" => "A domain method call (`recv.op::<Int>(..)`) has no domain turbofish, names a domain other than `Int`, `Bool`, `String`, `Float`, `Bytes`, or `K`, names an operation the domain's builtin module does not define or one with no operand, or a notation form (`&&`, `||`, or a method call) occurs in a pattern.",
         INVALID_ML_EXISTS: "krs::syntax::invalid-ml-exists" => "An `ml::exists` closure does not take exactly one typed parameter (`|x: Sort| predicate`), or a closure occurs anywhere but as the one argument of `ml::exists`.",
     }
     /// Diagnostics from KRS rendering, whole-file expansion, and their protocol.

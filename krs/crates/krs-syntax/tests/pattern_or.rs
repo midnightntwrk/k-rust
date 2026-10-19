@@ -116,11 +116,11 @@ fn malformed_or_patterns_are_rejected() {
         ),
         (
             "fn r(k::term![Dup(a)]: Term<Exp>) -> Term<Exp> { Red() | Green() }",
-            "`|` is a pattern alternative; for Bool disjunction use bool::or or k::or_bool!",
+            "`|` is a pattern alternative; for Bool disjunction use `||`, bool::or, or k::or_bool!",
         ),
         (
             "#[k::requires(a | b)] fn r(k::term![Dup(a, b)]: Term<Exp>) -> Term<Exp> { a }",
-            "`|` is a pattern alternative; for Bool disjunction use bool::or or k::or_bool!",
+            "`|` is a pattern alternative; for Bool disjunction use `||`, bool::or, or k::or_bool!",
         ),
     ] {
         let error = krs_syntax::RuleItem::parse_source(source).unwrap_err();
