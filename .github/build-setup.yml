@@ -1,3 +1,9 @@
+# The runner images can trail the workspace's rust-version, so release builds install current stable,
+# with the matrix entry's targets, instead of using the image's preinstalled toolchain.
+- name: Install Rust
+  uses: dtolnay/rust-toolchain@stable
+  with:
+    targets: ${{ join(matrix.targets, ',') }}
 - name: Authenticate GitHub release downloads
   shell: bash
   run: echo "READ_ONLY_GITHUB_TOKEN=$GH_TOKEN" >> "$GITHUB_ENV"
