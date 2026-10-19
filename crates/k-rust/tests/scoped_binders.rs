@@ -270,35 +270,36 @@ fn a_macro_existential_is_judged_as_written_at_its_use() {
     );
 }
 
-/// FU-56: the function-symbol check reads a left-hand side's quantifier through
-/// `kast::binding`. In `go(#Exists Y . Y)` the quantifier's `Y` is its own variable, which the
-/// left-hand side does not bind, so the map key `f(Y)`, read by value, reads a `Y` the rule binds
-/// nowhere else; it is refused, as it is when the quantifier is named apart (`Z`).
+/// FU-56: the function-symbol check reads a quantifier through `kast::binding`. A map key read
+/// by value needs the rule to bind the variables it reads, which are its free variables; in
+/// `f(#Exists Y:Int . Y)` the `Y` is the quantifier's own, so the key reads no variable and is
+/// not refused, whatever the binder is called. A free `W` the rule binds nowhere else is.
 #[test]
-fn a_left_side_quantifier_binds_no_variable_a_by_value_read_needs() {
-    let refused = |binder: &str| {
+fn a_quantifier_in_a_by_value_read_binds_its_own_variable() {
+    let refusals = |key: &str| {
         let source = format!(
-            "module P\n  imports INT\n  imports MAP\n  syntax KItem ::= go(Int) | done(Int)\n  syntax Int ::= f(Int) [function]\n  rule f(X) => X\n  configuration <k> $PGM:KItem </k> <m> .Map </m>\n  rule [p]: <k> go(#Exists {binder}:Int . {binder}) => done(0) ... </k> <m> (f(Y) |-> _) ... </m>\nendmodule\n"
+            "module P\n  imports INT\n  imports MAP\n  syntax KItem ::= go(Int) | done(Int)\n  syntax Int ::= f(Int) [function]\n  rule f(X) => X\n  configuration <k> $PGM:KItem </k> <m> .Map </m>\n  rule [p]: <k> go(_) => done(0) ... </k> <m> ({key} |-> _) ... </m>\nendmodule\n"
         );
         let loaded = load("P", &source);
-        let error = compile_loaded_definition(&loaded, CompileOptions::default())
+        compile_loaded_definition(&loaded, CompileOptions::default())
             .err()
-            .unwrap_or_else(|| panic!("the rule with binder {binder} should be refused"));
-        error
-            .diagnostics
+            .map(|error| error.diagnostics)
+            .unwrap_or_default()
             .into_iter()
             .filter(|diagnostic| diagnostic.code == DiagnosticCode::IllegalFunctionOnLhs)
             .map(|diagnostic| diagnostic.message)
             .collect::<Vec<_>>()
     };
-    let shadowing = refused("Y");
+    for binder in ["Y", "Z"] {
+        let key = format!("f(#Exists {binder}:Int . {binder})");
+        assert_eq!(refusals(&key), Vec::<String>::new(), "{key}");
+    }
+    let free = refusals("f(W)");
     assert!(
-        shadowing
-            .iter()
-            .any(|message| message.contains("this rule binds Y nowhere else")),
-        "{shadowing:?}"
+        free.iter()
+            .any(|message| message.contains("this rule binds W nowhere else")),
+        "{free:?}"
     );
-    assert_eq!(shadowing, refused("Z"));
 }
 
 /// FU-55: a `concrete` or `symbolic` attribute names free variables of its rule, since it lies
