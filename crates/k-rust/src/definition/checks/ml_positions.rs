@@ -4,13 +4,18 @@
 //! compile with [`DiagnosticCode::MlConstructPosition`], located at the sentence, for the Rust
 //! target only (an LLVM target's consumer reads the emitted KORE on its own terms).
 //!
-//! - An or-pattern in the left side of a function or anywhere equation whose alternatives do not
-//!   all bind a variable that the equation's result (its right side or its `ensures`) uses, and
-//!   that the left side binds nowhere outside its or-patterns. An equation's left side matches
-//!   each alternative, so an alternative that does not bind the variable states the
-//!   application's value for every value of it: `f(X #Or 2) => 10 +Int X` states
-//!   `f(2) = 10 +Int X` for every `X`. An application has at most one value, so the equation is
-//!   an axiom with no model, and no answer derived from it is right. A variable that only the
+//! - An or-pattern in the left side of a function or anywhere equation, where some combination of
+//!   the alternatives of its or-patterns does not bind a variable that the equation's result (its
+//!   right side or its `ensures`) uses. An equation's left side matches each combination, the
+//!   alternatives of different or-patterns chosen independently, so a combination that does not
+//!   bind the variable states the application's value for every value of it:
+//!   `f(X #Or 2) => 10 +Int X` states `f(2) = 10 +Int X` for every `X`. An application has at
+//!   most one value, so the equation is an axiom with no model, and no answer derived from it is
+//!   right. A variable is bound in every combination exactly when it occurs outside every
+//!   or-pattern, or some or-pattern binds it in every one of its alternatives, recursively
+//!   (`f3(g(X) #Or h(X), X #Or 0) => X` binds `X` in each of its four combinations). Use is
+//!   syntactic, which is decidable: a variable that occurs in the result is used, even where the
+//!   result's value does not depend on it (`f(X #Or 0) => X *Int 0`). A variable that only the
 //!   `requires` reads is quantified over the condition alone (`f(2) = 0` where some `X` meets
 //!   it) and states no such value. A rewrite rule's left side matches a configuration, which may
 //!   be any of the alternatives, so its alternatives may bind different variables. A
@@ -25,12 +30,16 @@
 //!   function or anywhere equation with such a right side is refused when the definition loads.
 //! - A conjunction where a value is built (the right side of a rewrite of a rule, a function
 //!   equation, a simplification or an anywhere rule) with two operands that are not predicates,
-//!   one of which holds a matching-logic connective (`(X #Or 0) #And 1`). A conjunction of terms
-//!   without a connective, each at most one value, is the first where they are equal, and the
-//!   stage `lower term conjunctions` writes it so (`t1 #And {t1 #Equals t2}`); a predicate
-//!   operand conjoins a condition. A term that holds a connective may denote several values,
-//!   where that reading does not hold, and the backend gives a built conjunction of terms
-//!   neither a definedness nor a value, so the sentence has no reading.
+//!   one of which may denote several values (`(X #Or 0) #And 1`). A conjunction of terms that each
+//!   denote at most one value is the first where they are equal, and the stage
+//!   `lower term conjunctions` writes it so (`t1 #And {t1 #Equals t2}`) where no operand holds a
+//!   connective; a predicate operand conjoins a condition. A term denotes at most one value when
+//!   its only connectives are `#Bottom` and conjunctions whose term operands denote at most one
+//!   value, beside any predicate conjuncts (`g(X #And 1)`, `g(X #And {X #Equals 1})`). A term
+//!   with any other connective (`#Or`, `#Top`, `#Not`, `#Implies`, `#Iff`, a quantifier, or a
+//!   predicate standing for a term) may denote several values, where that reading does not
+//!   hold, and the backend gives a built conjunction of terms neither a definedness nor a value,
+//!   so the sentence has no reading.
 //!
 //! Macro-like rules (`macro`, `alias`) are abbreviations, not equations, and are not judged here;
 //! claims and contexts are not judged here either.
@@ -82,18 +91,28 @@ pub(super) fn check_ml_construct_positions(
             }
         } else if (attributes.has(AttributeKey::Anywhere)
             || is_function_rule(sentence, productions))
-            && let Some(variables) = unequally_bound_result_variables(body, ensures)
+            && let Some(unbound) = unequally_bound_result_variables(body, ensures)
         {
+            let uses = unbound
+                .iter()
+                .map(|(side, variable, alternative)| {
+                    format!(
+                        "the {side} uses {variable}, which the alternative `{}` of an or-pattern \
+                         in the left-hand side does not bind",
+                        display(alternative)
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("; ");
             diagnostics.push(Diagnostic::error(
                 DiagnosticCode::MlConstructPosition,
                 format!(
-                    "the left-hand side of this equation holds an or-pattern whose alternatives \
-                     do not all bind {}, which the result uses: an alternative that does not bind \
-                     it states the application's value for every value of it, while an \
+                    "{uses}: an alternative that does not bind a variable the result uses states \
+                     the application's value for every value of the variable, while an \
                      application has at most one value, so the equation is an axiom with no \
-                     model; bind the same variables in every alternative, or write one equation \
-                     per alternative",
-                    variables.into_iter().collect::<Vec<_>>().join(", ")
+                     model (a variable is used where it occurs in the result, even where the \
+                     result's value does not depend on it); bind the same variables in every \
+                     alternative, or write one equation per alternative"
                 ),
                 sentence,
             ));
@@ -102,11 +121,11 @@ pub(super) fn check_ml_construct_positions(
             diagnostics.push(Diagnostic::error(
                 DiagnosticCode::MlConstructPosition,
                 "a conjunction (#And) where a value is built has two operands that are not \
-                 predicates, one of which holds a matching-logic connective: a conjunction of \
-                 terms is the first operand where they are equal only when each denotes at most \
-                 one value, and a term that holds a connective may denote several, so this \
-                 conjunction has no reading; conjoin terms without a connective, or state the \
-                 condition as a predicate ({X #Equals 1})",
+                 predicates, one of which holds a matching-logic connective that lets it denote \
+                 several values: a conjunction of terms is the first operand where they are \
+                 equal only when each denotes at most one value, so this conjunction has no \
+                 reading; conjoin terms without such a connective, or state the condition as a \
+                 predicate ({X #Equals 1})",
                 sentence,
             ));
         }
@@ -137,76 +156,133 @@ fn is_binary(term: &Term, connective: InternalLabel) -> bool {
     )
 }
 
-/// The named variables of `term`.
-fn named_variables(term: &Term) -> BTreeSet<String> {
-    let mut variables = BTreeSet::new();
-    term.visit_preorder(&mut |node| {
-        if let Term::Variable { name, .. } = node
-            && !is_anonymous(name)
-        {
-            variables.insert(name.clone());
-        }
-    });
-    variables
+/// A term as an author wrote it, for a message: a token as its text, anything else as KAST.
+fn display(term: &Term) -> String {
+    if let Term::Token { token, .. } = term.unannotated() {
+        token.clone()
+    } else {
+        term.unannotated().to_string()
+    }
 }
 
-/// The variables of an equation's result (the built positions of `body`, and `ensures`) that an
-/// or-pattern of its left side binds in some alternatives and not in others, and that the left
-/// side binds nowhere outside its or-patterns; `None` when there is none.
-///
-/// A local function's own scope is not walked for bindings: its pattern binds in its body only.
-fn unequally_bound_result_variables(body: &Term, ensures: &Term) -> Option<BTreeSet<String>> {
-    let mut partial = BTreeSet::new();
-    let mut bound_outside = BTreeSet::new();
-    let mut pending = vec![(body, TermPosition::BODY, false)];
-    // Invariant: each step takes a subterm of `body` and pushes only strict subterms of it.
-    while let Some((term, position, in_or_pattern)) = pending.pop() {
+/// The variables a term at a matched position binds in every combination of the alternatives of
+/// its or-patterns (`every`), and in some combination (`some`).
+struct Bindings {
+    every: BTreeSet<String>,
+    some: BTreeSet<String>,
+}
+
+/// The [`Bindings`] of `term` at `position`. An or-pattern binds in every combination what each
+/// of its alternatives does, and in some what one of them does; any other term binds what its
+/// children bind, the combinations of different children chosen independently. Only matched
+/// positions bind, and a local function's own scope binds in its body only, so it is not walked.
+fn bindings(term: &Term, position: TermPosition) -> Bindings {
+    crate::stack::guarded(|| {
         if position.lhs && !position.rhs && is_binary(term, InternalLabel::Or) {
-            let alternatives = or_alternatives(term);
-            let bindings = alternatives
-                .iter()
-                .map(|alternative| named_variables(alternative))
-                .collect::<Vec<_>>();
-            for variable in bindings.iter().flatten() {
-                if !bindings.iter().all(|bound| bound.contains(variable)) {
-                    partial.insert(variable.clone());
-                }
-            }
-            pending.extend(
-                alternatives
-                    .into_iter()
-                    .map(|alternative| (alternative, position, true)),
-            );
-            continue;
+            let mut alternatives = or_alternatives(term)
+                .into_iter()
+                .map(|alternative| bindings(alternative, position));
+            let first = alternatives.next().expect("an or-pattern has alternatives");
+            return alternatives.fold(first, |mut found, alternative| {
+                found
+                    .every
+                    .retain(|variable| alternative.every.contains(variable));
+                found.some.extend(alternative.some);
+                found
+            });
         }
+        let mut found = Bindings {
+            every: BTreeSet::new(),
+            some: BTreeSet::new(),
+        };
         if let Term::Variable { name, .. } = term.unannotated()
             && position.lhs
-            && !in_or_pattern
             && !is_anonymous(name)
         {
-            bound_outside.insert(name.clone());
+            found.every.insert(name.clone());
+            found.some.insert(name.clone());
         }
-        pending.extend(
-            scoped_children(term, position)
+        for (child, position, scope) in scoped_children(term, position) {
+            if scope == Scope::Enclosing {
+                let child = bindings(child, position);
+                found.every.extend(child.every);
+                found.some.extend(child.some);
+            }
+        }
+        found
+    })
+}
+
+/// An alternative of an or-pattern of `term` (at `position`) whose combinations do not bind
+/// `variable`, where some combination of `term` binds it and not every one does; the innermost
+/// such alternative.
+fn unbinding_alternative<'t>(
+    term: &'t Term,
+    position: TermPosition,
+    variable: &str,
+) -> Option<&'t Term> {
+    crate::stack::guarded(|| {
+        if position.lhs && !position.rhs && is_binary(term, InternalLabel::Or) {
+            let alternative = or_alternatives(term)
                 .into_iter()
-                .filter(|(_, _, scope)| *scope == Scope::Enclosing)
-                .map(|(child, position, _)| (child, position, in_or_pattern)),
-        );
-    }
-    partial.retain(|variable| !bound_outside.contains(variable));
+                .find(|alternative| !bindings(alternative, position).every.contains(variable))?;
+            return Some(
+                unbinding_alternative(alternative, position, variable).unwrap_or(alternative),
+            );
+        }
+        scoped_children(term, position)
+            .into_iter()
+            .filter(|(_, _, scope)| *scope == Scope::Enclosing)
+            .find_map(|(child, position, _)| {
+                let found = bindings(child, position);
+                (found.some.contains(variable) && !found.every.contains(variable))
+                    .then(|| unbinding_alternative(child, position, variable))
+                    .flatten()
+            })
+    })
+}
+
+/// The variables of an equation's result (the built positions of `body`, and `ensures`) that some
+/// combination of the alternatives of the or-patterns of its left side binds and another does
+/// not, each with the part of the result that uses it and an alternative that does not bind it;
+/// `None` when there is none.
+fn unequally_bound_result_variables<'t>(
+    body: &'t Term,
+    ensures: &Term,
+) -> Option<Vec<(&'static str, String, &'t Term)>> {
+    let found = bindings(body, TermPosition::BODY);
+    let partial = found
+        .some
+        .difference(&found.every)
+        .cloned()
+        .collect::<BTreeSet<_>>();
     if partial.is_empty() {
         return None;
     }
-    let mut used = BTreeSet::new();
-    compute_unbound(body, TermPosition::BODY, &BTreeSet::new(), &mut used);
+    let mut in_right = BTreeSet::new();
+    compute_unbound(body, TermPosition::BODY, &BTreeSet::new(), &mut in_right);
+    let mut in_ensures = BTreeSet::new();
     compute_unbound(
         ensures,
         TermPosition::CONDITION,
         &BTreeSet::new(),
-        &mut used,
+        &mut in_ensures,
     );
-    partial.retain(|variable| used.contains(variable));
-    (!partial.is_empty()).then_some(partial)
+    let unbound = partial
+        .into_iter()
+        .filter_map(|variable| {
+            let side = if in_right.contains(&variable) {
+                "right side"
+            } else if in_ensures.contains(&variable) {
+                "ensures"
+            } else {
+                return None;
+            };
+            let alternative = unbinding_alternative(body, TermPosition::BODY, &variable)?;
+            Some((side, variable, alternative))
+        })
+        .collect::<Vec<_>>();
+    (!unbound.is_empty()).then_some(unbound)
 }
 
 /// The alternatives of the or-pattern `term`, nested or-patterns at its root flattened.
@@ -236,7 +312,7 @@ fn or_alternatives(term: &Term) -> Vec<&Term> {
 }
 
 /// Whether a conjunction where `body` builds a value (a position on a rewrite's right side only)
-/// has two operands that are not predicates, one of which holds a connective.
+/// has two operands that are not predicates, one of which may denote several values.
 fn built_conjunction_over_a_connective(body: &Term) -> bool {
     let mut pending = vec![(body, TermPosition::BODY)];
     // Invariant: each step takes a subterm of `body` and pushes only its strict subterms.
@@ -246,7 +322,7 @@ fn built_conjunction_over_a_connective(body: &Term) -> bool {
                 .into_iter()
                 .filter(|operand| !is_predicate(operand))
                 .collect::<Vec<_>>();
-            if terms.len() >= 2 && terms.iter().copied().any(holds_connective) {
+            if terms.len() >= 2 && !terms.iter().all(|operand| at_most_one_value(operand)) {
                 return true;
             }
         }
@@ -259,8 +335,26 @@ fn built_conjunction_over_a_connective(body: &Term) -> bool {
     false
 }
 
-fn holds_connective(term: &Term) -> bool {
-    let mut holds = false;
-    term.visit_preorder(&mut |node| holds |= is_ml_connective(node));
-    holds
+/// Whether the term `term`, at a built position, denotes at most one value: its only connectives
+/// are `#Bottom` and conjunctions with at least one term operand, whose term operands denote at
+/// most one value, beside any predicate conjuncts (module documentation).
+fn at_most_one_value(term: &Term) -> bool {
+    crate::stack::guarded(|| {
+        if is_binary(term, InternalLabel::And) {
+            let terms = chain_operands(term, false)
+                .into_iter()
+                .filter(|operand| !is_predicate(operand))
+                .collect::<Vec<_>>();
+            return !terms.is_empty() && terms.into_iter().all(at_most_one_value);
+        }
+        if is_ml_connective(term) {
+            return matches!(
+                term.unannotated(),
+                Term::Apply { label, .. } if label.is(InternalLabel::Bottom)
+            );
+        }
+        scoped_children(term, TermPosition::RHS)
+            .into_iter()
+            .all(|(child, _, _)| at_most_one_value(child))
+    })
 }

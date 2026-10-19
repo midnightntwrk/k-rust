@@ -342,8 +342,12 @@ fn run(sentences: &str, n: i64) -> Vec<(String, String)> {
 
 /// The leaves of go(n): halt reason, the first item of `<k>`, and the whole state as KORE text.
 fn run_states(sentences: &str, n: i64) -> Vec<(String, String, String)> {
-    let kore = compile(sentences);
-    let mut backend = Backend::new(&kore, "P", BackendOptions::default()).unwrap();
+    run_kore_states(&compile(sentences), n)
+}
+
+/// The leaves of go(n) of the compiled definition `kore` (see [`run_states`]).
+fn run_kore_states(kore: &str, n: i64) -> Vec<(String, String, String)> {
+    let mut backend = Backend::new(kore, "P", BackendOptions::default()).unwrap();
     let state = parse_pattern(&format!(
         "Lbl'-LT-'generatedTop'-GT-'{{}}(Lbl'-LT-'k'-GT-'{{}}(kseq{{}}(inj{{SortPgm{{}}, SortKItem{{}}}}(Lblgo{{}}({})), dotk{{}}())), Lbl'-LT-'generatedCounter'-GT-'{{}}({}))",
         int(&n.to_string()),
@@ -1685,14 +1689,39 @@ fn assert_compiles(sentences: &str) {
 /// equation is an axiom with no model, and no answer derived from it is right.
 #[test]
 fn an_or_pattern_binding_a_result_variable_in_one_alternative_of_an_equation_is_refused() {
-    let reasons = ["X", "or-pattern", "has at most one value", "no model"];
+    let reasons = [
+        "uses X, which the alternative",
+        "does not bind",
+        "or-pattern",
+        "has at most one value",
+        "no model",
+    ];
     let first = line_after(F);
+    // The message names the part of the result that uses the variable and an alternative that
+    // does not bind it.
+    assert_ml_construct_refused(
+        &format!("{F}  rule [p]: f(X #Or 2) => 10 +Int X\n{G}"),
+        first,
+        &["the right side uses X, which the alternative `2` of an or-pattern"],
+    );
+    assert_ml_construct_refused(
+        &format!("{F}  rule [p]: f(X #Or 2) => 0 ensures X >Int 0\n{G}"),
+        first,
+        &["the ensures uses X, which the alternative `2` of an or-pattern"],
+    );
     for (sentences, line) in [
         (
             format!("{F}  rule [p]: f(X #Or 2) => 10 +Int X\n  rule [o]: f(_) => 0 [owise]\n{G}"),
             first,
         ),
         (format!("{F}  rule [p]: f(2 #Or X) => X\n{G}"), first),
+        // The rule is syntactic: the right side uses X, although its value does not depend on it.
+        (format!("{F}  rule [p]: f(X #Or 0) => X *Int 0\n{G}"), first),
+        // No or-pattern binds X in all its alternatives: the combination f2(1, 2) binds nothing.
+        (
+            "  syntax Int ::= f2(Int, Int) [function, symbol(f2)]\n  rule [p]: f2(X #Or 1, X #Or 2) => X\n  rule [g]: <k> go(X) => done(f2(X, X)) ... </k>\n".to_owned(),
+            line_after("  syntax Int ::= f2(Int, Int) [function, symbol(f2)]\n"),
+        ),
         (
             format!("{F}  rule [p]: f(X #Or 2) => 0 ensures X >Int 0\n{G}"),
             first,
@@ -1734,6 +1763,11 @@ fn or_patterns_with_equal_or_unused_binders_compile() {
     ] {
         assert_compiles(&sentences);
     }
+    // Alternatives of different or-patterns combine independently: X is bound in every
+    // alternative of the first, so in every combination, and the equation has a model.
+    let combined = "  syntax W ::= g(Int) [symbol(g)] | h(Int) [symbol(h)]\n  syntax Int ::= f3(W, Int) [function, symbol(f3)]\n  rule [p]: f3(g(X) #Or h(X), X #Or 0) => X\n  rule [r]: <k> go(N) => done(f3(g(N), 0) +Int f3(h(N), N) *Int 100) ... </k>\n";
+    assert_compiles(combined);
+    assert_eq!(run(combined, 5), stuck("done(505)"));
 }
 
 /// A simplification whose left side is a term gives the term's value; a right side that is
@@ -1793,8 +1827,40 @@ fn a_built_conjunction_whose_operand_holds_a_connective_is_refused() {
         "  rule [p]: <k> go(X) => done(X #And 1) ... </k>\n",
         "  rule [p]: <k> go(X) => done(X #Or 0) ... </k>\n",
         "  rule [p]: <k> go(X #And 1) => done(X) ... </k>\n",
+        // A conjunction of terms without a connective, and a term conjoined with a predicate,
+        // are at most one value each, so the outer conjunction is one of single-valued terms.
+        "  syntax W ::= g(Int) [symbol(g)]\n  syntax KItem ::= dw(W) [symbol(dw)]\n  rule [p]: <k> go(X) => dw(g(X #And 1) #And g(1)) ... </k>\n",
+        "  syntax W ::= g(Int) [symbol(g)]\n  syntax KItem ::= dw(W) [symbol(dw)]\n  rule [p]: <k> go(X) => dw(g(X #And {X #Equals 1}) #And g(1)) ... </k>\n",
     ] {
         assert_compiles(sentences);
+    }
+}
+
+/// `#if`, `andThenBool` and `orElseBool` are strict: an undefined operand makes them undefined
+/// whichever operand they select, so a term conjunction in an operand they discard still states
+/// the equality of its operands.
+#[test]
+fn a_term_conjunction_in_a_discarded_operand_constrains_definedness() {
+    // `#if` is declared in K-EQUAL.
+    let run = |condition: &str, n: i64| {
+        let source = format!(
+            "{}  rule [p]: <k> go(X) => done(X) ... </k> requires {condition}\nendmodule\n",
+            HEADER.replace("  imports BOOL\n", "  imports BOOL\n  imports K-EQUAL\n")
+        );
+        let kore = compile_source(source, CompilationBackend::Rust).definition_kore;
+        run_kore_states(&kore, n)
+            .into_iter()
+            .map(|(reason, k, _)| (reason, k))
+            .collect::<Vec<_>>()
+    };
+    for condition in [
+        "#Ceil(#if X ==Int 1 #then 0 #else (X #And 5) #fi)",
+        "#Ceil(false andThenBool ((X #And 5) ==Int 1))",
+        "#Ceil(true orElseBool ((X #And 5) ==Int 1))",
+    ] {
+        assert_eq!(run(condition, 1), stuck("go(1)"), "{condition}");
+        assert_eq!(run(condition, 3), stuck("go(3)"), "{condition}");
+        assert_eq!(run(condition, 5), stuck("done(5)"), "{condition}");
     }
 }
 

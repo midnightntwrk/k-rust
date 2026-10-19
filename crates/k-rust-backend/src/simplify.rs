@@ -2265,11 +2265,40 @@ fn simplify_predicate_on_stack(
             with_simplification_constraints(constraints, equality)
         }
         Predicate::Ceil(term) => {
-            let simplified = simplify_term(term)?.into_parts();
-            let unchanged = Predicate::Ceil(simplified.term.clone());
             // `ceil_term` states only the operands' definedness of a term-level conjunction,
             // which is not all of it (`term_is_provably_defined`): the conjunctions are read
-            // first, as equalities of their operands (`without_term_conjunctions`).
+            // first, as equalities of their operands (`without_term_conjunctions`). They are
+            // read in the operand as written, before simplification: a strict symbol that
+            // discards an operand (`#if`, `andThenBool`, `orElseBool`) is still undefined where
+            // the discarded operand is, and simplifying it would leave that operand's
+            // conjunctions only as deferred definedness obligations.
+            if contains_term_conjunction(term)
+                && let Some((plain, equalities)) = without_term_conjunctions(term)
+            {
+                let mut constraints = vec![Predicate::Ceil(plain)];
+                constraints.extend(equalities);
+                let conjunction = Predicate::And(constraints.into());
+                if *remaining == 0 {
+                    return Err(SimplificationError::PredicateIterationLimit {
+                        limit,
+                        predicate: conjunction,
+                    }
+                    .into());
+                }
+                *remaining -= 1;
+                return simplify_predicate_with_budget(
+                    definition,
+                    &conjunction,
+                    assumptions,
+                    limit,
+                    remaining,
+                    active_conditions,
+                    solver,
+                );
+            }
+            let simplified = simplify_term(term)?.into_parts();
+            let unchanged = Predicate::Ceil(simplified.term.clone());
+            // A conjunction the simplification of the operand builds is read the same way.
             if contains_term_conjunction(&simplified.term) {
                 let mut constraints = simplified.conditions.into_predicates();
                 let Some((plain, equalities)) = without_term_conjunctions(&simplified.term) else {
