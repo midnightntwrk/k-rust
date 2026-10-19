@@ -374,8 +374,9 @@ const OPERAND_CONDITIONS: &[Condition] = &[
 /// Partial Bool leaves (review finding 5): a Bool term below the spine means `t = true`, so
 /// `#Not(t)` and `t #Implies b` hold where t is undefined, and `notBool t` does not.
 /// `t impliesBool (X ==Int 3)` is undefined at X = 0: its second operand is false there, so the
-/// undefined first operand is relevant. `orBool` has no such cell: beside a true operand an
-/// undefined one is irrelevant and may be skipped, so the contract states no value.
+/// undefined first operand is relevant. `orBool` has no cell here: its value over an undefined
+/// operand is the strict one docs/compatibility.md ("Conditionals and Boolean connectives are
+/// strict") states and `krun_keeps_the_definedness_of_an_untaken_conditional_branch` pins.
 const PARTIAL_CONDITIONS: &[Condition] = &[
     condition(
         "partial-not",

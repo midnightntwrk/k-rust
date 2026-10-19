@@ -3,19 +3,14 @@
 //!
 //! # The meaning standard
 //!
-//! Until `docs/compatibility.md` states it (ticket MLP/5), the standard is the one of the audit
-//! `ADD3-ml-positions`, "What the K text means":
-//!
-//! > A rule `l => r requires ψ ensures φ` is the axiom `l ∧ ψ̂ ⇒ •(r ∧ φ̂)`, and an equation
-//! > `f(..) => r requires ψ ensures φ` is `ψ̂ → f(..) = r ∧ φ̂`. ψ̂ is the condition read as a
-//! > predicate: the matching-logic connectives at the root of the condition are predicate
-//! > connectives, and each Bool term t below them, where a predicate is expected, stands for
-//! > `t = true`. A connective below a non-ML symbol is a term-level operation on sets of values
-//! > (so `(X #Or 5) <Int 3` is `{X <Int 3, false}`, never {true}). At a term position each
-//! > connective has its set meaning (`1 #Or 2` matches either; `X #And {X #Equals 1}` is X where
-//! > X = 1; `#Bottom` is nothing).
-//!
-//! The operands of `#Equals`, `#Ceil`, `#Floor` and `#In` are term positions.
+//! The standard is the compatibility contract's
+//! [Matching-logic constructs by position](../../../docs/compatibility.md#matching-logic-constructs-by-position):
+//! a rule `l => r requires ψ ensures φ` is the axiom `l ∧ ψ̂ ⇒ •(r ∧ φ̂)`, an equation
+//! `f(..) => r requires ψ ensures φ` is `ψ̂ → f(..) = r ∧ φ̂`, where ψ̂ is the condition read as a
+//! predicate, each Bool term below its spine standing for `t = true`; a connective below a non-ML
+//! symbol or inside an operand of `#Equals`, `#Ceil` or `#Floor` is a term-level operation on sets
+//! of values; at a term position each connective has its set meaning. That section also states,
+//! position by position, which constructs krust refuses and why.
 //!
 //! # Expectations
 //!
