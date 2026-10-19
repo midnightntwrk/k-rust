@@ -1109,7 +1109,7 @@ mod tests {
             assert!(!family.is_empty() && !quantity.is_empty());
         }
         assert_eq!(Counter::ALL.first(), Some(&Counter::KompileResolveCalls));
-        assert_eq!(Counter::ALL.last(), Some(&Counter::TermConstructed));
+        assert_eq!(Counter::ALL.last(), Some(&Counter::CoverageOfferMatches));
     }
 
     #[test]
@@ -1120,7 +1120,7 @@ mod tests {
         }
         let snapshot = Snapshot(values);
         assert_eq!(
-            snapshot.get(Counter::TermConstructed),
+            snapshot.get(Counter::CoverageOfferMatches),
             (Counter::COUNT as u64 - 1) * 3
         );
         let names = snapshot.iter().map(|(name, _)| name).collect::<Vec<_>>();
