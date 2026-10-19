@@ -297,12 +297,14 @@ const OPERAND_CONDITIONS: &[Condition] = &[
         Kind::TermLevel,
         "{X} = {1, 2}: never; refused (PredicateOperand)",
     ),
+    // A conjunction of two terms, each at most one value, is defined exactly where they are
+    // equal: the backend reads `#Ceil(t1 #And t2)` as `⌈t1⌉ ∧ t1 = t2`.
     condition(
         "ceilop-and",
         "#Ceil(X #And 1)",
         |x| x == 1,
-        Kind::TermLevel,
-        "X ∩ {1} is defined where X = 1; a connective in the operand of #Ceil is refused (PredicateOperand)",
+        Kind::Plain,
+        "X ∩ {1} is defined where X = 1",
     ),
     condition(
         "eqop-or-or",
@@ -1432,6 +1434,7 @@ fn extra_cells(cells: &mut Vec<CellSpec>) {
             [10, 20],
         ),
     ];
+    macro_built_cells(cells);
     for (name, text, meaning, [at1, at3]) in table {
         let run = |n: i64, value: i64| {
             if name == "rule-requires-matchk__or" && value == 0 {
@@ -1452,4 +1455,43 @@ fn extra_cells(cells: &mut Vec<CellSpec>) {
             meaning_runs: Meaning::Unstated,
         });
     }
+}
+
+/// The shapes of `left/fun-lhs__or-var` and `right/rule-rhs__and-or` built by a macro: the check
+/// that refuses them runs on the sentences as written, so these are refused only once the
+/// expanded sentences are checked (MLP/4b).
+fn macro_built_cells(cells: &mut Vec<CellSpec>) {
+    cells.push(CellSpec {
+        name: "extra/fun-lhs__macro-or-var".to_owned(),
+        route: Route::Kompile,
+        text: "  syntax Int ::= orTwo(Int) [macro, symbol(orTwo)]\n  rule orTwo(X) => X #Or 2\n  syntax Int ::= f(Int) [function, symbol(f)]\n  rule [p]: f(orTwo(X)) => 10 +Int X\n  rule [o]: f(_) => 0 [owise]\n  rule [g]: <k> go(X) => done(f(X)) ... </k>\n".to_owned(),
+        pattern: None,
+        programs: (1..=3).map(go).collect(),
+        // `f(X #Or 2) => 10 +Int X` after expansion states f(2) = 10 +Int X for every X.
+        meaning: "matches X or 2, a macro's expansion; X unbound in the alternative 2".to_owned(),
+        expect: Expect::refuse(ML_CONSTRUCT_POSITION),
+        allow: Allow::None,
+        meaning_runs: Meaning::NoModel,
+    });
+    let runs = [1, 3]
+        .into_iter()
+        .map(|n| {
+            if n == 1 {
+                Run::new(go(n), vec![stuck(done(1))])
+            } else {
+                Run::new(go(n), vec![trivial(go(n))]).undecided(vec![stuck(done(n))])
+            }
+        })
+        .collect();
+    cells.push(CellSpec {
+        name: "extra/rule-rhs__macro-and-or".to_owned(),
+        route: Route::Kompile,
+        text: "  syntax Int ::= orZero(Int) [macro, symbol(orZero)]\n  rule orZero(X) => X #Or 0\n  rule [p]: <k> go(X) => done(orZero(X) #And 1) ... </k>\n".to_owned(),
+        pattern: None,
+        programs: vec![go(1), go(3)],
+        meaning: "denotes {X, 0} ∩ {1}, a macro's expansion: 1 where X = 1, else empty".to_owned(),
+        expect: Expect::refuse(ML_CONSTRUCT_POSITION),
+        allow: Allow::None,
+        meaning_runs: Meaning::States(Expect::runs(runs)),
+    });
 }

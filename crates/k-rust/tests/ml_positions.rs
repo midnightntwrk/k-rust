@@ -369,13 +369,13 @@ impl CellSpec {
 // ---------------------------------------------------------------- PENDING
 
 /// The number of cells of the matrix.
-const CELL_COUNT: usize = 509;
+const CELL_COUNT: usize = 511;
 
 /// The cells that deviate at the ML lane's base, each with the ticket after which it conforms
 /// and the builds in which it deviates (see the module documentation).
 #[rustfmt::skip]
 pub const PENDING: &[(&str, &str, Class, Class)] = &[
-    // MLP/4 (147): shapes no k-rust route loads or the backend misreads: refused at compile with MlConstructPosition.
+    // MLP/4 (141): shapes no k-rust route loads or the backend misreads: refused at compile with MlConstructPosition.
     // Since MLP/8 the backend refuses at load, naming the axiom, an #Equals with a connective operand and a connective over terms conjoined at a matched or shared position (Refused).
     // An #Equals on a condition's spine whose operands are not both terms or both predicates is refused at compile since MLP/3, without that code (Refused).
     // Since MLP/1 (no guard alias in a condition): the `__or-inner` ensures are refused at Backend::new instead of panicking.
@@ -385,7 +385,6 @@ pub const PENDING: &[(&str, &str, Class, Class)] = &[
     ("cond/claim-ensures__or-inner", "MLP/4", Class::Refused, Class::Refused),
     ("cond/claim-ensures__predarg", "MLP/4", Class::Refused, Class::Refused),
     ("cond/claim-requires__as", "MLP/4", Class::Conforms, Class::Accepted),
-    ("cond/claim-requires__ceilop-and", "MLP/4", Class::Undecided, Class::Wrong),
     ("cond/claim-requires__eqop-and", "MLP/4", Class::Refused, Class::Refused),
     ("cond/claim-requires__eqop-ceil-true", "MLP/4", Class::Refused, Class::Refused),
     ("cond/claim-requires__eqop-eq-false", "MLP/4", Class::Refused, Class::Refused),
@@ -406,7 +405,6 @@ pub const PENDING: &[(&str, &str, Class, Class)] = &[
     ("cond/fun-ensures__or-inner", "MLP/4", Class::Refused, Class::Refused),
     ("cond/fun-ensures__predarg", "MLP/4", Class::Refused, Class::Refused),
     ("cond/fun-requires__as", "MLP/4", Class::Conforms, Class::Undecided),
-    ("cond/fun-requires__ceilop-and", "MLP/4", Class::Wrong, Class::Wrong),
     ("cond/fun-requires__eqop-and", "MLP/4", Class::Refused, Class::Refused),
     ("cond/fun-requires__eqop-ceil-true", "MLP/4", Class::Refused, Class::Refused),
     ("cond/fun-requires__eqop-eq-false", "MLP/4", Class::Refused, Class::Refused),
@@ -422,7 +420,6 @@ pub const PENDING: &[(&str, &str, Class, Class)] = &[
     ("cond/rule-ensures__or-inner", "MLP/4", Class::Refused, Class::Refused),
     ("cond/rule-ensures__predarg", "MLP/4", Class::Refused, Class::Refused),
     ("cond/rule-requires__as", "MLP/4", Class::Conforms, Class::Accepted),
-    ("cond/rule-requires__ceilop-and", "MLP/4", Class::Wrong, Class::Wrong),
     ("cond/rule-requires__eqop-and", "MLP/4", Class::Refused, Class::Refused),
     ("cond/rule-requires__eqop-ceil-true", "MLP/4", Class::Refused, Class::Refused),
     ("cond/rule-requires__eqop-eq-false", "MLP/4", Class::Refused, Class::Refused),
@@ -453,7 +450,6 @@ pub const PENDING: &[(&str, &str, Class, Class)] = &[
     ("left/fun-lhs__forall", "MLP/4", Class::Refused, Class::Refused),
     ("left/fun-lhs__implies", "MLP/4", Class::Refused, Class::Refused),
     ("left/fun-lhs__not", "MLP/4", Class::Refused, Class::Refused),
-    ("left/fun-lhs__or-var", "MLP/4", Class::Wrong, Class::Wrong),
     ("left/fun-lhs__top", "MLP/4", Class::Refused, Class::Refused),
     ("left/rule-lhs__and-implies", "MLP/4", Class::Refused, Class::Refused),
     ("left/rule-lhs__bottom", "MLP/4", Class::Refused, Class::Refused),
@@ -512,7 +508,6 @@ pub const PENDING: &[(&str, &str, Class, Class)] = &[
     ("right/macro-rhs__implies", "MLP/4", Class::Refused, Class::Refused),
     ("right/macro-rhs__not", "MLP/4", Class::Refused, Class::Refused),
     ("right/macro-rhs__top", "MLP/4", Class::Refused, Class::Refused),
-    ("right/rule-rhs__and-or", "MLP/4", Class::Wrong, Class::Wrong),
     ("right/rule-rhs__exists", "MLP/4", Class::Refused, Class::Refused),
     ("right/rule-rhs__exists-pred", "MLP/4", Class::Refused, Class::Refused),
     ("right/rule-rhs__forall", "MLP/4", Class::Refused, Class::Refused),
@@ -525,7 +520,9 @@ pub const PENDING: &[(&str, &str, Class, Class)] = &[
     ("right/simp-rhs__implies", "MLP/4", Class::Refused, Class::Refused),
     ("right/simp-rhs__not", "MLP/4", Class::Refused, Class::Refused),
     ("right/simp-rhs__or", "MLP/4", Class::Refused, Class::Refused),
-    ("right/simp-rhs__top", "MLP/4", Class::Undecided, Class::Undecided),
+    // MLP/4b (2): the shapes of left/fun-lhs__or-var and right/rule-rhs__and-or built by a macro, refused only once the expanded sentences are checked.
+    ("extra/fun-lhs__macro-or-var", "MLP/4b", Class::Wrong, Class::Wrong),
+    ("extra/rule-rhs__macro-and-or", "MLP/4b", Class::Wrong, Class::Wrong),
     // MLP/9 (24): search-pattern conditions: refused unlocated at run time, or read as Bool terms.
     ("search/final__and-bt", "MLP/9", Class::Refused, Class::Refused),
     ("search/final__and-pr", "MLP/9", Class::Refused, Class::Refused),
@@ -552,6 +549,7 @@ pub const PENDING: &[(&str, &str, Class, Class)] = &[
     ("search/final__predarg", "MLP/9", Class::Accepted, Class::Accepted),
     ("search/final__top", "MLP/9", Class::Refused, Class::Refused),
     // unassigned (2): follow-ups FU-20 and FU-21 (decisions.toml, "MLP/0 questions"): a predicate lemma whose subject is a disjunction, and a predicate lemma on a ground atom of a rewrite rule's condition, are not applied.
+    // One cause (FU-48, the proposed ticket MLP/10): predicate lemmas are matched after definedness hoisting has rewritten each atom to ⌈f(X)⌉ ∧ atom, so a disjunction's left side no longer matches, and the ceil hoisted beside a lemma's result is never absorbed. The answers are incomplete, not wrong.
     ("psimp/pred-simp__eq-eq-ground", "unassigned", Class::Undecided, Class::Undecided),
     ("psimp/pred-simp__or-lhs", "unassigned", Class::Conforms, Class::Undecided),
 ];

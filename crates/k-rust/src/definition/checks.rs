@@ -38,6 +38,7 @@ mod functions;
 mod kompile_checks;
 mod label_parameters;
 mod labels;
+mod ml_positions;
 mod production_shapes;
 mod regexes;
 mod rhs_variables;
@@ -171,6 +172,11 @@ fn check_module_with_options_and_catalog(
         .chain(check_rewrites(&sentences))
         .chain(check_anonymous_variables(&sentences))
         .chain(check_rhs_variables(&sentences, options.clone()))
+        .chain(if options.backend == StructuralCheckBackend::Rust {
+            ml_positions::check_ml_construct_positions(&sentences, production_catalog)
+        } else {
+            Vec::new()
+        })
         .chain(fresh_variables::check_fresh_variables(
             &sentences,
             production_catalog,

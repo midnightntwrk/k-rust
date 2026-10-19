@@ -496,7 +496,7 @@ fn unbound_at_root(
 
 /// The free variables of `term` at `position` in a sentence whose binding positions bind
 /// `bound`, less the fresh variables `!X`, whose values the sentence generates when it applies.
-fn compute_unbound(
+pub(super) fn compute_unbound(
     term: &Term,
     position: TermPosition,
     bound: &BTreeSet<VariableName>,

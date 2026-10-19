@@ -7548,3 +7548,41 @@ fn a_condition_the_solver_leaves_undecided_carries_the_first_sentence_of_its_own
     expected.sort();
     assert_eq!(reported, expected);
 }
+
+/// `t1 /\ t2` of two terms, each denoting at most one value, is that value where they are equal
+/// and nothing otherwise, so its definedness is `⌈t1⌉ /\ t1 = t2`, at the root and below a strict
+/// application alike; the definedness of the operands alone is not enough. A set variable may
+/// denote several values, so a conjunction with one keeps its `\ceil` as it is.
+#[test]
+fn the_definedness_of_a_term_conjunction_states_the_equality_of_its_operands() {
+    let definition = definition("");
+    let ceil = |source: &str| Predicate::Ceil(term(&definition, source));
+    let simplified = |predicate: &Predicate| {
+        simplify_predicate_with_solver(
+            &definition,
+            predicate,
+            &[],
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .expect("the predicate should simplify")
+    };
+    const A: &str = r#"\dv{SortS{}}("a")"#;
+    const B: &str = r#"\dv{SortS{}}("b")"#;
+    let and = |left: &str, right: &str| format!(r#"\and{{SortS{{}}}}({left}, {right})"#);
+    let wrap = |argument: &str| format!("wrap{{}}({argument})");
+
+    assert_eq!(simplified(&ceil(&and(A, B))), Predicate::False);
+    assert_eq!(simplified(&ceil(&and(A, A))), Predicate::True);
+    assert_eq!(simplified(&ceil(&wrap(&and(A, B)))), Predicate::False);
+    let equal = simplified(&Predicate::Equals(
+        term(&definition, "X:SortS{}"),
+        term(&definition, A),
+    ));
+    assert_ne!(equal, Predicate::True);
+    assert_eq!(simplified(&ceil(&and("X:SortS{}", A))), equal);
+    assert_eq!(simplified(&ceil(&wrap(&and("X:SortS{}", A)))), equal);
+
+    let opaque = ceil(&and("@S:SortS{}", A));
+    assert_eq!(simplified(&opaque), opaque);
+}
