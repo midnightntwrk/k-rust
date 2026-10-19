@@ -137,6 +137,7 @@ mod log;
 mod result;
 pub(crate) mod scan;
 
+use crate::coverage::{Selection, by_priority, every};
 pub use log::{Iter as LogIter, Log};
 pub(crate) use result::FoundBottom;
 use result::{Accumulated, AccumulatedMark, HookOutcome};
@@ -3001,7 +3002,14 @@ fn apply_ceil_theory(
         return Ok(None);
     };
     let groups = applicable_groups(definition.ceil_theory(), &term_index(term));
-    for rules in groups.values() {
+    // The scan stops at the group that applies or blocks: the ceil equations it never tries
+    // are offered (`crate::coverage::Selection`).
+    let selection = Selection::new(
+        by_priority(&groups),
+        every,
+        scan::equation_probe(definition, term),
+    );
+    for (_, rules) in selection.groups() {
         match scan_group(rules, indeterminate, |rule| {
             apply_ceil_equation(
                 definition,
@@ -3034,12 +3042,17 @@ fn apply_ceil_equation(
     let instances = match instances {
         EquationInstances::NotMatched(_) => return Ok(EquationAttempt::NotApplicable(())),
         EquationInstances::Undecided => {
+            // The matching is undecided: the equation competed here (`crate::coverage`).
+            crate::coverage::note_offered(&rule.attributes.unique_id);
             return Ok(EquationAttempt::Indeterminate(
                 ConditionIndeterminacy::ImplicationIndeterminate,
             ));
         }
         EquationInstances::Matched(instances) => instances,
     };
+    // The left-hand side matched: whatever the attempt then decides, the equation competed at
+    // this subject (`crate::coverage`).
+    crate::coverage::note_offered(&rule.attributes.unique_id);
     scan_instances(instances, |instance| {
         instance.attempt(|substitution| {
             apply_ceil_equation_instance(
@@ -3140,7 +3153,14 @@ fn apply_predicate_theory(
     let Some(theory) = definition.predicate_equations_for(predicate) else {
         return Ok(None);
     };
-    for rules in theory.values() {
+    // The scan stops at the group that applies or blocks: the predicate equations it never
+    // tries are offered (`crate::coverage::Selection`).
+    let selection = Selection::new(
+        by_priority(theory),
+        every,
+        predicate_equation_probe(definition, predicate, known_predicates),
+    );
+    for (_, rules) in selection.groups() {
         match scan_group(rules, indeterminate, |rule| {
             apply_predicate_equation(
                 definition,
@@ -3158,6 +3178,29 @@ fn apply_predicate_theory(
         }
     }
     Ok(None)
+}
+
+/// The probe of a predicate equation the predicate scan selected for `predicate` and never tried
+/// (`crate::coverage::Selection`): whether its left-hand side matches `predicate` or its matching
+/// is undecided, renamed apart from the predicate and the path where their names can meet, as an
+/// attempt matches it ([`apply_predicate_equation`]).
+fn predicate_equation_probe<'a>(
+    definition: &'a BackendDefinition,
+    predicate: &'a Predicate,
+    known_predicates: &'a [Predicate],
+) -> impl FnMut(&PredicateRewriteRule) -> bool + 'a {
+    move |rule| {
+        let matched = match match_predicate(definition, &rule.lhs, predicate) {
+            PredicateMatch::Failed {
+                shared_names: false,
+            } => return false,
+            matched => match rename_predicate_rule_apart(rule, predicate, known_predicates) {
+                Some((renamed, _)) => match_predicate(definition, &renamed.lhs, predicate),
+                None => matched,
+            },
+        };
+        !matches!(matched, PredicateMatch::Failed { .. })
+    }
 }
 
 fn apply_predicate_equation(
@@ -3204,12 +3247,17 @@ fn apply_predicate_equation(
     let substitution = match matched {
         PredicateMatch::Failed { .. } => return Ok(EquationAttempt::NotApplicable(())),
         PredicateMatch::Indeterminate => {
+            // The matching is undecided: the equation competed here (`crate::coverage`).
+            crate::coverage::note_offered(&rule.attributes.unique_id);
             return Ok(EquationAttempt::Indeterminate(
                 ConditionIndeterminacy::ImplicationIndeterminate,
             ));
         }
         PredicateMatch::Success(substitution) => substitution,
     };
+    // The left-hand side matched: whatever the attempt then decides, the equation competed at
+    // this predicate (`crate::coverage`).
+    crate::coverage::note_offered(&rule.attributes.unique_id);
     if binds_element_variable_to_set_pattern(&substitution) {
         return Ok(EquationAttempt::Indeterminate(
             ConditionIndeterminacy::NonFunctionalBinding,
@@ -4999,16 +5047,29 @@ fn matches_top_equation(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<Option<(String, Vec<Predicate>)>> {
-    for rules in applicable_groups(definition.simplification_theory(), &term_index(term)).values() {
+    let groups = applicable_groups(definition.simplification_theory(), &term_index(term));
+    // The first `\top` lemma that applies ends the selection: the `\top` lemmas after it are
+    // offered (`crate::coverage::Selection`).
+    let selection = Selection::new(
+        by_priority(&groups),
+        |rule: &RewriteRule| matches!(rule.rhs, RuleRhs::Top),
+        scan::equation_probe(definition, term),
+    );
+    for (_, rules) in selection.groups() {
         for rule in rules {
-            if !matches!(rule.rhs, RuleRhs::Top) {
-                continue;
-            }
-            let (rule, EquationInstances::Matched(instances)) =
-                equation_instances(definition, rule, term, known_predicates)
-            else {
-                continue;
+            let (rule, instances) = equation_instances(definition, rule, term, known_predicates);
+            let instances = match instances {
+                EquationInstances::NotMatched(_) => continue,
+                EquationInstances::Undecided => {
+                    // The matching is undecided: the lemma competed here (`crate::coverage`).
+                    crate::coverage::note_offered(&rule.attributes.unique_id);
+                    continue;
+                }
+                EquationInstances::Matched(instances) => instances,
             };
+            // The left-hand side matched: whatever the attempt then decides, the lemma competed
+            // at this operand (`crate::coverage`).
+            crate::coverage::note_offered(&rule.attributes.unique_id);
             // The attempt is speculative: its diagnostics are kept only if the equation is used.
             // An equation not used here is attempted again when the conjunct is simplified as a
             // child, and that attempt's diagnostics follow the child's own scan.
@@ -7252,6 +7313,11 @@ fn apply_equation(
 ) -> SimplifyResult<EquationAttempt<Simplification, MatchFailed>> {
     measure::bump(Counter::SimplifyEquationAttempts);
     let (rule, instances) = equation_instances(definition, rule, term, known_predicates);
+    if !matches!(instances, EquationInstances::NotMatched(_)) {
+        // The left-hand side matched, or its matching is undecided: whatever the scan then
+        // decides, the equation competed at this application (`crate::coverage`).
+        crate::coverage::note_offered(&rule.attributes.unique_id);
+    }
     let instances = match instances {
         EquationInstances::NotMatched(failed) => return Ok(EquationAttempt::NotApplicable(failed)),
         EquationInstances::Undecided => {

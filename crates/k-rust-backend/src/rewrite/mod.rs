@@ -628,6 +628,14 @@ pub struct ExecutionOptions {
     /// modality, so the sets include what was applied on paths whose leaves a state-set merge
     /// drops.
     pub collect_coverage: bool,
+    /// With [`Self::collect_coverage`], also collect the offered level
+    /// ([`crate::coverage::RunCoverage::offered`]): the axioms whose left-hand side matched a
+    /// subject the run selected them as candidates for, tried there or not. Off by default;
+    /// ignored without `collect_coverage`. A candidate a site never tried costs one isolated
+    /// match of its left-hand side (`Counter::CoverageOfferMatches`) at every visit of the site
+    /// while it has not matched, so the cost grows with the visits times the skipped
+    /// candidates; asking changes nothing else in the result.
+    pub collect_offered: bool,
     /// The most states the run may visit across all its paths (`None`, the default: no bound).
     ///
     /// A state is visited when the run takes it from its worklist, whatever becomes of it, so an
@@ -705,6 +713,7 @@ impl Default for ExecutionOptions {
             request_names: RequestNames::default(),
             evaluation: EvaluationMode::Proof,
             collect_coverage: false,
+            collect_offered: false,
             max_work: None,
             discard_stopped: false,
         }

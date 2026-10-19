@@ -9,11 +9,14 @@ use std::{collections::BTreeSet, panic::AssertUnwindSafe};
 use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
 use crate::{
-    coverage::{RunCoverage, collect, note_applied, note_matched, replay, suspend},
+    coverage::{
+        RunCoverage, collect, collect_offering, note_applied, note_matched, note_offered, offer,
+        replay, suspend,
+    },
     definition::BackendDefinition,
     rewrite::{
-        ExecutionOptions, ExecutionResult, HaltReason, Pattern, execute, execute_with_io_state,
-        execute_with_solver,
+        ExecutionMode, ExecutionOptions, ExecutionResult, HaltReason, Pattern, execute,
+        execute_with_io_state, execute_with_solver,
     },
     rule::Predicate,
     search::ResultModality,
@@ -203,6 +206,34 @@ fn definition() -> BackendDefinition {
             r#", priority{}("40")"#,
         ),
         rule("rej", &format!("rej{{}}({A})"), "halt{}()", "", "", ""),
+        // `hop(A)` steps to `ow(A)`; on a state whose variable is spelled like the rules' `A`,
+        // the step and the probe of `hopLow` both rename the rule apart, and the observed
+        // bindings of the next step name its renamed variable.
+        rule(
+            "hop",
+            &format!("hop{{}}({A})"),
+            &format!("ow{{}}({A})"),
+            "",
+            "",
+            "",
+        ),
+        rule(
+            "hopLow",
+            &format!("hop{{}}({A})"),
+            "fault{}()",
+            "",
+            "",
+            r#", priority{}("60")"#,
+        ),
+        // A rule below the productive group of `rej(A)`, never tried (`offered`).
+        rule(
+            "rejLow",
+            &format!("rej{{}}({A})"),
+            "fault{}()",
+            "",
+            "",
+            r#", priority{}("60")"#,
+        ),
         rule(
             "ow",
             &format!("ow{{}}({A})"),
@@ -330,7 +361,7 @@ fn definition() -> BackendDefinition {
     ];
     let unary = [
         "val", "load", "ens", "rhsp", "rhst", "eqreq", "rej", "ow", "ru", "rv", "rc", "rp", "d1",
-        "d2", "d4", "rw",
+        "d2", "d4", "rw", "hop",
     ]
     .map(|name| {
         format!(
@@ -775,6 +806,50 @@ fn a_narrowed_rule_with_an_undecided_requires_is_matched_only() {
     assert_coverage(coverage(&result), &[], &["nar"], "nw(Y)");
 }
 
+/// A solver that refutes every satisfiability query: a narrowing condition ends the attempt.
+struct UnsatisfiableSolver;
+
+impl SmtSolver for UnsatisfiableSolver {
+    fn is_sat(
+        &self,
+        _predicates: &[Predicate],
+        _substitution: &Substitution,
+    ) -> Stoppable<Result<Satisfiability, SmtError>> {
+        Ok(Ok(Satisfiability::Unsat))
+    }
+
+    fn check_predicates(
+        &self,
+        _known: &[Predicate],
+        _substitution: &Substitution,
+        checked: &[Predicate],
+    ) -> Stoppable<Result<Validity, SmtError>> {
+        Ok(if checked.is_empty() {
+            Ok(Validity::Valid)
+        } else {
+            Err(SmtError::Unavailable)
+        })
+    }
+}
+
+/// A rule whose left-hand side matched the state but whose attempt ended before its `requires`,
+/// here at a narrowing condition the solver refutes, competed at the state: it is offered, and
+/// in neither other list, since no condition of it was decided.
+#[test]
+fn a_rule_refuted_before_its_requires_is_offered_only() {
+    let definition = definition();
+    let initial = ground(&definition, "nw{}(Y:SortW{})");
+    let options = ExecutionOptions {
+        collect_offered: true,
+        ..collecting()
+    };
+    let result = execute_with_solver(&definition, initial, options, &UnsatisfiableSolver);
+    let coverage = coverage(&result);
+    assert_eq!(coverage.applied, ids(&[]));
+    assert_eq!(coverage.matched, ids(&[]));
+    assert_eq!(coverage.offered, Some(ids(&["nar"])));
+}
+
 /// (i) A nested collection feeds the outer one; `suspend` hides what is reported inside it.
 #[test]
 fn a_nested_collection_feeds_the_outer_one_and_suspend_hides_reports() {
@@ -837,4 +912,390 @@ fn a_replayed_coverage_feeds_each_set_it_holds() {
     assert_eq!(replayed, stored);
     assert_eq!(replayed.applied, ids(&["used"]));
     assert_eq!(replayed.matched, ids(&["tried", "used"]));
+}
+
+/// The offered level is collected only by a collection that offers: `note_offered` reports
+/// nothing elsewhere, and an offering collection unions `matched` (with `applied`) into it.
+#[test]
+fn offered_is_collected_only_by_an_offering_collection() {
+    let ((), plain) = collect(|| {
+        note_offered("ignored");
+        note_matched("m");
+    });
+    assert_eq!(plain.offered, None);
+    let ((), offering) = collect_offering(true, || {
+        note_offered("o");
+        note_matched("m");
+        note_applied("a");
+        // A collection opened inside, such as a rule's load-time discharge, does not offer, and
+        // its other sets feed the outer one.
+        let ((), inner) = collect(|| {
+            note_offered("inner-offered");
+            note_applied("inner");
+        });
+        assert_eq!(inner.offered, None);
+        suspend(|| note_offered("hidden"));
+    });
+    assert_eq!(offering.applied, ids(&["a", "inner"]));
+    assert_eq!(offering.matched, ids(&["a", "inner", "m"]));
+    assert_eq!(offering.offered, Some(ids(&["a", "inner", "m", "o"])));
+    let ((), replayed) = collect_offering(true, || replay(&offering));
+    assert_eq!(replayed, offering);
+}
+
+/// An offer's probe runs isolated from the run: it reports to no set, counts no work but one
+/// `Counter::CoverageOfferMatches`, and an axiom already in a set is not probed again.
+#[test]
+fn an_offer_probe_is_isolated_and_runs_once_per_axiom() {
+    use k_rust_kore::measure::{self, Counter};
+    let before = measure::snapshot();
+    let ((), coverage) = collect_offering(true, || {
+        offer("hit", || {
+            note_applied("leaked");
+            note_matched("leaked");
+            measure::bump(Counter::RewriteSteps);
+            true
+        });
+        offer("miss", || false);
+        offer("hit", || panic!("an offered axiom is not probed again"));
+        note_matched("seen");
+        offer("seen", || panic!("a matched axiom is not probed"));
+    });
+    let delta = measure::snapshot().delta(&before);
+    assert_eq!(coverage.applied, ids(&[]));
+    assert_eq!(coverage.matched, ids(&["seen"]));
+    assert_eq!(coverage.offered, Some(ids(&["hit", "seen"])));
+    assert_eq!(delta.get(Counter::RewriteSteps), 0);
+    assert_eq!(delta.get(Counter::CoverageOfferMatches), 2);
+    // Without an offering collection no probe runs.
+    let ((), _) = collect(|| offer("never", || panic!("not offering")));
+    offer("never", || panic!("no collection"));
+}
+
+/// (a) A rule of a priority group below the productive one, whose left-hand side matches the
+/// state, is offered; asking for it changes nothing else in the result, under either mode.
+#[test]
+fn a_lower_priority_rule_is_offered_and_asking_changes_nothing_else() {
+    let definition = definition();
+    let program = format!("rej{{}}({})", int(5));
+    for mode in [ExecutionMode::All, ExecutionMode::Any] {
+        let options = ExecutionOptions {
+            mode,
+            ..collecting()
+        };
+        let mut offered = execute(
+            &definition,
+            ground(&definition, &program),
+            ExecutionOptions {
+                collect_offered: true,
+                ..options.clone()
+            },
+        );
+        let mut plain = execute(&definition, ground(&definition, &program), options);
+        let levels = offered.coverage.take().unwrap();
+        let without = plain.coverage.take().unwrap();
+        assert_eq!(without.offered, None);
+        assert_eq!(
+            offered, plain,
+            "{mode:?}: asking for offered changed the result"
+        );
+        assert_eq!(levels.applied, without.applied);
+        assert_eq!(levels.matched, without.matched);
+        assert_eq!(levels.applied, ids(&["normR", "rej"]), "{mode:?}");
+        assert_eq!(
+            levels.matched,
+            ids(&["normR", "rej", "rejHigh"]),
+            "{mode:?}"
+        );
+        assert_eq!(
+            levels.offered,
+            Some(ids(&["normR", "rej", "rejHigh", "rejLow"])),
+            "{mode:?}"
+        );
+    }
+}
+
+/// Asking for `offered` changes nothing else (the probes are isolated): every program of this
+/// file's definition, ground and symbolic, under both modes and both result modalities, bounded,
+/// gives the same result and the same counters (but `Counter::CoverageOfferMatches`) with the
+/// option on and off. `crates/k-rust/tests/offered_inertness.rs` is the same oracle over the
+/// facade's fixtures and the light IMP corpus.
+#[test]
+fn asking_for_offered_changes_no_result_and_no_counter() {
+    use k_rust_kore::measure::{self, Counter};
+    let definition = definition();
+    let unary = [
+        "val", "load", "ens", "rhsp", "rhst", "eqreq", "rej", "ow", "ru", "rv", "rc", "rp", "d1",
+        "d2", "d4", "rw", "hop",
+    ];
+    let mut programs = vec!["nd{}()".to_owned(), "halt{}()".to_owned()];
+    for name in unary {
+        for argument in [int(5), int(-1), int(0), A.to_owned()] {
+            programs.push(format!("{name}{{}}({argument})"));
+        }
+    }
+    let mut inputs = programs
+        .iter()
+        .map(|program| (program.clone(), term(&definition, program)))
+        .collect::<Vec<_>>();
+    // A state whose variable is spelled like the rules' internalized `A`: every attempt and
+    // every probe of a rule over `A` renames it apart, and the observed bindings name the
+    // renamed variables, so a probe that took a renamed-apart name from the run would show.
+    let rule_a = crate::substitution::Substitution::from([(
+        crate::term::Variable::new("A", crate::term::Sort::simple("SortInt")),
+        Term::variable(crate::term::Variable::new(
+            "Rule#A",
+            crate::term::Sort::simple("SortInt"),
+        )),
+    )]);
+    for name in ["hop", "rej", "ow", "d1"] {
+        let program = format!("{name}{{}}({A})");
+        let renamed = crate::substitution::substitute(&term(&definition, &program), &rule_a);
+        inputs.push((format!("{name}(Rule#A)"), renamed));
+    }
+    let mut probing = 0;
+    for (program, subject) in &inputs {
+        let initial = Pattern {
+            term: subject.clone(),
+            constraints: Vec::new(),
+        };
+        for mode in [ExecutionMode::All, ExecutionMode::Any] {
+            for result_modality in [ResultModality::PathSet, ResultModality::StateSet] {
+                let options = ExecutionOptions {
+                    mode,
+                    result_modality,
+                    max_work: Some(200),
+                    max_depth: 200,
+                    max_breadth: Some(16),
+                    ..collecting()
+                };
+                let run = |offered: bool, observed: bool| {
+                    let before = measure::snapshot();
+                    let options = ExecutionOptions {
+                        collect_offered: offered,
+                        ..options.clone()
+                    };
+                    let result = if observed {
+                        // The observed bindings name the rules' renamed-apart variables.
+                        crate::rewrite::execute_observed(
+                            &definition,
+                            initial.clone(),
+                            options,
+                            &crate::transition::ObservationOptions::all(),
+                        )
+                    } else {
+                        execute(&definition, initial.clone(), options)
+                    };
+                    (result, measure::snapshot().delta(&before))
+                };
+                for observed in [false, true] {
+                    let (mut on, on_counters) = run(true, observed);
+                    let (mut off, off_counters) = run(false, observed);
+                    let context = format!(
+                        "{program} under {mode:?} {result_modality:?}, observed {observed}"
+                    );
+                    let on_coverage = on.coverage.as_mut().unwrap();
+                    let offered = on_coverage.offered.take().expect("offered was asked for");
+                    assert!(on_coverage.matched.is_subset(&offered), "{context}");
+                    probing += usize::from(offered.len() > on_coverage.matched.len());
+                    assert_eq!(off.coverage.as_ref().unwrap().offered, None, "{context}");
+                    off.coverage.as_mut().unwrap().offered = None;
+                    assert_eq!(on, off, "{context}: offered on, then off");
+                    let differing = on_counters
+                        .iter()
+                        .zip(off_counters.iter())
+                        .filter(|((name, on), (_, off))| {
+                            *name != Counter::CoverageOfferMatches.name() && on != off
+                        })
+                        .collect::<Vec<_>>();
+                    assert!(differing.is_empty(), "{context}: counters {differing:?}");
+                }
+            }
+        }
+    }
+    assert!(probing > 0, "some run offers an axiom it never tried");
+}
+
+/// A [`crate::coverage::Selection`] offers exactly the candidates its site never took: after the
+/// candidate the site stopped at, in its group and the later ones, the one it gave back, and
+/// none that the site's filter excludes.
+#[test]
+fn a_selection_offers_the_candidates_its_site_never_took() {
+    use std::{collections::BTreeMap, sync::Arc};
+
+    use crate::coverage::{Candidate, Selection, by_priority, every, offer_all};
+
+    struct Axiom(&'static str);
+    impl Candidate for Axiom {
+        fn coverage_id(&self) -> &str {
+            self.0
+        }
+    }
+    let groups = BTreeMap::from([
+        (10, vec![Arc::new(Axiom("a1")), Arc::new(Axiom("a2"))]),
+        (20, vec![Arc::new(Axiom("b1")), Arc::new(Axiom("skip"))]),
+        (30, vec![Arc::new(Axiom("c1"))]),
+    ]);
+    let not_skipped = |axiom: &Axiom| axiom.0 != "skip";
+    let offered = |site: &dyn Fn()| {
+        let ((), coverage) = collect_offering(true, site);
+        coverage.offered.unwrap().into_iter().collect::<Vec<_>>()
+    };
+    // Stops after taking `a1`: `a2` and every later candidate are offered, `skip` is not.
+    assert_eq!(
+        offered(&|| {
+            let selection = Selection::new(by_priority(&groups), not_skipped, |_| true);
+            let (_, mut group) = selection.groups().next().unwrap();
+            assert_eq!(group.next().unwrap().0, "a1");
+        }),
+        ["a2", "b1", "c1"]
+    );
+    // Exhausts the first group, takes `b1` and gives it back: `b1` and `c1` are offered.
+    assert_eq!(
+        offered(&|| {
+            let selection = Selection::new(by_priority(&groups), not_skipped, |_| true);
+            let mut groups = selection.groups();
+            let (_, first) = groups.next().unwrap();
+            assert_eq!(first.map(|axiom| axiom.0).collect::<Vec<_>>(), ["a1", "a2"]);
+            let (_, mut second) = groups.next().unwrap();
+            assert_eq!(second.next().unwrap().0, "b1");
+            assert!(second.is_exhausted());
+            selection.give_back();
+        }),
+        ["b1", "c1"]
+    );
+    // Takes every candidate: nothing is offered; a probe that does not match offers nothing.
+    assert!(
+        offered(&|| {
+            let selection = Selection::new(by_priority(&groups), every, |_| true);
+            for (_, group) in selection.groups() {
+                group.for_each(drop);
+            }
+        })
+        .is_empty()
+    );
+    assert_eq!(
+        offered(&|| offer_all(by_priority(&groups), every, |axiom: &Axiom| axiom.0 != "a2")),
+        ["a1", "b1", "c1", "skip"]
+    );
+    // Without an offering collection no probe runs.
+    let probed = std::cell::Cell::new(false);
+    offer_all(by_priority(&groups), every, |_: &Axiom| {
+        probed.set(true);
+        true
+    });
+    assert!(!probed.get());
+}
+
+/// Every site of the backend that selects candidates by priority group
+/// (`rule::applicable_groups`, `rule::applicable_rewrite_groups`,
+/// `BackendDefinition::predicate_equations_for`) or scans a group (`scan::scan_group`) takes its
+/// candidates from a `coverage::Selection` or offers them with `coverage::offer_all` in the same
+/// function, so that a site that stops early offers what it never tried. The sites that are not
+/// part of a run are listed with the reason.
+#[test]
+fn every_priority_group_selection_offers_what_it_never_tries() {
+    use std::path::Path;
+
+    /// Functions that select by priority group outside every run, or that define the selection.
+    const OUTSIDE_RUNS: &[(&str, &str)] = &[
+        // The definitions of the selections themselves.
+        ("rule.rs", "applicable_groups"),
+        ("rule.rs", "applicable_rewrite_groups"),
+        ("definition.rs", "predicate_equations_for"),
+        ("simplify/scan.rs", "scan_group"),
+        // The load-time confluence check, which no run's coverage includes.
+        ("confluence/join.rs", "*"),
+        // The former lazy step, a differential-test oracle compiled only in tests.
+        ("rewrite/step.rs", "rewrite_step_all_first_group_for_tests"),
+    ];
+    const CALLS: &[&str] = &[
+        "applicable_groups(",
+        "applicable_rewrite_groups(",
+        "predicate_equations_for(",
+        "scan_group(",
+    ];
+
+    fn sources(directory: &Path, root: &Path, into: &mut Vec<(String, String)>) {
+        for entry in std::fs::read_dir(directory).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                if path.file_name().is_some_and(|name| name != "tests") {
+                    sources(&path, root, into);
+                }
+            } else if path.extension().is_some_and(|extension| extension == "rs") {
+                let relative = path
+                    .strip_prefix(root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned();
+                into.push((relative, std::fs::read_to_string(&path).unwrap()));
+            }
+        }
+    }
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut files = Vec::new();
+    sources(&root, &root, &mut files);
+
+    let mut sites = 0;
+    let mut missing = Vec::new();
+    for (file, text) in &files {
+        let lines = text.lines().collect::<Vec<_>>();
+        // A file's test module ends its production code.
+        let test_module = lines
+            .iter()
+            .position(|line| line.starts_with("mod tests {"))
+            .unwrap_or(lines.len());
+        for (number, line) in lines[..test_module].iter().enumerate() {
+            let code = line.split("//").next().unwrap_or("");
+            if !CALLS.iter().any(|call| code.contains(call)) || code.contains("fn ") {
+                continue;
+            }
+            // The enclosing function: the nearest line above that opens one, and the line
+            // closing it at the same indentation.
+            let start = (0..=number)
+                .rev()
+                .find(|&index| {
+                    let trimmed = lines[index].trim_start();
+                    trimmed.starts_with("fn ")
+                        || trimmed.starts_with("pub fn ")
+                        || trimmed.starts_with("pub(crate) fn ")
+                        || trimmed.starts_with("pub(super) fn ")
+                })
+                .unwrap_or_else(|| panic!("{file}:{}: no enclosing function", number + 1));
+            let indent = lines[start].len() - lines[start].trim_start().len();
+            let close = format!("{}}}", " ".repeat(indent));
+            let finish = (number..lines.len())
+                .find(|&index| lines[index] == close)
+                .unwrap_or(lines.len());
+            let name = lines[start]
+                .trim_start()
+                .split("fn ")
+                .nth(1)
+                .unwrap()
+                .split(['(', '<'])
+                .next()
+                .unwrap()
+                .to_owned();
+            if OUTSIDE_RUNS.iter().any(|(outside, function)| {
+                outside == file && (*function == "*" || *function == name)
+            }) {
+                continue;
+            }
+            sites += 1;
+            let body = lines[start..finish].join("\n");
+            if !body.contains("Selection::new(") && !body.contains("offer_all(") {
+                missing.push(format!("{file}:{} in {name}", number + 1));
+            }
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "a priority group selection that offers nothing: {missing:?}"
+    );
+    // The sites: the term scans, the ceil and predicate scans, the `\top` lemmas, the
+    // definedness analysis, the two deferred decisions, the three rewrite steps and the
+    // re-selection of the lower groups.
+    eprintln!("{sites} priority group selections in runs");
+    assert!(sites >= 12, "{sites} sites found");
 }

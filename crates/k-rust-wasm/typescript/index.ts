@@ -215,6 +215,8 @@ export interface BackendCapabilities {
   observation: boolean
   /** `execute` and `executeObserved` accept `collectCoverage`. */
   coverage: boolean
+  /** `execute` and `executeObserved` accept `collectOffered` beside `collectCoverage`. */
+  coverageOffered: boolean
   /** `execute` and `executeObserved` report `stackStops`. */
   stackStops: boolean
   /** `execute` and `executeObserved` report `smtUnknowns`. */
@@ -260,6 +262,14 @@ export interface ExecuteOptions {
    * and those whose condition it began to decide (docs/compatibility.md, "Run coverage").
    */
   collectCoverage?: boolean
+  /**
+   * With `collectCoverage`, also report `RunCoverage.offered`: the rules and equations whose
+   * left-hand side matched a subject the run selected them as candidates for, tried there or
+   * not. A request that sets it without `collectCoverage` is refused. A candidate never tried
+   * costs one match at every visit of its site while it has not matched (docs/compatibility.md,
+   * "Run coverage").
+   */
+  collectOffered?: boolean
   /**
    * The most states the run may visit across all its paths; absent: no bound. A run that
    * reaches it ends with one 'work-bound' leaf for the state it did not visit, the last leaf,
@@ -506,6 +516,12 @@ export type ChosenClass =
 export interface RunCoverage {
   applied: string[]
   matched: string[]
+  /**
+   * Present exactly when the request set `collectOffered`: `matched` plus every rule and equation
+   * whose left-hand side matched a subject the run selected it as a candidate for, whether or not
+   * the run went on to decide its condition there.
+   */
+  offered?: string[]
 }
 
 export interface TransitionId {

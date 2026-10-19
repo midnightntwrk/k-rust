@@ -11,6 +11,7 @@
 use std::{marker::PhantomData, sync::Arc};
 
 use crate::{
+    coverage::{Selection, by_priority, every},
     definition::BackendDefinition,
     diagnostic::{self, Buffered, Subject},
     matching::MatchFailed,
@@ -18,7 +19,9 @@ use crate::{
     term::Term,
 };
 
-use super::{ConditionIndeterminacy, Simplification, SimplifyResult};
+use super::{
+    ConditionIndeterminacy, EquationInstances, Simplification, SimplifyResult, equation_instances,
+};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(super) enum IndeterminateEquation {
@@ -135,10 +138,17 @@ pub(super) fn scan_term_theory<K: TermTheory>(
     ) -> SimplifyResult<EquationAttempt<Simplification, MatchFailed>>,
 ) -> SimplifyResult<TheoryScan<K>> {
     let groups = applicable_groups(K::theory(definition), &term_index(term));
+    // The scan stops at the group that applies or blocks: the equations it never tries are
+    // offered (`crate::coverage::Selection`).
+    let selection = Selection::new(
+        by_priority(&groups),
+        every,
+        equation_probe(definition, term),
+    );
     let mut blocked = false;
     let mut not_cacheable = false;
     let last = groups.len().saturating_sub(1);
-    for (position, rules) in groups.values().enumerate() {
+    for (position, (_, rules)) in selection.groups().enumerate() {
         let set_aside =
             if K::INDETERMINATE_EQUATION == IndeterminateEquation::Block && position < last {
                 SetAsideRequires::Decide
@@ -184,6 +194,24 @@ pub(super) fn scan_term_theory<K: TermTheory>(
         // `GroupScan::NotApplicable`: each of its attempts was `NotApplicable(MatchFailed)`.
         TheoryScan::NotApplicable(NoOfferedEquationMatched(PhantomData))
     })
+}
+
+/// The probe of an equation a selection site selected for `term` and never tried
+/// (`crate::coverage::Selection`): whether it has an instance at `term`, one whose left-hand
+/// side matches it or whose matching is undecided, by the enumeration every use of an equation
+/// shares (`simplify::equation_instances`), without deciding any `requires`. The known
+/// predicates only widen the renaming to the variables they mention, which does not change
+/// whether the left-hand side matches the term, so none are passed.
+pub(crate) fn equation_probe(
+    definition: &BackendDefinition,
+    term: &Term,
+) -> impl FnMut(&RewriteRule) -> bool {
+    move |rule| {
+        !matches!(
+            equation_instances(definition, rule, term, &[]).1,
+            EquationInstances::NotMatched(_)
+        )
+    }
 }
 
 /// The outcome of one equation attempt. `N` is the evidence a `NotApplicable` attempt carries:
@@ -343,10 +371,10 @@ fn scan_alternatives<A, T, N>(
 /// were otherwise context dependent is not cacheable. The diagnostics of the undecided attempts are held in `indeterminate_attempts`,
 /// for the caller to commit if the subject is kept.
 #[deny(clippy::wildcard_enum_match_arm)]
-pub(super) fn scan_group<R, T, N>(
-    rules: &[Arc<R>],
+pub(super) fn scan_group<'r, R: 'r, T, N>(
+    rules: impl IntoIterator<Item = &'r Arc<R>>,
     indeterminate_attempts: &mut IndeterminateAttempts,
-    attempt: impl FnMut(&Arc<R>) -> SimplifyResult<EquationAttempt<T, N>>,
+    attempt: impl FnMut(&'r Arc<R>) -> SimplifyResult<EquationAttempt<T, N>>,
 ) -> SimplifyResult<GroupScan<T>> {
     let (combined, undecided) = scan_alternatives(rules, attempt)?;
     indeterminate_attempts.0.extend(undecided);

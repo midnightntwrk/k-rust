@@ -901,6 +901,22 @@ impl<'a> Occurrences<'a> {
     }
 }
 
+/// Run `action`, work that explains no result, with every diagnostic it emits dropped and the
+/// thread's next emission position restored afterwards, also when it unwinds: no collection
+/// receives its emissions, and every later emission takes the position it would have taken
+/// without it, so the order in which collected lists merge and the "nothing emitted since"
+/// tests of the caller ([`next_position`]) are unchanged.
+pub(crate) fn discarded<T>(action: impl FnOnce() -> T) -> T {
+    struct Restore(u64);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            NEXT_POSITION.set(self.0);
+        }
+    }
+    let _restore = Restore(NEXT_POSITION.get());
+    buffer(action).0
+}
+
 /// Run `action` with its emissions held in a [`Buffered`] instead of the current collector.
 ///
 /// Without a current collector nothing is recorded either way, and the buffer is empty. If

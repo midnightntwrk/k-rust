@@ -251,6 +251,10 @@ pub struct BackendCapabilities {
     /// `execute` and `execute_observed` report the run's coverage when the request sets
     /// `collect_coverage` ([`ExecuteRequest::collect_coverage`]).
     pub coverage: bool,
+    /// `execute` and `execute_observed` also report the offered level of the run's coverage
+    /// ([`RunCoverageOutput::offered`]) when the request sets `collect_offered` beside
+    /// `collect_coverage` ([`ExecuteRequest::collect_offered`]).
+    pub coverage_offered: bool,
     /// `execute` and `execute_observed` report the stack stops the run met
     /// ([`ExecutionResult::stack_stops`]).
     pub stack_stops: bool,
@@ -337,6 +341,15 @@ pub struct ExecuteRequest {
     /// ([`RunCoverageOutput`]). Off by default; collecting changes no other field of the result.
     #[serde(default)]
     pub collect_coverage: bool,
+    /// With [`Self::collect_coverage`], also report [`RunCoverageOutput::offered`] (wire
+    /// `collectOffered`): the rules and equations whose left-hand side matched a subject the run
+    /// selected them as candidates for, tried there or not. Off by default; a request that sets
+    /// it without `collect_coverage` is refused. Asking changes no other field of the result. A
+    /// candidate a site never tried costs one left-hand-side match at every visit of the site
+    /// while it has not matched, so the cost grows with the visits times the skipped candidates
+    /// (docs/compatibility.md, "Run coverage").
+    #[serde(default)]
+    pub collect_offered: bool,
     /// The most states the run may visit across all its paths (wire `maxWork`; absent: no
     /// bound). A state is visited when the run takes it from its worklist, whatever becomes of
     /// it; [`ExecutionResult::work`] reports the count. The run takes states in a fixed order, so
@@ -414,6 +427,7 @@ impl ExecuteRequest {
             assume_state_defined: false,
             result_modality: ResultModalityOutput::StateSet,
             collect_coverage: false,
+            collect_offered: false,
             max_work: None,
             trace: true,
             cancelled_result: CancelledResultOutput::Partial,
@@ -586,11 +600,25 @@ impl From<&k_rust_backend::builtin::ChosenValue> for ChosenValueOutput {
 /// builtin hook, an `smt-lemma`, macro or alias rule, a claim, or an equation that only the
 /// load-time confluence check uses. A run that a stop, a timeout or a bound cut short reports
 /// what it collected before it ended, which depends on where it stopped.
+///
+/// - `offered`, present exactly when the request set `collect_offered`: `matched`, plus every
+///   rule and equation whose left-hand side matched (or was left undecided against) a subject
+///   the run selected it as a candidate for at a site that selects by priority group (a rewrite
+///   step and the fold of its lower groups, an equation scan of an application or a predicate,
+///   the `#Top` lemmas of a conjunction operand, the definedness analysis and the decisions of an
+///   unevaluated operand), whether the site tried it or stopped before it. An axiom in no list
+///   cannot change the run under a priority raise, an `owise` removal or a removed
+///   `concrete`/`symbolic` set-aside, nor under a lowering (a lower priority, an added `owise`,
+///   `concrete` or `symbolic`). `matched` does not reach lowerings: a candidate whose match was
+///   left undecided blocks the lower groups of its site and is recorded only in `offered`. No
+///   list reaches a left-hand-side edit, nor the load-time uses of an axiom.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RunCoverageOutput {
     pub applied: Vec<String>,
     pub matched: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offered: Option<Vec<String>>,
 }
 
 impl From<k_rust_backend::coverage::RunCoverage> for RunCoverageOutput {
@@ -598,6 +626,9 @@ impl From<k_rust_backend::coverage::RunCoverage> for RunCoverageOutput {
         Self {
             applied: coverage.applied.into_iter().collect(),
             matched: coverage.matched.into_iter().collect(),
+            offered: coverage
+                .offered
+                .map(|offered| offered.into_iter().collect()),
         }
     }
 }
@@ -1256,6 +1287,7 @@ impl Backend {
             search: true,
             observation: true,
             coverage: true,
+            coverage_offered: true,
             stack_stops: true,
             smt_unknowns: true,
             implementation_chosen_values: true,
@@ -1398,6 +1430,11 @@ impl Backend {
         observation_rules: Option<Option<Vec<String>>>,
     ) -> Result<ExecutionResult<K>, BackendError> {
         validate_backend_schema_version(request.schema_version)?;
+        if request.collect_offered && !request.collect_coverage {
+            return Err(BackendError::new(
+                "collectOffered requires collectCoverage: the offered level is part of the run's coverage",
+            ));
+        }
         #[cfg(target_arch = "wasm32")]
         if request.step_timeout_ms.is_some() || request.moving_average_timeout {
             return Err(BackendError::new(
@@ -1443,6 +1480,7 @@ impl Backend {
                 // operation has selected (and possibly built) the module, so the sets never hold
                 // what building a module applied.
                 collect_coverage: request.collect_coverage,
+                collect_offered: request.collect_offered,
                 max_work: request.max_work,
                 discard_stopped: request.cancelled_result == CancelledResultOutput::Error,
             };
@@ -2583,6 +2621,24 @@ mod tests {
         let capabilities = serde_json::to_value(backend.capabilities()).unwrap();
         assert_eq!(capabilities["smtUnknowns"], true);
         assert_eq!(capabilities["stackStops"], true);
+    }
+
+    /// The offered level of run coverage is declared where the facade reads and writes it: the
+    /// request flag, the optional list of the coverage, and a capability flag, true in every
+    /// build.
+    #[test]
+    fn the_offered_coverage_matches_typescript_declarations() {
+        assert_typescript_member("ExecuteOptions", "collectOffered?: boolean");
+        assert_typescript_member("RunCoverage", "offered?: string[]");
+        assert_typescript_member("BackendCapabilities", "coverageOffered: boolean");
+        let backend = Backend::new(
+            r#"[] module MAIN sort SortK{} [] endmodule []"#,
+            "MAIN",
+            BackendOptions::default(),
+        )
+        .unwrap();
+        let capabilities = serde_json::to_value(backend.capabilities()).unwrap();
+        assert_eq!(capabilities["coverageOffered"], true);
     }
 
     /// The run-level records are declared where the facade writes them: the optional lists of

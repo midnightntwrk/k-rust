@@ -1165,71 +1165,102 @@ fn ceil_equation(
         _ => &[],
     };
     let groups = applicable_groups(definition.ceil_theory(), &term_index(term));
-    for rules in groups.values() {
+    // A decision ends the selection: the unconditional ceil equations after the one that
+    // decided are offered (`crate::coverage::Selection`).
+    let selection = crate::coverage::Selection::new(
+        crate::coverage::by_priority(&groups),
+        unconditional_ceil,
+        crate::simplify::scan::equation_probe(definition, term),
+    );
+    for (_, rules) in selection.groups() {
         for rule in rules {
-            if !rule.requires.is_empty()
-                || !rule.computed_attributes.unbound_result_variables.is_empty()
-                || !matches!(rule.rhs, RuleRhs::Predicates(_))
-            {
-                continue;
+            if let Some(decision) = ceil_equation_decision(definition, term, arguments, rule)? {
+                return Ok(Some(decision));
             }
-            let (rule, EquationInstances::Matched(instances)) =
-                equation_instances(definition, rule, term, &[])
-            else {
-                continue;
-            };
-            let RuleRhs::Predicates(predicates) = &rule.rhs else {
-                unreachable!("renaming keeps the kind of the right-hand side");
-            };
-            for instance in instances {
-                let Instance::Usable(substitution) = instance else {
-                    continue;
-                };
-                // The instance's condition is decided below (`crate::coverage`); an outcome from
-                // it uses the equation.
-                let rule_id = rule.attributes.unique_id.as_str();
-                crate::coverage::note_matched(rule_id);
-                let mut conjuncts = Vec::new();
-                for predicate in predicates {
-                    flatten_conjuncts(
-                        substitute_predicate(predicate, &substitution),
-                        &mut conjuncts,
-                    );
-                }
-                let mut residual = Vec::new();
-                for conjunct in conjuncts {
-                    match fold_predicate(definition, &conjunct, arguments)? {
-                        Some(false) => {
-                            crate::coverage::note_applied(rule_id);
-                            return Ok(Some(DeferredDecision::Refuted));
-                        }
-                        Some(true) => {}
-                        None => residual.push(conjunct),
-                    }
-                }
-                if residual.is_empty() {
+        }
+    }
+    Ok(None)
+}
+
+/// Whether D2 uses `rule`: a ceil equation with no `requires`, no unbound result variable and a
+/// predicate right-hand side.
+fn unconditional_ceil(rule: &RewriteRule) -> bool {
+    rule.requires.is_empty()
+        && rule.computed_attributes.unbound_result_variables.is_empty()
+        && matches!(rule.rhs, RuleRhs::Predicates(_))
+}
+
+/// The decision of [`ceil_equation`] from `rule`, an [`unconditional_ceil`] equation: from the
+/// first of its usable instances at `term` whose condition decides one.
+fn ceil_equation_decision(
+    definition: &BackendDefinition,
+    term: &Term,
+    arguments: &[Term],
+    rule: &RewriteRule,
+) -> Stoppable<Option<DeferredDecision>> {
+    let (rule, instances) = equation_instances(definition, rule, term, &[]);
+    let instances = match instances {
+        EquationInstances::NotMatched(_) => return Ok(None),
+        EquationInstances::Undecided => {
+            // The matching is undecided: the equation competed here (`crate::coverage`).
+            crate::coverage::note_offered(&rule.attributes.unique_id);
+            return Ok(None);
+        }
+        EquationInstances::Matched(instances) => instances,
+    };
+    // The left-hand side matched: whatever its instances give, the equation competed at this
+    // operand (`crate::coverage`).
+    crate::coverage::note_offered(&rule.attributes.unique_id);
+    let RuleRhs::Predicates(predicates) = &rule.rhs else {
+        unreachable!("renaming keeps the kind of the right-hand side");
+    };
+    for instance in instances {
+        let Instance::Usable(substitution) = instance else {
+            continue;
+        };
+        // The instance's condition is decided below (`crate::coverage`); an outcome from
+        // it uses the equation.
+        let rule_id = rule.attributes.unique_id.as_str();
+        crate::coverage::note_matched(rule_id);
+        let mut conjuncts = Vec::new();
+        for predicate in predicates {
+            flatten_conjuncts(
+                substitute_predicate(predicate, &substitution),
+                &mut conjuncts,
+            );
+        }
+        let mut residual = Vec::new();
+        for conjunct in conjuncts {
+            match fold_predicate(definition, &conjunct, arguments)? {
+                Some(false) => {
                     crate::coverage::note_applied(rule_id);
-                    return Ok(Some(DeferredDecision::Established));
+                    return Ok(Some(DeferredDecision::Refuted));
                 }
-                // D2': over hook arithmetic the instance of the ceil axiom is stated instead of
-                // the opaque atom (`W1 =/=Int 0` for `W0 /Int W1`). It is an equivalence, and its
-                // terms hold no part of the operand but variables and literals, so no definition
-                // equation can reach the operand through it.
-                if arguments
-                    .iter()
-                    .all(|argument| hook_arithmetic(definition, argument))
-                    && residual.iter().all(|predicate| {
-                        let mut arithmetic = true;
-                        predicate.visit_terms(&mut |term| {
-                            arithmetic &= hook_arithmetic(definition, term);
-                        });
-                        arithmetic
-                    })
-                {
-                    crate::coverage::note_applied(rule_id);
-                    return Ok(Some(DeferredDecision::Replaced(residual)));
-                }
+                Some(true) => {}
+                None => residual.push(conjunct),
             }
+        }
+        if residual.is_empty() {
+            crate::coverage::note_applied(rule_id);
+            return Ok(Some(DeferredDecision::Established));
+        }
+        // D2': over hook arithmetic the instance of the ceil axiom is stated instead of
+        // the opaque atom (`W1 =/=Int 0` for `W0 /Int W1`). It is an equivalence, and its
+        // terms hold no part of the operand but variables and literals, so no definition
+        // equation can reach the operand through it.
+        if arguments
+            .iter()
+            .all(|argument| hook_arithmetic(definition, argument))
+            && residual.iter().all(|predicate| {
+                let mut arithmetic = true;
+                predicate.visit_terms(&mut |term| {
+                    arithmetic &= hook_arithmetic(definition, term);
+                });
+                arithmetic
+            })
+        {
+            crate::coverage::note_applied(rule_id);
+            return Ok(Some(DeferredDecision::Replaced(residual)));
         }
     }
     Ok(None)
@@ -1368,7 +1399,16 @@ fn select_single_step(
     }
     let groups = applicable_groups(definition.function_theory(), &term_index(term));
     let mut arguments_normal = None;
-    for rules in groups.values() {
+    // The selection stops in some group before trying the rest of it (and every later group):
+    // those equations are offered (`crate::coverage::Selection`); the held candidate, whose
+    // left-hand side matched, is offered where it matched.
+    let selection = crate::coverage::Selection::new(
+        crate::coverage::by_priority(&groups),
+        crate::coverage::every,
+        crate::simplify::scan::equation_probe(definition, term),
+    );
+    let mut selected = None;
+    for (_, rules) in selection.groups() {
         let mut candidate: Option<(RewriteRule, Substitution)> = None;
         for rule in rules {
             if function_below_root(&rule.lhs)
@@ -1378,13 +1418,20 @@ fn select_single_step(
                         .all(|argument| definition.instance_normal(argument).is_some())
                 })
             {
+                // The selection gives up before trying this equation.
+                selection.give_back();
                 return Ok(None);
             }
             let (renamed, instances) = equation_instances(definition, rule, term, &[]);
             match instances {
                 EquationInstances::NotMatched(_) => {}
-                EquationInstances::Undecided => return Ok(None),
+                EquationInstances::Undecided => {
+                    // An undecided matching counts as a match of its left-hand side.
+                    crate::coverage::note_offered(&rule.attributes.unique_id);
+                    return Ok(None);
+                }
                 EquationInstances::Matched(mut instances) => {
+                    crate::coverage::note_offered(&rule.attributes.unique_id);
                     if candidate.is_some() || instances.len() != 1 {
                         return Ok(None);
                     }
@@ -1395,14 +1442,21 @@ fn select_single_step(
                 }
             }
         }
-        if let Some((rule, substitution)) = candidate {
-            return Ok(
-                selected_instance_applies(definition, &rule, &substitution, arguments)?
-                    .then_some((rule, substitution)),
-            );
+        if candidate.is_some() {
+            selected = candidate;
+            break;
         }
     }
-    Ok(None)
+    // The groups after the selected equation's are never tried; they are offered here, before
+    // the selected instance's check.
+    drop(selection);
+    let Some((rule, substitution)) = selected else {
+        return Ok(None);
+    };
+    Ok(
+        selected_instance_applies(definition, &rule, &substitution, arguments)?
+            .then_some((rule, substitution)),
+    )
 }
 
 /// Whether the selected instance of [`single_step`] applies: no `ensures`, no unbound result

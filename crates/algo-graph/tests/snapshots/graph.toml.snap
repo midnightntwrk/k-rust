@@ -100,6 +100,20 @@ symbol = "Counter::ALL"
 
 [[node]]
 kind = "observation"
+id = "CoverageOfferMatches"
+provenance = "table"
+area = "coverage"
+name = "CoverageOfferMatches"
+table = "Counter::ALL"
+registry_name = "coverage.offer_matches"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::CoverageOfferMatches"
+
+[[node]]
+kind = "observation"
 id = "ExecutionStatesMerged"
 provenance = "table"
 area = "execution"
@@ -2679,6 +2693,11 @@ crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/rewrite/step.rs"
 symbol = "SequentialDeterminism::record"
 
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/coverage.rs"
+symbol = "offer"
+
 [[node.cost]]
 mode = "All"
 bound = "O(c) rule attempts plus one SAT check per productive group and one remainder term simplification before the first lower group and after each productive lower group"
@@ -2686,6 +2705,10 @@ bound = "O(c) rule attempts plus one SAT check per productive group and one rema
 [[node.cost]]
 mode = "Any"
 bound = "O(c) rule attempts plus one predicate simplification per applied application group and per priority whose rules left some applicable instance without a defined result, one SAT check per candidate of an application group after a rule's first (restricted to the instances the earlier groups left), one SAT check per step, and one normalization (a predicate simplification and a term simplification, execute::normalize_successor) of each applied candidate's successor when a later application group of its rule or a later rule of its priority is left, which a kept candidate's successor takes instead of normalizing itself (the one-path proof route normalizes it again)"
+
+[[node.cost]]
+mode = "collecting the offered coverage level (ExecutionOptions::collect_offered)"
+bound = "the cost of the mode plus at most one isolated left-hand-side match per candidate the step never tried, none for an axiom the run's coverage already holds (CoverageOfferMatches)"
 
 [[node.cost]]
 mode = "Any with dropped-successor tracking (SequentialDeterminism)"
@@ -10009,6 +10032,12 @@ provenance = "declared"
 kind = "consumes"
 from = "backend.rewrite.step"
 to = "k_rust_backend::rewrite::Pattern [internalized pattern]"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.rewrite.step"
+to = "CoverageOfferMatches"
 provenance = "declared"
 
 [[edge]]

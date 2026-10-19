@@ -3880,6 +3880,21 @@ impl Drop for ApartScope {
     }
 }
 
+/// Run `action`, whose renamed terms do not outlive it, and restore the thread's
+/// `{name}!apart{counter}` counter afterwards, also when it unwinds: the renamings after it mint
+/// the names they would have minted without it, and none of them can meet a name it minted,
+/// since those are gone with its terms.
+pub(crate) fn with_apart_names_restored<T>(action: impl FnOnce() -> T) -> T {
+    struct Restore((usize, u64));
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            APART.with(|state| state.set(self.0));
+        }
+    }
+    let _restore = Restore(APART.with(Cell::get));
+    action()
+}
+
 fn next_apart_counter() -> u64 {
     APART.with(|state| {
         let (depth, next) = state.get();
