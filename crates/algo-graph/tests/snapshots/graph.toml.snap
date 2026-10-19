@@ -1410,7 +1410,7 @@ table = "TRANSFORM_STAGES"
 call = "subsort_kitem"
 behavior = "generating"
 generating_passes = ["subsort-kitem"]
-sequence = 28
+sequence = 29
 
 [node.anchor]
 crate = "k-rust"
@@ -1426,7 +1426,7 @@ name = "add cool-like attributes"
 table = "TRANSFORM_STAGES"
 call = "add_cool_like_attributes"
 behavior = "metadata-only"
-sequence = 48
+sequence = 49
 
 [node.anchor]
 crate = "k-rust"
@@ -1443,7 +1443,7 @@ table = "TRANSFORM_STAGES"
 call = "add_implicit_computation_cell"
 behavior = "generating"
 generating_passes = ["add-implicit-computation-cell"]
-sequence = 38
+sequence = 39
 
 [node.anchor]
 crate = "k-rust"
@@ -1459,7 +1459,7 @@ name = "add semantics module"
 table = "TRANSFORM_STAGES"
 call = "add_semantics_module"
 behavior = "structural-origin-free"
-sequence = 46
+sequence = 47
 
 [node.anchor]
 crate = "k-rust"
@@ -1476,7 +1476,7 @@ table = "EMISSION_STAGES"
 call = "add_sort_injections_to_definition"
 behavior = "generating"
 generating_passes = ["add-sort-injections"]
-sequence = 51
+sequence = 52
 
 [node.anchor]
 crate = "k-rust"
@@ -3850,7 +3850,7 @@ name = "check simplification rules"
 table = "TRANSFORM_STAGES"
 call = "check_simplification_rules"
 behavior = "validation"
-sequence = 43
+sequence = 44
 
 [node.anchor]
 crate = "k-rust"
@@ -3864,7 +3864,7 @@ provenance = "table"
 area = "kompile"
 name = "collect configuration variables"
 table = "EMISSION_PHASES"
-sequence = 57
+sequence = 58
 
 [node.anchor]
 crate = "k-rust"
@@ -3878,7 +3878,7 @@ provenance = "table"
 area = "kompile"
 name = "collect execution rewrite order"
 table = "EMISSION_PHASES"
-sequence = 54
+sequence = 55
 
 [node.anchor]
 crate = "k-rust"
@@ -3895,7 +3895,7 @@ table = "TRANSFORM_STAGES"
 call = "concretize_cells"
 behavior = "generating"
 generating_passes = ["concretize-cells"]
-sequence = 45
+sequence = 46
 
 [node.anchor]
 crate = "k-rust"
@@ -3912,7 +3912,7 @@ table = "TRANSFORM_STAGES"
 call = "constant_fold"
 behavior = "generating"
 generating_passes = ["constant-folding"]
-sequence = 29
+sequence = 30
 
 [node.anchor]
 crate = "k-rust"
@@ -4060,7 +4060,7 @@ name = "declare deferred totality"
 table = "TRANSFORM_STAGES"
 call = "declare_deferred_totality"
 behavior = "metadata-only"
-sequence = 42
+sequence = 43
 
 [node.anchor]
 crate = "k-rust"
@@ -5112,7 +5112,7 @@ provenance = "table"
 area = "kompile"
 name = "emit KORE"
 table = "EMISSION_PHASES"
-sequence = 59
+sequence = 60
 
 [node.anchor]
 crate = "k-rust"
@@ -5143,7 +5143,7 @@ table = "TRANSFORM_STAGES"
 call = "expand_macros"
 behavior = "generating"
 generating_passes = ["macro-expansion"]
-sequence = 35
+sequence = 36
 
 [node.anchor]
 crate = "k-rust"
@@ -5160,7 +5160,7 @@ table = "TRANSFORM_STAGES"
 call = "subsort_kitem"
 behavior = "generating"
 generating_passes = ["subsort-kitem"]
-sequence = 44
+sequence = 45
 
 [node.anchor]
 crate = "k-rust"
@@ -5174,7 +5174,7 @@ provenance = "table"
 area = "kompile"
 name = "generate bison parser"
 table = "EMISSION_PHASES"
-sequence = 63
+sequence = 64
 
 [node.anchor]
 crate = "k-rust"
@@ -5191,7 +5191,7 @@ table = "TRANSFORM_STAGES"
 call = "generate_sort_predicate_rules"
 behavior = "generating"
 generating_passes = ["generate-sort-predicate-rules"]
-sequence = 49
+sequence = 50
 
 [node.anchor]
 crate = "k-rust"
@@ -5208,7 +5208,7 @@ table = "TRANSFORM_STAGES"
 call = "generate_sort_predicate_syntax"
 behavior = "generating"
 generating_passes = ["generate-sort-predicate-syntax"]
-sequence = 33
+sequence = 34
 
 [node.anchor]
 crate = "k-rust"
@@ -5225,7 +5225,7 @@ table = "TRANSFORM_STAGES"
 call = "generate_sort_projections"
 behavior = "generating"
 generating_passes = ["generate-sort-projections"]
-sequence = 34
+sequence = 35
 
 [node.anchor]
 crate = "k-rust"
@@ -5242,7 +5242,7 @@ table = "TRANSFORM_STAGES"
 call = "guard_or_patterns"
 behavior = "generating"
 generating_passes = ["guard-or-patterns"]
-sequence = 31
+sequence = 32
 
 [node.anchor]
 crate = "k-rust"
@@ -5256,7 +5256,7 @@ provenance = "table"
 area = "kompile"
 name = "hook namespace checks"
 table = "EMISSION_PHASES"
-sequence = 58
+sequence = 59
 
 [node.anchor]
 crate = "k-rust"
@@ -7074,7 +7074,7 @@ table = "TRANSFORM_STAGES"
 call = "lower_term_conjunctions"
 behavior = "generating"
 generating_passes = ["lower-term-conjunctions"]
-sequence = 37
+sequence = 38
 
 [node.anchor]
 crate = "k-rust"
@@ -7091,7 +7091,7 @@ table = "EMISSION_STAGES"
 call = "minimize_term_construction"
 behavior = "generating"
 generating_passes = ["minimize-term-construction"]
-sequence = 53
+sequence = 54
 
 [node.anchor]
 crate = "k-rust"
@@ -7107,7 +7107,7 @@ name = "number sentences"
 table = "TRANSFORM_STAGES"
 call = "number_sentences"
 behavior = "metadata-only"
-sequence = 25
+sequence = 26
 
 [node.anchor]
 crate = "k-rust"
@@ -7123,7 +7123,7 @@ name = "number sentences (final)"
 table = "TRANSFORM_STAGES"
 call = "number_sentences"
 behavior = "metadata-only"
-sequence = 50
+sequence = 51
 
 [node.anchor]
 crate = "k-rust"
@@ -8860,7 +8860,7 @@ provenance = "table"
 area = "kompile"
 name = "print definition.kore"
 table = "EMISSION_PHASES"
-sequence = 60
+sequence = 61
 
 [node.anchor]
 crate = "k-rust"
@@ -8874,7 +8874,7 @@ provenance = "table"
 area = "kompile"
 name = "print macros.kore"
 table = "EMISSION_PHASES"
-sequence = 62
+sequence = 63
 
 [node.anchor]
 crate = "k-rust"
@@ -8888,7 +8888,7 @@ provenance = "table"
 area = "kompile"
 name = "print syntaxDefinition.kore"
 table = "EMISSION_PHASES"
-sequence = 61
+sequence = 62
 
 [node.anchor]
 crate = "k-rust"
@@ -8904,7 +8904,7 @@ name = "propagate macro attributes"
 table = "TRANSFORM_STAGES"
 call = "propagate_macro_attributes"
 behavior = "metadata-only"
-sequence = 30
+sequence = 31
 
 [node.anchor]
 crate = "k-rust"
@@ -8934,7 +8934,7 @@ name = "regenerate sort predicate syntax"
 table = "TRANSFORM_STAGES"
 call = "regenerate_sort_predicate_syntax"
 behavior = "metadata-only"
-sequence = 40
+sequence = 41
 
 [node.anchor]
 crate = "k-rust"
@@ -8951,7 +8951,7 @@ table = "TRANSFORM_STAGES"
 call = "generate_sort_projections"
 behavior = "generating"
 generating_passes = ["generate-sort-projections"]
-sequence = 41
+sequence = 42
 
 [node.anchor]
 crate = "k-rust"
@@ -8968,12 +8968,28 @@ table = "EMISSION_STAGES"
 call = "remove_unit"
 behavior = "generating"
 generating_passes = ["remove-unit"]
-sequence = 52
+sequence = 53
 
 [node.anchor]
 crate = "k-rust"
 file = "crates/k-rust/src/kompile/pipeline.rs"
 symbol = "remove_unit"
+
+[[node]]
+kind = "phase"
+id = "rename bound variables apart"
+provenance = "table"
+area = "kompile"
+name = "rename bound variables apart"
+table = "TRANSFORM_STAGES"
+call = "rename_bound_apart"
+behavior = "metadata-only"
+sequence = 17
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "rename_bound_apart"
 
 [[node]]
 kind = "invariant"
@@ -9208,7 +9224,7 @@ table = "TRANSFORM_STAGES"
 call = "resolve_io"
 behavior = "generating"
 generating_passes = ["resolve-io"]
-sequence = 18
+sequence = 19
 
 [node.anchor]
 crate = "k-rust"
@@ -9239,7 +9255,7 @@ table = "TRANSFORM_STAGES"
 call = "resolve_anon_vars"
 behavior = "generating"
 generating_passes = ["resolve-anonymous-variables"]
-sequence = 23
+sequence = 24
 
 [node.anchor]
 crate = "k-rust"
@@ -9256,7 +9272,7 @@ table = "TRANSFORM_STAGES"
 call = "resolve_comm"
 behavior = "generating"
 generating_passes = ["resolve-comm"]
-sequence = 17
+sequence = 18
 
 [node.anchor]
 crate = "k-rust"
@@ -9272,7 +9288,7 @@ name = "resolve condition conjunctions"
 table = "TRANSFORM_STAGES"
 call = "resolve_condition_conjunctions"
 behavior = "metadata-only"
-sequence = 36
+sequence = 37
 
 [node.anchor]
 crate = "k-rust"
@@ -9303,7 +9319,7 @@ table = "TRANSFORM_STAGES"
 call = "resolve_config_var"
 behavior = "generating"
 generating_passes = ["resolve-function-with-config"]
-sequence = 47
+sequence = 48
 
 [node.anchor]
 crate = "k-rust"
@@ -9320,7 +9336,7 @@ table = "TRANSFORM_STAGES"
 call = "resolve_contexts"
 behavior = "generating"
 generating_passes = ["resolve-contexts"]
-sequence = 24
+sequence = 25
 
 [node.anchor]
 crate = "k-rust"
@@ -9351,7 +9367,7 @@ table = "TRANSFORM_STAGES"
 call = "resolve_fresh_config_constants"
 behavior = "generating"
 generating_passes = ["resolve-fresh-config-constants"]
-sequence = 32
+sequence = 33
 
 [node.anchor]
 crate = "k-rust"
@@ -9368,7 +9384,7 @@ table = "TRANSFORM_STAGES"
 call = "resolve_fresh_constants"
 behavior = "generating"
 generating_passes = ["resolve-fresh-constants"]
-sequence = 39
+sequence = 40
 
 [node.anchor]
 crate = "k-rust"
@@ -9385,7 +9401,7 @@ table = "TRANSFORM_STAGES"
 call = "resolve_function_with_config"
 behavior = "generating"
 generating_passes = ["resolve-function-with-config"]
-sequence = 21
+sequence = 22
 
 [node.anchor]
 crate = "k-rust"
@@ -9402,7 +9418,7 @@ table = "TRANSFORM_STAGES"
 call = "resolve_heat_cool_attributes"
 behavior = "generating"
 generating_passes = ["resolve-heat-cool"]
-sequence = 26
+sequence = 27
 
 [node.anchor]
 crate = "k-rust"
@@ -9419,7 +9435,7 @@ table = "TRANSFORM_STAGES"
 call = "resolve_fun"
 behavior = "generating"
 generating_passes = ["resolve-fun"]
-sequence = 19
+sequence = 20
 
 [node.anchor]
 crate = "k-rust"
@@ -9478,7 +9494,7 @@ table = "TRANSFORM_STAGES"
 call = "resolve_semantic_casts"
 behavior = "generating"
 generating_passes = ["semantic-casts"]
-sequence = 27
+sequence = 28
 
 [node.anchor]
 crate = "k-rust"
@@ -9495,7 +9511,7 @@ table = "TRANSFORM_STAGES"
 call = "resolve_strict"
 behavior = "generating"
 generating_passes = ["resolve-strict"]
-sequence = 22
+sequence = 23
 
 [node.anchor]
 crate = "k-rust"
@@ -9509,7 +9525,7 @@ provenance = "table"
 area = "kompile"
 name = "resolve transformed definition"
 table = "EMISSION_PHASES"
-sequence = 55
+sequence = 56
 
 [node.anchor]
 crate = "k-rust"
@@ -9604,7 +9620,7 @@ table = "TRANSFORM_STAGES"
 call = "generate_sort_predicate_syntax"
 behavior = "generating"
 generating_passes = ["generate-sort-predicate-syntax"]
-sequence = 20
+sequence = 21
 
 [node.anchor]
 crate = "k-rust"
@@ -9646,7 +9662,7 @@ provenance = "table"
 area = "kompile"
 name = "singleton overload checks"
 table = "EMISSION_PHASES"
-sequence = 56
+sequence = 57
 
 [node.anchor]
 crate = "k-rust"
@@ -9692,7 +9708,7 @@ provenance = "table"
 area = "kompile"
 name = "write artifacts"
 table = "EMISSION_PHASES"
-sequence = 64
+sequence = 65
 
 [node.anchor]
 crate = "k-rust"
@@ -9722,28 +9738,28 @@ kind = "follows"
 from = "add KItem subsorts"
 to = "constant folding"
 provenance = "table"
-order = 28
+order = 29
 
 [[edge]]
 kind = "follows"
 from = "add cool-like attributes"
 to = "generate sort predicate rules"
 provenance = "table"
-order = 48
+order = 49
 
 [[edge]]
 kind = "follows"
 from = "add implicit computation cell"
 to = "resolve fresh constants"
 provenance = "table"
-order = 38
+order = 39
 
 [[edge]]
 kind = "follows"
 from = "add semantics module"
 to = "resolve configuration variables"
 provenance = "table"
-order = 46
+order = 47
 
 [[edge]]
 kind = "contains"
@@ -9756,7 +9772,7 @@ kind = "follows"
 from = "add sort injections"
 to = "remove units"
 provenance = "table"
-order = 51
+order = 52
 
 [[edge]]
 kind = "measured-by"
@@ -10243,7 +10259,7 @@ kind = "follows"
 from = "check simplification rules"
 to = "finalize KItem subsorts"
 provenance = "table"
-order = 43
+order = 44
 
 [[edge]]
 kind = "contains"
@@ -10256,7 +10272,7 @@ kind = "follows"
 from = "concretize cells"
 to = "add semantics module"
 provenance = "table"
-order = 45
+order = 46
 
 [[edge]]
 kind = "contains"
@@ -10269,14 +10285,14 @@ kind = "follows"
 from = "constant folding"
 to = "propagate macro attributes"
 provenance = "table"
-order = 29
+order = 30
 
 [[edge]]
 kind = "follows"
 from = "declare deferred totality"
 to = "check simplification rules"
 provenance = "table"
-order = 42
+order = 43
 
 [[edge]]
 kind = "contains"
@@ -10673,7 +10689,7 @@ kind = "follows"
 from = "expand macros"
 to = "resolve condition conjunctions"
 provenance = "table"
-order = 35
+order = 36
 
 [[edge]]
 kind = "contains"
@@ -10686,7 +10702,7 @@ kind = "follows"
 from = "finalize KItem subsorts"
 to = "concretize cells"
 provenance = "table"
-order = 44
+order = 45
 
 [[edge]]
 kind = "contains"
@@ -10699,7 +10715,7 @@ kind = "follows"
 from = "generate sort predicate rules"
 to = "number sentences (final)"
 provenance = "table"
-order = 49
+order = 50
 
 [[edge]]
 kind = "contains"
@@ -10712,7 +10728,7 @@ kind = "follows"
 from = "generate sort predicate syntax"
 to = "generate sort projections"
 provenance = "table"
-order = 33
+order = 34
 
 [[edge]]
 kind = "contains"
@@ -10725,14 +10741,14 @@ kind = "follows"
 from = "generate sort projections"
 to = "expand macros"
 provenance = "table"
-order = 34
+order = 35
 
 [[edge]]
 kind = "follows"
 from = "guard or-patterns"
 to = "resolve fresh configuration constants"
 provenance = "table"
-order = 31
+order = 32
 
 [[edge]]
 kind = "consumes"
@@ -10943,7 +10959,7 @@ kind = "follows"
 from = "lower term conjunctions"
 to = "add implicit computation cell"
 provenance = "table"
-order = 37
+order = 38
 
 [[edge]]
 kind = "contains"
@@ -10962,7 +10978,7 @@ kind = "follows"
 from = "number sentences"
 to = "resolve heat/cool attributes"
 provenance = "table"
-order = 25
+order = 26
 
 [[edge]]
 kind = "contains"
@@ -10975,7 +10991,7 @@ kind = "follows"
 from = "number sentences (final)"
 to = "add sort injections"
 provenance = "table"
-order = 50
+order = 51
 
 [[edge]]
 kind = "consumes"
@@ -11265,7 +11281,7 @@ kind = "follows"
 from = "propagate macro attributes"
 to = "guard or-patterns"
 provenance = "table"
-order = 30
+order = 31
 
 [[edge]]
 kind = "contains"
@@ -11278,7 +11294,7 @@ kind = "follows"
 from = "regenerate sort predicate syntax"
 to = "regenerate sort projections"
 provenance = "table"
-order = 40
+order = 41
 
 [[edge]]
 kind = "contains"
@@ -11291,14 +11307,21 @@ kind = "follows"
 from = "regenerate sort projections"
 to = "declare deferred totality"
 provenance = "table"
-order = 41
+order = 42
 
 [[edge]]
 kind = "follows"
 from = "remove units"
 to = "minimize term construction"
 provenance = "table"
-order = 52
+order = 53
+
+[[edge]]
+kind = "follows"
+from = "rename bound variables apart"
+to = "resolve commutative rules"
+provenance = "table"
+order = 17
 
 [[edge]]
 kind = "measured-by"
@@ -11335,35 +11358,35 @@ kind = "follows"
 from = "resolve I/O streams"
 to = "resolve local functions"
 provenance = "table"
-order = 18
+order = 19
 
 [[edge]]
 kind = "follows"
 from = "resolve anonymous variables"
 to = "resolve contexts"
 provenance = "table"
-order = 23
+order = 24
 
 [[edge]]
 kind = "follows"
 from = "resolve commutative rules"
 to = "resolve I/O streams"
 provenance = "table"
-order = 17
+order = 18
 
 [[edge]]
 kind = "follows"
 from = "resolve condition conjunctions"
 to = "lower term conjunctions"
 provenance = "table"
-order = 36
+order = 37
 
 [[edge]]
 kind = "follows"
 from = "resolve configuration variables"
 to = "add cool-like attributes"
 provenance = "table"
-order = 47
+order = 48
 
 [[edge]]
 kind = "contains"
@@ -11376,14 +11399,14 @@ kind = "follows"
 from = "resolve contexts"
 to = "number sentences"
 provenance = "table"
-order = 24
+order = 25
 
 [[edge]]
 kind = "follows"
 from = "resolve fresh configuration constants"
 to = "generate sort predicate syntax"
 provenance = "table"
-order = 32
+order = 33
 
 [[edge]]
 kind = "contains"
@@ -11396,21 +11419,21 @@ kind = "follows"
 from = "resolve fresh constants"
 to = "regenerate sort predicate syntax"
 provenance = "table"
-order = 39
+order = 40
 
 [[edge]]
 kind = "follows"
 from = "resolve function configuration"
 to = "resolve strictness"
 provenance = "table"
-order = 21
+order = 22
 
 [[edge]]
 kind = "follows"
 from = "resolve heat/cool attributes"
 to = "resolve semantic casts"
 provenance = "table"
-order = 26
+order = 27
 
 [[edge]]
 kind = "contains"
@@ -11423,14 +11446,14 @@ kind = "follows"
 from = "resolve local functions"
 to = "seed sort predicate syntax"
 provenance = "table"
-order = 19
+order = 20
 
 [[edge]]
 kind = "follows"
 from = "resolve semantic casts"
 to = "add KItem subsorts"
 provenance = "table"
-order = 27
+order = 28
 
 [[edge]]
 kind = "contains"
@@ -11443,7 +11466,7 @@ kind = "follows"
 from = "resolve strictness"
 to = "resolve anonymous variables"
 provenance = "table"
-order = 22
+order = 23
 
 [[edge]]
 kind = "measured-by"
@@ -11474,7 +11497,7 @@ kind = "follows"
 from = "seed sort predicate syntax"
 to = "resolve function configuration"
 provenance = "table"
-order = 20
+order = 21
 
 [[edge]]
 kind = "follows"

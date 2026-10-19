@@ -28,7 +28,8 @@ use crate::names::BuiltinSort;
 
 use super::fresh_names::GeneratedVariableIdentity;
 use super::passes::{
-    ResolveSemanticCastsError, expand_macros_in_terms_from_resolved, resolve_anon_vars_in_sentence,
+    ResolveSemanticCastsError, expand_macros_in_terms_from_resolved,
+    rename_bound_apart_in_sentence, resolve_anon_vars_in_sentence,
     resolve_semantic_casts_with_pending_predicates_in_sentence,
 };
 use super::sort_injections::{GroundInput, SortInjectionError, SortInjector, rewrite_projection};
@@ -182,6 +183,11 @@ pub fn compile_search_pattern(
         })
     })?;
 
+    // The pattern's bound variables are renamed apart before any pass maps names across it, as
+    // every sentence of the definition is, so the sort test a cast of a bound variable adds
+    // never reads a free variable of the same spelling.
+    let mut sentence = sentence;
+    rename_bound_apart_in_sentence(&mut sentence);
     let (sentence, mut generated) = resolve_anon_vars_in_sentence(sentence);
     let sentence = resolve_semantic_casts_with_pending_predicates_in_sentence(subsorts, sentence)?;
     let (sentence, cell_generated) =

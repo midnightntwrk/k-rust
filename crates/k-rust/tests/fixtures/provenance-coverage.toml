@@ -27,6 +27,12 @@ behavior = "validation"
 reason = "Structural checks report diagnostics without changing the current definition."
 
 [[pipeline]]
+call = "rename_bound_apart"
+occurrences = 1
+behavior = "metadata-only"
+reason = "Renaming bound variables apart renames, in place, the binder and the bound occurrences of each quantifier whose name occurs elsewhere in its sentence, so each node keeps its origin and location; it creates no node."
+
+[[pipeline]]
 call = "resolve_comm"
 occurrences = 1
 behavior = "generating"

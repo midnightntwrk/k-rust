@@ -167,13 +167,14 @@ pub fn probes() -> Vec<Case> {
     cases
 }
 
-/// The seeds of the BIND/A0 review and its claims, and of the BIND/A7 review, a test of their
-/// own so that it runs beside the probes.
+/// The seeds of the BIND/A0 review and its claims, and of the BIND/A5, BIND/A6 and BIND/A7
+/// reviews, a test of their own so that it runs beside the probes.
 pub fn seeds() -> Vec<Case> {
     let mut cases = review_seeds();
     cases.extend(claim_seeds());
     cases.extend(freezer_seeds());
     cases.extend(scoping_seeds());
+    cases.extend(attribute_seeds());
     cases
 }
 
@@ -252,6 +253,32 @@ fn scoping_seeds() -> Vec<Case> {
             ("Z", "X"),
         ),
     ]
+}
+
+/// The seeds of the BIND/A6 review (`code-reviews/BIND-A6.toml`): a binder whose name only a
+/// `concrete` or `symbolic` attribute of its rule mentions, and its source twin with the binder
+/// alone renamed (`text-attribute-binder`). An attribute lies outside every quantifier's scope,
+/// so it names a free variable of the rule or none, whatever the binder is called: the two are
+/// judged alike.
+fn attribute_seeds() -> Vec<Case> {
+    ["concrete", "symbolic"]
+        .into_iter()
+        .map(|attribute| {
+            probe(
+                &format!("attribute-names-binder-only-{attribute}"),
+                "AT",
+                &format!(
+                    "{GO}  syntax Int ::= f(Int) [function, total]\n  rule f(_) => 0\n  rule f(X) => X requires #Exists Z:Int . {{Z #Equals X}} [simplification, {attribute}(Z)]\n  rule [p]: <k> go(X) => done(f(X)) ... </k>\n"
+                ),
+                &["go(3)"],
+            )
+            .twin(
+                "text-attribute-binder",
+                "#Exists Z:Int . {Z",
+                "#Exists W:Int . {W",
+            )
+        })
+        .collect()
 }
 
 /// The seeds of the BIND/A7 review (`code-reviews/BIND-A7.toml`): contexts whose freezer holds

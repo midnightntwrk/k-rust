@@ -33,7 +33,9 @@
 //!   condition of the same sentence before the stage, outside the anonymous-variable renaming,
 //!   exempt at its stage only, and `#Configuration`, which is no condition variable until the
 //!   configuration-binding stage;
-//!   C2, no sentence holds a pending condition conjunction once the stage resolving them has run.
+//!   C2, no sentence holds a pending condition conjunction once the stage resolving them has run;
+//!   BC, no sentence binds a name twice or binds a name free in it once the stage renaming bound
+//!   variables apart has run.
 //!
 //! - [`ground`] checks G2-ground: the parametric symbol instances in a ground value's typing
 //!   at its position are exactly the instances that sort injection emits for that value.

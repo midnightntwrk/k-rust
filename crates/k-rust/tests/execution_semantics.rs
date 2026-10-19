@@ -3236,3 +3236,123 @@ fn a_context_alias_variable_spelled_like_a_strictness_variable_is_its_own() {
         );
     }
 }
+
+/// The leaves of running `program` on `rules` over `go`/`done` (module `BOUND`), as printed
+/// states.
+fn bound_name_run(header: &str, rules: &str, program: &str) -> Vec<String> {
+    let source = format!(
+        "module BOUND\n  imports INT\n  imports BOOL\n{header}  configuration <k> $PGM:KItem </k>\n{rules}endmodule\n"
+    );
+    let compiled = compile(&source, "BOUND", "BOUND", "KItem", program);
+    text(&execute(&compiled, "BOUND", Some(20)))
+}
+
+/// Whether the one leaf of `leaves` has a `<k>` cell holding `label(value)` alone, for a
+/// constructor `label` of the module and an integer `value` (printed KORE).
+fn ends_in(leaves: &[String], label: &str, value: &str) -> bool {
+    matches!(leaves, [leaf] if leaf.contains(&format!("kseq{{}}(Lbl{label}'"))
+        && leaf.contains(&format!("(\\dv{{SortInt{{}}}}(\"{value}\")), dotk{{}}())")))
+}
+
+/// Run `program` on the rules `rules(binder)` for the binder spelled `shadowing` (a name of the
+/// rule's other variables) and spelled `apart`: both spellings give the same leaves, and, where
+/// the build decides the condition's quantifier (Z3), the one leaf holds `label(value)`. The
+/// portable build decides no SMT query, so its run stops undecided at the first step, alike for
+/// both spellings.
+fn assert_bound_name_runs(
+    header: &str,
+    rules: impl Fn(&str) -> String,
+    [shadowing, apart]: [&str; 2],
+    program: &str,
+    (label, value): (&str, &str),
+) {
+    let leaves = bound_name_run(header, &rules(shadowing), program);
+    let renamed = bound_name_run(header, &rules(apart), program);
+    assert_eq!(leaves, renamed, "{program}: {shadowing} against {apart}");
+    if cfg!(feature = "z3-inference") {
+        assert!(ends_in(&leaves, label, value), "{program}: {leaves:?}");
+    }
+}
+
+/// A macro is textual substitution of its arguments for its parameters, and a quantifier in a
+/// macro's right side binds its own variable: `m(N, M) => #Exists M . ({N #Equals M} #And {M
+/// #Equals 0})` states, at `m(X, X)`, that some value equals both X and 0, which holds at X = 0
+/// only. So `go(3)` is stuck and `go(0)` gives `done(0)`, as with the binder spelled `B`; and
+/// `m(X, 5)`, where the parameter `M` receives a value, still binds a variable.
+#[test]
+fn a_macro_binder_spelled_like_a_parameter_binds_its_own_variable() {
+    let header = "  syntax KItem ::= go(Int) | done(Int)\n  syntax Bool ::= m(Int, Int) [macro]\n";
+    let twice = |binder: &str| {
+        format!(
+            "  rule m(N, M) => #Exists {binder}:Int . ({{N #Equals {binder}}} #And {{{binder} #Equals 0}})\n  rule <k> go(X) => done(X) ... </k> requires m(X, X)\n"
+        )
+    };
+    assert_bound_name_runs(header, twice, ["M", "B"], "go(3)", ("go", "3"));
+    assert_bound_name_runs(header, twice, ["M", "B"], "go(0)", ("done", "0"));
+    let literal = |binder: &str| {
+        format!(
+            "  rule m(N, M) => #Exists {binder}:Int . {{N #Equals {binder}}}\n  rule <k> go(X) => done(X) ... </k> requires m(X, 5)\n"
+        )
+    };
+    assert_bound_name_runs(header, literal, ["M", "B"], "go(3)", ("done", "3"));
+}
+
+/// A quantifier in a condition binds its variable in its body only, so `#Exists X . {s(X)
+/// #Equals s(2)}` holds whatever the left side's `X` is: `go(s(3))` gives `done(3)`, as with the
+/// bound variable spelled `Z`. The left side's `s(X)` and the condition's `s(X)` are different
+/// terms, so no compilation step may share one for the other.
+#[test]
+fn a_condition_binder_spelled_like_a_left_side_variable_binds_its_own_variable() {
+    let header = "  syntax Wrap ::= s(Int)\n  syntax KItem ::= go(Wrap) | done(Int)\n";
+    let rules = |binder: &str| {
+        format!(
+            "  rule <k> go(s(X)) => done(X) ... </k> requires #Exists {binder}:Int . {{s({binder}) #Equals s(2)}}\n"
+        )
+    };
+    assert_bound_name_runs(header, rules, ["X", "Z"], "go(s(3))", ("done", "3"));
+}
+
+/// A binder spelled like a left-side variable of another sort is a variable of its own, with its
+/// own sort: `go(X:Int) ... requires #Exists X:Bool . {X #Equals true}` compiles, and `go(3)`
+/// gives `done(3)`, as with the binder spelled `B`.
+#[test]
+fn a_binder_spelled_like_a_variable_of_another_sort_has_its_own_sort() {
+    let header = "  syntax KItem ::= go(Int) | done(Int)\n";
+    let rules = |binder: &str| {
+        format!(
+            "  rule <k> go(X:Int) => done(X) ... </k> requires #Exists {binder}:Bool . {{{binder} #Equals true}}\n"
+        )
+    };
+    assert_bound_name_runs(header, rules, ["X", "B"], "go(3)", ("done", "3"));
+}
+
+/// The `UNIQUE_ID` of the axiom labelled `label` in `kore`.
+fn unique_id_of(kore: &str, label: &str) -> String {
+    let needle = format!("label{{}}(\"{label}\")");
+    let axiom = kore
+        .split("axiom{")
+        .find(|axiom| axiom.contains(&needle))
+        .unwrap_or_else(|| panic!("no axiom labelled {label}"));
+    let start = axiom
+        .find("UNIQUE'Unds'ID{}(\"")
+        .unwrap_or_else(|| panic!("axiom {label} has no UNIQUE_ID"))
+        + "UNIQUE'Unds'ID{}(\"".len();
+    axiom[start..start + 64].to_owned()
+}
+
+/// A rule's `UNIQUE_ID` names the rule up to the renaming of its variables: a condition binder
+/// that shadows the left side's variable is a variable of its own, so the rule and its
+/// alpha-variant with the binder renamed apart have one identifier.
+#[test]
+fn a_shadowing_binder_leaves_the_rule_identifier_alpha_invariant() {
+    let id = |binder: &str| {
+        let source = format!(
+            "module BOUND\n  imports INT\n  imports BOOL\n  syntax KItem ::= go(Int) | done(Int)\n  configuration <k> $PGM:KItem </k>\n  rule [p]: <k> go(Y) => done(Y) ... </k> requires #Exists {binder}:Int . {{{binder} #Equals 5}}\nendmodule\n"
+        );
+        unique_id_of(
+            &compile(&source, "BOUND", "BOUND", "KItem", "go(3)").kore,
+            "BOUND.p",
+        )
+    };
+    assert_eq!(id("Y"), id("Z"));
+}
