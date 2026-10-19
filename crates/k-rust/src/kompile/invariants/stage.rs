@@ -64,6 +64,17 @@
 //!   ([`crate::kompile::ml_constructs`]). A pending conjunction is internal to the pipeline: no
 //!   production declares its label, so one that survived would reach emission undeclared.
 //!
+//! [`StageChecks`] also checks rule BC at every stage boundary once a stage providing
+//! [`Artifacts::BOUND_NAMES_APART`] has run:
+//!
+//! - BC (bound-name uniqueness): in every sentence of any module, no name is bound by two
+//!   quantifiers, and no bound name is free in any term of the sentence
+//!   ([`crate::kast::binding`] states which occurrences a quantifier binds). Renaming a bound
+//!   variable apart changes no meaning, and `rename bound variables apart` makes every sentence
+//!   apart, so a pass that maps names across a whole sentence reads each name as one variable; a
+//!   later stage that copies a quantifier within a sentence, or mints or inserts a name a
+//!   quantifier of the sentence binds, breaks BC.
+//!
 //! C1 holds on the pipeline input by definition, so it needs no obligation decided there.
 //!
 //! [`Attributes::input_addresses`]: crate::definition::Attributes::input_addresses
@@ -74,7 +85,7 @@ use std::fmt::Write as _;
 use crate::definition::checks::{CheckedRoot, right_hand_side_binding};
 use crate::definition::{AttributeKey, Definition, Sentence, StructuralCheckOptions};
 use crate::kast::Term;
-use crate::kast::binding::free_variables;
+use crate::kast::binding::{bound_names, free_variables};
 use crate::kompile::CompileOptions;
 use crate::kompile::pipeline::{Artifacts, Stage};
 use crate::provenance::InputAddress;
@@ -213,6 +224,7 @@ impl StageChecks {
         self.available = self.available.union(stage.provides);
         self.check_conditions(stage, output);
         self.check_conjunctions(stage, output);
+        self.check_bound_names(stage, output);
         if self.binding != Obligation::Preserved {
             return;
         }
@@ -295,6 +307,32 @@ impl StageChecks {
                     panic!(
                         "kompile invariant C2 (resolved conjunctions) broken by stage {:?} ({}): \
                          a pending condition conjunction survives its resolution\n  in {}\n  sentence: {}",
+                        stage.name,
+                        stage.call,
+                        emitted_from(
+                            &format!("sentence {index} of module {}", module.name),
+                            sentence.attributes().origin_record(),
+                        ),
+                        render_sentence(sentence),
+                    );
+                }
+            }
+        }
+    }
+
+    /// Check BC on the output of `stage` once the renaming stage has run; panics like R3 when a
+    /// sentence binds a name twice or binds a name that is free in it.
+    fn check_bound_names(&self, stage: &Stage, output: &Definition) {
+        if !self.available.contains(Artifacts::BOUND_NAMES_APART) {
+            return;
+        }
+        for module in &output.modules {
+            // Invariant: every sentence of `module` before `index` satisfies BC.
+            for (index, sentence) in module.local_sentences.iter().enumerate() {
+                if let Some(broken) = bound_names_not_apart(sentence) {
+                    panic!(
+                        "kompile invariant BC (bound-name uniqueness) broken by stage {:?} ({}): \
+                         {broken}\n  in {}\n  sentence: {}",
                         stage.name,
                         stage.call,
                         emitted_from(
@@ -414,6 +452,45 @@ fn introduced_condition_variables(
             (!names.is_empty()).then_some((root, names))
         })
         .collect()
+}
+
+/// How `sentence` breaks BC: the names two of its quantifiers bind, and the bound names that are
+/// free in it; `None` when it is apart.
+fn bound_names_not_apart(sentence: &Sentence) -> Option<String> {
+    let mut bound = BTreeSet::new();
+    let mut twice = BTreeSet::new();
+    for (_, term) in sentence.terms() {
+        for name in bound_names(term) {
+            if !bound.insert(name.clone()) {
+                twice.insert(name);
+            }
+        }
+    }
+    if bound.is_empty() {
+        return None;
+    }
+    let mut free = BTreeSet::new();
+    for (_, term) in sentence.terms() {
+        free.extend(free_variables(term).intersection(&bound).cloned());
+    }
+    if twice.is_empty() && free.is_empty() {
+        return None;
+    }
+    let list = |names: &BTreeSet<String>| {
+        names
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let mut parts = Vec::new();
+    if !twice.is_empty() {
+        parts.push(format!("{} bound by two quantifiers", list(&twice)));
+    }
+    if !free.is_empty() {
+        parts.push(format!("{} bound and free", list(&free)));
+    }
+    Some(parts.join("; "))
 }
 
 fn describe_condition_variables(introduced: &[(CheckedRoot, BTreeSet<String>)]) -> String {
@@ -1203,5 +1280,82 @@ mod tests {
         });
         assert!(message.contains("C2"), "{message}");
         assert!(message.contains("\"conjoining stage\""), "{message}");
+    }
+
+    /// A sentence may bind a free name until the renaming stage has run; a stage after it that
+    /// leaves one binding a name free in its sentence, or binding a name twice, breaks BC.
+    #[test]
+    fn a_sentence_not_apart_after_the_renaming_stage_breaks_bc() {
+        fn exists(name: &str, body: Term) -> Term {
+            Term::apply("#Exists", vec![Term::variable(name), body])
+        }
+        fn shadow(input: &PassInput<'_>, _: &mut PipelineState) -> Result<PassOutcome, PassError> {
+            replace_requires(input, |_| {
+                exists("X", Term::apply("isOne", vec![Term::variable("X")]))
+            })
+        }
+        fn twice(input: &PassInput<'_>, _: &mut PipelineState) -> Result<PassOutcome, PassError> {
+            replace_requires(input, |_| {
+                Term::apply(
+                    "both",
+                    vec![
+                        exists("Y", Term::apply("isOne", vec![Term::variable("Y")])),
+                        exists("Y", Term::apply("isOne", vec![Term::variable("Y")])),
+                    ],
+                )
+            })
+        }
+        fn rename(
+            input: &PassInput<'_>,
+            state: &mut PipelineState,
+        ) -> Result<PassOutcome, PassError> {
+            crate::kompile::passes::rename_bound_apart_pass(input, state).map_err(Into::into)
+        }
+        let input = || definition(vec![conditioned(Term::apply("true", Vec::new()))]);
+        // Before the renaming stage, and through it, nothing is checked or the sentence is
+        // renamed apart.
+        let output = run(
+            &[
+                stage("shadowing stage", shadow, Artifacts::NONE),
+                stage(
+                    "rename bound variables apart",
+                    rename,
+                    Artifacts::BOUND_NAMES_APART,
+                ),
+            ],
+            input(),
+        );
+        let Sentence::Rule { requires, .. } = &*output.modules[0].local_sentences[0] else {
+            panic!("a rule")
+        };
+        assert_eq!(
+            *requires,
+            exists("X0", Term::apply("isOne", vec![Term::variable("X0")]))
+        );
+        for (name, run_stage, broken) in [
+            ("shadowing stage", shadow as PassFn, "X bound and free"),
+            (
+                "binding stage",
+                twice as PassFn,
+                "Y bound by two quantifiers",
+            ),
+        ] {
+            let message = panic_message(|| {
+                run(
+                    &[
+                        stage(
+                            "rename bound variables apart",
+                            rename,
+                            Artifacts::BOUND_NAMES_APART,
+                        ),
+                        stage(name, run_stage, Artifacts::NONE),
+                    ],
+                    input(),
+                );
+            });
+            assert!(message.contains("BC"), "{message}");
+            assert!(message.contains(&format!("\"{name}\"")), "{message}");
+            assert!(message.contains(broken), "{message}");
+        }
     }
 }

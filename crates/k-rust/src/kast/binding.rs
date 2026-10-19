@@ -411,7 +411,7 @@ impl<S: Into<String>> Extend<S> for Reservation {
 /// Whether `name` has the spelling `resolve anonymous variables` and kompile's other passes give
 /// the variables they introduce for anonymous ones: `_Gen`, `?_Gen`, `!_Gen`, `@_Gen` or
 /// `_DotVar` followed by one or more digits. Mints avoid it while passes still read it.
-fn reads_as_resolved_anonymous(name: &str) -> bool {
+pub(crate) fn reads_as_resolved_anonymous(name: &str) -> bool {
     ["_Gen", "?_Gen", "!_Gen", "@_Gen", "_DotVar"]
         .iter()
         .any(|prefix| {

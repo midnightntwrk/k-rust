@@ -313,6 +313,10 @@ impl Artifacts {
     /// to a condition is chosen. A stage that conjoins conditions must run before the one that
     /// provides it; the stage checker panics on a pending conjunction once it is available (C2).
     pub(crate) const CONDITION_CONJUNCTIONS_RESOLVED: Self = Self(1 << 5);
+    /// Every sentence is apart: no name is bound by two quantifiers, and no bound name is free in
+    /// its sentence. Every later stage keeps it; the stage checker panics on a sentence that is
+    /// not apart once it is available (BC).
+    pub(crate) const BOUND_NAMES_APART: Self = Self(1 << 6);
 
     pub(crate) const fn union(self, other: Self) -> Self {
         Self(self.0 | other.0)
@@ -385,6 +389,11 @@ macro_rules! stage_adapter {
     };
 }
 
+stage_adapter!(
+    rename_bound_apart_stage,
+    passes::rename_bound_apart_pass,
+    outcome
+);
 stage_adapter!(resolve_comm_stage, passes::resolve_comm_pass);
 stage_adapter!(resolve_io_stage, passes::resolve_io_pass);
 stage_adapter!(resolve_fun_stage, passes::resolve_fun_pass);
@@ -515,6 +524,17 @@ macro_rules! stage {
 }
 
 const TRANSFORM_STAGE_TABLE: &[Stage] = &[
+    // Every stage after this one reads sentences whose bound variables are apart, so a pass that
+    // maps names across a sentence reads each name as one variable (BC).
+    stage!(
+        "rename bound variables apart",
+        "rename_bound_apart",
+        rename_bound_apart_stage,
+        Provenance::None,
+        "metadata-only",
+        requires = Artifacts::NONE,
+        provides = Artifacts::BOUND_NAMES_APART
+    ),
     stage!(
         "resolve commutative rules",
         "resolve_comm",
