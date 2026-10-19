@@ -20,7 +20,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use super::ast::{ProductionItem, Sentence};
-use super::catalog::LabelHead;
+use super::catalog::{LabelHead, ProductionCatalog};
 use super::partial_order::{Cycle, PartialOrder};
 use super::resolve::{ModuleId, ResolvedDefinition};
 use super::sort_catalog::SortCatalog;
@@ -173,7 +173,7 @@ fn check_module_with_options_and_catalog(
         .chain(check_anonymous_variables(&sentences))
         .chain(check_rhs_variables(&sentences, options.clone()))
         .chain(if options.backend == StructuralCheckBackend::Rust {
-            ml_positions::check_ml_construct_positions(&sentences, production_catalog)
+            ml_positions::check_ml_construct_positions(&sentences, production_catalog, None)
         } else {
             Vec::new()
         })
@@ -201,6 +201,104 @@ fn check_module_with_options_and_catalog(
         .collect::<Vec<_>>();
     diagnostics.sort();
     Ok(diagnostics)
+}
+
+/// The matching-logic position refusals (`ml_positions`) of every module's local sentences, each
+/// judged against its module's productions: the check the compile pipeline repeats once macros
+/// and aliases are expanded at their uses, for the Rust target (`rust_target`). There the sorts
+/// are known, so an or-pattern an injection places below a symbol is judged too. For every
+/// target, a claim's right-side alias that `lower term conjunctions` does not lower is refused,
+/// its applications' effects judged by the productions and equations of `compiled`: no compiled
+/// form of the claim keeps the alias's pattern.
+pub(crate) fn check_ml_construct_positions_in_definition(
+    definition: &ResolvedDefinition,
+    compiled: &crate::definition::Definition,
+    rust_target: bool,
+) -> Vec<Diagnostic> {
+    let views = definition.views();
+    let effectful = std::cell::OnceCell::new();
+    let is_effectful = |label: &crate::kast::Label| {
+        effectful
+            .get_or_init(|| crate::kompile::ml_constructs::effectful_labels(compiled))
+            .contains(&label.name)
+    };
+    let mut diagnostics = Vec::new();
+    for (module_id, module) in definition.modules() {
+        let sentences = module
+            .local_sentences
+            .iter()
+            .map(std::sync::Arc::as_ref)
+            .collect::<Vec<_>>();
+        for sentence in &sentences {
+            diagnostics.extend(ml_positions::unlowered_claim_alias_diagnostics(
+                sentence,
+                &is_effectful,
+            ));
+        }
+        if !rust_target {
+            continue;
+        }
+        let productions = views.production_catalog(module_id);
+        let injector = std::cell::OnceCell::new();
+        let injected = |label: &crate::kast::Label, index: usize, argument: &Term| {
+            injected_or_pattern(
+                &views,
+                module_id,
+                &injector,
+                productions,
+                label,
+                index,
+                argument,
+            )
+        };
+        diagnostics.extend(ml_positions::check_ml_construct_positions(
+            &sentences,
+            productions,
+            Some(&injected),
+        ));
+    }
+    diagnostics.sort();
+    diagnostics.dedup();
+    diagnostics
+}
+
+/// Whether the or-pattern `argument`, at the root of argument `index` of an application of
+/// `label`, is placed below an injection or a k-sequence when sort injection places it at the
+/// argument's declared sort: the alternatives' sort is below the argument's. `false` where the
+/// label has no single signature or the argument is not placed (the sentence's own sort errors
+/// are reported where they arise).
+fn injected_or_pattern<'v>(
+    views: &'v crate::definition::DefinitionViews<'v>,
+    module: crate::definition::ModuleId,
+    injector: &std::cell::OnceCell<Option<crate::kompile::SortInjector<'v, 'v>>>,
+    productions: &ProductionCatalog<'_>,
+    label: &crate::kast::Label,
+    index: usize,
+    argument: &Term,
+) -> bool {
+    let Some(signatures) = productions.signatures_for(&LabelHead::from(label)) else {
+        return false;
+    };
+    let mut signatures = signatures.iter();
+    let (Some(signature), None) = (signatures.next(), signatures.next()) else {
+        return false;
+    };
+    let Some(sort) = signature.arguments.get(index) else {
+        return false;
+    };
+    let Some(injector) = injector
+        .get_or_init(|| crate::kompile::SortInjector::with_views(views, module).ok())
+        .as_ref()
+    else {
+        return false;
+    };
+    injector.inject(argument, sort).is_ok_and(|placed| {
+        !matches!(
+            crate::kompile::ml_constructs::read_through_casts(&placed),
+            Term::Apply { label, arguments }
+                if label.is(InternalLabel::Or) && arguments.len() == 2
+        )
+    })
 }
 
 /// Run all implemented structural checks across a resolved definition.
@@ -341,7 +439,10 @@ pub fn check_rewrites(sentences: &[&Sentence]) -> Vec<Diagnostic> {
             | Sentence::Configuration { .. }
             | Sentence::Bubble { .. } => continue,
         };
-        let mut state = RewriteState::default();
+        let mut state = RewriteState {
+            in_claim: is_claim,
+            ..RewriteState::default()
+        };
         visit_rewrite_term(requires, &mut state, &mut diagnostics, sentence);
         visit_rewrite_term(body, &mut state, &mut diagnostics, sentence);
         if !state.has_rewrite && !is_claim {
@@ -731,6 +832,10 @@ fn anonymous_variable_exempt(sentence: &Sentence, name: &str) -> bool {
 
 #[derive(Default)]
 struct RewriteState {
+    /// The sentence is a claim, whose right side is a pattern the reached states are matched
+    /// against, so an alias there names the matched term where it is lowered
+    /// (`ml_constructs::lowers_claim_alias`).
+    in_claim: bool,
     has_rewrite: bool,
     in_rewrite: bool,
     in_rewrite_rhs: bool,
@@ -781,12 +886,20 @@ fn visit_rewrite_term(
         }
         Term::As { pattern, alias } => {
             let was_in_as = state.in_as;
-            if state.in_rewrite_rhs {
+            if state.in_rewrite_rhs && !state.in_claim {
                 diagnostics.push(Diagnostic::error(
                     DiagnosticCode::InvalidRewrite,
                     "#as is not allowed in the RHS of a rule.",
                     sentence,
                 ));
+            } else if state.in_rewrite_rhs
+                && !state.in_as
+                && !crate::kompile::ml_constructs::lowers_claim_alias(term, &|_| false)
+            {
+                // One refusal for the outermost alias. Whether the applications perform an
+                // effect is judged once macros are expanded
+                // (`check_ml_construct_positions_in_definition`).
+                diagnostics.push(ml_positions::unlowered_claim_alias(sentence));
             }
             state.in_as = true;
             visit_rewrite_term(pattern, state, diagnostics, sentence);

@@ -469,8 +469,11 @@ endmodule
 fn a_function_equation_whose_right_hand_side_is_top_is_refused_at_load() {
     // `f(pair(_, _)) = #Top` states that `f(pair(1, 2))` is every value of `Exp`, which has
     // several, while a function application has at most one value: the definition has no model.
-    // `kcompile` does not load the backend definition, so it succeeds; `krun` and `kprove` refuse
-    // the definition when they load it, naming the equation at its written position.
+    // For the Rust target `kcompile` refuses both such equations at their written positions
+    // (`MlConstructPosition`), and so does `kprove`, which compiles the specification. The
+    // backend's own load refusal remains for KORE from another route: the definition compiled
+    // for the LLVM target, which keeps the equations, is refused by `kore-exec` when it loads it,
+    // naming the equation at its written position.
     let (root, _) = fixture();
     let source = root.join("skip.k");
     fs::write(&source, TOP_FUNCTION_EQUATIONS).unwrap();
@@ -483,7 +486,9 @@ fn a_function_equation_whose_right_hand_side_is_top_is_refused_at_load() {
         let column = line.len() - line.trim_start().len() + 1;
         format!("{}:{}:{column}", source.display(), index + 1)
     };
-    // The equation is named by its identifier, its written position and its head.
+    // The compile refusal of each `#Top` equation, located at it.
+    let compile_refusal = |rule: &str| format!("{}: Error[MlConstructPosition]: ", position(rule));
+    // The load refusal names the equation by its identifier, its written position and its head.
     let refusal = |rule: &str, head: &str| {
         format!(
             " at {} of {head} gives no term as its right-hand side, only \\top or predicates",
@@ -499,25 +504,11 @@ fn a_function_equation_whose_right_hand_side_is_top_is_refused_at_load() {
             syntax_module: "SKIP",
         },
     });
-    assert!(preparation.status.success(), "{preparation:?}");
-
-    let output = watchdog::output(watchdog::Request::Krun {
-        input: watchdog::Input::Compiled(&compiled),
-        main_module: "SKIP",
-        syntax_module: "SKIP",
-        sort: "Exp",
-        expression: "tp(pair(1, 2))",
-    });
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(!output.status.success(), "{output:?}");
-    assert_eq!(output.stdout, b"", "{output:?}");
-    // The first `#Top` equation the load meets is named; which of the two that is depends on
-    // the load order, so either one's position is accepted.
-    assert!(
-        stderr.contains(&refusal("rule f(pair", "Lblf"))
-            || stderr.contains(&refusal("rule fp(pair", "Lblfp")),
-        "{stderr}"
-    );
+    let stderr = String::from_utf8_lossy(&preparation.stderr);
+    assert!(!preparation.status.success(), "{preparation:?}");
+    for rule in ["rule f(pair", "rule fp(pair"] {
+        assert!(stderr.contains(&compile_refusal(rule)), "{rule}: {stderr}");
+    }
 
     let output = Command::new(env!("CARGO_BIN_EXE_krust"))
         .arg("kprove")
@@ -528,6 +519,47 @@ fn a_function_equation_whose_right_hand_side_is_top_is_refused_at_load() {
         .unwrap();
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(!output.status.success(), "{output:?}");
+    for rule in ["rule f(pair", "rule fp(pair"] {
+        assert!(stderr.contains(&compile_refusal(rule)), "{rule}: {stderr}");
+    }
+
+    let llvm = root.join("compiled-llvm");
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .arg("kcompile")
+        .arg(&source)
+        .args([
+            "--main-module",
+            "SKIP",
+            "--syntax-module",
+            "SKIP",
+            "--backend",
+            "llvm",
+        ])
+        .arg("--output-directory")
+        .arg(&llvm)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let pattern = root.join("tp.kore");
+    fs::write(
+        &pattern,
+        "Lbltp{}(Lblpair{}(inj{SortInt{}, SortExp{}}(\\dv{SortInt{}}(\"1\")), inj{SortInt{}, SortExp{}}(\\dv{SortInt{}}(\"2\"))))\n",
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .arg("kore-exec")
+        .arg(llvm.join("definition.kore"))
+        .args(["--module", "SKIP", "--pattern"])
+        .arg(&pattern)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success(), "{output:?}");
+    assert_eq!(output.stdout, b"", "{output:?}");
+    // The first `#Top` equation the load meets is named; which of the two that is depends on
+    // the load order, so either one's position is accepted.
     assert!(
         stderr.contains(&refusal("rule f(pair", "Lblf"))
             || stderr.contains(&refusal("rule fp(pair", "Lblfp")),

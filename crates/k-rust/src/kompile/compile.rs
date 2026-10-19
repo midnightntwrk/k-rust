@@ -946,7 +946,10 @@ fn transform_loaded_definition(
         })??;
 
     // Checkpoint: every later transformation receives a resolved, structurally checked definition.
-    let mut state = super::pipeline::PipelineState::default();
+    let mut state = super::pipeline::PipelineState {
+        check_ml_positions: options.backend == CompilationBackend::Rust,
+        ..super::pipeline::PipelineState::default()
+    };
     let (execution_definition, execution_resolved) =
         super::pipeline::run_stages_seeded_with_resolved(
             super::pipeline::TRANSFORM_STAGES,

@@ -92,6 +92,11 @@ id = "reference-prunes-undefined-step"
 decided_by = "docs/compatibility.md#undefined-steps-in-proofs"
 meaning = "The reference proves a claim by treating a rule application with an empty result as a vacuous branch; the claim is false on those configurations, whose step is undefined, so the port reports failed (proven only with --allow-vacuous)."
 
+[[category]]
+id = "ml-construct-position"
+decided_by = "docs/compatibility.md#matching-logic-constructs-by-position"
+meaning = "The reference compiles a sentence that holds a matching-logic construct at a position where no k-rust route reads it (a quantifier, negation, implication, #Top or a lone predicate where a step or an equation builds its result, a predicate below a Bool symbol, a connective inside an operand of a predicate atom); for the Rust target the port refuses it at compile with the located MlConstructPosition error rather than compiling a definition its backend cannot load."
+
 [[case]]
 name = "amb-rew"
 accepted_verdict = "match"
@@ -297,9 +302,10 @@ accepted_stage = "kompile"
 baseline_verdict = "mismatch"
 baseline_stage = "kompile"
 exclusion = ""
-reason = "All 16 rejection checks agree. The driver translates -w2e -w all to --warnings all --warnings-to-errors. In existsLHSBoundPass.k, the bound variable and #Exists/#Equals parameters must range over real sorts, excluding KList, as TypeInferencer.isRealSort requires."
+reason = "15 of the 16 rejection checks agree; existsLHSBoundPass.k is the step excluded below. The driver translates -w2e -w all to --warnings all --warnings-to-errors."
 step_exclusions = [
   { out = "checkHaskellAnywhere.k.out", exclusion = "supported-superset", reason = "The expected output is a kompile rejection of an anywhere rule for the Haskell backend; k-rust accepts and executes anywhere rules (docs/compatibility.md#anywhere-rules)." },
+  { step = "kompile", out = "existsLHSBoundPass.k.out", exclusion = "ml-construct-position", reason = "existsLHSBoundPass.k's only rule, `foo(_X) => #Exists Y . { ?_I #Equals Y }`, builds a quantifier over a predicate where a step builds its result: the right-hand side denotes every value of its sort (the equality holds for Y = ?_I), not a term, and no k-rust route reads it (the Rust backend refused the compiled definition at load). For the Rust target kcompile refuses the rule with the located MlConstructPosition error; the reference only compiles it, and the recipe runs no program (docs/compatibility.md#matching-logic-constructs-by-position)." },
 ]
 [[case]]
 name = "checks"

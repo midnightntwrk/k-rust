@@ -538,6 +538,12 @@ file = "crates/k-rust/src/kompile/ml_constructs.rs"
 reason = "chooses each conjunction that strictness, heating and cooling added to a condition on the condition after macro expansion; one pass over the sentences that hold a pending conjunction"
 
 [[phase_only_stage]]
+stage = "check matching-logic positions"
+call = "check_ml_positions"
+file = "crates/k-rust/src/definition/checks/ml_positions.rs"
+reason = "judges each matching-logic construct by the context of its position on the sentences with their macros and aliases expanded, for the Rust target; one walk over the sentences of every module"
+
+[[phase_only_stage]]
 stage = "lower term conjunctions"
 call = "lower_term_conjunctions"
 file = "crates/k-rust/src/kompile/ml_constructs.rs"

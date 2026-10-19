@@ -155,7 +155,7 @@ fn check_rule_ranks(
 
 /// Whether `rule` defines a macro or an alias: it is not a simplification and the production its
 /// left-hand side applies is macro-like.
-fn is_macro_rule(rule: &Sentence, productions: &ProductionCatalog<'_>) -> bool {
+pub(super) fn is_macro_rule(rule: &Sentence, productions: &ProductionCatalog<'_>) -> bool {
     !rule.attributes().has(AttributeKey::Simplification)
         && productions
             .attributes_for(&LabelHead::from(&match_rule_label(rule)))

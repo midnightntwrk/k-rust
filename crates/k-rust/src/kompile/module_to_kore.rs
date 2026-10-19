@@ -428,7 +428,8 @@ impl fmt::Display for ModuleToKoreError {
             ),
             Self::MixedConditionEquality { sentence } => write!(
                 formatter,
-                "the condition of {sentence} has an #Equals, outside any term, whose operands are not both terms (an equality of values) or both predicates (their iff); a predicate at sort Bool denotes all of Bool or nothing (at any sort, all of it or nothing), so it never equals one value, and a connective over terms denotes a set of values, which is not a Boolean condition. To state that a predicate P holds, write P itself as the condition (#Not(P) that it fails); to combine Bool values, use Bool operations such as andBool and orBool"
+                "the condition of {sentence} has an #Equals, outside any term, {}",
+                super::ml_constructs::MIXED_EQUALITY_OPERANDS
             ),
         }
     }
