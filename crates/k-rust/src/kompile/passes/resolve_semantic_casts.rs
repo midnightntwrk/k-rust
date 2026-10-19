@@ -4,10 +4,7 @@
 //! Remove semantic-cast applications while retaining their inferred sorts.
 #![deny(clippy::wildcard_enum_match_arm)]
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fmt,
-};
+use std::{collections::BTreeMap, fmt};
 
 use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
@@ -272,10 +269,24 @@ fn resolve_semantic_casts_in_sentence_mut(
         return Ok(());
     }
 
-    let conjuncts = casts.iter().filter_map(|cast| {
+    // The sort tests of casts to one sort are conjoined in the order the casts first occur, and
+    // those of casts to different sorts in the order of the sorts' cast labels. Neither order
+    // reads a variable's name, so a renaming of the sentence's variables gives its tests in the
+    // same order.
+    fn cast_label(cast: &Term) -> &Label {
         let Term::Apply { label, .. } = cast else {
             unreachable!("only semantic-cast applications were collected")
         };
+        label
+    }
+    let mut ordered = casts.iter().collect::<Vec<_>>();
+    ordered.sort_by(|(left, left_first), (right, right_first)| {
+        cast_label(left)
+            .cmp(cast_label(right))
+            .then(left_first.cmp(right_first))
+    });
+    let conjuncts = ordered.into_iter().filter_map(|(cast, _)| {
+        let label = cast_label(cast);
         let sort = label
             .semantic_cast_sort()
             .expect("the cast set contains semantic-cast applications");
@@ -326,13 +337,15 @@ fn resolve_semantic_casts_in_sentence_mut(
 /// The sort semantic-cast resolution gives each named variable of a sentence with the term roots
 /// `roots`: its explicit sort, or else the least of its direct cast bounds.
 ///
-/// Returns the semantic casts seen, the variable sorts, and one message per conflict (an explicit
-/// sort outside a cast bound, conflicting explicit sorts, or cast bounds without a least one).
+/// Returns the semantic casts seen, each with the number of distinct casts that first occur
+/// before it in preorder over the roots, the variable sorts, and one message per conflict (an
+/// explicit sort outside a cast bound, conflicting explicit sorts, or cast bounds without a least
+/// one).
 fn collect_cast_bounds(
     roots: &[&Term],
     subsorts: &PartialOrder<Sort>,
-) -> (BTreeSet<Term>, BTreeMap<String, Sort>, Vec<String>) {
-    let mut casts = BTreeSet::new();
+) -> (BTreeMap<Term, usize>, BTreeMap<String, Sort>, Vec<String>) {
+    let mut casts = BTreeMap::new();
     let mut variables = BTreeMap::<String, VariableBounds>::new();
     let mut errors = Vec::new();
     // Invariant: `casts` holds semantic casts seen so far, and `variables` holds every explicit sort and direct cast bound of each named variable in the visited roots.
@@ -364,7 +377,8 @@ fn collect_cast_bounds(
             let [argument] = arguments.as_slice() else {
                 return;
             };
-            casts.insert(term.unannotated().clone());
+            let first = casts.len();
+            casts.entry(term.unannotated().clone()).or_insert(first);
             for value in cast_values(argument) {
                 match value.unannotated() {
                     Term::Variable {
@@ -564,12 +578,12 @@ fn is_true(term: &Term) -> bool {
 // Invariant: each call replaces an application in `casts` by its transformed argument carrying the cast sort, gives a variable its sort from `typed_variables`, and otherwise recurses into the immediate subterms of `term`; the finite `term` bounds the recursion.
 fn transform(
     term: Term,
-    casts: &BTreeSet<Term>,
+    casts: &BTreeMap<Term, usize>,
     typed_variables: &BTreeMap<String, Sort>,
     subsorts: &PartialOrder<Sort>,
 ) -> Term {
     let source_metadata = term.metadata().cloned();
-    if casts.contains(term.unannotated()) {
+    if casts.contains_key(term.unannotated()) {
         let TermParts::Apply { label, arguments } = term.into_unannotated().into_parts() else {
             unreachable!("the cast set contains applications only")
         };

@@ -364,7 +364,7 @@ impl Reservation {
     }
 
     /// Reserve the name of every variable of `term`, binders included.
-    fn reserve_names_of(&mut self, term: &Term) {
+    pub fn reserve_names_of(&mut self, term: &Term) {
         term.visit_preorder(&mut |node| {
             if let Term::Variable { name, .. } = node {
                 self.names.insert(name.clone());
@@ -372,8 +372,10 @@ impl Reservation {
         });
     }
 
-    /// A new name for a variable named `name`, reserved.
-    fn mint(&mut self, name: &str) -> String {
+    /// A new name for a variable named `name`, reserved: `{name}{n}` for the least `n` not yet
+    /// tried for that stem whose name is not reserved (module documentation, "Fresh names").
+    /// Successive mints of one stem over names it does not hold give `{name}0`, `{name}1`, ...
+    pub fn mint(&mut self, name: &str) -> String {
         let stem = if reads_as_resolved_anonymous(&format!("{name}0")) {
             format!("{name}_")
         } else {

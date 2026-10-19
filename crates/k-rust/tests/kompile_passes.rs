@@ -11963,7 +11963,17 @@ fn expands_context_alias_groups_context_rewrites_and_hybrid_rules() {
             .all(|(body, _)| body.contains("#SemanticCastToExp(HOLE)=>resume")),
         "{contexts:#?}"
     );
-    assert!(contexts[1].1.contains("isFoo(K0)"), "{contexts:#?}");
+    // The alias's `K0` is a variable of the alias, so the production's arguments are named apart
+    // from it (`K1`, `K2`), and the sequential condition tests the first argument, `K1`.
+    assert!(
+        contexts[0].0.contains("#SemanticCastToExp(K2)")
+            && contexts[1].0.contains("#SemanticCastToExp(K1)")
+            && contexts
+                .iter()
+                .all(|(_, requires)| requires.contains("allowed(K0)")),
+        "{contexts:#?}"
+    );
+    assert!(contexts[1].1.contains("isFoo(K1)"), "{contexts:#?}");
     assert!(main.local_sentences.iter().any(|sentence| {
         matches!(&**sentence, Sentence::Rule { body, requires, .. }
             if Printer::new().print_term(body).starts_with("isFoo(step(")

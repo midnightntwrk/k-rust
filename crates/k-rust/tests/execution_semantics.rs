@@ -3197,3 +3197,42 @@ fn a_run_whose_answers_are_all_decided_gives_one_result_on_any_backend() {
     assert_eq!(texts[0], texts[2]);
     assert_eq!(reused.execute(request()).unwrap().smt_unknowns, 0);
 }
+
+/// A context alias's variables are its own. Strictness resolution places the production's
+/// arguments (`K0`, `K1`, ...) beside the alias's variables, so an alias variable spelled like
+/// one of them must stay a variable of its own: `<s> K0 </s>` matches any store, as `<s> S </s>`
+/// does, and `1 + (2 + 3)` heats both sides and gives 6 whatever the alias calls its variable.
+#[test]
+fn a_context_alias_variable_spelled_like_a_strictness_variable_is_its_own() {
+    let run = |variable: &str| {
+        let source = format!(
+            "module CTXK0\n  imports INT\n  imports BOOL\n  syntax Exp ::= Int | \"(\" Exp \")\" [bracket] | Exp \"+\" Exp [seqstrict(c)]\n  syntax KResult ::= Int\n  configuration <k> $PGM:Exp </k> <s> 0 </s>\n  context alias [c]: <k> HERE ... </k> <s> {variable} </s>\n  rule <k> I1:Int + I2:Int => I1 +Int I2 ... </k>\nendmodule\n"
+        );
+        let compiled = compile(&source, "CTXK0", "CTXK0", "Exp", "1 + (2 + 3)");
+        let result = execute(&compiled, "CTXK0", Some(40));
+        (
+            result
+                .leaves
+                .iter()
+                .map(|leaf| leaf.reason)
+                .collect::<Vec<_>>(),
+            text(&result),
+        )
+    };
+    let (reasons, states) = run("S");
+    assert_eq!(reasons, [HaltReasonOutput::Stuck], "{states:?}");
+    let [state] = states.as_slice() else {
+        panic!("one leaf: {states:?}")
+    };
+    assert!(
+        state.contains(r#"kseq{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("6")), dotk{}())"#),
+        "{state}"
+    );
+    for variable in ["K0", "K1", "K2", "HOLE0"] {
+        assert_eq!(
+            run(variable),
+            (reasons.clone(), states.clone()),
+            "{variable}"
+        );
+    }
+}
