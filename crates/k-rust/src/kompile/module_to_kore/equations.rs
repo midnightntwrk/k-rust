@@ -34,6 +34,7 @@
 //! Rule, claim, macro, equation, and owise emission.
 //! Complexity: O(R(inject + convert)), plus one O(R) competitor scan per module with an owise equation and O(m) same-signature competitors per owise equation; `KompileOwiseCompetitorScans` counts the scanned rules and the visited competitors.
 
+use super::binders::generated_exists_all;
 use super::roles::{EmittedEquation, SymbolRoles};
 use super::*;
 use crate::kompile::fresh_names::{GeneratedVariableIdentity, is_generated_anonymous};
@@ -206,17 +207,14 @@ pub(super) fn emit_rule_or_claim(
         arguments: vec![left.clone(), requires.clone()],
     };
     let attribute_overrides = variable_list_attribute_overrides(attributes, &attribute_pattern)?;
-    let mut right = Pattern::And {
-        sort: result_sort.clone(),
-        arguments: vec![right, ensures],
-    };
-    for variable in existentials.into_iter().rev() {
-        right = Pattern::Exists {
+    let mut right = generated_exists_all(
+        &result_sort,
+        existentials,
+        Pattern::And {
             sort: result_sort.clone(),
-            variable: Box::new(variable),
-            body: Box::new(right),
-        };
-    }
+            arguments: vec![right, ensures],
+        },
+    );
     if let Some(mode) = reachability_mode(attributes).or(*default_reachability) {
         right = Pattern::Application {
             symbol: Symbol {
@@ -775,7 +773,7 @@ fn emit_owise_equation(
             &predicate_sort,
             converter,
         )?;
-        let mut candidate = Pattern::And {
+        let candidate = Pattern::And {
             sort: predicate_sort.clone(),
             arguments: vec![condition, matches],
         };
@@ -804,15 +802,15 @@ fn emit_owise_equation(
             }
         }
         quantified.sort_by(|(left, _), (right, _)| left.cmp(right));
-        // Invariant: `candidate` is wrapped in one existential per variable of `quantified` after `variable`, so after the reverse traversal the first sorted variable is the outermost binder; each iteration consumes one variable.
-        for (_, variable) in quantified.into_iter().rev() {
-            candidate = Pattern::Exists {
-                sort: predicate_sort.clone(),
-                variable: Box::new(variable),
-                body: Box::new(candidate),
-            };
-        }
-        competitors.push(candidate);
+        // The first sorted variable is the outermost binder.
+        competitors.push(generated_exists_all(
+            &predicate_sort,
+            quantified
+                .into_iter()
+                .map(|(_, variable)| variable)
+                .collect(),
+            candidate,
+        ));
     }
 
     // A rule before which the scan stopped fails the equation after every earlier competitor.

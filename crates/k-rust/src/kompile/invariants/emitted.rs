@@ -7,9 +7,7 @@
 //! nothing the theory describes: a left-hand side containing it never matches a value, and a
 //! right-hand side containing it writes a junk value. A domain value `\dv{S}("s")` denotes the
 //! element of `S` that `s` names in `S`'s domain, which exists only when the declaration of `S`'s
-//! head carries `hasDomainValues`. A compiler-generated binder variable is introduced to bind
-//! something, so a generated `\exists` or `\forall` whose body does not mention its variable binds
-//! it in place of whatever the construct means to bind. KORE quantifies sort variables only at a
+//! head carries `hasDomainValues`. KORE quantifies sort variables only at a
 //! sentence (`axiom{R, W}`, `symbol f{W}`), never inside a pattern, and a sort application
 //! `SortH{A1, .., An}` names a sort declared with `n` parameters; a sentence that mentions any
 //! other sort refers to nothing the theory declares, and when a sort parameter of a source
@@ -23,8 +21,9 @@
 //!   module's `subsort{..}` axiom attributes. The oracle is the emitted axioms themselves, not
 //!   the injector's relation, so a defect of that relation is caught here too.
 //! - K2: every `\dv{S}` has a sort `S` whose head is declared with `hasDomainValues`.
-//! - K3: every `\exists` and `\forall` whose variable decodes to a name that
-//!   `is_generated_anonymous` accepts has that variable free in its body.
+//! - K3 (generated binder) is not checked here: whether a binder is generated is a fact about
+//!   the binder node, which only the code that builds it knows, not about its variable's
+//!   spelling, so the emitter's binder constructors check it (`module_to_kore::binders`).
 //! - K4 (sort scope): every sort the sentence mentions is a sort variable the sentence binds, or
 //!   an application of a sort declared (as a sort or hooked sort) in the module or in the
 //!   embedded prelude with exactly as many parameters as it is applied to, whose arguments
@@ -33,7 +32,7 @@
 //!   sort variable, and mentions its argument and result sorts (and an alias its two patterns);
 //!   a sort declaration binds its parameters. The symbol instances in `element`, `unit`,
 //!   `concat` and `update` attributes also satisfy K4 under the sentence's binder.
-//!   K4 runs before K1-K3, so an undeclared sort reports its cause rather than a junk injection.
+//!   K4 runs before K1 and K2, so an undeclared sort reports its cause rather than a junk injection.
 //! - K5 (symbol arity): every symbol or alias application names a declaration in the module or
 //!   embedded prelude and carries exactly as many sort arguments as that declaration binds.
 //!   K5 runs before K1, so missing injection sort arguments report their arity.
@@ -54,12 +53,8 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::OnceLock;
 
-use crate::kast::identifier::decode_variable;
-use crate::kompile::fresh_names::is_generated_anonymous;
 use crate::kompile::module_to_kore::standard_kore_prelude;
-use crate::kore::ast::{
-    Module, Pattern, Sentence as KoreSentence, Sort as KoreSort, Symbol, Variable,
-};
+use crate::kore::ast::{Module, Pattern, Sentence as KoreSentence, Sort as KoreSort, Symbol};
 use crate::kore::walk::for_each_post_order;
 use crate::names::{KoreAttribute, WellKnownSymbol};
 use crate::provenance::OriginRecord;
@@ -167,7 +162,7 @@ impl EmittedTheory {
         }
     }
 
-    /// Check attributes first, then signature/pattern sort scope and K5 and K1-K3.
+    /// Check attributes first, then signature/pattern sort scope and K5, K1 and K2.
     /// Panics on the first violation.
     ///
     /// `source` describes what the sentence was emitted from and, for a rule or claim, the pass
@@ -414,7 +409,7 @@ impl EmittedTheory {
         None
     }
 
-    /// The violated rule and its reason, when `node` itself violates K5, K1, K2 or K3.
+    /// The violated rule and its reason, when `node` itself violates K5, K1 or K2.
     fn violation(&self, node: &Pattern) -> Option<String> {
         match node {
             Pattern::Application { symbol, .. }
@@ -433,9 +428,9 @@ impl EmittedTheory {
                     )
                 })
             }
-            Pattern::Exists { variable, body, .. } => binder_violation("\\exists", variable, body),
-            Pattern::Forall { variable, body, .. } => binder_violation("\\forall", variable, body),
             Pattern::String(_)
+            | Pattern::Exists { .. }
+            | Pattern::Forall { .. }
             | Pattern::Variable(_)
             | Pattern::Top { .. }
             | Pattern::Bottom { .. }
@@ -607,20 +602,6 @@ fn prelude_symbols() -> &'static BTreeMap<String, usize> {
                 | KoreSentence::Claim { .. } => None,
             })
             .collect()
-    })
-}
-
-/// The K3 violation of a binder `binder` over `variable` with body `body`, if any.
-fn binder_violation(binder: &str, variable: &Variable, body: &Pattern) -> Option<String> {
-    let (_, decoded) = decode_variable(&variable.name);
-    let generated = decoded.is_ok_and(|name| is_generated_anonymous(&name));
-    (generated && !body.free_variables().contains(variable)).then(|| {
-        format!(
-            "K3 (generated binder) violated: {binder} binds the compiler-generated variable \
-             {}:{}, which does not occur free in its body",
-            variable.name,
-            render_sort(&variable.sort)
-        )
     })
 }
 
@@ -930,42 +911,21 @@ mod tests {
         assert_eq!(violation(&declared, &token), None);
     }
 
+    /// The theory check reads no binder: K3 is checked where a generated binder is built
+    /// (`module_to_kore::binders`), so a binder in an emitted sentence passes here whatever its
+    /// variable is spelled and whether or not its body mentions it. A binder over a variable its
+    /// body does not mention is well-formed and equivalent to its body.
     #[test]
-    fn generated_binder_over_an_absent_variable_panics_naming_source_and_origin() {
-        let vacuous = sentence(
+    fn the_theory_check_leaves_binders_to_their_constructors() {
+        for text in [
             r#"axiom{S} \exists{S}(Var'Unds'Gen0:SortK{}, \equals{SortInt{}, S}(VarX:SortInt{}, \dv{SortInt{}}("1"))) []"#,
-        );
-        assert_violation(
-            &theory(THEORY),
-            &vacuous,
-            "K3 (generated binder) violated: \\exists binds the compiler-generated variable Var'Unds'Gen0:SortK{}",
-        );
-        let vacuous_forall =
-            sentence(r#"axiom{S} \forall{S}(Var'Unds'Gen3:SortK{}, \top{S}()) []"#);
-        assert_violation(
-            &theory(THEORY),
-            &vacuous_forall,
-            "K3 (generated binder) violated: \\forall",
-        );
-    }
-
-    #[test]
-    fn generated_binder_over_a_body_variable_and_user_binders_pass() {
-        let bound = sentence(
+            r#"axiom{S} \forall{S}(Var'Unds'Gen3:SortK{}, \top{S}()) []"#,
             r#"axiom{S} \exists{S}(Var'Unds'Gen0:SortK{}, \equals{SortK{}, S}(Var'Unds'Gen0:SortK{}, VarX:SortK{})) []"#,
-        );
-        assert_eq!(violation(&theory(THEORY), &bound), None);
-        // A binder the author wrote over a variable its body does not mention is well-formed
-        // and equivalent to its body.
-        let user = sentence(
             r#"axiom{S} \exists{S}(VarX:SortK{}, \equals{SortInt{}, S}(VarY:SortInt{}, \dv{SortInt{}}("1"))) []"#,
-        );
-        assert_eq!(violation(&theory(THEORY), &user), None);
-        // A generated variable of another sort is another variable.
-        let other_sort = sentence(
             r#"axiom{S} \exists{S}(Var'Unds'Gen0:SortK{}, \equals{SortInt{}, S}(Var'Unds'Gen0:SortInt{}, \dv{SortInt{}}("1"))) []"#,
-        );
-        assert!(violation(&theory(THEORY), &other_sort).is_some());
+        ] {
+            assert_eq!(violation(&theory(THEORY), &sentence(text)), None, "{text}");
+        }
     }
 
     /// A theory with `Foo`, the hooked parametric sort `MInt{S0}` and `8`; `W` is not a sort.
