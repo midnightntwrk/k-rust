@@ -2,7 +2,7 @@
 //! id = "kompile.labels.backward_closure"
 //! name = "backward closure over the label-dependency graph"
 //! sites = ["LabelDependencyGraph::build", "LabelDependencyGraph::backward_closure"]
-//! variable = "V = function labels; E = rule dependency edges; R = rules; N_f = term nodes of function rules"
+//! variable = "V = function and macro labels; E = rule dependency edges; R = rules; N_f = term nodes of the rules that give edges"
 //! counters = []
 //! no_counter = "label-dependency closure has no dedicated counter"
 //!
@@ -19,6 +19,13 @@
 //! label to each function or non-macro anywhere label its rules apply, so anywhere labels are edge
 //! targets only, and only function labels propagate a property to their callers.
 //!
+//! [`Edges`] selects the rule parts that give edges. With [`Edges::READS`], used for the
+//! functions that read the configuration, they are every part a rule's evaluation reads: the body,
+//! `requires` and `ensures` of a function rule, and a macro is a node too, with an edge from each
+//! rule part that uses it to the macro and from the macro to what its right side applies, since
+//! expansion puts that right side where the macro is used. A macro label can enter a closure; a
+//! caller that needs function labels only keeps those.
+//!
 //! Graph construction visits the rule catalog once; closure is O(V + E). No dedicated counter.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -32,6 +39,30 @@ use crate::definition::{
 use crate::kast::Term;
 use crate::names::WellKnownSymbol;
 
+/// The rule parts that give a [`LabelDependencyGraph`] its edges, besides the body and `requires`
+/// of every function rule.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct Edges {
+    /// The `ensures` of a function rule.
+    pub(crate) ensures: bool,
+    /// Macro labels as nodes: an application of one is an edge target, and its rules give edges.
+    pub(crate) macros: bool,
+}
+
+impl Edges {
+    /// The body and `requires` of function rules only.
+    pub(crate) const FUNCTION_RULES: Self = Self {
+        ensures: false,
+        macros: false,
+    };
+    /// Every part of a function rule, and macros, through which evaluating a function reaches
+    /// another label.
+    pub(crate) const READS: Self = Self {
+        ensures: true,
+        macros: true,
+    };
+}
+
 pub(crate) struct LabelDependencyGraph {
     graph: DiGraph<LabelHead, ()>,
     nodes: BTreeMap<LabelHead, NodeIndex>,
@@ -42,8 +73,14 @@ impl LabelDependencyGraph {
         productions: &ProductionCatalog<'_>,
         rules: &RuleCatalog<'_>,
         is_macro: impl Fn(&Sentence) -> bool,
+        edges: Edges,
     ) -> Self {
         let function_labels = productions.function_labels();
+        let macro_labels = if edges.macros {
+            rules.all_macro_labels(productions)
+        } else {
+            BTreeSet::new()
+        };
         let anywhere_labels = rules
             .rules()
             .filter(|(_, rule)| !is_macro(rule))
@@ -61,16 +98,23 @@ impl LabelDependencyGraph {
         // dependency edge found in the rule-catalog prefix already visited.
         for (_, rule) in rules.rules() {
             let current = LabelHead::from(&match_rule_label(rule));
-            if !function_labels.contains(&current) {
+            if !function_labels.contains(&current) && !macro_labels.contains(&current) {
                 continue;
             }
             let current_node = result.node(current);
-            let Sentence::Rule { body, requires, .. } = rule else {
+            let Sentence::Rule {
+                body,
+                requires,
+                ensures,
+                ..
+            } = rule
+            else {
                 unreachable!("rule catalogs contain rules")
             };
-            // Invariant: `result.graph` has an edge from `current_node` to every function or anywhere label applied in the roots before `root` (`body`, then `requires`).
-            for root in [body, requires] {
-                // Invariant: the preorder traversal visits each node of `root` once and adds one edge from `current_node` for every non-injection application whose label is in `function_labels` or `anywhere_labels`.
+            let roots = [Some(body), Some(requires), edges.ensures.then_some(ensures)];
+            // Invariant: `result.graph` has an edge from `current_node` to every function, anywhere or macro label applied in the roots before `root` (`body`, `requires`, then `ensures` when `edges.ensures`).
+            for root in roots.into_iter().flatten() {
+                // Invariant: the preorder traversal visits each node of `root` once and adds one edge from `current_node` for every non-injection application whose label is in `function_labels`, `anywhere_labels` or `macro_labels`.
                 root.visit_preorder(&mut |term| {
                     let Term::Apply { label, .. } = term.unannotated() else {
                         return;
@@ -81,6 +125,7 @@ impl LabelDependencyGraph {
                     let dependency = LabelHead::from(label);
                     if function_labels.contains(&dependency)
                         || anywhere_labels.contains(&dependency)
+                        || macro_labels.contains(&dependency)
                     {
                         let dependency_node = result.node(dependency);
                         result.graph.add_edge(current_node, dependency_node, ());

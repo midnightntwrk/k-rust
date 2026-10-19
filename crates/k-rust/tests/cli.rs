@@ -23717,6 +23717,97 @@ fn a_sentence_with_no_configuration_in_scope_cannot_read_it() {
 }
 
 #[test]
+fn a_function_reads_the_configuration_through_every_function_or_macro_it_reaches() {
+    // A function reads the configuration when its rules do, or when a function or macro that
+    // their requires, ensures or right-hand sides reach does: such a function receives the
+    // configuration, so its rules evaluate with the configuration of the application, and a
+    // rule with no configuration in scope that calls it is rejected.
+    let run = |rules: &str, flag: &str| {
+        let source = configuration_reading_source(
+            &format!("{rules}\n  rule <k> foo2(N) => done(f(N)) ... </k>"),
+            "",
+        );
+        let output = krun_source(
+            &source,
+            &[
+                "--main-module",
+                "MAIN",
+                "--sort",
+                "Pgm",
+                "--expression",
+                "go(3)",
+                "-c",
+                &format!("FLAG={flag}"),
+                "--io",
+                "off",
+            ],
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        assert!(output.status.success(), "{source}\n{stderr}");
+        assert!(!stderr.contains("never applied"), "{source}\n{stderr}");
+        String::from_utf8(output.stdout).unwrap()
+    };
+    let done = |value: &str| format!(r#"Lbldone{{}}(\dv{{SortInt{{}}}}("{value}"))"#);
+    for (rules, answers) in [
+        // Through a macro in a condition (FU-29).
+        (
+            "rule f(_N) => 0 requires isZeroM()\n  rule f(N) => N [owise]",
+            [("0", "0"), ("1", "3")],
+        ),
+        // Through a macro whose right-hand side is a macro.
+        (
+            "syntax Bool ::= isZeroMM() [macro]\n  rule isZeroMM() => isZeroM()\n  \
+             rule f(_N) => 0 requires isZeroMM()\n  rule f(N) => N [owise]",
+            [("0", "0"), ("1", "3")],
+        ),
+        // Through a macro in an anywhere rule of the function.
+        (
+            "rule f(N) => N requires isZeroM() [anywhere]\n  rule f(_) => 0 [owise]",
+            [("0", "3"), ("1", "0")],
+        ),
+        // Through a function called in a condition of the function's rules.
+        (
+            "rule f(N) => N requires g()\n  rule f(_) => 0 [owise]",
+            [("0", "3"), ("1", "0")],
+        ),
+    ] {
+        for (flag, value) in answers {
+            let stdout = run(rules, flag);
+            assert!(
+                stdout.contains(&done(value)),
+                "{rules} FLAG={flag}\n{stdout}"
+            );
+        }
+    }
+    // Through an ensures, of a function rule and of an anywhere rule of the function.
+    for rules in [
+        "rule f(N) => N ensures isZero()",
+        "rule f(N) => N ensures isZero() [anywhere]",
+    ] {
+        let stdout = run(rules, "0");
+        assert!(stdout.contains(&done("3")), "{rules}\n{stdout}");
+    }
+
+    // An anywhere rule on a constructor that calls a function reading the configuration through
+    // its ensures has no configuration to pass.
+    let source = configuration_reading_source(
+        "syntax Bool ::= ge() [function, symbol(ge)]\n  rule ge() => true ensures isZero()\n  \
+         rule foo2(N) => bar2(N) requires ge() [anywhere]",
+        "",
+    );
+    let output = kcompile_source(&source);
+    assert!(!output.status.success(), "{source}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(
+            "definition.k:18:3: Error[InvalidFunctionConfiguration]: An anywhere rule cannot read the configuration: its requires clause calls ge, which reads it, and the rule has no configuration in scope:"
+        ),
+        "{source}\n{stderr}"
+    );
+    assert!(!stderr.contains("panicked"), "{stderr}");
+}
+
+#[test]
 fn fresh_variables_outside_rewrite_steps_are_rejected_at_the_sentence() {
     // A fresh value is drawn from the configuration's counter cell by the rewrite step that
     // introduces it, so a `!X` in an equation or a claim would be a variable nothing binds.

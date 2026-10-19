@@ -71,8 +71,9 @@
 //!   a use site, which binds it. The check reads the spelling, which is sound because a name that
 //!   starts with `#` is reserved for the compiler, so no authored variable is `#Configuration`.
 //!   The binding stage rejects, with a diagnostic and by the same predicate, every rule and claim
-//!   that would break CF1 except the rules of functions, whose unbound references are reads that
-//!   the propagation of the configuration to functions does not follow.
+//!   that would break CF1 except the rules of functions: a function that a rule's reads reach
+//!   receives the configuration, so an unbound reference in a function rule would be a read that
+//!   this propagation missed, a compiler defect that CF1 is there to report.
 //!
 //! [`StageChecks`] also checks rule C2 at every stage boundary once a stage providing
 //! [`Artifacts::CONDITION_CONJUNCTIONS_RESOLVED`] has run:

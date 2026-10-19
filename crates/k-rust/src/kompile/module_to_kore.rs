@@ -72,7 +72,7 @@ use crate::provenance::{
 
 use super::compile::CompilationBackend;
 use super::fresh_names::FreshNames;
-use super::label_graph::LabelDependencyGraph;
+use super::label_graph::{Edges, LabelDependencyGraph};
 use super::passes::number_sentence;
 use super::sort_injections::{SortInjectionError, SortInjector};
 use super::term_to_kore::{TermConversionError, TermConverter};
@@ -1360,7 +1360,8 @@ fn transitive_impure_labels(
     productions: &ProductionCatalog<'_>,
 ) -> BTreeSet<String> {
     let rules = definition.rule_catalog(module);
-    let graph = LabelDependencyGraph::build(productions, &rules, is_macro_rule);
+    let graph =
+        LabelDependencyGraph::build(productions, &rules, is_macro_rule, Edges::FUNCTION_RULES);
     let impure = productions
         .productions()
         .filter_map(|(_, production)| match production {
