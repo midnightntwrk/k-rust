@@ -364,7 +364,7 @@ pub fn check_rewrites(sentences: &[&Sentence]) -> Vec<Diagnostic> {
 
 /// A named variable that occurs once is reported as unused, and an anonymous-named variable that
 /// occurs more than once as used, each variable counted apart from another of its spelling that a
-/// quantifier binds; `HOLE` and `HERE` in contexts are exempt. A quantifier whose
+/// quantifier or a local function binds; `HOLE` and `HERE` in contexts are exempt. A quantifier whose
 /// binder is an anonymous variable (`#Exists _ . P`) is reported as binding nothing.
 pub fn check_anonymous_variables(sentences: &[&Sentence]) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
@@ -375,10 +375,14 @@ pub fn check_anonymous_variables(sentences: &[&Sentence]) -> Vec<Diagnostic> {
         warn_anonymous_binders(sentence, &mut diagnostics);
         // Occurrences are counted per variable, not per spelling (`kast::binding`): the free
         // occurrences of a name in any term of the sentence are one variable, and each quantifier
-        // binds a variable of its own, its binding occurrence included.
+        // or local function (`#fun`, `#let`, a match `P :=K A`) binds a variable of its own for
+        // each name it binds, its binding occurrences included.
         let mut counts = BTreeMap::<(Option<(usize, usize)>, String), usize>::new();
         for (root, (_, term)) in sentence.terms().enumerate() {
-            for occurrence in crate::kast::binding::occurrences(term) {
+            for occurrence in crate::kast::binding::occurrences_in(
+                term,
+                crate::kast::binding::Binders::LocalFunctions,
+            ) {
                 let scope = match occurrence.role {
                     crate::kast::binding::Role::Free => None,
                     crate::kast::binding::Role::Bound { binder }
@@ -422,8 +426,11 @@ pub fn check_anonymous_variables(sentences: &[&Sentence]) -> Vec<Diagnostic> {
 }
 
 /// FU-55: a `concrete` or `symbolic` attribute of a rule or claim names free variables of it. An
-/// attribute lies outside every quantifier's scope, so a name it lists can only be a variable free
-/// in the sentence's terms (`kast::binding`); a name that is none is refused at the sentence.
+/// attribute lies outside every quantifier's and every local function's scope, so a name it lists
+/// can only be a variable free in the sentence's terms (`kast::binding`, with local functions as
+/// binders); a name that is none is refused at the sentence. A local function's parameter is
+/// matched against the value the function is applied to when the function is evaluated, not
+/// against the subject when the rule is chosen, so `concrete(Z)` says nothing of it.
 pub fn check_variable_naming_attributes(sentences: &[&Sentence]) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     for sentence in sentences {
@@ -437,7 +444,12 @@ pub fn check_variable_naming_attributes(sentences: &[&Sentence]) -> Vec<Diagnost
         }
         let free = sentence
             .terms()
-            .flat_map(|(_, term)| crate::kast::binding::free_variables(term))
+            .flat_map(|(_, term)| {
+                crate::kast::binding::free_variables_in(
+                    term,
+                    crate::kast::binding::Binders::LocalFunctions,
+                )
+            })
             .collect::<BTreeSet<_>>();
         for key in keys {
             let Some(value) = attributes.string(key) else {
@@ -459,7 +471,7 @@ pub fn check_variable_naming_attributes(sentences: &[&Sentence]) -> Vec<Diagnost
                 diagnostics.push(Diagnostic::error(
                     DiagnosticCode::InvalidAttribute,
                     format!(
-                        "The {} attribute names {name}, which is no free variable of the sentence: an attribute lies outside every quantifier, so a name it lists must be a variable the sentence uses free.",
+                        "The {} attribute names {name}, which is no free variable of the sentence: an attribute lies outside every quantifier and local function, so a name it lists must be a variable the sentence uses free.",
                         key.as_str()
                     ),
                     sentence,

@@ -309,7 +309,7 @@ fn a_quantifier_in_a_by_value_read_binds_its_own_variable() {
 fn an_attribute_naming_no_free_variable_is_refused_at_its_rule() {
     let message = |key: &str, name: &str| {
         format!(
-            "InvalidAttribute@7: The {key} attribute names {name}, which is no free variable of the sentence: an attribute lies outside every quantifier, so a name it lists must be a variable the sentence uses free."
+            "InvalidAttribute@7: The {key} attribute names {name}, which is no free variable of the sentence: an attribute lies outside every quantifier and local function, so a name it lists must be a variable the sentence uses free."
         )
     };
     let rule = |binder: &str, attribute: &str| {
@@ -405,5 +405,27 @@ fn a_macro_question_mark_binder_is_not_an_existential_at_its_use() {
             .iter()
             .any(|error| error.starts_with("InvalidExistentialVariable"))),
         "{result:?}"
+    );
+}
+
+/// A local function's parameter is matched against the value the function is applied to when the
+/// function is evaluated, not against the subject when the rule is chosen, so it is no variable of
+/// the rule and a `concrete` attribute naming it names no free variable: it is refused at its rule
+/// by the definition checks, as `concrete(Q)` is, for a match pattern and a `#fun` parameter.
+#[test]
+fn an_attribute_naming_a_local_function_parameter_is_refused_at_its_rule() {
+    let message = "InvalidAttribute@7: The concrete attribute names Z, which is no free variable of the sentence: an attribute lies outside every quantifier and local function, so a name it lists must be a variable the sentence uses free.";
+    for rule in [
+        "syntax Int ::= f(Int) [function]\n  rule f(X) => X requires Z :=K X [simplification, concrete(Z)]",
+        "syntax Int ::= f(Int) [function]\n  rule f(X) => #fun(Z => Z)(X) [simplification, concrete(Z)]",
+    ] {
+        assert_eq!(compile_result(rule), Err(message.to_owned()), "{rule}");
+    }
+    assert_eq!(
+        compile_result(
+            "syntax Int ::= f(Int) [function]\n  rule f(X) => #fun(Z => Z)(X) [simplification, concrete(X)]"
+        ),
+        Ok(()),
+        "concrete(X) names the rule's free X"
     );
 }
