@@ -3106,7 +3106,7 @@ fn aliases_a_rewritten_top_cell_when_configuration_is_used() {
         attributes: Attributes::default(),
     };
 
-    let transformed = resolve_config_var(&definition);
+    let transformed = resolve_config_var(&definition).unwrap();
     let body = transformed
         .main_module()
         .unwrap()
@@ -3131,6 +3131,94 @@ fn aliases_a_rewritten_top_cell_when_configuration_is_used() {
     assert_eq!(origin.destination.as_ref().unwrap().path, [0, 0]);
 }
 
+/// An anywhere rule holds wherever its left-hand side occurs, also outside any configuration, so
+/// nothing can bind the configuration variable that a configuration-reading call passes there:
+/// the binding stage rejects the rule at its location, and binds the other rules.
+#[test]
+fn rejects_an_anywhere_rule_that_reads_the_configuration_at_the_rule() {
+    let top = application(
+        "<generatedTop>",
+        vec![application("<k>", vec![Term::variable("K")])],
+    );
+    let anywhere = attributes(&[
+        ("anywhere", json!("")),
+        ("org.kframework.attributes.Source", json!("anywhere.k")),
+        ("org.kframework.attributes.Location", json!([12, 3, 12, 55])),
+    ]);
+    let reads = || application("isZero", vec![Term::variable("#Configuration")]);
+    let foo = application("foo2", vec![Term::variable("N")]);
+    let definition = |requires: Term, right: Term| Definition {
+        main_module: "MAIN".into(),
+        modules: vec![module(
+            "MAIN",
+            vec![
+                Sentence::Rule {
+                    body: rewrite(top.clone(), top.clone()),
+                    requires: reads(),
+                    ensures: truth(),
+                    attributes: Attributes::default(),
+                },
+                Sentence::Rule {
+                    body: rewrite(foo.clone(), right),
+                    requires,
+                    ensures: truth(),
+                    attributes: anywhere.clone(),
+                },
+            ],
+        )],
+        attributes: Attributes::default(),
+    };
+
+    let bar = application("bar2", vec![Term::variable("N")]);
+    for (requires, right, message) in [
+        (
+            reads(),
+            bar.clone(),
+            "An anywhere rule cannot read the configuration: its requires clause calls isZero, \
+             which reads it, and the rule applies to its left-hand side wherever that term \
+             occurs, also outside any configuration, so there is no current configuration to read.",
+        ),
+        (
+            reads(),
+            application("bar3", vec![reads()]),
+            "An anywhere rule cannot read the configuration: its requires clause and right-hand \
+             side call isZero, which reads it, and the rule applies to its left-hand side wherever \
+             that term occurs, also outside any configuration, so there is no current \
+             configuration to read.",
+        ),
+    ] {
+        let error = resolve_config_var(&definition(requires, right)).unwrap_err();
+        assert_eq!(error.diagnostics.len(), 1);
+        let diagnostic = &error.diagnostics[0];
+        assert_eq!(diagnostic.severity, k_rust::diagnostic::Severity::Error);
+        assert_eq!(
+            diagnostic.code,
+            k_rust::diagnostic::DiagnosticCode::InvalidFunctionConfiguration
+        );
+        assert_eq!(diagnostic.message, message);
+        assert_eq!(diagnostic.source.as_deref(), Some("anywhere.k"));
+        assert_eq!(
+            diagnostic
+                .location
+                .as_ref()
+                .map(|location| location.start_line),
+            Some(12)
+        );
+    }
+
+    // Without the read the anywhere rule is left as it is, and the rewrite of the top cell is
+    // bound.
+    let transformed = resolve_config_var(&definition(truth(), bar)).unwrap();
+    let sentences = &transformed.main_module().unwrap().local_sentences;
+    let Sentence::Rule { body, .. } = &*sentences[0] else {
+        panic!("the first sentence is a rule")
+    };
+    let Term::Rewrite { left, .. } = body.unannotated() else {
+        panic!("the configuration rule remains a rewrite")
+    };
+    assert!(matches!(left.unannotated(), Term::As { .. }), "{body:?}");
+}
+
 #[test]
 fn does_not_alias_a_top_cell_for_unresolved_fresh_variables_alone() {
     let top = application(
@@ -3152,7 +3240,7 @@ fn does_not_alias_a_top_cell_for_unresolved_fresh_variables_alone() {
         attributes: Attributes::default(),
     };
 
-    let transformed = resolve_config_var(&definition);
+    let transformed = resolve_config_var(&definition).unwrap();
     let body = transformed
         .main_module()
         .unwrap()
@@ -10198,7 +10286,7 @@ fn concretizes_cells_inside_generated_simplification_rules() {
     }
 
     let transformed = add_semantics_module(&transformed).unwrap();
-    let transformed = resolve_config_var(&transformed);
+    let transformed = resolve_config_var(&transformed).unwrap();
     let transformed = add_cool_like_attributes(&transformed);
     let transformed = generate_sort_predicate_rules(&transformed).unwrap();
     let transformed = number_sentences(&transformed);

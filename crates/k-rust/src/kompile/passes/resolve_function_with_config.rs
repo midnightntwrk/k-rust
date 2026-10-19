@@ -6,7 +6,6 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    convert::Infallible,
     fmt,
     sync::Arc,
 };
@@ -228,23 +227,36 @@ pub(crate) fn resolve_function_with_config_pass(
 ///
 /// This is a separate operation from [`resolve_function_with_config`] because the left-hand side
 /// is the generated top cell only after cell concretization; the KORE pipeline runs it after
-/// cell concretization and semantics-module generation.
-pub fn resolve_config_var(definition: &Definition) -> Definition {
+/// cell concretization and semantics-module generation, and so after macro expansion.
+///
+/// An anywhere rule that mentions the variable is rejected at the rule
+/// ([`DiagnosticCode::InvalidFunctionConfiguration`]): it holds wherever its left-hand side
+/// occurs, also outside any configuration, so the current configuration has no value in it and
+/// nothing can bind the variable. Its left-hand side is never the generated top cell, and an
+/// anywhere symbol never receives the configuration as an argument, since only the rules of
+/// functions propagate the need for it ([`resolve_function_with_config`]).
+pub fn resolve_config_var(
+    definition: &Definition,
+) -> Result<Definition, ResolveFunctionWithConfigError> {
     super::super::pipeline::run_standalone(
         definition,
         resolve_config_var_pass,
         Some(GeneratingPass::ResolveFunctionWithConfig),
     )
-    .unwrap_or_else(|error| match error {})
 }
 
 pub(crate) fn resolve_config_var_pass(
     input: &super::super::pipeline::PassInput<'_>,
     _: &mut super::super::pipeline::PipelineState,
-) -> Result<Definition, Infallible> {
+) -> Result<Definition, ResolveFunctionWithConfigError> {
     let mut output = input.definition.clone();
+    let mut diagnostics = Vec::new();
     for module in &mut output.modules {
         for sentence in &mut module.local_sentences {
+            if let Some(diagnostic) = anywhere_configuration_read(sentence) {
+                diagnostics.push(diagnostic);
+                continue;
+            }
             // Only rules and claims change. The kind is decided before taking a mutable sentence,
             // which copies a shared one, so every other kind stays shared.
             match &**sentence {
@@ -309,7 +321,83 @@ pub(crate) fn resolve_config_var_pass(
             }
         }
     }
+    if !diagnostics.is_empty() {
+        diagnostics.sort();
+        diagnostics.dedup();
+        return Err(ResolveFunctionWithConfigError { diagnostics });
+    }
     Ok(output)
+}
+
+/// The rejection of `sentence` when it is an anywhere rule, not macro-like, that mentions the
+/// configuration variable where its left-hand side does not bind it ([`resolve_config_var`]).
+///
+/// The variable reaches such a rule only as the last argument of a configuration-reading
+/// function that the rule calls, directly or through a macro it uses, so the message names
+/// those functions and the parts of the rule that call them.
+fn anywhere_configuration_read(sentence: &Sentence) -> Option<Diagnostic> {
+    let Sentence::Rule {
+        body,
+        requires,
+        ensures,
+        attributes,
+    } = sentence
+    else {
+        return None;
+    };
+    if !attributes.has(AttributeKey::Anywhere) || attributes.has_any(&AttributeKey::MACRO_LIKE) {
+        return None;
+    }
+    if contains_exact_configuration_variable(&rewrite_left(body)) {
+        return None;
+    }
+    let right = rewrite_right(body);
+    let parts = [
+        ("requires clause", requires),
+        ("ensures clause", ensures),
+        ("right-hand side", &right),
+    ]
+    .into_iter()
+    .filter(|(_, term)| contains_exact_configuration_variable(term))
+    .collect::<Vec<_>>();
+    if parts.is_empty() {
+        return None;
+    }
+    let mut readers = BTreeSet::new();
+    for (_, term) in &parts {
+        term.visit_preorder(&mut |node| {
+            if let Term::Apply { label, arguments } = node.unannotated()
+                && arguments.last().is_some_and(is_configuration_argument)
+            {
+                readers.insert(label.name.clone());
+            }
+        });
+    }
+    let places = parts
+        .iter()
+        .map(|(place, _)| *place)
+        .collect::<Vec<_>>()
+        .join(" and ");
+    let calls = if readers.is_empty() {
+        "reads it".to_owned()
+    } else {
+        let readers = readers.into_iter().collect::<Vec<_>>();
+        let (verb, relative) = match (parts.len(), readers.len()) {
+            (1, 1) => ("calls", "reads"),
+            (1, _) => ("calls", "read"),
+            (_, 1) => ("call", "reads"),
+            _ => ("call", "read"),
+        };
+        format!("{verb} {}, which {relative} it", readers.join(", "))
+    };
+    Some(error_at(
+        format!(
+            "An anywhere rule cannot read the configuration: its {places} {calls}, and the rule \
+             applies to its left-hand side wherever that term occurs, also outside any \
+             configuration, so there is no current configuration to read."
+        ),
+        attributes,
+    ))
 }
 
 fn compute_with_config_functions(

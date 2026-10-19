@@ -55,7 +55,21 @@
 //!   right side that the former stage made read it, so C1 neither checks nor records it at any
 //!   stage before that one. From that stage on it is checked like any other condition variable;
 //!   as no earlier condition recorded it, the binding stage must have bound it in the body of
-//!   every sentence whose condition holds it.
+//!   every sentence whose condition holds it, which CF1 (below), checked first, states exactly.
+//!
+//! `#Configuration` names the current configuration, which a sentence has only where its left-hand
+//! side matches it. [`StageChecks`] therefore checks rule CF1 at every stage boundary once a stage
+//! providing [`Artifacts::CONFIGURATION_VARIABLES_BOUND`] has run, before C1 and R3, so that a
+//! configuration reference left unbound is reported as such rather than through either:
+//!
+//! - CF1: every rule, claim, context or context alias that holds `#Configuration` and is not
+//!   macro-like binds it at the root of its left-hand side (the left side of its top rewrite, or
+//!   its body without one): either the root is the generated top cell aliased to it
+//!   (`<generatedTop>(..) #as #Configuration`), or the root is an application, the left-hand side
+//!   of a configuration-reading function's rule, whose last argument is `#Configuration` or such
+//!   an alias. A macro-like rule is exempt, as in R3: its expansion substitutes the reference into
+//!   a use site, which binds it. The check reads the spelling, which is sound because a name that
+//!   starts with `#` is reserved for the compiler, so no authored variable is `#Configuration`.
 //!
 //! [`StageChecks`] also checks rule C2 at every stage boundary once a stage providing
 //! [`Artifacts::CONDITION_CONJUNCTIONS_RESOLVED`] has run:
@@ -73,8 +87,8 @@ use std::fmt::Write as _;
 
 use crate::definition::checks::{CheckedRoot, right_hand_side_binding};
 use crate::definition::{AttributeKey, Definition, Sentence, StructuralCheckOptions};
-use crate::kast::Term;
 use crate::kast::binding::free_variables;
+use crate::kast::{GeneratedCell, Term};
 use crate::kompile::CompileOptions;
 use crate::kompile::pipeline::{Artifacts, Stage};
 use crate::provenance::InputAddress;
@@ -88,8 +102,8 @@ const CONFIGURATION_VARIABLE: &str = "#Configuration";
 /// The stage that renames anonymous variables (C1's exemption).
 const ANONYMOUS_RENAMING_STAGE: &str = "resolve anonymous variables";
 
-/// Checks every stage boundary of the table-driven pipeline against R3, C1 and C2 and names the
-/// first stage that breaks one.
+/// Checks every stage boundary of the table-driven pipeline against CF1, R3, C1 and C2 and names
+/// the first stage that breaks one.
 #[derive(Debug)]
 pub(crate) struct StageChecks {
     binding: Obligation,
@@ -211,6 +225,7 @@ impl StageChecks {
     /// module, the sentence index, the origin record's pass, and the rendered sentence.
     pub(crate) fn after(&mut self, stage: &Stage, output: &Definition, options: &CompileOptions) {
         self.available = self.available.union(stage.provides);
+        self.check_configuration(stage, output);
         self.check_conditions(stage, output);
         self.check_conjunctions(stage, output);
         if self.binding != Obligation::Preserved {
@@ -228,6 +243,40 @@ impl StageChecks {
                         stage.name,
                         stage.call,
                         describe_unbound(&unbound),
+                        emitted_from(
+                            &format!("sentence {index} of module {}", module.name),
+                            sentence.attributes().origin_record(),
+                        ),
+                        render_sentence(sentence),
+                    );
+                }
+            }
+        }
+    }
+
+    /// Check CF1 on the output of `stage` once the configuration-binding stage has run; panics like
+    /// R3 when a sentence holds a configuration reference that its left-hand side does not bind.
+    fn check_configuration(&self, stage: &Stage, output: &Definition) {
+        if !self
+            .available
+            .contains(Artifacts::CONFIGURATION_VARIABLES_BOUND)
+        {
+            return;
+        }
+        for module in &output.modules {
+            // Invariant: every sentence of `module` before `index` satisfies CF1.
+            for (index, sentence) in module.local_sentences.iter().enumerate() {
+                let unbound = unbound_configuration(sentence);
+                if !unbound.is_empty() {
+                    let parts = unbound.iter().map(|root| root.as_str()).collect::<Vec<_>>();
+                    panic!(
+                        "kompile invariant CF1 (configuration binding) broken by stage {:?} ({}): \
+                         {CONFIGURATION_VARIABLE} in {} is bound by no left-hand side: the root of the \
+                         left-hand side is neither the generated top cell aliased to it nor an \
+                         application whose last argument is it\n  in {}\n  sentence: {}",
+                        stage.name,
+                        stage.call,
+                        parts.join(", "),
                         emitted_from(
                             &format!("sentence {index} of module {}", module.name),
                             sentence.attributes().origin_record(),
@@ -377,6 +426,75 @@ fn rule_like_parts(sentence: &Sentence) -> Option<RuleLikeParts<'_>> {
         | Sentence::Configuration { .. }
         | Sentence::Bubble { .. } => None,
     }
+}
+
+/// The parts of `sentence` that hold a configuration reference which the root of its left-hand side
+/// does not bind (CF1); empty for a sentence that is not rule-like or is macro-like.
+fn unbound_configuration(sentence: &Sentence) -> Vec<CheckedRoot> {
+    let Some((body, conditions, _)) = rule_like_parts(sentence) else {
+        return Vec::new();
+    };
+    if sentence.attributes().has_any(&AttributeKey::MACRO_LIKE) {
+        return Vec::new();
+    }
+    let parts = std::iter::once((CheckedRoot::Body, body))
+        .chain(conditions)
+        .filter(|(_, term)| holds_configuration(term))
+        .map(|(root, _)| root)
+        .collect::<Vec<_>>();
+    if parts.is_empty() || binds_configuration(body) {
+        return Vec::new();
+    }
+    parts
+}
+
+/// Whether `term` holds the configuration variable.
+fn holds_configuration(term: &Term) -> bool {
+    let mut found = false;
+    term.visit_preorder(&mut |node| {
+        found |= is_configuration(node);
+    });
+    found
+}
+
+fn is_configuration(term: &Term) -> bool {
+    matches!(term.unannotated(), Term::Variable { name, .. } if name == CONFIGURATION_VARIABLE)
+}
+
+/// Whether `term` is the generated top cell aliased to the configuration variable.
+fn is_configuration_alias(term: &Term) -> bool {
+    matches!(
+        term.unannotated(),
+        Term::As { pattern, alias }
+            if is_configuration(alias)
+                && matches!(
+                    pattern.unannotated(),
+                    Term::Apply { label, .. } if label.name == GeneratedCell::Top.label()
+                )
+    )
+}
+
+/// Whether the root of the left-hand side of `body` (the left side of its top rewrite, or `body`
+/// without one) binds the configuration variable (CF1).
+fn binds_configuration(body: &Term) -> bool {
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "Term is syntax; only a top rewrite has a left side other than the body"
+    )]
+    let left = match body.unannotated() {
+        Term::Rewrite { left, .. } => left.as_ref(),
+        _ => body,
+    };
+    if is_configuration_alias(left) {
+        return true;
+    }
+    matches!(
+        left.unannotated(),
+        Term::Apply { arguments, .. }
+            if arguments
+                .last()
+                .is_some_and(|last| is_configuration(last) || is_configuration_alias(last))
+    )
 }
 
 /// The condition variables of `sentence` that break C1 against `before`, the condition variables
@@ -691,7 +809,8 @@ mod tests {
         );
         assert_eq!(output.modules[0].local_sentences.len(), 1);
 
-        // At the stage that provides the binding, the free `#Configuration` it leaves panics.
+        // At the stage that provides the binding, the free `#Configuration` it leaves panics, as
+        // CF1, which is checked before R3.
         let message = panic_message(|| {
             run(
                 &[
@@ -705,12 +824,9 @@ mod tests {
                 definition(Vec::new()),
             );
         });
-        assert!(message.contains("R3"), "{message}");
+        assert!(message.contains("CF1"), "{message}");
         assert!(message.contains("\"binding stage\""), "{message}");
-        assert!(
-            message.contains("variables #Configuration in body"),
-            "{message}"
-        );
+        assert!(message.contains("#Configuration in body"), "{message}");
 
         // After it, a stage that introduces one panics too.
         let message = panic_message(|| {
@@ -917,8 +1033,8 @@ mod tests {
         assert!(message.contains("_Gen1 in requires"), "{message}");
     }
 
-    /// `#Configuration` in a condition is exempt until the binding stage; after it the body must
-    /// hold it, whatever the conditions held before.
+    /// `#Configuration` in a condition is exempt until the binding stage; after it the left-hand
+    /// side must bind it (CF1, checked before C1), whatever the conditions held before.
     #[test]
     fn a_condition_configuration_must_be_bound_once_the_binding_stage_has_run() {
         fn configure(
@@ -951,7 +1067,7 @@ mod tests {
                 input(),
             );
         });
-        assert!(message.contains("C1"), "{message}");
+        assert!(message.contains("CF1"), "{message}");
         assert!(message.contains("\"binding stage\""), "{message}");
         assert!(message.contains("#Configuration in requires"), "{message}");
     }
@@ -1103,15 +1219,19 @@ mod tests {
                 Term::apply("isZero", vec![Term::variable("#Configuration")])
             })
         }
-        /// Binds `#Configuration` in the body, as `resolve configuration variables` does.
+        /// Binds `#Configuration` in the body as `resolve configuration variables` does, by
+        /// aliasing the generated top cell around the left-hand side to it.
         fn bind(input: &PassInput<'_>, _: &mut PipelineState) -> Result<PassOutcome, PassError> {
             let mut output = input.definition.clone();
             for sentence in &mut output.modules[0].local_sentences {
                 if let Sentence::Rule { body, .. } = crate::definition::sentence_mut(sentence) {
-                    let taken = std::mem::replace(body, Term::Sequence(Vec::new()));
-                    *body = Term::As {
-                        pattern: Box::new(taken),
-                        alias: Box::new(Term::variable("#Configuration")),
+                    let Term::Rewrite { left, right } = body.unannotated() else {
+                        continue;
+                    };
+                    let (left, right) = ((**left).clone(), (**right).clone());
+                    *body = Term::Rewrite {
+                        left: Box::new(configuration_alias(top(left))),
+                        right: Box::new(top(right)),
                     };
                 }
             }
@@ -1151,9 +1271,181 @@ mod tests {
                 input(),
             );
         });
-        assert!(message.contains("C1"), "{message}");
+        assert!(message.contains("CF1"), "{message}");
         assert!(message.contains("\"later stage\""), "{message}");
         assert!(message.contains("#Configuration in requires"), "{message}");
+    }
+
+    fn top(contents: Term) -> Term {
+        Term::apply(crate::kast::GeneratedCell::Top.label(), vec![contents])
+    }
+
+    fn configuration_alias(pattern: Term) -> Term {
+        Term::As {
+            pattern: Box::new(pattern),
+            alias: Box::new(Term::variable("#Configuration")),
+        }
+    }
+
+    fn sentence(body: Term, requires: Term, attributes: Attributes) -> Sentence {
+        Sentence::Rule {
+            body,
+            requires,
+            ensures: Term::apply("true", Vec::new()),
+            attributes,
+        }
+    }
+
+    fn rewrite(left: Term, right: Term) -> Term {
+        Term::Rewrite {
+            left: Box::new(left),
+            right: Box::new(right),
+        }
+    }
+
+    fn reads_configuration() -> Term {
+        Term::apply("isZero", vec![Term::variable("#Configuration")])
+    }
+
+    fn binding_run(input: Definition) -> Definition {
+        run(
+            &[
+                stage("first stage", identity, Artifacts::NONE),
+                stage(
+                    "binding stage",
+                    identity,
+                    Artifacts::CONFIGURATION_VARIABLES_BOUND,
+                ),
+                stage("later stage", identity, Artifacts::NONE),
+            ],
+            input,
+        )
+    }
+
+    /// CF1 accepts the two binders of the configuration: the generated top cell aliased to it at
+    /// the root of a left-hand side (a rewrite of the configuration), and the last argument of
+    /// the root application (a configuration-reading function's rule, the argument written as
+    /// the variable or as the aliased top cell); and it exempts a macro-like rule, whose use site
+    /// binds the reference.
+    #[test]
+    fn cf1_accepts_the_top_cell_alias_and_a_trailing_configuration_argument() {
+        let k = |contents: Term| Term::apply("<k>", vec![contents]);
+        let output = binding_run(definition(vec![
+            sentence(
+                rewrite(
+                    configuration_alias(top(k(Term::variable("X")))),
+                    top(k(Term::variable("X"))),
+                ),
+                reads_configuration(),
+                Attributes::default(),
+            ),
+            sentence(
+                rewrite(
+                    Term::apply(
+                        "f",
+                        vec![Term::variable("X"), Term::variable("#Configuration")],
+                    ),
+                    Term::apply("g", vec![Term::variable("#Configuration")]),
+                ),
+                reads_configuration(),
+                Attributes::default(),
+            ),
+            sentence(
+                rewrite(
+                    Term::apply(
+                        "f",
+                        vec![
+                            Term::variable("X"),
+                            configuration_alias(top(Term::apply("<s>", vec![Term::variable("V")]))),
+                        ],
+                    ),
+                    Term::variable("V"),
+                ),
+                Term::apply("true", Vec::new()),
+                Attributes::default(),
+            ),
+            sentence(
+                rewrite(Term::apply("isZeroM", Vec::new()), reads_configuration()),
+                Term::apply("true", Vec::new()),
+                macro_attributes(),
+            ),
+        ]));
+        assert_eq!(output.modules[0].local_sentences.len(), 4);
+    }
+
+    /// After the binding stage, a configuration reference that the root of the left-hand side
+    /// does not bind breaks CF1, which names the stage, the parts that hold the reference and the
+    /// sentence; it does so where neither C1 nor R3 would, a reference that the body holds
+    /// elsewhere than at a binder. Before the binding stage the reference is free.
+    #[test]
+    fn cf1_names_a_configuration_reference_that_no_left_hand_side_binds() {
+        let foo = || Term::apply("foo", vec![Term::variable("X")]);
+        let bar = || Term::apply("bar", vec![Term::variable("X")]);
+        let cases = [
+            // An anywhere rule whose condition reads the configuration.
+            (
+                sentence(
+                    rewrite(foo(), bar()),
+                    reads_configuration(),
+                    Attributes::default(),
+                ),
+                "#Configuration in requires",
+            ),
+            // The configuration read on the right-hand side only.
+            (
+                sentence(
+                    rewrite(
+                        foo(),
+                        Term::apply("g", vec![Term::variable("#Configuration")]),
+                    ),
+                    Term::apply("true", Vec::new()),
+                    Attributes::default(),
+                ),
+                "#Configuration in body",
+            ),
+            // An alias of a term other than the top cell.
+            (
+                sentence(
+                    rewrite(configuration_alias(foo()), bar()),
+                    reads_configuration(),
+                    Attributes::default(),
+                ),
+                "#Configuration in body, requires",
+            ),
+            // The configuration as an argument other than the last.
+            (
+                sentence(
+                    rewrite(
+                        Term::apply(
+                            "f",
+                            vec![Term::variable("#Configuration"), Term::variable("X")],
+                        ),
+                        bar(),
+                    ),
+                    reads_configuration(),
+                    Attributes::default(),
+                ),
+                "#Configuration in body, requires",
+            ),
+        ];
+        for (sentence, expected) in cases {
+            let input = || definition(vec![sentence.clone()]);
+            let output = run(
+                &[
+                    stage("first stage", identity, Artifacts::NONE),
+                    stage("later stage", identity, Artifacts::NONE),
+                ],
+                input(),
+            );
+            assert_eq!(output.modules[0].local_sentences.len(), 1, "{expected}");
+            let message = panic_message(|| {
+                binding_run(input());
+            });
+            assert!(message.contains("CF1"), "{message}");
+            assert!(message.contains("\"binding stage\""), "{message}");
+            assert!(message.contains(expected), "{message}");
+            assert!(message.contains("sentence 0 of module MAIN"), "{message}");
+        }
     }
 
     /// A pending conjunction may live until the resolving stage; a stage after it that leaves one
