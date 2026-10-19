@@ -129,11 +129,17 @@ use rustc_hash::FxHashSet;
 ///   before its condition (a rewrite rule's narrowing, an undefined binding), set aside by
 ///   `concrete` or `symbolic`, read as unused, undecided, or decided.
 ///
-/// A match left undecided counts. Each probe is one match attempt, isolated from the run
-/// ([`offer`]). An axiom already in a set is not probed again, but one whose probe failed is
-/// probed again at the next site that skips it: the probes cost at most one match per candidate
-/// a site skipped, at every visit of the site while the candidate has not matched, so over a
-/// run they grow with the visits times the skipped candidates.
+/// A match left undecided counts, and an undecided match blocks the lower groups of its site: an
+/// axiom in no set cannot change the run when it is raised, loses its `owise`, `concrete` or
+/// `symbolic`, or is lowered (a lower priority, an added `owise`, `concrete` or `symbolic`),
+/// whereas lowering an axiom in `offered` alone can. Each probe is one match attempt, isolated
+/// from the run ([`offer`]). An axiom already in a set is not probed again, but one whose probe
+/// failed is probed again at the next site that skips it: the probes cost at most one match per
+/// candidate a site skipped, at every visit of the site while the candidate has not matched, so
+/// over a run they grow with the visits times the skipped candidates. A tried candidate costs no
+/// probe, except that a rewrite step under `ExecutionMode::All` skips the rules of the groups
+/// below its first productive group, probed against its subject, before the fold tries them on
+/// the remainder.
 ///
 /// The type is `non_exhaustive` so that further sets of the run can be added beside these.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]

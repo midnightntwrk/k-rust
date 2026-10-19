@@ -608,8 +608,10 @@ impl From<&k_rust_backend::builtin::ChosenValue> for ChosenValueOutput {
 ///   the `#Top` lemmas of a conjunction operand, the definedness analysis and the decisions of an
 ///   unevaluated operand), whether the site tried it or stopped before it. An axiom in no list
 ///   cannot change the run under a priority raise, an `owise` removal or a removed
-///   `concrete`/`symbolic` set-aside; no list reaches a left-hand-side edit, nor the load-time
-///   uses of an axiom.
+///   `concrete`/`symbolic` set-aside, nor under a lowering (a lower priority, an added `owise`,
+///   `concrete` or `symbolic`). `matched` does not reach lowerings: a candidate whose match was
+///   left undecided blocks the lower groups of its site and is recorded only in `offered`. No
+///   list reaches a left-hand-side edit, nor the load-time uses of an axiom.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RunCoverageOutput {

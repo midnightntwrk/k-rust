@@ -1,6 +1,7 @@
 // The equation selection sites outside the function and simplification term scans, each with a
 // higher-priority equation that decides and a lower-priority one that would decide otherwise
-// (`offered_mutation.rs`, `run_coverage.rs`).
+// (`offered_mutation.rs`, `run_coverage.rs`), and a function equation that blocks a lower one
+// with a match left undecided (`offered_mutation.rs`).
 module PROBE-SYNTAX
   imports INT-SYNTAX
   syntax Pgm ::= go(Int) [symbol(go)] | done(Int) [symbol(done)]
@@ -61,4 +62,24 @@ module TOPDEF
   rule [tBottom]:  #Ceil(t(_X:Int)) => #Bottom [simplification(60)]
   rule [go]:       go(X) => done(X)
   rule [def]:      def(X) => done(t(X))
+endmodule
+
+// An equation whose match is left undecided: matching `0` against `gx(5)` is undecided, so `feC`
+// blocks `feLo` in `fe(gx(5))` and is in `offered` only; lowered below `feLo`, it lets `feLo`
+// apply.
+module LOWER-SYNTAX
+  imports INT-SYNTAX
+  syntax Pgm ::= ge(Int) [symbol(ge)] | val(Int) [symbol(val)]
+endmodule
+
+module LOWER
+  imports LOWER-SYNTAX
+  imports INT
+  imports BOOL
+  configuration <k> $PGM:Pgm </k>
+  syntax Int ::= fe(Int) [function, symbol(fe)]
+               | gx(Int) [function, total, no-evaluators, symbol(gx)]
+  rule [feC]:  fe(0) => 1 [priority(50)]
+  rule [feLo]: fe(_) => 0 [priority(60)]
+  rule [ge]:   <k> ge(X) => val(fe(gx(X))) </k>
 endmodule

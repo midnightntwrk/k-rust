@@ -1,7 +1,8 @@
 //! The reading of run coverage that the offered level exists for (docs/compatibility.md, "Run
 //! coverage"), tested directly: an axiom in none of `applied`, `matched` and `offered` of a run
-//! cannot change that run when its priority is raised, its `owise` attribute is removed, or its
-//! `concrete` or `symbolic` attribute is removed.
+//! cannot change that run when its priority is raised, its `owise` attribute is removed, its
+//! `concrete` or `symbolic` attribute is removed, or it is moved below every other priority group
+//! it competes with.
 //!
 //! For every input of the coverage fixtures (`COVER`, `OFFER`) and of the probes below, the oracle
 //! runs the definition with `collect_offered` under both strategies, and then, for each axiom of
@@ -10,7 +11,12 @@
 //! - raised: the axiom at the highest priority (`priority(0)`, or `simplification(0)` for a
 //!   simplification), its `owise` attribute removed;
 //! - `owise` removed, where it has one, so that it takes the default priority;
-//! - `concrete` and `symbolic` removed, where it has one.
+//! - `concrete` and `symbolic` removed, where it has one;
+//! - lowered: the axiom ranked one below the lowest other axiom it competes with (the rewrite
+//!   rules, for a rule; the equations of its kind and head symbol, or of its connective for a
+//!   ceil or predicate equation), as `owise` where that rank is 255, and skipped where it already
+//!   ranks below all of them or no rank is left below them (an `owise` competitor, or a
+//!   simplification competitor at 254).
 //!
 //! The mutant's leaves (state, depth, halt reason, trace, candidates and remainder) must equal
 //! the original run's. Diagnostics are not compared: they explain work, and the mutant may do
@@ -24,7 +30,7 @@
 //! Load-time uses of an axiom are outside every coverage list; a mutant that the backend refuses
 //! to load is counted and reported, not compared.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use k_rust::{
     backend::{Backend, BackendOptions, ExecuteRequest, ExecutionStrategy, ResultModalityOutput},
@@ -216,12 +222,112 @@ fn unique_id(attributes: &Attributes) -> Option<String> {
     })
 }
 
+/// The value of attribute `name`, the empty string for an application without one.
+fn attribute_value<'a>(attributes: &'a Attributes, name: &str) -> Option<&'a str> {
+    attributes.0.iter().find_map(|attribute| match attribute {
+        Pattern::Application { symbol, arguments } if symbol.name == name => {
+            match arguments.as_slice() {
+                [Pattern::String(value)] => value.as_utf8().ok(),
+                _ => Some(""),
+            }
+        }
+        _ => None,
+    })
+}
+
+/// The rank the backend reads from an axiom's attributes: 255 for `owise`, otherwise its
+/// `priority` or `simplification` value, 50 when it has none or an empty one.
+fn rank(attributes: &Attributes) -> u16 {
+    if attribute_value(attributes, "owise").is_some() {
+        return 255;
+    }
+    attribute_value(attributes, "priority")
+        .or_else(|| attribute_value(attributes, "simplification"))
+        .filter(|value| !value.is_empty())
+        .map_or(50, |value| value.parse().unwrap())
+}
+
+/// The axioms an axiom competes with by priority share this key: every rewrite rule, and the
+/// equations of one kind (function or simplification) whose left-hand side has one head symbol,
+/// or one connective for a ceil or predicate equation.
+fn competition(pattern: &Pattern, attributes: &Attributes) -> String {
+    fn equation_left(pattern: &Pattern) -> Option<&Pattern> {
+        match pattern {
+            Pattern::Implies { right, .. } => equation_left(right),
+            Pattern::And { arguments, .. } => arguments.iter().find_map(equation_left),
+            Pattern::Equals { left, .. } => Some(left),
+            _ => None,
+        }
+    }
+    if let Pattern::Rewrites { .. } = pattern {
+        return "rewrite".to_owned();
+    }
+    let kind = if attribute_value(attributes, "simplification").is_some() {
+        "simplification"
+    } else {
+        "function"
+    };
+    let head = match equation_left(pattern) {
+        Some(Pattern::Application { symbol, .. }) => symbol.name.as_str(),
+        Some(Pattern::Ceil { .. }) => "\\ceil",
+        Some(Pattern::Equals { .. }) => "\\equals",
+        _ => "other",
+    };
+    format!("{kind} {head}")
+}
+
+/// The rank one below every other catalog axiom that the axioms with id `id` compete with;
+/// `None` where they already rank below all of them, or no rank is left below them.
+fn lowered_rank(definition: &Definition, id: &str, catalog: &BTreeSet<String>) -> Option<u16> {
+    let axioms = definition
+        .modules
+        .iter()
+        .flat_map(|module| &module.sentences)
+        .filter_map(|sentence| match sentence {
+            Sentence::Axiom {
+                pattern,
+                attributes,
+                ..
+            } => {
+                let axiom_id = unique_id(attributes)?;
+                catalog.contains(&axiom_id).then(|| {
+                    (
+                        axiom_id,
+                        competition(pattern, attributes),
+                        rank(attributes),
+                        attribute_value(attributes, "simplification").is_some(),
+                    )
+                })
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let own = axioms
+        .iter()
+        .filter(|(axiom_id, ..)| axiom_id == id)
+        .collect::<Vec<_>>();
+    let lowest_other = axioms
+        .iter()
+        .filter(|(axiom_id, key, ..)| {
+            axiom_id != id && own.iter().any(|(_, own_key, ..)| own_key == key)
+        })
+        .map(|&(_, _, rank, _)| rank)
+        .max()?;
+    let own_rank = own.iter().map(|&&(_, _, rank, _)| rank).min()?;
+    let simplification = own.iter().any(|&&(.., simplification)| simplification);
+    let lowered = lowest_other + 1;
+    (own_rank <= lowest_other && lowered <= if simplification { 254 } else { 255 })
+        .then_some(lowered)
+}
+
 /// The kinds of mutant of one axiom.
 #[derive(Clone, Copy, Debug)]
 enum Mutation {
     Raised,
     OwiseRemoved,
     SetAsideRemoved,
+    /// Ranked at the given rank, below every other axiom it competes with.
+    Lowered(u16),
 }
 
 impl Mutation {
@@ -267,6 +373,22 @@ impl Mutation {
                 });
                 true
             }
+            Mutation::Lowered(rank) => {
+                let simplification = has("simplification");
+                attributes.0.retain(|attribute| {
+                    !matches!(
+                        attribute_name(attribute),
+                        Some("priority" | "owise" | "simplification")
+                    )
+                });
+                let rank = rank.to_string();
+                attributes.0.push(match (simplification, rank.as_str()) {
+                    (true, _) => attribute("simplification", Some(&rank)),
+                    (false, "255") => attribute("owise", None),
+                    (false, _) => attribute("priority", Some(&rank)),
+                });
+                true
+            }
         }
     }
 }
@@ -292,6 +414,7 @@ fn mutant(definition: &Definition, id: &str, mutation: Mutation) -> Option<Strin
 #[derive(Debug, Default)]
 struct Tally {
     mutants: usize,
+    lowered: usize,
     refused: usize,
     runs: usize,
 }
@@ -336,7 +459,8 @@ fn assert_unlisted_axioms_are_inert(
     let ids = catalog
         .iter()
         .map(|rule| (rule.id.clone(), rule.label.clone()))
-        .collect::<std::collections::BTreeMap<_, _>>();
+        .collect::<BTreeMap<_, _>>();
+    let catalog_ids = ids.keys().cloned().collect::<BTreeSet<_>>();
 
     let mut tally = Tally::default();
     let mut changed = Vec::new();
@@ -348,15 +472,20 @@ fn assert_unlisted_axioms_are_inert(
         if affected.is_empty() {
             continue;
         }
+        let lowered = lowered_rank(&definition, id, &catalog_ids).map(Mutation::Lowered);
         for mutation in [
             Mutation::Raised,
             Mutation::OwiseRemoved,
             Mutation::SetAsideRemoved,
-        ] {
+        ]
+        .into_iter()
+        .chain(lowered)
+        {
             let Some(text) = mutant(&definition, id, mutation) else {
                 continue;
             };
             tally.mutants += 1;
+            tally.lowered += usize::from(matches!(mutation, Mutation::Lowered(_)));
             let Ok(mut backend) = Backend::new(&text, main, BackendOptions::default()) else {
                 tally.refused += 1;
                 continue;
@@ -507,5 +636,19 @@ fn the_top_and_definedness_probe() {
             Ground("def(5)"),
             Symbolic("def(777)"),
         ],
+    );
+}
+
+/// A function equation whose match is left undecided blocks the lower groups of its symbol and is
+/// in `offered` alone, so the lowered mutant, which would let the lower equation apply, is never
+/// made of it.
+#[test]
+fn the_lowering_probe() {
+    assert_unlisted_axioms_are_inert(
+        "LOWER",
+        PROBES,
+        "LOWER",
+        "Pgm",
+        &[Ground("ge(5)"), Symbolic("ge(777)"), Ground("val(5)")],
     );
 }
