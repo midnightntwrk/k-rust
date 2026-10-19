@@ -37,6 +37,7 @@
 use super::binders::generated_exists_all;
 use super::roles::{EmittedEquation, SymbolRoles};
 use super::*;
+use crate::kast::binding;
 use crate::kompile::fresh_names::{GeneratedVariableIdentity, is_generated_anonymous};
 use crate::kompile::sort_injections::SentenceSortVariables;
 use k_rust_kore::measure::{self, Counter};
@@ -1752,25 +1753,37 @@ fn take_kore_variable(mut pattern: Pattern) -> Option<Variable> {
     ))
 }
 
+/// The variables a rule's or claim's right side quantifies existentially: the `?` variables that
+/// occur free in `right` or in `ensures`, by name, each converted from its first free occurrence.
+///
+/// A `?` variable is existential over the right side and the `ensures` together, so it is
+/// quantified once around both. A quantifier inside either binds its own variable there and
+/// nowhere else (`kast::binding`); its binder and bound occurrences are not free, so it is not
+/// quantified again outside, and every binder built over these variables has its variable free
+/// in its body (K3). `right` and `ensures` are separate terms: a quantifier in one binds nothing
+/// in the other.
+fn free_existentials<'t>(right: &'t Term, ensures: &'t Term) -> BTreeMap<&'t str, &'t Term> {
+    let mut found = BTreeMap::new();
+    // Invariant: `found` maps every `?` name with a free occurrence in the roots already walked
+    // (`right`, then `ensures`) to its first free occurrence, in preorder.
+    for root in [right, ensures] {
+        for occurrence in binding::occurrences(root) {
+            if occurrence.role == binding::Role::Free && occurrence.name.starts_with('?') {
+                found.entry(occurrence.name).or_insert(occurrence.node);
+            }
+        }
+    }
+    found
+}
+
 fn existential_variables(
     right: &Term,
     ensures: &Term,
     converter: &TermConverter<'_, '_>,
 ) -> Result<Vec<Variable>, TermConversionError> {
-    let mut terms = BTreeMap::<String, Term>::new();
-    // Invariant: `terms` maps every `?`-prefixed variable name in the roots already traversed (`right`, then `ensures`) to its first preorder occurrence; each root is traversed once.
-    for root in [right, ensures] {
-        root.visit_preorder(&mut |term| {
-            if let Term::Variable { name, .. } = term.unannotated()
-                && name.starts_with('?')
-            {
-                terms.entry(name.clone()).or_insert_with(|| term.clone());
-            }
-        });
-    }
-    terms
+    free_existentials(right, ensures)
         .into_values()
-        .map(|term| match take_kore_variable(converter.convert(&term)?) {
+        .map(|term| match take_kore_variable(converter.convert(term)?) {
             Some(variable) => Ok(variable),
             None => unreachable!("collected terms are variables"),
         })
@@ -1778,18 +1791,10 @@ fn existential_variables(
 }
 
 fn existential_names(right: &Term, ensures: &Term) -> Vec<String> {
-    let mut names = BTreeSet::new();
-    // Invariant: `names` holds every `?`-prefixed variable name in the roots already traversed (`right`, then `ensures`); each root is traversed once.
-    for root in [right, ensures] {
-        root.visit_preorder(&mut |term| {
-            if let Term::Variable { name, .. } = term.unannotated()
-                && name.starts_with('?')
-            {
-                names.insert(name.clone());
-            }
-        });
-    }
-    names.into_iter().collect()
+    free_existentials(right, ensures)
+        .into_keys()
+        .map(str::to_owned)
+        .collect()
 }
 
 #[cfg(test)]

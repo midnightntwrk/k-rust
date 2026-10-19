@@ -422,6 +422,104 @@ fn compiled_probe(source: &str, module: &str) -> k_rust::kore::ast::Definition {
     parse_definition(&artifacts.definition_kore).expect("emitted KORE should parse")
 }
 
+/// The outer `\exists` variables of the right side of the rule labelled `label` in `definition`,
+/// as `name:sort`, each checked to occur free in its own binder's body (K3).
+fn lifted_existentials(definition: &k_rust::kore::ast::Definition, label: &str) -> Vec<String> {
+    let pattern = definition
+        .modules
+        .iter()
+        .flat_map(|module| &module.sentences)
+        .find_map(|sentence| match sentence {
+            Sentence::Axiom {
+                pattern,
+                attributes,
+                ..
+            } if attributes.0.iter().any(|attribute| {
+                matches!(
+                    attribute,
+                    Pattern::Application { symbol, arguments }
+                        if symbol.name == "label" && arguments == &[Pattern::String(label.into())]
+                )
+            }) =>
+            {
+                Some(pattern.as_ref())
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("the rule {label} should be emitted"));
+    let Pattern::Rewrites { right, .. } = pattern else {
+        panic!("the rule {label} should be a rewrite axiom: {pattern}");
+    };
+    let mut lifted = Vec::new();
+    let mut right = right.as_ref();
+    // Invariant: `lifted` holds the variables of the outer binders above `right`, outermost first.
+    while let Pattern::Exists { variable, body, .. } = right {
+        assert!(
+            body.free_variables().contains(variable),
+            "the lifted binder over {}:{} binds nothing in {body}",
+            variable.name,
+            variable.sort
+        );
+        lifted.push(format!("{}:{}", variable.name, variable.sort));
+        right = body;
+    }
+    lifted
+}
+
+/// The rule `D2.r`, `done(X) => go(X)` with the given `ensures`.
+fn d2_rule(ensures: &str) -> String {
+    format!(
+        "module D2\n  imports INT\n  imports BOOL\n  syntax KItem ::= go(Int) | done(Int)\n  rule [r]: <k> done(X) => go(X) ... </k> ensures {ensures}\nendmodule\n"
+    )
+}
+
+/// The D2 probe: a quantifier inside the `ensures` binds its own `?` variable there, so
+/// existential lifting builds no outer binder over a quantifier's binder (`?_` is resolved to
+/// `?_Gen0`, at the binder's default sort K), and no lifted binder is vacuous.
+#[test]
+#[ignore = "needs BIND/A3: the converter's anonymous arm binds the body's ?_ (D1)"]
+fn existential_lifting_skips_an_anonymous_ensures_binder() {
+    let lifted = lifted_existentials(
+        &compiled_probe(&d2_rule("#Exists ?_ . (X ==Int ?_)"), "D2"),
+        "D2.r",
+    );
+    assert!(
+        !lifted.iter().any(|variable| variable.ends_with(":SortK{}")),
+        "{lifted:?}"
+    );
+}
+
+/// The D2 probe's named twin: `?B` is bound by its quantifier only, so nothing is lifted.
+#[test]
+fn existential_lifting_skips_a_question_variable_an_ensures_binder_binds() {
+    assert_eq!(
+        lifted_existentials(
+            &compiled_probe(&d2_rule("#Exists ?B . (X ==Int ?B)"), "D2"),
+            "D2.r"
+        ),
+        Vec::<String>::new()
+    );
+}
+
+/// The q-shadow shape: an `ensures` binder spelled like the right side's free `?Y`. Renaming
+/// apart gives the binder its own name; only the free `?Y` is lifted.
+#[test]
+fn existential_lifting_quantifies_a_free_question_variable_beside_a_shadowing_binder() {
+    for ensures in [
+        "#Exists ?Y:Int . {?Y #Equals ?Y +Int X}",
+        "#Forall ?Y:Int . {?Y +Int ?Y #Equals ?Y +Int X}",
+    ] {
+        let source = format!(
+            "module QS\n  imports INT\n  imports BOOL\n  syntax KItem ::= go(Int) | done(Int)\n  rule [p]: <k> go(X) => done(?Y) ... </k> ensures {ensures}\nendmodule\n"
+        );
+        assert_eq!(
+            lifted_existentials(&compiled_probe(&source, "QS"), "QS.p"),
+            vec!["Var'Ques'Y:SortInt{}".to_owned()],
+            "{ensures}"
+        );
+    }
+}
+
 fn assert_unit_instance(module: &k_rust::kore::ast::Module, expected: &str) {
     let printer = Printer::pretty(1000);
     let unit_axioms = module
