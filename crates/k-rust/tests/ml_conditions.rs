@@ -2826,11 +2826,13 @@ fn krun_pattern_prints_a_ground_function_equality_of_a_match() {
 /// Two quantifiers that spell their variables alike bind two variables, each at its own sort:
 /// `(#Exists Y:Int . {A #Equals Y}) #And (#Exists Y:KItem . {B #Equals Y})` holds where `A` is an
 /// Int and `B` is anything, as the spelling with `Z` does.
+#[cfg(any(feature = "z3-inference", feature = "cli"))]
 const SAME_SPELLED_BINDERS: [&str; 2] = [
     "(#Exists Y:Int . {A #Equals Y}) #And (#Exists Y:KItem . {B #Equals Y})",
     "(#Exists Y:Int . {A #Equals Y}) #And (#Exists Z:KItem . {B #Equals Z})",
 ];
 
+#[cfg(feature = "cli")]
 const PAIRS: &str = "  syntax KItem ::= pr(KItem, KItem) [symbol(pr)] | \"a\" [symbol(a)]\n  rule [s1]: <k> go(0) => pr(1, a) ... </k>\n  rule [s2]: <k> go(0) => pr(2, 2) ... </k>\n";
 
 /// A rule whose condition holds two same-spelled binders at different sorts fires where the
