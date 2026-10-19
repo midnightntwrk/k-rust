@@ -455,13 +455,12 @@ fn a_candidate_a_defined_sibling_covers_is_on_the_run_list_and_on_the_leaves_tha
 }
 
 /// `s3a` and `s3b` both apply to `s3(0)` and both results are bottom. Each record names the rule
-/// whose candidate observed it, so the two stay distinct. Under strategy any the sequential step
-/// offers `s3a`'s instances to `s3b`, so the one `Trivial` leaf rests on both. Under strategy
-/// all each candidate is its own undefined step, a `Trivial` leaf per rule, found when its
-/// successor is normalized; its instances are those where the other candidate is not defined
-/// either, which the other's normalization decides, so each leaf rests on both records. Without
-/// the claims the step itself finds both results undefined: the halts are the same and nothing
-/// is named.
+/// whose candidate observed it, so the two stay distinct. The step has one undefined step, one
+/// `Trivial` leaf resting on both records. Under strategy any the sequential step offers `s3a`'s
+/// instances to `s3b`, whose successor reports it, naming `s3b`. Under strategy all the first
+/// successor to be normalized reports it, naming the first candidate `s3a`, after normalizing
+/// the other, which then reports none. Without the claims the step itself finds both results
+/// undefined: the halts are the same and nothing is named.
 #[test]
 fn each_rule_whose_candidate_observed_a_contradiction_is_named() {
     let (kore, initial) = compile_program(CONTRADICTIONS, "s3(0)");
@@ -478,16 +477,10 @@ fn each_rule_whose_candidate_observed_a_contradiction_is_named() {
             k_rust::backend::ExecutionStrategy::All => {
                 assert_eq!(
                     trivial,
-                    [
-                        (
-                            Value::from("MAIN.s3a"),
-                            BTreeSet::from([s3a.clone(), s3b.clone()])
-                        ),
-                        (
-                            Value::from("MAIN.s3b"),
-                            BTreeSet::from([s3a.clone(), s3b.clone()])
-                        ),
-                    ],
+                    [(
+                        Value::from("MAIN.s3a"),
+                        BTreeSet::from([s3a.clone(), s3b.clone()])
+                    )],
                     "{context}"
                 );
             }
@@ -1569,16 +1562,18 @@ endmodule
 
     /// `bt(0)`'s result `val(bot(0))` reaches `\bottom` through `bot`'s `#Bottom` equation, with
     /// no undefined builtin application: the declared rule's step is taken (its result is
-    /// trusted), its successor is a vacuous state, and the record names the rule with
-    /// `undefined` at `bot(0)`. Without the attribute the step decides the result itself and
-    /// the leaf is the undefined step's `trivial` one.
+    /// trusted), its successor normalizes to `\bottom`, which denotes no state, so the step is
+    /// undefined and the leaf is its `trivial` one, and the record names the rule with
+    /// `undefined` at `bot(0)`. Without the attribute the step decides the result itself, and the
+    /// leaf is the same undefined step's.
     #[test]
     fn a_result_found_bottom_through_an_equation_refutes_the_claim() {
         for (name, _, result, free) in route_runs("bt(0)") {
             let expected = preservation("btr");
             assert!(!leaves(&result).is_empty(), "{name}: {result:#}");
             for leaf in leaves(&result) {
-                assert_eq!(leaf["reason"], "vacuous", "{name}: {result:#}");
+                assert_eq!(leaf["reason"], "trivial", "{name}: {result:#}");
+                assert_eq!(leaf["depth"], 0, "{name}: {result:#}");
                 assert_eq!(
                     records(leaf),
                     BTreeSet::from([expected.clone()]),
@@ -1598,13 +1593,15 @@ endmodule
         }
     }
 
-    /// `bts(0)` under strategy any: `btsa`'s successor is a vacuous state the sequential step
-    /// keeps, so the run ends on a vacuous leaf that exists only because of the false claim, and
-    /// the leaf and the list name it. Without the attribute `btsa`'s step is undefined and
-    /// `btsb` covers it: `done`, nothing named. Under strategy all the `done` leaf is reached
-    /// either way, and the record is on the list.
+    /// `bts(0)`: `btsa`'s successor normalizes to `\bottom`, so it is no successor, and `btsb`
+    /// covers its instances. Under strategy any the sequential step rejects `btsa` and takes
+    /// `btsb`, so the run reaches `done`, as without the attribute, and the `done` leaf rests on
+    /// that rejection: it and the list name the claim. Under strategy all `btsa`'s successor
+    /// leaves no leaf, the `done` leaf rests on no contradiction, and the record is on the list
+    /// only. Without the attribute `btsa`'s step is undefined and `btsb` covers it: `done`,
+    /// nothing named.
     #[test]
-    fn a_vacuous_leaf_resting_on_a_false_claim_names_it() {
+    fn a_leaf_resting_on_a_rejected_bottom_candidate_names_its_claim() {
         for (name, strategy, result, free) in route_runs("bts(0)") {
             let expected = preservation("btsa");
             assert_eq!(
@@ -1612,24 +1609,31 @@ endmodule
                 std::slice::from_ref(&expected),
                 "{name}: {result:#}"
             );
+            let [leaf] = leaves(&result).as_slice() else {
+                panic!("{name}: {result:#}");
+            };
+            assert_eq!(leaf["reason"], "stuck", "{name}: {result:#}");
             assert!(
-                leaves(&result)
-                    .iter()
-                    .any(|leaf| records(leaf) == BTreeSet::from([expected.clone()])),
+                super::observed::printed(leaf).contains("Lbldone"),
                 "{name}: {result:#}"
             );
-            if matches!(strategy, ExecutionStrategy::Any) {
-                let [leaf] = leaves(&result).as_slice() else {
-                    panic!("{name}: {result:#}");
-                };
-                assert_eq!(leaf["reason"], "vacuous", "{name}: {result:#}");
-                assert!(
-                    leaves(&free)
-                        .iter()
-                        .all(|leaf| super::observed::printed(leaf).contains("Lbldone")),
-                    "claim-free {name}: {free:#}"
-                );
-            }
+            let on_leaf = matches!(strategy, ExecutionStrategy::Any);
+            assert_eq!(
+                records(leaf),
+                if on_leaf {
+                    BTreeSet::from([expected.clone()])
+                } else {
+                    BTreeSet::new()
+                },
+                "{name}: {result:#}"
+            );
+            assert_eq!(reasons(&free), reasons(&result), "claim-free {name}");
+            assert!(
+                leaves(&free)
+                    .iter()
+                    .all(|leaf| super::observed::printed(leaf).contains("Lbldone")),
+                "claim-free {name}: {free:#}"
+            );
             assert_claim_free_records_nothing(&name, &free);
         }
     }
@@ -1638,9 +1642,9 @@ endmodule
     /// contradicts its claim as an equation whose result reaches an undefined builtin does:
     /// `tbt(0)` names `tb` and `tbeq`, at `tb(0)`. `tbn(0)` reaches `\bottom` inside `tb2`'s
     /// result, through the partial `bot`: `tb2` and `tb2eq` are named, at `bot(0)`. The trusted
-    /// claim discharges the rule's obligation, so its successor is a vacuous state; without the
-    /// claim the step decides its result itself and the leaf is the undefined step's `trivial`
-    /// one.
+    /// claim discharges the rule's obligation, so only its successor's normalization finds the
+    /// result `\bottom`, which denotes no state: the step is undefined and the leaf is its
+    /// `trivial` one, as without the claim, where the step decides its result itself.
     #[test]
     fn a_total_symbol_whose_result_is_found_bottom_through_an_equation_is_named() {
         for (program, symbol, equation, rule, undefined) in [
@@ -1671,7 +1675,7 @@ endmodule
                 }
                 assert_eq!(run_records(&result), [expected], "{name}: {result:#}");
                 assert_eq!(undefined_terms(&result), [undefined], "{name}: {result:#}");
-                for (run, reason) in [(&result, "vacuous"), (&free, "trivial")] {
+                for (run, reason) in [(&result, "trivial"), (&free, "trivial")] {
                     assert!(
                         reasons(run).iter().all(|found| found == reason),
                         "{name}: {run:#}"
@@ -3171,6 +3175,56 @@ module MAIN
   rule [pdc2]: pdc(X) => done requires X >=Int 1
 endmodule
 "#;
+
+    // The probe definition of design/undefined-successor.md (FU-42): a `\bottom` successor
+    // found by the `#Bottom` route beside a covering rule, under a declared
+    // `preserves-definedness` (`bts`), a `total` symbol (`tbt`) and a `total` symbol's refuted
+    // equation `ensures` (`eqe`), above a lower-priority rule (`btp`), and two of them (`bb`).
+
+    const UNDEFINED_SUCCESSORS: &str = r#"
+module MAIN
+  imports INT
+  imports BOOL
+  syntax Pgm ::= "done" | val(Int) | w(Int) | bts(Int) | tbt(Int) | eqe(Int) | btp(Int) | bb(Int)
+  syntax Int ::= bot(Int) [function]
+               | tb(Int) [function, total]
+               | te(Int) [function, total]
+  configuration <k> $PGM:Pgm </k>
+  rule [boteq]:  bot(I) => #Bottom requires I ==Int 0
+  rule [boteq2]: bot(I) => I requires I =/=Int 0
+  rule [tbeq]:   tb(I) => #Bottom requires I ==Int 0
+  rule [tbeq2]:  tb(I) => I requires I =/=Int 0
+  rule [teeq]:   te(I) => 1 ensures I =/=Int 0
+  rule [btsa]: bts(X) => val(bot(X)) [preserves-definedness]
+  rule [btsb]: bts(_) => done
+  rule [tbta]: tbt(X) => val(tb(X))
+  rule [tbtb]: tbt(_) => done
+  rule [eqea]: eqe(X) => val(te(X))
+  rule [eqeb]: eqe(_) => done
+  rule [btpa]: btp(X) => val(bot(X)) [preserves-definedness]
+  rule [btpb]: btp(_) => done [priority(60)]
+  rule [bba]: bb(X) => val(bot(X)) [preserves-definedness]
+  rule [bbb]: bb(X) => w(bot(X)) [preserves-definedness]
+endmodule
+"#;
+
+    #[test]
+    fn the_undefined_successor_probes() {
+        assert_inert(
+            "undefined successors",
+            UNDEFINED_SUCCESSORS,
+            "MAIN",
+            &[
+                Ground("bts(0)"),
+                Ground("tbt(0)"),
+                Ground("eqe(0)"),
+                Ground("btp(0)"),
+                Ground("bb(0)"),
+                Symbolic("bts(777)"),
+                Symbolic("tbt(777)"),
+            ],
+        );
+    }
 
     #[test]
     fn the_third_review_s_probes() {

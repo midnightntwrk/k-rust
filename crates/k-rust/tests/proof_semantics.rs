@@ -21,6 +21,8 @@ use k_rust::{
 
 #[path = "support/proof_sources.rs"]
 mod proof_sources;
+#[path = "support/undefined_successor.rs"]
+mod undefined_successor;
 use proof_sources::{
     ANYWHERE_OVERLOAD_REMAINDER, DEFPROBE, DEFPROBE_REFUSED_SPEC, DEFPROBE_SPEC,
     LATER_BINDING_KEPT, LATER_BINDING_RECOVERED, LATER_BINDING_RULE, LET_PARTIAL_CONDITION,
@@ -2334,6 +2336,62 @@ fn a_one_path_claim_takes_a_later_rule_where_a_result_is_undefined_after_the_ste
         ]
         .map(|(claim, status)| (claim.to_owned(), status.to_owned()))
     );
+}
+
+/// A one-path claim steps as strategy `any` does, so it reads a `\bottom` successor as no
+/// successor however the `\bottom` is found (design/undefined-successor.md §3, reading R): over
+/// the matrix of `undefined_step_coverage.rs`, `p(0) => done` is proven where a rule of the
+/// `\bottom` rule's priority rewrites `p(0)` to `done`, and fails where the step is undefined
+/// (a lower-priority rule, no other rule, two `\bottom` rules). The all-path claims keep their
+/// verdicts, which this change does not touch: a `\bottom` candidate the step itself decides
+/// is no successor there too, and one only its successor's normalization shows still fails the
+/// claim.
+#[test]
+fn a_one_path_claim_reads_a_bottom_successor_as_no_successor() {
+    use undefined_successor::{Shape, matrix_source, programs};
+    let mut claims = String::new();
+    for (program, _, _) in programs() {
+        claims.push_str(&format!(
+            "  claim [o-{program}]: <k> {program}(0) => done </k> [one-path]\n  claim [a-{program}]: <k> {program}(0) => done </k>\n"
+        ));
+    }
+    let source = format!(
+        "{}\nmodule FU42-SPEC\n  imports FU42\n{claims}endmodule\n",
+        matrix_source()
+    );
+    let kore = compile(&source, "FU42-SPEC", "FU42");
+    let mut wrong = Vec::new();
+    for (program, route, shape) in programs() {
+        let one_path = if shape == Shape::Covering {
+            "proven"
+        } else {
+            "failed"
+        };
+        let all_path = if shape == Shape::Covering && route.in_step {
+            "proven"
+        } else {
+            "failed"
+        };
+        for (claim, expected) in [
+            (format!("o-{program}"), one_path),
+            (format!("a-{program}"), all_path),
+        ] {
+            let status = prove(
+                &kore,
+                "FU42-SPEC",
+                &format!("FU42-SPEC.{claim}"),
+                ProveRequest::default(),
+            )
+            .status;
+            if status != expected {
+                wrong.push(format!(
+                    "{claim} ({}, {shape:?}): {status}, expected {expected}",
+                    route.name
+                ));
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
 
 /// A claim whose left-hand side is a disjunction is one claim per disjunct, all under the claim's

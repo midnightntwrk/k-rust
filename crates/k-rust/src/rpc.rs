@@ -3327,8 +3327,10 @@ endmodule
         )
     }
 
-    /// The candidate's successor is empty, so `execute` answers `vacuous` one step on; the
-    /// pre-step state is not `stuck`, since a rule applies to every instance of it.
+    /// The candidate's successor normalizes to `\bottom`, so it is no successor: every instance
+    /// of `hz(X)` is the step's undefined step, which `execute` answers `vacuous` at the
+    /// pre-step depth. The pre-step state is not `stuck`, since a rule applies to every instance
+    /// of it.
     #[test]
     fn execute_answers_vacuous_for_a_carried_step_with_an_empty_successor() {
         let mut service = carried_empty_candidate_service();
@@ -3341,7 +3343,7 @@ endmodule
         .unwrap();
         let response = request(&mut service, 1, "execute", json!({ "state": state }));
         assert_eq!(response["result"]["reason"], "vacuous", "{response}");
-        assert_eq!(response["result"]["depth"], 1, "{response}");
+        assert_eq!(response["result"]["depth"], 0, "{response}");
     }
 
     #[test]

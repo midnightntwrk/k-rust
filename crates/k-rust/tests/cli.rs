@@ -6700,7 +6700,7 @@ endmodule
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(
         stderr.contains(
-            "execution ended with no successor at depth 1: rule step applied with a false path constraint; refuted obligation"
+            "execution ended with no successor at depth 1: the path constraint is false; refuted obligation"
         ),
         "{stderr}"
     );

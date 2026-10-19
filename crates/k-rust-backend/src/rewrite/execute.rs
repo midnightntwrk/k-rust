@@ -15,7 +15,7 @@
 //!
 //! [[cost]]
 //! mode = "bounded execution"
-//! bound = "O(min(states, max_work)), with states at most b^d when both bounds are set and unbounded under the defaults (max_depth = u64::MAX, max_breadth = None, max_work = None); one integer comparison per state for the work budget; each state performs one term simplification, predicate pass, and rewrite step (a successor whose step already normalized it under strategy any takes that normalization instead), plus one predicate simplification and one satisfiability query per undefined-step (trivial) entry of its step, and a state stopped at max_depth is simplified once more; an initial state the run does not assume defined also walks its term's definedness once and simplifies the obligations that walk finds once"
+//! bound = "O(min(states, max_work)), with states at most b^d when both bounds are set and unbounded under the defaults (max_depth = u64::MAX, max_breadth = None, max_work = None); one integer comparison per state for the work budget; each state performs one term simplification, predicate pass, and rewrite step (a successor whose step already normalized it under strategy any takes that normalization instead), plus one predicate simplification and one satisfiability query per undefined-step (trivial) entry of its step; a step with such entries and an applied candidate (unless it stops at a branch with several candidates or a remainder), or one exploring all paths with several candidates, no remainder and a candidate a cut-point or terminal rule selects, normalizes each candidate's successor, which a defined one's successor takes instead of normalizing itself; a successor that normalizes to bottom, the first of its step to do so, normalizes each sibling candidate not yet normalized; and a step's undefined step, whichever route finds its candidates undefined (the step itself, stopping at branches, or a successor's normalization), takes one predicate simplification and one satisfiability query per undefined candidate, and one more predicate simplification when several candidates are left non-empty over one term; and a state stopped at max_depth is simplified once more; an initial state the run does not assume defined also walks its term's definedness once and simplifies the obligations that walk finds once"
 //!
 //! [[cost]]
 //! mode = "final leaf merge (merge_equal_final_leaves)"
@@ -89,9 +89,9 @@ use super::work::Work;
 use super::{
     AppliedRule, ExecutionBranchMode, ExecutionLeaf, ExecutionMode, ExecutionOptions,
     ExecutionResult, HaltReason, IndeterminateReason, InitialDefinedness,
-    InitialSimplificationStatus, Pattern, RemainderBranch, RemainderSimplification, RewriteResult,
-    SubjectDefinedness, TraceEntry, TraceKind, TrivialApplication, Truth, UndecidedStep,
-    applied_trivial_halt,
+    InitialSimplificationStatus, NormalizedSuccessor, Pattern, RemainderBranch,
+    RemainderSimplification, RewriteResult, SubjectDefinedness, TraceEntry, TraceKind,
+    TrivialApplication, Truth, UndecidedStep, applied_trivial_halt,
     exploration_merge::{Arrival, ExplorationMerge},
     initial_definedness, normalize_pattern_substitution,
     path_trace::PathTrace,
@@ -682,8 +682,9 @@ impl<'a> Execution<'a> {
                 Err(self.halt_leaf(state, rewritten, deferred_initial_vacuity))
             }
             RewriteResult::Finished(applied) => {
-                let (expanded, diagnostics) =
-                    crate::path_facts::collect_with_diagnostics(|| self.finished(state, applied));
+                let (expanded, diagnostics) = crate::path_facts::collect_with_diagnostics(|| {
+                    self.finished(state, applied, &Exclusion::default())
+                });
                 let expanded = expanded.map_err(|leaf| {
                     interrupted_with(leaf, &[&step_diagnostics, &owned_step_facts, &diagnostics])
                 });
@@ -924,7 +925,19 @@ impl<'a> Execution<'a> {
                     ),
                 };
                 if matches!(halt_reason, HaltReason::Trivial { .. }) {
-                    return self.undefined_step_leaf(state, halt_reason).map(|()| None);
+                    return self
+                        .report_undefined_successor(state, halt_reason)
+                        .map(|()| None);
+                }
+                // A successor that denotes no state is no successor of its step, however its
+                // constraints became `\bottom`: the step is undefined on the instances no other
+                // candidate takes to a defined successor. Only a pre-step state that itself has
+                // no instance gives a `Vacuous` leaf, at this state's depth.
+                if state.producer.is_some() {
+                    let undefined = trivial_halt(state.depth, &state.pattern);
+                    return self
+                        .report_undefined_successor(state, undefined)
+                        .map(|()| None);
                 }
                 return Err(state.leaf(halt_reason, &self.observation_log));
             }
@@ -1006,8 +1019,9 @@ impl<'a> Execution<'a> {
             Err(stop) => return Err(self.stopped_leaf(state, stop)),
         };
         let mut state = self.check_interrupted(state)?;
-        let (undefined_term, contradicted_total) = match simplified {
+        let (undefined_term, contradicted_total, found_bottom) = match simplified {
             Ok(simplified) => {
+                let found_bottom = simplified.bottom.as_ref().map(|found| found.term.clone());
                 let simplified = simplified.into_parts();
                 let undefined_term = simplified.undefined_term.clone();
                 let contradicted_total = simplified.contradicted_total.clone();
@@ -1037,7 +1051,7 @@ impl<'a> Execution<'a> {
                                 unique_id,
                             }),
                     );
-                (undefined_term, contradicted_total)
+                (undefined_term, contradicted_total, found_bottom)
             }
             Err(error) => {
                 return Err(state.leaf(HaltReason::Simplification(error), &self.observation_log));
@@ -1105,7 +1119,20 @@ impl<'a> Execution<'a> {
                 obligation: Predicate::Ceil(term),
                 contradicted_total,
             };
-            return self.undefined_step_leaf(state, halt_reason).map(|()| None);
+            return self
+                .report_undefined_successor(state, halt_reason)
+                .map(|()| None);
+        }
+        // Any other `\bottom` the term simplification conjoined (an equation whose own result is
+        // `\bottom`, a refuted equation `ensures`) makes the successor denote no state as well:
+        // it is no successor of its step, as above.
+        if predicates_truth(&state.pattern.constraints) == Truth::False && state.producer.is_some()
+        {
+            let undefined = term_phase_undefinedness(None, None, found_bottom, &state.pattern)
+                .halt(state.depth);
+            return self
+                .report_undefined_successor(state, undefined)
+                .map(|()| None);
         }
         if let Some(execution) = io_evaluation {
             state.io = execution.commit();
@@ -1236,6 +1263,13 @@ impl<'a> Execution<'a> {
                     &pattern,
                     self.observation,
                 );
+                if let Some(empty) = deferred_initial_vacuity {
+                    // The step was taken from a configuration already shown to have no
+                    // instance: there is no step to be undefined.
+                    let constraint = super::false_constraint(&empty);
+                    let depth = state.depth + 1;
+                    return self.empty_leaf(ExecutionState { depth, ..state }, empty, constraint);
+                }
                 let halt_reason = applications
                     .first()
                     .map(|application| applied_trivial_halt(state.depth + 1, application))
@@ -1275,10 +1309,11 @@ impl<'a> Execution<'a> {
         &mut self,
         mut state: ExecutionState,
         applied: AppliedRule,
+        excluded: &Exclusion,
     ) -> Phase<Vec<ExecutionState>> {
         if let Some(rule) = selected_stop_rule(&applied, &self.options.cut_point_rules) {
             let mut applied = applied;
-            let producer = Producer::of(&state, &applied, Vec::new());
+            let producer = Producer::of(&state, &applied);
             commit_proposed_effects(&mut state, &applied);
             // The cut-point rule is proposed, not committed: the `CutPointRule` leaf stays at
             // this state's depth and branch position and carries the successor in
@@ -1355,15 +1390,25 @@ impl<'a> Execution<'a> {
                     Ok(halt_reason) => halt_reason,
                     Err(stop) => return Err(self.stopped_leaf(state, stop)),
                 };
-                state.producer = Some(std::rc::Rc::new(producer));
+                // Reported as the successor would be: at its depth, on its observation head.
+                let successor = ExecutionState {
+                    depth: state.depth + 1,
+                    observation: candidate_observation,
+                    pattern: applied.pattern,
+                    producer: Some(std::rc::Rc::new(producer)),
+                    ..state
+                };
                 return self
-                    .undefined_step_leaf(state, halt_reason)
+                    .report_undefined_successor(successor, halt_reason)
                     .map(|()| Vec::new());
             }
+            // The step's undefined step stands for some instances of this state: the leaf stands
+            // for the others, the candidate's own.
+            excluded.exclude_from(&mut state.pattern);
             return Err(self.cut_point_leaf(state, rule, applied, candidate_observation));
         }
         let terminal_rule = selected_stop_rule(&applied, &self.options.terminal_rules);
-        let producer = Producer::of(&state, &applied, Vec::new());
+        let producer = Producer::of(&state, &applied);
         let mut next = next_state(
             self.definition,
             state,
@@ -1423,7 +1468,7 @@ impl<'a> Execution<'a> {
                     Err(stop) => return Err(self.stopped_leaf(next, stop)),
                 };
                 return self
-                    .undefined_step_leaf(next, halt_reason)
+                    .report_undefined_successor(next, halt_reason)
                     .map(|()| Vec::new());
             }
             return Err(next.leaf(HaltReason::TerminalRule { rule }, &self.observation_log));
@@ -1467,24 +1512,60 @@ impl<'a> Execution<'a> {
         trivial: Vec<TrivialApplication>,
     ) -> Phase<Vec<ExecutionState>> {
         record_trivial_candidates(&mut self.discarded, &trivial, &original, self.observation);
-        // The instances the step leaves without a defined successor are no candidate's and not
-        // the remainder's: each trivial entry's are a leaf of their own, whatever the other
-        // candidates become.
-        for entry in &trivial {
-            match self.undefined_leaf(&state, entry) {
-                Ok(Some(leaf)) => self.leaves.push(leaf),
+        // The instances the step itself left without a defined successor (its trivial entries)
+        // are parts of its undefined step, with those of the candidates whose successors
+        // normalize to `\bottom`: the step has one `Trivial` leaf, standing for every instance on
+        // which a candidate applies and every candidate that applies is undefined.
+        let depth = state.depth + 1;
+        let mut parts = Vec::new();
+        for (index, entry) in trivial.iter().enumerate() {
+            match self.entry_part(index, entry, depth) {
+                Ok(Some(part)) => parts.push(part),
                 Ok(None) => {}
                 Err(stop) => return Err(self.stopped_leaf(state, stop)),
             }
         }
-        if branches.len() == 1 && remainder.is_none() {
+        let offset = trivial.len();
+        let single = branches.len() == 1 && remainder.is_none();
+        let stopping = self.options.branch_mode == ExecutionBranchMode::StopAtBranch;
+        // Whether a stop rule may select one of several candidates, which then stops the run
+        // only if it is the step's one successor.
+        let stop_rule_selects = !single
+            && remainder.is_none()
+            && branches.iter().any(|applied| {
+                selected_stop_rule(applied, &self.options.cut_point_rules).is_some()
+                    || selected_stop_rule(applied, &self.options.terminal_rules).is_some()
+            });
+        let entries_decide = !trivial.is_empty()
+            && (!parts.is_empty() || (branches.is_empty() && remainder.is_none()));
+        if !stopping && (entries_decide || stop_rule_selects) || single && entries_decide {
+            // What the step does next rests on which candidates are undefined: the undefined
+            // step it reports beside its trivial entries, or whether a stop rule's candidate is
+            // its one successor. Each candidate's successor is normalized here, and a defined
+            // one's successor takes that normalization instead of repeating it.
+            let defined = match self.normalize_candidates(&state, branches, offset, &mut parts) {
+                Ok(defined) => defined,
+                Err(stop) => return Err(self.stopped_leaf(state, stop)),
+            };
+            let parent = state.clone();
+            return self.conclude_step(
+                state,
+                &parent,
+                original,
+                parts,
+                Survivors::Normalized(defined),
+                remainder,
+                offset,
+            );
+        }
+        if single {
             // The only candidate is the unique successor of this state, whatever the branch
-            // mode: the other instances are the trivial entries' leaves above, so the step is no
-            // branch point, and it goes on exactly as a `Finished` step does, the stop rules
-            // included. Its successor is normalised by its own expansion, where a `\bottom`
-            // constraint makes it `Vacuous` (or `Trivial`) rather than leaving this state stuck.
+            // mode: the step is no branch point, and it goes on exactly as a `Finished` step
+            // does, the stop rules included. Its successor is normalised by its own expansion,
+            // where a `\bottom` makes it this step's undefined step rather than leaving this
+            // state stuck.
             let applied = branches.into_iter().next().expect("one branch remains");
-            return self.finished(state, applied);
+            return self.finished(state, applied, &Exclusion::default());
         }
         if self.options.branch_mode == ExecutionBranchMode::StopAtBranch {
             // The configuration the step was taken from, on its path: the leaf of a candidate
@@ -1523,8 +1604,10 @@ impl<'a> Execution<'a> {
                 Err(stop) => return Err(self.stopped_leaf(state, stop)),
             };
             if predicates_truth(&original.constraints) == Truth::False {
-                let halt_reason = trivial_halt(state.depth, &original);
-                return Err(state.leaf_with_pattern(original, halt_reason, &self.observation_log));
+                // The configuration has no instance, which the step exposed.
+                let constraint = super::false_constraint(&original);
+                let empty = ExecutionState { depth, ..state };
+                return Err(self.empty_leaf(empty, original, constraint));
             }
             // A branch point is reported as a single leaf for the parent state. When
             // any successor fails to simplify, the failure is likewise recorded at the
@@ -1535,9 +1618,7 @@ impl<'a> Execution<'a> {
             // The candidates normalized to `\bottom` and shown undefined, each with its successor
             // as the step built it, and the successors as built of the other candidates, which
             // are defined.
-            let mut undefined_candidates = Vec::new();
-            let mut defined_successors = Vec::new();
-            for mut applied in branches {
+            for (candidate, mut applied) in branches.into_iter().enumerate() {
                 let built = applied.pattern.clone();
                 // Each candidate's normalization is recorded on its own observation head, after
                 // its transition, as it would be on the branch the candidate extends.
@@ -1570,25 +1651,15 @@ impl<'a> Execution<'a> {
                 extend_distinct(&mut applied.diagnostics, &diagnostics);
                 match simplified {
                     Ok(Ok(simplified)) => {
-                        let discarded_id = self
-                            .observation
-                            .filter(|options| {
-                                predicates_truth(&simplified.pattern.constraints) == Truth::False
-                                    && options.observes(&applied.unique_id)
-                            })
-                            .map(|_| TransitionId {
-                                rule: applied.unique_id.clone(),
-                                target: PatternDigest::of(&applied.pattern),
-                            });
                         applied.pattern = simplified.pattern;
                         applied.effects.extend(simplified.effects);
                         if predicates_truth(&applied.pattern.constraints) != Truth::False {
-                            defined_successors.push(built);
-                            simplified_branches.push((applied, observation));
+                            simplified_branches.push((applied, observation, built));
                             continue;
                         }
-                        // An empty candidate is no successor; an undefined one is an undefined
-                        // step of this state, reported below once every candidate is known.
+                        // A candidate normalized to `\bottom` is no successor, however the
+                        // `\bottom` was found: an undefined step of this state where no defined
+                        // candidate applies, reported below once every candidate is known.
                         let io = applied
                             .io
                             .as_ref()
@@ -1611,22 +1682,34 @@ impl<'a> Execution<'a> {
                             )
                         });
                         extend_distinct(&mut applied.diagnostics, &work);
-                        match undefined {
-                            Ok(Some(undefined)) => {
-                                undefined_candidates.push((applied, built, undefined));
-                            }
-                            Ok(None) => {
-                                if let Some(id) = discarded_id {
-                                    self.discarded.push(UncommittedObservation {
-                                        id,
-                                        rule_label: applied.label,
-                                        effects: applied.effects,
-                                        reason: UncommittedReason::RolledBack,
-                                    });
-                                }
-                            }
+                        let undefined = match undefined {
+                            Ok(Some(undefined)) => undefined,
+                            // The successor's own normalization did not finish, or did not
+                            // reach `\bottom`; this one did, so the obligation named is its
+                            // false constraint.
+                            Ok(None) => UndefinedSuccessor {
+                                obligation: super::false_constraint(&applied.pattern),
+                                contradicted_total: None,
+                            },
                             Err(stop) => return Err(self.stopped_leaf(state, stop)),
-                        }
+                        };
+                        self.roll_back(
+                            &applied.unique_id,
+                            &applied.label,
+                            &built,
+                            &applied.effects,
+                        );
+                        parts.push(UndefinedPart::candidate(
+                            offset + candidate,
+                            &applied.before,
+                            &built,
+                            &applied.unique_id,
+                            &applied.label,
+                            applied.observing_rule(),
+                            undefined.halt(depth),
+                            applied.diagnostics.to_vec(),
+                            applied.remainder_simplifications,
+                        ));
                     }
                     Ok(Err(error)) => {
                         // The failure is reported on the parent's leaf, with the diagnostics of
@@ -1647,35 +1730,7 @@ impl<'a> Execution<'a> {
                     &self.observation_log,
                 ));
             }
-            // Each undefined candidate is an undefined step of this state where no defined
-            // candidate applies, reported as when its successor is expanded: the step goes on
-            // with the defined candidates only, so one of them alone is this state's unique
-            // successor.
-            let undefined_step = !undefined_candidates.is_empty();
-            for (applied, built, undefined) in undefined_candidates {
-                let mut diagnostics = parent.diagnostics.clone();
-                diagnostics.extend(&applied.diagnostics);
-                let rule = applied.observing_rule();
-                let producer = Producer {
-                    parent: parent.clone(),
-                    before: applied.before,
-                    successor: built,
-                    rule,
-                    rule_id: applied.unique_id,
-                    label: applied.label,
-                    effects: applied.effects,
-                    remainder_simplifications: applied.remainder_simplifications,
-                    siblings: Vec::new(),
-                    defined_siblings: defined_successors.clone(),
-                    normalization: None,
-                };
-                match self.producer_leaf(diagnostics, &producer, undefined.halt(state.depth + 1)) {
-                    Ok(Some(leaf)) => self.leaves.push(leaf),
-                    Ok(None) => {}
-                    Err(stop) => return Err(self.stopped_leaf(state, stop)),
-                }
-            }
-            let mut branches = simplified_branches;
+            let branches = simplified_branches;
             let mut remainder_observation_head = None;
             if let Some(candidate) = &mut remainder {
                 let mut observation = remainder_observation(
@@ -1723,85 +1778,49 @@ impl<'a> Execution<'a> {
                 }
             }
             let state = self.check_interrupted(state)?;
-            match (branches.len(), remainder.is_some()) {
-                // Every instance of the state is on an undefined step's leaf.
-                (0, false) if undefined_step => return Ok(Vec::new()),
-                (0, false) => {
-                    return Err(state.leaf_with_pattern(
-                        original,
-                        HaltReason::Stuck,
-                        &self.observation_log,
-                    ));
-                }
-                (1, false) => {
-                    // The only surviving candidate is the unique successor of this state, as a
-                    // `Finished` step's application is: the stop rules apply to it alike. It is
-                    // already normalized, on its own head, and not bottom.
-                    let (applied, observation) = branches.pop().expect("one branch remains");
-                    if let Some(rule) = selected_stop_rule(&applied, &self.options.cut_point_rules)
-                    {
-                        let mut state = state;
-                        commit_proposed_effects(&mut state, &applied);
-                        return Err(self.cut_point_leaf(state, rule, applied, observation));
-                    }
-                    let terminal_rule = selected_stop_rule(&applied, &self.options.terminal_rules);
-                    let next = commit_applied(state, applied, observation);
-                    if let Some(rule) = terminal_rule {
-                        return Err(
-                            next.leaf(HaltReason::TerminalRule { rule }, &self.observation_log)
-                        );
-                    }
-                    return Ok(vec![next]);
-                }
-                (0, true) => {
-                    let remainder = remainder.take().expect("one remainder remains");
-                    return Ok(vec![commit_remainder(
-                        state,
-                        remainder,
-                        remainder_observation_head,
-                    )]);
-                }
-                _ => {
-                    // The reported candidates are not committed: each carries the events it
-                    // would add to the parent's branch.
-                    let branches = branches
-                        .into_iter()
-                        .map(|(mut applied, observation)| {
-                            applied.observations = self
-                                .observation_log
-                                .events_since(observation, state.observation);
-                            applied
-                        })
-                        .collect();
-                    if let Some(candidate) = &mut remainder {
-                        candidate.observations = self
-                            .observation_log
-                            .events_since(remainder_observation_head, state.observation);
-                    }
-                    return Err(state.leaf_with_pattern(
-                        original,
-                        HaltReason::Branch {
-                            branches,
-                            remainder,
-                        },
-                        &self.observation_log,
-                    ));
-                }
-            }
+            return self.conclude_step(
+                state,
+                &parent,
+                original,
+                parts,
+                Survivors::Simplified(branches, remainder_observation_head),
+                remainder,
+                offset,
+            );
         }
+        Ok(self.successors(state, branches, remainder, offset))
+    }
+
+    /// The successors of a step exploring all paths: one per applied candidate, each knowing the
+    /// others for its undefined step ([`Self::successor_step`]), and the remainder's.
+    fn successors(
+        &mut self,
+        state: ExecutionState,
+        branches: Vec<AppliedRule>,
+        remainder: Option<RemainderBranch>,
+        offset: usize,
+    ) -> Vec<ExecutionState> {
         let mut next = Vec::with_capacity(branches.len() + usize::from(remainder.is_some()));
-        let successors = branches
+        let candidates = branches
             .iter()
-            .map(|applied| (applied.pattern.clone(), applied.observing_rule()))
+            .enumerate()
+            .map(|(index, applied)| Sibling::of(offset + index, applied))
             .collect::<Vec<_>>();
+        let reported = std::rc::Rc::new(std::cell::Cell::new(false));
         for (index, applied) in branches.into_iter().enumerate() {
-            let siblings = successors
+            let siblings = candidates
                 .iter()
-                .enumerate()
-                .filter(|(other, _)| *other != index)
-                .map(|(_, sibling)| sibling.clone())
+                .filter(|sibling| sibling.index != offset + index)
+                .cloned()
                 .collect();
-            let producer = Producer::of(&state, &applied, siblings);
+            let producer = Producer::of_step(
+                &state,
+                &applied,
+                offset + index,
+                siblings,
+                remainder.is_some(),
+                reported.clone(),
+            );
             let mut successor = next_state(
                 self.definition,
                 state.clone(),
@@ -1824,7 +1843,214 @@ impl<'a> Execution<'a> {
             );
             next.push(remaining);
         }
-        Ok(next)
+        next
+    }
+
+    /// Normalize each candidate's successor within the step: an undefined one becomes a part of
+    /// the step's undefined step (`parts`), with its transition rolled back; a defined one is
+    /// returned, carrying its normalization, which its successor takes instead of repeating it.
+    fn normalize_candidates(
+        &mut self,
+        state: &ExecutionState,
+        branches: Vec<AppliedRule>,
+        offset: usize,
+        parts: &mut Vec<UndefinedPart>,
+    ) -> Stoppable<Vec<AppliedRule>> {
+        let depth = state.depth + 1;
+        let mut defined = Vec::with_capacity(branches.len());
+        for (candidate, mut applied) in branches.into_iter().enumerate() {
+            let rule = applied.observing_rule();
+            let io = applied
+                .io
+                .as_ref()
+                .or(state.io_enabled.then_some(&state.io));
+            let checked = crate::path_facts::observed_by(
+                || Some(rule.clone()),
+                || {
+                    normalize_successor(
+                        self.definition,
+                        &applied.pattern,
+                        &applied.before.constraints,
+                        SimplificationOptions::keep_partial(
+                            self.options.max_simplification_iterations,
+                        ),
+                        self.solver,
+                        io,
+                    )
+                },
+            )?;
+            match checked.undefined {
+                Some(undefined) => {
+                    let mut work = applied.diagnostics.to_vec();
+                    if let Some(normalization) = &checked.normalization {
+                        extend_distinct(&mut work, &normalization.diagnostics());
+                    }
+                    self.roll_back(
+                        &applied.unique_id,
+                        &applied.label,
+                        &applied.pattern,
+                        &applied.effects,
+                    );
+                    parts.push(UndefinedPart::candidate(
+                        offset + candidate,
+                        &applied.before,
+                        &applied.pattern,
+                        &applied.unique_id,
+                        &applied.label,
+                        rule,
+                        undefined.halt(depth),
+                        work,
+                        applied.remainder_simplifications.clone(),
+                    ));
+                }
+                None => {
+                    applied.normalized = NormalizedSuccessor(checked.normalization.map(Arc::new));
+                    defined.push(applied);
+                }
+            }
+        }
+        Ok(defined)
+    }
+
+    /// What a step does once each of its candidates is known defined or undefined: every
+    /// decision that rests on its successor set is taken here, on the defined candidates
+    /// (`survivors`) and the remainder only. A candidate whose successor is `\bottom` is no
+    /// successor.
+    ///
+    /// The undefined step of `parts` is reported first ([`Self::undefined_step`]); a step with
+    /// no instance is one `Vacuous` leaf. Then: no survivor and no remainder ends the state, as
+    /// `Stuck` only when no candidate applied; one survivor and no remainder is the state's one
+    /// successor, to which the cut-point and terminal rules apply; otherwise the state
+    /// branches, as successors when exploring all paths, or as a `Branch` leaf when stopping at
+    /// branches. A cut-point or `Branch` leaf, which is the configuration the step was taken
+    /// from, excludes the undefined step's instances ([`Exclusion`], built from the instances
+    /// each undefined part stands for, whatever its term), so the step's leaves partition its
+    /// instances. `parent` is the state as the step was taken from it.
+    #[allow(clippy::too_many_arguments)]
+    fn conclude_step(
+        &mut self,
+        state: ExecutionState,
+        parent: &ExecutionState,
+        original: Pattern,
+        parts: Vec<UndefinedPart>,
+        survivors: Survivors,
+        mut remainder: Option<RemainderBranch>,
+        offset: usize,
+    ) -> Phase<Vec<ExecutionState>> {
+        let depth = state.depth + 1;
+        let undefined = !parts.is_empty();
+        let built = survivors.built();
+        // The undefined step's instances, which the step's other leaves exclude.
+        let mut excluded = Exclusion::default();
+        if undefined {
+            let others = !built.is_empty() || remainder.is_some();
+            match self.undefined_step(
+                parent,
+                parent.diagnostics.clone(),
+                parts,
+                &built.iter().collect::<Vec<_>>(),
+                others,
+            ) {
+                Ok(UndefinedStep::Leaves(leaves, parts)) => {
+                    excluded = parts;
+                    self.leaves.extend(leaves);
+                }
+                Ok(UndefinedStep::Covered) => {}
+                Ok(UndefinedStep::NoInstance) => {
+                    let constraint = super::false_constraint(&original);
+                    let empty = ExecutionState { depth, ..state };
+                    return Err(self.empty_leaf(empty, original, constraint));
+                }
+                Err(stop) => return Err(self.stopped_leaf(state, stop)),
+            }
+        }
+        match survivors {
+            Survivors::Normalized(mut defined) => match (defined.len(), remainder.is_some()) {
+                (0, false) if undefined => Ok(Vec::new()),
+                (0, false) => {
+                    Err(state.leaf_with_pattern(original, HaltReason::Stuck, &self.observation_log))
+                }
+                (1, false) => {
+                    let applied = defined.pop().expect("one defined candidate");
+                    self.finished(state, applied, &excluded)
+                }
+                _ => Ok(self.successors(state, defined, remainder, offset)),
+            },
+            Survivors::Simplified(mut branches, remainder_observation_head) => {
+                match (branches.len(), remainder.is_some()) {
+                    // Every instance of the state is on the undefined step's leaf.
+                    (0, false) if undefined => Ok(Vec::new()),
+                    (0, false) => Err(state.leaf_with_pattern(
+                        original,
+                        HaltReason::Stuck,
+                        &self.observation_log,
+                    )),
+                    (1, false) => {
+                        // The only surviving candidate is the unique successor of this state,
+                        // as a `Finished` step's application is: the stop rules apply to it
+                        // alike. It is already normalized, on its own head, and not bottom.
+                        let (applied, observation, _) = branches.pop().expect("one branch remains");
+                        if let Some(rule) =
+                            selected_stop_rule(&applied, &self.options.cut_point_rules)
+                        {
+                            let mut state = state;
+                            // The undefined step stands for some instances of this state: the
+                            // leaf stands for the others, the candidate's own.
+                            excluded.exclude_from(&mut state.pattern);
+                            commit_proposed_effects(&mut state, &applied);
+                            return Err(self.cut_point_leaf(state, rule, applied, observation));
+                        }
+                        let terminal_rule =
+                            selected_stop_rule(&applied, &self.options.terminal_rules);
+                        let next = commit_applied(state, applied, observation);
+                        if let Some(rule) = terminal_rule {
+                            return Err(
+                                next.leaf(HaltReason::TerminalRule { rule }, &self.observation_log)
+                            );
+                        }
+                        Ok(vec![next])
+                    }
+                    (0, true) => {
+                        let remainder = remainder.take().expect("one remainder remains");
+                        Ok(vec![commit_remainder(
+                            state,
+                            remainder,
+                            remainder_observation_head,
+                        )])
+                    }
+                    _ => {
+                        // The reported candidates are not committed: each carries the events it
+                        // would add to the parent's branch.
+                        let branches = branches
+                            .into_iter()
+                            .map(|(mut applied, observation, _)| {
+                                applied.observations = self
+                                    .observation_log
+                                    .events_since(observation, state.observation);
+                                applied
+                            })
+                            .collect();
+                        if let Some(candidate) = &mut remainder {
+                            candidate.observations = self
+                                .observation_log
+                                .events_since(remainder_observation_head, state.observation);
+                        }
+                        // The branch leaf stands for the instances the step does not leave
+                        // undefined.
+                        let mut original = original;
+                        excluded.exclude_from(&mut original);
+                        Err(state.leaf_with_pattern(
+                            original,
+                            HaltReason::Branch {
+                                branches,
+                                remainder,
+                            },
+                            &self.observation_log,
+                        ))
+                    }
+                }
+            }
+        }
     }
 
     /// The `Trivial` halt at `depth` of a step whose successor, `built` as the step built it from
@@ -1866,11 +2092,15 @@ impl<'a> Execution<'a> {
         ))
     }
 
-    /// The `Trivial` leaf of the step that produced `state`, a successor whose normalization
-    /// showed it undefined (`halt_reason`, at the successor's depth), as `Err`; `Ok` when no
-    /// instance is left undefined ([`Self::producer_leaf`]). A state with no recorded producer (no
-    /// step produced it) is its own leaf, as before.
-    fn undefined_step_leaf(
+    /// Report `state`, a successor whose normalization showed it undefined (`halt_reason`, at
+    /// the successor's depth): it denotes no state, so it is no successor of its step, and its
+    /// instances go to the step's undefined step ([`Self::successor_step`]). `Err` carries the
+    /// leaf that reports them: the step's `Trivial` leaf, or, when the configuration the step was
+    /// taken from has no instance, this state's `Vacuous` leaf, which names no rule. `Ok` when no
+    /// leaf is due: another candidate or the remainder takes every instance, or another
+    /// successor of the step reported its undefined step. A state with no recorded producer (no
+    /// step produced it) is its own leaf.
+    fn report_undefined_successor(
         &mut self,
         mut state: ExecutionState,
         halt_reason: HaltReason,
@@ -1878,50 +2108,100 @@ impl<'a> Execution<'a> {
         let Some(producer) = state.producer.take() else {
             return Err(state.leaf(halt_reason, &self.observation_log));
         };
-        match self.producer_leaf(state.diagnostics.clone(), &producer, halt_reason) {
-            Ok(Some(leaf)) => Err(leaf),
-            Ok(None) => Ok(()),
+        match self.successor_step(state.diagnostics.clone(), &producer, halt_reason) {
+            Ok(UndefinedStep::Leaves(leaves, _)) => {
+                let mut leaves = leaves.into_iter();
+                let first = leaves.next().expect("a reported step has a leaf");
+                self.leaves.extend(leaves);
+                Err(first)
+            }
+            Ok(UndefinedStep::Covered) => Ok(()),
+            Ok(UndefinedStep::NoInstance) => {
+                let pattern = state.pattern.clone();
+                let constraint = super::false_constraint(&pattern);
+                Err(self.empty_leaf(state, pattern, constraint))
+            }
             Err(stop) => Err(self.stopped_leaf(state, stop)),
         }
     }
 
-    /// The `Trivial` leaf of `producer`'s step, whose successor is undefined (`halt_reason`, at
-    /// the successor's depth); `None` when no instance is left undefined. `diagnostics` are the
-    /// path's up to the finding.
+    /// The `Vacuous` leaf of `state`, which has no instance: `pattern` with `constraint`
+    /// refuted, at `state`'s depth. No rule is named: nothing applied to an instance.
+    fn empty_leaf(
+        &self,
+        state: ExecutionState,
+        pattern: Pattern,
+        constraint: Predicate,
+    ) -> ExecutionLeaf {
+        let halt_reason = HaltReason::Vacuous {
+            depth: state.depth,
+            rule_id: None,
+            label: None,
+            constraint,
+            contradicted_total: None,
+        };
+        let pattern = Pattern {
+            term: pattern.term,
+            constraints: vec![Predicate::False],
+        };
+        ExecutionState {
+            producer: None,
+            ..state
+        }
+        .leaf_with_pattern(pattern, halt_reason, &self.observation_log)
+    }
+
+    /// The undefined step of `producer`'s step, found when its successor's normalization
+    /// showed it undefined (`halt_reason`). `diagnostics` are the path's up to the finding.
     ///
-    /// The leaf is the configuration the step was taken from, at that configuration's depth and
-    /// on its path extended by the higher-priority remainder simplifications the candidate went
-    /// through, restricted to the condition under which this candidate applies and to the
-    /// instances no other applied candidate of the step takes to a defined successor; the
-    /// step's events are rolled back (`discarded`). A sibling not yet normalized counts as
-    /// defined unless [`successor_undefinedness`] shows it undefined, so an instance is reported
-    /// undefined only when the step is shown undefined on it. A stop is returned.
-    fn producer_leaf(
+    /// The step's other applied candidates not yet normalized are normalized here: the
+    /// undefined ones are parts of the same undefined step, and the defined ones exclude the
+    /// instances they take. The first successor of a step to report this reports the step's one
+    /// undefined step; the others report nothing ([`Producer::reported`]). Each successor's
+    /// transition is rolled back (`discarded`). A stop is returned.
+    fn successor_step(
         &mut self,
         mut diagnostics: PathDiagnostics,
         producer: &Producer,
         halt_reason: HaltReason,
-    ) -> Stoppable<Option<ExecutionLeaf>> {
-        let bound = pattern_variables(&producer.before);
-        let mut constraints = producer.before.constraints.clone();
-        let branch = beyond(
-            &producer.successor.constraints,
-            &producer.before.constraints,
+    ) -> Stoppable<UndefinedStep> {
+        self.roll_back(
+            &producer.rule_id,
+            &producer.label,
+            &producer.successor,
+            &producer.effects,
         );
-        extend_unique_predicates(&mut constraints, closed_over(branch, &bound));
+        if producer.reported.replace(true) {
+            return Ok(UndefinedStep::Covered);
+        }
+        let depth = match &halt_reason {
+            HaltReason::Trivial { depth, .. } => *depth,
+            _ => producer.parent.depth + 1,
+        };
+        let mut parts = vec![UndefinedPart::candidate(
+            producer.index,
+            &producer.before,
+            &producer.successor,
+            &producer.rule_id,
+            &producer.label,
+            producer.rule.clone(),
+            halt_reason,
+            Vec::new(),
+            producer.remainder_simplifications.clone(),
+        )];
         let parent_io = producer.parent.io_enabled.then_some(&producer.parent.io);
         let mut defined = Vec::with_capacity(producer.siblings.len());
-        for (sibling, rule) in &producer.siblings {
-            // The sibling's simplification decides this leaf's constraint, so its work is the
-            // leaf's; a contradiction it observes is its own rule's.
+        for sibling in &producer.siblings {
+            // The sibling's normalization decides this leaf, so its work is the leaf's; a
+            // contradiction it observes is its own rule's.
             let (undefined, work) = crate::path_facts::collect_with_diagnostics(|| {
                 crate::path_facts::observed_by(
-                    || Some(rule.clone()),
+                    || Some(sibling.rule.clone()),
                     || {
                         successor_undefinedness(
                             self.definition,
-                            sibling,
-                            &producer.before.constraints,
+                            &sibling.built,
+                            &sibling.before.constraints,
                             SimplificationOptions::keep_partial(
                                 self.options.max_simplification_iterations,
                             ),
@@ -1931,28 +2211,234 @@ impl<'a> Execution<'a> {
                     },
                 )
             });
-            diagnostics.extend(&work);
-            if undefined?.is_none() {
-                defined.push(sibling);
+            match undefined? {
+                Some(undefined) => parts.push(UndefinedPart::candidate(
+                    sibling.index,
+                    &sibling.before,
+                    &sibling.built,
+                    &sibling.rule_id,
+                    &sibling.label,
+                    sibling.rule.clone(),
+                    undefined.halt(depth),
+                    work,
+                    sibling.remainder_simplifications.clone(),
+                )),
+                None => {
+                    diagnostics.extend(&work);
+                    defined.push(&sibling.built);
+                }
             }
         }
-        for sibling in defined.into_iter().chain(&producer.defined_siblings) {
-            let applies = beyond(&sibling.constraints, &producer.before.constraints);
-            constraints.push(Predicate::Not(Arc::new(conjunction(closed_over(
-                applies, &bound,
-            )))));
+        let others = producer.has_remainder || !defined.is_empty();
+        self.undefined_step(&producer.parent, diagnostics, parts, &defined, others)
+    }
+
+    /// Record a candidate's transition from `target`'s producer as rolled back, when observed.
+    fn roll_back(
+        &mut self,
+        rule_id: &str,
+        label: &Option<String>,
+        target: &Pattern,
+        effects: &[BuiltinEffect],
+    ) {
+        if let Some(options) = self.observation
+            && options.observes(rule_id)
+        {
+            self.discarded.push(UncommittedObservation {
+                id: TransitionId {
+                    rule: rule_id.to_owned(),
+                    target: PatternDigest::of(target),
+                },
+                rule_label: label.clone(),
+                effects: effects.to_vec(),
+                reason: UncommittedReason::RolledBack,
+            });
         }
-        let mut pattern = Pattern {
-            term: producer.before.term.clone(),
-            constraints,
-        };
-        let (simplified, work) = crate::path_facts::collect_with_diagnostics(|| {
+    }
+
+    /// The undefined step of a step taken from `parent`: the instances on which a candidate of
+    /// the step applies and every candidate that applies is undefined (`parts`), outside the
+    /// instances its defined candidates take (`defined`, their successors as the step built
+    /// them). `diagnostics` are the path's; every part's work is added, since the leaf rests on
+    /// every candidate being undefined. `others` says whether a defined candidate or a remainder
+    /// takes some instance.
+    ///
+    /// Each part not already decided is restricted, simplified and checked for emptiness. The
+    /// non-empty parts make one `Trivial` leaf: the configuration before the step, at its depth,
+    /// on its path through the remainder simplifications of the first part, naming the first
+    /// part's rule, under the disjunction of the parts' conditions (their common conjuncts kept
+    /// as they are). Parts applied to patterns with different terms make one leaf per term.
+    /// With no non-empty part the step is [`UndefinedStep::Covered`] when another candidate or
+    /// the remainder takes some instance, and otherwise has no instance at all
+    /// ([`UndefinedStep::NoInstance`]): every instance of a configuration either has a rule of
+    /// its first applicable priority that applies, or is the remainder's. A stop is returned.
+    fn undefined_step(
+        &mut self,
+        parent: &ExecutionState,
+        mut diagnostics: PathDiagnostics,
+        parts: Vec<UndefinedPart>,
+        defined: &[&Pattern],
+        others: bool,
+    ) -> Stoppable<UndefinedStep> {
+        let mut found = Vec::with_capacity(parts.len());
+        for mut part in parts {
+            diagnostics.extend(&part.diagnostics);
+            if part.decided {
+                found.push(part);
+                continue;
+            }
+            for sibling in defined {
+                let applies = beyond(&sibling.constraints, &part.base);
+                part.pattern
+                    .constraints
+                    .push(Predicate::Not(Arc::new(conjunction(closed_over(
+                        applies,
+                        &part.bound,
+                    )))));
+            }
+            let rule = part.rule.clone();
+            let (simplified, work) = crate::path_facts::collect_with_diagnostics(|| {
+                crate::path_facts::observed_by(
+                    || rule,
+                    || {
+                        simplify_predicates_with_solver(
+                            self.definition,
+                            &part.pattern.constraints,
+                            &[],
+                            SimplificationOptions::keep_partial(
+                                self.options.max_simplification_iterations,
+                            ),
+                            self.solver,
+                        )
+                    },
+                )
+            });
+            diagnostics.extend(&work);
+            match simplified {
+                Ok(Ok(simplified)) => part.pattern.constraints = simplified,
+                // A failed simplification only loses precision.
+                Ok(Err(_failure)) => {}
+                Err(stop) => stop.forgo_refinement(),
+            }
+            let empty = predicates_truth(&part.pattern.constraints) == Truth::False
+                || matches!(
+                    self.solver
+                        .is_sat(&part.pattern.constraints, &Substitution::new())?,
+                    Ok(Satisfiability::Unsat)
+                );
+            if !empty {
+                found.push(part);
+            }
+        }
+        if found.is_empty() {
+            return Ok(if others {
+                UndefinedStep::Covered
+            } else {
+                UndefinedStep::NoInstance
+            });
+        }
+        found.sort_by_key(|part| part.index);
+        // The instances the leaves stand for, part by part, whatever their terms.
+        let excluded = Exclusion(
+            found
+                .iter()
+                .map(|part| part.pattern.constraints.clone())
+                .collect(),
+        );
+        // One leaf per pre-step term, in the order of their first parts.
+        let mut groups: Vec<Vec<UndefinedPart>> = Vec::new();
+        for part in found {
+            match groups
+                .iter_mut()
+                .find(|group| group[0].pattern.term == part.pattern.term)
+            {
+                Some(group) => group.push(part),
+                None => groups.push(vec![part]),
+            }
+        }
+        let mut leaves = Vec::with_capacity(groups.len());
+        for group in groups {
+            let constraints = self.joined_conditions(&group)?;
+            let mut parts = group.into_iter();
+            let first = parts.next().expect("a group has a part");
+            let mut leaf = ExecutionState {
+                diagnostics: diagnostics.clone(),
+                ..parent.clone()
+            };
+            for simplification in &first.remainder_simplifications {
+                leaf.observation = self.observation_log.append_simplification(
+                    leaf.observation,
+                    self.definition,
+                    simplification.before.clone(),
+                    &simplification.after,
+                    &simplification.applied_rules,
+                    &simplification.effects,
+                    self.observation,
+                );
+                leaf.effects.commit(simplification.effects.iter().cloned());
+                leaf.trace.extend(
+                    simplification
+                        .applied_rules
+                        .iter()
+                        .cloned()
+                        .map(|unique_id| TraceEntry {
+                            depth: leaf.depth,
+                            kind: TraceKind::Simplification,
+                            label: None,
+                            unique_id,
+                        }),
+                );
+            }
+            let pattern = Pattern {
+                term: first.pattern.term,
+                constraints,
+            };
+            leaves.push(leaf.leaf_with_pattern(pattern, first.halt, &self.observation_log));
+        }
+        Ok(UndefinedStep::Leaves(leaves, excluded))
+    }
+
+    /// The constraints of one leaf for the non-empty `group` of parts over one term: the part's
+    /// own for one part; for several, the conjuncts they all have, and the disjunction of what
+    /// remains of each, simplified.
+    fn joined_conditions(&self, group: &[UndefinedPart]) -> Stoppable<Vec<Predicate>> {
+        if let [part] = group {
+            return Ok(part.pattern.constraints.clone());
+        }
+        let common = group[0]
+            .pattern
+            .constraints
+            .iter()
+            .filter(|predicate| {
+                group
+                    .iter()
+                    .all(|part| part.pattern.constraints.contains(predicate))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        let rests = group
+            .iter()
+            .map(|part| beyond(&part.pattern.constraints, &common))
+            .collect::<Vec<_>>();
+        if rests.iter().any(Vec::is_empty) {
+            return Ok(common);
+        }
+        let mut constraints = common;
+        constraints.push(Predicate::Or(
+            rests
+                .into_iter()
+                .map(conjunction)
+                .collect::<Vec<_>>()
+                .into(),
+        ));
+        let rule = group[0].rule.clone();
+        let (simplified, _work) = crate::path_facts::collect_with_diagnostics(|| {
             crate::path_facts::observed_by(
-                || Some(producer.rule.clone()),
+                || rule,
                 || {
                     simplify_predicates_with_solver(
                         self.definition,
-                        &pattern.constraints,
+                        &constraints,
                         &[],
                         SimplificationOptions::keep_partial(
                             self.options.max_simplification_iterations,
@@ -1962,97 +2448,23 @@ impl<'a> Execution<'a> {
                 },
             )
         });
-        diagnostics.extend(&work);
-        match simplified {
-            Ok(Ok(simplified)) => pattern.constraints = simplified,
-            // A failed simplification only loses precision.
-            Ok(Err(_failure)) => {}
-            Err(stop) => stop.forgo_refinement(),
-        }
-        let empty = predicates_truth(&pattern.constraints) == Truth::False
-            || matches!(
-                self.solver
-                    .is_sat(&pattern.constraints, &Substitution::new())?,
-                Ok(Satisfiability::Unsat)
-            );
-        if let Some(options) = self.observation
-            && options.observes(&producer.rule_id)
-        {
-            self.discarded.push(UncommittedObservation {
-                id: TransitionId {
-                    rule: producer.rule_id.clone(),
-                    target: PatternDigest::of(&producer.successor),
-                },
-                rule_label: producer.label.clone(),
-                effects: producer.effects.clone(),
-                reason: UncommittedReason::RolledBack,
-            });
-        }
-        if empty {
-            return Ok(None);
-        }
-        let halt_reason = match halt_reason {
-            HaltReason::Trivial {
-                depth,
-                obligation,
-                contradicted_total,
-                ..
-            } => HaltReason::Trivial {
-                depth,
-                rule_id: Some(producer.rule_id.clone()),
-                label: producer.label.clone(),
-                obligation,
-                contradicted_total,
-            },
-            other => other,
-        };
-        let mut leaf = ExecutionState {
-            diagnostics,
-            ..producer.parent.clone()
-        };
-        for simplification in &producer.remainder_simplifications {
-            leaf.observation = self.observation_log.append_simplification(
-                leaf.observation,
-                self.definition,
-                simplification.before.clone(),
-                &simplification.after,
-                &simplification.applied_rules,
-                &simplification.effects,
-                self.observation,
-            );
-            leaf.effects.commit(simplification.effects.iter().cloned());
-            leaf.trace.extend(
-                simplification
-                    .applied_rules
-                    .iter()
-                    .cloned()
-                    .map(|unique_id| TraceEntry {
-                        depth: leaf.depth,
-                        kind: TraceKind::Simplification,
-                        label: None,
-                        unique_id,
-                    }),
-            );
-        }
-        Ok(Some(leaf.leaf_with_pattern(
-            pattern,
-            halt_reason,
-            &self.observation_log,
-        )))
+        Ok(match simplified? {
+            Ok(simplified) => simplified,
+            Err(_failure) => constraints,
+        })
     }
 
-    /// The `Trivial` leaf of `entry`, a bottom-result sub-case of the step `state` took: the
-    /// pattern `entry` was applied to, restricted to `entry.undefined`, on `state`'s path
-    /// extended by the higher-priority remainder simplifications it went through. `None` when
-    /// that set is shown empty ([`TrivialApplication::decided_undefined_instances`]): a leaf
-    /// reports instances, and the step left none undefined there. A stop of the emptiness query
-    /// is returned.
-    fn undefined_leaf(
+    /// The part of `entry`, a bottom-result sub-case of a step the step itself found (at the
+    /// successor's `depth`): the pattern it was applied to, restricted to `entry.undefined`,
+    /// on the path through the higher-priority remainder simplifications it went through.
+    /// `None` when that set is shown empty ([`TrivialApplication::decided_undefined_instances`]).
+    fn entry_part(
         &mut self,
-        state: &ExecutionState,
+        index: usize,
         entry: &TrivialApplication,
-    ) -> Stoppable<Option<ExecutionLeaf>> {
-        let (pattern, diagnostics) = crate::path_facts::collect_with_diagnostics(|| {
+        depth: u64,
+    ) -> Stoppable<Option<UndefinedPart>> {
+        let (pattern, work) = crate::path_facts::collect_with_diagnostics(|| {
             entry.decided_undefined_instances(
                 self.definition,
                 self.options.max_simplification_iterations,
@@ -2062,39 +2474,19 @@ impl<'a> Execution<'a> {
         let Some(pattern) = pattern? else {
             return Ok(None);
         };
-        let mut leaf = state.clone();
-        leaf.diagnostics.extend(&entry.diagnostics);
-        leaf.diagnostics.extend(&diagnostics);
-        for simplification in &entry.remainder_simplifications {
-            leaf.observation = self.observation_log.append_simplification(
-                leaf.observation,
-                self.definition,
-                simplification.before.clone(),
-                &simplification.after,
-                &simplification.applied_rules,
-                &simplification.effects,
-                self.observation,
-            );
-            leaf.effects.commit(simplification.effects.iter().cloned());
-            leaf.trace.extend(
-                simplification
-                    .applied_rules
-                    .iter()
-                    .cloned()
-                    .map(|unique_id| TraceEntry {
-                        depth: state.depth,
-                        kind: TraceKind::Simplification,
-                        label: None,
-                        unique_id,
-                    }),
-            );
-        }
-        let halt_reason = applied_trivial_halt(state.depth + 1, entry);
-        Ok(Some(leaf.leaf_with_pattern(
+        let mut diagnostics = entry.diagnostics.clone();
+        extend_distinct(&mut diagnostics, &work);
+        Ok(Some(UndefinedPart {
+            index,
+            base: entry.before.constraints.clone(),
+            bound: pattern_variables(&entry.before),
             pattern,
-            halt_reason,
-            &self.observation_log,
-        )))
+            decided: true,
+            halt: applied_trivial_halt(depth, entry),
+            rule: None,
+            diagnostics,
+            remainder_simplifications: entry.remainder_simplifications.clone(),
+        }))
     }
 
     /// After a push: `BreadthBound` when `pending` exceeds `max_breadth` (the bound appends
@@ -2758,12 +3150,15 @@ impl std::fmt::Debug for SuccessorNormalization {
 /// It runs, with no effect on the run, the phases a successor state goes through before its next
 /// step, with the same simplifier and options, so they decide alike and their results are the
 /// state's: the substitution is normalized and the constraints simplified
-/// (`Execution::normalise_constraints`), where a `\bottom` that refutes a definedness condition
-/// the step added makes the successor undefined; then the term is simplified under them
+/// (`Execution::normalise_constraints`), then the term is simplified under them
 /// (`Execution::simplify_term`), with the console evaluation of `io` when the successor admits
-/// one, where a subterm reduced to `\bottom` with the constraints `\bottom` makes it undefined.
-/// A successor that is only empty, or whose simplification fails, is not shown undefined.
-/// Diagnostics are not emitted; the normalization holds them.
+/// one. Constraints that either phase makes `\bottom` show the successor undefined, however the
+/// `\bottom` was found: a successor that denotes no state is no successor of its step. The
+/// obligation named is the definedness condition the step added that the constraints refute,
+/// else the undefined term (with the contradicted `total` attribute that produced it), else the
+/// term where the simplification found `\bottom` (an equation whose own result is `\bottom`, a
+/// refuted equation `ensures`), else the false constraint. A successor whose simplification
+/// fails is not shown undefined. Diagnostics are not emitted; the normalization holds them.
 ///
 /// A contradicted `preserves-definedness` of the rule whose work the normalization is
 /// (`crate::path_facts::observed_by`) is noted when its result term is found `\bottom`
@@ -2840,17 +3235,18 @@ fn normalize_successor_with(
     pattern.constraints = constraints;
     normalize_pattern_substitution(&mut pattern, definition.sort_graph());
     if predicates_truth(&pattern.constraints) == Truth::False {
+        // The successor denotes no state: the obligation named is the definedness condition the
+        // step added that the constraints refute, else the false constraint.
+        let obligation = added
+            .into_iter()
+            .find(|predicate| matches!(predicate, Predicate::Ceil(_) | Predicate::Defined(_)))
+            .unwrap_or_else(|| super::false_constraint(&pattern));
         return Ok((
             SuccessorCheck {
-                undefined: added
-                    .into_iter()
-                    .find(|predicate| {
-                        matches!(predicate, Predicate::Ceil(_) | Predicate::Defined(_))
-                    })
-                    .map(|obligation| UndefinedSuccessor {
-                        obligation,
-                        contradicted_total: None,
-                    }),
+                undefined: Some(UndefinedSuccessor {
+                    obligation,
+                    contradicted_total: None,
+                }),
                 normalization: Some(normalization),
             },
             None,
@@ -2892,29 +3288,57 @@ fn normalize_successor_with(
     let Ok(simplified) = simplified? else {
         return Ok((failed, None));
     };
+    let found_bottom = simplified.bottom.as_ref().map(|found| found.term.clone());
     let parts = simplified.clone().into_parts();
     normalization.term = Some(TermNormalization {
         simplified,
         diagnostics,
         io: evaluation.map(|evaluation| evaluation.commit()),
     });
-    let mut constraints = pattern.constraints;
-    constraints.extend(parts.conditions);
+    pattern.constraints.extend(parts.conditions);
     Ok((
         SuccessorCheck {
-            undefined: match parts.undefined_term {
-                Some(term) if predicates_truth(&constraints) == Truth::False => {
-                    Some(UndefinedSuccessor {
-                        obligation: Predicate::Ceil(term),
-                        contradicted_total: parts.contradicted_total,
-                    })
-                }
-                _ => None,
-            },
+            undefined: (predicates_truth(&pattern.constraints) == Truth::False).then(|| {
+                term_phase_undefinedness(
+                    parts.undefined_term,
+                    parts.contradicted_total,
+                    found_bottom,
+                    &pattern,
+                )
+            }),
             normalization: Some(normalization),
         },
         bottom,
     ))
+}
+
+/// Why a successor whose term simplification, under the constraints and the conditions it
+/// conjoined (`normalized`'s), made it `\bottom` is undefined: the undefined term, with the
+/// contradicted `total` attribute that produced it, else the term where the simplification found
+/// `\bottom` (`Simplification::bottom`: an equation whose own result is `\bottom`, a refuted
+/// equation `ensures`, any other conjoined `\bottom`), else the false constraint. How the
+/// `\bottom` was found is diagnosis only: the successor denotes no state either way.
+/// `contradictedTotal` names an undefined builtin result only.
+fn term_phase_undefinedness(
+    undefined_term: Option<crate::term::Term>,
+    contradicted_total: Option<Box<ContradictedTotal>>,
+    found_bottom: Option<crate::term::Term>,
+    normalized: &Pattern,
+) -> UndefinedSuccessor {
+    match (undefined_term, found_bottom) {
+        (Some(term), _) => UndefinedSuccessor {
+            obligation: Predicate::Ceil(term),
+            contradicted_total,
+        },
+        (None, Some(term)) => UndefinedSuccessor {
+            obligation: Predicate::Ceil(term),
+            contradicted_total: None,
+        },
+        (None, None) => UndefinedSuccessor {
+            obligation: super::false_constraint(normalized),
+            contradicted_total: None,
+        },
+    }
 }
 
 /// Note a contradicted `preserves-definedness` (`crate::path_facts::note_contradicted_preservation`)
@@ -3365,22 +3789,62 @@ struct Producer {
     /// The simplifications of a higher-priority remainder that led to `before`, which the leaf's
     /// path goes through, as an undefined step the step itself finds does.
     remainder_simplifications: Vec<RemainderSimplification>,
-    /// The successors of the step's other applied candidates, as the step built them, whose
-    /// definedness is decided only if this successor turns out undefined, each with its rule.
-    siblings: Vec<(Pattern, crate::path_facts::ObservingRule)>,
-    /// The successors of the step's other applied candidates already normalized and not
-    /// undefined, as the step built them.
-    defined_siblings: Vec<Pattern>,
+    /// This candidate's position among the step's candidates: the undefined step's leaf names
+    /// the first undefined one.
+    index: usize,
+    /// The step's other applied candidates, as the step built them, whose definedness is
+    /// decided only if this successor turns out undefined.
+    siblings: Vec<Sibling>,
+    /// Whether the step also left a remainder, which some instances reach.
+    has_remainder: bool,
+    /// Set once the step's undefined step has been reported by one of its successors: the
+    /// step has one such leaf, standing for every instance on which all its candidates that
+    /// apply are undefined, so its other undefined successors report none.
+    reported: std::rc::Rc<std::cell::Cell<bool>>,
     /// The normalization of `successor` the step already did, which the successor's own
     /// normalization takes instead of repeating it.
     normalization: Option<std::sync::Arc<SuccessorNormalization>>,
 }
 
+/// Another applied candidate of a successor's step ([`Producer::siblings`]).
+#[derive(Clone)]
+struct Sibling {
+    index: usize,
+    before: Pattern,
+    built: Pattern,
+    rule: crate::path_facts::ObservingRule,
+    rule_id: String,
+    label: Option<String>,
+    remainder_simplifications: Vec<RemainderSimplification>,
+}
+
+impl Sibling {
+    fn of(index: usize, applied: &AppliedRule) -> Self {
+        Self {
+            index,
+            before: applied.before.clone(),
+            built: applied.pattern.clone(),
+            rule: applied.observing_rule(),
+            rule_id: applied.unique_id.clone(),
+            label: applied.label.clone(),
+            remainder_simplifications: applied.remainder_simplifications.clone(),
+        }
+    }
+}
+
 impl Producer {
-    fn of(
+    /// The producer of `applied`'s successor, the step's only candidate.
+    fn of(parent: &ExecutionState, applied: &AppliedRule) -> Self {
+        Self::of_step(parent, applied, 0, Vec::new(), false, Default::default())
+    }
+
+    fn of_step(
         parent: &ExecutionState,
         applied: &AppliedRule,
-        siblings: Vec<(Pattern, crate::path_facts::ObservingRule)>,
+        index: usize,
+        siblings: Vec<Sibling>,
+        has_remainder: bool,
+        reported: std::rc::Rc<std::cell::Cell<bool>>,
     ) -> Self {
         Self {
             parent: ExecutionState {
@@ -3394,8 +3858,10 @@ impl Producer {
             rule: applied.observing_rule(),
             effects: applied.effects.clone(),
             remainder_simplifications: applied.remainder_simplifications.clone(),
+            index,
             siblings,
-            defined_siblings: Vec::new(),
+            has_remainder,
+            reported,
             // A step's normalization stands for the successor only when it is of the pattern
             // the step committed; any other is dropped and the successor normalizes itself.
             normalization: applied
@@ -3405,6 +3871,127 @@ impl Producer {
                 .filter(|normalization| normalization.built == applied.pattern),
         }
     }
+}
+
+/// One way a step leaves some of its instances without a successor: an applied candidate whose
+/// result is `\bottom`, found by the step itself (a trivial entry) or by its successor's
+/// normalization ([`Execution::undefined_step`]).
+struct UndefinedPart {
+    /// The candidate's position among the step's reported candidates.
+    index: usize,
+    /// The instances the candidate leaves without a successor before the defined candidates
+    /// are excluded: the pattern it was applied to under its condition.
+    pattern: Pattern,
+    /// The constraints of the pattern the candidate was applied to; a defined candidate's
+    /// condition is taken beyond them.
+    base: Vec<Predicate>,
+    /// The variables of the pattern the candidate was applied to: the others its condition
+    /// mentions are its rule's, existentially closed.
+    bound: BTreeSet<crate::term::Variable>,
+    /// Whether `pattern` is the step's own decided, non-empty set (a trivial entry).
+    decided: bool,
+    /// The `Trivial` halt naming the candidate's rule.
+    halt: HaltReason,
+    /// The rule whose work deciding the leaf is, when it is a candidate's.
+    rule: Option<crate::path_facts::ObservingRule>,
+    /// The work that showed the candidate undefined.
+    diagnostics: Vec<BackendDiagnostic>,
+    remainder_simplifications: Vec<RemainderSimplification>,
+}
+
+impl UndefinedPart {
+    /// The part of a candidate applied to `before` whose successor, `built` as the step built
+    /// it, is undefined (`halt`, named for the candidate here).
+    #[allow(clippy::too_many_arguments)]
+    fn candidate(
+        index: usize,
+        before: &Pattern,
+        built: &Pattern,
+        rule_id: &str,
+        label: &Option<String>,
+        rule: crate::path_facts::ObservingRule,
+        halt: HaltReason,
+        diagnostics: Vec<BackendDiagnostic>,
+        remainder_simplifications: Vec<RemainderSimplification>,
+    ) -> Self {
+        let bound = pattern_variables(before);
+        let mut constraints = before.constraints.clone();
+        let branch = beyond(&built.constraints, &before.constraints);
+        extend_unique_predicates(&mut constraints, closed_over(branch, &bound));
+        let halt = match halt {
+            HaltReason::Trivial {
+                depth,
+                obligation,
+                contradicted_total,
+                ..
+            } => HaltReason::Trivial {
+                depth,
+                rule_id: Some(rule_id.to_owned()),
+                label: label.clone(),
+                obligation,
+                contradicted_total,
+            },
+            other => other,
+        };
+        Self {
+            index,
+            pattern: Pattern {
+                term: before.term.clone(),
+                constraints,
+            },
+            base: before.constraints.clone(),
+            bound,
+            decided: false,
+            halt,
+            rule: Some(rule),
+            diagnostics,
+            remainder_simplifications,
+        }
+    }
+}
+
+/// The candidates a step is left with once each is known defined or undefined
+/// ([`Execution::conclude_step`]).
+enum Survivors {
+    /// Exploring all paths: normalized within the step, each successor taking that
+    /// normalization.
+    Normalized(Vec<AppliedRule>),
+    /// Stopping at branches: each simplified for the branch leaf, on its own observation head,
+    /// with its successor as the step built it; and the remainder's observation head.
+    Simplified(
+        Vec<(AppliedRule, ObservationHead, Pattern)>,
+        ObservationHead,
+    ),
+}
+
+impl Survivors {
+    /// The defined candidates' successors as the step built them.
+    fn built(&self) -> Vec<Pattern> {
+        match self {
+            Survivors::Normalized(defined) => defined
+                .iter()
+                .map(|applied| applied.pattern.clone())
+                .collect(),
+            Survivors::Simplified(branches, _) => {
+                branches.iter().map(|(_, _, built)| built.clone()).collect()
+            }
+        }
+    }
+}
+
+/// What a step's undefined candidates come to ([`Execution::undefined_step`]).
+enum UndefinedStep {
+    /// The step's `Trivial` leaves: one, unless its undefined candidates were applied to
+    /// patterns with different terms (one per term then).
+    /// With the instances they stand for, which the step's other leaves exclude.
+    Leaves(Vec<ExecutionLeaf>, Exclusion),
+    /// No instance is left undefined: the step's defined candidates or its remainder take every
+    /// instance its undefined candidates apply to.
+    Covered,
+    /// The step has no instance at all: every candidate is undefined, none is left any instance,
+    /// and no remainder is left. The configuration it was taken from has no instance, which
+    /// only the step exposed.
+    NoInstance,
 }
 
 impl ExecutionState {
@@ -3476,6 +4063,30 @@ fn closed_over(
                 Predicate::Exists(variable, Arc::new(body))
             }),
     ]
+}
+
+/// The instances of a step's undefined step, which its other leaves exclude so that the step's
+/// leaves partition its instances: one condition per non-empty undefined part, the constraints
+/// of the instances that part stands for. A statement about instances: it is read over the
+/// variables of the configuration the step was taken from, whatever term the part was applied
+/// to (a lower priority's simplified remainder has the same instances under another term). No
+/// part means nothing is excluded.
+#[derive(Clone, Default)]
+struct Exclusion(Vec<Vec<Predicate>>);
+
+impl Exclusion {
+    /// Restrict `pattern`, a leaf of the step over the configuration it was taken from, to the
+    /// instances outside every part: for each, the negation of its conditions beyond `pattern`'s
+    /// own. A part none of whose conditions goes beyond `pattern`'s stands for all its instances,
+    /// so none is left.
+    fn exclude_from(&self, pattern: &mut Pattern) {
+        for conditions in &self.0 {
+            let extra = beyond(conditions, &pattern.constraints);
+            pattern
+                .constraints
+                .push(Predicate::Not(Arc::new(conjunction(extra))));
+        }
+    }
 }
 
 fn conjunction(mut predicates: Vec<Predicate>) -> Predicate {
