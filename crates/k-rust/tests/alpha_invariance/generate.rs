@@ -44,7 +44,8 @@
 //! - a `?` variable of a macro's right side, alone beside a binder, used twice in one condition,
 //!   or bound by the macro's own quantifier (`macro-existential`);
 //! - two free `?` variables of one sentence whose names and first occurrences are in opposite
-//!   orders, in the right side, the `ensures`, or one in each (`two-existentials`).
+//!   orders, in the right side, the `ensures`, or one in each (`two-existentials`), and the
+//!   orders of lifted and macro existentials under renaming (`existential-order`).
 //!
 //! The `owise` cross product of `owise_binders.rs` (its `shapes.rs`) is a family here too
 //! (`owise-cross`), so the competitors' binders are renamed under every strategy.
@@ -441,6 +442,58 @@ fn two_existentials() -> Vec<Case> {
     ]
     .into_iter()
     .map(|(form, rules)| case(format!("two-existentials/{form}"), "G", rules, &["go(3)"]))
+    .collect()
+}
+
+/// Lifted existentials and macro existentials under renaming (the BIND/A8 review's cases): a `?`
+/// bound then free, three free `?` variables, nested macros each with a `?Y`, a macro used twice
+/// in a right side, a use-site `?Y` beside a macro's, a macro `?` beside an authored one, a macro
+/// `?` under a universal, and two `?` variables in one macro's text in opposite orders.
+fn existential_orders() -> Vec<Case> {
+    [
+        (
+            "bound-then-free-ens",
+            "  rule [p]: <k> go(X) => done(X) ... </k> ensures (#Exists ?A:Int . {?A #Equals X}) #And {?B #Equals X} #And {?A #Equals ?B}\n",
+        ),
+        (
+            "bound-then-free-rhs-ens",
+            "  rule [p]: <k> go(X) => done(?B) ... </k> ensures (#Exists ?A:Int . {?A #Equals ?B}) #And {?A #Equals X} #And {?B #Equals ?A}\n",
+        ),
+        (
+            "three-rhs",
+            "  rule [p]: <k> go(X) => done(?C +Int ?A +Int ?B) ... </k>\n",
+        ),
+        (
+            "macro-nest-req",
+            "  syntax Bool ::= m1(Int) [macro] | m2(Int) [macro]\n  rule m1(N) => {?Y #Equals N} #And m2(N +Int 1)\n  rule m2(N) => {?Y #Equals N}\n  rule [p]: <k> go(X) => done(X) ... </k> requires m1(X)\n",
+        ),
+        (
+            "macro-nest-ens",
+            "  syntax Bool ::= m1(Int) [macro] | m2(Int) [macro]\n  rule m1(N) => {?Y #Equals N} #And m2(N +Int 1)\n  rule m2(N) => {?Y #Equals N}\n  rule [p]: <k> go(X) => done(X) ... </k> ensures m1(X)\n",
+        ),
+        (
+            "macro-twice-rhs",
+            "  syntax Int ::= mi(Int) [macro]\n  rule mi(N) => N +Int ?Y\n  rule [p]: <k> go(X) => done(mi(X) +Int mi(X)) ... </k>\n",
+        ),
+        (
+            "macro-cap",
+            "  syntax Bool ::= m(Int) [macro]\n  rule m(N) => {?Y #Equals N +Int 1}\n  rule [p]: <k> go(X) => done(?Y) ... </k> ensures {?Y #Equals X} #And m(X)\n",
+        ),
+        (
+            "macro-mixed",
+            "  syntax Int ::= mi(Int) [macro]\n  rule mi(N) => N +Int ?Y\n  rule [p]: <k> go(X) => done(mi(X) +Int ?A) ... </k> ensures {?A #Equals X}\n",
+        ),
+        (
+            "macro-forall-ens",
+            "  syntax Bool ::= m(Int) [macro]\n  rule m(N) => {?Y #Equals N}\n  rule [p]: <k> go(X) => done(X) ... </k> ensures #Forall Z:Int . m(Z)\n",
+        ),
+        (
+            "macro-two-in-macro",
+            "  syntax Bool ::= m(Int) [macro]\n  rule m(N) => {?B #Equals N} #And {?A #Equals ?B}\n  rule [p]: <k> go(X) => done(X) ... </k> ensures m(X)\n",
+        ),
+    ]
+    .into_iter()
+    .map(|(form, rules)| case(format!("existential-order/{form}"), "G", rules, &["go(3)"]))
     .collect()
 }
 
@@ -1332,6 +1385,7 @@ pub fn cases() -> Vec<Case> {
         condition_only_variables(),
         macro_existentials(),
         two_existentials(),
+        existential_orders(),
         context_aliases(),
         function_binders(),
         owise_binders(),

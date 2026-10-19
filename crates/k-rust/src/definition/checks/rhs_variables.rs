@@ -179,9 +179,10 @@ fn check_rule_variables(
     );
 }
 
-/// Report each quantifier of `term` whose binder is no variable: a quantifier binds one variable
-/// in its body (`kast::binding`), so `#Exists f(X, X) . P` has no meaning. The binder may stand
-/// under semantic casts, which only bound its sort.
+/// Report each quantifier of `term` whose binder is no variable, or is a set variable: a
+/// quantifier binds one element variable in its body (`kast::binding`), so `#Exists f(X, X) . P`
+/// and `#Exists @S . P` have no meaning. The binder may stand under semantic casts, which only
+/// bound its sort.
 fn check_binders(term: &Term, sentence: &Sentence, diagnostics: &mut Vec<Diagnostic>) {
     term.visit_preorder(&mut |node| {
         let Some(quantifier) = binding::quantifier(node) else {
@@ -194,15 +195,35 @@ fn check_binders(term: &Term, sentence: &Sentence, diagnostics: &mut Vec<Diagnos
         {
             binder = argument.unannotated();
         }
-        if !matches!(binder, Term::Variable { .. }) {
-            diagnostics.push(Diagnostic::error(
+        match binder {
+            Term::Variable { name, .. } if name.starts_with('@') => {
+                // KORE's `\exists` and `\forall` bind element variables, so a quantifier over a
+                // set variable has no encoding; written in a macro's right side it is the same
+                // text at every use.
+                diagnostics.push(Diagnostic::error(
+                    DiagnosticCode::InvalidBinder,
+                    format!(
+                        "The binder {name} of {} is a set variable: a quantifier binds an element variable, so a quantifier over a set variable has no meaning here.",
+                        quantifier.label.name
+                    ),
+                    sentence,
+                ));
+            }
+            Term::Variable { .. } => {}
+            Term::InjectedLabel(_)
+            | Term::Rewrite { .. }
+            | Term::As { .. }
+            | Term::Sequence(_)
+            | Term::Apply { .. }
+            | Term::Token { .. }
+            | Term::Annotated { .. } => diagnostics.push(Diagnostic::error(
                 DiagnosticCode::InvalidBinder,
                 format!(
                     "The binder of {} must be a variable: a quantifier binds one variable in its body.",
                     quantifier.label.name
                 ),
                 sentence,
-            ));
+            )),
         }
     });
 }
