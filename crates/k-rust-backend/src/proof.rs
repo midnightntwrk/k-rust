@@ -806,7 +806,7 @@ pub fn prove_claim(
             RewriteResult::Finished(applied) => {
                 if extend_frontier(
                     &mut pending,
-                    state.successors(vec![applied], false, 0),
+                    state.successors(vec![applied], false, 0, StepUndefinedness::default()),
                     options.breadth_limit,
                 ) {
                     return Ok(finish_at_breadth_limit(
@@ -852,7 +852,7 @@ pub fn prove_claim(
                 finish_if_interrupted!();
                 let has_remainder = remainder.is_some();
                 let successors = if parts.is_empty() {
-                    state.successors(branches, has_remainder, offset)
+                    state.successors(branches, has_remainder, offset, Default::default())
                 } else {
                     let mut defined = Vec::with_capacity(branches.len());
                     for (candidate, applied) in branches.into_iter().enumerate() {
@@ -897,6 +897,7 @@ pub fn prove_claim(
                         others,
                         &mut crate::diagnostic::PathDiagnostics::new_request(),
                     );
+                    let reported = matches!(decision, Ok(UndefinedDecision::Groups(..)));
                     match decision {
                         Ok(UndefinedDecision::Groups(groups, _)) => {
                             for group in groups {
@@ -912,6 +913,12 @@ pub fn prove_claim(
                         }
                         Ok(UndefinedDecision::Covered) => {}
                         Ok(UndefinedDecision::NoInstance) => {
+                            // Nothing is dropped: no instance is left without a defined candidate
+                            // or a remainder to take it.
+                            debug_assert!(
+                                built.is_empty() && !has_remainder,
+                                "an undefined step with no instance leaves no defined candidate and no remainder"
+                            );
                             let outcome =
                                 vacuous_outcome(&state, options, ProofLeafOutcome::Vacuous);
                             record_leaf!(state.clone().leaf(outcome));
@@ -920,7 +927,13 @@ pub fn prove_claim(
                         Err(stop) => publish_stop!(stop.into_cause()),
                     }
                     finish_if_interrupted!();
-                    state.successors(defined, has_remainder, offset)
+                    let count = defined.len();
+                    state.successors(
+                        defined,
+                        has_remainder,
+                        offset,
+                        StepUndefinedness::decided(offset, count, reported),
+                    )
                 };
                 let mut successors = successors;
                 if let Some(remainder) = remainder {
@@ -1302,13 +1315,41 @@ struct ProofState {
 
 /// The rule step that produced a proof state: the state it was taken from, the candidate whose
 /// successor the state is, the step's other applied candidates, whether it left a remainder,
-/// and whether one of its successors already reported its undefined step.
+/// and what its successors have decided about its undefined step, shared among them.
 struct ProofProducer {
     parent: ProofState,
     candidate: Sibling,
     siblings: Vec<Sibling>,
     has_remainder: bool,
-    reported: std::rc::Rc<std::cell::Cell<bool>>,
+    undefined: std::rc::Rc<std::cell::RefCell<StepUndefinedness>>,
+}
+
+/// What a step's undefined step has come to so far ([`proof_undefined_step`]).
+///
+/// A decision splits the step's candidates into parts, whose instances it reports where no
+/// candidate counted defined takes them, and candidates counted defined, whose instances it
+/// excludes. A candidate's normalization within the decision is not its proof state's: the
+/// state goes on to a satisfiability check of its whole constraint and to the destination
+/// check, either of which can show it denotes no state. A candidate counted defined whose state
+/// then denotes no state is no successor either, and its instances were excluded from every
+/// earlier decision; it takes its own decision, against the candidates still counted defined.
+#[derive(Clone, Debug, Default)]
+struct StepUndefinedness {
+    /// The candidates still counted defined; `None` until the step's first decision.
+    defined: Option<std::collections::BTreeSet<usize>>,
+    /// Whether a decision of the step reported an instance.
+    reported: bool,
+}
+
+impl StepUndefinedness {
+    /// A step whose undefined step was decided within it, counting every one of its `count`
+    /// successors (numbered from `offset`) defined; `reported` says whether it found instances.
+    fn decided(offset: usize, count: usize, reported: bool) -> Self {
+        Self {
+            defined: Some((offset..offset + count).collect()),
+            reported,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -1415,12 +1456,14 @@ impl ProofState {
 
     /// The successors of the step `self` took, one per applied candidate, each knowing the
     /// others for its undefined step; `offset` is the number of the step's trivial entries,
-    /// which come first among its candidates.
+    /// which come first among its candidates, and `undefined` what the step already decided
+    /// about its undefined step.
     fn successors(
         &self,
         branches: Vec<crate::rewrite::AppliedRule>,
         has_remainder: bool,
         offset: usize,
+        undefined: StepUndefinedness,
     ) -> Vec<ProofState> {
         let parent = ProofState {
             producer: None,
@@ -1431,7 +1474,7 @@ impl ProofState {
             .enumerate()
             .map(|(index, applied)| Sibling::of(offset + index, applied))
             .collect::<Vec<_>>();
-        let reported = std::rc::Rc::new(std::cell::Cell::new(false));
+        let undefined = std::rc::Rc::new(std::cell::RefCell::new(undefined));
         branches
             .into_iter()
             .zip(&candidates)
@@ -1447,7 +1490,7 @@ impl ProofState {
                     candidate: candidate.clone(),
                     siblings,
                     has_remainder,
-                    reported: reported.clone(),
+                    undefined: undefined.clone(),
                 }));
                 successor
             })
@@ -2166,7 +2209,7 @@ enum ProofUndefined {
     /// The undefined step of the step that produced it: its `Trivial` states.
     Leaves(Vec<(ProofState, Option<Box<ContradictedTotal>>)>),
     /// No instance is left undefined: another candidate or the remainder takes every instance,
-    /// or another successor of the step already reported its undefined step.
+    /// or an earlier decision of the step already reported its instances.
     Covered,
     /// The configuration the step was taken from has no instance, or no rule step produced the
     /// state: it is `Vacuous`.
@@ -2176,8 +2219,16 @@ enum ProofUndefined {
 /// `state`, which its normalization showed to denote no state: when a rule step produced it, it
 /// is no successor of that step, an all-path claim has no path through it, and its instances
 /// are the step's undefined step where no other candidate takes them, decided as an execution
-/// decides it ([`decide_undefined_step`]); the first successor of a step to find this reports
-/// the step's undefined step, after normalizing the step's other candidates.
+/// decides it ([`decide_undefined_step`]).
+///
+/// The first successor of a step to find this decides for the step, after normalizing the
+/// step's other candidates: those shown undefined are parts with it, the others are counted
+/// defined ([`StepUndefinedness`]). A later successor that was a part is covered: its instances
+/// are in that decision. A later successor that was counted defined had its instances excluded
+/// from every decision so far, so it takes its own decision, excluded by the candidates still
+/// counted defined; the instances it reports are disjoint from every earlier decision's, and an
+/// instance on which every candidate that applies denotes no state is reported by the decision
+/// of the last of them to be found so.
 fn proof_undefined_step(
     definition: &BackendDefinition,
     state: &ProofState,
@@ -2188,11 +2239,14 @@ fn proof_undefined_step(
     let Some(producer) = &state.producer else {
         return Ok(ProofUndefined::NoInstance);
     };
-    if producer.reported.replace(true) {
+    let candidate = &producer.candidate;
+    let earlier = producer.undefined.borrow().clone();
+    if let Some(defined) = &earlier.defined
+        && !defined.contains(&candidate.index)
+    {
         return Ok(ProofUndefined::Covered);
     }
     let depth = producer.parent.depth + 1;
-    let candidate = &producer.candidate;
     let halt = HaltReason::Trivial {
         depth,
         rule_id: None,
@@ -2201,29 +2255,48 @@ fn proof_undefined_step(
         contradicted_total,
     };
     let mut parts = vec![candidate.part(halt)];
-    let mut defined = Vec::with_capacity(producer.siblings.len());
     let mut diagnostics = crate::diagnostic::PathDiagnostics::new_request();
-    sibling_undefined_parts(
-        definition,
-        options.max_simplification_iterations,
-        solver,
-        None,
-        &producer.siblings,
-        depth,
-        &mut parts,
-        &mut defined,
-        &mut diagnostics,
-    )?;
-    let others = producer.has_remainder || !defined.is_empty();
+    let defined = match &earlier.defined {
+        Some(defined) => producer
+            .siblings
+            .iter()
+            .filter(|sibling| defined.contains(&sibling.index))
+            .collect::<Vec<_>>(),
+        None => {
+            let mut defined = Vec::with_capacity(producer.siblings.len());
+            sibling_undefined_parts(
+                definition,
+                options.max_simplification_iterations,
+                solver,
+                None,
+                &producer.siblings,
+                depth,
+                &mut parts,
+                &mut defined,
+                &mut diagnostics,
+            )?;
+            defined
+        }
+    };
+    // An earlier decision's instances are accounted for, so this one finding none is no sign
+    // that the configuration has no instance.
+    let others = producer.has_remainder || !defined.is_empty() || earlier.reported;
     let decision = decide_undefined_step(
         definition,
         options.max_simplification_iterations,
         solver,
         parts,
-        &defined.iter().collect::<Vec<_>>(),
+        &defined
+            .iter()
+            .map(|sibling| sibling.built())
+            .collect::<Vec<_>>(),
         others,
         &mut diagnostics,
     )?;
+    *producer.undefined.borrow_mut() = StepUndefinedness {
+        defined: Some(defined.iter().map(|sibling| sibling.index).collect()),
+        reported: earlier.reported || matches!(decision, UndefinedDecision::Groups(..)),
+    };
     Ok(match decision {
         UndefinedDecision::Groups(groups, _) => ProofUndefined::Leaves(
             groups

@@ -2203,7 +2203,10 @@ impl<'a> Execution<'a> {
             &mut diagnostics,
         )?;
         let others = producer.has_remainder || !defined.is_empty();
-        let defined = defined.iter().collect::<Vec<_>>();
+        let defined = defined
+            .iter()
+            .map(|sibling| sibling.built())
+            .collect::<Vec<_>>();
         self.undefined_step(&producer.parent, diagnostics, parts, &defined, others)
     }
 
@@ -3666,6 +3669,11 @@ impl Sibling {
         )
     }
 
+    /// The candidate's successor as the step built it.
+    pub(crate) fn built(&self) -> &Pattern {
+        &self.built
+    }
+
     pub(crate) fn of(index: usize, applied: &AppliedRule) -> Self {
         Self {
             index,
@@ -4023,18 +4031,18 @@ pub(crate) fn entry_undefined_part(
 
 /// Normalize the step's other candidates `siblings` (not yet normalized) for the undefined step
 /// of a successor of it at `depth`: an undefined one is a part of it, added to `parts`; a defined
-/// one's successor as the step built it is added to `defined`, and the work of normalizing it to
-/// `diagnostics`. A contradiction a sibling's normalization observes is its own rule's.
+/// one is added to `defined` (its successor as the step built it excludes the instances it
+/// takes), and the work of normalizing it to `diagnostics`. A contradiction a sibling's normalization observes is its own rule's.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn sibling_undefined_parts(
+pub(crate) fn sibling_undefined_parts<'s>(
     definition: &BackendDefinition,
     max_iterations: usize,
     solver: &dyn SmtSolver,
     io: Option<&ExecutionIoState>,
-    siblings: &[Sibling],
+    siblings: &'s [Sibling],
     depth: u64,
     parts: &mut Vec<UndefinedPart>,
-    defined: &mut Vec<Pattern>,
+    defined: &mut Vec<&'s Sibling>,
     diagnostics: &mut PathDiagnostics,
 ) -> Stoppable<()> {
     for sibling in siblings {
@@ -4067,7 +4075,7 @@ pub(crate) fn sibling_undefined_parts(
             )),
             None => {
                 diagnostics.extend(&work);
-                defined.push(sibling.built.clone());
+                defined.push(sibling);
             }
         }
     }
