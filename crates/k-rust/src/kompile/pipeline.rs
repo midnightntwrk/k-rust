@@ -200,6 +200,9 @@ display_error!(
 #[derive(Default)]
 pub(crate) struct PipelineState {
     pub fresh_config_count: Option<usize>,
+    /// Whether the stage `check matching-logic positions` judges the expanded sentences: for the
+    /// Rust target, whose backend reads the compiled definition (`CompilationBackend::Rust`).
+    pub check_ml_positions: bool,
     pub(super) covering_lambdas: Vec<passes::CoveringLambda>,
     /// The stage-boundary invariant checks, which span the transform and emission runs.
     #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
@@ -434,6 +437,35 @@ stage_adapter!(
     super::ml_constructs::resolve_condition_conjunctions_pass,
     outcome
 );
+/// The matching-logic position check (`definition::checks`, module `ml_positions`) on the
+/// sentences as the backend will read them: macros and aliases expanded at their uses, and the
+/// conjunctions passes added to conditions chosen. The definition checks judged every sentence as
+/// written; a refusal here is a shape a macro or alias body takes in the context of a use.
+fn check_ml_positions_stage(
+    input: &PassInput<'_>,
+    state: &mut PipelineState,
+) -> Result<PassOutcome, PassError> {
+    if !state.check_ml_positions {
+        return Ok(PassOutcome::Unchanged);
+    }
+    let resolved = input
+        .resolved_raw()
+        .map_err(|error| PassError::from(error.clone()))?;
+    let diagnostics =
+        crate::definition::checks::check_ml_construct_positions_in_definition(resolved);
+    if diagnostics.is_empty() {
+        Ok(PassOutcome::Unchanged)
+    } else {
+        Err(PassError {
+            message: format!(
+                "the matching-logic position check, on the sentences with their macros and aliases \
+                 expanded, gave {} errors",
+                diagnostics.len()
+            ),
+            diagnostics,
+        })
+    }
+}
 stage_adapter!(
     lower_term_conjunctions_stage,
     super::ml_constructs::lower_term_conjunctions_pass,
@@ -699,6 +731,17 @@ const TRANSFORM_STAGE_TABLE: &[Stage] = &[
         "metadata-only",
         requires = Artifacts::NONE,
         provides = Artifacts::CONDITION_CONJUNCTIONS_RESOLVED
+    ),
+    // Matching-logic constructs are judged by the context of their position on the sentences as
+    // the backend reads them, macros and aliases expanded at their uses and condition
+    // conjunctions chosen; the definition checks judged the sentences as written. For the Rust
+    // target only, before any later stage renames a variable a refusal names.
+    stage!(
+        "check matching-logic positions",
+        "check_ml_positions",
+        check_ml_positions_stage,
+        Provenance::None,
+        "validation"
     ),
     // A conjunction of two connective-free terms where its value is built, and an alias in a
     // claim's left side, is written as the first term guarded by their equality, which denotes the

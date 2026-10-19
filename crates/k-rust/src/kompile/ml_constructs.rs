@@ -41,9 +41,10 @@
 //! `X #And {P} #And {X #Equals 1}`). The stage [`lower_term_conjunctions_pass`], after macro
 //! expansion (so a macro or alias body is lowered where it is used), writes such a chain in that
 //! form wherever its value is built: in the right side of a rewrite of a rule, a function
-//! equation, a simplification or an anywhere rule, and anywhere in a claim's body. In a claim's
-//! left side, and at a position of a claim outside its rewrites, which is in its left side too,
-//! an alias `P #as V`, which denotes the same set as `P #And V`, is a conjunction of the chain,
+//! equation, a simplification or an anywhere rule, and anywhere in a claim's body. Everywhere in
+//! a claim's body, which is a pattern on both sides (its left side matches the states it starts
+//! from, its right side the states every path reaches, and a position outside its rewrites is in
+//! both), an alias `P #as V`, which denotes the same set as `P #And V`, is a conjunction of the chain,
 //! so `P #as V` is written `P #And {P #Equals V}` and `(X #as Y) #as Z` is
 //! `X #And {X #Equals Y} #And {X #Equals Z}`. The form denotes the same set of values, and the
 //! backend decides its equalities, where a conjunction of two terms would be left as a leaf that
@@ -90,6 +91,11 @@ const CONNECTIVES: [InternalLabel; 12] = [
     InternalLabel::Forall,
 ];
 
+/// Why an `#Equals` whose operands are not both terms and not both predicates states no condition,
+/// with the remedy: the one text of the compile refusals of such an equality, on a condition's
+/// spine (the KORE emitter) and at any depth (the matching-logic position check).
+pub(crate) const MIXED_EQUALITY_OPERANDS: &str = "whose operands are not both terms (an equality of values) or both predicates (their iff); a predicate at sort Bool denotes all of Bool or nothing (at any sort, all of it or nothing), so it never equals one value, and a connective over terms denotes a set of values, which is not a Boolean condition. To state that a predicate P holds, write P itself as the condition (#Not(P) that it fails); to combine Bool values, use Bool operations such as andBool and orBool";
+
 /// The Bool conjunction, a function of two Bool terms.
 const AND_BOOL: &str = "_andBool_";
 
@@ -110,7 +116,7 @@ pub(crate) fn is_ml_connective(term: &Term) -> bool {
 /// The term a condition operand is read as: `term` without its annotations and without the casts
 /// at its root (a semantic cast `(t):S`, a syntactic cast `t::S` or `{t}::S`, and `#OuterCast`),
 /// which compute nothing.
-fn read_through_casts(term: &Term) -> &Term {
+pub(crate) fn read_through_casts(term: &Term) -> &Term {
     let mut term = term.unannotated();
     // Invariant: `term` is a subterm of the argument, one cast deeper on each iteration, so the
     // loop ends at the first root that is not a cast.
@@ -322,6 +328,9 @@ enum Position {
     ClaimShared,
     /// The left side of a rewrite of a claim.
     ClaimLeft,
+    /// The right side of a rewrite of a claim: the pattern the states every path reaches are
+    /// matched against.
+    ClaimRight,
 }
 
 impl Position {
@@ -329,24 +338,32 @@ impl Position {
         self != Self::Matched
     }
 
-    /// An alias denotes the conjunction of its pattern and its variable where a claim's left side
-    /// holds it: in the left side of a rewrite, and at a position the claim's sides share.
+    /// An alias denotes the conjunction of its pattern and its variable where a claim's pattern
+    /// holds it: in either side of a rewrite, and at a position the claim's sides share.
     fn lowers_aliases(self) -> bool {
-        matches!(self, Self::ClaimShared | Self::ClaimLeft)
+        matches!(self, Self::ClaimShared | Self::ClaimLeft | Self::ClaimRight)
     }
 
     /// The position of the left side of a rewrite at this position.
     fn rewrite_left(self) -> Self {
         match self {
             Self::Matched | Self::Built => Self::Matched,
-            Self::ClaimShared | Self::ClaimLeft => Self::ClaimLeft,
+            Self::ClaimShared | Self::ClaimLeft | Self::ClaimRight => Self::ClaimLeft,
+        }
+    }
+
+    /// The position of the right side of a rewrite at this position.
+    fn rewrite_right(self) -> Self {
+        match self {
+            Self::Matched | Self::Built => Self::Built,
+            Self::ClaimShared | Self::ClaimLeft | Self::ClaimRight => Self::ClaimRight,
         }
     }
 }
 
 /// Whether `term` holds no matching-logic connective at any depth, and no rewrite or alias, which
 /// are not terms.
-fn is_connective_free_term(term: &Term) -> bool {
+pub(crate) fn is_connective_free_term(term: &Term) -> bool {
     let mut free = true;
     term.visit_preorder(&mut |node| {
         free &= !is_ml_connective(node) && !matches!(node, Term::Rewrite { .. } | Term::As { .. });
@@ -451,8 +468,8 @@ impl Lowering<'_> {
 
     /// `term`, standing at `position`, with each conjunction chain that the position builds, of
     /// plain terms ([`Self::are_plain_terms`]) and predicates, written as its first term guarded
-    /// by its equality with each other term, the predicates kept in place; in a claim's left side
-    /// and shared positions an alias `P #as V` is a conjunction of such a chain. `None` when
+    /// by its equality with each other term, the predicates kept in place; in a claim an alias
+    /// `P #as V` is a conjunction of such a chain. `None` when
     /// nothing in `term` changes. Every node that is kept keeps its metadata.
     fn lower(&self, term: &Term, position: Position) -> Option<Term> {
         crate::stack::guarded(|| self.lower_level(term, position))
@@ -568,7 +585,7 @@ impl Lowering<'_> {
             }
             Term::Rewrite { left, right } => {
                 let lowered_left = self.lower(left, position.rewrite_left());
-                let lowered_right = self.lower(right, Position::Built);
+                let lowered_right = self.lower(right, position.rewrite_right());
                 (lowered_left.is_some() || lowered_right.is_some()).then(|| Term::Rewrite {
                     left: Box::new(lowered_left.unwrap_or_else(|| (**left).clone())),
                     right: Box::new(lowered_right.unwrap_or_else(|| (**right).clone())),
@@ -1109,9 +1126,10 @@ mod tests {
         );
     }
 
-    /// `P #as V` is lowered in a claim's left side and its shared positions only.
+    /// `P #as V` is lowered in a claim, on either side of its rewrites and at its shared
+    /// positions, and nowhere in a rule.
     #[test]
-    fn an_alias_is_lowered_in_a_claim_left_side_and_shared_positions_only() {
+    fn an_alias_is_lowered_in_a_claim_only() {
         let (x, y) = (Term::variable("X"), Term::variable("Y"));
         let body = rewrite(go(alias(x.clone(), y.clone())), done(y.clone()));
         assert_eq!(lower(&body, Position::Matched), None);
@@ -1129,7 +1147,14 @@ mod tests {
         );
         assert_eq!(lower(&shared, Position::Matched), None);
         let built = rewrite(go(x.clone()), done(alias(x.clone(), y.clone())));
-        assert_eq!(lower(&built, Position::ClaimShared), None);
+        assert_eq!(
+            lower(&built, Position::ClaimShared),
+            Some(rewrite(
+                go(x.clone()),
+                done(and(x.clone(), equality(x.clone(), y.clone())))
+            ))
+        );
+        assert_eq!(lower(&built, Position::Matched), None);
         let or = Term::apply(InternalLabel::Or.as_str(), vec![x.clone(), int("0")]);
         assert_eq!(lower(&alias(or, y), Position::ClaimLeft), None);
     }

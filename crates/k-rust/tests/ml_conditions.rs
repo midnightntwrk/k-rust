@@ -509,7 +509,25 @@ fn try_compile(sentences: &str) -> Result<String, String> {
     .expect("the definition loads");
     compile_loaded_definition(&loaded, CompileOptions::default())
         .map(|artifacts| artifacts.definition_kore)
-        .map_err(|error| error.to_string())
+        .map_err(|error| rendered(&error))
+}
+
+/// A compile error with its diagnostics, one per line as `source:line:column: code: message`.
+fn rendered(error: &k_rust::kompile::CompileError) -> String {
+    let mut text = error.to_string();
+    for diagnostic in &error.diagnostics {
+        let at = diagnostic
+            .location
+            .map(|location| format!("{}:{}", location.start_line, location.start_column))
+            .unwrap_or_default();
+        text.push_str(&format!(
+            "\n{}:{at}: {}: {}",
+            diagnostic.source.as_deref().unwrap_or(""),
+            diagnostic.code.as_str(),
+            diagnostic.message
+        ));
+    }
+    text
 }
 
 /// `kcompile --for-proving` of module P-SPEC (`claims`) over P (`sentences`).
@@ -547,10 +565,11 @@ fn try_compile_spec_source(source: String) -> Result<String, String> {
         },
     )
     .map(|artifacts| artifacts.definition_kore)
-    .map_err(|error| error.to_string())
+    .map_err(|error| rendered(&error))
 }
 
-/// The refusal names the sentence by kind, label and position, and states both reasons.
+/// The refusal is the matching-logic position diagnostic located at the sentence (`sentence`
+/// names it), and states both reasons.
 #[track_caller]
 fn assert_refused(
     result: Result<String, String>,
@@ -563,8 +582,11 @@ fn assert_refused(
         Ok(_) => panic!("{condition}: the {sentence} compiles"),
         Err(message) => message,
     };
-    let at = format!("{sentence} at ml_conditions.k:{line}:");
-    assert!(message.contains(&at), "{condition}: no {at:?} in {message}");
+    let at = format!("ml_conditions.k:{line}:3: MlConstructPosition: ");
+    assert!(
+        message.contains(&at),
+        "{condition}: the {sentence} is not refused at {at:?}: {message}"
+    );
     for reason in [
         "a predicate at sort Bool denotes all of Bool or nothing",
         "a connective over terms denotes a set of values",
@@ -1890,4 +1912,120 @@ fn the_definedness_of_a_term_conjunction_is_the_equality_of_its_operands() {
     );
     assert_eq!(run(&equation, 1), stuck("done(1)"));
     assert_eq!(run(&equation, 3), stuck("done(0)"));
+}
+
+// ---------------------------------------------------------------- positions, after macro expansion
+
+const IS_P: &str = "  syntax Bool ::= isP(Int) [macro]\n  rule isP(X) => {X #Equals 1}\n";
+
+/// A macro is an abbreviation: what its body states is judged where it is used, in the context of
+/// the use. `isP(X)`, which expands to the predicate `{X #Equals 1}`, is a condition at the root of
+/// a requires, and a predicate where a Bool value is required below `notBool`.
+#[test]
+fn a_predicate_macro_is_judged_in_the_context_of_its_use() {
+    let rule = |condition: &str| {
+        format!("{IS_P}  rule [p]: <k> go(X) => done(X) ... </k> requires {condition}\n")
+    };
+    assert_eq!(run(&rule("isP(X)"), 1), stuck("done(1)"));
+    assert_eq!(run(&rule("isP(X)"), 3), stuck("go(3)"));
+    assert_ml_construct_refused(
+        &rule("notBool isP(X)"),
+        line_after(IS_P),
+        &[
+            "#Equals (written in the body of a macro or alias used here)",
+            "below a Bool symbol",
+            "a predicate where a Bool value is required",
+        ],
+    );
+}
+
+/// Shapes every route reads at the base keep compiling: or-patterns whose alternatives bind
+/// different variables in a rewrite rule's left side or at a shared position, `#Top` (any value)
+/// and `#Bottom` (no value) at a shared position, and an or-pattern with unequal binders in a
+/// claim's left side.
+#[test]
+fn matched_and_shared_shapes_that_work_keep_compiling() {
+    for sentences in [
+        "  rule [p]: <k> go(X #Or 2) => done(X) ... </k>\n",
+        "  syntax Step ::= \"sa\" [symbol(sa)] | \"sb\" [symbol(sb)]\n  syntax KItem ::= pair(Int, Step) [symbol(pair)]\n  rule [p]: <k> pair(X #Or 2, (sa => sb)) ... </k>\n",
+        "  syntax Step ::= \"sa\" [symbol(sa)] | \"sb\" [symbol(sb)]\n  syntax KItem ::= pair(Int, Step) [symbol(pair)]\n  rule [p]: <k> pair(#Top, (sa => sb)) ... </k>\n",
+        "  syntax Step ::= \"sa\" [symbol(sa)] | \"sb\" [symbol(sb)]\n  syntax KItem ::= pair(Int, Step) [symbol(pair)]\n  rule [p]: <k> pair(#Bottom, (sa => sb)) ... </k>\n",
+        "  syntax Step ::= \"sa\" [symbol(sa)] | \"sb\" [symbol(sb)]\n  syntax KItem ::= pair(Int, Step) [symbol(pair)]\n  rule [p]: <k> pair({1 #Equals 1}, (sa => sb)) ... </k>\n",
+    ] {
+        assert_compiles(sentences);
+    }
+    try_compile_spec(
+        "  rule [g]: <k> go(X) => done(X) ... </k> requires X <Int 3\n",
+        "  claim [p]: <k> go(X #Or 2) => done(?_) ... </k>\n",
+    )
+    .expect("a claim's or-pattern with unequal binders compiles");
+}
+
+/// One shape of each context the check refuses, refused at compile with a located diagnostic for
+/// the Rust target, and compiled as before for the LLVM target, whose consumer reads the emitted
+/// KORE on its own terms.
+const REFUSED_SHAPES: &[(&str, &str)] = &[
+    (
+        "  rule [p]: <k> go(X) => done(X) ... </k> requires notBool {X #Equals 3}\n",
+        "below a Bool symbol",
+    ),
+    (
+        "  rule [p]: <k> go(X) => done(#Not(X)) ... </k>\n",
+        "where the rewrite rule builds its result",
+    ),
+    (
+        "  rule [p]: <k> go(X) => done(X) ... </k> requires {X #Equals (1 #Or 2) +Int 0}\n",
+        "inside an operand of #Equals",
+    ),
+    (
+        "  rule [p]: <k> go(3 #Implies 4) => done(0) ... </k>\n",
+        "where the rewrite rule matches",
+    ),
+    (
+        "  rule [p]: <k> go(X) => done(X) ... </k> requires { {{X #Equals 1} #Equals true} #Equals #Top }\n",
+        "whose operands are not both terms",
+    ),
+];
+
+#[test]
+fn each_refused_context_is_located_and_the_llvm_target_compiles_it() {
+    for (sentences, reason) in REFUSED_SHAPES {
+        assert_ml_construct_refused(sentences, line_after(""), &[reason]);
+    }
+}
+
+/// The structured route (`load_structured`, which a client that builds sentences itself takes)
+/// reaches the same check: the same shapes give the same located diagnostic.
+#[test]
+fn the_structured_route_refuses_the_same_shapes() {
+    for (sentences, reason) in &REFUSED_SHAPES[..3] {
+        let source = format!("{HEADER}{sentences}endmodule\n");
+        let definition = k_rust::outer::lower(
+            &k_rust::outer::parse("ml_conditions.k", &source).expect("the definition parses"),
+            "P",
+        )
+        .expect("the definition lowers");
+        let options = LoadOptions {
+            implicit_sources: vec![
+                embedded("kast.md").unwrap(),
+                embedded("prelude.md").unwrap(),
+            ],
+            ..CompilationBackend::Rust.load_options()
+        };
+        let loaded = k_rust::outer::load_structured(definition, &options)
+            .expect("the structured definition loads");
+        let error = compile_loaded_definition(&loaded, CompileOptions::default())
+            .expect_err("the structured definition is refused");
+        let diagnostic = error
+            .diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.code.as_str() == "MlConstructPosition")
+            .unwrap_or_else(|| panic!("{sentences}: no MlConstructPosition in {error}"));
+        assert!(
+            diagnostic.message.contains(reason),
+            "{sentences}: no {reason:?} in {}",
+            diagnostic.message
+        );
+        assert!(diagnostic.location.is_some(), "{sentences}: unlocated");
+    }
 }

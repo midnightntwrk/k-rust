@@ -169,6 +169,12 @@ behavior = "metadata-only"
 reason = "Condition-conjunction resolution relabels the pending conjunctions that strictness, heating and cooling added to conditions as #And or _andBool_, in place, so each node keeps the origin its generating pass recorded; it creates no node."
 
 [[pipeline]]
+call = "check_ml_positions"
+occurrences = 1
+behavior = "validation"
+reason = "The matching-logic position check judges the sentences with their macros and aliases expanded and reports diagnostics without changing accepted definitions."
+
+[[pipeline]]
 call = "lower_term_conjunctions"
 occurrences = 1
 behavior = "generating"

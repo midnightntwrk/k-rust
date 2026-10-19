@@ -33,8 +33,10 @@
 //! with the quantifier in the condition is loaded by `Backend::new` and run at `go(1)`, `go(2)`
 //! and `go(4)`, where the owise equation's value must follow from the meaning; the portable build
 //! may leave a quantified condition undecided. A shape with the quantifier in an argument is
-//! refused at `Backend::new`, which reads no quantifier at a term position, until the ML lane's
-//! located compile refusal (MLP/4) refuses it at compile.
+//! refused at compile for the Rust target (`MlConstructPosition` at `q`: a quantifier at a term
+//! position denotes a set of values no route reads), and its owise axiom is checked as the LLVM
+//! target, which the refusal does not judge, emits it (where that target compiles it: its checks
+//! refuse the anonymous existential condition of the competitor `p` of some anonymous shapes).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -60,15 +62,24 @@ fn resolver(_: &str, required: &str) -> Result<ResolvedSource, String> {
     embedded(required).ok_or_else(|| format!("unexpected require {required}"))
 }
 
-/// The compiled KORE of `source`, through the library route.
+/// The compiled KORE of `source`, through the library route, for the Rust target.
 fn compile(name: &str, source: String) -> Result<String, String> {
+    compile_for(name, source, k_rust::kompile::CompilationBackend::Rust)
+}
+
+/// The compiled KORE of `source` for `backend`; an error lists its diagnostics' codes and lines.
+fn compile_for(
+    name: &str,
+    source: String,
+    backend: k_rust::kompile::CompilationBackend,
+) -> Result<String, String> {
     let mut resolver = resolver;
     let options = LoadOptions {
         implicit_sources: vec![
             embedded("kast.md").unwrap(),
             embedded("prelude.md").unwrap(),
         ],
-        ..k_rust::kompile::CompilationBackend::Rust.load_options()
+        ..backend.load_options()
     };
     let (loaded, _) = load_for_compilation(
         ResolvedSource::new(format!("owise_binders/{name}.k"), source),
@@ -78,9 +89,30 @@ fn compile(name: &str, source: String) -> Result<String, String> {
         &options,
     )
     .map_err(|error| format!("load: {error}"))?;
-    compile_loaded_definition(&loaded, CompileOptions::default())
-        .map(|artifacts| artifacts.definition_kore)
-        .map_err(|error| format!("compile: {error}"))
+    compile_loaded_definition(
+        &loaded,
+        CompileOptions {
+            backend,
+            ..CompileOptions::default()
+        },
+    )
+    .map(|artifacts| artifacts.definition_kore)
+    .map_err(|error| {
+        let codes = error
+            .diagnostics
+            .iter()
+            .map(|diagnostic| {
+                format!(
+                    "{}@{}",
+                    diagnostic.code.as_str(),
+                    diagnostic
+                        .location
+                        .map_or(0, |location| location.start_line)
+                )
+            })
+            .collect::<Vec<_>>();
+        format!("compile: {error} {codes:?}")
+    })
 }
 
 fn label(attributes: &k_rust::kore::ast::Attributes) -> Option<String> {
@@ -440,7 +472,35 @@ fn run(backend: &mut Backend, n: i64) -> Result<Vec<(String, String, bool)>, Str
 fn check(shape: &Shape) -> Vec<String> {
     let mut problems = Vec::new();
     let anonymous = shape.binder == Binder::Anonymous;
-    let kore = match compile(&shape.name().replace('/', "_"), source(shape)) {
+    let name = shape.name().replace('/', "_");
+    let kore = match shape.position {
+        Position::Condition => compile(&name, source(shape)),
+        Position::Argument => {
+            match compile(&name, source(shape)) {
+                Ok(_) => problems
+                    .push("the Rust target compiles a quantifier at a term position".to_owned()),
+                Err(error) if error.contains("MlConstructPosition") => {}
+                Err(error) => problems.push(format!("the Rust target refuses otherwise: {error}")),
+            }
+            match compile_for(
+                &name,
+                source(shape),
+                k_rust::kompile::CompilationBackend::Llvm,
+            ) {
+                // The LLVM target's checks refuse an anonymous existential in a condition (the
+                // competitor p of these shapes), so it emits no owise axiom to check.
+                Err(error)
+                    if anonymous
+                        && shape.other != Relation::Absent
+                        && error.contains("UnboundVariable") =>
+                {
+                    return problems;
+                }
+                compiled => compiled,
+            }
+        }
+    };
+    let kore = match kore {
         Ok(kore) => kore,
         Err(error) => return vec![error],
     };
@@ -538,17 +598,12 @@ fn check(shape: &Shape) -> Vec<String> {
             }
         }
     }
+    if shape.position == Position::Argument {
+        return problems;
+    }
     let backend = Backend::new(&kore, "P", BackendOptions::default());
     match (shape.position, backend) {
-        (Position::Argument, Ok(_)) => problems.push(
-            "Backend::new loaded a quantifier at a term position; MLP/4 must now refuse it".into(),
-        ),
-        (Position::Argument, Err(error)) => {
-            let message = error.to_string();
-            if !message.contains("not supported where a term is required") {
-                problems.push(format!("Backend::new refused otherwise: {message}"));
-            }
-        }
+        (Position::Argument, _) => unreachable!("an argument shape is not loaded"),
         (Position::Condition, Err(error)) => {
             problems.push(format!("Backend::new: {error}"));
         }

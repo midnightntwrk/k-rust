@@ -13,6 +13,7 @@ const INVALID_SEARCH_PATTERN: Code = Code::Diag("InvalidSearchPattern");
 const INVALID_FUNCTION_PATTERN: Code = Code::Diag("InvalidFunctionPattern");
 const ILLEGAL_FUNCTION_ON_LHS: Code = Code::Diag("IllegalFunctionOnLhs");
 const INVALID_REWRITE: Code = Code::Diag("InvalidRewrite");
+const UNBOUND_VARIABLE: Code = Code::Diag("UnboundVariable");
 
 /// The shard a cell belongs to: its group and position (`extra` cells form one shard).
 pub fn shard_of(name: &str) -> &str {
@@ -342,6 +343,31 @@ const OPERAND_CONDITIONS: &[Condition] = &[
         |_| true,
         Kind::TermLevel,
         "the negation of an equality that never holds: always; refused (PredicateOperand)",
+    ),
+    // An #Equals of two predicates is their iff, at any depth.
+    condition(
+        "eqop-pred-pred",
+        "{ #Not({X #Equals 2}) #Equals {X #Equals 1} }",
+        |x| x == 1 || x == 2,
+        Kind::Plain,
+        "X != 2 iff X = 1: X in {1, 2}",
+    ),
+    // The rule of the spine applies below it: the inner #Equals mixes a predicate and a Bool term.
+    condition(
+        "eqop-nested-mixed",
+        "{ {{X #Equals 1} #Equals true} #Equals #Top }",
+        never,
+        Kind::TermLevel,
+        "{X #Equals 1} at Bool is never {true}, so the iff with #Top never holds; refused (PredicateOperand below an atom)",
+    ),
+    // ⌊t⌋ holds only where t is every value of its sort; a conjunction of terms is at most one
+    // value, and no route decides the complement this needs.
+    condition(
+        "floorop-and",
+        "#Floor(X #And 1)",
+        never,
+        Kind::TermLevel,
+        "X ∩ {1} is at most one value, never all of Int: never; #Floor over a term conjunction is refused",
     ),
 ];
 
@@ -1149,7 +1175,10 @@ fn right_values(id: &str, n: i64) -> Vec<i64> {
 fn right_decision(position: &str, id: &str) -> Decision {
     let function_like = matches!(position, "fun-rhs" | "simp-rhs" | "anywhere-rhs");
     match (id, position) {
-        ("as", "rule-rhs" | "claim-rhs") => Decision::Refuse(Expect::refuse(INVALID_REWRITE)),
+        ("as", "rule-rhs") => Decision::Refuse(Expect::refuse(INVALID_REWRITE)),
+        // A claim's right side is a pattern, which an alias may name (extra/claim-rhs__as-*); the
+        // alias variable Y here is bound by neither side.
+        ("as", "claim-rhs") => Decision::Refuse(Expect::refuse(UNBOUND_VARIABLE)),
         ("as", _) => Decision::Refuse(Expect::Refuse {
             portable: Code::Parse,
             z3: INVALID_REWRITE,
@@ -1194,11 +1223,13 @@ fn right_cell(position: &str, id: &str, text: &str, meaning: &str) -> CellSpec {
         "simp-rhs" => format!(
             "  syntax Int ::= f(Int) [function, symbol(f)]\n  rule [p]: f(X) => {text} [simplification]\n  rule [g]: <k> go(X) => done(f(X)) ... </k>\n"
         ),
+        // A macro or alias body is judged where it is used, in the context of the use, so the
+        // use is probed too.
         "macro-rhs" => format!(
-            "  syntax Int ::= m(Int) [macro, symbol(m)]\n  rule [p]: m(X) => {text}\n  rule [g]: <k> go(X) => done(m(X)) ... </k>\n"
+            "  syntax Int ::= m(Int) [macro, symbol(m)]\n  rule [p]: m(X) => {text}\n  rule [q]: <k> go(X) => done(m(X)) ... </k>\n"
         ),
         "alias-rhs" => format!(
-            "  syntax Int ::= al(Int) [alias, symbol(al)]\n  rule [p]: al(X) => {text}\n  rule [g]: <k> go(X) => done(al(X)) ... </k>\n"
+            "  syntax Int ::= al(Int) [alias, symbol(al)]\n  rule [p]: al(X) => {text}\n  rule [q]: <k> go(X) => done(al(X)) ... </k>\n"
         ),
         "anywhere-rhs" => format!(
             "  syntax Int ::= f(Int) [function, symbol(f)]\n  rule [p]: f(X) => {text} [anywhere]\n  rule [g]: <k> go(X) => done(f(X)) ... </k>\n"
@@ -1435,6 +1466,7 @@ fn extra_cells(cells: &mut Vec<CellSpec>) {
         ),
     ];
     macro_built_cells(cells);
+    walk_cells(cells);
     for (name, text, meaning, [at1, at3]) in table {
         let run = |n: i64, value: i64| {
             if name == "rule-requires-matchk__or" && value == 0 {
@@ -1494,4 +1526,119 @@ fn macro_built_cells(cells: &mut Vec<CellSpec>) {
         allow: Allow::None,
         meaning_runs: Meaning::States(Expect::runs(runs)),
     });
+}
+
+/// Shapes the position check decides outside the audit's tables (MLP/4b): a set variable bound by
+/// a quantifier, or-patterns of an equation below a symbol or at an argument's root, a predicate
+/// alone at a shared or built position, and guarded or unguarded alternatives of an equation's
+/// result.
+fn walk_cells(cells: &mut Vec<CellSpec>) {
+    const KITEMS: &str = "  syntax KItem ::= g(Int) [symbol(g)] | h(Int) [symbol(h)]\n  syntax Int ::= ff(KItem) [function, symbol(ff)]\n  rule [d]: <k> go(X) => done(ff(g(X))) ... </k>\n  rule [o]: ff(_) => 7 [owise]\n";
+    const F: &str = "  syntax Int ::= f(Int) [function, symbol(f)]\n  rule [g]: <k> go(X) => done(f(X)) ... </k>\n";
+    let refused = |name: &str, text: String, meaning: &str, meaning_runs: Meaning| CellSpec {
+        name: format!("extra/{name}"),
+        route: Route::Kompile,
+        text,
+        pattern: None,
+        programs: vec![go(1), go(3)],
+        meaning: meaning.to_owned(),
+        expect: Expect::refuse(ML_CONSTRUCT_POSITION),
+        allow: Allow::None,
+        meaning_runs,
+    };
+    let accepted = |name: &str, text: String, meaning: &str, runs: Vec<Run>| CellSpec {
+        name: format!("extra/{name}"),
+        route: Route::Kompile,
+        text,
+        pattern: None,
+        programs: runs.iter().map(|run| run.program.clone()).collect(),
+        meaning: meaning.to_owned(),
+        expect: Expect::runs(runs),
+        allow: Allow::None,
+        meaning_runs: Meaning::Unstated,
+    };
+    cells.push(refused(
+        "rule-requires__exists-setvar",
+        "  rule [p]: <k> go(X) => done(X) ... </k> requires #Exists @T:Int . {X #Equals @T}\n"
+            .to_owned(),
+        "a quantifier binds an element variable; @T is a set variable, bound only by a fixpoint: not a pattern",
+        Meaning::Unstated,
+    ));
+    cells.push(refused(
+        "fun-lhs__or-below-symbol",
+        format!("{KITEMS}  rule [p]: ff(g(1 #Or 2)) => 5\n"),
+        "g(1 #Or 2) is g(1) #Or g(2): ff(g(1)) = ff(g(2)) = 5, ff(g(3)) = 7; an equation's or-pattern below a symbol is refused (matched only at an argument's root)",
+        Meaning::States(Expect::runs(vec![
+            Run::new(go(1), vec![stuck(done(5))]),
+            Run::new(go(3), vec![stuck(done(7))]),
+        ])),
+    ));
+    cells.push(accepted(
+        "fun-lhs__or-of-or-root",
+        format!("{KITEMS}  rule [p]: ff((g(1) #Or g(2)) #Or h(3)) => 5\n"),
+        "an or-pattern of or-patterns at an argument's root: ff(g(1)) = ff(g(2)) = ff(h(3)) = 5, ff(g(3)) = 7",
+        vec![
+            Run::new(go(1), vec![stuck(done(5))]),
+            Run::new(go(3), vec![stuck(done(7))]),
+        ],
+    ));
+    cells.push(accepted(
+        "rule-shared__pred",
+        "  rule [p]: <k> pair({1 #Equals 1}, (sa => sb)) ... </k>\n".to_owned(),
+        "a predicate at a shared position constrains the match: {1 = 1} is every Int, so pair(n, sa) steps to pair(n, sb)",
+        vec![Run::new("pair(1, sa)", vec![stuck("pair(1, sb)")])],
+    ));
+    cells.push(refused(
+        "rule-rhs__eq",
+        "  rule [p]: <k> go(X) => done({X #Equals 1}) ... </k>\n".to_owned(),
+        "a predicate alone where a value is built: every Int where X = 1, none elsewhere; refused",
+        Meaning::Unstated,
+    ));
+    cells.push(accepted(
+        "fun-rhs__or-guards",
+        format!("{F}  rule [p]: f(X) => ({{X #Equals 1}} #And 10) #Or ({{X #Equals 2}} #And 20)\n"),
+        "alternatives guarded by exclusive predicates: f(1) = 10, f(2) = 20, f(3) undefined",
+        vec![
+            Run::new(go(1), vec![stuck(done(10))]),
+            Run::new(go(2), vec![stuck(done(20))]),
+            Run::new(go(3), vec![trivial(go(3))]),
+        ],
+    ));
+    // In a claim's right side, the pattern every path must reach, `P #as ?Y` names the reached
+    // term matching P.
+    for (name, right, ensures, verdict, meaning) in [
+        (
+            "claim-rhs__as-existential",
+            "done(X #as ?Y)",
+            " ensures ?Y ==Int X",
+            Verdict::Proven,
+            "go(X) reaches done(X), and ?Y names X",
+        ),
+        (
+            "claim-rhs__as-other",
+            "done((X +Int 1) #as ?Y)",
+            "",
+            Verdict::NotProven,
+            "go(X) reaches done(X), which is not done(X + 1)",
+        ),
+    ] {
+        cells.push(CellSpec {
+            name: format!("extra/{name}"),
+            route: Route::Kprove,
+            text: format!("  rule [g]: <k> go(X) => done(X) ... </k>\nendmodule\n\nmodule P-SPEC\n  imports P\n  claim [p]: <k> go(X) => {right} ... </k>{ensures}\n"),
+            pattern: None,
+            programs: Vec::new(),
+            meaning: meaning.to_owned(),
+            expect: Expect::proofs(vec![("p", verdict)]),
+            // Disproving or proving the claim decides equalities over symbolic integers.
+            allow: Allow::PortableUndecided,
+            meaning_runs: Meaning::Unstated,
+        });
+    }
+    cells.push(refused(
+        "fun-rhs__or-half-guard",
+        format!("{F}  rule [p]: f(X) => ({{X #Equals 1}} #And 10) #Or 20\n"),
+        "an unguarded alternative beside a guarded one: f(1) would be both 10 and 20, an axiom with no model",
+        Meaning::NoModel,
+    ));
 }

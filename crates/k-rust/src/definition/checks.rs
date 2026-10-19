@@ -203,6 +203,30 @@ fn check_module_with_options_and_catalog(
     Ok(diagnostics)
 }
 
+/// The matching-logic position refusals (`ml_positions`) of every module's local sentences, each
+/// judged against its module's productions: the check the compile pipeline repeats once macros
+/// and aliases are expanded at their uses, for the Rust target.
+pub(crate) fn check_ml_construct_positions_in_definition(
+    definition: &ResolvedDefinition,
+) -> Vec<Diagnostic> {
+    let views = definition.views();
+    let mut diagnostics = Vec::new();
+    for (module_id, module) in definition.modules() {
+        let sentences = module
+            .local_sentences
+            .iter()
+            .map(std::sync::Arc::as_ref)
+            .collect::<Vec<_>>();
+        diagnostics.extend(ml_positions::check_ml_construct_positions(
+            &sentences,
+            views.production_catalog(module_id),
+        ));
+    }
+    diagnostics.sort();
+    diagnostics.dedup();
+    diagnostics
+}
+
 /// Run all implemented structural checks across a resolved definition.
 pub fn check_definition(definition: &ResolvedDefinition) -> Result<Vec<Diagnostic>, Error> {
     check_definition_with_options(definition, StructuralCheckOptions::default())
@@ -341,7 +365,10 @@ pub fn check_rewrites(sentences: &[&Sentence]) -> Vec<Diagnostic> {
             | Sentence::Configuration { .. }
             | Sentence::Bubble { .. } => continue,
         };
-        let mut state = RewriteState::default();
+        let mut state = RewriteState {
+            in_claim: is_claim,
+            ..RewriteState::default()
+        };
         visit_rewrite_term(requires, &mut state, &mut diagnostics, sentence);
         visit_rewrite_term(body, &mut state, &mut diagnostics, sentence);
         if !state.has_rewrite && !is_claim {
@@ -731,6 +758,9 @@ fn anonymous_variable_exempt(sentence: &Sentence, name: &str) -> bool {
 
 #[derive(Default)]
 struct RewriteState {
+    /// The sentence is a claim, whose right side is a pattern the reached states are matched
+    /// against, so an alias there names the matched term.
+    in_claim: bool,
     has_rewrite: bool,
     in_rewrite: bool,
     in_rewrite_rhs: bool,
@@ -781,7 +811,7 @@ fn visit_rewrite_term(
         }
         Term::As { pattern, alias } => {
             let was_in_as = state.in_as;
-            if state.in_rewrite_rhs {
+            if state.in_rewrite_rhs && !state.in_claim {
                 diagnostics.push(Diagnostic::error(
                     DiagnosticCode::InvalidRewrite,
                     "#as is not allowed in the RHS of a rule.",
