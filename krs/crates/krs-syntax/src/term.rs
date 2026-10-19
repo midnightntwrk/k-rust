@@ -392,6 +392,7 @@ pub struct TermApplication {
     pub(crate) head: Path,
     pub(crate) arguments: TermArguments,
     pub(crate) instance: Vec<crate::TermSort>,
+    pub(crate) notation: bool,
 }
 
 /// One compiler-owned complete parent-cell term.
@@ -441,6 +442,16 @@ impl TermApplication {
     #[must_use]
     pub fn instance(&self) -> &[crate::TermSort] {
         &self.instance
+    }
+
+    /// Whether the application is notation (`a && b`, `a || b`, or
+    /// `recv.op::<D>(..)`) for a builtin call. Its [`Self::head`] is then the
+    /// operation's path in the facade's `builtin` module (`bool::and_then`),
+    /// which expansion qualifies with the facade; an authored head is never
+    /// notation, whatever it spells.
+    #[must_use]
+    pub const fn is_notation(&self) -> bool {
+        self.notation
     }
 }
 
@@ -1058,7 +1069,10 @@ impl TermExpression {
         })
     }
 
-    /// Returns the original span-preserving Rust expression or pattern.
+    /// Returns the original span-preserving Rust expression or pattern, as
+    /// authored: notation (`&&`, `||`, `recv.op::<D>(..)`) stays notation.
+    /// Ranges and spellings derive from it; code emitted for rustc must use
+    /// [`Self::denoted_tokens`] instead, which rustc can resolve.
     #[must_use]
     pub const fn expression(&self) -> &TermSource {
         &self.expression
@@ -1690,6 +1704,7 @@ fn validate_tuple_struct_pattern(
         head,
         arguments: TermArguments::Positional(arguments),
         instance,
+        notation: false,
     }))
 }
 
@@ -1726,6 +1741,7 @@ fn validate_struct_pattern(
         head,
         arguments: TermArguments::Named(arguments),
         instance,
+        notation: false,
     }))
 }
 
@@ -1766,11 +1782,11 @@ fn validate_expression(
 ) -> Result<TermTree, SyntaxError> {
     // A notation form is the builtin application it denotes.
     if let Some(call) = crate::notation::denoted_call(expression)? {
-        return validate_call(&call, context, symbols, nodes);
+        return validate_call(&call, true, context, symbols, nodes);
     }
     match expression {
         Expr::Path(path) => validate_path_expression(path, symbols, nodes),
-        Expr::Call(call) => validate_call(call, context, symbols, nodes),
+        Expr::Call(call) => validate_call(call, false, context, symbols, nodes),
         Expr::Struct(record) => validate_record(record, context, symbols, nodes),
         Expr::Paren(ExprParen { attrs, expr, .. }) | Expr::Group(ExprGroup { attrs, expr, .. }) => {
             reject_attributes(attrs, expression.span())?;
@@ -3116,8 +3132,10 @@ fn validate_path_expression(
     Ok(TermTree::Reference(expression.path.clone()))
 }
 
+/// Validates a call; `notation` marks the call that a notation form denotes.
 fn validate_call(
     call: &ExprCall,
+    notation: bool,
     context: TermExpressionContext,
     symbols: &mut Vec<TermSymbol>,
     nodes: &mut Vec<TermNode>,
@@ -3160,6 +3178,7 @@ fn validate_call(
         head: head_path,
         arguments: TermArguments::Positional(arguments),
         instance,
+        notation,
     }))
 }
 
@@ -3293,6 +3312,7 @@ fn validate_record(
         head,
         arguments: TermArguments::Named(arguments),
         instance,
+        notation: false,
     }))
 }
 

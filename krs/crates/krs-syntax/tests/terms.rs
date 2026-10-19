@@ -115,9 +115,7 @@ fn denoted(tree: &TermTree) -> String {
                 application.instance().is_empty(),
                 "the domain is no instance"
             );
-            let head = krs_syntax::notation_operation(application.head())
-                .unwrap_or_else(|| application.head().clone());
-            let head = quote::ToTokens::to_token_stream(&head)
+            let head = quote::ToTokens::to_token_stream(application.head())
                 .to_string()
                 .replace(' ', "");
             let TermArguments::Positional(arguments) = application.arguments() else {
@@ -343,4 +341,64 @@ fn notation_is_accepted_wherever_the_denoted_call_is() {
     let or_bool =
         krs_syntax::TermExpression::parse_source("k::or_bool!(a && b, c.lt::<Int>(d))").unwrap();
     assert!(matches!(or_bool.tree(), TermTree::OrBool { .. }));
+}
+
+#[test]
+fn only_notation_marks_an_application_as_notation() {
+    let term = krs_syntax::TermExpression::parse_source(
+        "Wrap(a && b, __krs_builtin::int::add(a, 1), int::add(a, 1))",
+    )
+    .unwrap();
+    let TermTree::Application(wrap) = term.tree() else {
+        panic!("a call");
+    };
+    let TermArguments::Positional(arguments) = wrap.arguments() else {
+        panic!("positional arguments");
+    };
+    let notation = arguments
+        .iter()
+        .map(|argument| match argument {
+            TermTree::Application(application) => (
+                quote::ToTokens::to_token_stream(application.head())
+                    .to_string()
+                    .replace(' ', ""),
+                application.is_notation(),
+            ),
+            other => panic!("unexpected argument {other:?}"),
+        })
+        .collect::<Vec<_>>();
+    assert!(!wrap.is_notation());
+    assert_eq!(
+        notation,
+        [
+            ("bool::and_then".to_owned(), true),
+            ("__krs_builtin::int::add".to_owned(), false),
+            ("int::add".to_owned(), false),
+        ]
+    );
+}
+
+#[test]
+fn readable_patterns_name_notation_where_a_pattern_parser_stops() {
+    for (source, expected) in [
+        (
+            "for Exp; check: Check { a: n && m } => n;",
+            "`&&` is not a pattern",
+        ),
+        (
+            "for Exp; check: Check(n.lt::<Int>(m)) => n;",
+            "a method call is not a pattern: a left-hand side matches `int::lt`",
+        ),
+        ("for Exp; check: n || m => n;", "`||` is not a pattern"),
+        (
+            "for Machine; burn: { fuel: f.add::<Int>(1), acc: a } => { acc: a };",
+            "a method call is not a pattern: a left-hand side matches `int::add`",
+        ),
+    ] {
+        let error = krs_syntax::RuleBlock::parse_source(source).unwrap_err();
+        let SyntaxErrorKind::InvalidExpressionNotation { reason } = error.kind() else {
+            panic!("{source}: expected an expression-notation error, found {error}");
+        };
+        assert!(reason.contains(expected), "{source}: {reason}");
+    }
 }

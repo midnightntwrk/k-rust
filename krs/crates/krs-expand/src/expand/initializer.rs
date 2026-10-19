@@ -569,9 +569,11 @@ impl<'a> InitializerBuilder<'a> {
             TermTree::Application(application) => {
                 let ordinal = take_counter(&mut self.counters.term_path)?;
                 let key = wire_key(ProvenanceRole::InitializerTermPath, ordinal);
-                let target = self
-                    .terms
-                    .application_wire_slot(application.head(), &mut self.slots)?;
+                let target = self.terms.application_wire_slot(
+                    application.head(),
+                    application.is_notation(),
+                    &mut self.slots,
+                )?;
                 let authored_path = self.terms.application_authored_path(application.head());
                 // An initializer admits no turbofish (KF-027); this rejects one.
                 self.terms
@@ -613,7 +615,9 @@ impl<'a> InitializerBuilder<'a> {
                         name,
                     })
                 } else {
-                    let target = self.terms.application_wire_slot(path, &mut self.slots)?;
+                    let target = self
+                        .terms
+                        .application_wire_slot(path, false, &mut self.slots)?;
                     let authored_path = self.terms.application_authored_path(path);
                     Ok(WireTerm::Application {
                         instance: Vec::new(),

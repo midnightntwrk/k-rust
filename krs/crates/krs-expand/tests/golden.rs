@@ -949,6 +949,16 @@ fn boundary(k::term![Boundary(n, t, c, b, m)]: Term<Exp>) -> Term<Exp> {
 ",
     ),
     (
+        "requires_authored_builtin_root",
+        r"
+#[k::rule]
+#[k::requires(__krs_builtin::bool::not(ready))]
+fn admit(k::term![Admit(ready)]: Term<Exp>) -> Term<Exp> {
+    Admitted()
+}
+",
+    ),
+    (
         "rule_notation_in_pattern",
         r"
 #[k::rule]

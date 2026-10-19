@@ -3,9 +3,10 @@
 //! `recv.op::<D>(args..)`.
 //!
 //! Each form is notation for one builtin call and has no meaning of its own.
-//! Term validation lowers a form to the application it denotes, whose head is
-//! the operation's path below [`NOTATION_ROOT`]. Expansion replaces that root
-//! with the facade's `builtin` module ([`notation_operation`]), so the head
+//! Term validation lowers a form to the application it denotes, marked
+//! [`TermApplication::is_notation`](crate::TermApplication::is_notation),
+//! whose head is the operation's path in the `builtin` module
+//! (`bool::and_then`). Expansion qualifies that head with the facade, so it
 //! names the facade's operation whatever the facade crate is called and
 //! whether or not the author imported the operation's module. Code that rustc
 //! checks receives the denoted calls through [`denote_notation`], with each
@@ -26,10 +27,6 @@ use syn::{
 
 use crate::{SyntaxError, SyntaxErrorKind};
 
-/// The first segment of the head of an application that notation denotes;
-/// expansion replaces it with the facade's `builtin` module.
-pub const NOTATION_ROOT: &str = "__krs_builtin";
-
 /// Each method-call domain and the builtin module that holds its operations.
 const DOMAINS: [(&str, &str); 6] = [
     ("Int", "int"),
@@ -45,20 +42,6 @@ const DOMAIN_LIST: &str = "`Int`, `Bool`, `String`, `Float`, `Bytes`, or `K`";
 
 fn notation_error(reason: String, span: Span) -> SyntaxError {
     SyntaxError::new(SyntaxErrorKind::InvalidExpressionNotation { reason }, span)
-}
-
-/// Returns the operation path (`bool::and_then`) of an application head that
-/// notation generated, or `None` for an authored head.
-#[must_use]
-pub fn notation_operation(head: &Path) -> Option<Path> {
-    let first = head.segments.first()?;
-    if head.leading_colon.is_some() || first.ident != NOTATION_ROOT {
-        return None;
-    }
-    Some(Path {
-        leading_colon: None,
-        segments: head.segments.iter().skip(1).cloned().collect(),
-    })
 }
 
 /// Whether `expression` is a notation form at its root: `&&`, `||`, or a
@@ -88,11 +71,9 @@ impl VisitMut for Denote<'_> {
     fn visit_expr_mut(&mut self, expression: &mut Expr) {
         syn::visit_mut::visit_expr_mut(self, expression);
         if let Ok(Some(mut call)) = denoted_call(expression) {
-            if let Expr::Path(head) = &mut *call.func
-                && let Some(operation) = notation_operation(&head.path)
-            {
+            if let Expr::Path(head) = &mut *call.func {
                 let mut path = self.builtin.clone();
-                path.segments.extend(operation.segments);
+                path.segments.extend(head.path.segments.iter().cloned());
                 head.path = path;
             }
             *expression = Expr::Call(call);
@@ -251,13 +232,10 @@ fn turbofish_list(name: &str, domains: &[&str]) -> String {
     }
 }
 
-/// `__krs_builtin::module::operation`, its root and module at `first` and its
-/// operation at `last`.
+/// `module::operation`, its module at `first` and its operation at `last`.
 fn generated_head(module: &str, operation: &str, first: Span, last: Span) -> Expr {
     let segment = |name: &str, span: Span| PathSegment::from(Ident::new(name, span));
     let mut segments = Punctuated::new();
-    segments.push_value(segment(NOTATION_ROOT, first));
-    segments.push_punct(Token![::](first));
     segments.push_value(segment(module, first));
     segments.push_punct(Token![::](last));
     segments.push_value(segment(operation, last));
@@ -296,11 +274,20 @@ pub(crate) fn notation_in_pattern(expression: &Expr) -> Option<SyntaxError> {
 /// `error`, the failure to parse the tokens at `input` as a pattern, or the
 /// notation error when those tokens are an expression with a notation form.
 pub(crate) fn pattern_parse_error(input: ParseStream<'_>, error: syn::Error) -> SyntaxError {
+    notation_at(input).unwrap_or_else(|| error.into())
+}
+
+/// The notation error when the tokens at `input`, where a pattern was
+/// expected, begin an expression with a notation form. The expression is
+/// parsed in full, so a record such as `Check { a: n && m }` is one
+/// expression; a pattern parser may instead stop inside it, at the first
+/// token that no pattern continues with.
+pub(crate) fn notation_at(input: ParseStream<'_>) -> Option<SyntaxError> {
     input
-        .call(Expr::parse_without_eager_brace)
+        .fork()
+        .parse::<Expr>()
         .ok()
         .and_then(|expression| notation_in_pattern(&expression))
-        .unwrap_or_else(|| error.into())
 }
 
 fn pattern_error(expression: &Expr) -> SyntaxError {
@@ -312,8 +299,7 @@ fn pattern_error(expression: &Expr) -> SyntaxError {
     let Expr::Path(head) = &*call.func else {
         unreachable!("notation generates a path head");
     };
-    let operation = notation_operation(&head.path).expect("notation generates a rooted head");
-    let operation = crate::path::path_text(&operation);
+    let operation = crate::path::path_text(&head.path);
     let (form, span) = match expression {
         Expr::Binary(binary) => (
             format!("`{}`", binary.op.to_token_stream()),

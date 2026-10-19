@@ -649,7 +649,7 @@ Neither form needs an import: the call it denotes names the facade's `builtin` m
 
 Both forms are valid exactly where the call they denote is, and nowhere else: in results, `#[k::requires]` and `#[k::ensures]` conditions, initializers, claims, and the checked islands, which hand rustc the call.
 Sort inference, arity, SMT restrictions, and the emitted K are those of the call, and the reference projection of a rule prints the call, as in `k::builtin::bool::and_then(..)`.
-Neither form is a Rust pattern, so a left-hand side rejects both, naming the form and the call it denotes (`` `&&` is not a pattern: a left-hand side matches `bool::and_then` only as the call `bool::and_then(..)` ``).
+Neither form is a Rust pattern, so a pattern rejects both, naming the form and the call it denotes (`` `&&` is not a pattern: a left-hand side matches `bool::and_then` only as the call `bool::and_then(..)` ``); an operand of a compiler-owned macro such as `k::or_bool!` is a term even on a left-hand side, and takes the forms exactly as it takes the call.
 A method call without a domain turbofish (``write `lt::<Int>`, `lt::<String>`, or `lt::<Float>` ``), with a turbofish that holds anything but one domain name, with a domain outside the table, with an operation its module does not define, or with an operation that takes no operand (``write the call `bytes::empty()` ``) is an error (`krs::syntax::invalid-expression-notation`).
 `!`, `&`, comparison operators, and arithmetic operators remain unsupported, because the sorts of their operands do not determine a domain.
 
