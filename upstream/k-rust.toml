@@ -15,6 +15,8 @@
 # their 927b9ce6 values are in this file at K-in-K2 1ee9955. KINK-15 and KINK-16 had no row before 2026-10-17;
 # they are added below. Requests KINK-17..KINK-22 of draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-3.md (given to
 # k-rust on 2026-10-18, frozen at sha256 55d51a795c6c126a7b9ee461cec6b6da28cc49d8b5d37dbf5b955121747e4262) were added on 2026-10-18.
+# Requests KINK-23..KINK-26 of draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-4.md (given to k-rust on 2026-10-19,
+# frozen at sha256 1126291481995c21906438f2756cc34ea2c4068f68965c2df1b24fbd9ad2514c) were added on 2026-10-19.
 # status_at_main rows record the judgement at main 9ea39ec7 (2026-10-15); the pin is now later than that main.
 #
 # Fields added on 2026-10-15 (now in README.md's field table):
@@ -33,7 +35,7 @@
 # original fields) and where_requested_shape_differs (how an accepted fix differs from the request).
 
 schema = 1
-updated = "2026-10-18"
+updated = "2026-10-19"
 
 [reference_pin]
 # Status is judged against this commit of the on-disk checkout that the workspace builds against: kink-pattern, kink-patch, kink-native, kink-campaign, kink-corpus and kink-flow all depend on k-rust.
@@ -1115,6 +1117,70 @@ local_workaround = "kink relies on fact 1 as read in the code at the pin; for fa
 requested_action = "Handoff KINK-22 (high). Document fact 1 beside the work budget as part of the Execute promise; document fact 2 beside the state-set merge and report per state-set result a count of absorbed bound or undecided leaves; low priority: work and expanded counts on a cancelled error. Acceptance as in ADDENDUM-3 KINK-22."
 sources = ["draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-3.md KINK-22", "draft/tasks/repin-501f18b9/ANALYSIS.md"]
 handoff = "KINK-22"
+
+[[request]]
+# Added on 2026-10-19 from ADDENDUM-4.md KINK-23 (ADDENDUM-4 was given to k-rust on 2026-10-19).
+id = "edited-module-load-against-prepared-base"
+title = "Resolving a mutation needs a full load_for_compilation of the edited text"
+kind = "performance"
+status = "open"
+status_basis = "carried from draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-4.md (sha256 11262914…, given to k-rust on 2026-10-19, judged against k-rust's code at 501f18b9 and main f6196ee28 when written), not requalified"
+blocking = false
+needed_by = ["kink cold cost on large specifications (resolution about 10 s per mutation on KEVM, 3.3 s on KMIR)"]
+summary = "Every edited load re-parses every rule bubble of the definition and prelude (84 of 111 ms per IMP load). outer::load_with_prepared_base exists but refuses a base module re-read with different text (PreparedModuleMismatch, loader.rs:1633-1667) and selects no syntax module."
+reproducer = "ADDENDUM-4 KINK-23 acceptance: single-rule edits on IMP and KEVM; result equal to a full load_for_compilation, diagnostics and origins included."
+local_workaround = "Warm runs only: the L1-4 resolution memo under its host premise (accepted 2026-10-18)."
+requested_action = "Handoff KINK-23 (medium). A documented load of a definition with one module's text edited, against a base prepared from the unedited definition, equal to load_for_compilation of the edited text; import or dependency edits handled or refused with a reason; time per edit reported."
+sources = ["draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-4.md KINK-23", "draft/tasks/repin-501f18b9/M-1-REPORT.md", "draft/tasks/repin-501f18b9/handoffs/L1-4.toml"]
+handoff = "KINK-23"
+
+[[request]]
+# Added on 2026-10-19 from ADDENDUM-4.md KINK-24 (ADDENDUM-4 was given to k-rust on 2026-10-19).
+id = "search-work-budget"
+title = "search and search_pattern have no deterministic work budget"
+kind = "missing-feature"
+status = "open"
+status_basis = "carried from draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-4.md (sha256 11262914…, given to k-rust on 2026-10-19, judged against k-rust's code at 501f18b9 and main f6196ee28 when written), not requalified"
+blocking = false
+needed_by = ["kink-flow query (F-18): a bounded pattern answer that can be cached"]
+summary = "Only max_depth, max_breadth and the clock bound a search; a looping or widely branching program ends in a cancellation, which kink cannot cache, or in an OOM. execute already has max_work (KINK-16)."
+reproducer = "ADDENDUM-4 KINK-24 acceptance: same request and budget give the same matches, incomplete entries and work; budget >= unbounded work changes nothing; budget minus one gives a work-bound entry."
+local_workaround = "kink-flow query answers unknown on a clock stop and caches only hit and final no."
+requested_action = "Handoff KINK-24 (medium). max_work on SearchPatternRequest and SearchRequest with execute's meaning; work reported; a work-bound incomplete entry; under the execution determinism contract."
+sources = ["draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-4.md KINK-24", "draft/tasks/repin-501f18b9/M-2-REPORT.md"]
+handoff = "KINK-24"
+
+[[request]]
+# Added on 2026-10-19 from ADDENDUM-4.md KINK-25 (ADDENDUM-4 was given to k-rust on 2026-10-19).
+id = "search-match-instance"
+title = "A search match does not say whether its state is known to exist"
+kind = "soundness-signal"
+status = "open"
+status_basis = "carried from draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-4.md (sha256 11262914…, given to k-rust on 2026-10-19, judged against k-rust's code at 501f18b9 and main f6196ee28 when written), not requalified"
+blocking = false
+needed_by = ["kink-flow query (F-18): a hit only on a state that exists"]
+summary = "search.rs:2621-2625 keeps an undecided definedness fact of the subject out of the match condition, so a state holding an irreducible call to a non-total function is a condition-free match (F-18 review 1 critical, repro in draft/tasks/flow/scratch-F-18-review/repro-partial2)."
+reproducer = "ADDENDUM-4 KINK-25 acceptance: a state with a partial function applied where no equation covers it is reported as not established; constructors and total functions over defined arguments, a map with keys of several shapes included, as established."
+local_workaround = "kink-flow pattern.rs defined_state: internalize the witness state and require ceil_free, refuse any term-level and; otherwise unknown (undefined-state). Costs a second internalization per hit and refuses some defined maps."
+requested_action = "Handoff KINK-25 (medium). Per SearchMatch and PathSearchMatch, whether the matched state is known to have an instance, or the undecided residual facts listed as the match's condition."
+sources = ["draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-4.md KINK-25", "draft/tasks/flow/handoffs/F-18-review-1.json", "draft/tasks/flow/handoffs/F-18-fix-1.toml"]
+handoff = "KINK-25"
+
+[[request]]
+# Added on 2026-10-19 from ADDENDUM-4.md KINK-26 (ADDENDUM-4 was given to k-rust on 2026-10-19).
+id = "search-stack-stop-count"
+title = "Searches do not count the stack stops they dismiss"
+kind = "soundness-signal"
+status = "open"
+status_basis = "carried from draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-4.md (sha256 11262914…, given to k-rust on 2026-10-19, judged against k-rust's code at 501f18b9 and main f6196ee28 when written), not requalified"
+blocking = false
+needed_by = ["kink-flow query (F-18): a final no without a code-reading premise"]
+summary = "compatibility.md says search and proofs do not count the stack stops they dismiss; stop::counting_stack_stops is crate-private and only execute reads it. kink read each dismissal site a search reaches at 501f18b9 (fold_hooks_or_keep, simplified_ceil_condition, list_update_cannot_match, state_may_expand) and found none can make an answer false."
+reproducer = "ADDENDUM-4 KINK-26 acceptance: a search that dismisses a stop reports a nonzero count, one that dismisses none reports zero, under the determinism contract."
+local_workaround = "kink relies on the code reading (F-18 premise 5, review 1 judged it k-rust's documented soundness, not a new premise) and requires the program's plain run to count zero stack stops before a no."
+requested_action = "Handoff KINK-26 (low). Count the stack stops a search dismisses and report the count on every search and search-pattern response, as execute reports stackStops."
+sources = ["draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-4.md KINK-26", "draft/tasks/flow/handoffs/F-18.toml", "draft/tasks/flow/handoffs/F-18-review-1.json"]
+handoff = "KINK-26"
 
 [[request]]
 id = "unadmitted-hook-namespace-visibility"
