@@ -15,7 +15,7 @@
 //!
 //! [[cost]]
 //! mode = "bounded execution"
-//! bound = "O(min(states, max_work)), with states at most b^d when both bounds are set and unbounded under the defaults (max_depth = u64::MAX, max_breadth = None, max_work = None); one integer comparison per state for the work budget; each state performs one term simplification, predicate pass, and rewrite step (a successor whose step already normalized it under strategy any takes that normalization instead), plus one predicate simplification and one satisfiability query per undefined-step (trivial) entry of its step; a step with such entries and an applied candidate (unless it stops at a branch with several candidates or a remainder) normalizes each candidate's successor, which a defined one's successor takes instead of normalizing itself; a successor that normalizes to bottom, the first of its step to do so, normalizes each sibling candidate not yet normalized, and that step's undefined step then takes one predicate simplification and one satisfiability query per undefined candidate, and one more predicate simplification when several candidates are left non-empty over one term; and a state stopped at max_depth is simplified once more; an initial state the run does not assume defined also walks its term's definedness once and simplifies the obligations that walk finds once"
+//! bound = "O(min(states, max_work)), with states at most b^d when both bounds are set and unbounded under the defaults (max_depth = u64::MAX, max_breadth = None, max_work = None); one integer comparison per state for the work budget; each state performs one term simplification, predicate pass, and rewrite step (a successor whose step already normalized it under strategy any takes that normalization instead), plus one predicate simplification and one satisfiability query per undefined-step (trivial) entry of its step; a step with such entries and an applied candidate (unless it stops at a branch with several candidates or a remainder), or one exploring all paths with several candidates, no remainder and a candidate a cut-point or terminal rule selects, normalizes each candidate's successor, which a defined one's successor takes instead of normalizing itself; a successor that normalizes to bottom, the first of its step to do so, normalizes each sibling candidate not yet normalized; and a step's undefined step, whichever route finds its candidates undefined (the step itself, stopping at branches, or a successor's normalization), takes one predicate simplification and one satisfiability query per undefined candidate, and one more predicate simplification when several candidates are left non-empty over one term; and a state stopped at max_depth is simplified once more; an initial state the run does not assume defined also walks its term's definedness once and simplifies the obligations that walk finds once"
 //!
 //! [[cost]]
 //! mode = "final leaf merge (merge_equal_final_leaves)"
@@ -1529,14 +1529,36 @@ impl<'a> Execution<'a> {
         }
         let offset = trivial.len();
         let single = branches.len() == 1 && remainder.is_none();
-        if !trivial.is_empty()
-            && (single || self.options.branch_mode != ExecutionBranchMode::StopAtBranch)
-            && (!parts.is_empty() || (branches.is_empty() && remainder.is_none()))
-        {
-            // The step's undefined step needs to know which candidates are undefined, so each
-            // candidate's successor is normalized here; a defined one's successor takes that
-            // normalization instead of repeating it.
-            return self.branch_with_entries(state, original, branches, remainder, parts, offset);
+        let stopping = self.options.branch_mode == ExecutionBranchMode::StopAtBranch;
+        // Whether a stop rule may select one of several candidates, which then stops the run
+        // only if it is the step's one successor.
+        let stop_rule_selects = !single
+            && remainder.is_none()
+            && branches.iter().any(|applied| {
+                selected_stop_rule(applied, &self.options.cut_point_rules).is_some()
+                    || selected_stop_rule(applied, &self.options.terminal_rules).is_some()
+            });
+        let entries_decide = !trivial.is_empty()
+            && (!parts.is_empty() || (branches.is_empty() && remainder.is_none()));
+        if !stopping && (entries_decide || stop_rule_selects) || single && entries_decide {
+            // What the step does next rests on which candidates are undefined: the undefined
+            // step it reports beside its trivial entries, or whether a stop rule's candidate is
+            // its one successor. Each candidate's successor is normalized here, and a defined
+            // one's successor takes that normalization instead of repeating it.
+            let defined = match self.normalize_candidates(&state, branches, offset, &mut parts) {
+                Ok(defined) => defined,
+                Err(stop) => return Err(self.stopped_leaf(state, stop)),
+            };
+            let parent = state.clone();
+            return self.conclude_step(
+                state,
+                &parent,
+                original,
+                parts,
+                Survivors::Normalized(defined),
+                remainder,
+                offset,
+            );
         }
         if single {
             // The only candidate is the unique successor of this state, whatever the branch
@@ -1598,7 +1620,6 @@ impl<'a> Execution<'a> {
             // The candidates normalized to `\bottom` and shown undefined, each with its successor
             // as the step built it, and the successors as built of the other candidates, which
             // are defined.
-            let mut defined_successors = Vec::new();
             for (candidate, mut applied) in branches.into_iter().enumerate() {
                 let built = applied.pattern.clone();
                 // Each candidate's normalization is recorded on its own observation head, after
@@ -1635,7 +1656,6 @@ impl<'a> Execution<'a> {
                         applied.pattern = simplified.pattern;
                         applied.effects.extend(simplified.effects);
                         if predicates_truth(&applied.pattern.constraints) != Truth::False {
-                            defined_successors.push(built.clone());
                             simplified_branches.push((applied, observation, built));
                             continue;
                         }
@@ -1712,7 +1732,7 @@ impl<'a> Execution<'a> {
                     &self.observation_log,
                 ));
             }
-            let mut branches = simplified_branches;
+            let branches = simplified_branches;
             let mut remainder_observation_head = None;
             if let Some(candidate) = &mut remainder {
                 let mut observation = remainder_observation(
@@ -1760,103 +1780,15 @@ impl<'a> Execution<'a> {
                 }
             }
             let state = self.check_interrupted(state)?;
-            // The step's undefined step: its trivial entries and the candidates normalized to
-            // `\bottom`, outside the defined candidates' instances.
-            let undefined_step = !parts.is_empty();
-            let mut reported = false;
-            if undefined_step {
-                let defined = defined_successors.iter().collect::<Vec<_>>();
-                let others = !branches.is_empty() || remainder.is_some();
-                match self.undefined_step(
-                    &parent,
-                    parent.diagnostics.clone(),
-                    parts,
-                    &defined,
-                    others,
-                ) {
-                    Ok(UndefinedStep::Leaves(leaves)) => {
-                        reported = true;
-                        self.leaves.extend(leaves);
-                    }
-                    Ok(UndefinedStep::Covered) => {}
-                    Ok(UndefinedStep::NoInstance) => {
-                        let constraint = super::false_constraint(&original);
-                        let empty = ExecutionState { depth, ..state };
-                        return Err(self.empty_leaf(empty, original, constraint));
-                    }
-                    Err(stop) => return Err(self.stopped_leaf(state, stop)),
-                }
-            }
-            match (branches.len(), remainder.is_some()) {
-                // Every instance of the state is on the undefined step's leaf.
-                (0, false) if undefined_step => return Ok(Vec::new()),
-                (0, false) => {
-                    return Err(state.leaf_with_pattern(
-                        original,
-                        HaltReason::Stuck,
-                        &self.observation_log,
-                    ));
-                }
-                (1, false) => {
-                    // The only surviving candidate is the unique successor of this state, as a
-                    // `Finished` step's application is: the stop rules apply to it alike. It is
-                    // already normalized, on its own head, and not bottom.
-                    let (applied, observation, built) = branches.pop().expect("one branch remains");
-                    if let Some(rule) = selected_stop_rule(&applied, &self.options.cut_point_rules)
-                    {
-                        let mut state = state;
-                        if reported {
-                            // The undefined step stands for some instances of this state: the
-                            // leaf stands for the candidate's own.
-                            restrict_to_candidate(&mut state.pattern, &applied.before, &built);
-                        }
-                        commit_proposed_effects(&mut state, &applied);
-                        return Err(self.cut_point_leaf(state, rule, applied, observation));
-                    }
-                    let terminal_rule = selected_stop_rule(&applied, &self.options.terminal_rules);
-                    let next = commit_applied(state, applied, observation);
-                    if let Some(rule) = terminal_rule {
-                        return Err(
-                            next.leaf(HaltReason::TerminalRule { rule }, &self.observation_log)
-                        );
-                    }
-                    return Ok(vec![next]);
-                }
-                (0, true) => {
-                    let remainder = remainder.take().expect("one remainder remains");
-                    return Ok(vec![commit_remainder(
-                        state,
-                        remainder,
-                        remainder_observation_head,
-                    )]);
-                }
-                _ => {
-                    // The reported candidates are not committed: each carries the events it
-                    // would add to the parent's branch.
-                    let branches = branches
-                        .into_iter()
-                        .map(|(mut applied, observation, _)| {
-                            applied.observations = self
-                                .observation_log
-                                .events_since(observation, state.observation);
-                            applied
-                        })
-                        .collect();
-                    if let Some(candidate) = &mut remainder {
-                        candidate.observations = self
-                            .observation_log
-                            .events_since(remainder_observation_head, state.observation);
-                    }
-                    return Err(state.leaf_with_pattern(
-                        original,
-                        HaltReason::Branch {
-                            branches,
-                            remainder,
-                        },
-                        &self.observation_log,
-                    ));
-                }
-            }
+            return self.conclude_step(
+                state,
+                &parent,
+                original,
+                parts,
+                Survivors::Simplified(branches, remainder_observation_head),
+                remainder,
+                offset,
+            );
         }
         Ok(self.successors(state, branches, remainder, offset))
     }
@@ -1916,23 +1848,16 @@ impl<'a> Execution<'a> {
         next
     }
 
-    /// [`Self::branch`] for a step the step itself found undefined on some instances (`parts`,
-    /// its trivial entries), unless it stops at a branch with several candidates or a remainder:
-    /// each candidate's successor is normalized here, so that the step's undefined step stands
-    /// for every instance on which every candidate that applies is undefined. A defined
-    /// candidate's successor takes that normalization. The step then goes on with its defined
-    /// candidates and remainder, a single defined candidate with no remainder as a `Finished`
-    /// step's, its cut-point leaf restricted to its own instances when an undefined step was
-    /// reported.
-    fn branch_with_entries(
+    /// Normalize each candidate's successor within the step: an undefined one becomes a part of
+    /// the step's undefined step (`parts`), with its transition rolled back; a defined one is
+    /// returned, carrying its normalization, which its successor takes instead of repeating it.
+    fn normalize_candidates(
         &mut self,
-        state: ExecutionState,
-        original: Pattern,
+        state: &ExecutionState,
         branches: Vec<AppliedRule>,
-        remainder: Option<RemainderBranch>,
-        mut parts: Vec<UndefinedPart>,
         offset: usize,
-    ) -> Phase<Vec<ExecutionState>> {
+        parts: &mut Vec<UndefinedPart>,
+    ) -> Stoppable<Vec<AppliedRule>> {
         let depth = state.depth + 1;
         let mut defined = Vec::with_capacity(branches.len());
         for (candidate, mut applied) in branches.into_iter().enumerate() {
@@ -1955,11 +1880,7 @@ impl<'a> Execution<'a> {
                         io,
                     )
                 },
-            );
-            let checked = match checked {
-                Ok(checked) => checked,
-                Err(stop) => return Err(self.stopped_leaf(state, stop)),
-            };
+            )?;
             match checked.undefined {
                 Some(undefined) => {
                     let mut work = applied.diagnostics.to_vec();
@@ -1990,38 +1911,160 @@ impl<'a> Execution<'a> {
                 }
             }
         }
-        let built = defined
-            .iter()
-            .map(|applied| applied.pattern.clone())
-            .collect::<Vec<_>>();
-        let others = !defined.is_empty() || remainder.is_some();
-        let mut reported = false;
-        match self.undefined_step(
-            &state,
-            state.diagnostics.clone(),
-            parts,
-            &built.iter().collect::<Vec<_>>(),
-            others,
-        ) {
-            Ok(UndefinedStep::Leaves(leaves)) => {
-                reported = true;
-                self.leaves.extend(leaves);
+        Ok(defined)
+    }
+
+    /// What a step does once each of its candidates is known defined or undefined: every
+    /// decision that rests on its successor set is taken here, on the defined candidates
+    /// (`survivors`) and the remainder only. A candidate whose successor is `\bottom` is no
+    /// successor.
+    ///
+    /// The undefined step of `parts` is reported first ([`Self::undefined_step`]); a step with
+    /// no instance is one `Vacuous` leaf. Then: no survivor and no remainder ends the state, as
+    /// `Stuck` only when no candidate applied; one survivor and no remainder is the state's one
+    /// successor, to which the cut-point and terminal rules apply, its stop leaf restricted to
+    /// its own instances when an undefined step was reported; otherwise the state branches,
+    /// as successors when exploring all paths, or as a `Branch` leaf when stopping at branches,
+    /// whose state then excludes the undefined step's instances, so the step's leaves partition
+    /// its instances. `parent` is the state as the step was taken from it.
+    #[allow(clippy::too_many_arguments)]
+    fn conclude_step(
+        &mut self,
+        state: ExecutionState,
+        parent: &ExecutionState,
+        original: Pattern,
+        parts: Vec<UndefinedPart>,
+        survivors: Survivors,
+        mut remainder: Option<RemainderBranch>,
+        offset: usize,
+    ) -> Phase<Vec<ExecutionState>> {
+        let depth = state.depth + 1;
+        let undefined = !parts.is_empty();
+        let built = survivors.built();
+        let mut reported = Vec::new();
+        if undefined {
+            let others = !built.is_empty() || remainder.is_some();
+            match self.undefined_step(
+                parent,
+                parent.diagnostics.clone(),
+                parts,
+                &built.iter().collect::<Vec<_>>(),
+                others,
+            ) {
+                Ok(UndefinedStep::Leaves(leaves)) => {
+                    reported = leaves
+                        .iter()
+                        .filter(|leaf| leaf.pattern.term == original.term)
+                        .map(|leaf| beyond(&leaf.pattern.constraints, &original.constraints))
+                        .collect();
+                    if reported.is_empty() {
+                        reported.push(Vec::new());
+                    }
+                    self.leaves.extend(leaves);
+                }
+                Ok(UndefinedStep::Covered) => {}
+                Ok(UndefinedStep::NoInstance) => {
+                    let constraint = super::false_constraint(&original);
+                    let empty = ExecutionState { depth, ..state };
+                    return Err(self.empty_leaf(empty, original, constraint));
+                }
+                Err(stop) => return Err(self.stopped_leaf(state, stop)),
             }
-            Ok(UndefinedStep::Covered) => {}
-            Ok(UndefinedStep::NoInstance) => {
-                let constraint = super::false_constraint(&original);
-                let empty = ExecutionState { depth, ..state };
-                return Err(self.empty_leaf(empty, original, constraint));
-            }
-            Err(stop) => return Err(self.stopped_leaf(state, stop)),
         }
-        match (defined.len(), remainder.is_some()) {
-            (0, false) => Ok(Vec::new()),
-            (1, false) => {
-                let applied = defined.pop().expect("one defined candidate");
-                self.finished(state, applied, reported)
+        let restrict = !reported.is_empty();
+        match survivors {
+            Survivors::Normalized(mut defined) => match (defined.len(), remainder.is_some()) {
+                (0, false) if undefined => Ok(Vec::new()),
+                (0, false) => {
+                    Err(state.leaf_with_pattern(original, HaltReason::Stuck, &self.observation_log))
+                }
+                (1, false) => {
+                    let applied = defined.pop().expect("one defined candidate");
+                    self.finished(state, applied, restrict)
+                }
+                _ => Ok(self.successors(state, defined, remainder, offset)),
+            },
+            Survivors::Simplified(mut branches, remainder_observation_head) => {
+                match (branches.len(), remainder.is_some()) {
+                    // Every instance of the state is on the undefined step's leaf.
+                    (0, false) if undefined => Ok(Vec::new()),
+                    (0, false) => Err(state.leaf_with_pattern(
+                        original,
+                        HaltReason::Stuck,
+                        &self.observation_log,
+                    )),
+                    (1, false) => {
+                        // The only surviving candidate is the unique successor of this state,
+                        // as a `Finished` step's application is: the stop rules apply to it
+                        // alike. It is already normalized, on its own head, and not bottom.
+                        let (applied, observation, built) =
+                            branches.pop().expect("one branch remains");
+                        if let Some(rule) =
+                            selected_stop_rule(&applied, &self.options.cut_point_rules)
+                        {
+                            let mut state = state;
+                            if restrict {
+                                // The undefined step stands for some instances of this state:
+                                // the leaf stands for the candidate's own.
+                                restrict_to_candidate(&mut state.pattern, &applied.before, &built);
+                            }
+                            commit_proposed_effects(&mut state, &applied);
+                            return Err(self.cut_point_leaf(state, rule, applied, observation));
+                        }
+                        let terminal_rule =
+                            selected_stop_rule(&applied, &self.options.terminal_rules);
+                        let next = commit_applied(state, applied, observation);
+                        if let Some(rule) = terminal_rule {
+                            return Err(
+                                next.leaf(HaltReason::TerminalRule { rule }, &self.observation_log)
+                            );
+                        }
+                        Ok(vec![next])
+                    }
+                    (0, true) => {
+                        let remainder = remainder.take().expect("one remainder remains");
+                        Ok(vec![commit_remainder(
+                            state,
+                            remainder,
+                            remainder_observation_head,
+                        )])
+                    }
+                    _ => {
+                        // The reported candidates are not committed: each carries the events it
+                        // would add to the parent's branch.
+                        let branches = branches
+                            .into_iter()
+                            .map(|(mut applied, observation, _)| {
+                                applied.observations = self
+                                    .observation_log
+                                    .events_since(observation, state.observation);
+                                applied
+                            })
+                            .collect();
+                        if let Some(candidate) = &mut remainder {
+                            candidate.observations = self
+                                .observation_log
+                                .events_since(remainder_observation_head, state.observation);
+                        }
+                        // The branch leaf stands for the instances the step does not leave
+                        // undefined.
+                        let mut original = original;
+                        for conditions in reported {
+                            original
+                                .constraints
+                                .push(Predicate::Not(Arc::new(conjunction(conditions))));
+                        }
+                        Err(state.leaf_with_pattern(
+                            original,
+                            HaltReason::Branch {
+                                branches,
+                                remainder,
+                            },
+                            &self.observation_log,
+                        ))
+                    }
+                }
             }
-            _ => Ok(self.successors(state, defined, remainder, offset)),
         }
     }
 
@@ -3911,6 +3954,35 @@ impl UndefinedPart {
             rule: Some(rule),
             diagnostics,
             remainder_simplifications,
+        }
+    }
+}
+
+/// The candidates a step is left with once each is known defined or undefined
+/// ([`Execution::conclude_step`]).
+enum Survivors {
+    /// Exploring all paths: normalized within the step, each successor taking that
+    /// normalization.
+    Normalized(Vec<AppliedRule>),
+    /// Stopping at branches: each simplified for the branch leaf, on its own observation head,
+    /// with its successor as the step built it; and the remainder's observation head.
+    Simplified(
+        Vec<(AppliedRule, ObservationHead, Pattern)>,
+        ObservationHead,
+    ),
+}
+
+impl Survivors {
+    /// The defined candidates' successors as the step built them.
+    fn built(&self) -> Vec<Pattern> {
+        match self {
+            Survivors::Normalized(defined) => defined
+                .iter()
+                .map(|applied| applied.pattern.clone())
+                .collect(),
+            Survivors::Simplified(branches, _) => {
+                branches.iter().map(|(_, _, built)| built.clone()).collect()
+            }
         }
     }
 }

@@ -1350,28 +1350,36 @@ mod matrix {
     enum Stops {
         Plain,
         StopAtBranch,
-        /// The program's rule `<p><letter>` is a cut point.
-        CutPoint(char),
-        /// The program's rule `<p><letter>` is a terminal rule.
-        Terminal(char),
+        /// The program's rule `<p><letter>` is a cut point; stopping at branches or not.
+        CutPoint(char, bool),
+        /// The program's rule `<p><letter>` is a terminal rule; stopping at branches or not.
+        Terminal(char, bool),
     }
 
-    /// The stop options of the route matrix: the stop rules on the `\bottom` rule `<p>a`.
-    const STOPS: [Stops; 4] = [
-        Stops::Plain,
-        Stops::StopAtBranch,
-        Stops::CutPoint('a'),
-        Stops::Terminal('a'),
-    ];
+    impl Stops {
+        /// The rule a stop rule names, if any.
+        fn rule(self) -> Option<char> {
+            match self {
+                Stops::CutPoint(letter, _) | Stops::Terminal(letter, _) => Some(letter),
+                Stops::Plain | Stops::StopAtBranch => None,
+            }
+        }
+    }
 
-    /// The stop options of the empty-state matrix: the stop rules on each rule.
-    const EMPTY_STOPS: [Stops; 6] = [
+    /// The stop options of the matrices: a cut point or a terminal rule on each of the
+    /// program's rules (the `\bottom` rule `<p>a`, and `<p>b`: the defined sibling, the
+    /// lower-priority rule or the second `\bottom` rule), with and without stopping at branches.
+    const STOPS: [Stops; 10] = [
         Stops::Plain,
         Stops::StopAtBranch,
-        Stops::CutPoint('a'),
-        Stops::CutPoint('b'),
-        Stops::Terminal('a'),
-        Stops::Terminal('b'),
+        Stops::CutPoint('a', false),
+        Stops::CutPoint('a', true),
+        Stops::CutPoint('b', false),
+        Stops::CutPoint('b', true),
+        Stops::Terminal('a', false),
+        Stops::Terminal('a', true),
+        Stops::Terminal('b', false),
+        Stops::Terminal('b', true),
     ];
 
     /// Which configuration a leaf is.
@@ -1396,7 +1404,16 @@ mod matrix {
     /// candidate applies and every candidate that applies is undefined. Under strategy all the
     /// two-`\bottom` shape's leaf names the first candidate; under strategy any it may name
     /// either (`<p>?`), the one the sequential step kept.
-    fn expected(program: &str, shape: Shape, strategy: ExecutionStrategy) -> Vec<Row> {
+    ///
+    /// A cut-point or terminal rule on the covering rule `<p>b` stops the run at the step's one
+    /// successor: before it (`cut-point`, the pre-step configuration) or after it (`terminal`).
+    /// A stop rule on a `\bottom` rule or on a blocked lower-priority rule selects no successor.
+    fn expected(
+        program: &str,
+        shape: Shape,
+        strategy: ExecutionStrategy,
+        stops: Stops,
+    ) -> Vec<Row> {
         let trivial = |rule: &str| {
             (
                 "trivial".to_owned(),
@@ -1406,7 +1423,11 @@ mod matrix {
             )
         };
         match (shape, strategy) {
-            (Shape::Covering, _) => vec![("stuck".to_owned(), 1, State::Done, None)],
+            (Shape::Covering, _) => match stops {
+                Stops::CutPoint('b', _) => vec![("cut-point".to_owned(), 0, State::Pre, None)],
+                Stops::Terminal('b', _) => vec![("terminal".to_owned(), 1, State::Done, None)],
+                _ => vec![("stuck".to_owned(), 1, State::Done, None)],
+            },
             (Shape::Lower | Shape::Alone, _) => vec![trivial("a")],
             (Shape::Two, ExecutionStrategy::All) => vec![trivial("a")],
             (Shape::Two, _) => vec![trivial("?")],
@@ -1464,8 +1485,14 @@ mod matrix {
         match stops {
             Stops::Plain => {}
             Stops::StopAtBranch => request.stop_at_branch = true,
-            Stops::CutPoint(letter) => request.cut_point_rules = vec![rule(letter)],
-            Stops::Terminal(letter) => request.terminal_rules = vec![rule(letter)],
+            Stops::CutPoint(letter, stop) => {
+                request.cut_point_rules = vec![rule(letter)];
+                request.stop_at_branch = stop;
+            }
+            Stops::Terminal(letter, stop) => {
+                request.terminal_rules = vec![rule(letter)];
+                request.stop_at_branch = stop;
+            }
         }
         let result = backend.execute(request).unwrap();
         result
@@ -1521,11 +1548,17 @@ mod matrix {
         match stops {
             Stops::Plain => {}
             Stops::StopAtBranch => options.branch_mode = ExecutionBranchMode::StopAtBranch,
-            Stops::CutPoint(letter) => {
+            Stops::CutPoint(letter, stop) => {
                 options.cut_point_rules.insert(rule(letter));
+                if stop {
+                    options.branch_mode = ExecutionBranchMode::StopAtBranch;
+                }
             }
-            Stops::Terminal(letter) => {
+            Stops::Terminal(letter, stop) => {
                 options.terminal_rules.insert(rule(letter));
+                if stop {
+                    options.branch_mode = ExecutionBranchMode::StopAtBranch;
+                }
             }
         }
         let result = execute_with_io_state(
@@ -1551,9 +1584,9 @@ mod matrix {
                     HaltReason::Stuck => ("stuck".to_owned(), None),
                     HaltReason::Trivial { label, .. } => ("trivial".to_owned(), label.clone()),
                     HaltReason::Vacuous { label, .. } => ("vacuous".to_owned(), label.clone()),
-                    HaltReason::CutPointRule { .. } => ("cut-point-rule".to_owned(), None),
-                    HaltReason::TerminalRule { .. } => ("terminal-rule".to_owned(), None),
-                    HaltReason::Branch { .. } => ("branching".to_owned(), None),
+                    HaltReason::CutPointRule { .. } => ("cut-point".to_owned(), None),
+                    HaltReason::TerminalRule { .. } => ("terminal".to_owned(), None),
+                    HaltReason::Branch { .. } => ("branch".to_owned(), None),
                     other => (format!("{other:?}"), None),
                 };
                 (reason, leaf.depth, state, label)
@@ -1585,12 +1618,15 @@ mod matrix {
         let mut rows = 0;
         for (program, route, shape) in programs() {
             for strategy in [ExecutionStrategy::Any, ExecutionStrategy::All] {
-                let expected = expected(&program, shape, strategy);
                 for modality in [
                     ResultModalityOutput::PathSet,
                     ResultModalityOutput::StateSet,
                 ] {
                     for stops in STOPS {
+                        if stops.rule() == Some('b') && shape == Shape::Alone {
+                            continue;
+                        }
+                        let expected = expected(&program, shape, strategy, stops);
                         let mut both = Vec::new();
                         for console in [false, true] {
                             rows += 1;
@@ -1609,7 +1645,24 @@ mod matrix {
                             }
                             both.push(found);
                         }
-                        if matches!(strategy, ExecutionStrategy::All) && both[0] != both[1] {
+                        // With and without the console the results agree; where R leaves the
+                        // named rule open (`<p>?`), on all but the rule.
+                        let open = expected
+                            .iter()
+                            .any(|row| row.3.as_deref().is_some_and(|label| label.ends_with('?')));
+                        let strip = |rows: &Vec<Row>| {
+                            rows.iter()
+                                .map(|row| {
+                                    (
+                                        row.0.clone(),
+                                        row.1,
+                                        row.2.clone(),
+                                        (!open).then(|| row.3.clone()),
+                                    )
+                                })
+                                .collect::<Vec<_>>()
+                        };
+                        if strip(&both[0]) != strip(&both[1]) {
                             wrong.push(format!(
                                 "{program} ({}, {shape:?}) {strategy:?} {modality:?} {stops:?}: io off {:?} and on {:?} differ",
                                 route.name, both[0], both[1]
@@ -1619,7 +1672,8 @@ mod matrix {
                 }
             }
         }
-        assert_eq!(rows, 7 * 4 * 2 * 2 * 4 * 2);
+        // The alone shape has no rule `<p>b` to stop at.
+        assert_eq!(rows, (7 * 4 * 10 - 7 * 4) * 2 * 2 * 2);
         assert!(
             wrong.is_empty(),
             "{} wrong of {rows} rows:\n{}",
@@ -1645,7 +1699,10 @@ mod matrix {
                     ResultModalityOutput::PathSet,
                     ResultModalityOutput::StateSet,
                 ] {
-                    for stops in EMPTY_STOPS {
+                    for stops in STOPS {
+                        if stops.rule() == Some('b') && shape == Shape::Alone {
+                            continue;
+                        }
                         for console in [false, true] {
                             rows += 1;
                             let found = if console {
@@ -1665,7 +1722,7 @@ mod matrix {
                 }
             }
         }
-        assert_eq!(rows, 7 * 4 * 2 * 2 * 6 * 2);
+        assert_eq!(rows, (7 * 4 * 10 - 7 * 4) * 2 * 2 * 2);
         assert!(
             wrong.is_empty(),
             "{} wrong of {rows} rows:\n{}",
@@ -1678,7 +1735,10 @@ mod matrix {
     /// successor `\bottom` beside a sibling that covers only some instances, a constrained
     /// `\bottom` rule above a lower-priority rule, definedness only a solver decides, nested
     /// `total` calls, a `\bottom` in another cell, and the shapes the step itself decides (a rule
-    /// `ensures` refuted by the path condition, an infeasible `requires`).
+    /// `ensures` refuted by the path condition, an infeasible `requires`); a stop rule on the
+    /// defined sibling of a constrained `\bottom` rule, of the same priority (`qc`) or a lower one
+    /// (`pl`); and a branch beside an undefined step (`br`), whose `Branch` leaf, stopping at
+    /// branches, stands for the instances the step does not leave undefined.
     const SHAPES_SOURCE: &str = r#"
 module P
   imports INT
@@ -1686,6 +1746,7 @@ module P
   syntax Pgm ::= "done" | "done2" | val(Int) | w(Int)
                | es(Int) | esb(Int) | ep(Int) | rq(Int) | rp(Int)
                | pc(Int) | pd(Int) | pl(Int) | nf(Int) | oc(Int) | ud(Int) | eb(Int) | ec(Int)
+               | qc(Int) | br(Int)
   syntax Int ::= tb(Int) [function, total]
                | f1(Int) [function, total]
                | f2(Int) [function, total]
@@ -1717,6 +1778,11 @@ module P
   rule [udb]: ud(X) => done requires X >Int 5
   rule [eba]: eb(X) => val(tb(X))
   rule [eca]: ec(X) => done2 ensures X >Int 0
+  rule [qca]: qc(X) => val(tb(0)) requires X >Int 0
+  rule [qcb]: qc(X) => done requires X <=Int 0
+  rule [bra]: br(X) => val(tb(0)) requires X >Int 3
+  rule [brb]: br(X) => done requires X <=Int 0
+  rule [brc]: br(X) => done2 requires X >Int 0 andBool X <=Int 5
 endmodule
 "#;
 
@@ -1755,6 +1821,28 @@ endmodule
             );
         }
         (artifacts.definition_kore, start)
+    }
+
+    /// Stopping plainly, at branches, and at a cut point or terminal rule on the rule `<p>b`
+    /// with and without stopping at branches.
+    fn sibling_stops() -> Vec<Stops> {
+        vec![
+            Stops::Plain,
+            Stops::StopAtBranch,
+            Stops::CutPoint('b', false),
+            Stops::CutPoint('b', true),
+            Stops::Terminal('b', false),
+            Stops::Terminal('b', true),
+        ]
+    }
+
+    /// The leaf of an instance whose one successor is `done` by the rule `<p>b`, under `stops`.
+    fn stopped_or_done(stops: Stops) -> (&'static str, u64, &'static str, Option<&'static str>) {
+        match stops {
+            Stops::CutPoint(..) => ("cut-point", 0, "pre", None),
+            Stops::Terminal(..) => ("terminal", 1, "done", None),
+            _ => ("stuck", 1, "done", None),
+        }
     }
 
     const GT: &str = "Lbl'Unds-GT-'Int'Unds'";
@@ -1819,22 +1907,38 @@ endmodule
                 "pl(777)",
                 vec![],
                 vec![-1, 0, 1, 5],
-                vec![
-                    Stops::Plain,
-                    Stops::StopAtBranch,
-                    Stops::CutPoint('b'),
-                    Stops::Terminal('b'),
-                ],
+                sibling_stops(),
                 |v, stops| {
                     if v.unwrap() > 0 {
                         ("trivial", 0, "pre", Some("P.pla"))
                     } else {
-                        match stops {
-                            Stops::CutPoint(_) => ("cut-point", 0, "pre", None),
-                            Stops::Terminal(_) => ("terminal", 1, "done", None),
-                            _ => ("stuck", 1, "done", None),
-                        }
+                        stopped_or_done(stops)
                     }
+                },
+            ),
+            (
+                "qc(777)",
+                vec![],
+                vec![-1, 0, 1, 5],
+                sibling_stops(),
+                |v, stops| {
+                    if v.unwrap() > 0 {
+                        ("trivial", 0, "pre", Some("P.qca"))
+                    } else {
+                        stopped_or_done(stops)
+                    }
+                },
+            ),
+            (
+                "br(777)",
+                vec![],
+                vec![-1, 0, 2, 4, 5, 6, 10],
+                vec![Stops::Plain, Stops::StopAtBranch],
+                |v, stops| match (v.unwrap(), stops) {
+                    (v, _) if v > 5 => ("trivial", 0, "pre", Some("P.bra")),
+                    (_, Stops::StopAtBranch) => ("branch", 0, "pre", None),
+                    (v, _) if v <= 0 => ("stuck", 1, "done", None),
+                    _ => ("stuck", 1, "done2", None),
                 },
             ),
             (
@@ -1945,12 +2049,12 @@ endmodule
                         match stops {
                             Stops::Plain => {}
                             Stops::StopAtBranch => request.stop_at_branch = true,
-                            Stops::CutPoint(letter) => {
-                                request.stop_at_branch = true;
+                            Stops::CutPoint(letter, stop) => {
+                                request.stop_at_branch = stop;
                                 request.cut_point_rules = vec![rule(letter)];
                             }
-                            Stops::Terminal(letter) => {
-                                request.stop_at_branch = true;
+                            Stops::Terminal(letter, stop) => {
+                                request.stop_at_branch = stop;
                                 request.terminal_rules = vec![rule(letter)];
                             }
                         }
