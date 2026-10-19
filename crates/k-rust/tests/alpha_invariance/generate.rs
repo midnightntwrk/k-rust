@@ -502,11 +502,13 @@ fn existential_orders() -> Vec<Case> {
 /// The pattern of a match `P :=K T` (and `P :/=K T`) binds its variables in itself only, so a
 /// pattern variable spelled like a variable of the rule is a variable of its own, with its own
 /// sort. Written as source text beside the base with the pattern variable renamed to the rule's
-/// `X` (`text-shadow-match`), annotated at another sort or left to sort inference.
+/// `X` (`text-shadow-match`), annotated at another sort or left to sort inference. The pattern's
+/// `Q` is a local function's parameter named nowhere else, so the parse stage compares with the
+/// base's parse with every `Q` renamed (`twin_variable`).
 fn match_patterns() -> Vec<Case> {
     let mut cases = Vec::new();
     for (operator, program_result) in [(":=K", "match"), (":/=K", "mismatch")] {
-        for (form, apart, shadow) in [("annotated", "B:Bool", "X:Bool"), ("inferred", "B", "X")] {
+        for (form, apart, shadow) in [("annotated", "Q:Bool", "X:Bool"), ("inferred", "Q", "X")] {
             cases.push(
                 case(
                     format!("match/{program_result}-{form}"),
@@ -516,10 +518,11 @@ fn match_patterns() -> Vec<Case> {
                     ),
                     &["go(3)"],
                 )
-                .twin(
+                .twin_variable(
                     "text-shadow-match",
-                    &format!("{apart} {operator}"),
-                    &format!("{shadow} {operator}"),
+                    &format!(" {apart} {operator}"),
+                    &format!(" {shadow} {operator}"),
+                    ("Q", "X"),
                 ),
             );
         }
