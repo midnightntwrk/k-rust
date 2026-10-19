@@ -11,13 +11,14 @@
 //!   `#Exists _:Bool . ...`, is lost as well), the competitors of the `owise` cross product,
 //!   claims, and the search route (`search-anon-*`, and `search-macro-anon`, where the macro's
 //!   binder captures the use site's `_`).
-//! - `BIND/A4` (FU-33/D2): existential lifting reads the `?` variables of the right side and the
-//!   `ensures` through their binders, so a `?` variable that only a binder of the right side or
-//!   the `ensures` binds is lifted to an outer binder that binds nothing, and the kompile
-//!   invariant K3, checked where the emitter builds that binder, panics. Where the base has such
-//!   a binder (an anonymous `?_` or a named `?` binder; rules and claims) the base itself fails;
-//!   where only a variant has one (a `?` binder renamed apart from a free right-side `?Y`) the
-//!   variant panics.
+//! - `BIND/A4` (FU-33/D2) has landed and holds no entry of its own: existential lifting
+//!   quantifies the `?` variables free in the right side or the `ensures`, so a `?` variable that
+//!   only a binder there binds is not lifted again (named `?` binders, and a `?` binder renamed
+//!   apart from a free right-side `?Y`).
+//! - `BIND/A3` and `BIND/A4` together: an anonymous `?_` binder in the `ensures` (rules and
+//!   claims). Lifting quantifies the body's `?_` occurrence, which is free in the term, but the
+//!   converter's anonymous arm (A3) also binds it inside the `ensures`, so the lifted binder binds
+//!   nothing in the KORE and K3, checked where the emitter builds it, panics at the base.
 //! - `BIND/A5` (FU-34/D3, FU-39) has landed and holds no entry of its own: the definition check
 //!   binds a binder's variable in the binder's body only, so a right-side variable spelled like an
 //!   `ensures` binder is unbound, and the parser's sort inference gives each binder's variable its
@@ -36,11 +37,11 @@
 //!   variable-naming attribute mentions (`concrete(Z)` beside `#Exists Z . P`) is renamed apart
 //!   from it: an attribute lies outside every quantifier's scope, so it names a free variable of
 //!   the rule or none, and such a rule is refused whatever its binder is called (`attribute/*`).
-//!   Renaming apart also showed two defects the old spelling merges hid, now listed under their
-//!   tickets: a `?` binder in the `ensures` beside a free right-side `?Y` is lifted to a vacuous
-//!   outer binder at the base (`existential/*-q-shadow`, A4), and a macro binder minted at a use
-//!   site, or a competitor's anonymous binder in a rule that no longer fails to compile, binds the
-//!   use site's anonymous variables (`macro/*-anon-*`, `owise/anon-*-Y-*`, A3).
+//!   Renaming apart also showed two defects the old spelling merges hid: a `?` binder in the
+//!   `ensures` beside a free right-side `?Y` was lifted to a vacuous outer binder
+//!   (`existential/*-q-shadow`, fixed by A4), and a macro binder minted at a use site, or a
+//!   competitor's anonymous binder in a rule that no longer fails to compile, binds the use
+//!   site's anonymous variables (`macro/*-anon-*`, `owise/anon-*-Y-*`, listed under A3).
 //! - FU-53, an out-of-scope class and no BIND ticket: a rule `UNIQUE_ID` digests the names a
 //!   variable-naming attribute lists (`concrete(X)`, `symbolic(X)`: the prelude, `concrete-rw2`)
 //!   and the labels of the functions a `#fun` or `#let` lowers to, which carry a variable's
@@ -124,6 +125,7 @@ pub struct Expected {
 
 /// The ticket sets of the entries, by name.
 pub const A3: &[&str] = &["BIND/A3"];
+pub const A3_A4: &[&str] = &["BIND/A3", "BIND/A4"];
 pub const A4: &[&str] = &["BIND/A4"];
 pub const A5: &[&str] = &["BIND/A5"];
 pub const A5_A6: &[&str] = &["BIND/A5", "BIND/A6"];
@@ -134,6 +136,7 @@ pub const FU53: &[&str] = &["FU-53"];
 /// Every ticket set an entry may name, with the name of its constant.
 pub const TICKET_SETS: &[(&str, &[&str])] = &[
     ("A3", A3),
+    ("A3_A4", A3_A4),
     ("A4", A4),
     ("A5", A5),
     ("A5_A6", A5_A6),
@@ -286,17 +289,11 @@ pub const EXPECTED: &[Expected] = &[
     expected("search/patterns", "search-macro-anon/anon-named", A3, Kind::Kore, "pattern: base «Var'Unds'B1:SortInt{}, \\forall{SortBool{}}(Var'Unds'B2:SortInt{}» variant «Var'Unds'B1:SortInt{}, \\equals{SortBool{}, SortBool{}}(Lbl'UndsE»"),
     expected("search/shapes", "anon-E-anon-binder/anon-named", A3, Kind::Kore, "pattern: base «Bool{}}(Var'Unds'B1:SortInt{}, \\equals{SortInt{}, SortBool{}}(Va» variant «Bool{}}(Var'Unds'B1:SortK{}, \\equals{SortInt{}, SortBool{}}(VarF»"),
     expected("search/shapes", "anon-F-anon-binder/anon-named", A3, Kind::Kore, "pattern: base «Bool{}}(Var'Unds'B1:SortInt{}, Lbl'UndsEqlsSlshEqls'Int'Unds'{}(» variant «Bool{}}(Var'Unds'B1:SortK{}, Lbl'UndsEqlsSlshEqls'Int'Unds'{}(Va»"),
-    // A4 (10)
-    expected("anon/E-anon-binder-ensures", "*", A4, Kind::BasePanic, "the base panics: kompile invariant K3 (generated binder) violated: \\exists binds the compiler-generated variable Var'QuesUnds'Gen1:SortInt{}, which does not occur free in its bo"),
-    expected("anon/E-named-binder-ensures", "*", A4, Kind::BasePanic, "the base panics: kompile invariant K3 (generated binder) violated: \\exists binds the compiler-generated variable Var'Ques'B:SortInt{}, which does not occur free in its body gene"),
-    expected("claim-d2-ensures-exists-anonymous", "*", A4, Kind::BasePanic, "the base panics: kompile invariant K3 (generated binder) violated: \\exists binds the compiler-generated variable Var'QuesUnds'Gen1:SortInt{}, which does not occur free in its bo"),
-    expected("claim/E-anon-binder-ensures", "*", A4, Kind::BasePanic, "the base panics: kompile invariant K3 (generated binder) violated: \\exists binds the compiler-generated variable Var'QuesUnds'Gen1:SortInt{}, which does not occur free in its bo"),
-    expected("d2-ensures-exists-anonymous", "*", A4, Kind::BasePanic, "the base panics: kompile invariant K3 (generated binder) violated: \\exists binds the compiler-generated variable Var'QuesUnds'Gen1:SortInt{}, which does not occur free in its bo"),
-    expected("ensures-exists-existential-beside-existential", "*", A4, Kind::BasePanic, "the base panics: kompile invariant K3 (generated binder) violated: \\exists binds the compiler-generated variable Var'Ques'Z:SortInt{}, which does not occur free in its body gene"),
-    expected("existential/E-q-apart", "*", A4, Kind::BasePanic, "the base panics: kompile invariant K3 (generated binder) violated: \\exists binds the compiler-generated variable Var'Ques'Z:SortInt{}, which does not occur free in its body gene"),
-    expected("existential/E-q-shadow", "*", A4, Kind::BasePanic, "the base panics: kompile invariant K3 (generated binder) violated: \\exists binds the compiler-generated variable Var'Ques'Y0:SortInt{}, which does not occur free in its body gen"),
-    expected("existential/F-q-apart", "*", A4, Kind::BasePanic, "the base panics: kompile invariant K3 (generated binder) violated: \\exists binds the compiler-generated variable Var'Ques'Z:SortInt{}, which does not occur free in its body gene"),
-    expected("existential/F-q-shadow", "*", A4, Kind::BasePanic, "the base panics: kompile invariant K3 (generated binder) violated: \\exists binds the compiler-generated variable Var'Ques'Y0:SortInt{}, which does not occur free in its body gen"),
+    // A3_A4 (4)
+    expected("anon/E-anon-binder-ensures", "*", A3_A4, Kind::BasePanic, "the base panics: kompile invariant K3 (generated binder) violated: \\exists binds the compiler-generated variable Var'QuesUnds'Gen1:SortInt{}, which does not occur free in its bo"),
+    expected("claim-d2-ensures-exists-anonymous", "*", A3_A4, Kind::BasePanic, "the base panics: kompile invariant K3 (generated binder) violated: \\exists binds the compiler-generated variable Var'QuesUnds'Gen1:SortInt{}, which does not occur free in its bo"),
+    expected("claim/E-anon-binder-ensures", "*", A3_A4, Kind::BasePanic, "the base panics: kompile invariant K3 (generated binder) violated: \\exists binds the compiler-generated variable Var'QuesUnds'Gen1:SortInt{}, which does not occur free in its bo"),
+    expected("d2-ensures-exists-anonymous", "*", A3_A4, Kind::BasePanic, "the base panics: kompile invariant K3 (generated binder) violated: \\exists binds the compiler-generated variable Var'QuesUnds'Gen1:SortInt{}, which does not occur free in its bo"),
     // FU53 (43)
     expected("compile/concrete-rw2", "fresh", FU53, Kind::Id, "CONCRETE-RW2.test.k:4:3: UNIQUE_ID not alpha-invariant; CONCRETE-RW2.test.k:5:3: UNIQUE_ID not alpha-invariant; CONCRETE-RW2.test.k:7:3: UNIQUE_ID not alpha-invariant"),
     expected("compile/concrete-rw2", "k-index", FU53, Kind::Id, "CONCRETE-RW2.test.k:4:3: UNIQUE_ID not alpha-invariant; CONCRETE-RW2.test.k:5:3: UNIQUE_ID not alpha-invariant; CONCRETE-RW2.test.k:7:3: UNIQUE_ID not alpha-invariant"),

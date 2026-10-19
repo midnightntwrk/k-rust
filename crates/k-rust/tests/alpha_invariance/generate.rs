@@ -21,7 +21,9 @@
 //!   (`wrap(HERE, V)` with `V` spelled `S`, `K0` or `A`), with no cell or inside the main cell,
 //!   so the freezer's argument order meets every renaming;
 //! - the connective around the binder: none, `#Not`, `#Or`;
-//! - the sigil of the bound variable: none, or `?` beside a free right-side `?` variable;
+//! - the sigil of the bound variable: none, or `?` beside a free right-side `?` variable, in the
+//!   right side, the `ensures` or a claim's `ensures`, nested and spelled alike or apart, with no
+//!   free `?` variable, and in a function, an `anywhere` or a macro rule (`existential`);
 //! - the route: the parsed definition renamed and relinked (every strategy), source text written
 //!   beside the base with a binder annotated or left to the parser's sort inference (`source`),
 //!   or a search pattern compiled against the definition, written beside the base or renamed by
@@ -794,24 +796,130 @@ fn macro_attributes() -> Vec<Case> {
     cases
 }
 
-/// A named binder in the `ensures` beside the right side's free `?Y`: a `?` binder named apart
-/// (`?Z`), a binder without a sigil (`Z`), or a `?` binder named `?Y`, which shadows it.
+/// `?` binders, which bind their variable in their body only, so existential lifting quantifies
+/// only the `?` variables free in the right side and the `ensures`:
+/// - beside the right side's free `?Y`, a binder named apart (`?Z`), without a sigil (`Z`), or
+///   named `?Y`, which shadows it, in the `ensures` (`ensures`), in the right side (`rhs`), or in
+///   a claim's `ensures` (`claim`);
+/// - two nested `?` binders (`nested`): named apart (`distinct`), spelled alike (`same`), or the
+///   inner one named `?Y` beside the free `?Y` (`shadow`);
+/// - a `?` binder with no free `?` variable in the sentence: in the right side (`rhs-only`), in
+///   the `ensures` beside a `?Z` free in the `ensures` only (`ensures-free`), and in a function, an
+///   `anywhere` or a macro rule, alone (`one`) or nested inside a binder spelled alike (`same`).
 fn existential_binders() -> Vec<Case> {
     let mut cases = Vec::new();
+    let body = |kind: Quantifier, binder: &str| match kind {
+        Quantifier::Exists => format!("{{?Y #Equals {binder} +Int X}}"),
+        Quantifier::Forall => format!("{{?Y +Int {binder} #Equals {binder} +Int X}}"),
+    };
     for kind in KINDS {
         for (form, binder) in [("q-apart", "?Z"), ("plain-apart", "Z"), ("q-shadow", "?Y")] {
-            let ensures = match kind {
-                Quantifier::Exists => {
-                    format!("#Exists {binder}:Int . {{?Y #Equals {binder} +Int X}}")
-                }
-                Quantifier::Forall => {
-                    format!("#Forall {binder}:Int . {{?Y +Int {binder} #Equals {binder} +Int X}}")
-                }
-            };
+            let formula = format!("{} {binder}:Int . {}", kind.text(), body(kind, binder));
             cases.push(case(
                 format!("existential/{}-{form}", kind.tag()),
                 "G",
-                &format!("  rule [p]: <k> go(X) => done(?Y) ... </k> ensures {ensures}\n"),
+                &format!("  rule [p]: <k> go(X) => done(?Y) ... </k> ensures {formula}\n"),
+                &["go(3)"],
+            ));
+            cases.push(case(
+                format!("existential/{}-{form}-rhs", kind.tag()),
+                "G",
+                &format!(
+                    "  rule [p]: <k> go(X) => done(?Y) #And ({formula}) ... </k> ensures {{?Y #Equals X +Int 1}}\n"
+                ),
+                &["go(3)"],
+            ));
+            cases.push(
+                case(
+                    format!("existential/{}-{form}-claim", kind.tag()),
+                    "G",
+                    &format!(
+                        "  rule <k> go(X) => done(X) ... </k>\n  claim <k> go(X) => done(?Y) ... </k> ensures {formula}\n"
+                    ),
+                    &[],
+                )
+                .for_proving(),
+            );
+        }
+    }
+    for (outer, inner) in [
+        (Quantifier::Exists, Quantifier::Forall),
+        (Quantifier::Exists, Quantifier::Exists),
+        (Quantifier::Forall, Quantifier::Exists),
+    ] {
+        let (q1, q2) = (outer.text(), inner.text());
+        for (names, formula) in [
+            (
+                "distinct",
+                format!("{q1} ?A:Int . ({q2} ?B:Int . {{?A +Int ?B #Equals ?B +Int ?Y}})"),
+            ),
+            (
+                "same",
+                format!("{q1} ?A:Int . ({{?A #Equals X}} #And ({q2} ?A:Int . {{?A #Equals ?Y}}))"),
+            ),
+            (
+                "shadow",
+                format!("{q1} ?A:Int . ({q2} ?Y:Int . {{?A +Int ?Y #Equals ?Y +Int X}})"),
+            ),
+        ] {
+            cases.push(case(
+                format!("existential/{}{}-nested-{names}", outer.tag(), inner.tag()),
+                "G",
+                &format!(
+                    "  rule [p]: <k> go(X) => done(?Y) ... </k> ensures ({formula}) #And {{?Y #Equals X +Int 1}}\n"
+                ),
+                &["go(2)"],
+            ));
+        }
+    }
+    for kind in KINDS {
+        let q = kind.text();
+        let tag = kind.tag();
+        cases.push(case(
+            format!("existential/{tag}-rhs-only"),
+            "G",
+            &format!(
+                "  syntax KItem ::= wrap(Bool)\n  rule [p]: <k> go(X) => wrap({q} ?B:Int . {{?B #Equals X}}) ... </k>\n"
+            ),
+            &["go(3)"],
+        ));
+        cases.push(case(
+            format!("existential/{tag}-ensures-free"),
+            "G",
+            &format!(
+                "  rule [p]: <k> go(X) => done(X) ... </k> ensures {{?Z #Equals X}} #And ({q} ?W:Int . {{?W #Equals ?Z}})\n"
+            ),
+            &["go(3)"],
+        ));
+        // The binder over `?B` whose body equates it with the rule's variable `v`.
+        let one = |v: &str| format!("{q} ?B:Int . {{?B #Equals {v}}}");
+        let same = |v: &str| format!("{q} ?B:Int . ({{?B #Equals {v}}} #And ({}))", one(v));
+        // Each shape over the rule's variable `X` and over the macro's parameter `N`.
+        for (shape, rule, parameter) in
+            [("one", one("X"), one("N")), ("same", same("X"), same("N"))]
+        {
+            cases.push(case(
+                format!("existential/function-{tag}-{shape}"),
+                "G",
+                &format!(
+                    "  syntax Int ::= f(Int) [function]\n  rule f(X) => X +Int 1 ensures {rule}\n  rule [p]: <k> go(X) => done(f(X)) ... </k>\n"
+                ),
+                &["go(2)", "go(0)"],
+            ));
+            cases.push(case(
+                format!("existential/anywhere-{tag}-{shape}"),
+                "G",
+                &format!(
+                    "  syntax Foo ::= g(Int) | q(Int)\n  syntax KItem ::= box(Foo)\n  rule g(X) => q(X) ensures {rule} [anywhere]\n  rule [p]: <k> go(X) => box(g(X)) ... </k>\n"
+                ),
+                &["go(3)"],
+            ));
+            cases.push(case(
+                format!("existential/macro-{tag}-{shape}"),
+                "G",
+                &format!(
+                    "  syntax Bool ::= m(Int) [macro]\n  rule m(N) => {parameter}\n  rule [p]: <k> go(X) => done(X) ... </k> requires m(X)\n"
+                ),
                 &["go(3)"],
             ));
         }

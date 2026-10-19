@@ -37,7 +37,9 @@ pub fn probes() -> Vec<Case> {
             ),
             &["go(1)", "go(101)"],
         ),
-        // D2 (FU-33): existential lifting reads `?` variables through binders.
+        // D2 (FU-33): an anonymous `?_` binder in the `ensures`. A4 lifts only the `?` variables
+        // free in the right side and the `ensures`; the entry left is the converter's anonymous
+        // arm (A3), which also binds the body's `?_` there.
         probe(
             "d2-ensures-exists-anonymous",
             "D2",
@@ -167,15 +169,91 @@ pub fn probes() -> Vec<Case> {
     cases
 }
 
-/// The seeds of the BIND/A0 review and its claims, and of the BIND/A5, BIND/A6 and BIND/A7
-/// reviews, a test of their own so that it runs beside the probes.
+/// The seeds of the BIND/A0 review and its claims, and of the BIND/A4, BIND/A5, BIND/A6 and
+/// BIND/A7 reviews, a test of their own so that it runs beside the probes.
 pub fn seeds() -> Vec<Case> {
     let mut cases = review_seeds();
     cases.extend(claim_seeds());
     cases.extend(freezer_seeds());
     cases.extend(scoping_seeds());
     cases.extend(attribute_seeds());
+    cases.extend(existential_seeds());
     cases
+}
+
+/// The seeds of the BIND/A4 review (`code-reviews/BIND-A4.toml`): `?` binders, which bind their
+/// variable in their body only, in the `ensures` (nested, nested and spelled alike, a `#Forall`
+/// alone, beside a `?Z` free in the `ensures` only, under a semantic cast) and in the right side
+/// of a rewrite rule, in a claim's `ensures`, and in a function, an `anywhere` and a macro rule.
+fn existential_seeds() -> Vec<Case> {
+    let rewrite = |name: &str, module: &str, rule: &str| {
+        probe(name, module, &format!("{GO}{rule}"), &["go(2)"])
+    };
+    vec![
+        rewrite(
+            "existential-nested",
+            "NEST",
+            "  rule [p]: <k> go(X) => done(?Y) ... </k> ensures #Exists ?A:Int . #Forall ?B:Int . {?A +Int ?B #Equals ?B +Int ?Y} #And {?Y #Equals X +Int 1}\n",
+        ),
+        rewrite(
+            "existential-nested-same",
+            "NESTSH",
+            "  rule [p]: <k> go(X) => done(?Y) ... </k> ensures (#Exists ?A:Int . ({?A #Equals X} #And (#Exists ?A:Int . {?A #Equals ?Y}))) #And {?Y #Equals X +Int 1}\n",
+        ),
+        rewrite(
+            "existential-forall-alone",
+            "FORALL",
+            "  rule [p]: <k> go(X) => done(X) ... </k> ensures #Forall ?B:Int . {?B +Int 0 #Equals ?B}\n",
+        ),
+        rewrite(
+            "existential-ensures-free",
+            "ENSFREE",
+            "  rule [p]: <k> go(X) => done(X) ... </k> ensures {?Z #Equals X} #And (#Exists ?W:Int . {?W #Equals ?Z})\n",
+        ),
+        rewrite(
+            "existential-cast",
+            "CAST",
+            "  rule [p]: <k> go(X) => done(?Y) ... </k> ensures #Exists ?B:Int . {{?B}:>Int #Equals ?Y} #And {?Y #Equals X}\n",
+        ),
+        rewrite(
+            "existential-rhs-binder",
+            "RHSB",
+            "  syntax KItem ::= wrap(Bool)\n  rule [p]: <k> go(X) => wrap(#Exists ?B:Int . {?B #Equals X}) ... </k>\n",
+        ),
+        probe(
+            "existential-claim",
+            "CLM",
+            &format!(
+                "{GO}  rule <k> go(X) => done(X) ... </k>\n  claim <k> go(X) => done(?Y) ... </k> ensures #Exists ?B:Int . {{?Y #Equals ?B}} #And {{?Y #Equals X}}\n"
+            ),
+            &[],
+        )
+        .for_proving(),
+        probe(
+            "existential-function",
+            "FUN",
+            &format!(
+                "{GO}  syntax Int ::= f(Int) [function]\n  rule f(X) => X +Int 1 ensures #Exists ?B:Int . {{?B #Equals X}}\n  rule [p]: <k> go(X) => done(f(X)) ... </k>\n"
+            ),
+            &["go(2)", "go(0)"],
+        ),
+        probe(
+            "existential-anywhere",
+            "ANY",
+            &format!(
+                "{GO}  syntax Foo ::= g(Int) | h(Int)\n  syntax KItem ::= box(Foo)\n  rule g(X) => h(X) ensures #Exists ?B:Int . {{?B #Equals X}} [anywhere]\n  rule [p]: <k> go(X) => box(g(X)) ... </k>\n"
+            ),
+            &["go(3)"],
+        ),
+        probe(
+            "existential-macro",
+            "MAC",
+            &format!(
+                "{GO}  syntax Bool ::= m(Int) [macro]\n  rule m(N) => #Exists ?B:Int . {{?B #Equals N}}\n  rule [p]: <k> go(X) => done(X) ... </k> requires m(X)\n"
+            ),
+            &["go(3)"],
+        ),
+    ]
 }
 
 /// A variable token whose spellings hold U+E000: a definition may declare one, so a name the
