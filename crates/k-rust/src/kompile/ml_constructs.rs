@@ -677,12 +677,52 @@ const EFFECTFUL_HOOKS: [&str; 7] = [
 /// declined, while lowering one that does would perform its effect again, or not at all, so the
 /// set errs on the side of keeping a conjunction as written.
 pub(crate) fn effectful_labels(definition: &Definition) -> BTreeSet<String> {
-    let sentences = || {
-        definition
-            .modules
-            .iter()
-            .flat_map(|module| module.local_sentences.iter().map(|sentence| &**sentence))
-    };
+    effect_closure(
+        || {
+            definition
+                .modules
+                .iter()
+                .flat_map(|module| module.local_sentences.iter().map(|sentence| &**sentence))
+        },
+        |attributes| attributes.has(AttributeKey::Impure) || has_effectful_hook(attributes),
+    )
+}
+
+/// The labels among the productions and equations of `sentences` (every local sentence of a
+/// definition) whose application's value may depend on an effect, an over-approximation: the
+/// productions hooked to an effectful hook ([`EFFECTFUL_HOOK_NAMESPACE`], [`EFFECTFUL_HOOKS`])
+/// other than those declared `returnsUnit`, and every label with an equation that applies one of
+/// them, transitively, as for [`effectful_labels`]. Such a value depends on the state outside the
+/// term (the console, a file, the environment, a random source, the configuration) and on what
+/// the effect does to it. A `returnsUnit` production's value is `.K` by its declaration, whatever
+/// its effect does, and a production declared `impure` without such a hook is evaluated by its
+/// equations from its arguments, so neither makes a value depend on an effect by itself.
+pub(crate) fn value_effect_labels<'s, I>(sentences: impl Fn() -> I) -> BTreeSet<String>
+where
+    I: Iterator<Item = &'s Sentence>,
+{
+    effect_closure(sentences, |attributes| {
+        has_effectful_hook(attributes) && !attributes.has(AttributeKey::ReturnsUnit)
+    })
+}
+
+/// Whether a production with `attributes` is hooked to an effectful hook.
+fn has_effectful_hook(attributes: &crate::definition::Attributes) -> bool {
+    attributes.string(AttributeKey::Hook).is_some_and(|hook| {
+        hook.starts_with(EFFECTFUL_HOOK_NAMESPACE) || EFFECTFUL_HOOKS.contains(&hook)
+    })
+}
+
+/// The labels of the productions of `sentences` that `seed` selects by their attributes, and every
+/// label with an equation (a function's, a simplification, an anywhere rule or a macro-like rule,
+/// in any module) that applies one of them, transitively.
+fn effect_closure<'s, I>(
+    sentences: impl Fn() -> I,
+    seed: impl Fn(&crate::definition::Attributes) -> bool,
+) -> BTreeSet<String>
+where
+    I: Iterator<Item = &'s Sentence>,
+{
     let mut effectful = BTreeSet::new();
     let mut functions = BTreeSet::new();
     for sentence in sentences() {
@@ -704,12 +744,7 @@ pub(crate) fn effectful_labels(definition: &Definition) -> BTreeSet<String> {
         {
             functions.insert(label.name.clone());
         }
-        let hook = attributes.string(AttributeKey::Hook);
-        if attributes.has(AttributeKey::Impure)
-            || hook.is_some_and(|hook| {
-                hook.starts_with(EFFECTFUL_HOOK_NAMESPACE) || EFFECTFUL_HOOKS.contains(&hook)
-            })
-        {
+        if seed(attributes) {
             effectful.insert(label.name.clone());
         }
     }

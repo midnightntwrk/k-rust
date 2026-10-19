@@ -173,7 +173,7 @@ fn check_module_with_options_and_catalog(
         .chain(check_anonymous_variables(&sentences))
         .chain(check_rhs_variables(&sentences, options.clone()))
         .chain(if options.backend == StructuralCheckBackend::Rust {
-            ml_positions::check_ml_construct_positions(&sentences, production_catalog, None)
+            ml_positions::check_ml_construct_positions(&sentences, production_catalog, None, None)
         } else {
             Vec::new()
         })
@@ -209,7 +209,9 @@ fn check_module_with_options_and_catalog(
 /// are known, so an or-pattern an injection places below a symbol is judged too. For every
 /// target, a claim's right-side alias that `lower term conjunctions` does not lower is refused,
 /// its applications' effects judged by the productions and equations of `compiled`: no compiled
-/// form of the claim keeps the alias's pattern.
+/// form of the claim keeps the alias's pattern. For the Rust target, an application inside a
+/// predicate operand whose value may depend on an effect is refused, judged by the same
+/// productions and equations.
 pub(crate) fn check_ml_construct_positions_in_definition(
     definition: &ResolvedDefinition,
     compiled: &crate::definition::Definition,
@@ -220,6 +222,18 @@ pub(crate) fn check_ml_construct_positions_in_definition(
     let is_effectful = |label: &crate::kast::Label| {
         effectful
             .get_or_init(|| crate::kompile::ml_constructs::effectful_labels(compiled))
+            .contains(&label.name)
+    };
+    let value_effects = std::cell::OnceCell::new();
+    let affects_value = |label: &crate::kast::Label| {
+        value_effects
+            .get_or_init(|| {
+                crate::kompile::ml_constructs::value_effect_labels(|| {
+                    compiled.modules.iter().flat_map(|module| {
+                        module.local_sentences.iter().map(|sentence| &**sentence)
+                    })
+                })
+            })
             .contains(&label.name)
     };
     let mut diagnostics = Vec::new();
@@ -255,8 +269,23 @@ pub(crate) fn check_ml_construct_positions_in_definition(
             &sentences,
             productions,
             Some(&injected),
+            Some(&affects_value),
         ));
     }
+    diagnostics.sort();
+    diagnostics.dedup();
+    diagnostics
+}
+
+/// The refusals of the search pattern `sentence` by the matching-logic position walk (module
+/// `ml_positions`), with the code [`DiagnosticCode::InvalidSearchPattern`]: its body is matched,
+/// its `requires` is a condition, and `affects_value` decides which applications inside a
+/// predicate operand have a value that depends on an effect.
+pub(crate) fn search_pattern_position_diagnostics(
+    sentence: &Sentence,
+    affects_value: &dyn Fn(&crate::kast::Label) -> bool,
+) -> Vec<Diagnostic> {
+    let mut diagnostics = ml_positions::search_pattern_diagnostics(sentence, affects_value);
     diagnostics.sort();
     diagnostics.dedup();
     diagnostics

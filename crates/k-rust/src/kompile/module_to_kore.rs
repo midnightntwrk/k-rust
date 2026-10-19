@@ -28,6 +28,7 @@
 
 mod axioms;
 pub(super) use axioms::emitted_subsort_pair;
+pub(super) use equations::predicate_at;
 mod binders;
 mod equations;
 mod roles;

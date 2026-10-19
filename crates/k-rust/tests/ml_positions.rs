@@ -88,7 +88,10 @@ use std::{
 };
 
 use k_rust::{
-    backend::{Backend, BackendOptions, ExecuteRequest, ProveRequest, SearchPatternRequest},
+    backend::{
+        Backend, BackendOptions, ExecuteRequest, IncompleteSearchOutput, ProveRequest,
+        SearchPatternRequest,
+    },
     builtin::embedded,
     definition::{Attributes, CheckMode, LOCATION_ATTRIBUTE, ResolvedDefinition, SOURCE_ATTRIBUTE},
     diagnostic::Severity,
@@ -375,31 +378,6 @@ const CELL_COUNT: usize = 529;
 /// and the builds in which it deviates (see the module documentation).
 #[rustfmt::skip]
 pub const PENDING: &[(&str, &str, Class, Class)] = &[
-    // MLP/9 (24): search-pattern conditions: refused unlocated at run time, or read as Bool terms.
-    ("search/final__and-bt", "MLP/9", Class::Refused, Class::Refused),
-    ("search/final__and-pr", "MLP/9", Class::Refused, Class::Refused),
-    ("search/final__as", "MLP/9", Class::Conforms, Class::Refused),
-    ("search/final__bottom", "MLP/9", Class::Refused, Class::Refused),
-    ("search/final__ceil", "MLP/9", Class::Refused, Class::Refused),
-    ("search/final__eq", "MLP/9", Class::Refused, Class::Refused),
-    ("search/final__eq-bool", "MLP/9", Class::Refused, Class::Refused),
-    ("search/final__ex-bt", "MLP/9", Class::Refused, Class::Refused),
-    ("search/final__ex-pr", "MLP/9", Class::Refused, Class::Refused),
-    ("search/final__fa-bt", "MLP/9", Class::Refused, Class::Refused),
-    ("search/final__fa-pr", "MLP/9", Class::Refused, Class::Refused),
-    ("search/final__floor", "MLP/9", Class::Refused, Class::Refused),
-    ("search/final__fun", "MLP/9", Class::Refused, Class::Refused),
-    ("search/final__imp-bt", "MLP/9", Class::Refused, Class::Refused),
-    ("search/final__imp-pr", "MLP/9", Class::Refused, Class::Refused),
-    ("search/final__let", "MLP/9", Class::Refused, Class::Refused),
-    ("search/final__not-bt", "MLP/9", Class::Refused, Class::Refused),
-    ("search/final__not-pr", "MLP/9", Class::Refused, Class::Refused),
-    ("search/final__or-bt", "MLP/9", Class::Refused, Class::Refused),
-    ("search/final__or-inner", "MLP/9", Class::Refused, Class::Refused),
-    ("search/final__or-mix", "MLP/9", Class::Refused, Class::Refused),
-    ("search/final__or-pr", "MLP/9", Class::Refused, Class::Refused),
-    ("search/final__predarg", "MLP/9", Class::Accepted, Class::Accepted),
-    ("search/final__top", "MLP/9", Class::Refused, Class::Refused),
     // unassigned (2): follow-ups FU-20 and FU-21 (decisions.toml, "MLP/0 questions"): a predicate lemma whose subject is a disjunction, and a predicate lemma on a ground atom of a rewrite rule's condition, are not applied.
     // One cause (FU-48, the proposed ticket MLP/10): predicate lemmas are matched after definedness hoisting has rewritten each atom to ⌈f(X)⌉ ∧ atom, so a disjunction's left side no longer matches, and the ceil hoisted beside a lemma's result is never absorbed. The answers are incomplete, not wrong.
     ("psimp/pred-simp__eq-eq-ground", "unassigned", Class::Undecided, Class::Undecided),
@@ -961,11 +939,32 @@ fn observe_unguarded(
                         response
                             .matches
                             .iter()
-                            .map(|found| observe_state(&found.state.state, "Match".to_owned()))
-                            .chain(response.incomplete.iter().map(|incomplete| ObservedLeaf {
-                                term: format!("<incomplete {incomplete:?}>"),
-                                halt: "Incomplete".to_owned(),
-                                constrained: false,
+                            .map(|found| {
+                                // A match under a constraint the search left undecided (beside
+                                // the pattern's bindings) is a constrained answer.
+                                let mut leaf =
+                                    observe_state(&found.state.state, "Match".to_owned());
+                                leaf.constrained |= !found.constraints.is_empty();
+                                leaf
+                            })
+                            .chain(response.incomplete.iter().map(|incomplete| {
+                                match incomplete {
+                                    // A state whose match the build could not decide (no solver
+                                    // for the condition) may match under the undecided
+                                    // construct: a match constrained by it.
+                                    IncompleteSearchOutput::Smt { state, .. }
+                                    | IncompleteSearchOutput::Indeterminate { state, .. } => {
+                                        let mut leaf =
+                                            observe_state(&state.state, "Match".to_owned());
+                                        leaf.constrained = true;
+                                        leaf
+                                    }
+                                    _ => ObservedLeaf {
+                                        term: format!("<incomplete {incomplete:?}>"),
+                                        halt: "Incomplete".to_owned(),
+                                        constrained: false,
+                                    },
+                                }
                             }))
                             .collect()
                     })

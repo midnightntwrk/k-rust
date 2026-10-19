@@ -14,8 +14,8 @@ use k_rust::{
     inner::definition_with_named_projections,
     kast::Term,
     kompile::{
-        CompilationBackend, CompileOptions, CompiledKoreArtifacts, compile_loaded_definition,
-        compile_search_pattern,
+        CompilationBackend, CompileOptions, CompileSearchPatternError, CompiledKoreArtifacts,
+        compile_loaded_definition, compile_search_pattern,
     },
     kore::{ast::Pattern, codec, parser::parse_pattern, printer::Printer},
     outer::{LoadOptions, ResolvedSource, load_for_compilation, load_with_options},
@@ -1001,7 +1001,17 @@ fn a_search_pattern_condition_spelled_through_a_macro_compiles_as_its_expansion(
 
 /// `contents` compiled as a search pattern of the definition `sentences`, as KORE text.
 fn compile_pattern(sentences: &str, contents: &str) -> String {
-    let source = format!("{HEADER}{sentences}endmodule\n");
+    let compiled = try_compile_pattern_source(format!("{HEADER}{sentences}endmodule\n"), contents)
+        .unwrap_or_else(|error| panic!("{contents}: {error}"));
+    Printer::compact().print_pattern(&compiled)
+}
+
+/// `contents` compiled as a search pattern of the whole definition `source` (main module `P`,
+/// syntax module `P-SYNTAX`), the pattern written on line 1 of `<pattern>`.
+fn try_compile_pattern_source(
+    source: String,
+    contents: &str,
+) -> Result<Pattern, CompileSearchPatternError> {
     let mut resolver = |_: &str, required: &str| {
         embedded(required).ok_or_else(|| format!("unexpected require {required}"))
     };
@@ -1031,9 +1041,8 @@ fn compile_pattern(sentences: &str, contents: &str) -> String {
         LOCATION_ATTRIBUTE,
         serde_json::json!([1, 1, 1, contents.len() + 1]),
     );
-    let compiled = compile_search_pattern(&parsing, &execution, "P", contents, attributes)
-        .unwrap_or_else(|error| panic!("{contents}: {error}"));
-    Printer::compact().print_pattern(&compiled.pattern)
+    compile_search_pattern(&parsing, &execution, "P", contents, attributes)
+        .map(|compiled| compiled.pattern)
 }
 
 /// An anonymous existential in an ensures (`?_`) is renamed like `_`; the renamed variable is the
@@ -1630,7 +1639,15 @@ fn compile_errors(
     sentences: &str,
     backend: CompilationBackend,
 ) -> Result<(), Vec<(String, Option<u32>, String)>> {
-    let source = format!("{HEADER}{sentences}endmodule\n");
+    source_compile_errors(format!("{HEADER}{sentences}endmodule\n"), backend)
+}
+
+/// The errors `kcompile` gives the whole definition `source` (main module `P`, syntax module
+/// `P-SYNTAX`) for `backend`, as [`compile_errors`] gives them.
+fn source_compile_errors(
+    source: String,
+    backend: CompilationBackend,
+) -> Result<(), Vec<(String, Option<u32>, String)>> {
     let mut resolver = |_: &str, required: &str| {
         embedded(required).ok_or_else(|| format!("unexpected require {required}"))
     };
@@ -2321,4 +2338,390 @@ fn an_aliased_or_pattern_at_an_argument_root_is_told_to_distribute_the_alias() {
     assert_compiles(&distributed);
     assert_eq!(run(&distributed, 1), stuck("done(11)"));
     assert_eq!(run(&distributed, 2), stuck("done(12)"));
+}
+
+// ---------------------------------------------------------------- search-pattern conditions
+
+/// Three rules from `go(0)`, to `done(1)`, `done(2)` and `done(3)`: the final states a search
+/// pattern over `done(X)` selects from.
+const BRANCHES: &str = "  rule [s1]: <k> go(0) => done(1) ... </k>\n  rule [s2]: <k> go(0) => done(2) ... </k>\n  rule [s3]: <k> go(0) => done(3) ... </k>\n";
+
+/// Search patterns whose condition is a plain Bool term (or none), each with its compiled KORE
+/// at the base of the ticket that reads search-pattern conditions as predicates: a Bool term is
+/// one leaf, as before.
+const PLAIN_BOOL_PATTERNS: &[(&str, &str)] = &[
+    (
+        "<k> done(X) </k>",
+        r#"\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lbldone{}(VarX:SortInt{}), dotk{}())), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \equals{SortBool{}, SortGeneratedTopCell{}}(LblisInt{}(kseq{}(inj{SortInt{}, SortKItem{}}(VarX:SortInt{}), dotk{}())), \dv{SortBool{}}("true")))"#,
+    ),
+    (
+        "<k> done(X) </k> requires X <Int 3",
+        r#"\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lbldone{}(VarX:SortInt{}), dotk{}())), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \equals{SortBool{}, SortGeneratedTopCell{}}(Lbl'Unds'andBool'Unds'{}(LblisInt{}(kseq{}(inj{SortInt{}, SortKItem{}}(VarX:SortInt{}), dotk{}())), Lbl'Unds-LT-'Int'Unds'{}(VarX:SortInt{}, \dv{SortInt{}}("3"))), \dv{SortBool{}}("true")))"#,
+    ),
+    (
+        "<k> done(X) </k> requires X >Int 0 andBool notBool (X ==Int 2)",
+        r#"\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lbldone{}(VarX:SortInt{}), dotk{}())), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \equals{SortBool{}, SortGeneratedTopCell{}}(Lbl'Unds'andBool'Unds'{}(LblisInt{}(kseq{}(inj{SortInt{}, SortKItem{}}(VarX:SortInt{}), dotk{}())), Lbl'Unds'andBool'Unds'{}(Lbl'Unds-GT-'Int'Unds'{}(VarX:SortInt{}, \dv{SortInt{}}("0")), LblnotBool'Unds'{}(Lbl'UndsEqlsEqls'Int'Unds'{}(VarX:SortInt{}, \dv{SortInt{}}("2"))))), \dv{SortBool{}}("true")))"#,
+    ),
+    (
+        "<k> done(X:Int) ~> _ </k> requires X <Int 3",
+        r#"\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lbldone{}(VarX:SortInt{}), Var'Unds'Gen0:SortK{})), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \equals{SortBool{}, SortGeneratedTopCell{}}(Lbl'Unds'andBool'Unds'{}(Lbl'Unds'andBool'Unds'{}(LblisInt{}(kseq{}(inj{SortInt{}, SortKItem{}}(VarX:SortInt{}), dotk{}())), LblisK{}(Var'Unds'Gen0:SortK{})), Lbl'Unds-LT-'Int'Unds'{}(VarX:SortInt{}, \dv{SortInt{}}("3"))), \dv{SortBool{}}("true")))"#,
+    ),
+    (
+        "<k> done(X) ~> K:KItem </k> requires X <Int 3",
+        r#"\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lbldone{}(VarX:SortInt{}), kseq{}(VarK:SortKItem{}, dotk{}()))), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \equals{SortBool{}, SortGeneratedTopCell{}}(Lbl'Unds'andBool'Unds'{}(Lbl'Unds'andBool'Unds'{}(LblisInt{}(kseq{}(inj{SortInt{}, SortKItem{}}(VarX:SortInt{}), dotk{}())), LblisKItem{}(kseq{}(VarK:SortKItem{}, dotk{}()))), Lbl'Unds-LT-'Int'Unds'{}(VarX:SortInt{}, \dv{SortInt{}}("3"))), \dv{SortBool{}}("true")))"#,
+    ),
+    (
+        "<k> done(X) </k> requires isOne(X) orBool X ==Int 3",
+        r#"\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lbldone{}(VarX:SortInt{}), dotk{}())), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \equals{SortBool{}, SortGeneratedTopCell{}}(Lbl'Unds'andBool'Unds'{}(LblisInt{}(kseq{}(inj{SortInt{}, SortKItem{}}(VarX:SortInt{}), dotk{}())), Lbl'Unds'orBool'Unds'{}(LblisOne{}(VarX:SortInt{}), Lbl'UndsEqlsEqls'Int'Unds'{}(VarX:SortInt{}, \dv{SortInt{}}("3")))), \dv{SortBool{}}("true")))"#,
+    ),
+];
+
+/// A search pattern whose condition is a plain Bool term compiles to the KORE it compiled to
+/// before search-pattern conditions were read as predicates: the condition is one leaf
+/// `\equals{SortBool{}, SortGeneratedTopCell{}}(t, true)`.
+#[test]
+fn a_plain_bool_search_pattern_condition_compiles_as_before() {
+    let sentences = format!(
+        "{BRANCHES}  syntax Bool ::= isOne(Int) [function, total, symbol(isOne)]\n  rule isOne(N) => N ==Int 1\n"
+    );
+    for (pattern, expected) in PLAIN_BOOL_PATTERNS {
+        assert_eq!(compile_pattern(&sentences, pattern), *expected, "{pattern}");
+    }
+}
+
+/// A search pattern's condition is a predicate over the match, as a rule's condition is: each
+/// matching-logic connective at its root is a predicate connective at the pattern's sort, and
+/// each atom keeps its operand sort.
+#[test]
+fn a_search_pattern_condition_is_the_predicate_it_states() {
+    let pattern = compile_pattern(BRANCHES, "<k> done(X) </k> requires {X #Equals 1}");
+    assert_contains(&pattern, &x_equals(TOP, "1"));
+    assert_lacks(
+        &pattern,
+        &format!("\\equals{{SortBool{{}}, {TOP}}}(\\equals"),
+    );
+    let pattern = compile_pattern(
+        BRANCHES,
+        "<k> done(X) </k> requires (X ==Int 1) #Or {X #Equals 2}",
+    );
+    assert_contains(
+        &pattern,
+        &format!(
+            "\\or{{{TOP}}}({}, {})",
+            leaf(TOP, &eq_int(X, &int("1"))),
+            x_equals(TOP, "2")
+        ),
+    );
+    assert_no_bool_connective(&pattern);
+}
+
+/// The error of a search pattern refused at compile: its code and line.
+#[track_caller]
+fn pattern_refusal(source: String, contents: &str) -> (String, Option<u32>, String) {
+    match try_compile_pattern_source(source, contents) {
+        Ok(pattern) => panic!(
+            "{contents} compiles: {}",
+            Printer::compact().print_pattern(&pattern)
+        ),
+        Err(CompileSearchPatternError::Denotation(diagnostic)) => (
+            diagnostic.code.as_str().to_owned(),
+            diagnostic.location.map(|location| location.start_line),
+            diagnostic.message.clone(),
+        ),
+        Err(error) => panic!("{contents}: refused without a diagnostic: {error}"),
+    }
+}
+
+/// A construct a search pattern states no meaning with is refused at compile, located at the
+/// pattern, with the code the route gives its refusals: a predicate below a Bool symbol, a
+/// connective inside a predicate operand, a local function (which the route does not lower), and
+/// a predicate where the pattern's body is matched.
+#[test]
+fn a_search_pattern_construct_with_no_reading_is_refused_where_it_is_written() {
+    for (contents, reason) in [
+        (
+            "<k> done(X) </k> requires notBool {X #Equals 3}",
+            "where a Bool value is required",
+        ),
+        (
+            "<k> done(X) </k> requires (X #Or 5) <Int 3",
+            "where a Bool value is required",
+        ),
+        (
+            "<k> done(X) </k> requires #Ceil(X #Or 1)",
+            "inside an operand of #Equals, #Ceil or #Floor",
+        ),
+        (
+            "<k> done(X) </k> requires {X #Equals (1 #Or 2)}",
+            "whose operands are not both terms",
+        ),
+        (
+            "<k> done(X) </k> requires #let Z = X #in (Z ==Int 1)",
+            "local function",
+        ),
+        ("<k> done(#Top) </k>", "where the search pattern matches"),
+    ] {
+        let (code, line, message) =
+            pattern_refusal(format!("{HEADER}{BRANCHES}endmodule\n"), contents);
+        assert_eq!(
+            (code.as_str(), line),
+            ("InvalidSearchPattern", Some(1)),
+            "{contents}: {message}"
+        );
+        assert!(message.contains(reason), "{contents}: {message}");
+    }
+}
+
+/// The variables a KORE pattern binds, and those that occur free in it.
+fn bound_and_free(pattern: &Pattern) -> (Vec<String>, std::collections::BTreeSet<String>) {
+    fn walk(
+        pattern: &Pattern,
+        scope: &mut Vec<String>,
+        bound: &mut Vec<String>,
+        free: &mut std::collections::BTreeSet<String>,
+    ) {
+        match pattern {
+            Pattern::Variable(variable) => {
+                if !scope.contains(&variable.name) {
+                    free.insert(variable.name.clone());
+                }
+            }
+            Pattern::Exists { variable, body, .. } | Pattern::Forall { variable, body, .. } => {
+                bound.push(variable.name.clone());
+                scope.push(variable.name.clone());
+                walk(body, scope, bound, free);
+                scope.pop();
+            }
+            Pattern::Application { arguments, .. }
+            | Pattern::And { arguments, .. }
+            | Pattern::Or { arguments, .. }
+            | Pattern::AssociativeApplication { arguments, .. } => {
+                for argument in arguments {
+                    walk(argument, scope, bound, free);
+                }
+            }
+            Pattern::Not { argument, .. }
+            | Pattern::Next { argument, .. }
+            | Pattern::Ceil { argument, .. }
+            | Pattern::Floor { argument, .. } => walk(argument, scope, bound, free),
+            Pattern::Implies { left, right, .. }
+            | Pattern::Iff { left, right, .. }
+            | Pattern::Rewrites { left, right, .. }
+            | Pattern::Equals { left, right, .. }
+            | Pattern::In { left, right, .. } => {
+                walk(left, scope, bound, free);
+                walk(right, scope, bound, free);
+            }
+            Pattern::Mu { variable, body } | Pattern::Nu { variable, body } => {
+                bound.push(variable.name.clone());
+                scope.push(variable.name.clone());
+                walk(body, scope, bound, free);
+                scope.pop();
+            }
+            Pattern::String(_)
+            | Pattern::Top { .. }
+            | Pattern::Bottom { .. }
+            | Pattern::DomainValue { .. } => {}
+        }
+    }
+    let (mut scope, mut bound, mut free) = (Vec::new(), Vec::new(), Default::default());
+    walk(pattern, &mut scope, &mut bound, &mut free);
+    (bound, free)
+}
+
+/// A binder's sort annotation in a search pattern restricts the bound variable, so the sort test
+/// a cast of it adds belongs inside the binder's scope: the compiled pattern binds each name once
+/// and never names a bound variable outside its binder (bound-name uniqueness). Where the
+/// binder's own sort is the cast's sort the test is implied and dropped; otherwise it is
+/// conjoined inside the binder.
+#[test]
+fn a_search_pattern_binder_s_sort_test_stays_in_its_scope() {
+    for contents in [
+        "<k> done(X) </k> requires #Exists Y:Int . {X #Equals Y}",
+        "<k> done(X) </k> requires #Exists Y . {X #Equals Y:Int}",
+        "<k> done(X) </k> requires #Forall Y:Int . ((Y ==Int X) impliesBool (Y <Int 3))",
+        "<k> done(X) </k> requires #Exists Y:Int . #Exists Z:Int . {X #Equals Y +Int Z}",
+        "<k> done(X) </k> requires (#Exists Y:Int . {X #Equals Y}) #And (X <Int 3)",
+        "<k> done(X) ~> K:KItem </k> requires #Exists Y . ({X #Equals Y:Int} #And {K #Equals Y:KItem})",
+        "<k> done(X) ~> K:KItem </k> requires #Exists Y:Int . {X #Equals Y}",
+    ] {
+        let pattern =
+            try_compile_pattern_source(format!("{HEADER}{BRANCHES}endmodule\n"), contents)
+                .unwrap_or_else(|error| panic!("{contents}: {error}"));
+        let (bound, free) = bound_and_free(&pattern);
+        let printed = Printer::compact().print_pattern(&pattern);
+        assert!(!bound.is_empty(), "{contents}: binds nothing: {printed}");
+        let unique = bound.iter().collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(unique.len(), bound.len(), "{contents}: {printed}");
+        for name in &bound {
+            assert!(
+                !free.contains(name),
+                "{contents}: the bound {name} occurs free: {printed}"
+            );
+        }
+    }
+}
+
+/// `krust krun --pattern` of the definition `sentences` from `go(0)`, searching final states at
+/// depth at most 5: the exit status, standard output and standard error.
+#[cfg(feature = "cli")]
+fn krun_pattern(sentences: &str, pattern: &str) -> (i32, String, String) {
+    use std::process::{Command, Stdio};
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let nonce = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let root = std::env::temp_dir().join(format!(
+        "k-rust-ml-conditions-pattern-{}-{nonce}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let file = root.join("search.k");
+    std::fs::write(&file, format!("{HEADER}{sentences}endmodule\n")).unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            file.to_str().unwrap(),
+            "-m",
+            "P",
+            "--syntax-module",
+            "P-SYNTAX",
+        ])
+        .args([
+            "--sort",
+            "Pgm",
+            "-e",
+            "go(0)",
+            "--search-final",
+            "--depth",
+            "5",
+        ])
+        .args(["--pattern", pattern])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let _ = std::fs::remove_dir_all(&root);
+    (
+        result.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&result.stdout).into_owned(),
+        String::from_utf8_lossy(&result.stderr).into_owned(),
+    )
+}
+
+/// `krust krun --pattern` with a predicate condition finds the final states the condition admits.
+#[cfg(feature = "cli")]
+#[test]
+fn krun_pattern_with_a_predicate_condition_finds_the_states_it_admits() {
+    let found = |value: &str| {
+        format!(
+            "\\equals{{SortInt{{}},SortGeneratedTopCell{{}}}}(VarX:SortInt{{}},\\dv{{SortInt{{}}}}(\"{value}\"))"
+        )
+    };
+    for (condition, expected) in [
+        ("{X #Equals 1}", found("1")),
+        (
+            "{X #Equals 1} #Or {X #Equals 2}",
+            format!(
+                "\\or{{SortGeneratedTopCell{{}}}}({},{})",
+                found("1"),
+                found("2")
+            ),
+        ),
+        (
+            "#Not({X #Equals 3})",
+            format!(
+                "\\or{{SortGeneratedTopCell{{}}}}({},{})",
+                found("1"),
+                found("2")
+            ),
+        ),
+    ] {
+        let (status, stdout, stderr) =
+            krun_pattern(BRANCHES, &format!("<k> done(X) </k> requires {condition}"));
+        assert_eq!(status, 0, "{condition}: {stderr}");
+        assert_eq!(
+            stdout.split_whitespace().collect::<String>(),
+            expected,
+            "{condition}: {stderr}"
+        );
+    }
+}
+
+// ---------------------------------------------------------------- effects inside predicate operands
+
+/// The line of the first rule `io_source` places.
+fn io_line() -> usize {
+    io_source("").lines().count()
+}
+
+/// A predicate states a truth value about the matched state, so an effect whose result its
+/// operand reads (a read of the console, a write's status, a random number, the environment) has
+/// no meaning there: such an operand is refused at compile, located at the rule, directly or
+/// through a function whose equations apply the effect. The LLVM target, whose output the check
+/// does not judge, compiles each.
+#[test]
+fn an_effect_inside_a_predicate_operand_is_refused_at_compile() {
+    for rule in [
+        "  rule [p]: <k> go(X) => done(X #And {#getc(0) #Equals 97} #And 97) ... </k>\n",
+        "  rule [p]: <k> go(X) => done(X) ... </k> requires {#getc(0) #Equals 97}\n",
+        "  rule [p]: <k> go(X) => done(X) ... </k> requires {X #Equals 5} #Or {myGetc(0) #Equals 97}\n",
+        "  rule [p]: <k> go(X) => done(X) ... </k> requires #Ceil(rd())\n",
+        "  rule [p]: <k> go(X) => done(X) ... </k> ensures {rdAny() #Equals 97}\n",
+        "  rule [p]: <k> go(X) => done(X) ... </k> requires {#write(1, \"x\") #Equals .K}\n",
+        "  rule [p]: <k> go(X) => done(X) ... </k> requires {randInt(10) #Equals 3}\n",
+    ] {
+        let errors = match source_compile_errors(io_source(rule), CompilationBackend::Rust) {
+            Ok(()) => panic!("compiles:\n{rule}"),
+            Err(errors) => errors,
+        };
+        let [(code, line, message)] = errors.as_slice() else {
+            panic!("{rule}: not one error: {errors:?}");
+        };
+        assert_eq!(
+            (code.as_str(), *line),
+            ("MlConstructPosition", Some(io_line() as u32)),
+            "{rule}: {message}"
+        );
+        assert!(message.contains("an effect"), "{rule}: {message}");
+        assert_eq!(
+            source_compile_errors(io_source(rule), CompilationBackend::Llvm),
+            Ok(()),
+            "{rule}: the LLVM target"
+        );
+    }
+}
+
+/// What the effect refusal leaves alone: a Bool condition (no predicate operand), an effect whose
+/// result its declaration fixes (`returnsUnit`: `#log` is `.K` whatever it writes), an `impure`
+/// function evaluated by its equations, and an effect outside every predicate.
+#[test]
+fn an_effect_outside_a_predicate_operand_or_with_a_declared_result_compiles() {
+    for rule in [
+        "  rule [p]: <k> go(X) => done(X) ... </k> requires isInt(#getc(0))\n",
+        "  rule [p]: <k> go(X) => done(X) ... </k> requires {#log(\"x\") #Equals .K}\n",
+        "  syntax Int ::= pureish() [function, impure, symbol(pureish)]\n  rule pureish() => 7\n  rule [p]: <k> go(X) => done(X) ... </k> requires {pureish() #Equals 7}\n",
+        "  rule [p]: <k> go(X) => done(#getc(0)) ... </k> requires {X #Equals 97}\n",
+    ] {
+        assert_eq!(
+            source_compile_errors(io_source(rule), CompilationBackend::Rust),
+            Ok(()),
+            "{rule}"
+        );
+    }
+}
+
+/// On the search route, an effect inside a predicate operand of the condition is refused at
+/// compile with the route's code, located at the pattern.
+#[test]
+fn an_effect_inside_a_search_pattern_predicate_operand_is_refused() {
+    for contents in [
+        "<k> done(X) </k> requires {#getc(0) #Equals 97}",
+        "<k> done(X) </k> requires #Ceil(rd())",
+    ] {
+        let (code, line, message) = pattern_refusal(io_source(""), contents);
+        assert_eq!(
+            (code.as_str(), line),
+            ("InvalidSearchPattern", Some(1)),
+            "{contents}: {message}"
+        );
+        assert!(message.contains("an effect"), "{contents}: {message}");
+    }
 }
