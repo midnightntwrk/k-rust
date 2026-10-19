@@ -3042,6 +3042,21 @@ symbol = "PredicateAssumptions"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "written_predicate"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "set_aside_definedness"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "reattach_set_aside"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
 symbol = "apply_predicate_theory"
 
 [[node.sites]]
@@ -3124,7 +3139,7 @@ bound = "per visited sub-predicate and its simplified form: its key and its nega
 
 [[node.cost]]
 mode = "predicate equations (apply_predicate_theory)"
-bound = "per visited sub-predicate: the equations of its top connective only (indexed at load), each matched against it as deep as its left-hand side; the sub-predicate is walked for a name shared with the equation, and the equation renamed apart, only when the equation matched, could match, or met a shared name; a quantifier hides from the assumptions under it only the assumed conjuncts that mention its variable, the conjunct being simplified not among them"
+bound = 'per visited sub-predicate: the equations of its top connective only (indexed at load), each matched against it as deep as its left-hand side; the sub-predicate is walked for a name shared with the equation, and the equation renamed apart, only when the equation matched, could match, or met a shared name; a quantifier hides from the assumptions under it only the assumed conjuncts that mention its variable, the conjunct being simplified not among them; before the equations, when its top connective has any, one walk of the sub-predicate, no deeper than the deepest left-hand side of those equations, that sets aside hoisted definedness conjuncts (written_predicate), with one ceil_term call per atom of each conjunction that holds a \ceil, deferred, membership, absence or negation conjunct, and after an equation applies, one ceil_term call per conjunct atom of its result when a conjunct was set aside on the whole subject'
 
 [[node.cost]]
 mode = "normalization of a simplified sub-predicate (normalize_root, normalize_hereditary)"

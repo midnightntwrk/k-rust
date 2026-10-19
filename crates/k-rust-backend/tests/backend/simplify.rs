@@ -4457,6 +4457,105 @@ fn a_predicate_lemma_needs_no_strictness_in_an_operand_the_path_states_defined()
     assert!(!conjuncts.contains(&h_defined), "{result:?}");
 }
 
+/// `sf` is partial. `\or(\equals(sf(X), "c"), \equals(sf(X), "d"))` rewrites to
+/// `\equals(X, "c")`, and `\not(\and(\ceil(@Z), \equals(@Z, "c")))` (a left-hand side that only
+/// the hoisted form of an atom has; the set variable binds an operand with no obligation) rewrites
+/// to `\top`.
+fn written_predicate_definition() -> BackendDefinition {
+    definition(
+        r#"
+            symbol sf{}(SortS{}) : SortS{} [function{}()]
+            axiom{R, Q} \implies{R}(\top{R}(), \equals{Q, R}(
+                \or{Q}(
+                    \equals{SortS{}, Q}(sf{}(X:SortS{}), \dv{SortS{}}("c")),
+                    \equals{SortS{}, Q}(sf{}(X:SortS{}), \dv{SortS{}}("d"))
+                ),
+                \and{Q}(\equals{SortS{}, Q}(X:SortS{}, \dv{SortS{}}("c")), \top{Q}())
+            )) [label{}("or-lhs"), simplification{}()]
+            axiom{R, Q} \implies{R}(\top{R}(), \equals{Q, R}(
+                \not{Q}(\and{Q}(
+                    \ceil{SortS{}, Q}(@Z:SortS{}),
+                    \equals{SortS{}, Q}(@Z:SortS{}, \dv{SortS{}}("c"))
+                )),
+                \and{Q}(\top{Q}(), \top{Q}())
+            )) [label{}("hoisted-only"), simplification{}()]
+            "#,
+    )
+}
+
+/// A predicate lemma `P = Q` states that `P` and `Q` are equal predicates, and is matched
+/// against the predicate as written. A condition's hoisted definedness conjoins
+/// `\ceil(sf(Y))` to each atom over `sf(Y)`, which equals the atom, so it is set aside: here it is
+/// in both disjuncts, hence a conjunct of the whole subject, which states the definedness of the
+/// operands the lemma consumes and is conjoined to the result. The written disjunction alone is
+/// not strict in `sf(Y)`, whose definedness is open, so the lemma is not used on it.
+#[test]
+fn a_predicate_lemma_matches_a_disjunction_with_its_hoisted_definedness_set_aside() {
+    let definition = written_predicate_definition();
+    let sf_y = term(&definition, r#"sf{}(Y:SortS{})"#);
+    let y = term(&definition, r#"Y:SortS{}"#);
+    let c = term(&definition, r#"\dv{SortS{}}("c")"#);
+    let d = term(&definition, r#"\dv{SortS{}}("d")"#);
+    let defined = Predicate::Ceil(sf_y.clone());
+    let is_c = Predicate::Equals(sf_y.clone(), c.clone());
+    let is_d = Predicate::Equals(sf_y, d);
+    let hoisted = Predicate::Or(
+        vec![
+            Predicate::And(vec![defined.clone(), is_c.clone()].into()),
+            Predicate::And(vec![defined.clone(), is_d.clone()].into()),
+        ]
+        .into(),
+    );
+    let simplify = |predicate: &Predicate| {
+        simplify_predicate_with_solver(
+            &definition,
+            predicate,
+            &[],
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .expect("the predicate should simplify")
+    };
+
+    let result = simplify(&hoisted);
+    let conjuncts = match &result {
+        Predicate::And(conjuncts) => conjuncts.to_vec(),
+        other => vec![other.clone()],
+    };
+    assert_eq!(conjuncts.len(), 2, "{result:?}");
+    assert!(conjuncts.contains(&defined), "{result:?}");
+    assert!(
+        conjuncts.contains(&Predicate::Equals(y.clone(), c.clone()))
+            || conjuncts.contains(&Predicate::Equals(c, y)),
+        "{result:?}"
+    );
+
+    let written = Predicate::Or(vec![is_c, is_d].into());
+    assert_eq!(simplify(&written), written);
+}
+
+/// Negative control: a lemma whose left-hand side matches only the hoisted form of an atom
+/// (`\not(\and(\ceil(@Z), \equals(@Z, "c")))`) does not apply to the hoisted form of
+/// `\not(\equals(sf(Y), "c"))`, whose written atom it does not match.
+#[test]
+fn a_predicate_lemma_that_matches_only_the_hoisted_form_of_an_atom_is_not_applied() {
+    let definition = written_predicate_definition();
+    let sf_y = term(&definition, r#"sf{}(Y:SortS{})"#);
+    let c = term(&definition, r#"\dv{SortS{}}("c")"#);
+    let hoisted = Predicate::Not(Arc::new(Predicate::And(
+        vec![Predicate::Ceil(sf_y.clone()), Predicate::Equals(sf_y, c)].into(),
+    )));
+    let result = simplify_predicate_with_solver(
+        &definition,
+        &hoisted,
+        &[],
+        SimplificationOptions::default(),
+        &NoSolver,
+    )
+    .expect("the predicate should simplify");
+    assert_eq!(result, hoisted);
+}
+
 #[test]
 fn function_group_with_an_indeterminate_sibling_still_blocks_owise() {
     let syntax = parse_definition(

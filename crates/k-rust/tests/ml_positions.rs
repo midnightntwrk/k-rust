@@ -373,10 +373,9 @@ const CELL_COUNT: usize = 529;
 /// and the builds in which it deviates (see the module documentation).
 #[rustfmt::skip]
 pub const PENDING: &[(&str, &str, Class, Class)] = &[
-    // unassigned (2): follow-ups FU-20 and FU-21 (decisions.toml, "MLP/0 questions"): a predicate lemma whose subject is a disjunction, and a predicate lemma on a ground atom of a rewrite rule's condition, are not applied.
-    // One cause (FU-48, the proposed ticket MLP/10): predicate lemmas are matched after definedness hoisting has rewritten each atom to ⌈f(X)⌉ ∧ atom, so a disjunction's left side no longer matches, and the ceil hoisted beside a lemma's result is never absorbed. The answers are incomplete, not wrong.
+    // unassigned (1): follow-up FU-21 (decisions.toml, "MLP/0 questions"): a predicate lemma on a ground atom of a rewrite rule's condition leaves the step undecided.
+    // MLP/10 matches predicate lemmas against the atoms as written (FU-20 and FU-48: or-lhs now conforms), but this cell has another cause: a predicate lemma says nothing where an operand it consumes is undefined (docs/compatibility.md, the predicate-lemma contract), so `{f(1) #Equals 1}` simplifies to ⌈f(1)⌉ with or without hoisting, and f(1) has no equation. Deciding it needs the lemma read as an equality of predicates at the instances where f(1) is undefined, which the contract does not state. The answer is incomplete, not wrong.
     ("psimp/pred-simp__eq-eq-ground", "unassigned", Class::Undecided, Class::Undecided),
-    ("psimp/pred-simp__or-lhs", "unassigned", Class::Conforms, Class::Undecided),
 ];
 
 // ---------------------------------------------------------------- observation
