@@ -245,7 +245,7 @@ pub(crate) fn check_ml_construct_positions_in_definition(
                 &views,
                 module_id,
                 &injector,
-                &productions,
+                productions,
                 label,
                 index,
                 argument,
@@ -253,7 +253,7 @@ pub(crate) fn check_ml_construct_positions_in_definition(
         };
         diagnostics.extend(ml_positions::check_ml_construct_positions(
             &sentences,
-            &productions,
+            productions,
             Some(&injected),
         ));
     }

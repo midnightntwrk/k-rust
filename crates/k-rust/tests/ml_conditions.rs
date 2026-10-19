@@ -2075,8 +2075,10 @@ fn claim_line(rules: &str) -> usize {
 fn a_claim_right_side_alias_that_is_not_lowered_is_refused() {
     let effectful =
         "  syntax Int ::= eff(Int) [function, impure, symbol(eff)]\n  rule eff(X) => X\n";
-    // The LLVM target's checks refuse an existential variable beside an effectful production
-    // first, so the effectful claim is refused there by another code.
+    // The LLVM target's definition checks also refuse a claim's existential variables
+    // (UnsupportedExistentialVariable). The rewrite checks refuse the aliases with a connective
+    // beside that; the effects of an alias's pattern are judged by a later stage, so the
+    // effectful claim is refused there by that code alone.
     for (rules, claim, targets) in [
         (
             GO_DONE.to_owned(),
@@ -2127,14 +2129,13 @@ fn a_claim_right_side_alias_that_is_not_lowered_is_refused() {
             );
         }
     }
-    // An alias of a plain term is lowered, so it compiles for both targets.
-    for backend in [CompilationBackend::Rust, CompilationBackend::Llvm] {
-        let source = format!(
-            "{HEADER}{GO_DONE}endmodule\n\nmodule P-SPEC\n  imports P\n  claim [p]: <k> go(X) => done(X #as ?Y) ... </k> ensures ?Y ==Int X\n  claim [q]: <k> go(X) => done((X #as ?Y) #as ?Z) ... </k>\nendmodule\n"
-        );
-        try_compile_spec_source_for(source, backend)
-            .unwrap_or_else(|error| panic!("{backend:?}: {error}"));
-    }
+    // An alias of a plain term is lowered, so it compiles. (The LLVM target's checks refuse a
+    // claim's existential variables, whatever their position.)
+    let source = format!(
+        "{HEADER}{GO_DONE}endmodule\n\nmodule P-SPEC\n  imports P\n  claim [p]: <k> go(X) => done(X #as ?Y) ... </k> ensures ?Y ==Int X\n  claim [q]: <k> go(X) => done((X #as ?Y) #as ?Z) ... </k>\nendmodule\n"
+    );
+    try_compile_spec_source_for(source, CompilationBackend::Rust)
+        .unwrap_or_else(|error| panic!("{error}"));
 }
 
 /// `#Bottom` denotes no value, so `X #Or #Bottom` is `X`: an equation's result whose
