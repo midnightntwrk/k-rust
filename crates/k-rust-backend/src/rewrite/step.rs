@@ -1124,17 +1124,20 @@ pub(super) fn rewrite_step_any(
                             .iter()
                             .map(|sequenced| &sequenced.diagnostic),
                     ));
-                    // A candidate the step took as defined may still be undefined: an equation
-                    // of a `total` symbol, trusted as total, may reduce its result to `\bottom`,
-                    // which only its successor's normalization finds. The sequential step
-                    // commits to the candidates it keeps, so it decides that here when a later
-                    // application group of the rule or a later rule of the priority is left: an
-                    // undefined candidate is then an undefined result like those above, whose
-                    // instances are offered to them. With none left the instances have no other
-                    // successor, so the candidate is kept and its successor's normalization
-                    // reports the undefined step, with the same instances. A kept candidate
-                    // carries its normalization, which its successor takes instead of repeating
-                    // it.
+                    // A candidate the step took as defined may still have no successor: its
+                    // result, trusted as defined (an equation of a `total` symbol, a declared
+                    // `preserves-definedness`), may normalize to `\bottom`, by an undefined
+                    // builtin application, an equation whose own result is `\bottom`, a refuted
+                    // equation `ensures` or any other conjoined `\bottom`, which only its
+                    // successor's normalization finds. A `\bottom` successor denotes no state,
+                    // and the sequential step chooses among the successors that exist, so it
+                    // decides that here when a later application group of the rule or a later
+                    // rule of the priority is left: such a candidate is then an undefined result
+                    // like those above, whose instances are offered to them. With none left the
+                    // instances have no other successor, so the candidate is kept and its
+                    // successor's normalization reports the undefined step, with the same
+                    // instances. A kept candidate carries its normalization, which its successor
+                    // takes instead of repeating it.
                     let later_alternative = !last_of_priority || group_index + 1 < group_count;
                     let mut applied_group = Vec::with_capacity(group.applied.len());
                     let mut undefined_work = Vec::new();

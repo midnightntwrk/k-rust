@@ -24,6 +24,8 @@ use k_rust::{
 
 #[path = "support/shared.rs"]
 mod shared;
+#[path = "support/undefined_successor.rs"]
+mod undefined_successor;
 
 const SOURCE: &str = r#"module UNDEF-SYNTAX
   imports INT-SYNTAX
@@ -517,9 +519,10 @@ fn an_assumed_initial_definedness_leaves_no_undefined_step() {
 }
 
 /// Stopping at branches, a step whose one candidate carries its condition is no branch point:
-/// it goes on as the step did before the undefined part was reported, and the candidate's
-/// `\bottom` successor (`I = 0` makes `10 /Int I` undefined) is `Vacuous` one step later, never
-/// a `Stuck` pre-step state. The `Trivial` leaf of the undefined part comes first.
+/// it goes on as the step did before the undefined part was reported. The candidate's successor
+/// (`I = 0` makes `10 /Int I` undefined) normalizes to `\bottom`, so it is no successor, never a
+/// `Stuck` pre-step state nor a `Vacuous` state one step later: every instance of `hz(X)` is on
+/// the undefined step's `Trivial` leaf, the one leaf.
 #[test]
 fn stopping_at_branches_a_carried_step_goes_on_as_one_successor() {
     let mut backend = backend();
@@ -532,10 +535,7 @@ fn stopping_at_branches_a_carried_step_goes_on_as_one_successor() {
             .iter()
             .map(|leaf| (leaf.reason, leaf.depth))
             .collect::<Vec<_>>(),
-        [
-            (HaltReasonOutput::Trivial, 0),
-            (HaltReasonOutput::Vacuous, 1)
-        ],
+        [(HaltReasonOutput::Trivial, 0)],
         "{:#?}",
         summary(&result)
     );
@@ -1294,4 +1294,401 @@ fn strategy_any_normalizes_each_committed_successor_once() {
     let any = equations(ExecutionStrategy::Any);
     assert!(all > 0, "the run evaluates `fib`");
     assert_eq!(any, all, "equation attempts under any and all");
+}
+
+/// The reading of a `\bottom` successor on every execution route (design/undefined-successor.md
+/// §3, reading R): a candidate whose successor normalizes to `\bottom` denotes no state, so it is
+/// no successor, however the `\bottom` is found. Its instances that no defined candidate of its
+/// priority takes are the undefined step's `Trivial` leaf over the pre-step configuration; where
+/// a defined candidate takes them, there is no leaf. Lower priorities stay blocked, and strategy
+/// `any` follows a defined successor.
+///
+/// Each program of [`matrix_source`] pairs one way a candidate's result is `\bottom` (a route of
+/// [`ROUTES`]) with one shape of the step around it ([`SHAPES`]); every program is run under both
+/// strategies and both result modalities, plainly, stopping at branches and with the `\bottom`
+/// rule as a cut point and as a terminal rule, with and without the console, and searched in every
+/// search mode. Every row must read R.
+mod matrix {
+    use super::*;
+    use k_rust::backend::{SearchRequest, SearchTypeArg};
+    use k_rust_backend::{
+        definition::BackendDefinition,
+        rewrite::{
+            ExecutionBranchMode, ExecutionMode, ExecutionOptions, HaltReason, execute_with_io_state,
+        },
+        search::ResultModality,
+        transition::ExecutionIoState,
+    };
+    use undefined_successor::{Shape, matrix_source, programs};
+
+    fn matrix_kore() -> std::sync::Arc<String> {
+        static KORE: shared::Shared<String> = shared::Shared::new();
+        KORE.get(|| {
+            let source = matrix_source();
+            let mut resolver = |_: &str, required: &str| {
+                embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+            };
+            let loaded = load_with_options(
+                ResolvedSource::new("fu42.k", &source),
+                "FU42",
+                &mut resolver,
+                &LoadOptions {
+                    implicit_sources: vec![embedded("prelude.md").unwrap()],
+                    ..CompilationBackend::Rust.load_options()
+                },
+            )
+            .unwrap();
+            compile_loaded_definition(&loaded, CompileOptions::default())
+                .unwrap()
+                .definition_kore
+        })
+    }
+
+    /// How a run is stopped.
+    #[derive(Clone, Copy, Debug)]
+    enum Stops {
+        Plain,
+        StopAtBranch,
+        /// The `\bottom` rule `<p>a` is a cut point.
+        CutPoint,
+        /// The `\bottom` rule `<p>a` is a terminal rule.
+        Terminal,
+    }
+
+    const STOPS: [Stops; 4] = [
+        Stops::Plain,
+        Stops::StopAtBranch,
+        Stops::CutPoint,
+        Stops::Terminal,
+    ];
+
+    /// Which configuration a leaf is.
+    #[derive(Clone, Debug, PartialEq)]
+    enum State {
+        /// The program's own configuration, before any step.
+        Pre,
+        Done,
+        Other(String),
+    }
+
+    /// A leaf: its reason, depth, configuration and rule label.
+    type Row = (String, u64, State, Option<String>);
+
+    /// What reading R gives for `program` of `shape` under `strategy`, whatever the result
+    /// modality, the stop rules on the `\bottom` rule or stopping at branches.
+    ///
+    /// Under strategy any the two-`\bottom` shape's one leaf may name either rule (`<p>?`).
+    /// Under strategy all its two candidates have the same undefined instances, the whole
+    /// pre-step state, which one leaf or one per candidate denote alike: a step that finds both
+    /// results `\bottom` itself (`in_step`) reports one leaf naming the first candidate, and one
+    /// whose candidates' successors show it reports one leaf per candidate as each is normalized.
+    fn expected(
+        program: &str,
+        shape: Shape,
+        strategy: ExecutionStrategy,
+        in_step: bool,
+    ) -> Vec<Row> {
+        let trivial = |rule: &str| {
+            (
+                "trivial".to_owned(),
+                0,
+                State::Pre,
+                Some(format!("FU42.{program}{rule}")),
+            )
+        };
+        match (shape, strategy) {
+            (Shape::Covering, _) => vec![("stuck".to_owned(), 1, State::Done, None)],
+            (Shape::Lower | Shape::Alone, _) => vec![trivial("a")],
+            (Shape::Two, ExecutionStrategy::All) if in_step => vec![trivial("a")],
+            (Shape::Two, ExecutionStrategy::All) => vec![trivial("a"), trivial("b")],
+            (Shape::Two, _) => vec![trivial("?")],
+        }
+    }
+
+    fn initial(program: &str) -> String {
+        top(&format!("Lbl{program}{{}}({})", int(0)))
+    }
+
+    fn classify(program: &str, text: &str) -> State {
+        if text == initial(program) {
+            State::Pre
+        } else if text == top("Lbldone{}()") {
+            State::Done
+        } else {
+            State::Other(text.to_owned())
+        }
+    }
+
+    /// The leaves of `program` through the facade (no console).
+    fn facade_rows(
+        program: &str,
+        strategy: ExecutionStrategy,
+        modality: ResultModalityOutput,
+        stops: Stops,
+    ) -> Vec<Row> {
+        let mut backend = Backend::new(&matrix_kore(), "FU42", BackendOptions::default()).unwrap();
+        let rule = format!("FU42.{program}a");
+        let mut request = ExecuteRequest {
+            result_modality: modality,
+            strategy,
+            max_depth: Some(10),
+            ..ExecuteRequest::new(parse_pattern(&initial(program)).unwrap())
+        };
+        match stops {
+            Stops::Plain => {}
+            Stops::StopAtBranch => request.stop_at_branch = true,
+            Stops::CutPoint => request.cut_point_rules = vec![rule],
+            Stops::Terminal => request.terminal_rules = vec![rule],
+        }
+        let result = backend.execute(request).unwrap();
+        result
+            .leaves
+            .iter()
+            .map(|leaf| {
+                let reason = serde_json::to_value(leaf.reason).unwrap();
+                (
+                    reason.as_str().unwrap().to_owned(),
+                    leaf.depth,
+                    classify(program, &text(leaf)),
+                    match leaf.reason {
+                        HaltReasonOutput::Trivial => leaf.rule_label.clone(),
+                        _ => None,
+                    },
+                )
+            })
+            .collect()
+    }
+
+    /// The leaves of `program` through the console route (`krun --io on`).
+    fn console_rows(
+        program: &str,
+        strategy: ExecutionStrategy,
+        modality: ResultModalityOutput,
+        stops: Stops,
+    ) -> Vec<Row> {
+        let syntax = k_rust::kore::parser::parse_definition(&matrix_kore()).unwrap();
+        let definition = BackendDefinition::internalize(&syntax, "FU42").unwrap();
+        let internal = |text: &str| {
+            definition
+                .admit_unverified(&parse_pattern(text).unwrap(), &[])
+                .internalize_pattern()
+                .unwrap()
+        };
+        let pre = internal(&initial(program));
+        let done = internal(&top("Lbldone{}()"));
+        let rule = format!("FU42.{program}a");
+        let mut options = ExecutionOptions {
+            max_depth: 10,
+            mode: match strategy {
+                ExecutionStrategy::All => ExecutionMode::All,
+                _ => ExecutionMode::Any,
+            },
+            result_modality: match modality {
+                ResultModalityOutput::PathSet => ResultModality::PathSet,
+                _ => ResultModality::StateSet,
+            },
+            ..ExecutionOptions::default()
+        };
+        match stops {
+            Stops::Plain => {}
+            Stops::StopAtBranch => options.branch_mode = ExecutionBranchMode::StopAtBranch,
+            Stops::CutPoint => {
+                options.cut_point_rules.insert(rule);
+            }
+            Stops::Terminal => {
+                options.terminal_rules.insert(rule);
+            }
+        }
+        let result = execute_with_io_state(
+            &definition,
+            pre.clone(),
+            options,
+            ExecutionIoState::new(Vec::new()),
+        );
+        result
+            .leaves
+            .iter()
+            .map(|leaf| {
+                let state = if leaf.pattern == pre {
+                    State::Pre
+                } else if leaf.pattern == done {
+                    State::Done
+                } else {
+                    State::Other(format!("{:?}", leaf.pattern))
+                };
+                let (reason, label) = match &leaf.halt_reason {
+                    HaltReason::Stuck => ("stuck".to_owned(), None),
+                    HaltReason::Trivial { label, .. } => ("trivial".to_owned(), label.clone()),
+                    HaltReason::Vacuous { .. } => ("vacuous".to_owned(), None),
+                    HaltReason::CutPointRule { .. } => ("cut-point-rule".to_owned(), None),
+                    HaltReason::TerminalRule { .. } => ("terminal-rule".to_owned(), None),
+                    HaltReason::Branch { .. } => ("branching".to_owned(), None),
+                    other => (format!("{other:?}"), None),
+                };
+                (reason, leaf.depth, state, label)
+            })
+            .collect()
+    }
+
+    /// Whether `found` reads R: the expected rows, where an expected label `<p>?` accepts the
+    /// label of either rule of the program.
+    fn reads_r(program: &str, expected: &[Row], found: &[Row]) -> bool {
+        expected.len() == found.len()
+            && expected.iter().zip(found).all(|(expected, found)| {
+                let (reason, depth, state, label) = expected;
+                (reason, depth, state) == (&found.0, &found.1, &found.2)
+                    && match label.as_deref().and_then(|label| label.strip_suffix('?')) {
+                        None => label == &found.3,
+                        Some(_) => [format!("FU42.{program}a"), format!("FU42.{program}b")]
+                            .iter()
+                            .any(|rule| found.3.as_deref() == Some(rule.as_str())),
+                    }
+            })
+    }
+
+    /// Every execution row of the matrix reads R; the rows that do not are listed.
+    #[test]
+    fn every_execution_route_reads_a_bottom_successor_as_no_successor() {
+        let mut wrong = Vec::new();
+        let mut rows = 0;
+        for (program, route, shape) in programs() {
+            for strategy in [ExecutionStrategy::Any, ExecutionStrategy::All] {
+                for modality in [
+                    ResultModalityOutput::PathSet,
+                    ResultModalityOutput::StateSet,
+                ] {
+                    for stops in STOPS {
+                        for console in [false, true] {
+                            rows += 1;
+                            let expected =
+                                expected(&program, shape, strategy, route.in_step || console);
+                            let found = if console {
+                                console_rows(&program, strategy, modality, stops)
+                            } else {
+                                facade_rows(&program, strategy, modality, stops)
+                            };
+                            if !reads_r(&program, &expected, &found) {
+                                wrong.push(format!(
+                                    "{program} ({}, {shape:?}) {strategy:?} {modality:?} {stops:?} io {}: {found:?}, expected {expected:?}",
+                                    route.name,
+                                    if console { "on" } else { "off" },
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(rows, 7 * 4 * 2 * 2 * 4 * 2);
+        assert!(
+            wrong.is_empty(),
+            "{} of {rows} rows do not read R:\n{}",
+            wrong.len(),
+            wrong.join("\n")
+        );
+    }
+
+    /// A search reads a `\bottom` successor as no state, and an undefined step as no result:
+    /// from each program the states found, by depth and configuration, in each search mode.
+    #[test]
+    fn every_search_mode_reads_a_bottom_successor_as_no_state() {
+        let mut wrong = Vec::new();
+        for (program, route, shape) in programs() {
+            let mut backend =
+                Backend::new(&matrix_kore(), "FU42", BackendOptions::default()).unwrap();
+            let request = |search_type| SearchRequest {
+                search_type,
+                max_depth: Some(10),
+                ..SearchRequest::new(parse_pattern(&initial(&program)).unwrap())
+            };
+            let states = |value: serde_json::Value, field: &str| {
+                let mut states = value[field]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|state| {
+                        let printed = Printer::compact()
+                            .print_pattern(&codec::from_value(&state["state"]).unwrap());
+                        (
+                            state["depth"].as_u64().unwrap(),
+                            classify(&program, &printed),
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                states.sort_by_key(|state| format!("{state:?}"));
+                assert!(
+                    value["incomplete"].as_array().unwrap().is_empty(),
+                    "{program}: {value:#}"
+                );
+                states
+            };
+            let covering = shape == Shape::Covering;
+            for (mode, search_type, expected) in [
+                (
+                    "final",
+                    SearchTypeArg::Final,
+                    if covering {
+                        vec![(1, State::Done)]
+                    } else {
+                        vec![]
+                    },
+                ),
+                (
+                    "all",
+                    SearchTypeArg::All,
+                    if covering {
+                        vec![(0, State::Pre), (1, State::Done)]
+                    } else {
+                        vec![(0, State::Pre)]
+                    },
+                ),
+                (
+                    "one step",
+                    SearchTypeArg::OneStep,
+                    if covering {
+                        vec![(1, State::Done)]
+                    } else {
+                        vec![]
+                    },
+                ),
+                (
+                    "one or more steps",
+                    SearchTypeArg::OneOrMoreSteps,
+                    if covering {
+                        vec![(1, State::Done)]
+                    } else {
+                        vec![]
+                    },
+                ),
+            ] {
+                let found = states(
+                    serde_json::to_value(backend.search(request(search_type)).unwrap()).unwrap(),
+                    "states",
+                );
+                if found != expected {
+                    wrong.push(format!(
+                        "{program} ({}, {shape:?}) search {mode}: {found:?}, expected {expected:?}",
+                        route.name
+                    ));
+                }
+            }
+            let found = states(
+                serde_json::to_value(backend.search_paths(request(SearchTypeArg::Final)).unwrap())
+                    .unwrap(),
+                "witnesses",
+            );
+            let expected = if covering {
+                vec![(1, State::Done)]
+            } else {
+                vec![]
+            };
+            if found != expected {
+                wrong.push(format!(
+                    "{program} ({}, {shape:?}) path search: {found:?}, expected {expected:?}",
+                    route.name
+                ));
+            }
+        }
+        assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+    }
 }

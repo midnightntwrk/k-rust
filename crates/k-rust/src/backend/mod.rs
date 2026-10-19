@@ -776,7 +776,10 @@ pub enum HaltReasonOutput {
     Trivial,
     /// The path's constraint was shown unsatisfiable, so the leaf has no instance: it simplified
     /// to `false`, or a solver answered `Unsat` for it, which refutes it because the constraint
-    /// is definedness-explicit (see [`ExecutionLeaf`]).
+    /// is definedness-explicit (see [`ExecutionLeaf`]). A step's successor that normalizes to
+    /// `\bottom` is no successor, so it is reported as the step's `Trivial` leaf, or not at all
+    /// where another candidate takes its instances; a `Vacuous` leaf is the initial state, a
+    /// remainder, or the successor of a step whose pre-step state itself had no instance.
     Vacuous,
     Branch,
     CutPoint,

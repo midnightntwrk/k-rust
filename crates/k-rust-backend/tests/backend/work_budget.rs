@@ -753,8 +753,9 @@ fn a_vacuous_successor_is_not_expanded_and_a_deferred_initial_vacuity_is() {
 ///   right-hand side's definedness itself and answers `trivial`, so the undefined successor is
 ///   never a state of its own: one state visited, one expanded;
 /// - `R = dead("x")`, `dead` total: no term is undefined, so the successor is a state whose term
-///   simplification takes it to `\bottom`; the step's first guard answers it `vacuous` without
-///   matching a rule, and it is expanded: two states visited, two expanded.
+///   simplification takes it to `\bottom`; it denotes no state, so its normalization ends it as
+///   the undefined step of the configuration before the step (`trivial` at depth 0), before any
+///   step of its own: two states visited, one expanded.
 #[test]
 fn every_answer_of_the_step_is_an_expansion_a_guard_answer_included() {
     let shell = |symbols: &str, axioms: &str| {
@@ -805,15 +806,16 @@ fn every_answer_of_the_step_is_an_expansion_a_guard_answer_included() {
             0,
             (1, 1),
         ),
-        // `dead` is total: no term is undefined, and the step's guard answers.
+        // `dead` is total: no term is undefined, and the successor's normalization finds it
+        // `\bottom`.
         (
             shell(
                 "symbol dead{}(SortS{}) : SortS{} [function{}(), total{}()]",
                 &format!("{bottom_equation}{to_dead}"),
             ),
-            "vacuous",
-            1,
-            (2, 2),
+            "trivial",
+            0,
+            (2, 1),
         ),
     ];
     for (definition, halt, depth, counts) in cases {

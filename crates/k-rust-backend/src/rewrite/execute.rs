@@ -926,6 +926,17 @@ impl<'a> Execution<'a> {
                 if matches!(halt_reason, HaltReason::Trivial { .. }) {
                     return self.undefined_step_leaf(state, halt_reason).map(|()| None);
                 }
+                // A successor that denotes no state is no successor of its step, however its
+                // constraints became `\bottom`: the step is undefined on the instances no other
+                // candidate takes to a defined successor. Only a pre-step state that itself has
+                // no instance keeps the `Vacuous` leaf, at this state's depth.
+                if state.producer.is_some() {
+                    let undefined = trivial_halt(state.depth, &state.pattern);
+                    return match self.bottom_successor_leaf(state, undefined)? {
+                        None => Ok(None),
+                        Some(state) => Err(state.leaf(halt_reason, &self.observation_log)),
+                    };
+                }
                 return Err(state.leaf(halt_reason, &self.observation_log));
             }
         }
@@ -1006,8 +1017,9 @@ impl<'a> Execution<'a> {
             Err(stop) => return Err(self.stopped_leaf(state, stop)),
         };
         let mut state = self.check_interrupted(state)?;
-        let (undefined_term, contradicted_total) = match simplified {
+        let (undefined_term, contradicted_total, found_bottom) = match simplified {
             Ok(simplified) => {
+                let found_bottom = simplified.bottom.as_ref().map(|found| found.term.clone());
                 let simplified = simplified.into_parts();
                 let undefined_term = simplified.undefined_term.clone();
                 let contradicted_total = simplified.contradicted_total.clone();
@@ -1037,7 +1049,7 @@ impl<'a> Execution<'a> {
                                 unique_id,
                             }),
                     );
-                (undefined_term, contradicted_total)
+                (undefined_term, contradicted_total, found_bottom)
             }
             Err(error) => {
                 return Err(state.leaf(HaltReason::Simplification(error), &self.observation_log));
@@ -1106,6 +1118,19 @@ impl<'a> Execution<'a> {
                 contradicted_total,
             };
             return self.undefined_step_leaf(state, halt_reason).map(|()| None);
+        }
+        // Any other `\bottom` the term simplification conjoined (an equation whose own result is
+        // `\bottom`, a refuted equation `ensures`) makes the successor denote no state as well:
+        // it is no successor of its step, as above. A pre-step state that itself has no instance
+        // goes on as an empty state, whose step reports it `Vacuous`.
+        if predicates_truth(&state.pattern.constraints) == Truth::False && state.producer.is_some()
+        {
+            let undefined = term_phase_undefinedness(None, None, found_bottom, &state.pattern)
+                .halt(state.depth);
+            match self.bottom_successor_leaf(state, undefined)? {
+                None => return Ok(None),
+                Some(empty) => state = empty,
+            }
         }
         if let Some(execution) = io_evaluation {
             state.io = execution.commit();
@@ -1570,16 +1595,6 @@ impl<'a> Execution<'a> {
                 extend_distinct(&mut applied.diagnostics, &diagnostics);
                 match simplified {
                     Ok(Ok(simplified)) => {
-                        let discarded_id = self
-                            .observation
-                            .filter(|options| {
-                                predicates_truth(&simplified.pattern.constraints) == Truth::False
-                                    && options.observes(&applied.unique_id)
-                            })
-                            .map(|_| TransitionId {
-                                rule: applied.unique_id.clone(),
-                                target: PatternDigest::of(&applied.pattern),
-                            });
                         applied.pattern = simplified.pattern;
                         applied.effects.extend(simplified.effects);
                         if predicates_truth(&applied.pattern.constraints) != Truth::False {
@@ -1587,8 +1602,9 @@ impl<'a> Execution<'a> {
                             simplified_branches.push((applied, observation));
                             continue;
                         }
-                        // An empty candidate is no successor; an undefined one is an undefined
-                        // step of this state, reported below once every candidate is known.
+                        // A candidate normalized to `\bottom` is no successor, however the
+                        // `\bottom` was found: an undefined step of this state where no defined
+                        // candidate applies, reported below once every candidate is known.
                         let io = applied
                             .io
                             .as_ref()
@@ -1615,15 +1631,15 @@ impl<'a> Execution<'a> {
                             Ok(Some(undefined)) => {
                                 undefined_candidates.push((applied, built, undefined));
                             }
+                            // The successor's own normalization did not finish, or did not
+                            // reach `\bottom`; this one did, so the obligation named is its
+                            // false constraint.
                             Ok(None) => {
-                                if let Some(id) = discarded_id {
-                                    self.discarded.push(UncommittedObservation {
-                                        id,
-                                        rule_label: applied.label,
-                                        effects: applied.effects,
-                                        reason: UncommittedReason::RolledBack,
-                                    });
-                                }
+                                let undefined = UndefinedSuccessor {
+                                    obligation: super::false_constraint(&applied.pattern),
+                                    contradicted_total: None,
+                                };
+                                undefined_candidates.push((applied, built, undefined));
                             }
                             Err(stop) => return Err(self.stopped_leaf(state, stop)),
                         }
@@ -1669,9 +1685,14 @@ impl<'a> Execution<'a> {
                     defined_siblings: defined_successors.clone(),
                     normalization: None,
                 };
-                match self.producer_leaf(diagnostics, &producer, undefined.halt(state.depth + 1)) {
-                    Ok(Some(leaf)) => self.leaves.push(leaf),
-                    Ok(None) => {}
+                match self.producer_leaf(
+                    diagnostics,
+                    &producer,
+                    undefined.halt(state.depth + 1),
+                    false,
+                ) {
+                    Ok(StepLeaf::Leaf(leaf)) => self.leaves.push(*leaf),
+                    Ok(StepLeaf::Covered | StepLeaf::NoInstance) => {}
                     Err(stop) => return Err(self.stopped_leaf(state, stop)),
                 }
             }
@@ -1878,16 +1899,46 @@ impl<'a> Execution<'a> {
         let Some(producer) = state.producer.take() else {
             return Err(state.leaf(halt_reason, &self.observation_log));
         };
-        match self.producer_leaf(state.diagnostics.clone(), &producer, halt_reason) {
-            Ok(Some(leaf)) => Err(leaf),
-            Ok(None) => Ok(()),
+        match self.producer_leaf(state.diagnostics.clone(), &producer, halt_reason, false) {
+            Ok(StepLeaf::Leaf(leaf)) => Err(*leaf),
+            Ok(StepLeaf::Covered | StepLeaf::NoInstance) => Ok(()),
+            Err(stop) => Err(self.stopped_leaf(state, stop)),
+        }
+    }
+
+    /// [`Self::undefined_step_leaf`] for `state`, a successor that denotes no state although its
+    /// result shows no undefined builtin application or refuted definedness obligation (its
+    /// constraints, or the conditions its term simplification conjoined, are `\bottom`): its
+    /// step's `Trivial` leaf as `Err`, or `Ok(None)` when no instance is left undefined, as for
+    /// any undefined successor. When the configuration the step was taken from itself has no
+    /// instance, which only this normalization exposed, there is no step to be undefined:
+    /// `Ok(Some(state))` gives the state back, with its producer, for the `Vacuous` leaf that
+    /// reports an empty state.
+    fn bottom_successor_leaf(
+        &mut self,
+        mut state: ExecutionState,
+        halt_reason: HaltReason,
+    ) -> Phase<Option<ExecutionState>> {
+        let Some(producer) = state.producer.take() else {
+            return Ok(Some(state));
+        };
+        match self.producer_leaf(state.diagnostics.clone(), &producer, halt_reason, true) {
+            Ok(StepLeaf::Leaf(leaf)) => Err(*leaf),
+            Ok(StepLeaf::Covered) => Ok(None),
+            Ok(StepLeaf::NoInstance) => {
+                state.producer = Some(producer);
+                Ok(Some(state))
+            }
             Err(stop) => Err(self.stopped_leaf(state, stop)),
         }
     }
 
     /// The `Trivial` leaf of `producer`'s step, whose successor is undefined (`halt_reason`, at
-    /// the successor's depth); `None` when no instance is left undefined. `diagnostics` are the
-    /// path's up to the finding.
+    /// the successor's depth); [`StepLeaf::Covered`] when no instance is left undefined.
+    /// `diagnostics` are the path's up to the finding. With `empty_parent`, a step none of whose
+    /// instances is left undefined is also asked whether the pattern it was applied to has any
+    /// instance at all, and [`StepLeaf::NoInstance`] says it has none; the step's events are then
+    /// not rolled back, since the caller reports the successor as an empty state.
     ///
     /// The leaf is the configuration the step was taken from, at that configuration's depth and
     /// on its path extended by the higher-priority remainder simplifications the candidate went
@@ -1901,7 +1952,8 @@ impl<'a> Execution<'a> {
         mut diagnostics: PathDiagnostics,
         producer: &Producer,
         halt_reason: HaltReason,
-    ) -> Stoppable<Option<ExecutionLeaf>> {
+        empty_parent: bool,
+    ) -> Stoppable<StepLeaf> {
         let bound = pattern_variables(&producer.before);
         let mut constraints = producer.before.constraints.clone();
         let branch = beyond(
@@ -1975,6 +2027,9 @@ impl<'a> Execution<'a> {
                     .is_sat(&pattern.constraints, &Substitution::new())?,
                 Ok(Satisfiability::Unsat)
             );
+        if empty && empty_parent && self.has_no_instance(&producer.before)? {
+            return Ok(StepLeaf::NoInstance);
+        }
         if let Some(options) = self.observation
             && options.observes(&producer.rule_id)
         {
@@ -1989,7 +2044,7 @@ impl<'a> Execution<'a> {
             });
         }
         if empty {
-            return Ok(None);
+            return Ok(StepLeaf::Covered);
         }
         let halt_reason = match halt_reason {
             HaltReason::Trivial {
@@ -2034,11 +2089,43 @@ impl<'a> Execution<'a> {
                     }),
             );
         }
-        Ok(Some(leaf.leaf_with_pattern(
+        Ok(StepLeaf::Leaf(Box::new(leaf.leaf_with_pattern(
             pattern,
             halt_reason,
             &self.observation_log,
-        )))
+        ))))
+    }
+
+    /// Whether `pattern`'s constraints are shown to have no model: simplified to `\bottom`, or
+    /// unsatisfiable to the solver. The answer only chooses how an empty successor is reported,
+    /// so the work is taken aside: what it observes reaches no path and no list, what it emits is
+    /// dropped, and it covers nothing.
+    fn has_no_instance(&self, pattern: &Pattern) -> Stoppable<bool> {
+        let simplified = crate::coverage::suspend(|| {
+            crate::path_facts::aside(|| {
+                diagnostic::buffer(|| {
+                    simplify_predicates_with_solver(
+                        self.definition,
+                        &pattern.constraints,
+                        &[],
+                        SimplificationOptions::keep_partial(
+                            self.options.max_simplification_iterations,
+                        ),
+                        self.solver,
+                    )
+                })
+                .0
+            })
+        });
+        let constraints = match simplified? {
+            Ok(simplified) => simplified,
+            Err(_failure) => pattern.constraints.clone(),
+        };
+        Ok(predicates_truth(&constraints) == Truth::False
+            || matches!(
+                self.solver.is_sat(&constraints, &Substitution::new())?,
+                Ok(Satisfiability::Unsat)
+            ))
     }
 
     /// The `Trivial` leaf of `entry`, a bottom-result sub-case of the step `state` took: the
@@ -2660,6 +2747,17 @@ pub(crate) struct ResultPatternSimplification {
     pub(crate) effects: Vec<BuiltinEffect>,
 }
 
+/// What [`Execution::producer_leaf`] makes of a step whose successor is undefined.
+enum StepLeaf {
+    /// The step's `Trivial` leaf over the instances it leaves undefined.
+    Leaf(Box<ExecutionLeaf>),
+    /// No instance is left undefined: the step's other candidates take every instance this one
+    /// applies to, or it applies to none.
+    Covered,
+    /// The pattern the step was applied to has no instance at all.
+    NoInstance,
+}
+
 /// Why a successor is undefined: the definedness obligation that fails and, when an equation of
 /// a `total` symbol produced the undefined term, that contradiction.
 pub(crate) struct UndefinedSuccessor {
@@ -2758,12 +2856,15 @@ impl std::fmt::Debug for SuccessorNormalization {
 /// It runs, with no effect on the run, the phases a successor state goes through before its next
 /// step, with the same simplifier and options, so they decide alike and their results are the
 /// state's: the substitution is normalized and the constraints simplified
-/// (`Execution::normalise_constraints`), where a `\bottom` that refutes a definedness condition
-/// the step added makes the successor undefined; then the term is simplified under them
+/// (`Execution::normalise_constraints`), then the term is simplified under them
 /// (`Execution::simplify_term`), with the console evaluation of `io` when the successor admits
-/// one, where a subterm reduced to `\bottom` with the constraints `\bottom` makes it undefined.
-/// A successor that is only empty, or whose simplification fails, is not shown undefined.
-/// Diagnostics are not emitted; the normalization holds them.
+/// one. Constraints that either phase makes `\bottom` show the successor undefined, however the
+/// `\bottom` was found: a successor that denotes no state is no successor of its step. The
+/// obligation named is the definedness condition the step added that the constraints refute,
+/// else the undefined term (with the contradicted `total` attribute that produced it), else the
+/// term where the simplification found `\bottom` (an equation whose own result is `\bottom`, a
+/// refuted equation `ensures`), else the false constraint. A successor whose simplification
+/// fails is not shown undefined. Diagnostics are not emitted; the normalization holds them.
 ///
 /// A contradicted `preserves-definedness` of the rule whose work the normalization is
 /// (`crate::path_facts::observed_by`) is noted when its result term is found `\bottom`
@@ -2840,17 +2941,18 @@ fn normalize_successor_with(
     pattern.constraints = constraints;
     normalize_pattern_substitution(&mut pattern, definition.sort_graph());
     if predicates_truth(&pattern.constraints) == Truth::False {
+        // The successor denotes no state: the obligation named is the definedness condition the
+        // step added that the constraints refute, else the false constraint.
+        let obligation = added
+            .into_iter()
+            .find(|predicate| matches!(predicate, Predicate::Ceil(_) | Predicate::Defined(_)))
+            .unwrap_or_else(|| super::false_constraint(&pattern));
         return Ok((
             SuccessorCheck {
-                undefined: added
-                    .into_iter()
-                    .find(|predicate| {
-                        matches!(predicate, Predicate::Ceil(_) | Predicate::Defined(_))
-                    })
-                    .map(|obligation| UndefinedSuccessor {
-                        obligation,
-                        contradicted_total: None,
-                    }),
+                undefined: Some(UndefinedSuccessor {
+                    obligation,
+                    contradicted_total: None,
+                }),
                 normalization: Some(normalization),
             },
             None,
@@ -2892,29 +2994,57 @@ fn normalize_successor_with(
     let Ok(simplified) = simplified? else {
         return Ok((failed, None));
     };
+    let found_bottom = simplified.bottom.as_ref().map(|found| found.term.clone());
     let parts = simplified.clone().into_parts();
     normalization.term = Some(TermNormalization {
         simplified,
         diagnostics,
         io: evaluation.map(|evaluation| evaluation.commit()),
     });
-    let mut constraints = pattern.constraints;
-    constraints.extend(parts.conditions);
+    pattern.constraints.extend(parts.conditions);
     Ok((
         SuccessorCheck {
-            undefined: match parts.undefined_term {
-                Some(term) if predicates_truth(&constraints) == Truth::False => {
-                    Some(UndefinedSuccessor {
-                        obligation: Predicate::Ceil(term),
-                        contradicted_total: parts.contradicted_total,
-                    })
-                }
-                _ => None,
-            },
+            undefined: (predicates_truth(&pattern.constraints) == Truth::False).then(|| {
+                term_phase_undefinedness(
+                    parts.undefined_term,
+                    parts.contradicted_total,
+                    found_bottom,
+                    &pattern,
+                )
+            }),
             normalization: Some(normalization),
         },
         bottom,
     ))
+}
+
+/// Why a successor whose term simplification, under the constraints and the conditions it
+/// conjoined (`normalized`'s), made it `\bottom` is undefined: the undefined term, with the
+/// contradicted `total` attribute that produced it, else the term where the simplification found
+/// `\bottom` (`Simplification::bottom`: an equation whose own result is `\bottom`, a refuted
+/// equation `ensures`, any other conjoined `\bottom`), else the false constraint. How the
+/// `\bottom` was found is diagnosis only: the successor denotes no state either way.
+/// `contradictedTotal` names an undefined builtin result only.
+fn term_phase_undefinedness(
+    undefined_term: Option<crate::term::Term>,
+    contradicted_total: Option<Box<ContradictedTotal>>,
+    found_bottom: Option<crate::term::Term>,
+    normalized: &Pattern,
+) -> UndefinedSuccessor {
+    match (undefined_term, found_bottom) {
+        (Some(term), _) => UndefinedSuccessor {
+            obligation: Predicate::Ceil(term),
+            contradicted_total,
+        },
+        (None, Some(term)) => UndefinedSuccessor {
+            obligation: Predicate::Ceil(term),
+            contradicted_total: None,
+        },
+        (None, None) => UndefinedSuccessor {
+            obligation: super::false_constraint(normalized),
+            contradicted_total: None,
+        },
+    }
 }
 
 /// Note a contradicted `preserves-definedness` (`crate::path_facts::note_contradicted_preservation`)

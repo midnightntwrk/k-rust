@@ -763,6 +763,12 @@ pub enum HaltReason {
         /// the definition only: the leaf is the same with or without it.
         contradicted_total: Option<Box<ContradictedTotal>>,
     },
+    /// A state with no instance: its constraints were shown `\bottom`. A step's successor that
+    /// normalizes to `\bottom`, however that is found, denotes no state and is no successor: it
+    /// is the step's `Trivial` leaf, or no leaf where another candidate of the step takes its
+    /// instances. So a `Vacuous` leaf is an initial configuration with no instance, a state no
+    /// step's candidate built (a remainder), or the successor of a step whose pre-step
+    /// configuration itself has no instance, which only the successor's normalization exposed.
     Vacuous {
         /// Semantic depth at which the path constraint became false.
         depth: u64,

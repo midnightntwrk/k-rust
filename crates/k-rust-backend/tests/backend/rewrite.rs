@@ -3773,7 +3773,12 @@ fn ground_io_candidates_are_rejected_without_touching_the_retained_cursor_across
 }
 
 /// T16 / cut_terminal. Both complete results captured at 40b5d6d214cdd833e027a814744d9f98c5e7542d;
-/// re-pinned after the branch-stop fix, where the sole surviving candidate honours the stop rules.
+/// re-pinned after the branch-stop fix, where the sole surviving candidate honours the stop rules,
+/// and again when a candidate whose successor normalizes to `\bottom` became the undefined step of
+/// its instances rather than a dropped candidate: `first-dead`'s result `dead(tag(10))` is
+/// `\bottom` through `dead`'s equation, so the instances `X <Int 0`, where it applies and blocks
+/// `stop`, are its `Trivial` leaf at depth 0 (one more satisfiability query, the leaf's), before
+/// the stop rule's leaf.
 #[test]
 fn cut_point_and_terminal_rules_after_a_cascade_that_leaves_one_survivor() {
     let definition = be08_portable_definition(
@@ -3795,7 +3800,7 @@ fn cut_point_and_terminal_rules_after_a_cascade_that_leaves_one_survivor() {
         "#,
     );
     // The step after the survivor is no longer taken, so its validity query is not asked.
-    let cut_solver = be08_indeterminate_solver(1, 2);
+    let cut_solver = be08_indeterminate_solver(2, 2);
     let cut = execute_with_solver(
         &definition,
         be08_portable_subject(&definition),
@@ -3806,7 +3811,7 @@ fn cut_point_and_terminal_rules_after_a_cascade_that_leaves_one_survivor() {
         },
         &cut_solver,
     );
-    let terminal_solver = be08_indeterminate_solver(1, 2);
+    let terminal_solver = be08_indeterminate_solver(2, 2);
     let terminal = execute_with_solver(
         &definition,
         be08_portable_subject(&definition),
@@ -3825,7 +3830,7 @@ fn cut_point_and_terminal_rules_after_a_cascade_that_leaves_one_survivor() {
             &terminal,
             &*terminal_solver.transcript.borrow(),
         ),
-        "30c2bd9a80b3462b86f8b86d67349835b56214ad5e3435adfc7bd41e2550835f",
+        "30567b2729e430395841a192df09a6d177c0ff4a89b14af2cee62f4783b45ff8",
     );
     assert!(cut_solver.answers.borrow().is_empty());
     assert!(cut_solver.validity.borrow().is_empty());
@@ -3833,10 +3838,17 @@ fn cut_point_and_terminal_rules_after_a_cascade_that_leaves_one_survivor() {
     assert!(terminal_solver.validity.borrow().is_empty());
 
     // The cascade leaves `stop` as the only candidate, the unique successor of the state: the
-    // cut point stops before it and the terminal rule stops after it.
-    let [cut_leaf] = cut.leaves.as_slice() else {
-        panic!("expected one cut-point leaf: {cut:#?}");
+    // cut point stops before it and the terminal rule stops after it. `first-dead`'s instances
+    // are its undefined step, at depth 0, first.
+    let undefined_step = |leaf: &ExecutionLeaf| {
+        leaf.depth == 0
+            && matches!(&leaf.halt_reason, HaltReason::Trivial { label, .. }
+                if label.as_deref() == Some("first-dead"))
     };
+    let [trivial, cut_leaf] = cut.leaves.as_slice() else {
+        panic!("expected a trivial and a cut-point leaf: {cut:#?}");
+    };
+    assert!(undefined_step(trivial), "{cut:#?}");
     assert_eq!(cut_leaf.depth, 0);
     let HaltReason::CutPointRule { rule, next_states } = &cut_leaf.halt_reason else {
         panic!("expected a cut-point halt: {:?}", cut_leaf.halt_reason);
@@ -3846,9 +3858,10 @@ fn cut_point_and_terminal_rules_after_a_cascade_that_leaves_one_survivor() {
         panic!("expected one proposed successor: {next_states:?}");
     };
     assert_eq!(proposed.unique_id, "stop");
-    let [terminal_leaf] = terminal.leaves.as_slice() else {
-        panic!("expected one terminal leaf: {terminal:#?}");
+    let [trivial, terminal_leaf] = terminal.leaves.as_slice() else {
+        panic!("expected a trivial and a terminal leaf: {terminal:#?}");
     };
+    assert!(undefined_step(trivial), "{terminal:#?}");
     assert_eq!(terminal_leaf.depth, 1);
     assert_eq!(
         terminal_leaf.halt_reason,
