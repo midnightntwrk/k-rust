@@ -37,8 +37,8 @@ use super::{
         id_differences, normal_definition, normal_pattern,
     },
     rename::{
-        Strategy, rename_binders, rename_sentence, renamed_occurrences, sentence_terms,
-        variable_names,
+        Strategy, rename_binders, rename_sentence, rename_variable, renamed_occurrences,
+        sentence_terms, variable_names,
     },
 };
 
@@ -83,6 +83,17 @@ pub struct Twin {
     /// The bound name the twin renames and the name it gives it: the one pair of names in which
     /// the replaced text and its replacement differ.
     pub binder: (String, String),
+    /// How the base's parse is renamed for the parse stage: the quantifiers over the name, each
+    /// in its scope ([`Case::twin`]), or every occurrence of a name that is one variable of its
+    /// sentence, a local function's parameter or a free variable ([`Case::twin_variable`]).
+    pub renames: TwinRenaming,
+}
+
+/// What the parse stage of a twin renames in the base's parse.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TwinRenaming {
+    Binders,
+    Variable,
 }
 
 /// A search pattern and an alpha-variant of it, both compiled against the case's compiled
@@ -211,6 +222,47 @@ impl Case {
             name: name.to_owned(),
             text: text.replace(from, to),
             binder: pairs.remove(0),
+            renames: TwinRenaming::Binders,
+        });
+        self
+    }
+
+    /// Add the source-text twin `name`: the case's text with `from` replaced by `to`, of the same
+    /// length in bytes and in characters, which renames the variable `renamed.0`, one variable of
+    /// its sentence (a free variable or a local function's parameter) named nowhere else, to
+    /// `renamed.1`. Its parse stage compares the twin's parse with the base's parse with every
+    /// occurrence of `renamed.0` renamed.
+    pub fn twin_variable(
+        mut self,
+        name: &str,
+        from: &str,
+        to: &str,
+        renamed: (&str, &str),
+    ) -> Self {
+        let Text::Inline(text) = &self.text else {
+            panic!("{}: a twin is written beside an inline text", self.name);
+        };
+        assert!(
+            from.len() == to.len() && from.chars().count() == to.chars().count(),
+            "{}: {name} keeps every location",
+            self.name
+        );
+        assert!(
+            text.contains(from),
+            "{}: {name} renames {from:?}",
+            self.name
+        );
+        assert_eq!(
+            from.replace(renamed.0, renamed.1),
+            to,
+            "{}: {name} renames {renamed:?} only",
+            self.name
+        );
+        self.twins.push(Twin {
+            name: name.to_owned(),
+            text: text.replace(from, to),
+            binder: (renamed.0.to_owned(), renamed.1.to_owned()),
+            renames: TwinRenaming::Variable,
         });
         self
     }
@@ -923,7 +975,10 @@ fn parse_stage(
     let renamed: Vec<(String, Sentence)> = own(original, source)
         .into_iter()
         .map(|(module, mut sentence)| {
-            rename_binders(&mut sentence, from, to);
+            match twin.renames {
+                TwinRenaming::Binders => rename_binders(&mut sentence, from, to),
+                TwinRenaming::Variable => rename_variable(&mut sentence, from, to),
+            };
             (module, sentence)
         })
         .collect();

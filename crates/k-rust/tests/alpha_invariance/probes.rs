@@ -173,7 +173,85 @@ pub fn seeds() -> Vec<Case> {
     let mut cases = review_seeds();
     cases.extend(claim_seeds());
     cases.extend(freezer_seeds());
+    cases.extend(scoping_seeds());
     cases
+}
+
+/// A variable token whose spellings hold U+E000: a definition may declare one, so a name the
+/// parser mints while it infers sorts must avoid every written name, whatever its characters.
+pub const MARKED_VARIABLES: &str = "  syntax #KVariable ::= r\"[A-Z]\u{E000}[0-9]+\" [token]\n";
+
+/// The seeds of the BIND/A5 review (`code-reviews/BIND-A5.toml`), each a source twin so that the
+/// parser infers both spellings: a free variable renamed to a binder's spelling followed by U+E000
+/// and a number (coll1) or to another variable's (coll4) beside a binder the parser renames apart;
+/// an `ensures` binder spelled like the variable of a list update (luM, luL); and a local
+/// function's parameter spelled like a variable of the rule at another sort.
+fn scoping_seeds() -> Vec<Case> {
+    let mark_free = |name: &str| format!("Q\u{E000}{name}");
+    let marked = |name: &str, stem: &str| format!("{stem}\u{E000}{name}");
+    vec![
+        probe(
+            "mark-free-beside-binder",
+            "COLL",
+            &format!(
+                "{MARKED_VARIABLES}  syntax KItem ::= go2(Int, Int) | done2(Int, Int)\n  rule [p]: <k> go2(Y:Int, {q}:Int) => done2(Y, {q}) ... </k> requires #Exists Y:Int . {{Y #Equals 1}}\n",
+                q = mark_free("0")
+            ),
+            &["go2(1, 2)", "go2(2, 2)"],
+        )
+        .twin_variable(
+            "text-mark-binder",
+            &mark_free("0"),
+            &marked("0", "Y"),
+            (&mark_free("0"), &marked("0", "Y")),
+        ),
+        probe(
+            "mark-free-beside-renamed-binder",
+            "COLL",
+            &format!(
+                "{MARKED_VARIABLES}  syntax KItem ::= go3(Int, Int, Int) | done3(Int, Int, Int)\n  rule [p]: <k> go3(Y:Int, Z:Int, {q}:Int) => done3(Y, Z, {q}) ... </k> requires #Exists Y:Int . {{Y #Equals 1}}\n",
+                q = mark_free("5")
+            ),
+            &["go3(1, 2, 3)", "go3(1, 2, 2)"],
+        )
+        .twin_variable(
+            "text-mark-other",
+            &mark_free("5"),
+            &marked("5", "Z"),
+            (&mark_free("5"), &marked("5", "Z")),
+        ),
+        probe(
+            "list-update-ensures-binder",
+            "LU",
+            "  imports LIST\n  syntax KItem ::= gol(List) | done(Int)\n  rule [p]: <k> gol(L:List [ 0 <- 2 ]) => done(1) ... </k> ensures #Exists M:List . {M #Equals .List}\n",
+            &["gol(ListItem(2))", "gol(ListItem(5))"],
+        )
+        .twin("text-shadow-list", "#Exists M:List . {M", "#Exists L:List . {L"),
+        probe(
+            "fun-parameter-other-sort",
+            "LAMB",
+            "  syntax KItem ::= gob(Bool, Int) | done(Int)\n  rule [p]: <k> gob(X:Bool, N) => done(#fun(Z:Int => Z +Int 1)(N)) ... </k> requires X\n",
+            &["gob(true, 3)", "gob(false, 3)"],
+        )
+        .twin_variable(
+            "text-shadow-parameter",
+            "#fun(Z:Int => Z",
+            "#fun(X:Int => X",
+            ("Z", "X"),
+        ),
+        probe(
+            "let-parameter-other-sort",
+            "LETB",
+            "  syntax KItem ::= gob(Bool, Int) | done(Int)\n  rule [p]: <k> gob(X:Bool, N) => done(#let Z:Int = N #in Z +Int 1) ... </k> requires X\n",
+            &["gob(true, 3)", "gob(false, 3)"],
+        )
+        .twin_variable(
+            "text-shadow-parameter",
+            "#let Z:Int = N #in Z",
+            "#let X:Int = N #in X",
+            ("Z", "X"),
+        ),
+    ]
 }
 
 /// The seeds of the BIND/A7 review (`code-reviews/BIND-A7.toml`): contexts whose freezer holds

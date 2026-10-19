@@ -5359,6 +5359,211 @@ fn reference_alias_variable_under_a_production_is_cast_at_the_argument_sort() {
     );
 }
 
+/// The rules of module `B` over `go(Int)` and `done(Int)` whose only rule is `rule`, each as
+/// `body requires condition ensures condition`, or the load error.
+fn scoped_binder_rules(rule: &str) -> Result<Vec<String>, String> {
+    scoped_binder_rules_with("", rule)
+}
+
+/// [`scoped_binder_rules`] with the productions `syntax` added to module `B`.
+fn scoped_binder_rules_with(syntax: &str, rule: &str) -> Result<Vec<String>, String> {
+    let source = format!(
+        "module B\n  imports INT\n  imports BOOL\n  syntax KItem ::= go(Int) | done(Int)\n{syntax}  {rule}\nendmodule\n"
+    );
+    let loaded = load_with_prelude(&source, "b.k", "B").map_err(|error| error.to_string())?;
+    Ok(loaded
+        .definition()
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match &**sentence {
+            Sentence::Rule {
+                body,
+                requires,
+                ensures,
+                attributes,
+            } if attributes.source() == Some("b.k") => {
+                Some(format!("{body} requires {requires} ensures {ensures}"))
+            }
+            _ => None,
+        })
+        .collect())
+}
+
+/// A quantifier binds its variable in its body only, so a binder is a variable of its own, with
+/// its own sort, wherever another variable of the rule has its spelling (FU-39): the rule parses
+/// exactly as its alpha-variant with the binder renamed apart does, the binder spelled as written.
+#[test]
+fn a_binder_takes_its_own_sort_beside_a_variable_of_its_spelling() {
+    let parse = |rule: &str| {
+        scoped_binder_rules(rule)
+            .unwrap_or_else(|error| panic!("{rule}: {error}"))
+            .join("\n")
+    };
+    for (shadowing, apart, bound) in [
+        // vireview/shsort: the left side's `Y:Int` beside a `Y:Bool` binder.
+        (
+            "rule [p]: <k> go(Y:Int) => done(Y) ... </k> requires #Exists Y:Bool . {Y #Equals true}",
+            "rule [p]: <k> go(Y:Int) => done(Y) ... </k> requires #Exists Fresh:Bool . {Fresh #Equals true}",
+            "Y",
+        ),
+        // vireview/twosort: two sibling binders, one at Int and one at Bool.
+        (
+            "rule [p]: <k> go(X) => done(X) ... </k> requires (#Exists Y:Int . {Y #Equals 1}) #And (#Exists Y:Bool . {Y #Equals true})",
+            "rule [p]: <k> go(X) => done(X) ... </k> requires (#Exists Y:Int . {Y #Equals 1}) #And (#Exists Fresh:Bool . {Fresh #Equals true})",
+            "Y",
+        ),
+        // A nested binder of the outer binder's spelling, at another sort.
+        (
+            "rule [p]: <k> go(X) => done(X) ... </k> requires #Exists Y:Int . ({Y #Equals X} #And (#Exists Y:Bool . {Y #Equals true}))",
+            "rule [p]: <k> go(X) => done(X) ... </k> requires #Exists Y:Int . ({Y #Equals X} #And (#Exists Fresh:Bool . {Fresh #Equals true}))",
+            "Y",
+        ),
+        // An unannotated binder is inferred from its own body only, not from the left side.
+        (
+            "rule [p]: <k> go(X:Int) => done(X) ... </k> requires #Exists X . {X #Equals 1}",
+            "rule [p]: <k> go(X:Int) => done(X) ... </k> requires #Exists Fresh . {Fresh #Equals 1}",
+            "X",
+        ),
+        (
+            "rule [p]: <k> go(X:Int) => done(X) ... </k> ensures #Exists X . {X #Equals 1}",
+            "rule [p]: <k> go(X:Int) => done(X) ... </k> ensures #Exists Fresh . {Fresh #Equals 1}",
+            "X",
+        ),
+    ] {
+        let renamed = parse(apart);
+        assert!(renamed.contains("Fresh"), "{renamed}");
+        assert_eq!(
+            parse(shadowing),
+            renamed.replace("Fresh", bound),
+            "{shadowing}"
+        );
+    }
+}
+
+/// The free occurrences of a binder's spelling keep the sort of their own variable, and a
+/// rejection inside a binder's scope names the variable as written.
+#[test]
+fn a_binder_leaves_the_free_variable_of_its_spelling_alone() {
+    let rules = scoped_binder_rules(
+        "rule [p]: <k> go(Y:Int) => done(Y) ... </k> requires #Exists Y:Bool . {Y #Equals true}",
+    )
+    .unwrap_or_else(|error| panic!("{error}"));
+    let [rule] = rules.as_slice() else {
+        panic!("{rules:?}")
+    };
+    assert!(rule.contains("(#SemanticCastToInt(Y))=>"), "{rule}");
+    assert!(rule.contains("#Exists(#SemanticCastToBool(Y)"), "{rule}");
+    let error = scoped_binder_rules(
+        "rule [p]: <k> go(Y:Int) => done(Y) ... </k> requires #Exists Y:Bool . {Y +Int 1 #Equals 2}",
+    )
+    .unwrap_err();
+    assert!(error.contains("could not parse rule"), "{error}");
+    // No spelling the parser gives a binder while it infers sorts reaches the message.
+    assert!(
+        error.is_ascii() && !error.to_ascii_lowercase().contains("e000"),
+        "{error}"
+    );
+}
+
+/// A definition may declare variable tokens that spell names with any character, U+E000
+/// included; this one makes `Y\u{E000}0` and the like writable variables.
+const MARKED_VARIABLES: &str = "  syntax #KVariable ::= r\"[A-Z]\u{E000}[0-9]+\" [token]\n  syntax KItem ::= go2(Int, Int) | done2(Int, Int) | go3(Int, Int, Int) | done3(Int, Int, Int)\n";
+
+/// The rules `rule` and `apart`, its alpha-variant with one binder spelled `Fresh` instead of
+/// `bound`, parse alike: `rule` exactly as `apart` with `Fresh` written `bound`.
+fn assert_parses_as_renamed_apart(syntax: &str, rule: &str, apart: &str, bound: &str) {
+    let parse = |rule: &str| {
+        scoped_binder_rules_with(syntax, rule)
+            .unwrap_or_else(|error| panic!("{rule}: {error}"))
+            .join("\n")
+    };
+    let renamed = parse(apart);
+    assert!(renamed.contains("Fresh"), "{renamed}");
+    assert_eq!(parse(rule), renamed.replace("Fresh", bound), "{rule}");
+}
+
+/// The names the parser gives binders while it infers sorts are names no variable of the rule
+/// has, whatever spellings the definition's variable tokens allow: a binder renamed apart never
+/// merges with a written variable, and every written variable keeps its name (code review
+/// BIND/A5, probes coll1 and coll4).
+#[test]
+fn a_binder_renamed_apart_never_takes_a_written_name() {
+    for (rule, apart, bound) in [
+        // coll1: a free variable spelled like the binder followed by U+E000 and a number.
+        (
+            "rule [p]: <k> go2(Y:Int, Y\u{E000}0:Int) => done2(Y, Y\u{E000}0) ... </k> requires #Exists Y:Int . {Y #Equals 1}",
+            "rule [p]: <k> go2(Y:Int, Y\u{E000}0:Int) => done2(Y, Y\u{E000}0) ... </k> requires #Exists Fresh:Int . {Fresh #Equals 1}",
+            "Y",
+        ),
+        // coll4: a free variable spelled like another variable followed by U+E000 and a number,
+        // in a rule where a binder is renamed apart.
+        (
+            "rule [p]: <k> go3(Y:Int, Z:Int, Z\u{E000}5:Int) => done3(Y, Z, Z\u{E000}5) ... </k> requires #Exists Y:Int . {Y #Equals 1}",
+            "rule [p]: <k> go3(Y:Int, Z:Int, Z\u{E000}5:Int) => done3(Y, Z, Z\u{E000}5) ... </k> requires #Exists Fresh:Int . {Fresh #Equals 1}",
+            "Y",
+        ),
+        // A binder whose own spelling is one a renamed binder could take.
+        (
+            "rule [p]: <k> go2(Y:Int, W:Int) => done2(Y, W) ... </k> requires (#Exists Y:Bool . {Y #Equals true}) #And (#Exists Y\u{E000}0:Int . {Y\u{E000}0 #Equals W})",
+            "rule [p]: <k> go2(Y:Int, W:Int) => done2(Y, W) ... </k> requires (#Exists Fresh:Bool . {Fresh #Equals true}) #And (#Exists Y\u{E000}0:Int . {Y\u{E000}0 #Equals W})",
+            "Y",
+        ),
+    ] {
+        assert_parses_as_renamed_apart(MARKED_VARIABLES, rule, apart, bound);
+    }
+}
+
+/// A rejection names the variables of the rule as written, those whose spelling holds U+E000
+/// included, when a binder of the rule was renamed apart for inference: the readings of an
+/// ambiguous right side name `Z\u{E000}5`, which the rule writes, and no binder's new name.
+#[test]
+fn a_rejection_names_a_written_variable_with_the_renaming_mark_as_written() {
+    let error = scoped_binder_rules_with(
+        &format!("{MARKED_VARIABLES}  syntax A ::= foo(Int)\n  syntax B ::= foo(Int)\n"),
+        "rule [p]: <k> go2(Y:Int, Z\u{E000}5:Int) => foo(Z\u{E000}5) ... </k> requires #Exists Y:Bool . {Y #Equals true}",
+    )
+    .unwrap_err();
+    assert!(error.contains("could not parse rule"), "{error}");
+    assert!(error.contains("Z\u{E000}5"), "{error}");
+}
+
+/// A local function's pattern binds its variables in the function's own body only
+/// (`kompile::passes::closure_variables`), so a parameter is a variable of its own with its own
+/// sort beside a variable of the rule with its spelling: the rule parses exactly as its
+/// alpha-variant with the parameter renamed apart does (code review BIND/A5, the lambda nit).
+#[test]
+fn a_local_function_parameter_takes_its_own_sort_beside_a_variable_of_its_spelling() {
+    const BOOL_GO: &str = "  syntax KItem ::= gob(Bool, Int)\n";
+    for (rule, apart) in [
+        (
+            "rule [p]: <k> gob(X:Bool, N) => done(#fun(X:Int => X +Int 1)(N)) ... </k> requires X",
+            "rule [p]: <k> gob(X:Bool, N) => done(#fun(Fresh:Int => Fresh +Int 1)(N)) ... </k> requires X",
+        ),
+        (
+            "rule [p]: <k> gob(X:Bool, N) => done(#let X:Int = N #in X +Int 1) ... </k> requires X",
+            "rule [p]: <k> gob(X:Bool, N) => done(#let Fresh:Int = N #in Fresh +Int 1) ... </k> requires X",
+        ),
+        // The argument and the bound value are outside the pattern's scope.
+        (
+            "rule [p]: <k> gob(X:Bool, N) => done(#fun(N:Int => N +Int 1)(N)) ... </k> requires X",
+            "rule [p]: <k> gob(X:Bool, N) => done(#fun(Fresh:Int => Fresh +Int 1)(N)) ... </k> requires X",
+        ),
+        (
+            "rule [p]: <k> gob(X:Bool, N) => done(#let N:Int = N #in N +Int 1) ... </k> requires X",
+            "rule [p]: <k> gob(X:Bool, N) => done(#let Fresh:Int = N #in Fresh +Int 1) ... </k> requires X",
+        ),
+    ] {
+        let bound = if rule.contains("#fun(X") || rule.contains("#let X") {
+            "X"
+        } else {
+            "N"
+        };
+        assert_parses_as_renamed_apart(BOOL_GO, rule, apart, bound);
+    }
+}
+
 #[cfg(feature = "z3-inference")]
 #[test]
 fn reference_exists_binder_variable_is_inferred_at_k() {

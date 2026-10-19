@@ -154,6 +154,7 @@ diagnostic_codes! {
     FutureError => "FutureError",
     InvalidAnonymousVariable => "InvalidAnonymousVariable",
     InvalidAttribute => "InvalidAttribute",
+    InvalidBinder => "InvalidBinder",
     InvalidAsPattern => "InvalidAsPattern",
     InvalidBracketProduction => "InvalidBracketProduction",
     InvalidAssociativity => "InvalidAssociativity",
@@ -248,6 +249,7 @@ impl DiagnosticCode {
             | Self::DuplicateUserList
             | Self::InvalidAnonymousVariable
             | Self::InvalidAttribute
+            | Self::InvalidBinder
             | Self::InvalidAsPattern
             | Self::InvalidBracketProduction
             | Self::InvalidCommutativeSimplification

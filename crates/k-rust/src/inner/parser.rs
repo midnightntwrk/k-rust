@@ -97,6 +97,7 @@ mod prediction;
 mod program_text;
 mod record;
 mod scanner;
+mod scoping;
 #[cfg(debug_assertions)]
 mod sort_check;
 #[cfg(feature = "z3-inference")]
@@ -2258,6 +2259,26 @@ impl Grammar {
             preferred: forest,
             admitted,
         } = self.prepare_packed_readings(PackedTerm::ambiguity(parses), &priority_memos)?;
+        // A binder's variable is a variable of its own within its scope (`scoping`): inference
+        // reads the readings with every binder that shares its spelling renamed apart, and the
+        // result and its rejections name each variable as written.
+        let (scoped, renaming) = {
+            let mut forests = vec![&forest];
+            forests.extend(admitted.as_ref());
+            self.scope_binders(&forests)
+        };
+        let mut scoped = scoped.into_iter();
+        let forest = scoped.next().flatten().unwrap_or(forest);
+        let admitted = scoped.next().flatten().or(admitted);
+        let written = |result: Result<Term, ParseError>| {
+            if renaming.is_empty() {
+                result
+            } else {
+                result
+                    .map(|term| renaming.restore_term(term))
+                    .map_err(|error| renaming.restore_error(error))
+            }
+        };
         let lower = InferredLowering {
             grammar: self,
             start,
@@ -2273,10 +2294,15 @@ impl Grammar {
         if inference::checked_inference_requested()
             && let Some(checked) = self.checked_ambiguous_parse(&forest, start, is_anywhere, &lower)
         {
-            return unless_ill_sorted(checked).map_err(Failure::Error);
+            return written(unless_ill_sorted(checked)).map_err(Failure::Error);
         }
-        unless_ill_sorted(self.infer_packed_sorts(forest, start, is_anywhere, &lower))
-            .map_err(Failure::Error)
+        written(unless_ill_sorted(self.infer_packed_sorts(
+            forest,
+            start,
+            is_anywhere,
+            &lower,
+        )))
+        .map_err(Failure::Error)
     }
 
     /// Why a parse whose recognition removed a derivation for `first_violation` failed.

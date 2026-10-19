@@ -1653,6 +1653,13 @@ fn a_rewrite_rule_matches_a_list_update_by_value_only_when_it_reads_no_updated_l
     let update = |list: Term| Term::apply("listUpdate", vec![list, token("1"), token("2")]);
     let cases = [
         ("anonymous list", update(variable("_")), token("1"), 0),
+        // Each occurrence of `@_` is a variable of its own, so the list is read nowhere else.
+        (
+            "anonymous set-variable list",
+            update(variable("@_")),
+            variable("@_"),
+            0,
+        ),
         (
             "list read nowhere else",
             update(variable("L")),
@@ -1688,6 +1695,70 @@ fn a_rewrite_rule_matches_a_list_update_by_value_only_when_it_reads_no_updated_l
         token("1"),
     ));
     assert_eq!(function_diagnostics(&[&equation], &productions).len(), 1);
+    // A quantifier binds its own variable (code review BIND/A5, probes luL and luM): a binder
+    // spelled like the list reads no list, so the rule and its alpha-variant with the binder `M`
+    // are judged alike, and an occurrence outside the binder's body still reads the list.
+    for (condition, expected) in [
+        (
+            Term::apply(
+                "#Exists",
+                vec![variable("L"), Term::apply("g", vec![variable("L")])],
+            ),
+            0,
+        ),
+        (
+            Term::apply(
+                "#Exists",
+                vec![variable("M"), Term::apply("g", vec![variable("M")])],
+            ),
+            0,
+        ),
+        (
+            Term::apply(
+                "#Forall",
+                vec![
+                    variable("L"),
+                    Term::apply(
+                        "g",
+                        vec![Term::apply("#Exists", vec![variable("L"), variable("L")])],
+                    ),
+                ],
+            ),
+            0,
+        ),
+        (
+            Term::apply(
+                "g",
+                vec![
+                    Term::apply("#Exists", vec![variable("L"), variable("L")]),
+                    variable("L"),
+                ],
+            ),
+            1,
+        ),
+    ] {
+        for field in ["requires", "ensures"] {
+            let mut rule = rule_with_body(rewrite(
+                Term::apply("wrap", vec![update(variable("L"))]),
+                token("1"),
+            ));
+            if let Sentence::Rule {
+                requires, ensures, ..
+            } = &mut rule
+            {
+                *(if field == "requires" {
+                    requires
+                } else {
+                    ensures
+                }) = condition.clone();
+            }
+            assert_eq!(
+                function_diagnostics(&[&rule], &productions).len(),
+                expected,
+                "{field} {condition}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -1762,6 +1833,13 @@ fn a_rewrite_rule_reads_an_application_by_value_only_when_it_binds_its_variables
             "anonymous argument",
             Term::apply("setElement", vec![f("_")]),
             variable("_"),
+            1,
+        ),
+        // Every anonymous spelling, `@_` among them, is a variable of its own at each occurrence.
+        (
+            "anonymous set-variable argument",
+            Term::apply("setElement", vec![f("@_")]),
+            variable("@_"),
             1,
         ),
         (

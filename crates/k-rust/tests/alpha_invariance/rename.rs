@@ -688,6 +688,35 @@ pub fn rename_binders(sentence: &mut Sentence, from: &str, to: &str) -> bool {
     changed
 }
 
+/// Rename every occurrence of the variable `from` in `sentence` to `to`, whatever binds it; an
+/// alpha-renaming when `to` occurs nowhere in the sentence and every occurrence of `from` is one
+/// variable. True when one was renamed.
+pub fn rename_variable(sentence: &mut Sentence, from: &str, to: &str) -> bool {
+    fn walk(term: &mut Term, from: &str, to: &str, changed: &mut bool) {
+        let mut node = &mut *term;
+        while let Term::Annotated { term: inner, .. } = node {
+            node = inner;
+        }
+        if let Term::Variable { name, .. } = node
+            && name == from
+        {
+            *name = to.to_owned();
+            *changed = true;
+        }
+        for child in term.children_mut() {
+            walk(child, from, to, changed);
+        }
+    }
+    let Some(parts) = sentence_terms(sentence) else {
+        return false;
+    };
+    let mut changed = false;
+    for term in parts.terms {
+        walk(term, from, to, &mut changed);
+    }
+    changed
+}
+
 /// The text edits that turn the source of `original` into the source of `renamed`, a renaming of
 /// it: for each variable occurrence whose name differs, the byte offset of the occurrence in the
 /// parsed text and the two names. An occurrence without a source span is an error.

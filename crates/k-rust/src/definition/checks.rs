@@ -718,7 +718,7 @@ fn is_named_anonymous(name: &str) -> bool {
 }
 
 fn is_anonymous(name: &str) -> bool {
-    matches!(name, "_" | "?_" | "!_" | "@_")
+    crate::kast::binding::is_unresolved_anonymous(name)
 }
 
 fn anonymous_variable_exempt(sentence: &Sentence, name: &str) -> bool {
