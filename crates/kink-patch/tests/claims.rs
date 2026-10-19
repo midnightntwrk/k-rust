@@ -503,83 +503,103 @@ fn trusted_claims_are_pinned() {
 
 /// Each passage `TRUSTED_CLAIMS` cites (file relative to the k-rust tree, first and last line,
 /// sha256 of the lines joined by newlines) at k-rust 501f18b9.
+///
+/// Re-pin probe P-1 (k-rust 58720d2e5): sixteen passages are byte-identical and only moved (the
+/// docs grew by k-rust's KINK-17..KINK-22 and MLP sections), so only their lines are re-pinned.
+/// The `total` passage (501f18b9 lines 1376-1384, now 1477-1487) changed (KINK-18/2, head
+/// 16e88a6d4, merge 7d4c588f9; KINK-18/3, head a009ea6fc, merge 4561f7820; k-rust's draft
+/// answers-add3 section 2.1 "Contradicted claims" and "Contradicted `preserves-definedness`"):
+/// krun's warning names the observing rule and says when a record is not ground, and a
+/// contradiction is also found where an equation's result is `\bottom` with no undefined builtin
+/// (a `#Bottom` right-hand side, a refuted `ensures`). The attribute is still the author's
+/// claim, trusted and named when evaluation observes it contradicted, which is what the `total`
+/// row cites; the new route only reports more contradictions, which kink reads as no evidence.
+/// `TRUSTED_CLAIMS`' citation strings still give the 501f18b9 lines (src is unchanged in the
+/// probe).
+///
+/// Re-pin P-2 (k-rust 8f8ad57c5): all seventeen passages are byte-identical to 58720d2e5's, and
+/// twelve only moved. compatibility.md grew by rounds 26-28 (the BIND/A5 "Frontend policy"
+/// binder paragraphs, A6, A3, MLP/4b and MLP/9 text; k-rust ORCHESTRATION.md 10.4), so its ten
+/// passages moved down 17 to 31 lines; module_to_kore.rs moved its two passages down 3 lines
+/// (MLP/4b, MLP/9). backend-port.md and k-rust-backend smt.rs did not change. Only the line
+/// numbers are re-pinned.
 const TRUSTED_CLAIM_PASSAGES: [(&str, usize, usize, &str); 17] = [
     (
         "docs/compatibility.md",
-        943,
-        943,
+        1057,
+        1057,
         "bcee9ac9986b1b5c90868e046c36afc8da3dc45638790a4926d7ef624b18e8b7",
     ),
     (
         "docs/compatibility.md",
-        1010,
-        1010,
+        1128,
+        1128,
         "44081fecb849b7cb88f057e47b16a7f46ad8e253196be4b9656aa55232470102",
     ),
     (
         "docs/compatibility.md",
-        1028,
-        1033,
+        1146,
+        1151,
         "0f233fef017749e7d8e86379281d8286817adc73b4cf10fc9330213551261915",
     ),
     (
         "docs/compatibility.md",
-        1046,
-        1046,
+        1164,
+        1164,
         "674db170e02676b6eeeb961e20bf1ab36874f7b9e9c9615bdd12b603a17277e1",
     ),
     (
         "docs/compatibility.md",
-        1134,
-        1134,
+        1266,
+        1266,
         "fd173e7f850dec9744c13cfce3954d1e2f5521b7259f29f78e60235cc70f325d",
     ),
     (
         "docs/compatibility.md",
-        1288,
-        1288,
+        1420,
+        1420,
         "ceadc9f94bdf864bcf369b5fc107b27a3bf10026e71c05c5a54d547610075107",
     ),
     (
         "docs/compatibility.md",
-        1313,
-        1313,
+        1445,
+        1445,
         "cb62c2f07d19806a29e137c7821fdc2113eabdb6404dfd53215e3d51fb0b9bcb",
     ),
     (
         "docs/compatibility.md",
-        1376,
-        1384,
-        "93634a0caf840ca4a236549dab6e1d71f127528cca4b11149c0d627766cb1d51",
+        1508,
+        1518,
+        "04c8456d46db653023ea2c0268d682360ddef73926ec1d529fe5587216fbef6e",
     ),
     (
         "docs/compatibility.md",
-        1833,
-        1833,
+        2143,
+        2143,
         "1af53c1bf1af7a9f17e6a3fec30797cc00225b31ea36dbd3e7b68304ffa3481a",
     ),
     (
         "docs/compatibility.md",
-        2266,
-        2267,
+        2653,
+        2654,
         "a7acad142464656d166719394614b9f7f621cc98c7470fa539a0e208ebf74c82",
     ),
     (
         "docs/backend-port.md",
-        315,
-        315,
+        316,
+        316,
         "3cb01101c1550a2cde4fb062444584d6a81cddbb1191285a8e4a30d2f9404a83",
     ),
     (
         "docs/backend-port.md",
-        322,
-        322,
+        323,
+        323,
         "6b6bfb6c4e2d37a4467c7b236e637cfe25cb60ba07e253a7eede5a48398e5178",
     ),
     (
         "docs/backend-port.md",
-        340,
-        340,
+        342,
+        342,
         "7cbfd603d6854b8c5f39175bfa1cf41c1a6a0a8d9712ea5e8811693e724b1e30",
     ),
     (
@@ -590,20 +610,20 @@ const TRUSTED_CLAIM_PASSAGES: [(&str, usize, usize, &str); 17] = [
     ),
     (
         "crates/k-rust-backend/src/smt.rs",
-        1013,
-        1024,
+        1046,
+        1057,
         "a93c2de2f4221dc5c729b3e23a7426ee612300dfbddc13ff04275418b7291974",
     ),
     (
         "crates/k-rust/src/kompile/module_to_kore.rs",
-        1524,
-        1535,
+        1539,
+        1550,
         "57fb9f4beb1240e4987bfa6175dbfcc3b4ce218b3b8cd24147c85628b3ec740d",
     ),
     (
         "crates/k-rust/src/kompile/module_to_kore.rs",
-        1551,
-        1557,
+        1566,
+        1572,
         "f8374d89dd45e5237e10cba035a7513c592452cb734a31bac411d7fe4a1dda08",
     ),
 ];

@@ -38,7 +38,26 @@ pub struct Explanation {
 }
 
 fn diagnosed(leaf: &AdaptedLeaf) -> bool {
-    !leaf.diagnostics.is_empty()
+    // Re-pin probe P-1 (k-rust 58720d2e5; KINK-18/2, head 16e88a6d4, merge 7d4c588f9; k-rust's
+    // draft answers-add3 section 2.1 "Contradicted claims"): a leaf whose step is undefined
+    // through a contradicted `total` claim now also carries that claim's `contradicted-claim`
+    // record as a diagnostic. The record restates the leaf's own `contradicted_total`, which the
+    // explanation reads as that leaf's offence, so it is not read as another diagnosis; any other
+    // diagnostic, a record of another claim or symbol included, still is.
+    let restates_contradicted_total = |diagnostic: &k_rust::backend::BackendDiagnosticOutput| {
+        matches!(
+            diagnostic,
+            k_rust::backend::BackendDiagnosticOutput::ContradictedClaim(record)
+                if record.claim == k_rust::backend::ContradictedClaimKind::Total
+                    && leaf
+                        .contradicted_total
+                        .as_ref()
+                        .is_some_and(|total| record.symbol.as_ref() == Some(&total.symbol))
+        )
+    };
+    leaf.diagnostics
+        .iter()
+        .any(|diagnostic| !restates_contradicted_total(diagnostic))
         || leaf
             .candidate_diagnostics
             .iter()
@@ -141,6 +160,12 @@ pub fn explain_one_sided_kill(
     }
     for path in paths.paths.iter().filter(|path| !path.complete) {
         let index = ordinal(path.path_key.as_deref()).ok_or("an unkeyed path")?;
+        // Re-pin probe P-1 (k-rust 58720d2e5; KINK-18/2, see `diagnosed`): the contradicted
+        // leaf's `contradicted-claim` record makes its bridged path an incomplete `BackendLimit`
+        // one; that incompleteness is the contradiction already counted above, not another.
+        if full.leaves()[index].contradicted_total.is_some() {
+            continue;
+        }
         if full.leaves()[index].halt != HaltClass::Stuck {
             return Err(format!(
                 "unbounded leaf:{index} incomplete: {:?}",

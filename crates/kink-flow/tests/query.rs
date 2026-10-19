@@ -521,9 +521,14 @@ endmodule
 "#;
 
 /// Flow F-18 deliverable 6: on a definition decision 1's census flags, a would-be `no` is
-/// `unknown` (another model of the open value could reach the pattern), and a hit stays a hit.
+/// `unknown` (another model of the open value could reach the pattern). At 501f18b9 a hit stayed
+/// a hit; since k-rust 58720d2e5 (KINK-17/1) the only match here carries an open-value mark, so
+/// it is `unknown` too (below).
+///
+/// Re-pin P-2 (P-1-review-1 cosmetic finding): renamed from
+/// `a_census_flagged_definition_gives_hits_and_no_no`, which no longer says what it asserts.
 #[test]
-fn a_census_flagged_definition_gives_hits_and_no_no() {
+fn a_census_flagged_definition_gives_no_hit_on_a_marked_match_and_no_no() {
     let dir = scratch("census");
     write(&dir.join("implchosen.k"), CENSUS_SPEC);
     write(
@@ -538,7 +543,22 @@ fn a_census_flagged_definition_gives_hits_and_no_no() {
     );
     let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
     assert_eq!(status, EXIT_OK, "{document:#}");
-    assert_eq!(row(&document, "listed", "start")["answer"], "hit");
+    // Re-pin probe P-1 (k-rust 58720d2e5; KINK-17/1, head 728e7eb34, merge 3a196ed14; k-rust's
+    // draft answers-add3 section 2.1 "New marks of open values", which reach the four search
+    // responses too): the match's path read `keys_list` of two keys, so it carries an
+    // `implementation-chosen-value` mark (class `order`), and a hit needs a match without any
+    // backend diagnostic, so the would-be hit is `unknown` and is not cached. Fail-closed (hit ->
+    // unknown); adopting the marks (probe P-1 deliverable 5) decides whether a marked witness
+    // may be a hit.
+    let listed = row(&document, "listed", "start");
+    assert_eq!(listed["answer"], "unknown", "{listed:#}");
+    assert!(
+        listed["cause"]
+            .as_str()
+            .unwrap()
+            .contains("backend diagnostic"),
+        "{listed:#}"
+    );
     let never = row(&document, "never", "start");
     assert_eq!(never["answer"], "unknown");
     assert_eq!(never["claim"], "unconfirmed");
@@ -549,8 +569,8 @@ fn a_census_flagged_definition_gives_hits_and_no_no() {
             .contains("implementation-chosen-hook"),
         "{never:#}"
     );
-    // The unknown is not cached; the hit is.
-    assert_eq!(records(&dir).len(), 1);
+    // Neither unknown is cached (re-pin probe P-1: at 501f18b9 the hit was, one record).
+    assert_eq!(records(&dir).len(), 0);
 }
 
 /// Flow F-18 deliverable 2: a pattern that does not parse, that k-rust's pattern compiler

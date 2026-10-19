@@ -303,6 +303,16 @@ fn an_edit_that_changes_no_equation_runs() {
 /// and the narrowing `fpos` 0 -> 5 withdraws `f`'s `total` (at 25e229e it was kept). The
 /// narrowed pair `I >=Int 5` / `I <Int 0` is not refuted without a solver, so that mutant is
 /// refused too, as `nomatch.k`'s.
+///
+/// Re-pin P-2 (k-rust KINK-20/3, head 0749cd518, merge 879fce1cc, on main since 58720d2e5;
+/// k-rust's draft answers-add3 section 2.1 "Fewer withdrawn claims / more refutations at load";
+/// Sebastien's decision draft/tasks/flow/decisions/human-decisions-2026-10-14.md, "2026-10-20:
+/// admit mutants whose guards k-rust's KINK-20/3 refutes as disjoint", accepting P-1's STOP 1):
+/// k-rust now refutes one-term integer bounds exactly, so `I >=Int 5` beside `I <Int 0` is
+/// refuted, the pair is disjoint, and the narrowing `fpos` 0 -> 5 is admitted: it runs, `f` is
+/// partial on 0..4 with its `total` withdrawn, and both of its tests are Unknown, so the mutant
+/// is Unknown in both schedules (no pair reported, no kill). The two overlapping mutants are still
+/// refused for the pair `fpos`/`fneg`.
 #[test]
 fn a_function_rule_with_configuration_context_is_an_equation_of_its_head() {
     on_a_big_stack(|| {
@@ -310,24 +320,28 @@ fn a_function_rule_with_configuration_context_is_an_equation_of_its_head() {
         let baseline = validator.baseline();
         let go = |i| support::app("Lblgo", vec![support::int(i)]);
         let chk = |i| support::app("Lblchk", vec![support::int(i)]);
-        for (rule, from, to, tests) in [
+        for (rule, from, to, tests, refused) in [
             (
                 "CFGF.fpos",
                 "0",
                 "-5",
                 vec![test("gom1", go(-1)), test("chkm1", chk(-1))],
+                true,
             ),
             (
                 "CFGF.fneg",
                 "0",
                 "5",
                 vec![test("go1", go(1)), test("go7", go(7))],
+                true,
             ),
             (
                 "CFGF.fpos",
                 "0",
                 "5",
                 vec![test("go1", go(1)), test("chk1", chk(1))],
+                // Re-pin P-2 (KINK-20/3; the decision above): admitted, Unknown.
+                false,
             ),
         ] {
             let generation = literal(baseline, rule, from, to);
@@ -340,7 +354,18 @@ fn a_function_rule_with_configuration_context_is_an_equation_of_its_head() {
                     [("f".to_owned(), "total".to_owned())],
                     "{rule} {to} {schedule:?}"
                 );
-                assert_inconsistent(mutant, "CFGF.fpos", "CFGF.fneg");
+                if refused {
+                    assert_inconsistent(mutant, "CFGF.fpos", "CFGF.fneg");
+                } else {
+                    assert_eq!(mutant.plan.mutant_failure, None, "{rule} {to} {schedule:?}");
+                    assert!(mutant.report.inconsistent_pairs.is_empty());
+                    assert!(mutant.report.killing_test_ids.is_empty());
+                    assert_eq!(
+                        mutant.report.status,
+                        MutantStatus::Unknown,
+                        "{rule} {to} {schedule:?}"
+                    );
+                }
             }
         }
     });

@@ -865,6 +865,10 @@ fn audit_so_prestart_cancel_is_timeout_on_every_adapter_run() {
 /// 501f18b9, through a condition whose simplification meets a disjunctive equation, so the
 /// test's claim is exercised again: every leaf carrying it gives an incomplete `BackendLimit`
 /// path in both bridges, and none is discarded.
+///
+/// Re-pin probe P-1 (k-rust 58720d2e5, KINK-17/1): the `1.0f` mutant's leaves carry a
+/// `float-destination` mark, so its paths are incomplete `BackendLimit` ones again, through the
+/// mark rather than a failed condition.
 #[test]
 fn audit_so_rule_condition_failed_leaf_is_never_complete() {
     use k_rust::backend::BackendDiagnosticOutput;
@@ -975,8 +979,8 @@ fn audit_so_rule_condition_failed_leaf_is_never_complete() {
                 event_free.collection.stop,
                 steps.collection.stop,
             );
-            // Both sides alike at 501f18b9 (E-10): no RuleConditionFailed, no discard, every
-            // path a complete terminal, the collections exhausted.
+            // Both sides alike at 501f18b9 (E-10): no RuleConditionFailed, no discard; the
+            // baseline's every path a complete terminal, the collections exhausted.
             assert!(
                 !execution.leaves().iter().any(failed),
                 "{label} {program:?}"
@@ -988,6 +992,45 @@ fn audit_so_rule_condition_failed_leaf_is_never_complete() {
                     .all(|leaf| kink_native::bridge::discarded(leaf).is_none())
             );
             assert!(!rows.is_empty());
+            // Re-pin probe P-1 (k-rust 58720d2e5; KINK-17/1, head 728e7eb34, merge 3a196ed14;
+            // k-rust's draft answers-add3 section 2.1 "New marks of open values"): the mutant's
+            // `+Float` of a binary32 and a binary64 operand rounds to a destination format no text
+            // names, so every mutant leaf now carries an `implementation-chosen-value` mark
+            // (`FLOAT.add`, class `float-destination`), and kink reads a diagnosed leaf as
+            // incomplete: every mutant path of both bridges is an incomplete `BackendLimit` one
+            // and the collections stop at `BackendLimit` (at 501f18b9 they were complete
+            // `Terminal` paths equal to the baseline's). Fail-closed: the mutant no longer agrees
+            // here, it is unknown.
+            let chosen = |leaf: &kink_native::execution::AdaptedLeaf| {
+                leaf.diagnostics.iter().any(|diagnostic| {
+                    matches!(
+                        diagnostic,
+                        BackendDiagnosticOutput::ImplementationChosenValue { hook, class }
+                            if hook == "FLOAT.add" && class == "float-destination"
+                    )
+                })
+            };
+            if label == "mutant" {
+                assert!(
+                    execution.leaves().iter().all(chosen),
+                    "{label} {program:?}: {:?}",
+                    execution.leaves()
+                );
+                assert!(
+                    rows.iter()
+                        .all(|row| *row == (false, PathStop::BackendLimit)),
+                    "{label} {program:?}: {rows:?}"
+                );
+                assert_eq!(event_free.collection.stop, CollectionStop::BackendLimit);
+                assert_eq!(steps.collection.stop, CollectionStop::BackendLimit);
+                // No mutant path carries a complete terminal any more, so the mutant's finals are
+                // not compared with the baseline's (at 501f18b9 they were equal).
+                continue;
+            }
+            assert!(
+                !execution.leaves().iter().any(chosen),
+                "{label} {program:?}"
+            );
             assert!(
                 rows.iter().all(|row| *row == (true, PathStop::Terminal)),
                 "{label} {program:?}: {rows:?}"
@@ -1004,19 +1047,16 @@ fn audit_so_rule_condition_failed_leaf_is_never_complete() {
             );
         }
     }
-    for program in &programs {
-        let program = format!("{program:?}");
-        assert_eq!(
-            finals[&("mutant", program.clone())],
-            finals[&("baseline", program.clone())],
-            "{program}: the mutant agrees"
-        );
-    }
+    // The baseline's finals are both `halt` (the mutant's are no longer decided, above).
+    assert_eq!(finals.len(), programs.len());
 
     // Re-pin R0c (R0a review 1 minor): `r0c/rcfdisj.k` again produces RuleConditionFailed at
     // 501f18b9 (a condition whose simplification meets a disjunctive equation). Every leaf of
     // `run(2)` and `done(f(2))` carries it, both bridges give only incomplete `BackendLimit`
     // paths, and no leaf is discarded: a failed condition never makes a complete leaf.
+    // Re-pin P-2 (k-rust 8f8ad57c5; MLP/4b, head d5bead028, merge fede20744): k-rust refuses the
+    // unguarded `X #Or 0` at compile now, so the fixture guards both alternatives with
+    // predicates that both hold at 2; the failure, the leaves and the rows below are unchanged.
     let validator = NativeValidator::bind(
         support::load_path(
             &std::path::Path::new(support::DIR).join("r0c/rcfdisj.k"),

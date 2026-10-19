@@ -90,8 +90,14 @@ fn the_probe_head_makes_k_rust_check_every_pair() {
         assert_eq!(affected, Some(BTreeSet::from(["f".to_owned()])));
         let plain = kink_native::census::internalize(&side).unwrap();
         let claims = plain.value_claims_in_scope(CheckScope::All);
-        assert_eq!(claims.counts().pairs, 0);
-        assert!(claims.unjoined().is_empty());
+        // Re-pin probe P-1 (k-rust 58720d2e5; KINK-20/1, head d9e62128f, merge 879fce1cc; k-rust's
+        // draft answers-add3 section 2.1 "Load of head-free definitions"): `CheckScope::All` now
+        // classifies every pair of a definition with nothing withdrawable, so without the probe
+        // head it pairs 11 (0 at 501f18b9) and reports the pair the edit breaks itself; the probe
+        // head stays and gives the same verdict below.
+        assert_eq!(claims.counts().pairs, 11);
+        assert_eq!(claims.counts().unjoined, 1);
+        assert_eq!(claims.unjoined().len(), 1);
         assert_eq!(
             check_heads(&side, affected.as_ref()),
             Err(Inconsistency::Unjoined(vec![UnjoinedEquations {
@@ -124,43 +130,74 @@ fn the_check_reads_the_heads_the_edit_can_change() {
     });
 }
 
-/// The k-rust text the check's soundness rests on, at 501f18b9 (file relative to the k-rust
-/// tree, first and last line, sha256 of the lines joined by newlines): that `M_NF` is a model
-/// when evaluation terminates and the critical pairs join (947); what the check classifies and
-/// how a pair is separated, refuted, joined or not joined, and the stack-stop exclusion
-/// (970-975); that `value_claims_in_scope(CheckScope::All)` runs the check of every pair and
-/// that a definition without an equation head has no pair checked (991-1003); and the API's own
+/// The k-rust text the check's soundness rests on (file relative to the k-rust tree, first and
+/// last line, sha256 of the lines joined by newlines). At 501f18b9: that `M_NF` is a model when
+/// evaluation terminates and the critical pairs join (947); what the check classifies and how a
+/// pair is separated, refuted, joined or not joined, and the stack-stop exclusion (970-975);
+/// that `value_claims_in_scope(CheckScope::All)` runs the check of every pair and that a
+/// definition without an equation head has no pair checked (991-1003); and the API's own
 /// documentation (`definition.rs` 2905-2920).
+///
+/// Re-pin P-2 (k-rust 8f8ad57c5; KINK-20/1-3, heads d9e62128f and 0749cd518, merge 879fce1cc,
+/// on main since 58720d2e5; k-rust's draft answers-add3 section 2.1 "Load of head-free
+/// definitions" and "Fewer withdrawn claims / more refutations at load"; Sebastien's decision
+/// draft/tasks/flow/decisions/human-decisions-2026-10-14.md, "2026-10-20: admit mutants whose
+/// guards k-rust's KINK-20/3 refutes as disjoint", which accepts P-1's STOP 1 and names this pin
+/// as its tripwire). The same passages, read again at 8f8ad57c5 (unchanged since 58720d2e5, only
+/// moved by rounds 26-28's docs):
+/// - 1061-1063: `M_NF` is a model, now read with the priority antecedent (an equation holds
+///   only where no higher-priority group applies), which the emitted axioms leave implicit and
+///   the evaluator, the join and the check all read.
+/// - 1086-1092: a root pair is within one index and priority group; an overlap is separated
+///   (no instance whose variables are normal forms), refuted by its conditions, now also by
+///   the integer bounds of one-term comparisons with literals (`X >Int 5` beside `X <=Int 0`:
+///   KINK-20/3, the cause of the cfgf admission), joined or not joined; and the evaluator's
+///   instance order, passing to a lower group only when every instance is refuted.
+/// - 1108-1121: the closure and relevance, `CheckScope::All` runs the check of every pair, the
+///   new `ValueClaims::group_counts` paragraph, and that a head-free definition has no pair
+///   checked under the load's scope while `CheckScope::All` checks its pairs all the same
+///   (KINK-20/1).
+/// - `definition.rs` 2901-2927: `value_claims_in_scope`, now stating that under
+///   `CheckScope::All` every candidate pair is classified (`counts().skipped == 0`), which pairs
+///   are formed, and that `separated`, `refuted` and `joined` are sound.
+///
+/// kink's check (probe head, `CheckScope::All`, the coverage guard) still rests only on these:
+/// every verdict it reads is one of the four the text defines, and the widened refutation can
+/// only admit a mutant whose guards share no integer.
 const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
     (
         "docs/compatibility.md",
-        947,
-        947,
-        "2bf37af71b589f828da5b8887b364c64bc688ee4f3a94db5b89b3b5e921344e3",
+        1061,
+        1063,
+        "21492a8b0fca47bf5bdea146350c650c1043731afee4cb07711db09b4d7d35c8",
     ),
     (
         "docs/compatibility.md",
-        970,
-        975,
-        "b5ee8d2e9a3e55226a715b0948e7d6e4d3af4e3da04df17f8902f0f3435e2d67",
+        1086,
+        1092,
+        "263edf4fe0dc7d38e545e15c1f70d869c36f421975fbd69204b2e35c35988a8f",
     ),
     (
         "docs/compatibility.md",
-        991,
-        1003,
-        "69d7ed18b800f355273e606e9d0d98f74377deaec6076a57040104fe4c587667",
+        1108,
+        1121,
+        "6a3b482248576ca08648f5e2bfd7c0211ad147f43d433245a4044507b4de472c",
     ),
     (
         "crates/k-rust-backend/src/definition.rs",
-        2905,
-        2920,
-        "c94f4d90c7e189bb7ac1c569d678b68e67363e4d0389b2dfb3c3109de5f01cf9",
+        2901,
+        2927,
+        "231513b52fc26f915765b47abfb63789954e31ef4271986dd73f218f1ec9c8a0",
     ),
 ];
 
 /// The check's driver (`confluence.rs`: the stages, `executable_equations`, the early return of
 /// a definition with nothing withdrawable, the counts kink reads), by digest.
-const CONFLUENCE_RS: &str = "783482c9226a04ad9c59542c89f6863582af4f70fb10b88058f9cd2d16698861";
+///
+/// Re-pin P-2 (KINK-20/1-3, merge 879fce1cc; the 2026-10-20 decision above): 783482c9 at
+/// 501f18b9 -> e84044b7 since 58720d2e5 (CheckScope::All pairs head-free definitions,
+/// `GroupCounts`/`group_counts`, the integer-bound refutation); unchanged by rounds 26-28.
+const CONFLUENCE_RS: &str = "e84044b7f748a7d3becbcda17e139b432183aa86e3dc80a9e8e7d85a0b2302b7";
 
 /// The taint closure (`confluence/closure.rs`): `taintable`, which with `certified_root` decides
 /// the early return the probe head turns off (an equation head is taintable), by digest (re-pin
@@ -218,9 +255,13 @@ fn the_probe_head_makes_k_rust_classify_self_pairs() {
         let plain = kink_native::census::internalize(&compiled)
             .unwrap()
             .value_claims_in_scope(CheckScope::All);
-        assert_eq!(plain.counts().pairs, 0);
-        assert_eq!(plain.counts().several_matches, 0);
-        assert!(plain.unjoined().is_empty(), "{:?}", plain.unjoined());
+        // Re-pin probe P-1 (k-rust 58720d2e5; KINK-20/1, head d9e62128f, merge 879fce1cc; k-rust's
+        // draft answers-add3 section 2.1 "Load of head-free definitions"): without the probe head
+        // `CheckScope::All` now pairs 10 (0 at 501f18b9), counts the self pair's several matches
+        // and reports it; the probe head stays and gives the same verdict below.
+        assert_eq!(plain.counts().pairs, 10);
+        assert_eq!(plain.counts().several_matches, 1);
+        assert_eq!(plain.unjoined().len(), 1, "{:?}", plain.unjoined());
         let Err(Inconsistency::Unjoined(pairs)) = check_heads(&compiled, None) else {
             panic!("the probe head classifies the self pair")
         };

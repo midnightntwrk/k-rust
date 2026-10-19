@@ -1113,7 +1113,9 @@ fn a_typing_error_compilation_accepts_is_a_diagnostic_and_the_mutant_runs() {
                 syntax B ::= b(Int) [symbol(b)]\n  syntax C ::= A | B\n  syntax D ::= A | B\n  \
                 configuration <k> $PGM:Pgm </k>\n  rule [go]: go(X) => a(X)\n  \
                 rule [ab]: a(X) => a2(X)\nendmodule\n";
-    for (name, text, modules, mutations, label) in [
+    // The last column names the rule whose typing error the row carried at 501f18b9 (re-pin
+    // probe P-1: none now).
+    for (name, text, modules, mutations, _label) in [
         (
             "lub",
             imported("LUB", "a(X) => a2(X)"),
@@ -1160,14 +1162,16 @@ fn a_typing_error_compilation_accepts_is_a_diagnostic_and_the_mutant_runs() {
             ]),
             "{name}: {document:#}"
         );
-        assert_eq!(diagnosed(&document, edited), [json!(label)], "{name}");
-        let message = mutation(&document, edited)["typing_diagnostics"][0]["message"]
-            .as_str()
-            .unwrap()
-            .to_owned();
-        assert!(
-            message.contains("unique least upper bound"),
-            "{name}: {message}"
+        // Re-pin probe P-1 (k-rust 58720d2e5; KINK-21/1, head e7b166360, merge 79fa4c823; k-rust's
+        // draft answers-add3 section 2.4 "KINK-21/1"): the typing view now types a rule that
+        // compilation wraps in the computation cell at `K`, as compilation does, so `a(X) => b(X)`
+        // asks no least upper bound of `A` and `B` and has no typing error in any of the three
+        // shapes. The verdicts above are unchanged; only the row's diagnostic is gone.
+        assert_eq!(diagnosed(&document, edited), [] as [Value; 0], "{name}");
+        assert_eq!(
+            mutation(&document, edited)["typing_diagnostics"],
+            json!([]),
+            "{name}"
         );
         assert_eq!(diagnosed(&document, control), [] as [Value; 0], "{name}");
         for id in [edited, control] {

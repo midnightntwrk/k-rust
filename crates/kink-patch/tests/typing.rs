@@ -396,31 +396,34 @@ fn right_argument_zero(baseline: &Baseline, label: &str) -> Patch {
 /// an imported module the own module's view gives the site sorts (L2-2: excluded as Untyped);
 /// in the main module neither view types it, and it is included without site sorts (L2-2 and
 /// 1ee9955: excluded as Untyped). An edit of it applies with the error as a diagnostic (L2-2 and,
-/// for the main module, 1ee9955: refused locally-ill-formed) and compiles.
+/// for the main module, 1ee9955: refused locally-ill-formed) and compiles. At k-rust 58720d2e5
+/// compilation's view types the rule (re-pin probe P-1, at the assertions), so the test now pins
+/// that the rule is sorted and its edit compiles without a diagnostic.
 #[test]
 fn a_sort_error_compilation_accepts_refuses_nothing() {
-    for (main, syntax, text, label, unsorted) in [
-        ("LUBBASE", "LUBBASE-SYNTAX", LUB_IMPORTED, "LUBBB.ab", false),
-        ("LUBM", "LUBM-SYNTAX", LUB_MAIN, "LUBM.ab", true),
+    for (main, syntax, text, label) in [
+        ("LUBBASE", "LUBBASE-SYNTAX", LUB_IMPORTED, "LUBBB.ab"),
+        ("LUBM", "LUBM-SYNTAX", LUB_MAIN, "LUBM.ab"),
     ] {
         let baseline = load_with_syntax(main, Some(syntax), text);
         support::compile(baseline.loaded()).expect("the baseline compiles");
         let ab = support::rule(&baseline, label);
-        let error = compilation_typing(baseline.definition(), &ab).expect_err(label);
-        assert!(
-            matches!(error, SentenceTypingError::Sort { .. })
-                && error.to_string().contains("unique least upper bound"),
-            "{label}: {error}"
-        );
-        assert_eq!(
-            own_module_typing(baseline.definition(), &ab).is_err(),
-            unsorted,
-            "{label}"
-        );
+        // Re-pin probe P-1 (k-rust 58720d2e5; KINK-21/1, head e7b166360, merge 79fa4c823; k-rust's
+        // draft answers-add3 section 2.4 "KINK-21/1"): compilation's typing view now types a rule
+        // that compilation wraps in the computation cell at `K`, so `a(X) => b(X)` asks no least
+        // upper bound of `A` and `B`: the view gives a typing (it gave a `Sort` error at
+        // 501f18b9), the rule is sorted in both modules, its sites are found exhaustively, and an
+        // edit carries no typing diagnostic. The own module's view types it too, in the main
+        // module as well (at 501f18b9 it refused it there). Typing is no verdict; only
+        // generation moves (one more sorted rule, exhaustive discovery).
+        let typing = compilation_typing(baseline.definition(), &ab);
+        assert!(typing.is_ok(), "{label}: {typing:?}");
+        let own = own_module_typing(baseline.definition(), &ab);
+        assert!(own.is_ok(), "{label}: {own:?}");
         let universe = resolve_universe(&baseline, &Universe::v1());
         assert_eq!(universe.excluded(), &[], "{label}");
         assert!(universe.included().contains(&ab), "{label}");
-        assert_eq!(universe.unsorted().contains(&ab), unsorted, "{label}");
+        assert!(!universe.unsorted().contains(&ab), "{label}");
         let discovery = derive_sites_in(
             &baseline,
             &universe,
@@ -430,20 +433,12 @@ fn a_sort_error_compilation_accepts_refuses_nothing() {
             ],
         )
         .expect("sites");
-        assert_eq!(discovery.exhaustive(), !unsorted, "{label}");
-        assert_eq!(discovery.tuples().is_empty(), unsorted, "{label}");
+        assert!(discovery.exhaustive(), "{label}");
+        assert!(!discovery.tuples().is_empty(), "{label}");
 
         let patch = right_argument_zero(&baseline, label);
         let mutant = apply(&baseline, &patch).expect("a typing error refuses nothing");
-        let [diagnostic] = mutant.typing_diagnostics() else {
-            panic!("{label}: {:?}", mutant.typing_diagnostics());
-        };
-        assert_eq!(diagnostic.origin, SentenceOrigin::Baseline(ab.clone()));
-        assert!(
-            diagnostic.message.contains("unique least upper bound"),
-            "{label}: {}",
-            diagnostic.message
-        );
+        assert_eq!(mutant.typing_diagnostics(), &[], "{label}");
         support::compile(&mutant.to_loaded(&baseline).expect("relinks"))
             .unwrap_or_else(|error| panic!("{label}: the mutant compiles: {error}"));
     }
