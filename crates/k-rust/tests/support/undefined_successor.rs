@@ -21,7 +21,7 @@ pub struct Route {
 /// Declared `preserves-definedness` rules and `total` symbols are not simplified by the step,
 /// so their result is decided when their successor is normalized; a partial symbol or a
 /// literal `#Bottom` is decided by the step itself.
-pub const ROUTES: [Route; 7] = [
+pub const ROUTES: [Route; 8] = [
     Route {
         name: "undefined builtin, declared",
         prefix: 'b',
@@ -52,6 +52,14 @@ pub const ROUTES: [Route; 7] = [
         rhs: "val(te(X))",
         second: "w(te(X))",
         attribute: "",
+        in_step: false,
+    },
+    Route {
+        name: "existential successor: an ensures binds the argument of a total #Bottom equation",
+        prefix: 'x',
+        rhs: "val(tb(?Y))",
+        second: "w(tb(?Y))",
+        attribute: " ensures ?Y ==Int X",
         in_step: false,
     },
     Route {
@@ -122,7 +130,13 @@ pub fn matrix_source() -> String {
         syntax.push_str(&format!(
             "                | {program}(Int) [symbol({program})]\n"
         ));
-        let variable = |rhs: &str| if rhs.contains('X') { "X" } else { "_" };
+        let variable = |rhs: &str| {
+            if rhs.contains('X') || route.attribute.contains('X') {
+                "X"
+            } else {
+                "_"
+            }
+        };
         rules.push_str(&format!(
             "  rule [{program}a]: <k> {program}({}) => {} </k>{}\n",
             variable(route.rhs),

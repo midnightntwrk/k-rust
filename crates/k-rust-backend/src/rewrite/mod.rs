@@ -26,7 +26,11 @@ use apply::{
     BooleanSplit, EqualitySplit, MapNotInKeysSplit, PartialRuleMatch, RuleAttempt, apply_rule,
 };
 use execute::execute_using;
-pub(crate) use execute::{note_undefined_result, simplify_leaf_pattern, simplify_result_pattern};
+pub(crate) use execute::{
+    Sibling, UndefinedDecision, UndefinedGroup, UndefinedPart, decide_undefined_step,
+    entry_undefined_part, note_undefined_result, sibling_undefined_parts, simplify_leaf_pattern,
+    simplify_result_pattern, successor_undefinedness,
+};
 pub use predicates::substitute_predicates;
 use predicates::{StateNames, extend_unique, pattern_variable_names};
 pub(crate) use predicates::{

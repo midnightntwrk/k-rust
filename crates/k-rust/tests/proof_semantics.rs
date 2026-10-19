@@ -2306,7 +2306,9 @@ endmodule
 /// successor leaves the configuration to the later rules of the priority: `sib(0)` reaches `done`
 /// by `sibok` although `sibtd` comes first, as `bis(0)` does in the other order, and so does
 /// `sibr(X)` where `X >Int 0`. Where no rule gives a defined result (`sibr(0)`, `one(0)`) the
-/// step is undefined and the claim is not proven.
+/// step is undefined and the claim is not proven. An all-path claim has no path through a
+/// successor that denotes no state, so `sib(0) => done` and `bis(0) => done` are proven too:
+/// `sibtd`'s successor is `\bottom`, and `sibok`'s reaches `done`.
 #[test]
 fn a_one_path_claim_takes_a_later_rule_where_a_result_is_undefined_after_the_step() {
     let statuses = claim_statuses(
@@ -2331,23 +2333,24 @@ fn a_one_path_claim_takes_a_later_rule_where_a_result_is_undefined_after_the_ste
             ("sibr-one", "proven"),
             ("sibr-zero-one", "failed"),
             ("one-zero-one", "failed"),
-            ("sib-all", "failed"),
-            ("bis-all", "failed"),
+            ("sib-all", "proven"),
+            ("bis-all", "proven"),
         ]
         .map(|(claim, status)| (claim.to_owned(), status.to_owned()))
     );
 }
 
-/// A one-path claim steps as strategy `any` does, so it reads a `\bottom` successor as no
-/// successor however the `\bottom` is found (design/undefined-successor.md §3, reading R): over
-/// the matrix of `undefined_step_coverage.rs`, `p(0) => done` is proven where a rule of the
-/// `\bottom` rule's priority rewrites `p(0)` to `done`, and fails where the step is undefined
-/// (a lower-priority rule, no other rule, two `\bottom` rules). The all-path claims keep their
-/// verdicts, which this change does not touch: a `\bottom` candidate the step itself decides
-/// is no successor there too, and one only its successor's normalization shows still fails the
-/// claim.
+/// Proofs read a `\bottom` successor as no successor however the `\bottom` is found
+/// (design/undefined-successor.md §3, reading R). An all-path claim `φ => ∀◇ψ` requires every
+/// path to reach `ψ`, and a `\bottom` successor is no state, so no path: it imposes no obligation.
+/// A one-path claim steps as strategy `any` does. Over the matrix of `undefined_step_coverage.rs`,
+/// `p(0) => done` is proven, one-path and all-path, where a rule of the `\bottom` rule's priority
+/// rewrites `p(0)` to `done`; where the step is undefined (a lower-priority rule, no other rule,
+/// two `\bottom` rules) it fails on the step's one `Trivial` leaf, the configuration `p(0)` one
+/// step below, never on a `Vacuous` leaf: the configuration has instances, and they have no
+/// successor.
 #[test]
-fn a_one_path_claim_reads_a_bottom_successor_as_no_successor() {
+fn a_proof_reads_a_bottom_successor_as_no_successor() {
     use undefined_successor::{Shape, matrix_source, programs};
     let mut claims = String::new();
     for (program, _, _) in programs() {
@@ -2362,31 +2365,39 @@ fn a_one_path_claim_reads_a_bottom_successor_as_no_successor() {
     let kore = compile(&source, "FU42-SPEC", "FU42");
     let mut wrong = Vec::new();
     for (program, route, shape) in programs() {
-        let one_path = if shape == Shape::Covering {
+        let expected = if shape == Shape::Covering {
             "proven"
         } else {
             "failed"
         };
-        let all_path = if shape == Shape::Covering && route.in_step {
-            "proven"
-        } else {
-            "failed"
-        };
-        for (claim, expected) in [
-            (format!("o-{program}"), one_path),
-            (format!("a-{program}"), all_path),
-        ] {
-            let status = prove(
+        for claim in [format!("o-{program}"), format!("a-{program}")] {
+            let result = prove(
                 &kore,
                 "FU42-SPEC",
                 &format!("FU42-SPEC.{claim}"),
                 ProveRequest::default(),
-            )
-            .status;
-            if status != expected {
+            );
+            let outcomes = result
+                .leaves
+                .iter()
+                .map(|leaf| leaf.outcome)
+                .collect::<Vec<_>>();
+            let states = leaf_text(&result);
+            let read_r = result.status == expected
+                && match expected {
+                    "proven" => outcomes
+                        .iter()
+                        .all(|outcome| *outcome == ProofLeafOutcomeOutput::Proven),
+                    _ => {
+                        outcomes == [ProofLeafOutcomeOutput::Trivial]
+                            && result.leaves[0].depth == 1
+                            && states[0].contains(&format!("Lbl{program}{{}}("))
+                    }
+                };
+            if !read_r {
                 wrong.push(format!(
-                    "{claim} ({}, {shape:?}): {status}, expected {expected}",
-                    route.name
+                    "{claim} ({}, {shape:?}): {} {outcomes:?} {states:?}, expected {expected}",
+                    route.name, result.status
                 ));
             }
         }

@@ -25,7 +25,7 @@ use crate::{
     },
     substitution::{Substitution, substitute},
     term::{
-        Term, TermKind, Variable,
+        Term, TermKind, Variable, VariableKind,
         names::{FreshMarker, VariableProvenance, split_marker},
     },
 };
@@ -51,25 +51,102 @@ pub(crate) fn quantify_introduced_variables(
     pattern: &Pattern,
     predicates: Vec<Predicate>,
 ) -> Predicate {
+    let introduced_in = |condition: &Predicate| {
+        let state_term_variables = &pattern.term.attributes().variables;
+        let mut introduced = condition
+            .free_variables()
+            .into_iter()
+            .filter(|variable| !state_term_variables.contains(variable))
+            .collect::<Vec<_>>();
+        if !introduced.is_empty() {
+            let constraint_variables = pattern
+                .constraints
+                .iter()
+                .flat_map(Predicate::free_variables)
+                .collect::<BTreeSet<_>>();
+            introduced.retain(|variable| !constraint_variables.contains(variable));
+        }
+        introduced
+    };
+    let is_existential = |variable: &Variable| {
+        split_marker(&variable.name, &[VariableProvenance::Existential]).0
+            == Some(VariableProvenance::Existential)
+    };
     let mut condition = conjoin(predicates);
-    let state_term_variables = &pattern.term.attributes().variables;
-    let mut introduced = condition
-        .free_variables()
-        .into_iter()
-        .filter(|variable| !state_term_variables.contains(variable))
-        .collect::<Vec<_>>();
-    if !introduced.is_empty() {
-        let constraint_variables = pattern
-            .constraints
-            .iter()
-            .flat_map(Predicate::free_variables)
-            .collect::<BTreeSet<_>>();
-        introduced.retain(|variable| !constraint_variables.contains(variable));
+    let mut introduced = introduced_in(&condition);
+    // A rule's existential (`?Y`, marked `Ex#`) that a conjunct equates with a defined term is
+    // that term ([`eliminate_equated_variables`]); the step's other introduced variables are
+    // left as they were.
+    if introduced.iter().any(is_existential) {
+        let conjuncts = match &condition {
+            Predicate::And(conjuncts) => conjuncts.to_vec(),
+            Predicate::True => Vec::new(),
+            single => vec![single.clone()],
+        };
+        let eliminated = eliminate_equated_variables(conjuncts, |predicates| {
+            introduced_in(&conjoin(predicates.to_vec()))
+                .into_iter()
+                .filter(is_existential)
+                .collect()
+        });
+        condition = conjoin(eliminated);
+        introduced = introduced_in(&condition);
     }
     for variable in introduced.into_iter().rev() {
         condition = Predicate::Exists(variable, Arc::new(condition));
     }
     condition
+}
+
+/// `predicates` with each variable that `quantified` gives (the variables about to be bound by
+/// an existential) eliminated where a conjunct equates it with a defined term: an element
+/// variable `?Y` and a term `t` free of `?Y` and of the other quantified variables and with no
+/// undefined part make `∃?Y. (?Y = t ∧ ψ)` equal to `ψ[t/?Y]`, since an element variable
+/// denotes a defined element and `t` is one. So an `ensures` that binds a rule's existential
+/// to a value of the configuration states that value rather than an existential over it, which
+/// a solver may not decide.
+pub(crate) fn eliminate_equated_variables(
+    mut predicates: Vec<Predicate>,
+    quantified: impl Fn(&[Predicate]) -> BTreeSet<Variable>,
+) -> Vec<Predicate> {
+    loop {
+        let fresh = quantified(&predicates);
+        if fresh.is_empty() {
+            return predicates;
+        }
+        let binding = predicates
+            .iter()
+            .enumerate()
+            .find_map(|(index, predicate)| {
+                let Predicate::Equals(left, right) = predicate else {
+                    return None;
+                };
+                [(left, right), (right, left)]
+                    .into_iter()
+                    .find_map(|(variable, value)| match variable.kind() {
+                        TermKind::Variable(variable)
+                            if variable.kind == VariableKind::Element
+                                && fresh.contains(variable)
+                                && value.attributes().ceil_free()
+                                && value.attributes().variables.is_disjoint(&fresh) =>
+                        {
+                            Some((index, variable.clone(), value.clone()))
+                        }
+                        _ => None,
+                    })
+            });
+        let Some((index, variable, value)) = binding else {
+            return predicates;
+        };
+        predicates.remove(index);
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the one-point rule over an element variable and a defined (ceil-free) value: the binding states the value's definedness already, so no obligation is lost"
+        )]
+        let substituted =
+            substitute_predicates(&predicates, &Substitution::from([(variable, value)]));
+        predicates = substituted;
+    }
 }
 
 pub(crate) fn conjunctively_contains_alpha_equivalent(
