@@ -194,6 +194,7 @@ diagnostic_codes! {
     MarkdownWarning => "MarkdownWarning",
     MissingLocationsImport => "MissingLocationsImport",
     MissingSyntaxModule => "MissingSyntaxModule",
+    MlConstructPosition => "MlConstructPosition",
     ProofModuleRule => "ProofModuleRule",
     ProofModuleSyntax => "ProofModuleSyntax",
     SingletonOverload => "SingletonOverload",
@@ -284,6 +285,7 @@ impl DiagnosticCode {
             | Self::InvalidDomainValue
             | Self::KernelSortPosition
             | Self::MissingLocationsImport
+            | Self::MlConstructPosition
             | Self::ProofModuleRule
             | Self::ProofModuleSyntax
             | Self::UnboundVariable

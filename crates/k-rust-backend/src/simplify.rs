@@ -2267,6 +2267,35 @@ fn simplify_predicate_on_stack(
         Predicate::Ceil(term) => {
             let simplified = simplify_term(term)?.into_parts();
             let unchanged = Predicate::Ceil(simplified.term.clone());
+            // `ceil_term` states only the operands' definedness of a term-level conjunction,
+            // which is not all of it (`term_is_provably_defined`): the conjunctions are read
+            // first, as equalities of their operands (`without_term_conjunctions`).
+            if contains_term_conjunction(&simplified.term) {
+                let mut constraints = simplified.conditions.into_predicates();
+                let Some((plain, equalities)) = without_term_conjunctions(&simplified.term) else {
+                    return Ok(with_simplification_constraints(constraints, unchanged));
+                };
+                constraints.push(Predicate::Ceil(plain));
+                constraints.extend(equalities);
+                let conjunction = Predicate::And(constraints.into());
+                if *remaining == 0 {
+                    return Err(SimplificationError::PredicateIterationLimit {
+                        limit,
+                        predicate: conjunction,
+                    }
+                    .into());
+                }
+                *remaining -= 1;
+                return simplify_predicate_with_budget(
+                    definition,
+                    &conjunction,
+                    assumptions,
+                    limit,
+                    remaining,
+                    active_conditions,
+                    solver,
+                );
+            }
             let mut expanded =
                 ceil_term(definition, &simplified.term).map_err(SimplificationError::from)?;
             // An opaque parent ceil remains a conjunct after expansion. Do not repeatedly
@@ -3574,6 +3603,58 @@ pub(crate) fn contains_term_conjunction(term: &Term) -> bool {
         }
         TermKind::DomainValue { .. } | TermKind::Variable(_) => false,
     }
+}
+
+/// `term` with each term-level conjunction `t1 /\ t2` in it replaced by `t1`, and the equalities
+/// `t1 = t2` of those conjunctions, innermost first; `None` when `term` holds a set variable.
+///
+/// A term without a set variable denotes at most one value: a variable or a domain value one,
+/// an application of a constructor or a function one or none (its arguments' values, if any,
+/// determine it), and a conjunction of two such terms the value they share, if they share one.
+/// So `t1 /\ t2` is `t1` where `t1 = t2` and empty elsewhere. Every term constructor (an
+/// application, an injection, a collection) is strict, empty where an argument is, so a term
+/// `C[t1 /\ t2]` is `C[t1]` where `t1 = t2` and empty elsewhere, and `⌈C[t1 /\ t2]⌉` is
+/// `⌈C[t1]⌉ /\ t1 = t2`. A conjunction nested in an operand is read first, so each equality is
+/// over terms without one. A set variable may denote several values, and the intersection of
+/// such a term with another is not an equality; a term that holds one is not read here.
+pub(crate) fn without_term_conjunctions(term: &Term) -> Option<(Term, Vec<Predicate>)> {
+    // `try_map_children` keeps a term whose children are unchanged, so a subterm without a
+    // conjunction is returned as it is.
+    fn strip(term: &Term, equalities: &mut Vec<Predicate>) -> Term {
+        match term.kind() {
+            TermKind::And(left, right) => {
+                let left = strip(left, equalities);
+                let right = strip(right, equalities);
+                equalities.push(Predicate::Equals(left.clone(), right));
+                left
+            }
+            TermKind::Application { .. }
+            | TermKind::Injection { .. }
+            | TermKind::Map { .. }
+            | TermKind::List { .. }
+            | TermKind::Set { .. } => {
+                let mapped = term.try_map_children(|child| {
+                    Ok::<_, std::convert::Infallible>(strip(child, equalities))
+                });
+                match mapped {
+                    Ok(mapped) => mapped,
+                    Err(never) => match never {},
+                }
+            }
+            TermKind::DomainValue { .. } | TermKind::Variable(_) => term.clone(),
+        }
+    }
+    if term
+        .attributes()
+        .variables
+        .last()
+        .is_some_and(|greatest| greatest.kind == VariableKind::Set)
+    {
+        return None;
+    }
+    let mut equalities = Vec::new();
+    let plain = strip(term, &mut equalities);
+    Some((plain, equalities))
 }
 
 enum PredicateMatch {

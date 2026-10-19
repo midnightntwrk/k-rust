@@ -315,10 +315,13 @@ fn a_connective_over_terms_at_a_matched_position_is_refused_at_load() {
 
 /// A connective over terms conjoined to a term of a right-hand side is the same set of values:
 /// `B #And #Not(true)` is `B` where `B` is `false`, and `B #And (B #Implies false)` is `B` where
-/// `B` is `false`, not the conditions `not(true = true)` and `B = true -> false = true`. Each is
-/// refused naming the rule, in a rewrite's and in a function equation's right-hand side.
+/// `B` is `false`, not the conditions `not(true = true)` and `B = true -> false = true`. K source
+/// with such a conjunction where a value is built is refused at compile for the Rust target,
+/// naming the sentence's line, in a rewrite's and in a function equation's right-hand side; the
+/// backend refuses the same KORE when another tool writes it (`k_rust_backend`'s
+/// `predicate_reading` tests).
 #[test]
-fn a_connective_over_terms_conjoined_to_a_right_hand_side_is_refused_at_load() {
+fn a_connective_over_terms_conjoined_to_a_right_hand_side_is_refused_at_compile() {
     for (rule, extra) in [
         (
             "rule [p]: <k> test(B) => test(B #And #Not(true)) ... </k>",
@@ -330,13 +333,47 @@ fn a_connective_over_terms_conjoined_to_a_right_hand_side_is_refused_at_load() {
   rule <k> test(B) => test(g(B)) ... </k>",
         ),
     ] {
-        let error = refusal(&compile(&source(rule, extra)));
-        assert!(
-            is(&error, "RulePattern(TermConnectiveInConjunction"),
-            "{rule}: {error:?}"
+        assert_eq!(
+            compile_error_codes(&source(rule, extra)),
+            [("MlConstructPosition".to_owned(), Some(RULE_LINE as u32))],
+            "{rule}"
         );
-        assert_names_the_rule(&error);
     }
+}
+
+/// The codes and lines of the errors with which compiling `source` for the Rust target fails.
+fn compile_error_codes(source: &str) -> Vec<(String, Option<u32>)> {
+    let mut resolver = |_: &str, required: &str| {
+        embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let (loaded, _) = load_for_compilation(
+        ResolvedSource::new(FILE, source),
+        MAIN,
+        Some("MLP-SYNTAX"),
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![embedded("prelude.md").expect("the embedded prelude exists")],
+            excluded_module_attributes: vec![
+                CompilationBackend::Rust.excluded_module_attribute().into(),
+            ],
+            ..LoadOptions::default()
+        },
+    )
+    .unwrap_or_else(|error| panic!("the definition loads: {error:?}\n{source}"));
+    let Err(error) = compile_loaded_definition(&loaded, CompileOptions::default()) else {
+        panic!("the definition compiles:\n{source}");
+    };
+    error
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.severity == k_rust::diagnostic::Severity::Error)
+        .map(|diagnostic| {
+            (
+                diagnostic.code.as_str().to_owned(),
+                diagnostic.location.map(|location| location.start_line),
+            )
+        })
+        .collect()
 }
 
 /// A simplification's sides are the author's: an `#Equals` whose operand is a connective over

@@ -357,7 +357,7 @@ fn is_connective_free_term(term: &Term) -> bool {
 /// Whether `term` denotes every value or none whatever its operands denote: an equality, a
 /// definedness or totality atom, `#Top` or `#Bottom`, or a connective over such patterns (for a
 /// quantifier, its body).
-fn is_predicate(term: &Term) -> bool {
+pub(crate) fn is_predicate(term: &Term) -> bool {
     crate::stack::guarded(|| {
         let Term::Apply { label, arguments } = term.unannotated() else {
             return false;
@@ -395,7 +395,7 @@ fn is_predicate(term: &Term) -> bool {
 /// conjunction, otherwise the operands of each of its operands' chains, so that
 /// `(t1 #And t2) #And t3` and `t1 #And (t2 #And t3)` both give t1, t2, t3. With `aliases`, an
 /// alias `P #as V`, which denotes `P #And V`, is a conjunction of the chain too.
-fn chain_operands(term: &Term, aliases: bool) -> Vec<&Term> {
+pub(crate) fn chain_operands(term: &Term, aliases: bool) -> Vec<&Term> {
     let mut operands = Vec::new();
     let mut pending = vec![term];
     // Invariant: `operands` then the reverse of `pending` are the chain's operands in order; each

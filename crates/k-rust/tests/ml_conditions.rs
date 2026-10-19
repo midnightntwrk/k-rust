@@ -1163,8 +1163,14 @@ fn a_conjunction_in_a_macro_right_side_is_lowered_where_the_macro_is_used() {
 /// ({X, 0} = {1} never holds), so it is emitted as written.
 #[test]
 fn a_built_conjunction_whose_operand_holds_a_connective_is_not_lowered() {
+    // The Rust target refuses the sentence at compile
+    // (`a_built_conjunction_whose_operand_holds_a_connective_is_refused`); the LLVM target's
+    // KORE shows that the stage leaves it as written.
     let axiom = axiom(
-        &compile("  rule [p]: <k> go(X) => done((X #Or 0) #And 1) ... </k>\n"),
+        &compile_for(
+            "  rule [p]: <k> go(X) => done((X #Or 0) #And 1) ... </k>\n",
+            CompilationBackend::Llvm,
+        ),
         "P.p",
     );
     assert_contains(
@@ -1580,4 +1586,242 @@ fn an_effectful_conjunction_runs_its_effect_once_under_io() {
     let rule = "  rule <k> wr() => wdone(#write(1, \"x\") #And .K) ... </k>\n";
     let (status, stdout, stderr) = krun_io(rule, "wr()", "", &["--output", "none"]);
     assert_eq!((status, stdout.as_str()), (0, "x"), "{stderr}");
+}
+
+// ---------------------------------------------------------------- shapes with no model, or no read meaning
+
+/// The errors `kcompile` gives `sentences` for `backend` (code, line, message), or `Ok` when it
+/// compiles.
+fn compile_errors(
+    sentences: &str,
+    backend: CompilationBackend,
+) -> Result<(), Vec<(String, Option<u32>, String)>> {
+    let source = format!("{HEADER}{sentences}endmodule\n");
+    let mut resolver = |_: &str, required: &str| {
+        embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let options = LoadOptions {
+        implicit_sources: vec![
+            embedded("kast.md").unwrap(),
+            embedded("prelude.md").unwrap(),
+        ],
+        ..backend.load_options()
+    };
+    let (loaded, _) = load_for_compilation(
+        ResolvedSource::new("ml_conditions.k", source),
+        "P",
+        Some("P-SYNTAX"),
+        &mut resolver,
+        &options,
+    )
+    .expect("the definition loads");
+    compile_loaded_definition(
+        &loaded,
+        CompileOptions {
+            backend,
+            ..CompileOptions::default()
+        },
+    )
+    .map(|_| ())
+    .map_err(|error| {
+        let mut errors = error
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.severity == k_rust::diagnostic::Severity::Error)
+            .map(|diagnostic| {
+                (
+                    diagnostic.code.as_str().to_owned(),
+                    diagnostic.location.map(|location| location.start_line),
+                    diagnostic.message.clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+        if errors.is_empty() {
+            errors.push(("<none>".to_owned(), None, error.to_string()));
+        }
+        errors
+    })
+}
+
+/// `sentences` is refused with one `MlConstructPosition` error at line `line`, whose message holds
+/// each of `reasons`, and compiles for the LLVM target, whose output the refusal does not judge.
+#[track_caller]
+fn assert_ml_construct_refused(sentences: &str, line: usize, reasons: &[&str]) {
+    let errors = match compile_errors(sentences, CompilationBackend::Rust) {
+        Ok(()) => panic!("compiles:\n{sentences}"),
+        Err(errors) => errors,
+    };
+    let [(code, at, message)] = errors.as_slice() else {
+        panic!("{sentences}: not one error: {errors:?}");
+    };
+    assert_eq!(code, "MlConstructPosition", "{sentences}: {message}");
+    assert_eq!(*at, Some(line as u32), "{sentences}: {message}");
+    for reason in reasons {
+        assert!(
+            message.contains(reason),
+            "{sentences}: no {reason:?} in {message}"
+        );
+    }
+    assert_eq!(
+        compile_errors(sentences, CompilationBackend::Llvm),
+        Ok(()),
+        "{sentences}: the LLVM target"
+    );
+}
+
+#[track_caller]
+fn assert_compiles(sentences: &str) {
+    assert_eq!(
+        compile_errors(sentences, CompilationBackend::Rust),
+        Ok(()),
+        "{sentences}"
+    );
+}
+
+/// An or-pattern in the left side of a function or anywhere equation whose alternatives bind
+/// different variables, one of which the result uses: the alternative that does not bind it
+/// states the application's value for every value of the variable (`f(X #Or 2) => 10 +Int X`
+/// states f(2) = 10 +Int X for every X), while an application has at most one value, so the
+/// equation is an axiom with no model, and no answer derived from it is right.
+#[test]
+fn an_or_pattern_binding_a_result_variable_in_one_alternative_of_an_equation_is_refused() {
+    let reasons = ["X", "or-pattern", "has at most one value", "no model"];
+    let first = line_after(F);
+    for (sentences, line) in [
+        (
+            format!("{F}  rule [p]: f(X #Or 2) => 10 +Int X\n  rule [o]: f(_) => 0 [owise]\n{G}"),
+            first,
+        ),
+        (format!("{F}  rule [p]: f(2 #Or X) => X\n{G}"), first),
+        (
+            format!("{F}  rule [p]: f(X #Or 2) => 0 ensures X >Int 0\n{G}"),
+            first,
+        ),
+        (
+            format!("{F}  rule [p]: f((X #Or 2) #Or 3) => X\n{G}"),
+            first,
+        ),
+        (
+            format!(
+                "{F}  rule [p]: f(X) => 0 requires X <Int 0\n  rule [o]: f(X #Or 2) => X [owise]\n{G}"
+            ),
+            first + 1,
+        ),
+    ] {
+        assert_ml_construct_refused(&sentences, line, &reasons);
+    }
+    let anywhere = "  syntax Wrap ::= h(Int) [symbol(h)] | w(Int) [symbol(w)]\n";
+    assert_ml_construct_refused(
+        &format!(
+            "{anywhere}  rule [p]: h(X #Or 2) => w(X) [anywhere]\n  rule [g]: <k> go(X) => h(X) ... </k>\n"
+        ),
+        line_after(anywhere),
+        &reasons,
+    );
+}
+
+/// An or-pattern whose alternatives bind the same variables, or whose differing variables the
+/// equation uses nowhere else, states one value per application; a rewrite rule matches each
+/// alternative with its own bindings, as before.
+#[test]
+fn or_patterns_with_equal_or_unused_binders_compile() {
+    for sentences in [
+        format!("{F}  rule [p]: f(1 #Or 2) => 10\n{G}"),
+        format!("{F}  rule [p]: f(_X #Or 2) => 0\n{G}"),
+        format!("{F}  rule [p]: f(X #Or 2) => 0 requires X >Int 0 orBool true\n{G}"),
+        "  syntax Int ::= f2(Int, Int) [function, symbol(f2)]\n  rule [p]: f2(X #Or 2, X) => X\n  rule [g]: <k> go(X) => done(f2(X, X)) ... </k>\n".to_owned(),
+        "  rule [p]: <k> go(X #Or 2) => done(X) ... </k>\n".to_owned(),
+    ] {
+        assert_compiles(&sentences);
+    }
+}
+
+/// A simplification whose left side is a term gives the term's value; a right side that is
+/// `#Top` (every value) or only a predicate (every value or none) states that the application,
+/// which has at most one value, is every value, an axiom with no model.
+#[test]
+fn a_simplification_of_a_term_to_top_is_refused() {
+    let reasons = [
+        "simplification",
+        "#Top",
+        "has at most one value",
+        "no model",
+    ];
+    for sentences in [
+        format!("{F}  rule [p]: f(X) => #Top [simplification]\n{G}"),
+        format!("{F}  rule [p]: f(X) => #Top ensures X >Int 0 [simplification]\n{G}"),
+        format!("{F}  rule [p]: f(X) +Int 1 => #Top [simplification]\n{G}"),
+    ] {
+        assert_ml_construct_refused(&sentences, line_after(F), &reasons);
+    }
+    for sentences in [
+        format!("{F}  rule [p]: #Ceil(f(X)) => #Top [simplification]\n{G}"),
+        format!("{F}  rule [p]: {{f(X) #Equals 1}} => #Top [simplification]\n{G}"),
+        format!("{F}  rule [p]: f(X) => #Bottom [simplification]\n{G}"),
+        format!("{F}  rule [p]: f(X) => X [simplification]\n{G}"),
+    ] {
+        assert_compiles(&sentences);
+    }
+}
+
+/// A built conjunction whose operand holds a connective (`(X #Or 0) #And 1`) is left without a
+/// read meaning: the lowering that gives a conjunction of two terms its meaning applies to
+/// connective-free operands only, and the backend gives a built conjunction of terms no
+/// definedness or value. A conjunction of a term with a predicate keeps its reading.
+#[test]
+fn a_built_conjunction_whose_operand_holds_a_connective_is_refused() {
+    let reasons = ["#And", "connective", "conjunction"];
+    for (prefix, sentences) in [
+        (
+            "",
+            "  rule [p]: <k> go(X) => done((X #Or 0) #And 1) ... </k>\n".to_owned(),
+        ),
+        (
+            "",
+            "  rule [p]: <k> go(X) => done(1 #And (X #Or 0)) ... </k>\n".to_owned(),
+        ),
+        (
+            "",
+            "  rule [p]: <k> go(X) => done(X #And 1 #And (X #Or 2)) ... </k>\n".to_owned(),
+        ),
+        (F, format!("{F}  rule [p]: f(X) => (X #Or 0) #And 1\n{G}")),
+    ] {
+        assert_ml_construct_refused(&sentences, line_after(prefix), &reasons);
+    }
+    for sentences in [
+        "  rule [p]: <k> go(X) => done((X #Or 0) #And {X #Equals 1}) ... </k>\n",
+        "  rule [p]: <k> go(X) => done(X #And 1) ... </k>\n",
+        "  rule [p]: <k> go(X) => done(X #Or 0) ... </k>\n",
+        "  rule [p]: <k> go(X #And 1) => done(X) ... </k>\n",
+    ] {
+        assert_compiles(sentences);
+    }
+}
+
+/// `#Ceil(t1 #And t2)` of two terms, each at most one value, holds exactly where t1 is defined
+/// and equals t2: a condition that reads it so steps where it holds and only there, as a
+/// definedness atom below an application or under `#Not` does.
+#[test]
+fn the_definedness_of_a_term_conjunction_is_the_equality_of_its_operands() {
+    let rule = |condition: &str| {
+        format!("  rule [p]: <k> go(X) => done(X) ... </k> requires {condition}\n")
+    };
+    for condition in [
+        "#Ceil(X #And 1)",
+        "#Ceil(1 #And X)",
+        "#Ceil(X #And 1 #And X)",
+        "#Ceil((X +Int 0) #And 1)",
+    ] {
+        assert_eq!(run(&rule(condition), 1), stuck("done(1)"), "{condition}");
+        assert_eq!(run(&rule(condition), 3), stuck("go(3)"), "{condition}");
+    }
+    let negated = rule("#Not(#Ceil(X #And 1))");
+    assert_eq!(run(&negated, 1), stuck("go(1)"));
+    assert_eq!(run(&negated, 3), stuck("done(3)"));
+    // In a function equation's requires, the application is evaluated where it holds.
+    let equation = format!(
+        "{F}  rule [p]: f(X) => X requires #Ceil(X #And 1)\n  rule [o]: f(_) => 0 [owise]\n{G}"
+    );
+    assert_eq!(run(&equation, 1), stuck("done(1)"));
+    assert_eq!(run(&equation, 3), stuck("done(0)"));
 }

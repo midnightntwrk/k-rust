@@ -297,12 +297,14 @@ const OPERAND_CONDITIONS: &[Condition] = &[
         Kind::TermLevel,
         "{X} = {1, 2}: never; refused (PredicateOperand)",
     ),
+    // A conjunction of two terms, each at most one value, is defined exactly where they are
+    // equal: the backend reads `#Ceil(t1 #And t2)` as `⌈t1⌉ ∧ t1 = t2`.
     condition(
         "ceilop-and",
         "#Ceil(X #And 1)",
         |x| x == 1,
-        Kind::TermLevel,
-        "X ∩ {1} is defined where X = 1; a connective in the operand of #Ceil is refused (PredicateOperand)",
+        Kind::Plain,
+        "X ∩ {1} is defined where X = 1",
     ),
     condition(
         "eqop-or-or",
