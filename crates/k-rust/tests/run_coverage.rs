@@ -22,80 +22,8 @@ use k_rust::{
 #[path = "support/shared.rs"]
 mod shared;
 
-const SOURCE: &str = r#"module COVER-SYNTAX
-  imports INT-SYNTAX
-  syntax Address ::= addr(Int) [symbol(addr)]
-  syntax Op ::= load(Address, Int) [symbol(load)]
-              | ens(Int) [symbol(ens)]
-              | rhsp(Int) [symbol(rhsp)]
-              | eqreq(Int) [symbol(eqreq)]
-              | rej(Int) [symbol(rej)]
-              | ow(Int) [symbol(ow)]
-              | ru(Int) [symbol(ru)]
-              | rv(Int) [symbol(rv)]
-              | pr(Int) [symbol(pr)]
-              | hk(Int) [symbol(hk)]
-              | d1(Int) [symbol(d1)]
-  syntax Prog ::= "halt" [symbol(halt)] | "fault" [symbol(fault)] | "nd" [symbol(nd)]
-                | "mid1" [symbol(mid1)] | "mid2" [symbol(mid2)]
-                | seq(Op, Prog) [symbol(seq)] | val(Int) [symbol(val)]
-endmodule
-
-module COVER
-  imports COVER-SYNTAX
-  imports BASIC-K
-  imports INT
-  imports BOOL
-  imports K-EQUAL
-  configuration <k> $PGM:Prog </k>
-
-  syntax Int ::= norm(Int) [function, total, symbol(norm)]
-               | normE(Int) [function, total, symbol(normE)]
-               | part(Int) [function, symbol(part)]
-               | inner(Int) [function, total, symbol(inner)]
-               | outer(Int) [function, total, symbol(outer)]
-               | normR(Int) [function, total, symbol(normR)]
-               | owf(Int) [function, total, symbol(owf)]
-               | owg(Int) [function, total, symbol(owg)]
-               | unused(Int) [function, total, symbol(unused)]
-               | pu(Int) [function, symbol(pu)]
-               | pv(Int) [function, symbol(pv)]
-               | pd(Int) [function, symbol(pd)]
-
-  rule [norm]:    norm(X) => X
-  rule [normE]:   normE(X) => X
-  rule [part]:    part(X) => X +Int 1 requires X >=Int 0
-  rule [inner]:   inner(X) => X
-  rule [outer]:   outer(X) => 1 requires inner(X) >=Int 0
-  rule [outerow]: outer(_) => 0 [owise]
-  rule [normR]:   normR(X) => X
-  rule [owg]:     owg(X) => X
-  rule [owf1]:    owf(X) => 1 requires owg(X) ==Int 0
-  rule [owf2]:    owf(_) => 2 [owise]
-  rule [unused]:  unused(X) => X
-  rule [puCeil]:  #Ceil(pu(X)) => {(X >=Int 0) #Equals true} [simplification]
-  rule [pvCeil]:  #Ceil(pv(_)) => #Top [simplification]
-  rule [pdEq]:    pd(X) => X requires X >=Int 0
-
-  rule [load]:    seq(load(addr(A), _), P) => P requires norm(A) ==Int A [preserves-definedness]
-  rule [ens]:     seq(ens(A), P) => P ensures normE(A) ==Int A
-  rule [rhsp]:    seq(rhsp(A), _) => val(part(A))
-  rule [eqreq]:   seq(eqreq(A), _) => val(outer(A))
-  rule [rejHigh]: seq(rej(A), _) => fault requires normR(A) <Int 0 [priority(40)]
-  rule [rej]:     seq(rej(_), P) => P
-  rule [ow]:      seq(ow(A), _) => val(owf(A))
-  rule [ru]:      seq(ru(A), _) => val(pu(A))
-  rule [rv]:      seq(rv(A), _) => val(pv(A))
-  rule [prHigh]:  seq(pr(_), _) => halt [priority(40)]
-  rule [prLow]:   seq(pr(_), _) => fault
-  rule [hk]:      seq(hk(A), _) => val(A +Int 1)
-  rule [d1]:      seq(d1(A), _) => val(#if A >=Int 0 #then A #else pd(A) #fi)
-  rule [ndA]:     nd => mid1
-  rule [ndB]:     nd => mid2
-  rule [mid1]:    mid1 => halt
-  rule [mid2]:    mid2 => halt
-endmodule
-"#;
+/// The fixture definition of the `applied` and `matched` tests, also run by `offered_inertness.rs`.
+const SOURCE: &str = include_str!("fixtures/coverage/cover.k");
 
 /// The KORE of `SOURCE`, compiled once per process and inference mode for every test here.
 fn definition_kore() -> std::sync::Arc<String> {
@@ -104,12 +32,17 @@ fn definition_kore() -> std::sync::Arc<String> {
 }
 
 fn compile() -> String {
+    compile_source("cover.k", SOURCE, "COVER")
+}
+
+/// The KORE of `source`, main module `main`.
+fn compile_source(file: &str, source: &str, main: &str) -> String {
     let mut resolver = |_: &str, required: &str| {
         embedded(required).ok_or_else(|| format!("unexpected require {required}"))
     };
     let loaded = load_with_options(
-        ResolvedSource::new("cover.k", SOURCE),
-        "COVER",
+        ResolvedSource::new(file, source),
+        main,
         &mut resolver,
         &LoadOptions {
             implicit_sources: vec![embedded("prelude.md").unwrap()],
@@ -166,12 +99,17 @@ fn catalog(backend: &Backend) -> Vec<(String, String)> {
 /// `ids`, and every other id as `other:<id>`, so that an exact comparison also catches an id the
 /// run should not have recorded.
 fn labels(catalog: &[(String, String)], ids: &[String]) -> BTreeSet<String> {
+    labels_in("COVER.", catalog, ids)
+}
+
+/// [`labels`] for the sentences of the module whose labels start with `module`.
+fn labels_in(module: &str, catalog: &[(String, String)], ids: &[String]) -> BTreeSet<String> {
     ids.iter()
         .flat_map(|id| {
             let cover = catalog
                 .iter()
-                .filter(|(label, other)| other == id && label.starts_with("COVER."))
-                .map(|(label, _)| label.trim_start_matches("COVER.").to_owned())
+                .filter(|(label, other)| other == id && label.starts_with(module))
+                .map(|(label, _)| label.trim_start_matches(module).to_owned())
                 .collect::<Vec<_>>();
             if cover.is_empty() {
                 vec![format!("other:{id}")]
@@ -452,4 +390,449 @@ fn a_hook_is_never_recorded() {
         "{coverage:?}"
     );
     assert_eq!(covered(&catalog, &result).0, names(&["hk"]));
+}
+
+/// The offered level (docs/compatibility.md, "Run coverage"): a request that sets
+/// `collect_offered` beside `collect_coverage` also receives `offered`, the axioms whose
+/// left-hand side matched a subject the backend scanned candidates for and which the scan never
+/// tried, besides `matched`.
+mod offered {
+    use std::collections::BTreeSet;
+
+    use k_rust::{
+        backend::{
+            Backend, BackendOptions, ExecuteRequest, ExecutionResult, ExecutionStrategy,
+            ObservedRequest, ResultModalityOutput,
+        },
+        kore::{codec, parser::parse_pattern},
+    };
+
+    use super::{int, shared, top};
+
+    /// Each `pX` operation exercises one recording site; `seq(op, P)` is the program shape of
+    /// the `COVER` definition.
+    const SOURCE: &str = include_str!("fixtures/coverage/offer.k");
+
+    fn definition_kore() -> std::sync::Arc<String> {
+        static KORE: shared::Shared<String> = shared::Shared::new();
+        KORE.get(|| super::compile_source("offer.k", SOURCE, "OFFER"))
+    }
+
+    fn backend() -> Backend {
+        Backend::new(&definition_kore(), "OFFER", BackendOptions::default()).unwrap()
+    }
+
+    fn catalog(backend: &Backend) -> Vec<(String, String)> {
+        super::catalog(backend)
+    }
+
+    /// `seq(op(argument), halt)`, `argument` a literal or, for `None`, the variable `X`.
+    fn program(op: &str, argument: Option<i64>) -> String {
+        let argument = argument.map_or_else(|| "VarX:SortInt{}".to_owned(), int);
+        format!("Lblseq{{}}(Lbl{op}{{}}({argument}), Lblhalt{{}}())")
+    }
+
+    fn request(
+        program: &str,
+        strategy: ExecutionStrategy,
+        modality: ResultModalityOutput,
+        offered: bool,
+    ) -> ExecuteRequest {
+        ExecuteRequest {
+            result_modality: modality,
+            strategy,
+            collect_coverage: true,
+            collect_offered: offered,
+            ..ExecuteRequest::new(parse_pattern(&top(program)).unwrap())
+        }
+    }
+
+    /// The `OFFER` labels of a run's (applied, matched, offered) lists.
+    type Levels = (BTreeSet<String>, BTreeSet<String>, BTreeSet<String>);
+
+    fn levels(catalog: &[(String, String)], result: &ExecutionResult) -> Levels {
+        let coverage = result.coverage.as_ref().expect("coverage was asked for");
+        let offered = coverage.offered.as_ref().expect("offered was asked for");
+        let labels = |ids: &[String]| super::labels_in("OFFER.", catalog, ids);
+        (
+            labels(&coverage.applied),
+            labels(&coverage.matched),
+            labels(offered),
+        )
+    }
+
+    fn run(
+        backend: &mut Backend,
+        program: &str,
+        strategy: ExecutionStrategy,
+        modality: ResultModalityOutput,
+    ) -> ExecutionResult {
+        backend
+            .execute(request(program, strategy, modality, true))
+            .unwrap()
+    }
+
+    fn names(list: &[&str]) -> BTreeSet<String> {
+        super::names(list)
+    }
+
+    /// Every program of the fixtures, with the strategies it runs under.
+    fn fixtures() -> Vec<(String, ExecutionStrategy)> {
+        let mut programs = Vec::new();
+        for (op, argument) in [
+            ("pa", Some(1)),
+            ("pb", Some(1)),
+            ("pc", Some(5)),
+            ("pd", Some(0)),
+            ("pd", Some(5)),
+            ("pe", None),
+            ("pe", Some(3)),
+            ("py", Some(1)),
+            ("ph", Some(1)),
+            ("pk", Some(5)),
+        ] {
+            for strategy in [ExecutionStrategy::All, ExecutionStrategy::Any] {
+                programs.push((program(op, argument), strategy));
+            }
+        }
+        programs
+    }
+
+    /// (a) A rule of a priority group below the productive one, whose left-hand side matches the
+    /// state, is offered and not matched; under either strategy.
+    #[test]
+    fn a_lower_priority_rule_that_matches_is_offered() {
+        let mut backend = backend();
+        let catalog = catalog(&backend);
+        for strategy in [ExecutionStrategy::All, ExecutionStrategy::Any] {
+            let result = run(
+                &mut backend,
+                &program("pa", Some(1)),
+                strategy,
+                ResultModalityOutput::PathSet,
+            );
+            assert_eq!(
+                levels(&catalog, &result),
+                (
+                    names(&["aHigh"]),
+                    names(&["aHigh"]),
+                    names(&["aHigh", "aLow"])
+                ),
+                "{strategy:?}"
+            );
+        }
+    }
+
+    /// (b) An `owise` rule behind a productive rule of the default priority is offered only.
+    #[test]
+    fn an_owise_rule_behind_a_productive_rule_is_offered() {
+        let mut backend = backend();
+        let catalog = catalog(&backend);
+        for strategy in [ExecutionStrategy::All, ExecutionStrategy::Any] {
+            let result = run(
+                &mut backend,
+                &program("pb", Some(1)),
+                strategy,
+                ResultModalityOutput::PathSet,
+            );
+            assert_eq!(
+                levels(&catalog, &result),
+                (
+                    names(&["bMain"]),
+                    names(&["bMain"]),
+                    names(&["bMain", "bOw"])
+                ),
+                "{strategy:?}"
+            );
+        }
+    }
+
+    /// Under strategy `any`, the rules of the productive priority after the one that took the
+    /// state are offered; under `all` both apply.
+    #[test]
+    fn under_any_the_later_rule_of_the_productive_priority_is_offered() {
+        let mut backend = backend();
+        let catalog = catalog(&backend);
+        let result = run(
+            &mut backend,
+            &program("py", Some(1)),
+            ExecutionStrategy::Any,
+            ResultModalityOutput::PathSet,
+        );
+        let (applied, matched, offered) = levels(&catalog, &result);
+        assert_eq!(applied, matched);
+        assert_eq!(applied.len(), 1, "{applied:?}");
+        assert_eq!(offered, names(&["yA", "yB"]));
+        let result = run(
+            &mut backend,
+            &program("py", Some(1)),
+            ExecutionStrategy::All,
+            ResultModalityOutput::PathSet,
+        );
+        let both = names(&["yA", "yB"]);
+        assert_eq!(
+            levels(&catalog, &result),
+            (both.clone(), both.clone(), both)
+        );
+    }
+
+    /// (c) Of two equations of one group whose left-hand sides match, the one the scan tries
+    /// first applies, and the other is offered and not matched.
+    #[test]
+    fn a_later_equation_of_the_applied_group_is_offered() {
+        let mut backend = backend();
+        let catalog = catalog(&backend);
+        let result = run(
+            &mut backend,
+            &program("pc", Some(5)),
+            ExecutionStrategy::All,
+            ResultModalityOutput::PathSet,
+        );
+        let (applied, matched, offered) = levels(&catalog, &result);
+        let equations = names(&["fc1", "fc2"]);
+        let used = applied
+            .intersection(&equations)
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        assert_eq!(used.len(), 1, "{applied:?}");
+        assert_eq!(matched, applied);
+        assert_eq!(applied, &names(&["c"]) | &used);
+        assert_eq!(offered, &names(&["c"]) | &equations);
+    }
+
+    /// (d) An `owise` equation behind an applied equation is offered; an equation whose
+    /// left-hand side does not match the argument is not, while the `owise` one it lets apply is
+    /// matched and applied.
+    #[test]
+    fn an_owise_equation_is_offered_behind_an_applied_one_only() {
+        let mut backend = backend();
+        let catalog = catalog(&backend);
+        let result = run(
+            &mut backend,
+            &program("pd", Some(0)),
+            ExecutionStrategy::All,
+            ResultModalityOutput::PathSet,
+        );
+        assert_eq!(
+            levels(&catalog, &result),
+            (
+                names(&["d", "fd1"]),
+                names(&["d", "fd1"]),
+                names(&["d", "fd1", "fdOw"])
+            )
+        );
+        let result = run(
+            &mut backend,
+            &program("pd", Some(5)),
+            ExecutionStrategy::All,
+            ResultModalityOutput::PathSet,
+        );
+        let (applied, matched, offered) = levels(&catalog, &result);
+        assert_eq!(applied, names(&["d", "fdOw"]));
+        assert_eq!(matched, names(&["d", "fdOw"]));
+        assert_eq!(offered, names(&["d", "fdOw"]), "fd1 does not match fd(5)");
+    }
+
+    /// (e) A `concrete` equation with an empty `requires`, set aside on a symbolic argument with
+    /// a lower group following, is offered and not matched; the lower group it blocks is offered
+    /// too.
+    #[test]
+    fn a_set_aside_equation_is_offered() {
+        let mut backend = backend();
+        let catalog = catalog(&backend);
+        let result = run(
+            &mut backend,
+            &program("pe", None),
+            ExecutionStrategy::All,
+            ResultModalityOutput::PathSet,
+        );
+        assert_eq!(
+            levels(&catalog, &result),
+            (names(&["e"]), names(&["e"]), names(&["e", "feC", "feOw"]))
+        );
+    }
+
+    /// (f) A rule whose left-hand side matches no explored state is in no list.
+    #[test]
+    fn a_rule_that_matches_no_explored_state_is_in_no_list() {
+        let mut backend = backend();
+        let catalog = catalog(&backend);
+        for (program, strategy) in fixtures() {
+            for modality in [
+                ResultModalityOutput::PathSet,
+                ResultModalityOutput::StateSet,
+            ] {
+                let result = run(&mut backend, &program, strategy, modality);
+                let (_, _, offered) = levels(&catalog, &result);
+                assert!(!offered.contains("never"), "{program} {strategy:?}");
+            }
+        }
+    }
+
+    /// (g) `applied` within `matched` within `offered` on every fixture, the same lists under
+    /// both result modalities, and for `execute` and `execute_observed`.
+    #[test]
+    fn the_levels_nest_and_do_not_depend_on_modality_or_observation() {
+        let mut backend = backend();
+        for (program, strategy) in fixtures() {
+            let path_set = run(
+                &mut backend,
+                &program,
+                strategy,
+                ResultModalityOutput::PathSet,
+            );
+            let coverage = path_set.coverage.clone().unwrap();
+            let offered = coverage.offered.clone().unwrap();
+            let set = |ids: &[String]| ids.iter().cloned().collect::<BTreeSet<_>>();
+            assert!(
+                set(&coverage.applied).is_subset(&set(&coverage.matched)),
+                "{program}"
+            );
+            assert!(
+                set(&coverage.matched).is_subset(&set(&offered)),
+                "{program}"
+            );
+            assert!(offered.is_sorted(), "{program}");
+            let state_set = run(
+                &mut backend,
+                &program,
+                strategy,
+                ResultModalityOutput::StateSet,
+            );
+            assert_eq!(
+                state_set.coverage, path_set.coverage,
+                "{program} {strategy:?}"
+            );
+            for rules in [None, Some(Vec::new())] {
+                let observed = backend
+                    .execute_observed(ObservedRequest {
+                        request: request(&program, strategy, ResultModalityOutput::PathSet, true),
+                        rules,
+                    })
+                    .unwrap();
+                assert_eq!(observed.coverage, path_set.coverage, "{program} observed");
+            }
+        }
+    }
+
+    /// (h) Asking for `offered` changes nothing but `coverage.offered`: the serialized result
+    /// without it is byte for byte the result of the request without `collectOffered`, on a run
+    /// that mints a fresh name, evaluates an implementation-chosen value (its mark and its
+    /// diagnostic) and offers competitors at both steps; and on every other fixture.
+    #[test]
+    fn asking_for_offered_changes_nothing_else() {
+        let mut backend = backend();
+        let catalog = catalog(&backend);
+        let mut runs = fixtures();
+        runs.insert(0, (program("ph", Some(1)), ExecutionStrategy::All));
+        for (index, (program, strategy)) in runs.into_iter().enumerate() {
+            for modality in [
+                ResultModalityOutput::PathSet,
+                ResultModalityOutput::StateSet,
+            ] {
+                let with = backend
+                    .execute_json(request(&program, strategy, modality, true))
+                    .unwrap();
+                let without = backend
+                    .execute_json(request(&program, strategy, modality, false))
+                    .unwrap();
+                let mut with = serde_json::from_str::<serde_json::Value>(&with).unwrap();
+                let offered = with["coverage"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("offered")
+                    .expect("offered is serialized when asked");
+                assert!(offered.is_array());
+                let without_value = serde_json::from_str::<serde_json::Value>(&without).unwrap();
+                assert!(without_value["coverage"].get("offered").is_none());
+                assert_eq!(
+                    serde_json::to_string(&with).unwrap(),
+                    serde_json::to_string(&without_value).unwrap(),
+                    "{program} {strategy:?} {modality:?}"
+                );
+                if index == 0 {
+                    // The premises of the fixture: a fresh name, a chosen value with its
+                    // diagnostic, and competitors the scan never tried.
+                    let text = with.to_string();
+                    assert!(text.contains("implementation-chosen"), "{text}");
+                    assert!(
+                        with["implementationChosenValues"]
+                            .as_array()
+                            .is_some_and(|marks| !marks.is_empty()),
+                        "{text}"
+                    );
+                    let result = backend
+                        .execute(request(&program, strategy, modality, true))
+                        .unwrap();
+                    let (_, matched, offered) = levels(&catalog, &result);
+                    let own = |labels: BTreeSet<String>| {
+                        labels
+                            .into_iter()
+                            .filter(|label| !label.starts_with("other:"))
+                            .collect::<BTreeSet<_>>()
+                    };
+                    assert_eq!(own(matched), names(&["hFresh", "hKeys"]));
+                    assert_eq!(own(offered), names(&["hFresh", "hLow", "hKeys", "hOw"]));
+                }
+            }
+        }
+    }
+
+    /// (i) `collectOffered` without `collectCoverage` is a request error, and the request
+    /// refuses unknown fields, so a server that does not know `collectOffered` refuses it.
+    #[test]
+    fn offered_needs_coverage_and_is_read_from_the_wire() {
+        let mut backend = backend();
+        let state =
+            codec::to_value(&parse_pattern(&top(&program("pa", Some(1)))).unwrap()).unwrap();
+        let alone = serde_json::from_value::<ExecuteRequest>(serde_json::json!({
+            "state": state,
+            "collectOffered": true,
+        }))
+        .unwrap();
+        assert!(alone.collect_offered && !alone.collect_coverage);
+        let error = backend.execute(alone).unwrap_err();
+        assert!(
+            error.message().contains("collectOffered")
+                && error.message().contains("collectCoverage"),
+            "{}",
+            error.message()
+        );
+        let unknown = serde_json::from_value::<ExecuteRequest>(serde_json::json!({
+            "state": state,
+            "collectCoverage": true,
+            "collectOfferedLater": true,
+        }));
+        assert!(unknown.is_err(), "an unknown request field is refused");
+        let plain = serde_json::from_value::<ExecuteRequest>(serde_json::json!({
+            "state": state,
+            "collectCoverage": true,
+        }))
+        .unwrap();
+        assert!(!plain.collect_offered);
+        let output: serde_json::Value =
+            serde_json::from_str(&backend.execute_json(plain).unwrap()).unwrap();
+        assert!(output["coverage"].get("offered").is_none(), "{output}");
+        assert!(backend.capabilities().coverage_offered);
+        let capabilities = serde_json::to_value(backend.capabilities()).unwrap();
+        assert_eq!(capabilities["coverageOffered"], true);
+    }
+
+    /// (k) An equation the definedness decision of an unevaluated operand never tries, below the
+    /// group it selected from, is offered and in neither other list.
+    #[test]
+    fn a_lower_equation_of_a_deferred_definedness_decision_is_offered() {
+        let mut backend = backend();
+        let catalog = catalog(&backend);
+        let result = run(
+            &mut backend,
+            &program("pk", Some(5)),
+            ExecutionStrategy::All,
+            ResultModalityOutput::PathSet,
+        );
+        let (applied, matched, offered) = levels(&catalog, &result);
+        assert_eq!(applied, names(&["k", "pdk50"]));
+        assert_eq!(matched, names(&["k", "pdk50"]));
+        assert_eq!(offered, names(&["k", "pdk50", "pdk60"]));
+    }
 }

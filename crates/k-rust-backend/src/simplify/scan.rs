@@ -18,7 +18,9 @@ use crate::{
     term::Term,
 };
 
-use super::{ConditionIndeterminacy, Simplification, SimplifyResult};
+use super::{
+    ConditionIndeterminacy, EquationInstances, Simplification, SimplifyResult, equation_instances,
+};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(super) enum IndeterminateEquation {
@@ -138,6 +140,8 @@ pub(super) fn scan_term_theory<K: TermTheory>(
     let mut blocked = false;
     let mut not_cacheable = false;
     let last = groups.len().saturating_sub(1);
+    // The equations of the groups after `position`: never tried once the scan returns there.
+    let later = |position: usize| groups.values().skip(position + 1).flatten();
     for (position, rules) in groups.values().enumerate() {
         let set_aside =
             if K::INDETERMINATE_EQUATION == IndeterminateEquation::Block && position < last {
@@ -157,11 +161,25 @@ pub(super) fn scan_term_theory<K: TermTheory>(
                 EquationAttempt::Recurred => EquationAttempt::Recurred,
             })
         })? {
-            GroupScan::Applied((result, rule)) => return Ok(TheoryScan::Applied(result, rule)),
+            GroupScan::Applied((result, rule)) => {
+                if crate::coverage::offering() {
+                    let after = rules
+                        .iter()
+                        .position(|candidate| Arc::ptr_eq(candidate, &rule))
+                        .map_or(rules.len(), |index| index + 1);
+                    offer_untried_equations(
+                        definition,
+                        term,
+                        rules[after..].iter().chain(later(position)),
+                    );
+                }
+                return Ok(TheoryScan::Applied(result, rule));
+            }
             GroupScan::Blocked if K::INDETERMINATE_EQUATION == IndeterminateEquation::Block => {
                 // A rule at this priority may apply after the symbolic subject becomes more
                 // concrete. Function evaluation must preserve the application and must not fall
                 // through to an owise or otherwise lower-priority equation.
+                offer_untried_equations(definition, term, later(position));
                 return Ok(TheoryScan::Blocked);
             }
             GroupScan::Blocked => blocked = true,
@@ -169,6 +187,7 @@ pub(super) fn scan_term_theory<K: TermTheory>(
             // used: the lower-priority function equations' premises exclude the term, so they
             // must not apply in its place.
             GroupScan::Unused if K::INDETERMINATE_EQUATION == IndeterminateEquation::Block => {
+                offer_untried_equations(definition, term, later(position));
                 return Ok(TheoryScan::Blocked);
             }
             GroupScan::NotCacheable | GroupScan::Unused => not_cacheable = true,
@@ -184,6 +203,29 @@ pub(super) fn scan_term_theory<K: TermTheory>(
         // `GroupScan::NotApplicable`: each of its attempts was `NotApplicable(MatchFailed)`.
         TheoryScan::NotApplicable(NoOfferedEquationMatched(PhantomData))
     })
+}
+
+/// Offer each of `rules`, equations a scan selected for `term` and never tried, that has an
+/// instance at `term` (`crate::coverage::offer`): one whose left-hand side matches it, or whose
+/// matching is undecided, by the enumeration every use of an equation shares
+/// (`simplify::equation_instances`), without deciding any `requires`. Nothing is done unless the
+/// run collects the offered level.
+pub(crate) fn offer_untried_equations<'a>(
+    definition: &BackendDefinition,
+    term: &Term,
+    rules: impl IntoIterator<Item = &'a Arc<RewriteRule>>,
+) {
+    if !crate::coverage::offering() {
+        return;
+    }
+    for rule in rules {
+        crate::coverage::offer(&rule.attributes.unique_id, || {
+            !matches!(
+                equation_instances(definition, rule, term, &[]).1,
+                EquationInstances::NotMatched(_)
+            )
+        });
+    }
 }
 
 /// The outcome of one equation attempt. `N` is the evidence a `NotApplicable` attempt carries:

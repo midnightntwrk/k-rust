@@ -3,7 +3,7 @@
 //! name = "priority-grouped rewriting with a complete remainder"
 //! sites = ["rewrite_step_all", "rewrite_step_any", "apply_priority_group", "first_productive_group", "fold_lower_priority_groups", "SequentialDeterminism::record"]
 //! variable = "c = candidate rules; k = sub-cases the dropped-successor tracker compares within one priority"
-//! counters = ["RewriteRulesApplied"]
+//! counters = ["RewriteRulesApplied", "CoverageOfferMatches"]
 //! span = "per call"
 //! consumes = [
 //!   { type = "k_rust_backend::definition::BackendDefinition", role = "internalized theory" },
@@ -18,6 +18,10 @@
 //! [[cost]]
 //! mode = "Any"
 //! bound = "O(c) rule attempts plus one predicate simplification per applied application group and per priority whose rules left some applicable instance without a defined result, one SAT check per candidate of an application group after a rule's first (restricted to the instances the earlier groups left), one SAT check per step, and one normalization (a predicate simplification and a term simplification, execute::normalize_successor) of each applied candidate's successor when a later application group of its rule or a later rule of its priority is left, which a kept candidate's successor takes instead of normalizing itself (the one-path proof route normalizes it again)"
+//!
+//! [[cost]]
+//! mode = "collecting the offered coverage level (ExecutionOptions::collect_offered)"
+//! bound = "the cost of the mode plus at most one isolated left-hand-side match per candidate the step never tried, none for an axiom the run's coverage already holds (CoverageOfferMatches)"
 //!
 //! [[cost]]
 //! mode = "Any with dropped-successor tracking (SequentialDeterminism)"
@@ -53,7 +57,11 @@ use crate::{
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic, extend_distinct, in_emission_order},
     fresh::FreshCounter,
-    rule::{Predicate, RewriteRule, RuleRhs, SubjectKey, applicable_rewrite_groups, subject_index},
+    matching::{MatchResult, match_rule_in_definition},
+    rule::{
+        Predicate, RewriteRule, RuleRhs, SubjectKey, applicable_rewrite_groups, rename_apart,
+        subject_index,
+    },
     simplify::{
         SimplificationError, SimplificationOptions, simplify_predicates_with_solver,
         simplify_with_solver,
@@ -113,7 +121,7 @@ fn apply_priority_group(
     // The work every `Trivial` leaf of the group depends on: its own sub-case is excluded from
     // the defined sub-case of every applied candidate, so it derives from all of it.
     let mut undefined_work = Vec::new();
-    for rule in rules {
+    for (index, rule) in rules.iter().enumerate() {
         // A rule attempt attributes its own work (`RuleApplicationGroup::common`,
         // `RuleApplication::diagnostics`); the work of an attempt that does not apply is on no
         // candidate's path, since no successor is derived from it.
@@ -146,11 +154,14 @@ fn apply_priority_group(
                 }
             }
             RuleAttempt::Indeterminate(reason) => {
+                // The step ends undecided here: the rules after this one are never tried.
+                offer_untried_rules(definition, pattern, &rules[index + 1..]);
                 return Ok(PriorityGroupOutcome::Undecided(
                     UndecidedStep::Indeterminate(reason),
                 ));
             }
             RuleAttempt::Simplification(error) => {
+                offer_untried_rules(definition, pattern, &rules[index + 1..]);
                 return Ok(PriorityGroupOutcome::Undecided(
                     UndecidedStep::Simplification(error),
                 ));
@@ -369,6 +380,47 @@ fn stuck_subject(
     }
 }
 
+/// Offer each of `rules`, candidates the step selected for `pattern` and never tried, whose
+/// left-hand side matches the step's subject (`crate::coverage::offer`): the match is the one an
+/// attempt begins with, of the rule renamed apart from the subject where they share a variable,
+/// and an undecided match counts. Nothing is done unless the run collects the offered level.
+fn offer_untried_rules<'a>(
+    definition: &BackendDefinition,
+    pattern: &Pattern,
+    rules: impl IntoIterator<Item = &'a Arc<RewriteRule>>,
+) {
+    if !crate::coverage::offering() {
+        return;
+    }
+    for rule in rules {
+        crate::coverage::offer(&rule.attributes.unique_id, || {
+            let renamed = rename_apart(rule, &pattern.term.attributes().variables, &[]);
+            let rule = renamed.as_ref().map_or(&**rule, |(renamed, _)| renamed);
+            !matches!(
+                match_rule_in_definition(definition, &rule.lhs, &pattern.term),
+                MatchResult::Failed(_)
+            )
+        });
+    }
+}
+
+/// [`offer_untried_rules`] for the sequential step: `rule` and the `rest` of the step's
+/// candidates, which it ends before trying.
+fn offer_rest<'a>(
+    definition: &BackendDefinition,
+    pattern: &Pattern,
+    rule: &'a Arc<RewriteRule>,
+    rest: impl Iterator<Item = (u8, &'a Arc<RewriteRule>, bool)>,
+) {
+    if crate::coverage::offering() {
+        offer_untried_rules(
+            definition,
+            pattern,
+            std::iter::once(rule).chain(rest.map(|(_, rule, _)| rule)),
+        );
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn rewrite_step_all(
     definition: &BackendDefinition,
@@ -409,12 +461,23 @@ pub(super) fn rewrite_step_all(
         PriorityGroupOutcome::NotProductive => {
             stuck_subject(definition, pattern, subject_definedness.restriction())?
         }
-        PriorityGroupOutcome::Undecided(undecided) => undecided.into_result(pattern.clone()),
+        PriorityGroupOutcome::Undecided(undecided) => {
+            // The groups below the undecided one are never tried.
+            if crate::coverage::offering() {
+                let untried = groups.flat_map(|(_, rules)| rules).collect::<Vec<_>>();
+                offer_untried_rules(definition, pattern, &untried);
+            }
+            undecided.into_result(pattern.clone())
+        }
         PriorityGroupOutcome::Productive {
             mut branches,
             mut trivial,
             mut remainder,
         } => {
+            let groups = groups.collect::<BTreeMap<_, _>>();
+            // The lower groups are tried only on the remainder, which is empty on a ground
+            // state; their rules are offered against the step's subject.
+            offer_untried_rules(definition, pattern, groups.values().flatten());
             fold_lower_priority_groups(
                 definition,
                 &mut branches,
@@ -423,7 +486,7 @@ pub(super) fn rewrite_step_all(
                 LowerGroups {
                     selected_for: subject,
                     visited,
-                    groups: groups.collect(),
+                    groups,
                 },
                 fresh_counter,
                 simplification_options,
@@ -949,13 +1012,13 @@ pub(super) fn rewrite_step_any(
     let mut priority_trivial = 0;
     // Each rule with whether it is its priority's last, after which no rule of the priority is
     // left to take the instances an undefined result leaves.
-    let rules = priority_groups.iter().flat_map(|(priority, rules)| {
+    let mut rules = priority_groups.iter().flat_map(|(priority, rules)| {
         rules
             .iter()
             .enumerate()
             .map(move |(index, rule)| (*priority, rule, index + 1 == rules.len()))
     });
-    for (priority, rule, last_of_priority) in rules {
+    while let Some((priority, rule, last_of_priority)) = rules.next() {
         if remaining.priority() != Some(priority) {
             if let Err(error) = close_priority(
                 definition,
@@ -967,6 +1030,7 @@ pub(super) fn rewrite_step_any(
                 simplification_options,
                 solver,
             )? {
+                offer_rest(definition, pattern, rule, &mut rules);
                 return Ok(RewriteResult::Simplification {
                     pattern: remaining.into_pattern(),
                     error,
@@ -991,6 +1055,9 @@ pub(super) fn rewrite_step_any(
                 )?;
                 continue;
             }
+            // Under `Any` the rule that took the state ends the step: this rule and the ones
+            // after it are never tried.
+            offer_rest(definition, pattern, rule, &mut rules);
             break;
         }
         let attempt = RefutationMemo::apply_rule(
@@ -1256,6 +1323,9 @@ pub(super) fn rewrite_step_any(
                             solver,
                         )?
                     {
+                        if let Some((_, next, _)) = rules.next() {
+                            offer_rest(definition, pattern, next, &mut rules);
+                        }
                         return Ok(RewriteResult::Simplification {
                             pattern: remaining.into_pattern(),
                             error,
@@ -1264,12 +1334,18 @@ pub(super) fn rewrite_step_any(
                 }
             }
             RuleAttempt::Indeterminate(reason) => {
+                if let Some((_, next, _)) = rules.next() {
+                    offer_rest(definition, pattern, next, &mut rules);
+                }
                 return Ok(RewriteResult::Indeterminate {
                     pattern: remaining.into_pattern(),
                     reason,
                 });
             }
             RuleAttempt::Simplification(error) => {
+                if let Some((_, next, _)) = rules.next() {
+                    offer_rest(definition, pattern, next, &mut rules);
+                }
                 return Ok(RewriteResult::Simplification {
                     pattern: remaining.into_pattern(),
                     error,

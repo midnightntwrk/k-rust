@@ -7142,6 +7142,11 @@ fn apply_equation(
 ) -> SimplifyResult<EquationAttempt<Simplification, MatchFailed>> {
     measure::bump(Counter::SimplifyEquationAttempts);
     let (rule, instances) = equation_instances(definition, rule, term, known_predicates);
+    if !matches!(instances, EquationInstances::NotMatched(_)) {
+        // The left-hand side matched, or its matching is undecided: whatever the scan then
+        // decides, the equation competed at this application (`crate::coverage`).
+        crate::coverage::note_offered(&rule.attributes.unique_id);
+    }
     let instances = match instances {
         EquationInstances::NotMatched(failed) => return Ok(EquationAttempt::NotApplicable(failed)),
         EquationInstances::Undecided => {

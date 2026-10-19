@@ -9,11 +9,14 @@ use std::{collections::BTreeSet, panic::AssertUnwindSafe};
 use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
 use crate::{
-    coverage::{RunCoverage, collect, note_applied, note_matched, replay, suspend},
+    coverage::{
+        RunCoverage, collect, collect_offering, note_applied, note_matched, note_offered, offer,
+        replay, suspend,
+    },
     definition::BackendDefinition,
     rewrite::{
-        ExecutionOptions, ExecutionResult, HaltReason, Pattern, execute, execute_with_io_state,
-        execute_with_solver,
+        ExecutionMode, ExecutionOptions, ExecutionResult, HaltReason, Pattern, execute,
+        execute_with_io_state, execute_with_solver,
     },
     rule::Predicate,
     search::ResultModality,
@@ -203,6 +206,34 @@ fn definition() -> BackendDefinition {
             r#", priority{}("40")"#,
         ),
         rule("rej", &format!("rej{{}}({A})"), "halt{}()", "", "", ""),
+        // `hop(A)` steps to `ow(A)`; on a state whose variable is spelled like the rules' `A`,
+        // the step and the probe of `hopLow` both rename the rule apart, and the observed
+        // bindings of the next step name its renamed variable.
+        rule(
+            "hop",
+            &format!("hop{{}}({A})"),
+            &format!("ow{{}}({A})"),
+            "",
+            "",
+            "",
+        ),
+        rule(
+            "hopLow",
+            &format!("hop{{}}({A})"),
+            "fault{}()",
+            "",
+            "",
+            r#", priority{}("60")"#,
+        ),
+        // A rule below the productive group of `rej(A)`, never tried (`offered`).
+        rule(
+            "rejLow",
+            &format!("rej{{}}({A})"),
+            "fault{}()",
+            "",
+            "",
+            r#", priority{}("60")"#,
+        ),
         rule(
             "ow",
             &format!("ow{{}}({A})"),
@@ -330,7 +361,7 @@ fn definition() -> BackendDefinition {
     ];
     let unary = [
         "val", "load", "ens", "rhsp", "rhst", "eqreq", "rej", "ow", "ru", "rv", "rc", "rp", "d1",
-        "d2", "d4", "rw",
+        "d2", "d4", "rw", "hop",
     ]
     .map(|name| {
         format!(
@@ -837,4 +868,206 @@ fn a_replayed_coverage_feeds_each_set_it_holds() {
     assert_eq!(replayed, stored);
     assert_eq!(replayed.applied, ids(&["used"]));
     assert_eq!(replayed.matched, ids(&["tried", "used"]));
+}
+
+/// The offered level is collected only by a collection that offers: `note_offered` reports
+/// nothing elsewhere, and an offering collection unions `matched` (with `applied`) into it.
+#[test]
+fn offered_is_collected_only_by_an_offering_collection() {
+    let ((), plain) = collect(|| {
+        note_offered("ignored");
+        note_matched("m");
+    });
+    assert_eq!(plain.offered, None);
+    let ((), offering) = collect_offering(true, || {
+        note_offered("o");
+        note_matched("m");
+        note_applied("a");
+        // A collection opened inside, such as a rule's load-time discharge, does not offer, and
+        // its other sets feed the outer one.
+        let ((), inner) = collect(|| {
+            note_offered("inner-offered");
+            note_applied("inner");
+        });
+        assert_eq!(inner.offered, None);
+        suspend(|| note_offered("hidden"));
+    });
+    assert_eq!(offering.applied, ids(&["a", "inner"]));
+    assert_eq!(offering.matched, ids(&["a", "inner", "m"]));
+    assert_eq!(offering.offered, Some(ids(&["a", "inner", "m", "o"])));
+    let ((), replayed) = collect_offering(true, || replay(&offering));
+    assert_eq!(replayed, offering);
+}
+
+/// An offer's probe runs isolated from the run: it reports to no set, counts no work but one
+/// `Counter::CoverageOfferMatches`, and an axiom already in a set is not probed again.
+#[test]
+fn an_offer_probe_is_isolated_and_runs_once_per_axiom() {
+    use k_rust_kore::measure::{self, Counter};
+    let before = measure::snapshot();
+    let ((), coverage) = collect_offering(true, || {
+        offer("hit", || {
+            note_applied("leaked");
+            note_matched("leaked");
+            measure::bump(Counter::RewriteSteps);
+            true
+        });
+        offer("miss", || false);
+        offer("hit", || panic!("an offered axiom is not probed again"));
+        note_matched("seen");
+        offer("seen", || panic!("a matched axiom is not probed"));
+    });
+    let delta = measure::snapshot().delta(&before);
+    assert_eq!(coverage.applied, ids(&[]));
+    assert_eq!(coverage.matched, ids(&["seen"]));
+    assert_eq!(coverage.offered, Some(ids(&["hit", "seen"])));
+    assert_eq!(delta.get(Counter::RewriteSteps), 0);
+    assert_eq!(delta.get(Counter::CoverageOfferMatches), 2);
+    // Without an offering collection no probe runs.
+    let ((), _) = collect(|| offer("never", || panic!("not offering")));
+    offer("never", || panic!("no collection"));
+}
+
+/// (a) A rule of a priority group below the productive one, whose left-hand side matches the
+/// state, is offered; asking for it changes nothing else in the result, under either mode.
+#[test]
+fn a_lower_priority_rule_is_offered_and_asking_changes_nothing_else() {
+    let definition = definition();
+    let program = format!("rej{{}}({})", int(5));
+    for mode in [ExecutionMode::All, ExecutionMode::Any] {
+        let options = ExecutionOptions {
+            mode,
+            ..collecting()
+        };
+        let mut offered = execute(
+            &definition,
+            ground(&definition, &program),
+            ExecutionOptions {
+                collect_offered: true,
+                ..options.clone()
+            },
+        );
+        let mut plain = execute(&definition, ground(&definition, &program), options);
+        let levels = offered.coverage.take().unwrap();
+        let without = plain.coverage.take().unwrap();
+        assert_eq!(without.offered, None);
+        assert_eq!(
+            offered, plain,
+            "{mode:?}: asking for offered changed the result"
+        );
+        assert_eq!(levels.applied, without.applied);
+        assert_eq!(levels.matched, without.matched);
+        assert_eq!(levels.applied, ids(&["normR", "rej"]), "{mode:?}");
+        assert_eq!(
+            levels.matched,
+            ids(&["normR", "rej", "rejHigh"]),
+            "{mode:?}"
+        );
+        assert_eq!(
+            levels.offered,
+            Some(ids(&["normR", "rej", "rejHigh", "rejLow"])),
+            "{mode:?}"
+        );
+    }
+}
+
+/// Asking for `offered` changes nothing else (the probes are isolated): every program of this
+/// file's definition, ground and symbolic, under both modes and both result modalities, bounded,
+/// gives the same result and the same counters (but `Counter::CoverageOfferMatches`) with the
+/// option on and off. `crates/k-rust/tests/offered_inertness.rs` is the same oracle over the
+/// facade's fixtures and the light IMP corpus.
+#[test]
+fn asking_for_offered_changes_no_result_and_no_counter() {
+    use k_rust_kore::measure::{self, Counter};
+    let definition = definition();
+    let unary = [
+        "val", "load", "ens", "rhsp", "rhst", "eqreq", "rej", "ow", "ru", "rv", "rc", "rp", "d1",
+        "d2", "d4", "rw", "hop",
+    ];
+    let mut programs = vec!["nd{}()".to_owned(), "halt{}()".to_owned()];
+    for name in unary {
+        for argument in [int(5), int(-1), int(0), A.to_owned()] {
+            programs.push(format!("{name}{{}}({argument})"));
+        }
+    }
+    let mut inputs = programs
+        .iter()
+        .map(|program| (program.clone(), term(&definition, program)))
+        .collect::<Vec<_>>();
+    // A state whose variable is spelled like the rules' internalized `A`: every attempt and
+    // every probe of a rule over `A` renames it apart, and the observed bindings name the
+    // renamed variables, so a probe that took a renamed-apart name from the run would show.
+    let rule_a = crate::substitution::Substitution::from([(
+        crate::term::Variable::new("A", crate::term::Sort::simple("SortInt")),
+        Term::variable(crate::term::Variable::new(
+            "Rule#A",
+            crate::term::Sort::simple("SortInt"),
+        )),
+    )]);
+    for name in ["hop", "rej", "ow", "d1"] {
+        let program = format!("{name}{{}}({A})");
+        let renamed = crate::substitution::substitute(&term(&definition, &program), &rule_a);
+        inputs.push((format!("{name}(Rule#A)"), renamed));
+    }
+    let mut probing = 0;
+    for (program, subject) in &inputs {
+        let initial = Pattern {
+            term: subject.clone(),
+            constraints: Vec::new(),
+        };
+        for mode in [ExecutionMode::All, ExecutionMode::Any] {
+            for result_modality in [ResultModality::PathSet, ResultModality::StateSet] {
+                let options = ExecutionOptions {
+                    mode,
+                    result_modality,
+                    max_work: Some(200),
+                    max_depth: 200,
+                    max_breadth: Some(16),
+                    ..collecting()
+                };
+                let run = |offered: bool, observed: bool| {
+                    let before = measure::snapshot();
+                    let options = ExecutionOptions {
+                        collect_offered: offered,
+                        ..options.clone()
+                    };
+                    let result = if observed {
+                        // The observed bindings name the rules' renamed-apart variables.
+                        crate::rewrite::execute_observed(
+                            &definition,
+                            initial.clone(),
+                            options,
+                            &crate::transition::ObservationOptions::all(),
+                        )
+                    } else {
+                        execute(&definition, initial.clone(), options)
+                    };
+                    (result, measure::snapshot().delta(&before))
+                };
+                for observed in [false, true] {
+                    let (mut on, on_counters) = run(true, observed);
+                    let (mut off, off_counters) = run(false, observed);
+                    let context = format!(
+                        "{program} under {mode:?} {result_modality:?}, observed {observed}"
+                    );
+                    let on_coverage = on.coverage.as_mut().unwrap();
+                    let offered = on_coverage.offered.take().expect("offered was asked for");
+                    assert!(on_coverage.matched.is_subset(&offered), "{context}");
+                    probing += usize::from(offered.len() > on_coverage.matched.len());
+                    assert_eq!(off.coverage.as_ref().unwrap().offered, None, "{context}");
+                    off.coverage.as_mut().unwrap().offered = None;
+                    assert_eq!(on, off, "{context}: offered on, then off");
+                    let differing = on_counters
+                        .iter()
+                        .zip(off_counters.iter())
+                        .filter(|((name, on), (_, off))| {
+                            *name != Counter::CoverageOfferMatches.name() && on != off
+                        })
+                        .collect::<Vec<_>>();
+                    assert!(differing.is_empty(), "{context}: counters {differing:?}");
+                }
+            }
+        }
+    }
+    assert!(probing > 0, "some run offers an axiom it never tried");
 }

@@ -1165,71 +1165,99 @@ fn ceil_equation(
         _ => &[],
     };
     let groups = applicable_groups(definition.ceil_theory(), &term_index(term));
-    for rules in groups.values() {
-        for rule in rules {
-            if !rule.requires.is_empty()
-                || !rule.computed_attributes.unbound_result_variables.is_empty()
-                || !matches!(rule.rhs, RuleRhs::Predicates(_))
-            {
+    for (position, rules) in groups.values().enumerate() {
+        for (index, rule) in rules.iter().enumerate() {
+            if !unconditional_ceil(rule) {
                 continue;
             }
-            let (rule, EquationInstances::Matched(instances)) =
-                equation_instances(definition, rule, term, &[])
-            else {
-                continue;
-            };
-            let RuleRhs::Predicates(predicates) = &rule.rhs else {
-                unreachable!("renaming keeps the kind of the right-hand side");
-            };
-            for instance in instances {
-                let Instance::Usable(substitution) = instance else {
-                    continue;
-                };
-                // The instance's condition is decided below (`crate::coverage`); an outcome from
-                // it uses the equation.
-                let rule_id = rule.attributes.unique_id.as_str();
-                crate::coverage::note_matched(rule_id);
-                let mut conjuncts = Vec::new();
-                for predicate in predicates {
-                    flatten_conjuncts(
-                        substitute_predicate(predicate, &substitution),
-                        &mut conjuncts,
-                    );
+            if let Some(decision) = ceil_equation_decision(definition, term, arguments, rule)? {
+                // The decision ends the selection: the unconditional ceil equations after this
+                // one are never tried.
+                if crate::coverage::offering() {
+                    let untried = rules[index + 1..]
+                        .iter()
+                        .chain(groups.values().skip(position + 1).flatten())
+                        .filter(|rule| unconditional_ceil(rule));
+                    crate::simplify::scan::offer_untried_equations(definition, term, untried);
                 }
-                let mut residual = Vec::new();
-                for conjunct in conjuncts {
-                    match fold_predicate(definition, &conjunct, arguments)? {
-                        Some(false) => {
-                            crate::coverage::note_applied(rule_id);
-                            return Ok(Some(DeferredDecision::Refuted));
-                        }
-                        Some(true) => {}
-                        None => residual.push(conjunct),
-                    }
-                }
-                if residual.is_empty() {
-                    crate::coverage::note_applied(rule_id);
-                    return Ok(Some(DeferredDecision::Established));
-                }
-                // D2': over hook arithmetic the instance of the ceil axiom is stated instead of
-                // the opaque atom (`W1 =/=Int 0` for `W0 /Int W1`). It is an equivalence, and its
-                // terms hold no part of the operand but variables and literals, so no definition
-                // equation can reach the operand through it.
-                if arguments
-                    .iter()
-                    .all(|argument| hook_arithmetic(definition, argument))
-                    && residual.iter().all(|predicate| {
-                        let mut arithmetic = true;
-                        predicate.visit_terms(&mut |term| {
-                            arithmetic &= hook_arithmetic(definition, term);
-                        });
-                        arithmetic
-                    })
-                {
-                    crate::coverage::note_applied(rule_id);
-                    return Ok(Some(DeferredDecision::Replaced(residual)));
-                }
+                return Ok(Some(decision));
             }
+        }
+    }
+    Ok(None)
+}
+
+/// Whether D2 uses `rule`: a ceil equation with no `requires`, no unbound result variable and a
+/// predicate right-hand side.
+fn unconditional_ceil(rule: &RewriteRule) -> bool {
+    rule.requires.is_empty()
+        && rule.computed_attributes.unbound_result_variables.is_empty()
+        && matches!(rule.rhs, RuleRhs::Predicates(_))
+}
+
+/// The decision of [`ceil_equation`] from `rule`, an [`unconditional_ceil`] equation: from the
+/// first of its usable instances at `term` whose condition decides one.
+fn ceil_equation_decision(
+    definition: &BackendDefinition,
+    term: &Term,
+    arguments: &[Term],
+    rule: &RewriteRule,
+) -> Stoppable<Option<DeferredDecision>> {
+    let (rule, EquationInstances::Matched(instances)) =
+        equation_instances(definition, rule, term, &[])
+    else {
+        return Ok(None);
+    };
+    let RuleRhs::Predicates(predicates) = &rule.rhs else {
+        unreachable!("renaming keeps the kind of the right-hand side");
+    };
+    for instance in instances {
+        let Instance::Usable(substitution) = instance else {
+            continue;
+        };
+        // The instance's condition is decided below (`crate::coverage`); an outcome from
+        // it uses the equation.
+        let rule_id = rule.attributes.unique_id.as_str();
+        crate::coverage::note_matched(rule_id);
+        let mut conjuncts = Vec::new();
+        for predicate in predicates {
+            flatten_conjuncts(
+                substitute_predicate(predicate, &substitution),
+                &mut conjuncts,
+            );
+        }
+        let mut residual = Vec::new();
+        for conjunct in conjuncts {
+            match fold_predicate(definition, &conjunct, arguments)? {
+                Some(false) => {
+                    crate::coverage::note_applied(rule_id);
+                    return Ok(Some(DeferredDecision::Refuted));
+                }
+                Some(true) => {}
+                None => residual.push(conjunct),
+            }
+        }
+        if residual.is_empty() {
+            crate::coverage::note_applied(rule_id);
+            return Ok(Some(DeferredDecision::Established));
+        }
+        // D2': over hook arithmetic the instance of the ceil axiom is stated instead of
+        // the opaque atom (`W1 =/=Int 0` for `W0 /Int W1`). It is an equivalence, and its
+        // terms hold no part of the operand but variables and literals, so no definition
+        // equation can reach the operand through it.
+        if arguments
+            .iter()
+            .all(|argument| hook_arithmetic(definition, argument))
+            && residual.iter().all(|predicate| {
+                let mut arithmetic = true;
+                predicate.visit_terms(&mut |term| {
+                    arithmetic &= hook_arithmetic(definition, term);
+                });
+                arithmetic
+            })
+        {
+            crate::coverage::note_applied(rule_id);
+            return Ok(Some(DeferredDecision::Replaced(residual)));
         }
     }
     Ok(None)
@@ -1368,9 +1396,26 @@ fn select_single_step(
     }
     let groups = applicable_groups(definition.function_theory(), &term_index(term));
     let mut arguments_normal = None;
-    for rules in groups.values() {
+    // The selection stops in group `position` before trying `untried` of its equations: those,
+    // and every equation of the later groups, are offered (`crate::coverage`), with the held
+    // candidate, whose left-hand side matched, when the selection gave up after taking it.
+    let give_up = |position: usize,
+                   untried: &[Arc<RewriteRule>],
+                   candidate: Option<&(RewriteRule, Substitution)>| {
+        if let Some((rule, _)) = candidate {
+            crate::coverage::note_offered(&rule.attributes.unique_id);
+        }
+        crate::simplify::scan::offer_untried_equations(
+            definition,
+            term,
+            untried
+                .iter()
+                .chain(groups.values().skip(position + 1).flatten()),
+        );
+    };
+    for (position, rules) in groups.values().enumerate() {
         let mut candidate: Option<(RewriteRule, Substitution)> = None;
-        for rule in rules {
+        for (index, rule) in rules.iter().enumerate() {
             if function_below_root(&rule.lhs)
                 && !*arguments_normal.get_or_insert_with(|| {
                     arguments
@@ -1378,17 +1423,26 @@ fn select_single_step(
                         .all(|argument| definition.instance_normal(argument).is_some())
                 })
             {
+                give_up(position, &rules[index..], candidate.as_ref());
                 return Ok(None);
             }
             let (renamed, instances) = equation_instances(definition, rule, term, &[]);
             match instances {
                 EquationInstances::NotMatched(_) => {}
-                EquationInstances::Undecided => return Ok(None),
+                EquationInstances::Undecided => {
+                    // An undecided matching counts as a match of its left-hand side.
+                    crate::coverage::note_offered(&rule.attributes.unique_id);
+                    give_up(position, &rules[index + 1..], candidate.as_ref());
+                    return Ok(None);
+                }
                 EquationInstances::Matched(mut instances) => {
+                    crate::coverage::note_offered(&rule.attributes.unique_id);
                     if candidate.is_some() || instances.len() != 1 {
+                        give_up(position, &rules[index + 1..], candidate.as_ref());
                         return Ok(None);
                     }
                     let Some(Instance::Usable(substitution)) = instances.pop() else {
+                        give_up(position, &rules[index + 1..], None);
                         return Ok(None);
                     };
                     candidate = Some((renamed.into_owned(), substitution));
@@ -1396,6 +1450,7 @@ fn select_single_step(
             }
         }
         if let Some((rule, substitution)) = candidate {
+            give_up(position, &[], None);
             return Ok(
                 selected_instance_applies(definition, &rule, &substitution, arguments)?
                     .then_some((rule, substitution)),

@@ -1030,6 +1030,25 @@ pub(crate) fn suspend<T>(action: impl FnOnce() -> T) -> T {
     action()
 }
 
+/// Run `action`, work that decides nothing in the run, with the thread's notes set aside: it
+/// runs with no collection, no run record and no rule scope open, so what it notes goes
+/// nowhere and is stamped nowhere ([`since`], [`noted_since`] and the claim records' ground test
+/// do not see it), and the thread's notes are restored as they were on every exit.
+pub(crate) fn discarded<T>(action: impl FnOnce() -> T) -> T {
+    struct Restore(Option<State>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            if let Some(state) = self.0.take() {
+                OPEN.set(state.is_open());
+                STATE.set(state);
+            }
+        }
+    }
+    let _restore = Restore(Some(STATE.take()));
+    OPEN.set(false);
+    action()
+}
+
 /// A point in the notes of this thread, for [`since`] and [`noted_since`].
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct Marker(u64);
