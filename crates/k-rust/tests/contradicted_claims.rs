@@ -455,13 +455,12 @@ fn a_candidate_a_defined_sibling_covers_is_on_the_run_list_and_on_the_leaves_tha
 }
 
 /// `s3a` and `s3b` both apply to `s3(0)` and both results are bottom. Each record names the rule
-/// whose candidate observed it, so the two stay distinct. Under strategy any the sequential step
-/// offers `s3a`'s instances to `s3b`, so the one `Trivial` leaf rests on both. Under strategy
-/// all each candidate is its own undefined step, a `Trivial` leaf per rule, found when its
-/// successor is normalized; its instances are those where the other candidate is not defined
-/// either, which the other's normalization decides, so each leaf rests on both records. Without
-/// the claims the step itself finds both results undefined: the halts are the same and nothing
-/// is named.
+/// whose candidate observed it, so the two stay distinct. The step has one undefined step, one
+/// `Trivial` leaf resting on both records. Under strategy any the sequential step offers `s3a`'s
+/// instances to `s3b`, whose successor reports it, naming `s3b`. Under strategy all the first
+/// successor to be normalized reports it, naming the first candidate `s3a`, after normalizing
+/// the other, which then reports none. Without the claims the step itself finds both results
+/// undefined: the halts are the same and nothing is named.
 #[test]
 fn each_rule_whose_candidate_observed_a_contradiction_is_named() {
     let (kore, initial) = compile_program(CONTRADICTIONS, "s3(0)");
@@ -478,16 +477,10 @@ fn each_rule_whose_candidate_observed_a_contradiction_is_named() {
             k_rust::backend::ExecutionStrategy::All => {
                 assert_eq!(
                     trivial,
-                    [
-                        (
-                            Value::from("MAIN.s3a"),
-                            BTreeSet::from([s3a.clone(), s3b.clone()])
-                        ),
-                        (
-                            Value::from("MAIN.s3b"),
-                            BTreeSet::from([s3a.clone(), s3b.clone()])
-                        ),
-                    ],
+                    [(
+                        Value::from("MAIN.s3a"),
+                        BTreeSet::from([s3a.clone(), s3b.clone()])
+                    )],
                     "{context}"
                 );
             }

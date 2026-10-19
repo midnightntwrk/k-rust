@@ -768,7 +768,8 @@ pub enum HaltReason {
     /// is the step's `Trivial` leaf, or no leaf where another candidate of the step takes its
     /// instances. So a `Vacuous` leaf is an initial configuration with no instance, a state no
     /// step's candidate built (a remainder), or the successor of a step whose pre-step
-    /// configuration itself has no instance, which only the successor's normalization exposed.
+    /// configuration itself has no instance, which only the step exposed: one leaf for the
+    /// step, which names no rule, since nothing applied to an instance.
     Vacuous {
         /// Semantic depth at which the path constraint became false.
         depth: u64,

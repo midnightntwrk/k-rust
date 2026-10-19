@@ -1836,6 +1836,10 @@ fn reports_vacuous_execution_paths() {
     ));
 }
 
+/// The initial state's contradiction, exposed only by its input substitution, does not prevent
+/// the first rewrite attempt; the step's successor then has no instance, and neither has the
+/// state it was taken from: one `Vacuous` leaf at the successor's depth, naming no rule, since
+/// nothing applied to an instance.
 #[test]
 fn input_substitution_contradictions_are_checked_after_the_first_rewrite_attempt() {
     let syntax = parse_definition(
@@ -1892,15 +1896,13 @@ fn input_substitution_contradictions_are_checked_after_the_first_rewrite_attempt
                 depth: 1,
                 halt_reason: HaltReason::Vacuous {
                     depth: 1,
-                    rule_id: Some(rule_id),
-                    label: Some(label),
+                    rule_id: None,
+                    label: None,
                     constraint,
                     contradicted_total: None,
                 },
                 ..
             }] if term == &internal_term(&definition, "d{}()")
-                && rule_id == "step"
-                && label == "step"
                 && matches!(constraint, Predicate::And(predicates)
                     if predicates.iter().any(|predicate| matches!(predicate, Predicate::False)))
                 && constraints.iter().any(|predicate| matches!(predicate, Predicate::False))
@@ -3778,7 +3780,8 @@ fn ground_io_candidates_are_rejected_without_touching_the_retained_cursor_across
 /// its instances rather than a dropped candidate: `first-dead`'s result `dead(tag(10))` is
 /// `\bottom` through `dead`'s equation, so the instances `X <Int 0`, where it applies and blocks
 /// `stop`, are its `Trivial` leaf at depth 0 (one more satisfiability query, the leaf's), before
-/// the stop rule's leaf.
+/// the stop rule's leaf; and again when the stop rule's leaf came to stand only for `stop`'s own
+/// instances, `not (X <Int 0)`: the cut-point leaf's state is restricted to them.
 #[test]
 fn cut_point_and_terminal_rules_after_a_cascade_that_leaves_one_survivor() {
     let definition = be08_portable_definition(
@@ -3830,7 +3833,7 @@ fn cut_point_and_terminal_rules_after_a_cascade_that_leaves_one_survivor() {
             &terminal,
             &*terminal_solver.transcript.borrow(),
         ),
-        "30567b2729e430395841a192df09a6d177c0ff4a89b14af2cee62f4783b45ff8",
+        "5c04bd8f0a27af2ada8fc5ea2a589965746e2d97c6a006a2d6dff0e59c728168",
     );
     assert!(cut_solver.answers.borrow().is_empty());
     assert!(cut_solver.validity.borrow().is_empty());
@@ -14694,16 +14697,13 @@ fn a_discarded_operand_keeps_its_definedness_obligation_at_every_leaf() {
 
         let explored = execute(&definition, initial.clone(), ExecutionOptions::default());
         assert!(!explored.leaves.is_empty());
-        // Where the obligation fails, each rule's step is undefined: a leaf on the initial state.
+        // Where the obligation fails, the step is undefined: one leaf on the initial state for
+        // the step, whether one rule or both are undefined there.
         let (undefined, explored_leaves): (Vec<_>, Vec<_>) = explored
             .leaves
             .iter()
             .partition(|leaf| matches!(leaf.halt_reason, HaltReason::Trivial { .. }));
-        assert_eq!(
-            undefined.len(),
-            if second_rule { 2 } else { 1 },
-            "{explored:#?}"
-        );
+        assert_eq!(undefined.len(), 1, "{explored:#?}");
         for leaf in undefined {
             assert_eq!(leaf.pattern.term, initial.term);
             assert_eq!(
@@ -14744,8 +14744,8 @@ fn a_discarded_operand_keeps_its_definedness_obligation_at_every_leaf() {
         };
         assert_eq!(
             stopped.leaves.len(),
-            3,
-            "two undefined steps precede the branch"
+            2,
+            "the step's one undefined step precedes the branch"
         );
         let HaltReason::Branch {
             branches,

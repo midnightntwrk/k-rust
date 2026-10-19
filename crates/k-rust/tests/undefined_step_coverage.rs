@@ -1078,8 +1078,9 @@ fn a_symbolic_post_step_undefined_candidate_beside_a_conditional_sibling() {
 /// Stopping at branches, the candidates of a step are normalized in the step. One normalized to
 /// `\bottom` with an undefined result is an undefined step of the pre-step state where no defined
 /// candidate applies, not a dropped candidate: `sibr(X)` reports the instances `not (X >Int 0)`,
-/// and `s3(0)`, whose two candidates are both undefined, ends in two `Trivial` leaves at depth 0
-/// rather than `Stuck`. Without its undefined sibling the defined candidate is the state's
+/// and `s3(0)`, whose two candidates are both undefined, ends in the one `Trivial` leaf of its
+/// undefined step at depth 0, naming the first candidate and resting on both, rather than
+/// `Stuck`. Without its undefined sibling the defined candidate is the state's
 /// unique successor, so the stop rules apply to it: `sib(0)` stops at the cut point `sibok`
 /// before the step, or at the terminal rule `sibok` after it. Under strategy `any` the step
 /// itself drops `sibtd` there, with or without stopping at branches.
@@ -1093,7 +1094,7 @@ fn stopping_at_branches_reports_a_candidate_undefined_after_the_step() {
     );
     assert_eq!(
         reasons(&both),
-        [HaltReasonOutput::Trivial, HaltReasonOutput::Trivial],
+        [HaltReasonOutput::Trivial],
         "{:#?}",
         summary(&both)
     );
@@ -1102,7 +1103,6 @@ fn stopping_at_branches_reports_a_candidate_undefined_after_the_step() {
         && leaf.contradicted_total.is_some()
         && leaf.branch.is_empty()));
     assert_trivial_rule(&backend, &both.leaves[0], "s3a");
-    assert_trivial_rule(&backend, &both.leaves[1], "s3b");
     assert_eq!(both.discarded.len(), 2, "both transitions are rolled back");
 
     for strategy in [ExecutionStrategy::All, ExecutionStrategy::Any] {
@@ -1153,17 +1153,17 @@ fn stopping_at_branches_reports_a_candidate_undefined_after_the_step() {
 }
 
 /// Two candidates of one step, `s3a` and `s3b`, are both undefined only after the step, where
-/// `I ==Int 0`. Each is an undefined step of `s3(X)` under `X = 0`, under either strategy and
-/// whether or not the run stops at branches, and the other instances are the stuck remainder:
-/// no instance is lost. Every leaf on `s3(0)` is the undefined step of `s3(0)`. Exploring all
-/// paths reports one per candidate, as its successors are expanded. Strategy `any` reports one:
-/// its step finds `s3a` undefined and offers its instances to `s3b`, the priority's last rule,
-/// whose successor's normalization then reports the undefined step of them all.
+/// `I ==Int 0`. The step has one undefined step, of `s3(X)` under `X = 0`, under either strategy
+/// and whether or not the run stops at branches, and the other instances are the stuck
+/// remainder: no instance is lost. Exploring all paths, the first of its successors to be
+/// expanded reports it, naming the first candidate, and the other reports none. Strategy `any`'s
+/// step finds `s3a` undefined and offers its instances to `s3b`, the priority's last rule,
+/// whose successor's normalization then reports the undefined step, naming `s3b`.
 #[test]
-fn two_candidates_undefined_after_the_step_are_each_an_undefined_step() {
+fn two_candidates_undefined_after_the_step_are_one_undefined_step() {
     let mut backend = backend();
     for (strategy, leaves, rule) in [
-        (ExecutionStrategy::All, 2, "s3a"),
+        (ExecutionStrategy::All, 1, "s3a"),
         (ExecutionStrategy::Any, 1, "s3b"),
     ] {
         let ground = execute_both(
@@ -1190,8 +1190,8 @@ fn two_candidates_undefined_after_the_step_are_each_an_undefined_step() {
         return;
     }
     for (strategy, stop_at_branch, leaves) in [
-        (ExecutionStrategy::All, false, 2),
-        (ExecutionStrategy::All, true, 2),
+        (ExecutionStrategy::All, false, 1),
+        (ExecutionStrategy::All, true, 1),
         (ExecutionStrategy::Any, false, 1),
     ] {
         let result = execute_both(
@@ -1316,6 +1316,7 @@ mod matrix {
         rewrite::{
             ExecutionBranchMode, ExecutionMode, ExecutionOptions, HaltReason, execute_with_io_state,
         },
+        rule::Predicate,
         search::ResultModality,
         transition::ExecutionIoState,
     };
@@ -1349,17 +1350,28 @@ mod matrix {
     enum Stops {
         Plain,
         StopAtBranch,
-        /// The `\bottom` rule `<p>a` is a cut point.
-        CutPoint,
-        /// The `\bottom` rule `<p>a` is a terminal rule.
-        Terminal,
+        /// The program's rule `<p><letter>` is a cut point.
+        CutPoint(char),
+        /// The program's rule `<p><letter>` is a terminal rule.
+        Terminal(char),
     }
 
+    /// The stop options of the route matrix: the stop rules on the `\bottom` rule `<p>a`.
     const STOPS: [Stops; 4] = [
         Stops::Plain,
         Stops::StopAtBranch,
-        Stops::CutPoint,
-        Stops::Terminal,
+        Stops::CutPoint('a'),
+        Stops::Terminal('a'),
+    ];
+
+    /// The stop options of the empty-state matrix: the stop rules on each rule.
+    const EMPTY_STOPS: [Stops; 6] = [
+        Stops::Plain,
+        Stops::StopAtBranch,
+        Stops::CutPoint('a'),
+        Stops::CutPoint('b'),
+        Stops::Terminal('a'),
+        Stops::Terminal('b'),
     ];
 
     /// Which configuration a leaf is.
@@ -1368,26 +1380,23 @@ mod matrix {
         /// The program's own configuration, before any step.
         Pre,
         Done,
+        /// A configuration with no instance, `\bottom`.
+        Bottom,
         Other(String),
     }
 
-    /// A leaf: its reason, depth, configuration and rule label.
+    /// A leaf: its reason, depth, configuration and rule label (that of a `Trivial` leaf, and on
+    /// the console route that of a `Vacuous` one).
     type Row = (String, u64, State, Option<String>);
 
     /// What reading R gives for `program` of `shape` under `strategy`, whatever the result
-    /// modality, the stop rules on the `\bottom` rule or stopping at branches.
+    /// modality, the stop rules on the `\bottom` rule, stopping at branches or the console.
     ///
-    /// Under strategy any the two-`\bottom` shape's one leaf may name either rule (`<p>?`).
-    /// Under strategy all its two candidates have the same undefined instances, the whole
-    /// pre-step state, which one leaf or one per candidate denote alike: a step that finds both
-    /// results `\bottom` itself (`in_step`) reports one leaf naming the first candidate, and one
-    /// whose candidates' successors show it reports one leaf per candidate as each is normalized.
-    fn expected(
-        program: &str,
-        shape: Shape,
-        strategy: ExecutionStrategy,
-        in_step: bool,
-    ) -> Vec<Row> {
+    /// The undefined step has one `Trivial` leaf, standing for every instance on which a
+    /// candidate applies and every candidate that applies is undefined. Under strategy all the
+    /// two-`\bottom` shape's leaf names the first candidate; under strategy any it may name
+    /// either (`<p>?`), the one the sequential step kept.
+    fn expected(program: &str, shape: Shape, strategy: ExecutionStrategy) -> Vec<Row> {
         let trivial = |rule: &str| {
             (
                 "trivial".to_owned(),
@@ -1399,8 +1408,7 @@ mod matrix {
         match (shape, strategy) {
             (Shape::Covering, _) => vec![("stuck".to_owned(), 1, State::Done, None)],
             (Shape::Lower | Shape::Alone, _) => vec![trivial("a")],
-            (Shape::Two, ExecutionStrategy::All) if in_step => vec![trivial("a")],
-            (Shape::Two, ExecutionStrategy::All) => vec![trivial("a"), trivial("b")],
+            (Shape::Two, ExecutionStrategy::All) => vec![trivial("a")],
             (Shape::Two, _) => vec![trivial("?")],
         }
     }
@@ -1409,36 +1417,55 @@ mod matrix {
         top(&format!("Lbl{program}{{}}({})", int(0)))
     }
 
+    /// `program`'s configuration under the constraint `N ==Int 0 /\ N =/=Int 0`, which has no
+    /// model and which the initial normalization does not refute before the first step.
+    fn empty_initial(program: &str) -> String {
+        let condition = |operator: &str| {
+            format!(
+                r#"\equals{{SortBool{{}}, SortGeneratedTopCell{{}}}}({operator}{{}}(N:SortInt{{}}, \dv{{SortInt{{}}}}("0")), \dv{{SortBool{{}}}}("true"))"#
+            )
+        };
+        format!(
+            r#"\and{{SortGeneratedTopCell{{}}}}({}, \and{{SortGeneratedTopCell{{}}}}({}, {}))"#,
+            initial(program),
+            condition("Lbl'UndsEqlsEqls'Int'Unds'"),
+            condition("Lbl'UndsEqlsSlshEqls'Int'Unds'"),
+        )
+    }
+
     fn classify(program: &str, text: &str) -> State {
         if text == initial(program) {
             State::Pre
         } else if text == top("Lbldone{}()") {
             State::Done
+        } else if text == "\\bottom{SortGeneratedTopCell{}}()" {
+            State::Bottom
         } else {
             State::Other(text.to_owned())
         }
     }
 
-    /// The leaves of `program` through the facade (no console).
+    /// The leaves of `program`, from the configuration `start`, through the facade (no console).
     fn facade_rows(
         program: &str,
+        start: &str,
         strategy: ExecutionStrategy,
         modality: ResultModalityOutput,
         stops: Stops,
     ) -> Vec<Row> {
         let mut backend = Backend::new(&matrix_kore(), "FU42", BackendOptions::default()).unwrap();
-        let rule = format!("FU42.{program}a");
+        let rule = |letter: char| format!("FU42.{program}{letter}");
         let mut request = ExecuteRequest {
             result_modality: modality,
             strategy,
             max_depth: Some(10),
-            ..ExecuteRequest::new(parse_pattern(&initial(program)).unwrap())
+            ..ExecuteRequest::new(parse_pattern(start).unwrap())
         };
         match stops {
             Stops::Plain => {}
             Stops::StopAtBranch => request.stop_at_branch = true,
-            Stops::CutPoint => request.cut_point_rules = vec![rule],
-            Stops::Terminal => request.terminal_rules = vec![rule],
+            Stops::CutPoint(letter) => request.cut_point_rules = vec![rule(letter)],
+            Stops::Terminal(letter) => request.terminal_rules = vec![rule(letter)],
         }
         let result = backend.execute(request).unwrap();
         result
@@ -1459,9 +1486,11 @@ mod matrix {
             .collect()
     }
 
-    /// The leaves of `program` through the console route (`krun --io on`).
+    /// The leaves of `program`, from the configuration `start`, through the console route
+    /// (`krun --io on`).
     fn console_rows(
         program: &str,
+        start: &str,
         strategy: ExecutionStrategy,
         modality: ResultModalityOutput,
         stops: Stops,
@@ -1476,7 +1505,7 @@ mod matrix {
         };
         let pre = internal(&initial(program));
         let done = internal(&top("Lbldone{}()"));
-        let rule = format!("FU42.{program}a");
+        let rule = |letter: char| format!("FU42.{program}{letter}");
         let mut options = ExecutionOptions {
             max_depth: 10,
             mode: match strategy {
@@ -1492,16 +1521,16 @@ mod matrix {
         match stops {
             Stops::Plain => {}
             Stops::StopAtBranch => options.branch_mode = ExecutionBranchMode::StopAtBranch,
-            Stops::CutPoint => {
-                options.cut_point_rules.insert(rule);
+            Stops::CutPoint(letter) => {
+                options.cut_point_rules.insert(rule(letter));
             }
-            Stops::Terminal => {
-                options.terminal_rules.insert(rule);
+            Stops::Terminal(letter) => {
+                options.terminal_rules.insert(rule(letter));
             }
         }
         let result = execute_with_io_state(
             &definition,
-            pre.clone(),
+            internal(start),
             options,
             ExecutionIoState::new(Vec::new()),
         );
@@ -1513,13 +1542,15 @@ mod matrix {
                     State::Pre
                 } else if leaf.pattern == done {
                     State::Done
+                } else if leaf.pattern.constraints == [Predicate::False] {
+                    State::Bottom
                 } else {
                     State::Other(format!("{:?}", leaf.pattern))
                 };
                 let (reason, label) = match &leaf.halt_reason {
                     HaltReason::Stuck => ("stuck".to_owned(), None),
                     HaltReason::Trivial { label, .. } => ("trivial".to_owned(), label.clone()),
-                    HaltReason::Vacuous { .. } => ("vacuous".to_owned(), None),
+                    HaltReason::Vacuous { label, .. } => ("vacuous".to_owned(), label.clone()),
                     HaltReason::CutPointRule { .. } => ("cut-point-rule".to_owned(), None),
                     HaltReason::TerminalRule { .. } => ("terminal-rule".to_owned(), None),
                     HaltReason::Branch { .. } => ("branching".to_owned(), None),
@@ -1546,30 +1577,85 @@ mod matrix {
             })
     }
 
-    /// Every execution row of the matrix reads R; the rows that do not are listed.
+    /// Every execution row of the matrix reads R; the rows that do not are listed. The state-set
+    /// results with and without the console are the same.
     #[test]
     fn every_execution_route_reads_a_bottom_successor_as_no_successor() {
         let mut wrong = Vec::new();
         let mut rows = 0;
         for (program, route, shape) in programs() {
             for strategy in [ExecutionStrategy::Any, ExecutionStrategy::All] {
+                let expected = expected(&program, shape, strategy);
                 for modality in [
                     ResultModalityOutput::PathSet,
                     ResultModalityOutput::StateSet,
                 ] {
                     for stops in STOPS {
+                        let mut both = Vec::new();
                         for console in [false, true] {
                             rows += 1;
-                            let expected =
-                                expected(&program, shape, strategy, route.in_step || console);
+                            let start = initial(&program);
                             let found = if console {
-                                console_rows(&program, strategy, modality, stops)
+                                console_rows(&program, &start, strategy, modality, stops)
                             } else {
-                                facade_rows(&program, strategy, modality, stops)
+                                facade_rows(&program, &start, strategy, modality, stops)
                             };
                             if !reads_r(&program, &expected, &found) {
                                 wrong.push(format!(
                                     "{program} ({}, {shape:?}) {strategy:?} {modality:?} {stops:?} io {}: {found:?}, expected {expected:?}",
+                                    route.name,
+                                    if console { "on" } else { "off" },
+                                ));
+                            }
+                            both.push(found);
+                        }
+                        if matches!(strategy, ExecutionStrategy::All) && both[0] != both[1] {
+                            wrong.push(format!(
+                                "{program} ({}, {shape:?}) {strategy:?} {modality:?} {stops:?}: io off {:?} and on {:?} differ",
+                                route.name, both[0], both[1]
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(rows, 7 * 4 * 2 * 2 * 4 * 2);
+        assert!(
+            wrong.is_empty(),
+            "{} wrong of {rows} rows:\n{}",
+            wrong.len(),
+            wrong.join("\n")
+        );
+    }
+
+    /// A configuration that has no instance, which only its step exposes, is one `Vacuous` leaf
+    /// at the step's successor depth that names no rule, on every route and shape, under both
+    /// strategies and modalities, with any stop rule on any of its rules, stopping at branches or
+    /// not, with the console or not: never a `Trivial` leaf (no instance has an undefined step),
+    /// never one per candidate, and never an empty result.
+    #[test]
+    fn a_configuration_with_no_instance_is_one_vacuous_leaf_on_every_route() {
+        let mut wrong = Vec::new();
+        let mut rows = 0;
+        let expected = vec![("vacuous".to_owned(), 1, State::Bottom, None)];
+        for (program, route, shape) in programs() {
+            let start = empty_initial(&program);
+            for strategy in [ExecutionStrategy::Any, ExecutionStrategy::All] {
+                for modality in [
+                    ResultModalityOutput::PathSet,
+                    ResultModalityOutput::StateSet,
+                ] {
+                    for stops in EMPTY_STOPS {
+                        for console in [false, true] {
+                            rows += 1;
+                            let found = if console {
+                                console_rows(&program, &start, strategy, modality, stops)
+                            } else {
+                                facade_rows(&program, &start, strategy, modality, stops)
+                            };
+                            if found != expected {
+                                wrong.push(format!(
+                                    "{program} ({}, {shape:?}) {strategy:?} {modality:?} {stops:?} io {}: {found:?}",
                                     route.name,
                                     if console { "on" } else { "off" },
                                 ));
@@ -1579,13 +1665,350 @@ mod matrix {
                 }
             }
         }
-        assert_eq!(rows, 7 * 4 * 2 * 2 * 4 * 2);
+        assert_eq!(rows, 7 * 4 * 2 * 2 * 6 * 2);
         assert!(
             wrong.is_empty(),
-            "{} of {rows} rows do not read R:\n{}",
+            "{} wrong of {rows} rows:\n{}",
             wrong.len(),
             wrong.join("\n")
         );
+    }
+
+    /// The review's shapes beyond the route matrix, with symbolic inputs: a candidate's
+    /// successor `\bottom` beside a sibling that covers only some instances, a constrained
+    /// `\bottom` rule above a lower-priority rule, definedness only a solver decides, nested
+    /// `total` calls, a `\bottom` in another cell, and the shapes the step itself decides (a rule
+    /// `ensures` refuted by the path condition, an infeasible `requires`).
+    const SHAPES_SOURCE: &str = r#"
+module P
+  imports INT
+  imports BOOL
+  syntax Pgm ::= "done" | "done2" | val(Int) | w(Int)
+               | es(Int) | esb(Int) | ep(Int) | rq(Int) | rp(Int)
+               | pc(Int) | pd(Int) | pl(Int) | nf(Int) | oc(Int) | ud(Int) | eb(Int) | ec(Int)
+  syntax Int ::= tb(Int) [function, total]
+               | f1(Int) [function, total]
+               | f2(Int) [function, total]
+  configuration <k> $PGM:Pgm </k> <c> 0 </c>
+  rule [tbeq]:   tb(I) => #Bottom requires I ==Int 0
+  rule [tbeq2]:  tb(I) => I requires I =/=Int 0
+  rule [f1eq]:   f1(I) => f2(I) +Int 1
+  rule [f2eq]:   f2(I) => #Bottom requires I ==Int 0
+  rule [f2eq2]:  f2(I) => I requires I =/=Int 0
+  rule [esa]: es(X) => done2 ensures X >Int 0
+  rule [esba]: esb(X) => done2 ensures X >Int 0
+  rule [esbb]: esb(_) => done
+  rule [epa]: ep(X) => done2 ensures X >Int 0
+  rule [epb]: ep(_) => done [priority(60)]
+  rule [rqa]: rq(X) => done2 requires X >Int 0
+  rule [rpa]: rp(X) => done2 requires X >Int 0
+  rule [rpb]: rp(_) => done [priority(60)]
+  rule [pca]: pc(_) => val(tb(0))
+  rule [pcb]: pc(X) => done requires X >Int 5
+  rule [pda]: pd(_) => val(tb(0))
+  rule [pdb]: pd(X) => done requires X >Int 5
+  rule [pla]: pl(X) => val(tb(0)) requires X >Int 0
+  rule [plb]: pl(_) => done [priority(60)]
+  rule [nfa]: nf(X) => val(f1(X))
+  rule [nfb]: nf(_) => done
+  rule [oca]: <k> oc(_) => done </k> <c> _ => tb(0) </c>
+  rule [ocb]: <k> oc(_) => done2 </k>
+  rule [uda]: ud(X) => val(tb(X))
+  rule [udb]: ud(X) => done requires X >Int 5
+  rule [eba]: eb(X) => val(tb(X))
+  rule [eca]: ec(X) => done2 ensures X >Int 0
+endmodule
+"#;
+
+    /// The KORE of [`SHAPES_SOURCE`] and the configuration of `program` with each `777` read
+    /// as the variable `N`, conjoined with `constraints` (`(operator, bound)`: `N op bound`).
+    fn shape_initial(program: &str, constraints: &[(&str, i64)]) -> (String, String) {
+        use k_rust::{
+            kast::Sort,
+            kompile::{ConfigurationAssembler, ProgramGrammar},
+        };
+        let mut resolver = |_: &str, required: &str| {
+            embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+        };
+        let loaded = load_with_options(
+            ResolvedSource::new("shapes.k", SHAPES_SOURCE),
+            "P",
+            &mut resolver,
+            &LoadOptions {
+                implicit_sources: vec![embedded("prelude.md").unwrap()],
+                ..CompilationBackend::Rust.load_options()
+            },
+        )
+        .unwrap();
+        let artifacts = compile_loaded_definition(&loaded, CompileOptions::default()).unwrap();
+        let frontend = loaded.into_definition();
+        let grammar = ProgramGrammar::new(&frontend).unwrap();
+        let mut assembler =
+            ConfigurationAssembler::new(&grammar, "P", "P", &artifacts.configuration_variables);
+        assembler.program(&Sort::new("Pgm"), program).unwrap();
+        let ground = Printer::compact().print_pattern(&assembler.finish().unwrap());
+        let mut start = ground.replace("\\dv{SortInt{}}(\"777\")", "N:SortInt{}");
+        for (operator, bound) in constraints {
+            start = format!(
+                r#"\and{{SortGeneratedTopCell{{}}}}({start}, \equals{{SortBool{{}}, SortGeneratedTopCell{{}}}}({operator}{{}}(N:SortInt{{}}, {}), \dv{{SortBool{{}}}}("true")))"#,
+                int(*bound)
+            );
+        }
+        (artifacts.definition_kore, start)
+    }
+
+    const GT: &str = "Lbl'Unds-GT-'Int'Unds'";
+    const LT: &str = "Lbl'Unds-LT-'Int'Unds'";
+    const LE: &str = "Lbl'Unds-LT-Eqls'Int'Unds'";
+    const GE: &str = "Lbl'Unds-GT-Eqls'Int'Unds'";
+
+    /// What a leaf of a shape is: `Pre` (the program's configuration), `Done`, `Done2`.
+    fn shape_state(program: &str, text: &str) -> &'static str {
+        let head = program.split('(').next().unwrap();
+        if text.contains("Lbldone2'Unds'P'Unds'Pgm{}()") {
+            "done2"
+        } else if text.contains("Lbldone'Unds'P'Unds'Pgm{}()") {
+            "done"
+        } else if text.contains(&format!("Lbl{head}'LParUnds")) {
+            "pre"
+        } else {
+            "other"
+        }
+    }
+
+    /// The leaves partition the instances under R: for each sample value of `N` that the
+    /// initial constraint admits, exactly one leaf's constraint holds, and it is the expected
+    /// leaf (reason, depth, configuration, and the rule a `Trivial` leaf names). A ground
+    /// program has the one sample `None`.
+    #[test]
+    fn the_leaves_of_symbolic_shapes_partition_their_instances() {
+        type Expect =
+            fn(Option<i64>, Stops) -> (&'static str, u64, &'static str, Option<&'static str>);
+        let stuck_done: Expect = |_, _| ("stuck", 1, "done", None);
+        /// A program, its constraints on `N`, the sample values, the stop options and the
+        /// expected leaf of a sample.
+        type Case = (
+            &'static str,
+            Vec<(&'static str, i64)>,
+            Vec<i64>,
+            Vec<Stops>,
+            Expect,
+        );
+        let cases: Vec<Case> = vec![
+            (
+                "pc(777)",
+                vec![],
+                vec![-1, 0, 5, 6, 10],
+                vec![Stops::Plain, Stops::StopAtBranch],
+                |v, _| {
+                    if v.unwrap() > 5 {
+                        ("stuck", 1, "done", None)
+                    } else {
+                        ("trivial", 0, "pre", Some("P.pca"))
+                    }
+                },
+            ),
+            (
+                "pd(777)",
+                vec![(GT, 10)],
+                vec![11, 20],
+                vec![Stops::Plain, Stops::StopAtBranch],
+                stuck_done,
+            ),
+            (
+                "pl(777)",
+                vec![],
+                vec![-1, 0, 1, 5],
+                vec![
+                    Stops::Plain,
+                    Stops::StopAtBranch,
+                    Stops::CutPoint('b'),
+                    Stops::Terminal('b'),
+                ],
+                |v, stops| {
+                    if v.unwrap() > 0 {
+                        ("trivial", 0, "pre", Some("P.pla"))
+                    } else {
+                        match stops {
+                            Stops::CutPoint(_) => ("cut-point", 0, "pre", None),
+                            Stops::Terminal(_) => ("terminal", 1, "done", None),
+                            _ => ("stuck", 1, "done", None),
+                        }
+                    }
+                },
+            ),
+            (
+                "eb(777)",
+                vec![(LE, 0), (GE, 0)],
+                vec![0],
+                vec![Stops::Plain, Stops::StopAtBranch],
+                |_, _| ("trivial", 0, "pre", Some("P.eba")),
+            ),
+            (
+                "ud(777)",
+                vec![(LE, 0), (GE, 0)],
+                vec![0],
+                vec![Stops::Plain, Stops::StopAtBranch],
+                |_, _| ("trivial", 0, "pre", Some("P.uda")),
+            ),
+            (
+                "nf(0)",
+                vec![],
+                vec![],
+                vec![Stops::Plain, Stops::StopAtBranch],
+                stuck_done,
+            ),
+            (
+                "oc(0)",
+                vec![],
+                vec![],
+                vec![Stops::Plain, Stops::StopAtBranch],
+                |_, _| ("stuck", 1, "done2", None),
+            ),
+            (
+                "es(777)",
+                vec![(LT, 0)],
+                vec![-3, -1],
+                vec![Stops::Plain, Stops::StopAtBranch],
+                |_, _| ("trivial", 0, "pre", Some("P.esa")),
+            ),
+            (
+                "esb(777)",
+                vec![(LT, 0)],
+                vec![-3, -1],
+                vec![Stops::Plain, Stops::StopAtBranch],
+                stuck_done,
+            ),
+            (
+                "ep(777)",
+                vec![(LT, 0)],
+                vec![-3, -1],
+                vec![Stops::Plain, Stops::StopAtBranch],
+                |_, _| ("trivial", 0, "pre", Some("P.epa")),
+            ),
+            (
+                "rq(777)",
+                vec![(LT, 0)],
+                vec![-3, -1],
+                vec![Stops::Plain, Stops::StopAtBranch],
+                |_, _| ("stuck", 0, "pre", None),
+            ),
+            (
+                "rp(777)",
+                vec![(LT, 0)],
+                vec![-3, -1],
+                vec![Stops::Plain, Stops::StopAtBranch],
+                stuck_done,
+            ),
+            (
+                "ec(777)",
+                vec![],
+                vec![-1, 0, 1, 5],
+                vec![Stops::Plain, Stops::StopAtBranch],
+                |v, _| {
+                    if v.unwrap() > 0 {
+                        ("stuck", 1, "done2", None)
+                    } else {
+                        ("trivial", 0, "pre", Some("P.eca"))
+                    }
+                },
+            ),
+        ];
+        let mut wrong = Vec::new();
+        for (program, constraints, samples, stops_list, expect) in cases {
+            let (kore, start) = shape_initial(program, &constraints);
+            let mut backend = Backend::new(&kore, "P", BackendOptions::default()).unwrap();
+            if !backend.capabilities().smt {
+                // Without a solver the symbolic conditions are undecided.
+                return;
+            }
+            let samples = if samples.is_empty() {
+                vec![None]
+            } else {
+                samples.into_iter().map(Some).collect()
+            };
+            for strategy in [ExecutionStrategy::Any, ExecutionStrategy::All] {
+                for modality in [
+                    ResultModalityOutput::PathSet,
+                    ResultModalityOutput::StateSet,
+                ] {
+                    for &stops in &stops_list {
+                        let mut request = ExecuteRequest {
+                            result_modality: modality,
+                            strategy,
+                            max_depth: Some(10),
+                            ..ExecuteRequest::new(parse_pattern(&start).unwrap())
+                        };
+                        let rule = |letter: char| {
+                            format!("P.{}{letter}", program.split('(').next().unwrap())
+                        };
+                        match stops {
+                            Stops::Plain => {}
+                            Stops::StopAtBranch => request.stop_at_branch = true,
+                            Stops::CutPoint(letter) => {
+                                request.stop_at_branch = true;
+                                request.cut_point_rules = vec![rule(letter)];
+                            }
+                            Stops::Terminal(letter) => {
+                                request.stop_at_branch = true;
+                                request.terminal_rules = vec![rule(letter)];
+                            }
+                        }
+                        let result = backend.execute(request).unwrap();
+                        let context = format!("{program} {strategy:?} {modality:?} {stops:?}");
+                        for &sample in &samples {
+                            let mut holding = Vec::new();
+                            for leaf in &result.leaves {
+                                let printed = text(leaf);
+                                // A ground program's leaves have no constraint to decide.
+                                let Some(value) = sample else {
+                                    holding.push(leaf);
+                                    continue;
+                                };
+                                let instance = printed.replace("N:SortInt{}", &int(value));
+                                let verdict = backend
+                                    .get_model(PatternRequest::new(
+                                        parse_pattern(&instance).unwrap(),
+                                    ))
+                                    .unwrap()
+                                    .satisfiable;
+                                match verdict.as_str() {
+                                    "unsat" => {}
+                                    "sat" => holding.push(leaf),
+                                    other => wrong.push(format!(
+                                        "{context} N = {sample:?}: {other} for {printed}"
+                                    )),
+                                }
+                            }
+                            let found = holding
+                                .iter()
+                                .map(|leaf| {
+                                    let reason = serde_json::to_value(leaf.reason).unwrap();
+                                    (
+                                        reason.as_str().unwrap().to_owned(),
+                                        leaf.depth,
+                                        shape_state(program, &text(leaf)),
+                                        match leaf.reason {
+                                            HaltReasonOutput::Trivial => leaf.rule_label.clone(),
+                                            _ => None,
+                                        },
+                                    )
+                                })
+                                .collect::<Vec<_>>();
+                            let (reason, depth, state, label) = expect(sample, stops);
+                            let expected =
+                                vec![(reason.to_owned(), depth, state, label.map(str::to_owned))];
+                            if found != expected {
+                                wrong.push(format!(
+                                    "{context} N = {sample:?}: {found:?}, expected {expected:?}"
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert!(wrong.is_empty(), "{}", wrong.join("\n"));
     }
 
     /// A search reads a `\bottom` successor as no state, and an undefined step as no result:
