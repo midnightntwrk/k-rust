@@ -37,11 +37,11 @@
 //!   variable-naming attribute mentions (`concrete(Z)` beside `#Exists Z . P`) is renamed apart
 //!   from it: an attribute lies outside every quantifier's scope, so it names a free variable of
 //!   the rule or none, and such a rule is refused whatever its binder is called (`attribute/*`).
-//!   Renaming apart also showed two defects the old spelling merges hid, now listed under their
-//!   tickets: a `?` binder in the `ensures` beside a free right-side `?Y` is lifted to a vacuous
-//!   outer binder at the base (`existential/*-q-shadow`, fixed by A4), and a macro binder minted at a use
-//!   site, or a competitor's anonymous binder in a rule that no longer fails to compile, binds the
-//!   use site's anonymous variables (`macro/*-anon-*`, `owise/anon-*-Y-*`, A3).
+//!   Renaming apart also showed two defects the old spelling merges hid: a `?` binder in the
+//!   `ensures` beside a free right-side `?Y` was lifted to a vacuous outer binder
+//!   (`existential/*-q-shadow`, fixed by A4), and a macro binder minted at a use site, or a
+//!   competitor's anonymous binder in a rule that no longer fails to compile, binds the use
+//!   site's anonymous variables (`macro/*-anon-*`, `owise/anon-*-Y-*`, listed under A3).
 //! - FU-53, an out-of-scope class and no BIND ticket: a rule `UNIQUE_ID` digests the names a
 //!   variable-naming attribute lists (`concrete(X)`, `symbolic(X)`: the prelude, `concrete-rw2`)
 //!   and the labels of the functions a `#fun` or `#let` lowers to, which carry a variable's

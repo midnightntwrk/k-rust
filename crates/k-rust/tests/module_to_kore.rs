@@ -394,6 +394,15 @@ fn schematic_labels_cannot_escape_through_symbol_attributes() {
 }
 
 fn compiled_probe(source: &str, module: &str) -> k_rust::kore::ast::Definition {
+    let artifacts = compile_probe(source, module).expect("collection probe should compile");
+    parse_definition(&artifacts.definition_kore).expect("emitted KORE should parse")
+}
+
+/// The compile of the probe `source` with main module `module`, against the embedded prelude.
+fn compile_probe(
+    source: &str,
+    module: &str,
+) -> Result<k_rust::kompile::CompiledKoreArtifacts, k_rust::kompile::CompileError> {
     use k_rust::{
         builtin::embedded,
         kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
@@ -417,15 +426,35 @@ fn compiled_probe(source: &str, module: &str) -> k_rust::kore::ast::Definition {
         },
     )
     .expect("collection probe should load");
-    let artifacts = compile_loaded_definition(&loaded, CompileOptions::default())
-        .expect("collection probe should compile");
-    parse_definition(&artifacts.definition_kore).expect("emitted KORE should parse")
+    compile_loaded_definition(&loaded, CompileOptions::default())
 }
 
 /// The outer `\exists` variables of the right side of the rule labelled `label` in `definition`,
 /// as `name:sort`, each checked to occur free in its own binder's body (K3).
 fn lifted_existentials(definition: &k_rust::kore::ast::Definition, label: &str) -> Vec<String> {
-    let pattern = definition
+    let pattern = labelled_axiom(definition, label);
+    let Pattern::Rewrites { right, .. } = pattern else {
+        panic!("the rule {label} should be a rewrite axiom: {pattern}");
+    };
+    let mut lifted = Vec::new();
+    let mut right = right.as_ref();
+    // Invariant: `lifted` holds the variables of the outer binders above `right`, outermost first.
+    while let Pattern::Exists { variable, body, .. } = right {
+        assert!(
+            body.free_variables().contains(variable),
+            "the lifted binder over {}:{} binds nothing in {body}",
+            variable.name,
+            variable.sort
+        );
+        lifted.push(format!("{}:{}", variable.name, variable.sort));
+        right = body;
+    }
+    lifted
+}
+
+/// The pattern of the axiom labelled `label` in `definition`.
+fn labelled_axiom<'d>(definition: &'d k_rust::kore::ast::Definition, label: &str) -> &'d Pattern {
+    definition
         .modules
         .iter()
         .flat_map(|module| &module.sentences)
@@ -446,24 +475,7 @@ fn lifted_existentials(definition: &k_rust::kore::ast::Definition, label: &str) 
             }
             _ => None,
         })
-        .unwrap_or_else(|| panic!("the rule {label} should be emitted"));
-    let Pattern::Rewrites { right, .. } = pattern else {
-        panic!("the rule {label} should be a rewrite axiom: {pattern}");
-    };
-    let mut lifted = Vec::new();
-    let mut right = right.as_ref();
-    // Invariant: `lifted` holds the variables of the outer binders above `right`, outermost first.
-    while let Pattern::Exists { variable, body, .. } = right {
-        assert!(
-            body.free_variables().contains(variable),
-            "the lifted binder over {}:{} binds nothing in {body}",
-            variable.name,
-            variable.sort
-        );
-        lifted.push(format!("{}:{}", variable.name, variable.sort));
-        right = body;
-    }
-    lifted
+        .unwrap_or_else(|| panic!("the rule {label} should be emitted"))
 }
 
 /// The rule `D2.r`, `done(X) => go(X)` with the given `ensures`.
@@ -516,6 +528,96 @@ fn existential_lifting_quantifies_a_free_question_variable_beside_a_shadowing_bi
             lifted_existentials(&compiled_probe(&source, "QS"), "QS.p"),
             vec!["Var'Ques'Y:SortInt{}".to_owned()],
             "{ensures}"
+        );
+    }
+}
+
+/// A module `name` with `go`/`done`, a configuration, and `sentences`.
+fn existential_probe(name: &str, sentences: &str) -> String {
+    format!(
+        "module {name}\n  imports INT\n  imports BOOL\n  syntax KItem ::= go(Int) | done(Int)\n  configuration <k> $PGM:K </k>\n{sentences}endmodule\n"
+    )
+}
+
+/// The function, `anywhere` and macro probes whose only `?` variable, `?B`, is bound by a
+/// quantifier in the `ensures` or the right side, with `extra` of the rule's variable conjoined
+/// to that quantifier: each probe's module, the label of its rule (none for the macro), and its
+/// sentences.
+fn bound_question_sentences(
+    extra: impl Fn(&str) -> String,
+) -> [(&'static str, Option<&'static str>, String); 3] {
+    [
+        (
+            "FUN",
+            Some("FUN.fq"),
+            format!(
+                "  syntax Int ::= f(Int) [function]\n  rule [fq]: f(X) => X +Int 1 ensures (#Exists ?B:Int . {{?B #Equals X}}){}\n  rule [p]: <k> go(X) => done(f(X)) ... </k>\n",
+                extra("X")
+            ),
+        ),
+        (
+            "ANY",
+            Some("ANY.aq"),
+            format!(
+                "  syntax Foo ::= g(Int) | h(Int)\n  syntax KItem ::= box(Foo)\n  rule [aq]: g(X) => h(X) ensures (#Exists ?B:Int . {{?B #Equals X}}){} [anywhere]\n  rule [p]: <k> go(X) => box(g(X)) ... </k>\n",
+                extra("X")
+            ),
+        ),
+        (
+            "MAC",
+            None,
+            format!(
+                "  syntax Bool ::= m(Int) [macro]\n  rule m(N) => (#Exists ?B:Int . {{?B #Equals N}}){}\n  rule [p]: <k> go(X) => done(X) ... </k> requires m(X)\n",
+                extra("N")
+            ),
+        ),
+    ]
+}
+
+/// A function, `anywhere` or macro rule whose `?` variables are all bound by quantifiers in its
+/// right side or `ensures` has no variable to quantify around its right side (none is free), so
+/// it is emitted as an equation or a macro axiom: its binder's sigil means nothing outside the
+/// binder.
+#[test]
+fn an_equation_whose_question_variables_are_all_bound_is_emitted() {
+    for (module, label, sentences) in bound_question_sentences(|_| String::new()) {
+        let artifacts = compile_probe(&existential_probe(module, &sentences), module)
+            .unwrap_or_else(|error| panic!("{module} should compile: {error}"));
+        let Some(label) = label else {
+            let macros: String = artifacts.macros_kore.split_whitespace().collect();
+            assert!(
+                macros.contains("\\exists{SortBool{}}(Var'Ques'B:SortInt{},"),
+                "{module}: {}",
+                artifacts.macros_kore
+            );
+            continue;
+        };
+        let definition =
+            parse_definition(&artifacts.definition_kore).expect("emitted KORE should parse");
+        let pattern = labelled_axiom(&definition, label);
+        assert!(
+            !matches!(pattern, Pattern::Rewrites { .. }),
+            "{module} should be an equation: {pattern}"
+        );
+    }
+}
+
+/// The refusal of a function, `anywhere` or macro rule with a free `?` variable names the free
+/// `?` variables only: `?B`, bound by its quantifier, is not an existential of the rule. The
+/// macro is not used, so the refusal of its own axiom is what is observed: expanding it at a use
+/// site mints its free `?Y` without the sigil (BIND/A8).
+#[test]
+fn the_equation_existentials_refusal_names_only_the_free_question_variables() {
+    for (module, _, sentences) in
+        bound_question_sentences(|variable| format!(" #And {{?Y #Equals {variable}}}"))
+    {
+        let sentences = sentences.replace(" requires m(X)", "");
+        let error = compile_probe(&existential_probe(module, &sentences), module)
+            .err()
+            .unwrap_or_else(|| panic!("{module} should be refused"));
+        assert_eq!(
+            error.message, "cannot encode equations with existential variables: ?Y",
+            "{module}"
         );
     }
 }
