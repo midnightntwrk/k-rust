@@ -2262,20 +2262,21 @@ impl Grammar {
         // A binder's variable is a variable of its own within its scope (`scoping`): inference
         // reads the readings with every binder that shares its spelling renamed apart, and the
         // result and its rejections name each variable as written.
-        let scoped = self.scope_binders(&forest);
-        let scoped_admitted = admitted
-            .as_ref()
-            .and_then(|admitted| self.scope_binders(admitted));
-        let renamed = scoped.is_some() || scoped_admitted.is_some();
-        let forest = scoped.unwrap_or(forest);
-        let admitted = scoped_admitted.or(admitted);
+        let (scoped, renaming) = {
+            let mut forests = vec![&forest];
+            forests.extend(admitted.as_ref());
+            self.scope_binders(&forests)
+        };
+        let mut scoped = scoped.into_iter();
+        let forest = scoped.next().flatten().unwrap_or(forest);
+        let admitted = scoped.next().flatten().or(admitted);
         let written = |result: Result<Term, ParseError>| {
-            if renamed {
+            if renaming.is_empty() {
                 result
-                    .map(scoping::restore_term)
-                    .map_err(scoping::restore_error)
             } else {
                 result
+                    .map(|term| renaming.restore_term(term))
+                    .map_err(|error| renaming.restore_error(error))
             }
         };
         let lower = InferredLowering {

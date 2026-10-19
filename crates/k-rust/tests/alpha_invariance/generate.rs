@@ -26,7 +26,12 @@
 //!   or a search pattern compiled against the definition, written beside the base or renamed by
 //!   every strategy (`search`, with the binder shapes of `one`, `two` and `anon`);
 //! - the capture target of a renamed binder: a free variable of the sentence at the same sort or
-//!   any sort, or a sibling binder (a disjoint scope) at another sort.
+//!   any sort, or a sibling binder (a disjoint scope) at another sort;
+//! - a written name holding U+E000, which a declared `#KVariable` token allows: a free variable
+//!   renamed to a binder's spelling or another variable's followed by U+E000 and digits, beside a
+//!   binder the parser renames apart (`mark`);
+//! - a local function's parameter spelled like a variable of the rule at another sort (`lambda`),
+//!   and a binder spelled like the variable of a list update (`list`).
 //!
 //! The `owise` cross product of `owise_binders.rs` (its `shapes.rs`) is a family here too
 //! (`owise-cross`), so the competitors' binders are renamed under every strategy.
@@ -440,9 +445,33 @@ fn owise_binders() -> Vec<Case> {
     cases
 }
 
-/// `#let` and `#fun` binders beside a quantifier.
+/// `#let` and `#fun` binders beside a quantifier, and a parameter beside a variable of the rule
+/// at another sort, written as source text beside its base (`text-shadow-parameter`) so that the
+/// parser infers the parameter's sort on its own.
 fn local_function_binders() -> Vec<Case> {
     let mut cases = Vec::new();
+    for (form, apart, shadow) in [
+        ("fun", "#fun(Z:Int => Z", "#fun(X:Int => X"),
+        ("let", "#let Z:Int = N #in Z", "#let X:Int = N #in X"),
+    ] {
+        let local = match form {
+            "fun" => "#fun(Z:Int => Z +Int 1)(N)",
+            _ => "#let Z:Int = N #in Z +Int 1",
+        };
+        for (annotation, outer) in [("annotated", "X:Bool"), ("inferred", "X")] {
+            cases.push(
+                case(
+                    format!("lambda/{form}-other-sort-{annotation}"),
+                    "G",
+                    &format!(
+                        "  syntax KItem ::= gob(Bool, Int)\n  rule [p]: <k> gob({outer}, N) => done({local}) ... </k> requires X\n"
+                    ),
+                    &["gob(true, 3)", "gob(false, 3)"],
+                )
+                .twin_variable("text-shadow-parameter", apart, shadow, ("Z", "X")),
+            );
+        }
+    }
     for (relation, name) in [("fresh", "B"), ("lhs", "X")] {
         cases.push(case(
             format!("lambda/let-{relation}"),
@@ -540,6 +569,71 @@ fn source_twins() -> Vec<Case> {
                     .twin("text-shadow-sibling", &second, &clash),
                 );
             }
+        }
+    }
+    cases
+}
+
+/// Source-text twins whose renaming writes a variable with U+E000 in its name, which a
+/// definition's own `#KVariable` token makes writable: a free variable renamed to
+/// `<binder>\u{E000}<n>` beside a binder that shares its spelling with a free variable
+/// (`text-mark-binder`), and a free variable renamed to `<other>\u{E000}<digits>`, another
+/// variable's spelling, in a rule whose binder the parser renames apart (`text-mark-other`). The
+/// parser's names for binders renamed apart must avoid every written name.
+fn marked_twins() -> Vec<Case> {
+    let mut cases = Vec::new();
+    for kind in KINDS {
+        let formula = sorted_formula(kind, "Y", "same", true);
+        for position in ["requires", "ensures"] {
+            for (relation, number, other) in [("binder", "0", "Y"), ("other", "5", "Z")] {
+                let free = format!("Q\u{E000}{number}");
+                let renamed = format!("{other}\u{E000}{number}");
+                cases.push(
+                    case(
+                        format!("mark/{}-{relation}-{position}", kind.tag()),
+                        "G",
+                        &format!(
+                            "{}  syntax KItem ::= go3(Int, Int, Int) | done3(Int, Int, Int)\n  rule [p]: <k> go3(Y:Int, Z:Int, {free}:Int) => done3(Y, Z, {free}) ... </k> {position} {formula}\n",
+                            super::probes::MARKED_VARIABLES
+                        ),
+                        &["go3(1, 2, 3)", "go3(1, 2, 2)"],
+                    )
+                    .twin_variable(
+                        &format!("text-mark-{relation}"),
+                        &free,
+                        &renamed,
+                        (&free, &renamed),
+                    ),
+                );
+            }
+        }
+    }
+    cases
+}
+
+/// A binder in the `requires` or `ensures` spelled apart from the variable of a list update the
+/// left side matches outside a collection argument, and its twin spelled like it
+/// (`text-shadow-list`): the binder reads no list, so the two are judged alike.
+fn list_update_binders() -> Vec<Case> {
+    let mut cases = Vec::new();
+    for kind in KINDS {
+        let formula = |name: &str| match kind {
+            Quantifier::Exists => format!("#Exists {name}:List . {{{name} #Equals .List}}"),
+            Quantifier::Forall => format!("#Forall {name}:List . {{{name} #Equals {name}}}"),
+        };
+        for position in ["requires", "ensures"] {
+            cases.push(
+                Case::inline(
+                    format!("list/{}-{position}", kind.tag()),
+                    "G",
+                    format!(
+                        "module G\n  imports INT\n  imports BOOL\n  imports LIST\n  syntax KItem ::= gol(List) | done(Int)\n  rule [p]: <k> gol(L:List [ 0 <- 2 ]) => done(1) ... </k> {position} {}\nendmodule\n",
+                        formula("M")
+                    ),
+                )
+                .programs("K", &["gol(ListItem(2))", "gol(ListItem(5))"])
+                .twin("text-shadow-list", &formula("M"), &formula("L")),
+            );
         }
     }
     cases
@@ -940,6 +1034,8 @@ pub fn cases() -> Vec<Case> {
         owise_binders(),
         local_function_binders(),
         source_twins(),
+        marked_twins(),
+        list_update_binders(),
         claim_binders(),
         rule_kinds(),
         connectives(),

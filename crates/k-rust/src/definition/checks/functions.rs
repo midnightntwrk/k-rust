@@ -47,6 +47,7 @@ use super::{Sentence, is_anonymous};
 use crate::definition::AttributeKey;
 use crate::definition::{LabelHead, ProductionCatalog, SortCatalog};
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
+use crate::kast::binding::{self, Role};
 use crate::kast::{GeneratedLabel, InternalLabel, Term};
 
 /// The hooks of the collection constructors: the unit, element and concatenation of each
@@ -343,7 +344,8 @@ impl Walk<'_> {
     }
 
     /// Whether the list argument of the update `term` is a variable that occurs nowhere else in
-    /// the sentence (its body, `requires` and `ensures`).
+    /// the sentence (its body, `requires` and `ensures`). An occurrence of its spelling that a
+    /// quantifier binds is that quantifier's variable (`kast::binding`), not the list.
     fn updates_an_unread_list(&self, term: &Term) -> bool {
         let Term::Apply { arguments, .. } = term.unannotated() else {
             return false;
@@ -357,7 +359,7 @@ impl Walk<'_> {
         {
             list = Some(arguments[0].unannotated());
         }
-        let Some(Term::Variable { name, .. }) = list else {
+        let Some(variable @ Term::Variable { name, .. }) = list else {
             return false;
         };
         // Each occurrence of an anonymous variable is a variable of its own.
@@ -383,15 +385,28 @@ impl Walk<'_> {
             | Sentence::Configuration { .. }
             | Sentence::Bubble { .. } => return false,
         };
-        let mut occurrences = 0_usize;
-        for term in terms {
-            term.visit_preorder(&mut |subterm| {
-                if matches!(subterm, Term::Variable { name: other, .. } if other == name) {
-                    occurrences += 1;
+        // The variable is free in the sentence, or bound by one quantifier of one of its terms:
+        // the occurrences of the same variable are those of its spelling with the same role.
+        let mut identity = None;
+        let mut reads = Vec::new();
+        for (index, term) in terms.iter().enumerate() {
+            for occurrence in binding::occurrences(term) {
+                if occurrence.name != name {
+                    continue;
                 }
-            });
+                let read = match occurrence.role {
+                    Role::Free => None,
+                    Role::Bound { binder } => Some((index, binder)),
+                    Role::Binding { .. } => continue,
+                };
+                if std::ptr::eq(occurrence.node.unannotated(), variable) {
+                    identity = Some(read);
+                }
+                reads.push(read);
+            }
         }
-        occurrences == 1
+        let identity = identity.unwrap_or(None);
+        reads.iter().filter(|read| **read == identity).count() == 1
     }
 
     fn visit_arguments(

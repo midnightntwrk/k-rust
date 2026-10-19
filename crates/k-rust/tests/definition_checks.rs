@@ -1695,6 +1695,70 @@ fn a_rewrite_rule_matches_a_list_update_by_value_only_when_it_reads_no_updated_l
         token("1"),
     ));
     assert_eq!(function_diagnostics(&[&equation], &productions).len(), 1);
+    // A quantifier binds its own variable (code review BIND/A5, probes luL and luM): a binder
+    // spelled like the list reads no list, so the rule and its alpha-variant with the binder `M`
+    // are judged alike, and an occurrence outside the binder's body still reads the list.
+    for (condition, expected) in [
+        (
+            Term::apply(
+                "#Exists",
+                vec![variable("L"), Term::apply("g", vec![variable("L")])],
+            ),
+            0,
+        ),
+        (
+            Term::apply(
+                "#Exists",
+                vec![variable("M"), Term::apply("g", vec![variable("M")])],
+            ),
+            0,
+        ),
+        (
+            Term::apply(
+                "#Forall",
+                vec![
+                    variable("L"),
+                    Term::apply(
+                        "g",
+                        vec![Term::apply("#Exists", vec![variable("L"), variable("L")])],
+                    ),
+                ],
+            ),
+            0,
+        ),
+        (
+            Term::apply(
+                "g",
+                vec![
+                    Term::apply("#Exists", vec![variable("L"), variable("L")]),
+                    variable("L"),
+                ],
+            ),
+            1,
+        ),
+    ] {
+        for field in ["requires", "ensures"] {
+            let mut rule = rule_with_body(rewrite(
+                Term::apply("wrap", vec![update(variable("L"))]),
+                token("1"),
+            ));
+            if let Sentence::Rule {
+                requires, ensures, ..
+            } = &mut rule
+            {
+                *(if field == "requires" {
+                    requires
+                } else {
+                    ensures
+                }) = condition.clone();
+            }
+            assert_eq!(
+                function_diagnostics(&[&rule], &productions).len(),
+                expected,
+                "{field} {condition}"
+            );
+        }
+    }
 }
 
 #[test]
