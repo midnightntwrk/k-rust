@@ -3297,6 +3297,43 @@ fn a_macro_binder_spelled_like_a_parameter_binds_its_own_variable() {
     assert_bound_name_runs(header, literal, ["M", "B"], "go(3)", ("done", "3"));
 }
 
+/// A macro is textual substitution: a `?` variable of a macro's right side that no parameter
+/// receives is an existential variable of the macro's text, so at each use it is a fresh
+/// existential variable of the using sentence, with its sigil. The three macros below are each
+/// used in a rule's condition, where a `?` variable occurs in the condition alone and so is
+/// quantified existentially inside it, and each runs alike whatever the existential is called.
+/// - `m(N) => (#Exists ?B . {?B #Equals N}) #And {?Y #Equals N}`, the BIND/A4 rebase's probe:
+///   some value equals X, so `go(3)` gives `done(3)`.
+/// - `s(N) => {?Y #Equals N +Int 1}` used twice, `requires s(X) #And s(X +Int 1)`: each use has
+///   its own existential (one variable for both would equal X + 1 and X + 2 at once), so `go(3)`
+///   gives `done(3)`.
+/// - `b(N) => #Exists ?Y . {?Y #Equals N}`, whose `?Y` its own quantifier binds: `go(3)` gives
+///   `done(3)`.
+#[test]
+fn a_macro_existential_is_a_fresh_existential_at_each_use() {
+    let header = |name: &str| {
+        format!("  syntax KItem ::= go(Int) | done(Int)\n  syntax Bool ::= {name}(Int) [macro]\n")
+    };
+    let probe = |name: &str| {
+        format!(
+            "  rule m(N) => (#Exists ?B:Int . {{?B #Equals N}}) #And {{{name} #Equals N}}\n  rule <k> go(X) => done(X) ... </k> requires m(X)\n"
+        )
+    };
+    assert_bound_name_runs(&header("m"), probe, ["?Y", "?W"], "go(3)", ("done", "3"));
+    let twice = |name: &str| {
+        format!(
+            "  rule s(N) => {{{name} #Equals N +Int 1}}\n  rule <k> go(X) => done(X) ... </k> requires s(X) #And s(X +Int 1)\n"
+        )
+    };
+    assert_bound_name_runs(&header("s"), twice, ["?Y", "?W"], "go(3)", ("done", "3"));
+    let bound = |name: &str| {
+        format!(
+            "  rule b(N) => #Exists {name}:Int . {{{name} #Equals N}}\n  rule <k> go(X) => done(X) ... </k> requires b(X)\n"
+        )
+    };
+    assert_bound_name_runs(&header("b"), bound, ["?Y", "?W"], "go(3)", ("done", "3"));
+}
+
 /// A quantifier in a condition binds its variable in its body only, so `#Exists X . {s(X)
 /// #Equals s(2)}` holds whatever the left side's `X` is: `go(s(3))` gives `done(3)`, as with the
 /// bound variable spelled `Z`. The left side's `s(X)` and the condition's `s(X)` are different

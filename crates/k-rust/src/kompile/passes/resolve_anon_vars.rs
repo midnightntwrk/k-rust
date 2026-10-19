@@ -93,12 +93,9 @@ fn transform(
         }
         TermParts::Variable { name, sort } if anonymous_prefix(&name).is_some() => {
             let prefix = anonymous_prefix(&name).expect("guard checked the prefix");
-            let name = fresh.mint(&format!("{prefix}_Gen"));
-            generated.insert(if prefix == "@" {
-                GeneratedVariableIdentity::set(name.clone())
-            } else {
-                GeneratedVariableIdentity::element(name.clone())
-            });
+            let identity = fresh.mint_generated(prefix);
+            let name = identity.name.clone();
+            generated.insert(identity);
             Term::Variable { name, sort }
         }
         TermParts::Rewrite { left, right } => Term::Rewrite {

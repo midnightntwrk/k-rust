@@ -66,7 +66,7 @@ use crate::{
     kast::{Label, NodeHead, Sort, Term, TermParts},
     kompile::{
         SentenceTyper, SentenceTyping, SortInjector,
-        fresh_names::{FreshNames, GeneratedVariableIdentity},
+        fresh_names::{self, FreshNames, GeneratedVariableIdentity},
     },
     provenance::GeneratingPass,
 };
@@ -1719,13 +1719,15 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                 if name == "#Configuration" {
                     (Term::Variable { name, sort }, Known::Unknown)
                 } else {
-                    let generated_name = self.fresh.mint("_Gen");
-                    self.generated
-                        .insert(GeneratedVariableIdentity::element(generated_name.clone()));
+                    // A macro is textual substitution, so a variable of the macro's right side that no
+                    // parameter receives is, at each use, a new variable of the using sentence
+                    // with the same role: its sigil is kept, and a `?` variable stays existential.
+                    let identity = self.fresh.mint_generated(fresh_names::sigil(&name));
                     let variable = Term::Variable {
-                        name: generated_name,
+                        name: identity.name.clone(),
                         sort,
                     };
+                    self.generated.insert(identity);
                     fresh.insert(name, variable.clone());
                     (variable, Known::Unknown)
                 }

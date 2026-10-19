@@ -40,7 +40,9 @@
 //!   and a binder spelled like the variable of a list update (`list`);
 //! - a named variable that occurs only in a rule's condition, one or two of one sort or beside a
 //!   binder, in a rewrite rule, a function rule with an `owise` competitor or a simplification
-//!   (`condition-only`).
+//!   (`condition-only`);
+//! - a `?` variable of a macro's right side, alone beside a binder, used twice in one condition,
+//!   or bound by the macro's own quantifier (`macro-existential`).
 //!
 //! The `owise` cross product of `owise_binders.rs` (its `shapes.rs`) is a family here too
 //! (`owise-cross`), so the competitors' binders are renamed under every strategy.
@@ -384,6 +386,36 @@ fn condition_only_variables() -> Vec<Case> {
         ));
     }
     cases
+}
+
+/// A `?` variable of a macro's right side that no parameter receives: at each use it is a fresh
+/// existential variable of the using sentence, with its sigil. Alone beside a binder (the BIND/A4
+/// rebase's probe), used twice in one condition, and bound by the macro's own quantifier.
+fn macro_existentials() -> Vec<Case> {
+    [
+        (
+            "probe",
+            "  rule m(N) => (#Exists ?B:Int . {?B #Equals N}) #And {?Y #Equals N}\n  rule [p]: <k> go(X) => done(X) ... </k> requires m(X)\n",
+        ),
+        (
+            "twice",
+            "  rule m(N) => {?Y #Equals N +Int 1}\n  rule [p]: <k> go(X) => done(X) ... </k> requires m(X) #And m(X +Int 1)\n",
+        ),
+        (
+            "bound",
+            "  rule m(N) => #Exists ?Y:Int . {?Y #Equals N}\n  rule [p]: <k> go(X) => done(X) ... </k> requires m(X)\n",
+        ),
+    ]
+    .into_iter()
+    .map(|(form, rules)| {
+        case(
+            format!("macro-existential/{form}"),
+            "G",
+            &format!("  syntax Bool ::= m(Int) [macro]\n{rules}"),
+            &["go(3)"],
+        )
+    })
+    .collect()
 }
 
 /// A context alias with one variable beside the strictness variables the compiler mints.
@@ -1272,6 +1304,7 @@ pub fn cases() -> Vec<Case> {
         macro_binders(),
         anonymous_binders(),
         condition_only_variables(),
+        macro_existentials(),
         context_aliases(),
         function_binders(),
         owise_binders(),

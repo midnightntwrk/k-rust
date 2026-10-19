@@ -153,11 +153,6 @@ pub(super) fn emit_rule_or_claim(
         );
     }
     if is_macro_rule(&injected) {
-        if !existentials.is_empty() {
-            return Err(ModuleToKoreError::EquationExistentials {
-                variables: existential_names(right, ensures),
-            });
-        }
         // Resolving the head is work the macro axiom does not need, so it runs only when the
         // check does, and a head that does not resolve to one production skips the check.
         if cfg!(debug_assertions) {
@@ -173,6 +168,7 @@ pub(super) fn emit_rule_or_claim(
         return emit_macro_axiom(
             left,
             right,
+            existentials,
             attributes,
             valued,
             injector,
@@ -270,9 +266,16 @@ pub(super) fn emit_rule_or_claim(
     })
 }
 
+/// The axiom `m(params) = right` of a macro rule. A macro is textual substitution, so a `?`
+/// variable of its right side that no parameter receives is an existential variable of the
+/// macro's text, a fresh one at each use (`expand macros`); the axiom states that by quantifying
+/// it existentially around the right side (`existentials`, the free `?` variables of the right
+/// side and `ensures`, of which those free in the right side are bound).
+#[allow(clippy::too_many_arguments)]
 fn emit_macro_axiom(
     left: &Term,
     right: &Term,
+    existentials: Vec<Variable>,
     attributes: &KAttributes,
     valued: &BTreeSet<String>,
     injector: &SortInjector<'_, '_>,
@@ -284,11 +287,17 @@ fn emit_macro_axiom(
         .map(str::to_owned)
         .collect();
     let result_sort = converter.convert_sort(&injector.term_sort(left, None)?)?;
+    let right = converter.convert(right)?;
+    let free = right.free_variables();
+    let existentials = existentials
+        .into_iter()
+        .filter(|variable| free.contains(variable))
+        .collect();
     let pattern = Pattern::Equals {
-        operand_sort: Box::new(result_sort),
+        operand_sort: Box::new(result_sort.clone()),
         result_sort: KoreSort::Variable("R".into()),
         left: Box::new(converter.convert(left)?),
-        right: Box::new(converter.convert(right)?),
+        right: Box::new(generated_exists_all(&result_sort, existentials, right)),
     };
     // The axiom states the rule's rank in macro expansion. An `owise` rule's rank is its `owise`
     // attribute, which places it after every rank a priority names, so no priority is added

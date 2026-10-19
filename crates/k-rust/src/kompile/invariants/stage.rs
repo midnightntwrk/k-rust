@@ -33,7 +33,10 @@
 //! - C1: every variable free in the `requires` or `ensures` of a rule, claim, context or context
 //!   alias after a stage occurs in the sentence's body, or occurred free in a condition of the
 //!   same sentence before the stage, or is `HOLE` of a context alias. A variable a `#Exists` or
-//!   `#Forall` of the condition binds is not free ([`crate::kast::binding`] states the rule).
+//!   `#Forall` of the condition binds is not free ([`crate::kast::binding`] states the rule), and
+//!   neither is an existential `?` variable, which its sentence quantifies (as R3 reads it): a
+//!   stage that introduces one, such as `expand macros` inlining a macro's `?Y` as a fresh
+//!   `?_Gen<n>` of the using sentence, introduces no free variable.
 //!   The same sentence before the stage is the family of rule-like sentences before it that
 //!   share one of its input addresses ([`Attributes::input_addresses`], which provenance carries
 //!   through every stage): the heating and cooling rules of one context, every context of one
@@ -440,7 +443,8 @@ fn introduced_condition_variables(
         .filter_map(|(root, condition)| {
             let mut names = free_variables(condition);
             names.retain(|name| {
-                let allowed = !configuration_bound && name == CONFIGURATION_VARIABLE
+                let allowed = name.starts_with('?')
+                    || !configuration_bound && name == CONFIGURATION_VARIABLE
                     || in_body.contains(name)
                     || before.contains(name)
                     || is_alias && name == "HOLE"
@@ -1100,11 +1104,11 @@ mod tests {
                 is_int(&format!("{name}Gen0"))
             })
         }
-        fn rename_to_existential(
+        fn rename_to_fresh(
             input: &PassInput<'_>,
             _: &mut PipelineState,
         ) -> Result<PassOutcome, PassError> {
-            replace_requires(input, |_| is_int("?_Gen0"))
+            replace_requires(input, |_| is_int("!_Gen0"))
         }
         for prefix in ["", "?", "!", "@"] {
             let output = run(
@@ -1126,13 +1130,48 @@ mod tests {
             run(
                 &[stage(
                     "resolve anonymous variables",
-                    rename_to_existential,
+                    rename_to_fresh,
                     Artifacts::NONE,
                 )],
                 definition(vec![addressed(conditioned(is_int("_")), 0)]),
             );
         });
-        assert!(message.contains("?_Gen0 in requires"), "{message}");
+        assert!(message.contains("!_Gen0 in requires"), "{message}");
+    }
+
+    /// An existential `?` variable is quantified by its sentence, so a stage that introduces one
+    /// into a condition (`expand macros` inlining a macro's `?Y` as a fresh `?_Gen0`) introduces
+    /// no free variable, while the same stage introducing a plain variable breaks C1.
+    #[test]
+    fn an_existential_variable_a_stage_introduces_is_no_free_condition_variable() {
+        fn introduce_existential(
+            input: &PassInput<'_>,
+            _: &mut PipelineState,
+        ) -> Result<PassOutcome, PassError> {
+            replace_requires(input, |_| is_int("?_Gen0"))
+        }
+        fn introduce_plain(
+            input: &PassInput<'_>,
+            _: &mut PipelineState,
+        ) -> Result<PassOutcome, PassError> {
+            replace_requires(input, |_| is_int("_Gen0"))
+        }
+        let output = run(
+            &[stage(
+                "expand macros",
+                introduce_existential,
+                Artifacts::NONE,
+            )],
+            definition(vec![addressed(conditioned(is_int("X")), 0)]),
+        );
+        assert_eq!(output.modules[0].local_sentences.len(), 1);
+        let message = panic_message(|| {
+            run(
+                &[stage("expand macros", introduce_plain, Artifacts::NONE)],
+                definition(vec![addressed(conditioned(is_int("X")), 0)]),
+            );
+        });
+        assert!(message.contains("_Gen0 in requires"), "{message}");
     }
 
     /// The anonymous exemption is per sentence: renaming one sentence's `_` does not license a
