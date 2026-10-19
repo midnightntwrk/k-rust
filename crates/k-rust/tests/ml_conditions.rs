@@ -293,6 +293,9 @@ fn the_llvm_target_keeps_the_bool_term_form() {
 
 /// The compile case `exists-anon` records this axiom as a divergence from the pinned frontend
 /// (`divergent-axioms` in scripts/reference-differential.toml): k-rust states the predicate.
+/// The binder `_` (`_Gen0`, at the default sort K) binds only itself, so it is emitted as
+/// written, binding nothing; the body's `_` (`_Gen1`) occurs in the condition alone, so it is
+/// quantified existentially inside the condition.
 #[test]
 fn the_exists_anon_condition_is_an_existential_predicate() {
     let source = include_str!("fixtures/reference/kompile/exists-anon/test.k");
@@ -325,7 +328,7 @@ fn the_exists_anon_condition_is_an_existential_predicate() {
         .replace(" )", ")");
     assert!(
         axiom.starts_with(
-            "axiom{R} \\implies{R}(\\exists{R}(Var'Unds'Gen1:SortInt{}, \\equals{SortBool{}, R}(Lbl'UndsEqlsEqls'Int'Unds'{}(VarX:SortInt{}, Lbl'UndsPlus'Int'Unds'{}(Var'Unds'Gen1:SortInt{}, \\dv{SortInt{}}(\"1\"))), \\dv{SortBool{}}(\"true\"))),"
+            "axiom{R} \\implies{R}(\\exists{R}(Var'Unds'Gen1:SortInt{}, \\exists{R}(Var'Unds'Gen0:SortK{}, \\equals{SortBool{}, R}(Lbl'UndsEqlsEqls'Int'Unds'{}(VarX:SortInt{}, Lbl'UndsPlus'Int'Unds'{}(Var'Unds'Gen1:SortInt{}, \\dv{SortInt{}}(\"1\"))), \\dv{SortBool{}}(\"true\")))),"
         ),
         "{axiom}"
     );

@@ -56,8 +56,10 @@ impl Shape {
 /// Why no K text realizes the shape, or `None` when one does.
 pub fn unrealizable(shape: &Shape) -> Option<&'static str> {
     if shape.minted != Relation::Absent && shape.binder != Binder::Anonymous {
-        // A named binder spelled `_Gen<N>` is read as anonymous (FU-26), so only an anonymous
-        // binder's variables are spelled like a minted name.
+        // Only a bound name spelled `_Gen<N>` meets a minted name. The anonymous binder is that
+        // shape: its binder is resolved to `_Gen0` (and the body's `_`, a variable of the
+        // condition alone, which the axiom binds inside the condition, to `_Gen1`). A named
+        // binder written `_Gen<N>` binds only itself as well, so it adds no other shape.
         return Some(
             "a minted name is spelled `_Gen<N>`, as only an anonymous binder's variables are",
         );
@@ -130,8 +132,9 @@ pub fn source(shape: &Shape) -> String {
             rules.push_str("  rule [m]: f(P:Pair, C:Bool) => 3 requires C andBool notBool C\n")
         }
     }
-    // `q`'s bound names are `Y` (and `Y0` when nested) at Int; an anonymous binder's bound
-    // variable is the body's `_`, which the frontend names `_Gen1` (the binder itself is `_Gen0`).
+    // `q`'s bound names are `Y` (and `Y0` when nested) at Int; an anonymous binder binds only its
+    // own variable, which the frontend names `_Gen0`, and the body's `_` (`_Gen1`) is free. In a
+    // condition it occurs in the condition alone, so the axiom binds it inside the condition.
     let p = match (anonymous, shape.other) {
         (_, Relation::Absent) => None,
         (false, Relation::SameSort) => {

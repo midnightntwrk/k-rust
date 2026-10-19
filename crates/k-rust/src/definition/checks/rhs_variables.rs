@@ -687,22 +687,10 @@ fn visit_free<'t>(
     }
 
     // A quantifier's binder holds binding occurrences, which read no value, and its body is the
-    // scope of the names it binds (`kast::binding`). An anonymous variable in a binder binds
-    // nothing, and is reported like any other anonymous variable at its position.
+    // scope of the names it binds (`kast::binding`). An anonymous binder binds nothing and reads
+    // nothing (`check_anonymous_variables` warns of it); the anonymous variables of its body are
+    // read at their positions like any other.
     if let Some(quantifier) = binding::quantifier(term) {
-        visit_free(
-            quantifier.binder,
-            position,
-            in_k_lhs,
-            cast,
-            bound,
-            quantified,
-            &mut |variable| {
-                if is_anonymous(variable.name) {
-                    report(variable);
-                }
-            },
-        );
         let depth = quantified.len();
         quantified.extend(quantifier.bound().into_iter().map(str::to_owned));
         visit_free(

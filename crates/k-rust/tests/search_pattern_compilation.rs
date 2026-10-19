@@ -335,8 +335,11 @@ fn search_pattern_compilation_user_gen0_is_named_in_ml_binder() {
     assert!(rendered.contains("LblisK"), "{rendered}");
 }
 
+/// The macro `binderMacro => #Exists _ . predicate(_)` mints a fresh variable for each `_` at the
+/// use site. The binder binds only its own variable, so the body's `_` stays a free variable of
+/// the pattern; both are minted, so both are hidden from the results.
 #[test]
-fn search_pattern_compilation_macro_generated_ml_binder_is_anonymous() {
+fn search_pattern_compilation_macro_generated_ml_binder_binds_only_itself() {
     let compiled = compile("<k> a </k> requires binderMacro").unwrap();
     assert_eq!(
         compiled
@@ -344,7 +347,7 @@ fn search_pattern_compilation_macro_generated_ml_binder_is_anonymous() {
             .iter()
             .filter(|identity| identity.name.contains("Gen"))
             .count(),
-        1
+        2
     );
     let mut binders = Vec::new();
     walk(&compiled.pattern, &mut |pattern| {
@@ -358,6 +361,20 @@ fn search_pattern_compilation_macro_generated_ml_binder_is_anonymous() {
             .generated_anonymous_variables
             .iter()
             .any(|identity| identity.name == binders[0])
+    );
+    let free = compiled
+        .pattern
+        .free_variables()
+        .into_iter()
+        .map(|variable| variable.name)
+        .filter(|name| name.contains("Gen"))
+        .collect::<Vec<_>>();
+    assert_eq!(free.len(), 1, "{}", compiled.pattern);
+    assert_ne!(free[0], binders[0]);
+    assert!(
+        compiled
+            .generated_anonymous_variables
+            .contains(&KoreVariableIdentity::element(free[0].clone()))
     );
 }
 

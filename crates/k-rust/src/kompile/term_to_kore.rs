@@ -27,7 +27,7 @@
 //!
 //! Conversion from user-facing K terms to backend-facing KORE patterns.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
 
@@ -40,7 +40,6 @@ use crate::kore::ast::{KoreString, Pattern, Symbol, Variable, VariableKind};
 use crate::kore::string::LiteralEncoding;
 use crate::names::{BuiltinSort, WellKnownSymbol};
 
-use super::fresh_names::{GeneratedVariableIdentity, is_generated_anonymous};
 use super::module_to_kore::encode_kore_label;
 use super::passes::Injectable;
 use super::sort_injections::SentenceSortVariables;
@@ -161,7 +160,6 @@ pub struct TermConverter<'view, 'definition> {
     token_sorts: Option<View<'view, SortCatalog<'definition>>>,
     subsorts: View<'view, PartialOrder<Sort>>,
     sort_variables: SentenceSortVariables,
-    generated_anonymous: Option<BTreeSet<GeneratedVariableIdentity>>,
 }
 
 impl<'definition> TermConverter<'definition, 'definition> {
@@ -181,7 +179,6 @@ impl<'definition> TermConverter<'definition, 'definition> {
             token_sorts: None,
             subsorts: View::Shared(Arc::new(subsorts)),
             sort_variables: SentenceSortVariables::default(),
-            generated_anonymous: None,
         })
     }
 }
@@ -200,7 +197,6 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
             token_sorts: None,
             subsorts: View::Borrowed(subsorts),
             sort_variables: SentenceSortVariables::default(),
-            generated_anonymous: None,
         })
     }
 }
@@ -225,19 +221,6 @@ impl<'definition> TermConverter<'definition, 'definition> {
         )));
         Ok(converter)
     }
-
-    /// Convert ML binders using exact allocation-site provenance for generated anonymous
-    /// variables. The ordinary constructor retains the legacy spelling-based behavior required by
-    /// whole-definition emission.
-    pub fn new_with_generated_anonymous(
-        definition: &'definition ResolvedDefinition,
-        module: &str,
-        generated: &BTreeSet<GeneratedVariableIdentity>,
-    ) -> Result<Self, TermConversionError> {
-        let mut converter = Self::new(definition, module)?;
-        converter.generated_anonymous = Some(generated.clone());
-        Ok(converter)
-    }
 }
 
 impl<'view, 'definition> TermConverter<'view, 'definition> {
@@ -245,17 +228,6 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
     pub(crate) fn with_sort_variables(&self, variables: &SentenceSortVariables) -> Self {
         let mut converter = self.clone();
         converter.sort_variables = variables.clone();
-        converter
-    }
-
-    /// This converter with anonymity taken from `generated`, the variables known to stand for
-    /// anonymous ones, instead of from their spelling.
-    pub(crate) fn with_generated_anonymous(
-        &self,
-        generated: BTreeSet<GeneratedVariableIdentity>,
-    ) -> Self {
-        let mut converter = self.clone();
-        converter.generated_anonymous = Some(generated);
         converter
     }
 
@@ -488,6 +460,10 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
         }
     }
 
+    /// A quantifier binds exactly its own variable in its body, with ordinary lexical scope
+    /// (`kast::binding`). Every anonymous variable has its own name by the time a term is
+    /// converted (`resolve anonymous variables`), so whether a variable was written `_` has no
+    /// bearing on what a quantifier binds.
     fn quantifier(
         &self,
         label: &Label,
@@ -500,29 +476,18 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
                 message: "the first argument must be a variable".into(),
             });
         };
+        debug_assert!(
+            !kast::binding::is_unresolved_anonymous(name),
+            "the binder {name} of {} reached KORE conversion before anonymous resolution",
+            label.name
+        );
         let result_sort = self.parameter(label, label.parameters.len().saturating_sub(1))?;
-        if self.is_ml_binder(label) && self.is_anonymous(name) {
-            let mut seen = BTreeSet::new();
-            let mut variables = Vec::new();
-            self.collect_anonymous_variables(&arguments[1], &mut seen, &mut variables)?;
-            let mut body = self.pattern(&arguments[1])?;
-            for (name, sort) in variables.into_iter().rev() {
-                body = self.bind_quantifier(
-                    label,
-                    result_sort.clone(),
-                    self.variable(&name, &sort)?,
-                    body,
-                );
-            }
-            Ok(body)
-        } else {
-            Ok(self.bind_quantifier(
-                label,
-                result_sort,
-                self.variable(name, sort)?,
-                self.pattern(&arguments[1])?,
-            ))
-        }
+        Ok(self.bind_quantifier(
+            label,
+            result_sort,
+            self.variable(name, sort)?,
+            self.pattern(&arguments[1])?,
+        ))
     }
 
     fn bind_quantifier(
@@ -545,80 +510,6 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
                 body: Box::new(body),
             }
         }
-    }
-
-    fn is_ml_binder(&self, label: &Label) -> bool {
-        [InternalLabel::Exists, InternalLabel::Forall]
-            .iter()
-            .any(|internal| label.is(*internal))
-            || self
-                .productions
-                .attributes_for(&LabelHead::from(label))
-                .is_some_and(|attributes| attributes.has(AttributeKey::MlBinder))
-    }
-
-    fn is_anonymous(&self, name: &str) -> bool {
-        self.generated_anonymous.as_ref().map_or_else(
-            || is_generated_anonymous(name),
-            |generated| {
-                let identity = if name.starts_with('@') {
-                    GeneratedVariableIdentity::set(name)
-                } else {
-                    GeneratedVariableIdentity::element(name)
-                };
-                generated.contains(&identity)
-            },
-        )
-    }
-
-    // Invariant: each call visits one node of `term` and recurses only into its direct subterms, so the finite `term` bounds the calls; `variables` lists every anonymous name of `seen` once, in first-occurrence preorder.
-    fn collect_anonymous_variables(
-        &self,
-        term: &Term,
-        seen: &mut BTreeSet<String>,
-        variables: &mut Vec<(String, Option<Sort>)>,
-    ) -> Result<(), TermConversionError> {
-        match term.unannotated() {
-            Term::Variable { name, sort } => {
-                if self.is_anonymous(name) && seen.insert(name.clone()) {
-                    variables.push((name.clone(), sort.clone()));
-                }
-            }
-            Term::Apply { label, arguments } => {
-                if self.is_ml_binder(label)
-                    && arguments.first().is_some_and(|argument| {
-                        matches!(
-                            argument.unannotated(),
-                            Term::Variable { name, .. } if self.is_anonymous(name)
-                        )
-                    })
-                {
-                    return Err(TermConversionError::InvalidBuiltin {
-                        label: label.name.clone(),
-                        message: "Nested quantifier over anonymous variables.".into(),
-                    });
-                }
-                for argument in arguments {
-                    self.collect_anonymous_variables(argument, seen, variables)?;
-                }
-            }
-            Term::Rewrite { left, right } => {
-                self.collect_anonymous_variables(left, seen, variables)?;
-                self.collect_anonymous_variables(right, seen, variables)?;
-            }
-            Term::As { pattern, alias } => {
-                self.collect_anonymous_variables(pattern, seen, variables)?;
-                self.collect_anonymous_variables(alias, seen, variables)?;
-            }
-            Term::Sequence(items) => {
-                for item in items {
-                    self.collect_anonymous_variables(item, seen, variables)?;
-                }
-            }
-            Term::InjectedLabel(_) | Term::Token { .. } => {}
-            Term::Annotated { .. } => unreachable!(),
-        }
-        Ok(())
     }
 
     fn parameter(

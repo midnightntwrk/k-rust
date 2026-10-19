@@ -487,9 +487,10 @@ fn d2_rule(ensures: &str) -> String {
 
 /// The D2 probe: a quantifier inside the `ensures` binds its own `?` variable there, so
 /// existential lifting builds no outer binder over a quantifier's binder (`?_` is resolved to
-/// `?_Gen0`, at the binder's default sort K), and no lifted binder is vacuous.
+/// `?_Gen0`, at the binder's default sort K), and no lifted binder is vacuous: the body's `?_`
+/// (`?_Gen1`) is free in the `ensures`, since the binder binds only its own variable, and is
+/// lifted.
 #[test]
-#[ignore = "needs BIND/A3: the converter's anonymous arm binds the body's ?_ (D1)"]
 fn existential_lifting_skips_an_anonymous_ensures_binder() {
     let lifted = lifted_existentials(
         &compiled_probe(&d2_rule("#Exists ?_ . (X ==Int ?_)"), "D2"),

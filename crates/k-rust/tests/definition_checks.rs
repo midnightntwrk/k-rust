@@ -1132,6 +1132,43 @@ fn anonymous_check_warns_for_singletons_and_rejects_reused_named_underscores() {
     }));
 }
 
+/// A quantifier binds exactly its own variable, so a binder that is an anonymous variable binds
+/// nothing: the check warns of it, naming the binder, and of a named binder it says nothing.
+#[test]
+fn anonymous_check_warns_of_a_quantifier_whose_binder_is_anonymous() {
+    let quantifier = |label: &str, binder: &str, body: Term| Term::Apply {
+        label: Label::with_parameters(label, vec![Sort::new("Int"), Sort::new("Bool")]),
+        arguments: vec![Term::variable(binder), body],
+    };
+    let x_differs =
+        |other: &str| Term::apply("_=/=Int_", vec![Term::variable("X"), Term::variable(other)]);
+    let warnings_of = |requires: Term| {
+        let sentence = Sentence::Rule {
+            body: rewrite(Term::variable("X"), Term::variable("X")),
+            requires,
+            ensures: truth(),
+            attributes: located(),
+        };
+        check_anonymous_variables(&[&sentence])
+            .into_iter()
+            .map(|diagnostic| (diagnostic.code, diagnostic.severity, diagnostic.message))
+            .collect::<Vec<_>>()
+    };
+
+    for (label, binder) in [("#Forall", "_"), ("#Exists", "?_")] {
+        let warnings = warnings_of(quantifier(label, binder, x_differs("_")));
+        assert_eq!(warnings.len(), 1, "{label} {binder}: {warnings:?}");
+        let (code, severity, message) = &warnings[0];
+        assert_eq!(*code, DiagnosticCode::UnusedVariable);
+        assert_eq!(*severity, Severity::Warning);
+        assert!(
+            message.contains(&format!("The binder '{binder}' of {label} binds nothing")),
+            "{message}"
+        );
+    }
+    assert!(warnings_of(quantifier("#Forall", "Y", x_differs("Y"))).is_empty());
+}
+
 #[test]
 fn anonymous_check_preserves_context_exemptions_and_generated_suppression() {
     let context = Sentence::Context {
