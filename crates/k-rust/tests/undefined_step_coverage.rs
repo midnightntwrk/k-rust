@@ -1738,7 +1738,11 @@ mod matrix {
     /// `ensures` refuted by the path condition, an infeasible `requires`); a stop rule on the
     /// defined sibling of a constrained `\bottom` rule, of the same priority (`qc`) or a lower one
     /// (`pl`); and a branch beside an undefined step (`br`), whose `Branch` leaf, stopping at
-    /// branches, stands for the instances the step does not leave undefined.
+    /// branches, stands for the instances the step does not leave undefined. The `k*` shapes
+    /// are the axis where an undefined part's term differs from the configuration's: a
+    /// function-valued argument `g(N)` that a higher priority's remainder simplifies, with the
+    /// undefined part at the higher or the lower priority, beside one or two defined
+    /// candidates (`kn`, `ko`, `kk`, `km`), each with a stop rule on each candidate.
     const SHAPES_SOURCE: &str = r#"
 module P
   imports INT
@@ -1746,10 +1750,12 @@ module P
   syntax Pgm ::= "done" | "done2" | val(Int) | w(Int)
                | es(Int) | esb(Int) | ep(Int) | rq(Int) | rp(Int)
                | pc(Int) | pd(Int) | pl(Int) | nf(Int) | oc(Int) | ud(Int) | eb(Int) | ec(Int)
-               | qc(Int) | br(Int)
+               | qc(Int) | br(Int) | kk(Int, Int) | km(Int, Int) | kn(Int, Int) | ko(Int, Int)
   syntax Int ::= tb(Int) [function, total]
                | f1(Int) [function, total]
                | f2(Int) [function, total]
+               | g(Int) [function, total]
+               | td(Int) [function, total]
   configuration <k> $PGM:Pgm </k> <c> 0 </c>
   rule [tbeq]:   tb(I) => #Bottom requires I ==Int 0
   rule [tbeq2]:  tb(I) => I requires I =/=Int 0
@@ -1783,6 +1789,20 @@ module P
   rule [bra]: br(X) => val(tb(0)) requires X >Int 3
   rule [brb]: br(X) => done requires X <=Int 0
   rule [brc]: br(X) => done2 requires X >Int 0 andBool X <=Int 5
+  rule [geq]:  g(N) => 0 requires N <=Int 0
+  rule [geq2]: g(N) => 1 requires N >Int 0
+  rule [tdeq]: td(I) => 10 /Int I
+  rule [kka]: kk(N, _) => done requires N >Int 0 [priority(40)]
+  rule [kkb]: kk(N, _) => val(td(0)) requires N <=Int 0 andBool N >Int -5 [priority(50)]
+  rule [kkc]: kk(N, _) => done2 requires N <=Int -5 [priority(50)]
+  rule [kma]: km(N, _) => done requires N >Int 0 [priority(40)]
+  rule [kmb]: km(N, _) => val(td(0)) requires N <=Int 0 andBool N >Int -5 [priority(50)]
+  rule [kmc]: km(N, _) => w(td(0)) requires N <=Int -5 [priority(50)]
+  rule [kna]: kn(N, _) => val(td(0)) requires N >Int 0 [priority(40)]
+  rule [knb]: kn(N, _) => done requires N <=Int 0 andBool N >Int -5 [priority(50)]
+  rule [knc]: kn(N, _) => done2 requires N <=Int -5 [priority(50)]
+  rule [koa]: ko(N, _) => val(td(0)) requires N >Int 0 [priority(40)]
+  rule [kob]: ko(N, _) => done requires N <=Int 0 [priority(50)]
 endmodule
 "#;
 
@@ -1834,6 +1854,19 @@ endmodule
             Stops::Terminal('b', false),
             Stops::Terminal('b', true),
         ]
+    }
+
+    /// Stopping plainly, at branches, and at a cut point or terminal rule on each of the rules
+    /// `<p><letter>`, with and without stopping at branches.
+    fn every_stop(letters: &[char]) -> Vec<Stops> {
+        let mut stops = vec![Stops::Plain, Stops::StopAtBranch];
+        for &letter in letters {
+            for branch in [false, true] {
+                stops.push(Stops::CutPoint(letter, branch));
+                stops.push(Stops::Terminal(letter, branch));
+            }
+        }
+        stops
     }
 
     /// The leaf of an instance whose one successor is `done` by the rule `<p>b`, under `stops`.
@@ -1927,6 +1960,66 @@ endmodule
                     } else {
                         stopped_or_done(stops)
                     }
+                },
+            ),
+            (
+                // A lower priority's undefined part over the simplified remainder `kk(N, 0)`,
+                // beside two defined candidates: the `Branch` leaf excludes its instances.
+                "kk(777, g(777))",
+                vec![],
+                vec![-7, -5, -4, 0, 1, 3],
+                every_stop(&['a', 'b', 'c']),
+                |v, stops| match (v.unwrap(), stops) {
+                    (v, _) if v <= 0 && v > -5 => ("trivial", 0, "pre", Some("P.kkb")),
+                    (_, Stops::StopAtBranch)
+                    | (_, Stops::CutPoint(_, true))
+                    | (_, Stops::Terminal(_, true)) => ("branch", 0, "pre", None),
+                    (v, _) if v > 0 => ("stuck", 1, "done", None),
+                    _ => ("stuck", 1, "done2", None),
+                },
+            ),
+            (
+                // A lower priority's two undefined parts over the simplified remainder beside one
+                // defined candidate, the step's one successor: a cut-point leaf excludes them.
+                "km(777, g(777))",
+                vec![],
+                vec![-7, -5, -4, 0, 1, 3],
+                every_stop(&['a', 'b', 'c']),
+                |v, stops| match (v.unwrap(), stops) {
+                    (v, _) if v <= 0 => ("trivial", 0, "pre", Some("P.kmb")),
+                    (_, Stops::CutPoint('a', _)) => ("cut-point", 0, "pre", None),
+                    (_, Stops::Terminal('a', _)) => ("terminal", 1, "done", None),
+                    _ => ("stuck", 1, "done", None),
+                },
+            ),
+            (
+                // A higher priority's undefined part over the configuration's own term beside
+                // two defined candidates over the simplified remainder.
+                "kn(777, g(777))",
+                vec![],
+                vec![-7, -5, -4, 0, 1, 3],
+                every_stop(&['a', 'b', 'c']),
+                |v, stops| match (v.unwrap(), stops) {
+                    (v, _) if v > 0 => ("trivial", 0, "pre", Some("P.kna")),
+                    (_, Stops::StopAtBranch)
+                    | (_, Stops::CutPoint(_, true))
+                    | (_, Stops::Terminal(_, true)) => ("branch", 0, "pre", None),
+                    (v, _) if v > -5 => ("stuck", 1, "done", None),
+                    _ => ("stuck", 1, "done2", None),
+                },
+            ),
+            (
+                // A higher priority's undefined part beside one defined candidate over the
+                // simplified remainder, the step's one successor.
+                "ko(777, g(777))",
+                vec![],
+                vec![-7, -5, -4, 0, 1, 3],
+                every_stop(&['a', 'b']),
+                |v, stops| match (v.unwrap(), stops) {
+                    (v, _) if v > 0 => ("trivial", 0, "pre", Some("P.koa")),
+                    (_, Stops::CutPoint('b', _)) => ("cut-point", 0, "pre", None),
+                    (_, Stops::Terminal('b', _)) => ("terminal", 1, "done", None),
+                    _ => ("stuck", 1, "done", None),
                 },
             ),
             (

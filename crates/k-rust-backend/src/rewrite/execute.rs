@@ -683,7 +683,7 @@ impl<'a> Execution<'a> {
             }
             RewriteResult::Finished(applied) => {
                 let (expanded, diagnostics) = crate::path_facts::collect_with_diagnostics(|| {
-                    self.finished(state, applied, false)
+                    self.finished(state, applied, &Exclusion::default())
                 });
                 let expanded = expanded.map_err(|leaf| {
                     interrupted_with(leaf, &[&step_diagnostics, &owned_step_facts, &diagnostics])
@@ -1309,7 +1309,7 @@ impl<'a> Execution<'a> {
         &mut self,
         mut state: ExecutionState,
         applied: AppliedRule,
-        restrict: bool,
+        excluded: &Exclusion,
     ) -> Phase<Vec<ExecutionState>> {
         if let Some(rule) = selected_stop_rule(&applied, &self.options.cut_point_rules) {
             let mut applied = applied;
@@ -1402,11 +1402,9 @@ impl<'a> Execution<'a> {
                     .report_undefined_successor(successor, halt_reason)
                     .map(|()| Vec::new());
             }
-            if restrict {
-                // The step's undefined step stands for some instances of this state: the leaf
-                // stands for the candidate's own.
-                restrict_to_candidate(&mut state.pattern, &producer.before, &producer.successor);
-            }
+            // The step's undefined step stands for some instances of this state: the leaf stands
+            // for the others, the candidate's own.
+            excluded.exclude_from(&mut state.pattern);
             return Err(self.cut_point_leaf(state, rule, applied, candidate_observation));
         }
         let terminal_rule = selected_stop_rule(&applied, &self.options.terminal_rules);
@@ -1567,7 +1565,7 @@ impl<'a> Execution<'a> {
             // where a `\bottom` makes it this step's undefined step rather than leaving this
             // state stuck.
             let applied = branches.into_iter().next().expect("one branch remains");
-            return self.finished(state, applied, false);
+            return self.finished(state, applied, &Exclusion::default());
         }
         if self.options.branch_mode == ExecutionBranchMode::StopAtBranch {
             // The configuration the step was taken from, on its path: the leaf of a candidate
@@ -1922,11 +1920,12 @@ impl<'a> Execution<'a> {
     /// The undefined step of `parts` is reported first ([`Self::undefined_step`]); a step with
     /// no instance is one `Vacuous` leaf. Then: no survivor and no remainder ends the state, as
     /// `Stuck` only when no candidate applied; one survivor and no remainder is the state's one
-    /// successor, to which the cut-point and terminal rules apply, its stop leaf restricted to
-    /// its own instances when an undefined step was reported; otherwise the state branches,
-    /// as successors when exploring all paths, or as a `Branch` leaf when stopping at branches,
-    /// whose state then excludes the undefined step's instances, so the step's leaves partition
-    /// its instances. `parent` is the state as the step was taken from it.
+    /// successor, to which the cut-point and terminal rules apply; otherwise the state
+    /// branches, as successors when exploring all paths, or as a `Branch` leaf when stopping at
+    /// branches. A cut-point or `Branch` leaf, which is the configuration the step was taken
+    /// from, excludes the undefined step's instances ([`Exclusion`], built from the instances
+    /// each undefined part stands for, whatever its term), so the step's leaves partition its
+    /// instances. `parent` is the state as the step was taken from it.
     #[allow(clippy::too_many_arguments)]
     fn conclude_step(
         &mut self,
@@ -1941,7 +1940,8 @@ impl<'a> Execution<'a> {
         let depth = state.depth + 1;
         let undefined = !parts.is_empty();
         let built = survivors.built();
-        let mut reported = Vec::new();
+        // The undefined step's instances, which the step's other leaves exclude.
+        let mut excluded = Exclusion::default();
         if undefined {
             let others = !built.is_empty() || remainder.is_some();
             match self.undefined_step(
@@ -1951,15 +1951,8 @@ impl<'a> Execution<'a> {
                 &built.iter().collect::<Vec<_>>(),
                 others,
             ) {
-                Ok(UndefinedStep::Leaves(leaves)) => {
-                    reported = leaves
-                        .iter()
-                        .filter(|leaf| leaf.pattern.term == original.term)
-                        .map(|leaf| beyond(&leaf.pattern.constraints, &original.constraints))
-                        .collect();
-                    if reported.is_empty() {
-                        reported.push(Vec::new());
-                    }
+                Ok(UndefinedStep::Leaves(leaves, parts)) => {
+                    excluded = parts;
                     self.leaves.extend(leaves);
                 }
                 Ok(UndefinedStep::Covered) => {}
@@ -1971,7 +1964,6 @@ impl<'a> Execution<'a> {
                 Err(stop) => return Err(self.stopped_leaf(state, stop)),
             }
         }
-        let restrict = !reported.is_empty();
         match survivors {
             Survivors::Normalized(mut defined) => match (defined.len(), remainder.is_some()) {
                 (0, false) if undefined => Ok(Vec::new()),
@@ -1980,7 +1972,7 @@ impl<'a> Execution<'a> {
                 }
                 (1, false) => {
                     let applied = defined.pop().expect("one defined candidate");
-                    self.finished(state, applied, restrict)
+                    self.finished(state, applied, &excluded)
                 }
                 _ => Ok(self.successors(state, defined, remainder, offset)),
             },
@@ -1997,17 +1989,14 @@ impl<'a> Execution<'a> {
                         // The only surviving candidate is the unique successor of this state,
                         // as a `Finished` step's application is: the stop rules apply to it
                         // alike. It is already normalized, on its own head, and not bottom.
-                        let (applied, observation, built) =
-                            branches.pop().expect("one branch remains");
+                        let (applied, observation, _) = branches.pop().expect("one branch remains");
                         if let Some(rule) =
                             selected_stop_rule(&applied, &self.options.cut_point_rules)
                         {
                             let mut state = state;
-                            if restrict {
-                                // The undefined step stands for some instances of this state:
-                                // the leaf stands for the candidate's own.
-                                restrict_to_candidate(&mut state.pattern, &applied.before, &built);
-                            }
+                            // The undefined step stands for some instances of this state: the
+                            // leaf stands for the others, the candidate's own.
+                            excluded.exclude_from(&mut state.pattern);
                             commit_proposed_effects(&mut state, &applied);
                             return Err(self.cut_point_leaf(state, rule, applied, observation));
                         }
@@ -2049,11 +2038,7 @@ impl<'a> Execution<'a> {
                         // The branch leaf stands for the instances the step does not leave
                         // undefined.
                         let mut original = original;
-                        for conditions in reported {
-                            original
-                                .constraints
-                                .push(Predicate::Not(Arc::new(conjunction(conditions))));
-                        }
+                        excluded.exclude_from(&mut original);
                         Err(state.leaf_with_pattern(
                             original,
                             HaltReason::Branch {
@@ -2124,7 +2109,7 @@ impl<'a> Execution<'a> {
             return Err(state.leaf(halt_reason, &self.observation_log));
         };
         match self.successor_step(state.diagnostics.clone(), &producer, halt_reason) {
-            Ok(UndefinedStep::Leaves(leaves)) => {
+            Ok(UndefinedStep::Leaves(leaves, _)) => {
                 let mut leaves = leaves.into_iter();
                 let first = leaves.next().expect("a reported step has a leaf");
                 self.leaves.extend(leaves);
@@ -2353,6 +2338,13 @@ impl<'a> Execution<'a> {
             });
         }
         found.sort_by_key(|part| part.index);
+        // The instances the leaves stand for, part by part, whatever their terms.
+        let excluded = Exclusion(
+            found
+                .iter()
+                .map(|part| part.pattern.constraints.clone())
+                .collect(),
+        );
         // One leaf per pre-step term, in the order of their first parts.
         let mut groups: Vec<Vec<UndefinedPart>> = Vec::new();
         for part in found {
@@ -2403,7 +2395,7 @@ impl<'a> Execution<'a> {
             };
             leaves.push(leaf.leaf_with_pattern(pattern, first.halt, &self.observation_log));
         }
-        Ok(UndefinedStep::Leaves(leaves))
+        Ok(UndefinedStep::Leaves(leaves, excluded))
     }
 
     /// The constraints of one leaf for the non-empty `group` of parts over one term: the part's
@@ -3991,7 +3983,8 @@ impl Survivors {
 enum UndefinedStep {
     /// The step's `Trivial` leaves: one, unless its undefined candidates were applied to
     /// patterns with different terms (one per term then).
-    Leaves(Vec<ExecutionLeaf>),
+    /// With the instances they stand for, which the step's other leaves exclude.
+    Leaves(Vec<ExecutionLeaf>, Exclusion),
     /// No instance is left undefined: the step's defined candidates or its remainder take every
     /// instance its undefined candidates apply to.
     Covered,
@@ -4072,16 +4065,28 @@ fn closed_over(
     ]
 }
 
-/// Restrict `pattern`, the configuration a step was taken from, to the instances of one of its
-/// candidates: the pattern it was applied to (`before`, which excludes what higher priorities
-/// took) under its condition, the constraints of its successor as the step `built` it, with the
-/// rule's own variables existentially closed.
-fn restrict_to_candidate(pattern: &mut Pattern, before: &Pattern, built: &Pattern) {
-    let bound = pattern_variables(before);
-    let higher = beyond(&before.constraints, &pattern.constraints);
-    extend_unique_predicates(&mut pattern.constraints, higher);
-    let condition = beyond(&built.constraints, &before.constraints);
-    extend_unique_predicates(&mut pattern.constraints, closed_over(condition, &bound));
+/// The instances of a step's undefined step, which its other leaves exclude so that the step's
+/// leaves partition its instances: one condition per non-empty undefined part, the constraints
+/// of the instances that part stands for. A statement about instances: it is read over the
+/// variables of the configuration the step was taken from, whatever term the part was applied
+/// to (a lower priority's simplified remainder has the same instances under another term). No
+/// part means nothing is excluded.
+#[derive(Clone, Default)]
+struct Exclusion(Vec<Vec<Predicate>>);
+
+impl Exclusion {
+    /// Restrict `pattern`, a leaf of the step over the configuration it was taken from, to the
+    /// instances outside every part: for each, the negation of its conditions beyond `pattern`'s
+    /// own. A part none of whose conditions goes beyond `pattern`'s stands for all its instances,
+    /// so none is left.
+    fn exclude_from(&self, pattern: &mut Pattern) {
+        for conditions in &self.0 {
+            let extra = beyond(conditions, &pattern.constraints);
+            pattern
+                .constraints
+                .push(Predicate::Not(Arc::new(conjunction(extra))));
+        }
+    }
 }
 
 fn conjunction(mut predicates: Vec<Predicate>) -> Predicate {
