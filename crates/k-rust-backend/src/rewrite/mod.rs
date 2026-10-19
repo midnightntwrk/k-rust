@@ -829,7 +829,13 @@ pub(crate) fn stuck(definition: &BackendDefinition, pattern: &Pattern) -> Stoppa
 }
 
 fn false_constraint(pattern: &Pattern) -> Predicate {
-    match pattern.constraints.as_slice() {
+    refuted_constraint(&pattern.constraints)
+}
+
+/// Constraints shown to have no instance, as the one predicate an undefined step names (`False`
+/// for none).
+fn refuted_constraint(constraints: &[Predicate]) -> Predicate {
+    match constraints {
         [] => Predicate::False,
         [constraint] => constraint.clone(),
         constraints => Predicate::And(constraints.to_vec().into()),
@@ -1402,6 +1408,9 @@ pub(crate) fn rewrite_step_restricted(
     )
 }
 
+/// The one-path proof's sequential step: [`rewrite_step_sequential_with_solver`]'s, under
+/// `simplification_options`, where a successor whose normalized constraints have no instance is
+/// no successor, as the proof reads its states (`step::SuccessorSatisfiability::Asked`).
 pub(crate) fn rewrite_step_sequential_with_options(
     definition: &BackendDefinition,
     pattern: &Pattern,
@@ -1409,14 +1418,27 @@ pub(crate) fn rewrite_step_sequential_with_options(
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> Stoppable<RewriteResult> {
-    rewrite_step_with_mode(
+    if let Some(symbol) = pattern.macro_or_alias_symbol() {
+        return Ok(RewriteResult::Indeterminate {
+            pattern: pattern.clone(),
+            reason: IndeterminateReason::SurvivingMacroOrAlias { symbol },
+        });
+    }
+    if predicates_truth(&pattern.constraints) == Truth::False {
+        return Ok(RewriteResult::Vacuous(pattern.clone()));
+    }
+    rewrite_step_any(
         definition,
         pattern,
         fresh_counter,
         simplification_options,
         solver,
-        ExecutionMode::Any,
+        &[],
+        None,
         false,
+        None,
+        None,
+        step::SuccessorSatisfiability::Asked,
     )
 }
 
@@ -1453,6 +1475,7 @@ pub(crate) fn rewrite_step_sequential_tracking_dropped(
         false,
         Some(&mut determinism),
         None,
+        step::SuccessorSatisfiability::Asked,
     )?;
     Ok((result, determinism.dropped))
 }
@@ -1529,6 +1552,7 @@ fn rewrite_step_with_optional_execution(
             ground_halt,
             None,
             refutations,
+            step::SuccessorSatisfiability::NotAsked,
         ),
     }
 }

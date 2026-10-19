@@ -2410,11 +2410,17 @@ fn a_proof_reads_a_bottom_successor_as_no_successor() {
 /// solver, given the conditions of two equations' `ensures` together (`N > 5` and `N < 3`),
 /// finds it empty. `<p>a` is `\bottom` everywhere; `spc`/`sqc` take `N > 10`; in `sd` two such
 /// candidates sit beside `sda`. `sr` and `sq` declare their rules in the other order.
+///
+/// In `ha`, `hb` and `hc` such candidates come first and a defined rule last, so a one-path step
+/// that committed to them would drop the rule that gives their instances a successor: `haa`
+/// takes every `N` to `done`, `hba` gives every `N =/= 0` a successor, and `hca` takes `N > 0`
+/// to `done`.
 const SOLVER_BOTTOM_SIBLING: &str = r#"
 module FU42-SOLVER
   imports FU42
   syntax Prog ::= sa(Int) [symbol(sa)] | sr(Int) [symbol(sr)] | sp(Int) [symbol(sp)]
                 | sq(Int) [symbol(sq)] | sd(Int) [symbol(sd)]
+                | ha(Int) [symbol(ha)] | hb(Int) [symbol(hb)] | hc(Int) [symbol(hc)]
   syntax Int ::= gtf(Int) [function, total, symbol(gtf)]
                | ltf(Int) [function, total, symbol(ltf)]
   rule [gtfeq]: gtf(I) => 1 ensures I >Int 5
@@ -2432,6 +2438,13 @@ module FU42-SOLVER
   rule [sda]: <k> sd(_) => val(tb(0)) </k>
   rule [sdb]: <k> sd(X) => w(gtf(X) +Int ltf(X)) </k>
   rule [sdc]: <k> sd(X) => w(ltf(X) +Int gtf(X)) </k> requires X >Int -5
+  rule [hac]: <k> ha(X) => w(gtf(X) +Int ltf(X)) </k> requires X >Int -5
+  rule [hab]: <k> ha(X) => w(ltf(X) +Int gtf(X)) </k>
+  rule [haa]: <k> ha(_) => done </k>
+  rule [hbb]: <k> hb(X) => w(gtf(X) +Int ltf(X)) </k>
+  rule [hba]: <k> hb(X) => val(tb(X)) </k>
+  rule [hcb]: <k> hc(X) => w(gtf(X) +Int ltf(X)) </k>
+  rule [hca]: <k> hc(X) => done </k> requires X >Int 0
 endmodule
 "#;
 
@@ -2439,34 +2452,9 @@ endmodule
 /// with `definedness` the definedness of its term too, with every other variable existentially
 /// closed; `None` when the state is `\bottom`.
 fn leaf_condition(state: &serde_json::Value, definedness: bool) -> Option<String> {
-    use k_rust::kore::ast::Pattern;
-    fn conjuncts<'p>(
-        pattern: &'p Pattern,
-        terms: &mut Vec<&'p Pattern>,
-        predicates: &mut Vec<&'p Pattern>,
-    ) -> bool {
-        match pattern {
-            Pattern::And { arguments, .. } => arguments
-                .iter()
-                .all(|argument| conjuncts(argument, terms, predicates)),
-            Pattern::Bottom { .. } => false,
-            Pattern::Top { .. } => true,
-            Pattern::Application { .. }
-            | Pattern::AssociativeApplication { .. }
-            | Pattern::Variable(_)
-            | Pattern::DomainValue { .. } => {
-                terms.push(pattern);
-                true
-            }
-            predicate => {
-                predicates.push(predicate);
-                true
-            }
-        }
-    }
     let pattern = codec::from_value(state).unwrap();
     let (mut terms, mut predicates) = (Vec::new(), Vec::new());
-    if !conjuncts(&pattern, &mut terms, &mut predicates) {
+    if !leaf_conjuncts(&pattern, &mut terms, &mut predicates) {
         return None;
     }
     let printer = Printer::compact();
@@ -2493,6 +2481,47 @@ fn leaf_condition(state: &serde_json::Value, definedness: bool) -> Option<String
     Some(others.into_iter().fold(body, |body, (name, sort)| {
         format!("\\exists{{{TOP}}}({name}:{sort}, {body})")
     }))
+}
+
+/// Split a leaf's state into its term conjuncts and its predicate conjuncts; `false` when a
+/// conjunct is `\bottom`.
+fn leaf_conjuncts<'p>(
+    pattern: &'p k_rust::kore::ast::Pattern,
+    terms: &mut Vec<&'p k_rust::kore::ast::Pattern>,
+    predicates: &mut Vec<&'p k_rust::kore::ast::Pattern>,
+) -> bool {
+    use k_rust::kore::ast::Pattern;
+    match pattern {
+        Pattern::And { arguments, .. } => arguments
+            .iter()
+            .all(|argument| leaf_conjuncts(argument, terms, predicates)),
+        Pattern::Bottom { .. } => false,
+        Pattern::Top { .. } => true,
+        Pattern::Application { .. }
+        | Pattern::AssociativeApplication { .. }
+        | Pattern::Variable(_)
+        | Pattern::DomainValue { .. } => {
+            terms.push(pattern);
+            true
+        }
+        predicate => {
+            predicates.push(predicate);
+            true
+        }
+    }
+}
+
+/// The configuration of a proof leaf's state as KORE text, without its constraints.
+fn leaf_term(state: &serde_json::Value) -> String {
+    let pattern = codec::from_value(state).unwrap();
+    let (mut terms, mut predicates) = (Vec::new(), Vec::new());
+    leaf_conjuncts(&pattern, &mut terms, &mut predicates);
+    let printer = Printer::compact();
+    terms
+        .iter()
+        .map(|term| printer.print_pattern(term))
+        .collect::<Vec<_>>()
+        .join(" /\\ ")
 }
 
 const TOP: &str = "SortGeneratedTopCell{}";
@@ -2527,24 +2556,40 @@ fn has_instance(backend: &mut Backend, condition: &str) -> Result<bool, String> 
 /// `Vacuous` leaf has no instance. Path leaves may share instances: an instance two defined
 /// candidates take has two successors.
 ///
+/// A one-path step follows one successor per instance, so a successor it drops leaves no leaf,
+/// and (1) and (2) cannot see it. A one-path claim holds when some path reaches its target, so an
+/// instance may end on an undefined step only when no rule that applies gives it a successor:
+/// (4) every instance of a one-path `Trivial` leaf lies on an all-path `Trivial` leaf of the same
+/// configuration. The all-path step takes every rule's successors, and (1) and (2) hold for its
+/// leaves, so its `Trivial` leaves are exactly the instances no rule gives a successor.
+///
 /// The `q` route (`te(X)` of the `total` `te`, whose equation `ensures X =/=Int 0`) has a gap
 /// at `N = 0` that is not a `\bottom` successor's: the equation's `ensures` joins the
 /// successor's constraints, so the successor stands for `N =/= 0` only, and the instance `0`,
 /// on which `te(0)` is `\bottom`, is on no leaf. The claims with that gap are listed exactly,
-/// so a change that closes or widens it fails here.
+/// and for them (1) is asked twice: some instance is on no leaf, and none other than `N = 0` is,
+/// so a change that closes the gap or widens it beyond `N = 0` fails here.
 #[test]
 fn the_leaves_of_a_symbolic_proof_partition_its_instances() {
     use undefined_successor::{matrix_source, programs};
+    const EQUATION_ENSURES_GAP: [&str; 7] =
+        ["o-qc", "o-qp", "a-qp", "o-qo", "a-qo", "o-qw", "a-qw"];
     let mut names = programs()
         .into_iter()
         .map(|(program, _, _)| program)
         .collect::<Vec<_>>();
-    names.extend(["sa", "sr", "sp", "sq", "sd"].map(str::to_owned));
+    names.extend(["sa", "sr", "sp", "sq", "sd", "ha", "hb", "hc"].map(str::to_owned));
     let mut claims = String::new();
     for program in &names {
         claims.push_str(&format!(
             "  claim [o-{program}]: <k> {program}(N) => done </k> [one-path]\n  claim [a-{program}]: <k> {program}(N) => done </k>\n"
         ));
+    }
+    for claim in EQUATION_ENSURES_GAP {
+        assert!(
+            names.iter().any(|program| claim[2..] == **program),
+            "{claim} is not a claim of this test"
+        );
     }
     let source = format!(
         "{}{SOLVER_BOTTOM_SIBLING}\nmodule FU42-SPEC\n  imports FU42-SOLVER\n{claims}endmodule\n",
@@ -2552,9 +2597,17 @@ fn the_leaves_of_a_symbolic_proof_partition_its_instances() {
     );
     let kore = compile(&source, "FU42-SPEC", "FU42-SOLVER");
     let mut backend = Backend::new(&kore, "FU42-SPEC", BackendOptions::default()).unwrap();
+    let top = format!("\\top{{{TOP}}}()");
+    let not_zero = format!(
+        "\\not{{{TOP}}}(\\equals{{SortInt{{}}, {TOP}}}(VarN:SortInt{{}}, \\dv{{SortInt{{}}}}(\"0\")))"
+    );
     let mut wrong = Vec::new();
     for program in &names {
-        for claim in [format!("o-{program}"), format!("a-{program}")] {
+        // The all-path claim first: its `Trivial` leaves, by configuration, are what the
+        // one-path claim's are checked against (4).
+        let mut all_path_trivial = Vec::<(String, String)>::new();
+        for claim in [format!("a-{program}"), format!("o-{program}")] {
+            let one_path = claim.starts_with("o-");
             // Every leaf, not only the first counterexample: the leaves are the partition.
             let result = backend
                 .prove(ProveRequest {
@@ -2578,10 +2631,10 @@ fn the_leaves_of_a_symbolic_proof_partition_its_instances() {
                         leaf.outcome,
                         leaf_condition(&leaf.state, false),
                         leaf_condition(&leaf.state, true),
+                        leaf_term(&leaf.state),
                     )
                 })
                 .collect::<Vec<_>>();
-            let top = format!("\\top{{{TOP}}}()");
             // A condition `\top` holds on every instance; the solver is asked about the rest.
             let mut check = |what: String, conditions: Vec<&String>, expected: bool| {
                 let rest = conditions
@@ -2609,23 +2662,32 @@ fn the_leaves_of_a_symbolic_proof_partition_its_instances() {
             };
             let conditions = leaves
                 .iter()
-                .filter_map(|(_, condition, _)| condition.clone())
+                .filter_map(|(_, condition, _, _)| condition.clone())
                 .collect::<Vec<_>>();
-            if conditions.is_empty() {
-                // No leaf at all: every instance is on none.
-                check("an instance on no leaf".into(), vec![&top], false);
-            } else if !conditions.contains(&top) {
+            // The instances on no leaf; `None` when a leaf holds on every instance.
+            let gap = if conditions.is_empty() {
+                Some(top.clone())
+            } else if conditions.contains(&top) {
+                None
+            } else {
                 let union = conditions
                     .into_iter()
                     .reduce(|left, right| format!("\\or{{{TOP}}}({left}, {right})"))
                     .unwrap();
+                Some(format!("\\not{{{TOP}}}({union})"))
+            };
+            if EQUATION_ENSURES_GAP.contains(&claim.as_str()) {
+                let gap = gap.unwrap_or_else(|| format!("\\bottom{{{TOP}}}()"));
+                check("no equation-ensures gap".into(), vec![&gap], true);
                 check(
-                    "an instance on no leaf".into(),
-                    vec![&format!("\\not{{{TOP}}}({union})")],
+                    "an instance on no leaf other than N = 0".into(),
+                    vec![&gap, &not_zero],
                     false,
                 );
+            } else if let Some(gap) = gap {
+                check("an instance on no leaf".into(), vec![&gap], false);
             }
-            for (index, (outcome, _, condition)) in leaves.iter().enumerate() {
+            for (index, (outcome, _, condition, term)) in leaves.iter().enumerate() {
                 let Some(condition) = condition else { continue };
                 match outcome {
                     ProofLeafOutcomeOutput::Vacuous => check(
@@ -2634,7 +2696,7 @@ fn the_leaves_of_a_symbolic_proof_partition_its_instances() {
                         false,
                     ),
                     ProofLeafOutcomeOutput::Trivial => {
-                        for (other, (_, _, other_condition)) in leaves.iter().enumerate() {
+                        for (other, (_, _, other_condition, _)) in leaves.iter().enumerate() {
                             let Some(other_condition) =
                                 other_condition.as_ref().filter(|_| other != index)
                             else {
@@ -2648,26 +2710,33 @@ fn the_leaves_of_a_symbolic_proof_partition_its_instances() {
                                 false,
                             );
                         }
+                        if !one_path {
+                            all_path_trivial.push((term.clone(), condition.clone()));
+                            continue;
+                        }
+                        let undefined = all_path_trivial
+                            .iter()
+                            .filter(|(all_path_term, _)| all_path_term == term)
+                            .map(|(_, all_path_condition)| all_path_condition.clone())
+                            .reduce(|left, right| format!("\\or{{{TOP}}}({left}, {right})"))
+                            .map_or_else(
+                                || top.clone(),
+                                |undefined| format!("\\not{{{TOP}}}({undefined})"),
+                            );
+                        check(
+                            format!(
+                                "an instance on the one-path trivial leaf {index} that a rule gives a successor"
+                            ),
+                            vec![condition, &undefined],
+                            false,
+                        );
                     }
                     _ => {}
                 }
             }
         }
     }
-    let equation_ensures_gap =
-        |line: &String| line.contains("-q") && line.contains(": an instance on no leaf: Ok(true)");
-    let gaps = wrong
-        .iter()
-        .filter(|line| equation_ensures_gap(line))
-        .map(|line| line.split(' ').next().unwrap().to_owned())
-        .collect::<Vec<_>>();
-    wrong.retain(|line| !equation_ensures_gap(line));
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
-    assert_eq!(
-        gaps,
-        ["o-qc", "o-qp", "a-qp", "o-qo", "a-qo", "o-qw", "a-qw"],
-        "the claims whose equation `ensures` leaves `N = 0` on no leaf"
-    );
 }
 
 /// The one-point rule on a rule's `ensures`: `ra`'s existential `?Y`, equated with the defined

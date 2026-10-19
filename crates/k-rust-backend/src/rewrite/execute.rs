@@ -2932,6 +2932,11 @@ pub(crate) struct SuccessorCheck {
     /// The results of the normalization's phases, which the successor state's own
     /// normalization takes instead of repeating them; `None` when a phase failed.
     pub(crate) normalization: Option<SuccessorNormalization>,
+    /// The successor's constraints after both phases, with the conditions its term
+    /// simplification conjoined: the constraints of the state built from it, whose
+    /// satisfiability a one-path proof's sequential step asks (`rewrite::step`). `None` when a
+    /// phase failed or the constraint phase showed the successor undefined.
+    pub(crate) constraints: Option<Vec<Predicate>>,
 }
 
 /// The results of the two phases of a successor's normalization ([`normalize_successor`]), with
@@ -3043,6 +3048,7 @@ fn normalize_successor_with(
     let failed = SuccessorCheck {
         undefined: None,
         normalization: None,
+        constraints: None,
     };
     let mut pattern = successor.clone();
     let retained_substitution =
@@ -3082,6 +3088,7 @@ fn normalize_successor_with(
                     contradicted_total: None,
                 }),
                 normalization: Some(normalization),
+                constraints: None,
             },
             None,
         ));
@@ -3130,17 +3137,19 @@ fn normalize_successor_with(
         io: evaluation.map(|evaluation| evaluation.commit()),
     });
     pattern.constraints.extend(parts.conditions);
+    let undefined = (predicates_truth(&pattern.constraints) == Truth::False).then(|| {
+        term_phase_undefinedness(
+            parts.undefined_term,
+            parts.contradicted_total,
+            found_bottom,
+            &pattern,
+        )
+    });
     Ok((
         SuccessorCheck {
-            undefined: (predicates_truth(&pattern.constraints) == Truth::False).then(|| {
-                term_phase_undefinedness(
-                    parts.undefined_term,
-                    parts.contradicted_total,
-                    found_bottom,
-                    &pattern,
-                )
-            }),
+            undefined,
             normalization: Some(normalization),
+            constraints: Some(pattern.constraints),
         },
         bottom,
     ))
