@@ -706,12 +706,33 @@ impl Walk<'_> {
     /// A sentence body. An equation's left side is the application it defines, whose arguments
     /// are the roots where an or-pattern may stand.
     fn body(&mut self, body: &Term) {
-        if matches!(self.kind, Kind::Function | Kind::Anywhere)
-            && let Term::Rewrite { left, right } = body.unannotated()
-        {
-            self.application_pattern(left);
-            self.term(right, Context::Body(TermPosition::RHS), false);
-            return;
+        if matches!(self.kind, Kind::Function | Kind::Anywhere) {
+            // A function equation written with the configuration (`[[ f(..) => r ]] <cells>`)
+            // holds its rewrite in the first argument; the cells beside it are matched against
+            // the configuration.
+            let (equation, configuration) = match body.unannotated() {
+                Term::Apply { label, arguments }
+                    if label.is(InternalLabel::WithConfig) && !arguments.is_empty() =>
+                {
+                    (&arguments[0], &arguments[1..])
+                }
+                Term::Apply { .. }
+                | Term::Annotated { .. }
+                | Term::Rewrite { .. }
+                | Term::As { .. }
+                | Term::Sequence(_)
+                | Term::InjectedLabel(_)
+                | Term::Variable { .. }
+                | Term::Token { .. } => (body, &[][..]),
+            };
+            if let Term::Rewrite { left, right } = equation.unannotated() {
+                self.application_pattern(left);
+                self.term(right, Context::Body(TermPosition::RHS), false);
+                for cells in configuration {
+                    self.term(cells, Context::Body(TermPosition::BODY), false);
+                }
+                return;
+            }
         }
         if self.kind == Kind::PredicateSimplification
             && let Term::Rewrite { left, right } = body.unannotated()

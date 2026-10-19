@@ -2029,3 +2029,19 @@ fn the_structured_route_refuses_the_same_shapes() {
         assert!(diagnostic.location.is_some(), "{sentences}: unlocated");
     }
 }
+
+/// A function equation written with the configuration (`[[ f(..) => r ]] <cells>`) defines the
+/// same application: an or-pattern at the root of one of its arguments is matched, as in an
+/// equation without the configuration, and one below a symbol of an argument is refused.
+#[test]
+fn an_or_pattern_of_a_function_equation_with_the_configuration_is_judged_at_its_arguments() {
+    let declarations = "  syntax Reason ::= \"ra\" [symbol(ra)] | \"rb\" [symbol(rb)] | \"rc\" [symbol(rc)] | w(Reason) [symbol(w)]\n  syntax Int ::= cw(Reason) [function, total, symbol(cw)] | cv(Reason) [function, total, symbol(cv)]\n  rule cw(_) => 0 [owise]\n  rule cv(_) => 0 [owise]\n";
+    assert_compiles(&format!(
+        "{declarations}  rule [p]: [[ cw(ra #Or rb) => 1 ]] <k> _ </k>\n"
+    ));
+    assert_ml_construct_refused(
+        &format!("{declarations}  rule [p]: [[ cv(w(ra #Or rb)) => 1 ]] <k> _ </k>\n"),
+        line_after(declarations),
+        &["matched only at the root of an argument"],
+    );
+}
