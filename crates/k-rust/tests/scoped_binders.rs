@@ -272,11 +272,16 @@ fn a_macro_existential_is_judged_as_written_at_its_use() {
 
 /// FU-56: the function-symbol check reads a quantifier through `kast::binding`. A map key read
 /// by value needs the rule to bind the variables it reads, which are its free variables; in
-/// `f(#Exists Y:Int . Y)` the `Y` is the quantifier's own, so the key reads no variable and is
-/// not refused, whatever the binder is called. A free `W` the rule binds nowhere else is.
+/// `f(#Exists Y:Int . Y)` the `Y` is the quantifier's own, so the key reads no variable and the
+/// definition compiles, whatever the binder is called: no error at all. A free `W` the rule binds
+/// nowhere else is refused with `IllegalFunctionOnLhs`.
+///
+/// The one refusal the `Y` and `Z` keys may meet is the matching-logic position check's: a
+/// quantifier at a matched position has no matching meaning (`MlConstructPosition`, the matrix's
+/// `extra/*-lhs__nested-*` cells), which MLP/4b's walk states and this branch's base precedes.
 #[test]
 fn a_quantifier_in_a_by_value_read_binds_its_own_variable() {
-    let refusals = |key: &str| {
+    let errors = |key: &str| {
         let source = format!(
             "module P\n  imports INT\n  imports MAP\n  syntax KItem ::= go(Int) | done(Int)\n  syntax Int ::= f(Int) [function]\n  rule f(X) => X\n  configuration <k> $PGM:KItem </k> <m> .Map </m>\n  rule [p]: <k> go(_) => done(0) ... </k> <m> ({key} |-> _) ... </m>\nendmodule\n"
         );
@@ -286,19 +291,30 @@ fn a_quantifier_in_a_by_value_read_binds_its_own_variable() {
             .map(|error| error.diagnostics)
             .unwrap_or_default()
             .into_iter()
-            .filter(|diagnostic| diagnostic.code == DiagnosticCode::IllegalFunctionOnLhs)
-            .map(|diagnostic| diagnostic.message)
+            .filter(|diagnostic| diagnostic.severity == Severity::Error)
             .collect::<Vec<_>>()
     };
     for binder in ["Y", "Z"] {
         let key = format!("f(#Exists {binder}:Int . {binder})");
-        assert_eq!(refusals(&key), Vec::<String>::new(), "{key}");
+        let found = errors(&key);
+        assert!(
+            found
+                .iter()
+                .all(|diagnostic| diagnostic.code == DiagnosticCode::MlConstructPosition),
+            "{key}: {:?}",
+            rendered(&found)
+        );
     }
-    let free = refusals("f(W)");
+    let free = errors("f(W)");
     assert!(
-        free.iter()
-            .any(|message| message.contains("this rule binds W nowhere else")),
-        "{free:?}"
+        free.iter().any(
+            |diagnostic| diagnostic.code == DiagnosticCode::IllegalFunctionOnLhs
+                && diagnostic
+                    .message
+                    .contains("this rule binds W nowhere else")
+        ),
+        "{:?}",
+        rendered(&free)
     );
 }
 
