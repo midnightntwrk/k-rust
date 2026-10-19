@@ -15,7 +15,7 @@
 # their 927b9ce6 values are in this file at K-in-K2 1ee9955. KINK-15 and KINK-16 had no row before 2026-10-17;
 # they are added below. Requests KINK-17..KINK-22 of draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-3.md (given to
 # k-rust on 2026-10-18, frozen at sha256 55d51a795c6c126a7b9ee461cec6b6da28cc49d8b5d37dbf5b955121747e4262) were added on 2026-10-18.
-# Requests KINK-23..KINK-26 of draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-4.md (given to k-rust on 2026-10-19,
+# Requests KINK-23..KINK-26 of draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-4.md (frozen on 2026-10-19, not yet given to k-rust;
 # frozen at sha256 1126291481995c21906438f2756cc34ea2c4068f68965c2df1b24fbd9ad2514c) were added on 2026-10-19.
 # status_at_main rows record the judgement at main 9ea39ec7 (2026-10-15); the pin is now later than that main.
 #
@@ -1119,12 +1119,12 @@ sources = ["draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-3.md KINK-22", "draft
 handoff = "KINK-22"
 
 [[request]]
-# Added on 2026-10-19 from ADDENDUM-4.md KINK-23 (ADDENDUM-4 was given to k-rust on 2026-10-19).
+# Added on 2026-10-19 from ADDENDUM-4.md KINK-23 (ADDENDUM-4 was frozen on 2026-10-19 and is not yet given to k-rust).
 id = "edited-module-load-against-prepared-base"
 title = "Resolving a mutation needs a full load_for_compilation of the edited text"
 kind = "performance"
 status = "open"
-status_basis = "carried from draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-4.md (sha256 11262914…, given to k-rust on 2026-10-19, judged against k-rust's code at 501f18b9 and main f6196ee28 when written), not requalified"
+status_basis = "carried from draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-4.md (sha256 11262914…, frozen on 2026-10-19 and not yet given to k-rust, judged against k-rust's code at 501f18b9 and main f6196ee28 when written), not requalified"
 blocking = false
 needed_by = ["kink cold cost on large specifications (resolution about 10 s per mutation on KEVM, 3.3 s on KMIR)"]
 summary = "Every edited load re-parses every rule bubble of the definition and prelude (84 of 111 ms per IMP load). outer::load_with_prepared_base exists but refuses a base module re-read with different text (PreparedModuleMismatch, loader.rs:1633-1667) and selects no syntax module."
@@ -1135,12 +1135,12 @@ sources = ["draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-4.md KINK-23", "draft
 handoff = "KINK-23"
 
 [[request]]
-# Added on 2026-10-19 from ADDENDUM-4.md KINK-24 (ADDENDUM-4 was given to k-rust on 2026-10-19).
+# Added on 2026-10-19 from ADDENDUM-4.md KINK-24 (ADDENDUM-4 was frozen on 2026-10-19 and is not yet given to k-rust).
 id = "search-work-budget"
 title = "search and search_pattern have no deterministic work budget"
 kind = "missing-feature"
 status = "open"
-status_basis = "carried from draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-4.md (sha256 11262914…, given to k-rust on 2026-10-19, judged against k-rust's code at 501f18b9 and main f6196ee28 when written), not requalified"
+status_basis = "carried from draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-4.md (sha256 11262914…, frozen on 2026-10-19 and not yet given to k-rust, judged against k-rust's code at 501f18b9 and main f6196ee28 when written), not requalified"
 blocking = false
 needed_by = ["kink-flow query (F-18): a bounded pattern answer that can be cached"]
 summary = "Only max_depth, max_breadth and the clock bound a search; a looping or widely branching program ends in a cancellation, which kink cannot cache, or in an OOM. execute already has max_work (KINK-16)."
@@ -1151,12 +1151,12 @@ sources = ["draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-4.md KINK-24", "draft
 handoff = "KINK-24"
 
 [[request]]
-# Added on 2026-10-19 from ADDENDUM-4.md KINK-25 (ADDENDUM-4 was given to k-rust on 2026-10-19).
+# Added on 2026-10-19 from ADDENDUM-4.md KINK-25 (ADDENDUM-4 was frozen on 2026-10-19 and is not yet given to k-rust).
 id = "search-match-instance"
 title = "A search match does not say whether its state is known to exist"
 kind = "soundness-signal"
 status = "open"
-status_basis = "carried from draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-4.md (sha256 11262914…, given to k-rust on 2026-10-19, judged against k-rust's code at 501f18b9 and main f6196ee28 when written), not requalified"
+status_basis = "carried from draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-4.md (sha256 11262914…, frozen on 2026-10-19 and not yet given to k-rust, judged against k-rust's code at 501f18b9 and main f6196ee28 when written), not requalified"
 blocking = false
 needed_by = ["kink-flow query (F-18): a hit only on a state that exists"]
 summary = "search.rs:2621-2625 keeps an undecided definedness fact of the subject out of the match condition, so a state holding an irreducible call to a non-total function is a condition-free match (F-18 review 1 critical, repro in draft/tasks/flow/scratch-F-18-review/repro-partial2)."
@@ -1167,12 +1167,12 @@ sources = ["draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-4.md KINK-25", "draft
 handoff = "KINK-25"
 
 [[request]]
-# Added on 2026-10-19 from ADDENDUM-4.md KINK-26 (ADDENDUM-4 was given to k-rust on 2026-10-19).
+# Added on 2026-10-19 from ADDENDUM-4.md KINK-26 (ADDENDUM-4 was frozen on 2026-10-19 and is not yet given to k-rust).
 id = "search-stack-stop-count"
 title = "Searches do not count the stack stops they dismiss"
 kind = "soundness-signal"
 status = "open"
-status_basis = "carried from draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-4.md (sha256 11262914…, given to k-rust on 2026-10-19, judged against k-rust's code at 501f18b9 and main f6196ee28 when written), not requalified"
+status_basis = "carried from draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-4.md (sha256 11262914…, frozen on 2026-10-19 and not yet given to k-rust, judged against k-rust's code at 501f18b9 and main f6196ee28 when written), not requalified"
 blocking = false
 needed_by = ["kink-flow query (F-18): a final no without a code-reading premise"]
 summary = "compatibility.md says search and proofs do not count the stack stops they dismiss; stop::counting_stack_stops is crate-private and only execute reads it. kink read each dismissal site a search reaches at 501f18b9 (fold_hooks_or_keep, simplified_ceil_condition, list_update_cannot_match, state_may_expand) and found none can make an answer false."
