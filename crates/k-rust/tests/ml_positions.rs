@@ -369,7 +369,7 @@ impl CellSpec {
 // ---------------------------------------------------------------- PENDING
 
 /// The number of cells of the matrix.
-const CELL_COUNT: usize = 511;
+const CELL_COUNT: usize = 515;
 
 /// The cells that deviate at the ML lane's base, each with the ticket after which it conforms
 /// and the builds in which it deviates (see the module documentation).
@@ -524,6 +524,11 @@ pub const PENDING: &[(&str, &str, Class, Class)] = &[
     // MLP/4b (2): the shapes of left/fun-lhs__or-var and right/rule-rhs__and-or built by a macro, refused only once the expanded sentences are checked.
     ("extra/fun-lhs__macro-or-var", "MLP/4b", Class::Wrong, Class::Wrong),
     ("extra/rule-rhs__macro-and-or", "MLP/4b", Class::Wrong, Class::Wrong),
+    // MLP/4b (4, BIND/A9 fix round 1): a quantifier below a symbol of a left side compiles on this branch, whose base precedes MLP/4b, and the backend refuses the definition at load; MLP/4b's matched-position walk refuses it at its rule.
+    ("extra/fun-lhs__nested-exists", "MLP/4b", Class::Refused, Class::Refused),
+    ("extra/rule-lhs__nested-exists", "MLP/4b", Class::Refused, Class::Refused),
+    ("extra/rule-lhs__nested-forall", "MLP/4b", Class::Refused, Class::Refused),
+    ("extra/simp-lhs__nested-forall", "MLP/4b", Class::Refused, Class::Refused),
     // MLP/9 (24): search-pattern conditions: refused unlocated at run time, or read as Bool terms.
     ("search/final__and-bt", "MLP/9", Class::Refused, Class::Refused),
     ("search/final__and-pr", "MLP/9", Class::Refused, Class::Refused),

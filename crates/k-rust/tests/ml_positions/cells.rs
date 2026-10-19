@@ -1435,6 +1435,7 @@ fn extra_cells(cells: &mut Vec<CellSpec>) {
         ),
     ];
     macro_built_cells(cells);
+    nested_quantifier_cells(cells);
     for (name, text, meaning, [at1, at3]) in table {
         let run = |n: i64, value: i64| {
             if name == "rule-requires-matchk__or" && value == 0 {
@@ -1494,4 +1495,51 @@ fn macro_built_cells(cells: &mut Vec<CellSpec>) {
         allow: Allow::None,
         meaning_runs: Meaning::States(Expect::runs(runs)),
     });
+}
+
+/// A quantifier below a symbol of a left side: a left side is matched against a state, or an
+/// equation's against the application's arguments, and a quantifier there has no matching meaning
+/// at any depth, so it is refused at its rule as at the direct position (`left/*__exists`,
+/// `left/*__forall`), below a constructor of a rewrite rule's left side and of a function or
+/// simplification equation's argument.
+fn nested_quantifier_cells(cells: &mut Vec<CellSpec>) {
+    const WRAP: &str = "  syntax KItem ::= wrap(KItem) [symbol(wrap)] | g(Int) [symbol(g)]\n";
+    const K: &str =
+        "  syntax KItem ::= g(Int) [symbol(g)]\n  syntax Int ::= k(KItem) [function, symbol(k)]\n";
+    let table = [
+        (
+            "rule-lhs__nested-exists",
+            format!("{WRAP}  rule [p]: <k> wrap(g(#Exists Y:Int . Y)) => done(0) ... </k>\n"),
+        ),
+        (
+            "rule-lhs__nested-forall",
+            format!("{WRAP}  rule [p]: <k> wrap(g(#Forall Y:Int . Y)) => done(0) ... </k>\n"),
+        ),
+        (
+            "fun-lhs__nested-exists",
+            format!(
+                "{K}  rule [p]: k(g(#Exists Y:Int . Y)) => 1\n  rule [o]: k(_) => 0 [owise]\n  rule [g]: <k> go(X) => done(k(g(X))) ... </k>\n"
+            ),
+        ),
+        (
+            "simp-lhs__nested-forall",
+            format!(
+                "{K}  rule [p]: k(g(#Forall Y:Int . Y)) => 1 [simplification]\n  rule [g]: <k> go(X) => done(k(g(X))) ... </k>\n"
+            ),
+        ),
+    ];
+    for (name, text) in table {
+        cells.push(CellSpec {
+            name: format!("extra/{name}"),
+            route: Route::Kompile,
+            text,
+            pattern: None,
+            programs: vec![go(1)],
+            meaning: "a quantifier below a symbol of a matched position: no matching meaning"
+                .to_owned(),
+            expect: Expect::refuse(ML_CONSTRUCT_POSITION),
+            allow: Allow::None,
+            meaning_runs: Meaning::Unstated,
+        });
+    }
 }
