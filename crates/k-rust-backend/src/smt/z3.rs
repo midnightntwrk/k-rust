@@ -17,7 +17,7 @@
 //!
 //! [[cost]]
 //! mode = "prelude consistency"
-//! bound = "zero checks after a sat query; otherwise at most one prelude check, with configured retries, before the first unsat answer"
+//! bound = "zero checks after a sat query; otherwise at most one prelude check, with configured retries, before the first unsat answer or rejected script"
 //! ```
 //!
 //! In-process Z3 behind a bounded FIFO result cache: `Counter::SmtQueries` in,
@@ -25,8 +25,8 @@
 //! runs without a query), O(L x log E) per hit for a script of L bytes among E cached entries,
 //! eviction pops the oldest entry until the entry and key-byte limits admit the new key. A solver
 //! is constructed per uncached query. Construction does not create a Z3 context; a satisfiable
-//! query establishes prelude consistency, while the first unsatisfiable answer requires one
-//! explicit prelude check.
+//! query establishes prelude consistency, while the first unsatisfiable answer, and the first
+//! script Z3 rejects, requires one explicit prelude check.
 //! A validity check (`decide_validity`) issues a positive subquery, then a negative or a base
 //! subquery, and a third on the unknown path; each subquery goes through the cache.
 //!
@@ -48,6 +48,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
+    ffi::CStr,
     str::FromStr,
     sync::{Arc, Mutex},
 };
@@ -96,6 +97,52 @@ fn measured_check(solver: &Solver) -> SatResult {
         rlimit_count(solver).saturating_sub(before),
     );
     result
+}
+
+/// Why Z3 did not load a script: its own message, or the reason the script never reached it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct RejectedScript {
+    message: String,
+}
+
+/// Load `script` into `solver`, or say why Z3 rejected it. Every script reaches Z3 through here.
+///
+/// A check answers about the assertions the solver holds. Z3 adds a script's assertions only
+/// once the whole script parses and sort-checks, so after a parse error, a sort error, or an
+/// undeclared or redeclared symbol the solver holds none of them, and a check would answer `sat`
+/// about the empty formula instead of the one the script states. A rejected script must
+/// therefore never be checked. The `z3` crate's loader returns nothing and its contexts install
+/// no error handler, so the rejection is recorded only as the error code of the solver's
+/// context, which every later API call resets: it is read here, before any other call.
+fn load(solver: &Solver, script: &str) -> Result<(), RejectedScript> {
+    // Z3 reads the script as a C string, which a NUL byte would end early (and the `z3` crate
+    // panics on one), so a script with one cannot be read as written.
+    if script.as_bytes().contains(&0) {
+        return Err(RejectedScript {
+            message: "the script contains a NUL byte".into(),
+        });
+    }
+    solver.from_string(script);
+    let context = solver.get_context().get_z3_context();
+    // SAFETY: `context` is the live context `solver` holds, and no API call ran on it since the
+    // load, so its error code is the load's.
+    let code = unsafe { z3_sys::Z3_get_error_code(context) };
+    if code == z3_sys::ErrorCode::Ok {
+        return Ok(());
+    }
+    // SAFETY: as above; the message is a NUL-terminated string the context owns until its next
+    // API call, and it is copied before any.
+    let message = unsafe { z3_sys::Z3_get_error_msg(context, code) };
+    let message = if message.is_null() {
+        format!("{code:?}")
+    } else {
+        // SAFETY: a non-null message is a NUL-terminated string, valid until the next API call.
+        unsafe { CStr::from_ptr(message) }
+            .to_string_lossy()
+            .trim()
+            .to_owned()
+    };
+    Err(RejectedScript { message })
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -333,7 +380,8 @@ impl Z3Solver {
         Stop::solver_prelude(failure)
     }
 
-    /// Check that the prelude (the definition's axioms and the user prelude) is satisfiable.
+    /// Check that the prelude (the definition's axioms and the user prelude) is a script Z3
+    /// reads, and that it is satisfiable.
     ///
     /// A failed prelude is a stop, not a query failure: no answer of the solver means anything
     /// under it, whichever operation asked. A check interrupted by a stop before its solve
@@ -355,12 +403,13 @@ impl Z3Solver {
         // solve keeps a stopped check from counting as a solver run.
         stop::check()?;
         let failure = match self.solve_uncached(&self.prelude.declarations().join("\n"))? {
-            Satisfiability::Sat => {
+            Ok(Satisfiability::Sat) => {
                 *state = PreludeState::Consistent;
                 return Ok(());
             }
-            Satisfiability::Unsat => PreludeFailure::Inconsistent,
-            Satisfiability::Unknown(reason) => PreludeFailure::Unknown(reason.into()),
+            Ok(Satisfiability::Unsat) => PreludeFailure::Inconsistent,
+            Ok(Satisfiability::Unknown(reason)) => PreludeFailure::Unknown(reason.into()),
+            Err(rejected) => PreludeFailure::Malformed(rejected.message.into()),
         };
         *state = PreludeState::Failed(failure.clone());
         Err(self.prelude_stop(failure))
@@ -395,9 +444,22 @@ impl Z3Solver {
         }
     }
 
+    /// Confirm a rejected script against the prelude. Every script starts with the prelude, so
+    /// the rejection is the query's own only once the prelude is known to load; a prelude that
+    /// does not load (or fails otherwise) is a stop. A rejection itself never shows the prelude
+    /// consistent: only the prelude's own check does.
+    fn confirm_rejection(&self, rejected: RejectedScript) -> Stoppable<SmtError> {
+        self.check_prelude()?;
+        Ok(SmtError::MalformedScript {
+            message: rejected.message,
+        })
+    }
+
     /// Solve `script` through the result cache. A stop observed before the lookup ends the
-    /// query: its answer is not needed, and neither the cache nor Z3 is consulted.
-    fn solve(&self, script: &str) -> Stoppable<Satisfiability> {
+    /// query: its answer is not needed, and neither the cache nor Z3 is consulted. Only answers
+    /// are cached; a rejected script is not, so the cache never answers for a script Z3 did not
+    /// read.
+    fn solve(&self, script: &str) -> Stoppable<Result<Satisfiability, RejectedScript>> {
         let _span = measure::algorithm_span(Algorithm::BackendSmtCache);
         stop::check()?;
         measure::bump(Counter::SmtQueries);
@@ -407,21 +469,24 @@ impl Z3Solver {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .get(script)
         {
-            return Ok(result);
+            return Ok(Ok(result));
         }
 
         let result = self.solve_uncached(script)?;
-        self.result_cache
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .insert(script, &result);
+        if let Ok(answer) = &result {
+            self.result_cache
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .insert(script, answer);
+        }
         Ok(result)
     }
 
     /// Solve `script` with Z3, doubling the timeout on each retry of an unknown answer. Each
     /// attempt is preceded by a poll, so a stop raised meanwhile ends the query instead of
-    /// starting another attempt.
-    fn solve_uncached(&self, script: &str) -> Stoppable<Satisfiability> {
+    /// starting another attempt. A script Z3 rejects is not checked, and not retried: the
+    /// rejection does not depend on the timeout.
+    fn solve_uncached(&self, script: &str) -> Stoppable<Result<Satisfiability, RejectedScript>> {
         measure::bump(Counter::SmtSolverRuns);
         #[cfg(test)]
         self.uncached_solve_count.fetch_add(1, Ordering::Relaxed);
@@ -433,19 +498,21 @@ impl Z3Solver {
             solver.set_params(&self.attempt_parameters(timeout));
             #[cfg(test)]
             self.record_attempt(timeout);
-            solver.from_string(script);
+            if let Err(rejected) = load(&solver, script) {
+                return Ok(Err(rejected));
+            }
             match measured_check(&solver) {
-                SatResult::Sat => return Ok(Satisfiability::Sat),
-                SatResult::Unsat => return Ok(Satisfiability::Unsat),
+                SatResult::Sat => return Ok(Ok(Satisfiability::Sat)),
+                SatResult::Unsat => return Ok(Ok(Satisfiability::Unsat)),
                 SatResult::Unknown if attempt < self.options.retry_limit => {
                     timeout = timeout.saturating_mul(2);
                 }
                 SatResult::Unknown => {
-                    return Ok(Satisfiability::Unknown(
+                    return Ok(Ok(Satisfiability::Unknown(
                         solver
                             .get_reason_unknown()
                             .unwrap_or_else(|| "Z3 returned unknown".into()),
-                    ));
+                    )));
                 }
             }
         }
@@ -456,7 +523,7 @@ impl Z3Solver {
         &self,
         query: &TranslatedQuery,
         assertion: Option<&str>,
-    ) -> Stoppable<Satisfiability> {
+    ) -> Stoppable<Result<Satisfiability, SmtError>> {
         let mut script = query.base().to_owned();
         if let Some(assertion) = assertion {
             script.push_str("\n(assert ");
@@ -466,7 +533,10 @@ impl Z3Solver {
         if let Some(failure) = self.prelude_failure() {
             return Err(self.prelude_stop(failure));
         }
-        self.confirm_answer(self.solve(&script)?)
+        match self.solve(&script)? {
+            Ok(answer) => self.confirm_answer(answer).map(Ok),
+            Err(rejected) => self.confirm_rejection(rejected).map(Err),
+        }
     }
 
     fn solve_model(
@@ -486,7 +556,9 @@ impl Z3Solver {
             solver.set_params(&self.attempt_parameters(timeout));
             #[cfg(test)]
             self.record_attempt(timeout);
-            solver.from_string(query.base());
+            if let Err(rejected) = load(&solver, query.base()) {
+                return Ok(Err(self.confirm_rejection(rejected)?));
+            }
             match measured_check(&solver) {
                 SatResult::Sat => {
                     // confirm_answer returns its argument unchanged; only the prelude check matters
@@ -598,31 +670,42 @@ enum ValiditySubquery {
     Negative,
 }
 
-fn decide_validity(
-    mut solve: impl FnMut(ValiditySubquery) -> Stoppable<Satisfiability>,
-) -> Stoppable<Validity> {
-    Ok(match solve(ValiditySubquery::Positive)? {
-        Satisfiability::Sat => match solve(ValiditySubquery::Negative)? {
+/// The validity the subqueries' answers decide. A subquery that fails (its script was not
+/// read, say) ends the decision with that failure: the answers of the others alone do not decide
+/// it.
+fn decide_validity<E>(
+    mut solve: impl FnMut(ValiditySubquery) -> Stoppable<Result<Satisfiability, E>>,
+) -> Stoppable<Result<Validity, E>> {
+    macro_rules! answer {
+        ($subquery:expr) => {
+            match solve($subquery)? {
+                Ok(answer) => answer,
+                Err(error) => return Ok(Err(error)),
+            }
+        };
+    }
+    Ok(Ok(match answer!(ValiditySubquery::Positive) {
+        Satisfiability::Sat => match answer!(ValiditySubquery::Negative) {
             Satisfiability::Unsat => Validity::Valid,
             Satisfiability::Sat => Validity::Contingent,
             Satisfiability::Unknown(reason) => Validity::Unknown(reason),
         },
-        Satisfiability::Unsat => match solve(ValiditySubquery::Base)? {
+        Satisfiability::Unsat => match answer!(ValiditySubquery::Base) {
             Satisfiability::Unsat => Validity::InconsistentGroundTruth,
             Satisfiability::Sat => Validity::Refuted,
             Satisfiability::Unknown(reason) => Validity::Unknown(reason),
         },
-        Satisfiability::Unknown(positive_reason) => match solve(ValiditySubquery::Base)? {
+        Satisfiability::Unknown(positive_reason) => match answer!(ValiditySubquery::Base) {
             Satisfiability::Unsat => Validity::InconsistentGroundTruth,
             Satisfiability::Unknown(reason) => Validity::Unknown(reason),
-            Satisfiability::Sat => match solve(ValiditySubquery::Negative)? {
+            Satisfiability::Sat => match answer!(ValiditySubquery::Negative) {
                 Satisfiability::Unsat => Validity::Valid,
                 Satisfiability::Sat | Satisfiability::Unknown(_) => {
                     Validity::Unknown(positive_reason)
                 }
             },
         },
-    })
+    }))
 }
 
 impl SmtSolver for Z3Solver {
@@ -638,7 +721,7 @@ impl SmtSolver for Z3Solver {
             Ok(query) => query,
             Err(error) => return Ok(Err(error.into())),
         };
-        self.solve_query(&query, None).map(Ok)
+        self.solve_query(&query, None)
     }
 
     fn check_predicates(
@@ -665,7 +748,6 @@ impl SmtSolver for Z3Solver {
                 self.solve_query(&query, Some(&format!("(not {checked})")))
             }
         })
-        .map(Ok)
     }
 
     fn get_model(&self, query: &ModelQuery<'_>) -> Stoppable<Result<ModelResult, SmtError>> {
@@ -1307,6 +1389,183 @@ mod tests {
         }
     }
 
+    /// Scripts Z3 does not read: an undeclared constant, a sort mismatch, an unbalanced
+    /// parenthesis, a redeclaration, and a NUL byte, which would end the C string Z3 reads.
+    const UNREADABLE_SCRIPTS: [&str; 5] = [
+        "(assert (> b 0))",
+        "(declare-sort S 0)\n(declare-const a S)\n(assert (> a 0))",
+        "(declare-const a Int",
+        "(declare-const a Int)\n(declare-const a Int)",
+        "(declare-const a Int)\u{0}\n(assert (> a 0))",
+    ];
+
+    /// A script Z3 does not read is rejected with a message, never loaded for a check that would
+    /// answer about none of its assertions. A rejection leaves nothing behind on the thread's
+    /// context: the next script loads and is checked as written.
+    #[test]
+    fn load_rejects_every_script_z3_does_not_read() {
+        for script in UNREADABLE_SCRIPTS {
+            match load(&Solver::new(), script) {
+                Err(RejectedScript { message }) => assert!(!message.is_empty(), "{script:?}"),
+                Ok(()) => panic!("Z3 loaded the unreadable script {script:?}"),
+            }
+            let solver = Solver::new();
+            assert_eq!(
+                load(
+                    &solver,
+                    "(declare-const a Int)\n(assert (> a 0))\n(assert (< a 0))"
+                ),
+                Ok(()),
+                "after {script:?}"
+            );
+            assert_eq!(solver.check(), SatResult::Unsat, "after {script:?}");
+        }
+        // Z3 adds none of a rejected script's assertions, so a check of it answers `sat` even
+        // when the script asserts `false` before its error: the answer every rejected script
+        // got while the error went unread.
+        let solver = Solver::new();
+        assert!(load(&solver, "(assert false)\n(assert (> b 0))").is_err());
+        assert_eq!(solver.check(), SatResult::Sat);
+    }
+
+    /// Whether a query stopped on a prelude Z3 rejected.
+    fn stopped_on_a_malformed_prelude(stopped: Result<(), StopCause>) -> bool {
+        matches!(
+            stopped,
+            Err(StopCause::SolverPrelude(PreludeFailure::Malformed(message))) if !message.is_empty()
+        )
+    }
+
+    /// A prelude Z3 does not read states none of its axioms, so no answer under it means
+    /// anything: the prelude check fails with Z3's rejection, and every query stops, whether it
+    /// is the query that finds the rejection or a later one. A user prelude that redeclares a
+    /// function the definition's `smtlib` attribute declares (`bitwise`) is such a prelude.
+    #[test]
+    fn a_prelude_z3_rejects_stops_the_query_that_finds_it_and_every_later_one() {
+        let definition = definition();
+        for prelude in UNREADABLE_SCRIPTS
+            .into_iter()
+            .chain(["(declare-fun bitwise (Int Int) Int)"])
+        {
+            let checked = Z3Solver::with_prelude(&definition, prelude).unwrap();
+            assert!(
+                stopped_on_a_malformed_prelude(cause(checked.check_prelude())),
+                "{prelude:?}"
+            );
+            assert!(
+                matches!(
+                    checked.prelude_signal.failure(),
+                    Some(PreludeFailure::Malformed(_))
+                ),
+                "{prelude:?}"
+            );
+            for (first, finds) in queries() {
+                let solver = Z3Solver::with_prelude(&definition, prelude).unwrap();
+                assert!(
+                    stopped_on_a_malformed_prelude(finds(&solver)),
+                    "{first} finds the rejection of {prelude:?}"
+                );
+                for (later, query) in queries() {
+                    assert!(
+                        stopped_on_a_malformed_prelude(query(&solver)),
+                        "{later} after {first} under {prelude:?}"
+                    );
+                    assert!(
+                        stopped_on_a_malformed_prelude(query(&checked)),
+                        "{later} after the check of {prelude:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// A definition whose `bogus` is hooked to an operator Z3 does not have, so every query that
+    /// translates an application of it is a script Z3 rejects, while the prelude loads.
+    fn unreadable_hook_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                symbol bogus{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), smt-hook{}("no-such-operator")]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+    }
+
+    /// A query whose script Z3 rejects is a failure of that query, never an answer: not `Sat`
+    /// (which Z3 would give for the empty formula it holds), not a validity, not a model of
+    /// default values. The rejection is not cached, and it does not show the prelude consistent:
+    /// the prelude is solved on its own before the rejection is blamed on the query.
+    #[test]
+    fn a_query_z3_rejects_answers_nothing_and_is_not_cached() {
+        let definition = unreadable_hook_definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+        let bogus = [Predicate::Term(term(
+            &definition,
+            r#"bogus{}(X:SortInt{}, \dv{SortInt{}}("0"))"#,
+        ))];
+        fn rejected<T>(answer: &Result<Result<T, SmtError>, StopCause>) -> bool {
+            matches!(
+                answer,
+                Ok(Err(SmtError::MalformedScript { message })) if !message.is_empty()
+            )
+        }
+
+        let first: Result<Result<Satisfiability, SmtError>, StopCause> =
+            cause(solver.is_sat(&bogus, &Substitution::new()));
+        assert!(rejected(&first), "{first:?}");
+        assert_eq!(
+            solver.uncached_solve_count.load(Ordering::Relaxed),
+            2,
+            "the query and the prelude"
+        );
+        assert!(matches!(
+            *solver.prelude_state.lock().unwrap(),
+            PreludeState::Consistent
+        ));
+        let again = cause(solver.is_sat(&bogus, &Substitution::new()));
+        assert!(rejected(&again), "{again:?}");
+        assert_eq!(solver.uncached_solve_count.load(Ordering::Relaxed), 3);
+
+        let validity: Result<Result<Validity, SmtError>, StopCause> =
+            cause(solver.check_predicates(&[], &Substitution::new(), &bogus));
+        assert!(rejected(&validity), "{validity:?}");
+        let model: Result<Result<ModelResult, SmtError>, StopCause> =
+            cause(solver.get_model(&ModelQuery::for_solver_tests(&bogus, &Substitution::new())));
+        assert!(rejected(&model), "{model:?}");
+        // A query the solver reads still answers.
+        assert_eq!(
+            cause(solver.is_sat(&[], &Substitution::new())),
+            Ok(Ok(Satisfiability::Sat))
+        );
+    }
+
+    /// A model query whose script Z3 rejects is a failure too, and when it is the solver's first
+    /// query the prelude is checked before the rejection is blamed on the query.
+    #[test]
+    fn a_rejected_model_query_checks_the_prelude_first() {
+        let definition = unreadable_hook_definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+        let bogus = [Predicate::Term(term(
+            &definition,
+            r#"bogus{}(X:SortInt{}, \dv{SortInt{}}("0"))"#,
+        ))];
+        let model =
+            cause(solver.get_model(&ModelQuery::for_solver_tests(&bogus, &Substitution::new())));
+        assert!(
+            matches!(model, Ok(Err(SmtError::MalformedScript { .. }))),
+            "{model:?}"
+        );
+        assert!(matches!(
+            *solver.prelude_state.lock().unwrap(),
+            PreludeState::Consistent
+        ));
+        assert_eq!(solver.uncached_solve_count.load(Ordering::Relaxed), 1);
+    }
+
     /// A query posed under a cancelled request stops with the cancellation before it reaches the
     /// cache or Z3, and records nothing about the prelude: it stays unchecked even when it is
     /// inconsistent, and the first check after the cancellation finds that.
@@ -1746,8 +2005,9 @@ mod tests {
                     let mut queried = Vec::new();
                     let actual = decide_validity(|subquery| {
                         queried.push(subquery);
-                        Ok(fixed(subquery))
+                        Ok(Ok::<_, SmtError>(fixed(subquery)))
                     })
+                    .unwrap()
                     .unwrap();
 
                     if matches!(base, Outcome::Sat) || !matches!(positive, Outcome::Sat) {

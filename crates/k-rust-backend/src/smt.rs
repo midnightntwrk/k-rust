@@ -1225,6 +1225,13 @@ pub enum SmtError {
     /// consumer needed an answer. Never a stop.
     Unknown(String),
     InconsistentGroundTruth,
+    /// The solver rejected the query's script (a parse or sort error, an undeclared or a
+    /// redeclared symbol), so it answered nothing about it; the payload is the solver's message.
+    /// The prelude is known to load when this is returned, so the query's own translation is at
+    /// fault. Never a stop.
+    MalformedScript {
+        message: String,
+    },
     MissingModel,
     MissingModelValue(Variable),
     InvalidModelValue {

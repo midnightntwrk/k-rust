@@ -1172,6 +1172,7 @@ dependencies = [
  "stacker",
  "substrate-bn",
  "z3",
+ "z3-sys",
 ]
 
 [[package]]

@@ -12414,6 +12414,53 @@ endmodule
     fs::remove_dir_all(root).unwrap();
 }
 
+/// A prelude Z3 does not read states none of its axioms, and a query posed under it would be
+/// answered about some other formula, so `kprove` stops with Z3's rejection of the prelude
+/// instead of proving or refuting a claim under it. The prelude is the axiom on `ff` of
+/// `kprove_reuses_a_saved_proof_only_under_its_smt_prelude_and_vacuity_policy` without its last
+/// closing parenthesis.
+#[test]
+fn kprove_stops_on_an_smt_prelude_the_solver_rejects() {
+    let source = r#"
+module PR
+  imports INT
+  imports BOOL
+  imports BASIC-K
+  syntax Int ::= f(Int) [function, total, smtlib(ff), no-evaluators, symbol(f)]
+  syntax Res ::= go(Int) [symbol(go)] | done() [symbol(done)]
+  configuration <k> $PGM:Res </k>
+  rule <k> go(X) => done() </k> requires f(X) >Int 0
+endmodule
+module PR-SPEC
+  imports PR
+  claim [p]: <k> go(X) => done() </k>
+endmodule
+"#;
+    let (root, definition) = fixture();
+    let prelude = root.join("pre.smt2");
+    fs::write(&prelude, "(assert (forall ((x Int)) (> (ff x) 0))\n").unwrap();
+    let output = kprove_saving(
+        &root,
+        &definition,
+        source,
+        ("PR-SPEC", "PR"),
+        "malformed",
+        &["--smt-prelude", prelude.to_str().unwrap()],
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success(), "{output:?}");
+    assert!(
+        stderr.contains("the solver rejected the SMT prelude"),
+        "{stderr}"
+    );
+    let lines = claim_lines(&output);
+    assert!(
+        lines.iter().all(|line| !line.contains("proven")),
+        "{lines:?}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// The verdict word of each `claim <spec>.<label>: <word> ...` line of `output`, by label.
 fn claim_verdicts(output: &std::process::Output, spec: &str) -> BTreeMap<String, String> {
     claim_lines(output)

@@ -124,10 +124,15 @@ pub enum PreludeFailure {
     Inconsistent,
     /// The solver could not decide the prelude; the payload is its reason.
     Unknown(Arc<str>),
+    /// The solver rejected the prelude's text (a parse or sort error, an undeclared or a
+    /// redeclared symbol), so it holds no formula the prelude states and no query posed under it
+    /// is read; the payload is the solver's message.
+    Malformed(Arc<str>),
 }
 
-/// Why a solver's prelude failed, in words: it is unsatisfiable, or the solver did not decide
-/// whether it is satisfiable, followed by the solver's own reason.
+/// Why a solver's prelude failed, in words: it is unsatisfiable, the solver did not decide
+/// whether it is satisfiable, or the solver rejected its text, followed by the solver's own
+/// reason.
 impl fmt::Display for PreludeFailure {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -139,6 +144,11 @@ impl fmt::Display for PreludeFailure {
                 formatter,
                 "the solver did not decide whether the SMT prelude (the definition's SMT axioms \
                  and any user prelude) is satisfiable ({reason})"
+            ),
+            Self::Malformed(message) => write!(
+                formatter,
+                "the solver rejected the SMT prelude (the definition's SMT axioms and any user \
+                 prelude) as malformed ({message})"
             ),
         }
     }

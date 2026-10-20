@@ -3518,7 +3518,7 @@ fn kprove_stop_message(cause: StopCause) -> String {
         StopCause::SolverPrelude(PreludeFailure::Inconsistent) => {
             "the definitions sent to the solver are inconsistent".to_owned()
         }
-        StopCause::SolverPrelude(PreludeFailure::Unknown(_))
+        StopCause::SolverPrelude(PreludeFailure::Unknown(_) | PreludeFailure::Malformed(_))
         | StopCause::Cancelled
         | StopCause::Deadline(_)
         | StopCause::StackExhausted(_) => cause.to_string(),
