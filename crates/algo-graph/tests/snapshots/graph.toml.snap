@@ -6107,7 +6107,7 @@ id = "kompile.kore.owise"
 provenance = "declared"
 area = "kompile"
 name = "construction of owise competitor predicates"
-variable = "R = module rules; O = owise equations; I = sort-injection and equation-shape work per rule; m = competitors sharing an owise equation's label and argument sorts; c = per-competitor refresh, matching and conversion work"
+variable = "R = module rules; G = generated axioms; O = owise equations; I = sort-injection and equation-shape work per rule; m = competitors of an owise equation (rules sharing its label and argument sorts, and generated equations of its head symbol); c = per-competitor refresh, matching and conversion work"
 table = "Algorithm::ALL"
 registry_name = "KompileKoreOwise"
 
@@ -6133,7 +6133,7 @@ symbol = "OwiseCompetitors::scan"
 
 [[node.cost]]
 mode = "one module"
-bound = "O(R x (I + log R) + O x (m x c + log R))"
+bound = "O(G log G + R x (I + log R) + O x (m x c + log R + log G))"
 
 [[node]]
 kind = "algorithm"
