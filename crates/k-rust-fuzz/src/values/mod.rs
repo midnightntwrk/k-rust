@@ -21,7 +21,7 @@ mod data;
 mod data_tests;
 pub(crate) mod generator;
 pub(crate) mod print;
-mod term;
+pub(crate) mod term;
 #[cfg(test)]
 mod test_definition;
 #[cfg(test)]
