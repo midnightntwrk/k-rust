@@ -86,6 +86,7 @@ fixture!(imp, "imp/imp.k", "IMP");
 fixture!(rules, "rules/rules.k", "RULES");
 fixture!(chosen, "chosen/chosen.k", "CHOSEN");
 fixture!(loadclaim, "loadclaim/loadclaim.k", "LOADCLAIM");
+fixture!(taint, "taint/taint.k", "TAINT");
 
 const DIV_IMP: &str = include_str!("../../tests/data/imp/div.imp");
 const LOOP_IMP: &str = include_str!("../../tests/data/imp/loop.imp");
@@ -250,7 +251,7 @@ fn a_leaf_holding_a_lookup_of_a_missing_key_is_not_ceil_free() {
     let result = imp().run(DIV_IMP);
     let end = KorePrinter::compact().print_pattern(&only_leaf(&result).state);
     // `<k> .Map [ 1 ] </k>`: `Map:lookup` is a partial function, undefined on a missing key.
-    let lookup = r"kseq{}(LblMap'Coln'lookup{}(Lbl'Stop'Map{}(), inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}(1))), dotk{}())";
+    let lookup = r#"kseq{}(LblMap'Coln'lookup{}(Lbl'Stop'Map{}(), inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1"))), dotk{}())"#;
     assert_eq!(end.matches("dotk{}()").count(), 1, "{end}");
     let partial = parse_pattern(&end.replace("dotk{}()", lookup)).expect("the edited state");
     let mut executor = imp().executor(&CaseOptions::default());
@@ -259,6 +260,48 @@ fn a_leaf_holding_a_lookup_of_a_missing_key_is_not_ceil_free() {
     // The unedited end is ceil-free.
     let reasons = executor.judge_stuck_state(only_leaf(&result).state.clone());
     assert!(reasons.is_empty(), "{reasons:?}");
+}
+
+#[test]
+fn a_natural_looking_end_holding_a_partial_application_is_not_ceil_free() {
+    // `get(2)`: `find(1 |-> 10, 2)` stays unevaluated on a `stuck` leaf with an empty `<k>`, no
+    // constraint and no diagnostic; the other leaf is the undefined step.
+    let result = taint().run("get(2)");
+    assert!(result.failure.is_none(), "{:?}", result.failure);
+    let stuck: Vec<&LeafReport> = result
+        .leaves
+        .iter()
+        .filter(|leaf| leaf.halt == HaltReasonOutput::Stuck)
+        .collect();
+    assert_eq!(stuck.len(), 1, "{result:#?}");
+    assert_eq!(stuck[0].unclean, [UncleanReason::NotCeilFree]);
+    assert!(!stuck[0].natural_end);
+    for run_to_completion in [false, true] {
+        for reached in [false, true] {
+            let reached = vec![reached; result.leaves.len()];
+            assert_eq!(
+                class(&result, &reached, run_to_completion),
+                OutcomeClass::Unsupported
+            );
+        }
+    }
+    let anchor = taint().run("get(1)");
+    assert!(only_leaf(&anchor).natural_end);
+}
+
+#[test]
+fn a_leaf_carrying_a_run_observed_contradicted_claim_is_unsupported() {
+    let result = taint().run("guard(0)");
+    let leaf = only_leaf(&result);
+    assert_eq!(leaf.halt, HaltReasonOutput::Stuck);
+    assert_eq!(leaf.unclean, [UncleanReason::ContradictedClaim]);
+    assert!(!leaf.natural_end);
+    for reached in [false, true] {
+        assert_eq!(class(&result, &[reached], false), OutcomeClass::Unsupported);
+    }
+    let anchor = taint().run("guard(5)");
+    assert!(only_leaf(&anchor).natural_end);
+    assert_eq!(class(&anchor, &[true], true), OutcomeClass::Hit);
 }
 
 #[test]
@@ -316,12 +359,13 @@ fn an_undefined_step_is_undefined_and_never_a_hit() {
     assert_eq!(leaf.halt, HaltReasonOutput::Trivial);
     assert_eq!(leaf.unclean, [UncleanReason::Halt]);
     assert_eq!(class(&result, &[false], false), OutcomeClass::Undefined);
-    for run_to_completion in [false, true] {
-        assert_eq!(
-            class(&result, &[true], run_to_completion),
-            OutcomeClass::Unsupported
-        );
-    }
+    // Reaching the target and then an undefined step: unfinished under run-to-completion, a
+    // target-reaching leaf that is not clean otherwise.
+    assert_eq!(class(&result, &[true], false), OutcomeClass::Unsupported);
+    assert_eq!(
+        class(&result, &[true], true),
+        OutcomeClass::ReachedUnfinished
+    );
     let anchor = rules().run("div(10, 2)");
     assert!(only_leaf(&anchor).natural_end);
 }
@@ -416,8 +460,8 @@ fn a_pattern_target_is_matched_with_its_requires() {
         &CaseOptions::default(),
         &TargetNeeds::default(),
         &[
-            "<state> q |-> Q _ </state> requires Q ==Int 5",
-            "<state> q |-> Q _ </state> requires Q ==Int 6",
+            "<state> M </state> requires size(M) ==Int 3",
+            "<state> M </state> requires size(M) ==Int 4",
             "<k> .K </k>",
         ],
     );
@@ -428,13 +472,17 @@ fn a_pattern_target_is_matched_with_its_requires() {
 
 #[test]
 fn a_match_that_rests_on_an_implementation_chosen_value_is_undecided() {
-    // `keys_list` of a three-key map lists its keys in an order the definition leaves open; the
-    // execution-mode match reads k-rust's order, the proof-mode match does not decide.
-    let result = imp().run_with(
-        DIV_IMP,
+    // `Set2List` of a two-element set lists it in an order the definition leaves open; the
+    // execution-mode match reads k-rust's order, and the proof-mode match does not decide. The
+    // leaf itself (`listKeys(1, 1)`, one key) carries no mark.
+    let result = chosen().run_with(
+        "listKeys(1, 1)",
         &CaseOptions::default(),
         &TargetNeeds::default(),
-        &["<state> S </state> requires size(keys_list(S)) ==Int 3"],
+        &[
+            "<out> L </out> requires size(Set2List(List2Set(L ListItem(2)))) ==Int 2",
+            "<out> L </out> requires size(L) ==Int 1",
+        ],
     );
     let leaf = only_leaf(&result);
     assert!(
@@ -442,7 +490,7 @@ fn a_match_that_rests_on_an_implementation_chosen_value_is_undecided() {
         "{:?}",
         leaf.unclean
     );
-    assert_eq!(leaf.matches, [false]);
+    assert_eq!(leaf.matches, [false, true]);
     assert!(!leaf.natural_end);
     assert_eq!(class(&result, &[false], false), OutcomeClass::Unsupported);
 }
@@ -547,7 +595,7 @@ fn a_state_the_backend_refuses_is_rejected() {
     let options = CaseOptions::default();
     let mut executor = fixture.executor(&options);
     let shape = CaseRequestShape::new(&options, &TargetNeeds::default());
-    let state = parse_pattern(r"Lbl'-LT-'k'-GT-'{}(dotk{}())").expect("a pattern");
+    let state = parse_pattern(r"LblNoSuchSymbol'Unds'{}()").expect("a pattern");
     let result = executor
         .run(&state, &shape, &[], None)
         .expect("no solver prelude fails");

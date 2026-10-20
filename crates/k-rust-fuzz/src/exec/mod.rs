@@ -55,11 +55,13 @@ pub const LOAD_STACK_STOP: &str = "stack-stop";
 ///   a leaf may hide a reaching state, so `miss` or `stuck` would be unsound (D13);
 /// - a clean leaf (`stuck`, or `terminal` on the target's own stop rule) that reaches the target
 ///   is a `hit` candidate, and under `run-to-completion` only if it is a natural end;
-/// - under `run-to-completion`, a reaching leaf that is not a natural end and is clean except
-///   that its run was cut (a `depth-bound`, `breadth-bound`, `work-bound`, `timeout` or
-///   `cancelled` halt), or that is a clean abnormal stop, is `reached-unfinished`;
-/// - any other reaching leaf is `unsupported` (a target-reaching leaf that is not clean: an
-///   undefined step, a cut run without `run-to-completion`, an unsupported halt);
+/// - under `run-to-completion`, a reaching leaf that is clean in every respect except its halt,
+///   where the halt is neither a natural end nor an unsupported halt (a clean abnormal stop, an
+///   undefined step, or a cut: `depth-bound`, `breadth-bound`, `work-bound`, `timeout`,
+///   `cancelled`), is `reached-unfinished`;
+/// - any other reaching leaf is `unsupported` (a target-reaching leaf that is not clean: without
+///   `run-to-completion` an undefined step or a cut run, and in every mode an unsupported or
+///   `vacuous` halt);
 /// - a leaf that does not reach the target takes its halt's class: `stuck` gives `miss` for a
 ///   natural end and `stuck` otherwise; `trivial` gives `undefined`; `depth-bound` and
 ///   `breadth-bound` give `depth-bound`; `work-bound` gives `work-bound`; `timeout` and
@@ -100,9 +102,9 @@ pub enum OutcomeClass {
     /// A clean leaf is an abnormal stop (stuck, but not a natural end), and no leaf reaches the
     /// target.
     Stuck,
-    /// Under `run-to-completion`, the target was reached on a leaf that is not a natural end but
-    /// is clean apart from a cut (a bound, a timeout or a cancellation), or is a clean abnormal
-    /// stop; and no leaf is `unsupported`.
+    /// Under `run-to-completion`, the target was reached on a leaf that is clean except for its
+    /// halt, which is neither a natural end nor an unsupported halt (an abnormal stop, an
+    /// undefined step, a bound, a timeout or a cancellation); and no leaf is `unsupported`.
     ReachedUnfinished,
     /// A `depth-bound` or `breadth-bound` halt.
     DepthBound,
@@ -475,7 +477,7 @@ impl CaseRequestShape {
 /// matches), and for the run-level coverage modes the judge marks the leaves that may carry the
 /// run's fact (with several leaves, every leaf only when every leaf could carry a hit; D13).
 /// `run_to_completion` additionally requires a target-reaching clean leaf to be a natural end,
-/// and makes a reaching leaf that is cut or an abnormal stop `reached-unfinished`. A `terminal`
+/// and makes a reaching leaf that is cut, undefined or an abnormal stop `reached-unfinished`. A `terminal`
 /// leaf is a hit candidate only because the target's rule is the only stop rule (T-14).
 ///
 /// # Errors
@@ -576,13 +578,14 @@ fn leaf_class(
             Ok(OutcomeClass::Stuck)
         };
     }
-    // Unclean by its halt alone.
-    let cut = matches!(
+    // Unclean by its halt alone: a halt that is neither an end nor unsupported leaves the
+    // reaching run unfinished.
+    let unfinished = matches!(
         leaf.halt,
-        H::DepthBound | H::BreadthBound | H::WorkBound | H::Timeout | H::Cancelled
+        H::DepthBound | H::BreadthBound | H::WorkBound | H::Timeout | H::Cancelled | H::Trivial
     );
     if reached {
-        return Ok(if run_to_completion && cut {
+        return Ok(if run_to_completion && unfinished {
             OutcomeClass::ReachedUnfinished
         } else {
             OutcomeClass::Unsupported
