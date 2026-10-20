@@ -85,12 +85,17 @@ const MAIN_MODULE: &str = "MAZE";
 pub enum GuardKind {
     /// A wide comparison with a constant: blind sampling passes it often.
     Range,
-    /// A comparison between two holes.
+    /// A comparison or equality between two holes: blind sampling, helped by its boundary
+    /// values; the climb proposer (FZ-12) by distance.
     Ordering,
     /// Equality with a constant: the dictionary proposer (FZ-11).
     Exact,
-    /// A narrow interval, or a linear relation between holes: the climb proposer (FZ-12).
-    Climb,
+    /// A narrow interval between two constants: the dictionary proposer through the bounds
+    /// plus or minus 1 to 3, the climb proposer by distance.
+    Window,
+    /// A linear relation between holes with a large offset, which no harvested constant
+    /// satisfies alone: the climb proposer, seeded by the dictionary.
+    Linear,
     /// A product of holes equal to a constant: only the solve proposer (FZ-15).
     Nonlinear,
     /// No input fires the cell (a negative control); the cell has no witness.
@@ -150,7 +155,7 @@ pub const CELLS: [Cell; 16] = [
     Cell {
         label: "c4",
         parent: Some("c3"),
-        guard: GuardKind::Climb,
+        guard: GuardKind::Window,
         reads: &["D"],
         witness: &[("A", 1), ("B", 2), ("C", 7), ("D", 1001)],
     },
@@ -164,7 +169,7 @@ pub const CELLS: [Cell; 16] = [
     Cell {
         label: "c6",
         parent: Some("c5"),
-        guard: GuardKind::Climb,
+        guard: GuardKind::Linear,
         reads: &["F", "G"],
         witness: &[
             ("A", 1),
@@ -203,7 +208,7 @@ pub const CELLS: [Cell; 16] = [
     Cell {
         label: "s2",
         parent: Some("c2"),
-        guard: GuardKind::Climb,
+        guard: GuardKind::Window,
         reads: &["C"],
         witness: &[("A", 1), ("B", 2), ("C", 4097)],
     },
@@ -224,7 +229,7 @@ pub const CELLS: [Cell; 16] = [
     Cell {
         label: "s5",
         parent: Some("c5"),
-        guard: GuardKind::Climb,
+        guard: GuardKind::Linear,
         reads: &["F", "G"],
         witness: &[
             ("A", 1),
@@ -518,7 +523,25 @@ pub fn run_cell(
     seed: u64,
     budget: u64,
 ) -> (CellRun, FuzzReport) {
-    let mut campaign = Campaign::new(spec(cell, configuration, seed))
+    run_spec(cell, spec(cell, configuration, seed), budget)
+}
+
+/// [`run_cell`] on the campaign of [`isolated_spec`].
+///
+/// # Panics
+///
+/// As [`run_cell`], and if the cell is unreachable.
+pub fn run_isolated(
+    cell: &'static Cell,
+    configuration: &Configuration,
+    seed: u64,
+    budget: u64,
+) -> (CellRun, FuzzReport) {
+    run_spec(cell, isolated_spec(cell, configuration, seed), budget)
+}
+
+fn run_spec(cell: &'static Cell, spec: CampaignSpec, budget: u64) -> (CellRun, FuzzReport) {
+    let mut campaign = Campaign::new(spec)
         .unwrap_or_else(|error| panic!("cell {}: the campaign is refused: {error}", cell.label));
     let report = campaign.run(Budget::Cases(budget), None);
     assert!(
@@ -548,6 +571,8 @@ pub fn run_cell(
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MazeRun {
     pub configuration: &'static str,
+    /// Each cell measured in isolation ([`isolated_spec`]).
+    pub isolated: bool,
     pub seed: u64,
     pub budget: u64,
     /// One entry per cell, in the order of [`CELLS`].
@@ -566,8 +591,9 @@ impl MazeRun {
     /// The cases to every reached cell, in the order of [`CELLS`]: `c1=3 c2=5 ...`.
     pub fn line(&self) -> String {
         let mut line = format!(
-            "{} seed={} budget={} reached={}:",
+            "{}{} seed={} budget={} reached={}:",
             self.configuration,
+            if self.isolated { " isolated" } else { "" },
             self.seed,
             self.budget,
             self.reached()
@@ -706,11 +732,39 @@ pub fn check_coverage(run: &CoverageRun) {
 pub fn run_maze(configuration: &Configuration, seed: u64, budget: u64) -> MazeRun {
     MazeRun {
         configuration: configuration.name,
+        isolated: false,
         seed,
         budget,
         cells: CELLS
             .iter()
             .map(|cell| run_cell(cell, configuration, seed, budget).0)
+            .collect(),
+    }
+}
+
+/// Measure every reachable cell in isolation ([`isolated_spec`]) under `configuration` at
+/// `seed`. Unreachable cells have no isolation and are not run: their entries are not reached,
+/// with 0 cases.
+pub fn run_maze_isolated(configuration: &Configuration, seed: u64, budget: u64) -> MazeRun {
+    MazeRun {
+        configuration: configuration.name,
+        isolated: true,
+        seed,
+        budget,
+        cells: CELLS
+            .iter()
+            .map(|cell| {
+                if cell.reachable() {
+                    run_isolated(cell, configuration, seed, budget).0
+                } else {
+                    CellRun {
+                        cell: cell.label,
+                        cases_to_hit: None,
+                        cases: 0,
+                        work: 0,
+                    }
+                }
+            })
             .collect(),
     }
 }
@@ -759,8 +813,9 @@ pub fn summary(runs: &[MazeRun]) -> String {
     if let Some(first) = runs.first() {
         writeln!(
             table,
-            "configuration {} budget {} seeds {:?}",
+            "configuration {}{} budget {} seeds {:?}",
             first.configuration,
+            if first.isolated { " isolated" } else { "" },
             first.budget,
             runs.iter().map(|run| run.seed).collect::<Vec<_>>()
         )

@@ -9,10 +9,11 @@
 //! - the CI mode, the tests that run by default: every reachable cell reached by its witness,
 //!   no unreachable cell reached by any witness, the isolation of a cell, and the pinned cells
 //!   the blind baseline covers at a small budget;
-//! - the measurement mode, `measure_blind` (ignored by default; run it with
-//!   `--ignored --nocapture measure_`): one campaign per cell, over several seeds, printing the
-//!   cases to each cell. A proposer ticket adds its configuration to the harness and a
-//!   `measure_<name>` test beside it.
+//! - the measurement mode, `measure_blind` and `measure_blind_isolated` (ignored by default;
+//!   run them with `--ignored --nocapture measure_`): one campaign per cell, over several
+//!   seeds, printing the cases to each cell, on the whole maze and with each cell isolated. A
+//!   proposer ticket adds its configuration to the harness and `measure_<name>` tests beside
+//!   these.
 
 #[path = "data/maze/harness.rs"]
 mod maze;
@@ -188,6 +189,19 @@ fn measure_blind() {
     });
     for run in &runs {
         maze::check(run, true);
+        println!("{}", run.line());
+    }
+    println!("{}", maze::summary(&runs));
+}
+
+#[test]
+#[ignore = "measurement mode: run with --ignored --nocapture measure_"]
+fn measure_blind_isolated() {
+    let runs: Vec<MazeRun> = per_seed(&MEASURE_SEEDS, |seed| {
+        maze::run_maze_isolated(&maze::blind(), seed, MEASURE_BUDGET)
+    });
+    for run in &runs {
+        maze::check(run, false);
         println!("{}", run.line());
     }
     println!("{}", maze::summary(&runs));
