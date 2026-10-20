@@ -7,8 +7,9 @@
 //! `[common].determinism`):
 //!
 //! - the CI mode, the tests that run by default: every reachable cell reached by its witness,
-//!   no unreachable cell reached by any witness, the isolation of a cell, and the pinned cells
-//!   the blind baseline covers at a small budget;
+//!   no unreachable cell reached by any witness, the isolation of every cell, the pinned cells
+//!   the blind baseline covers at a small budget, and the pinned cases to the four cells it
+//!   reaches there, which must agree with the coverage;
 //! - the measurement mode, `measure_blind` and `measure_blind_isolated` (ignored by default;
 //!   run them with `--ignored --nocapture measure_`): one campaign per cell, over several
 //!   seeds, printing the cases to each cell, on the whole maze and with each cell isolated. A
@@ -62,8 +63,14 @@ fn per_seed<T: Send>(seeds: &[u64], measure: impl Fn(u64) -> T + Sync) -> Vec<T>
 #[test]
 fn every_reachable_cell_is_reached_by_its_witness_in_one_case() {
     for cell in CELLS.iter().filter(|cell| cell.reachable()) {
-        let (run, report) = maze::run_cell(cell, &maze::witness_only(cell), 0, 1);
+        let (run, _) = maze::run_cell(cell, &maze::witness_only(cell), 0, 1);
         assert_eq!(run.cases_to_hit, Some(1), "cell {}", cell.label);
+        // With shrinking on, the witness shrinks to itself.
+        let mut spec = maze::spec(cell, &maze::witness_only(cell), 0);
+        spec.options.shrink = true;
+        let report = Campaign::new(spec)
+            .expect("valid")
+            .run(k_rust_fuzz::Budget::Cases(1), None);
         let witness = report.witness().expect("a witness");
         assert!(
             witness
@@ -240,6 +247,58 @@ fn the_blind_coverage_is_pinned_and_holds_no_unreachable_cell() {
     assert_eq!(
         lines, PINNED_BLIND_COVERAGE,
         "the blind coverage moved; re-pin it"
+    );
+}
+
+/// The cells the CI mode measures per cell: those blind reaches within [`CI_BUDGET`] at some CI
+/// seed, so that a hit is pinned beside the coverage line it must agree with.
+const CI_CELLS: [&str; 4] = ["c1", "c2", "s1", "s2"];
+
+/// The cases to each of [`CI_CELLS`] per CI seed ([`MazeRun::line`] over those cells). It moves
+/// with [`PINNED_BLIND_COVERAGE`].
+const PINNED_BLIND_CASES: [&str; 4] = [
+    "blind seed=1 budget=1024 reached=4: c1=4 c2=8 s1=118 s2=743",
+    "blind seed=2 budget=1024 reached=3: c1=2 c2=6 s1=25",
+    "blind seed=3 budget=1024 reached=3: c1=2 c2=3 s1=18",
+    "blind seed=4 budget=1024 reached=4: c1=2 c2=24 s1=2 s2=653",
+];
+
+#[test]
+fn the_blind_cases_to_each_ci_cell_are_pinned_and_agree_with_the_coverage() {
+    let runs: Vec<MazeRun> = per_seed(&CI_SEEDS, |seed| {
+        let cells = CI_CELLS
+            .iter()
+            .map(|label| maze::run_cell(maze::cell_named(label), &maze::blind(), seed, CI_BUDGET).0)
+            .collect();
+        MazeRun {
+            configuration: "blind",
+            isolated: false,
+            target_blind: true,
+            seed,
+            budget: CI_BUDGET,
+            cells,
+        }
+    });
+    // A cell's campaign hits within the budget exactly when the coverage campaign at the same
+    // seed covers it (`harness::run_coverage`: the shortcut's validity, checked).
+    let coverage = per_seed(&CI_SEEDS, |seed| {
+        maze::run_coverage(&maze::blind(), seed, CI_BUDGET)
+    });
+    for (run, covered) in runs.iter().zip(&coverage) {
+        for cell in &run.cells {
+            assert_eq!(
+                cell.cases_to_hit.is_some(),
+                covered.cells.contains(&cell.cell),
+                "{} against {}",
+                run.line(),
+                covered.line()
+            );
+        }
+    }
+    let lines: Vec<String> = runs.iter().map(MazeRun::line).collect();
+    assert_eq!(
+        lines, PINNED_BLIND_CASES,
+        "the blind cases moved; re-pin them"
     );
 }
 

@@ -5,7 +5,8 @@
 //! budget and the cases to each. Every cell is measured by its own campaign whose target is the
 //! cell's rule in mode `fired`, so "cases to a cell" is the `cases` total of the report that
 //! found a confirmed witness for it (confirmation and shrink runs are not cases). A cell that
-//! no confirmed witness reached within the budget is not reached, whatever the reason.
+//! no confirmed witness reached within the budget is not reached, whatever the reason. Witnesses
+//! are not shrunk (`CaseOptions::shrink` is false), so a campaign spends nothing after its hit.
 //!
 //! A test binary includes this file with `#[path = "data/maze/harness.rs"] mod maze;`, so a
 //! proposer ticket can measure its configuration beside the blind baseline. The definition is
@@ -553,9 +554,9 @@ fn spec_on(
             negated_property: false,
         },
         options: CaseOptions {
-            // TODO(FZ-06): `shrink: false` once FZ-06's `CaseOptions::shrink` is committed. The
-            // metric is cases to the first confirmed hit, which shrinking does not change, and a
-            // blind hit's shrinking costs 20-30 s (research note, "The metric and the modes").
+            // The metric is cases to the first confirmed hit, which shrinking does not change;
+            // a blind hit's shrinking costs seconds, which would keep per-cell numbers out of CI.
+            shrink: false,
             ..CaseOptions::default()
         },
         proposers: configuration.proposers.clone(),
