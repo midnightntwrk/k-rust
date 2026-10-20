@@ -10,8 +10,20 @@
 //!
 //! A compiled fixture is built once per test binary and shared ([`OnceLock`]). Only immutable
 //! artefacts are shared; every [`Backend`] and [`ConfigurationAssembler`] a test drives is built
-//! by that test. Compilation reads the process-wide `KRUST_TYPE_INFERENCE_MODE`; the cache keeps
-//! the first build of the process, so a test binary must not change that variable while it runs.
+//! by that test.
+//!
+//! Two process-wide variables reach what this module builds, and a test binary must keep both
+//! fixed while it runs:
+//! - `KRUST_TYPE_INFERENCE_MODE` selects the inference engine, but only in a build with k-rust's
+//!   `z3-inference` feature: the portable `-p k-rust-fuzz` build never reads it, while a
+//!   `--workspace` build unifies k-rust's default `cli` feature, which enables `z3-inference`,
+//!   and does. The cache keeps the first build of the process.
+//! - `KRUST_PARSE_DIAGNOSTIC_WORK`, read once per process, changes the text of parse-error
+//!   messages, which can reach a report through a hole value that does not parse. A golden test
+//!   must not vary it between its processes.
+//!
+//! [`Fixture::compiled`] refuses a fixture whose compilation reports any diagnostic, so that a
+//! fixture that drifts into a warning fails here first.
 //!
 //! Test binaries include this module with `mod support;`.
 
@@ -133,6 +145,12 @@ fn compile(fixture: &'static Fixture) -> Compiled {
                 fixture.file, error.diagnostics
             )
         });
+    assert!(
+        artifacts.diagnostics.is_empty(),
+        "{} compiles with diagnostics: {:#?}",
+        fixture.file,
+        artifacts.diagnostics
+    );
     let frontend: Definition = loaded.into_definition();
     let grammar = ProgramGrammar::new(&frontend)
         .unwrap_or_else(|error| panic!("{} has no program grammar: {error}", fixture.file));
@@ -276,6 +294,51 @@ impl Compiled {
         }
     }
 
+    /// `definition_kore` with `attribute` added to the attributes of the one axiom labelled
+    /// `<main module>.<label>`: for example `non-executable{}()` on a rewrite rule, which the K
+    /// frontend refuses but the backend accepts from caller KORE (kink's route).
+    ///
+    /// # Panics
+    ///
+    /// If the label does not occur exactly once, or the edited KORE does not parse.
+    pub fn kore_with_axiom_attribute(&self, label: &str, attribute: &str) -> KoreDefinition {
+        let needle = format!("label{{}}(\"{}.{label}\")", self.fixture.main_module);
+        let kore = &self.artifacts.definition_kore;
+        assert_eq!(
+            kore.matches(&needle).count(),
+            1,
+            "{needle} in {}",
+            self.fixture.file
+        );
+        let edited = kore.replacen(&needle, &format!("{attribute}, {needle}"), 1);
+        parse_definition(&edited)
+            .unwrap_or_else(|error| panic!("{} edited: {error}", self.fixture.file))
+    }
+
+    /// [`Self::kore_with_axiom_attribute`] with `non-executable{}()`, as the campaign's view on
+    /// [`BackendRoute::FromDefinition`], the route that builds a backend from caller KORE.
+    pub fn definition_with_non_executable(&self, label: &str) -> CompiledDefinition {
+        CompiledDefinition {
+            kore: self.kore_with_axiom_attribute(label, "non-executable{}()"),
+            ..self.definition_on(BackendRoute::FromDefinition)
+        }
+    }
+
+    /// A backend over [`Self::kore_with_axiom_attribute`] with `non-executable{}()`, built with
+    /// `Backend::from_definition`.
+    ///
+    /// # Panics
+    ///
+    /// If the edited definition does not load.
+    pub fn backend_with_non_executable(&self, label: &str) -> Backend {
+        Backend::from_definition(
+            self.kore_with_axiom_attribute(label, "non-executable{}()"),
+            self.fixture.main_module,
+            BackendOptions::default(),
+        )
+        .unwrap_or_else(|error| panic!("{}: {error:?}", self.fixture.file))
+    }
+
     /// The fixture's program `file` as a campaign's program input: its text unchanged, its
     /// start sort, and its configuration-variable bindings.
     pub fn program_source(&self, file: &str) -> ProgramSource {
@@ -350,11 +413,14 @@ fixture!(
     &[program!("unsigned/sum.pgm")]
 );
 
+/// The programs of `chosen.k` and of its mutant.
+pub const CHOSEN_PROGRAMS: &[Program] = &[program!("chosen/keys.pgm"), program!("chosen/set.pgm")];
+fixture!(CHOSEN, "chosen/chosen.k", "CHOSEN", CHOSEN_PROGRAMS);
 fixture!(
-    CHOSEN,
-    "chosen/chosen.k",
+    CHOSEN_KILL,
+    "chosen/chosen-kill.k",
     "CHOSEN",
-    &[program!("chosen/keys.pgm"), program!("chosen/set.pgm")]
+    CHOSEN_PROGRAMS
 );
 
 fixture!(
@@ -375,6 +441,7 @@ fixture!(COIN_LAYOUT, "coin/coin-layout.k", "COIN", COIN_PROGRAMS);
 fixture!(COIN_SWAPPED, "coin/coin-swapped.k", "COIN", COIN_PROGRAMS);
 fixture!(COIN_PRIO, "coin/coin-prio.k", "COIN", COIN_PROGRAMS);
 fixture!(COIN_KILL, "coin/coin-kill.k", "COIN", COIN_PROGRAMS);
+fixture!(COIN_FUNC, "coin/coin-func.k", "COIN", COIN_PROGRAMS);
 
 fixture!(
     LEDGER,
@@ -390,17 +457,31 @@ fixture!(
     &[program!("loadclaim/go.pgm")]
 );
 
+fixture!(
+    TAINT,
+    "taint/taint.k",
+    "TAINT",
+    &[
+        program!("taint/get.pgm"),
+        program!("taint/look.pgm"),
+        program!("taint/guard.pgm"),
+    ]
+);
+
 /// Every fixture, in the order of `tests/data/README.md`.
-pub static ALL: [&Fixture; 11] = [
+pub static ALL: [&Fixture; 14] = [
     &IMP,
     &UNSIGNED,
     &CHOSEN,
+    &CHOSEN_KILL,
     &RULES,
     &COIN,
     &COIN_LAYOUT,
     &COIN_SWAPPED,
     &COIN_PRIO,
     &COIN_KILL,
+    &COIN_FUNC,
     &LEDGER,
     &LOADCLAIM,
+    &TAINT,
 ];

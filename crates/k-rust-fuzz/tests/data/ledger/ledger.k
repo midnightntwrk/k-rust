@@ -28,7 +28,7 @@ module LEDGER
 
   rule [settle]: <k> settle => .K ... </k>
                  <tx> transfer(Amount, Fee) </tx>
-                 <account> account(Id, Balance => Balance -Int Amount -Int Fee) </account>
+                 <account> account(_Id, Balance => Balance -Int Amount -Int Fee) </account>
                  <status> _ => applied </status>
     requires Amount >=Int 0 andBool Fee >=Int 0 andBool Amount +Int Fee <=Int Balance
   rule [refuse]: <k> settle => .K ... </k>

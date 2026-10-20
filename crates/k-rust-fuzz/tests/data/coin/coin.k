@@ -1,6 +1,7 @@
 // Baseline of the differential fixtures. `flip(N)` ends with N or N + 1 in <out>: two paths
-// whose single ends differ, and whose set of ends is {N, N + 1}. `count(N)` takes N + 1 steps,
-// so a depth bound below that leaves the baseline incomplete.
+// whose single ends differ, and whose set of ends is {N, N + 1}. `count(N)` for N >= 0 needs
+// `max_depth` N + 2 to end: under any smaller bound its leaf is `depth-bound` and the baseline
+// incomplete.
 
 module COIN-SYNTAX
   imports INT-SYNTAX
