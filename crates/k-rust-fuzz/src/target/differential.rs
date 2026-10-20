@@ -53,8 +53,8 @@ use crate::{
 /// The request needs of the two sides of a differential case (ARCHITECTURE 4.3, 5.1).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct DifferentialPlan {
-    /// The baseline runs all paths, so that its set of ends can be complete; in the all-paths
-    /// mode it also reports [`crate::exec::LeafReport::constructor_only`], for removed ends.
+    /// The baseline runs all paths, so that its set of ends can be complete, and reports
+    /// [`crate::exec::LeafReport::constructor_only`]: its ends must be data to be compared.
     pub(crate) baseline: TargetNeeds,
     /// The mutant runs on the campaign's path mode and reports
     /// [`crate::exec::LeafReport::constructor_only`].
@@ -87,14 +87,15 @@ impl DifferentialJudgement {
 
 /// The needs of each side for `options`: the baseline on all paths, whatever the campaign's
 /// path mode; the mutant on the campaign's path mode, with the constructor-only judgement of
-/// condition 4. In the all-paths mode the baseline's leaves carry that judgement too, since a
-/// baseline end can then be the witness of a removed end. Neither side needs traces or terminal
+/// condition 4. The baseline's leaves carry that judgement too, in both modes: an end outside
+/// the baseline's set is a kill only when every baseline end is data, and in the all-paths mode a
+/// baseline end can be the witness of a removed end. Neither side needs traces or terminal
 /// rules: the differential target names no rule.
 pub(crate) fn plan(options: &CaseOptions) -> DifferentialPlan {
     DifferentialPlan {
         baseline: TargetNeeds {
             paths: Some(PathMode::AllPaths),
-            constructor_only: options.paths == PathMode::AllPaths,
+            constructor_only: true,
             ..TargetNeeds::default()
         },
         mutant: TargetNeeds {
@@ -154,7 +155,9 @@ pub(crate) fn equivalent(
 /// 4. the mutant leaf's internalized configuration is constructor-only (internal term kinds,
 ///    not KORE symbols);
 /// 5. that configuration is not in the baseline's set of final configurations, compared as
-///    printed KORE after k-rust's normalization.
+///    printed KORE after k-rust's normalization, and every end in that set passes condition 4
+///    too (decision D15): a baseline end such as an unevaluated application of a total function
+///    may denote the mutant's configuration, so a syntactic difference from it proves nothing.
 ///
 /// In the all-paths mode a case is also a hit by a *removed end* if conditions 1 and 3 hold, the
 /// mutant's run is complete in the sense of condition 1 with every end constructor-only, and
@@ -170,7 +173,9 @@ pub(crate) fn equivalent(
 /// - an added or removed end exists, but some mutant leaf carries an implementation-chosen value
 ///   mark (condition 3 is a fact of the whole result);
 /// - no kill exists, but some end outside the other side's set could not be judged: a clean
-///   natural end that is not constructor-only, or a mutant `stuck` leaf that is not clean.
+///   natural end that is not constructor-only, a mutant `stuck` leaf that is not clean, or a
+///   would-be kill against a complete set that holds an end that is not data (the set is
+///   complete, so the case is not `baseline-incomplete`, but its ends cannot be compared).
 ///
 /// # Errors
 ///
@@ -187,9 +192,11 @@ pub(crate) fn judge_pair(
             OutcomeClass::BaselineIncomplete,
         ));
     };
-    let added = Verdicts::added(&baseline_set, mutant)?;
+    let added = Verdicts::outside(mutant, baseline, &baseline_set, "mutant")?;
     let removed = match (paths, complete_ends(mutant)) {
-        (PathMode::AllPaths, Some(mutant_set)) => Verdicts::removed(baseline, mutant, &mutant_set)?,
+        (PathMode::AllPaths, Some(mutant_set)) => {
+            Verdicts::outside(baseline, mutant, &mutant_set, "baseline")?
+        }
         (PathMode::OnePath, _) | (PathMode::AllPaths, None) => Verdicts::none(baseline),
     };
     let killing_leaf = added.kills.iter().position(|&kills| kills);
@@ -277,43 +284,24 @@ impl Verdicts {
         }
     }
 
-    /// The mutant's added ends against the baseline's complete set.
-    fn added(baseline: &BTreeSet<&KorePattern>, mutant: &CaseResult) -> Result<Self, EngineDefect> {
-        Self::outside(mutant, baseline, "mutant")
-    }
-
-    /// The baseline's ends that the mutant's complete set of ends, `mutant_set`, lacks. Every
-    /// baseline leaf is a clean end here (the baseline is complete), so no unclean leaf is met.
-    /// When some mutant end is not constructor-only, an end the mutant lacks syntactically may
-    /// still be one it reaches, so every such end is undecided rather than a kill.
-    fn removed(
-        baseline: &CaseResult,
-        mutant: &CaseResult,
-        mutant_set: &BTreeSet<&KorePattern>,
-    ) -> Result<Self, EngineDefect> {
-        let mut verdicts = Self::outside(baseline, mutant_set, "baseline")?;
-        let mutant_is_data = mutant
-            .leaves
-            .iter()
-            .all(|leaf| leaf.constructor_only == Some(true));
-        if !mutant_is_data && verdicts.kills.contains(&true) {
-            verdicts.kills.fill(false);
-            verdicts.undecided = true;
-        }
-        Ok(verdicts)
-    }
-
-    /// The leaves of `side` whose configuration `others` lacks.
+    /// The leaves of `side` whose configuration the other side's complete set of ends,
+    /// `others_set` (the ends of `others`), lacks: the mutant's added ends against the baseline,
+    /// or the baseline's removed ends against the mutant.
+    ///
+    /// A kill needs data on both sides (conditions 4 and 5, decision D15): when some end of
+    /// `others` is not constructor-only, an end that `others_set` lacks syntactically may still
+    /// be one the other side reaches, so every would-be kill is undecided instead.
     fn outside(
         side: &CaseResult,
-        others: &BTreeSet<&KorePattern>,
+        others: &CaseResult,
+        others_set: &BTreeSet<&KorePattern>,
         role: &str,
     ) -> Result<Self, EngineDefect> {
         let mut verdicts = Self::none(side);
         for (index, leaf) in side.leaves.iter().enumerate() {
             // Only a stuck leaf is an end that may be a kill; an undefined step, a bound or a
             // stop is classed by `exec::classify`.
-            if leaf.halt != HaltReasonOutput::Stuck || others.contains(&leaf.state) {
+            if leaf.halt != HaltReasonOutput::Stuck || others_set.contains(&leaf.state) {
                 continue;
             }
             if !leaf.is_clean() {
@@ -335,6 +323,14 @@ impl Verdicts {
             }
             // A clean stuck leaf that is not a natural end is an abnormal stop: the program did
             // not finish on that path, so its configuration is no kill (condition 2).
+        }
+        let others_are_data = others
+            .leaves
+            .iter()
+            .all(|leaf| leaf.constructor_only == Some(true));
+        if !others_are_data && verdicts.kills.contains(&true) {
+            verdicts.kills.fill(false);
+            verdicts.undecided = true;
         }
         Ok(verdicts)
     }
@@ -400,8 +396,8 @@ mod tests {
         }
     }
 
-    /// A complete baseline with the two ends 3 and 4 (the COIN baseline on `flip(3)`), judged
-    /// constructor-only as in the all-paths mode.
+    /// A complete baseline with the two ends 3 and 4 (the COIN baseline on `flip(3)`), both
+    /// judged constructor-only.
     fn coin_baseline() -> CaseResult {
         result(vec![
             natural(config(3, 0), Some(true)),
@@ -415,7 +411,7 @@ mod tests {
 
     fn added(baseline: &CaseResult, mutant: &CaseResult) -> Verdicts {
         let ends = complete_ends(baseline).expect("the baseline is complete");
-        Verdicts::added(&ends, mutant).expect("no engine defect")
+        Verdicts::outside(mutant, baseline, &ends, "mutant").expect("no engine defect")
     }
 
     fn hit(killing_leaf: Option<usize>, removed_end: Option<usize>) -> DifferentialJudgement {
@@ -438,11 +434,7 @@ mod tests {
                 ..CaseOptions::default()
             });
             assert_eq!(plan.baseline.paths, Some(PathMode::AllPaths));
-            assert_eq!(
-                plan.baseline.constructor_only,
-                paths == PathMode::AllPaths,
-                "the baseline's ends are witnesses only in the all-paths mode"
-            );
+            assert!(plan.baseline.constructor_only);
             assert_eq!(plan.mutant.paths, Some(paths));
             assert!(plan.mutant.constructor_only);
             for needs in [&plan.baseline, &plan.mutant] {
@@ -664,10 +656,10 @@ mod tests {
         let mutant = result(vec![natural(config(5, 0), None)]);
         let baseline = coin_baseline();
         let ends = complete_ends(&baseline).expect("complete");
-        assert!(Verdicts::added(&ends, &mutant).is_err());
+        assert!(Verdicts::outside(&mutant, &baseline, &ends, "mutant").is_err());
         // Inside the set the judgement is not read.
         let agreeing = result(vec![natural(config(3, 0), None)]);
-        assert!(Verdicts::added(&ends, &agreeing).is_ok());
+        assert!(Verdicts::outside(&agreeing, &baseline, &ends, "mutant").is_ok());
     }
 
     // ---- classes
@@ -753,6 +745,39 @@ mod tests {
             assert_eq!(
                 judge(&coin_baseline(), &mutant, paths).class,
                 OutcomeClass::DepthBound
+            );
+        }
+    }
+
+    #[test]
+    fn a_kill_against_a_baseline_end_that_is_not_data_is_unsupported() {
+        // The baseline's end 4 is not data (say an unevaluated total function): it may denote
+        // the mutant's 5, so 5 is not shown absent. The baseline is complete, so the case is
+        // not baseline-incomplete (decision D15).
+        let baseline = result(vec![
+            natural(config(3, 0), Some(true)),
+            natural(config(4, 0), Some(false)),
+        ]);
+        let killing = result(vec![natural(config(5, 0), Some(true))]);
+        let agreeing = result(vec![
+            natural(config(3, 0), Some(true)),
+            natural(config(4, 0), Some(true)),
+        ]);
+        assert_eq!(
+            judge(&baseline, &killing, PathMode::OnePath),
+            DifferentialJudgement::class(OutcomeClass::Unsupported)
+        );
+        // On all paths the mutant's complete set {5} is data and lacks the baseline's data end
+        // 3: a removed end, which the baseline's other end does not affect.
+        assert_eq!(
+            judge(&baseline, &killing, PathMode::AllPaths),
+            hit(None, Some(0))
+        );
+        for paths in BOTH_MODES {
+            assert_eq!(
+                judge(&baseline, &agreeing, paths),
+                DifferentialJudgement::class(OutcomeClass::Miss),
+                "{paths:?}"
             );
         }
     }
@@ -1099,5 +1124,24 @@ mod fixture_tests {
         let mut other_main = coin.definition();
         other_main.main_module = "COIN-SYNTAX".to_owned();
         assert!(!equivalent(&coin.definition(), &other_main).expect("digests"));
+    }
+
+    #[test]
+    fn a_kill_against_a_baseline_end_that_is_not_data_is_unsupported() {
+        // The roles of COIN_FUNC and COIN exchanged: on flip(11) the baseline ends with
+        // opaque(11), an unevaluated total function, and the mutant with 11 and 12 (D15).
+        for paths in BOTH_MODES {
+            assert_eq!(
+                judge_on(
+                    &support::COIN_FUNC,
+                    &support::COIN,
+                    "coin/flip.pgm",
+                    "flip(11)",
+                    &options(paths)
+                ),
+                DifferentialJudgement::class(OutcomeClass::Unsupported),
+                "{paths:?}"
+            );
+        }
     }
 }
