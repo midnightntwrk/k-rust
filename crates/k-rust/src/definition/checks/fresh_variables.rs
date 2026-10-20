@@ -33,9 +33,9 @@
 
 use std::collections::BTreeSet;
 
-use super::Sentence;
 use super::term_position::{TermPosition, positioned_children};
-use crate::definition::{AttributeKey, LabelHead, ProductionCatalog, match_rule_label};
+use super::{EquationKind, Sentence};
+use crate::definition::ProductionCatalog;
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::Term;
 
@@ -120,35 +120,22 @@ fn configuration_less(
             "a claim states which configurations a path reaches without taking a step of its own",
         ));
     }
-    let attributes = sentence.attributes();
-    let head = LabelHead::from(&match_rule_label(sentence));
-    let production_attributes = productions.attributes_for(&head);
-    let declared = |key: AttributeKey| {
-        attributes.has(key) || production_attributes.is_some_and(|attributes| attributes.has(key))
+    let kind = EquationKind::of(sentence, productions)?;
+    let reason = match kind {
+        EquationKind::MacroOrAlias => {
+            "the rule is expanded wherever its left-hand side occurs, programs and the initial configuration included, without the configuration"
+        }
+        EquationKind::Anywhere => {
+            "the rule applies to its left-hand side wherever that term occurs, without the configuration"
+        }
+        EquationKind::Simplification => {
+            "the rule is an equation on the term its left-hand side matches, without the configuration"
+        }
+        EquationKind::Function => {
+            "the rule is an equation evaluated wherever the function is applied, without the configuration"
+        }
     };
-    if AttributeKey::MACRO_LIKE.into_iter().any(declared) {
-        Some((
-            "a macro or alias rule",
-            "the rule is expanded wherever its left-hand side occurs, programs and the initial configuration included, without the configuration",
-        ))
-    } else if attributes.has(AttributeKey::Anywhere) {
-        Some((
-            "an anywhere rule",
-            "the rule applies to its left-hand side wherever that term occurs, without the configuration",
-        ))
-    } else if attributes.has(AttributeKey::Simplification) {
-        Some((
-            "a simplification rule",
-            "the rule is an equation on the term its left-hand side matches, without the configuration",
-        ))
-    } else if productions.function_labels().contains(&head) {
-        Some((
-            "a function rule",
-            "the rule is an equation evaluated wherever the function is applied, without the configuration",
-        ))
-    } else {
-        None
-    }
+    Some((kind.rule(), reason))
 }
 
 /// Reject each fresh variable of a rewrite rule that the rule matches or that its `requires`

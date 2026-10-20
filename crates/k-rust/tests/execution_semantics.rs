@@ -2957,11 +2957,13 @@ fn an_execute_request_asks_for_traces_unless_it_says_otherwise() {
 ///   right side applies it and where a program writes it;
 /// - `pair(X, Y) #as _P => pair(Y, X) requires X >Int Y [anywhere]` is an equation of the
 ///   constructor `pair`, so `pair(3, 1)` becomes `pair(1, 3)`;
-/// - `pair(X, Y) #as P => swap(P) requires X >Int Y [anywhere]` binds `P` to the matched
-///   `pair(X, Y)` in the emitted equation. That equation states `pair(X, Y) = swap(pair(X, Y))`,
-///   whose right side holds an instance of its own left side under the same condition, so a
-///   normalization that simplifies arguments first applies it again to that instance without
-///   end; only the emitted statement is checked.
+/// - `pair(X, Y) #as P => done(P) requires X >Int Y` is an ordinary rewrite rule, a transition
+///   from the matched `pair(X, Y)`, so its right side may use the alias: `pair(3, 1)` steps to
+///   `done(pair(3, 1))`.
+///
+/// An equation whose right side or condition uses its root alias would mention its own redex,
+/// and is refused by the definition checks (`definition_checks`), so every equation here leaves
+/// its alias unused.
 #[test]
 fn a_root_alias_leaves_a_rule_of_its_head() {
     const FUNCTION: &str = r#"
@@ -3008,44 +3010,6 @@ endmodule
         );
     }
 
-    const ANYWHERE: &str = r#"
-module MAIN
-  imports INT
-  imports BOOL
-  syntax Pair ::= pair(Int, Int) [symbol(pair)]
-  syntax Pair ::= swap(Pair) [function, symbol(swap)]
-  rule swap(pair(X, Y)) => pair(Y, X)
-  rule pair(X, Y) #as P => swap(P) requires X >Int Y [anywhere]
-  configuration <k> $PGM:Pair </k>
-endmodule
-"#;
-    let compiled = compile(ANYWHERE, "MAIN", "MAIN", "Pair", "pair(3, 1)");
-    // The equation of `pair` states its right side of the matched term, `swap(pair(X0, X1))`,
-    // and leaves no occurrence of the alias `P` free (a free `P` would state the equation for
-    // every value of `P`).
-    let syntax = k_rust::kore::parser::parse_definition(&compiled.kore).unwrap();
-    let printer = Printer::compact();
-    let equations = syntax
-        .modules
-        .iter()
-        .flat_map(|module| &module.sentences)
-        .filter_map(|sentence| match sentence {
-            k_rust::kore::ast::Sentence::Axiom { pattern, .. } => Some(pattern),
-            _ => None,
-        })
-        .filter(|pattern| {
-            let printed = printer.print_pattern(pattern);
-            printed.contains(r"\equals") && printed.contains("Lblswap{}(Lblpair{}(")
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(equations.len(), 1, "{equations:?}");
-    let free = equations[0]
-        .free_variables()
-        .into_iter()
-        .map(|variable| variable.name)
-        .collect::<Vec<_>>();
-    assert!(!free.iter().any(|name| name == "VarP"), "{free:?}");
-
     const ANYWHERE_RUN: &str = r#"
 module MAIN
   imports INT
@@ -3063,6 +3027,27 @@ endmodule
     assert_eq!(leaves.len(), 1, "{leaves:?}");
     assert!(
         leaves[0].contains(r#"Lblpair{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("3"))"#),
+        "{leaves:?}"
+    );
+
+    const REWRITE: &str = r#"
+module MAIN
+  imports INT
+  imports BOOL
+  syntax Pair ::= pair(Int, Int) [symbol(pair)]
+  syntax KItem ::= done(Pair) [symbol(done)]
+  rule pair(X, Y) #as P => done(P) requires X >Int Y
+  configuration <k> $PGM:Pair </k>
+endmodule
+"#;
+    let leaves = text(&execute(
+        &compile(REWRITE, "MAIN", "MAIN", "Pair", "pair(3, 1)"),
+        "MAIN",
+        None,
+    ));
+    assert_eq!(leaves.len(), 1, "{leaves:?}");
+    assert!(
+        leaves[0].contains(r#"Lbldone{}(Lblpair{}(\dv{SortInt{}}("3"), \dv{SortInt{}}("1")))"#),
         "{leaves:?}"
     );
 }
