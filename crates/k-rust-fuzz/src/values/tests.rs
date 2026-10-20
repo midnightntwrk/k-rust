@@ -7,26 +7,18 @@
 //! (`STRING-SYNTAX`, `BYTES-SYNTAX`, `MINT-SYNTAX`) parse printed values even though IMP's own
 //! program grammar does not import them.
 
-use std::{collections::BTreeMap, process::Command, sync::OnceLock};
+use std::{collections::BTreeMap, process::Command};
 
 use k_rust::{
-    backend::Backend,
-    builtin::embedded,
     inner::ProgramParser,
-    k_rust_backend::{definition::BackendDefinition, externalize, term::Term},
+    k_rust_backend::{externalize, term::Term},
     kast::parser::parse_sort,
-    kompile::{
-        CompilationBackend, CompileOptions, ProgramGrammar, compile_loaded_definition,
-        term_to_kore_from_resolved_with_token_module,
-    },
-    kore::{
-        ast::{Pattern, Sort as KoreSort},
-        parser::parse_definition,
-    },
-    outer::{LoadOptions, ResolvedSource, load_for_compilation},
+    kompile::term_to_kore_from_resolved_with_token_module,
+    kore::ast::{Pattern, Sort as KoreSort},
 };
 use num_bigint::{BigInt, BigUint};
 
+use super::test_definition::imp;
 use super::{
     CollectionSymbols, Constraints, DataSorts, ElementSorts, GenerationBounds, IntRange,
     LengthRange, Value, ValueSort, check_constraints,
@@ -37,47 +29,7 @@ use super::{
 use crate::error::SortRefusal;
 
 // ------------------------------------------------------------------------------------------
-// The IMP fixture, compiled once per test binary.
-
-struct Imp {
-    grammar: ProgramGrammar,
-    backend: BackendDefinition,
-}
-
-fn imp() -> &'static Imp {
-    static IMP: OnceLock<Imp> = OnceLock::new();
-    IMP.get_or_init(|| {
-        let source = include_str!("../../tests/data/imp/imp.k");
-        let mut resolver = |_: &str, required: &str| {
-            embedded(required).ok_or_else(|| format!("unexpected require {required}"))
-        };
-        let options = LoadOptions {
-            implicit_sources: vec![embedded("prelude.md").expect("the prelude is embedded")],
-            ..CompilationBackend::Rust.load_options()
-        };
-        let (loaded, _syntax_module) = load_for_compilation(
-            ResolvedSource::new("imp/imp.k", source),
-            "IMP",
-            None,
-            &mut resolver,
-            &options,
-        )
-        .unwrap_or_else(|error| panic!("imp.k does not load: {error:?}"));
-        let artifacts = compile_loaded_definition(&loaded, CompileOptions::default())
-            .unwrap_or_else(|error| panic!("imp.k does not compile: {error}"));
-        let grammar = ProgramGrammar::new(&loaded.into_definition())
-            .unwrap_or_else(|error| panic!("imp.k has no program grammar: {error}"));
-        let kore = parse_definition(&artifacts.definition_kore)
-            .unwrap_or_else(|error| panic!("imp.k's KORE does not parse: {error}"));
-        let backend = Backend::internalize_source_definition(
-            &kore,
-            "IMP",
-            &artifacts.execution_rewrite_order,
-        )
-        .unwrap_or_else(|error| panic!("imp.k does not internalize: {error:?}"));
-        Imp { grammar, backend }
-    })
-}
+// The IMP fixture (`values/test_definition.rs`).
 
 /// `text` parsed by the frontend at `sort` with the parser of `module`, converted to KORE as a
 /// program token is (tokens keep the lexical hooks of the module that parsed them).
@@ -116,11 +68,13 @@ fn length(min: Option<u64>, max: Option<u64>) -> Constraints {
 
 /// The symbols of the prelude's collection sorts, as the frontend encodes their labels.
 fn symbols(sort: &str, unit: &str, element: &str, concat: &str) -> CollectionSymbols {
+    let arguments = if sort == "SortMap" { 2 } else { 1 };
     CollectionSymbols {
         kore_sort: sort.into(),
         unit: unit.into(),
         element: element.into(),
         concat: concat.into(),
+        element_arguments: vec!["SortKItem".to_owned(); arguments],
     }
 }
 
@@ -420,17 +374,11 @@ fn inconsistent_constraints_are_refused() {
             Constraints::default(),
         ),
         (
-            ValueSort::List {
-                sort: "List".into(),
-                symbols: list_symbols(),
-                element: Box::new(ValueSort::Int),
-            },
-            Constraints::default(),
-        ),
-        (
+            // A data sort resolved without its constructor table.
             ValueSort::Data {
                 sort: "Tx".into(),
                 table: DataSorts::default(),
+                text: None,
             },
             Constraints::default(),
         ),
@@ -470,7 +418,32 @@ fn environment_probe() {
     }
     let draws = serde_json::to_string(&draw_all(seed(11), 20, 8)).unwrap();
     let cases = proptest::test_runner::Config::default().cases;
-    println!("{PROBE_BEGIN}{{\"proptest-default-cases\":{cases},\"draws\":{draws}}}{PROBE_END}");
+    let config = serde_json::to_string(&explicit_config()).unwrap();
+    println!(
+        "{PROBE_BEGIN}{{\"proptest-default-cases\":{cases},\"config\":{config},\"draws\":{draws}}}{PROBE_END}"
+    );
+}
+
+/// Every field of the engine's `Config` that is not feature-gated, as text (FZ-03 review
+/// note 1): a field the engine stops setting explicitly would then follow the environment, and
+/// the children of the environment test would disagree on it even when no strategy reads it.
+fn explicit_config() -> String {
+    let config = super::generator::engine_config(&seed(11));
+    format!(
+        "cases={} local_rejects={} global_rejects={} flat_map_regens={} persistence={} \
+         source_file={:?} test_name={:?} shrink_iters={} default_size_range={} rng={:?} seed={:?}",
+        config.cases,
+        config.max_local_rejects,
+        config.max_global_rejects,
+        config.max_flat_map_regens,
+        config.failure_persistence.is_some(),
+        config.source_file,
+        config.test_name,
+        config.max_shrink_iters,
+        config.max_default_size_range,
+        config.rng_algorithm,
+        config.rng_seed,
+    )
 }
 
 /// The probe's output in a child process whose environment has every `PROPTEST_*` variable of
@@ -531,9 +504,13 @@ fn the_same_seed_gives_the_same_values_whatever_the_environment() {
         ("PROPTEST_VERBOSE", "2"),
         ("PROPTEST_FORK", "true"),
         ("PROPTEST_TIMEOUT", "1"),
-        ("PROPTEST_DISABLE_FAILURE_PERSISTENCE", "1"),
     ]);
     assert_eq!(plain["draws"], varied["draws"]);
+    assert_eq!(plain["config"], varied["config"]);
+    assert_eq!(
+        plain["config"],
+        serde_json::Value::String(explicit_config())
+    );
     let here = serde_json::to_value(draw_all(seed(11), 20, 8)).unwrap();
     assert_eq!(plain["draws"], here);
     let proptest_reads_environment = cfg!(not(target_arch = "wasm32"))
@@ -605,15 +582,13 @@ fn printing_refuses_mismatched_and_unsupported_values() {
     let sort = ValueSort::Data {
         sort: "Tx".into(),
         table: DataSorts::default(),
+        text: None,
     };
     assert!(matches!(
         print_k_text(&data, &sort),
         Err(PrintError::Unsupported(_))
     ));
-    assert!(matches!(
-        to_kore(&data, &sort),
-        Err(PrintError::Unsupported(_))
-    ));
+    assert!(to_kore(&data, &sort).is_err());
 }
 
 /// The sort's syntax module and K name for the frontend parse of a printed value.
@@ -742,13 +717,13 @@ fn builtin_sorts_resolve_and_hooked_sorts_without_a_generator_are_refused() {
         resolve_value_sort("NoSuchSort", &none, definition),
         Err(SortRefusal::Unknown)
     );
-    assert_eq!(
+    // Without a K-text syntax nothing but `K` and `KItem` is excluded, so a program sort
+    // resolves to a data sort; the hole-sort rule refuses it first (FZ-02), and
+    // `TextSyntax::resolve` leaves it out.
+    assert!(matches!(
         resolve_value_sort("Pgm", &none, definition),
-        Ok(ValueSort::Data {
-            sort: "Pgm".into(),
-            table: DataSorts::default()
-        })
-    );
+        Ok(ValueSort::Data { sort, table, .. }) if sort == "Pgm" && !table.sorts.is_empty()
+    ));
     // IMP imports MAP and SET: collections need element sorts, which must resolve.
     assert_eq!(
         resolve_value_sort("Set", &none, definition),
@@ -759,7 +734,8 @@ fn builtin_sorts_resolve_and_hooked_sorts_without_a_generator_are_refused() {
         Ok(ValueSort::Set {
             sort: "Set".into(),
             symbols: set_symbols(),
-            element: Box::new(ValueSort::Int)
+            element: Box::new(ValueSort::Int),
+            text: None,
         })
     );
     assert_eq!(
@@ -780,6 +756,7 @@ fn builtin_sorts_resolve_and_hooked_sorts_without_a_generator_are_refused() {
             symbols: map_symbols(),
             key: Box::new(ValueSort::Token { sort: "Id".into() }),
             value: Box::new(ValueSort::Int),
+            text: None,
         })
     );
     assert_eq!(
@@ -913,6 +890,7 @@ fn check_constraints_refuses_ill_formed_collections() {
         sort: "List".into(),
         symbols: list_symbols(),
         element: Box::new(ValueSort::Int),
+        text: None,
     };
     assert!(
         ok(
@@ -934,6 +912,7 @@ fn check_constraints_refuses_ill_formed_collections() {
         sort: "Set".into(),
         symbols: set_symbols(),
         element: Box::new(ValueSort::Int),
+        text: None,
     };
     assert!(
         ok(
@@ -957,6 +936,7 @@ fn check_constraints_refuses_ill_formed_collections() {
         symbols: map_symbols(),
         key: Box::new(ValueSort::Int),
         value: Box::new(ValueSort::Bool),
+        text: None,
     };
     assert!(
         ok(

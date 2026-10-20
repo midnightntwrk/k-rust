@@ -6,32 +6,43 @@
 //! (ARCHITECTURE 2.3, R-14).
 //!
 //! A [`ValueSort`] is resolved once against the baseline definition by [`resolve_value_sort`]
-//! and then carries everything generation and printing read from the definition (the collection
-//! symbols of a collection sort, the constructor table of a data sort), so that
-//! [`Generator::new`], [`print::print_k_text`] and [`print::to_kore`] need no definition.
+//! (or [`TextSyntax::resolve`], which also attaches the definition's K-text syntax) and then
+//! carries everything generation and printing read from the definition (the collection symbols of
+//! a collection sort, the constructor table of a data sort, the shared [`TextSyntax`]), so that
+//! [`Generator::new`], [`print::print_k_text`], [`print::to_kore`] and [`print::parse_k_text`]
+//! need no definition.
 //!
-//! The module uses only `core` and `alloc` facilities (no I/O, clock, environment or hashing
-//! state), as proptest's `no_std` build does.
+//! The module reads no I/O, clock, environment or hashing state, as proptest's `no_std` build
+//! requires; the K-text syntax (`text.rs`) shares its parsers through `std::sync` and prints
+//! with krs-unparse, which also does no I/O and builds for WebAssembly.
 
+mod data;
+#[cfg(test)]
+mod data_tests;
 pub(crate) mod generator;
 pub(crate) mod print;
+mod term;
+#[cfg(test)]
+mod test_definition;
 #[cfg(test)]
 mod tests;
+pub mod text;
 
 use k_rust::{
     k_rust_backend::{
         definition::BackendDefinition,
-        term::{DomainKind, MIntWidth, Sort as BackendSort},
+        term::{DomainKind, Sort as BackendSort},
     },
     kast::parser::parse_sort,
     kompile::encode_kore_sort,
     kore::ast::Sort as KoreSort,
-    names::{BuiltinSort, MINT_SORT},
+    names::BuiltinSort,
 };
 use num_bigint::{BigInt, BigUint};
 use serde::{Deserialize, Serialize};
 
 pub(crate) use generator::{Generator, ShrinkableValue, ValueRng};
+pub use text::TextSyntax;
 
 use crate::error::SortRefusal;
 
@@ -106,6 +117,17 @@ pub enum ValueSort {
         /// The sort's K name, as declared in the hole (`Id`).
         sort: String,
     },
+    /// A sort hooked to one of the builtins above under its own name
+    /// (`syntax MyInt [hook(INT.Int)]`): its values are those of `base`, and their KORE domain
+    /// values are at `kore_sort`.
+    Renamed {
+        /// The sort's K name (`MyInt`).
+        sort: String,
+        /// The sort's KORE name (`SortMyInt`).
+        kore_sort: String,
+        /// The builtin whose values the sort has (never itself `Renamed`).
+        base: Box<ValueSort>,
+    },
     /// A sort hooked `LIST.List`, with a declared element sort.
     List {
         /// The sort's K name, as declared in the hole (`List`).
@@ -114,6 +136,10 @@ pub enum ValueSort {
         symbols: CollectionSymbols,
         /// The element sort.
         element: Box<ValueSort>,
+        /// The definition's K-text syntax, which prints and reads the collection's values;
+        /// `None` when the sort was resolved without one ([`resolve_value_sort`]).
+        #[serde(skip)]
+        text: Option<TextSyntax>,
     },
     /// A sort hooked `SET.Set`, with a declared element sort.
     Set {
@@ -123,6 +149,9 @@ pub enum ValueSort {
         symbols: CollectionSymbols,
         /// The element sort.
         element: Box<ValueSort>,
+        /// The definition's K-text syntax (see [`ValueSort::List`]).
+        #[serde(skip)]
+        text: Option<TextSyntax>,
     },
     /// A sort hooked `MAP.Map`, with declared key and value sorts.
     Map {
@@ -134,16 +163,46 @@ pub enum ValueSort {
         key: Box<ValueSort>,
         /// The value sort.
         value: Box<ValueSort>,
+        /// The definition's K-text syntax (see [`ValueSort::List`]).
+        #[serde(skip)]
+        text: Option<TextSyntax>,
     },
-    /// A user data sort outside the program syntax closure (M3).
+    /// A user data sort outside the program syntax closure (ARCHITECTURE 3).
     Data {
         /// The sort's K name, as declared in the hole (`Tx`).
         sort: String,
         /// The constructors of this sort (entry 0) and of every data sort their arguments
-        /// reach. Filled by FZ-09 (M3); empty in M1, where a data hole draws only from a
-        /// choice set.
+        /// reach, with their heights.
         table: DataSorts,
+        /// The definition's K-text syntax, which prints and reads the sort's values; `None`
+        /// when the sort was resolved without one ([`resolve_value_sort`]).
+        #[serde(skip)]
+        text: Option<TextSyntax>,
     },
+}
+
+impl ValueSort {
+    /// The sort whose generator, constraints and value shapes this sort uses: `base` for a
+    /// [`ValueSort::Renamed`] sort, the sort itself otherwise.
+    #[must_use]
+    pub fn generated(&self) -> &Self {
+        match self {
+            Self::Renamed { base, .. } => base,
+            _ => self,
+        }
+    }
+}
+
+/// The kind of a collection sort.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CollectionKind {
+    /// Hooked `LIST.List`.
+    List,
+    /// Hooked `SET.Set`.
+    Set,
+    /// Hooked `MAP.Map`.
+    Map,
 }
 
 /// The KORE symbols a collection sort's values are built from: its `unit`, `element` and
@@ -159,6 +218,9 @@ pub struct CollectionSymbols {
     pub element: String,
     /// The concatenation symbol (`Lbl'Unds'List'Unds'`).
     pub concat: String,
+    /// The KORE argument sorts of the element symbol (`[SortKItem]` for `ListItem`, the key and
+    /// value sorts for `_|->_`): an element is injected to them.
+    pub element_arguments: Vec<String>,
 }
 
 /// The constructor table of a data hole: the hole's sort is entry 0, and an argument of a data
@@ -170,14 +232,21 @@ pub struct DataSorts {
     pub sorts: Vec<DataSort>,
 }
 
-/// One data sort of a [`DataSorts`] table.
+/// One data sort of a [`DataSorts`] table (`values/data.rs` states how it is built).
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct DataSort {
     /// The KORE sort name.
     pub kore_sort: String,
-    /// The constructors whose result sort is this sort or a subsort (ARCHITECTURE 3).
+    /// The least height of a value of the sort (constructor applications nested on a path),
+    /// or `None` when the generator can build none.
+    pub height: Option<u32>,
+    /// The admissible, inhabited constructors whose result sort is this sort or a subsort
+    /// (ARCHITECTURE 3), lowest first.
     pub constructors: Vec<DataConstructor>,
+    /// The subsorts that are not data sorts (builtin sorts with a generator, collections), whose
+    /// values are values of this sort through an injection; each has height 0.
+    pub subsorts: Vec<ArgumentSort>,
 }
 
 /// A constructor a data-sort value may be built with.
@@ -189,18 +258,35 @@ pub struct DataConstructor {
     /// The KORE name of the symbol's result sort; an application is injected from it to the
     /// entry's sort when they differ.
     pub result_kore_sort: String,
+    /// The least height of an application (one more than the greatest least height of its data
+    /// arguments); `None` only while the table is built.
+    pub height: Option<u32>,
     /// The argument sorts, in order.
     pub arguments: Vec<ArgumentSort>,
 }
 
-/// The sort of a constructor's argument.
+/// The sort of a constructor's argument, or a non-data subsort of a data sort.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ArgumentSort {
-    /// A sort with its own generator (a builtin or collection sort).
+    /// A builtin sort with its own generator (`Int`, `Bool`, `String`, `Bytes`, `MInt`, or one of
+    /// them renamed).
     Value(ValueSort),
     /// The data sort at this index of the table.
     Data(usize),
+    /// A collection sort whose element sorts the definition does not state: only its empty
+    /// collection is generated.
+    Empty(EmptyCollection),
+}
+
+/// A collection sort of which only the empty collection is generated.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct EmptyCollection {
+    /// The collection's kind.
+    pub kind: CollectionKind,
+    /// The collection's symbols; the empty collection is the unit.
+    pub symbols: CollectionSymbols,
 }
 
 /// Constraints a hole declaration may carry (ARCHITECTURE 2.5).
@@ -267,7 +353,11 @@ pub enum ElementSorts {
 ///   A range with both ends is used whole.
 /// - A `String`, `Bytes` or collection without a length range is at most `length` long; with a
 ///   minimum only, at most `max(min, length)` long.
-/// - A data-sort term is at most `depth` constructors deep (M3).
+/// - A data-sort term is at most `depth` constructor applications deep: every path from its root
+///   meets at most `depth` applications (a builtin leaf or an empty collection adds none).
+///
+/// [`validate_bounds`] refuses bounds above [`MAX_INT_BITS`], [`MAX_GENERATED_LENGTH`] and
+/// [`MAX_DEPTH`], so that no bound makes generation allocate without limit.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct GenerationBounds {
@@ -280,8 +370,51 @@ pub struct GenerationBounds {
     pub depth: u32,
 }
 
+/// The largest `int_bits` bound: an unranged integer has at most this many bits (4096 bits is a
+/// 512-byte number, beyond any machine word and any cryptographic size a guard tests).
+pub const MAX_INT_BITS: u32 = 4096;
+
+/// The cap on generated lengths: the largest `length` bound, the largest minimum of a length
+/// range, and the length a length range's maximum is clamped to when values are generated.
+/// A value is drawn whole before it runs, so a length beyond it would allocate without limit.
+pub const MAX_GENERATED_LENGTH: u64 = 1 << 16;
+
+/// The largest `depth` bound of data-sort terms.
+pub const MAX_DEPTH: u32 = 16;
+
+/// Check `bounds` against [`MAX_INT_BITS`], [`MAX_GENERATED_LENGTH`] and [`MAX_DEPTH`].
+/// [`Generator::new`] calls it.
+///
+/// # Errors
+///
+/// A message naming the bound that exceeds its cap.
+pub(crate) fn validate_bounds(bounds: &GenerationBounds) -> Result<(), String> {
+    if bounds.int_bits > MAX_INT_BITS {
+        return Err(format!(
+            "the int-bits bound {} exceeds its cap, {MAX_INT_BITS}",
+            bounds.int_bits
+        ));
+    }
+    if bounds.length > MAX_GENERATED_LENGTH {
+        return Err(format!(
+            "the length bound {} exceeds its cap, {MAX_GENERATED_LENGTH}",
+            bounds.length
+        ));
+    }
+    if bounds.depth > MAX_DEPTH {
+        return Err(format!(
+            "the depth bound {} exceeds its cap, {MAX_DEPTH}",
+            bounds.depth
+        ));
+    }
+    Ok(())
+}
+
 impl Default for GenerationBounds {
-    /// 64 bits (the machine-word boundaries that programs and guards test), length 16, depth 4.
+    /// 64 bits, length 16, depth 4. A 64-bit window holds every machine-word boundary that
+    /// programs and guards test (`2^31`, `2^63 - 1`, `-2^63`, ...); the generator draws them
+    /// through its uniform choice of bit length, not as dedicated edge values (the edges of an
+    /// unranged `Int` are `0`, `±1` and the window's ends `±(2^64 - 1)`).
     fn default() -> Self {
         Self {
             int_bits: 64,
@@ -296,23 +429,29 @@ impl Default for GenerationBounds {
 /// the hole-sort rule (ARCHITECTURE 2.4, 3). The program-syntax closure and the token rule are
 /// FZ-02's ([`crate::holes::check_hole_sort`]).
 ///
+/// The result carries no K-text syntax, so collection and data values resolved this way are
+/// generated and converted to KORE but not printed or read as K text; [`TextSyntax::resolve`]
+/// resolves with the syntax, and also leaves the program and cell sorts out of data tables.
+///
 /// The kind of a sort is read from its hook and domain values
 /// ([`BackendDefinition::domain_kind`]), never from its name:
 ///
-/// - `Int`, `Bool`, `String`, `Bytes` and `MInt{W}` resolve to their builtin value sorts;
+/// - `Int`, `Bool`, `String`, `Bytes` and `MInt{W}` resolve to their builtin value sorts, and a
+///   sort hooked to one of them under another name (`syntax MyInt [hook(INT.Int)]`) to
+///   [`ValueSort::Renamed`] with its KORE sort name;
 /// - a sort with domain values and no hook (`Id`) resolves to a token sort;
 /// - a sort hooked `LIST.List`, `SET.Set` or `MAP.Map` resolves to a collection when the
 ///   constraints name element sorts of the right shape and they resolve, with the symbols its
 ///   `unit`, `element` and `concat` hooks name;
-/// - a sort without hook and without domain values resolves to a data sort.
+/// - a sort without hook and without domain values resolves to a data sort with its constructor
+///   table (`values/data.rs`).
 ///
 /// # Errors
 ///
 /// - [`SortRefusal::Unknown`]: the text is not a sort, or the definition does not declare it;
 /// - [`SortRefusal::NoGenerator`]: any other hooked sort (`Float`, `KVar`, IO handles, a
-///   `MINT.MInt` sort without a width), and a sort hooked to a builtin of the list above under
-///   another name (`syntax MyInt [hook(INT.Int)]`), whose KORE sort this milestone's printer does
-///   not name;
+///   `MINT.MInt` sort without a width), a parametric data sort, and a data sort of which no value
+///   can be built from admissible constructors and inhabited argument sorts;
 /// - [`SortRefusal::Collection`]: a collection without element sorts, with element sorts of the
 ///   wrong shape, with an element sort that does not resolve, or whose sort lacks one of its
 ///   three symbols.
@@ -321,59 +460,91 @@ pub(crate) fn resolve_value_sort(
     constraints: &Constraints,
     definition: &BackendDefinition,
 ) -> Result<ValueSort, SortRefusal> {
-    let text = sort.trim();
-    let kast = parse_sort(text).map_err(|_| SortRefusal::Unknown)?;
+    resolve_with(sort, constraints, definition, None)
+}
+
+/// [`resolve_value_sort`], with the K-text syntax `text` attached to collection and data sorts
+/// and its excluded sorts left out of data tables.
+pub(super) fn resolve_with(
+    sort: &str,
+    constraints: &Constraints,
+    definition: &BackendDefinition,
+    text: Option<&TextSyntax>,
+) -> Result<ValueSort, SortRefusal> {
+    let text_sort = sort.trim();
+    let kast = parse_sort(text_sort).map_err(|_| SortRefusal::Unknown)?;
     let kore = backend_sort(&encode_kore_sort(&kast));
-    let BackendSort::Application { name, .. } = &kore else {
+    let BackendSort::Application { name, arguments } = &kore else {
         return Err(SortRefusal::Unknown);
     };
     let info = definition.sorts().get(name).ok_or(SortRefusal::Unknown)?;
+    if let Some(builtin) = data::builtin_value_sort(&kore, definition) {
+        return Ok(match builtin {
+            ValueSort::Renamed {
+                kore_sort, base, ..
+            } => ValueSort::Renamed {
+                sort: text_sort.to_owned(),
+                kore_sort,
+                base,
+            },
+            builtin => builtin,
+        });
+    }
     let hook = info.hook.as_deref();
-    let builtin = |builtin: BuiltinSort, resolved: ValueSort| {
-        if kore.is_builtin(builtin) {
-            Ok(resolved)
-        } else {
-            Err(SortRefusal::NoGenerator)
-        }
-    };
     match definition.domain_kind(&kore) {
-        Some(DomainKind::Int) => builtin(BuiltinSort::Int, ValueSort::Int),
-        Some(DomainKind::Bool) => builtin(BuiltinSort::Bool, ValueSort::Bool),
-        Some(DomainKind::String) => builtin(BuiltinSort::String, ValueSort::String),
-        Some(DomainKind::Bytes) => builtin(BuiltinSort::Bytes, ValueSort::Bytes),
-        Some(DomainKind::MInt(MIntWidth::Bits(width))) if name.as_ref() == MINT_SORT => {
-            u32::try_from(width)
-                .map(|width| ValueSort::MInt { width })
-                .map_err(|_| SortRefusal::NoGenerator)
-        }
         Some(DomainKind::Token) if hook.is_none() => Ok(ValueSort::Token {
-            sort: text.to_owned(),
+            sort: text_sort.to_owned(),
         }),
         Some(_) => Err(SortRefusal::NoGenerator),
         None => match hook {
-            None if !info.has_domain_values => Ok(ValueSort::Data {
-                sort: text.to_owned(),
-                table: DataSorts::default(),
-            }),
+            None if !info.has_domain_values => {
+                if !arguments.is_empty() || !info.parameters.is_empty() {
+                    return Err(SortRefusal::NoGenerator);
+                }
+                if text.is_some_and(|text| text.is_excluded(name)) {
+                    return Err(
+                        if kore.is_builtin(BuiltinSort::K) || kore.is_builtin(BuiltinSort::KItem) {
+                            SortRefusal::Computation
+                        } else {
+                            SortRefusal::ProgramSyntax
+                        },
+                    );
+                }
+                let excluded = |name: &str| {
+                    text.map_or_else(
+                        || {
+                            name == BuiltinSort::K.kore_name()
+                                || name == BuiltinSort::KItem.kore_name()
+                        },
+                        |text| text.is_excluded(name),
+                    )
+                };
+                Ok(ValueSort::Data {
+                    sort: text_sort.to_owned(),
+                    table: data::data_table(name, definition, &excluded)?,
+                    text: text.cloned(),
+                })
+            }
             Some(hook @ ("LIST.List" | "SET.Set" | "MAP.Map")) => {
-                resolve_collection(text, name, hook, constraints, definition)
+                resolve_collection(text_sort, name, hook, constraints, definition, text)
             }
             _ => Err(SortRefusal::NoGenerator),
         },
     }
 }
 
-/// The collection sort `text` (KORE name `kore_name`, hooked `hook`) with the element sorts
+/// The collection sort `text_sort` (KORE name `kore_name`, hooked `hook`) with the element sorts
 /// `constraints` declares.
 fn resolve_collection(
-    text: &str,
+    text_sort: &str,
     kore_name: &str,
     hook: &str,
     constraints: &Constraints,
     definition: &BackendDefinition,
+    text: Option<&TextSyntax>,
 ) -> Result<ValueSort, SortRefusal> {
     let element = |sort: &str| {
-        resolve_value_sort(sort, &Constraints::default(), definition)
+        resolve_with(sort, &Constraints::default(), definition, text)
             .map(Box::new)
             .map_err(|_| SortRefusal::Collection)
     };
@@ -381,30 +552,34 @@ fn resolve_collection(
         .split_once('.')
         .map_or(hook, |(namespace, _)| namespace);
     let symbols = collection_symbols(kore_name, namespace, definition)?;
-    let sort = text.to_owned();
+    let sort = text_sort.to_owned();
+    let text = text.cloned();
     match (namespace, &constraints.elements) {
         ("LIST", Some(ElementSorts::Elements { element: name })) => Ok(ValueSort::List {
             sort,
             symbols,
             element: element(name)?,
+            text,
         }),
         ("SET", Some(ElementSorts::Elements { element: name })) => Ok(ValueSort::Set {
             sort,
             symbols,
             element: element(name)?,
+            text,
         }),
         ("MAP", Some(ElementSorts::Entries { key, value })) => Ok(ValueSort::Map {
             sort,
             symbols,
             key: element(key)?,
             value: element(value)?,
+            text,
         }),
         _ => Err(SortRefusal::Collection),
     }
 }
 
 /// The symbols of result sort `kore_name` hooked `<namespace>.unit`, `.element` and `.concat`;
-/// each must be unique.
+/// each must be unique, and the element symbol's argument sorts closed.
 fn collection_symbols(
     kore_name: &str,
     namespace: &str,
@@ -418,15 +593,27 @@ fn collection_symbols(
                     if arguments.is_empty() && name.as_ref() == kore_name)
         });
         match (found.next(), found.next()) {
-            (Some(symbol), None) => Ok(symbol.name.to_string()),
+            (Some(symbol), None) => Ok(symbol),
             _ => Err(SortRefusal::Collection),
         }
     };
+    let element = find("element")?;
+    let element_arguments = element
+        .argument_sorts
+        .iter()
+        .map(|sort| match sort {
+            BackendSort::Application { name, arguments } if arguments.is_empty() => {
+                Ok(name.to_string())
+            }
+            _ => Err(SortRefusal::Collection),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     Ok(CollectionSymbols {
         kore_sort: kore_name.to_owned(),
-        unit: find("unit")?,
-        element: find("element")?,
-        concat: find("concat")?,
+        unit: find("unit")?.name.to_string(),
+        element: element.name.to_string(),
+        concat: find("concat")?.name.to_string(),
+        element_arguments,
     })
 }
 
@@ -443,7 +630,9 @@ fn backend_sort(sort: &KoreSort) -> BackendSort {
 /// Check that `constraints` suit `sort` and admit a value (ARCHITECTURE 2.5): a range only on
 /// `Int` and `MInt` (for `MInt`, meeting `[0, 2^width)`), a length range only on `String`,
 /// `Bytes` and collections, element sorts only on collections, ends in order, and a non-empty
-/// choice set whose every member satisfies the other constraints. [`Generator::new`] calls it.
+/// choice set whose every member satisfies the other constraints. A length range's minimum
+/// may not exceed [`MAX_GENERATED_LENGTH`] (its maximum is clamped to it when values are
+/// generated). A renamed builtin takes the constraints of its base. [`Generator::new`] calls it.
 ///
 /// # Errors
 ///
@@ -453,6 +642,7 @@ pub(crate) fn validate_constraints(
     sort: &ValueSort,
     constraints: &Constraints,
 ) -> Result<(), String> {
+    let sort = sort.generated();
     if let Some(range) = &constraints.range {
         if let (Some(min), Some(max)) = (&range.min, &range.max)
             && min > max
@@ -488,6 +678,14 @@ pub(crate) fn validate_constraints(
             && min > max
         {
             return Err(format!("the length range [{min}, {max}] is empty"));
+        }
+        if let Some(min) = length.min
+            && min > MAX_GENERATED_LENGTH
+        {
+            return Err(format!(
+                "the minimum length {min} exceeds the cap on generated lengths, \
+                 {MAX_GENERATED_LENGTH}"
+            ));
         }
     }
     if constraints.elements.is_some()
@@ -598,7 +796,7 @@ pub(crate) fn check_constraints(
 
 /// Check that `value` is a value of `sort`.
 pub(crate) fn check_shape(value: &Value, sort: &ValueSort) -> Result<(), String> {
-    match (value, sort) {
+    match (value, sort.generated()) {
         (Value::Int(_), ValueSort::Int)
         | (Value::Bool(_), ValueSort::Bool)
         | (Value::String(_), ValueSort::String)
@@ -639,27 +837,52 @@ pub(crate) fn check_shape(value: &Value, sort: &ValueSort) -> Result<(), String>
                 check_shape(entry_value, value)
             })
         }
-        (Value::Apply { .. }, ValueSort::Data { table, .. }) => {
+        (_, ValueSort::Data { table, .. }) => {
             if table.sorts.is_empty() {
-                Ok(())
+                // A table built by hand without entries admits only applications (a choice set
+                // of a data hole resolved without a definition).
+                if matches!(value, Value::Apply { .. }) {
+                    Ok(())
+                } else {
+                    Err("the value is not of the hole's sort".to_owned())
+                }
             } else {
-                check_data(value, table, 0)
+                check_data(value, table, 0).map(|_| ())
             }
         }
         _ => Err("the value is not of the hole's sort".to_owned()),
     }
 }
 
-/// Check that `value` applies a constructor of entry `index` of `table` to arguments of its
-/// argument sorts.
-fn check_data(value: &Value, table: &DataSorts, index: usize) -> Result<(), String> {
-    let Value::Apply { symbol, arguments } = value else {
-        return Err("a data-sort argument is not a constructor application".to_owned());
-    };
+/// How a value of a data-sort entry is built: by a constructor of the entry, or as a value of
+/// one of its non-data subsorts.
+pub(crate) enum DataAlternative<'t> {
+    /// An application of this constructor.
+    Constructor(&'t DataConstructor),
+    /// A value of this subsort, injected to the entry's sort.
+    Subsort(&'t ArgumentSort),
+}
+
+/// Check that `value` is a value of entry `index` of `table`: an application of one of its
+/// constructors to values of the argument sorts, or a value of one of its non-data subsorts.
+/// Returns how the value is built.
+pub(crate) fn check_data<'t>(
+    value: &Value,
+    table: &'t DataSorts,
+    index: usize,
+) -> Result<DataAlternative<'t>, String> {
     let entry = table
         .sorts
         .get(index)
         .ok_or_else(|| format!("the data-sort table has no entry {index}"))?;
+    let Value::Apply { symbol, arguments } = value else {
+        return entry
+            .subsorts
+            .iter()
+            .find(|subsort| check_argument(value, subsort, table).is_ok())
+            .map(DataAlternative::Subsort)
+            .ok_or_else(|| format!("the value is not a value of {}", entry.kore_sort));
+    };
     let constructor = entry
         .constructors
         .iter()
@@ -676,10 +899,29 @@ fn check_data(value: &Value, table: &DataSorts, index: usize) -> Result<(), Stri
         .arguments
         .iter()
         .zip(arguments)
-        .try_for_each(|(sort, argument)| match sort {
-            ArgumentSort::Value(sort) => check_shape(argument, sort),
-            ArgumentSort::Data(index) => check_data(argument, table, *index),
-        })
+        .try_for_each(|(sort, argument)| check_argument(argument, sort, table))?;
+    Ok(DataAlternative::Constructor(constructor))
+}
+
+/// Check that `value` is a value of the argument sort `sort` of `table`.
+fn check_argument(value: &Value, sort: &ArgumentSort, table: &DataSorts) -> Result<(), String> {
+    match sort {
+        ArgumentSort::Value(sort) => check_shape(value, sort),
+        ArgumentSort::Data(index) => check_data(value, table, *index).map(|_| ()),
+        ArgumentSort::Empty(empty) => match (value, empty.kind) {
+            (Value::List(items), CollectionKind::List)
+            | (Value::Set(items), CollectionKind::Set)
+                if items.is_empty() =>
+            {
+                Ok(())
+            }
+            (Value::Map(entries), CollectionKind::Map) if entries.is_empty() => Ok(()),
+            _ => Err(format!(
+                "only the empty collection is a value of {} here",
+                empty.symbols.kore_sort
+            )),
+        },
+    }
 }
 
 /// Serialize a [`BigInt`] as a decimal string.
@@ -777,6 +1019,7 @@ mod hex_bytes {
             .step_by(2)
             .map(|at| {
                 text.get(at..at + 2)
+                    .filter(|pair| pair.bytes().all(|byte| byte.is_ascii_hexdigit()))
                     .and_then(|pair| u8::from_str_radix(pair, 16).ok())
                     .ok_or_else(|| D::Error::custom("invalid hex digit"))
             })

@@ -13,22 +13,23 @@ use core::fmt;
 use num_bigint::{BigInt, BigUint};
 use num_traits::Zero as _;
 use proptest::{
-    collection::{SizeRange, vec},
-    strategy::{BoxedStrategy, NewTree, Strategy, ValueTree},
+    collection::{SizeRange, btree_map, btree_set, vec},
+    sample::subsequence,
+    strategy::{BoxedStrategy, Just, NewTree, Strategy, Union, ValueTree},
     test_runner::{Config, RngAlgorithm, RngSeed, TestRng, TestRunner, noop_result_cache},
 };
 use rand::RngCore as _;
 
 use super::{
-    Constraints, GenerationBounds, IntRange, LengthRange, Value, ValueSort, mint_bounds,
-    validate_constraints,
+    ArgumentSort, CollectionKind, Constraints, DataSorts, GenerationBounds, IntRange, LengthRange,
+    MAX_GENERATED_LENGTH, Value, ValueSort, mint_bounds, validate_bounds, validate_constraints,
 };
 
 /// The `Config` of every runner: each field that strategies, value trees or the runner's
 /// constructors read is set here, independently of the environment. `..Config::default()`
 /// fills only the feature-gated fields (`fork`, `timeout`, `max_shrink_time`, `verbose`), which
 /// only `TestRunner::run` reads and which exist or not depending on proptest's features (T-2).
-fn engine_config(seed: &[u8; 32]) -> Config {
+pub(super) fn engine_config(seed: &[u8; 32]) -> Config {
     let mut first = [0u8; 8];
     first.copy_from_slice(&seed[..8]);
     Config {
@@ -101,26 +102,42 @@ impl Generator {
     ///   both common. They shrink by bisection towards the value nearest zero.
     /// - `String` draws code points with proptest's character biases; `Bytes` draws bytes.
     ///   Both shrink by removing and simplifying elements, never below the minimum length.
-    /// - Token, collection and data sorts have no generator in this milestone (FZ-09); they
-    ///   need a choice set.
+    /// - A renamed builtin draws its base's values.
+    /// - `List` draws a vector of elements; `Set` and `Map` draw distinct elements (keys), from
+    ///   the whole universe of the element (key) sort when it has at most
+    ///   [`ENUMERATION_LIMIT`] values (a subsequence of it, so a draw never fails), and by
+    ///   proptest's `btree_set`/`btree_map` otherwise. Elements are drawn without constraints
+    ///   under `bounds`. Collections shrink by removing elements, never below the minimum
+    ///   length, and by shrinking elements.
+    /// - A data sort draws, at remaining depth `d`, uniformly among the alternatives of its
+    ///   table entry whose least height is at most `d` (its non-data subsorts, then its
+    ///   constructors, lowest first), and draws a constructor's data arguments at depth
+    ///   `d - 1`, starting from `bounds.depth`; so every term is at most `bounds.depth`
+    ///   applications deep, and recursion terminates (`values/data.rs`). It shrinks towards
+    ///   earlier (lower) alternatives and by shrinking arguments, so every step stays a value of
+    ///   the sort within the depth bound.
+    /// - Token sorts have no generator; they need a choice set.
     ///
     /// # Errors
     ///
-    /// A message when the constraints do not suit the sort or admit no value
-    /// ([`super::validate_constraints`]), or when the sort has no generator and no choice set;
-    /// the caller reports it as [`crate::CampaignError::InvalidConstraints`].
+    /// A message when the bounds exceed their caps ([`super::validate_bounds`]), the constraints
+    /// do not suit the sort or admit no value ([`super::validate_constraints`]), the sort has no
+    /// generator and no choice set, a data sort has no value within the depth bound, or a set or
+    /// map asks for more distinct elements than its element sort reliably gives; the caller
+    /// reports it as [`crate::CampaignError::InvalidConstraints`].
     pub(crate) fn new(
         sort: &ValueSort,
         constraints: &Constraints,
         bounds: &GenerationBounds,
     ) -> Result<Self, String> {
+        validate_bounds(bounds)?;
         validate_constraints(sort, constraints)?;
         if let Some(choices) = &constraints.choices {
             return Ok(Self {
                 strategy: proptest::sample::select(choices.clone()).boxed(),
             });
         }
-        let strategy = match sort {
+        let strategy = match sort.generated() {
             ValueSort::Int => IntStrategy::int(constraints.range.as_ref(), bounds.int_bits).boxed(),
             ValueSort::MInt { width } => {
                 IntStrategy::mint(*width, constraints.range.as_ref())?.boxed()
@@ -137,20 +154,50 @@ impl Generator {
                     "the token sort {sort} has no generator; give the hole a choice set"
                 ));
             }
-            ValueSort::List { sort, .. }
-            | ValueSort::Set { sort, .. }
-            | ValueSort::Map { sort, .. } => {
-                return Err(format!(
-                    "collection holes ({sort}) have no generator before FZ-09 (M3); give the \
-                     hole a choice set"
-                ));
+            ValueSort::List { element, .. } => {
+                let element = Self::new(element, &Constraints::default(), bounds)?.strategy;
+                vec(element, size_range(constraints, bounds)?)
+                    .prop_map(Value::List)
+                    .boxed()
             }
-            ValueSort::Data { sort, .. } => {
-                return Err(format!(
-                    "data-sort holes ({sort}) have no generator before FZ-09 (M3); give the \
-                     hole a choice set"
-                ));
+            ValueSort::Set { sort, element, .. } => {
+                let size = distinct_size(sort, element, constraints, bounds)?;
+                if let Some(universe) = enumerate(element, bounds) {
+                    subsequence(universe, size)
+                        .prop_map(|mut items| {
+                            items.sort();
+                            Value::Set(items)
+                        })
+                        .boxed()
+                } else {
+                    let element = Self::new(element, &Constraints::default(), bounds)?.strategy;
+                    btree_set(element, size)
+                        .prop_map(|items| Value::Set(items.into_iter().collect()))
+                        .boxed()
+                }
             }
+            ValueSort::Map {
+                sort, key, value, ..
+            } => {
+                let size = distinct_size(sort, key, constraints, bounds)?;
+                let value = Self::new(value, &Constraints::default(), bounds)?.strategy;
+                if let Some(universe) = enumerate(key, bounds) {
+                    let most = size.end_incl();
+                    (subsequence(universe, size), vec(value, most..=most))
+                        .prop_map(|(mut keys, values)| {
+                            keys.sort();
+                            Value::Map(keys.into_iter().zip(values).collect())
+                        })
+                        .boxed()
+                } else {
+                    let key = Self::new(key, &Constraints::default(), bounds)?.strategy;
+                    btree_map(key, value, size)
+                        .prop_map(|entries| Value::Map(entries.into_iter().collect()))
+                        .boxed()
+                }
+            }
+            ValueSort::Data { sort, table, .. } => data_strategy(sort, table, bounds)?,
+            ValueSort::Renamed { .. } => unreachable!("generated() unwraps a renamed sort"),
         };
         Ok(Self { strategy })
     }
@@ -165,11 +212,15 @@ impl Generator {
     }
 }
 
-/// The length range of a `String` or `Bytes` hole under `bounds` (see [`GenerationBounds`]).
+/// The length range of a `String`, `Bytes` or collection hole under `bounds` (see
+/// [`GenerationBounds`]), with its maximum clamped to [`MAX_GENERATED_LENGTH`].
 fn size_range(constraints: &Constraints, bounds: &GenerationBounds) -> Result<SizeRange, String> {
     let LengthRange { min, max } = constraints.length.unwrap_or_default();
     let min = min.unwrap_or(0);
-    let max = max.unwrap_or_else(|| min.max(bounds.length));
+    let max = max
+        .unwrap_or_else(|| min.max(bounds.length))
+        .min(MAX_GENERATED_LENGTH)
+        .max(min);
     let usize_of =
         |length: u64| usize::try_from(length).map_err(|_| format!("length {length} is too large"));
     Ok(SizeRange::from(usize_of(min)?..=usize_of(max)?))
@@ -213,6 +264,265 @@ impl ShrinkableValue {
     pub(crate) fn complicate(&mut self) -> bool {
         self.tree.complicate()
     }
+}
+
+// ------------------------------------------------------------------------------------------
+// Sets, maps and data sorts.
+
+/// The largest universe a set's elements or a map's keys are drawn from as a subsequence; a
+/// larger element sort is drawn from by proptest's `btree_set` and `btree_map`.
+pub const ENUMERATION_LIMIT: u64 = 1 << 16;
+
+/// The length range of a `Set` or `Map` hole (named `sort`) whose elements or keys are of
+/// `element`: [`size_range`], with the maximum clamped to the number of distinct elements.
+///
+/// When the element sort has more than [`ENUMERATION_LIMIT`] values, but finitely many (`c`),
+/// the minimum must satisfy `min^2 <= 4c`: then `min` independent draws are all distinct with
+/// probability above `e^-2`, so proptest's `btree_set` finds a large enough set well within its
+/// rejection limit.
+fn distinct_size(
+    sort: &str,
+    element: &ValueSort,
+    constraints: &Constraints,
+    bounds: &GenerationBounds,
+) -> Result<SizeRange, String> {
+    let size = size_range(constraints, bounds)?;
+    let (min, max) = (size.start(), size.end_incl());
+    let Some(count) = cardinality(element, bounds) else {
+        return Ok(size);
+    };
+    let min_wide = u128::try_from(min).unwrap_or(u128::MAX);
+    if min_wide > count {
+        return Err(format!(
+            "{sort} asks for at least {min} distinct elements, and its element sort has {count}"
+        ));
+    }
+    if count > u128::from(ENUMERATION_LIMIT) && min_wide.saturating_mul(min_wide) > count * 4 {
+        return Err(format!(
+            "{sort} asks for at least {min} distinct elements out of {count}, more than distinct \
+             draws reliably give (at most 2 * sqrt({count}))"
+        ));
+    }
+    let max = usize::try_from(count).map_or(max, |count| max.min(count));
+    Ok(SizeRange::from(min..=max))
+}
+
+/// The number of values `sort` generates under `bounds`, when finite and below `2^128`:
+/// `Bool`, `MInt`, and data sorts whose terms within the depth bound are finitely many.
+/// `None` for the others, which have too many values for a collision to matter.
+fn cardinality(sort: &ValueSort, bounds: &GenerationBounds) -> Option<u128> {
+    match sort.generated() {
+        ValueSort::Bool => Some(2),
+        ValueSort::MInt { width } => 1u128.checked_shl(*width),
+        ValueSort::Data { table, .. } => {
+            let mut memo = std::collections::BTreeMap::new();
+            data_cardinality(table, 0, bounds.depth, bounds, &mut memo)
+        }
+        _ => None,
+    }
+}
+
+fn data_cardinality(
+    table: &DataSorts,
+    index: usize,
+    depth: u32,
+    bounds: &GenerationBounds,
+    memo: &mut std::collections::BTreeMap<(usize, u32), Option<u128>>,
+) -> Option<u128> {
+    if let Some(known) = memo.get(&(index, depth)) {
+        return *known;
+    }
+    let entry = &table.sorts[index];
+    let mut total = 0u128;
+    let mut finite = true;
+    for subsort in &entry.subsorts {
+        match argument_cardinality(subsort, table, depth, bounds, memo) {
+            Some(count) => total = total.checked_add(count)?,
+            None => finite = false,
+        }
+    }
+    for constructor in &entry.constructors {
+        if constructor.height.is_none_or(|height| height > depth) {
+            continue;
+        }
+        let mut product = 1u128;
+        for argument in &constructor.arguments {
+            match argument_cardinality(argument, table, depth - 1, bounds, memo) {
+                Some(count) => product = product.checked_mul(count)?,
+                None => finite = false,
+            }
+        }
+        total = total.checked_add(product)?;
+    }
+    let result = finite.then_some(total);
+    memo.insert((index, depth), result);
+    result
+}
+
+fn argument_cardinality(
+    sort: &ArgumentSort,
+    table: &DataSorts,
+    depth: u32,
+    bounds: &GenerationBounds,
+    memo: &mut std::collections::BTreeMap<(usize, u32), Option<u128>>,
+) -> Option<u128> {
+    match sort {
+        ArgumentSort::Value(sort) => cardinality(sort, bounds),
+        ArgumentSort::Empty(_) => Some(1),
+        ArgumentSort::Data(index) => data_cardinality(table, *index, depth, bounds, memo),
+    }
+}
+
+/// Every value `sort` generates under `bounds`, in a fixed order, when they are at most
+/// [`ENUMERATION_LIMIT`] (see [`cardinality`]).
+fn enumerate(sort: &ValueSort, bounds: &GenerationBounds) -> Option<Vec<Value>> {
+    let count = cardinality(sort, bounds)?;
+    if count > u128::from(ENUMERATION_LIMIT) {
+        return None;
+    }
+    Some(match sort.generated() {
+        ValueSort::Bool => vec![Value::Bool(false), Value::Bool(true)],
+        ValueSort::MInt { width } => (0..count)
+            .map(|value| Value::MInt {
+                width: *width,
+                value: BigUint::from(value),
+            })
+            .collect(),
+        ValueSort::Data { table, .. } => enumerate_data(table, 0, bounds.depth),
+        _ => return None,
+    })
+}
+
+fn enumerate_data(table: &DataSorts, index: usize, depth: u32) -> Vec<Value> {
+    let entry = &table.sorts[index];
+    let mut values = Vec::new();
+    for subsort in &entry.subsorts {
+        values.extend(enumerate_argument(subsort, table, depth));
+    }
+    for constructor in &entry.constructors {
+        if constructor.height.is_none_or(|height| height > depth) {
+            continue;
+        }
+        let mut tuples = vec![Vec::new()];
+        for argument in &constructor.arguments {
+            let choices = enumerate_argument(argument, table, depth - 1);
+            tuples = tuples
+                .into_iter()
+                .flat_map(|tuple: Vec<Value>| {
+                    choices.iter().map(move |choice| {
+                        let mut tuple = tuple.clone();
+                        tuple.push(choice.clone());
+                        tuple
+                    })
+                })
+                .collect();
+        }
+        values.extend(tuples.into_iter().map(|arguments| Value::Apply {
+            symbol: constructor.symbol.clone(),
+            arguments,
+        }));
+    }
+    values
+}
+
+fn enumerate_argument(sort: &ArgumentSort, table: &DataSorts, depth: u32) -> Vec<Value> {
+    match sort {
+        ArgumentSort::Value(sort) => match sort.generated() {
+            ValueSort::Bool => vec![Value::Bool(false), Value::Bool(true)],
+            ValueSort::MInt { width } => (0..(1u64 << width))
+                .map(|value| Value::MInt {
+                    width: *width,
+                    value: BigUint::from(value),
+                })
+                .collect(),
+            _ => unreachable!("an enumerated data sort has only finite leaves"),
+        },
+        ArgumentSort::Empty(empty) => vec![empty_collection(empty.kind)],
+        ArgumentSort::Data(index) => enumerate_data(table, *index, depth),
+    }
+}
+
+fn empty_collection(kind: CollectionKind) -> Value {
+    match kind {
+        CollectionKind::List => Value::List(Vec::new()),
+        CollectionKind::Set => Value::Set(Vec::new()),
+        CollectionKind::Map => Value::Map(Vec::new()),
+    }
+}
+
+/// The strategy of the data sort `sort` with table `table` (see [`Generator::new`]).
+fn data_strategy(
+    sort: &str,
+    table: &DataSorts,
+    bounds: &GenerationBounds,
+) -> Result<BoxedStrategy<Value>, String> {
+    let Some(root) = table.sorts.first() else {
+        return Err(format!(
+            "the data sort {sort} was resolved without its constructor table; give the hole a \
+             choice set"
+        ));
+    };
+    let height = root
+        .height
+        .ok_or_else(|| format!("no value of the data sort {sort} can be built"))?;
+    if height > bounds.depth {
+        return Err(format!(
+            "the least value of the data sort {sort} is {height} constructors deep, above the \
+             depth bound {}",
+            bounds.depth
+        ));
+    }
+    let leaf = |sort: &ArgumentSort| -> Result<BoxedStrategy<Value>, String> {
+        match sort {
+            ArgumentSort::Value(sort) => {
+                Ok(Generator::new(sort, &Constraints::default(), bounds)?.strategy)
+            }
+            ArgumentSort::Empty(empty) => Ok(Just(empty_collection(empty.kind)).boxed()),
+            ArgumentSort::Data(_) => unreachable!("a leaf is not data"),
+        }
+    };
+    // levels[d][i]: the values of entry i at most d applications deep.
+    let mut levels: Vec<Vec<Option<BoxedStrategy<Value>>>> = Vec::new();
+    for depth in 0..=bounds.depth {
+        let mut level = Vec::with_capacity(table.sorts.len());
+        for entry in &table.sorts {
+            let mut alternatives = entry
+                .subsorts
+                .iter()
+                .map(leaf)
+                .collect::<Result<Vec<_>, _>>()?;
+            for constructor in &entry.constructors {
+                if constructor.height.is_none_or(|height| height > depth) {
+                    continue;
+                }
+                let arguments = constructor
+                    .arguments
+                    .iter()
+                    .map(|argument| match argument {
+                        ArgumentSort::Data(index) => Ok(levels[depth as usize - 1][*index]
+                            .clone()
+                            .expect("a constructor's data arguments are lower than it")),
+                        other => leaf(other),
+                    })
+                    .collect::<Result<Vec<_>, String>>()?;
+                let symbol = constructor.symbol.clone();
+                alternatives.push(
+                    arguments
+                        .prop_map(move |arguments| Value::Apply {
+                            symbol: symbol.clone(),
+                            arguments,
+                        })
+                        .boxed(),
+                );
+            }
+            level.push((!alternatives.is_empty()).then(|| Union::new(alternatives).boxed()));
+        }
+        levels.push(level);
+    }
+    Ok(levels
+        .pop()
+        .and_then(|mut level| level.swap_remove(0))
+        .expect("the root has a value within the depth bound"))
 }
 
 // ------------------------------------------------------------------------------------------
@@ -436,6 +746,11 @@ impl ValueTree for IntTree {
             return false;
         }
         self.lo = &self.curr + 1u8;
+        // Before any simplification `hi` is the drawn distance, so there is nothing above it to
+        // step back to.
+        if self.lo > self.hi {
+            return false;
+        }
         self.reposition()
     }
 }

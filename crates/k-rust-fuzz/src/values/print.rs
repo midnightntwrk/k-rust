@@ -1,5 +1,11 @@
 //! Values as K text and as KORE, and K text read back as values (ARCHITECTURE 2.3, 2.6).
-//! Owner: FZ-03 (builtin sorts); FZ-09 and FZ-G6 add collection and data-sort printing.
+//! Owner: FZ-03 (builtin sorts), then FZ-G6 and FZ-09 (collections, data sorts, renamed
+//! builtins).
+//!
+//! Collection and data-sort values are printed and read through the definition's
+//! [`super::TextSyntax`] (krs-unparse and the frontend's parser; `values/text.rs`), and their
+//! KORE is built in `values/term.rs`. A renamed builtin (`syntax MyInt [hook(INT.Int)]`) prints
+//! and reads as its base's literal, and its KORE domain value is at its own sort.
 //!
 //! The K text of a builtin value is a token in the lexical syntax the prelude declares for its
 //! sort (`builtin/domains.md`):
@@ -27,40 +33,61 @@ use k_rust::{
 };
 use num_bigint::{BigInt, BigUint};
 
-use super::{Value, ValueSort, check_shape};
+use super::{Value, ValueSort, check_shape, term};
 
 /// Why a value cannot be printed as K text that parses back.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum PrintError {
     /// The value's shape does not match the sort.
     SortMismatch,
-    /// The sort has no printer in this milestone (collections before FZ-09, data sorts before
-    /// G-6).
+    /// The value cannot be printed as program text: its sort was resolved without the
+    /// definition's K-text syntax, or the grammar has no printable production for a symbol.
     Unsupported(String),
 }
 
-/// The refusal for collection values.
-fn collections_unsupported() -> PrintError {
-    PrintError::Unsupported("collection values are printed from FZ-09 (M3) on".to_owned())
-}
-
-/// The refusal for data-sort values.
-fn data_unsupported() -> PrintError {
-    PrintError::Unsupported("data-sort values are printed from FZ-G6 (G-6) on".to_owned())
+/// The refusal for a collection or data value whose sort carries no K-text syntax.
+fn no_syntax(sort: &str) -> PrintError {
+    PrintError::Unsupported(format!(
+        "{sort} values are printed through the definition's K-text syntax, and the hole's sort \
+         was resolved without one (TextSyntax::resolve)"
+    ))
 }
 
 /// `value` as K text at `sort`: the text a span hole's literal is replaced with
 /// (ARCHITECTURE 2.3) and the witness's K text (2.6). For builtin sorts it is the literal the
 /// definition's lexical syntax reads (`-5` for a negative `Int`, a quoted and escaped string,
-/// `b"…"` for bytes, `5p64` for `MInt{64}`); a token is its text. Whether the program's grammar
-/// reads it back as the intended value at the hole's position is FZ-02's round-trip check, not
-/// this function's.
+/// `b"…"` for bytes, `5p64` for `MInt{64}`); a token is its text; a renamed builtin prints as
+/// its base. A collection or data value is printed from its KORE ([`to_kore`]) by the sort's
+/// [`super::TextSyntax`], through the grammar's productions, on one line. Whether the program's
+/// grammar reads it back as the intended value at the hole's position is FZ-02's round-trip
+/// check, not this function's.
 ///
 /// # Errors
 ///
 /// [`PrintError`] when the value cannot be printed.
 pub(crate) fn print_k_text(value: &Value, sort: &ValueSort) -> Result<String, PrintError> {
     check_shape(value, sort).map_err(|_| PrintError::SortMismatch)?;
+    match sort {
+        ValueSort::Renamed { base, .. } => return print_k_text(value, base),
+        ValueSort::List {
+            sort: name, text, ..
+        }
+        | ValueSort::Set {
+            sort: name, text, ..
+        }
+        | ValueSort::Map {
+            sort: name, text, ..
+        }
+        | ValueSort::Data {
+            sort: name, text, ..
+        } => {
+            let text = text.as_ref().ok_or_else(|| no_syntax(name))?;
+            return text
+                .print(&to_kore(value, sort)?)
+                .map_err(PrintError::Unsupported);
+        }
+        _ => {}
+    }
     Ok(match value {
         Value::Int(number) => number.to_string(),
         Value::Bool(true) => "true".to_owned(),
@@ -69,15 +96,23 @@ pub(crate) fn print_k_text(value: &Value, sort: &ValueSort) -> Result<String, Pr
         Value::Bytes(bytes) => quote_bytes(bytes),
         Value::MInt { width, value } => format!("{value}p{width}"),
         Value::Token { text, .. } => text.clone(),
-        Value::List(_) | Value::Set(_) | Value::Map(_) => return Err(collections_unsupported()),
-        Value::Apply { .. } => return Err(data_unsupported()),
+        Value::List(_) | Value::Set(_) | Value::Map(_) | Value::Apply { .. } => {
+            return Err(PrintError::SortMismatch);
+        }
     })
 }
 
 /// `value` as a KORE pattern of `sort` (a domain value `\dv{SortInt{}}("5")`, a collection
 /// built from the collection's symbols, or a constructor application), not injected: the
 /// expected term at a hole's position for the round-trip check (ARCHITECTURE 2.3), the
-/// substitution of a KORE-template hole, and the witness's KORE (2.6).
+/// substitution of a KORE-template hole, and the witness's KORE (2.6). A data value is at its
+/// own sort (the result sort of its constructor, or the sort of its builtin or collection
+/// subsort), without an injection to the hole's sort: the assembler places a value under the
+/// one injection its position needs (`inj{SortCircle{}, SortKItem{}}` for a `Shape` value in a
+/// `KItem` position, not an injection to `Shape` inside one to `KItem`), so that injection
+/// belongs to the position ([`kore_sort_of`] gives the value's own sort). The shape of
+/// collections and data values is the one the assembler builds from their K text
+/// (`values/term.rs`).
 ///
 /// A domain value's payload is the canonical text of its sort's kind: the decimal without `+`
 /// or leading zeros for `Int`, the code points of a `String`, one code point per byte (the
@@ -89,6 +124,26 @@ pub(crate) fn print_k_text(value: &Value, sort: &ValueSort) -> Result<String, Pr
 /// [`PrintError`] when the value's shape does not match the sort, or the sort has no printer.
 pub(crate) fn to_kore(value: &Value, sort: &ValueSort) -> Result<KorePattern, PrintError> {
     check_shape(value, sort).map_err(|_| PrintError::SortMismatch)?;
+    match sort {
+        ValueSort::Renamed {
+            kore_sort, base, ..
+        } => {
+            let KorePattern::DomainValue { value, .. } = &to_kore(value, base)? else {
+                unreachable!("a builtin value is a domain value");
+            };
+            return Ok(KorePattern::DomainValue {
+                sort: term::simple_sort(kore_sort),
+                value: value.clone(),
+            });
+        }
+        ValueSort::List { .. } | ValueSort::Set { .. } | ValueSort::Map { .. } => {
+            return term::kore_of(value, sort).map(|(pattern, _)| pattern);
+        }
+        ValueSort::Data { .. } => {
+            return term::kore_of(value, sort).map(|(pattern, _)| pattern);
+        }
+        _ => {}
+    }
     let builtin = |sort: BuiltinSort| KoreSort::Application {
         name: sort.kore_name().to_owned(),
         arguments: Vec::new(),
@@ -121,8 +176,9 @@ pub(crate) fn to_kore(value: &Value, sort: &ValueSort) -> Result<KorePattern, Pr
             let kast = parse_sort(sort).map_err(|_| PrintError::SortMismatch)?;
             (encode_kore_sort(&kast), KoreString::from(text.as_str()))
         }
-        Value::List(_) | Value::Set(_) | Value::Map(_) => return Err(collections_unsupported()),
-        Value::Apply { .. } => return Err(data_unsupported()),
+        Value::List(_) | Value::Set(_) | Value::Map(_) | Value::Apply { .. } => {
+            return Err(PrintError::SortMismatch);
+        }
     };
     Ok(KorePattern::DomainValue {
         sort,
@@ -130,16 +186,35 @@ pub(crate) fn to_kore(value: &Value, sort: &ValueSort) -> Result<KorePattern, Pr
     })
 }
 
+/// The KORE sort of [`to_kore`]'s pattern for `value`: the value's own sort (for a data value,
+/// its constructor's result sort or its subsort's sort). A position that holds the value holds
+/// it under `inj{<this sort>, <the position's sort>}` when the two differ.
+///
+/// # Errors
+///
+/// [`PrintError`] when the value's shape does not match the sort.
+pub(crate) fn kore_sort_of(value: &Value, sort: &ValueSort) -> Result<KoreSort, PrintError> {
+    check_shape(value, sort).map_err(|_| PrintError::SortMismatch)?;
+    term::kore_of(value, sort).map(|(_, own)| own)
+}
+
 /// `text`, a K literal of `sort` in the lexical syntax of the module comment, as the value it
 /// denotes: the inverse of [`print_k_text`], which also reads every other spelling the lexical
 /// syntax admits (`+5`, `"A"`, `-1p8`). FZ-02 can read hole anchors with it.
 ///
+/// A collection or data-sort text is read by the sort's [`super::TextSyntax`] as the
+/// configuration assembler reads a value of the sort (parse, macro expansion, sort injection,
+/// KORE), and the KORE is read back as a value; a set's elements and a map's entries are then
+/// in the value's order, whatever order the text lists them in. A renamed builtin reads its
+/// base's literal.
+///
 /// # Errors
 ///
-/// A message when `text` is not a literal of the sort, or the sort has no reader in this
-/// milestone (collections, data sorts).
+/// A message when `text` is not a value of the sort, or a collection or data sort carries no
+/// K-text syntax.
 pub(crate) fn parse_k_text(text: &str, sort: &ValueSort) -> Result<Value, String> {
     match sort {
+        ValueSort::Renamed { base, .. } => parse_k_text(text, base),
         ValueSort::Int => parse_int(text).map(Value::Int),
         ValueSort::Bool => match text {
             "true" => Ok(Value::Bool(true)),
@@ -163,17 +238,42 @@ pub(crate) fn parse_k_text(text: &str, sort: &ValueSort) -> Result<Value, String
                 })
             }
         }
-        ValueSort::List { sort, .. }
-        | ValueSort::Set { sort, .. }
-        | ValueSort::Map { sort, .. } => {
-            Err(format!("{sort} literals are read from FZ-09 (M3) on"))
+        ValueSort::List {
+            sort: name,
+            text: syntax,
+            ..
         }
-        ValueSort::Data { sort, .. } => Err(format!("{sort} terms are read from FZ-G6 on")),
+        | ValueSort::Set {
+            sort: name,
+            text: syntax,
+            ..
+        }
+        | ValueSort::Map {
+            sort: name,
+            text: syntax,
+            ..
+        }
+        | ValueSort::Data {
+            sort: name,
+            text: syntax,
+            ..
+        } => {
+            let syntax = syntax.as_ref().ok_or_else(|| {
+                format!(
+                    "{name} values are read through the definition's K-text syntax, and the \
+                     sort was resolved without one"
+                )
+            })?;
+            let pattern = syntax.parse(text, name)?;
+            let value = term::value_of(&pattern, sort)?;
+            check_shape(&value, sort)?;
+            Ok(value)
+        }
     }
 }
 
 /// An `Int` literal, `[\+\-]?[0-9]+`.
-fn parse_int(text: &str) -> Result<BigInt, String> {
+pub(super) fn parse_int(text: &str) -> Result<BigInt, String> {
     let (negative, digits) = match text.strip_prefix('-') {
         Some(digits) => (true, digits),
         None => (false, text.strip_prefix('+').unwrap_or(text)),
@@ -189,7 +289,7 @@ fn parse_int(text: &str) -> Result<BigInt, String> {
 
 /// An `MInt{width}` literal, `[\+\-]?[0-9]+[pP][0-9]+`, whose suffix names `width`: its signed
 /// decimal reduced modulo `2^width`.
-fn parse_mint(text: &str, width: u32) -> Result<Value, String> {
+pub(super) fn parse_mint(text: &str, width: u32) -> Result<Value, String> {
     let not_literal = || format!("{text:?} is not an MInt{{{width}}} literal");
     let (number, suffix) = text.split_once(['p', 'P']).ok_or_else(not_literal)?;
     if suffix.is_empty() || !suffix.bytes().all(|byte| byte.is_ascii_digit()) {
