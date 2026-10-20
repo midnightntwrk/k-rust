@@ -51,8 +51,8 @@ use k_rust::{
     kast::{Sort as KastSort, WellKnownModule, parser::parse_sort},
     kompile::{
         CompilationBackend, CompileOptions, CompileSearchPatternError, CompiledSearchPattern,
-        ConfigurationAssembler, ConfigurationError, ProgramGrammar, compile_loaded_definition,
-        compile_loaded_definition_with_timings, compile_search_pattern,
+        ConfigurationError, compile_loaded_definition, compile_loaded_definition_with_timings,
+        compile_search_pattern,
         pipeline::{emission_phase, load_phase},
     },
     kore::{
@@ -66,6 +66,7 @@ use k_rust::{
         printer::Printer as KorePrinter,
         walk::for_each_post_order,
     },
+    krun::{InitialTerm, KrunDefinition, ProgramText, with_initial_term},
     names::KoreAttribute,
     native::{
         ExecutionPayload, FileResolver, load_runnable_artifact, unpublish_runnable_artifact,
@@ -82,7 +83,7 @@ use k_rust_backend::{
     definition::Admission,
     externalize::{self, External},
     proof::{ProofError, ProofLeafOutcome, ProofOptions, ProofSearchOrder, ProofStatus},
-    rewrite::{ExecutionMode, Pattern},
+    rewrite::ExecutionMode,
     search::SearchType,
     simplify::DEFAULT_MAX_SIMPLIFICATION_ITERATIONS,
     smt::{ModelResult, Z3Options},
@@ -2467,7 +2468,6 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     let program_parse_phase =
         tracing::info_span!("phase", name = tracing::field::display("program_parse")).entered();
     let started = Instant::now();
-    let available_config_vars = &compiled.configuration_variables;
     // The program is the value of `$PGM`. A program that is passed (an expression or a file)
     // is parsed and checked whether or not the definition declares `$PGM`. When none is
     // passed, a definition that declares `$PGM` takes it from standard input, and one that
@@ -2479,9 +2479,17 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
             .program_file
             .as_deref()
             .is_none_or(|path| path == Path::new("-"));
+    let definition = KrunDefinition {
+        main_module: &compiled.main_module,
+        syntax_module: &compiled.syntax_module,
+        frontend_definition: &compiled.frontend_definition,
+        configuration_variables: &compiled.configuration_variables,
+        execution_rewrite_order: &compiled.execution_rewrite_order,
+        definition_kore: &compiled.definition_kore,
+    };
     // One resolution of the program grammar serves the search pattern and every input of the
     // initial configuration.
-    let program_grammar = ProgramGrammar::new(&compiled.frontend_definition)?;
+    let program_grammar = definition.program_grammar()?;
     let compiled_surface_pattern = if let Some(contents) = options.surface_pattern.as_deref() {
         let execution_resolved = compiled.execution_definition.resolve()?;
         let attributes = command_line_pattern_attributes(contents);
@@ -2505,18 +2513,20 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     };
     let match_target_source =
         select_match_target_source(options.search.as_ref(), compiled_surface_pattern);
-    let mut assembler = ConfigurationAssembler::new(
-        &program_grammar,
-        &compiled.main_module,
-        &compiled.syntax_module,
-        available_config_vars,
-    );
-    let program_bound = program_supplied || available_config_vars.contains_key("PGM");
+    // The binding steps below are `KrunAssembler::assemble`'s, in its order (`k_rust::krun`),
+    // taken one by one around the timing phases and the `NAME=VALUE` split of each `-c`.
+    let mut assembler = definition.assembler(&program_grammar);
+    let program_bound = assembler.binds_program(program_supplied);
     if program_bound {
         let (file, source) = read_program_source(options.expression, options.program_file)?;
         let start_sort = parse_sort(&options.sort)?;
+        let program = ProgramText {
+            text: &source,
+            file: &file,
+            from_standard_input: program_uses_stdin,
+        };
         assembler
-            .program_file(&start_sort, &source, &file)
+            .program(&start_sort, &program)
             .map_err(krun_configuration_error)?;
     }
     let program_parse_seconds = started.elapsed().as_secs_f64();
@@ -2524,7 +2534,6 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     let config_vars_parse_phase =
         tracing::info_span!("phase", name = tracing::field::display("config_vars_parse")).entered();
     let started = Instant::now();
-    let program_uses_stdin = program_uses_stdin && program_bound;
     for assignment in &options.config_vars {
         let (name, source) = assignment.split_once('=').ok_or_else(|| {
             format!("invalid configuration variable `{assignment}`; expected NAME=VALUE")
@@ -2534,16 +2543,14 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
             .map_err(krun_configuration_error)?;
     }
     assembler
-        .bind_stream_defaults(io, program_uses_stdin, || {
+        .bind_stream_defaults(io, || {
             if std::io::stdin().is_terminal() {
                 eprintln!(
                     "note: reading standard input into $STDIN until end of file (--io off); \
                      redirect from /dev/null or end the input with Ctrl-D"
                 );
             }
-            read_stdin_for_stream()
-                .map(buffered_stdin_bytes)
-                .map_err(Box::<dyn Error>::from)
+            read_stdin_for_stream().map_err(Box::<dyn Error>::from)
         })
         .map_err(|error| match error.downcast::<ConfigurationError>() {
             Ok(error) => krun_configuration_error(*error),
@@ -2560,7 +2567,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
             name = tracing::field::display("parse_kore_definition")
         )
         .entered();
-        parse_kore_definition(&compiled.definition_kore)?
+        definition.parse_kore()?
     };
     let definition_parse_seconds = definition_parse_started.elapsed().as_secs_f64();
     // The console's input; `None` runs without a console (`--io off`). A run in which no
@@ -2603,25 +2610,15 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     let internalize_phase =
         tracing::info_span!("phase", name = tracing::field::display("internalize")).entered();
     let started = Instant::now();
-    let backend = Backend::internalize_source_definition(
-        &syntax,
-        &compiled.main_module,
-        &compiled.execution_rewrite_order,
-    )?;
+    let backend = definition.internalize(&syntax)?;
     for warning in k_rust::backend::execution::value_claim_warnings(&backend) {
         eprintln!("{warning}");
     }
-    // The initial configuration is as deep as the program and the configuration values, which
-    // nothing bounds: validating, internalizing and executing it recurse over it, and so do the
-    // drops of the internal terms built from it. All of it runs on a stack the backend measures
-    // from the configuration and the definition (`BackendDefinition::with_stack_for`), which
-    // refuses a configuration too deep for any stack it provides.
-    let zone = backend.operation_depth(&[&initial]);
-    let (output, backend, internalize_seconds, execute_seconds) =
-        k_rust_backend::nesting::with_stack(zone, || -> Result<_, Box<dyn Error>> {
-            let function_symbols = backend.function_symbol_names();
-            backend.validate_executable_pattern(&initial)?;
-            let initial = backend.admit_unverified(&initial, &[]).internalize_term()?;
+    // The initial configuration is prepared and run on the stack the backend measures for it.
+    let (output, backend, internalize_seconds, execute_seconds) = with_initial_term(
+        backend,
+        &initial,
+        |backend, term: InitialTerm| -> Result<_, Box<dyn Error>> {
             let match_target = match match_target_source {
                 Some(MatchTargetSource::Surface(compiled)) => {
                     Some(prepare_backend_match_target(&backend, compiled)?)
@@ -2652,10 +2649,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
             )?;
             let output = backend.run_cli(
                 None,
-                vec![Pattern {
-                    term: initial,
-                    constraints: Vec::new(),
-                }],
+                vec![term.pattern],
                 BackendRunOptions {
                     depth: options.depth,
                     max_simplification_iterations: options.max_simplification_iterations,
@@ -2666,7 +2660,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
                     strategy: options.strategy,
                     search: options.search,
                     match_target,
-                    function_symbols,
+                    function_symbols: term.function_symbols,
                     stop_leaves: None,
                     step_timeout: options.step_timeout,
                     moving_average_timeout: options.moving_average_timeout,
@@ -2677,10 +2671,8 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
             let execute_seconds = started.elapsed().as_secs_f64();
             drop(execute_phase);
             Ok((output, backend, internalize_seconds, execute_seconds))
-        })
-        .map_err(|error| {
-            format!("the initial configuration is too deep for the backend: {error}")
-        })??;
+        },
+    )?;
     let output_phase =
         tracing::info_span!("phase", name = tracing::field::display("output")).entered();
     let started = Instant::now();
@@ -4010,26 +4002,6 @@ fn read_stdin_for_stream() -> io::Result<Vec<u8>> {
     Ok(input)
 }
 
-/// The text `--io off` gives `$STDIN` (`docs/compatibility.md`, "Backend scope"): standard input
-/// with its trailing newlines replaced by exactly one, also when it is empty (`#buffer("\n")`);
-/// interior newlines and every other byte are kept.
-/// With the console off nothing extends the `stdin` stream's buffer, so a parse rule reads a token
-/// only when a delimiter already follows it there. The one newline ends the input's last line
-/// whether or not standard input ended it, so its last token is read like every other where the
-/// newline is a requested delimiter. The further trailing newlines are empty lines that hold no
-/// token; kept, two of them would leave a buffer that begins with two delimiters after the last
-/// token, which `stdinParseInt` reads as the undefined `String2Int("")` where the input has
-/// simply ended.
-fn buffered_stdin_bytes(mut input: Vec<u8>) -> Vec<u8> {
-    let trimmed = input
-        .iter()
-        .rposition(|byte| *byte != b'\n')
-        .map_or(0, |index| index + 1);
-    input.truncate(trimmed);
-    input.push(b'\n');
-    input
-}
-
 /// The located findings of the backend's load-time critical-pair check on the definition a Rust
 /// compilation emits (`k_rust::backend::execution::value_claim_diagnostics`): the definition is
 /// internalized as `krun` loads it. Without an `anywhere` symbol it declares no equation head,
@@ -4093,6 +4065,7 @@ mod tests {
         claim::ReachabilityMode,
         definition::{BackendDefinition, PatternOrPredicate},
         implication::ImplicationCondition,
+        rewrite::Pattern,
         rule::Predicate,
         search::PatternMatch,
         simplify::{
@@ -4198,20 +4171,6 @@ mod tests {
             .verify_standalone_pattern(&syntax, &[])?
             .internalize_pattern()
             .map_err(Into::into)
-    }
-
-    #[test]
-    fn buffered_stdin_ends_in_exactly_one_newline() {
-        assert_eq!(buffered_stdin_bytes(Vec::new()), b"\n");
-        assert_eq!(buffered_stdin_bytes(b"ab".to_vec()), b"ab\n");
-        assert_eq!(buffered_stdin_bytes(b"ab\n".to_vec()), b"ab\n");
-        assert_eq!(buffered_stdin_bytes(b"ab\n\n\n".to_vec()), b"ab\n");
-        assert_eq!(buffered_stdin_bytes(b"\n\n".to_vec()), b"\n");
-        assert_eq!(
-            buffered_stdin_bytes(b"a\r\n\nb\r\n".to_vec()),
-            b"a\r\n\nb\r\n"
-        );
-        assert_eq!(buffered_stdin_bytes(vec![b'x', 0x80]), [b'x', 0x80, b'\n']);
     }
 
     /// An exit status has 8 bits, so an `Int` result is taken modulo 256 (-1 gives 255, 256 gives

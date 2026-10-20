@@ -469,6 +469,79 @@ endmodule
     assert_eq!(build(&mut fresh), first);
 }
 
+/// The program's parser and sort injector are kept across configurations, apart from the
+/// configuration values' injector: programs assembled one after another with one assembler,
+/// failed ones and abandoned configurations in between, give what a fresh assembler gives each.
+#[test]
+fn programs_assembled_with_one_assembler_equal_fresh_assemblies() {
+    let compiled = compiled(
+        r#"
+module MAIN
+  syntax {S} S ::= "undef" [symbol(undef), function, total]
+  syntax Foo ::= "foo" [symbol(foo)] | box(Foo) [symbol(box)]
+  syntax {S} Foo ::= phantom() [function, total, symbol(phantom)]
+  configuration <k> $PGM:Foo </k> <x> $X:Foo </x> <y> $Y:K </y>
+endmodule
+"#,
+        "MAIN",
+    );
+    let grammar = ProgramGrammar::new(&compiled.frontend).unwrap();
+    let new = || ConfigurationAssembler::new(&grammar, "MAIN", "MAIN", &compiled.variables);
+    let build = |assembler: &mut ConfigurationAssembler<'_>, program: &str| {
+        assembler.program(&Sort::new("Foo"), program)?;
+        assembler.bind("X", "undef")?;
+        assembler.bind("Y", "box(undef)")?;
+        assembler.finish().map(|pattern| render(&pattern))
+    };
+    let programs = ["undef", "box(box(undef))", "foo", "box(foo)"];
+    let fresh: Vec<String> = programs
+        .iter()
+        .map(|program| build(&mut new(), program).unwrap())
+        .collect();
+    assert_eq!(
+        fresh
+            .iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len(),
+        programs.len(),
+        "{fresh:#?}"
+    );
+    // A program whose sort parameter nothing determines is refused with the parameter the
+    // injector drew for it, which a fresh injector draws first.
+    let phantom = |assembler: &mut ConfigurationAssembler<'_>| {
+        format!("{:?}", build(assembler, "box(phantom())").unwrap_err())
+    };
+    let fresh_phantom = phantom(&mut new());
+    assert!(
+        fresh_phantom.contains("UndeterminedInstance"),
+        "{fresh_phantom}"
+    );
+    let mut reused = new();
+    for (program, expected) in programs.iter().zip(&fresh) {
+        assert_eq!(&build(&mut reused, program).unwrap(), expected, "{program}");
+        assert_eq!(phantom(&mut reused), fresh_phantom, "after {program}");
+        // Again at once, with nothing cleared in between: each program starts the program
+        // injector's sort parameters afresh by itself.
+        assert_eq!(
+            phantom(&mut reused),
+            fresh_phantom,
+            "after a refused program"
+        );
+        // A program that does not parse is refused and leaves nothing behind.
+        assert!(matches!(
+            build(&mut reused, "box("),
+            Err(ConfigurationError::Program(_))
+        ));
+        // Neither does a configuration abandoned after its program, cleared.
+        reused.program(&Sort::new("Foo"), "box(undef)").unwrap();
+        assert!(reused.bind("UNDECLARED", "foo").is_err());
+        reused.clear();
+    }
+    for (program, expected) in programs.iter().zip(&fresh).rev() {
+        assert_eq!(&build(&mut reused, program).unwrap(), expected, "{program}");
+    }
+}
+
 #[test]
 fn a_program_result_parameter_is_fixed_by_its_read_sort() {
     let compiled = compiled(

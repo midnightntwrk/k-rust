@@ -9,6 +9,7 @@ pub mod diagnostic;
 pub mod inner;
 pub mod kast;
 pub mod kompile;
+pub mod krun;
 mod lines;
 /// The backend crate the facade [`backend`] is built on, with the features this build of
 /// `k_rust` enables.
