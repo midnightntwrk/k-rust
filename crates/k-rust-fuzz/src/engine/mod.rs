@@ -22,9 +22,10 @@ use self::{
 };
 use crate::{
     error::CampaignError,
+    holes::ResolvedHole,
     report::{
         CampaignOutcome, DefinitionIdentity, DefinitionRole, FuzzReport, GenerationCaps, HitLabel,
-        ReportIdentity, SortOverride, Totals, digest_hex,
+        ReportIdentity, Totals, digest_hex,
     },
     spec::{
         BackendRoute, Budget, CampaignSpec, CaseOptions, CompiledDefinition, ProgramInput,
@@ -152,13 +153,7 @@ impl Campaign {
                 .collect(),
             sort_overrides: holes
                 .iter()
-                .filter_map(|hole| {
-                    hole.overridden.as_ref().map(|refusal| SortOverride {
-                        hole: hole.decl.name.clone(),
-                        sort: hole.decl.sort.clone(),
-                        refusal: format!("{refusal:?}"),
-                    })
-                })
+                .flat_map(ResolvedHole::sort_overrides)
                 .collect(),
         };
         Ok(Campaign {

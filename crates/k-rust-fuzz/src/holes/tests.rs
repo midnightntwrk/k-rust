@@ -1112,6 +1112,20 @@ fn an_override_of_a_contained_token_sort_keeps_the_hole_a_value_of_its_sort() {
     );
     assert_eq!(hole.overridden, Some(SortRefusal::Token));
     assert_eq!(hole.refusals, [("Id".to_owned(), SortRefusal::Token)]);
+    // The report records the refused sort, not the hole's own (`Map`), once per refusal.
+    let record = |sort: &str, refusal: &str| crate::report::SortOverride {
+        hole: "M".to_owned(),
+        sort: sort.to_owned(),
+        refusal: refusal.to_owned(),
+    };
+    assert_eq!(hole.sort_overrides(), [record("Id", "Token")]);
+    let mut two = hole.clone();
+    two.refusals
+        .push(("Stmt".to_owned(), SortRefusal::ProgramSyntax));
+    assert_eq!(
+        two.sort_overrides(),
+        [record("Id", "Token"), record("Stmt", "ProgramSyntax")]
+    );
 }
 
 /// The VALUES program's bindings, one per configuration variable, with `changes` replacing

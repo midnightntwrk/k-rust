@@ -45,6 +45,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     assemble::ProgramAssembly,
     error::{CampaignError, SortRefusal},
+    report::SortOverride,
     spec::{CompiledDefinition, ProgramInput, ProgramText},
     values::{Constraints, TextSyntax, Value, ValueSort, print::parse_k_text, resolve_value_sort},
 };
@@ -160,6 +161,23 @@ pub(crate) struct ResolvedHole {
     /// Every refusal the override admitted: the refused sort and why, the hole's own sort first,
     /// then the contained sorts by name. Empty when nothing was refused.
     pub(crate) refusals: Vec<(String, SortRefusal)>,
+}
+
+impl ResolvedHole {
+    /// The report's record of what this hole's override admitted (ARCHITECTURE 2.4): one
+    /// [`SortOverride`] per entry of [`Self::refusals`], in order, naming the refused sort, so
+    /// that a hole whose values may contain two refused sorts (`both(Id, Stmt)`) reports both.
+    /// Empty when nothing was refused.
+    pub(crate) fn sort_overrides(&self) -> Vec<SortOverride> {
+        self.refusals
+            .iter()
+            .map(|(sort, refusal)| SortOverride {
+                hole: self.decl.name.clone(),
+                sort: sort.clone(),
+                refusal: format!("{refusal:?}"),
+            })
+            .collect()
+    }
 }
 
 /// Every hole of a campaign, in declaration order; values are passed in this order.

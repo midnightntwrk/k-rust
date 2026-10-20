@@ -67,6 +67,10 @@ pub(crate) struct Proposal {
     /// For blindly generated values, the value trees that shrink them; `None` per hole
     /// otherwise.
     pub(crate) trees: Vec<Option<Box<dyn ValueShrinker>>>,
+    /// Why no complete assignment was drawn: a hole's generator failed
+    /// (`Generator::try_generate`). `values` then holds the values drawn before that hole, and
+    /// the engine counts the proposal as a `rejected` case (`generation`) without running it.
+    pub(crate) failure: Option<String>,
 }
 
 impl Proposal {
@@ -77,6 +81,7 @@ impl Proposal {
             origin,
             values,
             trees,
+            failure: None,
         }
     }
 }
@@ -153,7 +158,9 @@ pub(crate) trait Proposer {
 }
 
 /// Blind sampling (ARCHITECTURE 8.2): one draw from every hole's generator, in hole order, from
-/// a proptest runner seeded from the campaign seed. It never runs out and ignores feedback.
+/// a proptest runner seeded from the campaign seed. It never runs out and ignores feedback. A
+/// draw a generator fails ([`Generator::try_generate`]) ends the proposal there, with the
+/// generator's message as its [`Proposal::failure`]: a `rejected` case, never a crash.
 pub(crate) struct BlindProposer {
     generators: Vec<Generator>,
     values: ValueRng,
@@ -175,15 +182,24 @@ impl Proposer for BlindProposer {
         let mut values = Vec::with_capacity(self.generators.len());
         let mut trees: Vec<Option<Box<dyn ValueShrinker>>> =
             Vec::with_capacity(self.generators.len());
-        for generator in &self.generators {
-            let tree = generator.generate(&mut self.values);
-            values.push(tree.current());
-            trees.push(Some(Box::new(tree)));
+        let mut failure = None;
+        for (hole, generator) in self.generators.iter().enumerate() {
+            match generator.try_generate(&mut self.values) {
+                Ok(tree) => {
+                    values.push(tree.current());
+                    trees.push(Some(Box::new(tree)));
+                }
+                Err(message) => {
+                    failure = Some(format!("hole {hole}: {message}"));
+                    break;
+                }
+            }
         }
         Some(Proposal {
             origin: Origin::Scheduled(ProposerKind::Blind),
             values,
             trees,
+            failure,
         })
     }
 

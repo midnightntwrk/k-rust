@@ -151,6 +151,10 @@ pub struct GenerationCaps {
     pub depth: u32,
     /// The most values a generator enumerates (`values::generator::ENUMERATION_LIMIT`).
     pub enumeration: u64,
+    /// The size budget of one generated value (`values::MAX_VALUE_SIZE`): one unit per
+    /// constructor application or leaf, plus one per 64 bits of an integer and one per
+    /// character or byte of a string.
+    pub value_size: u64,
 }
 
 impl GenerationCaps {
@@ -162,6 +166,8 @@ impl GenerationCaps {
             length: crate::values::MAX_GENERATED_LENGTH,
             depth: crate::values::MAX_DEPTH,
             enumeration: crate::values::generator::ENUMERATION_LIMIT,
+            value_size: u64::try_from(crate::values::MAX_VALUE_SIZE)
+                .expect("the value-size cap fits in u64"),
         }
     }
 }
@@ -312,6 +318,9 @@ pub struct CoverageTotals {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum RejectionReason {
+    /// A hole's generator failed to draw a value (`values::Generator::try_generate`); the case
+    /// was not run.
+    Generation,
     /// A value violates its hole's sort or constraints.
     Constraint,
     /// A value cannot be printed as K text or KORE at its hole's sort.
@@ -463,13 +472,14 @@ pub struct LoadRecord {
     pub detail: String,
 }
 
-/// A hole whose refused sort an override admitted (ARCHITECTURE 2.4).
+/// One refusal that a hole's override admitted (ARCHITECTURE 2.4). A hole has one entry per
+/// refused sort: its own sort's refusal first, then those of the sorts its values may contain.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct SortOverride {
     /// The hole's name.
     pub hole: String,
-    /// Its sort.
+    /// The refused sort: the hole's own sort, or a sort its values may contain.
     pub sort: String,
     /// The refusal the override admitted.
     pub refusal: String,
@@ -635,6 +645,7 @@ mod tests {
                     length: 65536,
                     depth: 16,
                     enumeration: 65536,
+                    value_size: 131_072,
                 },
                 rejection_cap: 10,
                 seed: u64::MAX,
@@ -741,7 +752,8 @@ mod tests {
             r#""proposers":{"anchors-first":true,"explicit":"#,
             r#"[{"AMOUNT":{"bytes":"00ab"}}],"weights":{"blind":1}},"#,
             r#""bounds":{"int-bits":64,"length":16,"depth":4},"#,
-            r#""caps":{"int-bits":4096,"length":65536,"depth":16,"enumeration":65536},"#,
+            r#""caps":{"int-bits":4096,"length":65536,"depth":16,"enumeration":65536,"#,
+            r#""value-size":131072},"#,
             r#""rejection-cap":"10","#,
             r#""seed":"18446744073709551615","budget":{"cases":"5000"},"#,
             r#""thread-stack-size":"67108864","solver":"none"},"#,
@@ -821,11 +833,12 @@ mod tests {
             (RejectionReason::Assembly, 3),
             (RejectionReason::Print, 2),
             (RejectionReason::Constraint, 1),
+            (RejectionReason::Generation, 6),
         ]);
         assert_eq!(
             serde_json::to_string(&reasons).expect("serializes"),
             concat!(
-                r#"{"constraint":1,"print":2,"assembly":3,"round-trip":4,"#,
+                r#"{"generation":6,"constraint":1,"print":2,"assembly":3,"round-trip":4,"#,
                 r#""backend-refused":5}"#
             )
         );

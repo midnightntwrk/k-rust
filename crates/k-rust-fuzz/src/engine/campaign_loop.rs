@@ -76,11 +76,22 @@ pub(crate) fn run_loop(
         };
         let case = state.totals.cases;
         state.sequence(&proposal.values);
-        let run = match runner.run_case(&proposal.values, cancel) {
-            Ok(run) => run,
-            Err(abort) => {
-                state.abort = Some(abort.reason);
-                break Ending::Aborted;
+        let run = if let Some(failure) = &proposal.failure {
+            // No complete assignment was drawn: a `rejected` case that is not run. Its message
+            // is reported once per distinct text.
+            let warning =
+                format!("a generator failed to draw a value and the case was rejected: {failure}");
+            if !state.warnings.contains(&warning) {
+                state.warnings.push(warning);
+            }
+            CaseRun::rejected(RejectionReason::Generation, 0)
+        } else {
+            match runner.run_case(&proposal.values, cancel) {
+                Ok(run) => run,
+                Err(abort) => {
+                    state.abort = Some(abort.reason);
+                    break Ending::Aborted;
+                }
             }
         };
         state.charge(run.work);

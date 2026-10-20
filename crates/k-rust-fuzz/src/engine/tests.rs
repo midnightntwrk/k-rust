@@ -381,6 +381,65 @@ fn a_work_budget_stops_before_an_execution_and_charges_failed_runs_one_unit() {
     assert_eq!(classes(&report), [(OutcomeClass::Unsupported, 5)]);
 }
 
+/// A blind-kind proposer whose draws fail on odd calls, as a failed `Generator::try_generate`
+/// leaves them: the values drawn so far and the generator's message.
+struct Failing {
+    calls: i64,
+}
+
+impl Proposer for Failing {
+    fn kind(&self) -> ProposerKind {
+        ProposerKind::Blind
+    }
+
+    fn propose(&mut self, _context: &mut ProposalContext<'_>) -> Option<Proposal> {
+        self.calls += 1;
+        let mut proposal = Proposal::plain(
+            Origin::Scheduled(ProposerKind::Blind),
+            vec![int(self.calls)],
+        );
+        if self.calls % 2 == 1 {
+            proposal.values.clear();
+            proposal.failure = Some("hole 0: the generator rejected a draw: test".to_owned());
+        }
+        Some(proposal)
+    }
+
+    fn observe(&mut self, _proposal: &Proposal, _observation: &Observation, _interesting: bool) {}
+}
+
+#[test]
+fn a_failed_draw_is_a_rejected_case_that_is_not_run() {
+    let mut runner = Scripted::new(|_| run(OutcomeClass::Miss, 2), |_| unreachable!("no hit"));
+    let mut schedule = Schedule::new(1, Vec::new(), vec![(1, Box::new(Failing { calls: 0 }))]);
+    let report = run_loop(
+        &mut runner,
+        &mut schedule,
+        &settings(1),
+        Budget::Cases(4),
+        None,
+    );
+    assert_eq!(report.totals.cases, 4);
+    assert_eq!(
+        classes(&report),
+        [(OutcomeClass::Miss, 2), (OutcomeClass::Rejected, 2)]
+    );
+    assert_eq!(
+        report.totals.rejections,
+        BTreeMap::from([(RejectionReason::Generation, 2)])
+    );
+    // Only the complete draws ran; a rejected draw is charged one unit, as every case is.
+    assert_eq!(runner.cases, [vec![int(2)], vec![int(4)]]);
+    assert_eq!(report.totals.work, 2 * 2 + 2);
+    // The generator's message is reported once.
+    let warnings: Vec<_> = report
+        .warnings
+        .iter()
+        .filter(|warning| warning.contains("generator rejected a draw"))
+        .collect();
+    assert_eq!(warnings.len(), 1, "{:?}", report.warnings);
+}
+
 #[test]
 fn the_rejection_cap_ends_the_campaign_with_rejected_out() {
     let mut runner = Scripted::new(
