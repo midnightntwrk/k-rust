@@ -196,7 +196,8 @@
   },
   "warnings": {
     "optional-config-var": [
-      "warning[krs::analysis::collection-config-var-without-initial]: the `multiplicity = \"?\"` cell `counter` reads a configuration variable, so K starts it present although it is not `initial`; add `initial` to say so"
+      "warning[krs::analysis::collection-config-var-without-initial]: the `multiplicity = \"?\"` cell `counter` reads a configuration variable, so K starts it present although it is not `initial`; add `initial` to say so",
+      "warning[CellCollectionVarWithoutInitial]: Configuration variable found in declaration of collection cell <counter>. Implicitly, this causes the initial configuration to start with one <counter> element instead of zero. Add the `initial=\"\"` attribute to make that behavior explicit."
     ]
   }
 }

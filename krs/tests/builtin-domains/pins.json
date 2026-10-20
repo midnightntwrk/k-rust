@@ -951,7 +951,8 @@
       "warning[krs::semantic::raw-k]: `raw_k!` rule: unchecked K text, opaque to KRS; K parses it with this package's grammar"
     ],
     "krs-builtin-raw-hook": [
-      "warning[krs::expand::raw-hook]: quoted hook `KRYPTO.keccak256`: signature unchecked; native capability: implemented"
+      "warning[krs::expand::raw-hook]: quoted hook `KRYPTO.keccak256`: signature unchecked; native capability: implemented",
+      "warning[UnadmittedHookNamespace]: hook namespace `KRYPTO` of `hook(KRYPTO.keccak256)` is neither builtin nor selected with --hook-namespaces; the production compiles as an unhooked function"
     ]
   },
   "sort_test_warnings": {
