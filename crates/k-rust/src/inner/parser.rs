@@ -118,7 +118,9 @@ use self::inference::SortTable;
 
 use std::borrow::Cow;
 use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
+
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::fmt;
 use std::num::NonZeroU64;
 use std::rc::Rc;
@@ -310,7 +312,7 @@ impl Reach<'_> {
 /// one of the lexemes it can begin with is a token there or later.
 struct RemainingTokens {
     /// The positions of each lexeme's tokens, ascending, by lexeme.
-    positions: HashMap<usize, Vec<usize>>,
+    positions: FxHashMap<usize, Vec<usize>>,
 }
 
 impl RemainingTokens {
@@ -323,7 +325,7 @@ impl RemainingTokens {
         from: usize,
         scanner_cache: &mut [ScanCacheEntry],
     ) -> Self {
-        let mut positions = HashMap::<usize, Vec<usize>>::new();
+        let mut positions = FxHashMap::<usize, Vec<usize>>::default();
         let mut position = from;
         // Invariant: `position` is a token boundary reached from `from`; it strictly increases
         // at every token read, so the loop ends, and each lexeme's positions are ascending.
@@ -419,7 +421,7 @@ impl Reaching {
 /// stops at the first level. Keys name children by address; the table holds every node it
 /// names, and so its children, for the rest of the recognition, so an address is not reused.
 #[derive(Default)]
-struct InstanceNodes(HashMap<(usize, usize, usize, Vec<*const PackedTerm>), Rc<PackedTerm>>);
+struct InstanceNodes(FxHashMap<(usize, usize, usize, Vec<*const PackedTerm>), Rc<PackedTerm>>);
 
 impl InstanceNodes {
     /// The node equal to `term`, built over `start..end`, that this recognition built first.
@@ -2489,10 +2491,10 @@ impl Grammar {
         // Whether a completion over `[origin, position]` of a production is useful when the
         // scanner's next token is `winner`, by `(origin, production, stands for, winner)`
         // (`Grammar::completion_useful`).
-        let mut useful_completions = HashMap::new();
+        let mut useful_completions = FxHashMap::default();
         // Whether a node of a production starting in a chart can be part of a parse of the whole
         // input, by `(origin, production, stands for)` (`Grammar::node_reaches_root`).
-        let mut reaching_nodes = HashMap::new();
+        let mut reaching_nodes = FxHashMap::default();
         // The tokens of the input from the first position a completion asks about them on,
         // read once, when the relations decide whether a node can reach the root.
         let mut remaining_tokens = None;
@@ -3126,8 +3128,8 @@ impl Grammar {
         stands_for: usize,
         winner: Option<usize>,
         reach: Reach<'_>,
-        memo: &mut HashMap<CompletionKey, bool>,
-        reaching: &mut HashMap<NodeKey, Reaching>,
+        memo: &mut FxHashMap<CompletionKey, bool>,
+        reaching: &mut FxHashMap<NodeKey, Reaching>,
     ) -> bool {
         if reach
             .analysis
@@ -3206,7 +3208,7 @@ impl Grammar {
         node: NodeKey,
         after: usize,
         reach: Reach<'_>,
-        memo: &mut HashMap<NodeKey, Reaching>,
+        memo: &mut FxHashMap<NodeKey, Reaching>,
     ) -> bool {
         if reach.filter == PriorityFilter::Ignored {
             return true;
@@ -3221,7 +3223,7 @@ impl Grammar {
         };
         // The earliest `after` each node was pushed with: a node pushed again with the same or
         // a later one can reach no more than it could then.
-        let mut visited = HashMap::from([(node, after)]);
+        let mut visited = FxHashMap::from_iter([(node, after)]);
         // Each frame: the node, its `after`, the waiting items examined, and the rest
         // (production, dot) of the caller that admitted the node below it (none for the first).
         let mut stack = vec![(node, after, 0usize, None::<(usize, usize)>)];
@@ -3335,13 +3337,13 @@ impl Grammar {
         node: NodeKey,
         winner: Option<usize>,
         reach: Reach<'_>,
-        memo: &mut HashMap<CompletionKey, bool>,
-        reaching: &mut HashMap<NodeKey, Reaching>,
+        memo: &mut FxHashMap<CompletionKey, bool>,
+        reaching: &mut FxHashMap<NodeKey, Reaching>,
     ) -> bool {
         if let Some(useful) = memo.get(&(node, winner)) {
             return *useful;
         }
-        let mut visited = HashSet::from([node]);
+        let mut visited = FxHashSet::from_iter([node]);
         let mut stack = vec![(node, 0usize)];
         // Invariant: `stack` is a chain of completions, each of which some caller of the one
         // before it would complete through a nullable rest; `visited` holds every completion
