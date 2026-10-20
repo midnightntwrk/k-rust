@@ -510,45 +510,49 @@ fn catalogue_census_for_fixture(name: &str, specs: &[OperatorSpec]) -> usize {
     compiled
 }
 
-/// Milestone gate only (README, Gate): every catalogue mutant of every fixture, compiled
-/// in both schedules. The per-commit gate runs
-/// `compiled_catalogue_sweep_over_named_fixtures_preserves_the_baseline_declaration_census`.
-#[test]
-#[ignore = "milestone"]
-fn compiled_catalogue_sweep_preserves_the_baseline_declaration_census() {
-    with_stack(|| {
-        let mut names: Vec<_> = std::fs::read_dir(support::DIR)
-            .unwrap()
-            .map(|e| e.unwrap().file_name().into_string().unwrap())
-            .filter(|n| n.ends_with(".k"))
-            .collect();
-        names.sort();
-        println!("CS09_SWEEP_FIXTURES {}", names.len());
-        let specs = catalogue_v1();
-        let compiled = std::thread::scope(|scope| {
-            let handles = names
-                .chunks(names.len().div_ceil(4).max(1))
-                .map(|chunk| {
-                    let specs = &specs;
-                    std::thread::Builder::new()
-                        .stack_size(16 * 1024 * 1024)
-                        .spawn_scoped(scope, move || {
-                            chunk
-                                .iter()
-                                .map(|name| catalogue_census_for_fixture(name, specs))
-                                .sum::<usize>()
-                        })
-                        .unwrap()
-                })
-                .collect::<Vec<_>>();
-            handles
-                .into_iter()
-                .map(|h| h.join().unwrap())
-                .sum::<usize>()
+mod heavy {
+    use super::*;
+
+    /// Heavy tier (README, Gate): every catalogue mutant of every fixture, compiled
+    /// in both schedules. The per-commit gate runs
+    /// `compiled_catalogue_sweep_over_named_fixtures_preserves_the_baseline_declaration_census`.
+    #[test]
+    #[ignore = "heavy"]
+    fn compiled_catalogue_sweep_preserves_the_baseline_declaration_census() {
+        with_stack(|| {
+            let mut names: Vec<_> = std::fs::read_dir(support::DIR)
+                .unwrap()
+                .map(|e| e.unwrap().file_name().into_string().unwrap())
+                .filter(|n| n.ends_with(".k"))
+                .collect();
+            names.sort();
+            println!("CS09_SWEEP_FIXTURES {}", names.len());
+            let specs = catalogue_v1();
+            let compiled = std::thread::scope(|scope| {
+                let handles = names
+                    .chunks(names.len().div_ceil(4).max(1))
+                    .map(|chunk| {
+                        let specs = &specs;
+                        std::thread::Builder::new()
+                            .stack_size(16 * 1024 * 1024)
+                            .spawn_scoped(scope, move || {
+                                chunk
+                                    .iter()
+                                    .map(|name| catalogue_census_for_fixture(name, specs))
+                                    .sum::<usize>()
+                            })
+                            .unwrap()
+                    })
+                    .collect::<Vec<_>>();
+                handles
+                    .into_iter()
+                    .map(|h| h.join().unwrap())
+                    .sum::<usize>()
+            });
+            assert!(compiled > 0);
+            println!("CS09_SWEEP_COMPILED {compiled}");
         });
-        assert!(compiled > 0);
-        println!("CS09_SWEEP_COMPILED {compiled}");
-    });
+    }
 }
 
 /// The fixtures of the per-commit catalogue sweep (flow F-01): counter.k (EI-D2=b),
@@ -556,7 +560,7 @@ fn compiled_catalogue_sweep_preserves_the_baseline_declaration_census() {
 /// release-after-access mutant (K) writes two rules.
 const NAMED_SWEEP_FIXTURES: [&str; 3] = ["counter.k", "guardedmem.k", "symmem.k"];
 
-/// The per-commit variant of the milestone sweep: the full catalogue over the named
+/// The per-commit variant of the heavy sweep: the full catalogue over the named
 /// fixtures, each of which must compile some mutant.
 #[test]
 fn compiled_catalogue_sweep_over_named_fixtures_preserves_the_baseline_declaration_census() {

@@ -112,15 +112,20 @@ fn single_path(backend: &mut Backend, state: &Pattern, budget: ExecutionBudget) 
     text(&leaf.state)
 }
 
-#[test]
-#[ignore = "about 20 s: run on demand, recorded in the L1-1-fix-1 handoff"]
-fn and_false_returns_rhs_is_killed_by_primes_and_a_single_path_confirms_it() {
-    std::thread::Builder::new()
-        .stack_size(1 << 30)
-        .spawn(confirm)
-        .unwrap()
-        .join()
-        .unwrap();
+mod heavy {
+    use super::*;
+
+    #[test]
+    // Formerly ignored as "about 20 s: run on demand, recorded in the L1-1-fix-1 handoff".
+    #[ignore = "heavy"]
+    fn and_false_returns_rhs_is_killed_by_primes_and_a_single_path_confirms_it() {
+        std::thread::Builder::new()
+            .stack_size(1 << 30)
+            .spawn(confirm)
+            .unwrap()
+            .join()
+            .unwrap();
+    }
 }
 
 fn confirm() {

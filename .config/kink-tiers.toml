@@ -1,0 +1,40 @@
+# The test tiers of the kink crates (draft/tasks/test-gate README section 5), read by
+# scripts/kink-tier.py.
+#
+# A kink test belongs to exactly one tier:
+#   light  an ordinary test; every `cargo test` and `cargo nextest run` of the workspace runs it,
+#          and after the merge into k-rust, every k-rust push does.
+#   kink   `#[ignore = "kink"]` inside a module named `kink_tier`; owed by a change to a kink
+#          crate, kink's test data or this configuration.
+#   heavy  `#[ignore = "heavy"]` inside a module named `heavy`; run nightly, before an
+#          integration merge and when a work package closes.
+# A test that needs an outside checkout is `#[ignore = "external: ..."]` inside a module named
+# `external`; it belongs to no tier and only records a skip without `KINK_WORKSPACE`.
+# `scripts/kink-tier.py lint` fails on an ignored test outside these modules (it would run in no
+# tier) and on a test inside one of them that is not ignored (it would run in the light tier).
+#
+# Budgets are wall seconds of one `scripts/kink-tier.py run` at the default number of test
+# threads (one per CPU) on a 32-CPU host with a 1-minute load average under half the CPUs; the
+# check reports but does not judge a run on a busier host. `per_test_s` bounds every test of the
+# tier; a light test over it belongs to the kink tier or must be made cheaper.
+
+[tier.light]
+wall_s = 120
+per_test_s = 15
+
+[tier.kink]
+wall_s = 600
+
+# light and kink in one run: the per-commit gate of a change to a kink crate.
+[tier.gate]
+wall_s = 600
+
+[tier.heavy]
+wall_s = 3600
+
+[z3]
+# The Z3 profile runs the crates whose solver profile changes what they compute.
+packages = ["kink-native", "kink-campaign", "kink-corpus"]
+# Test binaries that never reach the solver or Z3 sort inference in any tier, by measurement
+# (packet TG-03): the Z3 run skips them; the heavy tier still runs them under both profiles.
+skip_binaries = []

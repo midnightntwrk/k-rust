@@ -1,0 +1,37 @@
+# cargo-nextest configuration for the workspace, modelled on k-rust's.
+#
+# nextest runs every test in its own process, up to `--test-threads` (by default the number of
+# CPUs) at a time, instead of one test binary after another as `cargo test` does. Doc-tests do
+# not run under nextest; the workspace has none.
+
+nextest-version = { required = "0.9.91", recommended = "0.9.143" }
+
+[test-groups]
+# Tests whose assertion compares elapsed wall time with a bound or with another run's: they run
+# one at a time, so that other tests' CPU contention does not move the time they compare.
+wall-clock = { max-threads = 1 }
+
+[profile.default]
+# Report a test as slow after each minute, and stop it after ten: only a hang fails.
+slow-timeout = { period = "60s", terminate-after = 10 }
+
+# kink-campaign: the work-bounded run must stop within 3 s where the time-bounded one times out.
+[[profile.default.overrides]]
+filter = 'package(kink-campaign) & binary(work_budget) & test(=a_mutant_that_never_ends_is_unknown_under_a_work_budget)'
+test-group = "wall-clock"
+
+# kink-flow: the work-bounded run must finish within 30 s; and the slow program's recorded wall
+# time must exceed the fast one's.
+[[profile.default.overrides]]
+filter = 'package(kink-flow) & ((binary(work_budget) & test(=a_mutant_that_never_ends_is_unknown_under_the_work_budget_and_never_cached)) | (binary(usability) & test(=the_cheaper_killer_is_found_and_hinted_first)))'
+test-group = "wall-clock"
+
+# Continuous integration and gate runs: run every test even after a failure, print each
+# failure's output at the end as well, and write a JUnit report (target/nextest/ci/junit.xml)
+# whose per-test times the tier budget check reads.
+[profile.ci]
+fail-fast = false
+failure-output = "immediate-final"
+
+[profile.ci.junit]
+path = "junit.xml"

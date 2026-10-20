@@ -67,8 +67,8 @@ pub const OBSERVATION_DOMAIN: &str = "kink/observation/v1";
 pub const CAMPAIGN_MANIFEST_DOMAIN: &str = "kink/campaign-manifest/v1";
 
 /// The deepest JSON document kink reads, in nested arrays and objects as serde_json counts them:
-/// 128,000 in an unoptimized build (kink's `dev` and test profile) and 600,000 in an optimized
-/// one (re-pin L1-3-fix-2). [`parse_json`] refuses a deeper document with
+/// 128,000 in an unoptimized build or one at `opt-level = 1` (kink's `dev` and test profile) and
+/// 600,000 in an optimized one ([`crate::stack`]'s `OPTIMIZED`; re-pin L1-3-fix-2). [`parse_json`] refuses a deeper document with
 /// [`JsonError::TooDeep`] before it parses any of it, and each writer of a document a kink reader
 /// reads refuses to write one ([`check_json_depth`]: the patch codec, kink-campaign's report,
 /// kink-corpus `Store::write_json`, through which kink-corpus and kink-flow write every stored

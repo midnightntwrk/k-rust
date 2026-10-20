@@ -462,52 +462,58 @@ fn differential(manifest_path: &Path, time: Option<Duration>, ladder: Ladder, ta
     }
 }
 
-#[test]
-#[ignore = "about three minutes: run on demand, recorded in the L1-2 handoff"]
-fn every_one_sided_kill_on_the_flow_corpus_agrees_with_the_unbounded_verdict() {
-    let tally = std::thread::Builder::new()
-        .stack_size(256 << 20)
-        .spawn(|| {
-            let mut tally = Tally::default();
-            for manifest in flow_manifests() {
-                differential(&manifest, None, Ladder::Short, &mut tally);
-            }
-            tally
-        })
-        .unwrap()
-        .join()
-        .unwrap();
-    eprintln!("ONE-SIDED-FLOW {tally:#?}");
-    assert!(tally.failed.is_empty(), "{:#?}", tally.failed);
-    assert!(tally.mutants >= 45, "{}", tally.mutants);
-    assert!(tally.compared >= 100, "{}", tally.compared);
-    assert!(tally.agreed > 0 && tally.distinguished > 0, "{tally:#?}");
-    assert!(tally.unconfirmed.is_empty(), "{:#?}", tally.unconfirmed);
-}
+mod heavy {
+    use super::*;
 
-#[test]
-#[ignore = "about twelve minutes: run on demand, recorded in the L1-2 handoff"]
-fn every_one_sided_kill_on_imp_agrees_with_the_unbounded_verdict() {
-    // A mutant that loops builds deep terms: run on a big stack, as kink-flow does.
-    let tally = std::thread::Builder::new()
-        .stack_size(1 << 30)
-        .spawn(|| {
-            let mut tally = Tally::default();
-            differential(
-                &repository().join("examples/imp/FLOW.toml"),
-                Some(Duration::from_secs(60)),
-                Ladder::Halving,
-                &mut tally,
-            );
-            tally
-        })
-        .unwrap()
-        .join()
-        .unwrap();
-    eprintln!("ONE-SIDED-IMP {tally:#?}");
-    assert!(tally.failed.is_empty(), "{:#?}", tally.failed);
-    assert_eq!(tally.mutants, 21);
-    assert!(tally.unconfirmed.is_empty(), "{:#?}", tally.unconfirmed);
+    #[test]
+    // Formerly ignored as "about three minutes: run on demand, recorded in the L1-2 handoff".
+    #[ignore = "heavy"]
+    fn every_one_sided_kill_on_the_flow_corpus_agrees_with_the_unbounded_verdict() {
+        let tally = std::thread::Builder::new()
+            .stack_size(256 << 20)
+            .spawn(|| {
+                let mut tally = Tally::default();
+                for manifest in flow_manifests() {
+                    differential(&manifest, None, Ladder::Short, &mut tally);
+                }
+                tally
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+        eprintln!("ONE-SIDED-FLOW {tally:#?}");
+        assert!(tally.failed.is_empty(), "{:#?}", tally.failed);
+        assert!(tally.mutants >= 45, "{}", tally.mutants);
+        assert!(tally.compared >= 100, "{}", tally.compared);
+        assert!(tally.agreed > 0 && tally.distinguished > 0, "{tally:#?}");
+        assert!(tally.unconfirmed.is_empty(), "{:#?}", tally.unconfirmed);
+    }
+
+    #[test]
+    // Formerly ignored as "about twelve minutes: run on demand, recorded in the L1-2 handoff".
+    #[ignore = "heavy"]
+    fn every_one_sided_kill_on_imp_agrees_with_the_unbounded_verdict() {
+        // A mutant that loops builds deep terms: run on a big stack, as kink-flow does.
+        let tally = std::thread::Builder::new()
+            .stack_size(1 << 30)
+            .spawn(|| {
+                let mut tally = Tally::default();
+                differential(
+                    &repository().join("examples/imp/FLOW.toml"),
+                    Some(Duration::from_secs(60)),
+                    Ladder::Halving,
+                    &mut tally,
+                );
+                tally
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+        eprintln!("ONE-SIDED-IMP {tally:#?}");
+        assert!(tally.failed.is_empty(), "{:#?}", tally.failed);
+        assert_eq!(tally.mutants, 21);
+        assert!(tally.unconfirmed.is_empty(), "{:#?}", tally.unconfirmed);
+    }
 }
 
 /// The corpus of `testdata/k/l1/onesided.k` with one program, `start(12000)`, and one mutation,

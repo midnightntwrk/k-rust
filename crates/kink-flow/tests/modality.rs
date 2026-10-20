@@ -959,41 +959,46 @@ fn state_set_results_equal_path_set_results_on_converging_fixtures() {
         .unwrap();
 }
 
-/// The same differential over the IMP corpus (`examples/imp`) and its 21 mutants. Baseline runs
-/// get a one-minute time bound (collatz's path set takes about 35 s), mutant runs the manifest's
-/// 10 s: a mutant program that times out as a path set is counted, not compared. The baselines'
-/// stepped coverage check is off (`primes`' observed path set runs out of a 24 GiB scope). About
-/// 6 minutes and 7 GiB (the path sets): run on demand under a memory scope
-/// (`cargo test -p kink-flow --test modality -- --ignored`); its result is recorded in the re-pin
-/// L1-1-fix-1 handoff.
-#[test]
-#[ignore = "minutes and gigabytes: run on demand, recorded in the L1-1-fix-1 handoff"]
-fn state_set_results_equal_path_set_results_over_imp_and_its_mutants() {
-    // A mutant that loops builds deep terms: run on a big stack, as kink-flow does.
-    let tally = std::thread::Builder::new()
-        .stack_size(1 << 30)
-        .spawn(|| {
-            differential(
-                &repository().join("examples/imp/FLOW.toml"),
-                Some(Duration::from_secs(60)),
-                false,
-                None,
-                false,
-            )
-        })
-        .unwrap()
-        .join()
-        .unwrap();
-    eprintln!("MODALITY-IMP {tally:#?}");
-    assert!(tally.failed.is_empty(), "{:?}", tally.failed);
-    assert!(tally.absorbed.is_empty(), "{:?}", tally.absorbed);
-    assert_eq!(tally.mutants, 21);
-    // Every baseline program, collatz included, finishes within the minute.
-    assert!(
-        tally.faster.iter().all(|id| id.contains(" mutant ")),
-        "{:?}",
-        tally.faster
-    );
+mod heavy {
+    use super::*;
+
+    /// The same differential over the IMP corpus (`examples/imp`) and its 21 mutants. Baseline runs
+    /// get a one-minute time bound (collatz's path set takes about 35 s), mutant runs the manifest's
+    /// 10 s: a mutant program that times out as a path set is counted, not compared. The baselines'
+    /// stepped coverage check is off (`primes`' observed path set runs out of a 24 GiB scope). About
+    /// 6 minutes and 7 GiB (the path sets): run on demand under a memory scope
+    /// (`cargo test -p kink-flow --test modality -- --ignored`); its result is recorded in the re-pin
+    /// L1-1-fix-1 handoff.
+    #[test]
+    // Formerly ignored as "minutes and gigabytes: run on demand, recorded in the L1-1-fix-1 handoff".
+    #[ignore = "heavy"]
+    fn state_set_results_equal_path_set_results_over_imp_and_its_mutants() {
+        // A mutant that loops builds deep terms: run on a big stack, as kink-flow does.
+        let tally = std::thread::Builder::new()
+            .stack_size(1 << 30)
+            .spawn(|| {
+                differential(
+                    &repository().join("examples/imp/FLOW.toml"),
+                    Some(Duration::from_secs(60)),
+                    false,
+                    None,
+                    false,
+                )
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+        eprintln!("MODALITY-IMP {tally:#?}");
+        assert!(tally.failed.is_empty(), "{:?}", tally.failed);
+        assert!(tally.absorbed.is_empty(), "{:?}", tally.absorbed);
+        assert_eq!(tally.mutants, 21);
+        // Every baseline program, collatz included, finishes within the minute.
+        assert!(
+            tally.faster.iter().all(|id| id.contains(" mutant ")),
+            "{:?}",
+            tally.faster
+        );
+    }
 }
 
 /// Keeps the import of `ExecutionBudget` honest: the differential runs each program under its

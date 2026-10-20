@@ -40,9 +40,31 @@ dbg_macro = "deny"
 todo = "deny"
 unimplemented = "deny"
 
-# Dependencies (k-rust and its backend above all) are built optimised in the dev and
-# test profiles: loading and compiling a definition is about 15 times faster, which
-# dominates the test gate. Workspace crates keep the plain dev profile, and
-# debug-assertions and overflow-checks stay on for every package (flow F-01).
+# k-rust's profiles (k-rust Cargo.toml), so that the tests run as they will once these crates
+# are members of k-rust's workspace: the workspace at opt-level 1 with line tables only, and
+# dependencies at opt-level 3. debug-assertions and overflow-checks stay on for every package.
+# k-rust's own crates are dependencies here but workspace members there, so they get the
+# workspace's opt-level, not the dependencies'.
+[profile.dev]
+opt-level = 1
+debug = "line-tables-only"
+
 [profile.dev.package."*"]
-opt-level = 2
+opt-level = 3
+
+[profile.dev.package.k-rust]
+opt-level = 1
+[profile.dev.package.k-rust-backend]
+opt-level = 1
+[profile.dev.package.k-rust-kore]
+opt-level = 1
+[profile.dev.package.k-rust-regex]
+opt-level = 1
+
+# The workspace unoptimized with full debug info, for debugger sessions that inspect local
+# variables; dependencies keep the dev profile's opt-level. `cargo build --profile debugging`
+# writes target/debugging.
+[profile.debugging]
+inherits = "dev"
+opt-level = 0
+debug = true

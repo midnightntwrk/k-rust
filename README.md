@@ -482,24 +482,39 @@ Requests this project makes of k-rust and KRS are recorded in the ledgers under 
 
 ## Gate
 
-Every commit must pass the per-commit gate, the no-Z3 workspace build and the Z3 profile:
+The tests of the kink crates are in three tiers (`.config/kink-tiers.toml`):
+
+| tier | marked | runs | budget |
+|---|---|---|---|
+| light | an ordinary `#[test]` | every change; every `cargo test` and `cargo nextest run` | 120 s wall, no test over 15 s |
+| kink | `#[ignore = "kink"]` inside a `kink_tier` module | a change to a kink crate, its test data or this gate | 600 s wall together with light |
+| heavy | `#[ignore = "heavy"]` inside a `heavy` module | nightly, before an integration merge, when a work package closes | 3,600 s wall |
+
+The light tier holds what a change outside kink can break: the protected kills, the replay rows, the k-rust drift pins, one end-to-end run per layer and the cheap contract tests.
+The kink tier holds kink's own optimisation equivalences on sampled rows, the CLI and store tests and the slower review pins;
+the heavy tier holds the whole-fixture sweeps and the full option matrices, each of which keeps a row in a faster tier.
+A test that needs an outside checkout is `#[ignore = "external: ..."]` inside an `external` module, belongs to no tier,
+and only records a skip without `KINK_WORKSPACE`.
+
+`scripts/kink-tier.py` runs a tier with cargo-nextest (`.config/nextest.toml`), checks the run against the tier's budget from nextest's JUnit report,
+and lints the tier markings: an ignored test outside a tier module would run in no tier.
+Budgets are judged on a host whose load average is under half its CPUs, and only reported on a busier one.
+
+Every commit to a kink crate must pass the gate tier in both solver profiles:
 
 ```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace --no-fail-fast
+scripts/kink-tier.py lint
+scripts/kink-tier.py run gate
 with-z3-static-4.16.0 cargo clippy -p kink-native -p kink-campaign -p kink-corpus --all-targets --features z3 -- -D warnings
-with-z3-static-4.16.0 cargo test -p kink-native --features z3 --no-fail-fast
-with-z3-static-4.16.0 cargo test -p kink-campaign --features z3 --no-fail-fast
-with-z3-static-4.16.0 cargo test -p kink-corpus --features z3 --no-fail-fast
+with-z3-static-4.16.0 scripts/kink-tier.py run gate --z3
 ```
 
-The milestone gate is the same commands with `-- --include-ignored` added to every `cargo test`.
-It also runs the whole-fixture sweeps marked `#[ignore = "milestone"]`,
-each of which has a smaller variant in the per-commit gate.
-Run it before a merge and when a work package closes.
-The external corpus measurements in `kink-corpus/tests/external.rs` are ignored for another reason;
-under `--include-ignored` without `KINK_WORKSPACE` they only record a skip.
+The heavy gate adds `scripts/kink-tier.py run heavy` and `with-z3-static-4.16.0 scripts/kink-tier.py run heavy --z3`.
+`--and EXPR` narrows a tier to the tests matching a nextest filterset, for example `--and 'package(kink-flow)'`, without judging the budget.
+The Z3 profile runs kink-native, kink-campaign and kink-corpus, except in the light and kink tiers the test binaries that `[z3] skip_binaries` lists because they never reach the solver.
+`cargo test --workspace` still runs the light tier, and `cargo test --workspace -- --include-ignored` every tier.
 
 The workspace build is the no-Z3 solver profile.
 `kink-native` has a `z3` feature for the Z3 profile
@@ -512,9 +527,10 @@ which points the `z3-sys` build at a static Z3 4.16.0 library;
 without the wrapper a `z3` build fails to link (`-lz3` missing),
 and nothing is downloaded at build time.
 
-Dependencies are built with `opt-level = 2` in the dev and test profiles (`Cargo.toml`),
-because loading and compiling K definitions in k-rust dominates test time;
-the workspace crates keep the plain dev profile with debug assertions and overflow checks.
+The dev and test profiles are k-rust's (`Cargo.toml`): the workspace at `opt-level = 1` with line tables only, dependencies at `opt-level = 3`,
+and k-rust's own crates at the workspace's level, as they will be once these crates are members of k-rust's workspace;
+debug assertions and overflow checks stay on for every package.
+For a debugger session that shows local variables, use the `debugging` profile (`cargo test --profile debugging`).
 
 ## Retired tooling
 

@@ -20,10 +20,12 @@ use k_rust::k_rust_backend::nesting::{STACK_LIMIT, SegmentRefused, map_segment};
 use k_rust::kast::Term;
 use std::fmt;
 
-/// Whether kink-patch is compiled at an optimizing level (`build.rs`). Frame sizes, and so the
-/// stack a recursion takes per level, follow it.
+/// Whether kink-patch is compiled at a level at which the optimized measurements of the stack a
+/// recursion takes per level hold (`build.rs`). Frame sizes, and so that stack, follow the level.
+/// The optimized measurements were taken at `opt-level = 3`; `opt-level = 1`, the level of the
+/// dev and test profile (k-rust's profile), was not measured, so it takes the unoptimized bounds,
+/// which hold there because optimization does not enlarge a frame.
 pub(crate) const OPTIMIZED: bool = cfg!(any(
-    kink_opt_level = "1",
     kink_opt_level = "2",
     kink_opt_level = "3",
     kink_opt_level = "s",

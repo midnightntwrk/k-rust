@@ -699,16 +699,20 @@ fn map_store_statuses_do_not_depend_on_the_order() {
     statuses_do_not_depend_on_the_order("map-store", "FLOW.toml", "MUTATIONS.toml");
 }
 
-#[test]
-#[ignore = "milestone"]
-fn collection_statuses_do_not_depend_on_the_order() {
-    for name in [
-        "collections/cellmap",
-        "collections/collenv",
-        "collections/collimp",
-        "collections/collstore",
-    ] {
-        statuses_do_not_depend_on_the_order(name, "FLOW.toml", "MUTATIONS.toml");
+mod heavy {
+    use super::*;
+
+    #[test]
+    #[ignore = "heavy"]
+    fn collection_statuses_do_not_depend_on_the_order() {
+        for name in [
+            "collections/cellmap",
+            "collections/collenv",
+            "collections/collimp",
+            "collections/collstore",
+        ] {
+            statuses_do_not_depend_on_the_order(name, "FLOW.toml", "MUTATIONS.toml");
+        }
     }
 }
 

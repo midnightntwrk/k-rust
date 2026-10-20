@@ -673,15 +673,18 @@ fn collection_free_tv01_fix1_and_stuck_terminals_keep_exact_values() {
     }
 }
 
-/// N1 external rows use the same read-only opt-in convention as corpus external.rs.
-#[test]
-#[ignore = "external read-only collection rows; requires KINK_WORKSPACE"]
-fn external_panopticon_and_imp_terminal_values() {
-    let Some(workspace) = std::env::var_os("KINK_WORKSPACE") else {
-        eprintln!("CS16 N1 external rows skipped: KINK_WORKSPACE unset");
-        return;
-    };
-    std::thread::Builder::new().stack_size(256 << 20).spawn(move || {
+mod external {
+    use super::*;
+
+    /// N1 external rows use the same read-only opt-in convention as corpus external.rs.
+    #[test]
+    #[ignore = "external: external read-only collection rows; requires KINK_WORKSPACE"]
+    fn external_panopticon_and_imp_terminal_values() {
+        let Some(workspace) = std::env::var_os("KINK_WORKSPACE") else {
+            eprintln!("CS16 N1 external rows skipped: KINK_WORKSPACE unset");
+            return;
+        };
+        std::thread::Builder::new().stack_size(256 << 20).spawn(move || {
         let workspace = std::path::PathBuf::from(workspace);
         for (directory, entry, main, syntax, depth, programs) in [
             ("panopticon/K/spec", "panopticon-semantics.md", "PANOPTICON-SEMANTICS", "PANOPTICON-SYNTAX", 100, vec![
@@ -715,4 +718,5 @@ fn external_panopticon_and_imp_terminal_values() {
             eprintln!("CS16 N1 external {main}: every terminal canonical byte for byte");
         }
     }).expect("external measurement thread").join().unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+    }
 }

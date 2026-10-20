@@ -313,13 +313,18 @@ fn external(imp: bool) {
         }
     });
 }
-#[test]
-#[ignore = "external read-only collection admission; requires KINK_WORKSPACE"]
-fn a5_panopticon() {
-    external(false);
-}
-#[test]
-#[ignore = "external read-only collection admission; requires KINK_WORKSPACE"]
-fn a5_imp_lesson4() {
-    external(true);
+mod external {
+    use super::*;
+
+    #[test]
+    #[ignore = "external: external read-only collection admission; requires KINK_WORKSPACE"]
+    fn a5_panopticon() {
+        external(false);
+    }
+
+    #[test]
+    #[ignore = "external: external read-only collection admission; requires KINK_WORKSPACE"]
+    fn a5_imp_lesson4() {
+        external(true);
+    }
 }

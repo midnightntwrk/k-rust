@@ -337,40 +337,44 @@ fn run(target: Target) {
         .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
 }
 
-#[test]
-#[ignore = "external read-only measurement; requires KINK_WORKSPACE"]
-fn panopticon() {
-    run(Target::Panopticon);
-}
+mod external {
+    use super::*;
 
-#[test]
-#[ignore = "external read-only measurement; requires KINK_WORKSPACE"]
-fn imp_lesson4() {
-    run(Target::Imp);
-}
+    #[test]
+    #[ignore = "external: external read-only measurement; requires KINK_WORKSPACE"]
+    fn panopticon() {
+        run(Target::Panopticon);
+    }
 
-#[test]
-#[ignore = "external read-only measurement; requires KINK_WORKSPACE"]
-fn issue4142() {
-    run(Target::Issue4142);
-}
+    #[test]
+    #[ignore = "external: external read-only measurement; requires KINK_WORKSPACE"]
+    fn imp_lesson4() {
+        run(Target::Imp);
+    }
 
-#[test]
-#[ignore = "external read-only measurement; requires KINK_WORKSPACE"]
-fn with_config() {
-    run(Target::WithConfig);
-}
+    #[test]
+    #[ignore = "external: external read-only measurement; requires KINK_WORKSPACE"]
+    fn issue4142() {
+        run(Target::Issue4142);
+    }
 
-#[cfg(feature = "z3")]
-#[test]
-#[ignore = "large external read-only Z3 measurement; requires KINK_WORKSPACE"]
-fn kmir() {
-    run(Target::Kmir);
-}
+    #[test]
+    #[ignore = "external: external read-only measurement; requires KINK_WORKSPACE"]
+    fn with_config() {
+        run(Target::WithConfig);
+    }
 
-#[cfg(feature = "z3")]
-#[test]
-#[ignore = "large external read-only Z3 measurement; requires KINK_WORKSPACE"]
-fn kevm() {
-    run(Target::Kevm);
+    #[cfg(feature = "z3")]
+    #[test]
+    #[ignore = "external: large external read-only Z3 measurement; requires KINK_WORKSPACE"]
+    fn kmir() {
+        run(Target::Kmir);
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    #[ignore = "external: large external read-only Z3 measurement; requires KINK_WORKSPACE"]
+    fn kevm() {
+        run(Target::Kevm);
+    }
 }
