@@ -266,7 +266,18 @@ fn head_result_sort(
         Sentence::Production {
             parameters, sort, ..
         } if parameters.is_empty() && sort.parameters.is_empty() => Some(sort.clone()),
-        _ => None,
+        Sentence::Production { .. }
+        | Sentence::SyntaxSort { .. }
+        | Sentence::SortSynonym { .. }
+        | Sentence::SyntaxLexical { .. }
+        | Sentence::SyntaxAssociativity { .. }
+        | Sentence::SyntaxPriority { .. }
+        | Sentence::ContextAlias { .. }
+        | Sentence::Context { .. }
+        | Sentence::Rule { .. }
+        | Sentence::Claim { .. }
+        | Sentence::Configuration { .. }
+        | Sentence::Bubble { .. } => None,
     }
 }
 

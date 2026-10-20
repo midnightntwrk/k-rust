@@ -2071,7 +2071,7 @@ pub fn internalize_axiom(
                 .map(|(index, reading)| {
                     let (rhs, requires, ensures) = match (&reading.requires, &reading.rhs) {
                         (Cow::Borrowed(_), Cow::Borrowed(_)) => written.clone(),
-                        (requires, rhs) => stated(&**requires, &**rhs)?,
+                        (requires, rhs) => stated(requires, rhs)?,
                     };
                     Ok(InternalizedRule::Term(
                         RuleKind::Function,

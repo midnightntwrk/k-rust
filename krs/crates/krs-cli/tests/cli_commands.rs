@@ -1003,7 +1003,7 @@ fn check_warns_where_build_refuses_the_route_and_compiles_where_it_does_not() {
         ],
     );
     let llvm_stderr = String::from_utf8(llvm.stderr).unwrap();
-    assert_success_with(&llvm.status, &llvm_stderr);
+    assert_success_with(llvm.status, &llvm_stderr);
     assert!(
         llvm_stderr.contains("krs::capability::unavailable") && llvm_stderr.contains(refusal),
         "{llvm_stderr}"
@@ -1032,7 +1032,7 @@ fn check_warns_where_build_refuses_the_route_and_compiles_where_it_does_not() {
         ],
     );
     let haskell_stderr = String::from_utf8(haskell.stderr).unwrap();
-    assert_success_with(&haskell.status, &haskell_stderr);
+    assert_success_with(haskell.status, &haskell_stderr);
     assert!(
         !haskell_stderr.contains("krs::capability::unavailable"),
         "{haskell_stderr}"
@@ -1044,6 +1044,6 @@ fn check_warns_where_build_refuses_the_route_and_compiles_where_it_does_not() {
     );
 }
 
-fn assert_success_with(status: &std::process::ExitStatus, stderr: &str) {
+fn assert_success_with(status: std::process::ExitStatus, stderr: &str) {
     assert!(status.success(), "command failed:\n{stderr}");
 }
