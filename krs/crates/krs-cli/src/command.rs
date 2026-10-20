@@ -14,7 +14,7 @@ use krs_diagnostic::{Diagnostic, ToDiagnostic};
 use krs_ir::measure::{Counters, Measurement};
 use krs_ir::{DescriptorBundle, PackageId};
 use krs_k_rust::{
-    Backend, CompileOptions, DefinitionCompileError, FRONTEND_CAPABILITIES, adapt_definition,
+    Backend, CompileOptions, DefinitionCompileError, FRONTEND_CAPABILITIES,
     compile_definition_timed,
 };
 use std::borrow::Cow;
@@ -377,10 +377,10 @@ fn execute_with_sources(
     let prepared = prepare(stdout, request.profile, measurement)?;
 
     let outcome = match &request.command {
-        Command::Check { backend, partition } => measurement
-            .timings
-            .try_span("check.adapt", |_| check(&prepared, *backend, *partition))
-            .map(CommandExecution::without_artifacts),
+        Command::Check { backend, partition } => {
+            check(&prepared, *backend, *partition, measurement)
+                .map(CommandExecution::without_artifacts)
+        }
         Command::Expand => measurement
             .timings
             .try_span("expand.render", |_| expand(&prepared, &plan))
@@ -534,22 +534,43 @@ fn lower_definition(
     lower_semantic_theory(semantic).map_err(CommandError::Lowering)
 }
 
+/// `krs check --backend B`: the verdict `krs build --backend B` reaches,
+/// without writing artifacts.
+///
+/// A check stands in front of `build`, so it is useful exactly to the degree
+/// that its verdict predicts `build`'s; it therefore runs the same native
+/// judgement ([`compile_native`]) rather than a hand-maintained subset of it.
+/// The one difference is the route capability table: a route that lacks a
+/// feature the definition needs is a property of that route, not a defect of
+/// the definition, so `check` reports the refusal as a
+/// `krs::capability::unavailable` warning, and, since `build` refuses such a
+/// definition before compiling it, it has no native verdict to predict.
 fn check(
     prepared: &PreparedDefinition,
     backend: Backend,
     partition: bool,
+    measurement: &mut Measurement,
 ) -> Result<CommandOutcome, CommandError> {
-    if !FRONTEND_CAPABILITIES.supports_backend(backend) {
-        return Err(CommandError::UnsupportedBackend(backend));
-    }
-    // Structural adaptation checks the selected target-neutral definition
-    // without claiming that the unavailable preparation seam can compile it.
-    adapt_definition(prepared.lowered.definition()).map_err(|error| {
-        native_command_error(
-            prepared.lowered.source_map(),
-            DefinitionCompileError::Adapter(error),
-        )
-    })?;
+    require_backend(backend)?;
+    let route = krs_k_rust::Route::native(backend);
+    let warnings = match route_refusal(prepared.lowered.definition(), route) {
+        Some(refusal) => {
+            let mut warnings = definition_warnings(prepared);
+            warnings.unlocated.push(crate::UnlocatedDiagnostic {
+                code: krs_diagnostic::codes::capability::UNAVAILABLE.to_string(),
+                severity: crate::DiagnosticSeverity::Warning,
+                message: refusal.to_string(),
+                source: None,
+                generated_range: None,
+                notes: vec![format!(
+                    "`krs build --backend {}` refuses this definition before compiling it, so the check did not compile it natively",
+                    backend.as_str()
+                )],
+            });
+            warnings
+        }
+        None => compile_native(prepared, backend, measurement)?.1,
+    };
     let stdout = if partition {
         prepared.lowered.partition().render()
     } else {
@@ -562,7 +583,7 @@ fn check(
     Ok(CommandOutcome {
         stderr: Vec::new(),
         exit_code: 0,
-        warnings: definition_warnings(prepared),
+        warnings,
         stdout: stdout.into_bytes(),
     })
 }
@@ -754,6 +775,15 @@ fn require_route(
     definition: &krs_ir_levels::DefinitionIr,
     route: krs_k_rust::Route,
 ) -> Result<(), CommandError> {
+    route_refusal(definition, route).map_or(Ok(()), Err)
+}
+
+/// The refusal of the first feature, in table order, that `definition` needs
+/// and `route` lacks; `None` when the route can run every feature it needs.
+fn route_refusal(
+    definition: &krs_ir_levels::DefinitionIr,
+    route: krs_k_rust::Route,
+) -> Option<CommandError> {
     let requirements = krs_compiler::capability::capability_requirements(definition);
     for feature in krs_compiler::capability::CapabilityFeature::ALL {
         if !requirements
@@ -765,7 +795,7 @@ fn require_route(
         if let krs_k_rust::CapabilityAvailability::Unavailable(reason) =
             krs_k_rust::route_capability(feature.name(), route)
         {
-            return Err(CommandError::CapabilityUnavailable {
+            return Some(CommandError::CapabilityUnavailable {
                 route,
                 message: krs_compiler::capability::unavailable_message(
                     *feature,
@@ -775,19 +805,27 @@ fn require_route(
             });
         }
     }
-    Ok(())
+    None
 }
 
-fn build(
+/// Refuses a backend dialect this frontend was not built with.
+fn require_backend(backend: Backend) -> Result<(), CommandError> {
+    if FRONTEND_CAPABILITIES.supports_backend(backend) {
+        Ok(())
+    } else {
+        Err(CommandError::UnsupportedBackend(backend))
+    }
+}
+
+/// The native judgement `build` makes of a definition once its route accepts
+/// it: k-rust's preparation, compilation, and KORE reparse for `backend`, and
+/// every warning `build` reports with the result. `check` runs this same
+/// function, so the two commands cannot disagree about a definition.
+fn compile_native(
     prepared: &PreparedDefinition,
     backend: Backend,
-    output: &Path,
     measurement: &mut Measurement,
-) -> Result<CommandExecution, CommandError> {
-    require_route(
-        prepared.lowered.definition(),
-        krs_k_rust::Route::native(backend),
-    )?;
+) -> Result<(krs_k_rust::CompiledArtifacts, crate::DiagnosticReports), CommandError> {
     let artifacts = compile_definition_timed(
         prepared.lowered.definition(),
         CompileOptions {
@@ -835,6 +873,21 @@ fn build(
         crate::DiagnosticReports::native(prepared.lowered.source_map(), &artifacts.diagnostics);
     warnings.envelopes.extend(native.envelopes);
     warnings.unlocated.extend(native.unlocated);
+    Ok((artifacts, warnings))
+}
+
+fn build(
+    prepared: &PreparedDefinition,
+    backend: Backend,
+    output: &Path,
+    measurement: &mut Measurement,
+) -> Result<CommandExecution, CommandError> {
+    require_backend(backend)?;
+    require_route(
+        prepared.lowered.definition(),
+        krs_k_rust::Route::native(backend),
+    )?;
+    let (artifacts, warnings) = compile_native(prepared, backend, measurement)?;
     let files = vec![
         (
             "definition.kore".to_owned(),

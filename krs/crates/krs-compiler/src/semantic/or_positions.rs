@@ -22,6 +22,18 @@
 //!
 //! Other transitions and claims match an or-pattern anywhere, so their own
 //! sides are not checked.
+//!
+//! This check is an earlier, authored-located copy of k-rust's
+//! matching-logic position check, which `krs check` and `krs build` both run
+//! through the native compilation of the selected backend; it is not the
+//! only judge. The two differ in scope. k-rust applies its check to the
+//! native Rust target only (`--backend haskell`, and the run commands),
+//! while this one applies to every backend, so for `--backend llvm` it also
+//! refuses equations whose compilation succeeds; whether KRS keeps that as a
+//! portability rule is an open decision (CS-11-1). And a field whose sort is
+//! a sort parameter of its production has no argument sort here, so an
+//! or-pattern at the root of a parametric argument is not judged by this
+//! check; the native check judges it where it applies.
 
 use std::collections::{BTreeMap, BTreeSet};
 
