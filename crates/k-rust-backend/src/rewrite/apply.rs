@@ -1582,6 +1582,31 @@ fn simplify_rule_condition(
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> Stoppable<Result<Vec<Predicate>, SimplificationError>> {
+    // One atom over a ground `ceil_free` Boolean term, under no fact but `\top`: one evaluation
+    // decides it when it succeeds silently, without the predicate simplifier's scaffolding
+    // (`decide_ground_bool`). The `\top` answer takes one unit of the predicate budget there.
+    if options.max_iterations >= 1
+        && known.iter().all(|predicate| *predicate == Predicate::True)
+        && let Some((term, expected)) = conditions.ground_bool_atom()
+    {
+        match crate::simplify::decide_ground_bool(definition, term, expected, options, solver)? {
+            Some(true) => return Ok(Ok(Vec::new())),
+            Some(false) => return Ok(Ok(vec![Predicate::False])),
+            None => {}
+        }
+    }
+    simplify_rule_condition_in_full(definition, conditions, known, options, solver)
+}
+
+/// [`simplify_rule_condition`] by the predicate simplifier, with the definedness of the
+/// condition's Boolean terms explicit.
+fn simplify_rule_condition_in_full(
+    definition: &BackendDefinition,
+    conditions: InstantiatedCondition,
+    known: &[Predicate],
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> Stoppable<Result<Vec<Predicate>, SimplificationError>> {
     conditions.simplify(
         definition,
         known,
@@ -2480,6 +2505,119 @@ mod tests {
 
         assert_eq!(term_alias_variables(&lhs), BTreeSet::from([alias]));
         assert!(!term_alias_variables(&lhs).contains(&ordinary));
+    }
+
+    /// A ground `requires` atom decided by one evaluation gives what the predicate simplifier
+    /// gives, with the same diagnostics; an atom whose evaluation is not silent (an unsupported
+    /// hook, a total function no equation evaluates), and a zero budget, take the full path.
+    #[test]
+    fn a_ground_requires_atom_is_decided_as_the_predicate_simplifier_decides_it() {
+        use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
+
+        use crate::{condition::Condition, smt::NoSolver};
+
+        let source = r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-symbol gtInt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.gt")]
+                hooked-symbol notBool{}(SortBool{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("BOOL.not")]
+                hooked-symbol missing{}(SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("TEST.missing")]
+                symbol pos{}(SortInt{}) : SortBool{} [function{}(), total{}()]
+                symbol opaque{}(SortInt{}) : SortBool{}
+                    [function{}(), total{}(), no-evaluators{}()]
+                axiom{R} \implies{R}(
+                    \top{R}(),
+                    \equals{SortBool{}, R}(
+                        pos{}(N:SortInt{}),
+                        \and{SortBool{}}(gtInt{}(N:SortInt{}, \dv{SortInt{}}("0")), \top{SortBool{}}())
+                    )
+                ) [label{}("pos"), simplification{}()]
+            endmodule []"#;
+        let definition = BackendDefinition::internalize(
+            &parse_definition(source).expect("definition should parse"),
+            "MAIN",
+        )
+        .expect("definition should internalize");
+        let term = |source: &str| {
+            definition
+                .internalize_term(&parse_pattern(source).expect("term should parse"), &[])
+                .expect("term should internalize")
+        };
+        let truth = |value: bool| term(&format!(r#"\dv{{SortBool{{}}}}("{value}")"#));
+        let decided = [
+            Predicate::Term(term(r#"gtInt{}(\dv{SortInt{}}("3"), \dv{SortInt{}}("0"))"#)),
+            Predicate::Term(term(r#"gtInt{}(\dv{SortInt{}}("0"), \dv{SortInt{}}("3"))"#)),
+            Predicate::Equals(term(r#"pos{}(\dv{SortInt{}}("5"))"#), truth(true)),
+            Predicate::Equals(term(r#"pos{}(\dv{SortInt{}}("-1"))"#), truth(true)),
+            Predicate::Equals(truth(true), term(r#"pos{}(\dv{SortInt{}}("2"))"#)),
+            Predicate::Equals(term(r#"pos{}(\dv{SortInt{}}("2"))"#), truth(false)),
+            Predicate::Equals(
+                term(r#"notBool{}(pos{}(\dv{SortInt{}}("2")))"#),
+                truth(true),
+            ),
+            Predicate::Equals(truth(true), truth(true)),
+            Predicate::Equals(truth(false), truth(true)),
+        ];
+        let undecided = [
+            Predicate::Equals(term(r#"missing{}(\dv{SortInt{}}("1"))"#), truth(true)),
+            Predicate::Equals(term(r#"opaque{}(\dv{SortInt{}}("1"))"#), truth(true)),
+        ];
+        let instance = |predicate: &Predicate| {
+            Condition::new(vec![predicate.clone()]).instantiate(&Substitution::new())
+        };
+        let budgets = [
+            SimplificationOptions::default(),
+            SimplificationOptions::keep_partial(1),
+            SimplificationOptions::keep_partial(0),
+        ];
+        for (predicate, fast) in decided
+            .iter()
+            .map(|predicate| (predicate, true))
+            .chain(undecided.iter().map(|predicate| (predicate, false)))
+        {
+            let (term, expected) = instance(predicate)
+                .ground_bool_atom()
+                .map(|(term, expected)| (term.clone(), expected))
+                .expect("a ground atom");
+            assert_eq!(
+                crate::simplify::decide_ground_bool(
+                    &definition,
+                    &term,
+                    expected,
+                    SimplificationOptions::default(),
+                    &NoSolver,
+                )
+                .expect("no stop is armed")
+                .is_some(),
+                fast,
+                "{predicate:?}"
+            );
+            for options in budgets {
+                let decided = diagnostic::collect(|| {
+                    simplify_rule_condition(
+                        &definition,
+                        instance(predicate),
+                        &[],
+                        options,
+                        &NoSolver,
+                    )
+                });
+                let in_full = diagnostic::collect(|| {
+                    simplify_rule_condition_in_full(
+                        &definition,
+                        instance(predicate),
+                        &[],
+                        options,
+                        &NoSolver,
+                    )
+                });
+                assert_eq!(decided, in_full, "{predicate:?} at {options:?}");
+            }
+        }
     }
 
     /// A rule whose right-hand side is `\bottom` and an unconditional rule of the same priority
