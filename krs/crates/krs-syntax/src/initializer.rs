@@ -431,10 +431,25 @@ impl KrsSyntax for InitializerFunction {
     }
 }
 
+/// Attributes an initializer may carry besides the invoking `#[k::init]`.
+///
+/// Documentation, lint levels, and `cfg` say nothing about the K configuration the initializer
+/// builds; they stay on the generated Rust method, and `cfg` also guards the items generated
+/// beside it. `forbid` is excluded: the expansion allows lints that its generated signature
+/// triggers, and rustc rejects an `allow` under a `forbid` of the same lint.
+const INITIALIZER_RUST_ATTRIBUTES: &[&str] = &["doc", "allow", "expect", "warn", "deny", "cfg"];
+
 fn parse_signature(item: &ImplItemFn) -> Result<TypePath, SyntaxError> {
-    if let Some(attribute) = item.attrs.first() {
+    if let Some(attribute) = item.attrs.iter().find(|attribute| {
+        !attribute.path().get_ident().is_some_and(|ident| {
+            INITIALIZER_RUST_ATTRIBUTES
+                .iter()
+                .any(|name| ident.unraw() == name)
+        })
+    }) {
         return Err(unsupported_signature(
-            "attributes other than the invoking `#[k::init]` are unsupported",
+            "besides the invoking `#[k::init]`, an initializer accepts only doc comments and \
+             `allow`, `expect`, `warn`, `deny`, and `cfg` attributes",
             attribute.span(),
         ));
     }
