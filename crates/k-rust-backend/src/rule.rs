@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "backend.rule.select"
 //! name = "single-symbol rule selection"
-//! sites = ["applicable_groups", "applicable_rewrite_groups", "term_index", "rule_index", "subject_index", "fetch_k_cell", "first_with_k_cell", "find_k_cells"]
+//! sites = ["applicable_groups", "applicable_rewrite_groups", "term_index", "rule_index", "subject_index", "fetch_k_cell", "k_cell_is_exact", "first_with_k_cell", "find_k_cells"]
 //! variable = "k = index keys; c = candidate rules returned for one step; r = rules stored under the subject's key and the Variable key for rigid subjects, or all rules for a non-rigid subject; d = depth of the subject's one <k> cell; a = children of a node on the path to it"
 //! counters = []
 //! span = "per call"
@@ -18,7 +18,7 @@
 //!
 //! [[cost]]
 //! mode = "subject_index"
-//! bound = "O(1) unless the subject's stored k_cells count is 1, then O(d x a) to fetch the cell"
+//! bound = "O(1) unless the subject's stored k_cells count is 1, then O(d x a) to check (k_cell_is_exact) and fetch the cell, plus the items of each collection on the path when the subject is not constructor_like"
 //! ```
 //!
 //! Axiom-shape classification and rule indexes. Every theory uses the top-symbol `TermIndex`;
@@ -44,6 +44,10 @@
 //! conjuncts, covers only `Anything`. These
 //! conservative cases correspond to the matcher's overload, AC, variable, injection, and
 //! symbolic-function paths; a later matcher extension must keep this list sound.
+//!
+//! A subject's `<k>` cell is keyed only when every instance of the subject has it as its one
+//! `<k>` cell (`k_cell_is_exact`): not through a collection with a rest or with an item that is
+//! not `constructor_like`, whose instances may hold further cells, nor through a function.
 //!
 //! A subject's keys hold for the term they were computed from, and only for it: the matcher
 //! refutes a dropped candidate against that term. An `anywhere` head keyed `Overloaded`, a
@@ -2242,8 +2246,10 @@ fn index_of(definition: &BackendDefinition, term: &Term, side: KeySide) -> RuleI
     // are none or several. The stored count, saturated at 2, says which case holds, and the cell
     // is fetched only when it is 1: the same cell as the first that `find_k_cells` collects
     // (`rule_index_same` of lean/KRust/TermAttributes.lean).
+    // A subject's cell is keyed only when every instance of the subject has it as its one `<k>`
+    // cell (`k_cell_is_exact`): a rule's cell may otherwise match another cell of an instance.
     let cell = match term.attributes().k_cells() {
-        1 => fetch_k_cell(term),
+        1 if side == KeySide::Rule || k_cell_is_exact(term) => fetch_k_cell(term),
         _ => None,
     };
     // The second key is the item after the head, when the cell is `kseq(head, kseq(next, _))`:
@@ -2324,6 +2330,76 @@ pub(crate) fn fetch_k_cell(term: &Term) -> Option<&Term> {
             first_with_k_cell(elements.first_with_k_cells().into_iter().chain(rest.iter()))
         }
         TermKind::DomainValue { .. } | TermKind::Variable(_) => None,
+    }
+}
+
+/// Whether the one `<k>` cell of `term` (whose stored `k_cells` count is 1) is, in every instance
+/// of `term`, the only `<k>` cell a rule's `<k>` cell can be matched against.
+///
+/// A rule's left-hand side and the subject hold their `<k>` cells at the cell path the
+/// configuration declares. Along that path the matcher pairs a free constructor's arguments with
+/// the subject's arguments of the same symbol, position for position, and an injection's operand
+/// with the operand; so through those the rule's cell meets exactly the subject's term at the
+/// same position. A collection on the path pairs each pattern item with some subject item, or
+/// with the part of the subject its rest or a symbolic item denotes: an instance of a rest
+/// variable, or of a variable or function in another item, may hold further items with their own
+/// `<k>` cells, which the stored count, a count of the cells written in the term, does not see.
+/// The rule's cell may then be matched against one of those, whatever the visible cell's head.
+/// So the cell is exact only when every collection on the path has no rest and every item of it
+/// besides the one leading to the cell is `constructor_like` (it denotes itself, a term without
+/// a variable or a non-free root, and the count already says it holds no `<k>` cell), and every
+/// application on the path is a free constructor (a function or an equation head may denote a
+/// value whose subterms are not its arguments). A `constructor_like` term satisfies all of this
+/// below it, which decides a ground configuration at once. A conjunction is matched conjunct by
+/// conjunct against the same subject, and is not keyed.
+fn k_cell_is_exact(term: &Term) -> bool {
+    if term.attributes().constructor_like {
+        return true;
+    }
+    fn holds(term: &Term) -> bool {
+        term.attributes().k_cells() > 0
+    }
+    // The items of a list or a set: the one that leads to the cell is exact, the others rigid.
+    fn items_exact<'t>(mut items: impl Iterator<Item = &'t Term>) -> bool {
+        items.all(|item| {
+            if holds(item) {
+                k_cell_is_exact(item)
+            } else {
+                item.attributes().constructor_like
+            }
+        })
+    }
+    match term.kind() {
+        TermKind::Application {
+            symbol, arguments, ..
+        } => {
+            if symbol.is(WellKnownSymbol::KCell) {
+                return true;
+            }
+            symbol.attributes.head_role() == HeadRole::FreeConstructor
+                && arguments
+                    .iter()
+                    .find(|argument| holds(argument))
+                    .is_some_and(k_cell_is_exact)
+        }
+        TermKind::Injection { term, .. } => k_cell_is_exact(term),
+        TermKind::Map { entries, rest, .. } => {
+            // The other part of the entry that leads to the cell (its key, when the cell is in
+            // its value) is not read: a pattern entry meets the cell only through this entry.
+            rest.is_none()
+                && entries
+                    .iter()
+                    .all(|(key, value)| match (holds(key), holds(value)) {
+                        (false, false) => {
+                            key.attributes().constructor_like && value.attributes().constructor_like
+                        }
+                        (true, _) => k_cell_is_exact(key),
+                        (false, true) => k_cell_is_exact(value),
+                    })
+        }
+        TermKind::List { heads, rest, .. } => rest.is_none() && items_exact(heads.iter()),
+        TermKind::Set { elements, rest, .. } => rest.is_none() && items_exact(elements.iter()),
+        TermKind::And(..) | TermKind::DomainValue { .. } | TermKind::Variable(_) => false,
     }
 }
 
