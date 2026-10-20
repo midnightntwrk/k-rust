@@ -15,7 +15,7 @@ use k_rust::{
 
 use super::runner::{CaseRun, CaseRunner, Cut, HitDetail};
 use crate::{
-    assemble::{ProgramAssembly, build_backend},
+    assemble::{CaseAssembler, ProgramAssembly, build_backend},
     error::{CampaignError, SortRefusal},
     exec::{
         self, Abort, CaseRequestShape, CaseResult, CompiledPattern, Executor, FailureCause,
@@ -32,7 +32,8 @@ use crate::{
 /// One definition's half of case execution: its assembly, executor, holes and round-trip check.
 pub(crate) struct Side {
     definition: Arc<CompiledDefinition>,
-    assembly: ProgramAssembly,
+    /// Shared with the run's [`CaseAssembler`] ([`RunAssemblers`]), which borrows it.
+    assembly: Arc<ProgramAssembly>,
     executor: Executor,
     /// The normal-termination pattern, compiled once for this definition and prepared on the
     /// executor's backend.
@@ -60,7 +61,7 @@ impl Side {
         role: DefinitionRole,
         seed: Seed<'_>,
     ) -> Result<Self, CampaignError> {
-        let assembly = ProgramAssembly::new(definition)?;
+        let assembly = Arc::new(ProgramAssembly::new(definition)?);
         let backend = match seed.internalized {
             // A fresh backend over a copy of the cached, immutable internalized definition.
             Some(internalized) => {
@@ -129,20 +130,29 @@ impl Side {
         })
     }
 
-    /// Print, instantiate, assemble and round-trip-check `values`; the rejection reason when a
-    /// step refuses them.
+    /// Print, instantiate, assemble with `assembler` and round-trip-check `values`; the
+    /// rejection reason when a step refuses them. `assembler` must be one of this side's
+    /// assembly and definition ([`Self::assembler`]).
     fn prepare(
         &self,
+        assembler: &mut CaseAssembler<'_>,
         program: &ProgramInput,
         values: &[Value],
     ) -> Result<Prepared, RejectionReason> {
-        self.prepare_checked(program, values, true)
+        self.prepare_checked(assembler, program, values, true)
+    }
+
+    /// An assembler of this side's configurations, which keeps its program parser, macro
+    /// expander and sort injectors across the cases it assembles.
+    fn assembler(&self) -> CaseAssembler<'_> {
+        self.assembly.assembler(&self.definition)
     }
 
     /// [`Self::prepare`], with the constraint check optional: an anchor may lie outside its
     /// hole's constraints, which narrow what is generated, and still identify the grammar.
     fn prepare_checked(
         &self,
+        assembler: &mut CaseAssembler<'_>,
         program: &ProgramInput,
         values: &[Value],
         check_constraints: bool,
@@ -166,9 +176,8 @@ impl Side {
             printed.push(PrintedValue { k_text, kore, sort });
         }
         let instantiated = holes::instantiate(program, &self.holes, &printed);
-        let assembled = self
-            .assembly
-            .assemble(&self.definition, &instantiated)
+        let assembled = assembler
+            .assemble(&instantiated)
             .map_err(|_| RejectionReason::Assembly)?;
         self.round_trip
             .check(&assembled, &printed)
@@ -277,10 +286,22 @@ impl LiveCases {
         sides
             .into_iter()
             .map(|side| {
-                side.prepare_checked(&self.spec.program, values, false)
+                side.prepare_checked(&mut side.assembler(), &self.spec.program, values, false)
                     .map(|prepared| prepared.assembled)
             })
             .collect()
+    }
+
+    /// What a run's [`RunAssemblers`] borrow: each side's program assembly and definition.
+    pub(crate) fn assembly_parts(&self) -> AssemblyParts {
+        let part = |side: &Side| (Arc::clone(&side.assembly), Arc::clone(&side.definition));
+        AssemblyParts {
+            baseline: part(&self.baseline),
+            mutant: match &self.judge {
+                Judge::Differential(mutant) => Some(part(mutant)),
+                Judge::Target(_) => None,
+            },
+        }
     }
 
     fn hole_values(&self, values: &[Value], printed: &[PrintedValue]) -> Vec<HoleValue> {
@@ -361,13 +382,18 @@ impl LiveCases {
 
     fn run_target(
         &mut self,
+        assemblers: &mut RunAssemblers<'_>,
         values: &[Value],
         cancel: Option<&CancellationToken>,
     ) -> Result<CaseRun, Abort> {
-        let prepared = match self.baseline.prepare(&self.spec.program, values) {
-            Ok(prepared) => prepared,
-            Err(reason) => return Ok(CaseRun::rejected(reason, 0)),
-        };
+        let prepared =
+            match self
+                .baseline
+                .prepare(&mut assemblers.baseline, &self.spec.program, values)
+            {
+                Ok(prepared) => prepared,
+                Err(reason) => return Ok(CaseRun::rejected(reason, 0)),
+            };
         let Judge::Target(target) = &self.judge else {
             unreachable!("run_target is called for rule and pattern targets")
         };
@@ -435,17 +461,26 @@ impl LiveCases {
 
     fn run_differential(
         &mut self,
+        assemblers: &mut RunAssemblers<'_>,
         values: &[Value],
         cancel: Option<&CancellationToken>,
     ) -> Result<CaseRun, Abort> {
         let Judge::Differential(mutant) = &mut self.judge else {
             unreachable!("run_differential is called for differential targets")
         };
-        let baseline_case = match self.baseline.prepare(&self.spec.program, values) {
-            Ok(prepared) => prepared,
-            Err(reason) => return Ok(CaseRun::rejected(reason, 0)),
-        };
-        let mutant_case = match mutant.prepare(&self.spec.program, values) {
+        let mutant_assembler = assemblers
+            .mutant
+            .as_mut()
+            .expect("a differential run has a mutant assembler (LiveCases::assembly_parts)");
+        let baseline_case =
+            match self
+                .baseline
+                .prepare(&mut assemblers.baseline, &self.spec.program, values)
+            {
+                Ok(prepared) => prepared,
+                Err(reason) => return Ok(CaseRun::rejected(reason, 0)),
+            };
+        let mutant_case = match mutant.prepare(mutant_assembler, &self.spec.program, values) {
             Ok(prepared) => prepared,
             Err(reason) => return Ok(CaseRun::rejected(reason, 0)),
         };
@@ -809,23 +844,55 @@ impl GraphCheck {
     }
 }
 
-/// The campaign's runner: the campaign's own [`LiveCases`] for cases, a fresh one per
-/// confirmation, built from the campaign's [`DefinitionCache`] (filled on the first
-/// confirmation).
-pub(crate) struct LiveRunner {
+/// Each side's program assembly and definition, shared with its [`Side`], which a run's
+/// [`RunAssemblers`] borrow ([`LiveCases::assembly_parts`]).
+pub(crate) struct AssemblyParts {
+    baseline: (Arc<ProgramAssembly>, Arc<CompiledDefinition>),
+    mutant: Option<(Arc<ProgramAssembly>, Arc<CompiledDefinition>)>,
+}
+
+impl AssemblyParts {
+    /// One assembler per side, for every case of a run.
+    pub(crate) fn assemblers(&self) -> RunAssemblers<'_> {
+        RunAssemblers {
+            baseline: self.baseline.0.assembler(&self.baseline.1),
+            mutant: self
+                .mutant
+                .as_ref()
+                .map(|(assembly, definition)| assembly.assembler(definition)),
+        }
+    }
+}
+
+/// The assemblers a run keeps for its cases, one per side: each keeps its program parser, macro
+/// expander and sort injectors across the cases, which a fresh assembler per case would
+/// rebuild (D14, G16). The assembler's caches depend on the grammar alone, and it is left
+/// empty after every configuration it assembles or refuses, so a case's configuration is the
+/// one a fresh assembler builds (`assemble.rs`).
+pub(crate) struct RunAssemblers<'a> {
+    baseline: CaseAssembler<'a>,
+    mutant: Option<CaseAssembler<'a>>,
+}
+
+/// The campaign's runner: the campaign's own [`LiveCases`] for cases, assembled by the run's
+/// [`RunAssemblers`], and a fresh [`LiveCases`] with fresh assemblers per confirmation, built
+/// from the campaign's [`DefinitionCache`] (filled on the first confirmation).
+pub(crate) struct LiveRunner<'a> {
     pub(crate) cases: LiveCases,
+    /// The assemblers of [`Self::cases`]' sides, built from its [`LiveCases::assembly_parts`].
+    pub(crate) assemblers: RunAssemblers<'a>,
     pub(crate) cache: Arc<OnceLock<Result<DefinitionCache, String>>>,
     /// The campaign's rule-graph self-check, run on every case's coverage.
     pub(crate) graph: Option<Arc<GraphCheck>>,
 }
 
-impl CaseRunner for LiveRunner {
+impl CaseRunner for LiveRunner<'_> {
     fn run_case(
         &mut self,
         values: &[Value],
         cancel: Option<&CancellationToken>,
     ) -> Result<CaseRun, Abort> {
-        let mut run = run_live(&mut self.cases, values, cancel)?;
+        let mut run = run_live(&mut self.cases, &mut self.assemblers, values, cancel)?;
         if let Some(graph) = &self.graph
             && run.class != OutcomeClass::Rejected
         {
@@ -851,7 +918,9 @@ impl CaseRunner for LiveRunner {
             .map_err(|error| format!("the definition did not internalize: {error}"))?;
         let mut fresh = LiveCases::build_with(spec, Some(cache))
             .map_err(|error| format!("the fresh backend or assembly did not build: {error}"))?;
-        run_live(&mut fresh, values, cancel).map_err(|abort| abort.reason)
+        let parts = fresh.assembly_parts();
+        let mut assemblers = parts.assemblers();
+        run_live(&mut fresh, &mut assemblers, values, cancel).map_err(|abort| abort.reason)
     }
 
     fn admissible(&self, hole: usize, value: &Value) -> bool {
@@ -868,12 +937,13 @@ impl CaseRunner for LiveRunner {
 
 fn run_live(
     cases: &mut LiveCases,
+    assemblers: &mut RunAssemblers<'_>,
     values: &[Value],
     cancel: Option<&CancellationToken>,
 ) -> Result<CaseRun, Abort> {
     if matches!(cases.judge, Judge::Differential(_)) {
-        cases.run_differential(values, cancel)
+        cases.run_differential(assemblers, values, cancel)
     } else {
-        cases.run_target(values, cancel)
+        cases.run_target(assemblers, values, cancel)
     }
 }

@@ -243,8 +243,11 @@ impl Campaign {
             proposers.push((weight, Box::new(BlindProposer::new(generators, rng))));
         }
         let mut schedule = Schedule::new(self.spec.seed, self.explicit.clone(), proposers);
+        // One assembler per side for the whole run, so that every case reuses its parsers.
+        let parts = cases.assembly_parts();
         let mut runner = LiveRunner {
             cases,
+            assemblers: parts.assemblers(),
             cache: Arc::clone(&self.definition_cache),
             graph: self.graph.clone(),
         };

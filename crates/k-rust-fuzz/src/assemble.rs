@@ -18,11 +18,12 @@
 //!
 //! - [`ProgramAssembly`] owns the grammar, built once per campaign and definition;
 //! - [`CaseAssembler`] borrows it and the definition, and keeps the assembler's caches across
-//!   the cases it assembles. The engine creates one for the duration of a run.
+//!   the cases it assembles. The engine creates one per side for the duration of a run
+//!   (`engine/live.rs`, `RunAssemblers`), and a confirmation creates its own from a fresh
+//!   [`ProgramAssembly`] (ARCHITECTURE 7).
 //!
-//! [`ProgramAssembly::assemble`] is the one-shot form (a fresh [`CaseAssembler`] per call), for
-//! callers that assemble once, such as confirmation (ARCHITECTURE 7). Both give the same
-//! configuration: the assembler's caches depend on the grammar alone.
+//! The tests' `ProgramAssembly::assemble` is the one-shot form (a fresh [`CaseAssembler`] per
+//! call). Both give the same configuration: the assembler's caches depend on the grammar alone.
 
 use k_rust::{
     backend::{Backend, BackendOptions},
@@ -105,6 +106,7 @@ impl ProgramAssembly {
     ///
     /// [`AssembleError`] when the program or a binding does not parse or the configuration does
     /// not assemble.
+    #[cfg(test)]
     pub(crate) fn assemble(
         &self,
         definition: &CompiledDefinition,
