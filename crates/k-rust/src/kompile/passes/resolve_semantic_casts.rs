@@ -121,12 +121,40 @@ pub(crate) fn resolve_semantic_casts_pass(
         })?;
         let productions = views.production_catalog(module_id);
         for sentence in &mut module.local_sentences {
-            let sentence = crate::definition::sentence_mut(sentence);
-            resolve_semantic_casts_in_sentence_mut(sentence, false, subsorts)?;
-            narrow_head_aliases(sentence, productions, subsorts);
+            resolve_compiled_casts_in_sentence_mut(
+                crate::definition::sentence_mut(sentence),
+                productions,
+                subsorts,
+            )?;
         }
     }
     Ok(output)
+}
+
+/// Resolve the semantic casts of one sentence as the compilation pass does: the casts, and then
+/// the sort of each root alias of a rule stated at its head's sort ([`narrow_head_aliases`]).
+///
+/// `subsorts` and `productions` must be the visible subsort order and production catalog of the
+/// sentence's module. Anything that builds rules for the compiled definition's own use, such as
+/// the macro rules a standalone program is expanded with, resolves them through this function,
+/// so that it reads each rule with the variable sorts the compiled definition gives it.
+pub(crate) fn resolve_compiled_casts_in_sentence(
+    subsorts: &PartialOrder<Sort>,
+    productions: &ProductionCatalog<'_>,
+    mut sentence: Sentence,
+) -> Result<Sentence, ResolveSemanticCastsError> {
+    resolve_compiled_casts_in_sentence_mut(&mut sentence, productions, subsorts)?;
+    Ok(sentence)
+}
+
+fn resolve_compiled_casts_in_sentence_mut(
+    sentence: &mut Sentence,
+    productions: &ProductionCatalog<'_>,
+    subsorts: &PartialOrder<Sort>,
+) -> Result<(), ResolveSemanticCastsError> {
+    resolve_semantic_casts_in_sentence_mut(sentence, false, subsorts)?;
+    narrow_head_aliases(sentence, productions, subsorts);
+    Ok(())
 }
 
 /// Give each root alias variable of a rule that compilation states at its head's sort the
@@ -1145,7 +1173,9 @@ mod head_alias_tests {
 
     /// `f(X) #as _V => done(X)` states `f(X) = done(X)` at the result sort `Exp` of `f`, and `_V`
     /// names the matched application of `f`, so `_V` is a variable of `Exp`, whatever sort the
-    /// rule body's position gave it. A rule placed in a cell keeps its alias's inferred sort.
+    /// rule body's position gave it. A rule placed in a cell is a rewrite of the cell's contents,
+    /// not an equation of its head, so its alias keeps the sort it is given (`_W:Val`, above
+    /// `Exp`).
     #[test]
     fn a_root_alias_of_a_function_rule_has_the_head_sort() {
         let run = run_to_stage(
@@ -1154,16 +1184,16 @@ module MAIN
   syntax K
   syntax Exp ::= "a" [symbol(a)] | "b" [symbol(b)] | done(Exp) [symbol(done)]
   syntax Exp ::= f(Exp) [function, symbol(f)]
+  syntax Val ::= Exp
   configuration <k> a </k>
   rule f(X) #as _V => done(X) [label(aliased)]
-  rule b #as _W => a [label(cell)]
+  rule b #as _W:Val => a [label(cell)]
   rule a => f(b) [label(step)]
 endmodule
 "#,
             "resolve semantic casts",
         );
-        let exp = Sort::new("Exp");
-        assert_eq!(alias_sort(run.output(), "aliased"), Some(exp.clone()));
-        assert_ne!(alias_sort(run.output(), "cell"), Some(exp));
+        assert_eq!(alias_sort(run.output(), "aliased"), Some(Sort::new("Exp")));
+        assert_eq!(alias_sort(run.output(), "cell"), Some(Sort::new("Val")));
     }
 }

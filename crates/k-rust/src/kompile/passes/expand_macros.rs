@@ -435,7 +435,8 @@ pub fn expand_macros_in_term_with_scope(
 /// value, are macro-expanded.
 ///
 /// Rule parsing retains semantic-cast wrappers around variables. The compilation pipeline
-/// removes those wrappers and marks each rule of a macro-like production with the production's
+/// removes those wrappers, gives each root alias of a macro rule its head's sort, and marks each
+/// rule of a macro-like production with the production's
 /// macro kind before macro matching, so concrete terms build their expander from the same rule
 /// shape. The prepared value depends on the definition alone and not on the term, so one value
 /// serves every term expanded against the same definition.
@@ -456,7 +457,8 @@ impl MacroExpansionDefinition {
     /// - `macro_rule` accepts a rule when it carries a macro kind, or when the head of its
     ///   rewrite's left projection has a macro-kind production visible in the expander's module.
     ///   Cast resolution replaces a cast application by its argument and rebuilds every other
-    ///   node with its own label, and the projection keeps the labels of what it keeps, so that
+    ///   node with its own label (giving a root alias its head's sort changes only a variable's
+    ///   sort), and the projection keeps the labels of what it keeps, so that
     ///   head is a label of the unresolved body. A production visible in any module is a
     ///   production of the definition, so `may_become_macro_rule` over the macro-kind labels of
     ///   all productions keeps every rule accepted in any module.
@@ -505,11 +507,16 @@ impl MacroExpansionDefinition {
                         order
                     }
                 };
-                // Same order as the pipeline: propagation reads the cast-free left side.
-                let mut rule =
-                    super::resolve_semantic_casts_in_sentence(order, Sentence::clone(sentence))
-                        .map_err(|error| error.to_string())?;
-                super::propagate_macro_attribute(&mut rule, views.production_catalog(module_id));
+                // Same order as the pipeline: propagation reads the cast-free left side, and
+                // cast resolution gives a root alias of a macro rule its head's sort.
+                let productions = views.production_catalog(module_id);
+                let mut rule = super::resolve_compiled_casts_in_sentence(
+                    order,
+                    productions,
+                    Sentence::clone(sentence),
+                )
+                .map_err(|error| error.to_string())?;
+                super::propagate_macro_attribute(&mut rule, productions);
                 *sentence = std::sync::Arc::new(rule);
             }
         }
