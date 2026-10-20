@@ -1058,3 +1058,212 @@ fn sorted_heads_are_kept_for_subsorts_and_for_heads_without_a_rigid_sort() {
     assert!(keeps_head_rule(&definition, p1, pc1));
     assert!(!keeps_head_rule(&definition, p1, pc2));
 }
+
+/// Configurations with two `<k>` cells at every kind of position: two entries of a thread cell
+/// map, a map entry and a constructor argument, two arguments of a constructor, two list items;
+/// and with two cells that a match need not send to two subject cells: a conjunction of two
+/// one-cell maps, and a function above the cells.
+fn two_cell_definition() -> BackendDefinition {
+    let rule = |label: &str, lhs: &str| {
+        format!(
+            r#"axiom{{}} \rewrites{{SortState{{}}}}(
+                \and{{SortState{{}}}}({lhs}, \top{{SortState{{}}}}()),
+                done{{}}()
+              ) [label{{}}("{label}"), priority{{}}("50")]
+            "#
+        )
+    };
+    let k = |variable: &str| format!("Lbl'-LT-'k'-GT-'{{}}({variable}:SortK{{}})");
+    let thread = |key: &str, cell: &str| {
+        format!("mapItem{{}}({key}:SortKey{{}}, thread{{}}({key}:SortKey{{}}, {cell}))")
+    };
+    let item = |cell: &str| format!("listItem{{}}(inj{{SortKCell{{}}, SortKItem{{}}}}({cell}))");
+    let rules = [
+        rule(
+            "map2",
+            &format!(
+                "st{{}}(mapConcat{{}}({}, mapConcat{{}}({}, R:SortThreadMap{{}})), O:SortKCell{{}})",
+                thread("K1", &k("X")),
+                thread("K2", &k("Y"))
+            ),
+        ),
+        rule(
+            "map-and-spare",
+            &format!(
+                "st{{}}(mapConcat{{}}({}, R:SortThreadMap{{}}), {})",
+                thread("K1", &k("X")),
+                k("Y")
+            ),
+        ),
+        rule(
+            "and-of-one-cell-maps",
+            &format!(
+                r"st{{}}(\and{{SortThreadMap{{}}}}(mapConcat{{}}({}, R1:SortThreadMap{{}}), mapConcat{{}}({}, R2:SortThreadMap{{}})), O:SortKCell{{}})",
+                thread("K1", &k("X")),
+                thread("K2", &k("Y"))
+            ),
+        ),
+        rule(
+            "function-above",
+            &format!(
+                "st{{}}(M:SortThreadMap{{}}, joinK{{}}({}, {}))",
+                k("X"),
+                k("Y")
+            ),
+        ),
+        rule(
+            "map1",
+            &format!(
+                "st{{}}(mapConcat{{}}({}, R:SortThreadMap{{}}), O:SortKCell{{}})",
+                thread("K1", &k("X"))
+            ),
+        ),
+        rule("pair2", &format!("pr{{}}({}, {})", k("X"), k("Y"))),
+        rule(
+            "list2",
+            &format!(
+                "ls{{}}(listConcat{{}}({}, listConcat{{}}({}, L:SortKList{{}})))",
+                item(&k("X")),
+                item(&k("Y"))
+            ),
+        ),
+    ]
+    .concat();
+    let syntax = parse_definition(
+        &(r#"[]
+        module MAIN
+          sort SortK{} []
+          sort SortKItem{} []
+          sort SortKCell{} []
+          sort SortS{} []
+          sort SortKey{} [hasDomainValues{}()]
+          sort SortThread{} []
+          sort SortState{} []
+          hooked-sort SortThreadMap{}
+            [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
+          hooked-sort SortKList{}
+            [hook{}("LIST.List"), unit{}(listUnit{}()), element{}(listItem{}()), concat{}(listConcat{}())]
+          symbol inj{From, To}(From) : To [sortInjection{}()]
+          symbol kseq{}(SortKItem{}, SortK{}) : SortK{} [constructor{}(), total{}()]
+          symbol dotk{}() : SortK{} [constructor{}(), total{}()]
+          symbol Lbl'-LT-'k'-GT-'{}(SortK{}) : SortKCell{} [constructor{}(), total{}()]
+          symbol noK{}() : SortKCell{} [constructor{}(), total{}()]
+          symbol stuckK{}() : SortKCell{} [function{}(), total{}(), no-evaluators{}()]
+          symbol joinK{}(SortKCell{}, SortKCell{}) : SortKCell{} [function{}(), total{}(), no-evaluators{}()]
+          symbol a{}() : SortS{} [constructor{}(), total{}()]
+          symbol thread{}(SortKey{}, SortKCell{}) : SortThread{} [constructor{}(), total{}()]
+          hooked-symbol mapUnit{}() : SortThreadMap{} [function{}(), total{}(), hook{}("MAP.unit")]
+          hooked-symbol mapItem{}(SortKey{}, SortThread{}) : SortThreadMap{}
+            [function{}(), total{}(), hook{}("MAP.element")]
+          hooked-symbol mapConcat{}(SortThreadMap{}, SortThreadMap{}) : SortThreadMap{}
+            [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
+          hooked-symbol listUnit{}() : SortKList{} [function{}(), total{}(), hook{}("LIST.unit")]
+          hooked-symbol listItem{}(SortKItem{}) : SortKList{}
+            [function{}(), total{}(), hook{}("LIST.element")]
+          hooked-symbol listConcat{}(SortKList{}, SortKList{}) : SortKList{}
+            [function{}(), total{}(), hook{}("LIST.concat"), assoc{}()]
+          symbol st{}(SortThreadMap{}, SortKCell{}) : SortState{} [constructor{}(), total{}()]
+          symbol pr{}(SortKCell{}, SortKCell{}) : SortState{} [constructor{}(), total{}()]
+          symbol ls{}(SortKList{}) : SortState{} [constructor{}(), total{}()]
+          symbol done{}() : SortState{} [constructor{}(), total{}()]
+          axiom{R} \exists{R}(V:SortKItem{}, \equals{SortKItem{}, R}(
+            V:SortKItem{}, inj{SortS{}, SortKItem{}}(S:SortS{})
+          )) [subsort{SortS{}, SortKItem{}}()]
+          axiom{R} \exists{R}(V:SortKItem{}, \equals{SortKItem{}, R}(
+            V:SortKItem{}, inj{SortKCell{}, SortKItem{}}(C:SortKCell{})
+          )) [subsort{SortKCell{}, SortKItem{}}()]
+        "#
+        .to_owned()
+            + &rules
+            + "endmodule []"),
+    )
+    .expect("two-cell definition should parse");
+    BackendDefinition::internalize(&syntax, "MAIN").expect("two-cell definition should internalize")
+}
+
+/// The labels of the rules stored for `subject` that the index drops for it; every one of them is
+/// refuted by the matcher.
+fn dropped_and_refuted(definition: &BackendDefinition, subject: &str) -> Vec<String> {
+    let subject = internal_term(definition, subject);
+    let key = subject_index(definition, &subject);
+    let mut dropped = Vec::new();
+    for stored in old_candidates(definition, &term_index(&subject)) {
+        if stored.index.covers(&key) {
+            continue;
+        }
+        let label = stored.attributes.label.clone().unwrap_or_default();
+        let result =
+            match_terms_in_definition(MatchMode::Rewrite, definition, &stored.lhs, &subject);
+        assert!(
+            matches!(result, MatchResult::Failed(_)),
+            "{label} dropped, but matching gives {result:?}"
+        );
+        dropped.push(label);
+    }
+    dropped.sort();
+    dropped
+}
+
+/// A rule whose two `<k>` cells every match sends to two distinct cells of the subject, both
+/// along one path, is dropped for the subjects whose one cell lies alone on that path, exact (the
+/// map on the path has no rest and no other entry), whatever the subject holds off that path; the
+/// matcher refutes it there. A subject whose instances may hold another cell on the path (a map
+/// rest, a variable thread), or whose map on the path has another entry, keeps it; so does every
+/// subject for rules whose two cells lie on different paths, a conjunction of two one-cell
+/// patterns, or a function above the cells.
+#[test]
+fn two_cell_rules_are_offered_only_to_subjects_that_may_have_two_cells() {
+    let definition = two_cell_definition();
+    let k_a = r"Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortS{}, SortKItem{}}(a{}()), dotk{}()))";
+    let thread = |key: &str, cell: &str| {
+        format!(
+            r#"mapItem{{}}(\dv{{SortKey{{}}}}("{key}"), thread{{}}(\dv{{SortKey{{}}}}("{key}"), {cell}))"#
+        )
+    };
+    let st = |map: &str, spare: &str| format!("st{{}}({map}, {spare})");
+    let one_thread = thread("t0", k_a);
+    // One thread, the spare slot without a cell: `map2`, whose two cells lie on the thread map's
+    // path, is dropped; `map-and-spare`, whose cells lie on two paths, is kept.
+    assert_eq!(
+        dropped_and_refuted(&definition, &st(&one_thread, "noK{}()")),
+        ["map2"]
+    );
+    // Off the path of `map2`'s cells, the subject may hold anything: an unevaluated function in
+    // the spare slot.
+    assert_eq!(
+        dropped_and_refuted(&definition, &st(&one_thread, "stuckK{}()")),
+        ["map2"]
+    );
+    for subject in [
+        // No cell: no path.
+        st("mapUnit{}()", "noK{}()"),
+        // Two cells.
+        st(&one_thread, k_a),
+        // A second thread on the path, ground and without a cell: the pattern's two entries may
+        // be paired with the subject's two, which the matcher leaves to the collection solver.
+        st(
+            &format!("mapConcat{{}}({one_thread}, {})", thread("t1", "noK{}()")),
+            "noK{}()",
+        ),
+        // Instances that may hold another cell on the path.
+        st(
+            &format!("mapConcat{{}}({one_thread}, REST:SortThreadMap{{}})"),
+            "noK{}()",
+        ),
+        st(&thread("t0", "C:SortKCell{}"), "noK{}()"),
+        // The two cells of `pair2` lie on two paths.
+        format!("pr{{}}({k_a}, noK{{}}())"),
+    ] {
+        assert!(
+            dropped_and_refuted(&definition, &subject).is_empty(),
+            "{subject}"
+        );
+    }
+    assert_eq!(
+        dropped_and_refuted(
+            &definition,
+            &format!("ls{{}}(listItem{{}}(inj{{SortKCell{{}}, SortKItem{{}}}}({k_a})))")
+        ),
+        ["list2"]
+    );
+}
