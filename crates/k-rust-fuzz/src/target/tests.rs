@@ -51,6 +51,10 @@ fn catalog() -> Vec<CompiledRuleOutput> {
     twin_b.shared_identity = true;
     let mut dormant = entry("id-dormant", Some("dormant"), FunctionEquation, 38);
     dormant.executable = false;
+    // k-rust accepts `non-executable` only on function equations, but a KORE rewrite axiom
+    // may carry it, and the catalog then reports the rewrite rule as not executable.
+    let mut frozen = entry("id-frozen", Some("frozen"), Rewrite, 39);
+    frozen.executable = false;
     let mut other_div = entry("id-other-div", None, Rewrite, 3);
     other_div.label = Some("OTHER.div".to_owned());
     other_div.origins[0].source = Some("Source(other/other.k)".to_owned());
@@ -63,6 +67,7 @@ fn catalog() -> Vec<CompiledRuleOutput> {
         twin_a,
         twin_b,
         dormant,
+        frozen,
         entry("id-simp", Some("simp"), Simplification, 40),
         entry("id-ceil", None, Definedness, 41),
         entry("UNKNOWN", Some("generated"), Rewrite, 42),
@@ -154,6 +159,9 @@ fn entries_whose_coverage_may_come_from_elsewhere_are_refused() {
         resolve(RuleRef::UniqueId("id-twin".to_owned())),
         Err(TargetProblem::SharedIdentity)
     );
+    assert_eq!(resolve(label("frozen")), Err(TargetProblem::NotExecutable));
+    // A non-executable equation is refused as not executable before it is refused as an
+    // equation.
     assert_eq!(resolve(label("dormant")), Err(TargetProblem::NotExecutable));
     assert_eq!(resolve(label("double")), Err(TargetProblem::Equation));
     assert_eq!(resolve(label("simp")), Err(TargetProblem::Equation));
@@ -353,9 +361,9 @@ fn coverage_modes_attribute_the_run_to_a_leaf_only_when_every_leaf_could_carry_t
         rule_reached("id-check-hit", RuleMode::Covered, false, &mixed),
         [false, false]
     );
+    // An `Err` result has no leaf and no coverage.
     let failed = CaseResult {
         coverage: None,
-        failure: Some("stack segment refused".to_owned()),
         ..case(Vec::new(), &[], &[])
     };
     assert!(rule_reached("id-div", RuleMode::Covered, false, &failed).is_empty());
