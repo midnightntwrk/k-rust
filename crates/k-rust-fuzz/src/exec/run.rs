@@ -265,7 +265,8 @@ pub(crate) struct Executor {
     max_simplification_iterations: usize,
     /// Stops for lack of stack in the definition's load (ARCHITECTURE 5.4).
     load_stack_stops: usize,
-    /// The per-case safety limit, in milliseconds.
+    /// The per-case safety limit, in milliseconds; wasm32 refuses it, so there it is never set.
+    #[cfg(not(target_arch = "wasm32"))]
     safety_limit_ms: Option<u64>,
     #[cfg(not(target_arch = "wasm32"))]
     watchdog: Option<super::watchdog::Watchdog>,
@@ -380,6 +381,7 @@ impl Executor {
             compiler: None,
             max_simplification_iterations: options.max_simplification_iterations,
             load_stack_stops,
+            #[cfg(not(target_arch = "wasm32"))]
             safety_limit_ms: options.safety_limit_ms,
             #[cfg(not(target_arch = "wasm32"))]
             watchdog: options
