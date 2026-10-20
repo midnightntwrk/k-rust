@@ -69,7 +69,7 @@ fn detail(values: &[Value], state: &str) -> HitDetail {
                 location: HoleLocation::ConfigVar {
                     name: format!("H{index}"),
                 },
-                k_text: format!("{value:?}"),
+                k_text: Some(format!("{value:?}")),
                 kore: format!("{value:?}"),
                 value: value.clone(),
             })

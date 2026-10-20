@@ -443,8 +443,10 @@ pub struct HoleValue {
     pub name: String,
     /// The hole's location as declared.
     pub location: HoleLocation,
-    /// The value as K text.
-    pub k_text: String,
+    /// The value as K text; omitted for a KORE-template hole whose value has no K text (the
+    /// template needs only the KORE, so a definition without K-text syntax still runs it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub k_text: Option<String>,
     /// The value as KORE text.
     pub kore: String,
     /// The value.
@@ -594,7 +596,7 @@ mod tests {
                 find: "amount = 250;".into(),
                 literal: "250".into(),
             }),
-            k_text: "-7".into(),
+            k_text: Some("-7".into()),
             kore: r#"\dv{SortInt{}}("-7")"#.into(),
             value: Value::Int(BigInt::from(-7)),
         };

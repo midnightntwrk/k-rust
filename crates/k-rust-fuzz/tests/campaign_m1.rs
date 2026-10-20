@@ -18,7 +18,7 @@ use k_rust_fuzz::{
     values::{Constraints, GenerationBounds},
 };
 use num_bigint::BigInt;
-use support::{CHOSEN, Fixture, GRAPH, IMP, RULES, VALUE};
+use support::{CHOSEN, Fixture, GRAPH, IMP, RULES, SHAPE, VALUE};
 
 /// An `Int` hole at `literal` inside the unique text `find` of `program`.
 fn int_hole(name: &str, program: &str, find: &str, literal: &str) -> HoleDecl {
@@ -226,7 +226,7 @@ fn x_le_y_has_a_confirmed_counterexample_whose_values_violate_it() {
         assert_eq!(names, ["X", "Y"]);
         let (x, y) = (int_of(&case.holes[0].value), int_of(&case.holes[1].value));
         assert!(x > y, "the witness must violate x <= y: x = {x}, y = {y}");
-        assert_eq!(case.holes[0].k_text, x.to_string());
+        assert_eq!(case.holes[0].k_text, Some(x.to_string()));
         assert_eq!(case.sides.len(), 1);
         assert!(
             case.sides[0].final_configurations[0].contains(r#"\dv{SortInt{}}("0")"#),
@@ -512,4 +512,100 @@ fn the_rule_graph_entry_is_the_hole_template_not_the_anchor() {
         "{:?}",
         report.engine_defects
     );
+}
+
+/// A campaign over SHAPE's initial configuration as a KORE template: the `$SHAPE` value
+/// `inj{SortCircle{}, SortKItem{}}(circle(9))` is replaced by
+/// `inj{SortShape{}, SortKItem{}}(VarS:SortShape{})`, the hole `S` of the data sort `Shape`,
+/// which has no constructor of its own, with the target `boxed` fired.
+fn shape_template_spec(definition: k_rust_fuzz::CompiledDefinition) -> CampaignSpec {
+    let anchor = r#"inj{SortCircle{}, SortKItem{}}(Lblcircle{}(\dv{SortInt{}}("9")))"#;
+    let initial = SHAPE.compiled().initial("graph/shape.pgm").to_string();
+    assert_eq!(initial.matches(anchor).count(), 1, "{initial}");
+    let template = k_rust::kore::parser::parse_pattern(
+        &initial.replace(anchor, "inj{SortShape{}, SortKItem{}}(VarS:SortShape{})"),
+    )
+    .expect("the template parses");
+    CampaignSpec {
+        definitions: Definitions {
+            baseline: Arc::new(definition),
+            mutant: None,
+        },
+        program: ProgramInput::KoreTemplate(template),
+        holes: vec![HoleDecl {
+            name: "S".into(),
+            sort: "Shape".into(),
+            location: HoleLocation::KoreVariable {
+                name: "VarS".into(),
+            },
+            constraints: Constraints::default(),
+            allow_refused_sort: false,
+        }],
+        target: fired("boxed"),
+        options: CaseOptions::default(),
+        proposers: blind(),
+        bounds: GenerationBounds::default(),
+        rejection_cap: DEFAULT_REJECTION_CAP,
+        seed: 3,
+        identity: CallerIdentity {
+            k_rust_revision: "fz26-test".into(),
+            thread_stack_size: None,
+        },
+    }
+}
+
+#[test]
+fn a_kore_template_data_hole_is_injected_to_its_sort_and_finds_the_witness() {
+    // Phase-1 review S1: a value of `Circle` or `Square` is substituted under an injection to
+    // the variable's sort `Shape`, so the backend accepts every case; and a template needs no
+    // K text, so a definition without the compiler's syntax outputs runs it too.
+    let with_syntax = SHAPE.compiled().definition();
+    let mut without_syntax = with_syntax.clone();
+    without_syntax.syntax_definition_kore.clear();
+    without_syntax.macros_kore.clear();
+    for (name, definition, has_text) in [
+        ("with K-text syntax", with_syntax, true),
+        ("without K-text syntax", without_syntax, false),
+    ] {
+        let report = Campaign::new(shape_template_spec(definition))
+            .unwrap_or_else(|error| panic!("{name}: {error}"))
+            .run(Budget::Cases(40), None);
+        assert!(
+            report.engine_defects.is_empty(),
+            "{name}: {:?}",
+            report.engine_defects
+        );
+        assert_eq!(
+            report.totals.classes.get(&OutcomeClass::Rejected),
+            None,
+            "{name}: {:?}",
+            report.totals
+        );
+        let witness = report
+            .witness()
+            .unwrap_or_else(|| panic!("{name}: a witness, not {:?}", report.outcome));
+        assert_eq!(
+            witness.krun_command, None,
+            "{name}: no krun run is a template"
+        );
+        for case in [Some(&witness.first), witness.shrunk.as_ref()]
+            .into_iter()
+            .flatten()
+        {
+            let hole = &case.holes[0];
+            assert!(
+                matches!(&hole.value, Value::Apply { symbol, .. } if symbol == "Lblsquare"),
+                "{name}: {:?}",
+                hole.value
+            );
+            assert_eq!(hole.k_text.is_some(), has_text, "{name}: {:?}", hole.k_text);
+            assert!(
+                case.sides[0]
+                    .initial_configuration
+                    .contains("inj{SortSquare{}, SortShape{}}(Lblsquare{}("),
+                "{name}: {}",
+                case.sides[0].initial_configuration
+            );
+        }
+    }
 }

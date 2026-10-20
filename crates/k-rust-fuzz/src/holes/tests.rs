@@ -27,7 +27,7 @@ use crate::{
     support,
     values::{
         Constraints, ElementSorts, Value, ValueSort,
-        print::{print_k_text, to_kore},
+        print::{print_k_text, to_kore_with_sort},
     },
 };
 
@@ -162,8 +162,9 @@ fn int_kore(value: i64) -> Pattern {
 /// An `Int` value printed as a K literal and as its domain value.
 fn int(value: i64) -> PrintedValue {
     PrintedValue {
-        k_text: value.to_string(),
+        k_text: Some(value.to_string()),
         kore: int_kore(value),
+        sort: kore_sort("SortInt"),
     }
 }
 
@@ -489,8 +490,9 @@ fn a_configuration_variable_hole_replaces_its_binding() {
         }],
     };
     let value = PrintedValue {
-        k_text: "transfer(5, 0)".to_owned(),
+        k_text: Some("transfer(5, 0)".to_owned()),
         kore: int_kore(0),
+        sort: kore_sort("SortInt"),
     };
     let instantiated = instantiate(&program, &holes, &[value]);
     let InstantiatedProgram::Source {
@@ -1168,9 +1170,11 @@ fn values_case(
     let check = RoundTripCheck::new(&assembly, definition, &program, &holes)
         .unwrap_or_else(|error| panic!("the anchor is located: {error}"));
     let sort = &holes.holes[0].sort;
+    let (kore, kore_sort) = to_kore_with_sort(value, sort).expect("the value has KORE");
     let printed = [PrintedValue {
-        k_text: print_k_text(value, sort).expect("the value prints"),
-        kore: to_kore(value, sort).expect("the value has KORE"),
+        k_text: Some(print_k_text(value, sort).expect("the value prints")),
+        kore,
+        sort: kore_sort,
     }];
     let built = assembly
         .assemble(definition, &instantiate(&program, &holes, &printed))

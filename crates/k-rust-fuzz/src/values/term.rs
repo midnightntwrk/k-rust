@@ -48,7 +48,7 @@ fn application(symbol: &str, arguments: Vec<KorePattern>) -> KorePattern {
 
 /// `pattern`, of sort `from`, at sort `to`: itself when the sorts are equal, its injection
 /// otherwise.
-fn inject(pattern: KorePattern, from: &KoreSort, to: &KoreSort) -> KorePattern {
+pub(crate) fn inject(pattern: KorePattern, from: &KoreSort, to: &KoreSort) -> KorePattern {
     if from == to {
         return pattern;
     }

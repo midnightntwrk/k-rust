@@ -244,14 +244,14 @@ fn overlap(left: &HoleSite, right: &HoleSite) -> bool {
 /// of such a name is free.
 pub(super) fn substitute(
     template: &KorePattern,
-    substitution: &BTreeMap<&str, &KorePattern>,
+    substitution: &BTreeMap<&str, KorePattern>,
 ) -> KorePattern {
     walk::rebuild(template, |pattern, children: Vec<KorePattern>| {
         if let KorePattern::Variable(variable) = pattern
             && variable.kind == VariableKind::Element
             && let Some(value) = substitution.get(variable.name.as_str())
         {
-            return (*value).clone();
+            return value.clone();
         }
         pattern.node().split().0.fill(children).into_pattern()
     })

@@ -105,7 +105,8 @@ pub(crate) fn print_k_text(value: &Value, sort: &ValueSort) -> Result<String, Pr
 /// `value` as a KORE pattern of `sort` (a domain value `\dv{SortInt{}}("5")`, a collection
 /// built from the collection's symbols, or a constructor application), not injected: the
 /// expected term at a hole's position for the round-trip check (ARCHITECTURE 2.3), the
-/// substitution of a KORE-template hole, and the witness's KORE (2.6). A data value is at its
+/// witness's KORE (2.6), and, injected to the variable's sort, the substitution of a
+/// KORE-template hole. A data value is at its
 /// own sort (the result sort of its constructor, or the sort of its builtin or collection
 /// subsort), without an injection to the hole's sort: the assembler places a value under the
 /// one injection its position needs (`inj{SortCircle{}, SortKItem{}}` for a `Shape` value in a
@@ -184,6 +185,21 @@ pub(crate) fn to_kore(value: &Value, sort: &ValueSort) -> Result<KorePattern, Pr
         sort,
         value: payload,
     })
+}
+
+/// [`to_kore`] with the KORE sort of the pattern it returns: the value's own sort (for a data
+/// value, the result sort of its constructor or the sort of its builtin or collection subsort).
+/// A KORE-template hole injects the pattern from this sort to its variable's sort.
+///
+/// # Errors
+///
+/// [`PrintError`] as [`to_kore`].
+pub(crate) fn to_kore_with_sort(
+    value: &Value,
+    sort: &ValueSort,
+) -> Result<(KorePattern, KoreSort), PrintError> {
+    check_shape(value, sort).map_err(|_| PrintError::SortMismatch)?;
+    term::kore_of(value, sort)
 }
 
 /// `text`, a K literal of `sort` in the lexical syntax of the module comment, as the value it

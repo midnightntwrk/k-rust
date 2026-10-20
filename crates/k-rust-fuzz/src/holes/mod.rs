@@ -38,7 +38,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use k_rust::{
     k_rust_backend::definition::BackendDefinition,
-    kore::ast::{Pattern as KorePattern, Variable as KoreVariable},
+    kore::ast::{Pattern as KorePattern, Sort as KoreSort, Variable as KoreVariable},
 };
 use serde::{Deserialize, Serialize};
 
@@ -197,10 +197,16 @@ pub(crate) struct ResolvedHoles {
 /// KORE (for template holes, the round-trip check and the witness).
 #[derive(Clone, Debug)]
 pub(crate) struct PrintedValue {
-    /// [`crate::values::print::print_k_text`] of the value.
-    pub(crate) k_text: String,
-    /// [`crate::values::print::to_kore`] of the value.
+    /// [`crate::values::print::print_k_text`] of the value. Always present for a span or
+    /// configuration-variable hole, whose text it replaces; for a KORE-template hole, which
+    /// needs only the KORE, it is the witness's K text when the value prints, and `None` when
+    /// it does not (a definition without K-text syntax, say).
+    pub(crate) k_text: Option<String>,
+    /// [`crate::values::print::to_kore`] of the value: at its own sort, not injected.
     pub(crate) kore: KorePattern,
+    /// The KORE sort of [`Self::kore`], the value's own sort
+    /// ([`crate::values::print::to_kore_with_sort`]).
+    pub(crate) sort: KoreSort,
 }
 
 /// The program of one case, with every hole replaced (ARCHITECTURE 2.3). It lives in memory
@@ -403,23 +409,30 @@ pub(crate) fn instantiate(
             let mut binding_edits = BTreeMap::<&str, Vec<(usize, usize, &str)>>::new();
             let mut whole_bindings = BTreeMap::<&str, &str>::new();
             for (hole, value) in holes.holes.iter().zip(values) {
+                let text = || {
+                    value
+                        .k_text
+                        .as_deref()
+                        .expect("a source hole's value is printed as K text")
+                };
                 match &hole.site {
                     HoleSite::Span {
                         text: SpanText::Program,
                         start,
                         end,
-                    } => program_edits.push((*start, *end, value.k_text.as_str())),
+                    } => program_edits.push((*start, *end, text())),
                     HoleSite::Span {
                         text: SpanText::Binding(name),
                         start,
                         end,
-                    } => binding_edits.entry(name.as_str()).or_default().push((
-                        *start,
-                        *end,
-                        value.k_text.as_str(),
-                    )),
+                    } => {
+                        binding_edits
+                            .entry(name.as_str())
+                            .or_default()
+                            .push((*start, *end, text()))
+                    }
                     HoleSite::ConfigVar(name) => {
-                        whole_bindings.insert(name.as_str(), value.k_text.as_str());
+                        whole_bindings.insert(name.as_str(), text());
                     }
                     HoleSite::KoreVariable(_) => {
                         panic!("a template hole in a source program")
@@ -449,12 +462,23 @@ pub(crate) fn instantiate(
             }
         }
         ProgramInput::KoreTemplate(template) => {
+            // The variable has the hole's declared sort (D17), and a value is at its own sort,
+            // a subsort of it for a data value of a constructor of a subsort: the substituted
+            // term is the value injected to the variable's sort, so that the configuration is
+            // as well sorted as the template.
             let substitution = holes
                 .holes
                 .iter()
                 .zip(values)
                 .map(|(hole, value)| match &hole.site {
-                    HoleSite::KoreVariable(variable) => (variable.name.as_str(), &value.kore),
+                    HoleSite::KoreVariable(variable) => (
+                        variable.name.as_str(),
+                        crate::values::term::inject(
+                            value.kore.clone(),
+                            &value.sort,
+                            &variable.sort,
+                        ),
+                    ),
                     HoleSite::Span { .. } | HoleSite::ConfigVar(_) => {
                         panic!("a source hole in a KORE template")
                     }

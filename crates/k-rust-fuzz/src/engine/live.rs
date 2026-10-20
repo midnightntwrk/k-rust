@@ -22,7 +22,7 @@ use crate::{
         OutcomeClass, PatternCompiler, TargetNeeds,
     },
     graph::{self, RuleGraph, entry::Entry},
-    holes::{self, InstantiatedProgram, PrintedValue, ResolvedHoles, RoundTripCheck},
+    holes::{self, HoleSite, InstantiatedProgram, PrintedValue, ResolvedHoles, RoundTripCheck},
     report::{DefinitionRole, HoleValue, KillKind, Reaching, RejectionReason, WitnessSide},
     spec::{BackendRoute, CampaignSpec, CompiledDefinition, PathMode, ProgramInput},
     target::{HitSite, ResolvedTarget, TargetKind, differential},
@@ -153,10 +153,17 @@ impl Side {
                 values::check_constraints(value, &hole.sort, &hole.decl.constraints)
                     .map_err(|_| RejectionReason::Constraint)?;
             }
-            let k_text =
-                print::print_k_text(value, &hole.sort).map_err(|_| RejectionReason::Print)?;
-            let kore = print::to_kore(value, &hole.sort).map_err(|_| RejectionReason::Print)?;
-            printed.push(PrintedValue { k_text, kore });
+            // A template hole substitutes the KORE alone, so its K text is only the witness's,
+            // and a value that has none is not refused for it.
+            let k_text = print::print_k_text(value, &hole.sort);
+            let k_text = if matches!(hole.site, HoleSite::KoreVariable(_)) {
+                k_text.ok()
+            } else {
+                Some(k_text.map_err(|_| RejectionReason::Print)?)
+            };
+            let (kore, sort) =
+                print::to_kore_with_sort(value, &hole.sort).map_err(|_| RejectionReason::Print)?;
+            printed.push(PrintedValue { k_text, kore, sort });
         }
         let instantiated = holes::instantiate(program, &self.holes, &printed);
         let assembled = self

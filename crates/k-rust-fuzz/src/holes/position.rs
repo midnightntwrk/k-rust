@@ -19,7 +19,7 @@ use crate::{
     spec::{CompiledDefinition, ProgramInput},
     values::{
         Value, ValueSort,
-        print::{print_k_text, to_kore},
+        print::{print_k_text, to_kore, to_kore_with_sort},
         term::second_value,
     },
 };
@@ -80,7 +80,8 @@ pub(super) fn locate_all(
                 unlocatable(format!(
                     "the hole's position cannot be located: the program with `{}` at the hole \
                      does not assemble: {}",
-                    values[index].k_text, error.message
+                    values[index].k_text.as_deref().unwrap_or_default(),
+                    error.message
                 ))
             })?;
         let path = locate(
@@ -138,16 +139,25 @@ fn anchor_printed(hole: &ResolvedHole) -> Result<PrintedValue, CampaignError> {
         _ => to_kore(anchor, &hole.sort)
             .map_err(|error| refuse(format!("the anchor has no KORE form: {error:?}")))?,
     };
+    // The anchor value's own sort, which the parsed anchor KORE has too.
+    let (_, sort) = to_kore_with_sort(anchor, &hole.sort)
+        .map_err(|error| refuse(format!("the anchor has no KORE form: {error:?}")))?;
     Ok(PrintedValue {
-        k_text: text.clone(),
+        k_text: Some(text.clone()),
         kore,
+        sort,
     })
 }
 
 fn printed(value: &Value, hole: &ResolvedHole) -> Result<PrintedValue, String> {
     let k_text = print_k_text(value, &hole.sort).map_err(|error| format!("{error:?}"))?;
-    let kore = to_kore(value, &hole.sort).map_err(|error| format!("{error:?}"))?;
-    Ok(PrintedValue { k_text, kore })
+    let (kore, sort) =
+        to_kore_with_sort(value, &hole.sort).map_err(|error| format!("{error:?}"))?;
+    Ok(PrintedValue {
+        k_text: Some(k_text),
+        kore,
+        sort,
+    })
 }
 
 /// A second value of the anchor's sort for differential parsing, printed with the anchor's
