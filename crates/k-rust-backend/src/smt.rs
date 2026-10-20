@@ -236,6 +236,8 @@ pub struct TranslationState {
     counter: usize,
     /// The exactness of everything translated so far; lowered by each site that approximates.
     exactness: Exactness,
+    /// Whether the translation has written text it did not author (`Self::write_foreign_text`).
+    foreign_text: bool,
 }
 
 impl Default for TranslationState {
@@ -253,6 +255,7 @@ impl TranslationState {
             bound_variables: Vec::new(),
             counter: 1,
             exactness: Exactness::Exact,
+            foreign_text: false,
         }
     }
 
@@ -263,6 +266,15 @@ impl TranslationState {
 
     fn approximate(&mut self, exactness: Exactness) {
         self.exactness = self.exactness.and(exactness);
+    }
+
+    /// Record that the translation copies text into the script that it did not write itself:
+    /// an `smt-hook` operator or template, an `smtlib` function name, or a domain value's text
+    /// that is not an SMT-LIB literal of its sort. Whether the solver reads such text depends
+    /// on what its author wrote, so a script containing it that the solver rejects is not
+    /// shown to be a defect of the translation (`SmtPrelude::blames_the_translation`).
+    fn write_foreign_text(&mut self) {
+        self.foreign_text = true;
     }
 
     pub fn translate_term(&mut self, term: &Term) -> Result<SExpr, TranslationError> {
@@ -297,12 +309,15 @@ impl TranslationState {
                     Ok(self.abstract_term(term, Exactness::Approximate))
                 }
                 Some(SmtType::Lib(name)) => {
+                    self.write_foreign_text();
                     self.translate_application(name, arguments, Exactness::Approximate)
                 }
                 Some(SmtType::Hook(SExpr::Atom(name))) if name != POWER => {
+                    self.write_foreign_text();
                     self.translate_application(name, arguments, symbol_exactness(symbol))
                 }
                 Some(SmtType::Hook(expression)) => {
+                    self.write_foreign_text();
                     self.approximate(symbol_exactness(symbol));
                     let template = match expression {
                         SExpr::Atom(name) => SExpr::application(
@@ -331,6 +346,9 @@ impl TranslationState {
                 let value = value.as_utf8().map_err(|_| {
                     TranslationError::UnsupportedPredicate("non-UTF-8 Bool or Int SMT literal")
                 })?;
+                if !is_smt_literal(sort, value) {
+                    self.write_foreign_text();
+                }
                 Ok(SExpr::atom(value))
             }
             TermKind::Variable(variable) => {
@@ -848,6 +866,11 @@ pub enum TranslationError {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SmtPrelude {
     declarations: Vec<String>,
+    /// The functions the definition's `smtlib` attributes name, which the prelude declares
+    /// under names their authors chose (as SMT-LIB symbols, `symbol_name`).
+    smtlib_names: BTreeSet<String>,
+    /// Whether the prelude ends with a user prelude, a script k-rust did not write.
+    user_script: bool,
 }
 
 impl SmtPrelude {
@@ -872,10 +895,12 @@ impl SmtPrelude {
         // one function, which is declared once: SMT-LIB rejects a second declaration of it, and
         // a rejected prelude states nothing.
         let mut declared = BTreeSet::new();
+        let mut smtlib_names = BTreeSet::new();
         for symbol in definition.symbols().values() {
             let Some(SmtType::Lib(name)) = &symbol.attributes.smt else {
                 continue;
             };
+            smtlib_names.insert(symbol_name(name).to_owned());
             let arguments = symbol
                 .argument_sorts
                 .iter()
@@ -903,7 +928,11 @@ impl SmtPrelude {
         for rule in smt_lemmas(definition) {
             declarations.push(format!("(assert {})", translate_smt_lemma(rule)?));
         }
-        Ok(Self { declarations })
+        Ok(Self {
+            declarations,
+            smtlib_names,
+            user_script: false,
+        })
     }
 
     pub fn from_definition_with_prelude(
@@ -913,6 +942,7 @@ impl SmtPrelude {
         let mut generated = Self::from_definition(definition)?;
         if !prelude.trim().is_empty() {
             generated.declarations.push(prelude.to_owned());
+            generated.user_script = true;
         }
         Ok(generated)
     }
@@ -949,6 +979,43 @@ impl SmtPrelude {
                 .map(|expression| format!("(assert {expression})")),
         );
         Ok(TranslatedQuery::new(base.join("\n"), checked, translation))
+    }
+
+    /// Whether the solver's rejection of `script`, which poses `query` under this prelude, is a
+    /// defect of k-rust's translation: a script k-rust wrote by itself that is not well-formed
+    /// SMT-LIB. The caller has checked that the prelude alone loads.
+    ///
+    /// A rejection is a defect of the text that makes the script ill-formed, and only k-rust's
+    /// own text is k-rust's defect. The script is the prelude followed by the text the
+    /// translation writes for the query. That text is all k-rust's (its fresh `SMT-` names, the
+    /// names of the definition's sorts, which the prelude declares, the core and integer
+    /// operations it writes, and literals) unless the translation copied foreign text into it
+    /// (`TranslationState::write_foreign_text`): an `smt-hook` whose operator is unknown or
+    /// whose rank does not fit, or an `smtlib` name declared twice at overlapping signatures,
+    /// is ill-formed through its author's text. The loaded prelude reaches into the query's text
+    /// only through what it declares: k-rust declares the definition's sorts and its own names,
+    /// a user prelude may declare anything and change how the rest of the script is read (a
+    /// `set-logic`, a `reset`), and a declared `smtlib` function changes the reading of every
+    /// occurrence of its name, so a query whose text writes that name (a fresh `SMT-1`, or an
+    /// operation such as `and` that an `smtlib` attribute overloads) may be rejected for the
+    /// clash. Every other rejection of the script can only be of k-rust's text.
+    ///
+    /// The query's text is split into tokens at whitespace and parentheses; text k-rust wrote
+    /// by itself has no quoted symbol containing either, so the tokens are its atoms.
+    #[cfg(feature = "z3")]
+    fn blames_the_translation(&self, query: &TranslatedQuery, script: &str) -> bool {
+        if query.foreign_text() || self.user_script {
+            return false;
+        }
+        let prelude = self.declarations.join("\n");
+        let Some(text) = script.strip_prefix(prelude.as_str()) else {
+            // Every script starts with its prelude; one that does not is no script this
+            // reasoning covers.
+            return false;
+        };
+        !text
+            .split(|character: char| character.is_whitespace() || matches!(character, '(' | ')'))
+            .any(|token| self.smtlib_names.contains(symbol_name(token)))
     }
 }
 
@@ -1267,6 +1334,25 @@ fn quote(name: &str) -> String {
     format!("|{name}|")
 }
 
+/// The SMT-LIB symbol `name` denotes: `|s|` and `s` are one symbol.
+fn symbol_name(name: &str) -> &str {
+    name.strip_prefix('|')
+        .and_then(|name| name.strip_suffix('|'))
+        .unwrap_or(name)
+}
+
+/// Whether `value`, the text of a domain value of the `Bool` or `Int` sort `sort`, is an SMT-LIB
+/// literal of that sort as the solver reads it: `true` or `false`, or a decimal numeral with an
+/// optional minus sign. The translation writes such a literal as itself; any other text it copies
+/// is not its own (`TranslationState::write_foreign_text`).
+fn is_smt_literal(sort: &Sort, value: &str) -> bool {
+    if sort.is_builtin(BuiltinSort::Bool) {
+        return matches!(value, "true" | "false");
+    }
+    let digits = value.strip_prefix('-').unwrap_or(value);
+    !digits.is_empty() && digits.bytes().all(|digit| digit.is_ascii_digit())
+}
+
 #[must_use]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Satisfiability {
@@ -1332,8 +1418,10 @@ pub enum SmtError {
     InconsistentGroundTruth,
     /// The solver rejected the query's script (a parse or sort error, an undeclared or a
     /// redeclared symbol), so it answered nothing about it; the payload is the solver's message.
-    /// The prelude is known to load when this is returned, so the query's own translation is at
-    /// fault. Never a stop.
+    /// The prelude is known to load when this is returned, so the query's own text is at fault:
+    /// text the definition supplies (an `smt-hook`, an `smtlib` name clashing with a name the
+    /// query writes), the user prelude, or k-rust's translation. A debug build panics on the
+    /// last, a defect of k-rust (`SmtPrelude::blames_the_translation`). Never a stop.
     MalformedScript {
         message: String,
     },

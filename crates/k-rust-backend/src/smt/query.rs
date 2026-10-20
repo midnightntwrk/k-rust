@@ -15,6 +15,7 @@ pub(crate) struct TranslatedQuery {
     checked: SExpr,
     mappings: BTreeMap<Term, String>,
     exactness: Exactness,
+    foreign_text: bool,
 }
 
 impl TranslatedQuery {
@@ -25,6 +26,7 @@ impl TranslatedQuery {
             base,
             checked,
             exactness: translation.exactness(),
+            foreign_text: translation.foreign_text,
             mappings: translation.mappings,
         }
     }
@@ -41,6 +43,12 @@ impl TranslatedQuery {
 
     pub(crate) fn exactness(&self) -> Exactness {
         self.exactness
+    }
+
+    /// Whether the translation copied text it did not write itself into the query
+    /// (`TranslationState::write_foreign_text`).
+    pub(crate) fn foreign_text(&self) -> bool {
+        self.foreign_text
     }
 
     /// The constants that stand for the query's variables, only when a model of the query is a
@@ -69,6 +77,8 @@ mod tests {
     fn prelude() -> SmtPrelude {
         SmtPrelude {
             declarations: Vec::new(),
+            smtlib_names: std::collections::BTreeSet::new(),
+            user_script: false,
         }
     }
 

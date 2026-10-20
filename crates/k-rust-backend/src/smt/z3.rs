@@ -444,12 +444,30 @@ impl Z3Solver {
         }
     }
 
-    /// Confirm a rejected script against the prelude. Every script starts with the prelude, so
-    /// the rejection is the query's own only once the prelude is known to load; a prelude that
-    /// does not load (or fails otherwise) is a stop. A rejection itself never shows the prelude
-    /// consistent: only the prelude's own check does.
-    fn confirm_rejection(&self, rejected: RejectedScript) -> Stoppable<SmtError> {
+    /// Confirm a rejected script, `script` posing `query`, against the prelude. Every script
+    /// starts with the prelude, so the rejection is the query's own only once the prelude is
+    /// known to load; a prelude that does not load (or fails otherwise) is a stop. A rejection
+    /// itself never shows the prelude consistent: only the prelude's own check does.
+    ///
+    /// A query's rejection whose only possible cause is the text k-rust's translation wrote by
+    /// itself is a defect of k-rust, not a property of the definition or the request: a debug
+    /// build panics on it, so every test that reaches the solver checks that the translation
+    /// writes scripts the solver reads. A consumer that falls back on any query failure stays
+    /// sound, which is why a release build keeps the typed failure, but the fallback would hide
+    /// the defect. A rejection that text from the definition or the user may cause
+    /// (`SmtPrelude::blames_the_translation`) stays a typed failure in every build.
+    fn confirm_rejection(
+        &self,
+        rejected: RejectedScript,
+        query: &TranslatedQuery,
+        script: &str,
+    ) -> Stoppable<SmtError> {
         self.check_prelude()?;
+        debug_assert!(
+            !self.prelude.blames_the_translation(query, script),
+            "Z3 rejected an SMT-LIB script k-rust's translation wrote by itself ({}):\n{script}",
+            rejected.message
+        );
         Ok(SmtError::MalformedScript {
             message: rejected.message,
         })
@@ -535,7 +553,7 @@ impl Z3Solver {
         }
         match self.solve(&script)? {
             Ok(answer) => self.confirm_answer(answer).map(Ok),
-            Err(rejected) => self.confirm_rejection(rejected).map(Err),
+            Err(rejected) => self.confirm_rejection(rejected, query, &script).map(Err),
         }
     }
 
@@ -557,7 +575,11 @@ impl Z3Solver {
             #[cfg(test)]
             self.record_attempt(timeout);
             if let Err(rejected) = load(&solver, query.base()) {
-                return Ok(Err(self.confirm_rejection(rejected)?));
+                return Ok(Err(self.confirm_rejection(
+                    rejected,
+                    query,
+                    query.base(),
+                )?));
             }
             match measured_check(&solver) {
                 SatResult::Sat => {
@@ -1564,6 +1586,80 @@ mod tests {
             PreludeState::Consistent
         ));
         assert_eq!(solver.uncached_solve_count.load(Ordering::Relaxed), 1);
+    }
+
+    /// Whether each kind of query of `predicates` fails because Z3 rejects its script.
+    fn every_query_is_rejected(solver: &Z3Solver, predicates: &[Predicate]) -> bool {
+        fn rejected<T>(answer: Result<Result<T, SmtError>, StopCause>) -> bool {
+            matches!(answer, Ok(Err(SmtError::MalformedScript { message })) if !message.is_empty())
+        }
+        rejected(cause(solver.is_sat(predicates, &Substitution::new())))
+            && rejected(cause(solver.check_predicates(
+                &[],
+                &Substitution::new(),
+                predicates,
+            )))
+            && rejected(cause(solver.get_model(&ModelQuery::for_solver_tests(
+                predicates,
+                &Substitution::new(),
+            ))))
+    }
+
+    /// A script the translation wrote without any text of the definition or the user, here one
+    /// naming a sort the prelude does not declare, is a defect of k-rust when Z3 rejects it: a
+    /// debug build panics with Z3's message and the script, and a release build returns the
+    /// typed failure.
+    #[test]
+    #[cfg_attr(
+        debug_assertions,
+        should_panic(
+            expected = "Z3 rejected an SMT-LIB script k-rust's translation wrote by itself"
+        )
+    )]
+    fn a_rejected_script_the_translation_wrote_by_itself_is_a_defect_of_k_rust() {
+        let definition = definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+        let undeclared = Term::variable(Variable::new("U", Sort::simple("SortUndeclared")));
+        assert!(every_query_is_rejected(
+            &solver,
+            &[Predicate::Equals(undeclared.clone(), undeclared)]
+        ));
+    }
+
+    /// A rejection that text the translation did not write may cause is the definition's or the
+    /// user's, and stays a typed failure in a debug build too: an `smtlib` function whose name
+    /// is a name the query writes (the query's fresh `SMT-1` is redeclared), a user prelude
+    /// (which declares that name itself), and a domain value whose text is no SMT-LIB literal,
+    /// which the translation copies. An `smt-hook` Z3 does not have is the case of
+    /// `a_query_z3_rejects_answers_nothing_and_is_not_cached`.
+    #[test]
+    fn a_rejection_of_text_the_translation_did_not_write_is_a_typed_failure() {
+        let clashing = BackendDefinition::internalize(
+            &parse_definition(
+                r#"[]
+                module MAIN
+                    hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                    hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                    symbol c{}() : SortInt{} [function{}(), total{}(), smtlib{}("|SMT-1|")]
+                endmodule []"#,
+            )
+            .expect("definition should parse"),
+            "MAIN",
+        )
+        .expect("definition should internalize");
+        let solver = Z3Solver::new(&clashing).unwrap();
+        assert!(every_query_is_rejected(&solver, &x_is_one()), "smtlib");
+
+        let definition = definition();
+        let solver = Z3Solver::with_prelude(&definition, "(declare-const SMT-1 Int)").unwrap();
+        assert!(every_query_is_rejected(&solver, &x_is_one()), "prelude");
+
+        let solver = Z3Solver::new(&definition).unwrap();
+        let not_a_literal = [Predicate::Equals(
+            Term::variable(x()),
+            Term::raw_domain_value(Sort::simple("SortInt"), "one"),
+        )];
+        assert!(every_query_is_rejected(&solver, &not_a_literal), "literal");
     }
 
     /// K symbols that name one `smtlib` function with one SMT signature stand for one function,
