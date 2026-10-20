@@ -1,0 +1,462 @@
+fn admit(__krs_symbolic_subject: Term<Exp>) -> Term<Exp> {
+    let _krs_binding_check = || {
+        let ready = ();
+        let _ = &ready;
+        let level = ();
+        let _ = &level;
+        let limit = ();
+        let _ = &limit;
+    };
+    let _ = __krs_symbolic_subject;
+    ::core::panic!("KRS rule declarations have no runtime implementation")
+}
+#[doc(hidden)]
+fn __krs_rule_subject_sort_75fd62d8f4ded67d() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<Exp>()
+}
+#[doc(hidden)]
+fn __krs_rule_result_sort_75fd62d8f4ded67d() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<Exp>()
+}
+#[doc(hidden)]
+fn __krs_rule_application_75fd62d8f4ded67d_0() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<Admit>()
+}
+#[doc(hidden)]
+fn __krs_rule_application_75fd62d8f4ded67d_1() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<Admitted>()
+}
+#[doc(hidden)]
+fn __krs_rule_application_75fd62d8f4ded67d_2() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<::language::builtin::int::add>()
+}
+#[doc(hidden)]
+fn __krs_rule_application_75fd62d8f4ded67d_3() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<::language::builtin::bool::and_then>()
+}
+#[doc(hidden)]
+fn __krs_rule_application_75fd62d8f4ded67d_4() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<::language::builtin::int::lt>()
+}
+#[doc(hidden)]
+fn __krs_rule_descriptor_75fd62d8f4ded67d() -> ::core::result::Result<
+    ::language::HostDescriptor,
+    ::language::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::language::HostDescriptor {
+        protocol_version: ::language::SchemaVersion::CURRENT,
+        id: ::language::HostItemId::from_macro_context(
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION"),
+                env!("CARGO_MANIFEST_DIR"),
+                module_path!(),
+                "admit",
+                ::language::ItemKind::Rule,
+                "",
+            )
+            .expect("Cargo and Rust macro context form a valid host identity"),
+        declared_type: ::core::option::Option::None,
+        payload: ::language::__krs_host_payload(
+            "{\"structured_rule\":{\"sentence_kind\":\"transition\",\"label\":null,\"requires\":{\"key\":{\"role\":\"rule_requires\",\"ordinal\":0},\"term\":{\"term_kind\":\"application\",\"head_class\":\"applied\",\"reference\":{\"key\":{\"role\":\"rule_requires_application_head\",\"ordinal\":0},\"target\":3,\"authored_path\":\"bool :: and_then\"},\"path_key\":{\"role\":\"rule_requires_path\",\"ordinal\":0},\"arguments\":[{\"argument_kind\":\"positional\",\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_requires_reference\",\"ordinal\":0},\"path_key\":{\"role\":\"rule_requires_path\",\"ordinal\":1},\"name\":\"ready\"}},{\"argument_kind\":\"positional\",\"value\":{\"term_kind\":\"application\",\"head_class\":\"applied\",\"reference\":{\"key\":{\"role\":\"rule_requires_application_head\",\"ordinal\":1},\"target\":4,\"authored_path\":\"int :: lt\"},\"path_key\":{\"role\":\"rule_requires_path\",\"ordinal\":2},\"arguments\":[{\"argument_kind\":\"positional\",\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_requires_reference\",\"ordinal\":1},\"path_key\":{\"role\":\"rule_requires_path\",\"ordinal\":3},\"name\":\"level\"}},{\"argument_kind\":\"positional\",\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_requires_reference\",\"ordinal\":2},\"path_key\":{\"role\":\"rule_requires_path\",\"ordinal\":4},\"name\":\"limit\"}}]}}]}},\"priority\":null,\"simplification\":null,\"nondet\":null,\"anywhere\":null,\"pattern_key\":{\"role\":\"rule_pattern\",\"ordinal\":0},\"result_key\":{\"role\":\"rule_result\",\"ordinal\":0},\"subject_sort\":{\"key\":{\"role\":\"rule_type\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Exp\"}},\"result_sort\":{\"key\":{\"role\":\"rule_result_type\",\"ordinal\":0},\"target\":{\"slot\":1,\"authored_path\":\"Exp\"}},\"bindings\":[\"ready\",\"level\",\"limit\"],\"subject\":{\"term_kind\":\"application\",\"head_class\":\"applied\",\"reference\":{\"key\":{\"role\":\"rule_left_application_head\",\"ordinal\":0},\"target\":0,\"authored_path\":\"Admit\"},\"path_key\":{\"role\":\"rule_left_path\",\"ordinal\":0},\"arguments\":[{\"argument_kind\":\"positional\",\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_left_reference\",\"ordinal\":0},\"path_key\":{\"role\":\"rule_left_path\",\"ordinal\":1},\"name\":\"ready\"}},{\"argument_kind\":\"positional\",\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_left_reference\",\"ordinal\":1},\"path_key\":{\"role\":\"rule_left_path\",\"ordinal\":2},\"name\":\"level\"}},{\"argument_kind\":\"positional\",\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_left_reference\",\"ordinal\":2},\"path_key\":{\"role\":\"rule_left_path\",\"ordinal\":3},\"name\":\"limit\"}}]},\"result\":{\"term_kind\":\"application\",\"head_class\":\"applied\",\"reference\":{\"key\":{\"role\":\"rule_right_application_head\",\"ordinal\":0},\"target\":1,\"authored_path\":\"Admitted\"},\"path_key\":{\"role\":\"rule_right_path\",\"ordinal\":0},\"arguments\":[{\"argument_kind\":\"positional\",\"value\":{\"term_kind\":\"application\",\"head_class\":\"applied\",\"reference\":{\"key\":{\"role\":\"rule_right_application_head\",\"ordinal\":1},\"target\":2,\"authored_path\":\"int :: add\"},\"path_key\":{\"role\":\"rule_right_path\",\"ordinal\":1},\"arguments\":[{\"argument_kind\":\"positional\",\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_right_reference\",\"ordinal\":0},\"path_key\":{\"role\":\"rule_right_path\",\"ordinal\":2},\"name\":\"level\"}},{\"argument_kind\":\"positional\",\"value\":{\"term_kind\":\"literal\",\"key\":{\"role\":\"rule_right_literal\",\"ordinal\":0},\"literal\":{\"literal_kind\":\"int\",\"value\":\"1\"}}}]}}]}}}",
+            ::language::__KrsSlots {
+                types: &[
+                    ::language::HostTypeKey(__krs_rule_subject_sort_75fd62d8f4ded67d),
+                    ::language::HostTypeKey(__krs_rule_result_sort_75fd62d8f4ded67d),
+                ],
+                items: &[],
+                targets: &[
+                    ::language::__KrsTargetSlot::Nominal(
+                        ::language::HostTypeKey(
+                            __krs_rule_application_75fd62d8f4ded67d_0,
+                        ),
+                    ),
+                    ::language::__KrsTargetSlot::Nominal(
+                        ::language::HostTypeKey(
+                            __krs_rule_application_75fd62d8f4ded67d_1,
+                        ),
+                    ),
+                    ::language::__KrsTargetSlot::Nominal(
+                        ::language::HostTypeKey(
+                            __krs_rule_application_75fd62d8f4ded67d_2,
+                        ),
+                    ),
+                    ::language::__KrsTargetSlot::Nominal(
+                        ::language::HostTypeKey(
+                            __krs_rule_application_75fd62d8f4ded67d_3,
+                        ),
+                    ),
+                    ::language::__KrsTargetSlot::Nominal(
+                        ::language::HostTypeKey(
+                            __krs_rule_application_75fd62d8f4ded67d_4,
+                        ),
+                    ),
+                ],
+            },
+        ),
+        cfg: ::core::default::Default::default(),
+        provenance: ::language::__krs_host_provenance(
+            "",
+            const {
+                const __KRS_AUTHORED: &[(
+                    ::language::ProvenanceRole,
+                    u32,
+                    ::language::__KrsRawAnchor,
+                )] = &[
+                    (
+                        ::language::ProvenanceRole::RuleDeclaration,
+                        0u32,
+                        ::language::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (4u32, 4u32),
+                            (4u32, 9u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::language::ProvenanceRole::RulePattern,
+                        0u32,
+                        ::language::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (4u32, 10u32),
+                            (4u32, 53u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::language::ProvenanceRole::RuleType,
+                        0u32,
+                        ::language::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (4u32, 55u32),
+                            (4u32, 64u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::language::ProvenanceRole::RuleResultType,
+                        0u32,
+                        ::language::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (4u32, 69u32),
+                            (4u32, 78u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::language::ProvenanceRole::RuleResult,
+                        0u32,
+                        ::language::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (5u32, 5u32),
+                            (5u32, 34u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::language::ProvenanceRole::RuleLeftPath,
+                        0u32,
+                        ::language::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (4u32, 26u32),
+                            (4u32, 31u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::language::ProvenanceRole::RuleLeftPath,
+                        1u32,
+                        ::language::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (4u32, 32u32),
+                            (4u32, 37u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::language::ProvenanceRole::RuleLeftPath,
+                        2u32,
+                        ::language::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (4u32, 39u32),
+                            (4u32, 44u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::language::ProvenanceRole::RuleLeftPath,
+                        3u32,
+                        ::language::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (4u32, 46u32),
+                            (4u32, 51u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::language::ProvenanceRole::RuleRightPath,
+                        0u32,
+                        ::language::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (5u32, 5u32),
+                            (5u32, 13u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::language::ProvenanceRole::RuleRightPath,
+                        1u32,
+                        ::language::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (5u32, 20u32),
+                            (5u32, 23u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::language::ProvenanceRole::RuleRightPath,
+                        2u32,
+                        ::language::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (5u32, 14u32),
+                            (5u32, 19u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::language::ProvenanceRole::RuleLeftApplicationHead,
+                        0u32,
+                        ::language::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (4u32, 26u32),
+                            (4u32, 31u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::language::ProvenanceRole::RuleLeftReference,
+                        0u32,
+                        ::language::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (4u32, 32u32),
+                            (4u32, 37u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::language::ProvenanceRole::RuleLeftReference,
+                        1u32,
+                        ::language::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (4u32, 39u32),
+                            (4u32, 44u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::language::ProvenanceRole::RuleLeftReference,
+                        2u32,
+                        ::language::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (4u32, 46u32),
+                            (4u32, 51u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::language::ProvenanceRole::RuleRightApplicationHead,
+                        0u32,
+                        ::language::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (5u32, 5u32),
+                            (5u32, 13u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::language::ProvenanceRole::RuleRightApplicationHead,
+                        1u32,
+                        ::language::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (5u32, 20u32),
+                            (5u32, 23u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::language::ProvenanceRole::RuleRightReference,
+                        0u32,
+                        ::language::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (5u32, 14u32),
+                            (5u32, 19u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::language::ProvenanceRole::RuleRightLiteral,
+                        0u32,
+                        ::language::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (5u32, 31u32),
+                            (5u32, 32u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::language::ProvenanceRole::RuleRequires,
+                        0u32,
+                        ::language::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 22u32),
+                            (3u32, 53u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::language::ProvenanceRole::RuleRequiresPath,
+                        0u32,
+                        ::language::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 28u32),
+                            (3u32, 30u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::language::ProvenanceRole::RuleRequiresPath,
+                        1u32,
+                        ::language::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 22u32),
+                            (3u32, 27u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::language::ProvenanceRole::RuleRequiresPath,
+                        2u32,
+                        ::language::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 37u32),
+                            (3u32, 39u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::language::ProvenanceRole::RuleRequiresPath,
+                        3u32,
+                        ::language::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 31u32),
+                            (3u32, 36u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::language::ProvenanceRole::RuleRequiresPath,
+                        4u32,
+                        ::language::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 47u32),
+                            (3u32, 52u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::language::ProvenanceRole::RuleRequiresApplicationHead,
+                        0u32,
+                        ::language::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 28u32),
+                            (3u32, 30u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::language::ProvenanceRole::RuleRequiresReference,
+                        0u32,
+                        ::language::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 22u32),
+                            (3u32, 27u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::language::ProvenanceRole::RuleRequiresApplicationHead,
+                        1u32,
+                        ::language::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 37u32),
+                            (3u32, 39u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::language::ProvenanceRole::RuleRequiresReference,
+                        1u32,
+                        ::language::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 31u32),
+                            (3u32, 36u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::language::ProvenanceRole::RuleRequiresReference,
+                        2u32,
+                        ::language::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 47u32),
+                            (3u32, 52u32),
+                            true,
+                        ),
+                    ),
+                ];
+                &::language::__KrsRawProvenance::new(
+                    &["src/lib.rs"],
+                    ::language::__KrsRawAnchor::new(
+                        0usize,
+                        false,
+                        (2u32, 1u32),
+                        (2u32, 18u32),
+                        true,
+                    ),
+                    __KRS_AUTHORED,
+                )
+            },
+        )?,
+    })
+}
+::language::__register_host_descriptor!(__krs_rule_descriptor_75fd62d8f4ded67d);

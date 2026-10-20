@@ -475,6 +475,7 @@ fn parse_machine_pattern_record(
             .into());
         }
         content.parse::<Token![:]>()?;
+        let value_start = content.fork();
         let value = if let Some(state) = parse_readable_pattern_state(&content)? {
             MachinePatternCell::State(Box::new(state))
         } else if content.peek(syn::token::Bracket) {
@@ -528,6 +529,10 @@ fn parse_machine_pattern_record(
         if content.peek(Token![,]) {
             content.parse::<Token![,]>()?;
         } else if !content.is_empty() {
+            // A cell pattern may stop before `&&`, `||`, or a method call.
+            if let Some(error) = crate::notation::notation_at(&value_start) {
+                return Err(error.into());
+            }
             return Err(content
                 .error("expected `,` between machine-rule cells")
                 .into());

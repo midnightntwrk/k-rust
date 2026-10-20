@@ -939,6 +939,48 @@ fn nonnegative_identity(k::term![NonnegativeIdentity(value)]: Term<Int>) -> Term
 ",
     ),
     (
+        "requires_notation",
+        r"
+#[k::rule]
+#[k::requires(n.gt::<Int>(0) && (t.lt::<Int>(c) || b.bit_and::<Int>(m).ne::<Int>(b)))]
+fn boundary(k::term![Boundary(n, t, c, b, m)]: Term<Exp>) -> Term<Exp> {
+    Reject(n.eq::<K>(t) || false)
+}
+",
+    ),
+    (
+        "requires_authored_builtin_root",
+        r"
+#[k::rule]
+#[k::requires(__krs_builtin::bool::not(ready))]
+fn admit(k::term![Admit(ready)]: Term<Exp>) -> Term<Exp> {
+    Admitted()
+}
+",
+    ),
+    (
+        "rule_notation_in_pattern",
+        r"
+#[k::rule]
+fn boundary(k::term![Boundary(n.gt::<Int>(0))]: Term<Exp>) -> Term<Exp> {
+    Reject()
+}
+",
+    ),
+    (
+        "init_notation",
+        r"
+#[k::init]
+pub fn init(ready: Bool, cap: Int) -> Self {
+    Self {
+        k: k::k![Start(ready || false)],
+        flag: ready && true,
+        limit: k::configuration::Cell::new(cap.max::<Int>(0)),
+    }
+}
+",
+    ),
+    (
         "requires_orphan",
         r"
 #[k::requires(int::le(0, value))]
@@ -1114,6 +1156,34 @@ k::cells! {
 k::fragment![CallState { program: caller_program, pc: int::add(pc, 1) }];
 ",
     ),
+    (
+        "term_notation",
+        r"
+k::term![Check(a && b.lt::<Int>(c), (a || b).eq::<K>(c))];
+",
+    ),
+    (
+        "cells_notation",
+        r"
+k::cells! {
+    k: k::configuration::KCell(Check(ready && armed), ..tail),
+    env: k::configuration::Cell(map![name -> level.max::<Int>(0)]),
+    ..state
+}
+",
+    ),
+    (
+        "fragment_notation",
+        r"
+k::fragment![CallState { program: caller_program, ready: pc.gt::<Int>(0) || halted }];
+",
+    ),
+    (
+        "term_notation_missing_domain",
+        r"
+k::term![Check(a.lt(b))];
+",
+    ),
     ("id", "k::id!(\"$n\");"),
     ("bytes", "k::bytes!(b\"\\x00A\");"),
     ("anonymous", "k::anonymous!(Bool, \"_B\");"),
@@ -1257,10 +1327,31 @@ enum Invocation {
     },
 }
 
-/// The entry name of a `k::<entry>` path.
-fn facade_member(path: &syn::Path) -> Option<String> {
+/// (case name, authored source) for a package whose facade crate is renamed
+/// `language`; the source spells the facade `language::`.
+const RENAMED_FACADE_CASES: &[(&str, &str)] = &[
+    (
+        "renamed_requires_notation",
+        r"
+#[language::rule]
+#[language::requires(ready && level.lt::<Int>(limit))]
+fn admit(language::term![Admit(ready, level, limit)]: Term<Exp>) -> Term<Exp> {
+    Admitted(level.add::<Int>(1))
+}
+",
+    ),
+    (
+        "renamed_term_notation",
+        r"
+language::term![Check(a || b.not::<Bool>())];
+",
+    ),
+];
+
+/// The entry name of a `<facade>::<entry>` path.
+fn facade_member(path: &syn::Path, facade_alias: &str) -> Option<String> {
     let [facade, entry] = [path.segments.first()?, path.segments.last()?];
-    (path.segments.len() == 2 && facade.ident == "k").then(|| entry.ident.to_string())
+    (path.segments.len() == 2 && facade.ident == facade_alias).then(|| entry.ident.to_string())
 }
 
 fn item_attributes(item: &mut syn::Item) -> &mut Vec<syn::Attribute> {
@@ -1276,11 +1367,11 @@ fn item_attributes(item: &mut syn::Item) -> &mut Vec<syn::Attribute> {
     }
 }
 
-fn invocation(tokens: TokenStream) -> Invocation {
+fn invocation(tokens: TokenStream, facade_alias: &str) -> Invocation {
     let file: syn::File = syn::parse2(tokens).expect("a golden case parses as a file");
     let [mut item] = <[syn::Item; 1]>::try_from(file.items).expect("one item per golden case");
     if let syn::Item::Macro(item) = &item {
-        let name = facade_member(&item.mac.path).expect("a facade-qualified macro");
+        let name = facade_member(&item.mac.path, facade_alias).expect("a facade-qualified macro");
         return Invocation::Function {
             entry: FunctionMacro::from_name(&name).expect("a krs-macros entry point"),
             call_site: item.mac.span(),
@@ -1291,13 +1382,13 @@ fn invocation(tokens: TokenStream) -> Invocation {
     let index = attributes
         .iter()
         .position(|attribute| {
-            facade_member(attribute.path())
+            facade_member(attribute.path(), facade_alias)
                 .and_then(|name| AttributeMacro::from_name(&name))
                 .is_some()
         })
         .expect("a KRS attribute");
     let attribute = attributes.remove(index);
-    let entry = facade_member(attribute.path())
+    let entry = facade_member(attribute.path(), facade_alias)
         .and_then(|name| AttributeMacro::from_name(&name))
         .expect("a KRS attribute");
     let arguments = match &attribute.meta {
@@ -1342,10 +1433,11 @@ fn render(result: krs_expand::Result<TokenStream>) -> String {
     }
 }
 
-fn expand(source: &str) -> String {
+fn expand(source: &str, facade_alias: &str) -> String {
     let (authored, tokens) = AuthoredFile::lex("src/lib.rs", source).expect("a golden case lexes");
-    let env = BrowserEnvironment::new(&authored, syn::parse_str("::k").unwrap());
-    let result = match invocation(tokens) {
+    let facade = syn::parse_str(&format!("::{facade_alias}")).unwrap();
+    let env = BrowserEnvironment::new(&authored, facade);
+    let result = match invocation(tokens, facade_alias) {
         Invocation::Attribute {
             entry,
             call_site,
@@ -1377,7 +1469,7 @@ fn every_entry_point_has_a_golden_case() {
         .iter()
         .map(|(_, source)| {
             let (_, tokens) = AuthoredFile::lex("src/lib.rs", source).unwrap();
-            match invocation(tokens) {
+            match invocation(tokens, "k") {
                 Invocation::Attribute { entry, .. } => entry.name(),
                 Invocation::Function { entry, .. } => entry.name(),
             }
@@ -1400,17 +1492,26 @@ fn every_entry_point_has_a_golden_case() {
 #[test]
 fn expansions_match_the_goldens() {
     let dir = golden_dir();
-    for (name, source) in CASES {
-        let actual = expand(source);
+    let cases = CASES
+        .iter()
+        .map(|(name, source)| (name, source, "k"))
+        .chain(
+            RENAMED_FACADE_CASES
+                .iter()
+                .map(|(name, source)| (name, source, "language")),
+        )
+        .collect::<Vec<_>>();
+    for (name, source, facade_alias) in &cases {
+        let actual = expand(source, facade_alias);
         expect_test::expect_file![format!("golden/{name}.txt")].assert_eq(&actual);
     }
     let mut stale = std::fs::read_dir(&dir)
         .unwrap()
         .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
         .filter(|file| {
-            !CASES
+            !cases
                 .iter()
-                .any(|(name, _)| file.strip_suffix(".txt") == Some(name))
+                .any(|(name, _, _)| file.strip_suffix(".txt") == Some(**name))
         })
         .collect::<Vec<_>>();
     stale.sort();

@@ -1120,7 +1120,15 @@ impl RuleBlock {
                 )?);
                 continue;
             }
-            let (pattern, signs) = parse_pattern_with_signs(input)?;
+            let fork = input.fork();
+            let (pattern, signs) = parse_pattern_with_signs(input)
+                .map_err(|error| crate::notation::pattern_parse_error(&fork, error))?;
+            // A pattern may stop before `&&`, `||`, or a method call.
+            if !input.peek(Token![=>])
+                && let Some(error) = crate::notation::notation_at(&fork)
+            {
+                return Err(error.into());
+            }
             input.parse::<Token![=>]>()?;
             let result_tokens = input.fork();
             let result = input.parse::<Expr>();

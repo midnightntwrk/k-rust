@@ -899,9 +899,11 @@ impl<'a> StateRuleBuilder<'a> {
             TermTree::Application(application) => {
                 let ordinal = take_counter(&mut self.counters.application)?;
                 let key = self.term_key(TermRole::ApplicationHead, ordinal);
-                let target = self
-                    .terms
-                    .application_wire_slot(application.head(), slots)?;
+                let target = self.terms.application_wire_slot(
+                    application.head(),
+                    application.is_notation(),
+                    slots,
+                )?;
                 let authored_path = self.terms.application_authored_path(application.head());
                 let instance = self.terms.application_instance_wire(application, slots)?;
                 let arguments = match application.arguments() {
@@ -948,7 +950,7 @@ impl<'a> StateRuleBuilder<'a> {
                         name: spelling(path),
                     })
                 } else {
-                    let target = self.terms.application_wire_slot(path, slots)?;
+                    let target = self.terms.application_wire_slot(path, false, slots)?;
                     Ok(WireTerm::Application {
                         instance: Vec::new(),
                         head_class: DescriptorApplicationHeadClass::BareReference,
@@ -1053,7 +1055,7 @@ impl<'a> StateRuleBuilder<'a> {
                     return Err(ExpandError::new(
                         expand::PATTERN_OR_OUTSIDE_LHS,
                         range.first(),
-                        "`A | B` alternatives occur only on a left-hand side (K's #Or); for Bool disjunction use bool::or or k::or_bool!",
+                        "`A | B` alternatives occur only on a left-hand side (K's #Or); for Bool disjunction use `||`, bool::or, or k::or_bool!",
                     ));
                 }
                 let key = self.terms.take_pattern_or(range.first())?;

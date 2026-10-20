@@ -277,13 +277,13 @@ fn inject_initializer_value(
     Ok(())
 }
 
-/// A literal or call term (`1`, `-1`, `list::empty()`), which is not a Rust value of the cell's
-/// marker type; a binding path and a state macro are.
+/// A literal or call term (`1`, `-1`, `list::empty()`, or notation for a call such as `a && b`),
+/// which is not a Rust value of the cell's marker type; a binding path and a state macro are.
 fn is_ground_initializer_term(expression: &syn::Expr) -> bool {
     matches!(
         expression,
         syn::Expr::Lit(_) | syn::Expr::Unary(_) | syn::Expr::Call(_)
-    )
+    ) || krs_syntax::is_expression_notation(expression)
 }
 
 fn qualify_initializer_state_macro(expression: &mut syn::Expr, facade: &Path) -> crate::Result<()> {
@@ -569,9 +569,11 @@ impl<'a> InitializerBuilder<'a> {
             TermTree::Application(application) => {
                 let ordinal = take_counter(&mut self.counters.term_path)?;
                 let key = wire_key(ProvenanceRole::InitializerTermPath, ordinal);
-                let target = self
-                    .terms
-                    .application_wire_slot(application.head(), &mut self.slots)?;
+                let target = self.terms.application_wire_slot(
+                    application.head(),
+                    application.is_notation(),
+                    &mut self.slots,
+                )?;
                 let authored_path = self.terms.application_authored_path(application.head());
                 // An initializer admits no turbofish (KF-027); this rejects one.
                 self.terms
@@ -613,7 +615,9 @@ impl<'a> InitializerBuilder<'a> {
                         name,
                     })
                 } else {
-                    let target = self.terms.application_wire_slot(path, &mut self.slots)?;
+                    let target = self
+                        .terms
+                        .application_wire_slot(path, false, &mut self.slots)?;
                     let authored_path = self.terms.application_authored_path(path);
                     Ok(WireTerm::Application {
                         instance: Vec::new(),

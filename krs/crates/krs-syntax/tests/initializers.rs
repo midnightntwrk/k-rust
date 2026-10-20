@@ -292,3 +292,35 @@ fn optional_accessors_accept_direct_types_and_nonlegacy_cells() {
         "Self"
     );
 }
+
+#[test]
+fn notation_for_a_builtin_call_is_a_readable_initializer_term() {
+    let initializer = krs_syntax::InitializerFunction::parse_source(
+        "fn init(ready: Bool, cap: Int) -> Self {\
+             Self { flag: ready && true, limit: cap.max::<Int>(0), k: k![Start(ready || false)] }\
+         }",
+    )
+    .unwrap();
+    for cell in &initializer.cells()[..2] {
+        assert!(cell.has_inferred_constructor());
+        let krs_syntax::InitializerCellContent::Leaf {
+            value: krs_syntax::StateTerm::Term(term),
+            ..
+        } = cell.content()
+        else {
+            panic!("a notation cell is a leaf term");
+        };
+        assert_eq!(term.root_kind(), krs_syntax::TermRootKind::Call);
+    }
+    let error = krs_syntax::InitializerFunction::parse_source(
+        "fn init() -> Self { Self { limit: cap.max(0) } }",
+    )
+    .unwrap_err();
+    assert!(
+        matches!(
+            error.kind(),
+            SyntaxErrorKind::InvalidExpressionNotation { .. }
+        ),
+        "{error}"
+    );
+}

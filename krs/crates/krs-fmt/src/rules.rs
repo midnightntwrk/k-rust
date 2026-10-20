@@ -751,6 +751,33 @@ mod tests {
         assert_eq!(again, output);
     }
 
+    /// Expression notation keeps Rust's spelling: spaced connectives and
+    /// method calls whose domain turbofish hugs its name and arguments.
+    #[test]
+    fn expression_notation_keeps_its_spelling_and_formats_idempotently() {
+        let source = r"
+            for Exp;
+            use ExpSyntax::*;
+
+            check:Check(n,t,c)=>n.gt :: < Int > (0)&&(t.lt::<Int>(c)||c.eq::<K>(t));
+            chain: Chain(b, m) => b . bit_and::<Int>(m).ne::<Int>(b);
+        ";
+        let output = format_rule_body(source, 0, "    ", TrailingCommentStyle::AlignedColumn)
+            .expect("format body");
+        let actual = format!("body:\n{output}");
+        expect_test::expect![[r"
+            body:
+                for Exp;
+                use ExpSyntax::*;
+
+                check: Check(n, t, c) => n.gt::<Int>(0) && (t.lt::<Int>(c) || c.eq::<K>(t));
+                chain: Chain(b, m)    => b.bit_and::<Int>(m).ne::<Int>(b);"]]
+        .assert_eq(&actual);
+        let again = format_rule_body(&output, 0, "    ", TrailingCommentStyle::AlignedColumn)
+            .expect("format formatted body");
+        assert_eq!(again, output);
+    }
+
     #[test]
     fn negative_literals_keep_their_sign_attached_and_format_idempotently() {
         let source = r"

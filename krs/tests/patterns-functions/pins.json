@@ -183,7 +183,7 @@
       "error[krs::analysis::ambiguous-or-pattern]: alternatives `Pair(x, y)` and `Pair(y, x)` of this or-pattern can match the same term with different bindings; K's #Or then is ambiguous (LLVM takes one, Haskell explores both). Make them disjoint or split the rule."
     ],
     "or-in-result": [
-      "error[krs::syntax::invalid-pattern-or]: `|` is a pattern alternative; for Bool disjunction use bool::or or k::or_bool!"
+      "error[krs::syntax::invalid-pattern-or]: `|` is a pattern alternative; for Bool disjunction use `||`, bool::or, or k::or_bool!"
     ],
     "or-remainder": [
       "error[krs::syntax::invalid-pattern-or]: or-patterns combine terms, not remainders"

@@ -747,7 +747,11 @@ impl<'a> TermBuilder<'a> {
                     );
                     slots.target_slot_unique(&expression)
                 } else {
-                    self.application_wire_slot(application.head(), slots)?
+                    self.application_wire_slot(
+                        application.head(),
+                        application.is_notation(),
+                        slots,
+                    )?
                 };
                 let instance = self.application_instance_wire(application, slots)?;
                 let arguments = match application.arguments() {
@@ -815,7 +819,7 @@ impl<'a> TermBuilder<'a> {
                         let expression = self.lexical_rule_application_target(path, None);
                         slots.target_slot_unique(&expression)
                     } else {
-                        self.application_wire_slot(path, slots)?
+                        self.application_wire_slot(path, false, slots)?
                     };
                     Ok(WireTerm::Application {
                         instance: Vec::new(),
@@ -968,7 +972,7 @@ impl<'a> TermBuilder<'a> {
                     return Err(ExpandError::new(
                         expand::PATTERN_OR_OUTSIDE_LHS,
                         range.first(),
-                        "`A | B` alternatives occur only on a left-hand side (K's #Or); for Bool disjunction use bool::or or k::or_bool!",
+                        "`A | B` alternatives occur only on a left-hand side (K's #Or); for Bool disjunction use `||`, bool::or, or k::or_bool!",
                     ));
                 }
                 let key = self.take_pattern_or(range.first())?;
@@ -1209,13 +1213,21 @@ impl<'a> TermBuilder<'a> {
         })
     }
 
+    /// The target slot of an application head; `notation` marks the head of
+    /// a call that notation denotes, the path of a builtin operation.
     pub(super) fn application_wire_slot(
         &mut self,
         authored: &Path,
+        notation: bool,
         slots: &mut WireSlots,
     ) -> crate::Result<TargetSlot> {
         check_ml_item(authored)?;
-        let (owner, variant) = if authored.leading_colon.is_none()
+        let (owner, variant) = if notation {
+            // Notation names the facade's builtin operation, which resolves
+            // whether or not the author imported its module.
+            let facade = self.facade;
+            (syn::parse_quote!(#facade::builtin::#authored), None)
+        } else if authored.leading_colon.is_none()
             && authored.segments.len() == 1
             && let Some(imported_owner) = self.enum_glob
             && let Some(imported_variant) = authored.segments.first()

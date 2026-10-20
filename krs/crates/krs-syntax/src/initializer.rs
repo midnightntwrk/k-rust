@@ -793,9 +793,11 @@ fn parse_initializer_cell(
         ));
     }
     // A literal, or a call of a qualified path other than `Cell::new`/`KCell::new` (such as
-    // `list::empty()`), is a readable plain term, as a path is. A bare call stays a host call.
+    // `list::empty()`), is a readable plain term, as a path is, and so is the notation for a
+    // builtin call (`a && b`, `x.max::<Int>(0)`). A bare call stays a host call.
     let readable_term = match &field.expr {
         Expr::Lit(_) | Expr::Unary(_) => true,
+        expression if crate::notation::is_expression_notation(expression) => true,
         Expr::Call(ExprCall { func, .. }) => {
             !is_cell_constructor(func)
                 && matches!(&**func, Expr::Path(ExprPath { path, .. }) if path.segments.len() > 1)

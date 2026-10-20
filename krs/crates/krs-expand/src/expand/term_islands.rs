@@ -14,9 +14,9 @@ use super::island_checks::{nested_state_island_import_checks, wrapper_type_check
 use super::tokens::call_site_path;
 use crate::environment::MacroEnvironment;
 
-pub(crate) fn term(input: TokenStream) -> crate::Result<TokenStream> {
+pub(crate) fn term(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Result<TokenStream> {
     let term = krs_syntax::TermExpression::parse_tokens(input)?;
-    let expression = term.expression();
+    let expression = term.denoted_tokens(&builtin_path(env)?);
     Ok(quote! {{
         let _krs_typecheck_named_term = || {
             let _ = #expression;
@@ -27,7 +27,11 @@ pub(crate) fn term(input: TokenStream) -> crate::Result<TokenStream> {
 
 pub(crate) fn k(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Result<TokenStream> {
     let sequence = parse_k_sequence_expression(input)?;
-    let expressions = sequence.items().iter().map(TermExpression::expression);
+    let builtin = builtin_path(env)?;
+    let expressions = sequence
+        .items()
+        .iter()
+        .map(|item| item.denoted_tokens(&builtin));
     let facade = env.facade_path()?;
     Ok(quote! {{
         let _krs_typecheck_computation_items = || {
@@ -44,14 +48,18 @@ pub(crate) fn map(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Resu
         MapBody::Empty { .. } => {}
         MapBody::Items { items, .. } => {
             for item in items {
-                expressions.push(item.key().expression());
-                expressions.push(item.value().expression());
+                expressions.push(item.key());
+                expressions.push(item.value());
             }
         }
         MapBody::Update { base, key, value } => {
-            expressions.extend([base.expression(), key.expression(), value.expression()]);
+            expressions.extend([base, key, value]);
         }
     }
+    let builtin = builtin_path(env)?;
+    let expressions = expressions
+        .into_iter()
+        .map(|expression| expression.denoted_tokens(&builtin));
     let facade = env.facade_path()?;
     Ok(quote! {{
         let _krs_typecheck_map_items = || {
@@ -61,7 +69,7 @@ pub(crate) fn map(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Resu
     }})
 }
 
-pub(crate) fn cells(input: TokenStream) -> crate::Result<TokenStream> {
+pub(crate) fn cells(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Result<TokenStream> {
     let island_import_checks = nested_state_island_import_checks(&input);
     let cells = parse_cells_expression(input)?;
     let mut expressions = Vec::new();
@@ -78,9 +86,10 @@ pub(crate) fn cells(input: TokenStream) -> crate::Result<TokenStream> {
         .into_iter()
         .map(call_site_path)
         .collect::<Result<Vec<_>, _>>()?;
+    let builtin = builtin_path(env)?;
     let expressions = expressions
         .into_iter()
-        .map(TermExpression::expression)
+        .map(|expression| expression.denoted_tokens(&builtin))
         .collect::<Vec<_>>();
     Ok(quote! {{
         let _krs_typecheck_cells = || {
@@ -128,7 +137,12 @@ pub(crate) fn fragment(
         ));
     };
     let owner = call_site_path(cell.owner())?;
-    let expressions = record.fields.iter().map(|field| &field.expr);
+    let builtin = builtin_path(env)?;
+    let expressions = record.fields.iter().map(|field| {
+        let mut expression = field.expr.clone();
+        krs_syntax::denote_notation(&mut expression, &builtin);
+        expression
+    });
     Ok(quote! {{
         let _krs_typecheck_fragment = || {
             let _ = ::core::any::TypeId::of::<#owner>();
@@ -136,4 +150,11 @@ pub(crate) fn fragment(
         };
         ::core::panic!("fragment! has no runtime value in KRS")
     }})
+}
+
+/// The facade's `builtin` module, which qualifies the calls that notation
+/// denotes in code rustc checks.
+fn builtin_path(env: &dyn MacroEnvironment) -> crate::Result<syn::Path> {
+    let facade = env.facade_path()?;
+    Ok(syn::parse_quote!(#facade::builtin))
 }
