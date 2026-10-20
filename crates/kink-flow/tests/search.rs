@@ -920,8 +920,9 @@ fn an_inconsistent_mutation_is_invalid_and_names_its_pair() {
     assert!(ok, "{document:#}");
     // Re-pin L2-2-fix-1: version 6 adds each row's `typing_diagnostics`; packet CACHE-ID:
     // version 7 adds the document's `kink` identity; packet CACHE-ID-fix-1: version 8 adds its
-    // `kink_build`.
-    assert_eq!(document["version"], 8);
+    // `kink_build`; re-pin adoption A-1: version 9 adds `specification_diagnostics` and
+    // `smt_unknowns`.
+    assert_eq!(document["version"], 9);
     assert_eq!(
         verdicts(&document),
         expect(&[

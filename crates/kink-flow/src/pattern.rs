@@ -116,11 +116,12 @@
 //! `contradictedClaims` list (k-rust `docs/compatibility.md`, "A contradicted `total` attribute is
 //! named, not repaired"). A hit needs a match and a state path with no diagnostic, so a witness
 //! whose path rests on a detected contradiction is `unknown`, never a hit. A `no` needs a
-//! comparable baseline run, and a record on a leaf of that run makes it incomplete (so the
-//! program is not comparable), as a contradicted `total` on a leaf excludes it. kink does not
-//! read the response's or the run's list, so a record of work that ended on no leaf, or of the
-//! load, is not seen; such a contradiction rests on the baseline's claims, which are a premise
-//! (above). No pattern answer ever feeds a kill or a mutation verdict: pattern-only differences
+//! comparable baseline run, and a record on that run excludes it (so the program is not
+//! comparable), on a leaf or, since re-pin adoption A-1, on the run's `contradictedClaims` list
+//! (work that ended on no leaf, the load), as a contradicted `total` on a leaf does. kink does not
+//! read the search response's list yet (re-pin adoption A-2 will), so a record of the search's own
+//! work that ended on no leaf is not seen; such a contradiction rests on the baseline's claims,
+//! which are a premise (above). No pattern answer ever feeds a kill or a mutation verdict: pattern-only differences
 //! stay unknown by design.
 
 use crate::{
@@ -530,10 +531,20 @@ fn exclusion_cause(exclusion: Exclusion, what: &str) -> String {
         }
         Exclusion::StackStop => "the run counted a stop for lack of native stack (stack-stop)",
         Exclusion::ContradictedClaim => {
-            "the run contradicts a trusted claim of the definition (contradicted-claim)"
+            "the run contradicts a trusted claim of the definition, on a leaf or on k-rust's \
+             list of the run's contradicted claims, its definition's load included \
+             (contradicted-claim)"
         }
         Exclusion::AllowanceRefusal => {
             "a Bytes hook refused a result for the memory allowance (allowance-refusal)"
+        }
+        Exclusion::ImplementationChosenValue => {
+            "the run read a value the definition leaves open and k-rust chooses \
+             (implementation-chosen-value, k-rust's list of the run's open values)"
+        }
+        Exclusion::UnsupportedHook => {
+            "the run or its definition's load left an application unevaluated as an unsupported \
+             hook (unsupported-hook)"
         }
     };
     format!("{what}: {why}")

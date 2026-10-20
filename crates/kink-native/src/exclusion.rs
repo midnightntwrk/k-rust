@@ -21,6 +21,25 @@
 //!   definition is inconsistent there, and any verdict follows from an inconsistent theory. Under
 //!   PathSet (the only modality kink requests) a `Trivial` leaf's rule id is its own rule; under
 //!   StateSet it is witness metadata, and closing the case there needs k-rust's flag (KINK-18).
+//!   Since re-pin adoption A-1 also any record on the run's `contradictedClaims` list, observed by
+//!   the run or by the load of its definition (`observedIn: load`, decision D-6), ground or not
+//!   ([`RunFacts::contradicted_claims`]): the list holds what no leaf carries, a candidate a
+//!   defined sibling covered and a state a state-set merge absorbed (`docs/compatibility.md` at
+//!   8f8ad57c5, 1536), so a comparison of complete sets needs it empty; a load record is on every
+//!   run's list, so it excludes every test of its definition. On a ground run any record excludes,
+//!   so `ground` is not read: a non-ground record there arises only from a mark, a refusal, an
+//!   unsupported hook or a non-ground record, each excluded on its own (compat 1538-1545). An
+//!   empty list says nothing about a symbolic run (compat 1538), whose tests stay on the
+//!   trusted-baseline premise. Only a leaf's contradiction
+//!   ([`DefinitionExclusions::contradiction_on_a_leaf`]) is the per-test case for which admission
+//!   keeps a baseline (kink-campaign `admit`); a record on the list alone refuses a baseline as
+//!   any other exclusion does, so no refusal relaxes.
+//! - [`Exclusion::ImplementationChosenValue`] (re-pin adoption A-1): the run read a value the
+//!   definition leaves open, on k-rust's `implementationChosenValues` list
+//!   ([`RunFacts::implementation_chosen_values`]): every class value k-rust's evaluator takes in
+//!   `Execution` mode is noted there, the initial state's normalization and work that ended on no
+//!   leaf included (compat 1778-1801). Decision 1's census still stands beside it; the list adds a
+//!   run that read an open value through an equation the census does not see (a prelude one).
 //! - [`Exclusion::ImplementationChosenHook`]: the definition references a hook for which k-rust
 //!   chooses a value the definition leaves open (re-pin decision 1, findings D-10, E-10, E-11):
 //!   kills are relative to the definition, not to k-rust's model of it. The hooks are k-rust's
@@ -48,7 +67,14 @@
 //!   leaves unbacked are removed (a function whose `total` was removed is partial there).
 //! - [`Exclusion::AllowanceRefusal`]: a leaf reports a hook left unevaluated whose refusal reads
 //!   the process's memory allowance (Execute promise exclusion, findings A-07, B-02, B-07): the
-//!   result is a function of the host, not of the inputs a key names.
+//!   result is a function of the host, not of the inputs a key names. Since re-pin adoption A-1
+//!   also any entry of the run's `allowanceRefusals` list ([`RunFacts::allowance_refusals`]): a
+//!   refusal inside an attempt that was undone or an equation passed over can steer a result and
+//!   leave no diagnostic (compat 92), and a result whose list is empty is the result under every
+//!   allowance of at least as many bytes (compat 853).
+//! - [`Exclusion::UnsupportedHook`] (re-pin adoption A-1): the run or its load left an application
+//!   unevaluated as an unsupported hook (`unsupportedHooks`, [`RunFacts::unsupported_hooks`]),
+//!   whatever became of the work that met it (compat 92).
 //! - [`Exclusion::EqualsCondition`]: a rewrite rule or equation of the definition has a condition
 //!   that equates two terms (K `{ A #Equals B }`), which k-rust 501f18b9 names as a gap of its own
 //!   answers when the terms may be undefined ("Two gaps remain", `docs/compatibility.md`): such
@@ -83,7 +109,7 @@ use k_rust_backend::{
     term::{CollectionMetadata, FunctionType, SymbolType},
 };
 
-use crate::execution::{AdaptedExecution, AdaptedLeaf, HaltClass};
+use crate::execution::{AdaptedExecution, AdaptedLeaf, HaltClass, RunFacts};
 
 /// The version of the definition exclusions ([`DefinitionExclusions`], with the hook lists and
 /// the scans it reads): whether a comparison is made at all depends on it, so kink's semantics
@@ -91,8 +117,11 @@ use crate::execution::{AdaptedExecution, AdaptedLeaf, HaltClass};
 /// campaign manifest's `kink` member, kink-flow's result key and its tier-1 context (packet
 /// CACHE-ID). Bump it whenever this module changes what it excludes. v1 (re-pin R0-tail, R0c-fix-4 review minor 4): the first
 /// named version, with the `ensures` of a rewrite rule read under the `\exists` of its existential
-/// variables.
-pub const DEFINITION_EXCLUSION_VERSION: &str = "kink-native/definition-exclusion/v1";
+/// variables. v2 (re-pin adoption A-1): a run is also excluded by k-rust's run-level lists, any
+/// entry of `contradictedClaims` (`contradicted-claim`), `implementationChosenValues`
+/// (`implementation-chosen-value`), `allowanceRefusals` (`allowance-refusal`) or
+/// `unsupportedHooks` (`unsupported-hook`).
+pub const DEFINITION_EXCLUSION_VERSION: &str = "kink-native/definition-exclusion/v2";
 
 /// The hooks for which k-rust 8f8ad57c5 says it may compute a value the definition leaves open,
 /// exactly the hooks for which its classifier `chosen_value` (`k-rust-backend/src/builtin.rs`;
@@ -629,6 +658,12 @@ pub enum Exclusion {
     ShortCircuitReading,
     AllowanceRefusal,
     EqualsCondition,
+    /// The run read a value the definition leaves open (k-rust's `implementationChosenValues`;
+    /// re-pin adoption A-1).
+    ImplementationChosenValue,
+    /// The run or its load left an application unevaluated as an unsupported hook (k-rust's
+    /// `unsupportedHooks`; re-pin adoption A-1).
+    UnsupportedHook,
 }
 
 impl Exclusion {
@@ -643,6 +678,8 @@ impl Exclusion {
             Self::ShortCircuitReading => "short-circuit-reading",
             Self::AllowanceRefusal => "allowance-refusal",
             Self::EqualsCondition => "equals-condition",
+            Self::ImplementationChosenValue => "implementation-chosen-value",
+            Self::UnsupportedHook => "unsupported-hook",
         }
     }
 }
@@ -973,10 +1010,12 @@ impl DefinitionExclusions {
     }
 
     /// The exclusion of `execution`, a run on this definition, if any (see the module
-    /// documentation): the definition's own, then a stack stop, a contradicted claim, an undefined
-    /// step of a rule whose result depends on the short-circuit reading, and an allowance
-    /// refusal, in that order. A timed-out run is a timeout before it is anything else, and is
-    /// not asked.
+    /// documentation), in this order: the definition's own; a stack stop; a contradicted claim (a
+    /// leaf's, [`Self::contradicts_a_claim`], or any record on the run's list); a value the
+    /// definition leaves open on the run's list; an undefined step of a rule whose result depends
+    /// on the short-circuit reading; an allowance refusal (on a leaf or on the run's list); and an
+    /// unsupported hook on the run's list (re-pin adoption A-1 added the lists). A timed-out run is
+    /// a timeout before it is anything else, and is not asked.
     #[must_use]
     pub fn run_exclusion(&self, execution: &AdaptedExecution) -> Option<Exclusion> {
         if let Some(exclusion) = self.definition_exclusion() {
@@ -986,16 +1025,38 @@ impl DefinitionExclusions {
             return Some(Exclusion::StackStop);
         }
         let leaves = execution.leaves();
-        if leaves.iter().any(|leaf| self.contradicts_a_claim(leaf)) {
+        let facts: &RunFacts = execution.facts();
+        if self.contradiction_on_a_leaf(execution) || !facts.contradicted_claims.is_empty() {
             return Some(Exclusion::ContradictedClaim);
+        }
+        if !facts.implementation_chosen_values.is_empty() {
+            return Some(Exclusion::ImplementationChosenValue);
         }
         if leaves.iter().any(|leaf| self.short_circuit_step(leaf)) {
             return Some(Exclusion::ShortCircuitReading);
         }
-        if leaves.iter().any(allowance_refusal) {
+        if leaves.iter().any(allowance_refusal) || !facts.allowance_refusals.is_empty() {
             return Some(Exclusion::AllowanceRefusal);
         }
+        if !facts.unsupported_hooks.is_empty() {
+            return Some(Exclusion::UnsupportedHook);
+        }
         None
+    }
+
+    /// Whether a leaf of `execution` contradicts a trusted claim by decision 2's leaf rule
+    /// ([`Self::contradicts_a_claim`]), the run's list not counted: the only contradiction for
+    /// which kink-campaign's admission keeps a baseline and makes just its test unknown (re-pin
+    /// R0c-fix-1). A record on the list alone (re-pin adoption A-1) refuses a baseline as any
+    /// other exclusion does. Before A-1 such a run either was complete and compared, or had a leaf
+    /// carrying the record, which made its side unknown and refused the baseline; so reading the
+    /// list moves a baseline only toward a refusal, never out of one.
+    #[must_use]
+    pub fn contradiction_on_a_leaf(&self, execution: &AdaptedExecution) -> bool {
+        execution
+            .leaves()
+            .iter()
+            .any(|leaf| self.contradicts_a_claim(leaf))
     }
 
     /// Whether `leaf` is an undefined step that falsifies a trusted claim: k-rust names a

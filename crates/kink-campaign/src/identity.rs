@@ -69,8 +69,11 @@ use std::{path::Path, sync::OnceLock};
 /// so a v3 `comparable` record may no longer be. Since packet CACHE-ID the result key also holds
 /// the whole [`kink_identity`], so a change of the exclusions (or of any other component) misses
 /// without a bump here; v4 stayed through six exclusion widenings before that (re-pin R0-tail
-/// review 1, minor).
-pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v4";
+/// review 1, minor). v5 (re-pin adoption A-1): a record holds `specification_diagnostics`, the
+/// baseline run's contradicted-claim records, and `smt_unknowns`, its undecided solver answers;
+/// and a baseline run whose k-rust lists hold any entry is excluded, so a v4 `comparable` record
+/// may no longer be.
+pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v5";
 
 /// One component of [`KINK_IDENTITY`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

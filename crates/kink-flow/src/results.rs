@@ -15,9 +15,12 @@
 //! every baseline it needs live again. The documents report the count as `baseline_runs`.
 //!
 //! A program is `comparable` exactly when that campaign admits its baseline run and gives it
-//! sides: the run is complete, no exclusion holds (a run that contradicts a trusted claim is
-//! admitted but gives none, re-pin decision 2), and every oracle side is a value. Only a
-//! comparable program can later kill a mutant.
+//! sides: the run is complete, no exclusion holds (a run whose leaf contradicts a trusted claim is
+//! admitted but gives none, re-pin decision 2; one excluded by k-rust's run-level lists is refused,
+//! re-pin adoption A-1), and every oracle side is a value. Only a comparable program can later
+//! kill a mutant. Every record carries the baseline run's contradicted-claim records as
+//! specification diagnostics and its count of undecided solver answers (re-pin adoption A-1),
+//! outside the key and the run digest.
 //! When the campaign refuses the baseline run, the runner returns no evidence; a diagnostic run
 //! of the same initial state through the kink-native execution adapter then tells a timeout from
 //! an unknown or failed run and supplies the cause, the final states and the coverage for the
@@ -191,6 +194,14 @@ pub struct ProgramResult {
     /// The wall time of the program's live baseline run in milliseconds (the campaign's run,
     /// recorded by the command's baseline session); outside the key and the run digest.
     pub wall_ms: Option<u64>,
+    /// k-rust's contradicted-claim records of the baseline run (the campaign's, or the diagnostic
+    /// run's), its definition's load included, as specification diagnostics (re-pin adoption
+    /// A-1, `report::specification_diagnostics_value`); an empty array when there are none or no
+    /// run produced any. Outside the key and the run digest.
+    pub specification_diagnostics: Value,
+    /// k-rust's count of the baseline run's undecided solver answers (`smtUnknowns`; decision
+    /// D-7 (a1): reported, never an exclusion); 0 without a run or without Z3.
+    pub smt_unknowns: usize,
 }
 
 impl ProgramResult {
@@ -202,6 +213,8 @@ impl ProgramResult {
             final_configuration: None,
             coverage: None,
             wall_ms: None,
+            specification_diagnostics: json!([]),
+            smt_unknowns: 0,
         }
     }
 
@@ -353,6 +366,10 @@ impl<'a> BaselineRunner<'a> {
                     final_configuration: final_terms(&evidence.run),
                     coverage: run.baseline_coverage.first().cloned(),
                     wall_ms: None,
+                    specification_diagnostics: crate::report::specification_diagnostics_value(
+                        &evidence.notes.contradicted_claims,
+                    ),
+                    smt_unknowns: evidence.notes.smt_unknowns,
                 }
             }
             // No second full-length run (flow F-13, README 6.4): when this command's live run
@@ -372,6 +389,8 @@ impl<'a> BaselineRunner<'a> {
                     final_configuration: None,
                     coverage: live.coverage.clone(),
                     wall_ms: None,
+                    specification_diagnostics: json!([]),
+                    smt_unknowns: 0,
                 }
             }
             Err(failure) => self.diagnose(
@@ -392,6 +411,8 @@ impl<'a> BaselineRunner<'a> {
             final_configuration: None,
             coverage: None,
             wall_ms: None,
+            specification_diagnostics: json!([]),
+            smt_unknowns: 0,
         }
     }
 
@@ -427,6 +448,8 @@ impl<'a> BaselineRunner<'a> {
                 final_configuration: None,
                 coverage,
                 wall_ms: None,
+                specification_diagnostics: json!([]),
+                smt_unknowns: 0,
             };
         }
         let leaves = execution.leaves();
@@ -483,6 +506,10 @@ impl<'a> BaselineRunner<'a> {
             final_configuration,
             coverage,
             wall_ms: None,
+            specification_diagnostics: crate::report::specification_diagnostics_value(
+                &execution.facts().contradicted_claims,
+            ),
+            smt_unknowns: execution.facts().smt_unknowns,
         }
     }
 }
@@ -609,6 +636,8 @@ pub fn record_value(spec: &AdmittedSpec, key: &Value, id: &str, result: &Program
         "final_configuration": result.final_configuration,
         "coverage": result.coverage.as_ref().map(|c| coverage_value(spec, c)),
         "wall_ms": result.wall_ms,
+        "specification_diagnostics": result.specification_diagnostics,
+        "smt_unknowns": result.smt_unknowns,
     })
 }
 
@@ -927,8 +956,12 @@ fn program_row(
             "wall_ms": null,
         })
     };
+    // Re-pin adoption A-1: the record's specification diagnostics and undecided solver answers
+    // too (outside the key and the run digest).
     let with_wall = |mut row: Value, record: &Value| {
         row["wall_ms"] = record["wall_ms"].clone();
+        row["specification_diagnostics"] = record["specification_diagnostics"].clone();
+        row["smt_unknowns"] = record["smt_unknowns"].clone();
         row
     };
     let refused = |digest, refusal: kink_corpus::admission::AdmissionRefusal| {

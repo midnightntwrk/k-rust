@@ -51,7 +51,7 @@ pub use oracle::{
 pub use runner::{
     AHEAD_PER_WORKER, BaselineRecording, BaselineSession, CallRecording, Campaign, CampaignOptions,
     CampaignRun, LeafCensus, MutantRun, ONE_SIDED_VERSION, OneSided, OracleDeclaration, Projection,
-    RunOptions, RunRecording, RunStop, SideRun, StateProjection, Tally, TestCase, TestEvidence,
-    WorkBudget, mutant_compiles, pattern_side, run_campaign, run_campaign_multi,
+    RunNotes, RunOptions, RunRecording, RunStop, SideRun, StateProjection, Tally, TestCase,
+    TestEvidence, WorkBudget, mutant_compiles, pattern_side, run_campaign, run_campaign_multi,
     run_campaign_multi_with, run_campaign_with, slot_outcome, state_side, tally,
 };

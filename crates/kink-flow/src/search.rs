@@ -93,7 +93,8 @@ use crate::{
     outcomes::{CachedOutcome, OutcomeRecord, OutcomeStore, cacheable, slot_name},
     report::{
         RUN_SCHEMA, RUN_VERSION, action, claims_value, executed_cause, rules_value, slots_value,
-        survivors, typing_diagnostics_value, untargeted_rules, unusable_programs,
+        specification_diagnostics_value, survivors, typing_diagnostics_value, untargeted_rules,
+        unusable_programs,
     },
     results::{
         BaselineRunner, ORACLE_SLOTS, ProgramRow, RESULT_SCHEMA_VERSION, ResultClass,
@@ -1303,11 +1304,12 @@ fn executed_entries(live: &LiveCall, budget: Budget, killer_terms: bool) -> Vec<
         .tests
         .iter()
         .filter_map(|test| {
-            let evidence = mutant
+            let found = mutant
                 .evidence
                 .iter()
-                .find(|evidence| evidence.test_id == test.test_id)
-                .map(|evidence| &evidence.run);
+                .find(|evidence| evidence.test_id == test.test_id);
+            let evidence = found.map(|evidence| &evidence.run);
+            let notes = found.map(|evidence| &evidence.notes);
             let baseline = live
                 .baseline
                 .iter()
@@ -1343,6 +1345,17 @@ fn executed_entries(live: &LiveCall, budget: Budget, killer_terms: bool) -> Vec<
             entry["wall_ms"] = json!(run.map(|run| millis(run.wall)));
             entry["baseline_ms"] = json!(baseline_run.map(|b| millis(b.run.wall)));
             entry["baseline_reused"] = json!(baseline_run.map(|b| b.reused));
+            // Re-pin adoption A-1: what the mutant's run says about the specification, and its
+            // undecided solver answers (D-7 (a1)), when there are any.
+            if let Some(notes) = notes {
+                if !notes.contradicted_claims.is_empty() {
+                    entry["specification_diagnostics"] =
+                        specification_diagnostics_value(&notes.contradicted_claims);
+                }
+                if notes.smt_unknowns > 0 {
+                    entry["smt_unknowns"] = json!(notes.smt_unknowns);
+                }
+            }
             Some(entry)
         })
         .collect()

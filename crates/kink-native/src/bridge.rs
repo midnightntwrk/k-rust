@@ -1767,6 +1767,7 @@ mod tests {
                 modality: crate::execution::ResultModality::PathSet,
                 work: 0,
                 coverage: None,
+                facts: crate::execution::RunFacts::default(),
             };
             assert_eq!(
                 discarded(&execution.leaves[0]),
@@ -1875,6 +1876,7 @@ mod tests {
                 modality: crate::execution::ResultModality::PathSet,
                 work: 0,
                 coverage: None,
+                facts: crate::execution::RunFacts::default(),
             };
             assert_eq!(discarded(&execution.leaves[0]), None);
             let bridged =
@@ -1928,6 +1930,7 @@ mod tests {
                 modality: crate::execution::ResultModality::PathSet,
                 work: 0,
                 coverage: None,
+                facts: crate::execution::RunFacts::default(),
             };
             let bridged =
                 paths_from_execution(&execution, &bridge_context(&sorts), &independent).unwrap();
@@ -1954,6 +1957,7 @@ mod tests {
             modality: crate::execution::ResultModality::PathSet,
             work: 0,
             coverage: None,
+            facts: crate::execution::RunFacts::default(),
         };
         let bridged =
             paths_from_execution(&execution, &bridge_context(&sorts), &independent).unwrap();
@@ -2070,6 +2074,7 @@ mod tests {
                 modality: crate::execution::ResultModality::PathSet,
                 work: 0,
                 coverage: None,
+                facts: crate::execution::RunFacts::default(),
             };
             let bridged =
                 paths_from_execution(&execution, &bridge_context(&sorts), &independent).unwrap();
@@ -2099,6 +2104,7 @@ mod tests {
             modality: crate::execution::ResultModality::PathSet,
             work: 0,
             coverage: None,
+            facts: crate::execution::RunFacts::default(),
         };
         assert_eq!(leaf_keys(&execution.leaves), ["leaf:0", "leaf:1", "leaf:2"]);
         let bridged =
@@ -2130,6 +2136,7 @@ mod tests {
             modality: crate::execution::ResultModality::PathSet,
             work: 0,
             coverage: None,
+            facts: crate::execution::RunFacts::default(),
         };
         let context = BridgeContext {
             test_id: "t",
@@ -2176,6 +2183,7 @@ mod tests {
             modality: crate::execution::ResultModality::PathSet,
             work: 0,
             coverage: None,
+            facts: crate::execution::RunFacts::default(),
         };
         let bridged =
             paths_from_execution(&execution, &bridge_context(&sorts), &independent).unwrap();
@@ -2233,6 +2241,7 @@ mod tests {
             modality: crate::execution::ResultModality::StateSet,
             work: 3,
             coverage: None,
+            facts: crate::execution::RunFacts::default(),
         };
         #[rustfmt::skip]
         let rows: Vec<(&str, AdaptedExecution, Vec<ExecutionTerminal>)> = vec![

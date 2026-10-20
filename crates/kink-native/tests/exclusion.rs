@@ -1222,11 +1222,12 @@ fn definition_exclusions_over_testdata() {
             for entry in std::fs::read_dir(&dir).unwrap() {
                 let path = entry.unwrap().path();
                 if path.is_dir() {
-                    // The Z3 fixtures and R0b's and R0c's own fixtures are pinned by their own
-                    // tests.
+                    // The Z3 fixtures and R0b's, R0c's and re-pin adoption A-1's own fixtures
+                    // are pinned by their own tests (A-1's `marks.k` is flagged by design).
                     if !path.ends_with("testdata/k/z3")
                         && !path.ends_with("testdata/k/r0b")
                         && !path.ends_with("testdata/k/r0c")
+                        && !path.ends_with("testdata/k/a1")
                     {
                         pending.push(path);
                     }

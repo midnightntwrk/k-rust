@@ -456,6 +456,7 @@ mod tests {
                 modality: crate::execution::ResultModality::PathSet,
                 work: 0,
                 coverage: None,
+                facts: crate::execution::RunFacts::default(),
             },
             BridgedPaths {
                 paths: vec![path],

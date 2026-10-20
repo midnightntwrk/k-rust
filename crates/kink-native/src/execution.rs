@@ -15,6 +15,9 @@
 //! Each leaf also records whether its state is shown feasible or infeasible, and an
 //! indeterminate leaf its structured cause; the execution records the definition facts the
 //! bridge needs to use them ([`crate::feasibility`]).
+//! Every run also carries k-rust's run-level facts ([`RunFacts`], re-pin adoption A-1): the lists
+//! of open values read, contradicted claims, allowance refusals and unsupported hooks, and the
+//! count of undecided solver answers, which the exclusions read ([`crate::exclusion`]).
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -30,10 +33,11 @@ use std::{
 
 use k_rust::backend::{
     BACKEND_SCHEMA_VERSION, Backend, BackendDiagnosticOutput, BackendError, CancelledResultOutput,
-    ContradictedTotalOutput, EffectOutput, ExecuteRequest, ExecutionLeaf, ExecutionResult,
-    ExecutionStrategy, HaltReasonOutput, ObservationEventOutput, ObservedRequest,
-    ResultModalityOutput, RunCoverageOutput, SearchFailureOutput, TraceEntry,
-    TransitionClassOutput, TransitionIdOutput,
+    ChosenValueOutput, ContradictedClaimOutput, ContradictedTotalOutput, EffectOutput,
+    ExecuteRequest, ExecutionLeaf, ExecutionResult, ExecutionStrategy, HaltReasonOutput,
+    ObservationEventOutput, ObservedInOutput, ObservedRequest, ResultModalityOutput,
+    RunCoverageOutput, SearchFailureOutput, TraceEntry, TransitionClassOutput, TransitionIdOutput,
+    UnevaluatedHookOutput,
 };
 use k_rust::kore::{ast::Pattern, codec};
 use k_rust_backend::stop::{CancellationToken, StopCause};
@@ -276,6 +280,81 @@ impl RunCoverage {
     }
 }
 
+/// The run-level facts of one run (re-pin adoption A-1, `draft/tasks/repin-58720d2e/ADOPTION.md`):
+/// the lists and the count k-rust 58720d2e5 added to `ExecutionResult` (KINK-17/1, KINK-18/2,
+/// KINK-19/1), as k-rust answers them, for every run kink judges: a result run, the path set that
+/// replaces a state set, a stepped run and an unobserved run. Each list holds what the run's leaves
+/// carry and also what no leaf carries (k-rust `docs/compatibility.md` at 8f8ad57c5, lines 92,
+/// 1536 and 1790): work that ended on no reported leaf (a candidate a defined sibling covered, a
+/// state a state-set merge absorbed), an attempt undone or an equation passed over, and the load of
+/// the definition (`observedIn: load`). kink reads the lists, not the leaves' marks, for every
+/// exclusion ([`crate::exclusion::DefinitionExclusions::run_exclusion`]). A timed-out run has none:
+/// it is a timeout before it is anything else.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct RunFacts {
+    /// The undecided answers the solver gave the run's decisions (`smtUnknowns`); always 0 in a
+    /// build without a solver. Reported, never an exclusion (decision D-7 (a1): kink re-decides
+    /// every leaf's feasibility itself, so an undecided answer can make a comparison unknown,
+    /// never a kill).
+    pub smt_unknowns: usize,
+    /// Every distinct value the definition leaves open that the run read
+    /// (`implementationChosenValues`): its hook and class.
+    pub implementation_chosen_values: Vec<ChosenValueOutput>,
+    /// Every distinct contradicted claim the run or its definition's load observed
+    /// (`contradictedClaims`), ground or not.
+    pub contradicted_claims: Vec<ContradictedClaimOutput>,
+    /// Every distinct `Bytes` result the memory allowance refused in the run or its load
+    /// (`allowanceRefusals`), kept or dropped work alike.
+    pub allowance_refusals: Vec<UnevaluatedHookOutput>,
+    /// Every other application the run or its load left unevaluated as an unsupported hook
+    /// (`unsupportedHooks`), whatever became of the work that met it.
+    pub unsupported_hooks: Vec<UnevaluatedHookOutput>,
+}
+
+impl RunFacts {
+    /// The facts of `result`, taken out of it.
+    fn take(result: &mut ExecutionResult) -> Self {
+        Self {
+            smt_unknowns: result.smt_unknowns,
+            implementation_chosen_values: std::mem::take(&mut result.implementation_chosen_values),
+            contradicted_claims: std::mem::take(&mut result.contradicted_claims),
+            allowance_refusals: std::mem::take(&mut result.allowance_refusals),
+            unsupported_hooks: std::mem::take(&mut result.unsupported_hooks),
+        }
+    }
+
+    /// The facts of two runs of one request together: each list without repeats, in first
+    /// order, and the counts summed. A state set replaced by its path set keeps what the
+    /// discarded state set noted ([`ExecutionAdapter::execute_result`]), so nothing either run
+    /// met is lost.
+    fn union(mut self, other: Self) -> Self {
+        fn extend<T: PartialEq>(into: &mut Vec<T>, from: Vec<T>) {
+            for item in from {
+                if !into.contains(&item) {
+                    into.push(item);
+                }
+            }
+        }
+        self.smt_unknowns += other.smt_unknowns;
+        extend(
+            &mut self.implementation_chosen_values,
+            other.implementation_chosen_values,
+        );
+        extend(&mut self.contradicted_claims, other.contradicted_claims);
+        extend(&mut self.allowance_refusals, other.allowance_refusals);
+        extend(&mut self.unsupported_hooks, other.unsupported_hooks);
+        self
+    }
+
+    /// The contradicted-claim records the definition's load observed (`observedIn: load`): facts
+    /// about the definition, on every run's list (decision D-6).
+    pub fn load_records(&self) -> impl Iterator<Item = &ContradictedClaimOutput> {
+        self.contradicted_claims
+            .iter()
+            .filter(|record| record.observed_in == ObservedInOutput::Load)
+    }
+}
+
 /// One execution leaf with its typed halt class, diagnostics, adapted branch, and state
 /// feasibility.
 ///
@@ -347,6 +426,8 @@ pub struct AdaptedExecution {
     pub(crate) work: u64,
     /// k-rust's run coverage; `None` for a timed-out run.
     pub(crate) coverage: Option<RunCoverage>,
+    /// k-rust's run-level facts (re-pin adoption A-1); empty for a timed-out run.
+    pub(crate) facts: RunFacts,
 }
 
 /// An observation-layer failure of a stepped run. The execution itself can still be used
@@ -378,6 +459,8 @@ pub struct UnobservedExecution {
     pub stack_stops: usize,
     /// k-rust's run coverage, as [`AdaptedExecution::coverage`].
     pub coverage: Option<RunCoverage>,
+    /// k-rust's run-level facts, as [`AdaptedExecution::facts`].
+    pub facts: RunFacts,
 }
 
 /// A path-set leaf after observation state is erased: every field of the backend leaf that
@@ -465,6 +548,14 @@ impl AdaptedExecution {
     #[must_use]
     pub const fn coverage(&self) -> Option<&RunCoverage> {
         self.coverage.as_ref()
+    }
+
+    /// k-rust's run-level facts (re-pin adoption A-1): its lists of open values read,
+    /// contradicted claims, allowance refusals and unsupported hooks, and its count of undecided
+    /// solver answers; empty for a timed-out run.
+    #[must_use]
+    pub const fn facts(&self) -> &RunFacts {
+        &self.facts
     }
 }
 
@@ -642,7 +733,7 @@ impl ExecutionAdapter {
             && !execution.timed_out
             && execution.leaves.iter().any(path_set_leaf)
         {
-            return self.result_once(
+            let mut replaced = self.result_once(
                 backend,
                 state,
                 budget,
@@ -652,7 +743,14 @@ impl ExecutionAdapter {
                 },
                 &inhabitation,
                 &rewrites,
-            );
+            )?;
+            // Re-pin adoption A-1: the replacement keeps the run-level facts of the state set it
+            // replaces, so nothing the discarded run noted is lost (a timed-out replacement keeps
+            // none: it is a timeout).
+            if !replaced.timed_out {
+                replaced.facts = execution.facts.union(std::mem::take(&mut replaced.facts));
+            }
+            return Ok(replaced);
         }
         Ok(execution)
     }
@@ -798,6 +896,13 @@ impl ExecutionAdapter {
         let encoded = state.clone();
         let (result, timed_out) =
             execute_with_watchdog(backend, encoded, budget, STEPPED, Backend::execute)?;
+        let mut result = result;
+        // A timed-out run has no facts: it is a timeout before it is anything else.
+        let facts = if timed_out {
+            RunFacts::default()
+        } else {
+            RunFacts::take(&mut result)
+        };
         let leaves = result
             .leaves
             .into_iter()
@@ -835,6 +940,7 @@ impl ExecutionAdapter {
             coverage: result
                 .coverage
                 .map(|coverage| RunCoverage::of(coverage, &rewrites)),
+            facts,
         })
     }
 
@@ -849,6 +955,13 @@ impl ExecutionAdapter {
         let modality = match result.modality {
             ResultModalityOutput::PathSet => ResultModality::PathSet,
             ResultModalityOutput::StateSet => ResultModality::StateSet,
+        };
+        let mut result = result;
+        // A timed-out run has no facts: it is a timeout before it is anything else.
+        let facts = if timed_out {
+            RunFacts::default()
+        } else {
+            RunFacts::take(&mut result)
         };
         let leaves = result
             .leaves
@@ -894,6 +1007,7 @@ impl ExecutionAdapter {
             coverage: result
                 .coverage
                 .map(|coverage| RunCoverage::of(coverage, rewrites)),
+            facts,
         })
     }
 

@@ -140,8 +140,9 @@ pub enum ExecutionFailureKind {
     /// ([`kink_native::exclusion::Exclusion::LoadStackStop`]).
     LoadStackStop,
     /// A leaf is an undefined step that falsifies a trusted `total` or `preserves-definedness`
-    /// claim: the definition is inconsistent there (re-pin decision 2,
-    /// [`kink_native::exclusion::Exclusion::ContradictedClaim`]).
+    /// claim, or k-rust's `contradictedClaims` list of the run holds a record, observed by the run
+    /// or by the load of its definition (re-pin adoption A-1): the definition is inconsistent there
+    /// (re-pin decision 2, [`kink_native::exclusion::Exclusion::ContradictedClaim`]).
     ContradictedClaim,
     /// The definition, or the test's initial state, references a hook whose value k-rust
     /// chooses where the definition leaves it open (re-pin decision 1,
@@ -151,13 +152,22 @@ pub enum ExecutionFailureKind {
     /// be undefined, which the definition leaves to the backend (re-pin decision 1,
     /// [`kink_native::exclusion::Exclusion::ShortCircuitReading`]).
     ShortCircuitReading,
-    /// A leaf reports a hook refused for the process's memory allowance, a host property
+    /// A leaf, or the run's `allowanceRefusals` list (re-pin adoption A-1), reports a hook refused
+    /// for the process's memory allowance, a host property
     /// ([`kink_native::exclusion::Exclusion::AllowanceRefusal`]).
     AllowanceRefusal,
     /// The definition has a rule or equation condition that equates two terms, a gap of
     /// k-rust's answers when they may be undefined (re-pin R0c-fix-3,
     /// [`kink_native::exclusion::Exclusion::EqualsCondition`]).
     EqualsCondition,
+    /// The run read a value the definition leaves open, on k-rust's `implementationChosenValues`
+    /// list (re-pin adoption A-1,
+    /// [`kink_native::exclusion::Exclusion::ImplementationChosenValue`]).
+    ImplementationChosenValue,
+    /// The run or its load left an application unevaluated as an unsupported hook, on k-rust's
+    /// `unsupportedHooks` list (re-pin adoption A-1,
+    /// [`kink_native::exclusion::Exclusion::UnsupportedHook`]).
+    UnsupportedHook,
 }
 
 impl ExecutionFailureKind {
@@ -173,7 +183,9 @@ impl ExecutionFailureKind {
             | Self::ImplementationChosenHook
             | Self::ShortCircuitReading
             | Self::AllowanceRefusal
-            | Self::EqualsCondition => MutantStatus::Unknown,
+            | Self::EqualsCondition
+            | Self::ImplementationChosenValue
+            | Self::UnsupportedHook => MutantStatus::Unknown,
             Self::TimeLimit => MutantStatus::Timeout,
             Self::Infrastructure => MutantStatus::Error,
         }
@@ -192,6 +204,8 @@ impl ExecutionFailureKind {
             Self::ShortCircuitReading => Exclusion::ShortCircuitReading,
             Self::AllowanceRefusal => Exclusion::AllowanceRefusal,
             Self::EqualsCondition => Exclusion::EqualsCondition,
+            Self::ImplementationChosenValue => Exclusion::ImplementationChosenValue,
+            Self::UnsupportedHook => Exclusion::UnsupportedHook,
             Self::Indeterminate | Self::ResourceLimit | Self::TimeLimit | Self::Infrastructure => {
                 return None;
             }
@@ -210,6 +224,8 @@ impl From<kink_native::exclusion::Exclusion> for ExecutionFailureKind {
             Exclusion::ShortCircuitReading => Self::ShortCircuitReading,
             Exclusion::AllowanceRefusal => Self::AllowanceRefusal,
             Exclusion::EqualsCondition => Self::EqualsCondition,
+            Exclusion::ImplementationChosenValue => Self::ImplementationChosenValue,
+            Exclusion::UnsupportedHook => Self::UnsupportedHook,
         }
     }
 }

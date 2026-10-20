@@ -358,9 +358,12 @@ The Execute promise of k-rust (`docs/compatibility.md`, "Execute") is what makes
 excludes some runs; each is excluded for the whole program (both sides, both slots) before a record could be written: a
 cancelled run is a timeout; kink sets no step timeout; a run with a nonzero `stackStops`, a run on a definition whose load
 counted a stack stop (`discharge_counts().stack_stops`, `value_claims().counts().condition_stack_stops`) and a run with a Bytes
-hook refused for the memory allowance are `unknown` (failure `stack-stop`, `load-stack-stop`, `allowance-refusal`; on the
-baseline the program is not comparable); and in a build with the Z3 profile tier 1 is off (`outcome_cache.enabled` false, with
-the reason: a solver query can time out and k-rust gives no per-run signal that one did). Each record carries
+hook refused for the memory allowance, on a leaf or on k-rust's `allowanceRefusals` list of the run or its load (re-pin adoption
+A-1: a refusal in a passed-over equation or an undone attempt leaves no diagnostic), are `unknown` (failure `stack-stop`,
+`load-stack-stop`, `allowance-refusal`; on the baseline the program is not comparable); and in a build with the Z3 profile tier 1
+is off (`outcome_cache.enabled` false, with the reason: a solver query can time out). k-rust now counts a run's undecided solver
+answers (`smtUnknowns`); kink reports the count (`smt_unknowns` in a program's row and, when nonzero, in an executed entry) and
+never reads it as an exclusion (decision D-7 (a1)). Each record carries
 `allowance_bytes`, the writing process's memory allowance, for diagnosis only: it is in neither the key nor the record digest.
 This closes the stack dependence of k-rust KINK-06/4 and KINK-06/5 for every comparison through `execute`, live and cached.
 What remains is kink's verdict-path calls outside `execute` (`definition_facts`, `BackendRelations` unification, the bridge's
@@ -371,12 +374,22 @@ the backend, the implementation or the environment, such as `String2Bytes`, `Byt
 renamed variables, and the `KRYPTO`, `HASH` and `SECP256K1` hooks no builtin file documents), or whose condition or rule
 result depends on whether `andBool`, `orBool` or `#if` skip an operand that may be undefined, or that has a rule or
 equation condition equating two terms (`{ A #Equals B }`, a gap of k-rust's answers), is `unknown` with reason
-`implementation-chosen-hook`, `short-circuit-reading` or `equals-condition`. A program whose run takes an undefined step that falsifies a
+`implementation-chosen-hook`, `short-circuit-reading` or `equals-condition`. Since re-pin adoption A-1 a program whose run reads
+such a value of one of k-rust's own classes (k-rust's `implementationChosenValues` list) is `unknown` for that mutation
+(failure `implementation-chosen-value`), and so is one whose run or definition's load left an application unevaluated as an
+unsupported hook (k-rust's `unsupportedHooks` list; failure `unsupported-hook`); on the baseline the program is not comparable. A program whose run takes an undefined step that falsifies a
 `total` or `preserves-definedness` claim the mutant still carries (a baseline claim its edit does not reach: the claims the
 edit leaves unbacked are removed from the mutant, above), or an undefined step through such an operator, is `unknown` for
 that mutation (failure `contradicted-claim` or `short-circuit-reading`), and a kill by another program, whose runs are clean,
-stands (root README, "What a kill trusts"; decision 2 is per program). On the baseline a contradicted program is not
-comparable.
+stands (root README, "What a kill trusts"; decision 2 is per program). Since re-pin adoption A-1 so is a program whose run
+lists any record on k-rust's `contradictedClaims` list, observed by the run (a candidate a defined sibling covered, an arrival
+a state set absorbed, a condition decided through the contradiction) or by the load of the definition (`observedIn: load`, on
+every run's list, so no program of that definition is comparable). On the baseline a contradicted program is not
+comparable. Every record is reported as a specification diagnostic, `specification_diagnostics`: in a program's row (from its
+result record, the baseline run's records) and in a mutant's executed entry, each `{claim, symbol, k_label, rule_id,
+rule_label, application, undefined, observing_rule_id, observing_rule_label, ground, observed_in, says}`, where `says` states,
+for a ground record, that the claim is false at the application ("the `total` claim of `td` is false at ..."), which the
+author can act on.
 
 | Status | Meaning | What to do |
 | --- | --- | --- |
@@ -597,7 +610,7 @@ The cache is off under the Z3 profile, as tier 1 is, and when the executable can
 What every answer trusts, besides the cache:
 - k-rust's search is sound and exact for "some reachable configuration matches" under the state set (re-pin M-2 found the same distinct states and hits by stepping on IMP and IMP++; `tests/query.rs` walks every fixture program's states one step at a time and requires the same answers);
 - k-rust's parser and pattern compiler decide what a pattern denotes;
-- the baseline's own claims (`total`, `preserves-definedness`, lemmas) are trusted, as for every baseline run. A contradiction k-rust detects does not end its path: since k-rust KINK-18/2 a path whose decisions rest on one goes on, and carries a `contradicted-claim` record on its states and matches (k-rust `docs/compatibility.md`, "A contradicted `total` attribute is named, not repaired"); a hit needs no diagnostic on the match or its path, so a witness whose path rests on a detected contradiction is `unknown`, and a record on a leaf of the baseline run makes the program not comparable, so no `no` is given there. A record only on a run's or a search's `contradictedClaims` list (work that ended on no leaf, the load) is not read: it rests on the baseline's claims, which are trusted;
+- the baseline's own claims (`total`, `preserves-definedness`, lemmas) are trusted, as for every baseline run. A contradiction k-rust detects does not end its path: since k-rust KINK-18/2 a path whose decisions rest on one goes on, and carries a `contradicted-claim` record on its states and matches (k-rust `docs/compatibility.md`, "A contradicted `total` attribute is named, not repaired"); a hit needs no diagnostic on the match or its path, so a witness whose path rests on a detected contradiction is `unknown`, and a record on the baseline run, on a leaf or (since re-pin adoption A-1) only on its `contradictedClaims` list (work that ended on no leaf, the load), makes the program not comparable, so no `no` is given there. A record only on a search's `contradictedClaims` list is not read yet (re-pin adoption A-2 reads it): it rests on the baseline's claims, which are trusted;
 - k-rust's `ceil_free` decides that a matched configuration's term is defined (by construction; k-rust proves it in Lean, `ceilFree_sound`), and the definition's `total` attributes are among the trusted claims above;
 - a search does not count the stops for lack of native stack it dismisses while it only refines a result (k-rust `docs/compatibility.md`, "Execute"). k-rust states at every such site a search reaches that the kept result is sound (a definedness condition left unsimplified, a fold forgone), so such a stop can leave a step or a match undecided (an unknown) but cannot make a decided match or a completed exploration false: whether an answer is definitive can depend on the host's stack, its truth cannot. A `no` also requires the baseline run's own count to be zero.
 

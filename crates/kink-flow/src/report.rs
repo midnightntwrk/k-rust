@@ -38,6 +38,11 @@
 //! ([`typing_diagnostics_value`]): the edited rules' errors in compilation's typing view, which
 //! refuse nothing (compilation decides whether the mutant is valid); empty otherwise.
 //!
+//! Re-pin adoption A-1 (version 9): an executed entry of a live run whose mutant run lists a
+//! contradicted claim carries `specification_diagnostics` ([`specification_diagnostics_value`]),
+//! and one whose run took an undecided solver answer carries `smt_unknowns`; a program's row
+//! (in `programs`, from its result record) carries both always.
+//!
 //! Nothing here reads or changes a verdict: every status is the kill search's, which is the
 //! campaign runner's fold over live and cached outcomes (README 7.5.3).
 
@@ -68,8 +73,63 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// `inconsistent_pairs`; 6 since re-pin L2-2-fix-1 added each row's `typing_diagnostics`; 7 since
 /// packet CACHE-ID added `kink`, kink's semantics identity (kink-campaign `identity`), which
 /// `report` requires to be this build's; 8 since packet CACHE-ID-fix-1 added `kink_build`, the
-/// digest of the executable that wrote it, which `report` requires to be this executable's.
-pub const RUN_VERSION: u64 = 8;
+/// digest of the executable that wrote it, which `report` requires to be this executable's; 9
+/// since re-pin adoption A-1 added `specification_diagnostics` and `smt_unknowns` to program rows
+/// and to executed entries.
+pub const RUN_VERSION: u64 = 9;
+
+/// k-rust's contradicted-claim records of one run as specification diagnostics (re-pin adoption
+/// A-1): each `{claim, symbol, k_label, rule_id, rule_label, application, undefined,
+/// observing_rule_id, observing_rule_label, ground, observed_in, says}`, the terms as KORE text.
+/// `claim` is `total` or `preserves-definedness`; `observed_in` is `run` or `load` (a load record
+/// is a fact about the definition, on every run's list); `says`, for a ground record, states what
+/// it shows ("the `total` claim of `f` is false at `f(0)`"), and is null for a non-ground one,
+/// which shows nothing. Every record excludes its run (`contradicted-claim`); none is ever
+/// evidence for a kill.
+pub fn specification_diagnostics_value(
+    records: &[k_rust::backend::ContradictedClaimOutput],
+) -> Value {
+    let text = |term: &Value| {
+        k_rust::kore::codec::from_value(term)
+            .map_or_else(|_| term.to_string(), |pattern| pattern.to_string())
+    };
+    Value::Array(
+        records
+            .iter()
+            .map(|record| {
+                let claim = serde_json::to_value(record.claim).unwrap_or(Value::Null);
+                let observed_in = serde_json::to_value(record.observed_in).unwrap_or(Value::Null);
+                let application = text(&record.application);
+                let subject = record
+                    .k_label
+                    .as_deref()
+                    .or(record.symbol.as_deref())
+                    .or(record.rule_label.as_deref())
+                    .unwrap_or(record.rule_id.as_str());
+                let says = record.ground.then(|| {
+                    format!(
+                        "the `{}` claim of `{subject}` is false at `{application}`",
+                        claim.as_str().unwrap_or("?")
+                    )
+                });
+                json!({
+                    "claim": claim,
+                    "symbol": record.symbol,
+                    "k_label": record.k_label,
+                    "rule_id": record.rule_id,
+                    "rule_label": record.rule_label,
+                    "application": application,
+                    "undefined": text(&record.undefined),
+                    "observing_rule_id": record.rewrite_rule_id,
+                    "observing_rule_label": record.rewrite_rule_label,
+                    "ground": record.ground,
+                    "observed_in": observed_in,
+                    "says": says,
+                })
+            })
+            .collect(),
+    )
+}
 /// The claims a mutation's edit leaves unbacked (kink-patch `ClaimSupport::withdraw`):
 /// `{removed: [claim], unsupported: [claim]}`, each claim `{module, index, label, key, value}`
 /// for a baseline sentence (`label` null when it has none) or `{inserted: <edit index>, key,
@@ -423,9 +483,10 @@ fn failure_cause(kind: ExecutionFailureKind, budget: Budget) -> String {
                 .into()
         }
         ExecutionFailureKind::ContradictedClaim => {
-            "contradicted-claim: the mutant's run takes an undefined step that falsifies a \
-             `total` or `preserves-definedness` claim, so the mutant is inconsistent there and \
-             this program's comparison is no evidence"
+            "contradicted-claim: a run of this program (the mutant's, or the baseline's) takes an \
+             undefined step that falsifies a `total` or `preserves-definedness` claim, or k-rust \
+             lists a contradicted claim the run or the definition's load observed, so the \
+             definition is inconsistent there and this program's comparison is no evidence"
                 .into()
         }
         ExecutionFailureKind::ImplementationChosenHook => {
@@ -446,6 +507,19 @@ fn failure_cause(kind: ExecutionFailureKind, budget: Budget) -> String {
             "allowance-refusal: a Bytes hook of the mutant's run was refused for the process's \
              memory allowance, a property of the host"
                 .into()
+        }
+        ExecutionFailureKind::ImplementationChosenValue => {
+            "implementation-chosen-value: the mutant's run read a value the definition leaves \
+             open, which k-rust chose (k-rust's list of the run's open values: a map or set \
+             listing order, choice, mixed-format or NaN-sign Float, Base2String letter case, \
+             substOne names or a #read count)"
+                .into()
+        }
+        ExecutionFailureKind::UnsupportedHook => {
+            "unsupported-hook: the mutant's run, or its definition's load, left an application \
+             unevaluated as an unsupported hook, which can steer a result without a leaf showing \
+             it"
+            .into()
         }
         ExecutionFailureKind::EqualsCondition => {
             "equals-condition: a rule or equation condition of the mutant equates two terms \

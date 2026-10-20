@@ -610,8 +610,10 @@ fn a_ground_map_is_comparable_and_covers_its_rule() {
     assert_eq!(document["rules"][0]["reached_by"], json!(["store"]));
 
     // U1: a v1 record is recomputed, never trusted under the v2 value rule.
-    // Re-pin R0b: v4, because the exclusions change what counts as comparable.
-    assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v4");
+    // Re-pin R0b: v4, because the exclusions change what counts as comparable. Re-pin adoption
+    // A-1: v5, because a record holds the baseline run's specification diagnostics and undecided
+    // solver answers, and k-rust's run-level lists exclude a baseline run.
+    assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v5");
     record["key"]["schema_version"] = json!("kink-flow/result/v1");
     fs::write(&path, record.to_string()).unwrap();
     let (recomputed, status) = run(&manifest, false);

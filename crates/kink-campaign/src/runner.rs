@@ -41,11 +41,13 @@
 //! - A run that is no evidence (kink-native `exclusion`: a counted stack stop, a load stack stop
 //!   of its side's definition, an undefined step that contradicts a trusted claim, an
 //!   implementation-chosen hook in its side's definition or initial state, a value or step that
-//!   depends on the short-circuit reading, an allowance refusal) is `SideRun::Failed` with that
+//!   depends on the short-circuit reading, an allowance refusal, and since re-pin adoption A-1 any
+//!   entry of k-rust's run-level lists: a contradicted-claim record, an open value read, an
+//!   allowance refusal, an unsupported hook) is `SideRun::Failed` with that
 //!   exclusion, so no slot of its test is compared: a mutant's is `Unknown`, and a baseline's
-//!   makes admission refuse the campaign (`BaselineOracleFailed`), except a contradicted claim,
-//!   which makes only that test `Failed(ContradictedClaim)` for every mutant (re-pin decision 2
-//!   is per test: Sebastien, 2026-10-17). The check runs whenever a run is judged, a baseline
+//!   makes admission refuse the campaign (`BaselineOracleFailed`), except a leaf's contradicted
+//!   claim, which makes only that test `Failed(ContradictedClaim)` for every mutant (re-pin
+//!   decision 2 is per test: Sebastien, 2026-10-17; a record on the list alone refuses, [`admit`]). The check runs whenever a run is judged, a baseline
 //!   run a session reuses included, which is judged under the facts of the load that produced it
 //!   as well as the current call's ([`BaselineSession`]). A test compares its slots only when
 //!   both runs gave sides, so a run whose leaves contradict a claim never gives a
@@ -268,6 +270,30 @@ pub enum SideRun {
 pub struct TestEvidence {
     pub test_id: String,
     pub run: SideRun,
+    /// What the run reports besides its sides (re-pin adoption A-1). Read by no comparison, fold,
+    /// status or score, and not encoded in the campaign report.
+    pub notes: RunNotes,
+}
+
+/// What one run reports besides its sides (re-pin adoption A-1): its contradicted-claim records
+/// as specification diagnostics, its count of undecided solver answers, and whether a leaf of it
+/// contradicts a claim. Empty for a run that failed or timed out, and for a run reused from a
+/// baseline session on a load with a definition-level exclusion.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct RunNotes {
+    /// k-rust's `contradictedClaims` list of the run, the records of its definition's load
+    /// included (`observedIn: load`): each says that a claim of the specification is false at an
+    /// application (when `ground`), which the author can act on. Any record excludes the run
+    /// (`contradicted-claim`, kink-native `exclusion`); a reader reports them.
+    pub contradicted_claims: Vec<k_rust::backend::ContradictedClaimOutput>,
+    /// k-rust's count of the undecided solver answers the run's decisions took (`smtUnknowns`;
+    /// always 0 without Z3). Reported only (decision D-7 (a1)): never an exclusion.
+    pub smt_unknowns: usize,
+    /// Whether a leaf of the run contradicts a claim by decision 2's leaf rule (kink-native
+    /// `DefinitionExclusions::contradiction_on_a_leaf`): the one contradiction for which
+    /// admission keeps a baseline and makes only its test unknown ([`admit`]). A record on the
+    /// run's list alone refuses the baseline, as any other exclusion does.
+    pub leaf_contradiction: bool,
 }
 
 /// One mutant's operator, written baseline sentences, plan, report and runs. A coupled
@@ -969,6 +995,7 @@ impl<'v> BaselineSession<'v> {
                     TestEvidence {
                         test_id: test.id.clone(),
                         run: SideRun::Failed((*exclusion).into()),
+                        notes: RunNotes::default(),
                     },
                     (**cache).clone(),
                 ),
@@ -1337,7 +1364,12 @@ fn admission_failure(admission: BaselineAdmission) -> CampaignFailure {
 /// refuses the campaign, with its exclusion: every exclusion but a contradicted claim ([`admit`]).
 fn baseline_exclusion(evidence: &[TestEvidence]) -> Option<(&str, Exclusion)> {
     evidence.iter().find_map(|evidence| match evidence.run {
-        SideRun::Failed(ExecutionFailureKind::ContradictedClaim) | SideRun::Sides { .. } => None,
+        SideRun::Failed(ExecutionFailureKind::ContradictedClaim)
+            if evidence.notes.leaf_contradiction =>
+        {
+            None
+        }
+        SideRun::Sides { .. } => None,
         SideRun::Failed(kind) => kind
             .exclusion()
             .map(|exclusion| (evidence.test_id.as_str(), exclusion)),
@@ -1348,17 +1380,26 @@ fn baseline_exclusion(evidence: &[TestEvidence]) -> Option<(&str, Exclusion)> {
 /// declaration rejects is `OracleFailed`, and so is a baseline run that is excluded
 /// ([`kink_native::exclusion`]): it completed but is no evidence, as an unknown side.
 ///
-/// The exception is a baseline run that contradicts a trusted claim (re-pin decision 2, per
-/// test since Sebastien's 2026-10-17 decision): it makes that test `Failed(ContradictedClaim)`
-/// for every mutant ([`run_tests`]) and refuses nothing else. The baseline is inconsistent only
-/// at inputs that test reaches; weakening the claim there gives a definition with models in
-/// which every other test, whose runs show no contradiction, behaves the same.
+/// The exception is a baseline run a leaf of which contradicts a trusted claim (re-pin decision
+/// 2, per test since Sebastien's 2026-10-17 decision): it makes that test
+/// `Failed(ContradictedClaim)` for every mutant ([`run_tests`]) and refuses nothing else. The
+/// baseline is inconsistent only at inputs that test reaches; weakening the claim there gives a
+/// definition with models in which every other test, whose runs show no contradiction, behaves
+/// the same. A baseline run excluded only by a record on k-rust's `contradictedClaims` list (re-pin
+/// adoption A-1; [`RunNotes::leaf_contradiction`] false) is refused as any other exclusion is:
+/// before A-1 such a run was either compared or, when a leaf carried the record, unknown and
+/// refused, so reading the list relaxes no refusal. Keeping such a baseline per test would
+/// relax the refusal of the second case, which needs its own decision.
 fn admit(tests: &[TestCase], evidence: &[TestEvidence]) -> BaselineAdmission {
     let mut admission = BaselineAdmission::Accepted;
     for (test, evidence) in tests.iter().zip(evidence) {
         let sides = match &evidence.run {
             SideRun::Sides { sides, .. } => sides,
-            SideRun::Failed(ExecutionFailureKind::ContradictedClaim) => continue,
+            SideRun::Failed(ExecutionFailureKind::ContradictedClaim)
+                if evidence.notes.leaf_contradiction =>
+            {
+                continue;
+            }
             SideRun::Failed(kind) if kind.exclusion().is_some() => {
                 admission = BaselineAdmission::OracleFailed;
                 continue;
@@ -2220,6 +2261,14 @@ impl Runtime {
             None => &self.exclusions,
         };
         let collections_trusted = exclusions.collections_trusted();
+        let notes = match &executed.execution {
+            Ok(execution) if !execution.timed_out() => RunNotes {
+                contradicted_claims: execution.facts().contradicted_claims.clone(),
+                smt_unknowns: execution.facts().smt_unknowns,
+                leaf_contradiction: exclusions.contradiction_on_a_leaf(execution),
+            },
+            _ => RunNotes::default(),
+        };
         let run = match &executed.execution {
             Err(failure) => SideRun::Failed(failure.into()),
             Ok(execution) if execution.timed_out() => {
@@ -2300,6 +2349,7 @@ impl Runtime {
             TestEvidence {
                 test_id: test.id.clone(),
                 run,
+                notes,
             },
             terminals,
         )
@@ -2871,6 +2921,12 @@ mod tests {
     /// stack stop or whose definition references an implementation-chosen hook. The same
     /// execution without the exclusion is judged a value. An excluded baseline run is admitted as
     /// `OracleFailed`, never as evidence.
+    ///
+    /// Re-pin adoption A-1: so is a run whose leaves are clean but one of k-rust's run-level lists
+    /// holds an entry (a contradicted-claim record, an open value read, an allowance refusal, an
+    /// unsupported hook), live and reused alike; a record on the list alone refuses the baseline
+    /// (`leaf_contradiction` false), and the record is carried as a note. A nonzero count of
+    /// undecided solver answers excludes nothing (decision D-7 (a1)) and is carried as a note.
     #[test]
     fn an_excluded_run_gives_no_side_live_or_reused() {
         std::thread::Builder::new()
@@ -3000,9 +3056,63 @@ mod tests {
                     runtime.judge(&campaign, test, &executed(raw())).run,
                     SideRun::Sides { .. }
                 ));
+                // Re-pin adoption A-1: each run-level list, with every leaf clean.
+                let record = k_rust::backend::ContradictedClaimOutput {
+                    claim: k_rust::backend::ContradictedClaimKind::Total,
+                    symbol: Some("Lbltd".into()),
+                    k_label: Some("td".into()),
+                    rule_id: "tdeq".into(),
+                    rule_label: Some("COUNTER.tdeq".into()),
+                    origin: None,
+                    application: serde_json::Value::Null,
+                    undefined: serde_json::Value::Null,
+                    rewrite_rule_id: None,
+                    rewrite_rule_label: None,
+                    rewrite_rule_origin: None,
+                    ground: true,
+                    observed_in: k_rust::backend::ObservedInOutput::Load,
+                };
+                let hook = |hook: &str| k_rust::backend::UnevaluatedHookOutput {
+                    hook: hook.into(),
+                    reason: "listed only".into(),
+                    observed_in: k_rust::backend::ObservedInOutput::Run,
+                };
+                let mut recorded = raw();
+                recorded.contradicted_claims.push(record.clone());
+                let mut marked = raw();
+                marked
+                    .implementation_chosen_values
+                    .push(k_rust::backend::ChosenValueOutput {
+                        hook: "MAP.keys_list".into(),
+                        class: "order".into(),
+                    });
+                let mut listed_refusal = raw();
+                listed_refusal
+                    .allowance_refusals
+                    .push(hook("BYTES.padRight"));
+                let mut unsupported = raw();
+                unsupported
+                    .unsupported_hooks
+                    .push(hook("STRING.countAllOccurrences"));
+                let mut undecided = raw();
+                undecided.smt_unknowns = 3;
+                let judged = runtime.judge(&campaign, test, &executed(undecided));
+                assert!(matches!(judged.run, SideRun::Sides { .. }));
+                assert_eq!(judged.notes.smt_unknowns, 3);
+                assert_eq!(
+                    admit(&tests, std::slice::from_ref(&judged)),
+                    BaselineAdmission::Accepted
+                );
+                let judged = runtime.judge(&campaign, test, &executed(recorded.clone()));
+                assert_eq!(judged.notes.contradicted_claims, std::slice::from_ref(&record));
+                assert!(!judged.notes.leaf_contradiction);
                 for (result, kind) in [
                     (stopped, ExecutionFailureKind::StackStop),
                     (refused, ExecutionFailureKind::AllowanceRefusal),
+                    (recorded, ExecutionFailureKind::ContradictedClaim),
+                    (marked, ExecutionFailureKind::ImplementationChosenValue),
+                    (listed_refusal, ExecutionFailureKind::AllowanceRefusal),
+                    (unsupported, ExecutionFailureKind::UnsupportedHook),
                 ] {
                     let executed = executed(result);
                     assert_eq!(
@@ -3223,6 +3333,7 @@ mod tests {
                         TestEvidence {
                             test_id: "t".into(),
                             run: SideRun::Failed(ExecutionFailureKind::StackStop),
+                            notes: RunNotes::default(),
                         },
                         Vec::new()
                     )
@@ -3957,6 +4068,7 @@ mod tests {
                         OracleSide::Normal(OracleValue::Pattern(PatternValue::NoMatch)),
                     ],
                 },
+                notes: RunNotes::default(),
             };
             let before = evidence.clone();
             replace_patterns(&test, &mut evidence, None);
