@@ -426,10 +426,11 @@ pub(crate) fn instantiate(
                         start,
                         end,
                     } => {
-                        binding_edits
-                            .entry(name.as_str())
-                            .or_default()
-                            .push((*start, *end, text()))
+                        binding_edits.entry(name.as_str()).or_default().push((
+                            *start,
+                            *end,
+                            text(),
+                        ));
                     }
                     HoleSite::ConfigVar(name) => {
                         whole_bindings.insert(name.as_str(), text());

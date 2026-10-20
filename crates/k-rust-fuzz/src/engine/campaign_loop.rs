@@ -89,12 +89,7 @@ pub(crate) fn run_loop(
         };
         state.charge(run.work);
         state.totals.cases += 1;
-        for defect in &run.defects {
-            state.defect(Some(case), defect.clone());
-        }
-        for warning in &run.warnings {
-            state.warn(warning.clone());
-        }
+        state.notes(case, None, &run);
         let mut class = run.class;
         if class == OutcomeClass::Hit {
             match confirm(runner, &mut state, case, &proposal.values, &run, cancel) {
@@ -112,12 +107,7 @@ pub(crate) fn run_loop(
                 Confirmed::Cancelled => {
                     // The candidate was not confirmed: a clock-dependent case, whose coverage
                     // the totals do not take, and a trace in the report (ARCHITECTURE 5.4).
-                    state.totals.unconfirmed += 1;
-                    state.warnings.push(format!(
-                        "case {case} reached the target with the values {}; its confirmation \
-                         was cancelled, so it is not a witness",
-                        render(&proposal.values)
-                    ));
+                    state.unconfirmed(case, &proposal.values, "was cancelled");
                     let cancelled = CaseRun {
                         outside_determinism: true,
                         ..run
@@ -133,12 +123,7 @@ pub(crate) fn run_loop(
                 Confirmed::Aborted(reason) => {
                     // The fresh backend failed as every run would: the campaign aborts, and the
                     // candidate stays unconfirmed (ARCHITECTURE 5.3).
-                    state.totals.unconfirmed += 1;
-                    state.warnings.push(format!(
-                        "case {case} reached the target with the values {}; its confirmation \
-                         aborted, so it is not a witness",
-                        render(&proposal.values)
-                    ));
+                    state.unconfirmed(case, &proposal.values, "aborted");
                     state.record(&run, OutcomeClass::Unsupported);
                     state.abort = Some(reason);
                     break Ending::Aborted;
@@ -255,15 +240,8 @@ fn confirm(
         }
         Ok(confirmation) => {
             state.charge(confirmation.work);
-            for defect in &confirmation.defects {
-                state.defect(
-                    Some(case),
-                    format!("confirmation of {}: {defect}", render(values)),
-                );
-            }
-            for warning in &confirmation.warnings {
-                state.warn(warning.clone());
-            }
+            let prefix = format!("confirmation of {}", render(values));
+            state.notes(case, Some(&prefix), &confirmation);
             if is_cancelled(cancel) && confirmation.class != OutcomeClass::Hit {
                 return Confirmed::Cancelled;
             }
@@ -345,15 +323,8 @@ fn finish_witness(
                 }
             };
             state.charge(screened.work);
-            for defect in &screened.defects {
-                state.defect(
-                    Some(case),
-                    format!("shrink candidate {}: {defect}", render(candidate)),
-                );
-            }
-            for warning in &screened.warnings {
-                state.warn(warning.clone());
-            }
+            let prefix = format!("shrink candidate {}", render(candidate));
+            state.notes(case, Some(&prefix), &screened);
             // A shrink keeps the witness's kind of kill: a removed end never shrinks into an
             // added one, which is another behaviour (FZ-08 review S1).
             if screened.class != OutcomeClass::Hit
@@ -542,6 +513,32 @@ impl State {
 
     fn defect(&mut self, case: Option<u64>, description: String) {
         self.defects.push(EngineDefect { case, description });
+    }
+
+    /// Record `run`'s engine defects under `case`, each after `prefix` when one is given, and
+    /// its warnings.
+    fn notes(&mut self, case: u64, prefix: Option<&str>, run: &CaseRun) {
+        for defect in &run.defects {
+            let description = match prefix {
+                Some(prefix) => format!("{prefix}: {defect}"),
+                None => defect.clone(),
+            };
+            self.defect(Some(case), description);
+        }
+        for warning in &run.warnings {
+            self.warn(warning.clone());
+        }
+    }
+
+    /// Count case `case`, a candidate with `values` whose confirmation `ended` without a
+    /// verdict, as unconfirmed, with a warning.
+    fn unconfirmed(&mut self, case: u64, values: &[Value], ended: &str) {
+        self.totals.unconfirmed += 1;
+        self.warnings.push(format!(
+            "case {case} reached the target with the values {}; its confirmation {ended}, so it \
+             is not a witness",
+            render(values)
+        ));
     }
 
     /// Count a case under `class`.

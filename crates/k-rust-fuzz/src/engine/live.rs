@@ -176,16 +176,16 @@ impl Side {
             printed.push(PrintedValue { k_text, kore, sort });
         }
         let instantiated = holes::instantiate(program, &self.holes, &printed);
-        let assembled = assembler
+        let configuration = assembler
             .assemble(&instantiated)
             .map_err(|_| RejectionReason::Assembly)?;
         self.round_trip
-            .check(&assembled, &printed)
+            .check(&configuration, &printed)
             .map_err(|_| RejectionReason::RoundTrip)?;
         Ok(Prepared {
             printed,
             instantiated,
-            assembled,
+            assembled: configuration,
         })
     }
 }

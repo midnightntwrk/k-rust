@@ -28,11 +28,11 @@ fn spec_on(
     baseline: &'static Fixture,
     mutant: &'static Fixture,
     program: &str,
-    route: Option<BackendRoute>,
+    route: Option<&BackendRoute>,
 ) -> CampaignSpec {
     let definition = |fixture: &'static Fixture| {
         let compiled = fixture.compiled();
-        Arc::new(route.clone().map_or_else(
+        Arc::new(route.cloned().map_or_else(
             || compiled.definition(),
             |route| compiled.definition_on(route),
         ))
@@ -146,7 +146,7 @@ fn a_macro_only_mutant_is_killed_on_both_routes() {
     // Phase-1 review B1: equal definition.kore, unequal macros.kore. `inc(N)` ends with N + 1 on
     // the baseline and N + 2 on the mutant, so the anchor itself kills.
     for route in [None, Some(BackendRoute::FromDefinition)] {
-        let report = Campaign::new(spec_on(&MAC, &MAC_KILL, "mac/inc.pgm", route.clone()))
+        let report = Campaign::new(spec_on(&MAC, &MAC_KILL, "mac/inc.pgm", route.as_ref()))
             .expect("valid")
             .run(Budget::Cases(16), None);
         assert_ne!(report.outcome, CampaignOutcome::Equivalent, "{route:?}");

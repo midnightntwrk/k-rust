@@ -1544,7 +1544,15 @@ fn the_statement_never_claims_every_path_explored_for_cut_or_unjudged_cases() {
         !text.contains("Every path of each input was explored"),
         "{text}"
     );
+}
 
+#[test]
+fn the_statement_advises_raising_a_bound_only_for_unfinished_cases_a_bound_cut() {
+    let all_paths = CaseOptions {
+        paths: PathMode::AllPaths,
+        max_depth: Some(3),
+        ..CaseOptions::default()
+    };
     // Unfinished cases: bound advice only for the ones a bound cut.
     let unfinished = totals_with(&[(OutcomeClass::ReachedUnfinished, 3)]);
     let cuts = Cuts {
