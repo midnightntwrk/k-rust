@@ -508,6 +508,29 @@ fn a_coverage_hit_over_several_leaves_needs_every_leaf_clean() {
     assert_eq!(judgement.hit_site, Some(HitSite::Run));
 }
 
+#[test]
+fn a_coverage_hit_on_all_paths_names_no_leaf_even_with_one_leaf_left() {
+    // Phase-1 review N7: under all paths a sibling whose successor vanished may have put the
+    // rule in coverage, so the one leaf left need not be on the reaching path.
+    let one = case(vec![natural_end()], &["id-div"], &["id-div"]);
+    for mode in [RuleMode::Covered, RuleMode::ConditionReached] {
+        let target = rule_target("id-div", mode, false);
+        let all_paths = target.judge_run(&one, true).expect("no engine defect");
+        assert_eq!(all_paths.class, OutcomeClass::Hit, "{mode:?}");
+        assert_eq!(all_paths.hit_site, Some(HitSite::Run), "{mode:?}");
+        // On one path the run is the leaf's path.
+        let one_path = target.judge_run(&one, false).expect("no engine defect");
+        assert_eq!(one_path.hit_site, Some(HitSite::Leaf(0)), "{mode:?}");
+    }
+    // A fired target is judged from the leaf's own trace in both modes.
+    let mut traced = natural_end();
+    traced.rewrites = vec!["id-div".to_owned()];
+    let fired = rule_target("id-div", RuleMode::Fired, false)
+        .judge_run(&case(vec![traced], &["id-div"], &[]), true)
+        .expect("no engine defect");
+    assert_eq!(fired.hit_site, Some(HitSite::Leaf(0)));
+}
+
 fn pattern_target(run_to_completion: bool) -> ResolvedTarget {
     ResolvedTarget {
         target: Target {

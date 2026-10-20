@@ -359,7 +359,7 @@ impl ResolvedTarget {
     }
 
     /// Run one case with `executor` and judge it: [`Executor::run`] with this target's matchers,
-    /// then [`Self::judge`], or for an observer target [`Executor::run_observed`] and the
+    /// then [`Self::judge_run`], or for an observer target [`Executor::run_observed`] and the
     /// observer's walk over the leaves' paths (module documentation). The engine's entry point
     /// for rule, pattern and observer targets.
     ///
@@ -379,7 +379,7 @@ impl ResolvedTarget {
     /// # Errors
     ///
     /// [`Abort`] for a failed solver prelude. The judgement is an [`EngineDefect`] as for
-    /// [`Self::judge`], and when the observed leaves are not the judged result's.
+    /// [`Self::judge_run`], and when the observed leaves are not the judged result's.
     pub(crate) fn run_and_judge(
         &self,
         executor: &mut Executor,
@@ -401,7 +401,7 @@ impl ResolvedTarget {
             }
             Resolved::Rule { .. } | Resolved::PatternFinal | Resolved::Differential => {
                 let result = executor.run(initial, shape, &self.matchers(), cancel)?;
-                let judgement = self.judge(&result);
+                let judgement = self.judge_run(&result, shape.all_paths());
                 Ok((result, judgement))
             }
         }

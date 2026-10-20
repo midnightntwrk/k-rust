@@ -523,6 +523,11 @@ impl CaseRequestShape {
         }
     }
 
+    /// Whether the request explores every path (strategy `all`).
+    pub(crate) fn all_paths(&self) -> bool {
+        matches!(self.request.strategy, ExecutionStrategy::All)
+    }
+
     /// Whether the request names terminal rules, so that a `terminal` halt is the target's
     /// own stop.
     fn has_terminal_rules(&self) -> bool {

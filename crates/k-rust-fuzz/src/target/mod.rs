@@ -351,9 +351,20 @@ impl ResolvedTarget {
         self.matchers.iter().collect()
     }
 
-    /// Judge one case: decide which leaves reach the target (from traces, terminal halts,
-    /// coverage or pattern matches, per mode), then class the case with
-    /// [`crate::exec::classify`].
+    /// [`Self::judge_run`] of a run of one path, for tests.
+    #[cfg(test)]
+    pub(crate) fn judge(&self, result: &CaseResult) -> Result<Judgement, EngineDefect> {
+        self.judge_run(result, false)
+    }
+
+    /// Judge one case, whose run explored every path when `all_paths`: decide which leaves
+    /// reach the target (from traces, terminal halts, coverage or pattern matches, per mode),
+    /// then class the case with [`crate::exec::classify`].
+    ///
+    /// A hit of a coverage mode on a run of every path names no leaf ([`HitSite::Run`]), even
+    /// when one leaf is left: a sibling path whose successor vanished left its applications in
+    /// coverage, so the remaining leaf need not be on the path that reached the rule (phase-1
+    /// review N7). On one path the run is its leaf's path.
     ///
     /// # Errors
     ///
@@ -361,7 +372,11 @@ impl ResolvedTarget {
     /// judgement; for a differential target, whose cases [`differential::judge_pair`] judges;
     /// for an observer target, whose cases [`Self::run_and_judge`] judges; and for a `hit`
     /// class with no clean reaching leaf.
-    pub(crate) fn judge(&self, result: &CaseResult) -> Result<Judgement, EngineDefect> {
+    pub(crate) fn judge_run(
+        &self,
+        result: &CaseResult,
+        all_paths: bool,
+    ) -> Result<Judgement, EngineDefect> {
         let run_to_completion = self.target.run_to_completion;
         let (reached, blocked) = match &self.resolved {
             Resolved::Rule { id, mode } => (
@@ -411,8 +426,9 @@ impl ResolvedTarget {
                         .to_owned(),
                 });
             };
-            // Run coverage over several leaves names no leaf (D13): the hit is the run's.
-            let run_level = coverage_mode && result.leaves.len() > 1;
+            // Run coverage over several leaves, or over all paths, names no leaf (D13): the
+            // hit is the run's.
+            let run_level = coverage_mode && (all_paths || result.leaves.len() > 1);
             Some(if run_level {
                 HitSite::Run
             } else {
