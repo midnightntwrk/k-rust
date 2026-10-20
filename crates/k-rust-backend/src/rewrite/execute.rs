@@ -3596,8 +3596,8 @@ struct ExecutionState {
     io_enabled: bool,
     is_initial_input: bool,
     /// The decided definedness of an initial configuration the run does not assume defined
-    /// (`Execution::restrict_to_defined_instances`), which restricts what its step leaves over;
-    /// empty on every other state.
+    /// (`Execution::restrict_to_defined_instances`), which restricts what its step produces and
+    /// leaves over; empty on every other state.
     defined_where: Vec<Predicate>,
     /// The backend diagnostics of the work this path went through so far, shared with the
     /// paths it forked from.

@@ -4034,8 +4034,32 @@ fn first_predicate_term(predicate: &Predicate) -> Option<&Term> {
 ///
 /// The frontend represents K operands as singleton K sequences, while collection definedness
 /// compares their underlying KItems. Lowering both to the item makes those logically identical
-/// conditions share one internal representation. The ceil obligations retain strictness: a
-/// Boolean result from K equality implies that both operands were defined.
+/// conditions share one internal representation.
+///
+/// Every rewrite is an equivalence, on every instance, including those where an operand is
+/// undefined. Each symbol application is strict (an undefined argument makes it undefined), and
+/// `\equals(t, v)` with `v` a value is false where `t` is undefined, so the input equation states
+/// the definedness of `t`; the output states it too wherever its own atoms do not imply it:
+///
+/// - `t = true` stays the atom `t`, which means that equation: no obligation is added.
+/// - `t = false` becomes `\ceil(t) /\ \not(t)`: `\not(t)` alone also holds where `t` is
+///   undefined.
+/// - `(a andBool b) = true` and `(a orBool b) = false` become the conjunction of the operands'
+///   equations, and `notBool a = v` becomes `a = not v`; each operand's equation states its own
+///   definedness, so no obligation is added.
+/// - `(a andBool b) = false` and `(a orBool b) = true` become a disjunction of the operands'
+///   equations conjoined with `\ceil(a) /\ \ceil(b)`: one disjunct holding says nothing of the
+///   other operand, which the strict connective requires defined.
+/// - A K or integer equality becomes the equation or disequation of its operands conjoined with
+///   both operands' obligations, since `\equals(\bottom, \bottom)` is `\top`.
+///
+/// Each obligation is the operand's `ceil_term`, which is empty for a `ceil_free` operand, so a
+/// predicate over defined-by-construction terms keeps its plain form. Where `ceil_term` cannot
+/// state the obligation (it depends on an impure application in an operand a conditional never
+/// evaluates, `crate::deferred`), the equation is returned as it is. The result is a fixed point,
+/// so a predicate the simplifier normalizes again gains nothing more: an obligation is added only
+/// where an equation of a term with `false` (or of a connective with the value one operand
+/// decides) is rewritten away, and an equation left in the result is one returned as it is.
 fn normalize_hooked_boolean_predicate(
     definition: &BackendDefinition,
     predicate: Predicate,
@@ -4066,7 +4090,7 @@ fn normalize_hooked_boolean_predicate(
         symbol, arguments, ..
     } = application.kind()
     else {
-        return boolean_literal_equality(application, value)
+        return boolean_literal_equality(definition, application, value)
             .unwrap_or(Predicate::Equals(left, right));
     };
     if let Some(operator) = symbol.attributes.hook.as_deref() {
@@ -4076,22 +4100,37 @@ fn normalize_hooked_boolean_predicate(
                 Predicate::Equals(term.clone(), Term::bool(value)),
             )
         };
+        // The connective's value decided by one operand's equation (`false` for a conjunction,
+        // `true` for a disjunction): a disjunction of the operands' equations, which states
+        // neither operand's definedness beside the one whose equation holds.
+        let decided_by_one = |first: &Term, second: &Term, value| {
+            let (Ok(mut predicates), Ok(second_obligations)) =
+                (ceil_term(definition, first), ceil_term(definition, second))
+            else {
+                return None;
+            };
+            predicates.extend(second_obligations);
+            predicates.push(Predicate::Or(
+                vec![bool_operand(first, value), bool_operand(second, value)].into(),
+            ));
+            Some(normalize_predicate(Predicate::And(predicates.into())))
+        };
         match (operator, arguments.as_slice()) {
             ("BOOL.and", [first, second]) => {
+                if !value {
+                    return decided_by_one(first, second, value)
+                        .unwrap_or(Predicate::Equals(left, right));
+                }
                 let operands = vec![bool_operand(first, value), bool_operand(second, value)];
-                return normalize_predicate(if value {
-                    Predicate::And(operands.into())
-                } else {
-                    Predicate::Or(operands.into())
-                });
+                return normalize_predicate(Predicate::And(operands.into()));
             }
             ("BOOL.or", [first, second]) => {
+                if value {
+                    return decided_by_one(first, second, value)
+                        .unwrap_or(Predicate::Equals(left, right));
+                }
                 let operands = vec![bool_operand(first, value), bool_operand(second, value)];
-                return normalize_predicate(if value {
-                    Predicate::Or(operands.into())
-                } else {
-                    Predicate::And(operands.into())
-                });
+                return normalize_predicate(Predicate::And(operands.into()));
             }
             ("BOOL.not", [operand]) => return bool_operand(operand, !value),
             ("SET.in", [element, set]) => {
@@ -4109,7 +4148,7 @@ fn normalize_hooked_boolean_predicate(
         Some("INT.eq") => (!value, false),
         Some("INT.ne") => (value, false),
         _ => {
-            return boolean_literal_equality(application, value)
+            return boolean_literal_equality(definition, application, value)
                 .unwrap_or(Predicate::Equals(left, right));
         }
     };
@@ -4205,15 +4244,32 @@ fn set_membership_equations(
     Some(normalize_predicate(Predicate::And(predicates.into())))
 }
 
-fn boolean_literal_equality(term: &Term, value: bool) -> Option<Predicate> {
+/// `term = value` for a Boolean `term` that no other arm of
+/// [`normalize_hooked_boolean_predicate`] decomposes, or `None` when `term` is not Boolean, is
+/// a literal, or (for `false`) has a definedness `ceil_term` cannot state.
+///
+/// `term = true` is the atom `term`. `term = false` holds exactly where `term` is defined and
+/// not `true`, so it is `\ceil(term) /\ \not(term)`: the negated atom alone also holds where
+/// `term` is undefined, since `\equals(\bottom, true)` is false. The obligation is
+/// `ceil_term(term)`, empty for a `ceil_free` term.
+fn boolean_literal_equality(
+    definition: &BackendDefinition,
+    term: &Term,
+    value: bool,
+) -> Option<Predicate> {
     if !term.sort().is_builtin(BuiltinSort::Bool) || bool_value(term).is_some() {
         return None;
     }
-    Some(if value {
-        Predicate::Term(term.clone())
-    } else {
-        Predicate::Not(Arc::new(Predicate::Term(term.clone())))
-    })
+    if value {
+        return Some(Predicate::Term(term.clone()));
+    }
+    let negation = Predicate::Not(Arc::new(Predicate::Term(term.clone())));
+    let mut predicates = ceil_term(definition, term).ok()?;
+    if predicates.is_empty() {
+        return Some(negation);
+    }
+    predicates.push(negation);
+    Some(normalize_predicate(Predicate::And(predicates.into())))
 }
 
 fn align_subsort_operands(

@@ -14765,3 +14765,181 @@ fn a_discarded_operand_keeps_its_definedness_obligation_at_every_leaf() {
         }
     }
 }
+
+/// Rules that consume a Boolean subterm of the subject by a literal pattern position: `foo(false)`,
+/// `goo(true)`, and the control `hoo(V)` that binds it. `pb` and `pi` are partial functions with
+/// no equation, so neither is shown defined anywhere.
+fn consumed_boolean_definition() -> BackendDefinition {
+    definition(
+        r#"
+            hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            sort SortC{} []
+            hooked-symbol andBool{}(SortBool{}, SortBool{}) : SortBool{}
+                [function{}(), total{}(), hook{}("BOOL.and")]
+            hooked-symbol orBool{}(SortBool{}, SortBool{}) : SortBool{}
+                [function{}(), total{}(), hook{}("BOOL.or")]
+            hooked-symbol notBool{}(SortBool{}) : SortBool{}
+                [function{}(), total{}(), hook{}("BOOL.not")]
+            hooked-symbol eqInt{}(SortInt{}, SortInt{}) : SortBool{}
+                [function{}(), total{}(), hook{}("INT.eq"), smt-hook{}("=")]
+            hooked-symbol ite{}(SortBool{}, SortBool{}, SortBool{}) : SortBool{}
+                [function{}(), total{}(), hook{}("KEQUAL.ite")]
+            symbol pb{}(SortS{}) : SortBool{} [function{}()]
+            symbol pi{}(SortS{}) : SortInt{} [function{}()]
+            symbol foo{}(SortBool{}) : SortC{} [constructor{}()]
+            symbol goo{}(SortBool{}) : SortC{} [constructor{}()]
+            symbol hoo{}(SortBool{}) : SortC{} [constructor{}()]
+            symbol bar{}() : SortC{} [constructor{}()]
+            axiom{} \rewrites{SortC{}}(
+                \and{SortC{}}(foo{}(\dv{SortBool{}}("false")), \top{SortC{}}()),
+                bar{}()
+            ) [label{}("foo")]
+            axiom{} \rewrites{SortC{}}(
+                \and{SortC{}}(goo{}(\dv{SortBool{}}("true")), \top{SortC{}}()),
+                bar{}()
+            ) [label{}("goo")]
+            axiom{} \rewrites{SortC{}}(
+                \and{SortC{}}(hoo{}(V:SortBool{}), \top{SortC{}}()),
+                bar{}()
+            ) [label{}("hoo")]
+        "#,
+    )
+}
+
+/// The subjects of [`consumed_boolean_definition`] whose step consumes a partial subterm
+/// through a condition over its operands, each with the partial subterms the step consumes.
+fn consumed_boolean_cases() -> Vec<(&'static str, &'static str, Vec<&'static str>)> {
+    vec![
+        (
+            "equality decided false",
+            r#"foo{}(eqInt{}(pi{}(X:SortS{}), \dv{SortInt{}}("3")))"#,
+            vec!["pi{}(X:SortS{})"],
+        ),
+        (
+            "equality decided true",
+            r#"goo{}(eqInt{}(pi{}(X:SortS{}), pi{}(Y:SortS{})))"#,
+            vec!["pi{}(X:SortS{})", "pi{}(Y:SortS{})"],
+        ),
+        (
+            "conditional with a partial untaken operand",
+            r#"foo{}(ite{}(B:SortBool{}, \dv{SortBool{}}("false"), pb{}(X:SortS{})))"#,
+            vec!["pb{}(X:SortS{})"],
+        ),
+        (
+            "negation decided true",
+            r#"goo{}(notBool{}(pb{}(X:SortS{})))"#,
+            vec!["pb{}(X:SortS{})"],
+        ),
+        (
+            "disjunction decided false",
+            r#"foo{}(orBool{}(pb{}(X:SortS{}), B:SortBool{}))"#,
+            vec!["pb{}(X:SortS{})"],
+        ),
+        (
+            "conjunction decided false",
+            r#"foo{}(andBool{}(pb{}(X:SortS{}), B:SortBool{}))"#,
+            vec!["pb{}(X:SortS{})"],
+        ),
+        (
+            "disjunction decided true",
+            r#"goo{}(orBool{}(pb{}(X:SortS{}), B:SortBool{}))"#,
+            vec!["pb{}(X:SortS{})"],
+        ),
+        (
+            "control: a variable binds the subterm",
+            r#"hoo{}(pb{}(X:SortS{}))"#,
+            vec!["pb{}(X:SortS{})"],
+        ),
+    ]
+}
+
+/// Whether `constraints` state the definedness of `term`: a top-level `\ceil` or deferred
+/// definedness atom of it, a conjunct of a top-level conjunction included.
+fn states_definedness(constraints: &[Predicate], term: &Term) -> bool {
+    let mut pending = constraints.iter().collect::<Vec<_>>();
+    while let Some(predicate) = pending.pop() {
+        match predicate {
+            Predicate::And(members) => pending.extend(members.iter()),
+            Predicate::Ceil(atom) | Predicate::Defined(atom) if atom == term => return true,
+            _ => {}
+        }
+    }
+    false
+}
+
+/// A step is a transition: its successor denotes only states reached from defined instances of
+/// its subject. Where a step consumes a subject subterm `u` by a condition over its operands (an
+/// equality's operands, a conditional's condition and taken operand, a Boolean connective's
+/// operands), the successor `bar()` no longer holds `u`, so its constraints are the only place
+/// that can keep the instances where `u` is undefined out, and they must state `\ceil(u)`:
+/// `\not(u = 3)`, `u1 = u2`, `B` (for the conditional's untaken operand) and `\not(u)` each also
+/// hold where `u` is undefined. That holds of the step on its own (the public step, which decides
+/// nothing of the subject's definedness) and of an execution that does not assume its initial
+/// configuration defined. The control binds `u` to a variable, whose definedness the step states.
+#[test]
+fn a_successor_states_the_definedness_of_a_partial_subterm_its_step_consumed() {
+    let definition = consumed_boolean_definition();
+    let solver = FixedSolver {
+        satisfiability: Ok(Satisfiability::Sat),
+        validity: Ok(Validity::Contingent),
+    };
+    let bar = internal_term(&definition, "bar{}()");
+    let mut failures = Vec::new();
+    for (label, subject, consumed) in consumed_boolean_cases() {
+        let consumed = consumed
+            .into_iter()
+            .map(|term| internal_term(&definition, term))
+            .collect::<Vec<_>>();
+        let initial = Pattern {
+            term: internal_term(&definition, subject),
+            constraints: Vec::new(),
+        };
+        let successors = match rewrite_step_with_solver(
+            &definition,
+            &initial,
+            &mut FreshCounter::default(),
+            &solver,
+        ) {
+            RewriteResult::Finished(applied) => vec![applied.pattern],
+            RewriteResult::Branch { branches, .. } => branches
+                .into_iter()
+                .map(|applied| applied.pattern)
+                .collect(),
+            other => {
+                failures.push(format!("{label}: the step has no successor: {other:#?}"));
+                continue;
+            }
+        };
+        let execution = execute_with_solver(
+            &definition,
+            initial.clone(),
+            ExecutionOptions::default(),
+            &solver,
+        );
+        let leaves = execution
+            .leaves
+            .iter()
+            .filter(|leaf| leaf.pattern.term == bar)
+            .map(|leaf| leaf.pattern.clone())
+            .collect::<Vec<_>>();
+        for (route, patterns) in [("step", successors), ("execution", leaves)] {
+            if !patterns.iter().any(|pattern| pattern.term == bar) {
+                failures.push(format!(
+                    "{label}: the {route} reaches no bar(): {patterns:#?}"
+                ));
+            }
+            for pattern in patterns.iter().filter(|pattern| pattern.term == bar) {
+                for term in &consumed {
+                    if !states_definedness(&pattern.constraints, term) {
+                        failures.push(format!(
+                            "{label}: a {route} successor does not state the definedness of {term:?}: {:#?}",
+                            pattern.constraints
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}

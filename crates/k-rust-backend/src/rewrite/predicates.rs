@@ -479,6 +479,15 @@ pub(crate) fn predicates_truth(predicates: &[Predicate]) -> Truth {
 }
 
 /// Detect a constructor exclusion that contradicts an internalized finite no-junk axiom.
+///
+/// Precondition: every term an exclusion `\not(s = c)` is about is defined wherever
+/// `predicates` hold. The no-junk axiom covers the elements of a sort, and an undefined `s` is
+/// none of them: `\not(s = c)` holds there for every constructor `c`, so exclusions of every
+/// constructor over a partial `s` (`f(X)` with `f` partial) are satisfiable exactly where `s` is
+/// undefined. The internal callers meet it by applying this to a remainder or path constraints
+/// conjoined to a pattern whose term holds `s` (where `s` is defined on every instance), or to
+/// exclusions whose normalization states `\ceil(s)` beside them; a caller with predicates of
+/// another origin must state the definedness of each such `s` first.
 pub(crate) fn violates_finite_constructor_domain(
     definition: &BackendDefinition,
     predicates: &[Predicate],

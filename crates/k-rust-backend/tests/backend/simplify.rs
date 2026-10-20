@@ -4818,6 +4818,160 @@ fn boolean_equalities_with_literals_normalize_to_term_predicates() {
     }
 }
 
+/// A definition with two partial Boolean functions `p` and `q` (no equation, so neither is
+/// shown defined anywhere) and the hooked connectives over them.
+fn partial_boolean_definition() -> BackendDefinition {
+    definition(
+        r#"
+            hooked-symbol andBool{}(SortBool{}, SortBool{}) : SortBool{}
+                [function{}(), total{}(), hook{}("BOOL.and")]
+            hooked-symbol orBool{}(SortBool{}, SortBool{}) : SortBool{}
+                [function{}(), total{}(), hook{}("BOOL.or")]
+            hooked-symbol notBool{}(SortBool{}) : SortBool{}
+                [function{}(), total{}(), hook{}("BOOL.not")]
+            symbol p{}(SortS{}) : SortBool{} [function{}()]
+            symbol q{}(SortS{}) : SortBool{} [function{}()]
+        "#,
+    )
+}
+
+/// The members of `predicate` read as a conjunction.
+fn conjuncts(predicate: &Predicate) -> Vec<Predicate> {
+    match predicate {
+        Predicate::And(members) => members.iter().cloned().collect(),
+        other => vec![other.clone()],
+    }
+}
+
+fn simplified_predicate(
+    definition: &BackendDefinition,
+    predicate: &Predicate,
+    known: &[Predicate],
+) -> Predicate {
+    simplify_predicate_with_solver(
+        definition,
+        predicate,
+        known,
+        SimplificationOptions::default(),
+        &NoSolver,
+    )
+    .expect("predicate should simplify")
+}
+
+/// `t = false` holds only where `t` is defined: the application of a symbol to an undefined
+/// argument is undefined, and `\equals(\bottom, false)` is false. `\not(t)` alone also holds
+/// where `t` is undefined, so the normal form states `\ceil(t)` beside it, for either side of
+/// the equation and for `notBool t = true`. With `\ceil(t)` known the result is exactly
+/// `\not(t)`, and simplifying the normal form again changes nothing.
+#[test]
+fn a_false_equation_of_a_partial_boolean_keeps_its_definedness() {
+    let definition = partial_boolean_definition();
+    let p = term(&definition, r#"p{}(X:SortS{})"#);
+    let false_value = Term::raw_domain_value(Sort::simple("SortBool"), "false");
+    let true_value = Term::raw_domain_value(Sort::simple("SortBool"), "true");
+    let negation = Predicate::Not(Arc::new(Predicate::Term(p.clone())));
+    let ceil = Predicate::Ceil(p.clone());
+    let negated_application = term(&definition, r#"notBool{}(p{}(X:SortS{}))"#);
+
+    for predicate in [
+        Predicate::Equals(p.clone(), false_value.clone()),
+        Predicate::Equals(false_value.clone(), p.clone()),
+        Predicate::Equals(negated_application.clone(), true_value),
+        Predicate::Term(negated_application),
+    ] {
+        let result = simplified_predicate(&definition, &predicate, &[]);
+        let members = conjuncts(&result);
+        assert!(
+            members.len() == 2 && members.contains(&ceil) && members.contains(&negation),
+            "{predicate:?} simplified to {result:?}"
+        );
+        assert_eq!(
+            simplified_predicate(&definition, &result, &[]),
+            result,
+            "the normal form of {predicate:?} is a fixed point"
+        );
+        assert_eq!(
+            simplified_predicate(&definition, &predicate, std::slice::from_ref(&ceil)),
+            negation,
+            "{predicate:?} under its known definedness"
+        );
+    }
+}
+
+/// `(a andBool b) = false` and `(a orBool b) = true` are decided by one operand, but the
+/// connective is strict, so both hold only where both operands are defined: the disjunction of
+/// the operands' equations alone also holds at `a = false` with `b` undefined. The normal form
+/// conjoins both operands' `\ceil` to that disjunction; with both known, only the disjunction is
+/// left. The connectives decided by both operands (`andBool = true`, `orBool = false`) need no
+/// obligation beside the operands' own equations, which state it.
+#[test]
+fn a_connective_decided_by_one_partial_operand_keeps_both_operands_definedness() {
+    let definition = partial_boolean_definition();
+    let p = term(&definition, r#"p{}(X:SortS{})"#);
+    let q = term(&definition, r#"q{}(X:SortS{})"#);
+    let ceils = [Predicate::Ceil(p.clone()), Predicate::Ceil(q.clone())];
+    let value = |value: &str| Term::raw_domain_value(Sort::simple("SortBool"), value);
+    let atom = |term: &Term| Predicate::Term(term.clone());
+    let not_atom = |term: &Term| Predicate::Not(Arc::new(Predicate::Term(term.clone())));
+
+    for (connective, decided, disjuncts) in [
+        ("andBool", "false", vec![not_atom(&p), not_atom(&q)]),
+        ("orBool", "true", vec![atom(&p), atom(&q)]),
+    ] {
+        let application = term(
+            &definition,
+            &format!("{connective}{{}}(p{{}}(X:SortS{{}}), q{{}}(X:SortS{{}}))"),
+        );
+        let predicate = Predicate::Equals(application, value(decided));
+        let result = simplified_predicate(&definition, &predicate, &[]);
+        let members = conjuncts(&result);
+        assert!(
+            ceils.iter().all(|ceil| members.contains(ceil))
+                && members
+                    .iter()
+                    .any(|member| matches!(member, Predicate::Or(_))),
+            "{predicate:?} simplified to {result:?}"
+        );
+        assert_eq!(
+            simplified_predicate(&definition, &result, &[]),
+            result,
+            "the normal form of {predicate:?} is a fixed point"
+        );
+        assert_eq!(
+            simplified_predicate(&definition, &predicate, &ceils),
+            Predicate::Or(disjuncts.into()),
+            "{predicate:?} under both operands' known definedness"
+        );
+    }
+
+    for (connective, decided, expected) in [
+        ("andBool", "true", vec![atom(&p), atom(&q)]),
+        (
+            "orBool",
+            "false",
+            vec![
+                ceils[0].clone(),
+                not_atom(&p),
+                ceils[1].clone(),
+                not_atom(&q),
+            ],
+        ),
+    ] {
+        let application = term(
+            &definition,
+            &format!("{connective}{{}}(p{{}}(X:SortS{{}}), q{{}}(X:SortS{{}}))"),
+        );
+        let predicate = Predicate::Equals(application, value(decided));
+        let result = simplified_predicate(&definition, &predicate, &[]);
+        let members = conjuncts(&result);
+        assert!(
+            members.len() == expected.len()
+                && expected.iter().all(|member| members.contains(member)),
+            "{predicate:?} simplified to {result:?}"
+        );
+    }
+}
+
 #[test]
 fn normalizes_symbolic_integer_equality_and_keeps_operand_definedness() {
     let syntax = parse_definition(

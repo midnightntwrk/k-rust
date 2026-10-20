@@ -1064,6 +1064,14 @@ fn map_in_keys_arguments(term: &Term) -> Option<(Arc<Symbol>, Vec<Sort>, Term, T
 /// The true case delegates to ordinary unification of the operands so useful substitutions are
 /// retained. The false case is the complement of operand equality and therefore remains a path
 /// condition.
+///
+/// An equality of the subject consumed here is replaced by a condition over its operands, which
+/// is weaker than the equation it replaces where an operand is undefined: the equality is strict,
+/// so `(a ==Int b) = false` holds only where both operands are defined, while `\not(a = b)` also
+/// holds where `a` is undefined and `b` is not, and `a = b` holds where both are undefined, since
+/// `\equals(\bottom, \bottom)` is `\top`. So the condition states both operands' definedness
+/// (`ceil_term`, nothing for a `ceil_free` operand), as the step does for what it binds. Where
+/// `ceil_term` cannot state it (`crate::deferred`), the strategy declines.
 pub(super) fn recover_equality_matches(
     definition: &BackendDefinition,
     rule: &RewriteRule,
@@ -1132,17 +1140,24 @@ pub(super) fn recover_equality_matches(
     };
     let left = substitute(&split.left, &substitution);
     let right = substitute(&split.right, &substitution);
+    let mut conditions = if matches!(split.side, SplitSide::Subject) {
+        let mut obligations = ceil_term(definition, &left).ok()?;
+        extend_unique(&mut obligations, ceil_term(definition, &right).ok()?);
+        obligations
+    } else {
+        Vec::new()
+    };
     let equality = Predicate::Equals(left, right);
     let condition = if split.value {
         equality
     } else {
         Predicate::Not(Arc::new(equality))
     };
-    let conditions = match predicates_truth(std::slice::from_ref(&condition)) {
+    match predicates_truth(std::slice::from_ref(&condition)) {
         Truth::False => return Some(Vec::new()),
-        Truth::True => Vec::new(),
-        Truth::Unknown => vec![condition],
-    };
+        Truth::True => {}
+        Truth::Unknown => conditions.push(condition),
+    }
     Some(vec![PartialRuleMatch {
         substitution,
         conditions,
@@ -1216,28 +1231,40 @@ fn bool_domain_value(term: &Term) -> Option<bool> {
 /// is dropped before its operand is matched: the operand of a branch the path excludes is an
 /// operand the conditional never evaluates (`crate::deferred`), and matching it re-enters the
 /// rule attempt, which simplifies it. A feasible branch's operand is that branch's taken operand.
+///
+/// A conditional of the subject split here is consumed: each branch replaces it by its
+/// condition's value and its taken operand, and says nothing of the other operand. The
+/// conditional is strict in every operand (`#if true #then T #else E #fi` is `T` only where `E`
+/// is defined), so each branch of a subject-side split also states the conditional's definedness
+/// (`ceil_term`, whose obligations for the operands it does not evaluate are deferred atoms,
+/// `crate::deferred`); where `ceil_term` cannot state it, the strategy declines.
 pub(super) fn recover_ite_matches(
     definition: &BackendDefinition,
     substitution: Substitution,
     remainder: &[(Term, Term)],
     refuted: &mut dyn FnMut(&Predicate) -> Stoppable<bool>,
 ) -> Option<Stoppable<Vec<PartialRuleMatch>>> {
-    let (index, side, condition, then_pair, else_pair) =
-        remainder
-            .iter()
-            .enumerate()
-            .find_map(|(index, (pattern, subject))| {
-                let pattern = substitute(pattern, &substitution);
-                let subject = substitute(subject, &substitution);
-                split_ite_pair(&pattern, &subject).map(
-                    |IteSplit {
-                         side,
-                         condition,
-                         then_pair,
-                         else_pair,
-                     }| { (index, side, condition, then_pair, else_pair) },
-                )
-            })?;
+    let (index, side, condition, then_pair, else_pair, subject) = remainder
+        .iter()
+        .enumerate()
+        .find_map(|(index, (pattern, subject))| {
+            let pattern = substitute(pattern, &substitution);
+            let subject = substitute(subject, &substitution);
+            split_ite_pair(&pattern, &subject).map(
+                |IteSplit {
+                     side,
+                     condition,
+                     then_pair,
+                     else_pair,
+                 }| { (index, side, condition, then_pair, else_pair, subject) },
+            )
+        })?;
+    // The definedness of the subject's conditional, which every branch consumes.
+    let consumed = if matches!(side, SplitSide::Subject) {
+        ceil_term(definition, &subject).ok()?
+    } else {
+        Vec::new()
+    };
     let untouched = remainder
         .iter()
         .enumerate()
@@ -1289,6 +1316,7 @@ pub(super) fn recover_ite_matches(
                 }
             }
         } else {
+            conditions.extend(consumed.iter().cloned());
             conditions.push(Predicate::Equals(condition, value));
         }
         recovered.push(PartialRuleMatch {
