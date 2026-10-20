@@ -806,7 +806,9 @@ pub(crate) fn collection_disequalities(
 /// Apartness (A): no value of one term is a value of the other on any valuation.
 /// `Term::apart_with` supplies the fixed-root decision; the optional sort graph separates
 /// injections whose source sorts share no value, without requiring a normal-form certificate.
-/// Without a sort graph the callback retains only injection facts that need no subsort lookup.
+/// Without a sort graph the callback retains only injection facts that need no subsort lookup:
+/// two injections from one source compare their operands, and two from different sources are
+/// undecided, since one source may be below the other (`match_injection_equality`).
 pub(crate) fn terms_apart(sorts: Option<&SortGraph>, left: &Term, right: &Term) -> Option<Apart> {
     left.apart_with(
         right,

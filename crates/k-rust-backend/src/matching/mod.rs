@@ -586,35 +586,47 @@ pub(crate) fn match_injection_equality(
     else {
         return None;
     };
-    if left_target != right_target {
-        return Some(InjectionEquality::Distinct);
+    match sort_relation(left_target, right_target) {
+        SortRelation::Equal => {}
+        SortRelation::Distinct => return Some(InjectionEquality::Distinct),
+        SortRelation::Open => return Some(InjectionEquality::Unknown),
     }
     if left_source == right_source {
         return Some(InjectionEquality::Direct(left.clone(), right.clone()));
     }
-    if let Some(sorts) = sorts {
-        if sorts.check_subsort(right_source, left_source).ok() == Some(true) {
-            return Some(InjectionEquality::Split(
-                left.clone(),
-                Term::injection(right_source.clone(), left_source.clone(), right.clone()),
-            ));
-        }
-        if sorts.check_subsort(left_source, right_source).ok() == Some(true) {
-            return Some(InjectionEquality::Split(
-                Term::injection(left_source.clone(), right_source.clone(), left.clone()),
-                right.clone(),
-            ));
-        }
+    // Without the subsort order nothing is known of the two sources: a constructor-like operand
+    // of one source may be the injection of the other operand when one source is below the
+    // other, so neither a split nor a separation is established.
+    let Some(sorts) = sorts else {
+        return Some(InjectionEquality::Unknown);
+    };
+    match sorts.order(left_source, right_source) {
+        // `inj{A,C}(a) = inj{B,C}(inj{A,B}(a))` for `A < B`, and `inj{B,C}` is injective.
+        SortOrder::Below => Some(InjectionEquality::Split(
+            Term::injection(left_source.clone(), right_source.clone(), left.clone()),
+            right.clone(),
+        )),
+        SortOrder::Above => Some(InjectionEquality::Split(
+            left.clone(),
+            Term::injection(right_source.clone(), left_source.clone(), right.clone()),
+        )),
+        // Neither source is below the other: a common value is the injection of a value of a
+        // common subsort, which a constructor-like operand, built by a constructor of its own
+        // sort, is not; and without a common subsort there is no common value.
+        SortOrder::Incomparable => Some(
+            if has_constructor_like_top(left)
+                || has_constructor_like_top(right)
+                || sorts.known_overlap(left_source, right_source) == Some(false)
+            {
+                InjectionEquality::Distinct
+            } else {
+                InjectionEquality::Unknown
+            },
+        ),
+        // Whether one source is below the other depends on a sort variable, or on a sort the
+        // order does not know.
+        SortOrder::Undecided(_) => Some(InjectionEquality::Unknown),
     }
-    if has_constructor_like_top(left) || has_constructor_like_top(right) {
-        return Some(InjectionEquality::Distinct);
-    }
-    if let Some(sorts) = sorts
-        && sorts.known_overlap(left_source, right_source) == Some(false)
-    {
-        return Some(InjectionEquality::Distinct);
-    }
-    Some(InjectionEquality::Unknown)
 }
 
 fn has_constructor_like_top(term: &Term) -> bool {

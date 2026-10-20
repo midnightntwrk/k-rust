@@ -2420,21 +2420,44 @@ mod tests {
         );
     }
 
+    /// `inj{Int, KItem}(I)` and `inj{Bool, KItem}(true)` are distinct where the subsort order
+    /// shows `Int` and `Bool` incomparable: a common value would be the injection of a value of
+    /// a common subsort, which `true`, built by a constructor of `Bool`, is not. Without the
+    /// order nothing relates the two sources, and `Bool` may be below `Int` in a definition, so
+    /// the context-free entry leaves the comparison undecided.
     #[test]
     fn kequal_decides_distinct_sort_injections() {
         let arguments = [
             k_sequence(Term::variable(Variable::new("I", Sort::simple("SortInt")))),
             k_sequence(bool_term(true)),
         ];
+        let mut sorts = SortGraph::default();
+        sorts.insert(
+            "SortKItem",
+            [
+                crate::term::Name::from("SortInt"),
+                crate::term::Name::from("SortBool"),
+            ],
+        );
+        sorts.insert("SortInt", []);
+        sorts.insert("SortBool", []);
 
-        assert_eq!(
-            evaluate_hook("KEQUAL.eq", &arguments),
-            Ok(Ok(BuiltinResult::Value(bool_term(false))))
-        );
-        assert_eq!(
-            evaluate_hook("KEQUAL.ne", &arguments),
-            Ok(Ok(BuiltinResult::Value(bool_term(true))))
-        );
+        for (negate, value) in [(false, false), (true, true)] {
+            assert!(
+                matches!(
+                    kequal(&arguments, negate, Some(&sorts)),
+                    Ok(Some(found)) if found == bool_term(value)
+                ),
+                "negate: {negate}"
+            );
+        }
+        for hook in ["KEQUAL.eq", "KEQUAL.ne"] {
+            assert_eq!(
+                evaluate_hook(hook, &arguments),
+                Ok(Ok(BuiltinResult::NotApplicable)),
+                "{hook}"
+            );
+        }
     }
 
     /// `K` values built from `dotk`, `kseq` and items of sort `KItem` (with or without an
@@ -4196,12 +4219,28 @@ mod tests {
             {
                 Some(false)
             }
-            (TermKind::Injection { .. }, TermKind::Injection { .. }) => {
-                match match_injection_equality(None, left, right)? {
-                    InjectionEquality::Direct(left, right)
-                    | InjectionEquality::Split(left, right) => role_equality(&left, &right),
-                    InjectionEquality::Distinct => Some(false),
-                    InjectionEquality::Unknown => None,
+            // Without a sort order, two injections into one sort from one source are equal
+            // exactly when their operands are (an injection is injective); from different
+            // sources, a constructor-like operand of one may be the injection of the other's
+            // operand where one source is below the other, so nothing is decided.
+            (
+                TermKind::Injection {
+                    source: left_source,
+                    target: left_target,
+                    term: left_operand,
+                },
+                TermKind::Injection {
+                    source: right_source,
+                    target: right_target,
+                    term: right_operand,
+                },
+            ) => {
+                if left_target != right_target {
+                    Some(false)
+                } else if left_source == right_source {
+                    role_equality(left_operand, right_operand)
+                } else {
+                    None
                 }
             }
             (TermKind::DomainValue { .. }, TermKind::DomainValue { .. }) => Some(left == right),
