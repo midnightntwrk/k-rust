@@ -1,10 +1,10 @@
 {
   "artifact_sha256": {
-    "definition-ir.json": "7b4d8ef3f64f99ae08b681a03657466950e872c198b0e846b1a074d76827ebbd",
+    "definition-ir.json": "7a1d146c5b6870b532eff991fd077073a33d688db895135f7fdf857db50e1450",
     "definition.k": "d8c32f621b86762e67abfab7e818530f22e8b1fc7d6b1d5b878e52577cbfbf5a",
-    "descriptor-bundle.json": "0a65fd373c5ed3124b388e638edee54cca5cbeb998e6e4d793c04bd334dce4bb",
+    "descriptor-bundle.json": "419005ca7eee7ebb1cbedd183c0a035f4079fcf13341c122a362960cb3b5a96f",
     "native-source.txt": "b4eab131c9f5fd625e81076b61d135a68894577cf995644477a4c72069055204",
-    "semantic-ir.json": "7cbe0fcd189394177c39387df966974e23c25951a395071e90fe582574a9dd78",
+    "semantic-ir.json": "35c070ade512ffe153e6cdcaeca6c71e5130f165298e05bbc05e8aa2c24c8945",
     "sources.json": "da2ebc788dd18edd41c593bb3239d592b03c65a10b11e5aa86c75b080a59de67",
     "symbols.json": "a9c2e5b8b830f574542e139c26402b261e8d0b29f84f3664e95acb686e63bf49",
     "spec.k": "46ad9636a91feb24b3c1b18752e64d36922f702322b3ae586c66a700b0fc6133"
@@ -2052,7 +2052,7 @@
     "source-definitions": "536636eba2ba91558b28ecdd12172868470c08a0d586624996d8e80827589724",
     "native-claims": "0ba85f14e954774d0b49e84cf880d21014f81bd36cb3e33bdad39978d7160a13",
     "behavior": "f2fd2c7f1569ec1e60d39561cf1ee3879b9820b11ed4bf36e48e6e60970500da",
-    "proofs": "018a18def2904a43da65d0da97f13cbaef518e0560e8f22380022455e11bcba1",
+    "proofs": "6100d978df55775340a5ee0f65185650ff8fe92b67d16a616b8bc0db83f3b5f4",
     "frontend-diagnostic": "34bf4709af866f436e3ff2020d8e3aec6748dc264db30999bb1783d7ab5ff491"
   },
   "native_proof_divergences": {
