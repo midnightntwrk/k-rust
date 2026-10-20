@@ -42,6 +42,7 @@ mod ml_positions;
 mod production_shapes;
 mod regexes;
 mod rhs_variables;
+mod root_aliases;
 mod sorts;
 mod term_position;
 
@@ -179,6 +180,10 @@ fn check_module_with_options_and_catalog(
             Vec::new()
         })
         .chain(fresh_variables::check_fresh_variables(
+            &sentences,
+            production_catalog,
+        ))
+        .chain(root_aliases::check_equation_root_aliases(
             &sentences,
             production_catalog,
         ))
@@ -920,6 +925,59 @@ fn is_named_anonymous(name: &str) -> bool {
 
 fn is_anonymous(name: &str) -> bool {
     crate::kast::binding::is_unresolved_anonymous(name)
+}
+
+/// The kinds of rule that state an equation between the term their left-hand side matches and
+/// their right-hand side, rather than a rewrite step of the configuration.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum EquationKind {
+    /// A rule with a macro-like attribute, or of a macro-like production: expanded wherever its
+    /// left-hand side occurs.
+    MacroOrAlias,
+    /// An `anywhere` rule: applied to its left-hand side wherever that term occurs.
+    Anywhere,
+    /// A `simplification` rule: an equation on the term its left-hand side matches.
+    Simplification,
+    /// A rule whose head is a `function` production: evaluated wherever the function is applied.
+    Function,
+}
+
+impl EquationKind {
+    /// The equation kind of `sentence`, or `None` for a rewrite rule and for every other
+    /// sentence. A kind declared on the rule wins over its head's kind, macro-like first.
+    fn of(sentence: &Sentence, productions: &super::ProductionCatalog<'_>) -> Option<Self> {
+        if !matches!(sentence, Sentence::Rule { .. }) {
+            return None;
+        }
+        let attributes = sentence.attributes();
+        let head = LabelHead::from(&super::match_rule_label(sentence));
+        let production_attributes = productions.attributes_for(&head);
+        let declared = |key: AttributeKey| {
+            attributes.has(key)
+                || production_attributes.is_some_and(|attributes| attributes.has(key))
+        };
+        if AttributeKey::MACRO_LIKE.into_iter().any(declared) {
+            Some(Self::MacroOrAlias)
+        } else if attributes.has(AttributeKey::Anywhere) {
+            Some(Self::Anywhere)
+        } else if attributes.has(AttributeKey::Simplification) {
+            Some(Self::Simplification)
+        } else if productions.function_labels().contains(&head) {
+            Some(Self::Function)
+        } else {
+            None
+        }
+    }
+
+    /// The kind as a diagnostic names a rule of it.
+    fn rule(self) -> &'static str {
+        match self {
+            Self::MacroOrAlias => "a macro or alias rule",
+            Self::Anywhere => "an anywhere rule",
+            Self::Simplification => "a simplification rule",
+            Self::Function => "a function rule",
+        }
+    }
 }
 
 fn anonymous_variable_exempt(sentence: &Sentence, name: &str) -> bool {

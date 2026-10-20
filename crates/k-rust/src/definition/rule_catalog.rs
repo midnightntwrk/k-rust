@@ -22,7 +22,7 @@ use super::attribute_keys::AttributeKey;
 use super::catalog::{LabelHead, ProductionCatalog};
 use super::equivalence::{EquivalenceAccumulator, dedup_by_equivalence};
 use super::resolve::{ModuleId, ResolvedDefinition};
-use crate::kast::{InternalLabel, Label, Term};
+use crate::kast::{GeneratedLabel, InternalLabel, Label, Term};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct RuleId(pub usize);
@@ -304,6 +304,28 @@ impl<'a> RuleHead<'a> {
     /// The label of the root application.
     pub fn label(&self) -> Option<&'a Label> {
         self.application().map(|(_, label, _)| label)
+    }
+
+    /// The names of the variables the root aliases of [`Self::left`] bind, outermost first:
+    /// `V` and `W` for `(P #as W) #as V`. A semantic cast around an alias is looked through
+    /// (`P #as V:S` binds `V`); an alias that is not a variable names nothing.
+    pub fn root_alias_variables(&self) -> Vec<&'a str> {
+        let mut names = Vec::new();
+        let mut term = self.left;
+        while let Term::As { pattern, alias } = term.unannotated() {
+            let mut variable = alias.unannotated();
+            if let Term::Apply { label, arguments } = variable
+                && matches!(label.generated(), Some(GeneratedLabel::SemanticCast { .. }))
+                && let [argument] = arguments.as_slice()
+            {
+                variable = argument.unannotated();
+            }
+            if let Term::Variable { name, .. } = variable {
+                names.push(name.as_str());
+            }
+            term = pattern;
+        }
+        names
     }
 
     /// When the root is an injection `inj(A)`, the label of `A`'s root application (aliases
