@@ -1,4 +1,6 @@
 target/
+# The fuzz crate has a source module named `target`; the line above would ignore it.
+!/crates/k-rust-fuzz/src/target/
 .z3-trace
 
 # LLVM coverage profiles written by instrumented test runs
