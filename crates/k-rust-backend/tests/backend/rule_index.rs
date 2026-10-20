@@ -552,7 +552,14 @@ proptest! {
 /// the overload equation rewrites for some instances, and applications of `w1`, whose equation
 /// is `w1(s(z)) = w1(z)`: normal and redex, ground and symbolic. The rule side adds conjunctions: an `#as` pattern, two conflicting constructors, and a
 /// constructor with a function.
-const SHAPE_ITEMS: [&str; 20] = [
+///
+/// For the sorted-variable key (`CellIndex::Sorted`), the items after the first 20 add injected
+/// variables of every relation of sorts the order has (`S1 < S2`, `S1 < S4` with `S2` and `S4`
+/// incomparable but overlapping, a sort `D` of domain values, which may have no subsort, the
+/// unrelated `S5`, the overload family's `Val < Exp`, the closed instances `P{S1}` and `P{S2}` of a
+/// parametric sort with no covariance), and constructors and domain values of those sorts, a
+/// non-overloaded constructor of `Exp`, and two `KItem` constructors with no injection.
+const SHAPE_ITEMS: [&str; 36] = [
     "inj{SortS1{}, SortKItem{}}(a1{}())",
     "inj{SortS1{}, SortKItem{}}(b1{}())",
     "inj{SortS2{}, SortKItem{}}(a2{}())",
@@ -573,14 +580,33 @@ const SHAPE_ITEMS: [&str; 20] = [
     "inj{SortS1{}, SortKItem{}}(w1{}(s{}(z{}())))",
     "inj{SortS1{}, SortKItem{}}(w1{}(s{}(VARN:SortNat{})))",
     "inj{SortS1{}, SortKItem{}}(w1{}(s{}(s{}(VARN:SortNat{}))))",
+    "inj{SortS2{}, SortKItem{}}(VARS2:SortS2{})",
+    "inj{SortS4{}, SortKItem{}}(VARS4:SortS4{})",
+    "inj{SortS5{}, SortKItem{}}(VARS5:SortS5{})",
+    "inj{SortInt{}, SortKItem{}}(VARI:SortInt{})",
+    "inj{SortD{}, SortKItem{}}(VARD:SortD{})",
+    "inj{SortExp{}, SortKItem{}}(VAREXP:SortExp{})",
+    "inj{SortVal{}, SortKItem{}}(VARVAL:SortVal{})",
+    "inj{SortP{SortS1{}}, SortKItem{}}(VARP:SortP{SortS1{}})",
+    "inj{SortS4{}, SortKItem{}}(a4{}())",
+    "inj{SortS5{}, SortKItem{}}(a5{}())",
+    r#"inj{SortD{}, SortKItem{}}(\dv{SortD{}}("x"))"#,
+    "inj{SortP{SortS1{}}, SortKItem{}}(pc{SortS1{}}())",
+    "inj{SortP{SortS2{}}, SortKItem{}}(pc{SortS2{}}())",
+    "inj{SortExp{}, SortKItem{}}(plus{}(VARE1:SortExp{}, VARE2:SortExp{}))",
+    "kc{}()",
+    "fz{}(a1{}())",
 ];
 
-const SHAPE_RULE_CONJUNCTIONS: [&str; 5] = [
+const SHAPE_RULE_CONJUNCTIONS: [&str; 8] = [
     r"\and{SortKItem{}}(inj{SortS1{}, SortKItem{}}(a1{}()), VARAS:SortKItem{})",
     r"\and{SortKItem{}}(inj{SortS1{}, SortKItem{}}(a1{}()), inj{SortS1{}, SortKItem{}}(b1{}()))",
     r"\and{SortKItem{}}(inj{SortS1{}, SortKItem{}}(a1{}()), inj{SortS1{}, SortKItem{}}(f1{}()))",
     r"\and{SortKItem{}}(inj{SortS1{}, SortKItem{}}(h1{}()), inj{SortS3{}, SortKItem{}}(h3{}()))",
     r"\and{SortKItem{}}(inj{SortS1{}, SortKItem{}}(h1{}()), inj{SortVal{}, SortKItem{}}(appv{}(v{}(), v{}())))",
+    r"\and{SortKItem{}}(inj{SortS1{}, SortKItem{}}(VARX:SortS1{}), VARAS:SortKItem{})",
+    r"\and{SortKItem{}}(inj{SortS1{}, SortKItem{}}(VARX:SortS1{}), inj{SortS1{}, SortKItem{}}(a1{}()))",
+    r"\and{SortKItem{}}(inj{SortS1{}, SortKItem{}}(VARX:SortS1{}), inj{SortS2{}, SortKItem{}}(VARY:SortS2{}))",
 ];
 
 fn shape_definition() -> BackendDefinition {
@@ -632,10 +658,29 @@ fn shape_definition() -> BackendDefinition {
         ("Val", "Exp"),
         ("Val", "KItem"),
         ("Exp", "KItem"),
+        ("S1", "S4"),
+        ("S4", "KItem"),
+        ("S5", "KItem"),
+        ("D", "KItem"),
     ]
     .iter()
     .map(|(sub, sup)| subsort(sub, sup))
-    .collect::<String>();
+    .collect::<String>()
+        + &[
+            "SortP{SortS1{}}",
+            "SortP{SortS2{}}",
+        ]
+        .iter()
+        .map(|sub| {
+            format!(
+                r"axiom{{R}} \exists{{R}}(
+                    Value:SortKItem{{}},
+                    \equals{{SortKItem{{}}, R}}(Value:SortKItem{{}}, inj{{{sub}, SortKItem{{}}}}(From:{sub}))
+                ) [subsort{{{sub}, SortKItem{{}}}}()]
+                "
+            )
+        })
+        .collect::<String>();
     let syntax = parse_definition(
         &(r#"[]
         module MAIN
@@ -649,6 +694,10 @@ fn shape_definition() -> BackendDefinition {
           sort SortVal{} []
           sort SortExp{} []
           sort SortNat{} []
+          sort SortS4{} []
+          sort SortS5{} []
+          sort SortD{} [hasDomainValues{}()]
+          sort SortP{S} []
           sort SortInt{} [hasDomainValues{}()]
           hooked-sort SortMap{}
             [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
@@ -663,6 +712,11 @@ fn shape_definition() -> BackendDefinition {
           symbol b1{}() : SortS1{} [constructor{}(), total{}()]
           symbol a2{}() : SortS2{} [constructor{}(), total{}()]
           symbol a3{}() : SortS3{} [constructor{}(), total{}()]
+          symbol a4{}() : SortS4{} [constructor{}(), total{}()]
+          symbol a5{}() : SortS5{} [constructor{}(), total{}()]
+          symbol pc{S}() : SortP{S} [constructor{}(), total{}()]
+          symbol kc{}() : SortKItem{} [constructor{}(), total{}()]
+          symbol fz{}(SortS1{}) : SortKItem{} [constructor{}(), total{}()]
           symbol f1{}() : SortS1{} [function{}(), total{}()]
           symbol h1{}() : SortS1{} [anywhere{}(), functional{}(), injective{}(), no-evaluators{}()]
           symbol h3{}() : SortS3{} [anywhere{}(), functional{}(), injective{}(), no-evaluators{}()]
@@ -683,6 +737,7 @@ fn shape_definition() -> BackendDefinition {
           symbol appv{}(SortVal{}, SortVal{}) : SortVal{} [constructor{}(), total{}()]
           symbol app{}(SortExp{}, SortExp{}) : SortExp{}
             [anywhere{}(), functional{}(), injective{}(), no-evaluators{}()]
+          symbol plus{}(SortExp{}, SortExp{}) : SortExp{} [constructor{}(), total{}()]
           hooked-symbol mapUnit{}() : SortMap{} [function{}(), total{}(), hook{}("MAP.unit")]
           hooked-symbol mapItem{}(SortKItem{}, SortKItem{}) : SortMap{}
             [function{}(), total{}(), hook{}("MAP.element")]
@@ -713,6 +768,7 @@ fn shape_definition() -> BackendDefinition {
 fn every_rule_the_index_drops_fails_to_match_for_every_item_shape() {
     let definition = shape_definition();
     let mut dropped = 0;
+    let mut dropped_by_sort = 0;
     for head in SHAPE_ITEMS {
         for next in SHAPE_ITEMS {
             let head = head.replace("VAR", "SUBJECTHEAD");
@@ -729,6 +785,14 @@ fn every_rule_the_index_drops_fails_to_match_for_every_item_shape() {
                     continue;
                 }
                 dropped += 1;
+                if stored
+                    .index
+                    .cells()
+                    .iter()
+                    .any(|cell| matches!(cell, CellIndex::Sorted(_)))
+                {
+                    dropped_by_sort += 1;
+                }
                 let result = match_terms_in_definition(
                     MatchMode::Rewrite,
                     &definition,
@@ -745,6 +809,10 @@ fn every_rule_the_index_drops_fails_to_match_for_every_item_shape() {
     }
     // The index drops something for most subjects; a vacuous pass would drop nothing.
     assert!(dropped > 1000, "only {dropped} dropped candidates");
+    assert!(
+        dropped_by_sort > 500,
+        "only {dropped_by_sort} candidates dropped by a sorted key"
+    );
 }
 
 /// A `<T>` configuration whose `<k>` cells live in the values of a thread cell map, beside a
@@ -909,4 +977,84 @@ fn a_cell_map_rest_steps_like_a_subject_the_index_does_not_key() {
     let one_cell = labels("noK{}()");
     assert_eq!(one_cell, labels("Lbl'-LT-'k'-GT-'{}(dotk{}())"));
     assert!(one_cell.iter().any(|label| label == "on-b"), "{one_cell:?}");
+}
+
+/// The rule `head-P` for the item `SHAPE_ITEMS[P]`, and whether the index keeps it for the
+/// subject whose `<k>` head is `SHAPE_ITEMS[subject]`.
+fn keeps_head_rule(definition: &BackendDefinition, rule: usize, subject: usize) -> bool {
+    let label = format!("head-{rule}");
+    let head = SHAPE_ITEMS[subject].replace("VAR", "SUBJECTHEAD");
+    let subject = internal_term(
+        definition,
+        &format!("top{{}}(Lbl'-LT-'k'-GT-'{{}}(kseq{{}}({head}, dotk{{}}())))"),
+    );
+    let key = subject_index(definition, &subject);
+    old_candidates(definition, &term_index(&subject))
+        .into_iter()
+        .find(|stored| stored.attributes.label.as_deref() == Some(label.as_str()))
+        .expect("the rule is stored under top")
+        .index
+        .covers(&key)
+}
+
+/// A rule whose `<k>` head is `inj{S, KItem}(X:S)` is kept exactly for the heads whose rigid sort
+/// is below `S` and for the heads without one, in each relation the order has.
+#[test]
+fn sorted_heads_are_kept_for_subsorts_and_for_heads_without_a_rigid_sort() {
+    let definition = shape_definition();
+    let position = |item: &str| {
+        SHAPE_ITEMS
+            .iter()
+            .position(|shape| *shape == item)
+            .expect("a shape item")
+    };
+    let s1 = position("inj{SortS1{}, SortKItem{}}(VARS1:SortS1{})");
+    let s2 = position("inj{SortS2{}, SortKItem{}}(VARS2:SortS2{})");
+    let p1 = position("inj{SortP{SortS1{}}, SortKItem{}}(VARP:SortP{SortS1{}})");
+    let a1 = position("inj{SortS1{}, SortKItem{}}(a1{}())");
+    let a2 = position("inj{SortS2{}, SortKItem{}}(a2{}())");
+    let a3 = position("inj{SortS3{}, SortKItem{}}(a3{}())");
+    let a4 = position("inj{SortS4{}, SortKItem{}}(a4{}())");
+    let f1 = position("inj{SortS1{}, SortKItem{}}(f1{}())");
+    let int = position(r#"inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1"))"#);
+    let d = position(r#"inj{SortD{}, SortKItem{}}(\dv{SortD{}}("x"))"#);
+    let appv = position("inj{SortVal{}, SortKItem{}}(appv{}(v{}(), v{}()))");
+    let h1 = position("inj{SortS1{}, SortKItem{}}(h1{}())");
+    let variable = position("inj{SortS1{}, SortKItem{}}(VARS1:SortS1{})");
+    let pc1 = position("inj{SortP{SortS1{}}, SortKItem{}}(pc{SortS1{}}())");
+    let pc2 = position("inj{SortP{SortS2{}}, SortKItem{}}(pc{SortS2{}}())");
+    let kc = position("kc{}()");
+    let fz = position("fz{}(a1{}())");
+    for kept in [a1, f1, appv, h1, variable] {
+        assert!(
+            keeps_head_rule(&definition, s1, kept),
+            "S1 drops {}",
+            SHAPE_ITEMS[kept]
+        );
+    }
+    for dropped in [a2, a3, a4, int, d, pc1, kc, fz] {
+        assert!(
+            !keeps_head_rule(&definition, s1, dropped),
+            "S1 keeps {}",
+            SHAPE_ITEMS[dropped]
+        );
+    }
+    // `S1 < S2`; `S4` overlaps `S2` through `S1` but is not below it; `D` is unrelated.
+    for kept in [a1, a2] {
+        assert!(
+            keeps_head_rule(&definition, s2, kept),
+            "S2 drops {}",
+            SHAPE_ITEMS[kept]
+        );
+    }
+    for dropped in [a4, d, a3] {
+        assert!(
+            !keeps_head_rule(&definition, s2, dropped),
+            "S2 keeps {}",
+            SHAPE_ITEMS[dropped]
+        );
+    }
+    // No covariance: `P{S1}` is not below `P{S2}`, nor the converse.
+    assert!(keeps_head_rule(&definition, p1, pc1));
+    assert!(!keeps_head_rule(&definition, p1, pc2));
 }

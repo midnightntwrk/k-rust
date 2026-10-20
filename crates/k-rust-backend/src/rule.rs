@@ -29,7 +29,8 @@
 //! Candidate count is the exact-symbol then variable-symbol sequence for a subject whose root is
 //! fixed, or every term-index bucket for any other subject (`SubjectKey::buckets`), filtered by
 //! `rule.index.covers(subject)`. Selection costs O(log k) index lookups plus one `covers` check
-//! per rule in the selected buckets; `Counter::RewriteRuleAttempts` is bumped by the caller per
+//! per rule in the selected buckets (a `Sorted` key's check is one bit test, against the sort
+//! number the subject key holds); `Counter::RewriteRuleAttempts` is bumped by the caller per
 //! candidate tried.
 //!
 //! The index uses `Anything` for absent or malformed `<k>` cells, variables, functions, macro
@@ -39,9 +40,11 @@
 //! `Anything`; on the subject side an overloaded `anywhere` head is fixed only with evidence
 //! that it is a normal form on every instance (the simplifier's certificate or
 //! `BackendDefinition::instance_normal`), since an equation may give an instance of any other
-//! application another head. A rule's non-overloaded `anywhere` head is `Anywhere`. It strips
-//! injections and meets conjunctions (`CellIndex::meet`); `None`, two distinct rigid
-//! conjuncts, covers only `Anything`. These
+//! application another head. A rule's non-overloaded `anywhere` head is `Anywhere`. A rule's
+//! item `inj{S, _}(X:S)` is `Sorted`, which covers the subject items whose rigid sort (the sort of
+//! a free constructor in no overload relation or of a domain value, under at most one injection)
+//! is below `S`, and every item without one. Other injections are stripped, and conjunctions are
+//! met (`CellIndex::meet`); `None`, two distinct rigid conjuncts, covers only `Anything`. These
 //! conservative cases correspond to the matcher's overload, AC, variable, injection, and
 //! symbolic-function paths; a later matcher extension must keep this list sound.
 //!
@@ -74,6 +77,7 @@ use crate::{
     definition::{
         BackendDefinition, DefinitionError, UnlicensedInjectionSite, UnstatedDefinedness,
     },
+    matching::{SortId, SortSet},
     substitution::{Substitution, substitute},
     term::{
         AlgebraicAxioms, HeadRole, MapDefinition, Name, SetDefinition, Sort, Term, TermKind,
@@ -559,11 +563,49 @@ pub enum CellIndex {
     Map,
     List,
     Set,
+    /// A rule's item `inj{S, _}(X:S)`: an injection of a variable of its source sort `S`, a closed
+    /// sort with a known head. Only a rule's key uses it. It reads the subject's rigid sort
+    /// ([`SubjectKey`]): the sort `T` of a subject item that is a free-constructor application in
+    /// no overload relation or a domain value, or the source of an injection of one. Such an item
+    /// is the injection of an `S` value only when `T` is below `S`; otherwise the rewrite matcher
+    /// refutes the pair by sorts (`matching::Matcher::match_differing_injections`, or the root
+    /// policy for an item without an injection).
+    Sorted(SortedKey),
+}
+
+/// The sorts of a [`CellIndex::Sorted`] key, and the numbered sorts below every one of them: the
+/// rigid sorts of the subject items the key covers. A conjunction of two such items keys the
+/// sorts below both.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct SortedKey {
+    sorts: Vec<Sort>,
+    below: SortSet,
+}
+
+impl SortedKey {
+    /// The sorts the key's items inject from.
+    pub fn sorts(&self) -> &[Sort] {
+        &self.sorts
+    }
+
+    fn meet(&self, other: &Self) -> Self {
+        let mut sorts = self.sorts.clone();
+        sorts.extend(other.sorts.iter().cloned());
+        sorts.sort();
+        sorts.dedup();
+        Self {
+            sorts,
+            below: self.below.intersection(&other.below),
+        }
+    }
 }
 
 impl CellIndex {
+    /// Whether a rule with this key may match a subject item with the key `subject`, whose rigid
+    /// sort is not known. A `Sorted` key reads only that sort ([`Self::covers_item`]), so it
+    /// covers every key.
     pub fn covers(&self, subject: &Self) -> bool {
-        matches!(self, Self::Anything)
+        matches!(self, Self::Anything | Self::Sorted(_))
             || matches!(subject, Self::Anything)
             || (self == subject && !matches!(self, Self::None))
             || matches!(
@@ -577,11 +619,25 @@ impl CellIndex {
     /// cover every term that both conjuncts' keys cover. A function conjunct is `Anything` and
     /// leaves the other key; two distinct `Overloaded`/`Anywhere` keys both cover `Overloaded`;
     /// any other two distinct keys share only `Anything`, which `None` covers.
+    /// Whether a rule with this key may match a subject item with the key `subject` and the rigid
+    /// sort `sort` (`None` when the item has none): a `Sorted` key covers the numbered sorts below
+    /// its sorts, and an item without a rigid sort.
+    pub(crate) fn covers_item(&self, subject: &Self, sort: Option<SortId>) -> bool {
+        match self {
+            Self::Sorted(key) => sort.is_none_or(|sort| key.below.contains(sort)),
+            _ => self.covers(subject),
+        }
+    }
+
     pub fn meet(self, other: Self) -> Self {
         match (self, other) {
             (Self::None, _) | (_, Self::None) => Self::None,
             (Self::Anything, other) | (other, Self::Anything) => other,
             (left, right) if left == right => left,
+            (Self::Sorted(left), Self::Sorted(right)) => Self::Sorted(left.meet(&right)),
+            // A `Sorted` conjunct refutes only by sort; the other key refutes wherever its conjunct
+            // does, and the conjunction with it.
+            (Self::Sorted(_), other) | (other, Self::Sorted(_)) => other,
             (Self::Overloaded | Self::Anywhere(_), Self::Overloaded | Self::Anywhere(_)) => {
                 Self::Overloaded
             }
@@ -597,13 +653,14 @@ impl RuleIndex {
     /// Whether a rule with these keys may match the subject `subject` was computed from: every
     /// cell key covers the subject's.
     pub fn covers(&self, subject: &SubjectKey) -> bool {
-        let subject = subject.cells();
-        self.0.len() == subject.len()
+        let cells = subject.cells();
+        self.0.len() == cells.len()
             && self
                 .0
                 .iter()
-                .zip(subject)
-                .all(|(rule, subject)| rule.covers(subject))
+                .zip(cells)
+                .zip(subject.sorts)
+                .all(|((rule, cell), sort)| rule.covers_item(cell, sort))
     }
 
     pub fn cells(&self) -> &[CellIndex] {
@@ -619,6 +676,8 @@ impl RuleIndex {
 pub struct SubjectKey {
     top: TopKey,
     cells: RuleIndex,
+    /// The rigid sort of each cell item, read by `Sorted` keys (`subject_sort`).
+    sorts: [Option<SortId>; 2],
 }
 
 /// The subject's term index, and whether its root is the root of every value the subject
@@ -638,6 +697,15 @@ impl SubjectKey {
     /// The cell keys: the head of the subject's one `<k>` cell and the item after it.
     pub fn cells(&self) -> &[CellIndex] {
         self.cells.cells()
+    }
+
+    /// This key with no rigid sort for either cell item: the key `Sorted` keys cover entirely.
+    #[cfg(test)]
+    pub(crate) fn without_sorts(&self) -> Self {
+        Self {
+            sorts: [None, None],
+            ..self.clone()
+        }
     }
 
     /// The term-index buckets this key offers, in trial order: the own bucket, then `Variable`,
@@ -2230,7 +2298,7 @@ pub fn insert_rewrite_theory(theory: &mut RewriteTheory, rule: RewriteRule, inde
 }
 
 pub fn rule_index(definition: &BackendDefinition, term: &Term) -> RuleIndex {
-    index_of(definition, term, KeySide::Rule)
+    index_of(definition, term, KeySide::Rule).0
 }
 
 /// The side of the matcher a key is computed for: a rule's left-hand side, matched as written,
@@ -2241,7 +2309,13 @@ enum KeySide {
     Subject,
 }
 
-fn index_of(definition: &BackendDefinition, term: &Term, side: KeySide) -> RuleIndex {
+/// The cell keys of `term` read on `side`, with the rigid sort of each cell item on the subject
+/// side (`subject_sort`; `None` on the rule side, which does not read it).
+fn index_of(
+    definition: &BackendDefinition,
+    term: &Term,
+    side: KeySide,
+) -> (RuleIndex, [Option<SortId>; 2]) {
     // The index keys on the one `<k>` cell not nested in a `<k>` cell, and on nothing when there
     // are none or several. The stored count, saturated at 2, says which case holds, and the cell
     // is fetched only when it is 1: the same cell as the first that `find_k_cells` collects
@@ -2258,19 +2332,59 @@ fn index_of(definition: &BackendDefinition, term: &Term, side: KeySide) -> RuleI
     // constructor, a domain value, a collection), which the matcher refutes; a function
     // application or an `anywhere` head on either side is a wildcard.
     // Any other tail (`.K`, a variable, a function) keys nothing.
-    let head = cell
-        .and_then(k_cell_head)
-        .map_or(CellIndex::Anything, |head| {
-            cell_index(definition, head, side)
-        });
-    let next = match cell
-        .and_then(k_cell_next)
-        .map(|next| cell_index(definition, next, side))
-    {
+    let head_item = cell.and_then(k_cell_head);
+    let next_item = cell.and_then(k_cell_next);
+    let head = head_item.map_or(CellIndex::Anything, |head| {
+        cell_index(definition, head, side)
+    });
+    let next = match next_item.map(|next| cell_index(definition, next, side)) {
         None | Some(CellIndex::Anywhere(_)) => CellIndex::Anything,
         Some(next) => next,
     };
-    RuleIndex(vec![head, next])
+    let sorts = match side {
+        KeySide::Rule => [None, None],
+        KeySide::Subject => [
+            head_item.and_then(|item| subject_sort(definition, item, &head)),
+            next_item.and_then(|item| subject_sort(definition, item, &next)),
+        ],
+    };
+    (RuleIndex(vec![head, next]), sorts)
+}
+
+/// The rigid sort of a subject item whose key is `key`: the sort `T` of an item that is a
+/// free-constructor application in no overload relation or a domain value (keyed `Constructor` or
+/// `Value`), or the source `T` of an injection of one, when the order numbers `T`.
+///
+/// Every instance of such an item is that application or value, or its injection from `T`: its
+/// root is free, so no equation gives an instance another root. A free-constructor value of sort
+/// `T`, or a domain value, is no injection, and two injections into one sort have a common value
+/// only from a common subsort; so the item is the injection `inj{S, _}(v)` of a value `v` of sort
+/// `S` only when `T` is below `S` (`CellIndex::Sorted`). Any other item (a variable, a function, an
+/// equation head, an overloaded head, a macro or alias, an uninterpreted symbol, a collection, a
+/// conjunction) may denote an injection from some subsort, and has no rigid sort.
+fn subject_sort(definition: &BackendDefinition, item: &Term, key: &CellIndex) -> Option<SortId> {
+    if !matches!(key, CellIndex::Constructor(_) | CellIndex::Value(_)) {
+        return None;
+    }
+    let sorts = definition.sort_graph();
+    match item.kind() {
+        TermKind::Injection { source, term, .. }
+            if matches!(
+                term.kind(),
+                TermKind::Application { .. } | TermKind::DomainValue { .. }
+            ) =>
+        {
+            sorts.sort_id(source)
+        }
+        TermKind::DomainValue { sort, .. } => sorts.sort_id(sort),
+        TermKind::Application { .. } => sorts.sort_id(&item.sort()),
+        TermKind::Injection { .. }
+        | TermKind::And(..)
+        | TermKind::Map { .. }
+        | TermKind::List { .. }
+        | TermKind::Set { .. }
+        | TermKind::Variable(_) => None,
+    }
 }
 
 /// The keys of a subject. The top key is fixed exactly when `classify_value`, with the
@@ -2287,10 +2401,8 @@ pub fn subject_index(definition: &BackendDefinition, term: &Term) -> SubjectKey 
         Head::Fixed(_) | Head::Residual => TopKey::Fixed(index),
         Head::Open(_) => TopKey::Open(index),
     };
-    SubjectKey {
-        top,
-        cells: index_of(definition, term, KeySide::Subject),
-    }
+    let (cells, sorts) = index_of(definition, term, KeySide::Subject);
+    SubjectKey { top, cells, sorts }
 }
 
 /// The first `<k>` cell of `term` not nested in a `<k>` cell, in the order of `find_k_cells`, or
@@ -2529,6 +2641,21 @@ fn k_cell_next(cell: &Term) -> Option<&Term> {
 #[deny(clippy::wildcard_enum_match_arm)]
 fn cell_index(definition: &BackendDefinition, term: &Term, side: KeySide) -> CellIndex {
     match term.kind() {
+        // A rule's `inj{S, _}(X:S)` is keyed by the sorts below `S`, when the order decides them.
+        TermKind::Injection { source, term, .. }
+            if side == KeySide::Rule
+                && matches!(term.kind(), TermKind::Variable(variable) if &variable.sort == source) =>
+        {
+            definition
+                .sort_graph()
+                .numbered_below(source)
+                .map_or(CellIndex::Anything, |below| {
+                    CellIndex::Sorted(SortedKey {
+                        sorts: vec![source.clone()],
+                        below,
+                    })
+                })
+        }
         TermKind::Injection { term, .. } => cell_index(definition, term, side),
         TermKind::And(left, right) => {
             cell_index(definition, left, side).meet(cell_index(definition, right, side))

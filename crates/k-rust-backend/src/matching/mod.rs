@@ -256,6 +256,63 @@ pub struct SortGraph {
     constructors: BTreeSet<Name>,
     /// Head projection of `below` (I2), reflexive on every constructor.
     heads_below: BTreeMap<Name, BTreeSet<Name>>,
+    /// A dense number for every node of `below` and every node below one, in sort order, so
+    /// that a set of nodes is a bit set ([`SortSet`]).
+    ids: BTreeMap<ClosedSort, SortId>,
+}
+
+/// The number [`SortGraph`] gives a node of its order.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) struct SortId(u32);
+
+/// A set of nodes of a [`SortGraph`], one bit per [`SortId`].
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) struct SortSet(Arc<[u64]>);
+
+impl SortSet {
+    fn of(ids: impl IntoIterator<Item = SortId>, nodes: usize) -> Self {
+        let mut words = vec![0_u64; nodes.div_ceil(64)];
+        for SortId(id) in ids {
+            words[id as usize / 64] |= 1 << (id % 64);
+        }
+        Self(words.into())
+    }
+
+    pub(crate) fn contains(&self, SortId(id): SortId) -> bool {
+        self.0
+            .get(id as usize / 64)
+            .is_some_and(|word| word & (1 << (id % 64)) != 0)
+    }
+
+    /// The nodes in both sets.
+    pub(crate) fn intersection(&self, other: &Self) -> Self {
+        Self(
+            self.0
+                .iter()
+                .zip(other.0.iter())
+                .map(|(left, right)| left & right)
+                .collect(),
+        )
+    }
+}
+
+/// A number for every node of `below` and every node below one, in sort order.
+fn number_nodes(
+    below: &BTreeMap<ClosedSort, BTreeSet<ClosedSort>>,
+) -> BTreeMap<ClosedSort, SortId> {
+    let nodes = below
+        .iter()
+        .flat_map(|(sup, subs)| std::iter::once(sup).chain(subs))
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    nodes
+        .into_iter()
+        .enumerate()
+        .map(|(id, node)| {
+            let id = u32::try_from(id).expect("a definition has fewer than 2^32 sorts");
+            (node, SortId(id))
+        })
+        .collect()
 }
 
 impl SortGraph {
@@ -275,10 +332,12 @@ impl SortGraph {
             heads.insert(sup.head().clone());
             heads.extend(subs.iter().map(|sub| sub.head().clone()));
         }
+        let ids = number_nodes(&below);
         Self {
             below,
             constructors,
             heads_below,
+            ids,
         }
     }
 
@@ -291,6 +350,41 @@ impl SortGraph {
             .insert(ClosedSort::simple(supersort.clone()), below);
         self.heads_below.insert(supersort.clone(), heads);
         self.constructors.insert(supersort);
+        self.ids = number_nodes(&self.below);
+    }
+
+    /// The number of `sort` when it is a node of the order (or below one), `None` otherwise.
+    pub(crate) fn sort_id(&self, sort: &Sort) -> Option<SortId> {
+        self.ids.get(sort).copied()
+    }
+
+    /// The numbered sorts `T` with `check_subsort(T, sort) == Ok(true)`, for a closed `sort` with
+    /// a known head; `None` for any other sort, whose order the closure does not decide. A sort
+    /// that is no node of the order is below only itself, and has no number, so its set is empty.
+    pub(crate) fn numbered_below(&self, sort: &Sort) -> Option<SortSet> {
+        let Sort::Application { name: head, .. } = sort else {
+            return None;
+        };
+        if first_sort_variable(sort).is_some()
+            || (!self.constructors.contains(head) && !self.heads_below.contains_key(head))
+        {
+            return None;
+        }
+        let ids = match self.below.get(sort) {
+            Some(below) => below
+                .iter()
+                .filter_map(|node| self.ids.get(node).copied())
+                .collect::<Vec<_>>(),
+            None => self.sort_id(sort).into_iter().collect(),
+        };
+        Some(SortSet::of(ids, self.ids.len()))
+    }
+
+    /// Every numbered sort, for tests that compare [`Self::numbered_below`] with
+    /// [`Self::check_subsort`].
+    #[cfg(test)]
+    pub(crate) fn numbered_sorts(&self) -> impl Iterator<Item = &Sort> {
+        self.ids.keys().map(ClosedSort::sort)
     }
 
     pub fn check_subsort(&self, sub: &Sort, sup: &Sort) -> Result<bool, SortError> {
