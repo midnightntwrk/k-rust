@@ -106,14 +106,13 @@
 //! - Matched: `#Not`, `#Implies`, `#Iff`, a quantifier, `#Top`, `#Bottom`, and a predicate alone
 //!   (each denotes a set of values that is not one term); in an equation, a predicate conjoined to
 //!   a term (an equation's left side is matched against the application's arguments, where no
-//!   condition is read), any or-pattern of a simplification, and an or-pattern of a function or
-//!   anywhere equation that is not at the root of an argument of the application it defines (the
-//!   backend matches equation or-patterns only there; a symbol distributes over `#Or`, so
-//!   `g(1 #Or 2)` is `g(1) #Or g(2)`, and `(1 #Or 2) #as Y` is `(1 #as Y) #Or (2 #as Y)`),
-//!   including one at the root whose alternatives are of a sort below the argument's, which sort
-//!   injection places below an injection or, for an argument of sort `K`, a k-sequence (judged
-//!   once the sorts are known, in the pipeline stage). Or-patterns, conjunctions of terms,
-//!   predicates conjoined to a term in a rewrite rule or a claim, and `#as` are matched.
+//!   condition is read), and any or-pattern of a simplification (its left side is matched as one
+//!   term). Or-patterns, conjunctions of terms, predicates conjoined to a term in a rewrite rule
+//!   or a claim, and `#as` are matched. A function or anywhere equation matches an or-pattern at
+//!   any depth of its left side, below a symbol, an injection, a k-sequence, `#as` or `#And` too:
+//!   every symbol distributes over `#Or` (`g(1 #Or 2)` is `g(1) #Or g(2)`), and so does a
+//!   conjunction (`(1 #Or 2) #as Y` is `(1 #as Y) #Or (2 #as Y)`), so the equation is one
+//!   equation per choice of an alternative for each of its or-patterns, which the backend builds.
 //! - Shared, in a rewrite rule, a context or a claim: `#Not`, `#Implies`, `#Iff` and a quantifier.
 //!   An or-pattern, `#Top` (any value), `#Bottom` (no value) and a predicate alone (a condition on
 //!   the match) are read; in a rewrite rule, `#Top`, `#Bottom` and a predicate only where each is
@@ -158,20 +157,12 @@ use crate::kompile::ml_constructs::{
 };
 use crate::provenance::GeneratingPass;
 
-/// Whether the or-pattern `argument`, the root of argument `index` of an application of
-/// `label` in an equation's left side, is placed below an injection or a k-sequence when it is
-/// placed at the argument's sort: an oracle of the sorts, which the definition checks do not
-/// have and the pipeline stage does.
-pub(super) type InjectedOrPattern<'a> = dyn Fn(&Label, usize, &Term) -> bool + 'a;
-
 /// The [`DiagnosticCode::MlConstructPosition`] refusals of `sentences` (module documentation).
-/// `injected` decides the or-patterns an injection places below a symbol, and `affects_value`
-/// the labels judged to depend on an effect (`ml_constructs::value_effect_labels`); without
-/// either, those are not judged.
+/// `affects_value` decides the labels judged to depend on an effect
+/// (`ml_constructs::value_effect_labels`); without it, those are not judged.
 pub(super) fn check_ml_construct_positions(
     sentences: &[&Sentence],
     productions: &ProductionCatalog<'_>,
-    injected: Option<&InjectedOrPattern<'_>>,
     affects_value: Option<&AffectsValue<'_>>,
 ) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
@@ -182,7 +173,6 @@ pub(super) fn check_ml_construct_positions(
                 sentence,
                 kind,
                 DiagnosticCode::MlConstructPosition,
-                injected,
                 affects_value,
             ));
         }
@@ -207,7 +197,6 @@ pub(super) fn search_pattern_diagnostics(
         sentence,
         Kind::SearchPattern,
         DiagnosticCode::InvalidSearchPattern,
-        None,
         Some(affects_value),
     )
 }
@@ -745,7 +734,6 @@ fn position_diagnostics(
     sentence: &Sentence,
     kind: Kind,
     code: DiagnosticCode,
-    injected: Option<&InjectedOrPattern<'_>>,
     affects_value: Option<&AffectsValue<'_>>,
 ) -> Vec<Diagnostic> {
     let mut walk = Walk {
@@ -754,10 +742,8 @@ fn position_diagnostics(
         sentence,
         diagnostics: Vec::new(),
         expanded: false,
-        injected,
         affects_value,
         alone: true,
-        under_root: None,
     };
     match sentence {
         Sentence::Rule {
@@ -773,17 +759,17 @@ fn position_diagnostics(
             ..
         } => {
             if kind == Kind::SearchPattern {
-                walk.term(body, Context::Body(TermPosition::LHS), false);
+                walk.term(body, Context::Body(TermPosition::LHS));
             } else {
                 walk.body(body);
             }
-            walk.term(requires, Context::Spine, false);
-            walk.term(ensures, Context::Spine, false);
+            walk.term(requires, Context::Spine);
+            walk.term(ensures, Context::Spine);
         }
         Sentence::Context { body, requires, .. }
         | Sentence::ContextAlias { body, requires, .. } => {
             walk.body(body);
-            walk.term(requires, Context::Spine, false);
+            walk.term(requires, Context::Spine);
         }
         Sentence::SyntaxSort { .. }
         | Sentence::SortSynonym { .. }
@@ -810,8 +796,6 @@ struct Walk<'s, 'o> {
     /// Whether the node being judged was written in the body of a macro or an alias, and placed
     /// here by its expansion at this use (its origin is macro expansion).
     expanded: bool,
-    /// The sort oracle of or-patterns at argument roots ([`InjectedOrPattern`]).
-    injected: Option<&'o InjectedOrPattern<'o>>,
     /// The labels judged to depend on an effect ([`AffectsValue`]).
     affects_value: Option<&'o AffectsValue<'o>>,
     /// Set for the next node judged: whether, at a position the sides of a rewrite rule share,
@@ -821,9 +805,6 @@ struct Walk<'s, 'o> {
     /// parent holds no rewrite) or as an item of a k-sequence (whose rewrite splices the
     /// sequence), the larger term or the sequence is what the sides share. Reset at each node.
     alone: bool,
-    /// Set for the next node judged: the connective (`#as`, `#And`) at the root of an argument
-    /// of an equation's application, directly below which the node stands. Reset at each node.
-    under_root: Option<&'static str>,
 }
 
 impl Walk<'_, '_> {
@@ -848,8 +829,8 @@ impl Walk<'_, '_> {
         }
     }
 
-    /// A sentence body. An equation's left side is the application it defines, whose arguments
-    /// are the roots where an or-pattern may stand.
+    /// A sentence body. An equation's left side, the application it defines, is matched, and its
+    /// right side built.
     fn body(&mut self, body: &Term) {
         if matches!(self.kind, Kind::Function | Kind::Anywhere) {
             // A function equation written with the configuration (`[[ f(..) => r ]] <cells>`)
@@ -871,10 +852,10 @@ impl Walk<'_, '_> {
                 | Term::Token { .. } => (body, &[][..]),
             };
             if let Term::Rewrite { left, right } = equation.unannotated() {
-                self.application_pattern(left);
-                self.term(right, Context::Body(TermPosition::RHS), false);
+                self.term(left, Context::Body(TermPosition::LHS));
+                self.term(right, Context::Body(TermPosition::RHS));
                 for cells in configuration {
-                    self.term(cells, Context::Body(TermPosition::BODY), false);
+                    self.term(cells, Context::Body(TermPosition::BODY));
                 }
                 return;
             }
@@ -882,83 +863,42 @@ impl Walk<'_, '_> {
         if self.kind == Kind::PredicateSimplification
             && let Term::Rewrite { left, right } = body.unannotated()
         {
-            self.term(left, Context::Spine, false);
-            self.term(right, Context::Spine, false);
+            self.term(left, Context::Spine);
+            self.term(right, Context::Spine);
             return;
         }
         if self.kind == Kind::Simplification
             && let Term::Rewrite { left, right } = body.unannotated()
         {
-            self.term(left, Context::Body(TermPosition::LHS), false);
+            self.term(left, Context::Body(TermPosition::LHS));
             // A right side that denotes every value or none is refused with the equation
             // refusals.
             if !denotes_every_value_or_none(right) {
-                self.term(right, Context::Body(TermPosition::RHS), false);
+                self.term(right, Context::Body(TermPosition::RHS));
             }
             return;
         }
-        self.term(body, Context::Body(TermPosition::BODY), false);
+        self.term(body, Context::Body(TermPosition::BODY));
     }
 
-    /// The left side of an equation of an application: each argument of the application is an
-    /// argument root.
-    fn application_pattern(&mut self, pattern: &Term) {
-        match read_through_casts(pattern) {
-            Term::Apply { label, arguments }
-                if !is_ml_connective(pattern) && !is_local_function(label) =>
-            {
-                for (index, argument) in arguments.iter().enumerate() {
-                    if is_binary(read_through_casts(argument), InternalLabel::Or)
-                        && self
-                            .injected
-                            .is_some_and(|injected| injected(label, index, argument))
-                    {
-                        self.refuse_at(
-                            "#Or",
-                            Context::Body(TermPosition::LHS),
-                            "an or-pattern at the root of an argument whose alternatives are of \
-                             a sort below the argument's is placed there by an injection (for an \
-                             argument of sort K, as the item of a k-sequence), so it stands below \
-                             that symbol, where an equation reads no or-pattern (a symbol \
-                             distributes over #Or); write one equation per alternative, or give \
-                             the alternatives the argument's sort",
-                        );
-                        continue;
-                    }
-                    self.term(argument, Context::Body(TermPosition::LHS), true);
-                }
-            }
-            Term::Apply { .. }
-            | Term::Annotated { .. }
-            | Term::Rewrite { .. }
-            | Term::As { .. }
-            | Term::Sequence(_)
-            | Term::InjectedLabel(_)
-            | Term::Variable { .. }
-            | Term::Token { .. } => self.term(pattern, Context::Body(TermPosition::LHS), false),
-        }
-    }
-
-    /// `term` in `context`. `root`: the term is at the root of an argument of the application an
-    /// equation defines, or an alternative of an or-pattern there.
-    fn term(&mut self, term: &Term, context: Context, root: bool) {
+    /// `term` in `context`.
+    fn term(&mut self, term: &Term, context: Context) {
         let expanded = term
             .metadata()
             .and_then(|metadata| metadata.origin.as_ref())
             .is_some_and(|origin| origin.pass == GeneratingPass::MacroExpansion);
         let enclosing = std::mem::replace(&mut self.expanded, expanded);
-        crate::stack::guarded(|| self.node(read_through_casts(term), context, root));
+        crate::stack::guarded(|| self.node(read_through_casts(term), context));
         self.expanded = enclosing;
     }
 
-    fn node(&mut self, term: &Term, context: Context, root: bool) {
+    fn node(&mut self, term: &Term, context: Context) {
         let alone = std::mem::replace(&mut self.alone, true);
-        let under_root = self.under_root.take();
         if let Some(quantifier) = quantifier(term) {
             return self.quantifier(term, quantifier.binder, quantifier.body, context);
         }
         match term {
-            Term::As { pattern, .. } => self.alias(term, pattern, context, root),
+            Term::As { pattern, .. } => self.alias(term, pattern, context),
             Term::Apply { label, .. } if is_local_function(label) => {
                 self.local_function(term, context)
             }
@@ -966,25 +906,17 @@ impl Walk<'_, '_> {
                 // The pattern is matched as the argument of the generated function; the matched
                 // value is evaluated where the match stands.
                 let kind = std::mem::replace(&mut self.kind, Kind::Function);
-                self.term(&arguments[0], Context::Body(TermPosition::LHS), true);
+                self.term(&arguments[0], Context::Body(TermPosition::LHS));
                 self.kind = kind;
                 let inner = match context {
                     Context::Spine | Context::BoolLeaf => Context::BoolLeaf,
                     Context::PredicateOperand { .. } | Context::Body(_) => context,
                 };
-                self.term(&arguments[1], inner, false);
+                self.term(&arguments[1], inner);
             }
-            Term::Apply { label, arguments } if is_ml_connective(term) => self.connective(
-                term,
-                label,
-                arguments,
-                context,
-                Place {
-                    root,
-                    under_root,
-                    alone,
-                },
-            ),
+            Term::Apply { label, arguments } if is_ml_connective(term) => {
+                self.connective(term, label, arguments, context, alone)
+            }
             Term::Apply { label, .. }
                 if matches!(context, Context::PredicateOperand { .. })
                     && self
@@ -1036,7 +968,7 @@ impl Walk<'_, '_> {
                 };
                 for (child, position, _) in scoped_children(term, position) {
                     self.alone = children_alone;
-                    self.term(child, inner.unwrap_or(Context::Body(position)), false);
+                    self.term(child, inner.unwrap_or(Context::Body(position)));
                 }
             }
         }
@@ -1058,7 +990,7 @@ impl Walk<'_, '_> {
             ));
         }
         if matches!(context, Context::Spine) {
-            self.term(body, Context::Spine, false);
+            self.term(body, Context::Spine);
         } else {
             self.refuse_at(
                 &label,
@@ -1071,7 +1003,7 @@ impl Walk<'_, '_> {
         }
     }
 
-    fn alias(&mut self, term: &Term, pattern: &Term, context: Context, root: bool) {
+    fn alias(&mut self, term: &Term, pattern: &Term, context: Context) {
         if context.in_condition() {
             return self.refuse_at(
                 "#as",
@@ -1087,14 +1019,11 @@ impl Walk<'_, '_> {
             if self.kind == Kind::Claim
                 && crate::kompile::ml_constructs::lowers_claim_alias(term, &|_| false)
             {
-                self.term(pattern, context, false);
+                self.term(pattern, context);
             }
             return;
         }
-        if root {
-            self.under_root = Some("#as");
-        }
-        self.term(pattern, context, false);
+        self.term(pattern, context);
     }
 
     fn local_function(&mut self, term: &Term, context: Context) {
@@ -1132,16 +1061,16 @@ impl Walk<'_, '_> {
                     // generated function, its body that function's value.
                     self.kind = Kind::Function;
                     if child_position.lhs && !child_position.rhs {
-                        self.term(child, Context::Body(child_position), true);
+                        self.term(child, Context::Body(child_position));
                     } else if let Term::Rewrite { left, right } = child.unannotated() {
-                        self.term(left, Context::Body(TermPosition::LHS), true);
-                        self.term(right, Context::Body(TermPosition::RHS), false);
+                        self.term(left, Context::Body(TermPosition::LHS));
+                        self.term(right, Context::Body(TermPosition::RHS));
                     } else {
-                        self.term(child, Context::Body(child_position), false);
+                        self.term(child, Context::Body(child_position));
                     }
                     self.kind = kind;
                 }
-                Scope::Enclosing => self.term(child, context, false),
+                Scope::Enclosing => self.term(child, context),
             }
         }
     }
@@ -1152,30 +1081,30 @@ impl Walk<'_, '_> {
         label: &Label,
         arguments: &[Term],
         context: Context,
-        place: Place,
+        alone: bool,
     ) {
         let name = label.name.as_str();
         if label.is(InternalLabel::Or) {
-            self.or(term, arguments, context, place)
+            self.or(term, arguments, context)
         } else if label.is(InternalLabel::And) {
-            self.and(term, arguments, context, place)
+            self.and(term, arguments, context)
         } else if label.is(InternalLabel::Equals) {
-            self.equals(arguments, context, place.alone)
+            self.equals(arguments, context, alone)
         } else if label.is(InternalLabel::Ceil) || label.is(InternalLabel::Floor) {
             self.definedness(
                 name,
                 label.is(InternalLabel::Ceil),
                 arguments,
                 context,
-                place.alone,
+                alone,
             )
         } else if label.is(InternalLabel::Top) || label.is(InternalLabel::Bottom) {
-            self.constant(name, label.is(InternalLabel::Bottom), context, place.alone)
+            self.constant(name, label.is(InternalLabel::Bottom), context, alone)
         } else {
             // #Not, #Implies, #Iff.
             if matches!(context, Context::Spine) {
                 for argument in arguments {
-                    self.term(argument, Context::Spine, false);
+                    self.term(argument, Context::Spine);
                 }
             } else {
                 self.refuse_connective(name, context);
@@ -1203,12 +1132,11 @@ impl Walk<'_, '_> {
         self.refuse_at(name, context, reason);
     }
 
-    fn or(&mut self, term: &Term, arguments: &[Term], context: Context, place: Place) {
-        let root = place.root;
+    fn or(&mut self, term: &Term, arguments: &[Term], context: Context) {
         match context {
             Context::Spine => {
                 for argument in arguments {
-                    self.term(argument, Context::Spine, false);
+                    self.term(argument, Context::Spine);
                 }
                 return;
             }
@@ -1217,49 +1145,17 @@ impl Walk<'_, '_> {
             }
             Context::Body(_) => {}
         }
-        if context.matched() || context.shared() && self.kind.is_equation() {
-            if self.kind == Kind::Simplification {
-                return self.refuse_at(
-                    "#Or",
-                    context,
-                    "a simplification's left-hand side is matched as one term; write one \
-                     simplification per alternative",
-                );
-            }
-            if matches!(self.kind, Kind::Function | Kind::Anywhere)
-                && !root
-                && let Some(connective) = place.under_root
-            {
-                return self.refuse_at(
-                    "#Or",
-                    context,
-                    &format!(
-                        "an or-pattern of an equation is matched only at the root of an argument \
-                         of the application it defines, not below {connective} there; \
-                         distribute the {} over the alternatives, which keeps them at the root{}",
-                        if connective == "#as" {
-                            "alias"
-                        } else {
-                            "conjunct"
-                        },
-                        if connective == "#as" {
-                            " ((1 #Or 2) #as Y is (1 #as Y) #Or (2 #as Y))"
-                        } else {
-                            ""
-                        }
-                    ),
-                );
-            }
-            if matches!(self.kind, Kind::Function | Kind::Anywhere) && !root {
-                return self.refuse_at(
-                    "#Or",
-                    context,
-                    "an or-pattern of an equation is matched only at the root of an argument of \
-                     the application it defines; a symbol distributes over #Or \
-                     (g(1 #Or 2) is g(1) #Or g(2)), so write the alternatives at the argument's \
-                     root",
-                );
-            }
+        // A function or anywhere equation matches an or-pattern at any depth of its left side:
+        // every symbol distributes over #Or, and so do `#as` and `#And`, so the left side is the
+        // disjunction of the left sides that choose one alternative of each or-pattern, one rule
+        // per choice.
+        if self.kind == Kind::Simplification && (context.matched() || context.shared()) {
+            return self.refuse_at(
+                "#Or",
+                context,
+                "a simplification's left-hand side is matched as one term; write one \
+                 simplification per alternative",
+            );
         } else if context.built() && self.kind.is_equation() && may_denote_several_values(term) {
             return self.refuse_at(
                 "#Or",
@@ -1271,15 +1167,15 @@ impl Walk<'_, '_> {
             );
         }
         for alternative in or_alternatives(term) {
-            self.term(alternative, context, root);
+            self.term(alternative, context);
         }
     }
 
-    fn and(&mut self, term: &Term, arguments: &[Term], context: Context, place: Place) {
+    fn and(&mut self, term: &Term, arguments: &[Term], context: Context) {
         match context {
             Context::Spine => {
                 for argument in arguments {
-                    self.term(argument, Context::Spine, false);
+                    self.term(argument, Context::Spine);
                 }
             }
             Context::Body(_) => {
@@ -1290,12 +1186,9 @@ impl Walk<'_, '_> {
                 }
                 for operand in chain_operands(term, false) {
                     if !is_predicate(operand) {
-                        if place.root {
-                            self.under_root = Some("#And");
-                        }
-                        self.term(operand, context, false);
+                        self.term(operand, context);
                     } else if context.built() || !self.kind.is_equation() {
-                        self.term(operand, Context::Spine, false);
+                        self.term(operand, Context::Spine);
                     } else {
                         self.refuse_at(
                             "a predicate conjoined with #And",
@@ -1387,16 +1280,12 @@ impl Walk<'_, '_> {
         match shapes.as_slice() {
             [OperandShape::Term, OperandShape::Term] => {
                 for argument in arguments {
-                    self.term(
-                        argument,
-                        Context::PredicateOperand { atom: Atom::Equals },
-                        false,
-                    );
+                    self.term(argument, Context::PredicateOperand { atom: Atom::Equals });
                 }
             }
             [OperandShape::Predicate, OperandShape::Predicate] => {
                 for argument in arguments {
-                    self.term(argument, Context::Spine, false);
+                    self.term(argument, Context::Spine);
                 }
             }
             _ => {
@@ -1426,7 +1315,7 @@ impl Walk<'_, '_> {
         }
         let atom = if ceil { Atom::Ceil } else { Atom::Floor };
         for argument in arguments {
-            self.term(argument, Context::PredicateOperand { atom }, false);
+            self.term(argument, Context::PredicateOperand { atom });
         }
     }
 
@@ -1453,19 +1342,6 @@ impl Walk<'_, '_> {
         }
         self.refuse_predicate(name, context);
     }
-}
-
-/// What the walk knows of a connective's place beyond its context.
-#[derive(Clone, Copy)]
-struct Place {
-    /// At the root of an argument of the application an equation defines, or an alternative of
-    /// an or-pattern there.
-    root: bool,
-    /// The connective at an argument root directly below which the node stands
-    /// ([`Walk::under_root`]).
-    under_root: Option<&'static str>,
-    /// What the sides of a rewrite rule share alone ([`Walk::alone`]).
-    alone: bool,
 }
 
 /// Whether the disjunction `term`, where an equation builds its result, may denote several

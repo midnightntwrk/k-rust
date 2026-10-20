@@ -2059,19 +2059,191 @@ fn the_structured_route_refuses_the_same_shapes() {
     }
 }
 
+/// The leaves of go(n) on `nested` and on `distributed`, which spells the same equations with
+/// their or-patterns distributed by hand: each must equal the stated leaf, so the distributed
+/// equations compute what the hand-distributed ones do. `run` is the run of a definition.
+#[track_caller]
+fn assert_distributes_like(
+    nested: &str,
+    distributed: &str,
+    expected: &[(i64, &str)],
+    run: impl Fn(&str, i64) -> Vec<(String, String)>,
+) {
+    for (n, leaf) in expected {
+        let found = run(nested, *n);
+        assert_eq!(found, stuck(leaf), "{nested}go({n})");
+        assert_eq!(found, run(distributed, *n), "{distributed}go({n})");
+    }
+}
+
+/// [`assert_distributes_like`] over definitions with the base configuration, both compiling for
+/// the Rust target.
+#[track_caller]
+fn assert_distributes(nested: &str, distributed: &str, expected: &[(i64, &str)]) {
+    assert_distributes_in(HEADER, nested, distributed, expected);
+}
+
+/// [`assert_distributes`] with the module header `header` (`HEADER` with more imports).
+#[track_caller]
+fn assert_distributes_in(header: &str, nested: &str, distributed: &str, expected: &[(i64, &str)]) {
+    let compiled = |sentences: &str| {
+        compile_source(
+            format!("{header}{sentences}endmodule\n"),
+            CompilationBackend::Rust,
+        )
+        .definition_kore
+    };
+    let (nested_kore, distributed_kore) = (compiled(nested), compiled(distributed));
+    assert_distributes_like(nested, distributed, expected, |sentences, n| {
+        let kore = if sentences == nested {
+            &nested_kore
+        } else {
+            &distributed_kore
+        };
+        run_kore_states(kore, n)
+            .into_iter()
+            .map(|(reason, k, _)| (reason, k))
+            .collect()
+    });
+}
+
+/// `HEADER` importing the collections too.
+const COLLECTIONS_HEADER: &str = "module P-SYNTAX
+  imports INT-SYNTAX
+  imports BOOL-SYNTAX
+  syntax Pgm ::= go(Int) [symbol(go)]
+endmodule
+
+module P
+  imports P-SYNTAX
+  imports INT
+  imports BOOL
+  imports MAP
+  imports LIST
+  imports SET
+  configuration <k> $PGM:Pgm </k>
+  syntax KItem ::= done(Int) [symbol(done)]
+";
+
 /// A function equation written with the configuration (`[[ f(..) => r ]] <cells>`) defines the
-/// same application: an or-pattern at the root of one of its arguments is matched, as in an
-/// equation without the configuration, and one below a symbol of an argument is refused.
+/// same application, with the configuration as one more argument: an or-pattern below a symbol of
+/// one of its arguments, or in the cells beside it, is distributed as in any argument, one
+/// equation per alternative.
 #[test]
-fn an_or_pattern_of_a_function_equation_with_the_configuration_is_judged_at_its_arguments() {
-    let declarations = "  syntax Reason ::= \"ra\" [symbol(ra)] | \"rb\" [symbol(rb)] | \"rc\" [symbol(rc)] | w(Reason) [symbol(w)]\n  syntax Int ::= cw(Reason) [function, total, symbol(cw)] | cv(Reason) [function, total, symbol(cv)]\n  rule cw(_) => 0 [owise]\n  rule cv(_) => 0 [owise]\n";
-    assert_compiles(&format!(
-        "{declarations}  rule [p]: [[ cw(ra #Or rb) => 1 ]] <k> _ </k>\n"
-    ));
-    assert_ml_construct_refused(
-        &format!("{declarations}  rule [p]: [[ cv(w(ra #Or rb)) => 1 ]] <k> _ </k>\n"),
-        line_after(declarations),
-        &["matched only at the root of an argument"],
+fn an_or_pattern_of_a_function_equation_with_the_configuration_is_distributed() {
+    let declarations = "  syntax KItem ::= w(Int) [symbol(w)]\n  syntax Int ::= cw(KItem) [function, total, symbol(cw)] | cz(Int) [function, total, symbol(cz)]\n  rule cw(_) => 0 [owise]\n  rule cz(_) => 0 [owise]\n  rule <k> go(X) => done(cw(w(X)) +Int cz(X)) ... </k>\n";
+    for (nested, distributed, expected) in [
+        (
+            "  rule [[ cw(w(1 #Or 2)) => F ]] <flag> F </flag>\n",
+            "  rule [[ cw(w(1) #Or w(2)) => F ]] <flag> F </flag>\n",
+            [(1, 5, "done(5)"), (2, 5, "done(5)"), (3, 5, "done(0)")],
+        ),
+        (
+            "  rule [[ cz(X) => X ]] <flag> 1 #Or 2 </flag>\n",
+            "  rule [[ cz(X) => X ]] <flag> 1 </flag>\n  rule [[ cz(X) => X ]] <flag> 2 </flag>\n",
+            [(7, 1, "done(7)"), (7, 2, "done(7)"), (7, 3, "done(0)")],
+        ),
+    ] {
+        let nested = format!("{declarations}{nested}");
+        let distributed = format!("{declarations}{distributed}");
+        for (n, flag, leaf) in expected {
+            let found = run_with_flag(&nested, n, flag);
+            assert_eq!(found, stuck(leaf), "{nested}go({n}), flag {flag}");
+            assert_eq!(
+                found,
+                run_with_flag(&distributed, n, flag),
+                "{distributed}go({n}), flag {flag}"
+            );
+        }
+    }
+}
+
+/// An or-pattern below a symbol of an argument of a function equation is distributed: every
+/// symbol is interpreted pointwise (`g(1 #Or 2)` is `g(1) #Or g(2)`, for a constructor, a
+/// collection's element and its concatenation alike), so the equation is one equation per
+/// choice of an alternative for each or-pattern, which compute what those equations written by
+/// hand do, beside an `owise` equation too.
+#[test]
+fn an_or_pattern_below_a_symbol_of_an_equation_is_distributed() {
+    let g = "  syntax KItem ::= g(Int) [symbol(g)]\n";
+    for (declarations, nested, distributed, expected) in [
+        (
+            format!("{g}  syntax Int ::= ff(KItem) [function, symbol(ff)]\n  rule ff(_) => 7 [owise]\n  rule <k> go(X) => done(ff(g(X))) ... </k>\n"),
+            "  rule ff(g(1 #Or 2)) => 5\n",
+            "  rule ff(g(1)) => 5\n  rule ff(g(2)) => 5\n",
+            vec![(1, "done(5)"), (2, "done(5)"), (3, "done(7)")],
+        ),
+        (
+            // A requires that fails leaves the application to the owise equation.
+            format!("{g}  syntax Int ::= ff(KItem) [function, symbol(ff)]\n  rule ff(_) => 7 [owise]\n  rule <k> go(X) => done(ff(g(X))) ... </k>\n"),
+            "  rule ff(g((1 #Or (2 #Or 3)) #as Y)) => Y requires Y =/=Int 2\n",
+            "  rule ff(g(1 #as Y)) => Y requires Y =/=Int 2\n  rule ff(g(2 #as Y)) => Y requires Y =/=Int 2\n  rule ff(g(3 #as Y)) => Y requires Y =/=Int 2\n",
+            vec![(1, "done(1)"), (2, "done(7)"), (3, "done(3)"), (4, "done(7)")],
+        ),
+        (
+            // Two or-patterns, in two arguments: one equation per pair of alternatives.
+            format!("{g}  syntax Int ::= f2(KItem, KItem) [function, symbol(f2)]\n  rule f2(_, _) => 0 [owise]\n  rule <k> go(X) => done(f2(g(X /Int 10), g(X %Int 10))) ... </k>\n"),
+            "  rule f2(g(1 #Or 2), g(3 #Or 4)) => 5\n",
+            "  rule f2(g(1), g(3)) => 5\n  rule f2(g(1), g(4)) => 5\n  rule f2(g(2), g(3)) => 5\n  rule f2(g(2), g(4)) => 5\n",
+            vec![(13, "done(5)"), (14, "done(5)"), (23, "done(5)"), (24, "done(5)"), (15, "done(0)"), (33, "done(0)")],
+        ),
+        (
+            "  syntax Int ::= fm(Map) [function, symbol(fm)]\n  rule fm(_) => 0 [owise]\n  rule <k> go(X) => done(fm(X |-> 9)) ... </k>\n".to_owned(),
+            "  rule fm((1 #Or 2) |-> V) => V\n",
+            "  rule fm(1 |-> V) => V\n  rule fm(2 |-> V) => V\n",
+            vec![(1, "done(9)"), (2, "done(9)"), (3, "done(0)")],
+        ),
+        (
+            "  syntax Int ::= fl(List) [function, symbol(fl)]\n  rule fl(_) => 0 [owise]\n  rule <k> go(X) => done(fl(ListItem(X) ListItem(5))) ... </k>\n".to_owned(),
+            "  rule fl(ListItem(1 #Or 2) _) => 5\n",
+            "  rule fl(ListItem(1) _) => 5\n  rule fl(ListItem(2) _) => 5\n",
+            vec![(1, "done(5)"), (2, "done(5)"), (3, "done(0)")],
+        ),
+        (
+            "  syntax Int ::= fs(Set) [function, symbol(fs)]\n  rule fs(_) => 0 [owise]\n  rule <k> go(X) => done(fs(SetItem(X) SetItem(5))) ... </k>\n".to_owned(),
+            "  rule fs(SetItem(1 #Or 2) _) => 5\n",
+            "  rule fs(SetItem(1) _) => 5\n  rule fs(SetItem(2) _) => 5\n",
+            vec![(1, "done(5)"), (2, "done(5)"), (3, "done(0)")],
+        ),
+        (
+            // A match is decided by a generated equation on its pattern.
+            g.to_owned(),
+            "  rule <k> go(X) => done(X) ... </k> requires g(1 #Or 2) :=K g(X)\n",
+            "  rule <k> go(X) => done(X) ... </k> requires (g(1) #Or g(2)) :=K g(X)\n",
+            vec![(1, "done(1)"), (2, "done(2)"), (3, "go(3)")],
+        ),
+    ] {
+        assert_distributes_in(
+            COLLECTIONS_HEADER,
+            &format!("{declarations}{nested}"),
+            &format!("{declarations}{distributed}"),
+            &expected,
+        );
+    }
+}
+
+/// An alternative that places a key twice in one map denotes no map (a concatenation of maps
+/// with a common key is undefined), so no argument matches it and its equation is vacuous: the
+/// equation states what its other alternatives state. It compiles, and computes what the
+/// equation of the other alternative alone does.
+#[test]
+fn an_alternative_with_a_duplicate_map_key_matches_nothing() {
+    let declarations = "  syntax Int ::= fd(Map) [function, symbol(fd)]\n  rule fd(_) => 0 [owise]\n  rule <k> go(X) => done(fd((1 |-> 4) (X |-> 10))) ... </k>\n";
+    let expected = [(2, "done(14)"), (3, "done(0)")];
+    let nested = format!("{declarations}  rule fd((1 |-> A) ((1 #Or 2) |-> B)) => A +Int B\n");
+    assert_distributes_in(
+        COLLECTIONS_HEADER,
+        &nested,
+        &format!(
+            "{declarations}  rule fd((1 |-> A) (1 |-> B)) => A +Int B\n  rule fd((1 |-> A) (2 |-> B)) => A +Int B\n"
+        ),
+        &expected,
+    );
+    assert_distributes_in(
+        COLLECTIONS_HEADER,
+        &nested,
+        &format!("{declarations}  rule fd((1 |-> A) (2 |-> B)) => A +Int B\n"),
+        &expected,
     );
 }
 
@@ -2195,45 +2367,64 @@ fn an_equation_result_with_bottom_alternatives_compiles_and_gives_its_value() {
 
 /// An or-pattern at the root of an argument whose alternatives are of a sort below the
 /// argument's is placed there by an injection, or as the item of a one-item k-sequence for an
-/// argument of sort `K`: the or-pattern then stands below a symbol, where no equation reads it,
-/// and the equation is refused. Alternatives of the argument's own sort keep it at the root.
+/// argument of sort `K`: it stands below that symbol, which distributes over it, so the equation
+/// is one equation per alternative. Alternatives of the argument's own sort stay at the root.
 #[test]
-fn an_or_pattern_below_the_injection_or_the_sequence_of_an_argument_is_refused() {
-    let reasons = ["#Or", "injection", "one equation per alternative"];
+fn an_or_pattern_below_the_injection_or_the_sequence_of_an_argument_is_distributed() {
     let kitem = "  syntax Int ::= fi(KItem) [function, symbol(fi)]\n";
     let k = "  syntax Int ::= fk(K) [function, symbol(fk)]\n";
     let exp = "  syntax Exp ::= Int | e(Int) [symbol(e)]\n  syntax Int ::= fe(Exp) [function, symbol(fe)]\n";
-    for (declarations, rule, rest) in [
+    for (declarations, (nested, distributed), rest, three) in [
         (
             kitem,
-            "  rule [p]: fi(1 #Or 2) => 5\n",
+            (
+                "  rule fi(1 #Or 2) => 5\n",
+                "  rule fi(1) => 5\n  rule fi(2) => 5\n",
+            ),
             "  rule fi(_) => 0 [owise]\n  rule <k> go(X) => done(fi(X)) ... </k>\n",
+            "done(0)",
         ),
         (
             k,
-            "  rule [p]: fk(1 #Or 2) => 5\n",
+            (
+                "  rule fk(1 #Or 2) => 5\n",
+                "  rule fk(1) => 5\n  rule fk(2) => 5\n",
+            ),
             "  rule fk(_) => 0 [owise]\n  rule <k> go(X) => done(fk(X)) ... </k>\n",
+            "done(0)",
         ),
         (
             k,
-            "  rule [p]: fk(done(1) #Or done(2)) => 5\n",
+            (
+                "  rule fk(done(1) #Or done(2)) => 5\n",
+                "  rule fk(done(1)) => 5\n  rule fk(done(2)) => 5\n",
+            ),
             "  rule fk(_) => 0 [owise]\n  rule <k> go(X) => done(fk(done(X))) ... </k>\n",
+            "done(0)",
         ),
         (
             exp,
-            "  rule [p]: fe(1 #Or 2) => 5\n",
+            (
+                "  rule fe(1 #Or 2) => 5\n",
+                "  rule fe(1) => 5\n  rule fe(2) => 5\n",
+            ),
             "  rule fe(_) => 0 [owise]\n  rule <k> go(X) => done(fe(X)) ... </k>\n",
+            "done(0)",
         ),
         (
             "  syntax KItem ::= a(KItem) [symbol(a)]\n",
-            "  rule [p]: a(1 #Or 2) => done(5) [anywhere]\n",
+            (
+                "  rule a(1 #Or 2) => done(5) [anywhere]\n",
+                "  rule a(1) => done(5) [anywhere]\n  rule a(2) => done(5) [anywhere]\n",
+            ),
             "  rule <k> go(X) => a(X) ... </k>\n",
+            "a(3)",
         ),
     ] {
-        assert_ml_construct_refused(
-            &format!("{declarations}{rule}{rest}"),
-            line_after(declarations),
-            &reasons,
+        assert_distributes(
+            &format!("{declarations}{nested}{rest}"),
+            &format!("{declarations}{distributed}{rest}"),
+            &[(1, "done(5)"), (2, "done(5)"), (3, three)],
         );
     }
     // The or-pattern is at the argument's sort: the alternatives are of that sort, or of two
@@ -2328,20 +2519,21 @@ fn a_shared_top_bottom_or_predicate_that_is_part_of_a_larger_shared_term_is_refu
     }
 }
 
-/// An or-pattern at the root of an argument of an equation, under `#as`, is below the alias the
-/// equation matches; the remedy distributes the alias over the alternatives, which keeps them at
-/// the root.
+/// An or-pattern under `#as` or `#And` at the root of an argument of an equation is distributed:
+/// a conjunction distributes over a disjunction, so `(1 #Or 2) #as Y` is
+/// `(1 #as Y) #Or (2 #as Y)`, and the alias names the alternative each equation matches.
 #[test]
-fn an_aliased_or_pattern_at_an_argument_root_is_told_to_distribute_the_alias() {
-    assert_ml_construct_refused(
-        &format!("{F}  rule [p]: f((1 #Or 2) #as Y) => Y +Int 10\n{G}"),
-        line_after(F),
-        &["below #as", "(1 #as Y) #Or (2 #as Y)"],
-    );
-    let distributed = format!("{F}  rule [p]: f((1 #as Y) #Or (2 #as Y)) => Y +Int 10\n{G}");
-    assert_compiles(&distributed);
-    assert_eq!(run(&distributed, 1), stuck("done(11)"));
-    assert_eq!(run(&distributed, 2), stuck("done(12)"));
+fn an_aliased_or_pattern_at_an_argument_root_is_distributed() {
+    let expected = [(1, "done(11)"), (2, "done(12)"), (3, "done(0)")];
+    let owise = "  rule f(_) => 0 [owise]\n";
+    let distributed = format!("{F}  rule f((1 #as Y) #Or (2 #as Y)) => Y +Int 10\n{owise}{G}");
+    for nested in [
+        "  rule f((1 #Or 2) #as Y) => Y +Int 10\n",
+        "  rule f(Y #And (1 #Or 2)) => Y +Int 10\n",
+        "  rule f(((1 #Or 2) #as Y) #as _Z) => Y +Int 10\n",
+    ] {
+        assert_distributes(&format!("{F}{nested}{owise}{G}"), &distributed, &expected);
+    }
 }
 
 // ---------------------------------------------------------------- search-pattern conditions
