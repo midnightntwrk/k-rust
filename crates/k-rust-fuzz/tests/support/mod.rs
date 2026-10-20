@@ -15,7 +15,10 @@
 //!
 //! Test binaries include this module with `mod support;`.
 
-#![allow(dead_code)]
+#![allow(
+    dead_code,
+    reason = "each test binary uses a subset of the fixtures and their accessors"
+)]
 
 use std::{collections::BTreeMap, sync::OnceLock};
 
