@@ -468,6 +468,19 @@ fixture!(
     ]
 );
 
+// The rule graph's fixture (FZ-G8). Not in `ALL`: `tests/fixtures.rs` does not judge it; the
+// graph's tests (`src/graph/tests.rs`) run its programs.
+fixture!(
+    GRAPH,
+    "graph/graph.k",
+    "GRAPH",
+    &[
+        program!("graph/start.pgm"),
+        program!("graph/call.pgm"),
+        program!("graph/stray.pgm"),
+    ]
+);
+
 /// Every fixture, in the order of `tests/data/README.md`.
 pub static ALL: [&Fixture; 14] = [
     &IMP,
