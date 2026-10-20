@@ -13,6 +13,7 @@ const INVALID_SEARCH_PATTERN: Code = Code::Diag("InvalidSearchPattern");
 const INVALID_FUNCTION_PATTERN: Code = Code::Diag("InvalidFunctionPattern");
 const ILLEGAL_FUNCTION_ON_LHS: Code = Code::Diag("IllegalFunctionOnLhs");
 const INVALID_REWRITE: Code = Code::Diag("InvalidRewrite");
+const INVALID_BINDER: Code = Code::Diag("InvalidBinder");
 const UNBOUND_VARIABLE: Code = Code::Diag("UnboundVariable");
 
 /// The shard a cell belongs to: its group and position (`extra` cells form one shard).
@@ -1533,10 +1534,11 @@ fn macro_built_cells(cells: &mut Vec<CellSpec>) {
     });
 }
 
-/// Shapes the position check decides outside the audit's tables (MLP/4b): a set variable bound by
-/// a quantifier, or-patterns of an equation below a symbol or at an argument's root, a predicate
-/// alone at a shared or built position, and guarded or unguarded alternatives of an equation's
-/// result.
+/// Shapes the position check decides outside the audit's tables (MLP/4b): or-patterns of an
+/// equation below a symbol or at an argument's root, a predicate alone at a shared or built
+/// position, and guarded or unguarded alternatives of an equation's result; and a set variable
+/// bound by a quantifier, which is no pattern at any position and which the binder check refuses
+/// (`InvalidBinder`), not the position check.
 fn walk_cells(cells: &mut Vec<CellSpec>) {
     const KITEMS: &str = "  syntax KItem ::= g(Int) [symbol(g)] | h(Int) [symbol(h)]\n  syntax Int ::= ff(KItem) [function, symbol(ff)]\n  rule [d]: <k> go(X) => done(ff(g(X))) ... </k>\n  rule [o]: ff(_) => 7 [owise]\n";
     const F: &str = "  syntax Int ::= f(Int) [function, symbol(f)]\n  rule [g]: <k> go(X) => done(f(X)) ... </k>\n";
@@ -1562,13 +1564,16 @@ fn walk_cells(cells: &mut Vec<CellSpec>) {
         allow: Allow::None,
         meaning_runs: Meaning::Unstated,
     };
-    cells.push(refused(
-        "rule-requires__exists-setvar",
-        "  rule [p]: <k> go(X) => done(X) ... </k> requires #Exists @T:Int . {X #Equals @T}\n"
-            .to_owned(),
-        "a quantifier binds an element variable; @T is a set variable, bound only by a fixpoint: not a pattern",
-        Meaning::Unstated,
-    ));
+    cells.push(CellSpec {
+        expect: Expect::refuse(INVALID_BINDER),
+        ..refused(
+            "rule-requires__exists-setvar",
+            "  rule [p]: <k> go(X) => done(X) ... </k> requires #Exists @T:Int . {X #Equals @T}\n"
+                .to_owned(),
+            "a quantifier binds an element variable; @T is a set variable, bound only by a fixpoint: not a pattern",
+            Meaning::Unstated,
+        )
+    });
     cells.push(refused(
         "fun-lhs__or-below-symbol",
         format!("{KITEMS}  rule [p]: ff(g(1 #Or 2)) => 5\n"),

@@ -228,6 +228,25 @@ fn check_binders(term: &Term, sentence: &Sentence, diagnostics: &mut Vec<Diagnos
     });
 }
 
+/// The refusals of the quantifiers of the rule `sentence` (its body, `requires` and `ensures`)
+/// whose binder is no variable, or is a set variable ([`check_binders`]); none for any other
+/// sentence.
+pub(super) fn binder_diagnostics(sentence: &Sentence) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    if let Sentence::Rule {
+        body,
+        requires,
+        ensures,
+        ..
+    } = sentence
+    {
+        for term in [body, requires, ensures] {
+            check_binders(term, sentence, &mut diagnostics);
+        }
+    }
+    diagnostics
+}
+
 fn check_context_variables(
     sentence: &Sentence,
     body: &Term,

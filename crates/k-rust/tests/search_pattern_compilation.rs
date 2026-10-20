@@ -510,6 +510,24 @@ fn search_pattern_compilation_retains_requires_after_transforms() {
     assert_eq!(error.diagnostics[0].location, Some(PATTERN_LOCATION));
 }
 
+/// A quantifier binds an element variable, and a set variable is bound only by a fixpoint, so a
+/// pattern whose quantifier binds a set variable denotes nothing and is refused by the binder
+/// check, as a rule's is: one refusal, `InvalidBinder`, at the pattern.
+#[test]
+fn search_pattern_compilation_refuses_a_quantifier_over_a_set_variable() {
+    let error = compile("<k> X:Int </k> requires #Exists @S:Int . {X #Equals @S}").unwrap_err();
+    let CompileSearchPatternError::Denotation(diagnostic) = &error else {
+        panic!("expected a denotation error: {error:?}")
+    };
+    assert_eq!(
+        diagnostic.code,
+        k_rust::diagnostic::DiagnosticCode::InvalidBinder,
+        "{error}"
+    );
+    assert!(diagnostic.message.contains("@S"), "{error}");
+    assert_eq!(diagnostic.source.as_deref(), Some(PATTERN_SOURCE));
+}
+
 /// A pattern denotes the configurations its left side matches under its `requires`, and
 /// describes no later state, so an `ensures` other than `true` says nothing it denotes and is
 /// rejected at the pattern; `ensures true` is the clause every pattern has.

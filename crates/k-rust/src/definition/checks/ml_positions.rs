@@ -135,13 +135,14 @@
 //!   that performs no effect), since no other compiled form keeps `P`: the rewrite checks refuse
 //!   the others, and the pipeline stage those whose pattern applies an effectful production, for
 //!   every target.
-//! - Everywhere: a quantifier over a set variable (`#Exists @T . ..`): a quantifier binds an
-//!   element variable; a set variable is bound only by a fixpoint.
 //!
 //! Where an existing check already refuses a construct cleanly, the walk leaves it to that check:
 //! `#as` where a rule builds its result (`InvalidRewrite`), a claim's right-side alias that is not
-//! lowered (the rewrite checks, `MlConstructPosition`), and a local function in a pattern
-//! (`InvalidFunctionPattern`).
+//! lowered (the rewrite checks, `MlConstructPosition`), a local function in a pattern
+//! (`InvalidFunctionPattern`), and a quantifier over a set variable (`#Exists @T . ..`), which is
+//! no pattern in any position or for any target: a quantifier binds an element variable, and a set
+//! variable is bound only by a fixpoint (the binder check, `InvalidBinder`, which also judges
+//! search patterns).
 #![deny(clippy::wildcard_enum_match_arm)]
 
 use std::collections::BTreeSet;
@@ -955,7 +956,7 @@ impl Walk<'_, '_> {
         let alone = std::mem::replace(&mut self.alone, true);
         let under_root = self.under_root.take();
         if let Some(quantifier) = quantifier(term) {
-            return self.quantifier(term, quantifier.binder, quantifier.body, context);
+            return self.quantifier(term, quantifier.body, context);
         }
         match term {
             Term::As { pattern, .. } => self.alias(term, pattern, context, root),
@@ -1042,21 +1043,11 @@ impl Walk<'_, '_> {
         }
     }
 
-    fn quantifier(&mut self, term: &Term, binder: &Term, body: &Term, context: Context) {
+    fn quantifier(&mut self, term: &Term, body: &Term, context: Context) {
         let Term::Apply { label, .. } = term.unannotated() else {
             unreachable!("a quantifier is an application")
         };
         let label = label.name.clone();
-        if let Term::Variable { name, .. } = read_through_casts(binder)
-            && name.starts_with('@')
-        {
-            self.refuse(format!(
-                "{label} binds the set variable {name}: a quantifier binds an element variable, \
-                 which denotes one value, while a set variable denotes a set of values and is \
-                 bound only by a fixpoint, so the quantifier is not a pattern; quantify an \
-                 element variable (without @)"
-            ));
-        }
         if matches!(context, Context::Spine) {
             self.term(body, Context::Spine, false);
         } else {

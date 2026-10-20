@@ -278,6 +278,13 @@ pub(crate) fn check_ml_construct_positions_in_definition(
     diagnostics
 }
 
+/// The refusals of the quantifiers of the search pattern `sentence`, judged as a rule, whose
+/// binder is no element variable, by the binder check of the definitions' rules
+/// ([`DiagnosticCode::InvalidBinder`]).
+pub(crate) fn search_pattern_binder_diagnostics(sentence: &Sentence) -> Vec<Diagnostic> {
+    rhs_variables::binder_diagnostics(sentence)
+}
+
 /// The refusals of the search pattern `sentence` by the matching-logic position walk (module
 /// `ml_positions`), with the code [`DiagnosticCode::InvalidSearchPattern`]: its body is matched,
 /// its `requires` is a condition, and `affects_value` decides which applications inside a
