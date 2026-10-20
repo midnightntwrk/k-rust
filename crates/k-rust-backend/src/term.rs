@@ -76,7 +76,6 @@
 use std::{
     cell::Cell,
     cmp::Ordering,
-    collections::BTreeMap,
     fmt,
     hash::{Hash, Hasher},
     sync::{Arc, LazyLock, OnceLock},
@@ -2068,15 +2067,7 @@ impl Term {
                 symbol,
                 sort_arguments,
                 ..
-            } => {
-                let substitution = symbol
-                    .sort_variables
-                    .iter()
-                    .cloned()
-                    .zip(sort_arguments.iter().cloned())
-                    .collect::<BTreeMap<_, _>>();
-                substitute_sort(&symbol.result_sort, &substitution)
-            }
+            } => instantiate_result_sort(symbol, sort_arguments),
             TermKind::DomainValue { sort, .. } | TermKind::Variable(Variable { sort, .. }) => {
                 sort.clone()
             }
@@ -3362,20 +3353,39 @@ fn set_parts(definition: &Arc<SetDefinition>, term: &Term) -> (Items<Term>, Opti
     }
 }
 
-fn substitute_sort(sort: &Sort, substitution: &BTreeMap<Name, Sort>) -> Sort {
-    match sort {
-        Sort::Variable(name) => substitution
-            .get(name)
-            .cloned()
-            .unwrap_or_else(|| sort.clone()),
-        Sort::Application { name, arguments } => Sort::Application {
-            name: name.clone(),
-            arguments: arguments
+/// The result sort of an application of `symbol` at `sort_arguments`: its declared result sort
+/// with each of its sort variables replaced by the argument at that variable's position. A
+/// symbol's result sort mentions only the symbol's own sort variables (checked at load), so a
+/// symbol without sort variables has its declared result sort. A variable without an argument
+/// at its position stays; of two positions of one name (load refuses them), the last one with
+/// an argument counts.
+fn instantiate_result_sort(symbol: &Symbol, sort_arguments: &[Sort]) -> Sort {
+    fn instantiate(sort: &Sort, variables: &[Name], arguments: &[Sort]) -> Sort {
+        match sort {
+            Sort::Variable(name) => variables
                 .iter()
-                .map(|argument| substitute_sort(argument, substitution))
-                .collect(),
-        },
+                .zip(arguments)
+                .rev()
+                .find_map(|(variable, argument)| (variable == name).then_some(argument))
+                .unwrap_or(sort)
+                .clone(),
+            Sort::Application {
+                name,
+                arguments: inner,
+            } if !inner.is_empty() => Sort::Application {
+                name: name.clone(),
+                arguments: inner
+                    .iter()
+                    .map(|argument| instantiate(argument, variables, arguments))
+                    .collect(),
+            },
+            Sort::Application { .. } => sort.clone(),
+        }
     }
+    if symbol.sort_variables.is_empty() {
+        return symbol.result_sort.clone();
+    }
+    instantiate(&symbol.result_sort, &symbol.sort_variables, sort_arguments)
 }
 
 fn combine_attributes<'a>(terms: impl IntoIterator<Item = &'a Term>) -> TermAttributes {
@@ -4366,8 +4376,76 @@ impl Term {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::*;
     use crate::counted::Counted;
+
+    /// The substitution `Term::sort` applied before `instantiate_result_sort`, as the reference.
+    fn substitute_sort(sort: &Sort, substitution: &BTreeMap<Name, Sort>) -> Sort {
+        match sort {
+            Sort::Variable(name) => substitution
+                .get(name)
+                .cloned()
+                .unwrap_or_else(|| sort.clone()),
+            Sort::Application { name, arguments } => Sort::Application {
+                name: name.clone(),
+                arguments: arguments
+                    .iter()
+                    .map(|argument| substitute_sort(argument, substitution))
+                    .collect(),
+            },
+        }
+    }
+
+    /// `instantiate_result_sort` is the substitution of the symbol's sort variables, zipped with
+    /// the sort arguments into a map, applied to its result sort: over result sorts mentioning
+    /// variables of the symbol and others, nested in applications, and over variable lists with
+    /// repeated names and argument lists of every length up to one more than the variables.
+    #[test]
+    fn instantiated_result_sort_is_the_substitution_of_the_sort_variables() {
+        let variable = |name: &str| Sort::Variable(Name::from(name));
+        let results = [
+            Sort::simple("SortA"),
+            variable("S"),
+            variable("U"),
+            Sort::application("SortPair", vec![variable("S"), variable("T")]),
+            Sort::application(
+                "SortBox",
+                vec![Sort::application(
+                    "SortPair",
+                    vec![variable("T"), Sort::simple("SortA")],
+                )],
+            ),
+        ];
+        let variable_lists: [&[&str]; 5] = [&[], &["S"], &["S", "T"], &["T", "S"], &["S", "S"]];
+        let pool = [
+            Sort::simple("SortInt"),
+            Sort::simple("SortBool"),
+            variable("R"),
+        ];
+        for result_sort in &results {
+            for variables in variable_lists {
+                for count in 0..=variables.len() + 1 {
+                    let arguments = pool[..count.min(pool.len())].to_vec();
+                    let mut symbol = Symbol::constructor("s", Vec::new(), result_sort.clone());
+                    symbol.sort_variables =
+                        variables.iter().map(|name| Name::from(*name)).collect();
+                    let substitution = symbol
+                        .sort_variables
+                        .iter()
+                        .cloned()
+                        .zip(arguments.iter().cloned())
+                        .collect::<BTreeMap<_, _>>();
+                    assert_eq!(
+                        instantiate_result_sort(&symbol, &arguments),
+                        substitute_sort(result_sort, &substitution),
+                        "{result_sort:?} {variables:?} {arguments:?}"
+                    );
+                }
+            }
+        }
+    }
 
     fn sort() -> Sort {
         Sort::simple("SomeSort")
