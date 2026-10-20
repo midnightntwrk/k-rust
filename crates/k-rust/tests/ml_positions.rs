@@ -374,11 +374,6 @@ const CELL_COUNT: usize = 533;
 /// and the builds in which it deviates (see the module documentation).
 #[rustfmt::skip]
 pub const PENDING: &[(&str, &str, Class, Class)] = &[
-    // MLP/4b (4, BIND/A9 fix round 1): a quantifier below a symbol of a left side compiles on this branch, whose base precedes MLP/4b, and the backend refuses the definition at load; MLP/4b's matched-position walk refuses it at its rule.
-    ("extra/fun-lhs__nested-exists", "MLP/4b", Class::Refused, Class::Refused),
-    ("extra/rule-lhs__nested-exists", "MLP/4b", Class::Refused, Class::Refused),
-    ("extra/rule-lhs__nested-forall", "MLP/4b", Class::Refused, Class::Refused),
-    ("extra/simp-lhs__nested-forall", "MLP/4b", Class::Refused, Class::Refused),
 ];
 
 // ---------------------------------------------------------------- observation
