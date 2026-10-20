@@ -2930,7 +2930,7 @@ symbol = "search_paths_collecting"
 
 [[node.cost]]
 mode = "simple paths"
-bound = "exponential in b and d, plus O(d) visited-list work per pop and O(KORE text bytes) per transition for the returned path identity; digest memory is O(printer traversal stack)"
+bound = "exponential in b and d, plus O(1) visited-set work per pop, O(1) per fork and O(d) to copy a branch's visited set at its first state after the fork, and O(KORE text bytes) per transition for the returned path identity; digest memory is O(printer traversal stack)"
 
 [[node]]
 kind = "algorithm"

@@ -251,7 +251,7 @@ pub(super) fn retain_witness(
     }
     let externalised = match externalise_result(
         definition,
-        path.state.clone(),
+        super::with_trace(path.state.clone(), path.trace.clone()),
         path.observation,
         path.diagnostics.clone(),
         options.max_simplification_iterations,
@@ -269,7 +269,7 @@ pub(super) fn retain_witness(
     };
     if let Some(state) = externalised {
         let witness = PathWitness {
-            id: path.id.clone(),
+            id: path.id.to_vec(),
             pattern: state.pattern,
             depth: state.depth,
             trace: state.trace,
