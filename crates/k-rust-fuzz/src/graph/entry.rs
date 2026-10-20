@@ -26,10 +26,16 @@
 use std::{collections::BTreeSet, fmt};
 
 use k_rust::{
-    backend::{Backend, BackendError, ExecuteRequest, ExecutionStrategy, ResultModalityOutput},
+    backend::{
+        Backend, BackendError, CancelledResultOutput, ExecuteRequest, ExecutionStrategy,
+        ResultModalityOutput,
+    },
     k_rust_backend::{definition::BackendDefinition, term::Term},
     kore::{
-        ast::{Pattern as KorePattern, Sort as KoreSort, Variable as KoreVariable, VariableKind},
+        ast::{
+            Pattern as KorePattern, Sort as KoreSort, Symbol as KoreSymbol,
+            Variable as KoreVariable, VariableKind,
+        },
         codec,
     },
 };
@@ -38,7 +44,10 @@ use super::{RuleGraph, Selection, shares_k};
 
 /// The rules a campaign's initial configurations enable ([`RuleGraph::entry`]), tied to the
 /// graph that computed it.
-#[derive(Clone, Debug, Eq, PartialEq)]
+///
+/// Its `Debug` rendering shows the graph's identity, a construction-order counter: it is for
+/// diagnostics, never for a report or a digest (ARCHITECTURE 5.4). Equality ignores it.
+#[derive(Clone, Debug, Eq)]
 pub(crate) struct Entry {
     /// [`RuleGraph::identity`] of the graph that computed it.
     graph: u64,
@@ -46,6 +55,18 @@ pub(crate) struct Entry {
     /// The configuration, or the definition, may hold more than one `<k>` cell: the
     /// `statically-unreachable` warning is withheld.
     withheld: bool,
+    /// Every initial state of the template is `\bottom`: no case has a configuration to start
+    /// from. One campaign-level warning replaces the per-target warnings
+    /// ([`RuleGraph::vacuous_warning`]).
+    vacuous: bool,
+}
+
+impl PartialEq for Entry {
+    fn eq(&self, other: &Self) -> bool {
+        self.nodes == other.nodes
+            && self.withheld == other.withheld
+            && self.vacuous == other.vacuous
+    }
 }
 
 /// An [`Entry`] was given to another graph than the one that computed it, such as the other
@@ -71,19 +92,21 @@ pub(crate) struct AppliedCheck {
     /// another route or module than the run). Engine defects.
     pub(crate) unknown: Vec<String>,
     /// Ids that name both a rewrite rule and an equation (the generated `UNKNOWN`, in caller
-    /// KORE without ids): coverage cannot say which applied, so the check cannot judge them.
+    /// KORE without ids) whose rewrite rule is not reachable: coverage cannot say whether the
+    /// rule or the equation applied, so the check cannot judge them. Warnings, not defects; an
+    /// ambiguous id whose rule is reachable is fine under either reading and is not listed.
     pub(crate) ambiguous: Vec<String>,
 }
 
 impl AppliedCheck {
-    /// Whether the check found nothing to report.
+    /// Whether the check found no engine defect: no unreachable rule and no unknown id. The
+    /// ambiguous ids are warnings and do not count.
     pub(crate) fn is_clean(&self) -> bool {
-        self.unreachable.is_empty() && self.unknown.is_empty() && self.ambiguous.is_empty()
+        self.unreachable.is_empty() && self.unknown.is_empty()
     }
 
-    /// One description per reported id, for `EngineDefect::description` (the ambiguous ids may
-    /// be reported as warnings instead).
-    pub(crate) fn descriptions(&self) -> Vec<String> {
+    /// One description per defect, for `EngineDefect::description`.
+    pub(crate) fn defects(&self) -> Vec<String> {
         let unreachable = self
             .unreachable
             .iter()
@@ -94,34 +117,90 @@ impl AppliedCheck {
                  rule graph's definition"
             )
         });
-        let ambiguous = self.ambiguous.iter().map(|id| {
-            format!(
-                "applied id {id} names both a rewrite rule and an equation; the rule graph \
-                 cannot check it"
-            )
-        });
-        unreachable.chain(unknown).chain(ambiguous).collect()
+        unreachable.chain(unknown).collect()
+    }
+
+    /// One warning per ambiguous id.
+    pub(crate) fn warnings(&self) -> Vec<String> {
+        self.ambiguous
+            .iter()
+            .map(|id| {
+                format!(
+                    "applied id {id} names both a rewrite rule and an equation, and the rule is \
+                     not reachable in the rule graph; the self-check cannot tell which applied"
+                )
+            })
+            .collect()
     }
 }
 
-/// `configuration` with the subterm at each hole's path replaced by an element variable of the
-/// hole's KORE sort: the hole template. A path indexes the arguments of applications and of
+/// The hole template: `configuration` with each hole's located subterm replaced by an element
+/// variable of the hole's **declared** KORE sort H (the sort of the hole declaration, not the
+/// own sort of the anchor value). A path indexes the arguments of applications and of
 /// `\and`/`\or` (the children `kore::walk::children` lists, which is how hole positions are
-/// located; ARCHITECTURE 2.3). `None` when a path does not lead to a subterm through those,
-/// in which case no template is known and the warning must be withheld.
+/// located; ARCHITECTURE 2.3).
+///
+/// A data value is injected from its own sort straight to its position's sort (D19), so when
+/// the anchor's own sort S is a strict subsort of H, the located subterm is the operand of
+/// `inj{S, T}`, and a case's value of another own sort comes with another injection. The
+/// injection is then replaced with `inj{H, T}(V:H)` (with `V:H` alone when H is T), which covers
+/// every value of a sort below H by composing injections; a variable of sort H under `inj{S, T}`
+/// would be ill-sorted, and one of sort S would cover only the anchor's own sort.
+///
+/// `None` when a path does not lead to a subterm through those children: no template is known,
+/// and the warning must be withheld.
 pub(crate) fn hole_template(
     configuration: &KorePattern,
     holes: &[(Vec<usize>, KoreSort)],
 ) -> Option<KorePattern> {
     let mut template = configuration.clone();
     for (index, (path, sort)) in holes.iter().enumerate() {
-        *subterm_mut(&mut template, path)? = KorePattern::Variable(KoreVariable {
+        let variable = KorePattern::Variable(KoreVariable {
             kind: VariableKind::Element,
             name: format!("VarFuzzHole{index}"),
             sort: sort.clone(),
         });
+        if let Some((0, upper)) = path.split_last() {
+            let parent = subterm_mut(&mut template, upper)?;
+            if let Some((source, target)) = injection_sorts(parent) {
+                *parent = if source == *sort {
+                    injection(source, target, variable)
+                } else if target == *sort {
+                    variable
+                } else {
+                    injection(sort.clone(), target, variable)
+                };
+                continue;
+            }
+        }
+        *subterm_mut(&mut template, path)? = variable;
     }
     Some(template)
+}
+
+/// The source and target sorts of `pattern` when it is an injection `inj{S, T}(_)`.
+fn injection_sorts(pattern: &KorePattern) -> Option<(KoreSort, KoreSort)> {
+    let KorePattern::Application { symbol, arguments } = pattern else {
+        return None;
+    };
+    match (
+        symbol.name.as_str(),
+        symbol.sort_parameters.as_slice(),
+        arguments.len(),
+    ) {
+        ("inj", [source, target], 1) => Some((source.clone(), target.clone())),
+        _ => None,
+    }
+}
+
+fn injection(source: KoreSort, target: KoreSort, argument: KorePattern) -> KorePattern {
+    KorePattern::Application {
+        symbol: KoreSymbol {
+            name: "inj".to_owned(),
+            sort_parameters: vec![source, target],
+        },
+        arguments: vec![argument],
+    }
 }
 
 fn subterm_mut<'p>(pattern: &'p mut KorePattern, path: &[usize]) -> Option<&'p mut KorePattern> {
@@ -144,8 +223,11 @@ impl RuleGraph {
     /// `request` is the campaign's case request ([`crate::exec`]'s request shape) whose
     /// `state` is the hole template ([`hole_template`]), so that the entry covers every case.
     /// The request is executed at depth 0 (`max_depth: Some(0)`, no work or breadth bound, every
-    /// path, no stop rules, no coverage or trace), keeping its module, simplification bound and
-    /// `assume_state_defined`, and every leaf's state is keyed. The run warms `backend`'s solver
+    /// path, no stop rules, no coverage or trace, and no step timeout or cancellation answer, so
+    /// that the entry does not depend on timing), keeping its module, simplification bound and
+    /// `assume_state_defined`, and every leaf's state is keyed. The module must select the
+    /// definition the graph was built from (its main module and axiom ids), or the entry is
+    /// refused: keys computed over another definition would not name this graph's rules. The run warms `backend`'s solver
     /// cache, so `backend` should be one no case uses (the graph's own), or the entry must be
     /// computed before the first case on every run of the campaign alike (ARCHITECTURE 5.4).
     ///
@@ -172,6 +254,10 @@ impl RuleGraph {
             collect_coverage: false,
             collect_offered: false,
             trace: false,
+            // Wall-clock bounds would make the entry, and the warning, depend on timing.
+            step_timeout_ms: None,
+            moving_average_timeout: false,
+            cancelled_result: CancelledResultOutput::Partial,
             ..request
         })?;
         let states = result
@@ -187,7 +273,14 @@ impl RuleGraph {
             .iter()
             .filter(|state| !matches!(state, KorePattern::Bottom { .. }))
             .collect();
+        let vacuous = states.is_empty();
         backend.with_solver_over(module.as_deref(), &states, |definition, _| {
+            if !self.is_definition_of(definition) {
+                return Err(BackendError::new(format!(
+                    "the backend's module `{}` is not the definition the rule graph was built from",
+                    definition.main_module()
+                )));
+            }
             let terms = states
                 .iter()
                 .map(|state| {
@@ -202,12 +295,13 @@ impl RuleGraph {
                         })
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-            Ok(self.entry_of(definition, &terms))
+            Ok(self.entry_of(definition, &terms, vacuous))
         })
     }
 
-    /// The rules the configurations `terms` of `definition` enable, as their states.
-    pub(crate) fn entry_of(&self, definition: &BackendDefinition, terms: &[Term]) -> Entry {
+    /// The rules the configurations `terms` of `definition`, the graph's own definition, enable
+    /// as their states.
+    fn entry_of(&self, definition: &BackendDefinition, terms: &[Term], vacuous: bool) -> Entry {
         let withheld = self.shared_k || terms.iter().any(shares_k);
         let mut selection = Selection::new(definition, withheld);
         let mut nodes = BTreeSet::new();
@@ -223,6 +317,7 @@ impl RuleGraph {
             graph: self.identity,
             nodes,
             withheld,
+            vacuous,
         }
     }
 
@@ -262,11 +357,29 @@ impl RuleGraph {
         let Some(node) = self.nodes.get(target) else {
             return Ok(None);
         };
-        Ok((!entry.withheld && !reachable.contains(node)).then(|| {
-            format!(
-                "statically-unreachable: rule {target} is not reachable in the rule graph from \
+        Ok(
+            (!entry.withheld && !entry.vacuous && !reachable.contains(node)).then(|| {
+                format!(
+                    "statically-unreachable: rule {target} is not reachable in the rule graph from \
                  the rules the initial configuration enables"
-            )
+                )
+            }),
+        )
+    }
+
+    /// The campaign-level warning for a vacuous entry: every initial state of the template is
+    /// `\bottom`, so no case has a configuration and no rule can apply. Reported once, in place
+    /// of a `statically-unreachable` warning per target.
+    ///
+    /// # Errors
+    ///
+    /// [`ForeignEntry`] when another graph computed `entry`.
+    pub(crate) fn vacuous_warning(&self, entry: &Entry) -> Result<Option<String>, ForeignEntry> {
+        self.own(entry)?;
+        Ok(entry.vacuous.then(|| {
+            "no-valid-cases: every initial state of the hole template is \\bottom, so no case \
+             can apply a rule"
+                .to_owned()
         }))
     }
 
@@ -295,7 +408,11 @@ impl RuleGraph {
         for id in applied {
             let equation = self.equation_ids.contains(id);
             match (self.nodes.get(id), equation) {
-                (Some(_), true) => check.ambiguous.push(id.to_owned()),
+                (Some(node), true) => {
+                    if !reachable.contains(node) {
+                        check.ambiguous.push(id.to_owned());
+                    }
+                }
                 (Some(node), false) => {
                     if !reachable.contains(node) {
                         check.unreachable.push(id.to_owned());

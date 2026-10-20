@@ -72,6 +72,8 @@ use std::{
 
 pub(crate) use calls::FunctionCalls;
 use calls::Part;
+use sha2::{Digest as _, Sha256};
+
 use k_rust::{
     backend::{Backend, BackendError},
     k_rust_backend::{
@@ -109,6 +111,9 @@ pub(crate) struct RuleGraph {
     /// The ids of the definition's equations (function, simplification and definedness
     /// axioms, `BackendDefinition::classified_axioms`), which coverage also names.
     equation_ids: BTreeSet<String>,
+    /// The definition's main module and a digest of its axioms' ids and kinds
+    /// ([`definition_fingerprint`]), which an entry's definition must match.
+    fingerprint: [u8; 32],
     /// Distinguishes this graph from every other built in the process, so that an [`entry::Entry`]
     /// is used only with the graph that computed it. A clone keeps it, being the same graph.
     identity: u64,
@@ -282,6 +287,7 @@ impl RuleGraph {
             shared_k,
             calls: FunctionCalls::new(definition),
             equation_ids,
+            fingerprint: definition_fingerprint(definition),
             identity: NEXT_GRAPH.fetch_add(1, Ordering::Relaxed),
         }
     }
@@ -412,6 +418,11 @@ impl RuleGraph {
         self.calls.closure(called)
     }
 
+    /// Whether `definition` is the one the graph was built from.
+    fn is_definition_of(&self, definition: &BackendDefinition) -> bool {
+        definition_fingerprint(definition) == self.fingerprint
+    }
+
     fn named(&self, nodes: &BTreeSet<usize>) -> BTreeSet<String> {
         nodes.iter().map(|node| self.ids[*node].clone()).collect()
     }
@@ -502,6 +513,22 @@ fn agreeing<'t>(term: &'t Term, key: &CellIndex, found: &mut Vec<&'t Term>) {
     if agrees {
         found.push(term);
     }
+}
+
+/// A digest of `definition`'s main module and of the id and kind of each of its axioms, in the
+/// definition's order.
+fn definition_fingerprint(definition: &BackendDefinition) -> [u8; 32] {
+    let mut digest = Sha256::new();
+    digest.update(definition.main_module().as_bytes());
+    for axiom in definition.classified_axioms() {
+        let kind: &[u8] = match axiom {
+            ClassifiedAxiom::Rewrite { .. } => b"\nr ",
+            _ => b"\ne ",
+        };
+        digest.update(kind);
+        digest.update(axiom.attributes().unique_id.as_bytes());
+    }
+    digest.finalize().into()
 }
 
 /// The ids of the definition's axioms other than rewrite rules.

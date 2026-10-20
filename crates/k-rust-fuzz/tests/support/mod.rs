@@ -498,6 +498,12 @@ fixture!(
     "VALUE",
     &[program!("graph/value.pgm", "N" = "graph/value.n")]
 );
+fixture!(
+    SHAPE,
+    "graph/shape.k",
+    "SHAPE",
+    &[program!("graph/shape.pgm", "SHAPE" = "graph/shape.s")]
+);
 
 /// Every fixture that `tests/fixtures.rs` judges, in the order of `tests/data/README.md`; the
 /// fixtures declared outside it say why.

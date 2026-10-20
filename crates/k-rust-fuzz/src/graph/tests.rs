@@ -35,11 +35,11 @@ use k_rust::{
         walk,
     },
 };
-use support::{Compiled, GRAPH, IMP, RULES, VALUE};
+use support::{Compiled, GRAPH, IMP, RULES, SHAPE, VALUE};
 
 use super::{
     RuleGraph,
-    entry::{Entry, ForeignEntry, hole_template},
+    entry::{AppliedCheck, Entry, ForeignEntry, hole_template},
 };
 
 fn graph_of(compiled: &Compiled) -> (Backend, RuleGraph) {
@@ -536,4 +536,111 @@ fn a_rigid_key_takes_its_sort_from_the_conjunct_it_came_from() {
         super::rooted(&conjunction, &CellIndex::Constructor("Lblh".into())),
         None
     );
+}
+
+/// The path (`walk::children` indices) to the one application of `symbol` in `pattern`.
+fn path_of_application(pattern: &KorePattern, symbol: &str) -> Vec<usize> {
+    fn search(
+        pattern: &KorePattern,
+        symbol: &str,
+        path: &mut Vec<usize>,
+        found: &mut Vec<Vec<usize>>,
+    ) {
+        if let KorePattern::Application {
+            symbol: written, ..
+        } = pattern
+            && written.name == symbol
+        {
+            found.push(path.clone());
+        }
+        for (index, child) in walk::children(pattern).into_iter().enumerate() {
+            path.push(index);
+            search(child, symbol, path, found);
+            path.pop();
+        }
+    }
+    let mut found = Vec::new();
+    search(pattern, symbol, &mut Vec::new(), &mut found);
+    let [path] = found.as_slice() else {
+        panic!("{symbol}: {found:?}");
+    };
+    path.clone()
+}
+
+#[test]
+fn a_data_hole_of_several_own_sorts_is_keyed_by_its_declared_sort() {
+    let compiled = SHAPE.compiled();
+    let (_, graph) = graph_of(compiled);
+    let [round, boxed] = ["round", "boxed"].map(|label| labelled(compiled, &graph, label));
+    let anchor = compiled.initial("graph/shape.pgm");
+    // The located position is the anchor's own value, under `inj{Circle, KItem}` (D19).
+    let path = path_of_application(&anchor, "Lblcircle");
+    let shape = KoreSort::Application {
+        name: "SortShape".to_owned(),
+        arguments: Vec::new(),
+    };
+    let template = hole_template(&anchor, &[(path, shape)]).expect("the path leads to the value");
+    let printed = Printer::compact().print_pattern(&template);
+    assert!(
+        printed.contains("inj{SortShape{}, SortKItem{}}(VarFuzzHole0:SortShape{})"),
+        "{printed}"
+    );
+    let entry = entry_of(compiled, &graph, &template);
+    assert_eq!(graph.entry_rules(&entry), Ok(set(&[&boxed, &round])));
+    assert_eq!(graph.statically_unreachable(&entry, &boxed), Ok(None));
+
+    let case = compiled
+        .assemble("graph/shape.pgm", "run\n", &[("SHAPE", "square(4, true)")])
+        .expect("the case assembles");
+    let applied = applied(&mut compiled.source_backend(), &case);
+    assert!(applied.contains(&boxed), "{applied:?}");
+    let check = graph
+        .unreachable_applied(&entry, applied.iter().map(String::as_str))
+        .expect("the graph's own entry");
+    assert!(check.is_clean(), "{check:?}");
+}
+
+#[test]
+fn ambiguous_ids_are_warnings_not_defects() {
+    let check = AppliedCheck {
+        ambiguous: vec!["UNKNOWN".to_owned()],
+        ..AppliedCheck::default()
+    };
+    assert!(check.is_clean());
+    assert!(check.defects().is_empty());
+    assert_eq!(check.warnings().len(), 1);
+}
+
+#[test]
+fn an_entry_needs_the_graphs_definition() {
+    let (_, graph) = graph_of(GRAPH.compiled());
+    let rules = RULES.compiled();
+    let refused = graph.entry(
+        &mut rules.source_backend(),
+        ExecuteRequest::new(rules.initial("rules/check.pgm")),
+    );
+    assert!(refused.is_err(), "{refused:?}");
+}
+
+#[test]
+fn a_template_with_no_instance_gives_one_campaign_warning() {
+    let compiled = GRAPH.compiled();
+    let (_, graph) = graph_of(compiled);
+    let finish = labelled(compiled, &graph, "finish");
+    // The start configuration under a false constraint: a template with no instance.
+    let configuration = Printer::compact().print_pattern(&compiled.initial("graph/start.pgm"));
+    let bottom = k_rust::kore::parser::parse_pattern(&format!(
+        r#"\and{{SortGeneratedTopCell{{}}}}({configuration}, \equals{{SortInt{{}}, SortGeneratedTopCell{{}}}}(\dv{{SortInt{{}}}}("0"), \dv{{SortInt{{}}}}("1")))"#
+    ))
+    .expect("a KORE pattern");
+    let entry = entry_of(compiled, &graph, &bottom);
+    assert_eq!(graph.entry_rules(&entry), Ok(BTreeSet::new()));
+    assert_eq!(graph.statically_unreachable(&entry, &finish), Ok(None));
+    let warning = graph
+        .vacuous_warning(&entry)
+        .unwrap()
+        .expect("no case has a configuration");
+    assert!(warning.starts_with("no-valid-cases"), "{warning}");
+    let start = entry_of(compiled, &graph, &compiled.initial("graph/start.pgm"));
+    assert_eq!(graph.vacuous_warning(&start), Ok(None));
 }
