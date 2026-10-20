@@ -510,6 +510,11 @@ fn emit_equation(
             Ok(free_names([&converter.convert(left)?, &right]))
         })?
     };
+    let (right, requires) = if equation.direct || claim {
+        (right, requires)
+    } else {
+        bind_root_aliases(&equation, left, right, requires, &result_sort, converter)?
+    };
     if attributes.has(AttributeKey::Owise) {
         if claim {
             return Err(ModuleToKoreError::UnsupportedRuleKind {
@@ -610,6 +615,64 @@ fn emit_equation(
         valued,
         parameters,
     )
+}
+
+/// `right` and `requires` of the equation with left side `left`, in the axiom form that binds the
+/// head's arguments to fresh variables `X0..Xn` (`f(X0..Xn) = R` under `Xi \in Ai`), with each
+/// root alias `V` of `left = P #as V` replaced by `f(X0..Xn)`.
+///
+/// That form states the matching of `P = f(A0..An)` through its arguments only, so nothing in
+/// it binds `V`: an occurrence of `V` would be a free variable of the axiom, universally
+/// quantified, and the equation would state `f(..) = R` for every value of `V` rather than for
+/// the matched term. Under the premise `Xi \in Ai` the matched term is `f(X0..Xn)`, which is
+/// exactly what `V` names, so the substitution states the rule's own meaning. A form that
+/// keeps the left side as written (a simplification, a claim) converts the alias to `\and(P,
+/// V)`, which binds `V` itself, and is not rewritten here.
+fn bind_root_aliases(
+    equation: &EquationInfo<'_>,
+    left: &Term,
+    right: Pattern,
+    requires: Pattern,
+    result_sort: &KoreSort,
+    converter: &TermConverter<'_, '_>,
+) -> Result<(Pattern, Pattern), ModuleToKoreError> {
+    let mut aliases = Vec::new();
+    let mut term = left;
+    // Invariant: `aliases` holds the alias of every root `#as` above `term`, outermost first.
+    while let Term::As { pattern, alias } = term.unannotated() {
+        aliases.push(alias.as_ref());
+        term = pattern;
+    }
+    if aliases.is_empty() {
+        return Ok((right, requires));
+    }
+    let head = Pattern::Application {
+        symbol: converter.convert_label(equation.label)?,
+        arguments: equation_variables(equation, converter)?
+            .into_iter()
+            .map(Pattern::Variable)
+            .collect(),
+    };
+    let (mut right, mut requires) = (right, requires);
+    for alias in aliases {
+        let unsupported = |reason: &str| ModuleToKoreError::UnsupportedRuleKind {
+            kind: format!("an equation whose head alias {alias} {reason}"),
+        };
+        let Some(variable) = take_kore_variable(converter.convert(alias)?) else {
+            return Err(unsupported("is not a variable"));
+        };
+        if variable.sort != *result_sort {
+            return Err(unsupported("has another sort than the head"));
+        }
+        let capture = || unsupported("is rebound inside the equation");
+        right = right
+            .substitute_free(&variable, &head)
+            .ok_or_else(capture)?;
+        requires = requires
+            .substitute_free(&variable, &head)
+            .ok_or_else(capture)?;
+    }
+    Ok((right, requires))
 }
 
 #[allow(clippy::too_many_arguments)]
