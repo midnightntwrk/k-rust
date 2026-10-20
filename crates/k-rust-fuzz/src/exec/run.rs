@@ -3,9 +3,9 @@
 
 use k_rust::{
     backend::{
-        Backend, BackendDiagnosticOutput, BackendError, CancellationToken, ExecuteRequest,
-        ExecutionLeaf, ExecutionResult, HaltReasonOutput, ObservedInOutput, StopCause,
-        search::prepare_backend_match_target,
+        Backend, BackendDiagnosticOutput, BackendError, CancellationToken, ChosenValueOutput,
+        ContradictedClaimOutput, ExecuteRequest, ExecutionLeaf, ExecutionResult, HaltReasonOutput,
+        ObservedInOutput, StopCause, search::prepare_backend_match_target,
     },
     definition::{AttributeKey, Attributes, ResolvedDefinition},
     k_rust_backend::{
@@ -23,8 +23,8 @@ use k_rust::{
 };
 
 use super::{
-    Abort, CaseFailure, CaseRequestShape, CaseResult, FailureCause, LOAD_STACK_STOP, LeafReport,
-    UncleanReason,
+    Abort, CaseFailure, CaseRequestShape, CaseResult, FailureCause, LOAD_ALLOWANCE_REFUSAL,
+    LOAD_STACK_STOP, LeafReport, UncleanReason,
 };
 use crate::{
     assemble::{ProgramAssembly, build_backend},
@@ -290,16 +290,27 @@ impl Executor {
             constructor_only: shape.constructor_only,
             terminal_allowed: shape.has_terminal_rules(),
             load_stack_stops: self.load_stack_stops,
+            forward: None,
         };
         let backend = &mut self.backend;
         #[cfg(not(target_arch = "wasm32"))]
         if let (Some(limit), Some(watchdog)) = (self.safety_limit_ms, self.watchdog.as_ref()) {
             let token = CancellationToken::new();
+            // The watchdog thread forwards the caller's cancellation while the case runs; the
+            // checks at the start and at the end make it take effect whatever the thread's
+            // scheduling (review S2).
+            if cancel.is_some_and(CancellationToken::is_cancelled) {
+                token.cancel();
+            }
             let armed = watchdog.arm(
                 token.clone(),
                 std::time::Duration::from_millis(limit),
                 cancel.cloned(),
             );
+            let judge = Judge {
+                forward: cancel.map(|caller| (caller.clone(), token.clone())),
+                ..judge
+            };
             let outcome = token.scope(|| judge.execute(backend, request));
             let fired = armed.disarm();
             return outcome.map(|mut result| {
@@ -337,6 +348,7 @@ impl Executor {
             constructor_only: false,
             terminal_allowed: false,
             load_stack_stops: 0,
+            forward: None,
         };
         let mut internal = judge
             .judge_internally(&mut self.backend, std::slice::from_ref(&leaf))
@@ -361,6 +373,9 @@ struct Judge<'a> {
     constructor_only: bool,
     terminal_allowed: bool,
     load_stack_stops: usize,
+    /// Under the safety limit, the caller's token and the case's own: the caller's cancellation
+    /// is forwarded synchronously when the run ends, before the leaves are judged (review S2).
+    forward: Option<(CancellationToken, CancellationToken)>,
 }
 
 /// A leaf pattern's verdict on one leaf.
@@ -384,7 +399,13 @@ struct Internal {
 
 impl Judge<'_> {
     fn execute(&self, backend: &mut Backend, request: ExecuteRequest) -> Result<CaseResult, Abort> {
-        match backend.execute(request) {
+        let executed = backend.execute(request);
+        if let Some((caller, case)) = &self.forward
+            && caller.is_cancelled()
+        {
+            case.cancel();
+        }
+        match executed {
             Ok(result) => self.judge(backend, result),
             Err(error) => Ok(self.failed(failure_of(&error)?)),
         }
@@ -402,6 +423,7 @@ impl Judge<'_> {
             load_records: self.load_stack_stop_record().into_iter().collect(),
             safety_limit_hit: false,
             failure: Some(failure),
+            run_facts_off_leaves: false,
         }
     }
 
@@ -468,6 +490,7 @@ impl Judge<'_> {
             leaf.matches = internal.matches;
             leaf.constructor_only = internal.constructor_only;
         }
+        let run_facts_off_leaves = run_facts_off_leaves(&result);
         let mut load_records = load_records(&result);
         load_records.extend(self.load_stack_stop_record());
         Ok(CaseResult {
@@ -480,6 +503,7 @@ impl Judge<'_> {
             load_records,
             safety_limit_hit: false,
             failure: None,
+            run_facts_off_leaves,
         })
     }
 
@@ -523,14 +547,23 @@ impl Judge<'_> {
                 BackendDiagnosticOutput::RuleConditionFailed { .. } => {
                     reasons.push(UncleanReason::SimplificationFailure);
                 }
-                // An undecided condition or predicate leaves a term unevaluated or a constraint
-                // on the leaf, which the internal judgement sees; an unevaluated hook leaves an
-                // application whose definedness `ceil_free` judges; the initial configuration's
-                // definedness obligations are constraints of the initial state.
+                // The initial configuration is defined only where these obligations hold, and
+                // the backend keeps them in `ExecutionState::defined_where`, never in the
+                // leaf's constraints: an instance where they fail has no run at all (review B2).
+                BackendDiagnosticOutput::UndefinedInitialInstances { .. } => {
+                    reasons.push(UncleanReason::Undecided);
+                }
+                // An undecided condition or predicate, or an unevaluated hook, leaves a function
+                // application or a constraint. A partial application is not `ceil_free`, and a
+                // constraint makes the leaf undecided. A total one is ceil-free and denotes a
+                // value: no rewrite rule and no leaf matcher refutes a function-headed subject
+                // (`k_rust_backend::matching`), so a step that needs its value halts
+                // `indeterminate`, and a target `requires` that reads it is refused as an
+                // uncomputed application (`k_rust_backend::search`), so neither can rest on it
+                // (review N1).
                 BackendDiagnosticOutput::UndecidedCondition { .. }
                 | BackendDiagnosticOutput::UndecidedPredicate { .. }
-                | BackendDiagnosticOutput::UnsupportedHookUnevaluated { .. }
-                | BackendDiagnosticOutput::UndefinedInitialInstances { .. } => {}
+                | BackendDiagnosticOutput::UnsupportedHookUnevaluated { .. } => {}
             }
         }
         reasons
@@ -564,36 +597,47 @@ impl Judge<'_> {
             matches: vec![false; self.matchers.len()],
             ..Internal::default()
         };
-        // The ends of a path: a hit, a comparison or a set of ends may rest on these.
+        // The ends of a path: a hit, a comparison, a set of ends or a `pattern at: final` match
+        // may rest on these (D16).
         let end_like = matches!(
             leaf.halt,
             HaltReasonOutput::Stuck | HaltReasonOutput::Terminal | HaltReasonOutput::Trivial
         );
+        // A depth or breadth cut leaves a state in the simplifier's normal form, which may carry
+        // a reach under `run-to-completion`; it must be clean apart from its halt to be
+        // `reached-unfinished` (review S1). A `work-bound`, `timeout` or `cancelled` leaf holds
+        // the stopped state as taken from the worklist, unexpanded and unnormalised, which is not
+        // a reached result (`HaltReasonOutput::WorkBound`), so its state is not judged: such a
+        // leaf can be reached only through its path's trace.
+        let judged = end_like
+            || matches!(
+                leaf.halt,
+                HaltReasonOutput::DepthBound | HaltReasonOutput::BreadthBound
+            );
+        if !judged {
+            return Ok(internal);
+        }
         let pattern = match definition
             .admit_unverified(&leaf.state, &[])
             .internalize_pattern()
         {
             Ok(pattern) => pattern,
             Err(error) => {
-                if end_like {
-                    internal
-                        .reasons
-                        .push(UncleanReason::Internalization(error.to_string()));
-                }
+                internal
+                    .reasons
+                    .push(UncleanReason::Internalization(error.to_string()));
                 return Ok(internal);
             }
         };
         let attributes = pattern.term.attributes();
         let decided = pattern.constraints.is_empty() && attributes.variables.is_empty();
-        if end_like {
-            if !decided {
-                internal.reasons.push(UncleanReason::Undecided);
-            }
-            if !attributes.ceil_free() {
-                internal.reasons.push(UncleanReason::NotCeilFree);
-            }
-        }
         if !decided {
+            internal.reasons.push(UncleanReason::Undecided);
+        }
+        if !attributes.ceil_free() {
+            internal.reasons.push(UncleanReason::NotCeilFree);
+        }
+        if !decided || !end_like {
             return Ok(internal);
         }
         if self.constructor_only {
@@ -601,12 +645,14 @@ impl Judge<'_> {
         }
         if leaf.halt == HaltReasonOutput::Stuck {
             if self.default_normal_end && attributes.k_cells() != 1 {
-                internal.reasons.push(UncleanReason::NoNormalEndPattern);
+                internal.reasons.push(UncleanReason::NaturalEndUndecided);
             } else {
                 match self.match_leaf(definition, solver, self.normal_end, &pattern)? {
                     MatchVerdict::Matched => internal.normal_end = true,
                     MatchVerdict::NotMatched => {}
-                    MatchVerdict::Undecided => internal.reasons.push(UncleanReason::UndecidedMatch),
+                    MatchVerdict::Undecided => {
+                        internal.reasons.push(UncleanReason::NaturalEndUndecided);
+                    }
                 }
             }
         }
@@ -621,10 +667,15 @@ impl Judge<'_> {
     }
 
     /// Match `subject` against `matcher` as `krun --pattern` does, in execution mode; a match
-    /// counts only with empty constraints. A match of a target that evaluates something must
-    /// also hold in proof mode, where a value the definition leaves to the implementation stays
-    /// unevaluated, so that the verdict is a consequence of the definition and not of k-rust's
-    /// choice: the matcher reports no path facts of its own.
+    /// counts only with empty constraints. A target that evaluates something (it has
+    /// constraints, or a head that is not a free constructor) is also matched in proof mode,
+    /// where a value the definition leaves to the implementation stays unevaluated, and the two
+    /// verdicts must agree: `Matched` only when both match, `NotMatched` only when both refute,
+    /// `Undecided` otherwise (D16, review B1). The matcher reports no path facts, so this is how
+    /// a verdict resting on k-rust's chosen value is caught in either direction. A verdict
+    /// resting on a contradicted claim met while the target's `requires` is evaluated is not
+    /// caught: k-rust reads the undefined value as undefined in both modes
+    /// (GAP-REQUIRES-CLAIMS, review S4).
     fn match_leaf(
         &self,
         definition: &BackendDefinition,
@@ -644,12 +695,14 @@ impl Judge<'_> {
             })
         };
         let execution = verdict(run(EvaluationMode::Execution))?;
-        if execution != MatchVerdict::Matched || matcher.mode_independent {
+        if matcher.mode_independent || execution == MatchVerdict::Undecided {
             return Ok(execution);
         }
-        Ok(match verdict(run(EvaluationMode::Proof))? {
-            MatchVerdict::Matched => MatchVerdict::Matched,
-            MatchVerdict::NotMatched | MatchVerdict::Undecided => MatchVerdict::Undecided,
+        let proof = verdict(run(EvaluationMode::Proof))?;
+        Ok(if proof == execution {
+            execution
+        } else {
+            MatchVerdict::Undecided
         })
     }
 }
@@ -702,7 +755,7 @@ fn load_records(result: &ExecutionResult) -> Vec<LoadRecord> {
         }
     }
     for (kind, hooks) in [
-        ("allowance-refusal", &result.allowance_refusals),
+        (LOAD_ALLOWANCE_REFUSAL, &result.allowance_refusals),
         ("unsupported-hook", &result.unsupported_hooks),
     ] {
         for hook in hooks {
@@ -715,4 +768,47 @@ fn load_records(result: &ExecutionResult) -> Vec<LoadRecord> {
         }
     }
     records
+}
+
+/// Whether the run noted an implementation-chosen value or a contradicted claim (`observedIn:
+/// run`) that no leaf's diagnostics carry (D16, review B3).
+fn run_facts_off_leaves(result: &ExecutionResult) -> bool {
+    let leaf_diagnostics = || result.leaves.iter().flat_map(|leaf| &leaf.diagnostics);
+    facts_off_leaves(
+        &result.implementation_chosen_values,
+        &result.contradicted_claims,
+        leaf_diagnostics,
+    )
+}
+
+/// [`run_facts_off_leaves`] over the run's lists and the leaves' diagnostics.
+pub(super) fn facts_off_leaves<'a, I>(
+    chosen: &[ChosenValueOutput],
+    claims: &[ContradictedClaimOutput],
+    leaf_diagnostics: impl Fn() -> I,
+) -> bool
+where
+    I: Iterator<Item = &'a BackendDiagnosticOutput>,
+{
+    let chosen_off = chosen.iter().any(|value| {
+        !leaf_diagnostics().any(|diagnostic| {
+            matches!(
+                diagnostic,
+                BackendDiagnosticOutput::ImplementationChosenValue { hook, class }
+                    if *hook == value.hook && *class == value.class
+            )
+        })
+    });
+    let claim_off = claims
+        .iter()
+        .filter(|claim| claim.observed_in == ObservedInOutput::Run)
+        .any(|claim| {
+            !leaf_diagnostics().any(|diagnostic| {
+                matches!(
+                    diagnostic,
+                    BackendDiagnosticOutput::ContradictedClaim(record) if record == claim
+                )
+            })
+        });
+    chosen_off || claim_off
 }

@@ -43,6 +43,18 @@ fn taint() -> &'static Compiled {
     support::TAINT.compiled()
 }
 
+/// The default options, under the default work bound, and options without any work budget
+/// (`max_depth` only), under which a leaf carries only its own path facts.
+fn budgets() -> [CaseOptions; 2] {
+    [
+        CaseOptions::default(),
+        CaseOptions {
+            max_depth: Some(10_000),
+            ..CaseOptions::default()
+        },
+    ]
+}
+
 const DIV_IMP: &str = include_str!("../../tests/data/imp/div.imp");
 const LOOP_IMP: &str = include_str!("../../tests/data/imp/loop.imp");
 
@@ -202,44 +214,52 @@ fn a_leaf_holding_a_lookup_of_a_missing_key_is_not_ceil_free() {
 
 #[test]
 fn a_natural_looking_end_holding_a_partial_application_is_not_ceil_free() {
-    // `get(2)`: `find(1 |-> 10, 2)` stays unevaluated on a `stuck` leaf with an empty `<k>`, no
-    // constraint and no diagnostic; the other leaf is the undefined step.
-    let result = taint().run("get(2)");
-    assert!(result.failure.is_none(), "{:?}", result.failure);
-    let stuck: Vec<&LeafReport> = result
-        .leaves
-        .iter()
-        .filter(|leaf| leaf.halt == HaltReasonOutput::Stuck)
-        .collect();
-    assert_eq!(stuck.len(), 1, "{result:#?}");
-    assert_eq!(stuck[0].unclean, [UncleanReason::NotCeilFree]);
-    assert!(!stuck[0].natural_end);
-    for run_to_completion in [false, true] {
-        for reached in [false, true] {
-            let reached = vec![reached; result.leaves.len()];
-            assert_eq!(
-                class(&result, &reached, run_to_completion),
-                OutcomeClass::Unsupported
-            );
+    // With the default work bound every leaf carries every run fact; without a budget only
+    // the leaf's own diagnostics count (review S5).
+    for options in budgets() {
+        // `get(2)`: `find(1 |-> 10, 2)` stays unevaluated on a `stuck` leaf with an empty `<k>`, no
+        // constraint and no diagnostic; the other leaf is the undefined step.
+        let result = taint().run_with("get(2)", &options, &TargetNeeds::default(), &[]);
+        assert!(result.failure.is_none(), "{:?}", result.failure);
+        let stuck: Vec<&LeafReport> = result
+            .leaves
+            .iter()
+            .filter(|leaf| leaf.halt == HaltReasonOutput::Stuck)
+            .collect();
+        assert_eq!(stuck.len(), 1, "{result:#?}");
+        assert_eq!(stuck[0].unclean, [UncleanReason::NotCeilFree]);
+        assert!(!stuck[0].natural_end);
+        for run_to_completion in [false, true] {
+            for reached in [false, true] {
+                let reached = vec![reached; result.leaves.len()];
+                assert_eq!(
+                    class(&result, &reached, run_to_completion),
+                    OutcomeClass::Unsupported
+                );
+            }
         }
+        let anchor = taint().run_with("get(1)", &options, &TargetNeeds::default(), &[]);
+        assert!(only_leaf(&anchor).natural_end);
     }
-    let anchor = taint().run("get(1)");
-    assert!(only_leaf(&anchor).natural_end);
 }
 
 #[test]
 fn a_leaf_carrying_a_run_observed_contradicted_claim_is_unsupported() {
-    let result = taint().run("guard(0)");
-    let leaf = only_leaf(&result);
-    assert_eq!(leaf.halt, HaltReasonOutput::Stuck);
-    assert_eq!(leaf.unclean, [UncleanReason::ContradictedClaim]);
-    assert!(!leaf.natural_end);
-    for reached in [false, true] {
-        assert_eq!(class(&result, &[reached], false), OutcomeClass::Unsupported);
+    // With the default work bound every leaf carries every run fact; without a budget only
+    // the leaf's own diagnostics count (review S5).
+    for options in budgets() {
+        let result = taint().run_with("guard(0)", &options, &TargetNeeds::default(), &[]);
+        let leaf = only_leaf(&result);
+        assert_eq!(leaf.halt, HaltReasonOutput::Stuck);
+        assert_eq!(leaf.unclean, [UncleanReason::ContradictedClaim]);
+        assert!(!leaf.natural_end);
+        for reached in [false, true] {
+            assert_eq!(class(&result, &[reached], false), OutcomeClass::Unsupported);
+        }
+        let anchor = taint().run_with("guard(5)", &options, &TargetNeeds::default(), &[]);
+        assert!(only_leaf(&anchor).natural_end);
+        assert_eq!(class(&anchor, &[true], true), OutcomeClass::Hit);
     }
-    let anchor = taint().run("guard(5)");
-    assert!(only_leaf(&anchor).natural_end);
-    assert_eq!(class(&anchor, &[true], true), OutcomeClass::Hit);
 }
 
 #[test]
@@ -310,30 +330,35 @@ fn an_undefined_step_is_undefined_and_never_a_hit() {
 
 #[test]
 fn a_chosen_value_leaf_is_unsupported_never_a_miss_or_a_hit() {
-    let result = chosen().run("listKeys(1, 2)");
-    let leaf = only_leaf(&result);
-    assert_eq!(leaf.halt, HaltReasonOutput::Stuck);
-    assert!(
-        leaf.unclean
-            .contains(&UncleanReason::ImplementationChosenValue),
-        "{:?}",
-        leaf.unclean
-    );
-    assert!(!leaf.natural_end);
-    for reached in [false, true] {
-        for run_to_completion in [false, true] {
-            assert_eq!(
-                class(&result, &[reached], run_to_completion),
-                OutcomeClass::Unsupported
-            );
+    // With the default work bound every leaf carries every run fact; without a budget only
+    // the leaf's own diagnostics count (review S5).
+    for options in budgets() {
+        let result = chosen().run_with("listKeys(1, 2)", &options, &TargetNeeds::default(), &[]);
+        let leaf = only_leaf(&result);
+        assert_eq!(leaf.halt, HaltReasonOutput::Stuck);
+        assert!(
+            leaf.unclean
+                .contains(&UncleanReason::ImplementationChosenValue),
+            "{:?}",
+            leaf.unclean
+        );
+        assert!(!leaf.natural_end);
+        for reached in [false, true] {
+            for run_to_completion in [false, true] {
+                assert_eq!(
+                    class(&result, &[reached], run_to_completion),
+                    OutcomeClass::Unsupported
+                );
+            }
         }
+        let set = chosen().run_with("listSet(1, 2)", &options, &TargetNeeds::default(), &[]);
+        assert_eq!(class(&set, &[false], false), OutcomeClass::Unsupported);
+        // One key: the listing is determined, no mark.
+        let determined =
+            chosen().run_with("listKeys(1, 1)", &options, &TargetNeeds::default(), &[]);
+        assert!(only_leaf(&determined).natural_end);
+        assert_eq!(class(&determined, &[false], false), OutcomeClass::Miss);
     }
-    let set = chosen().run("listSet(1, 2)");
-    assert_eq!(class(&set, &[false], false), OutcomeClass::Unsupported);
-    // One key: the listing is determined, no mark.
-    let determined = chosen().run("listKeys(1, 1)");
-    assert!(only_leaf(&determined).natural_end);
-    assert_eq!(class(&determined, &[false], false), OutcomeClass::Miss);
 }
 
 #[test]
@@ -584,6 +609,7 @@ fn result(leaves: Vec<LeafReport>) -> CaseResult {
         load_records: Vec::new(),
         safety_limit_hit: false,
         failure: None,
+        run_facts_off_leaves: false,
     }
 }
 
@@ -656,7 +682,6 @@ fn a_leaf_unclean_beyond_its_halt_is_unsupported_whether_or_not_it_reaches() {
         U::Internalization("x".to_owned()),
         U::SimplificationFailure,
         U::UndecidedMatch,
-        U::NoNormalEndPattern,
     ];
     for reason in reasons {
         for halt in [HaltReasonOutput::Stuck, HaltReasonOutput::DepthBound] {
@@ -859,4 +884,240 @@ fn the_class_names_and_key_order_are_fixed() {
             class.name()
         );
     }
+}
+
+// ---------------------------------------------------------------- fix round (review, D16)
+
+#[test]
+fn a_no_match_that_rests_on_an_implementation_chosen_value_is_undecided() {
+    // Review B1: `Set2List` of `{1, 2}` lists its items in an order the definition leaves
+    // open. Whichever order the target names, one mode decides and the other does not, so
+    // neither direction may give `NotMatched` (a `miss`) or `Matched`.
+    for options in budgets() {
+        let result = chosen().run_with(
+            "listKeys(1, 1)",
+            &options,
+            &TargetNeeds::default(),
+            &[
+                "<out> L </out> requires {Set2List(List2Set(L ListItem(2))) [ 0 ]}:>Int ==Int 2",
+                "<out> L </out> requires {Set2List(List2Set(L ListItem(2))) [ 0 ]}:>Int ==Int 1",
+            ],
+        );
+        let leaf = only_leaf(&result);
+        assert_eq!(leaf.unclean, [UncleanReason::UndecidedMatch]);
+        assert_eq!(leaf.matches, [false, false]);
+        for reached in [false, true] {
+            assert_eq!(class(&result, &[reached], false), OutcomeClass::Unsupported);
+        }
+    }
+}
+
+#[test]
+fn a_leaf_of_an_initial_configuration_defined_only_under_obligations_is_undecided() {
+    // Review B2: the initial `<out>` holds `find(1 |-> 10, 2)`, a partial application whose
+    // definedness the simplifier cannot decide; `get(1)` discards it. The leaf is a natural
+    // end with no constraint, but the run exists only where `find(1 |-> 10, 2)` is defined.
+    let fixture = taint();
+    // The initial configuration in normal form: the state of a run cut at depth 0.
+    let at_start = CaseOptions {
+        max_depth: Some(0),
+        ..CaseOptions::default()
+    };
+    let start = fixture.run_with("get(1)", &at_start, &TargetNeeds::default(), &[]);
+    let anchor = KorePrinter::compact().print_pattern(&only_leaf(&start).state);
+    let out = r"Lbl'-LT-'out'-GT-'{}(dotk{}())";
+    assert_eq!(anchor.matches(out).count(), 1, "{anchor}");
+    let find = r#"Lbl'-LT-'out'-GT-'{}(kseq{}(Lblfind{}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1")), inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("10"))), inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("2"))), dotk{}()))"#;
+    let initial = parse_pattern(&anchor.replace(out, find)).expect("the edited configuration");
+    for options in budgets() {
+        let mut executor = fixture.executor(&options);
+        let shape = CaseRequestShape::new(&options, &TargetNeeds::default());
+        let result = executor
+            .run(&initial, &shape, &[], None)
+            .expect("no solver prelude fails");
+        let leaf = only_leaf(&result);
+        // Without a solver the step under the obligation is `indeterminate`; with Z3 it runs and
+        // the leaf is the natural-looking end the review describes. Either way the path carries
+        // `undefined-initial-instances`.
+        #[cfg(feature = "z3")]
+        assert_eq!(leaf.halt, HaltReasonOutput::Stuck);
+        #[cfg(not(feature = "z3"))]
+        assert_eq!(leaf.halt, HaltReasonOutput::Indeterminate);
+        assert!(
+            leaf.unclean.contains(&UncleanReason::Undecided),
+            "{:?}",
+            leaf.unclean
+        );
+        assert!(!leaf.natural_end);
+        for reached in [false, true] {
+            assert_eq!(class(&result, &[reached], false), OutcomeClass::Unsupported);
+        }
+    }
+}
+
+#[test]
+fn run_facts_on_no_leaf_are_found() {
+    use k_rust::backend::{BackendDiagnosticOutput, ChosenValueOutput};
+    let chosen = |hook: &str| ChosenValueOutput {
+        hook: hook.to_owned(),
+        class: "order".to_owned(),
+    };
+    let mark = |hook: &str| BackendDiagnosticOutput::ImplementationChosenValue {
+        hook: hook.to_owned(),
+        class: "order".to_owned(),
+    };
+    let none: [BackendDiagnosticOutput; 0] = [];
+    assert!(!run::facts_off_leaves(&[], &[], || none.iter()));
+    let on_a_leaf = [mark("MAP.keys_list")];
+    assert!(!run::facts_off_leaves(
+        &[chosen("MAP.keys_list")],
+        &[],
+        || on_a_leaf.iter()
+    ));
+    // A vanished candidate read `SET.set2list`; no leaf carries it.
+    assert!(run::facts_off_leaves(
+        &[chosen("MAP.keys_list"), chosen("SET.set2list")],
+        &[],
+        || on_a_leaf.iter()
+    ));
+    assert!(run::facts_off_leaves(
+        &[chosen("MAP.keys_list")],
+        &[],
+        || none.iter()
+    ));
+}
+
+#[test]
+fn run_facts_on_no_leaf_block_miss_and_stuck_only() {
+    let flagged = |leaves: Vec<LeafReport>| CaseResult {
+        run_facts_off_leaves: true,
+        ..result(leaves)
+    };
+    assert_eq!(
+        class(&flagged(vec![natural()]), &[false], false),
+        OutcomeClass::Unsupported
+    );
+    assert_eq!(
+        class(&flagged(vec![abnormal()]), &[false], false),
+        OutcomeClass::Unsupported
+    );
+    // A hit on a clean, unmarked leaf is a leaf of every model on its own path.
+    assert_eq!(
+        class(&flagged(vec![natural()]), &[true], false),
+        OutcomeClass::Hit
+    );
+    assert_eq!(
+        class(
+            &flagged(vec![halted(HaltReasonOutput::DepthBound)]),
+            &[false],
+            false
+        ),
+        OutcomeClass::DepthBound
+    );
+    // The flag is not a determinism break.
+    assert!(flagged(vec![natural()]).determinism_breaks().is_empty());
+    // Every fixture run in one path carries its facts on its leaf.
+    for options in budgets() {
+        let one_path = chosen().run_with("listKeys(1, 2)", &options, &TargetNeeds::default(), &[]);
+        assert!(!one_path.run_facts_off_leaves);
+    }
+}
+
+#[test]
+fn a_cut_leaf_is_judged_and_reaches_unfinished_only_when_clean_apart_from_its_halt() {
+    // Review S1: `get(2)` cut at depth 1 holds the unevaluated partial `find(1 |-> 10, 2)`.
+    let options = CaseOptions {
+        max_depth: Some(1),
+        ..CaseOptions::default()
+    };
+    let result = taint().run_with("get(2)", &options, &TargetNeeds::default(), &[]);
+    let cut: Vec<&LeafReport> = result
+        .leaves
+        .iter()
+        .filter(|leaf| leaf.halt == HaltReasonOutput::DepthBound)
+        .collect();
+    assert_eq!(cut.len(), 1, "{result:#?}");
+    assert_eq!(
+        cut[0].unclean,
+        [UncleanReason::Halt, UncleanReason::NotCeilFree]
+    );
+    let reached: Vec<bool> = result
+        .leaves
+        .iter()
+        .map(|leaf| leaf.halt == HaltReasonOutput::DepthBound)
+        .collect();
+    assert_eq!(class(&result, &reached, true), OutcomeClass::Unsupported);
+    // A cut leaf is not a final state: no matcher is judged on it (D16).
+    let matched = imp().run_with(
+        LOOP_IMP,
+        &CaseOptions {
+            max_depth: Some(20),
+            ..CaseOptions::default()
+        },
+        &TargetNeeds::default(),
+        &["<k> _ </k>"],
+    );
+    let leaf = only_leaf(&matched);
+    assert_eq!(leaf.unclean, [UncleanReason::Halt]);
+    assert_eq!(leaf.matches, [false]);
+}
+
+#[test]
+fn a_pre_cancelled_caller_is_a_timeout_under_the_safety_limit_too() {
+    // Review S2: the caller's cancellation takes effect before the watchdog thread runs.
+    let fixture = imp();
+    let options = CaseOptions {
+        safety_limit_ms: Some(600_000),
+        ..CaseOptions::default()
+    };
+    let mut executor = fixture.executor(&options);
+    let shape = CaseRequestShape::new(&options, &TargetNeeds::default());
+    let token = CancellationToken::new();
+    token.cancel();
+    for _ in 0..20 {
+        let result = executor
+            .run(&fixture.initial_of(DIV_IMP), &shape, &[], Some(&token))
+            .expect("no solver prelude fails");
+        let reached = vec![false; result.leaves.len()];
+        assert_eq!(class(&result, &reached, false), OutcomeClass::Timeout);
+        assert!(
+            result
+                .determinism_breaks()
+                .contains(&DeterminismBreak::Clock)
+        );
+        assert!(!result.safety_limit_hit);
+    }
+}
+
+#[test]
+fn a_load_time_allowance_refusal_is_a_determinism_break() {
+    // Review S3.
+    let mut load = result(vec![natural()]);
+    load.load_records.push(LoadRecord {
+        kind: LOAD_ALLOWANCE_REFUSAL.to_owned(),
+        detail: "BYTES.padRight: refused".to_owned(),
+    });
+    assert_eq!(
+        load.determinism_breaks(),
+        [DeterminismBreak::AllowanceRefusal]
+    );
+    assert_eq!(class(&load, &[true], false), OutcomeClass::Unsupported);
+    assert_eq!(class(&load, &[false], false), OutcomeClass::Miss);
+}
+
+#[test]
+fn an_undecided_natural_end_matters_only_where_the_natural_end_does() {
+    // FZ-05 review N6: without run-to-completion a reaching leaf needs no natural end.
+    let undecided = leaf(
+        HaltReasonOutput::Stuck,
+        &[UncleanReason::NaturalEndUndecided],
+        false,
+    );
+    assert!(undecided.is_clean());
+    assert!(!undecided.unclean_beyond_halt());
+    let case = result(vec![undecided]);
+    assert_eq!(class(&case, &[true], false), OutcomeClass::Hit);
+    assert_eq!(class(&case, &[true], true), OutcomeClass::Unsupported);
+    // Without a reach it is neither `miss` nor `stuck`.
+    assert_eq!(class(&case, &[false], false), OutcomeClass::Unsupported);
 }

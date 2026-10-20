@@ -39,6 +39,12 @@ use crate::{
 /// concurrency").
 pub const LOAD_STACK_STOP: &str = "stack-stop";
 
+/// The `LoadRecord::kind` of a `Bytes` result the memory allowance refused in the definition's
+/// load. Like a load-time stack stop, it taints no leaf (T-5) but puts every case of the
+/// definition outside the determinism contract, since the load's result depended on the host's
+/// allowance (ARCHITECTURE 5.4).
+pub const LOAD_ALLOWANCE_REFUSAL: &str = "allowance-refusal";
+
 /// The one class every case receives (GOAL.md "Results", amended by decision D10;
 /// ARCHITECTURE 5.3, amended by decision D13).
 ///
@@ -54,7 +60,10 @@ pub const LOAD_STACK_STOP: &str = "stack-stop";
 /// - a leaf unclean beyond its halt is `unsupported`, whether or not it reaches the target: such
 ///   a leaf may hide a reaching state, so `miss` or `stuck` would be unsound (D13);
 /// - a clean leaf (`stuck`, or `terminal` on the target's own stop rule) that reaches the target
-///   is a `hit` candidate, and under `run-to-completion` only if it is a natural end;
+///   is a `hit` candidate, and under `run-to-completion` only if it is a natural end; when its
+///   natural end cannot be judged ([`UncleanReason::NaturalEndUndecided`], which is not a
+///   cleanliness defect) it is a `hit` candidate without `run-to-completion` and `unsupported`
+///   with it;
 /// - under `run-to-completion`, a reaching leaf that is clean in every respect except its halt,
 ///   where the halt is neither a natural end nor an unsupported halt (a clean abnormal stop, an
 ///   undefined step, or a cut: `depth-bound`, `breadth-bound`, `work-bound`, `timeout`,
@@ -63,7 +72,7 @@ pub const LOAD_STACK_STOP: &str = "stack-stop";
 ///   `run-to-completion` an undefined step or a cut run, and in every mode an unsupported or
 ///   `vacuous` halt);
 /// - a leaf that does not reach the target takes its halt's class: `stuck` gives `miss` for a
-///   natural end and `stuck` otherwise; `trivial` gives `undefined`; `depth-bound` and
+///   natural end, `unsupported` when the natural end cannot be judged, and `stuck` otherwise; `trivial` gives `undefined`; `depth-bound` and
 ///   `breadth-bound` give `depth-bound`; `work-bound` gives `work-bound`; `timeout` and
 ///   `cancelled` give `timeout`; `indeterminate`, `unsupported-hook`, `simplification-error` and
 ///   `vacuous` give `unsupported`; `branch` and `cut-point`, which the request never asks for,
@@ -82,6 +91,11 @@ pub const LOAD_STACK_STOP: &str = "stack-stop";
 ///   stopped part of the case, and as `unsupported` otherwise (a stack stop in the definition's
 ///   load);
 /// - the per-case safety limit adds `timeout`;
+/// - when the run noted an implementation-chosen value or a contradicted claim that no leaf
+///   carries ([`CaseResult::run_facts_off_leaves`]), a case that would be `miss` or `stuck` is
+///   `unsupported`: some path that vanished in k-rust's model may give a leaf, possibly a
+///   reaching one, in another model (D16, review B3). A hit on a clean, unmarked leaf stays a
+///   hit;
 /// - a result whose every leaf is `vacuous` at depth 0, or that has no leaf, is `rejected`: the
 ///   backend refuses the initial state;
 /// - an `Err` result is classed by its [`CaseFailure`]: a cancellation or step deadline is
@@ -180,14 +194,18 @@ impl OutcomeClass {
     }
 }
 
-/// Why a leaf is not clean (ARCHITECTURE 5.2). A leaf is clean when the list is empty. The list
-/// is sorted and holds each reason once.
+/// Why a leaf is not clean (ARCHITECTURE 5.2). The list is sorted and holds each reason once. A
+/// leaf is clean when it holds no reason but [`Self::NaturalEndUndecided`], which says only that
+/// the natural end cannot be judged on the leaf.
 #[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum UncleanReason {
     /// Its halt is neither `stuck` nor `terminal` for the target's own stop rule.
     Halt,
-    /// It has constraints or variables: not a decided state.
+    /// It has constraints or variables, or its path carries `undefined-initial-instances`: the
+    /// initial configuration is defined only where obligations hold that the backend keeps apart
+    /// from the constraints (`ExecutionState::defined_where`), so the leaf may denote nothing
+    /// (D16, review B2). Not a decided state.
     Undecided,
     /// Its internalized term is not `ceil_free`: an application of a partial function or a
     /// malformed map or set (T-1).
@@ -216,10 +234,13 @@ pub enum UncleanReason {
     /// k-rust's execution mode but not as a consequence of the definition alone (it rests on a
     /// value the definition leaves to the implementation).
     UndecidedMatch,
-    /// The definition has no normal-termination pattern for this leaf: the default `<k> .K </k>`
-    /// is meaningful only for a configuration with exactly one `<k>` cell, and this leaf has
-    /// another number (ARCHITECTURE 5.2, R-2). The campaign must supply a pattern.
-    NoNormalEndPattern,
+    /// Not a cleanliness defect: whether this `stuck` leaf is a natural end cannot be judged.
+    /// Either the default `<k> .K </k>` does not apply, because it is meaningful only for a
+    /// configuration with exactly one `<k>` cell (ARCHITECTURE 5.2, R-2; the campaign must
+    /// supply a pattern), or the normal-termination pattern's match is undecided on the leaf. It
+    /// matters only where the natural end does: `run-to-completion`, and `miss` against `stuck`
+    /// (FZ-05 review N6).
+    NaturalEndUndecided,
 }
 
 /// A fact of a case that puts it outside the determinism contract (ARCHITECTURE 5.4). Such a
@@ -234,7 +255,7 @@ pub enum DeterminismBreak {
     /// Nonzero `stackStops`, a stop for lack of stack that ended the run, or stack stops during
     /// the definition's load.
     StackStops,
-    /// An allowance refusal observed in the run.
+    /// An allowance refusal observed in the run, or in the definition's load.
     AllowanceRefusal,
 }
 
@@ -248,16 +269,18 @@ pub struct LeafReport {
     pub depth: u64,
     /// The leaf's configuration as KORE, after k-rust's normalization.
     pub state: KorePattern,
-    /// Why the leaf is not clean; empty for a clean leaf. Sorted, each reason once.
+    /// Why the leaf is not clean. Sorted, each reason once; a clean leaf holds none but
+    /// [`UncleanReason::NaturalEndUndecided`].
     pub unclean: Vec<UncleanReason>,
     /// The leaf is a clean `stuck` leaf that matches the normal-termination pattern with empty
     /// constraints.
     pub natural_end: bool,
     /// For each extra matcher passed to [`Executor::run`], in order: the leaf matches it with
-    /// empty constraints. Judged on every leaf whose state can be decided (it internalizes, with
-    /// no constraints and no variables), clean or not, so that a reaching leaf that is not clean
-    /// is visible (D13); `false` on a leaf that cannot be decided, and on a leaf whose match was
-    /// undecided ([`UncleanReason::UndecidedMatch`]).
+    /// empty constraints. Judged on every end leaf (`stuck`, `trivial` or `terminal`; a leaf cut
+    /// by a bound is not a final state, D16) whose state can be decided (it internalizes, with no
+    /// constraints and no variables), clean or not, so that a reaching leaf that is not clean is
+    /// visible (D13). `false` on any other leaf, and on a leaf whose match was undecided
+    /// ([`UncleanReason::UndecidedMatch`]).
     pub matches: Vec<bool>,
     /// The unique ids of the `Rewrite` entries of the leaf's trace, in order; empty unless the
     /// request asked for traces.
@@ -273,15 +296,26 @@ impl LeafReport {
     /// Whether the leaf is clean (ARCHITECTURE 5.2).
     #[must_use]
     pub fn is_clean(&self) -> bool {
-        self.unclean.is_empty()
+        self.unclean
+            .iter()
+            .all(|reason| *reason == UncleanReason::NaturalEndUndecided)
     }
 
     /// Whether the leaf is unclean for a reason other than its halt (D13).
     #[must_use]
     pub fn unclean_beyond_halt(&self) -> bool {
-        self.unclean
-            .iter()
-            .any(|reason| *reason != UncleanReason::Halt)
+        self.unclean.iter().any(|reason| {
+            !matches!(
+                reason,
+                UncleanReason::Halt | UncleanReason::NaturalEndUndecided
+            )
+        })
+    }
+
+    /// Whether the leaf's natural end cannot be judged ([`UncleanReason::NaturalEndUndecided`]).
+    #[must_use]
+    pub fn natural_end_undecided(&self) -> bool {
+        self.unclean.contains(&UncleanReason::NaturalEndUndecided)
     }
 }
 
@@ -345,6 +379,15 @@ pub struct CaseResult {
     /// Why `Backend::execute` or the judgement of its leaves answered `Err`; the leaves are then
     /// empty.
     pub failure: Option<CaseFailure>,
+    /// The run noted an implementation-chosen value or a contradicted claim
+    /// (`ExecutionResult::implementation_chosen_values`, the `observedIn: run` entries of
+    /// `contradicted_claims`) that no leaf's diagnostics carry. That happens without `max_work`
+    /// or `max_breadth` under all paths, when work that read a value or met a claim ended on no
+    /// reported leaf (a candidate that vanished); in another model of the definition such work
+    /// may give a leaf. So the leaves are not every end of every model: the case cannot be `miss`
+    /// or `stuck` ([`classify`]), and a differential baseline with the flag is incomplete
+    /// (D16, review B3).
+    pub run_facts_off_leaves: bool,
 }
 
 impl CaseResult {
@@ -383,7 +426,12 @@ impl CaseResult {
         {
             breaks.push(DeterminismBreak::StackStops);
         }
-        if self.run_allowance_refusals > 0 {
+        if self.run_allowance_refusals > 0
+            || self
+                .load_records
+                .iter()
+                .any(|record| record.kind == LOAD_ALLOWANCE_REFUSAL)
+        {
             breaks.push(DeterminismBreak::AllowanceRefusal);
         }
         breaks
@@ -531,7 +579,11 @@ pub(crate) fn classify(
         };
         consider(class);
     }
-    Ok(best.expect("a result with a leaf has a class"))
+    let best = best.expect("a result with a leaf has a class");
+    if result.run_facts_off_leaves && matches!(best, OutcomeClass::Miss | OutcomeClass::Stuck) {
+        return Ok(OutcomeClass::Unsupported);
+    }
+    Ok(best)
 }
 
 /// The class of an `Err` result (FZ-01 review S8).
@@ -564,14 +616,21 @@ fn leaf_class(
     }
     if leaf.is_clean() {
         // A `stuck` leaf, or a `terminal` one on the target's own stop rule.
+        let undecided = leaf.natural_end_undecided();
         return if reached {
-            Ok(if run_to_completion && !leaf.natural_end {
-                OutcomeClass::ReachedUnfinished
-            } else {
+            Ok(if !run_to_completion {
                 OutcomeClass::Hit
+            } else if undecided {
+                OutcomeClass::Unsupported
+            } else if leaf.natural_end {
+                OutcomeClass::Hit
+            } else {
+                OutcomeClass::ReachedUnfinished
             })
         } else if leaf.halt == H::Terminal {
             Err("a terminal leaf that does not reach the target, whose rule is the only stop rule")
+        } else if undecided {
+            Ok(OutcomeClass::Unsupported)
         } else if leaf.natural_end {
             Ok(OutcomeClass::Miss)
         } else {
