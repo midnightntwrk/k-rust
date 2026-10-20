@@ -33,7 +33,9 @@
 //! pointer memo, while field collection recurses without a memo and multiplies prefix and item
 //! alternatives; generated field names saturate a reserved-name set.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
+
+use rustc_hash::FxHashMap;
 use std::rc::Rc;
 
 use k_rust_kore::measure::{self, Algorithm};
@@ -50,7 +52,7 @@ use super::{
 use super::{ParsedParts, ParsedTerm};
 
 type PackedRecordResult = Result<Rc<PackedTerm>, ParseError>;
-type PackedRecordMemo = HashMap<*const PackedTerm, (Rc<PackedTerm>, PackedRecordResult)>;
+type PackedRecordMemo = FxHashMap<*const PackedTerm, (Rc<PackedTerm>, PackedRecordResult)>;
 
 /// The order in which one record collapse visits the alternatives of an ambiguity.
 ///
@@ -65,7 +67,7 @@ struct RecordCollapseOrder {
     structural: StructuralOrder,
     /// Whether a record production occurs at or below each node asked about, by address; each
     /// entry keeps its node alive, so no other node takes the address meanwhile.
-    records: HashMap<*const PackedTerm, (Rc<PackedTerm>, bool)>,
+    records: FxHashMap<*const PackedTerm, (Rc<PackedTerm>, bool)>,
 }
 
 impl RecordCollapseOrder {
@@ -297,7 +299,7 @@ impl Grammar {
         let _span = measure::algorithm_span(Algorithm::ParserDisambiguationCollapseRecords);
         let mut generated = BTreeMap::new();
         let mut next = 0;
-        let mut memo = HashMap::new();
+        let mut memo = FxHashMap::default();
         self.collapse_packed_records(
             term,
             &mut names,

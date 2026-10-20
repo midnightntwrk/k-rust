@@ -7390,6 +7390,11 @@ symbol = "Derivations::covers_extension"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/chart.rs"
+symbol = "Chart::add_prediction"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/chart.rs"
 symbol = "Chart::record_change"
 
 [[node.cost]]
