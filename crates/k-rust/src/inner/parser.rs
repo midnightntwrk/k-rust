@@ -3038,46 +3038,22 @@ impl Grammar {
                             boundaries.push((caller.production, caller.dot, completed.clone()));
                             completed
                         };
-                        let mut advance = |chart: &mut Chart,
-                                           caller: State,
-                                           caller_derivations: &Derivations,
-                                           completed: Rc<PackedTerm>,
-                                           earlier: Option<&[Chart]>|
+                        let advance = |chart: &mut Chart,
+                                       caller: State,
+                                       caller_derivations: &Derivations,
+                                       completed: Rc<PackedTerm>|
                          -> Result<(), ParseError> {
                             #[cfg(test)]
                             update_chart_work_counters(|counters| {
                                 counters.completion_caller_derivations_read +=
                                     caller_derivations.len();
                             });
-                            let advanced = State {
-                                dot: caller.dot + 1,
-                                ..caller
-                            };
-                            if let (Some(analysis), Some(winner), Some(earlier)) =
-                                (completion_analysis, winner, earlier)
-                                && !self.advanced_item_useful(
-                                    earlier,
-                                    advanced,
-                                    self.stands_for(advanced.production, state.production),
-                                    winner,
-                                    Reach {
-                                        analysis,
-                                        cycles,
-                                        filter: usefulness_filter,
-                                        root,
-                                        remaining: remaining_tokens.as_ref(),
-                                        from: canonical,
-                                    },
-                                    &mut useful_completions,
-                                    &mut reaching_nodes,
-                                )
-                            {
-                                *pruned = true;
-                                return Ok(());
-                            }
                             self.add_chart_extensions(
                                 chart,
-                                advanced,
+                                State {
+                                    dot: caller.dot + 1,
+                                    ..caller
+                                },
                                 caller_derivations,
                                 Some(&completed),
                             )?;
@@ -3094,15 +3070,57 @@ impl Grammar {
                                 .into_iter()
                                 .flatten()
                             {
+                                // A nonempty completion before the horizon advances only a
+                                // caller whose advanced item is useful
+                                // (`Grammar::advanced_item_useful`); skipping one records that
+                                // the recognition pruned.
+                                let useless = match (completion_analysis, winner) {
+                                    (Some(analysis), Some(winner)) => {
+                                        let advanced = State {
+                                            dot: caller.dot + 1,
+                                            ..*caller
+                                        };
+                                        !self.advanced_item_useful(
+                                            earlier,
+                                            advanced,
+                                            self.stands_for(advanced.production, state.production),
+                                            winner,
+                                            Reach {
+                                                analysis,
+                                                cycles,
+                                                filter: usefulness_filter,
+                                                root,
+                                                remaining: remaining_tokens.as_ref(),
+                                                from: canonical,
+                                            },
+                                            &mut useful_completions,
+                                            &mut reaching_nodes,
+                                        )
+                                    }
+                                    _ => false,
+                                };
+                                // Once a filtered first attempt has pruned, a useless caller
+                                // changes nothing, so what the nodes give it is not decided:
+                                // that decision only caches its result and records the first
+                                // violation of the relations at the caller's edge, which is read
+                                // only to explain a failed attempt, and a failed first attempt
+                                // that pruned is explained by its retry (`Grammar::diagnose`).
+                                if useless && *pruned && prediction_mode == PredictionMode::Filtered
+                                {
+                                    continue;
+                                }
                                 if let Some(completed) = boundary(caller)
                                     && let Some(caller_derivations) = origin.derivations(caller)
                                 {
+                                    if useless {
+                                        *pruned = true;
+                                        continue;
+                                    }
                                     advance(
                                         &mut later[0],
                                         *caller,
                                         &caller_derivations,
                                         completed,
-                                        Some(&*earlier),
                                     )?;
                                 }
                             }
@@ -3127,7 +3145,6 @@ impl Grammar {
                                     caller,
                                     &caller_derivations,
                                     completed,
-                                    None,
                                 )?;
                             }
                         }
