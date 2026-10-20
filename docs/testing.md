@@ -51,8 +51,13 @@ The `ci-checked` profile leaves out k-rust's `measure_ratchet`, whose snapshots 
 A change that breaks KRS fixes KRS in the same change: there is no k-rust pin to move.
 Beyond its Rust tests, KRS has gates (`krs/tests/<gate>/verify.py`) that compare its emitted K and its route through these crates with Java K results; `scripts/gates.toml` names them:
 
-- `krs-light` (certification, owed by a change to krust's sources or to KRS): every gate but the browser and heavy ones, about ten minutes after a change to these crates, since the gates build their tools (`krs`, `krs-gate`) once in the workspace's `target/`;
+- `krs-light` (certification, owed by a change to krust's sources or to KRS): every gate but the browser and heavy ones, four at a time (`KRS_LIGHT_JOBS`).
+  The gates build their tools (`krs`, `krs-gate`), the packages they check, and the collectors `krs` generates for those packages in the workspace's `target/`, so a change to these crates rebuilds each once; the run then removes the collectors of the gates' temporary packages from that target.
+  On 2026-10-20, on a 32-core host under a load of about 30 from other work, it took about four minutes after a change to these crates or to KRS, three with nothing changed, and nine from an empty target;
+  most of that is the gates' several hundred `krs` invocations, each of which runs Cargo to build or check a collector;
 - `krs-imp`, `krs-kevm`, `krs-kmir`, `krs-kwasm` (heavy, at a host UID): the complete IMP definition and the three language ports, one at a time.
+
+`krs/tests/gates.sh lint`, which `krs.yml` runs, lints the standalone test packages (`krs/tests/support/packages.py`) with Clippy and checks them on the MSRV; the gates only format-check them, since the lint judges the packages' source rather than what KRS does with it.
 
 The gates read Z3 4.12.5 through `KRS_Z3_LIB` (or the Nix store) and replay Java K results from a per-user cache; a cold cache runs K 7.1.337 through `KRS_K_BIN` or `PATH` (`krs/README.md`, "Prerequisites").
 When a change alters an output a gate pins on purpose, rerun that gate with `--record` and review the pin diff with the change; `--record` never rewrites an input pin.
@@ -65,7 +70,7 @@ When a change alters an output a gate pins on purpose, rerun that gate with `--r
 | A push or pull request that changes a trigger path | `nightly.yml`, called from `ci.yml` | the full portable suite of `k-rust`, `k-rust-wasm` and `k-rust-backend`, and the system-linked Z3 acquisition check (`scripts/z3-acquisition-check.sh`), each when its own trigger paths change |
 | Every night on the default branch, or on demand | `nightly.yml` | both path-triggered checks (the portable suite with its doc-tests), `scripts/backend-smoke.sh` with the release `krust` and the pinned K release's LLVM backend, and the value-contract oracle (`crates/k-rust-backend/src/tests/definedness_oracle`) at 20,000 random definitions with a date-derived seed printed in hexadecimal |
 | Every week, or on demand | `differential.yml` | the reference differential gates and `scripts/lean-check.sh`, the `weekly` entries of `scripts/gates.toml` |
-| A push to `main`, or a pull request that changes the workspace manifests, `crates/`, or `krs/` | `krs.yml` | KRS's tour verifiers, gate support tests, repository hygiene, documentation, feature and `wasm32` lint variants, the `semantics/` workspace, and the browser worker |
+| A push to `main`, or a pull request that changes the workspace manifests, `crates/`, or `krs/` | `krs.yml` | KRS's tour verifiers, gate support tests, repository hygiene, documentation, feature and `wasm32` lint variants, the standalone test packages' Clippy and MSRV checks, the `semantics/` workspace, and the browser worker |
 
 `scripts/ci-changed-paths.sh` defines the trigger paths and decides which path-triggered checks a push or pull request needs.
 The full portable suite follows the sources and tests of `k-rust` (including the embedded prelude), `k-rust-backend` and `k-rust-wasm`, the sources of `k-rust-kore` and `k-rust-regex`, the crate manifests, the lockfile and the nextest configuration; the acquisition check follows the manifests, the lockfile, the script, `z3_acquisition.rs`, `inner_rules.rs` and `examples/z3-inference.k`; a change to the workflows or to the script triggers both.

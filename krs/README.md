@@ -95,6 +95,9 @@ Review the resulting golden files and inline expectations before running the tes
 Run every gate from the repository root with `PYTHONDONTWRITEBYTECODE=1 python3 tests/<gate>/verify.py`.
 The KWasm, KEVM, KMIR, and IMP gates are memory heavy and must run one at a time.
 `tests/imp/README.md` gives the memory-bounded recipe for IMP; other gate-specific instructions live in each gate directory's README where one exists.
+`tests/gates.sh light` runs every gate but the browser and heavy ones (`../docs/testing.md`, "KRS").
+Those gates build their tools, the packages they check, and the collectors `krs` generates for them in one Cargo target, the repository's `target/`, which `KRS_TOOL_TARGET` or `CARGO_TARGET_DIR` moves; the heavy gates keep their own targets under the scratch directory.
+The gates format-check the standalone test packages, and `tests/gates.sh lint`, which CI runs, lints them with Clippy and checks them on the MSRV.
 
 A gate pins what it does not control and what KRS produces, never KRS source:
 
