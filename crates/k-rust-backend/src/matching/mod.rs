@@ -1886,6 +1886,10 @@ impl<'a> Matcher<'a> {
         Some((pattern, subject))
     }
 
+    /// Whether some production of the overload family of `pattern`'s head may build a value of
+    /// the sort of the variable `subject` injects, so that the pair is left to narrowing rather
+    /// than refuted by its roots. A subsort question that depends on a sort variable may have a
+    /// positive answer, so it counts.
     fn can_narrow_overload(&self, pattern: &Term, subject: &Term) -> bool {
         let Some(definition) = self.definition else {
             return false;
@@ -1909,7 +1913,7 @@ impl<'a> Matcher<'a> {
                     && self
                         .sorts
                         .check_subsort(&symbol.result_sort, &variable.sort)
-                        .unwrap_or(false)
+                        != Ok(false)
             })
     }
 
