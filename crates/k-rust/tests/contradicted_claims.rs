@@ -2301,8 +2301,8 @@ endmodule
 mod checks_off {
     use k_rust::{
         backend::{
-            ExecuteRequest, ExecutionStrategy, ObservedRequest, ResultModalityOutput,
-            SearchRequest, SearchTypeArg,
+            Backend, BackendOptions, ExecuteRequest, ExecutionStrategy, ObservedRequest,
+            ResultModalityOutput, SearchRequest, SearchTypeArg,
         },
         kore::{ast::Pattern, parser::parse_pattern, printer::Printer},
     };
@@ -2310,7 +2310,26 @@ mod checks_off {
     use k_rust_kore::measure::{self, Snapshot};
     use serde_json::Value;
 
-    use super::observed::{MODALITIES, STRATEGIES, backend_in, compile_in};
+    use super::observed::{MODALITIES, STRATEGIES, compile_in};
+
+    /// The SMT options of every run. The oracle compares `smt.rlimit_count`, the Z3 work of the
+    /// run's checks, which is a function of the queries only while no attempt is cut short: an
+    /// attempt the wall clock ends answers unknown and is retried, and both attempts count. With
+    /// the default 125 ms timeout a loaded host ends attempts that need microseconds of solver
+    /// work (one claim-free pair once counted 690 units on one side and 1,018 on the other,
+    /// every other counter equal). A 60 s timeout leaves the clock no say, and the resource
+    /// limit each attempt also carries, proportional to the timeout, saturates at Z3's largest
+    /// (about 4.3e9 units), while a run here counts about a thousand; so every query is decided
+    /// on its first attempt, as it is unloaded, and the count is the queries' own.
+    const SOLVER_OPTIONS: BackendOptions = BackendOptions {
+        smt_timeout_ms: 60_000,
+        smt_retry_limit: 3,
+    };
+
+    /// The backend of `kore` with main module `main`, under [`SOLVER_OPTIONS`].
+    fn backend_in(kore: &str, main: &str) -> Backend {
+        Backend::new(kore, main, SOLVER_OPTIONS).unwrap()
+    }
 
     /// The definition with every claim attribute removed.
     pub(super) fn strip(source: &str) -> String {
