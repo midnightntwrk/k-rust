@@ -83,7 +83,7 @@ pub(crate) fn print_k_text(value: &Value, sort: &ValueSort) -> Result<String, Pr
         } => {
             let text = text.as_ref().ok_or_else(|| no_syntax(name))?;
             return text
-                .print(&to_kore(value, sort)?)
+                .print(&to_kore(value, sort)?, name)
                 .map_err(PrintError::Unsupported);
         }
         _ => {}

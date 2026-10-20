@@ -29,8 +29,12 @@
 //!   hooked under another name): a leaf the builtin generator draws;
 //! - a collection sort (hooked `LIST.List`, `SET.Set`, `MAP.Map`): the definition does not state
 //!   its element sorts (K collections hold `KItem`), so only its empty collection is drawn, which
-//!   is a value of the sort whatever its element sorts are;
-//! - a data sort (no hook, no domain values) that is not excluded: another entry of the table;
+//!   is a value of the sort whatever its element sorts are. The hole-sort rule (FZ-02) refuses a
+//!   data sort that reaches a collection, so through `holes::resolve` this case is unreachable;
+//!   it is kept for callers of [`super::TextSyntax::resolve`] and [`super::resolve_value_sort`];
+//! - a data sort (no hook, no domain values) that is not excluded: another entry of the table
+//!   (the exclusions apply only to data sorts: a builtin or collection sort the program grammar
+//!   mentions, such as `Int`, stays a leaf, as ARCHITECTURE 2.4 exempts builtins);
 //! - anything else (a token sort such as `Id`, a hooked sort without generator, `K`, `KItem`, an
 //!   excluded program or cell sort, a parametric sort): unavailable, and a constructor with an
 //!   unavailable argument is not admissible.
@@ -54,8 +58,8 @@ use k_rust::{
 };
 
 use super::{
-    ArgumentSort, CollectionKind, DataConstructor, DataSort, DataSorts, EmptyCollection, ValueSort,
-    collection_symbols,
+    ArgumentSort, CollectionKind, DataConstructor, DataSort, DataSorts, EmptyCollection,
+    MAX_INT_BITS, ValueSort, collection_symbols,
 };
 use crate::error::SortRefusal;
 
@@ -149,7 +153,12 @@ impl Builder<'_> {
             let BackendSort::Application { name, arguments } = &symbol.result_sort else {
                 continue;
             };
-            if !arguments.is_empty() || (self.excluded)(name) || !below(name) {
+            // The result sort must itself be a data sort that is not excluded: a production of a
+            // token sort (`syntax Id ::= "main"`) or of a builtin builds no data value (T-9).
+            if !arguments.is_empty()
+                || !below(name)
+                || !matches!(self.classify(&symbol.result_sort), Class::Data(_))
+            {
                 continue;
             }
             let arguments = symbol
@@ -192,20 +201,28 @@ impl Builder<'_> {
 
         let mut subsorts = Vec::new();
         for (name, info) in self.definition.sorts() {
-            if name.as_ref() == sort.as_str()
-                || !info.parameters.is_empty()
-                || (self.excluded)(name)
-                || !below(name)
-            {
+            if name.as_ref() == sort.as_str() || !info.parameters.is_empty() || !below(name) {
                 continue;
             }
+            // Builtins and collections are classified before the exclusions (ARCHITECTURE 2.4
+            // exempts builtins from the program-syntax rule); an excluded data subsort is
+            // unavailable.
             if let Class::Leaf(leaf) =
                 self.classify(&BackendSort::application(name.as_ref(), Vec::new()))
             {
-                // Two subsorts with the same values (`Int` and a renamed `MyInt`) would make a
-                // value's KORE sort ambiguous; the first in name order is kept.
-                if !subsorts.iter().any(|kept| same_values(kept, &leaf)) {
-                    subsorts.push(leaf);
+                // Two subsorts with the same values (`Int` and a renamed `AInt`) would make a
+                // value's KORE sort ambiguous: one is kept, the canonical builtin when there is
+                // one (its literal reads back at its own sort), else the first in name order.
+                match subsorts.iter().position(|kept| same_values(kept, &leaf)) {
+                    None => subsorts.push(leaf),
+                    Some(at) => {
+                        let renamed = |leaf: &ArgumentSort| {
+                            matches!(leaf, ArgumentSort::Value(ValueSort::Renamed { .. }))
+                        };
+                        if renamed(&subsorts[at]) && !renamed(&leaf) {
+                            subsorts[at] = leaf;
+                        }
+                    }
                 }
             }
         }
@@ -214,14 +231,13 @@ impl Builder<'_> {
         entry.subsorts = subsorts;
     }
 
-    /// How values of `sort` are generated as a constructor argument or a subsort.
+    /// How values of `sort` are generated as a constructor argument or a subsort. Builtins
+    /// and collections are recognized before the exclusions are read: only a data sort can be
+    /// excluded.
     fn classify(&self, sort: &BackendSort) -> Class {
         let BackendSort::Application { name, arguments } = sort else {
             return Class::Unavailable;
         };
-        if (self.excluded)(name) {
-            return Class::Unavailable;
-        }
         if let Some(builtin) = builtin_value_sort(sort, self.definition) {
             return Class::Leaf(ArgumentSort::Value(builtin));
         }
@@ -233,7 +249,11 @@ impl Builder<'_> {
         }
         match info.hook.as_deref() {
             None if !info.has_domain_values && self.definition.domain_kind(sort).is_none() => {
-                Class::Data(name.to_string())
+                if (self.excluded)(name) {
+                    Class::Unavailable
+                } else {
+                    Class::Data(name.to_string())
+                }
             }
             Some(hook @ ("LIST.List" | "SET.Set" | "MAP.Map")) => {
                 let (kind, namespace) = match hook {
@@ -303,7 +323,10 @@ pub(super) fn builtin_value_sort(
         DomainKind::Bytes => (ValueSort::Bytes, sort.is_builtin(BuiltinSort::Bytes)),
         DomainKind::MInt(MIntWidth::Bits(width)) => (
             ValueSort::MInt {
-                width: u32::try_from(width).ok()?,
+                // A wider MInt is refused: its edge values alone would be too large to build.
+                width: u32::try_from(width)
+                    .ok()
+                    .filter(|width| *width <= MAX_INT_BITS)?,
             },
             name.as_ref() == MINT_SORT,
         ),

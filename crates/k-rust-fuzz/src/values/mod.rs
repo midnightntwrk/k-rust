@@ -36,7 +36,6 @@ use k_rust::{
     kast::parser::parse_sort,
     kompile::encode_kore_sort,
     kore::ast::Sort as KoreSort,
-    names::BuiltinSort,
 };
 use num_bigint::{BigInt, BigUint};
 use serde::{Deserialize, Serialize};
@@ -357,7 +356,8 @@ pub enum ElementSorts {
 ///   meets at most `depth` applications (a builtin leaf or an empty collection adds none).
 ///
 /// [`validate_bounds`] refuses bounds above [`MAX_INT_BITS`], [`MAX_GENERATED_LENGTH`] and
-/// [`MAX_DEPTH`], so that no bound makes generation allocate without limit.
+/// [`MAX_DEPTH`], and [`Generator::new`] keeps every value within [`MAX_VALUE_SIZE`], so that no
+/// bound makes generation allocate without limit.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct GenerationBounds {
@@ -381,6 +381,15 @@ pub const MAX_GENERATED_LENGTH: u64 = 1 << 16;
 
 /// The largest `depth` bound of data-sort terms.
 pub const MAX_DEPTH: u32 = 16;
+
+/// The size budget of one generated value: one unit per constructor application or leaf, plus
+/// one per 64 bits of an integer and one per character or byte of a string. A data hole whose
+/// largest value at the depth bound exceeds it is refused (the message names the depth that
+/// fits); a collection's maximum length is lowered so that its elements' largest values fit.
+/// The caps on each dimension alone ([`MAX_DEPTH`], [`MAX_GENERATED_LENGTH`]) do not bound a
+/// value: a wide constructor grows exponentially with depth, and lengths multiply when
+/// collections hold strings.
+pub const MAX_VALUE_SIZE: u128 = 1 << 17;
 
 /// Check `bounds` against [`MAX_INT_BITS`], [`MAX_GENERATED_LENGTH`] and [`MAX_DEPTH`].
 /// [`Generator::new`] calls it.
@@ -498,27 +507,19 @@ pub(super) fn resolve_with(
         Some(_) => Err(SortRefusal::NoGenerator),
         None => match hook {
             None if !info.has_domain_values => {
+                // `K`, `KItem` and K's internal sorts are computations whatever the syntax.
+                let internal = |name: &str| text::is_always_excluded(name);
+                if internal(name) {
+                    return Err(SortRefusal::Computation);
+                }
                 if !arguments.is_empty() || !info.parameters.is_empty() {
                     return Err(SortRefusal::NoGenerator);
                 }
                 if text.is_some_and(|text| text.is_excluded(name)) {
-                    return Err(
-                        if kore.is_builtin(BuiltinSort::K) || kore.is_builtin(BuiltinSort::KItem) {
-                            SortRefusal::Computation
-                        } else {
-                            SortRefusal::ProgramSyntax
-                        },
-                    );
+                    return Err(SortRefusal::ProgramSyntax);
                 }
-                let excluded = |name: &str| {
-                    text.map_or_else(
-                        || {
-                            name == BuiltinSort::K.kore_name()
-                                || name == BuiltinSort::KItem.kore_name()
-                        },
-                        |text| text.is_excluded(name),
-                    )
-                };
+                let excluded =
+                    |name: &str| text.map_or_else(|| internal(name), |text| text.is_excluded(name));
                 Ok(ValueSort::Data {
                     sort: text_sort.to_owned(),
                     table: data::data_table(name, definition, &excluded)?,
@@ -660,6 +661,13 @@ pub(crate) fn validate_constraints(
             }
             _ => return Err("a range applies only to Int and MInt holes".to_owned()),
         }
+    }
+    if let ValueSort::MInt { width } = sort
+        && *width > MAX_INT_BITS
+    {
+        return Err(format!(
+            "MInt{{{width}}} is wider than the cap on generated integers, {MAX_INT_BITS} bits"
+        ));
     }
     if let Some(length) = constraints.length {
         if !matches!(

@@ -55,9 +55,42 @@ fn int(value: i64) -> Value {
     Value::Int(BigInt::from(value))
 }
 
-/// VALUES's syntax with its program sorts excluded, as the hole-sort rule excludes them.
+/// The sorts the hole-sort rule excludes for VALUES, as FZ-02's `SortRule::excluded` builds
+/// them: the closure of `Pgm` in `VALUES-SYNTAX` (builtins included: `Stmt ::= Id "=" Int ";"`),
+/// the cell sorts, and K's internal sorts. `Bool`, `String`, `Bytes` and the collection sorts
+/// are added, as a program grammar mentioning them would add them (IMP's has `Int`, `Bool` and
+/// `Id`): builtins and collections stay generated whatever the set holds.
+const VALUES_EXCLUDED: &[&str] = &[
+    "Pgm",
+    "Stmt",
+    "Id",
+    "Int",
+    "Bool",
+    "String",
+    "Bytes",
+    "List",
+    "Set",
+    "Map",
+    "KCell",
+    "ShapeCell",
+    "RecCell",
+    "PairCell",
+    "WrapperCell",
+    "AccountCell",
+    "ListCell",
+    "SetCell",
+    "MapCell",
+    "GeneratedTopCell",
+    "GeneratedTopCellFragment",
+    "GeneratedCounterCell",
+    "KResult",
+    "KBott",
+    "KConfigVar",
+];
+
+/// VALUES's syntax with the hole-sort rule's exclusions.
 fn values_syntax() -> TextSyntax {
-    values().text_syntax(&["Pgm", "Stmt"])
+    values().text_syntax(VALUES_EXCLUDED)
 }
 
 fn resolve(
@@ -256,6 +289,102 @@ fn data_tables_follow_the_exclusions_and_inhabitation() {
         .map(|constructor| (constructor.symbol.as_str(), constructor.height))
         .collect::<Vec<_>>();
     assert_eq!(heights, [("Lblleaf", Some(1)), ("Lblnode", Some(2))]);
+}
+
+/// FZ-G6-09 review B1: the exclusions apply to data sorts only, so constructors with builtin
+/// arguments survive the set the hole-sort rule passes, which names `Int` and `Bool`.
+#[test]
+fn builtins_in_the_excluded_set_stay_generated() {
+    let definition = values();
+    let syntax = values_syntax();
+    for (name, expected) in [
+        ("Tree", vec!["Lblleaf", "Lblnode"]),
+        ("Account", vec!["Lblaccount"]),
+        ("Rec", vec!["Lblrec"]),
+        ("Pair", vec!["Lblpair"]),
+        ("Circle", vec!["Lblcircle"]),
+        ("Shape", vec!["Lblcircle", "Lblsquare", "LblunitSquare"]),
+    ] {
+        let sort = resolve(definition, &syntax, name, &none());
+        assert_eq!(constructor_symbols(&sort), expected, "{name}");
+        assert!(!draws(&sort, &none(), &GenerationBounds::default(), 10, 2).is_empty());
+    }
+    let val = resolve(definition, &syntax, "Val", &none());
+    let ValueSort::Data { table, .. } = &val else {
+        unreachable!()
+    };
+    assert_eq!(
+        table.sorts[0].subsorts.len(),
+        3,
+        "Val keeps Bool, Int and String"
+    );
+}
+
+/// The same through `holes::resolve`, with the exclusions FZ-02's rule computes itself.
+#[test]
+fn holes_resolve_data_holes_with_the_rules_exclusions() {
+    use crate::{
+        holes::{HoleDecl, HoleLocation, resolve as resolve_holes},
+        spec::{CompiledDefinition, ProgramInput, ProgramSource, ProgramText},
+    };
+    let definition = values();
+    let compiled = CompiledDefinition::from_artifacts(
+        definition.main_module,
+        definition.syntax_module.clone(),
+        definition.frontend.clone(),
+        definition.artifacts.clone(),
+    )
+    .unwrap();
+    let bindings = [
+        ("SHAPE", "circle(5)"),
+        ("REC", "rec(true, unit, node(leaf(1), leaf(2)))"),
+        ("PAIR", "1 & 2"),
+        ("WRAPPER", "wb(\"a\", b\"b\")"),
+        ("ACCOUNT", "account(1, .Map)"),
+        ("LIST", ".List"),
+        ("SET", ".Set"),
+        ("MAP", ".Map"),
+    ];
+    let program = ProgramInput::Source(ProgramSource {
+        program: Some(ProgramText {
+            name: "run.pgm".into(),
+            text: "run".into(),
+            start_sort: "Pgm".into(),
+        }),
+        config_vars: bindings
+            .iter()
+            .map(|(name, text)| ((*name).to_owned(), (*text).to_owned()))
+            .collect(),
+    });
+    let hole = |name: &str, sort: &str| HoleDecl {
+        name: name.into(),
+        sort: sort.into(),
+        location: HoleLocation::ConfigVar { name: name.into() },
+        constraints: none(),
+        allow_refused_sort: false,
+    };
+    let decls = [
+        hole("SHAPE", "Shape"),
+        hole("REC", "Rec"),
+        hole("PAIR", "Pair"),
+    ];
+    let resolved = resolve_holes(&decls, &program, &compiled, &definition.backend)
+        .unwrap_or_else(|error| panic!("{error:?}"));
+    for resolved in &resolved.holes {
+        assert!(
+            !constructor_symbols(&resolved.sort).is_empty(),
+            "{}: {:?}",
+            resolved.decl.name,
+            resolved.sort
+        );
+        let generator = Generator::new(&resolved.sort, &none(), &GenerationBounds::default())
+            .unwrap_or_else(|error| panic!("{}: {error}", resolved.decl.name));
+        let mut rng = ValueRng::from_seed([7; 32]);
+        for _ in 0..10 {
+            let value = generator.generate(&mut rng).current();
+            print_k_text(&value, &resolved.sort).unwrap();
+        }
+    }
 }
 
 #[test]
@@ -549,14 +678,19 @@ fn values_round_trip_through_the_assembler() {
 #[test]
 fn imp_values_print_and_parse_back() {
     let imp = imp();
-    let syntax = imp.text_syntax(&["Pgm", "Stmt", "AExp", "BExp", "Block", "Ids"]);
+    let syntax = imp.text_syntax(&[
+        "Pgm", "Stmt", "AExp", "BExp", "Block", "Ids", "Int", "Bool", "Id",
+    ]);
     let bounds = GenerationBounds::default();
+    // `KResult` is one of K's internal sorts, which the hole-sort rule refuses.
+    assert_eq!(
+        syntax.resolve("KResult", &none(), &imp.backend),
+        Err(SortRefusal::Computation)
+    );
     for (name, constraints) in [
-        ("KResult", none()),
         ("Map", entries("Int", "Int")),
         ("Map", entries("Int", "Bool")),
         ("Set", elements("Int")),
-        ("Set", elements("KResult")),
     ] {
         let sort = resolve(imp, &syntax, name, &constraints);
         for value in draws(&sort, &none(), &bounds, 30, 4) {
@@ -680,7 +814,18 @@ fn mint_resolves_and_matches_the_backend() {
         } else {
             &mint
         };
-        let text = print_k_text(&drawn, sort).unwrap();
+        // Printing reads its text back, so without Z3 an MInt inside a data value is refused
+        // rather than printed (review S2, N4).
+        let text = match print_k_text(&drawn, sort) {
+            Ok(text) => text,
+            Err(error)
+                if !cfg!(feature = "z3")
+                    && format!("{error:?}").contains("Z3InferenceRequired") =>
+            {
+                continue;
+            }
+            Err(error) => panic!("{drawn:?}: {error:?}"),
+        };
         if let Some(read) = frontend_with_inference(&syntax, &text, k_name_or_mint(sort)) {
             assert_eq!(read, to_kore(&drawn, sort).unwrap(), "`{text}`");
             assert_eq!(parse_k_text(&text, sort).as_ref(), Ok(&drawn));
@@ -767,7 +912,180 @@ fn complicate_before_simplify_returns_false() {
         let before = tree.current();
         assert!(!tree.complicate());
         assert_eq!(tree.current(), before);
+        // The tree is left as it was (review N6): it still simplifies when it can.
+        if before != int(0) {
+            assert!(tree.simplify(), "{before:?}");
+        }
     }
+}
+
+// ------------------------------------------------------------------------------------------
+// FZ-G6-09 review B2, S1-S3.
+
+fn set_of(element: &str, min: Option<u64>, max: Option<u64>) -> (ValueSort, Constraints) {
+    let constraints = Constraints {
+        length: Some(LengthRange { min, max }),
+        ..elements(element)
+    };
+    let sort = resolve(values(), &values_syntax(), "Set", &constraints);
+    (sort, constraints)
+}
+
+/// Draw `cases` values from one generator and one runner, as a campaign does, and check each.
+fn draw_checked(
+    sort: &ValueSort,
+    constraints: &Constraints,
+    bounds: &GenerationBounds,
+    cases: usize,
+) -> Vec<Value> {
+    let generator = Generator::new(sort, constraints, bounds).unwrap();
+    let mut rng = ValueRng::from_seed([8; 32]);
+    (0..cases)
+        .map(|_| {
+            let mut tree = generator.try_generate(&mut rng).unwrap();
+            let value = tree.current();
+            check_constraints(&value, sort, constraints).unwrap();
+            for _ in 0..3 {
+                if !tree.simplify() {
+                    break;
+                }
+                check_constraints(&tree.current(), sort, constraints).unwrap();
+            }
+            value
+        })
+        .collect()
+}
+
+#[test]
+fn sets_and_maps_are_distinct_by_construction() {
+    let bounds = GenerationBounds::default();
+    // Unranged Int draws repeat often (0 and the window's ends are edges): no draw is rejected
+    // over 2000 cases of one runner.
+    let (set, constraints) = set_of("Int", Some(16), None);
+    for value in draw_checked(&set, &constraints, &bounds, 2000) {
+        let Value::Set(items) = value else { panic!() };
+        assert_eq!(items.len(), 16);
+    }
+    let (set, constraints) = set_of("Int", Some(100), None);
+    draw_checked(&set, &constraints, &bounds, 200);
+    // `int_bits: 1` leaves three Ints: at least four is refused, three is every one of them.
+    let narrow = GenerationBounds {
+        int_bits: 1,
+        ..bounds
+    };
+    let (set, constraints) = set_of("Int", Some(4), None);
+    assert!(Generator::new(&set, &constraints, &narrow).is_err());
+    let (set, constraints) = set_of("Int", Some(3), None);
+    for value in draw_checked(&set, &constraints, &narrow, 50) {
+        assert_eq!(value, Value::Set(vec![int(-1), int(0), int(1)]));
+    }
+    // `length: 0` leaves one String, the empty one.
+    let empty = GenerationBounds {
+        length: 0,
+        ..bounds
+    };
+    let (set, constraints) = set_of("String", Some(2), None);
+    assert!(Generator::new(&set, &constraints, &empty).is_err());
+    let (set, constraints) = set_of("String", Some(1), None);
+    for value in draw_checked(&set, &constraints, &empty, 50) {
+        assert_eq!(value, Value::Set(vec![Value::String(String::new())]));
+    }
+    // Strings of a small length bound, and data keys, are repaired too.
+    let short = GenerationBounds {
+        length: 1,
+        ..bounds
+    };
+    let (set, constraints) = set_of("String", Some(3), None);
+    draw_checked(&set, &constraints, &short, 200);
+    let map_constraints = Constraints {
+        length: Some(LengthRange {
+            min: Some(12),
+            max: None,
+        }),
+        ..entries("Tree", "Int")
+    };
+    let map = resolve(values(), &values_syntax(), "Map", &map_constraints);
+    draw_checked(&map, &map_constraints, &bounds, 300);
+}
+
+#[test]
+fn a_value_stays_within_the_size_budget() {
+    let definition = values();
+    let syntax = values_syntax();
+    // A list of strings: its length is lowered so that the strings fit.
+    let long = GenerationBounds {
+        length: MAX_GENERATED_LENGTH,
+        ..GenerationBounds::default()
+    };
+    let list = resolve(definition, &syntax, "List", &elements("String"));
+    for value in draw_checked(&list, &none(), &long, 5) {
+        let Value::List(items) = value else { panic!() };
+        assert!(
+            items.len() <= 1,
+            "{} strings of up to 65536 characters",
+            items.len()
+        );
+    }
+    // A tree of 4096-bit integers at depth 16 is refused, and the message names a depth that fits.
+    let wide = GenerationBounds {
+        int_bits: 4096,
+        depth: 16,
+        ..GenerationBounds::default()
+    };
+    let tree = resolve(definition, &syntax, "Tree", &none());
+    let error = Generator::new(&tree, &none(), &wide).unwrap_err();
+    assert!(error.contains("fits"), "{error}");
+    // An MInt wider than the integer cap is refused.
+    assert!(
+        Generator::new(
+            &ValueSort::MInt { width: 1 << 30 },
+            &none(),
+            &GenerationBounds::default()
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn printing_never_returns_a_text_that_reads_back_as_another_term() {
+    let definition = values();
+    let syntax = values_syntax();
+    let path = resolve(definition, &syntax, "Path", &none());
+    let seg = |n: i64| Value::Apply {
+        symbol: "Lblseg".into(),
+        arguments: vec![int(n)],
+    };
+    let slash = |left: Value, right: Value| Value::Apply {
+        symbol: "Lblslash".into(),
+        arguments: vec![left, right],
+    };
+    let left = slash(slash(seg(1), seg(2)), seg(3));
+    let right = slash(seg(1), slash(seg(2), seg(3)));
+    let mut refused = 0;
+    for value in [left, right, slash(seg(1), seg(2))] {
+        match print_k_text(&value, &path) {
+            Ok(text) => assert_eq!(
+                syntax.parse(&text, "Path").unwrap(),
+                to_kore(&value, &path).unwrap(),
+                "`{text}`"
+            ),
+            Err(_) => refused += 1,
+        }
+    }
+    assert!(refused >= 1, "both nestings print as the same text");
+    assert!(print_k_text(&slash(seg(1), seg(2)), &path).is_ok());
+}
+
+#[test]
+fn a_subsort_with_two_names_for_int_keeps_the_builtin() {
+    let num = resolve(values(), &values_syntax(), "Num", &none());
+    let ValueSort::Data { table, .. } = &num else {
+        unreachable!()
+    };
+    assert_eq!(
+        table.sorts[0].subsorts,
+        [ArgumentSort::Value(ValueSort::Int)]
+    );
 }
 
 #[test]

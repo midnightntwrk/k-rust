@@ -43,6 +43,16 @@ use krs_unparse::{Mode, Options, Unparser};
 use super::{Constraints, ValueSort, resolve_with};
 use crate::error::SortRefusal;
 
+/// Sorts no data table enters whatever the caller excludes: computations and K's internal sorts,
+/// which the hole-sort rule refuses (FZ-02, `holes/sorts.rs`).
+const ALWAYS_EXCLUDED: [&str; 5] = ["K", "KItem", "KResult", "KBott", "KConfigVar"];
+
+/// Whether the sort whose KORE name is `name` is one of [`ALWAYS_EXCLUDED`].
+pub(super) fn is_always_excluded(name: &str) -> bool {
+    name.strip_prefix("Sort")
+        .is_some_and(|name| ALWAYS_EXCLUDED.contains(&name))
+}
+
 /// The K-text syntax of one definition (see the module documentation). Cloning shares it.
 #[derive(Clone)]
 pub struct TextSyntax(Arc<Inner>);
@@ -88,8 +98,10 @@ impl TextSyntax {
     ///
     /// `excluded` names the sorts (K names, such as `Stmt`) whose values are not data and that a
     /// data-sort table must not enter even as a constructor's argument: the sorts of the program
-    /// syntax closure and the cell sorts of the hole-sort rule (ARCHITECTURE 2.4). `K` and
-    /// `KItem` are always excluded.
+    /// syntax closure and the cell sorts of the hole-sort rule (ARCHITECTURE 2.4). Only data
+    /// sorts are affected: a builtin or collection sort in `excluded` (the program grammar
+    /// mentions `Int`) is still generated, since ARCHITECTURE 2.4 exempts builtins. `K`,
+    /// `KItem` and K's internal sorts (`KResult`, `KBott`, `KConfigVar`) are always excluded.
     ///
     /// # Errors
     ///
@@ -108,7 +120,7 @@ impl TextSyntax {
         let grammar = ProgramGrammar::new(frontend).map_err(|error| error.to_string())?;
         let macros = MacroExpansionDefinition::prepare(grammar.definition())?;
         let mut names = excluded.into_iter().collect::<BTreeSet<_>>();
-        names.extend(["K".to_owned(), "KItem".to_owned()]);
+        names.extend(ALWAYS_EXCLUDED.map(str::to_owned));
         let excluded = names
             .iter()
             .map(|name| {
@@ -152,13 +164,18 @@ impl TextSyntax {
         resolve_with(sort, constraints, definition, Some(self))
     }
 
-    /// `pattern` as one line of K program text (see the module documentation).
+    /// `pattern`, a value at its own sort below the sort whose K name is `sort`, as one line of
+    /// K program text (see the module documentation), checked by reading it back: the text is
+    /// returned only when [`Self::parse`] at `sort` gives `pattern` again.
     ///
     /// # Errors
     ///
     /// The unparser's warnings, when a symbol has no printable production or a format is
-    /// invalid: the text would not be program text.
-    pub(crate) fn print(&self, pattern: &KorePattern) -> Result<String, String> {
+    /// invalid; and a message when the text reads back as another term or does not read back,
+    /// which happens when the grammar cannot tell the term from another (a nested infix term of
+    /// a sort without a bracket production, an overloaded constructor whose more specific
+    /// overload the parser prefers, two productions with the same syntax). Never a wrong text.
+    pub(crate) fn print(&self, pattern: &KorePattern, sort: &str) -> Result<String, String> {
         let options = Options {
             mode: Mode::Program,
             color: false,
@@ -174,7 +191,15 @@ impl TextSyntax {
                 .collect::<Vec<_>>();
             return Err(warnings.join("; "));
         }
-        Ok(one_line(&printed.text))
+        let text = one_line(&printed.text);
+        match self.parse(&text, sort) {
+            Ok(read) if read == *pattern => Ok(text),
+            Ok(_) => Err(format!(
+                "`{text}` reads back at {sort} as another term: the grammar does not tell the \
+                 value apart"
+            )),
+            Err(error) => Err(format!("`{text}` does not read back at {sort}: {error}")),
+        }
     }
 
     /// `text` read at the sort whose K name is `sort`, as the configuration assembler reads a

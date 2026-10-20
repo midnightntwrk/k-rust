@@ -50,6 +50,14 @@ module VALUES
   // An MInt argument: the frontend infers parametric sorts only with Z3.
   syntax Word    ::= w8(MInt{8})             [symbol(w8)]
 
+  // A builtin hooked under a second name, whose values are those of Int: a subsort holding
+  // both keeps Int, whose literals read back at their own sort.
+  syntax AInt [hook(INT.Int)]
+  syntax Num     ::= Int | AInt
+  // A nested infix term without a bracket production has no text that reads back as it.
+  syntax Path    ::= Path "/" Path           [symbol(slash)]
+                   | seg(Int)                [symbol(seg)]
+
   // Constructors the generators must not choose.
   syntax Holder  ::= hold(Stmt)              [symbol(hold)]
                    | named(Id, Int)          [symbol(named)]
