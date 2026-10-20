@@ -6,31 +6,89 @@
 //! `krun --pattern` uses, `k_rust_backend::search::match_disjunction_with_solver` under
 //! `Backend::with_solver_over` in execution mode, and a match counts only with empty
 //! constraints. `Backend::match_patterns` is the proof route and is never used to judge.
+//!
+//! The judgement of a leaf ([`Executor::run`]) and the class of a case ([`classify`]) are split
+//! so that every target kind shares one precedence: the target's judge decides which leaves
+//! reach it, and [`classify`] decides what that makes the case.
+
+mod run;
+#[cfg(test)]
+mod tests;
+#[cfg(not(target_arch = "wasm32"))]
+mod watchdog;
 
 use k_rust::{
-    backend::{Backend, CancellationToken, ExecuteRequest, HaltReasonOutput, RunCoverageOutput},
+    backend::{
+        CancelledResultOutput, ExecuteRequest, ExecutionStrategy, HaltReasonOutput,
+        ResultModalityOutput, RunCoverageOutput, StopCause,
+    },
     kore::ast::Pattern as KorePattern,
 };
 use serde::{Deserialize, Serialize};
 
+pub(crate) use run::{Executor, LeafMatcher};
+
 use crate::{
-    assemble::ProgramAssembly,
-    error::CampaignError,
     report::{EngineDefect, LoadRecord},
-    spec::{CaseOptions, CompiledDefinition, PathMode},
+    spec::{CaseOptions, PathMode},
 };
 
+/// The `LoadRecord::kind` of a stop for lack of stack in the definition's load (its critical-pair
+/// check or its discharge of rewrite-rule definedness), which puts every case of the definition
+/// outside the determinism contract (ARCHITECTURE 5.4, `docs/compatibility.md`, "Determinism and
+/// concurrency").
+pub const LOAD_STACK_STOP: &str = "stack-stop";
+
 /// The one class every case receives (GOAL.md "Results", amended by decision D10;
-/// ARCHITECTURE 5.3).
+/// ARCHITECTURE 5.3, amended by decision D13).
 ///
-/// When a result has several leaves, the class follows this precedence (ARCHITECTURE 5.3,
-/// R-6): `hit` if some clean leaf reaches the target; otherwise `unsupported` if any leaf is
-/// (or the run returned `Err`, or a target-reaching leaf is not clean); otherwise `timeout`,
-/// then `work-bound`, then `depth-bound`; otherwise `stuck` if any clean leaf is an abnormal
-/// stop; otherwise `miss`. `rejected` is decided before execution; `baseline-incomplete` is
-/// decided by the differential judge before the mutant's leaves are looked at.
-/// `reached-unfinished` and `undefined` are placed by FZ-04 (see `workers/interfaces.md`, open
-/// question 1); the declaration order of this enum is not the precedence.
+/// # The class of one leaf
+///
+/// A target's judge says which leaves reach the target ([`classify`]'s `reached`). A leaf is
+/// *unclean by its halt* when [`UncleanReason::Halt`] is its only reason, and *unclean beyond its
+/// halt* when it has any other reason (an implementation-chosen value, a contradicted claim,
+/// iteration exhaustion or a simplification failure on the leaf, an undecided match, remaining
+/// constraints or variables, a term that is not ceil-free, a failed internalization, or the run's
+/// `stackStops`, `smtUnknowns` or allowance refusals). Then:
+///
+/// - a leaf unclean beyond its halt is `unsupported`, whether or not it reaches the target: such
+///   a leaf may hide a reaching state, so `miss` or `stuck` would be unsound (D13);
+/// - a clean leaf (`stuck`, or `terminal` on the target's own stop rule) that reaches the target
+///   is a `hit` candidate, and under `run-to-completion` only if it is a natural end;
+/// - under `run-to-completion`, a reaching leaf that is not a natural end and is clean except
+///   that its run was cut (a `depth-bound`, `breadth-bound`, `work-bound`, `timeout` or
+///   `cancelled` halt), or that is a clean abnormal stop, is `reached-unfinished`;
+/// - any other reaching leaf is `unsupported` (a target-reaching leaf that is not clean: an
+///   undefined step, a cut run without `run-to-completion`, an unsupported halt);
+/// - a leaf that does not reach the target takes its halt's class: `stuck` gives `miss` for a
+///   natural end and `stuck` otherwise; `trivial` gives `undefined`; `depth-bound` and
+///   `breadth-bound` give `depth-bound`; `work-bound` gives `work-bound`; `timeout` and
+///   `cancelled` give `timeout`; `indeterminate`, `unsupported-hook`, `simplification-error` and
+///   `vacuous` give `unsupported`; `branch` and `cut-point`, which the request never asks for,
+///   and a `terminal` leaf that does not reach the target, which only the target's rule can
+///   cause, are engine defects.
+///
+/// # The class of a case
+///
+/// The case takes the first of these that some leaf has: `hit`, `unsupported`,
+/// `reached-unfinished`, `timeout`, `work-bound`, `depth-bound`, `undefined`, `stuck`, `miss`.
+/// This is ARCHITECTURE 5.3's order, where `reached-unfinished` applies only when no leaf is
+/// `unsupported`. Further:
+///
+/// - a `hit` candidate in a case outside the determinism contract
+///   ([`CaseResult::determinism_breaks`]) is never a hit: it counts as `timeout` when a clock
+///   stopped part of the case, and as `unsupported` otherwise (a stack stop in the definition's
+///   load);
+/// - the per-case safety limit adds `timeout`;
+/// - a result whose every leaf is `vacuous` at depth 0, or that has no leaf, is `rejected`: the
+///   backend refuses the initial state;
+/// - an `Err` result is classed by its [`CaseFailure`]: a cancellation or step deadline is
+///   `timeout`, a refused initial state is `rejected`, anything else is `unsupported`.
+///
+/// `rejected` for a hole value is decided before execution; `baseline-incomplete` is decided by
+/// the differential judge before the mutant's leaves are looked at.
+///
+/// The declaration order of this enum is the report's key order, not the precedence.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum OutcomeClass {
@@ -42,21 +100,26 @@ pub enum OutcomeClass {
     /// A clean leaf is an abnormal stop (stuck, but not a natural end), and no leaf reaches the
     /// target.
     Stuck,
-    /// Under `run-to-completion`, the target was reached but the run did not end naturally.
+    /// Under `run-to-completion`, the target was reached on a leaf that is not a natural end but
+    /// is clean apart from a cut (a bound, a timeout or a cancellation), or is a clean abnormal
+    /// stop; and no leaf is `unsupported`.
     ReachedUnfinished,
     /// A `depth-bound` or `breadth-bound` halt.
     DepthBound,
     /// A `work-bound` halt; deterministic, distinct from timeouts.
     WorkBound,
-    /// A `timeout` or `cancelled` halt, or the per-case safety limit.
+    /// A `timeout` or `cancelled` halt, a cancellation or step deadline that ended the run as an
+    /// `Err`, or the per-case safety limit.
     Timeout,
     /// A `trivial` halt: an undefined step.
     Undefined,
     /// `unsupported-hook`, `simplification-error`, `indeterminate`, `vacuous` after depth 0, an
-    /// `Err` result, or a target-reaching leaf that is not clean.
+    /// `Err` result other than a clock stop or a refused state, a leaf unclean for a reason other
+    /// than its halt, or a target-reaching leaf that is not clean (and not `reached-unfinished`).
     Unsupported,
     /// A hole value violates its sort or constraints, does not round-trip through the program's
-    /// syntax, or the backend refuses the initial state (`vacuous` at depth 0).
+    /// syntax, or the backend refuses the initial state (`vacuous` at depth 0, or an invalid
+    /// state).
     Rejected,
     /// Differential only: the baseline's set of ends is incomplete (ARCHITECTURE 4.3).
     BaselineIncomplete,
@@ -95,9 +158,28 @@ impl OutcomeClass {
             Self::BaselineIncomplete => "baseline-incomplete",
         }
     }
+
+    /// The class's place in the precedence of a case with several leaves (ARCHITECTURE 5.3,
+    /// D13): lower wins. `rejected` and `baseline-incomplete` are never chosen by precedence.
+    fn precedence(self) -> u8 {
+        match self {
+            Self::Hit => 0,
+            Self::Unsupported => 1,
+            Self::ReachedUnfinished => 2,
+            Self::Timeout => 3,
+            Self::WorkBound => 4,
+            Self::DepthBound => 5,
+            Self::Undefined => 6,
+            Self::Stuck => 7,
+            Self::Miss => 8,
+            Self::Rejected => 9,
+            Self::BaselineIncomplete => 10,
+        }
+    }
 }
 
-/// Why a leaf is not clean (ARCHITECTURE 5.2). A leaf is clean when the list is empty.
+/// Why a leaf is not clean (ARCHITECTURE 5.2). A leaf is clean when the list is empty. The list
+/// is sorted and holds each reason once.
 #[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum UncleanReason {
@@ -112,7 +194,8 @@ pub enum UncleanReason {
     ImplementationChosenValue,
     /// Its diagnostics carry a contradicted claim.
     ContradictedClaim,
-    /// Its diagnostics record simplification-iteration exhaustion.
+    /// Its diagnostics record simplification-iteration exhaustion
+    /// (`simplification-budget-exhausted`, `rule-condition-unsimplified`).
     IterationExhaustion,
     /// The run has nonzero `stackStops`.
     StackStops,
@@ -122,6 +205,19 @@ pub enum UncleanReason {
     AllowanceRefusal,
     /// The leaf could not be internalized in its definition; the message.
     Internalization(String),
+    /// Its diagnostics record a rule whose side conditions failed to simplify
+    /// (`rule-condition-failed`): the rule may have been left unapplied for that failure rather
+    /// than because its condition is false, as with iteration exhaustion.
+    SimplificationFailure,
+    /// A leaf pattern (the normal-termination pattern or a target's) could not be decided on the
+    /// leaf: the matcher answered undecided or only under constraints, or its match holds in
+    /// k-rust's execution mode but not as a consequence of the definition alone (it rests on a
+    /// value the definition leaves to the implementation).
+    UndecidedMatch,
+    /// The definition has no normal-termination pattern for this leaf: the default `<k> .K </k>`
+    /// is meaningful only for a configuration with exactly one `<k>` cell, and this leaf has
+    /// another number (ARCHITECTURE 5.2, R-2). The campaign must supply a pattern.
+    NoNormalEndPattern,
 }
 
 /// A fact of a case that puts it outside the determinism contract (ARCHITECTURE 5.4). Such a
@@ -133,7 +229,8 @@ pub enum DeterminismBreak {
     Clock,
     /// Nonzero `smtUnknowns`.
     SmtUnknowns,
-    /// Nonzero `stackStops`, or stack stops during the definition's load.
+    /// Nonzero `stackStops`, a stop for lack of stack that ended the run, or stack stops during
+    /// the definition's load.
     StackStops,
     /// An allowance refusal observed in the run.
     AllowanceRefusal,
@@ -149,20 +246,24 @@ pub struct LeafReport {
     pub depth: u64,
     /// The leaf's configuration as KORE, after k-rust's normalization.
     pub state: KorePattern,
-    /// Why the leaf is not clean; empty for a clean leaf.
+    /// Why the leaf is not clean; empty for a clean leaf. Sorted, each reason once.
     pub unclean: Vec<UncleanReason>,
     /// The leaf is a clean `stuck` leaf that matches the normal-termination pattern with empty
     /// constraints.
     pub natural_end: bool,
-    /// For each extra matcher passed to [`Executor::run`], in order: the leaf is clean and
-    /// matches it with empty constraints. Not judged (all `false`) on an unclean leaf.
+    /// For each extra matcher passed to [`Executor::run`], in order: the leaf matches it with
+    /// empty constraints. Judged on every leaf whose state can be decided (it internalizes, with
+    /// no constraints and no variables), clean or not, so that a reaching leaf that is not clean
+    /// is visible (D13); `false` on a leaf that cannot be decided, and on a leaf whose match was
+    /// undecided ([`UncleanReason::UndecidedMatch`]).
     pub matches: Vec<bool>,
     /// The unique ids of the `Rewrite` entries of the leaf's trace, in order; empty unless the
     /// request asked for traces.
     pub rewrites: Vec<String>,
-    /// When the request asked for it: the leaf's internalized configuration consists only of
-    /// constructor applications, injections, domain values and well-formed collections
-    /// (differential condition 4, ARCHITECTURE 4.3, T-16).
+    /// When the request asked for it and the leaf's state can be decided: the leaf's
+    /// internalized configuration consists only of free-constructor applications, injections,
+    /// domain values and well-formed collections (differential condition 4, ARCHITECTURE 4.3,
+    /// T-16). `None` otherwise.
     pub constructor_only: Option<bool>,
 }
 
@@ -172,6 +273,49 @@ impl LeafReport {
     pub fn is_clean(&self) -> bool {
         self.unclean.is_empty()
     }
+
+    /// Whether the leaf is unclean for a reason other than its halt (D13).
+    #[must_use]
+    pub fn unclean_beyond_halt(&self) -> bool {
+        self.unclean
+            .iter()
+            .any(|reason| *reason != UncleanReason::Halt)
+    }
+}
+
+/// Why `Backend::execute`, or the judgement of its leaves, answered `Err` (FZ-01 review S8).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CaseFailure {
+    /// The error's text.
+    pub message: String,
+    /// What kind of failure it is.
+    pub cause: FailureCause,
+}
+
+impl CaseFailure {
+    /// A failure that is neither a stop nor a refused state; the case is `unsupported`.
+    #[must_use]
+    pub fn other(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            cause: FailureCause::Other,
+        }
+    }
+}
+
+/// The kind of an `Err` result (FZ-01 review S8).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum FailureCause {
+    /// The operation stopped (`BackendError::stop_cause`): a cancellation or step deadline is
+    /// `timeout` and a [`DeterminismBreak::Clock`]; a stop for lack of stack is `unsupported` and
+    /// a [`DeterminismBreak::StackStops`]. A failed solver prelude never reaches a case: it
+    /// aborts the campaign.
+    Stop(StopCause),
+    /// The backend refused the initial state (`invalid executable state`, or it could not be
+    /// internalized): the case is `rejected`.
+    StateRefused,
+    /// Any other failure: the case is `unsupported`.
+    Other,
 }
 
 /// The result of executing one case (ARCHITECTURE 5, 6.1): the leaves with their judgements,
@@ -180,7 +324,8 @@ impl LeafReport {
 pub struct CaseResult {
     /// The leaves, in the backend's order; empty when [`Self::failure`] is set.
     pub leaves: Vec<LeafReport>,
-    /// `ExecutionResult::work`, charged to `Budget::Work`.
+    /// `ExecutionResult::work`, charged to `Budget::Work`; 0 for an `Err` result, which reports
+    /// none.
     pub work: u64,
     /// The run's coverage (`applied`, `matched`), when collected.
     pub coverage: Option<RunCoverageOutput>,
@@ -190,20 +335,56 @@ pub struct CaseResult {
     pub smt_unknowns: usize,
     /// Allowance refusals the run observed (`observedIn: run`).
     pub run_allowance_refusals: usize,
-    /// Records the definition's load observed (`observedIn: load`); they taint no leaf and are
-    /// reported once per campaign (T-5).
+    /// Records the definition's load observed (`observedIn: load`, and [`LOAD_STACK_STOP`] for
+    /// load-time stack stops); they taint no leaf and are reported once per campaign (T-5).
     pub load_records: Vec<LoadRecord>,
     /// The per-case safety limit stopped the run.
     pub safety_limit_hit: bool,
-    /// The message of an `Err` result of `Backend::execute`; the case is `unsupported`.
-    pub failure: Option<String>,
+    /// Why `Backend::execute` or the judgement of its leaves answered `Err`; the leaves are then
+    /// empty.
+    pub failure: Option<CaseFailure>,
 }
 
 impl CaseResult {
-    /// The facts that put this case outside the determinism contract (ARCHITECTURE 5.4).
+    /// The facts that put this case outside the determinism contract (ARCHITECTURE 5.4), sorted,
+    /// each once.
     #[must_use]
     pub fn determinism_breaks(&self) -> Vec<DeterminismBreak> {
-        unimplemented!("FZ-04")
+        let mut breaks = Vec::new();
+        let stop = self
+            .failure
+            .as_ref()
+            .and_then(|failure| match &failure.cause {
+                FailureCause::Stop(cause) => Some(cause),
+                FailureCause::StateRefused | FailureCause::Other => None,
+            });
+        if self.safety_limit_hit
+            || matches!(stop, Some(StopCause::Cancelled | StopCause::Deadline(_)))
+            || self.leaves.iter().any(|leaf| {
+                matches!(
+                    leaf.halt,
+                    HaltReasonOutput::Cancelled | HaltReasonOutput::Timeout
+                )
+            })
+        {
+            breaks.push(DeterminismBreak::Clock);
+        }
+        if self.smt_unknowns > 0 {
+            breaks.push(DeterminismBreak::SmtUnknowns);
+        }
+        if self.stack_stops > 0
+            || matches!(stop, Some(StopCause::StackExhausted(_)))
+            || self
+                .load_records
+                .iter()
+                .any(|record| record.kind == LOAD_STACK_STOP)
+        {
+            breaks.push(DeterminismBreak::StackStops);
+        }
+        if self.run_allowance_refusals > 0 {
+            breaks.push(DeterminismBreak::AllowanceRefusal);
+        }
+        breaks
     }
 }
 
@@ -231,112 +412,200 @@ pub(crate) struct TargetNeeds {
 /// The execute request every case of one definition uses, without its state
 /// (ARCHITECTURE 5.1): `strategy` from the path mode, `result_modality: path-set`, the bounds,
 /// `collect_coverage: true`, `trace` and `terminal_rules` only as the target needs, no step
-/// timeouts.
+/// timeouts, `cancelledResult: partial`.
 #[derive(Clone, Debug)]
 pub(crate) struct CaseRequestShape {
     request: ExecuteRequest,
+    constructor_only: bool,
 }
 
 impl CaseRequestShape {
     /// The shape for `options` and `needs`.
     pub(crate) fn new(options: &CaseOptions, needs: &TargetNeeds) -> Self {
-        unimplemented!("FZ-04")
+        let placeholder = k_rust::kore::parser::parse_pattern(r"\top{SortGeneratedTopCell{}}()")
+            .expect("the placeholder state is a KORE pattern");
+        let strategy = match needs.paths.unwrap_or(options.paths) {
+            PathMode::OnePath => ExecutionStrategy::Any,
+            PathMode::AllPaths => ExecutionStrategy::All,
+        };
+        let request = ExecuteRequest {
+            max_depth: options.max_depth,
+            max_work: options.effective_max_work(),
+            max_breadth: None,
+            max_simplification_iterations: options.max_simplification_iterations,
+            strategy,
+            stop_at_branch: false,
+            cut_point_rules: Vec::new(),
+            terminal_rules: needs.terminal_rules.clone(),
+            step_timeout_ms: None,
+            moving_average_timeout: false,
+            assume_state_defined: false,
+            result_modality: ResultModalityOutput::PathSet,
+            collect_coverage: true,
+            collect_offered: false,
+            trace: needs.trace,
+            cancelled_result: CancelledResultOutput::Partial,
+            ..ExecuteRequest::new(placeholder)
+        };
+        Self {
+            request,
+            constructor_only: needs.constructor_only,
+        }
     }
 
     /// The request for one initial configuration.
     pub(crate) fn request(&self, state: KorePattern) -> ExecuteRequest {
-        unimplemented!("FZ-04")
+        ExecuteRequest {
+            state,
+            ..self.request.clone()
+        }
+    }
+
+    /// Whether the request names terminal rules, so that a `terminal` halt is the target's
+    /// own stop.
+    fn has_terminal_rules(&self) -> bool {
+        !self.request.terminal_rules.is_empty()
     }
 }
 
-/// A pattern prepared for leaf matching in one definition: `compile_search_pattern` over the
-/// program grammar and the execution definition, then `prepare_backend_match_target`
-/// (ARCHITECTURE 4.1, 5.2; `crates/k-rust/src/backend/execution.rs:1673-1686`). It holds
-/// internal terms of one backend's definition, so it is used only with the [`Executor`] whose
-/// backend prepared it.
-pub(crate) struct LeafMatcher {
-    _target: (),
-}
-
-impl LeafMatcher {
-    /// Compile `pattern` (krun's `--pattern` surface syntax, `requires` allowed) for leaves of
-    /// `executor`'s backend.
-    ///
-    /// # Errors
-    ///
-    /// The compiler's or backend's message.
-    pub(crate) fn compile(
-        executor: &mut Executor,
-        definition: &CompiledDefinition,
-        assembly: &ProgramAssembly,
-        pattern: &str,
-    ) -> Result<Self, String> {
-        unimplemented!("FZ-04")
-    }
-}
-
-/// One definition's backend and normal-termination matcher; runs and judges cases.
-pub(crate) struct Executor {
-    backend: Backend,
-    normal_end: Option<LeafMatcher>,
-}
-
-impl Executor {
-    /// Build the backend on `definition`'s route ([`crate::assemble::build_backend`]) and
-    /// compile the normal-termination pattern of `options` (`<k> .K </k>` with the rest free
-    /// when absent, which needs exactly one `<k>` cell; ARCHITECTURE 5.2, R-2).
-    ///
-    /// # Errors
-    ///
-    /// [`CampaignError::Definition`] when the backend cannot be built;
-    /// [`CampaignError::NormalEndPattern`] when the pattern is missing or does not compile.
-    pub(crate) fn new(
-        definition: &CompiledDefinition,
-        assembly: &ProgramAssembly,
-        options: &CaseOptions,
-    ) -> Result<Self, CampaignError> {
-        unimplemented!("FZ-04")
-    }
-
-    /// The backend, for target resolution (`rule_catalog`) and pattern compilation.
-    pub(crate) fn backend_mut(&mut self) -> &mut Backend {
-        &mut self.backend
-    }
-
-    /// Execute `initial` with `shape` through `Backend::execute`, within `cancel`'s scope and
-    /// the per-case safety limit, then judge every leaf: clean (ARCHITECTURE 5.2), natural end,
-    /// and each of `matchers` (prepared by this executor). Load-time records go to
-    /// [`CaseResult::load_records`], never onto leaves. An `Err` result becomes
-    /// [`CaseResult::failure`].
-    ///
-    /// # Errors
-    ///
-    /// [`Abort`] for a failed solver prelude.
-    pub(crate) fn run(
-        &mut self,
-        initial: &KorePattern,
-        shape: &CaseRequestShape,
-        matchers: &[&LeafMatcher],
-        cancel: Option<&CancellationToken>,
-    ) -> Result<CaseResult, Abort> {
-        unimplemented!("FZ-04")
-    }
-}
-
-/// Class `result` (ARCHITECTURE 5.3). `reached[i]` says whether leaf `i` reaches the target, as
-/// the target judge decided ([`crate::target`]); `run_to_completion` additionally requires a
-/// target-reaching clean leaf to be a natural end, and makes a reaching leaf that is not one
-/// `reached-unfinished`. A `terminal` leaf is a hit candidate only because the target's rule is
-/// the only stop rule (T-14).
+/// Class `result` (ARCHITECTURE 5.3, D13; the rules are in the [`OutcomeClass`] rustdoc).
+///
+/// `reached[i]` says whether leaf `i` reaches the target, as the target judge decided
+/// ([`crate::target`]): per leaf for leaf-judged targets (traces, terminal halts, pattern
+/// matches), and for the run-level coverage modes the judge marks the leaves that may carry the
+/// run's fact (with several leaves, every leaf only when every leaf could carry a hit; D13).
+/// `run_to_completion` additionally requires a target-reaching clean leaf to be a natural end,
+/// and makes a reaching leaf that is cut or an abnormal stop `reached-unfinished`. A `terminal`
+/// leaf is a hit candidate only because the target's rule is the only stop rule (T-14).
 ///
 /// # Errors
 ///
-/// [`EngineDefect`] for a `branch` or `cut-point` halt, which the request never asks for, or a
-/// `reached` of the wrong length.
+/// [`EngineDefect`] for a `branch` or `cut-point` halt, which the request never asks for, a
+/// `terminal` leaf that does not reach the target, or a `reached` of the wrong length.
 pub(crate) fn classify(
     result: &CaseResult,
     reached: &[bool],
     run_to_completion: bool,
 ) -> Result<OutcomeClass, EngineDefect> {
-    unimplemented!("FZ-04")
+    if let Some(failure) = &result.failure {
+        return Ok(failure_class(result, failure));
+    }
+    if reached.len() != result.leaves.len() {
+        return Err(defect(format!(
+            "{} reach judgements for {} leaves",
+            reached.len(),
+            result.leaves.len()
+        )));
+    }
+    if result
+        .leaves
+        .iter()
+        .all(|leaf| leaf.halt == HaltReasonOutput::Vacuous && leaf.depth == 0)
+    {
+        // Also a result with no leaf: the initial state has no instance.
+        return Ok(OutcomeClass::Rejected);
+    }
+    let breaks = result.determinism_breaks();
+    let mut best = None::<OutcomeClass>;
+    let mut consider = |class: OutcomeClass| {
+        if best.is_none_or(|current| class.precedence() < current.precedence()) {
+            best = Some(class);
+        }
+    };
+    if result.safety_limit_hit {
+        consider(OutcomeClass::Timeout);
+    }
+    for (index, (leaf, reached)) in result.leaves.iter().zip(reached).enumerate() {
+        let class = leaf_class(leaf, *reached, run_to_completion)
+            .map_err(|description| defect(format!("leaf {index}: {description}")))?;
+        let class = if class == OutcomeClass::Hit && !breaks.is_empty() {
+            if breaks.contains(&DeterminismBreak::Clock) {
+                OutcomeClass::Timeout
+            } else {
+                OutcomeClass::Unsupported
+            }
+        } else {
+            class
+        };
+        consider(class);
+    }
+    Ok(best.expect("a result with a leaf has a class"))
+}
+
+/// The class of an `Err` result (FZ-01 review S8).
+fn failure_class(result: &CaseResult, failure: &CaseFailure) -> OutcomeClass {
+    if result.safety_limit_hit {
+        return OutcomeClass::Timeout;
+    }
+    match &failure.cause {
+        FailureCause::Stop(StopCause::Cancelled | StopCause::Deadline(_)) => OutcomeClass::Timeout,
+        FailureCause::StateRefused => OutcomeClass::Rejected,
+        FailureCause::Stop(StopCause::StackExhausted(_) | StopCause::SolverPrelude(_))
+        | FailureCause::Other => OutcomeClass::Unsupported,
+    }
+}
+
+/// The class one leaf contributes (the [`OutcomeClass`] rustdoc, "The class of one leaf"); the
+/// error is an engine defect's description.
+#[deny(clippy::wildcard_enum_match_arm)]
+fn leaf_class(
+    leaf: &LeafReport,
+    reached: bool,
+    run_to_completion: bool,
+) -> Result<OutcomeClass, &'static str> {
+    use HaltReasonOutput as H;
+    if matches!(leaf.halt, H::Branch | H::CutPoint) {
+        return Err("a branch or cut-point halt, which the request never asks for");
+    }
+    if leaf.unclean_beyond_halt() {
+        return Ok(OutcomeClass::Unsupported);
+    }
+    if leaf.is_clean() {
+        // A `stuck` leaf, or a `terminal` one on the target's own stop rule.
+        return if reached {
+            Ok(if run_to_completion && !leaf.natural_end {
+                OutcomeClass::ReachedUnfinished
+            } else {
+                OutcomeClass::Hit
+            })
+        } else if leaf.halt == H::Terminal {
+            Err("a terminal leaf that does not reach the target, whose rule is the only stop rule")
+        } else if leaf.natural_end {
+            Ok(OutcomeClass::Miss)
+        } else {
+            Ok(OutcomeClass::Stuck)
+        };
+    }
+    // Unclean by its halt alone.
+    let cut = matches!(
+        leaf.halt,
+        H::DepthBound | H::BreadthBound | H::WorkBound | H::Timeout | H::Cancelled
+    );
+    if reached {
+        return Ok(if run_to_completion && cut {
+            OutcomeClass::ReachedUnfinished
+        } else {
+            OutcomeClass::Unsupported
+        });
+    }
+    match leaf.halt {
+        H::Cancelled | H::Timeout => Ok(OutcomeClass::Timeout),
+        H::WorkBound => Ok(OutcomeClass::WorkBound),
+        H::DepthBound | H::BreadthBound => Ok(OutcomeClass::DepthBound),
+        H::Trivial => Ok(OutcomeClass::Undefined),
+        H::Vacuous | H::Indeterminate | H::UnsupportedHook | H::SimplificationError => {
+            Ok(OutcomeClass::Unsupported)
+        }
+        H::Terminal => Err("a terminal halt in a request without terminal rules"),
+        // A clean `stuck` leaf is decided above, and `stuck` is never unclean by its halt.
+        H::Stuck => Err("a stuck leaf unclean by its halt"),
+        H::Branch | H::CutPoint => Err("a branch or cut-point halt"),
+    }
+}
+
+fn defect(description: String) -> EngineDefect {
+    EngineDefect {
+        case: None,
+        description,
+    }
 }
