@@ -433,6 +433,9 @@ pub struct ComputedRuleAttributes {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RewriteRule {
     pub lhs: Term,
+    /// The position of this rule among the rules of its axiom, when the axiom has several: the
+    /// alternatives of a rewrite's disjunctive left-hand side, or a function equation's choices
+    /// of one alternative per argument binder. `None` for an axiom internalized as one rule.
     pub lhs_alternative: Option<usize>,
     pub rhs: RuleRhs,
     pub requires: Condition,
@@ -1949,7 +1952,7 @@ pub fn internalize_axiom(
             for binder in binders {
                 let variable =
                     definition.internalize_variable(&binder.variable, sort_parameters)?;
-                let alternatives = term_disjuncts(&binder.pattern)
+                let alternatives = binder_disjuncts(&binder.pattern)
                     .into_iter()
                     .filter_map(|pattern| {
                         live_matched(definition.internalize_term_with_validation(
@@ -2024,9 +2027,13 @@ pub fn internalize_axiom(
             let rhs = rename_rhs(rhs, rename);
             let requires = rename_predicates(&requires, rename);
             let ensures = rename_predicates(&ensures, rename);
+            // The rules of one axiom are its alternatives, numbered as a rewrite's left-hand
+            // side alternatives are, so the axiom's identity names all of them as one axiom.
+            let split = binding_alternatives.len() > 1;
             Ok(binding_alternatives
                 .into_iter()
-                .map(|bindings| {
+                .enumerate()
+                .map(|(index, bindings)| {
                     InternalizedRule::Term(
                         RuleKind::Function,
                         make_rule(
@@ -2036,7 +2043,7 @@ pub fn internalize_axiom(
                             ensures.clone(),
                             attributes.clone(),
                             BTreeSet::new(),
-                            None,
+                            split.then_some(index),
                         ),
                     )
                 })
@@ -3641,6 +3648,19 @@ fn distribute_arguments(arguments: &[kore::Pattern], inside_term: bool) -> Vec<V
 
 pub(crate) fn term_disjuncts(pattern: &kore::Pattern) -> Vec<kore::Pattern> {
     distribute_term_or(pattern)
+        .into_iter()
+        .filter(|alternative| !matches!(alternative, kore::Pattern::Bottom { .. }))
+        .collect()
+}
+
+/// The disjuncts of a function equation's argument binder `Xi ∈ P`, `\bottom` ones dropped.
+///
+/// `P` is the set of values of a term variable, so it is read at a term position from its root:
+/// every `\or` in it splits, also one at the root whose operands are themselves disjunctions
+/// (`\or(\or(a, b), \or(c, d))` is `a`, `b`, `c` and `d`), which [`term_disjuncts`] keeps whole
+/// at the root of a pattern that may be a predicate.
+fn binder_disjuncts(pattern: &kore::Pattern) -> Vec<kore::Pattern> {
+    distribute_term_or_with_context(pattern, true)
         .into_iter()
         .filter(|alternative| !matches!(alternative, kore::Pattern::Bottom { .. }))
         .collect()
@@ -5288,6 +5308,44 @@ mod tests {
             ) [label{{}}("nested-term-or")]"#
         ))
         .unwrap_or_else(|error| panic!("{pattern}: {error:?}"))
+    }
+
+    /// A binder that loaded before nested disjunctions were distributed has a disjunction at
+    /// most at its root, nested only in further root disjunctions, and every alternative is a
+    /// term (the term reader refused anything else). On such a binder the distribution gives the
+    /// alternatives the root split gave, in the same order: the binder is read at a term
+    /// position, so its root disjunctions, disjunctions of disjunctions included, are flattened
+    /// left to right, and an alternative with no `\or` below its root is its own one
+    /// distribution. So every definition that loaded before gets the same function rules.
+    #[test]
+    fn distribution_of_a_root_disjunction_is_the_former_root_split() {
+        // The split of a binder's root disjunction before nested ones were distributed.
+        fn root_split(pattern: &kore::Pattern) -> Vec<&kore::Pattern> {
+            let kore::Pattern::Or { arguments, .. } = pattern else {
+                return vec![pattern];
+            };
+            if arguments.is_empty() {
+                return vec![pattern];
+            }
+            arguments.iter().flat_map(root_split).collect()
+        }
+        for binder in [
+            r"a{}()",
+            r"X:SortS{}",
+            r"wrap{}(\and{SortS{}}(Y:SortS{}, a{}()))",
+            r"\or{SortS{}}(a{}(), b{}())",
+            r"\or{SortS{}}(a{}(), \or{SortS{}}(b{}(), c{}()))",
+            r"\or{SortS{}}(\or{SortS{}}(a{}(), b{}()), c{}())",
+            r"\or{SortS{}}(\or{SortS{}}(a{}(), wrap{}(b{}())), \or{SortS{}}(\and{SortS{}}(Y:SortS{}, c{}()), Z:SortS{}))",
+            r#"\or{SortS{}}(wrap{}(wrap{}(a{}())), \dv{SortS{}}("1"), \and{SortS{}}(Y:SortS{}, wrap{}(Z:SortS{})))"#,
+        ] {
+            let pattern = k_rust_kore::kore::parser::parse_pattern(binder).unwrap();
+            let before = root_split(&pattern)
+                .into_iter()
+                .cloned()
+                .collect::<Vec<_>>();
+            assert_eq!(binder_disjuncts(&pattern), before, "{binder}");
+        }
     }
 
     /// A disjunction below a symbol of an argument binder, or below its `\and`, is distributed

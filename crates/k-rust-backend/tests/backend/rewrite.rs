@@ -8368,6 +8368,72 @@ fn observation_filter_rejects_identity_shared_across_theories() {
     );
 }
 
+/// The rules a function equation's disjunctive argument binder is internalized as are the
+/// alternatives of one axiom: its identity selects them all, at the root of the binder and below
+/// a symbol of it alike.
+#[test]
+fn observation_filter_selects_every_alternative_of_a_function_equation() {
+    let definition = definition(
+        r#"
+            sort SortB{} []
+            symbol box{}(SortS{}) : SortB{} [constructor{}(), functional{}()]
+            symbol pick{}(SortS{}) : SortS{} [function{}()]
+            symbol inner{}(SortB{}) : SortS{} [function{}()]
+            axiom{R} \implies{R}(
+                \and{R}(
+                    \top{R}(),
+                    \and{R}(
+                        \in{SortS{}, R}(
+                            X:SortS{},
+                            \or{SortS{}}(\dv{SortS{}}("one"), \dv{SortS{}}("two"))
+                        ),
+                        \top{R}()
+                    )
+                ),
+                \equals{SortS{}, R}(
+                    pick{}(X:SortS{}),
+                    \and{SortS{}}(\dv{SortS{}}("picked"), \top{SortS{}}())
+                )
+            ) [label{}("pick-either")]
+            axiom{R} \implies{R}(
+                \and{R}(
+                    \top{R}(),
+                    \and{R}(
+                        \in{SortB{}, R}(
+                            X:SortB{},
+                            box{}(\or{SortS{}}(\dv{SortS{}}("one"), \dv{SortS{}}("two")))
+                        ),
+                        \top{R}()
+                    )
+                ),
+                \equals{SortS{}, R}(
+                    inner{}(X:SortB{}),
+                    \and{SortS{}}(\dv{SortS{}}("picked"), \top{SortS{}}())
+                )
+            ) [label{}("inner-either")]
+            "#,
+    );
+    for identity in ["pick-either", "inner-either"] {
+        let alternatives = definition
+            .function_theory()
+            .values()
+            .flat_map(BTreeMap::values)
+            .flatten()
+            .filter(|rule| rule.attributes.unique_id == identity)
+            .map(|rule| rule.lhs_alternative)
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            alternatives,
+            BTreeSet::from([Some(0), Some(1)]),
+            "{identity}"
+        );
+        assert!(
+            ObservationOptions::with_rules(&definition, [identity]).is_ok(),
+            "{identity}"
+        );
+    }
+}
+
 #[test]
 fn observation_filter_accepts_definedness_identity() {
     let definition = definition(

@@ -2181,6 +2181,13 @@ fn an_or_pattern_below_a_symbol_of_an_equation_is_distributed() {
             vec![(1, "done(1)"), (2, "done(7)"), (3, "done(3)"), (4, "done(7)")],
         ),
         (
+            // A disjunction of disjunctions at an argument's root, as before.
+            format!("{g}  syntax Int ::= ff(KItem) [function, symbol(ff)]\n  rule ff(_) => 7 [owise]\n  rule <k> go(X) => done(ff(g(X))) ... </k>\n"),
+            "  rule ff((g(1) #Or g(2)) #Or (g(3) #Or g(4))) => 5\n",
+            "  rule ff(g(1)) => 5\n  rule ff(g(2)) => 5\n  rule ff(g(3)) => 5\n  rule ff(g(4)) => 5\n",
+            vec![(1, "done(5)"), (3, "done(5)"), (4, "done(5)"), (5, "done(7)")],
+        ),
+        (
             // Two or-patterns, in two arguments: one equation per pair of alternatives.
             format!("{g}  syntax Int ::= f2(KItem, KItem) [function, symbol(f2)]\n  rule f2(_, _) => 0 [owise]\n  rule <k> go(X) => done(f2(g(X /Int 10), g(X %Int 10))) ... </k>\n"),
             "  rule f2(g(1 #Or 2), g(3 #Or 4)) => 5\n",
