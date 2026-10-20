@@ -11,7 +11,7 @@ use krs_ir::{
 };
 use krs_ir_levels::{MapEntry, MapOperands, SemanticSortRef, SemanticTerm};
 
-use super::{ClauseView, SortGraph, clauses_overlap};
+use super::{ClauseView, Frame, SortGraph, clauses_overlap};
 
 fn graph() -> SortGraph {
     let mut graph = SortGraph {
@@ -75,7 +75,7 @@ fn exact<'a>(cell: &'a SemanticId, before: &'a SemanticTerm) -> ClauseView<'a> {
         cell,
         before,
         completed_head: false,
-        framed: false,
+        frame: Frame::Exact,
         unconstrained: false,
     }
 }
@@ -85,7 +85,17 @@ fn framed<'a>(cell: &'a SemanticId, before: &'a SemanticTerm) -> ClauseView<'a> 
         cell,
         before,
         completed_head: false,
-        framed: true,
+        frame: Frame::Sequence,
+        unconstrained: false,
+    }
+}
+
+fn framed_map<'a>(cell: &'a SemanticId, before: &'a SemanticTerm) -> ClauseView<'a> {
+    ClauseView {
+        cell,
+        before,
+        completed_head: false,
+        frame: Frame::Map,
         unconstrained: false,
     }
 }
@@ -243,16 +253,16 @@ fn framed_map_reads_overlap_whatever_entries_they_name() {
     // One map can hold entries for 0, 1, and 2 at once, so a read of two
     // entries and a read of another entry can apply to one configuration.
     assert!(clauses_overlap(
-        &[framed(&mem, &both)],
+        &[framed_map(&mem, &both)],
         None,
-        &[framed(&mem, &other)],
+        &[framed_map(&mem, &other)],
         None,
         &graph,
     ));
     assert!(clauses_overlap(
-        &[framed(&mem, &both)],
+        &[framed_map(&mem, &both)],
         None,
-        &[framed(&mem, &swapped)],
+        &[framed_map(&mem, &swapped)],
         None,
         &graph,
     ));

@@ -25,7 +25,8 @@ so fixtures beside a target are left alone unless named explicitly.
 Inside DSL macro bodies, use line comments: non-doc `/* ... */` comments are rejected because procedural macros cannot recover them reliably.
 The default aligned trailing-comment layout is provisional; `--trailing-comments gutter` selects the other implemented policy.
 
-`check` resolves Cargo metadata and selected facets, builds and runs the generated collector, validates descriptors, performs semantic analysis, and stops before K emission.
+`check` resolves Cargo metadata and selected facets, builds and runs the generated collector, validates descriptors, performs semantic analysis, and then judges the definition exactly as `build` does for the same `--backend` (default `llvm`): k-rust's preparation, definition checks, and compilation run, and `check` reports the same errors and warnings, but writes no artifacts.
+The one difference is the route capability table: when the selected backend's route lacks a feature the definition needs, `build` refuses the definition before compiling it, while `check` reports that refusal as a `krs::capability::unavailable` warning and compiles nothing for that route.
 Rust errors from the collector build are reported at authored source spans when Cargo provides a mappable primary span.
 `check`, `expand`, `emit-k`, `build`, and the run commands render human-readable diagnostics on stderr by default, including their codes, notes, and authored source snippets when the source revision matches.
 Pass `--message-format=json` when a tool consumes diagnostics.
@@ -102,7 +103,7 @@ The current commands are `fmt`, `check`, `expand`, `emit-k`, `build`, `parse`, `
   A proc macro can report an error only as a message without a code, so in raw `cargo` and rust-analyzer output a KRS macro error carries its code in front of the message, as `[krs::syntax::invalid-color] message`; `krs` commands print the same error as `error[krs::syntax::invalid-color]: message`.
 - KRS analysis errors cover definition-wide identities, sort and grammar consistency, rule shapes, and overlap.
 - K frontend errors are translated through emitted source maps when an exact authored interval exists.
-- native definition-check errors come from `build` and point at the authored item whose sentence the checker rejected.
+- native definition-check errors come from `check` and `build` and point at the authored item whose sentence the checker rejected.
 
 Macro islands are not ordinary Rust expressions, so editor behavior is bounded.
 The repository's compatibility probes establish exact rustc and rust-analyzer selection for authored syntax tokens and exact K/source-sidecar translation for covered cases; they do not promise IDE understanding of every generated symbol or every DSL token.

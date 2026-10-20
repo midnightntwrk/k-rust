@@ -872,7 +872,9 @@ endmodule
             let (_, frozen, _) = heating
                 .iter()
                 .find_map(|(body, requires, ensures)| {
-                    let frozen = body.strip_prefix(&format!("{context}=>HOLE~>"))?;
+                    let frozen = body
+                        .strip_prefix(&format!("{context}=>``HOLE~>"))?
+                        .strip_suffix("``")?;
                     (requires == condition && ensures == truth).then_some((
                         body,
                         frozen,
@@ -884,7 +886,7 @@ endmodule
                 });
             assert!(
                 cooling.contains(&(
-                    format!("HOLE~>{frozen}=>{context}"),
+                    format!("``HOLE~>{frozen}``=>{context}"),
                     truth.to_owned(),
                     truth.to_owned()
                 )),
@@ -941,8 +943,9 @@ endmodule
                 attributes.get("heat").is_some().then(|| {
                     let body = body.to_string();
                     let frozen = body
-                        .split_once("=>HOLE~>")
-                        .map(|(_, frozen)| frozen.to_owned());
+                        .split_once("=>``HOLE~>")
+                        .and_then(|(_, frozen)| frozen.strip_suffix("``"))
+                        .map(str::to_owned);
                     frozen.unwrap_or_else(|| panic!("a heating rule without a freezer: {body}"))
                 })
             })

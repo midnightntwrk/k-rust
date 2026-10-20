@@ -348,7 +348,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             convert(&pattern).unwrap().to_string(),
-            r"`_+Int_`(.KList)~>X=>.K"
+            r"`` `_+Int_`(.KList)~>X``=>.K"
         );
     }
 

@@ -756,6 +756,10 @@ pub enum SmtFailureOutput<K = Value> {
         reason: String,
     },
     InconsistentGroundTruth,
+    /// The solver rejected the query's script; `message` is the solver's.
+    MalformedScript {
+        message: String,
+    },
     MissingModel,
     MissingModelValue {
         variable: K,
@@ -1680,6 +1684,7 @@ fn smt_failure_output<K: WireKore>(
         SmtError::Unavailable => SmtFailureOutput::Unavailable,
         SmtError::Unknown(reason) => SmtFailureOutput::Unknown { reason },
         SmtError::InconsistentGroundTruth => SmtFailureOutput::InconsistentGroundTruth,
+        SmtError::MalformedScript { message } => SmtFailureOutput::MalformedScript { message },
         SmtError::MissingModel => SmtFailureOutput::MissingModel,
         SmtError::MissingModelValue(variable) => SmtFailureOutput::MissingModelValue {
             variable: encode_variable(&variable)?,

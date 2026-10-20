@@ -59,6 +59,7 @@ fn cause_name(cause: &StopCause) -> &'static str {
         }
         StopCause::SolverPrelude(PreludeFailure::Inconsistent) => "inconsistent prelude",
         StopCause::SolverPrelude(PreludeFailure::Unknown(_)) => "undecided prelude",
+        StopCause::SolverPrelude(PreludeFailure::Malformed(_)) => "malformed prelude",
     }
 }
 

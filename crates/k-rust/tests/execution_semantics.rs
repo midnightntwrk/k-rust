@@ -2014,6 +2014,96 @@ fn an_undefined_instance_of_the_initial_configuration_has_no_result() {
     }
 }
 
+/// A definition whose first step consumes a partial Boolean of the configuration by a literal
+/// pattern position (`stb(false, I)`, `stn(true, I)`), and whose next step distinguishes the
+/// instances where that Boolean was undefined (`chk(0)`).
+#[cfg(feature = "z3-inference")]
+const CONSUMED_PARTIAL_BOOLEAN: &str = r#"
+module CB-SYNTAX
+  imports INT-SYNTAX
+  imports BOOL-SYNTAX
+  syntax Pgm ::= stb(Bool, Int) [symbol(stb)] | stn(Bool, Int) [symbol(stn)]
+               | chk(Int) [symbol(chk)] | bad() [symbol(bad)] | good() [symbol(good)]
+endmodule
+
+module CB
+  imports CB-SYNTAX
+  imports INT
+  imports BOOL
+  configuration <k> $PGM:Pgm </k>
+  rule <k> stb(false, I) => chk(I) ... </k>
+  rule <k> stn(true, I) => chk(I) ... </k>
+  rule <k> chk(0) => bad() ... </k>
+  rule <k> chk(I) => good() ... </k> requires I =/=Int 0
+endmodule
+"#;
+
+/// `stb(X /Int Y >Int 0, Y)` is undefined where `Y` is 0, so it has no instance there and
+/// nothing is reached from it there. Its first step consumes `X /Int Y >Int 0` by the literal
+/// `false` and leaves `chk(Y)`, whose term no longer holds the quotient, so only the successor's
+/// constraints can keep `Y = 0` out: `\not(X /Int Y >Int 0)` alone holds there (the solver reads
+/// `/Int` as a total operation), and `chk(0) => bad()` would then apply. So no run reaches
+/// `bad()`, by execution (both strategies) or search, and every `good()` it reaches states that
+/// `Y` is not 0. The same holds where the step consumes `notBool (X /Int Y >Int 0)` by `true`.
+#[cfg(feature = "z3-inference")]
+#[test]
+fn a_first_step_that_consumes_a_partial_boolean_reaches_nothing_from_its_undefined_instances() {
+    use k_rust::backend::ExecutionStrategy;
+
+    let compiled = compile(CONSUMED_PARTIAL_BOOLEAN, "CB", "CB-SYNTAX", "Pgm", "good()");
+    let comparison = r#"Lbl'Unds-GT-'Int'Unds'{}(Lbl'UndsSlsh'Int'Unds'{}(VarX:SortInt{}, VarY:SortInt{}), \dv{SortInt{}}("0"))"#;
+    let y_is_not_zero = r#"\not{SortGeneratedTopCell{}}(\equals{SortInt{}, SortGeneratedTopCell{}}(VarY:SortInt{}, \dv{SortInt{}}("0")))"#;
+    for program in [
+        format!("Lblstb{{}}({comparison}, VarY:SortInt{{}})"),
+        format!("Lblstn{{}}(LblnotBool'Unds'{{}}({comparison}), VarY:SortInt{{}})"),
+    ] {
+        let initial = undefined_instances_initial(&program);
+        for strategy in [ExecutionStrategy::All, ExecutionStrategy::Any] {
+            let mut backend =
+                Backend::new(&compiled.kore, "CB", BackendOptions::default()).unwrap();
+            let result = backend
+                .execute(ExecuteRequest {
+                    strategy,
+                    ..ExecuteRequest::new(initial.clone())
+                })
+                .unwrap();
+            let states = text(&result);
+            assert!(
+                states.iter().all(|state| !state.contains("Lblbad{}(")),
+                "{program} {strategy:?}: {states:#?}"
+            );
+            let good = states
+                .iter()
+                .filter(|state| state.contains("Lblgood{}("))
+                .collect::<Vec<_>>();
+            assert!(
+                !good.is_empty() && good.iter().all(|state| state.contains(y_is_not_zero)),
+                "{program} {strategy:?}: {states:#?}"
+            );
+        }
+        let mut backend = Backend::new(&compiled.kore, "CB", BackendOptions::default()).unwrap();
+        let response = backend
+            .search(SearchRequest {
+                search_type: SearchTypeArg::Final,
+                ..SearchRequest::new(initial.clone())
+            })
+            .unwrap();
+        assert!(response.incomplete.is_empty(), "{:?}", response.incomplete);
+        let found = response
+            .states
+            .iter()
+            .map(|found| {
+                Printer::compact().print_pattern(&codec::from_value(&found.state).unwrap())
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            found.iter().all(|state| !state.contains("Lblbad{}("))
+                && found.iter().any(|state| state.contains("Lblgood{}(")),
+            "{program} search: {found:#?}"
+        );
+    }
+}
+
 /// The definedness of `sti(X /Int Y)` is `Y` not 0. When the initial constraints establish it
 /// (`Y >Int 0`), the configuration has no undefined instance, so nothing is restricted or named;
 /// when they refute it together (`Y *Int Y ==Int 0`, which no single obligation's simplification
@@ -2856,6 +2946,125 @@ fn an_execute_request_asks_for_traces_unless_it_says_otherwise() {
         serde_json::from_value(serde_json::json!({ "state": state, "trace": false })).unwrap();
     assert!(!request.trace);
     assert!(ExecuteRequest::new(parse_pattern("a{}()").unwrap()).trace);
+}
+
+/// A rule's defining symbol is the root of its left-hand pattern, and `P #as V` denotes what `P`
+/// denotes while naming the matched term, so a root alias changes no rule's role:
+///
+/// - `f(X) #as _V => X +Int 1` is an equation of the function `f`, so `f(1) +Int 2` evaluates
+///   to 4 (a rewrite of the computation cell would leave `f(1)` unevaluated below `+Int`);
+/// - `m(X) #as _T => X` is a rule of the macro production `m`, so `m` is expanded where `h`'s
+///   right side applies it and where a program writes it;
+/// - `pair(X, Y) #as _P => pair(Y, X) requires X >Int Y [anywhere]` is an equation of the
+///   constructor `pair`, so `pair(3, 1)` becomes `pair(1, 3)`;
+/// - `pair(X, Y) #as P => swap(P) requires X >Int Y [anywhere]` binds `P` to the matched
+///   `pair(X, Y)` in the emitted equation. That equation states `pair(X, Y) = swap(pair(X, Y))`,
+///   whose right side holds an instance of its own left side under the same condition, so a
+///   normalization that simplifies arguments first applies it again to that instance without
+///   end; only the emitted statement is checked.
+#[test]
+fn a_root_alias_leaves_a_rule_of_its_head() {
+    const FUNCTION: &str = r#"
+module MAIN
+  imports INT
+  syntax Int ::= f(Int) [function, symbol(f)]
+  rule f(X) #as _V => X +Int 1
+  configuration <k> f($PGM:Int) +Int 2 </k>
+endmodule
+"#;
+    let leaves = text(&execute(
+        &compile(FUNCTION, "MAIN", "MAIN", "Int", "1"),
+        "MAIN",
+        None,
+    ));
+    assert_eq!(leaves.len(), 1, "{leaves:?}");
+    assert!(
+        leaves[0].contains(r#"\dv{SortInt{}}("4")"#) && !leaves[0].contains("Lblf{}"),
+        "{leaves:?}"
+    );
+
+    const MACRO: &str = r#"
+module MAIN
+  imports INT
+  syntax Int ::= m(Int) [macro, symbol(m)]
+  syntax Int ::= h(Int) [function, symbol(h)]
+  rule h(X) => m(X) +Int 1
+  rule m(X) #as _T => X
+  configuration <k> $PGM:Int </k>
+endmodule
+"#;
+    for (program, value) in [("h(1)", "2"), ("m(5)", "5")] {
+        let leaves = text(&execute(
+            &compile(MACRO, "MAIN", "MAIN", "Int", program),
+            "MAIN",
+            None,
+        ));
+        assert_eq!(leaves.len(), 1, "{program}: {leaves:?}");
+        assert!(
+            leaves[0].contains(&format!(r#"\dv{{SortInt{{}}}}("{value}")"#))
+                && !leaves[0].contains("Lblm{}")
+                && !leaves[0].contains("Lblh{}"),
+            "{program}: {leaves:?}"
+        );
+    }
+
+    const ANYWHERE: &str = r#"
+module MAIN
+  imports INT
+  imports BOOL
+  syntax Pair ::= pair(Int, Int) [symbol(pair)]
+  syntax Pair ::= swap(Pair) [function, symbol(swap)]
+  rule swap(pair(X, Y)) => pair(Y, X)
+  rule pair(X, Y) #as P => swap(P) requires X >Int Y [anywhere]
+  configuration <k> $PGM:Pair </k>
+endmodule
+"#;
+    let compiled = compile(ANYWHERE, "MAIN", "MAIN", "Pair", "pair(3, 1)");
+    // The equation of `pair` states its right side of the matched term, `swap(pair(X0, X1))`,
+    // and leaves no occurrence of the alias `P` free (a free `P` would state the equation for
+    // every value of `P`).
+    let syntax = k_rust::kore::parser::parse_definition(&compiled.kore).unwrap();
+    let printer = Printer::compact();
+    let equations = syntax
+        .modules
+        .iter()
+        .flat_map(|module| &module.sentences)
+        .filter_map(|sentence| match sentence {
+            k_rust::kore::ast::Sentence::Axiom { pattern, .. } => Some(pattern),
+            _ => None,
+        })
+        .filter(|pattern| {
+            let printed = printer.print_pattern(pattern);
+            printed.contains(r"\equals") && printed.contains("Lblswap{}(Lblpair{}(")
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(equations.len(), 1, "{equations:?}");
+    let free = equations[0]
+        .free_variables()
+        .into_iter()
+        .map(|variable| variable.name)
+        .collect::<Vec<_>>();
+    assert!(!free.iter().any(|name| name == "VarP"), "{free:?}");
+
+    const ANYWHERE_RUN: &str = r#"
+module MAIN
+  imports INT
+  imports BOOL
+  syntax Pair ::= pair(Int, Int) [symbol(pair)]
+  rule pair(X, Y) #as _P => pair(Y, X) requires X >Int Y [anywhere]
+  configuration <k> $PGM:Pair </k>
+endmodule
+"#;
+    let leaves = text(&execute(
+        &compile(ANYWHERE_RUN, "MAIN", "MAIN", "Pair", "pair(3, 1)"),
+        "MAIN",
+        None,
+    ));
+    assert_eq!(leaves.len(), 1, "{leaves:?}");
+    assert!(
+        leaves[0].contains(r#"Lblpair{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("3"))"#),
+        "{leaves:?}"
+    );
 }
 
 /// A local function whose body tests a sort: `#let Y = X #in isInt(Y)` lowers to a lambda over

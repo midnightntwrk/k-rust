@@ -469,3 +469,56 @@ fn internalization_refuses_what_the_verifier_refuses_for_its_sorts() {
     }
     assert!(failures.is_empty(), "{failures:#?}");
 }
+
+/// `size(inj{S, SortB}(Y:S)) = one()` at priority 40, a sort-parametric function equation, and
+/// `size(K) = zero()` at priority 60.
+const SORT_PARAMETRIC_EQUATION: &str = r#"[]
+module TEST
+  sort SortA{} []
+  sort SortB{} []
+  sort SortRes{} []
+  symbol a{}() : SortA{} [constructor{}(), functional{}()]
+  symbol one{}() : SortRes{} [constructor{}(), functional{}()]
+  symbol zero{}() : SortRes{} [constructor{}(), functional{}()]
+  symbol size{}(SortB{}) : SortRes{} [function{}(), total{}()]
+  symbol inj{From, To}(From) : To [sortInjection{}()]
+  axiom{R} \exists{R}(Val:SortB{}, \equals{SortB{}, R}(Val:SortB{}, inj{SortA{}, SortB{}}(From:SortA{}))) [subsort{SortA{}, SortB{}}()]
+  axiom{R, S} \implies{R}(
+    \and{R}(\top{R}(), \and{R}(\in{SortB{}, R}(X0:SortB{}, inj{S, SortB{}}(Y:S)), \top{R}())),
+    \equals{SortRes{}, R}(size{}(X0:SortB{}), \and{SortRes{}}(one{}(), \top{SortRes{}}()))) [priority{}("40")]
+  axiom{R} \implies{R}(
+    \and{R}(\top{R}(), \and{R}(\in{SortB{}, R}(X0:SortB{}, K:SortB{}), \top{R}())),
+    \equals{SortRes{}, R}(size{}(X0:SortB{}), \and{SortRes{}}(zero{}(), \top{SortRes{}}()))) [priority{}("60")]
+endmodule []
+"#;
+
+/// The axiom `axiom{S} φ(S)` states each instance `φ(σ)` for a closed sort `σ`; at `S = SortA`
+/// the priority-40 equation applies to `size(inj{SortA, SortB}(a()))` with `Y = a()`. Its
+/// matching asks whether `SortA` is below `S`, which depends on `S`, so it is undecided, not
+/// refuted: the lower-priority equation, whose premise is that no higher one applies, must not
+/// give `zero()`. The evaluator binds no sort variable, so the application stays, which is
+/// incomplete but sound; `one()` would be the complete answer.
+#[test]
+fn a_sort_parametric_equation_is_not_refuted_by_its_sort_variable() {
+    let definition = load(SORT_PARAMETRIC_EQUATION).expect("the sort-parametric equation loads");
+    let equations = &definition.function_theory()[&TermIndex::Symbol(Name::from("size"))];
+    assert_eq!(
+        equations.values().map(Vec::len).sum::<usize>(),
+        2,
+        "both equations of size reach the theory"
+    );
+    let input = term(&definition, "size{}(inj{SortA{}, SortB{}}(a{}()))");
+    let result = simplify(&definition, &input, SimplificationOptions::default())
+        .expect("no stop is armed")
+        .expect("the application simplifies");
+    assert_ne!(
+        result.term,
+        term(&definition, "zero{}()"),
+        "the lower-priority equation applied over an undecided higher one"
+    );
+    assert!(
+        result.term == input || result.term == term(&definition, "one{}()"),
+        "{:?}",
+        result.term
+    );
+}

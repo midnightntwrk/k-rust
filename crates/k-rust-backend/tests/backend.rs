@@ -19,10 +19,14 @@ mod evaluation_mode;
 mod execution_stack_stops;
 #[path = "backend/exploration_merge.rs"]
 mod exploration_merge;
+#[path = "backend/framed_collection_owise.rs"]
+mod framed_collection_owise;
 #[path = "backend/hook_result_sorts.rs"]
 mod hook_result_sorts;
 #[path = "backend/issue_4114_overload.rs"]
 mod issue_4114_overload;
+#[path = "backend/list_shared_subject_variables.rs"]
+mod list_shared_subject_variables;
 #[path = "backend/matching.rs"]
 mod matching;
 #[path = "backend/mixed_float_formats.rs"]

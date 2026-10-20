@@ -106,8 +106,8 @@ use crate::{
     diagnostic::{self, BackendDiagnostic, Occurrences, Subject},
     evaluation::EvaluationMode,
     matching::{
-        Bindings, CollectionMatches, DecidedSolutions, FailReason, InjectionEquality, MatchFailed,
-        MatchMode, MatchResult, match_collection_remainders_all_in_definition,
+        Bindings, CollectionMatches, DecidedSolutions, InjectionEquality, MatchFailed, MatchMode,
+        MatchResult, UndecidedReason, match_collection_remainders_all_in_definition,
         match_equation_in_definition, match_injection_equality, match_term_pairs_in_definition,
     },
     path_facts::FactSet,
@@ -2240,9 +2240,13 @@ fn simplify_predicate_on_stack(
             } else {
                 right.clone()
             };
-            let equality =
-                normalize_hooked_boolean_predicate(definition, Predicate::Equals(left, right));
-            let equality = normalize_injection_equality(definition, equality);
+            let known = |obligation: &Predicate| assumptions.contains(obligation);
+            let equality = normalize_hooked_boolean_predicate(
+                definition,
+                Predicate::Equals(left, right),
+                &known,
+            );
+            let equality = normalize_injection_equality(definition, equality, &known);
             let equality = match equality {
                 Predicate::Equals(left, right) => {
                     let (equality, resimplify) =
@@ -2596,7 +2600,9 @@ fn simplify_predicate_on_stack(
     // above, so they are such results, and one level of normalization over them equals
     // `normalize_predicate` (`normalize_root`). An atom's simplification may conjoin the
     // conditions its terms' simplification left unsimplified, so it is normalized throughout.
-    let simplified = normalize_hooked_boolean_predicate(definition, simplified);
+    let simplified = normalize_hooked_boolean_predicate(definition, simplified, &|obligation| {
+        assumptions.contains(obligation)
+    });
     let simplified = match predicate {
         Predicate::Not(_)
         | Predicate::And(_)
@@ -2716,13 +2722,17 @@ fn simplify_predicate_on_stack(
     )
 }
 
-fn normalize_injection_equality(definition: &BackendDefinition, predicate: Predicate) -> Predicate {
+fn normalize_injection_equality(
+    definition: &BackendDefinition,
+    predicate: Predicate,
+    known: &dyn Fn(&Predicate) -> bool,
+) -> Predicate {
     let Predicate::Equals(left, right) = predicate else {
         return predicate;
     };
     match match_injection_equality(Some(definition.sort_graph()), &left, &right) {
         Some(InjectionEquality::Direct(left, right) | InjectionEquality::Split(left, right)) => {
-            normalize_hooked_boolean_predicate(definition, Predicate::Equals(left, right))
+            normalize_hooked_boolean_predicate(definition, Predicate::Equals(left, right), known)
         }
         // Separated injections are apart; the caller reads that through `terms_apart`
         // (R-eq), which states the definedness a refutation requires.
@@ -3497,15 +3507,13 @@ fn predicate_equation_probe<'a>(
 ) -> impl FnMut(&PredicateRewriteRule) -> bool + 'a {
     move |rule| {
         let matched = match match_predicate(definition, &rule.lhs, predicate) {
-            PredicateMatch::Failed {
-                shared_names: false,
-            } => return false,
+            PredicateMatch::Failed => return false,
             matched => match rename_predicate_rule_apart(rule, predicate, known_predicates) {
                 Some((renamed, _)) => match_predicate(definition, &renamed.lhs, predicate),
                 None => matched,
             },
         };
-        !matches!(matched, PredicateMatch::Failed { .. })
+        !matches!(matched, PredicateMatch::Failed)
     }
 }
 
@@ -3526,19 +3534,15 @@ fn apply_predicate_equation(
     // when its names can matter. Matching binds the equation's variables to the subject's terms,
     // which it never substitutes into, so the names of the equation's variables decide nothing
     // where the subject has no variable of the same name: a match that fails without meeting a
-    // shared name (`PredicateMatch::Failed { shared_names: false }`) fails renamed too, as the
-    // renamed problem has the same pairs up to the renaming and possibly more. Otherwise the
+    // shared name (`PredicateMatch::Failed`) fails renamed too, as the renamed problem has the
+    // same pairs up to the renaming and possibly more. Otherwise the
     // clash is checked, once per equation that matched or could, not per equation tried, and on
     // one the attempt is made renamed (`rename_predicate_rule_apart`), as before; the renaming
     // also keeps the variables the left-hand side does not bind apart from the path, which
     // matching does not read.
     let matched = match_predicate(definition, &rule.lhs, predicate);
-    if !matches!(
-        matched,
-        PredicateMatch::Failed {
-            shared_names: false
-        }
-    ) && let Some((renamed, _)) = rename_predicate_rule_apart(rule, predicate, known_predicates)
+    if !matches!(matched, PredicateMatch::Failed)
+        && let Some((renamed, _)) = rename_predicate_rule_apart(rule, predicate, known_predicates)
     {
         return apply_predicate_equation(
             definition,
@@ -3551,8 +3555,10 @@ fn apply_predicate_equation(
         );
     }
     let substitution = match matched {
-        PredicateMatch::Failed { .. } => return Ok(EquationAttempt::NotApplicable(())),
-        PredicateMatch::Indeterminate => {
+        PredicateMatch::Failed => return Ok(EquationAttempt::NotApplicable(())),
+        // A shared name the renaming did not remove, or a question matching does not answer:
+        // neither refutes the equation.
+        PredicateMatch::SharedNames | PredicateMatch::Indeterminate => {
             // The matching is undecided: the equation competed here (`crate::coverage`).
             crate::coverage::note_offered(&rule.attributes.unique_id);
             return Ok(EquationAttempt::Indeterminate(
@@ -4073,12 +4079,12 @@ pub(crate) fn without_term_conjunctions(term: &Term) -> Option<(Term, Vec<Predic
 
 enum PredicateMatch {
     Success(Substitution),
-    /// No match. `shared_names` is whether the term matcher refused because a variable of the
-    /// pattern and one of the subject have one name ([`FailReason::SharedVariables`]); any other
-    /// failure is one of the predicates' shapes or terms, whatever the names.
-    Failed {
-        shared_names: bool,
-    },
+    /// No match: the predicates' shapes differ, or their terms are refuted, whatever the names.
+    Failed,
+    /// The term matcher refused because a variable of the pattern and one of the subject have
+    /// one name ([`UndecidedReason::SharedVariables`]). That is no refutation: renamed apart,
+    /// the pattern has the same instances and may match.
+    SharedNames,
     Indeterminate,
 }
 
@@ -4105,9 +4111,7 @@ fn match_predicate(
     // costs nothing more. Without a quantifier in the pattern, a subject quantifier is in no
     // pair (its connective meets another of the pattern's), so nothing needs renaming.
     if !collect_predicate_term_pairs(pattern, subject, &mut pairs, &mut binders) {
-        return PredicateMatch::Failed {
-            shared_names: false,
-        };
+        return PredicateMatch::Failed;
     }
     let renamed;
     if has_quantifier(pattern) {
@@ -4141,9 +4145,7 @@ fn match_predicate(
                     None => {}
                     Some(bound) if bound == Term::variable((*subject_bound).clone()) => {}
                     Some(_) => {
-                        return PredicateMatch::Failed {
-                            shared_names: false,
-                        };
+                        return PredicateMatch::Failed;
                     }
                 }
             }
@@ -4152,16 +4154,14 @@ fn match_predicate(
                     .iter()
                     .any(|(_, bound)| value.attributes().variables.contains(bound))
             }) {
-                return PredicateMatch::Failed {
-                    shared_names: false,
-                };
+                return PredicateMatch::Failed;
             }
             PredicateMatch::Success(substitution)
         }
-        MatchResult::Failed(reason) => PredicateMatch::Failed {
-            shared_names: matches!(reason, FailReason::SharedVariables(_)),
-        },
-        MatchResult::Indeterminate { .. } => PredicateMatch::Indeterminate,
+        MatchResult::Failed(_) => PredicateMatch::Failed,
+        MatchResult::Undecided(UndecidedReason::SharedVariables(_)) => PredicateMatch::SharedNames,
+        MatchResult::Undecided(UndecidedReason::Subsorting(_) | UndecidedReason::OpenSorts(..))
+        | MatchResult::Indeterminate { .. } => PredicateMatch::Indeterminate,
     }
 }
 
@@ -4350,16 +4350,50 @@ fn first_predicate_term(predicate: &Predicate) -> Option<&Term> {
 ///
 /// The frontend represents K operands as singleton K sequences, while collection definedness
 /// compares their underlying KItems. Lowering both to the item makes those logically identical
-/// conditions share one internal representation. The ceil obligations retain strictness: a
-/// Boolean result from K equality implies that both operands were defined.
+/// conditions share one internal representation.
+///
+/// Every rewrite is an equivalence, on every instance, including those where an operand is
+/// undefined. Each symbol application is strict (an undefined argument makes it undefined), and
+/// `\equals(t, v)` with `v` a value is false where `t` is undefined, so the input equation states
+/// the definedness of `t`; the output states it too wherever its own atoms do not imply it:
+///
+/// - `t = true` stays the atom `t`, which means that equation: no obligation is added.
+/// - `t = false` becomes `\ceil(t) /\ \not(t)`: `\not(t)` alone also holds where `t` is
+///   undefined.
+/// - `(a andBool b) = true` and `(a orBool b) = false` become the conjunction of the operands'
+///   equations, and `notBool a = v` becomes `a = not v`; each operand's equation states its own
+///   definedness, so no obligation is added.
+/// - `(a andBool b) = false` and `(a orBool b) = true` become a disjunction of the operands'
+///   equations conjoined with `\ceil(a) /\ \ceil(b)`: one disjunct holding says nothing of the
+///   other operand, which the strict connective requires defined.
+/// - A K or integer equality becomes the equation or disequation of its operands conjoined with
+///   both operands' obligations, since `\equals(\bottom, \bottom)` is `\top`.
+///
+/// Each obligation is the operand's `ceil_term`, which is empty for a `ceil_free` operand, so a
+/// predicate over defined-by-construction terms keeps its plain form. Where `ceil_term` cannot
+/// state the obligation (it depends on an impure application in an operand a conditional never
+/// evaluates, `crate::deferred`), the equation is returned as it is. The result is a fixed point,
+/// so a predicate the simplifier normalizes again gains nothing more: an obligation is added only
+/// where an equation of a term with `false` (or of a connective with the value one operand
+/// decides) is rewritten away, and an equation left in the result is one returned as it is.
+///
+/// `known` tells whether the context already states an obligation (a known fact, or a sibling
+/// conjunct as it currently stands). The obligations the `t = false` rewrite and the rewrite of
+/// a connective decided by one operand add are left out where known: the context conjoins them,
+/// so what is left is equivalent to the equation there, and simplifying the result again under
+/// the same context gains nothing. A disjunct of a connective decided by one operand never
+/// restates an obligation its disjunction is conjoined with, since that conjunction holds
+/// wherever the disjunct is read.
 fn normalize_hooked_boolean_predicate(
     definition: &BackendDefinition,
     predicate: Predicate,
+    known: &dyn Fn(&Predicate) -> bool,
 ) -> Predicate {
     if let Predicate::Term(term) = &predicate {
         let normalized = normalize_hooked_boolean_predicate(
             definition,
             Predicate::Equals(term.clone(), Term::bool(true)),
+            known,
         );
         return match &normalized {
             Predicate::Equals(left, right) if left == term && bool_value(right) == Some(true) => {
@@ -4382,7 +4416,7 @@ fn normalize_hooked_boolean_predicate(
         symbol, arguments, ..
     } = application.kind()
     else {
-        return boolean_literal_equality(application, value)
+        return boolean_literal_equality(definition, application, value, known)
             .unwrap_or(Predicate::Equals(left, right));
     };
     if let Some(operator) = symbol.attributes.hook.as_deref() {
@@ -4390,28 +4424,53 @@ fn normalize_hooked_boolean_predicate(
             normalize_hooked_boolean_predicate(
                 definition,
                 Predicate::Equals(term.clone(), Term::bool(value)),
+                known,
             )
+        };
+        // The connective's value decided by one operand's equation (`false` for a conjunction,
+        // `true` for a disjunction): a disjunction of the operands' equations, which states
+        // neither operand's definedness beside the one whose equation holds. Each disjunct is
+        // read where both operands' obligations hold, so a disjunct's conjunct among them is
+        // `\top` there and is left out: `O /\ ((O1 /\ E) \/ F)` is `O /\ (E \/ F)` when `O1` is
+        // a member of `O`.
+        let decided_by_one = |first: &Term, second: &Term, value| {
+            let (Ok(mut obligations), Ok(second_obligations)) =
+                (ceil_term(definition, first), ceil_term(definition, second))
+            else {
+                return None;
+            };
+            obligations.extend(second_obligations);
+            let disjunct = |term: &Term| without_conjuncts(bool_operand(term, value), &obligations);
+            let disjunction = Predicate::Or(vec![disjunct(first), disjunct(second)].into());
+            let mut predicates = obligations
+                .iter()
+                .filter(|obligation| !known(obligation))
+                .cloned()
+                .collect::<Vec<_>>();
+            predicates.push(disjunction);
+            Some(normalize_predicate(Predicate::And(predicates.into())))
         };
         match (operator, arguments.as_slice()) {
             ("BOOL.and", [first, second]) => {
+                if !value {
+                    return decided_by_one(first, second, value)
+                        .unwrap_or(Predicate::Equals(left, right));
+                }
                 let operands = vec![bool_operand(first, value), bool_operand(second, value)];
-                return normalize_predicate(if value {
-                    Predicate::And(operands.into())
-                } else {
-                    Predicate::Or(operands.into())
-                });
+                return normalize_predicate(Predicate::And(operands.into()));
             }
             ("BOOL.or", [first, second]) => {
+                if value {
+                    return decided_by_one(first, second, value)
+                        .unwrap_or(Predicate::Equals(left, right));
+                }
                 let operands = vec![bool_operand(first, value), bool_operand(second, value)];
-                return normalize_predicate(if value {
-                    Predicate::Or(operands.into())
-                } else {
-                    Predicate::And(operands.into())
-                });
+                return normalize_predicate(Predicate::And(operands.into()));
             }
             ("BOOL.not", [operand]) => return bool_operand(operand, !value),
             ("SET.in", [element, set]) => {
-                if let Some(membership) = set_membership_equations(definition, element, set, value)
+                if let Some(membership) =
+                    set_membership_equations(definition, element, set, value, known)
                 {
                     return membership;
                 }
@@ -4425,7 +4484,7 @@ fn normalize_hooked_boolean_predicate(
         Some("INT.eq") => (!value, false),
         Some("INT.ne") => (value, false),
         _ => {
-            return boolean_literal_equality(application, value)
+            return boolean_literal_equality(definition, application, value, known)
                 .unwrap_or(Predicate::Equals(left, right));
         }
     };
@@ -4483,6 +4542,7 @@ fn set_membership_equations(
     element: &Term,
     set: &Term,
     value: bool,
+    known: &dyn Fn(&Predicate) -> bool,
 ) -> Option<Predicate> {
     let TermKind::Set {
         elements,
@@ -4504,7 +4564,8 @@ fn set_membership_equations(
     let mut equations = Vec::with_capacity(candidates.len());
     for existing in candidates {
         let (left, right) = align_subsort_operands(definition, element, existing)?;
-        let equality = normalize_injection_equality(definition, Predicate::Equals(left, right));
+        let equality =
+            normalize_injection_equality(definition, Predicate::Equals(left, right), known);
         equations.push(if value {
             equality
         } else {
@@ -4521,15 +4582,51 @@ fn set_membership_equations(
     Some(normalize_predicate(Predicate::And(predicates.into())))
 }
 
-fn boolean_literal_equality(term: &Term, value: bool) -> Option<Predicate> {
+/// `term = value` for a Boolean `term` that no other arm of
+/// [`normalize_hooked_boolean_predicate`] decomposes, or `None` when `term` is not Boolean, is
+/// a literal, or (for `false`) has a definedness `ceil_term` cannot state.
+///
+/// `term = true` is the atom `term`. `term = false` holds exactly where `term` is defined and
+/// not `true`, so it is `\ceil(term) /\ \not(term)`: the negated atom alone also holds where
+/// `term` is undefined, since `\equals(\bottom, true)` is false. The obligation is
+/// `ceil_term(term)`, empty for a `ceil_free` term, less its members the context states
+/// (`known`), where the negated atom alone is equivalent to the equation.
+fn boolean_literal_equality(
+    definition: &BackendDefinition,
+    term: &Term,
+    value: bool,
+    known: &dyn Fn(&Predicate) -> bool,
+) -> Option<Predicate> {
     if !term.sort().is_builtin(BuiltinSort::Bool) || bool_value(term).is_some() {
         return None;
     }
-    Some(if value {
-        Predicate::Term(term.clone())
-    } else {
-        Predicate::Not(Arc::new(Predicate::Term(term.clone())))
-    })
+    if value {
+        return Some(Predicate::Term(term.clone()));
+    }
+    let negation = Predicate::Not(Arc::new(Predicate::Term(term.clone())));
+    let mut predicates = ceil_term(definition, term).ok()?;
+    predicates.retain(|obligation| !known(obligation));
+    if predicates.is_empty() {
+        return Some(negation);
+    }
+    predicates.push(negation);
+    Some(normalize_predicate(Predicate::And(predicates.into())))
+}
+
+/// `predicate` read where every member of `stated` holds: a conjunct of it among `stated` is
+/// `\top` there and is left out, and so is `predicate` itself when it is one.
+fn without_conjuncts(predicate: Predicate, stated: &[Predicate]) -> Predicate {
+    match predicate {
+        Predicate::And(conjuncts) => normalize_predicate(Predicate::And(
+            conjuncts
+                .iter()
+                .filter(|conjunct| !stated.contains(conjunct))
+                .cloned()
+                .collect(),
+        )),
+        predicate if stated.contains(&predicate) => Predicate::True,
+        predicate => predicate,
+    }
 }
 
 fn align_subsort_operands(
@@ -7771,8 +7868,9 @@ fn decide_unused_instance<T, N>(
 pub(crate) enum EquationInstances {
     /// The left-hand side does not match the subject: no instance of the equation is the subject.
     NotMatched(MatchFailed),
-    /// Matching modulo the map and set axioms could not decide whether the left-hand side
-    /// matches the subject.
+    /// Matching could not decide whether the left-hand side matches the subject: matching modulo
+    /// the map and set axioms left it open, or the matcher met a question it does not answer
+    /// ([`MatchResult::Undecided`]).
     Undecided,
     /// The instances in the matcher's order; never empty. When matching modulo the map and set
     /// axioms decided some matchings but not every one, or some matching rests on a binding that
@@ -7880,6 +7978,10 @@ pub(crate) fn equation_instances<'r>(
                 .expect("a failed match states its refutation");
             return (rule, EquationInstances::NotMatched(failed));
         }
+        // A question matching does not answer, such as a sort question that depends on a
+        // sort-parametric equation's sort variable: some instance of the equation may match, so
+        // it is not refuted and lower-priority equations do not apply.
+        MatchResult::Undecided(_) => return (rule, EquationInstances::Undecided),
         MatchResult::Indeterminate {
             substitution,
             remainder,

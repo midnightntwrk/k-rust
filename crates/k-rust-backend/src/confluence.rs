@@ -1767,15 +1767,23 @@ impl Context<'_> {
         // under an injection, and at a position of any other sort never.
         let (inner_sort, second_sort) = (inner.sort(), second.lhs.sort());
         let injected = inner_sort != second_sort;
-        if injected
-            && (switches::active().drop_injected_inner
-                || self
-                    .definition
-                    .sort_graph()
-                    .check_subsort(&second_sort, &inner_sort)
-                    != Ok(true))
-        {
-            return Classified::Fine;
+        if injected {
+            if switches::active().drop_injected_inner {
+                return Classified::Fine;
+            }
+            match self
+                .definition
+                .sort_graph()
+                .check_subsort(&second_sort, &inner_sort)
+            {
+                Ok(true) => {}
+                Ok(false) => return Classified::Fine,
+                // Whether `second` applies under an injection at this position depends on a
+                // sort variable: some instance may overlap, so the pair is not shown fine.
+                Err(_) => {
+                    return not_joined(UnjoinedReason::Unresolved(UnresolvedShape::SortVariable));
+                }
+            }
         }
         let nothing_normal = |_: &Term| false;
         // The overlap must also be an instance of the rest of `first`'s left-hand side: each

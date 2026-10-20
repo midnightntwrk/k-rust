@@ -36,7 +36,7 @@ use crate::names::BuiltinSort;
 use crate::{
     definition::{
         Attributes, Definition, DefinitionViews, LabelHead, ModuleId, ProductionCatalog,
-        ProductionItem, ResolvedDefinition, Sentence,
+        ProductionItem, ResolvedDefinition, RuleHead, Sentence,
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{FrontendSort, GeneratedCell, InternalLabel, Label, Sort, Term, TermParts},
@@ -918,22 +918,9 @@ impl<'definition> ValueFacts<'definition> {
                 else {
                     return false;
                 };
-                let mut left = match body.unannotated() {
-                    Term::Rewrite { left, .. } => left.as_ref(),
-                    Term::Apply { .. }
-                    | Term::Variable { .. }
-                    | Term::Token { .. }
-                    | Term::InjectedLabel(_)
-                    | Term::As { .. }
-                    | Term::Sequence(_)
-                    | Term::Annotated { .. } => body,
-                };
-                while let Term::As { pattern, .. } = left.unannotated() {
-                    left = pattern;
-                }
                 (attributes.has_any(&AttributeKey::MACRO_LIKE)
                     || attributes.has(AttributeKey::Anywhere))
-                    && matches!(left.unannotated(), Term::Token { .. })
+                    && matches!(RuleHead::of(body).root.unannotated(), Term::Token { .. })
             });
             ReadValueFacts {
                 rule_heads: rules
@@ -4514,20 +4501,10 @@ fn is_empty_cell_bag(term: &Term) -> bool {
     )
 }
 
+/// Whether `term`, a rule body, is headed by a function ([`RuleHead::of`], root aliases looked
+/// through): an equation, which has no cells to complete.
 fn is_function(term: &Term, productions: &ProductionCatalog<'_>) -> bool {
-    #[expect(
-        clippy::wildcard_enum_match_arm,
-        reason = "Term is syntax; only the listed variants are special here"
-    )]
-    let label = match term.unannotated() {
-        Term::Apply { label, .. } => Some(label),
-        Term::Rewrite { left, .. } => match left.unannotated() {
-            Term::Apply { label, .. } => Some(label),
-            _ => None,
-        },
-        _ => None,
-    };
-    label.is_some_and(|label| {
+    RuleHead::of(term).label().is_some_and(|label| {
         productions
             .function_labels()
             .contains(&LabelHead::from(label))

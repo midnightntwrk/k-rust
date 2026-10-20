@@ -411,7 +411,9 @@ pub fn parse_kast_wasm(source: &str) -> Result<String, JsError> {
 fn parse_kast(source: &str) -> Result<String, String> {
     let term = parse_term(source).map_err(display_error)?;
     serialize(&SerializedKast {
-        text: KastPrinter::new().print_term(&term),
+        text: KastPrinter::new()
+            .try_print_term(&term)
+            .map_err(display_error)?,
         kast: raw_json(kast_json::to_string(&term).map_err(display_error)?)?,
     })
 }
@@ -420,7 +422,7 @@ fn parse_kast(source: &str) -> Result<String, String> {
 #[wasm_bindgen(js_name = printKastWasm)]
 pub fn print_kast_wasm(json: &str) -> Result<String, JsError> {
     let term = kast_json::from_str(json).map_err(js_error)?;
-    Ok(KastPrinter::new().print_term(&term))
+    KastPrinter::new().try_print_term(&term).map_err(js_error)
 }
 
 /// Convert a textual KORE pattern into canonical text and KORE JSON v1.

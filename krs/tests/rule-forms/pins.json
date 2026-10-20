@@ -805,6 +805,9 @@
     "unannotated-overlap": [
       "error[krs::analysis::overlapping-rule-heads]: rules `heads` and `tails` can both apply to the same configuration at the same priority; K would take either one (nondeterminism). If that is intended, put both in one group with `#[k::rule(nondet = NAME)]`; otherwise refine a pattern, add disjoint `where` sorts or complementary requires guards, or order them with `owise` or `priority = N`."
     ],
+    "list-unit-overlap": [
+      "error[krs::analysis::overlapping-rule-heads]: rules `last_job` and `next_job` can both apply to the same configuration at the same priority; K would take either one (nondeterminism). If that is intended, put both in one group with `#[k::rule(nondet = NAME)]`; otherwise refine a pattern, add disjoint `where` sorts or complementary requires guards, or order them with `owise` or `priority = N`."
+    ],
     "single-member-group": [
       "error[krs::analysis::nondet-group]: nondet group `toss` has only one rule"
     ],

@@ -30,7 +30,7 @@ use crate::names::BuiltinSort;
 use crate::{
     definition::{
         Attributes, Definition, LabelHead, ProductionCatalog, ProductionItem, ResolvedDefinition,
-        Sentence, expand_configurations_allowing_reserved_cells, production_identity,
+        RuleHead, Sentence, expand_configurations_allowing_reserved_cells, production_identity,
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{
@@ -569,19 +569,16 @@ fn add_fresh_cell(body: Term, count: usize) -> Term {
     )
 }
 
+/// Whether `sentence` is a rule of a function: its head ([`RuleHead::of`], root aliases and
+/// `#withConfig` looked through) is a function label.
 fn rule_defines_function(sentence: &Sentence, productions: &ProductionCatalog<'_>) -> bool {
-    let mut left = rewrite_left(rule_body(sentence));
-    if let Some((label, arguments)) = left.as_apply()
-        && label.is(InternalLabel::WithConfig)
-        && let Some(first) = arguments.first()
-    {
-        left = first.clone();
-    }
-    left.as_apply().is_some_and(|(label, _)| {
-        productions
-            .function_labels()
-            .contains(&LabelHead::from(label))
-    })
+    RuleHead::of(rule_body(sentence))
+        .label()
+        .is_some_and(|label| {
+            productions
+                .function_labels()
+                .contains(&LabelHead::from(label))
+        })
 }
 
 fn add_counter_initializer(sentence: Sentence) -> Result<Sentence, String> {

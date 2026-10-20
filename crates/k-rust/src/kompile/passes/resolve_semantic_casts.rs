@@ -1,7 +1,9 @@
 //! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
 //! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
 //!
-//! Remove semantic-cast applications while retaining their inferred sorts.
+//! Remove semantic-cast applications while retaining their inferred sorts, and give the root
+//! alias of a rule that defines its head at the head's sort that sort
+//! ([`narrow_head_aliases`]).
 #![deny(clippy::wildcard_enum_match_arm)]
 
 use std::{
@@ -12,7 +14,7 @@ use std::{
 use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
 use crate::{
-    definition::{Definition, PartialOrder, Sentence},
+    definition::{Definition, LabelHead, PartialOrder, ProductionCatalog, RuleHead, Sentence},
     diagnostic::{Diagnostic, DiagnosticCode},
     kast::{Label, Sort, SortRole, Term, TermParts, sort_role::KernelSort},
     provenance::GeneratingPass,
@@ -117,15 +119,183 @@ pub(crate) fn resolve_semantic_casts_pass(
                 |sentence| sentence_error(&message, sentence),
             )
         })?;
+        let productions = views.production_catalog(module_id);
         for sentence in &mut module.local_sentences {
-            resolve_semantic_casts_in_sentence_mut(
+            resolve_compiled_casts_in_sentence_mut(
                 crate::definition::sentence_mut(sentence),
-                false,
+                productions,
                 subsorts,
             )?;
         }
     }
     Ok(output)
+}
+
+/// Resolve the semantic casts of one sentence as the compilation pass does: the casts, and then
+/// the sort of each root alias of a rule stated at its head's sort ([`narrow_head_aliases`]).
+///
+/// `subsorts` and `productions` must be the visible subsort order and production catalog of the
+/// sentence's module. Anything that builds rules for the compiled definition's own use, such as
+/// the macro rules a standalone program is expanded with, resolves them through this function,
+/// so that it reads each rule with the variable sorts the compiled definition gives it.
+pub(crate) fn resolve_compiled_casts_in_sentence(
+    subsorts: &PartialOrder<Sort>,
+    productions: &ProductionCatalog<'_>,
+    mut sentence: Sentence,
+) -> Result<Sentence, ResolveSemanticCastsError> {
+    resolve_compiled_casts_in_sentence_mut(&mut sentence, productions, subsorts)?;
+    Ok(sentence)
+}
+
+fn resolve_compiled_casts_in_sentence_mut(
+    sentence: &mut Sentence,
+    productions: &ProductionCatalog<'_>,
+    subsorts: &PartialOrder<Sort>,
+) -> Result<(), ResolveSemanticCastsError> {
+    resolve_semantic_casts_in_sentence_mut(sentence, false, subsorts)?;
+    narrow_head_aliases(sentence, productions, subsorts);
+    Ok(())
+}
+
+/// Give each root alias variable of a rule that compilation states at its head's sort the
+/// head's sort, at every occurrence of the variable in the rule.
+///
+/// A function, macro, `anywhere` or `simplification` rule `h(P) #as V => R` defines `h` at the
+/// result sort `S` of `h`: it states `h(P) = R[h(P)/V]`, an equation between terms of `S`, and is
+/// never placed in a cell. `V` names the matched term, an application of `h`, so every value `V`
+/// can take is a term of `S`. Sort inference reads the rule body at the sort of a rule body,
+/// though, and an alias that nothing else bounds takes that sort, `K`, there: the alias would
+/// then lift the whole left side to `K`, and the rule would be read as a `K` rewrite rather than
+/// as an equation of `h`. Narrowing `V` from a sort `T` above `S` to `S` excludes no value `V`
+/// can take, and keeps every occurrence well placed, since each position `V` stood at accepted a
+/// term of `T` and so accepts one of `S`. An alias whose sort is `S` already, is not above `S`,
+/// or is not a variable is left as written; so is the alias of a head whose result sort is not
+/// one fixed sort (a parametric production, or an overloaded label the term does not resolve).
+///
+/// Variable names are unique within a sentence by this point (`rename bound variables apart`),
+/// so every occurrence of the alias's name is the alias.
+fn narrow_head_aliases(
+    sentence: &mut Sentence,
+    productions: &ProductionCatalog<'_>,
+    subsorts: &PartialOrder<Sort>,
+) {
+    let sorts = {
+        let Sentence::Rule {
+            body, attributes, ..
+        } = &*sentence
+        else {
+            return;
+        };
+        let head = RuleHead::of(body);
+        let Some((application, label, _)) = head.application() else {
+            return;
+        };
+        if head.right.is_none() {
+            return;
+        }
+        let at_head_sort = super::add_implicit_computation_cell::is_function(body, productions)
+            || productions.macro_labels().contains(&LabelHead::from(label))
+            || attributes.has_any(&AttributeKey::MACRO_LIKE)
+            || attributes.has(AttributeKey::Anywhere)
+            || attributes.has(AttributeKey::Simplification);
+        if !at_head_sort {
+            return;
+        }
+        let Some(result) = head_result_sort(application, label, productions) else {
+            return;
+        };
+        let mut sorts = BTreeMap::new();
+        let mut term = head.left;
+        while let Term::As { pattern, alias } = term.unannotated() {
+            if let Term::Variable {
+                name,
+                sort: Some(sort),
+            } = alias.unannotated()
+                && *sort != result
+                && below(&result, sort, subsorts)
+            {
+                sorts.insert(name.clone(), result.clone());
+            }
+            term = pattern;
+        }
+        sorts
+    };
+    if sorts.is_empty() {
+        return;
+    }
+    let Sentence::Rule {
+        body,
+        requires,
+        ensures,
+        ..
+    } = sentence
+    else {
+        unreachable!("the sorts were read from a rule")
+    };
+    for root in [body, requires, ensures] {
+        retype_variables(root, &sorts);
+    }
+}
+
+/// The result sort of the head application `application` of `label`: that of the production
+/// the application resolves to, or of the label's one production, when that production is not
+/// parametric.
+fn head_result_sort(
+    application: &Term,
+    label: &Label,
+    productions: &ProductionCatalog<'_>,
+) -> Option<Sort> {
+    let resolved = application
+        .metadata()
+        .and_then(|metadata| metadata.production)
+        .and_then(|identity| productions.lookup(&identity))
+        .filter(|id| {
+            matches!(
+                productions.production(*id),
+                Sentence::Production { label: Some(candidate), .. } if candidate.name == label.name
+            )
+        });
+    let id = match resolved {
+        Some(id) => id,
+        None => match productions.productions_for(&LabelHead::from(label)) {
+            [only] => *only,
+            _ => return None,
+        },
+    };
+    match productions.production(id) {
+        Sentence::Production {
+            parameters, sort, ..
+        } if parameters.is_empty() && sort.parameters.is_empty() => Some(sort.clone()),
+        Sentence::Production { .. }
+        | Sentence::SyntaxSort { .. }
+        | Sentence::SortSynonym { .. }
+        | Sentence::SyntaxLexical { .. }
+        | Sentence::SyntaxAssociativity { .. }
+        | Sentence::SyntaxPriority { .. }
+        | Sentence::ContextAlias { .. }
+        | Sentence::Context { .. }
+        | Sentence::Rule { .. }
+        | Sentence::Claim { .. }
+        | Sentence::Configuration { .. }
+        | Sentence::Bubble { .. } => None,
+    }
+}
+
+/// Give every variable of `term` named in `sorts` the sort `sorts` maps it to.
+fn retype_variables(term: &mut Term, sorts: &BTreeMap<String, Sort>) {
+    let mut pending = vec![term];
+    while let Some(mut node) = pending.pop() {
+        while let Term::Annotated { term: inner, .. } = node {
+            node = inner;
+        }
+        if let Term::Variable { name, sort } = node {
+            if let Some(narrowed) = sorts.get(name) {
+                *sort = Some(narrowed.clone());
+            }
+            continue;
+        }
+        pending.extend(node.children_mut());
+    }
 }
 
 /// Resolve semantic casts across all term-bearing roots of one sentence.
@@ -987,5 +1157,54 @@ mod tests {
                 "{role:?}"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod head_alias_tests {
+    use crate::definition::{RuleHead, Sentence};
+    use crate::kast::{Sort, Term};
+    use crate::kompile::stage_harness::{labelled, run_to_stage};
+
+    /// The sort of the root alias of the rule labelled `label` in module `MAIN` of `definition`.
+    fn alias_sort(definition: &crate::definition::Definition, label: &str) -> Option<Sort> {
+        let rules = labelled(definition, "MAIN", label);
+        assert_eq!(rules.len(), 1, "{label}");
+        let Sentence::Rule { body, .. } = rules[0] else {
+            panic!("{label} is not a rule")
+        };
+        let Term::As { alias, .. } = RuleHead::of(body).left.unannotated() else {
+            panic!("{label} has no root alias")
+        };
+        let Term::Variable { sort, .. } = alias.unannotated() else {
+            panic!("the alias of {label} is not a variable")
+        };
+        sort.clone()
+    }
+
+    /// `f(X) #as _V => done(X)` states `f(X) = done(X)` at the result sort `Exp` of `f`, and `_V`
+    /// names the matched application of `f`, so `_V` is a variable of `Exp`, whatever sort the
+    /// rule body's position gave it. A rule placed in a cell is a rewrite of the cell's contents,
+    /// not an equation of its head, so its alias keeps the sort it is given (`_W:Val`, above
+    /// `Exp`).
+    #[test]
+    fn a_root_alias_of_a_function_rule_has_the_head_sort() {
+        let run = run_to_stage(
+            r#"
+module MAIN
+  syntax K
+  syntax Exp ::= "a" [symbol(a)] | "b" [symbol(b)] | done(Exp) [symbol(done)]
+  syntax Exp ::= f(Exp) [function, symbol(f)]
+  syntax Val ::= Exp
+  configuration <k> a </k>
+  rule f(X) #as _V => done(X) [label(aliased)]
+  rule b #as _W:Val => a [label(cell)]
+  rule a => f(b) [label(step)]
+endmodule
+"#,
+            "resolve semantic casts",
+        );
+        assert_eq!(alias_sort(run.output(), "aliased"), Some(Sort::new("Exp")));
+        assert_eq!(alias_sort(run.output(), "cell"), Some(Sort::new("Val")));
     }
 }

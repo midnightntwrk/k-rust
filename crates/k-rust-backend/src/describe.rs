@@ -14,7 +14,7 @@ use k_rust_kore::kore::printer::Printer;
 use crate::{
     builtin::BuiltinError,
     externalize,
-    matching::SortError,
+    matching::{SortError, UndecidedReason},
     proof::{ClaimIndeterminateReason, ProofIndeterminateReason},
     rewrite::{AppliedRule, HaltReason, IndeterminateReason},
     rule::Predicate,
@@ -462,6 +462,27 @@ impl Display for SortError {
     }
 }
 
+/// Why a match was left undecided: a question one-way matching does not answer, whose answer
+/// may make the pattern match.
+impl Display for UndecidedReason {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::SharedVariables(variables) => write!(
+                formatter,
+                "the pattern and the subject share {}, which matching does not bind",
+                english_list(&variables.iter().map(printed_variable).collect::<Vec<_>>())
+            ),
+            Self::Subsorting(error) => write!(formatter, "{error}"),
+            Self::OpenSorts(pattern, subject) => write!(
+                formatter,
+                "the sorts of {} and {} are one sort only on some instances of their sort variables",
+                compact_term(pattern),
+                compact_term(subject)
+            ),
+        }
+    }
+}
+
 impl Display for Satisfiability {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -480,6 +501,12 @@ impl Display for SmtError {
             Self::Unknown(reason) => write!(formatter, "the solver did not decide it ({reason})"),
             Self::InconsistentGroundTruth => {
                 formatter.write_str("the solver found the path condition unsatisfiable")
+            }
+            Self::MalformedScript { message } => {
+                write!(
+                    formatter,
+                    "the solver rejected the query as malformed ({message})"
+                )
             }
             Self::MissingModel => formatter.write_str("the solver gave no model"),
             Self::MissingModelValue(variable) => write!(

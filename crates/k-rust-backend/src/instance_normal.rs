@@ -452,6 +452,7 @@ fn separated(comparison: RootComparison<'_>) -> bool {
         // Equal names, two domain values and two injections have arms of their own in
         // `unify_one`; the root alone separates none of these pairs.
         RootComparison::SameApplication(_)
+        | RootComparison::OpenSortArguments
         | RootComparison::ArityMismatch
         | RootComparison::DomainValues
         | RootComparison::Injections

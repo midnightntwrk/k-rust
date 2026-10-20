@@ -3101,6 +3101,14 @@ fn match_pattern_with_variables(
     ) {
         MatchResult::Success(substitution) => vec![substitution],
         MatchResult::Failed(_) => return Ok(Ok(Vec::new())),
+        // A question the matcher does not answer: the target may hold, so the match is
+        // undecided, never "no match".
+        MatchResult::Undecided(_) => {
+            return Ok(Err(PatternMatchError::Indeterminate {
+                substitution: Substitution::new(),
+                remainder: vec![(target.term.clone(), subject.term.clone())],
+            }));
+        }
         // The collection pairs the match deferred are solved for every way they hold; without
         // narrowing, the solver gives up instead of placing a pattern entry in an opaque part of
         // the subject, so the solutions it returns are every way there is.

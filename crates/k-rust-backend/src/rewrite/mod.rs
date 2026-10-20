@@ -39,14 +39,15 @@ pub(crate) use predicates::{
     quantify_introduced_variables, violates_finite_constructor_domain,
 };
 use recover::{
-    GeneralUnificationRecovery, freshen_unbound_rule_variables, is_functional_pattern,
-    recover_boolean_matches, recover_equality_matches, recover_function_equality_match,
-    recover_functional_symbolic_match, recover_general_unification, recover_ite_matches,
-    recover_map_not_in_keys_matches, recover_overload_symbolic_match,
-    recover_symbolic_map_key_matches, solve_collection_remainders_with_narrowing,
+    GeneralUnificationRecovery, freshen_unbound_rule_variables, recover_boolean_matches,
+    recover_equality_matches, recover_function_equality_match, recover_functional_symbolic_match,
+    recover_general_unification, recover_ite_matches, recover_map_not_in_keys_matches,
+    recover_overload_symbolic_match, recover_symbolic_map_key_matches,
+    solve_collection_remainders_with_narrowing,
 };
 pub(crate) use recover::{
-    RecoveredMatch, collection_unification_definedness, recover_indeterminate_match,
+    RecoveredMatch, collection_unification_definedness, is_functional_pattern,
+    recover_indeterminate_match,
 };
 use roles::{Applicability, Remainder};
 #[cfg(test)]
@@ -1044,10 +1045,14 @@ pub(crate) enum SubjectDefinedness<'a> {
     /// Not assumed. The subject denotes its defined instances only, those where these decided
     /// obligations hold ([`initial_definedness`]); none are given when nothing beyond its
     /// constraints is decided. The rules of the first priority that applies see the subject as
-    /// it is, so a successor carries the obligations its own step states; what the step leaves
-    /// over (its remainder, the part offered to lower priorities or to the later rules of an
-    /// `Any` step, a subject no rule applies to) is restricted to the instances where they hold,
-    /// since the others are no configuration to rewrite or to report.
+    /// it is, and decide their conditions without these obligations. Every part of the step is
+    /// restricted to the instances where they hold, since the others are no configuration to
+    /// rewrite or to report: each applied successor carries them beside the obligations its own
+    /// step states, and so does what the step leaves over (its remainder, the part offered to
+    /// lower priorities or to the later rules of an `Any` step, a subject no rule applies to). A
+    /// successor needs them because a subterm the step consumed by a recovery, rather than by a
+    /// binding or a collection pattern whose definedness the step states, leaves no other trace
+    /// of its definedness in the successor.
     Where(&'a [Predicate]),
 }
 
@@ -1066,8 +1071,8 @@ impl<'a> SubjectDefinedness<'a> {
         matches!(self, Self::Assumed)
     }
 
-    /// The obligations that restrict what the step leaves over; none when assumed, since the
-    /// rules then decide their conditions under the subject's whole definedness.
+    /// The obligations that restrict what the step produces and leaves over; none when assumed,
+    /// since the rules then decide their conditions under the subject's whole definedness.
     pub(crate) const fn restriction(self) -> &'a [Predicate] {
         match self {
             Self::Assumed => &[],
@@ -1104,9 +1109,9 @@ pub(crate) enum InitialDefinedness {
 /// application holding it is undefined too, and the instance is no configuration. Such an
 /// instance has no successor, so no rule is stuck on it, and it is no result. The obligations
 /// `⌈t⌉` are therefore decided under `φ` before the first step: refuted, the configuration has no
-/// instance; otherwise the obligations left open restrict what its step leaves over
-/// ([`SubjectDefinedness::Where`]), so that no remainder, lower priority or stuck leaf is given
-/// the instances where they fail. A rule's own conditions are not obligations of `t`: an
+/// instance; otherwise the obligations left open restrict what its step produces and leaves
+/// over ([`SubjectDefinedness::Where`]), so that no successor, remainder, lower priority or stuck
+/// leaf is given the instances where they fail. A rule's own conditions are not obligations of `t`: an
 /// instance on which a `requires` is undefined is a configuration all the same, and stays stuck
 /// where no rule applies to it. A failed simplification states the obligations as `⌈t⌉` gives
 /// them, which denote the same instances.

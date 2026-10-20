@@ -377,18 +377,33 @@ bug — report it, don't guess.
      priority. A group is scoped to its package; the key is check-only and
      emits nothing.
   4. *Complementary guards (KF-012)* separate two rules, decided
-     syntactically after unification with the unifier's substitution: a
-     conjunct `bool::not(g)` against a conjunct `g`; `int::lt`/`int::ge`,
-     `int::le`/`int::gt`, `int::eq`/`int::ne`, and `bool::eq`/`bool::ne`
-     on identical operands, with operand swaps normalised. A conjunct of
-     either guard that the substitution makes an Int comparison
-     (`int::lt`, `le`, `gt`, `ge`, `eq`, `ne`, or `bool::not` of one) of
-     two Int literals is evaluated, and a false one separates the rules on
-     its own: a rule on `0` and a rule on `x` with `int::ge(x, 10)` give
-     `0 >=Int 10` (K tutorial lesson 1.21, which therefore needs no
-     `nondet` group). Literals outside the 128-bit range and arithmetic
-     operands are not evaluated (decided 2026-10-10). Any other guard pair
-     is treated as possibly overlapping.
+     syntactically after unification with the unifier's substitution, with
+     no arithmetic beyond literals and no solver. The builtin catalog states
+     what each Bool-valued builtin means as a guard conjunct (a literal of a
+     canonical relation with a polarity, a connective, or opaque, with the
+     reason); a compile-time assertion makes that classification cover
+     exactly the Bool-valued builtins. Two conjuncts are complementary when
+     one is `bool::not` of the other, or both are literals of one relation
+     on the same operands (in either order for an equality) with opposite
+     polarity: `eq`/`ne` for Int, Bool, String, K (`kequal`) and Float,
+     `bool::xor` against `bool::eq`, and `lt`/`ge` and `le`/`gt` for Int and
+     String, whose orders are total. The Float orders are opaque: with a NaN
+     operand `a <Float b` and `a >=Float b` are both false, so neither is
+     the negation of the other. A conjunct of either guard that the
+     substitution makes ground is evaluated, and a false one separates the
+     rules on its own: an Int or String relation on two literals, a Bool
+     literal (a bare Bool guard the other rule binds to `false`), a
+     connective decided by its operands, and `kequal::eq`/`ne` on terms
+     built only from literals and free constructors (no function, hook,
+     alias, desugar or bracket production, and no anywhere rule's head),
+     which are equal exactly when they are identical. A rule on `0` and a
+     rule on `x` with `int::ge(x, 10)` give `0 >=Int 10` (K tutorial lesson
+     1.21, which therefore needs no `nondet` group). Int literals outside the
+     128-bit range, Float literals and arithmetic operands are not evaluated
+     (decided 2026-10-10; extended to the catalog's relations 2026-10-20,
+     CS-11-3). Any other guard pair, including a disjoint but
+     non-complementary one such as `int::lt` against `int::gt` on the same
+     operands, is treated as possibly overlapping.
   5. *Disjoint footprints* are independent, because the rules commute
      (KF-015). The footprint of a rule is the cells it reads or writes
      (every cell in its pattern or result, the computation cell included
@@ -413,7 +428,21 @@ bug — report it, don't guess.
      (c) members of one overload family count as unifiable heads when their
      argument sorts are compatible (KF-038, after the KF-012 collection);
      (d) a parametric application's identity is its (symbol, instance)
-     pair (KF-027).
+     pair (KF-027); (e) List, Set and K-sequence patterns are unified
+     modulo their axioms (`_List_` and `~>` associative with a unit,
+     `_Set_` associative and commutative with a unit on disjoint operands),
+     because configurations hold collections modulo those axioms and a
+     syntactic mismatch of two collection patterns proves nothing. Each
+     side is flattened into elements and open segments (collection
+     variables, `K`-sorted items other than constructor applications, terms
+     the unifier does not model, and a cell's frame). Sequences unify their
+     forced positions, the elements before the first and after the last
+     open segment of both sides, and a closed side must have room for the
+     other's elements; sets compare cardinalities and unify elements only
+     when one element on each side is forced; anything else may overlap.
+     Bindings are committed only for forced positions, so the guard
+     procedure of clause 4 never reads an element pairing the unifier
+     chose (CS-11-2, decided 2026-10-20).
   8. *Intra-pattern check (KF-030),* for every sentence kind: two
      variable-binding or-alternatives that unify are rejected.
 
