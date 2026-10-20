@@ -199,6 +199,11 @@ fn extract_substitution_with(
     constraints: &[Predicate],
     mut binding: impl FnMut(&Predicate) -> Option<(Variable, Term)>,
 ) -> (Substitution, Vec<Predicate>) {
+    // No constraint binds nothing and leaves nothing; a ground state's constraint list is empty
+    // at every one of its several normalizations per step.
+    if constraints.is_empty() {
+        return (Substitution::new(), Vec::new());
+    }
     let _span = measure::algorithm_span(Algorithm::BackendSubstitutionExtract);
     let mut potential = BTreeMap::<Variable, Vec<(usize, Term)>>::new();
     for (index, constraint) in constraints.iter().enumerate() {

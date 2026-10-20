@@ -7586,3 +7586,41 @@ fn the_definedness_of_a_term_conjunction_states_the_equality_of_its_operands() {
     let opaque = ceil(&and("@S:SortS{}", A));
     assert_eq!(simplified(&opaque), opaque);
 }
+
+/// The empty conjunction is `\top`: it simplifies to itself under any known facts and any
+/// budget, a zero one included, reports nothing, and counts as one simplifier entry.
+#[test]
+fn the_empty_conjunction_simplifies_to_itself_under_any_facts_and_budget() {
+    let definition = definition("");
+    let known = [
+        Predicate::Ceil(term(&definition, "f{}(X:SortS{})")),
+        Predicate::Equals(
+            term(&definition, "X:SortS{}"),
+            term(&definition, r#"\dv{SortS{}}("value")"#),
+        ),
+    ];
+    for options in [
+        SimplificationOptions::default(),
+        SimplificationOptions {
+            max_iterations: 0,
+            budget: BudgetPolicy::Fail,
+        },
+        SimplificationOptions {
+            max_iterations: 0,
+            budget: BudgetPolicy::KeepPartial,
+        },
+    ] {
+        for facts in [&known[..], &[]] {
+            let before = snapshot();
+            let (result, diagnostics) = diagnostic::collect(|| {
+                simplify_predicates_with_solver(&definition, &[], facts, options, &NoSolver)
+            });
+            assert_eq!(result, Ok(Vec::new()));
+            assert_eq!(diagnostics, []);
+            assert_eq!(
+                snapshot().delta(&before).get(Counter::SimplifyInvocations),
+                1
+            );
+        }
+    }
+}

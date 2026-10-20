@@ -786,6 +786,19 @@ pub fn simplify_predicates_with_solver(
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> Stoppable<Result<Vec<Predicate>, SimplificationError>> {
+    // The empty conjunction is `\top` and simplifies to itself, `[]`, under any facts and any
+    // budget: the fixed point below meets no conjunct, finds no finite-domain violation and
+    // returns its input before the budget is read, emitting nothing and noting nothing. A ground
+    // rewrite step meets it four or five times (the match conditions, the definedness of
+    // `ceil_free` bindings, an absent `requires` or `ensures`, the successor's constraints), so
+    // it is answered here without the entry's scopes and indexes. The `ApartScope` is still
+    // opened, since opening an outermost one restarts the thread's `!apart` counter, and the
+    // entry is still counted.
+    if predicates.is_empty() {
+        let _apart = crate::rule::ApartScope::enter();
+        measure::bump(Counter::SimplifyInvocations);
+        return Ok(Ok(Vec::new()));
+    }
     diagnostic::retract_dropped(
         || simplify_predicates_entry(definition, predicates, known_predicates, options, solver),
         |result| match result {
