@@ -713,7 +713,7 @@ pub enum RulePatternError {
     },
     /// A condition conjoined to a term (a non-term conjunct of a side or of a term-level `\and`,
     /// after alias unfolding) that is a matching-logic connective (`connective`) with a term
-    /// pattern in a predicate position ([`has_term_in_predicate_position`]), such as the
+    /// pattern in a predicate position (`has_term_in_predicate_position`), such as the
     /// `\implies{SortInt{}}(3, 4)` of `\and{SortInt{}}(\implies{SortInt{}}(3, 4), V)` or the
     /// `\not{SortBool{}}(true)` of `\and{SortBool{}}(B, \not{SortBool{}}(true))`. Conjoined to a
     /// term, a connective over terms denotes a set of values of their sort (`(Int ∖ {3}) ∪ {4}`,
@@ -737,7 +737,7 @@ pub enum RulePatternError {
     },
     /// A request read as a predicate (a pattern that states no term, or one that its operation
     /// reads as a predicate) with a term pattern in a predicate position
-    /// ([`has_term_in_predicate_position`]): the pattern itself when `connective` is `None`, or a
+    /// (`has_term_in_predicate_position`): the pattern itself when `connective` is `None`, or a
     /// term below its root matching-logic connective `connective`, as in
     /// `\not{SortBool{}}(\dv{SortBool{}}("true"))`. A term denotes a value of its sort and a
     /// connective over terms a set of values (that pattern is `{false}`), so such a pattern is

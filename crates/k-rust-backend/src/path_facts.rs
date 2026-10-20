@@ -13,7 +13,7 @@
 //!   with the claim;
 //! - a `Bytes` result the memory allowance refused ([`PathFact::AllowanceRefusal`]) and an
 //!   application left unevaluated as an unsupported hook ([`PathFact::UnsupportedHook`]): facts
-//!   of the run only ([`PathFact::on_paths`]), which reach the run record and no path.
+//!   of the run only (`PathFact::on_paths`), which reach the run record and no path.
 //!
 //! Such a fact is a fact about the decisions a path rests on, not about the result the work
 //! contributed to, so it is never withdrawn with that work. The diagnostic channel
@@ -22,24 +22,24 @@
 //! collector has no drop, rewind, discard or retraction at all. Every rule below is stated per
 //! fact, so a further kind of fact is a further variant and needs no new rule.
 //!
-//! - A phase of a run collects what it noted ([`collect`]); closing a collection adds what it
-//!   holds to the enclosing collection. A fact noted inside a candidate-owned scope ([`owned`])
+//! - A phase of a run collects what it noted (`collect`); closing a collection adds what it
+//!   holds to the enclosing collection. A fact noted inside a candidate-owned scope (`owned`)
 //!   is kept apart from the enclosing phase's own facts (`Facts::owned`), so that the phase can
 //!   attribute it to the candidate alone. A fact of the run only reaches no collection.
 //! - A structure that lets a later step skip an evaluation stores the facts its evaluation noted
-//!   ([`marker`], [`since`]) and notes them again where it is served ([`replay`]).
+//!   (`marker`, `since`) and notes them again where it is served (`replay`).
 //! - An evaluation whose value only decides a definedness that is the same in every model runs
-//!   with the notes of chosen values suspended ([`suspend`]): they reach no collection and no
+//!   with the notes of chosen values suspended (`suspend`): they reach no collection and no
 //!   run record, and a memo filled there still learns them, so it replays them where they count.
 //!   Every other kind is noted there too, since it can steer the definedness the evaluation
 //!   decides: a definedness-only fold reads an allowance refusal as "not defined without a
 //!   value" where a larger allowance gives a value (`deferred::defined_without_value`).
 //! - A contradicted claim names the rewrite rule whose attempt (its match, its conditions, its
-//!   right-hand side) or whose successor's normalization observed it ([`observed_by`]), so that
+//!   right-hand side) or whose successor's normalization observed it (`observed_by`), so that
 //!   the same contradiction observed by two rules is two records.
-//! - The run-level record ([`run`]) holds every distinct fact the run noted outside a
+//! - The run-level record (`run`) holds every distinct fact the run noted outside a
 //!   suspension, in first-observed order, whatever became of the work and the paths that met it.
-//!   A result lists the definition's load record before it ([`RunRecord::of`]), each entry
+//!   A result lists the definition's load record before it (`RunRecord::of`), each entry
 //!   tagged with who observed it ([`ObservedIn`]); a leaf carries the run's own facts only.
 //!
 //! With nothing open a note reads one thread-local flag and returns.
@@ -61,7 +61,7 @@ use crate::{
 };
 
 /// A fact a path's leaves carry whatever became of the work that found it, or, for the kinds
-/// that are facts of the run only ([`Self::on_paths`]), that the run record holds whatever
+/// that are facts of the run only (`Self::on_paths`), that the run record holds whatever
 /// became of that work.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[non_exhaustive]
@@ -187,7 +187,7 @@ pub struct ContradictedClaim {
     /// produced successor's normalization observed the contradiction; `None` when no rule's
     /// work did (the normalization of an initial state, or work outside a run's steps).
     pub rule: Option<ObservingRule>,
-    /// Whether the record refutes the claim at a ground input ([`ground`]): the contradicted
+    /// Whether the record refutes the claim at a ground input (`ground`): the contradicted
     /// application is variable-free, the work that found it `\bottom` noted no path fact of any
     /// kind but ground records, and it assumed nothing but `\top`. For a `total` claim that work
     /// is the evaluation of the application from its equation's selection on, under no known
@@ -254,7 +254,7 @@ pub struct ContradictedPreservation {
 
 /// A rewrite rule by the parts a report names it by, and whether it claims that its result term
 /// is defined (`claims_defined_result`), the claim a normalization of its result can refute
-/// ([`note_contradicted_preservation`]).
+/// (`note_contradicted_preservation`).
 #[derive(Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ObservingRule {
     /// The rule's `UNIQUE_ID`.

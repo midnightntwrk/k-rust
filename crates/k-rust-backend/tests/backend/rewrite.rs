@@ -951,6 +951,7 @@ fn ground_narrowing_definition() -> BackendDefinition {
 }
 
 /// Whether a pattern holds a variable a rewrite minted.
+#[cfg(feature = "z3")]
 fn holds_a_minted_variable(pattern: &Pattern) -> bool {
     format!("{pattern:?}").contains("Ex#")
 }
