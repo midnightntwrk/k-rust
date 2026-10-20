@@ -417,6 +417,28 @@ fn a_framed_message_takes_its_bytes_out_of_the_buffer() {
 }
 
 #[test]
+fn a_frame_read_with_others_holds_about_its_own_bytes() {
+    let request = r#"{"jsonrpc":"2.0","id":1,"method":"implies","params":{}}"#;
+    let stream = format!("{request}\n").repeat(64);
+    let mut reader = Script(chunks(stream.as_bytes(), 4096).into());
+    let mut buffer = Vec::new();
+    for _ in 0..64 {
+        let frame = read_json_message(&mut reader, &mut buffer)
+            .unwrap()
+            .unwrap()
+            .value
+            .unwrap();
+        assert_eq!(frame.value(), request);
+        assert!(
+            frame.text.capacity() <= 2 * frame.text.len(),
+            "a {}-byte frame holds {} bytes",
+            frame.text.len(),
+            frame.text.capacity()
+        );
+    }
+}
+
+#[test]
 fn members_are_those_object_members_reads() {
     for text in [
         r#"{"jsonrpc":"2.0","id":1,"method":"execute","params":{"state":1,"haskell-logging":["Rewrite"]}}"#,

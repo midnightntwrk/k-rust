@@ -69,11 +69,19 @@ impl Frame {
         })
     }
 
-    /// The message that `scanner` found ending at `end`, taken out of `buffer` without copying
-    /// it; `None`, with `buffer` unchanged, when it is not UTF-8.
+    /// The message that `scanner` found ending at `end`, taken out of `buffer`; `None`, with
+    /// `buffer` unchanged, when it is not UTF-8.
+    ///
+    /// The frame takes the buffer's allocation, so a message that fills its buffer is not copied.
+    /// A message that fills less than half of it (one of several read together) is copied into an
+    /// allocation of its own size instead: a queued frame holds at most twice its bytes, not a
+    /// share of the read that brought it.
     pub(super) fn take(buffer: &mut Vec<u8>, scanner: &Scanner, end: usize) -> Option<Self> {
         let rest = buffer.split_off(end);
-        let bytes = std::mem::replace(buffer, rest);
+        let mut bytes = std::mem::replace(buffer, rest);
+        if bytes.capacity() > 2 * bytes.len() {
+            bytes.shrink_to_fit();
+        }
         match String::from_utf8(bytes) {
             Ok(text) => Some(Self {
                 text,
