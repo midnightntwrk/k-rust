@@ -150,8 +150,9 @@ id = "N15"
 gate = "execution, symbolic execution, and MIR execution"
 anchor = "crates/k-rust/tests/reference_differential.rs:compare_execution_modulo_implication"
 anchor_symbol = "compare_execution_modulo_implication"
-rule = "When K_DIFFERENTIAL_DEFINITION supplies a definition and structural comparison fails, pair equal term branches and prove both implications between their constraint sets."
-justification = "Equivalent constraint spellings and solver-discharged requires clauses must compare equal."
+anchor_helpers = ["prove_implication_both_ways", "IMPLICATION_SUMMARY_PREFIX"]
+rule = "When K_DIFFERENTIAL_DEFINITION supplies a definition and structural comparison fails, pair equal term branches and prove both implications between their constraint sets with `krust kore-implies`. A direction answered `valid` holds when its condition predicate is `\\top`; one answered `valid` because krust finds the antecedent empty (condition predicate `\\bottom`) holds only when the reference's own search (N48, K_REFERENCE_KORE_EXEC) finds no instance of that antecedent, and is logged under the N48 label; any other `valid` condition fails. Each pair that passes only this way is logged under the N15 label with both constraint sets, and the comparator prints `N15 summary: <count>` after a pass that rests on it."
+justification = "Equivalent constraint spellings and solver-discharged requires clauses must compare equal. The implication check is the port's own, sharing its simplifier, definedness reasoning and SMT encoding, so the evidence is supplementary and every pass that rests on it is labelled and counted (docs/testing.md#comparator-evidence); an emptiness judgement is never the port's, so a vacuous direction needs the reference's confirmation."
 env = "K_DIFFERENTIAL_DEFINITION"
 
 [[normalisation]]
@@ -340,7 +341,7 @@ anchor_helpers = [
   "pair_disjuncts",
   "executed_kore_matches_the_reference_backend",
 ]
-rule = "When the gate supplies the reference kore-exec (K_REFERENCE_KORE_EXEC), drop a reference result disjunct that pairs with no port disjunct only when the reference's own search mode, run from that disjunct (`kore-exec --search VarResult --searchType STAR --depth 0`), returns `\\bottom`, and log each one dropped. A port disjunct is never dropped, and no port tool decides the emptiness."
+rule = "When the gate supplies the reference kore-exec (K_REFERENCE_KORE_EXEC), drop a reference result disjunct that pairs with no port disjunct only when the reference's own search mode, run from that disjunct (`kore-exec --search VarResult --searchType STAR --depth 0`), returns `\\bottom`, and log each one dropped. The same search decides an N15 direction that krust kore-implies answers valid only by finding its antecedent empty, and each one it confirms is logged. A port disjunct is never dropped, and no port tool decides the emptiness."
 justification = "A pattern `t ∧ φ` denotes `⌈t⌉ ∧ t ∧ φ`, and the reference's search assumes its initial pattern defined, so `\\bottom` there means the disjunct's constraints refute its own term's definedness: it is empty, and the disjunction denotes the same configurations with or without it. The pinned reference's execute mode reports the instances of a symbolic initial configuration on which the configuration is itself undefined as a stuck leaf; k-rust reports no leaf for them and names the condition in a diagnostic. The decision is the reference's, so a branch the port loses is not excused by the port's own reasoning. See docs/compatibility.md#undefined-instances-of-the-initial-configuration."
 
 [[normalisation]]
