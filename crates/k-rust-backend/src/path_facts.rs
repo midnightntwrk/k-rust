@@ -585,7 +585,18 @@ pub(crate) struct Facts {
 impl Facts {
     /// Every fact, shared or owned.
     pub(crate) fn all(&self) -> FactSet {
+        if self.owned.is_empty() {
+            return self.shared.clone();
+        }
+        if self.shared.is_empty() {
+            return self.owned.clone();
+        }
         self.shared.union(&self.owned).cloned().collect()
+    }
+
+    /// Whether nothing was noted.
+    fn is_empty(&self) -> bool {
+        self.shared.is_empty() && self.owned.is_empty()
     }
 }
 
@@ -689,7 +700,11 @@ impl State {
 
     fn close(&mut self) -> Sink {
         let sink = self.sinks.pop().expect("a collection is closed once");
-        if let Some(enclosing) = self.sinks.last_mut() {
+        // A collection that noted nothing hands nothing on, which is what nearly every one of a
+        // step's collections does.
+        if !sink.facts.is_empty()
+            && let Some(enclosing) = self.sinks.last_mut()
+        {
             if sink.owned {
                 enclosing.facts.owned.extend(sink.facts.all());
             } else {
@@ -1062,7 +1077,9 @@ pub(crate) fn collect_with_diagnostics<T>(
     action: impl FnOnce() -> T,
 ) -> (T, Vec<BackendDiagnostic>) {
     let ((result, mut list), facts) = collect(|| diagnostic::collect(action));
-    list.extend(diagnostics(&facts.all()));
+    if !facts.is_empty() {
+        list.extend(diagnostics(&facts.all()));
+    }
     (result, list)
 }
 
@@ -1311,6 +1328,28 @@ mod tests {
                 .collect::<Vec<_>>(),
             [ObservedIn::Load, ObservedIn::Run]
         );
+    }
+
+    /// A collection hands on what it noted, and one that noted nothing hands on nothing, owned or
+    /// shared: the enclosing collection ends as if the empty one had never been opened.
+    #[test]
+    fn a_collection_hands_on_exactly_what_it_noted() {
+        let fact = |hook: &str| {
+            PathFact::ChosenValue(ChosenValue::new(Arc::from(hook), ChosenClass::Order))
+        };
+        let ((), facts) = collect(|| {
+            let ((), empty) = collect(|| {});
+            assert!(empty.shared.is_empty() && empty.owned.is_empty());
+            let ((), owned_empty) = owned(|| {});
+            assert!(owned_empty.is_empty());
+            let ((), shared) = collect(|| note(fact("shared")));
+            assert_eq!(shared.all(), FactSet::from([fact("shared")]));
+            let ((), owned_facts) = owned(|| note(fact("owned")));
+            assert_eq!(owned_facts, FactSet::from([fact("owned")]));
+        });
+        assert_eq!(facts.shared, FactSet::from([fact("shared")]));
+        assert_eq!(facts.owned, FactSet::from([fact("owned")]));
+        assert_eq!(facts.all(), FactSet::from([fact("owned"), fact("shared")]));
     }
 
     /// A rule scope is opened only while something is open, and closed on every exit.
