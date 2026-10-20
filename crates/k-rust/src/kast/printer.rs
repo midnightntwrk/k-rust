@@ -59,7 +59,20 @@ impl Printer {
     /// label the reader cannot read is written as is.
     pub fn print_term(self, term: &Term) -> String {
         let mut output = String::new();
-        print_term(&mut output, term, Position::TERM, false);
+        print_term(&mut output, term, Layout::Readable, Position::TERM, false);
+        output
+    }
+
+    /// Print `term` as the text a sentence identifier (`UNIQUE_ID`) is the digest of.
+    ///
+    /// An identifier names a sentence to whatever reads it later (another compilation of the same
+    /// definition, a tool that refers to rules by identifier), so the text it digests is a fixed
+    /// format of its own and does not follow [`Printer::print_term`]'s layout, which is free to
+    /// change for readability. The identifier layout groups a rewrite or an alias only as an item
+    /// of a sequence of two or more items, and never groups a sequence; the text is not read back.
+    pub fn print_identifier_term(self, term: &Term) -> String {
+        let mut output = String::new();
+        print_term(&mut output, term, Layout::Identifier, Position::TERM, false);
         output
     }
 
@@ -114,6 +127,43 @@ fn is_readable_variable_name(name: &str) -> bool {
                 .iter()
                 .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'\'' | b'_'))
     })
+}
+
+/// Which text a term is printed as.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Layout {
+    /// Text that reads back as the term ([`Printer::print_term`]).
+    Readable,
+    /// The fixed text sentence identifiers digest ([`Printer::print_identifier_term`]): an
+    /// operand of `=>` or `#as` is printed as at the top, a one-item sequence as its item at a
+    /// sequence item's position, and a sequence is never grouped.
+    Identifier,
+}
+
+impl Layout {
+    /// The position of an operand of `=>` or `#as` that the readable layout prints at `readable`.
+    const fn operand(self, readable: Position) -> Position {
+        match self {
+            Self::Readable => readable,
+            Self::Identifier => Position::TERM,
+        }
+    }
+
+    /// The position of the item of a one-item sequence printed at `position`.
+    const fn sole_item(self, position: Position) -> Position {
+        match self {
+            Self::Readable => position.with_sequence_item(),
+            Self::Identifier => Position::SEQUENCE_ITEM,
+        }
+    }
+
+    /// Whether a sequence of two or more items printed at `position` is grouped.
+    const fn groups_sequence(self, position: Position) -> bool {
+        match self {
+            Self::Readable => position.groups_sequence,
+            Self::Identifier => false,
+        }
+    }
 }
 
 /// The reader nonterminal that reads the text printed at a position, as the shapes it cannot
@@ -177,7 +227,13 @@ impl Position {
 }
 
 // stack-accepted(kast-printer): one level per term level; about 85,000 levels print on 8 MiB in a release build, deeper than any term worth reading as KAST text. See docs/backend-port.md#stack-bounds.
-fn print_term(output: &mut String, term: &Term, position: Position, first_in_group: bool) {
+fn print_term(
+    output: &mut String,
+    term: &Term,
+    layout: Layout,
+    position: Position,
+    first_in_group: bool,
+) {
     match term.unannotated() {
         Term::Token { token, sort } => {
             output.push_str("#token(");
@@ -202,7 +258,7 @@ fn print_term(output: &mut String, term: &Term, position: Position, first_in_gro
                     if index != 0 {
                         output.push(',');
                     }
-                    print_term(output, argument, Position::TERM, false);
+                    print_term(output, argument, layout, Position::TERM, false);
                 }
             }
             output.push(')');
@@ -212,12 +268,13 @@ fn print_term(output: &mut String, term: &Term, position: Position, first_in_gro
             print_term(
                 output,
                 &items[0],
-                position.with_sequence_item(),
+                layout,
+                layout.sole_item(position),
                 first_in_group,
             );
         }
         Term::Sequence(items) => {
-            let grouped = position.groups_sequence;
+            let grouped = layout.groups_sequence(position);
             if grouped {
                 output.push_str("``");
             }
@@ -228,6 +285,7 @@ fn print_term(output: &mut String, term: &Term, position: Position, first_in_gro
                 print_term(
                     output,
                     item,
+                    layout,
                     Position::SEQUENCE_ITEM,
                     index == 0 && (grouped || first_in_group),
                 );
@@ -237,10 +295,18 @@ fn print_term(output: &mut String, term: &Term, position: Position, first_in_gro
             }
         }
         Term::Rewrite { left, right } => {
-            print_operator(output, left, "=>", right, position, first_in_group);
+            print_operator(output, left, "=>", right, layout, position, first_in_group);
         }
         Term::As { pattern, alias } => {
-            print_operator(output, pattern, " #as ", alias, position, first_in_group);
+            print_operator(
+                output,
+                pattern,
+                " #as ",
+                alias,
+                layout,
+                position,
+                first_in_group,
+            );
         }
         Term::Annotated { .. } => unreachable!(),
     }
@@ -251,6 +317,7 @@ fn print_operator(
     left: &Term,
     operator: &str,
     right: &Term,
+    layout: Layout,
     position: Position,
     first_in_group: bool,
 ) {
@@ -261,11 +328,18 @@ fn print_operator(
     print_term(
         output,
         left,
-        Position::OPERATOR_LEFT,
+        layout,
+        layout.operand(Position::OPERATOR_LEFT),
         grouped || first_in_group,
     );
     output.push_str(operator);
-    print_term(output, right, Position::OPERATOR_RIGHT, false);
+    print_term(
+        output,
+        right,
+        layout,
+        layout.operand(Position::OPERATOR_RIGHT),
+        false,
+    );
     if grouped {
         output.push_str("``");
     }
@@ -418,6 +492,45 @@ mod tests {
             Printer::new().print_term(&seq([rewrite(var("A"), var("B"))])),
             "``A=>B``"
         );
+    }
+
+    /// The identifier text is a fixed format: a rewrite or alias is grouped only as an item of a
+    /// sequence, and a sequence or an operator operand is never grouped, so the identifiers of
+    /// rules whose rewrites have sequence sides do not move with the readable layout.
+    #[test]
+    fn prints_the_identifier_text_in_its_own_layout() {
+        let plus = Term::apply("_+_", Vec::new());
+        let cases = [
+            (
+                rewrite(seq([var("X"), var("K")]), seq([var("Y"), var("K")])),
+                "X~>K=>Y~>K",
+            ),
+            (seq([rewrite(var("A"), var("B")), var("C")]), "``A=>B``~>C"),
+            (seq([var("A"), rewrite(var("B"), var("C"))]), "A~>``B=>C``"),
+            (seq([rewrite(var("A"), var("B"))]), "``A=>B``"),
+            (
+                rewrite(seq([seq([var("A"), var("B")])]), var("C")),
+                "A~>B=>C",
+            ),
+            (rewrite(alias(var("P"), var("V")), var("R")), "P #as V=>R"),
+            (alias(var("A"), seq([var("B"), var("C")])), "A #as B~>C"),
+            (rewrite(rewrite(var("A"), var("B")), var("C")), "A=>B=>C"),
+            (
+                seq([alias(plus.clone(), var("B")), var("C")]),
+                "`` `_+_`(.KList) #as B``~>C",
+            ),
+            (
+                Term::apply("f", vec![rewrite(seq([plus, var("B")]), var("C"))]),
+                "f(`_+_`(.KList)~>B=>C)",
+            ),
+        ];
+        for (term, text) in cases {
+            assert_eq!(
+                Printer::new().print_identifier_term(&term),
+                text,
+                "{term:?}"
+            );
+        }
     }
 
     #[test]
