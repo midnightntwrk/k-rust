@@ -208,319 +208,6 @@ fn every_adapted_run_carries_the_run_level_facts() {
     });
 }
 
-/// A state set replaced by its path set (`tv(0)`: an undefined step naming the contradicted
-/// `total`, a `Trivial` leaf) keeps the facts: the record is on the replacement's list, and the
-/// leaf's contradiction is decision 2's leaf rule, the per-test case of admission.
-#[test]
-fn a_replaced_state_set_keeps_its_facts() {
-    on_a_big_stack(|| {
-        let (side, module) = fixture("a1claims");
-        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
-        let execution = run(&side, &module, call("tv", 0));
-        assert_eq!(execution.modality(), ResultModality::PathSet);
-        assert_eq!(
-            records(&execution),
-            [td_record("A1CLAIMS", Some("tv"), ObservedInOutput::Run)]
-        );
-        let [leaf] = execution.leaves() else {
-            panic!("one leaf: {execution:?}")
-        };
-        assert_eq!(leaf.halt, HaltClass::Trivial);
-        assert!(leaf.contradicted_total.is_some());
-        assert!(exclusions.contradiction_on_a_leaf(&execution));
-        assert_eq!(
-            exclusions.run_exclusion(&execution),
-            Some(Exclusion::ContradictedClaim)
-        );
-    });
-}
-
-/// Re-pin adoption A-1b (review A-1-review-1 finding 6): the replacement keeps a fact only the
-/// state set it replaces reached. Under a work budget of 13 states (`testdata/k/a1/replace.k`,
-/// `s(0)`), the state set merges the diamond's second arrival at `c`, completes (the `Trivial`
-/// leaf `val(10 /Int 0)` and the stuck `done`) and lists `ytd`'s record; the path set of the same
-/// request explores the chain under `c` twice and stops at its `work-bound` leaf before it reaches
-/// `y`, so its own list is empty and alone it would be no excluded run. `execute_result` replaces
-/// the state set by that path set (the `Trivial` leaf), and the result must still list the record
-/// and so be excluded (`contradicted-claim`). Dropping the union in the replacement fails here.
-#[test]
-fn a_replacement_keeps_a_fact_only_the_state_set_reached() {
-    on_a_big_stack(|| {
-        let (side, module) = fixture("replace");
-        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
-        assert_eq!(exclusions.definition_exclusion(), None);
-        let adapter = ExecutionAdapter::with_profile(SolverProfile::BUILD);
-        let initial = state(call("s", 0));
-        let bounded = |modality| ResultRun {
-            modality,
-            max_work: Some(13),
-        };
-        let expected = [td_record("REPLACE", Some("ytd"), ObservedInOutput::Run)];
-
-        let state_set = adapter
-            .execute_once(
-                &mut backend(&side, &module),
-                &initial,
-                budget(),
-                bounded(ResultModality::StateSet),
-            )
-            .unwrap();
-        assert_eq!(state_set.modality(), ResultModality::StateSet);
-        assert_eq!(records(&state_set), expected);
-        let halts = state_set
-            .leaves()
-            .iter()
-            .map(|leaf| leaf.halt)
-            .collect::<Vec<_>>();
-        assert_eq!(
-            halts,
-            [HaltClass::Trivial, HaltClass::Stuck],
-            "{state_set:?}"
-        );
-
-        let path_set = adapter
-            .execute_once(
-                &mut backend(&side, &module),
-                &initial,
-                budget(),
-                bounded(ResultModality::PathSet),
-            )
-            .unwrap();
-        assert_eq!(path_set.modality(), ResultModality::PathSet);
-        assert!(records(&path_set).is_empty(), "{path_set:?}");
-        let halts = path_set
-            .leaves()
-            .iter()
-            .map(|leaf| leaf.halt)
-            .collect::<Vec<_>>();
-        assert_eq!(
-            halts,
-            [HaltClass::Trivial, HaltClass::WorkBound],
-            "{path_set:?}"
-        );
-        assert_eq!(exclusions.run_exclusion(&path_set), None);
-
-        let replaced = adapter
-            .execute_result(
-                &mut backend(&side, &module),
-                &initial,
-                budget(),
-                bounded(ResultModality::StateSet),
-            )
-            .unwrap();
-        assert_eq!(replaced.modality(), ResultModality::PathSet);
-        assert_eq!(replaced.leaves(), path_set.leaves());
-        assert_eq!(records(&replaced), expected);
-        assert_eq!(
-            exclusions.run_exclusion(&replaced),
-            Some(Exclusion::ContradictedClaim)
-        );
-    });
-}
-
-/// ADOPTION.md section 2.2: a record on the run's list excludes the run (`contradicted-claim`)
-/// where no leaf shows it (before A-1 each of these runs was complete and compared):
-/// - `sib(0)`: a candidate a defined sibling covered (compat 1536);
-/// - `m(0)`: a state-set arrival absorbed during exploration, which rests on the record (`nfin`,
-///   the `owise` rule `nother`'s undefined condition leaves applicable): the `fin` leaf comes from
-///   the clean path through `p`.
-///
-/// `r(0)` (the condition `td(0) >Int 0` read as false) is stuck with the record on its leaf, which
-/// before A-1 made the run incomplete. None of these is decision 2's leaf rule. The controls
-/// `sib(1)`, `sob(0)`, `rr(0)` and `m(1)` reach no contradiction and are not excluded.
-#[test]
-fn a_contradicted_claim_on_the_run_list_excludes_the_run() {
-    on_a_big_stack(|| {
-        let (side, module) = fixture("a1claims");
-        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
-        assert_eq!(exclusions.definition_exclusion(), None);
-        for (symbol, observing, leaf_record) in [
-            ("sib", "sibtd", false),
-            ("m", "nother", false),
-            ("r", "r", true),
-        ] {
-            let execution = run(&side, &module, call(symbol, 0));
-            assert_eq!(execution.modality(), ResultModality::StateSet, "{symbol}");
-            assert_eq!(
-                records(&execution),
-                [td_record(
-                    "A1CLAIMS",
-                    Some(observing),
-                    ObservedInOutput::Run
-                )],
-                "{symbol}"
-            );
-            let [leaf] = execution.leaves() else {
-                panic!("{symbol}: one leaf: {execution:?}")
-            };
-            assert_eq!(leaf.halt, HaltClass::Stuck, "{symbol}");
-            assert!(leaf.contradicted_total.is_none(), "{symbol}");
-            assert_eq!(
-                path_facts(leaf),
-                usize::from(leaf_record),
-                "{symbol}: {leaf:?}"
-            );
-            assert!(!exclusions.contradiction_on_a_leaf(&execution), "{symbol}");
-            assert_eq!(
-                exclusions.run_exclusion(&execution),
-                Some(Exclusion::ContradictedClaim),
-                "{symbol}"
-            );
-        }
-        for (symbol, argument) in [("sib", 1), ("sob", 0), ("rr", 0), ("m", 1)] {
-            let execution = run(&side, &module, call(symbol, argument));
-            assert!(execution.facts().contradicted_claims.is_empty(), "{symbol}");
-            assert_eq!(exclusions.run_exclusion(&execution), None, "{symbol}");
-        }
-    });
-}
-
-/// Decision D-6: a contradicted claim the load observed (`observedIn: load`; the load-time
-/// critical-pair check of `g`'s `anywhere` equations simplifies `ga`'s condition through `td(0)`)
-/// is on every run's list and on no leaf, so it excludes every test of the definition.
-#[test]
-fn a_load_record_is_on_every_run_list_and_excludes_it() {
-    on_a_big_stack(|| {
-        let (side, module) = fixture("loadrec");
-        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
-        assert_eq!(exclusions.definition_exclusion(), None);
-        for argument in [1, 5] {
-            let execution = run(&side, &module, call("go", argument));
-            assert_eq!(
-                records(&execution),
-                [td_record("LOADREC", None, ObservedInOutput::Load)],
-                "{argument}"
-            );
-            assert_eq!(execution.facts().load_records().count(), 1);
-            let [leaf] = execution.leaves() else {
-                panic!("one leaf: {execution:?}")
-            };
-            assert_eq!(path_facts(leaf), 0);
-            assert!(!exclusions.contradiction_on_a_leaf(&execution));
-            assert_eq!(
-                exclusions.run_exclusion(&execution),
-                Some(Exclusion::ContradictedClaim)
-            );
-        }
-    });
-}
-
-/// ADOPTION.md section 2.3: a refusal and an unsupported hook in a passed-over equation leave no
-/// diagnostic but are on the run's lists (compat 92). `run(2^40)`: the allowance refuses the
-/// padding on every host (twice a TiB exceeds any allowance), `fpad` is passed over and `fpos`
-/// gives `val(2)`: `allowance-refusal`. `runh(1)`: `countAllOccurrences("a", "")` is a value the
-/// definition does not determine, `hcount` is passed over and `hpos` gives `val(2)`:
-/// `unsupported-hook`. Neither hook is in decision 1's census. `run(1)` meets neither.
-#[test]
-fn list_only_refusals_and_unsupported_hooks_exclude_the_run() {
-    on_a_big_stack(|| {
-        let (side, module) = fixture("refusals");
-        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
-        assert_eq!(exclusions.definition_exclusion(), None);
-        for (program, list, exclusion) in [
-            (
-                call("run", 1 << 40),
-                "BYTES.padRight",
-                Exclusion::AllowanceRefusal,
-            ),
-            (
-                call("runh", 1),
-                "STRING.countAllOccurrences",
-                Exclusion::UnsupportedHook,
-            ),
-        ] {
-            let execution = run(&side, &module, program);
-            let facts = execution.facts();
-            let listed = facts
-                .allowance_refusals
-                .iter()
-                .chain(&facts.unsupported_hooks)
-                .map(|entry| (entry.hook.as_str(), entry.observed_in))
-                .collect::<Vec<_>>();
-            assert_eq!(listed, [(list, ObservedInOutput::Run)], "{list}");
-            let [leaf] = execution.leaves() else {
-                panic!("{list}: one leaf: {execution:?}")
-            };
-            assert!(leaf.diagnostics.is_empty(), "{list}: {leaf:?}");
-            assert!(
-                leaf.branch.state.to_string().contains(r#""value":"2""#),
-                "{list}"
-            );
-            assert_eq!(
-                exclusions.run_exclusion(&execution),
-                Some(exclusion),
-                "{list}"
-            );
-        }
-        let control = run(&side, &module, call("run", 1));
-        assert_eq!(control.facts(), &Default::default());
-        assert_eq!(exclusions.run_exclusion(&control), None);
-    });
-}
-
-/// ADOPTION.md section 2.1: a value the definition leaves open is on the run's list where no leaf
-/// carries its mark: the absorbed state-set arrival of the diamond `a(1)` (only `cd` lists two
-/// keys; the `d` leaf comes from the path through `b`) and the vanished candidate `vk` of `v(1)`;
-/// and the initial state's normalization of `e(nk2(1))`, whose `nk2` equation lists two keys, is
-/// on it too (`nk1` lists one, a determined listing: no mark). Decision 1's census flags the
-/// definition (its sentences list keys) and stays the run's exclusion, `implementation-chosen-hook`,
-/// ahead of the list; with the census emptied, as re-pin adoption A-3 would leave it for k-rust's
-/// classes, the list excludes the same runs (`implementation-chosen-value`) and nothing else.
-#[test]
-fn an_open_value_on_the_run_list_excludes_the_run_beside_the_census() {
-    on_a_big_stack(|| {
-        let (side, module) = fixture("marks");
-        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
-        assert_eq!(
-            exclusions.definition_exclusion(),
-            Some(Exclusion::ImplementationChosenHook)
-        );
-        let mut without_census = exclusions.clone();
-        without_census.implementation_chosen.clear();
-        assert_eq!(without_census.definition_exclusion(), None);
-        let nested = |function: &str| {
-            support::app("Lble", vec![support::app(function, vec![support::int(1)])])
-        };
-        for (name, program, marked, leaf) in [
-            ("diamond", call("a", 1), true, "Lbld"),
-            ("vanished", call("v", 1), true, "Lbldone"),
-            ("two keys", nested("Lblnk2"), true, "Lblval"),
-            ("one key", nested("Lblnk1"), false, "Lblval"),
-        ] {
-            let execution = run(&side, &module, program);
-            let listed = execution
-                .facts()
-                .implementation_chosen_values
-                .iter()
-                .map(|mark| (mark.hook.as_str(), mark.class.as_str()))
-                .collect::<Vec<_>>();
-            let expected: &[(&str, &str)] = if marked {
-                &[("MAP.keys_list", "order")]
-            } else {
-                &[]
-            };
-            assert_eq!(listed, expected, "{name}");
-            let [only] = execution.leaves() else {
-                panic!("{name}: one leaf: {execution:?}")
-            };
-            assert!(holds(only, leaf), "{name}");
-            if matches!(name, "diamond" | "vanished") {
-                assert_eq!(path_facts(only), 0, "{name}: {only:?}");
-            }
-            assert_eq!(
-                exclusions.run_exclusion(&execution),
-                Some(Exclusion::ImplementationChosenHook),
-                "{name}"
-            );
-            assert_eq!(
-                without_census.run_exclusion(&execution),
-                marked.then_some(Exclusion::ImplementationChosenValue),
-                "{name}"
-            );
-        }
-    });
-}
-
 /// The k-rust passages A-1's exclusions rest on (ADOPTION.md A-1 deliverable 7), by digest, at
 /// `8f8ad57c5` (`docs/compatibility.md`):
 /// - 92: the run-level record keeps what the diagnostic channel drops (`allowanceRefusals`,
@@ -598,5 +285,328 @@ fn the_passages_a1_rests_on_are_pinned() {
             digest,
             "compatibility.md {first}-{last}"
         );
+    }
+}
+
+mod kink_tier {
+    use super::*;
+
+    /// ADOPTION.md section 2.2: a record on the run's list excludes the run (`contradicted-claim`)
+    /// where no leaf shows it (before A-1 each of these runs was complete and compared):
+    /// - `sib(0)`: a candidate a defined sibling covered (compat 1536);
+    /// - `m(0)`: a state-set arrival absorbed during exploration, which rests on the record (`nfin`,
+    ///   the `owise` rule `nother`'s undefined condition leaves applicable): the `fin` leaf comes from
+    ///   the clean path through `p`.
+    ///
+    /// `r(0)` (the condition `td(0) >Int 0` read as false) is stuck with the record on its leaf, which
+    /// before A-1 made the run incomplete. None of these is decision 2's leaf rule. The controls
+    /// `sib(1)`, `sob(0)`, `rr(0)` and `m(1)` reach no contradiction and are not excluded.
+    #[test]
+    #[ignore = "kink"]
+    fn a_contradicted_claim_on_the_run_list_excludes_the_run() {
+        on_a_big_stack(|| {
+            let (side, module) = fixture("a1claims");
+            let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+            assert_eq!(exclusions.definition_exclusion(), None);
+            for (symbol, observing, leaf_record) in [
+                ("sib", "sibtd", false),
+                ("m", "nother", false),
+                ("r", "r", true),
+            ] {
+                let execution = run(&side, &module, call(symbol, 0));
+                assert_eq!(execution.modality(), ResultModality::StateSet, "{symbol}");
+                assert_eq!(
+                    records(&execution),
+                    [td_record(
+                        "A1CLAIMS",
+                        Some(observing),
+                        ObservedInOutput::Run
+                    )],
+                    "{symbol}"
+                );
+                let [leaf] = execution.leaves() else {
+                    panic!("{symbol}: one leaf: {execution:?}")
+                };
+                assert_eq!(leaf.halt, HaltClass::Stuck, "{symbol}");
+                assert!(leaf.contradicted_total.is_none(), "{symbol}");
+                assert_eq!(
+                    path_facts(leaf),
+                    usize::from(leaf_record),
+                    "{symbol}: {leaf:?}"
+                );
+                assert!(!exclusions.contradiction_on_a_leaf(&execution), "{symbol}");
+                assert_eq!(
+                    exclusions.run_exclusion(&execution),
+                    Some(Exclusion::ContradictedClaim),
+                    "{symbol}"
+                );
+            }
+            for (symbol, argument) in [("sib", 1), ("sob", 0), ("rr", 0), ("m", 1)] {
+                let execution = run(&side, &module, call(symbol, argument));
+                assert!(execution.facts().contradicted_claims.is_empty(), "{symbol}");
+                assert_eq!(exclusions.run_exclusion(&execution), None, "{symbol}");
+            }
+        });
+    }
+
+    /// Decision D-6: a contradicted claim the load observed (`observedIn: load`; the load-time
+    /// critical-pair check of `g`'s `anywhere` equations simplifies `ga`'s condition through `td(0)`)
+    /// is on every run's list and on no leaf, so it excludes every test of the definition.
+    #[test]
+    #[ignore = "kink"]
+    fn a_load_record_is_on_every_run_list_and_excludes_it() {
+        on_a_big_stack(|| {
+            let (side, module) = fixture("loadrec");
+            let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+            assert_eq!(exclusions.definition_exclusion(), None);
+            for argument in [1, 5] {
+                let execution = run(&side, &module, call("go", argument));
+                assert_eq!(
+                    records(&execution),
+                    [td_record("LOADREC", None, ObservedInOutput::Load)],
+                    "{argument}"
+                );
+                assert_eq!(execution.facts().load_records().count(), 1);
+                let [leaf] = execution.leaves() else {
+                    panic!("one leaf: {execution:?}")
+                };
+                assert_eq!(path_facts(leaf), 0);
+                assert!(!exclusions.contradiction_on_a_leaf(&execution));
+                assert_eq!(
+                    exclusions.run_exclusion(&execution),
+                    Some(Exclusion::ContradictedClaim)
+                );
+            }
+        });
+    }
+
+    /// A state set replaced by its path set (`tv(0)`: an undefined step naming the contradicted
+    /// `total`, a `Trivial` leaf) keeps the facts: the record is on the replacement's list, and the
+    /// leaf's contradiction is decision 2's leaf rule, the per-test case of admission.
+    #[test]
+    #[ignore = "kink"]
+    fn a_replaced_state_set_keeps_its_facts() {
+        on_a_big_stack(|| {
+            let (side, module) = fixture("a1claims");
+            let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+            let execution = run(&side, &module, call("tv", 0));
+            assert_eq!(execution.modality(), ResultModality::PathSet);
+            assert_eq!(
+                records(&execution),
+                [td_record("A1CLAIMS", Some("tv"), ObservedInOutput::Run)]
+            );
+            let [leaf] = execution.leaves() else {
+                panic!("one leaf: {execution:?}")
+            };
+            assert_eq!(leaf.halt, HaltClass::Trivial);
+            assert!(leaf.contradicted_total.is_some());
+            assert!(exclusions.contradiction_on_a_leaf(&execution));
+            assert_eq!(
+                exclusions.run_exclusion(&execution),
+                Some(Exclusion::ContradictedClaim)
+            );
+        });
+    }
+
+    /// Re-pin adoption A-1b (review A-1-review-1 finding 6): the replacement keeps a fact only the
+    /// state set it replaces reached. Under a work budget of 13 states (`testdata/k/a1/replace.k`,
+    /// `s(0)`), the state set merges the diamond's second arrival at `c`, completes (the `Trivial`
+    /// leaf `val(10 /Int 0)` and the stuck `done`) and lists `ytd`'s record; the path set of the same
+    /// request explores the chain under `c` twice and stops at its `work-bound` leaf before it reaches
+    /// `y`, so its own list is empty and alone it would be no excluded run. `execute_result` replaces
+    /// the state set by that path set (the `Trivial` leaf), and the result must still list the record
+    /// and so be excluded (`contradicted-claim`). Dropping the union in the replacement fails here.
+    #[test]
+    #[ignore = "kink"]
+    fn a_replacement_keeps_a_fact_only_the_state_set_reached() {
+        on_a_big_stack(|| {
+            let (side, module) = fixture("replace");
+            let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+            assert_eq!(exclusions.definition_exclusion(), None);
+            let adapter = ExecutionAdapter::with_profile(SolverProfile::BUILD);
+            let initial = state(call("s", 0));
+            let bounded = |modality| ResultRun {
+                modality,
+                max_work: Some(13),
+            };
+            let expected = [td_record("REPLACE", Some("ytd"), ObservedInOutput::Run)];
+
+            let state_set = adapter
+                .execute_once(
+                    &mut backend(&side, &module),
+                    &initial,
+                    budget(),
+                    bounded(ResultModality::StateSet),
+                )
+                .unwrap();
+            assert_eq!(state_set.modality(), ResultModality::StateSet);
+            assert_eq!(records(&state_set), expected);
+            let halts = state_set
+                .leaves()
+                .iter()
+                .map(|leaf| leaf.halt)
+                .collect::<Vec<_>>();
+            assert_eq!(
+                halts,
+                [HaltClass::Trivial, HaltClass::Stuck],
+                "{state_set:?}"
+            );
+
+            let path_set = adapter
+                .execute_once(
+                    &mut backend(&side, &module),
+                    &initial,
+                    budget(),
+                    bounded(ResultModality::PathSet),
+                )
+                .unwrap();
+            assert_eq!(path_set.modality(), ResultModality::PathSet);
+            assert!(records(&path_set).is_empty(), "{path_set:?}");
+            let halts = path_set
+                .leaves()
+                .iter()
+                .map(|leaf| leaf.halt)
+                .collect::<Vec<_>>();
+            assert_eq!(
+                halts,
+                [HaltClass::Trivial, HaltClass::WorkBound],
+                "{path_set:?}"
+            );
+            assert_eq!(exclusions.run_exclusion(&path_set), None);
+
+            let replaced = adapter
+                .execute_result(
+                    &mut backend(&side, &module),
+                    &initial,
+                    budget(),
+                    bounded(ResultModality::StateSet),
+                )
+                .unwrap();
+            assert_eq!(replaced.modality(), ResultModality::PathSet);
+            assert_eq!(replaced.leaves(), path_set.leaves());
+            assert_eq!(records(&replaced), expected);
+            assert_eq!(
+                exclusions.run_exclusion(&replaced),
+                Some(Exclusion::ContradictedClaim)
+            );
+        });
+    }
+
+    /// ADOPTION.md section 2.1: a value the definition leaves open is on the run's list where no leaf
+    /// carries its mark: the absorbed state-set arrival of the diamond `a(1)` (only `cd` lists two
+    /// keys; the `d` leaf comes from the path through `b`) and the vanished candidate `vk` of `v(1)`;
+    /// and the initial state's normalization of `e(nk2(1))`, whose `nk2` equation lists two keys, is
+    /// on it too (`nk1` lists one, a determined listing: no mark). Decision 1's census flags the
+    /// definition (its sentences list keys) and stays the run's exclusion, `implementation-chosen-hook`,
+    /// ahead of the list; with the census emptied, as re-pin adoption A-3 would leave it for k-rust's
+    /// classes, the list excludes the same runs (`implementation-chosen-value`) and nothing else.
+    #[test]
+    #[ignore = "kink"]
+    fn an_open_value_on_the_run_list_excludes_the_run_beside_the_census() {
+        on_a_big_stack(|| {
+            let (side, module) = fixture("marks");
+            let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+            assert_eq!(
+                exclusions.definition_exclusion(),
+                Some(Exclusion::ImplementationChosenHook)
+            );
+            let mut without_census = exclusions.clone();
+            without_census.implementation_chosen.clear();
+            assert_eq!(without_census.definition_exclusion(), None);
+            let nested = |function: &str| {
+                support::app("Lble", vec![support::app(function, vec![support::int(1)])])
+            };
+            for (name, program, marked, leaf) in [
+                ("diamond", call("a", 1), true, "Lbld"),
+                ("vanished", call("v", 1), true, "Lbldone"),
+                ("two keys", nested("Lblnk2"), true, "Lblval"),
+                ("one key", nested("Lblnk1"), false, "Lblval"),
+            ] {
+                let execution = run(&side, &module, program);
+                let listed = execution
+                    .facts()
+                    .implementation_chosen_values
+                    .iter()
+                    .map(|mark| (mark.hook.as_str(), mark.class.as_str()))
+                    .collect::<Vec<_>>();
+                let expected: &[(&str, &str)] = if marked {
+                    &[("MAP.keys_list", "order")]
+                } else {
+                    &[]
+                };
+                assert_eq!(listed, expected, "{name}");
+                let [only] = execution.leaves() else {
+                    panic!("{name}: one leaf: {execution:?}")
+                };
+                assert!(holds(only, leaf), "{name}");
+                if matches!(name, "diamond" | "vanished") {
+                    assert_eq!(path_facts(only), 0, "{name}: {only:?}");
+                }
+                assert_eq!(
+                    exclusions.run_exclusion(&execution),
+                    Some(Exclusion::ImplementationChosenHook),
+                    "{name}"
+                );
+                assert_eq!(
+                    without_census.run_exclusion(&execution),
+                    marked.then_some(Exclusion::ImplementationChosenValue),
+                    "{name}"
+                );
+            }
+        });
+    }
+
+    /// ADOPTION.md section 2.3: a refusal and an unsupported hook in a passed-over equation leave no
+    /// diagnostic but are on the run's lists (compat 92). `run(2^40)`: the allowance refuses the
+    /// padding on every host (twice a TiB exceeds any allowance), `fpad` is passed over and `fpos`
+    /// gives `val(2)`: `allowance-refusal`. `runh(1)`: `countAllOccurrences("a", "")` is a value the
+    /// definition does not determine, `hcount` is passed over and `hpos` gives `val(2)`:
+    /// `unsupported-hook`. Neither hook is in decision 1's census. `run(1)` meets neither.
+    #[test]
+    #[ignore = "kink"]
+    fn list_only_refusals_and_unsupported_hooks_exclude_the_run() {
+        on_a_big_stack(|| {
+            let (side, module) = fixture("refusals");
+            let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+            assert_eq!(exclusions.definition_exclusion(), None);
+            for (program, list, exclusion) in [
+                (
+                    call("run", 1 << 40),
+                    "BYTES.padRight",
+                    Exclusion::AllowanceRefusal,
+                ),
+                (
+                    call("runh", 1),
+                    "STRING.countAllOccurrences",
+                    Exclusion::UnsupportedHook,
+                ),
+            ] {
+                let execution = run(&side, &module, program);
+                let facts = execution.facts();
+                let listed = facts
+                    .allowance_refusals
+                    .iter()
+                    .chain(&facts.unsupported_hooks)
+                    .map(|entry| (entry.hook.as_str(), entry.observed_in))
+                    .collect::<Vec<_>>();
+                assert_eq!(listed, [(list, ObservedInOutput::Run)], "{list}");
+                let [leaf] = execution.leaves() else {
+                    panic!("{list}: one leaf: {execution:?}")
+                };
+                assert!(leaf.diagnostics.is_empty(), "{list}: {leaf:?}");
+                assert!(
+                    leaf.branch.state.to_string().contains(r#""value":"2""#),
+                    "{list}"
+                );
+                assert_eq!(
+                    exclusions.run_exclusion(&execution),
+                    Some(exclusion),
+                    "{list}"
+                );
+            }
+            let control = run(&side, &module, call("run", 1));
+            assert_eq!(control.facts(), &Default::default());
+            assert_eq!(exclusions.run_exclusion(&control), None);
+        });
     }
 }

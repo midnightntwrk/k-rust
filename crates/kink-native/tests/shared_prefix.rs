@@ -1,10 +1,24 @@
 //! CS-06: identity-built native trees preserve the reference bridge's canonical paths and
 //! whole evaluations over every step-event fixture, including sibling predicates and gaps.
+//!
+//! The same differential also checks corpus-scale CS-04, deliverable 2(b) (formerly
+//! `monitor_differential.rs`, which ran the same cases): the monitor's shared-prefix tree
+//! evaluation (`kink_pattern::evaluate_tree`) over a tree rebuilt from the bridged paths, under
+//! the default monitor options, against `evaluate_with`, keyed and unkeyed, in this build's
+//! profile.
+//!
+//! Each case runs a fixture's initial state through `execute_steps` (to completion and cut at
+//! depths 1, 2 and 3), bridges the run with `paths_from_steps` under the baseline
+//! `ObservationDecider`, and compares the evaluators over every plan generated from the
+//! declared vocabulary, with the shared `BackendRelations` the campaign uses and with the
+//! `StructuralDecider`. Equality is of the whole `Result<Evaluation, PatternFailure>`.
 
 #[path = "../../../testdata/k/step_support.rs"]
 mod step_support;
 #[path = "../../../testdata/k/support.rs"]
 mod support;
+
+mod cache;
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -229,9 +243,9 @@ fn plans(vocabulary: &EventVocabulary, constructors: &[String]) -> Vec<(String, 
 fn differential(cases: Vec<Case>) -> Tally {
     let mut tally = Tally::default();
     for case in cases {
-        let validator =
-            NativeValidator::bind(support::load(case.fixture), CompileOptions::default());
-        let side = validator.compile_baseline().expect("fixture compiles");
+        let side = cache::validator_at(case.fixture, case.module)
+            .compile_baseline()
+            .expect("fixture compiles");
         let state = support::initial_state(case.program.clone(), case.sort);
         let mut backend = Backend::new(
             &side.artifacts().definition_kore,
@@ -313,58 +327,69 @@ fn differential(cases: Vec<Case>) -> Tally {
                         path.path_key = None;
                     }
                     for (keyed, paths) in [(true, bridged.paths.clone()), (false, unkeyed)] {
-                        let mut tree = shared.tree.clone();
-                        if !keyed {
-                            // Unkeyed coverage is already pinned by CS-04's tree tests; the
-                            // native builder always returns canonical stable keys.
-                            tree = kink_pattern::PathTree::from_paths(paths);
-                        }
-                        let evaluation = EvaluationOptions {
-                            stable_path_keys: keyed,
-                            search_policy: SearchPolicy::Exhaustive,
-                            input_error: false,
+                        // CS-04: the tree rebuilt from the bridged paths under the default
+                        // monitor options, keyed and unkeyed.
+                        let rebuilt = kink_pattern::PathTree::from_paths(paths);
+                        // CS-06: the native tree, keyed (the native builder always returns
+                        // canonical stable keys; unkeyed coverage is CS-04's rebuilt tree),
+                        // under a monitor without a partial-occurrence cap.
+                        let native = if keyed {
+                            shared.tree.clone()
+                        } else {
+                            rebuilt.clone()
                         };
-                        let deciders: [(&str, &dyn RelationDecider); 2] =
-                            [("shared", &relations), ("structural", &StructuralDecider)];
-                        for (plan_label, plan) in &plans {
-                            for (decider_label, decider) in deciders {
-                                let reference = evaluate_with(
-                                    &context,
-                                    plan,
-                                    tree.paths(),
-                                    &bridged.collection,
-                                    None,
-                                    evaluation,
-                                    decider,
-                                );
-                                let monitored = evaluate_tree_with_stats(
-                                    &context,
-                                    plan,
-                                    &tree,
-                                    &bridged.collection,
-                                    None,
-                                    TreeOptions {
+                        let trees = [
+                            ("CS-06 native", native, MonitorOptions { cap: usize::MAX }),
+                            ("CS-04 rebuilt", rebuilt, MonitorOptions::default()),
+                        ];
+                        for (tree_label, tree, monitor) in &trees {
+                            let evaluation = EvaluationOptions {
+                                stable_path_keys: keyed,
+                                search_policy: SearchPolicy::Exhaustive,
+                                input_error: false,
+                            };
+                            let deciders: [(&str, &dyn RelationDecider); 2] =
+                                [("shared", &relations), ("structural", &StructuralDecider)];
+                            for (plan_label, plan) in &plans {
+                                for (decider_label, decider) in deciders {
+                                    let reference = evaluate_with(
+                                        &context,
+                                        plan,
+                                        tree.paths(),
+                                        &bridged.collection,
+                                        None,
                                         evaluation,
-                                        monitor: MonitorOptions { cap: usize::MAX },
-                                    },
-                                    decider,
-                                );
-                                // Exhaustive, no side table: the monitor computes every result itself.
-                                assert!(
-                                    !monitored.as_ref().is_ok_and(|(_, stats)| stats.deferred),
-                                    "{} deferred",
-                                    case.label
-                                );
-                                let monitored = monitored.map(|(evaluation, _)| evaluation);
-                                assert_eq!(
-                                    monitored, reference,
-                                    "{} depth {max_depth:?} keyed {keyed} {plan_label} {decider_label}",
-                                    case.label
-                                );
-                                outcomes.push(match &reference {
-                                    Ok(evaluation) => format!("{:?}", evaluation.outcome),
-                                    Err(failure) => format!("{:?}", failure.kind()),
-                                });
+                                        decider,
+                                    );
+                                    let monitored = evaluate_tree_with_stats(
+                                        &context,
+                                        plan,
+                                        tree,
+                                        &bridged.collection,
+                                        None,
+                                        TreeOptions {
+                                            evaluation,
+                                            monitor: *monitor,
+                                        },
+                                        decider,
+                                    );
+                                    // Exhaustive, no side table: the monitor computes every result itself.
+                                    assert!(
+                                        !monitored.as_ref().is_ok_and(|(_, stats)| stats.deferred),
+                                        "{} {tree_label} deferred",
+                                        case.label
+                                    );
+                                    let monitored = monitored.map(|(evaluation, _)| evaluation);
+                                    assert_eq!(
+                                        monitored, reference,
+                                        "{} {tree_label} depth {max_depth:?} keyed {keyed} {plan_label} {decider_label}",
+                                        case.label
+                                    );
+                                    outcomes.push(match &reference {
+                                        Ok(evaluation) => format!("{:?}", evaluation.outcome),
+                                        Err(failure) => format!("{:?}", failure.kind()),
+                                    });
+                                }
                             }
                         }
                     }
@@ -555,197 +580,6 @@ fn counter_paths_agree() {
         }
     }
     report("counter", &differential(cases));
-}
-
-#[test]
-fn nextgap_and_nd_paths_agree() {
-    let b = || var("B", "SortBool");
-    let nextgap = || {
-        vec![
-            spec(
-                "goMid",
-                "SortProg",
-                app("go", vec![b()]),
-                Some(app("mid", vec![b()])),
-                &[],
-            ),
-            spec(
-                "midFin",
-                "SortProg",
-                app("mid", vec![boolean(true)]),
-                Some(app("fin", vec![])),
-                &[],
-            ),
-            spec(
-                "finHalt",
-                "SortProg",
-                app("fin", vec![]),
-                Some(app("halt", vec![])),
-                &[],
-            ),
-        ]
-    };
-    let nd = || {
-        let start = || app("start", vec![]);
-        vec![
-            spec("toMid1", "SortS", start(), Some(app("mid1", vec![])), &[]),
-            spec("toMid2", "SortS", start(), Some(app("mid2", vec![])), &[]),
-            spec("atMid1", "SortS", app("mid1", vec![]), None, &[]),
-            spec("spinning", "SortS", app("spin", vec![]), None, &[]),
-        ]
-    };
-    let mut cases = Vec::new();
-    for program in [
-        app("go", vec![var("X", "SortBool")]),
-        app("go", vec![boolean(true)]),
-        app("go", vec![boolean(false)]),
-    ] {
-        cases.push(Case {
-            label: "nextgap",
-            fixture: "nextgap.k",
-            module: "NEXTGAP",
-            program,
-            sort: "SortProg",
-            specs: nextgap(),
-        });
-    }
-    for program in [app("start", vec![]), app("spin", vec![])] {
-        cases.push(Case {
-            label: "nd",
-            fixture: "nd.k",
-            module: "ND",
-            program,
-            sort: "SortS",
-            specs: nd(),
-        });
-    }
-    let tally = differential(cases);
-    assert!(
-        tally.phase1_classifications > 0,
-        "structural classifications ran"
-    );
-    assert!(
-        tally.phase1_cache_hits > 0,
-        "actual repeated spin states reuse phase 1"
-    );
-    report("nextgap/nd", &tally);
-}
-
-#[test]
-fn conflate_paths_agree() {
-    let int = |name: &str| var(name, "SortInt");
-    let check_specs = || {
-        vec![
-            spec(
-                "check",
-                "SortProg",
-                seq(app("check", vec![int("J")]), var("P", "SortProg")),
-                None,
-                &["J"],
-            ),
-            spec(
-                "check2",
-                "SortProg",
-                seq(app("check2", vec![int("J")]), var("P", "SortProg")),
-                None,
-                &["J"],
-            ),
-            spec(
-                "go",
-                "SortProg",
-                seq(app("go", vec![var("X", "SortBox")]), var("P", "SortProg")),
-                None,
-                &["X"],
-            ),
-        ]
-    };
-    let symbolic = || {
-        seq(
-            app("check", vec![int("A")]),
-            seq(
-                app("check2", vec![int("B")]),
-                seq(app("go", vec![var("Bx", "SortBox")]), app("done", vec![])),
-            ),
-        )
-    };
-    let ground = || {
-        seq(
-            app("check", vec![support::int(0)]),
-            seq(
-                app("check2", vec![support::int(1)]),
-                seq(
-                    app("go", vec![app("c", vec![support::int(5)])]),
-                    app("done", vec![]),
-                ),
-            ),
-        )
-    };
-    let mut cases = Vec::new();
-    for (fixture, module) in [("conflate.k", "CONFLATE"), ("conflatem.k", "CONFLATEM")] {
-        for program in [symbolic(), ground()] {
-            cases.push(Case {
-                label: "conflate",
-                fixture,
-                module,
-                program,
-                sort: "SortProg",
-                specs: check_specs(),
-            });
-        }
-    }
-    let t_spec = |constructor: &str, symbol: &str| {
-        spec(
-            constructor,
-            "SortProg",
-            seq(app(symbol, vec![int("J")]), var("P", "SortProg")),
-            None,
-            &["J"],
-        )
-    };
-    let bare_spec = |constructor: &str, symbol: &str| {
-        spec(
-            constructor,
-            "SortProg",
-            seq(app(symbol, vec![]), var("P", "SortProg")),
-            None,
-            &[],
-        )
-    };
-    cases.push(Case {
-        label: "conflate2",
-        fixture: "conflate2.k",
-        module: "CONFLATE2",
-        program: seq(
-            app("check", vec![int("A")]),
-            seq(app("mk", vec![]), app("done", vec![])),
-        ),
-        sort: "SortProg",
-        specs: vec![
-            t_spec("check", "check"),
-            bare_spec("mk", "mk"),
-            t_spec("t", "t"),
-        ],
-    });
-    cases.push(Case {
-        label: "conflate3",
-        fixture: "conflate3.k",
-        module: "CONFLATE3",
-        program: seq(
-            app("new1", vec![]),
-            seq(
-                app("burnNew", vec![]),
-                seq(app("new2", vec![]), app("done", vec![])),
-            ),
-        ),
-        sort: "SortProg",
-        specs: vec![
-            bare_spec("new1", "new1"),
-            bare_spec("burnNew", "burnNew"),
-            t_spec("t1", "t1"),
-            t_spec("t", "t"),
-        ],
-    });
-    report("conflate*", &differential(cases));
 }
 
 fn symmem_program() -> Pattern {
@@ -970,5 +804,202 @@ fn so_at1_dead_existential_rule_preserves_canonical_tree_paths() {
                 Ok::<_, k_rust::backend::BackendError>(())
             })
             .expect("baseline decider");
+    }
+}
+
+mod kink_tier {
+    use super::*;
+
+    #[test]
+    #[ignore = "kink"]
+    fn nextgap_and_nd_paths_agree() {
+        let b = || var("B", "SortBool");
+        let nextgap = || {
+            vec![
+                spec(
+                    "goMid",
+                    "SortProg",
+                    app("go", vec![b()]),
+                    Some(app("mid", vec![b()])),
+                    &[],
+                ),
+                spec(
+                    "midFin",
+                    "SortProg",
+                    app("mid", vec![boolean(true)]),
+                    Some(app("fin", vec![])),
+                    &[],
+                ),
+                spec(
+                    "finHalt",
+                    "SortProg",
+                    app("fin", vec![]),
+                    Some(app("halt", vec![])),
+                    &[],
+                ),
+            ]
+        };
+        let nd = || {
+            let start = || app("start", vec![]);
+            vec![
+                spec("toMid1", "SortS", start(), Some(app("mid1", vec![])), &[]),
+                spec("toMid2", "SortS", start(), Some(app("mid2", vec![])), &[]),
+                spec("atMid1", "SortS", app("mid1", vec![]), None, &[]),
+                spec("spinning", "SortS", app("spin", vec![]), None, &[]),
+            ]
+        };
+        let mut cases = Vec::new();
+        for program in [
+            app("go", vec![var("X", "SortBool")]),
+            app("go", vec![boolean(true)]),
+            app("go", vec![boolean(false)]),
+        ] {
+            cases.push(Case {
+                label: "nextgap",
+                fixture: "nextgap.k",
+                module: "NEXTGAP",
+                program,
+                sort: "SortProg",
+                specs: nextgap(),
+            });
+        }
+        for program in [app("start", vec![]), app("spin", vec![])] {
+            cases.push(Case {
+                label: "nd",
+                fixture: "nd.k",
+                module: "ND",
+                program,
+                sort: "SortS",
+                specs: nd(),
+            });
+        }
+        let tally = differential(cases);
+        assert!(
+            tally.phase1_classifications > 0,
+            "structural classifications ran"
+        );
+        assert!(
+            tally.phase1_cache_hits > 0,
+            "actual repeated spin states reuse phase 1"
+        );
+        report("nextgap/nd", &tally);
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn conflate_paths_agree() {
+        let int = |name: &str| var(name, "SortInt");
+        let check_specs = || {
+            vec![
+                spec(
+                    "check",
+                    "SortProg",
+                    seq(app("check", vec![int("J")]), var("P", "SortProg")),
+                    None,
+                    &["J"],
+                ),
+                spec(
+                    "check2",
+                    "SortProg",
+                    seq(app("check2", vec![int("J")]), var("P", "SortProg")),
+                    None,
+                    &["J"],
+                ),
+                spec(
+                    "go",
+                    "SortProg",
+                    seq(app("go", vec![var("X", "SortBox")]), var("P", "SortProg")),
+                    None,
+                    &["X"],
+                ),
+            ]
+        };
+        let symbolic = || {
+            seq(
+                app("check", vec![int("A")]),
+                seq(
+                    app("check2", vec![int("B")]),
+                    seq(app("go", vec![var("Bx", "SortBox")]), app("done", vec![])),
+                ),
+            )
+        };
+        let ground = || {
+            seq(
+                app("check", vec![support::int(0)]),
+                seq(
+                    app("check2", vec![support::int(1)]),
+                    seq(
+                        app("go", vec![app("c", vec![support::int(5)])]),
+                        app("done", vec![]),
+                    ),
+                ),
+            )
+        };
+        let mut cases = Vec::new();
+        for (fixture, module) in [("conflate.k", "CONFLATE"), ("conflatem.k", "CONFLATEM")] {
+            for program in [symbolic(), ground()] {
+                cases.push(Case {
+                    label: "conflate",
+                    fixture,
+                    module,
+                    program,
+                    sort: "SortProg",
+                    specs: check_specs(),
+                });
+            }
+        }
+        let t_spec = |constructor: &str, symbol: &str| {
+            spec(
+                constructor,
+                "SortProg",
+                seq(app(symbol, vec![int("J")]), var("P", "SortProg")),
+                None,
+                &["J"],
+            )
+        };
+        let bare_spec = |constructor: &str, symbol: &str| {
+            spec(
+                constructor,
+                "SortProg",
+                seq(app(symbol, vec![]), var("P", "SortProg")),
+                None,
+                &[],
+            )
+        };
+        cases.push(Case {
+            label: "conflate2",
+            fixture: "conflate2.k",
+            module: "CONFLATE2",
+            program: seq(
+                app("check", vec![int("A")]),
+                seq(app("mk", vec![]), app("done", vec![])),
+            ),
+            sort: "SortProg",
+            specs: vec![
+                t_spec("check", "check"),
+                bare_spec("mk", "mk"),
+                t_spec("t", "t"),
+            ],
+        });
+        cases.push(Case {
+            label: "conflate3",
+            fixture: "conflate3.k",
+            module: "CONFLATE3",
+            program: seq(
+                app("new1", vec![]),
+                seq(
+                    app("burnNew", vec![]),
+                    seq(app("new2", vec![]), app("done", vec![])),
+                ),
+            ),
+            sort: "SortProg",
+            specs: vec![
+                bare_spec("new1", "new1"),
+                bare_spec("burnNew", "burnNew"),
+                t_spec("t1", "t1"),
+                t_spec("t", "t"),
+            ],
+        });
+        report("conflate*", &differential(cases));
     }
 }

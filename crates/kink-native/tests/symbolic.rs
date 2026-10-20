@@ -6,10 +6,11 @@ mod support;
 #[path = "../../../testdata/k/step_support.rs"]
 mod step_support;
 
+mod cache;
+
 use std::{num::NonZeroUsize, time::Duration};
 
 use k_rust::backend::{Backend, BackendOptions};
-use k_rust::kompile::CompileOptions;
 use k_rust::kompile::initial_configuration::kore_sort;
 use k_rust::kore::{ast::Pattern, codec, parser::parse_definition, walk::for_each_post_order};
 use k_rust_backend::rule::Predicate;
@@ -18,6 +19,7 @@ use k_rust_backend::smt::{
 };
 use k_rust_backend::stop::{Stop, Stoppable};
 use k_rust_backend::substitution::Substitution;
+use kink_native::ValidatedDefinition;
 use kink_native::bridge::{BridgeContext, BridgedPaths, paths_from_execution, paths_from_steps};
 use kink_native::execution::{
     AdaptedExecution, AdaptedLeaf, ExecutionAdapter, ExecutionBudget, HaltClass, SolverProfile,
@@ -25,7 +27,6 @@ use kink_native::execution::{
 use kink_native::feasibility::{BackendRelations, LeafFeasibility, TestInitialState};
 use kink_native::report::{ReportInput, ReportResult, step3_report};
 use kink_native::step_events::{ObservationDecider, StepEventSpec, StepObservation};
-use kink_native::{NativeValidator, ValidatedDefinition};
 use kink_pattern::{
     Atom, CollectionStop, Evaluation, EvaluationContext, EvaluationOptions, EventVocabulary,
     ExecutionTerminalKind, MatchMode, PathInput, PathStop, PatternArm, PatternOutcome, PatternPlan,
@@ -321,13 +322,48 @@ fn run(fixture: Fixture, program: Pattern, budget: ExecutionBudget) -> (Run, Eve
 
 /// `run` from an initial state that may carry a path condition.
 fn run_state(fixture: Fixture, state: Pattern, budget: ExecutionBudget) -> (Run, EventVocabulary) {
-    let validator = NativeValidator::bind(support::load(fixture.name()), CompileOptions::default());
-    let side = validator.compile_baseline().expect("fixture compiles");
+    let side = cache::validator(fixture.name())
+        .compile_baseline()
+        .expect("fixture compiles");
     run_side(&side, fixture, state, budget)
+}
+
+/// The stepped-run positions of a report row run under [`BUDGET`]: (halt, feasibility, number
+/// of states) per leaf, as measured before the stepped-state migration.
+fn expected_positions(fixture: &str, row: &str) -> Vec<(HaltClass, LeafFeasibility, usize)> {
+    let (halt, feasibility, lengths) = match (fixture, row) {
+        ("guardedmem.k", "G1") if cfg!(feature = "z3") => {
+            (HaltClass::Stuck, LeafFeasibility::Solver, vec![3, 3, 2])
+        }
+        ("guardedmem.k", "G2") if cfg!(feature = "z3") => {
+            (HaltClass::Stuck, LeafFeasibility::Solver, vec![3, 2, 2])
+        }
+        ("guardedmem.k", "G1" | "G2") => (
+            HaltClass::Indeterminate,
+            LeafFeasibility::Syntactic,
+            vec![1],
+        ),
+        ("symmem.k", "P2") => (HaltClass::Stuck, LeafFeasibility::Syntactic, vec![4]),
+        ("symmem.k", "P4") => (HaltClass::Stuck, LeafFeasibility::Syntactic, vec![3, 3]),
+        ("symmem.k", "P5") => (HaltClass::Stuck, LeafFeasibility::Syntactic, vec![4, 3]),
+        ("symmem.k", "P9") => (HaltClass::Stuck, LeafFeasibility::Syntactic, vec![4, 4]),
+        _ => (HaltClass::Stuck, LeafFeasibility::Syntactic, vec![3]),
+    };
+    lengths
+        .into_iter()
+        .map(|length| (halt, feasibility, length))
+        .collect()
 }
 
 /// Stepped and unobserved execution keep identical leaves in backend order, including halt,
 /// state, depth, trace, cause and diagnostics.
+///
+/// The rows run under [`BUDGET`] also pin the stepped positions (formerly
+/// `step_events::position_rows::stepped_positions_keep_unobserved_leaves_and_order`): each leaf
+/// has one state per rewrite (a remainder adds none) plus its first, the last state is the
+/// leaf's, the counts are the pre-migration measurements, some program reaches three states,
+/// and remainder entries arise exactly from the solver-decided guarded rows (Z3). P8 and P9 run
+/// under [`BUDGET`] for their positions as well as under their bounds.
 #[test]
 fn observation_erasure_preserves_live_leaves() {
     let depth = ExecutionBudget {
@@ -338,15 +374,27 @@ fn observation_erasure_preserves_live_leaves() {
         max_breadth: Some(NonZeroUsize::new(1).expect("nonzero")),
         ..BUDGET
     };
+    // (label, program, budget, positions): `positions` rows run under BUDGET and pin the
+    // stepped positions of the row `label`.
     let rows = [
         (
             "nd.k",
             "ND",
             "SortS",
             vec![
-                ("start", support::app("Lblstart", vec![]), BUDGET),
-                ("start-depth", support::app("Lblstart", vec![]), depth),
-                ("start-breadth", support::app("Lblstart", vec![]), breadth),
+                ("start", support::app("Lblstart", vec![]), BUDGET, false),
+                (
+                    "start-depth",
+                    support::app("Lblstart", vec![]),
+                    depth,
+                    false,
+                ),
+                (
+                    "start-breadth",
+                    support::app("Lblstart", vec![]),
+                    breadth,
+                    false,
+                ),
             ],
         ),
         (
@@ -354,15 +402,17 @@ fn observation_erasure_preserves_live_leaves() {
             "SYMMEM",
             "SortProg",
             vec![
-                ("P1", p1(), BUDGET),
-                ("P2", p2(), BUDGET),
-                ("P3", p3(), BUDGET),
-                ("P4", p4(), BUDGET),
-                ("P5", p5(), BUDGET),
-                ("P6", p6(), BUDGET),
-                ("P7", p7(), BUDGET),
-                ("P8", p8(), depth),
-                ("P9", p9(), breadth),
+                ("P1", p1(), BUDGET, true),
+                ("P2", p2(), BUDGET, true),
+                ("P3", p3(), BUDGET, true),
+                ("P4", p4(), BUDGET, true),
+                ("P5", p5(), BUDGET, true),
+                ("P6", p6(), BUDGET, true),
+                ("P7", p7(), BUDGET, true),
+                ("P8", p8(), depth, false),
+                ("P9", p9(), breadth, false),
+                ("P8", p8(), BUDGET, true),
+                ("P9", p9(), BUDGET, true),
             ],
         ),
         (
@@ -370,18 +420,19 @@ fn observation_erasure_preserves_live_leaves() {
             "GUARDEDMEM",
             "SortProg",
             vec![
-                ("G1", g1(), BUDGET),
-                ("G2", g2(), BUDGET),
-                ("G3", g3(), BUDGET),
+                ("G1", g1(), BUDGET, true),
+                ("G2", g2(), BUDGET, true),
+                ("G3", g3(), BUDGET, true),
             ],
         ),
     ];
+    let mut reached_three = false;
+    let mut reached_remainder = false;
     for (fixture, module, sort, programs) in rows {
-        let validator = NativeValidator::bind(support::load(fixture), CompileOptions::default());
-        let side = validator.compile_baseline().expect("fixture compiles");
+        let side = cache::side(fixture);
         let adapter = adapter();
         let mut backend = backend(&side.artifacts().definition_kore, module);
-        for (row, program, budget) in programs {
+        for (row, program, budget, positions) in programs {
             let state = support::initial_state(program, sort);
             let stepped = adapter
                 .execute_steps(&mut backend, &state, budget)
@@ -407,8 +458,59 @@ fn observation_erasure_preserves_live_leaves() {
                     .all(|leaf| (leaf.depth == 0) == leaf.branch.is_empty()),
                 "{fixture} {row}: exactly the leaves below the root have an identity"
             );
+            if !positions {
+                continue;
+            }
+            assert_eq!(
+                observed
+                    .leaves()
+                    .iter()
+                    .zip(&stepped.states)
+                    .map(|(leaf, states)| (leaf.halt, leaf.feasibility, states.len()))
+                    .collect::<Vec<_>>(),
+                expected_positions(fixture, row),
+                "{fixture} {row}: pre-migration measurements"
+            );
+            assert_eq!(
+                stepped.states.len(),
+                observed.leaves().len(),
+                "{fixture} {row}: sequences"
+            );
+            for (index, (states, leaf)) in stepped.states.iter().zip(observed.leaves()).enumerate()
+            {
+                let rewrites = leaf
+                    .branch
+                    .identity
+                    .iter()
+                    .filter(|id| !id.rule.starts_with("remainder:"))
+                    .count();
+                let remainders = leaf.branch.identity.len() - rewrites;
+                assert_eq!(
+                    states.len(),
+                    rewrites + 1,
+                    "{fixture} {row} leaf {index}: Rewrite positions; Remainder adds none"
+                );
+                assert_eq!(
+                    states.last(),
+                    Some(&codec::from_value(&leaf.branch.state).expect("decoded last state"))
+                );
+                reached_three |= states.len() >= 3;
+                reached_remainder |= remainders > 0;
+                if fixture == "guardedmem.k" && row != "G3" && !cfg!(feature = "z3") {
+                    assert_eq!(
+                        (leaf.halt, leaf.feasibility, states.len()),
+                        (HaltClass::Indeterminate, LeafFeasibility::Syntactic, 1)
+                    );
+                }
+            }
         }
     }
+    assert!(reached_three, "no program reached three states");
+    assert_eq!(
+        reached_remainder,
+        cfg!(feature = "z3"),
+        "Remainder entries arise only from solver-decided guarded rows"
+    );
 }
 
 fn wl(vocabulary: &EventVocabulary, sort: &str, relation: Relation) -> PatternPlan {
@@ -510,49 +612,6 @@ fn decided(run: &mut Run, plan: &PatternPlan) -> Evaluation {
         .expect("evaluation")
 }
 
-#[test]
-fn symmem_step_payloads_are_subject_terms() {
-    let (run, _) = run(Fixture::Sym, p1(), BUDGET);
-    assert_eq!(run.bridged.collection.stop, CollectionStop::SearchExhausted);
-    let [path] = run.bridged.paths.as_slice() else {
-        panic!("one path")
-    };
-    assert!(path.complete);
-    assert_eq!(
-        path.execution_terminal.as_ref().expect("terminal").state,
-        support::initial_state(halt(), "SortProg")
-    );
-    assert_eq!(path.events.len(), 2);
-    assert_eq!(path.events[0].constructor, "memoryWrite");
-    assert_eq!(path.events[1].constructor, "memoryLoad");
-    assert_eq!(path.events[0].payload, [addr(nat("X")), nat("V")]);
-    assert_eq!(path.events[1].payload, [addr(nat("X")), nat("W")]);
-}
-
-#[test]
-fn symmem_fork_keeps_siblings_apart() {
-    let (run, _) = run(Fixture::Sym, p4(), BUDGET);
-    assert_eq!(run.bridged.collection.stop, CollectionStop::SearchExhausted);
-    let [left, right] = run.bridged.paths.as_slice() else {
-        panic!("two paths")
-    };
-    assert!(left.complete && right.complete);
-    assert_ne!(left.path_key, right.path_key);
-    let constructors: Vec<_> = run
-        .bridged
-        .paths
-        .iter()
-        .map(|path| {
-            path.events
-                .iter()
-                .map(|event| event.constructor.as_str())
-                .collect::<Vec<_>>()
-        })
-        .collect();
-    assert!(constructors.contains(&vec!["memoryWrite"]));
-    assert!(constructors.contains(&vec!["memoryLoad"]));
-}
-
 /// No-Z3 only: the Z3 build's G1/G2 values are rows of `profile_table_rows`. The one leaf is
 /// `Indeterminate` at the first `requires`, which needs the solver this build lacks; its cause
 /// says so, and the path is `SolverUnknown` (`BackendLimit` before k-rust exposed the cause,
@@ -560,8 +619,7 @@ fn symmem_fork_keeps_siblings_apart() {
 #[cfg(not(feature = "z3"))]
 #[test]
 fn solver_dependent_guard_is_unknown_without_z3() {
-    let validator = NativeValidator::bind(support::load("guardedmem.k"), CompileOptions::default());
-    let side = validator.compile_baseline().expect("fixture compiles");
+    let side = cache::side("guardedmem.k");
     let backend = backend(&side.artifacts().definition_kore, "GUARDEDMEM");
     assert!(!backend.capabilities().smt);
     for program in [g1(), g2()] {
@@ -801,278 +859,6 @@ fn only_witness_path<'a>(run: &'a Run, evaluation: &Evaluation) -> &'a PathInput
         .expect("witness path")
 }
 
-#[test]
-fn symbolic_write_then_load_matches_consecutive_and_separated() {
-    let (mut first, vocabulary) = run(Fixture::Sym, p1(), BUDGET);
-    for plan in [wl_next(&vocabulary), wl_after(&vocabulary)] {
-        let evaluation = assert_both(&mut first, &plan, PatternOutcome::Match, None);
-        assert_eq!(evaluation.witnesses.len(), 1);
-        assert_eq!(evaluation.witnesses[0].event_indices, [0, 1]);
-        assert_eq!(evaluation.witnesses[0].stop_reason, PathStop::Terminal);
-    }
-
-    let (mut separated, vocabulary) = run(Fixture::Sym, p2(), BUDGET);
-    let evaluation = assert_both(
-        &mut separated,
-        &wl_next(&vocabulary),
-        PatternOutcome::NoMatch,
-        None,
-    );
-    assert!(evaluation.complete_coverage);
-    assert!(evaluation.witnesses.is_empty());
-    let evaluation = assert_both(
-        &mut separated,
-        &wl_after(&vocabulary),
-        PatternOutcome::Match,
-        None,
-    );
-    let path = only_witness_path(&separated, &evaluation);
-    assert_eq!(evaluation.witnesses[0].event_indices, [0, 2]);
-    assert_eq!(evaluation.witnesses[0].stop_reason, PathStop::Terminal);
-    assert_eq!(path.events[1].constructor, "memoryFree");
-}
-
-#[test]
-fn symbolic_reversed_order_does_not_match() {
-    let (mut run, vocabulary) = run(Fixture::Sym, p3(), BUDGET);
-    let evaluation = assert_both(
-        &mut run,
-        &wl_after(&vocabulary),
-        PatternOutcome::NoMatch,
-        None,
-    );
-    assert!(evaluation.complete_coverage);
-    assert!(evaluation.witnesses.is_empty());
-    let [path] = run.bridged.paths.as_slice() else {
-        panic!("one path")
-    };
-    assert_eq!(path.stop, PathStop::Terminal);
-    assert_eq!(path.events[0].constructor, "memoryLoad");
-    assert_eq!(path.events[1].constructor, "memoryWrite");
-}
-
-#[test]
-fn sibling_write_and_load_never_form_a_witness() {
-    let (mut run, vocabulary) = run(Fixture::Sym, p4(), BUDGET);
-    let evaluation = assert_both(
-        &mut run,
-        &wl_after(&vocabulary),
-        PatternOutcome::NoMatch,
-        None,
-    );
-    assert!(evaluation.complete_coverage);
-    assert!(evaluation.witnesses.is_empty());
-    assert_eq!(run.bridged.paths.len(), 2);
-    assert!(
-        run.bridged
-            .paths
-            .iter()
-            .all(|path| path.complete && path.stop == PathStop::Terminal && path.events.len() == 1)
-    );
-    assert_ne!(run.bridged.paths[0].path_key, run.bridged.paths[1].path_key);
-}
-
-#[test]
-fn witness_stays_on_its_own_sibling() {
-    let (mut run, vocabulary) = run(Fixture::Sym, p5(), BUDGET);
-    let evaluation = assert_both(
-        &mut run,
-        &wl_after(&vocabulary),
-        PatternOutcome::Match,
-        None,
-    );
-    let path = only_witness_path(&run, &evaluation);
-    assert_eq!(evaluation.witnesses[0].event_indices, [0, 1]);
-    assert_eq!(
-        path.events
-            .iter()
-            .map(|event| event.constructor.as_str())
-            .collect::<Vec<_>>(),
-        ["memoryWrite", "memoryLoad"]
-    );
-    assert_eq!(path.stop, PathStop::Terminal);
-    assert_eq!(run.bridged.paths.len(), 2);
-    let other = run
-        .bridged
-        .paths
-        .iter()
-        .find(|other| other.path_key != path.path_key)
-        .expect("other sibling");
-    assert_eq!(other.stop, PathStop::Terminal);
-    assert_eq!(other.events.len(), 1);
-    assert_eq!(other.events[0].constructor, "memoryLoad");
-}
-
-#[test]
-fn shared_symbolic_address_binds_one_term() {
-    let (mut run, vocabulary) = run(Fixture::Sym, p1(), BUDGET);
-    let evaluation = assert_both(
-        &mut run,
-        &wl_after(&vocabulary),
-        PatternOutcome::Match,
-        None,
-    );
-    let path = only_witness_path(&run, &evaluation);
-    let witness = &evaluation.witnesses[0];
-    assert_eq!(witness.bindings.len(), 1);
-    assert_eq!(witness.bindings[0].name, "A");
-    assert_eq!(witness.bindings[0].term, addr(nat("X")));
-    assert!(witness.assumptions.is_empty());
-    assert_eq!(
-        witness.path_predicate,
-        Pattern::Top {
-            sort: kore_sort("SortGeneratedTopCell")
-        }
-    );
-    assert_eq!(path.stop, PathStop::Terminal);
-}
-
-#[test]
-fn distinct_symbolic_addresses_match_under_unifier_assumption() {
-    let (mut run, vocabulary) = run(Fixture::Sym, p6(), BUDGET);
-    let plan = wl_after(&vocabulary);
-    let plain = outcome(&run, &plan);
-    assert_eq!(
-        (plain.outcome, plain.failure),
-        (PatternOutcome::Unknown, Some(PathStop::SolverUnknown))
-    );
-    let evaluation = decided(&mut run, &plan);
-    // Both profiles (SYM-3B-03): the binding `X = Y` is eliminated on the `\top` path, so the
-    // relation query is empty and `Sat` needs no solver.
-    assert_eq!(
-        (evaluation.outcome, evaluation.failure),
-        (PatternOutcome::Match, None)
-    );
-    assert_witness_paths(&run, &evaluation);
-    let path = only_witness_path(&run, &evaluation);
-    let witness = &evaluation.witnesses[0];
-    assert_eq!(witness.event_indices, [0, 1]);
-    assert_eq!(witness.bindings.len(), 1);
-    assert_eq!(witness.bindings[0].name, "A");
-    assert_eq!(witness.bindings[0].term, addr(nat("X")));
-    assert_eq!(
-        witness.assumptions,
-        [TermRelation {
-            left: nat("X"),
-            right: nat("Y")
-        }]
-    );
-    assert_eq!(
-        witness.path_predicate,
-        Pattern::Top {
-            sort: kore_sort("SortGeneratedTopCell")
-        }
-    );
-    assert_eq!(path.stop, PathStop::Terminal);
-}
-
-#[test]
-fn clashing_symbolic_addresses_do_not_match() {
-    let (mut run, vocabulary) = run(Fixture::Sym, p7(), BUDGET);
-    let plan = wl_after(&vocabulary);
-    let plain = outcome(&run, &plan);
-    assert_eq!(
-        (plain.outcome, plain.failure),
-        (PatternOutcome::Unknown, Some(PathStop::SolverUnknown))
-    );
-    let evaluation = decided(&mut run, &plan);
-    assert_eq!(
-        (evaluation.outcome, evaluation.failure),
-        (PatternOutcome::NoMatch, None)
-    );
-    assert!(evaluation.complete_coverage);
-    assert!(evaluation.witnesses.is_empty());
-    let [path] = run.bridged.paths.as_slice() else {
-        panic!("one path")
-    };
-    assert_eq!(path.stop, PathStop::Terminal);
-}
-
-#[test]
-fn symbolic_depth_bound_absence_is_unknown_depth_limit() {
-    let (mut run, vocabulary) = run(
-        Fixture::Sym,
-        p8(),
-        ExecutionBudget {
-            max_depth: Some(1),
-            ..BUDGET
-        },
-    );
-    let [leaf] = run.execution.leaves() else {
-        panic!("one leaf")
-    };
-    assert_eq!(
-        (leaf.halt, leaf.feasibility),
-        (HaltClass::DepthBound, LeafFeasibility::Syntactic)
-    );
-    let evaluation = assert_both(
-        &mut run,
-        &wl_after(&vocabulary),
-        PatternOutcome::Unknown,
-        Some(PathStop::DepthLimit),
-    );
-    assert!(evaluation.witnesses.is_empty());
-    assert_eq!(run.bridged.paths[0].stop, PathStop::DepthLimit);
-}
-
-#[test]
-fn depth_cut_prefix_still_witnesses() {
-    let (mut run, vocabulary) = run(
-        Fixture::Sym,
-        p8(),
-        ExecutionBudget {
-            max_depth: Some(1),
-            ..BUDGET
-        },
-    );
-    let evaluation = assert_both(&mut run, &w_only(&vocabulary), PatternOutcome::Match, None);
-    let path = only_witness_path(&run, &evaluation);
-    assert_eq!(evaluation.witnesses[0].event_indices, [0]);
-    assert_eq!(evaluation.witnesses[0].stop_reason, PathStop::DepthLimit);
-    assert_eq!(path.stop, PathStop::DepthLimit);
-    assert!(!path.complete);
-}
-
-/// README 6.4 merges the two identical bounded prefixes into one step-bridged path;
-/// both raw leaves remain BreadthBound with Syntactic feasibility.
-#[test]
-fn breadth_bound_absence_is_unknown_branch_limit() {
-    let (mut run, vocabulary) = run(
-        Fixture::Sym,
-        p9(),
-        ExecutionBudget {
-            max_breadth: Some(NonZeroUsize::new(1).expect("nonzero")),
-            ..BUDGET
-        },
-    );
-    assert_eq!(run.execution.leaves().len(), 2);
-    assert!(
-        run.execution
-            .leaves()
-            .iter()
-            .all(|leaf| (leaf.halt, leaf.feasibility)
-                == (HaltClass::BreadthBound, LeafFeasibility::Syntactic))
-    );
-    // Re-pin R0b deliverable 4 (finding A-11): a breadth-bound leaf's path stops at
-    // `BackendLimit`, which vouches for no real prefix (was `BranchLimit`); still Unknown.
-    let evaluation = assert_both(
-        &mut run,
-        &wl_after(&vocabulary),
-        PatternOutcome::Unknown,
-        Some(PathStop::BackendLimit),
-    );
-    assert!(evaluation.witnesses.is_empty());
-    assert_eq!(run.bridged.paths.len(), 1);
-    assert!(
-        run.bridged
-            .paths
-            .iter()
-            .all(|path| path.stop == PathStop::BackendLimit
-                && !path.complete
-                && path.events.is_empty())
-    );
-}
-
 // Report runs use the same program/plan rows as README section 6.1 and 6.2.
 // Leave ample watchdog time so a collection stop is determined by the fixture.
 const REPORT_BUDGET: ExecutionBudget = ExecutionBudget {
@@ -1267,16 +1053,26 @@ fn assert_identical_reports(row: ReportRow, baseline: &str, candidate: &str) {
     );
 }
 
-#[test]
-fn repeated_symbolic_runs_emit_identical_reports() {
+/// The report rows whose run branches: the forking programs P4, P5 and P9, and G1 and G2, whose
+/// guarded rules split under Z3.
+const BRANCHING_REPORT_ROWS: [&str; 5] = [
+    "P4-WL-after",
+    "P5-WL-after",
+    "P9-WL-after",
+    "G1-GWL-after",
+    "G2-GWL-after",
+];
+
+/// Three fresh runs of each report row that is (`branching`) or is not in
+/// [`BRANCHING_REPORT_ROWS`] emit byte-identical reports.
+fn assert_repeated_runs_emit_identical_reports(branching: bool) {
     for fixture in [Fixture::Sym, Fixture::Guard] {
-        let validator =
-            NativeValidator::bind(support::load(fixture.name()), CompileOptions::default());
-        let side = validator.compile_baseline().expect("fixture compiles");
-        for row in report_rows()
-            .into_iter()
-            .filter(|row| row.fixture == fixture)
-        {
+        let side = cache::validator(fixture.name())
+            .compile_baseline()
+            .expect("fixture compiles");
+        for row in report_rows().into_iter().filter(|row| {
+            row.fixture == fixture && BRANCHING_REPORT_ROWS.contains(&row.id) == branching
+        }) {
             let baseline = fresh_report(row, &side);
             for _ in 1..3 {
                 let candidate = fresh_report(row, &side);
@@ -1286,273 +1082,16 @@ fn repeated_symbolic_runs_emit_identical_reports() {
     }
 }
 
+/// Repeated runs of the branching report rows emit identical reports; the kink tier's
+/// `kink_tier::repeated_symbolic_runs_of_the_other_rows_emit_identical_reports` covers the other
+/// rows.
 #[test]
-fn report_is_stable_across_backend_reuse() {
-    let row = report_rows()
-        .into_iter()
-        .find(|row| row.id == "P5-WL-after")
-        .expect("branching report row");
-    let validator =
-        NativeValidator::bind(support::load(row.fixture.name()), CompileOptions::default());
-    let side = validator.compile_baseline().expect("fixture compiles");
-    let fresh = fresh_report(row, &side);
-    let mut backend = backend(&side.artifacts().definition_kore, row.fixture.module());
-    let first = report_on_backend(row, &side, &mut backend);
-    let second = report_on_backend(row, &side, &mut backend);
-    assert_identical_reports(row, &fresh, &first);
-    assert_identical_reports(row, &first, &second);
+fn repeated_symbolic_runs_emit_identical_reports() {
+    assert_repeated_runs_emit_identical_reports(true);
 }
 
 fn wrap(value: Pattern) -> Pattern {
     support::app("Lblwrap", vec![value])
-}
-
-/// Audit (SYM-3A-09): an `anywhere` equation makes `wrap` non-injective. k-rust 347f693e's
-/// kompile still marked it `injective` and its unifier decomposed it; since k-rust KK-51..KK-53
-/// the attribute is withheld and the unifier keeps `wrap(s(X)) = wrap(z)` as an equation,
-/// because an equation can rewrite an instance of `wrap(s(X))`. `wrap(s(X))` against `wrap(z)`
-/// is equal for `X = z`, so the backend decider must not call them unequal, and the write/load
-/// pair must not be `no-match`.
-#[test]
-fn non_free_injective_symbol_does_not_prove_a_clash() {
-    let program = |address: Pattern| {
-        seq(
-            write(wrap(address), nat("V")),
-            seq(load(wrap(z()), nat("W")), halt()),
-        )
-    };
-    // Re-pin R0a (findings C-15, E-14; k-rust KINK-11 8113ed089, e4766a728, ffd80eb64): at
-    // 927b9ce6 withheld value-production definedness left the ground instance Unknown in both
-    // profiles (precision loss, VI-03F, k-rust 4d80cea6). At 501f18b9 `ceil(wrap(z))` is known,
-    // so the run is decided: `collapse` rewrites `wrap(s(z))` to `wrap(z)`, the write and the
-    // load carry syntactically equal addresses, and the run ends Stuck. The outcome is Match
-    // through those equal payloads, with no relation assumption (never NoMatch, never an
-    // Unequal relation decision). Same in both profiles (decision 3: k-rust executes the
-    // definition correctly).
-    let (mut ground, vocabulary) = run(Fixture::Wrap, program(s(z())), BUDGET);
-    let plan = wl_after(&vocabulary);
-    let evaluation = decided(&mut ground, &plan);
-    assert_eq!(evaluation.outcome, PatternOutcome::Match);
-    assert!(!evaluation.witnesses.is_empty());
-    assert!(
-        evaluation
-            .witnesses
-            .iter()
-            .all(|witness| witness.assumptions.is_empty())
-    );
-    assert_eq!(
-        ground
-            .execution
-            .leaves()
-            .iter()
-            .map(|leaf| (leaf.halt, leaf.branch.depth))
-            .collect::<Vec<_>>(),
-        [(HaltClass::Stuck, 2)]
-    );
-    let [path] = ground.bridged.paths.as_slice() else {
-        panic!("one ground path")
-    };
-    assert!(path.complete);
-    let addresses = path
-        .events
-        .iter()
-        .map(|event| (event.constructor.as_str(), event.payload[0].clone()))
-        .collect::<Vec<_>>();
-    assert_eq!(
-        addresses,
-        [("memoryWrite", wrap(z())), ("memoryLoad", wrap(z()))]
-    );
-    let relation = ground
-        .backend
-        .with_solver(None, |definition, solver| {
-            let decider = BackendRelations::shared(
-                definition,
-                solver,
-                TestInitialState::of_test(&ground.state),
-            );
-            Ok::<_, k_rust::backend::BackendError>(decider.relate(
-                path,
-                &[],
-                &wrap(s(z())),
-                &wrap(z()),
-            ))
-        })
-        .expect("decider");
-    // Re-pin R0c (R0a review 1 minor): the exact relation, measured the same in both profiles:
-    // the unifier keeps `wrap(s(z)) = wrap(z)` as an equation it cannot decide (`wrap` is not
-    // free), so the relation is Indeterminate, never Unequal.
-    assert_eq!(relation, RelationDecision::Indeterminate);
-    let (mut symbolic, vocabulary) = run(Fixture::Wrap, program(s(nat("X"))), BUDGET);
-    let plan = wl_after(&vocabulary);
-    // At 927b9ce6 (precision loss, VI-03F, k-rust 4d80cea6) the symbolic run split on wrap
-    // definedness under Z3 (two SolverUnknown leaves, `not defined` and `defined` with both
-    // events) and stopped before any event without Z3 (one SolverUnknown leaf).
-    // Re-pin R0a (findings E-14, E-15; k-rust KINK-10): at 501f18b9 each profile has one leaf
-    // carrying an `UndefinedInitialInstances` diagnostic (`\ceil(wrap(s(X)))`), so its path is
-    // BackendLimit, still incomplete: without Z3 an Indeterminate leaf before any event, with
-    // Z3 a Stuck leaf under the predicate `\ceil(wrap(s(X)))` after both events.
-    let paths = &symbolic.bridged.paths;
-    let [path] = paths.as_slice() else {
-        panic!("one symbolic path: {paths:?}")
-    };
-    assert_eq!(
-        symbolic.bridged.collection.stop,
-        CollectionStop::BackendLimit
-    );
-    assert_eq!(path.path_key, Some("leaf:0".to_owned()));
-    assert!(!path.complete, "{path:?}");
-    assert_eq!(path.stop, PathStop::BackendLimit);
-    assert_eq!(
-        path.execution_stop,
-        kink_pattern::ExecutionStop::BackendLimit
-    );
-    assert!(path.execution_terminal.is_none());
-    assert!(
-        symbolic.execution.leaves()[0]
-            .diagnostics
-            .iter()
-            .any(|diagnostic| matches!(
-                diagnostic,
-                k_rust::backend::BackendDiagnosticOutput::UndefinedInitialInstances { .. }
-            ))
-    );
-    if cfg!(feature = "z3") {
-        assert_eq!(symbolic.execution.leaves()[0].halt, HaltClass::Stuck);
-        assert_eq!(
-            path.path_predicate,
-            Pattern::Ceil {
-                operand_sort: Box::new(kore_sort("SortAddress")),
-                result_sort: kore_sort("SortGeneratedTopCell"),
-                argument: Box::new(wrap(s(nat("X")))),
-            }
-        );
-        assert_eq!(path.events.len(), 2);
-        assert_eq!(path.events[0].constructor, "memoryWrite");
-        assert_eq!(path.events[1].constructor, "memoryLoad");
-        assert_eq!(path.events[0].payload, vec![wrap(s(nat("X"))), nat("V")]);
-        assert_eq!(path.events[1].payload, vec![wrap(z()), nat("W")]);
-        assert!(
-            path.events
-                .iter()
-                .all(|event| event.presence == kink_pattern::EventPresence::Certain)
-        );
-    } else {
-        assert_eq!(
-            symbolic.execution.leaves()[0].halt,
-            HaltClass::Indeterminate
-        );
-        assert!(path.events.is_empty());
-        assert_eq!(
-            path.path_predicate,
-            Pattern::Top {
-                sort: kore_sort("SortGeneratedTopCell"),
-            }
-        );
-    }
-    // A clash below the free `addr` constructor (P7) is still proved.
-    let (mut free, free_vocabulary) = run(Fixture::Sym, p7(), BUDGET);
-    assert_eq!(
-        decided(&mut free, &wl_after(&free_vocabulary)).outcome,
-        PatternOutcome::NoMatch
-    );
-    let evaluation = decided(&mut symbolic, &plan);
-    assert_eq!(
-        evaluation.outcome,
-        PatternOutcome::Unknown,
-        "{evaluation:?}"
-    );
-    assert!(evaluation.witnesses.is_empty());
-    assert_eq!(outcome(&symbolic, &plan).outcome, PatternOutcome::Unknown);
-}
-
-/// Audit (SYM-3A-09): leaf feasibility and the solver-free `Sat` assume every valuation of the
-/// initial variables follows a clean no-Z3 path. `other` is `owise` below rules that cover
-/// every `Nat`, so no value reaches the write/load events behind it; a symbolic subject must
-/// not take `other` as if the higher-priority rules were refuted.
-#[test]
-fn owise_rule_is_not_taken_for_a_symbolic_subject() {
-    let program = |selector: Pattern| {
-        support::app(
-            "Lblpick",
-            vec![
-                selector,
-                seq(
-                    write(addr(z()), nat("V")),
-                    seq(load(addr(z()), nat("W")), halt()),
-                ),
-            ],
-        )
-    };
-    for ground in [z(), s(z())] {
-        let (mut run, vocabulary) = run(Fixture::Owise, program(ground), BUDGET);
-        assert_eq!(
-            decided(&mut run, &wl_after(&vocabulary)).outcome,
-            PatternOutcome::NoMatch
-        );
-    }
-    let (mut symbolic, vocabulary) = run(Fixture::Owise, program(nat("X")), BUDGET);
-    // No-Z3: matching `z` or `s(_)` against `X` needs a narrowing condition, which `NoSolver`
-    // cannot accept, so the priority group is undecided and the one leaf is `Indeterminate`.
-    // Z3: narrowing is accepted; `zero` and `succ` each give a `Stuck` leaf on the ground
-    // `halt` whose predicate keeps its narrowing condition (`X = z`, `X = s(_)`), and `other`
-    // is not taken (k-rust refutes its remainder by the finite constructors of `Nat`). The
-    // predicates are over `Nat`, which Z3 abstracts, so no exact `Sat` shows the leaves
-    // feasible and they stay `SolverUnknown` (SYM-3B-02).
-    let stops: Vec<_> = symbolic
-        .bridged
-        .paths
-        .iter()
-        .map(|path| path.stop)
-        .collect();
-    assert_eq!(
-        stops,
-        by_profile(
-            vec![PathStop::SolverUnknown],
-            vec![PathStop::SolverUnknown, PathStop::SolverUnknown]
-        )
-    );
-    for path in &symbolic.bridged.paths {
-        assert!(path.events.is_empty(), "{path:?}");
-        if PROFILE == SolverProfile::Z3 {
-            assert!(!matches!(path.path_predicate, Pattern::Top { .. }));
-        }
-    }
-    let failure = PathStop::SolverUnknown;
-    let plan = wl_after(&vocabulary);
-    for evaluation in [decided(&mut symbolic, &plan), outcome(&symbolic, &plan)] {
-        assert_eq!(
-            evaluation.outcome,
-            PatternOutcome::Unknown,
-            "{evaluation:?}"
-        );
-        assert_eq!(evaluation.failure, Some(failure));
-    }
-}
-
-/// Audit (SYM-3A-09): the solver-free `Sat` for witness assumptions needs the path predicate
-/// to be exactly `\top`. `pin` pins `X = z` and `Y = s(z)` after the write/load events, so
-/// `X = Y` is infeasible with the leaf predicate; k-rust keeps both equations in the leaf
-/// predicate rather than substituting them away, so the leaf is `SolverUnknown` and the result
-/// stays `unknown`. Instances with an undefined `pin` result have a separate `Trivial` leaf.
-#[test]
-fn ensures_constraint_keeps_a_later_witness_unknown() {
-    let program = seq(
-        write(addr(nat("X")), nat("V")),
-        seq(
-            load(addr(nat("Y")), nat("W")),
-            support::app("Lblpin", vec![nat("X"), nat("Y"), halt()]),
-        ),
-    );
-    let (mut run, vocabulary) = run(Fixture::Ensures, program, BUDGET);
-    assert_eq!(run.execution.leaves()[0].halt, HaltClass::Trivial);
-    let path = run.bridged.paths.last().expect("successor path");
-    assert_eq!(path.stop, PathStop::SolverUnknown);
-    assert!(!matches!(path.path_predicate, Pattern::Top { .. }));
-    let evaluation = decided(&mut run, &wl_after(&vocabulary));
-    assert_eq!(
-        (evaluation.outcome, evaluation.failure),
-        (PatternOutcome::Unknown, Some(PathStop::SolverUnknown))
-    );
 }
 
 /// `symbottom.k`: write and load at address 1, then `stop(1)`, whose only rewrite `ensures`
@@ -1607,79 +1146,6 @@ fn leaf_rows(run: &Run) -> Vec<(HaltClass, LeafFeasibility, PathStop)> {
         .zip(&run.report_bridged.paths)
         .map(|(leaf, path)| (leaf.halt, leaf.feasibility, path.stop))
         .collect()
-}
-
-/// SYM-3B-02, README 3.1: `stop(1)`'s only rewrite is undefined, so k-rust reports the state
-/// `stop(1)` itself as a `Trivial` leaf after the write and load. KK-66: a ground run of this
-/// program performs the write and the load and then has no defined step, so the leaf is a
-/// complete `UndefinedStep` path in both profiles. Its events are real and witness the match; the
-/// undefined step emits no event.
-#[test]
-fn ground_undefined_step_prefix_witnesses_a_match() {
-    let (mut run, vocabulary) = run(Fixture::Bottom, trivial_program(), BUDGET);
-    let [leaf] = run.execution.leaves() else {
-        panic!("one leaf")
-    };
-    assert_eq!((leaf.halt, leaf.branch.depth), (HaltClass::Trivial, 2));
-    let [path] = run.bridged.paths.as_slice() else {
-        panic!("one path")
-    };
-    assert_eq!(path.stop, PathStop::UndefinedStep);
-    assert!(path.complete);
-    let terminal = path.execution_terminal.as_ref().expect("terminal");
-    assert_eq!(terminal.kind, ExecutionTerminalKind::UndefinedStep);
-    assert!(terminal.state.free_variables().is_empty());
-    assert_eq!(path.events.len(), 2);
-    let plan = gwl_after(&vocabulary);
-    let plain = outcome(&run, &plan);
-    for evaluation in [plain, decided(&mut run, &plan)] {
-        assert_eq!(
-            (evaluation.outcome, evaluation.failure),
-            (PatternOutcome::Match, None)
-        );
-        assert!(evaluation.complete_coverage);
-        let [witness] = evaluation.witnesses.as_slice() else {
-            panic!("one witness")
-        };
-        assert_eq!(witness.stop_reason, PathStop::UndefinedStep);
-        assert_eq!(witness.bindings[0].term, support::int(1));
-    }
-}
-
-/// SYM-3B-02, README 3.1: an initial state whose path condition is `\bottom` has no instance.
-/// k-rust reports one `Vacuous` leaf at depth 0; the bridge discards it in both profiles, the
-/// collection is an empty clean exhaustion, the result is `no-match` with complete coverage,
-/// and the report lists the leaf under `discarded`.
-#[test]
-fn vacuous_initial_state_is_a_discarded_path() {
-    let (mut run, vocabulary) = run_state(Fixture::Bottom, vacuous_state(), BUDGET);
-    let [leaf] = run.execution.leaves() else {
-        panic!("one leaf")
-    };
-    assert_eq!((leaf.halt, leaf.branch.depth), (HaltClass::Vacuous, 0));
-    assert!(run.bridged.paths.is_empty());
-    assert_eq!(run.bridged.collection.stop, CollectionStop::SearchExhausted);
-    assert!(run.bridged.collection.empty_search_decision.is_some());
-    let plan = gwl_after(&vocabulary);
-    let evaluation = assert_both(&mut run, &plan, PatternOutcome::NoMatch, None);
-    assert!(evaluation.complete_coverage);
-    let report = step3_report(ReportInput {
-        profile: PROFILE,
-        test_id: "vacuous",
-        budget: &BUDGET,
-        backend_options: BACKEND_OPTIONS,
-        result: ReportResult::Ok {
-            execution: &run.execution,
-            bridged: &run.report_bridged,
-            evaluation: &evaluation,
-        },
-    });
-    assert_eq!(report["outcome"], "no-match");
-    assert_eq!(report["paths"], serde_json::json!([]));
-    assert_eq!(
-        report["discarded"],
-        serde_json::json!([{ "key": "leaf:0", "halt": "vacuous", "reason": "vacuous" }])
-    );
 }
 
 /// `apart` emits a `Trivial` leaf under `X = Y` before its stuck successor under `X =/=Int Y`
@@ -1788,71 +1254,6 @@ fn apart_undefined_step_is_complete_evidence() {
     }
 }
 
-/// An undefined step commits no transition, so its rule appears in no event; k-rust names it on
-/// the `Trivial` leaf instead (`ExecutionLeaf::rule_id`/`rule_label`). The adapter keeps it and the
-/// report states it as the path's `undefined_rule`: the `stop` rule for the ground `stop(1)`,
-/// whose `ensures` is refuted, and the `apart` rule for `apart(X, Y)` under `X = Y`, whose
-/// `ensures` is carried. The id is the one the rule catalog gives the rule. The rule is named
-/// whether or not the leaf is shown feasible, and every other path's `undefined_rule` is null.
-#[test]
-fn undefined_step_names_its_rule_in_the_report() {
-    for (id, program, label) in [
-        ("ground-stop", trivial_program(), "SYMBOTTOM.stop"),
-        ("symbolic-apart", apart_program(), "SYMBOTTOM.apart"),
-    ] {
-        let (mut run, vocabulary) = run(Fixture::Bottom, program, BUDGET);
-        let catalog_id = run
-            .backend
-            .rule_catalog(Some(Fixture::Bottom.module()))
-            .expect("rule catalog")
-            .into_iter()
-            .find(|rule| rule.label.as_deref() == Some(label))
-            .unwrap_or_else(|| panic!("{id}: {label} is in the catalog"))
-            .id;
-        let named = |leaf: &AdaptedLeaf| {
-            leaf.undefined_rule
-                .as_ref()
-                .map(|rule| (rule.id.clone(), rule.label.clone()))
-        };
-        let leaves = run.execution.leaves().to_vec();
-        assert_eq!(leaves[0].halt, HaltClass::Trivial, "{id}");
-        assert_eq!(
-            named(&leaves[0]),
-            Some((catalog_id.clone(), Some(label.to_owned()))),
-            "{id}"
-        );
-        assert!(
-            leaves[1..].iter().all(|leaf| leaf.undefined_rule.is_none()),
-            "{id}"
-        );
-        let evaluation = decided(&mut run, &gwl_after(&vocabulary));
-        let report = step3_report(ReportInput {
-            profile: PROFILE,
-            test_id: id,
-            budget: &BUDGET,
-            backend_options: BACKEND_OPTIONS,
-            result: ReportResult::Ok {
-                execution: &run.execution,
-                bridged: &run.report_bridged,
-                evaluation: &evaluation,
-            },
-        });
-        let paths = report["paths"].as_array().expect("paths");
-        assert_eq!(paths.len(), leaves.len(), "{id}");
-        assert_eq!(
-            paths[0]["undefined_rule"],
-            serde_json::json!({ "id": catalog_id, "label": label }),
-            "{id}"
-        );
-        assert!(
-            paths[1..]
-                .iter()
-                .all(|path| path["undefined_rule"].is_null()),
-            "{id}"
-        );
-    }
-}
-
 /// `window(I)` at the root: undefined for `I >Int 5` and `I >=Int 10`, `halt` for `5 < I < 10`,
 /// stuck for `I <=Int 5`. The undefined sub-case has no committed transition, so its path receives a canonical leaf key. With Z3 all three leaves are feasible and complete, so an absent pattern is
 /// `no-match`; without Z3 the `requires` is undecided and the result is `unknown`.
@@ -1914,51 +1315,6 @@ fn root_undefined_step_completes_an_absence() {
             (PatternOutcome::NoMatch, None)
         )
     );
-}
-
-/// A guarded `/Int` result has no undefined-step leaf under Z3. Zero-denominator instances
-/// stay in the rule remainder, while the defined instances reach `done`.
-#[test]
-fn guarded_division_covers_disjoint_and_shared_addresses() {
-    use HaltClass::{Indeterminate, Stuck};
-    use LeafFeasibility::{Solver, Syntactic};
-    let program = |write_at, load_at| {
-        seq(
-            write(addr(support::int(write_at)), integer("V")),
-            seq(
-                load(addr(support::int(load_at)), integer("W")),
-                support::app("Lbldivide", vec![support::int(10), integer("D")]),
-            ),
-        )
-    };
-    for (write_at, load_at, z3_outcome) in [
-        (1, 2, PatternOutcome::NoMatch),
-        (1, 1, PatternOutcome::Match),
-    ] {
-        let (mut run, vocabulary) = run(Fixture::Division, program(write_at, load_at), BUDGET);
-        assert_eq!(
-            leaf_rows(&run),
-            by_profile(
-                vec![(Indeterminate, Syntactic, PathStop::SolverUnknown)],
-                vec![(Stuck, Solver, PathStop::Terminal); 2],
-            )
-        );
-        assert!(
-            run.execution
-                .leaves()
-                .iter()
-                .all(|leaf| leaf.halt != HaltClass::Trivial)
-        );
-        let evaluation = decided(&mut run, &gwl_after(&vocabulary));
-        assert_eq!(
-            evaluation.outcome,
-            by_profile(PatternOutcome::Unknown, z3_outcome)
-        );
-        assert_eq!(
-            evaluation.failure,
-            by_profile(Some(PathStop::SolverUnknown), None)
-        );
-    }
 }
 
 /// SYM-3B-02, README 3.1: under Z3, guardedmem's `requires` split G1 and G2 into `Stuck`
@@ -2390,9 +1746,9 @@ fn decided_by_both(run: &mut Run, plan: &PatternPlan, paths: &[PathInput]) -> [E
 
 /// SYM-3B-03 differential check (README 4.3): on the free-constructor fragment the Z3 build
 /// returns exactly the no-Z3 answers. Every symmem row of README 6.1 and `symwrap` has one
-/// expected column that both builds assert, and within each build the decider over the build's
-/// solver and the unifier-only decider (`NoSolver`) give identical evaluations over the same
-/// paths, witnesses and assumptions included.
+/// expected column that both builds assert, and in the Z3 build the decider over Z3 and the
+/// unifier-only decider (`NoSolver`) give identical evaluations over the same paths, witnesses
+/// and assumptions included (in the no-Z3 build the build's solver is `NoSolver` itself).
 #[test]
 fn z3_agrees_with_unifier_on_constructor_fragment() {
     use PathStop::{BackendLimit, DepthLimit};
@@ -2566,7 +1922,10 @@ fn z3_agrees_with_unifier_on_constructor_fragment() {
                 (status, assumptions)
             ));
         }
-        if solver != unifier {
+        // Without Z3 the build's solver is `NoSolver`, so the solver-vs-unifier comparison
+        // would compare `NoSolver` with itself: it is a check of the Z3 build only. The
+        // expected column above is checked in both builds.
+        if cfg!(feature = "z3") && solver != unifier {
             failures.push(format!(
                 "{id} ({}): the solver decider gave {solver:?}, the unifier alone {unifier:?}",
                 PROFILE.name()
@@ -2705,65 +2064,6 @@ fn write_op_load(op: Pattern, address: Pattern) -> Pattern {
         write(addr(integer("X")), integer("V")),
         seq(op, seq(load(addr(address), integer("W")), halt())),
     )
-}
-
-/// SYM-3B-05 (README R16): rules whose applicability to a symbolic `Int` depends on its value
-/// without a `requires` do not make a symbolic `Stuck` leaf wrongly complete. With Z3, k-rust
-/// narrows a repeated rule variable (`copy(A, A)` against `copy(X, Y)`), an `Int` literal
-/// (`pin(0)`), a `Bool` literal (`flag(true)`) and a literal with an `owise` fallback
-/// (`pick(0)`): each run has the narrowed path with both events under the equation and a path
-/// under its negation, both complete, and WL-after is a match. Without Z3 the narrowing is an
-/// `Indeterminate` leaf.
-#[test]
-fn value_dependent_rule_patterns_are_narrowed_not_stuck() {
-    use HaltClass::{Indeterminate, Stuck};
-    use LeafFeasibility::{Solver, Syntactic};
-    let pick = |op: &str, argument: Pattern| support::app(op, vec![argument]);
-    let programs = [
-        (
-            "copy",
-            support::app("Lblcopy", vec![integer("X"), integer("Y")]),
-            1,
-        ),
-        ("pin", pick("Lblpin", integer("X")), 1),
-        ("flag", pick("Lblflag", support::var("B", "SortBool")), 1),
-        ("pick", pick("Lblpick", integer("X")), 2),
-    ];
-    for (id, op, negated_depth) in programs {
-        let (mut run, vocabulary) = run(Fixture::Narrow, write_op_load(op, integer("X")), BUDGET);
-        let mut rows = leaf_rows(&run)
-            .into_iter()
-            .zip(run.execution.leaves().iter().map(|leaf| leaf.branch.depth))
-            .collect::<Vec<_>>();
-        rows.sort_by_key(|(_, depth)| *depth);
-        let expected = by_profile(
-            vec![((Indeterminate, Syntactic, PathStop::SolverUnknown), 1)],
-            // The narrowed path has both events (depth 3); the negated one stops at the op
-            // (depth 1), or, for `pick`, takes the `owise` rule to `halt` (depth 2).
-            vec![
-                ((Stuck, Solver, PathStop::Terminal), negated_depth),
-                ((Stuck, Solver, PathStop::Terminal), 3),
-            ],
-        );
-        assert_eq!(rows, expected, "{id}");
-        if PROFILE == SolverProfile::Z3 {
-            assert!(
-                run.bridged
-                    .paths
-                    .iter()
-                    .all(|path| !matches!(path.path_predicate, Pattern::Top { .. })),
-                "{id}: both paths carry the narrowing condition or its negation"
-            );
-        }
-        assert_eq!(
-            decided_outcome(&mut run, &gwl_after(&vocabulary)),
-            by_profile(
-                (PatternOutcome::Unknown, Some(PathStop::SolverUnknown)),
-                (PatternOutcome::Match, None)
-            ),
-            "{id}"
-        );
-    }
 }
 
 /// A `Stuck` halt holds for every instance of its state in both profiles (k-rust KK-54/KK-55),
@@ -2991,4 +2291,857 @@ fn let_bound_partial_condition_keeps_its_definedness() {
     };
     assert_eq!((path.events.len(), path.stop), (1, PathStop::Terminal));
     assert_both(&mut ground, &plan, PatternOutcome::NoMatch, None);
+}
+
+mod kink_tier {
+    use super::*;
+
+    /// Repeated runs of the report rows that do not branch emit identical reports (the
+    /// branching rows are `repeated_symbolic_runs_emit_identical_reports`).
+    #[test]
+    #[ignore = "kink"]
+    fn repeated_symbolic_runs_of_the_other_rows_emit_identical_reports() {
+        assert_repeated_runs_emit_identical_reports(false);
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn symmem_step_payloads_are_subject_terms() {
+        let (run, _) = run(Fixture::Sym, p1(), BUDGET);
+        assert_eq!(run.bridged.collection.stop, CollectionStop::SearchExhausted);
+        let [path] = run.bridged.paths.as_slice() else {
+            panic!("one path")
+        };
+        assert!(path.complete);
+        assert_eq!(
+            path.execution_terminal.as_ref().expect("terminal").state,
+            support::initial_state(halt(), "SortProg")
+        );
+        assert_eq!(path.events.len(), 2);
+        assert_eq!(path.events[0].constructor, "memoryWrite");
+        assert_eq!(path.events[1].constructor, "memoryLoad");
+        assert_eq!(path.events[0].payload, [addr(nat("X")), nat("V")]);
+        assert_eq!(path.events[1].payload, [addr(nat("X")), nat("W")]);
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn symmem_fork_keeps_siblings_apart() {
+        let (run, _) = run(Fixture::Sym, p4(), BUDGET);
+        assert_eq!(run.bridged.collection.stop, CollectionStop::SearchExhausted);
+        let [left, right] = run.bridged.paths.as_slice() else {
+            panic!("two paths")
+        };
+        assert!(left.complete && right.complete);
+        assert_ne!(left.path_key, right.path_key);
+        let constructors: Vec<_> = run
+            .bridged
+            .paths
+            .iter()
+            .map(|path| {
+                path.events
+                    .iter()
+                    .map(|event| event.constructor.as_str())
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        assert!(constructors.contains(&vec!["memoryWrite"]));
+        assert!(constructors.contains(&vec!["memoryLoad"]));
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn symbolic_write_then_load_matches_consecutive_and_separated() {
+        let (mut first, vocabulary) = run(Fixture::Sym, p1(), BUDGET);
+        for plan in [wl_next(&vocabulary), wl_after(&vocabulary)] {
+            let evaluation = assert_both(&mut first, &plan, PatternOutcome::Match, None);
+            assert_eq!(evaluation.witnesses.len(), 1);
+            assert_eq!(evaluation.witnesses[0].event_indices, [0, 1]);
+            assert_eq!(evaluation.witnesses[0].stop_reason, PathStop::Terminal);
+        }
+
+        let (mut separated, vocabulary) = run(Fixture::Sym, p2(), BUDGET);
+        let evaluation = assert_both(
+            &mut separated,
+            &wl_next(&vocabulary),
+            PatternOutcome::NoMatch,
+            None,
+        );
+        assert!(evaluation.complete_coverage);
+        assert!(evaluation.witnesses.is_empty());
+        let evaluation = assert_both(
+            &mut separated,
+            &wl_after(&vocabulary),
+            PatternOutcome::Match,
+            None,
+        );
+        let path = only_witness_path(&separated, &evaluation);
+        assert_eq!(evaluation.witnesses[0].event_indices, [0, 2]);
+        assert_eq!(evaluation.witnesses[0].stop_reason, PathStop::Terminal);
+        assert_eq!(path.events[1].constructor, "memoryFree");
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn symbolic_reversed_order_does_not_match() {
+        let (mut run, vocabulary) = run(Fixture::Sym, p3(), BUDGET);
+        let evaluation = assert_both(
+            &mut run,
+            &wl_after(&vocabulary),
+            PatternOutcome::NoMatch,
+            None,
+        );
+        assert!(evaluation.complete_coverage);
+        assert!(evaluation.witnesses.is_empty());
+        let [path] = run.bridged.paths.as_slice() else {
+            panic!("one path")
+        };
+        assert_eq!(path.stop, PathStop::Terminal);
+        assert_eq!(path.events[0].constructor, "memoryLoad");
+        assert_eq!(path.events[1].constructor, "memoryWrite");
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn sibling_write_and_load_never_form_a_witness() {
+        let (mut run, vocabulary) = run(Fixture::Sym, p4(), BUDGET);
+        let evaluation = assert_both(
+            &mut run,
+            &wl_after(&vocabulary),
+            PatternOutcome::NoMatch,
+            None,
+        );
+        assert!(evaluation.complete_coverage);
+        assert!(evaluation.witnesses.is_empty());
+        assert_eq!(run.bridged.paths.len(), 2);
+        assert!(run.bridged.paths.iter().all(|path| path.complete
+            && path.stop == PathStop::Terminal
+            && path.events.len() == 1));
+        assert_ne!(run.bridged.paths[0].path_key, run.bridged.paths[1].path_key);
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn witness_stays_on_its_own_sibling() {
+        let (mut run, vocabulary) = run(Fixture::Sym, p5(), BUDGET);
+        let evaluation = assert_both(
+            &mut run,
+            &wl_after(&vocabulary),
+            PatternOutcome::Match,
+            None,
+        );
+        let path = only_witness_path(&run, &evaluation);
+        assert_eq!(evaluation.witnesses[0].event_indices, [0, 1]);
+        assert_eq!(
+            path.events
+                .iter()
+                .map(|event| event.constructor.as_str())
+                .collect::<Vec<_>>(),
+            ["memoryWrite", "memoryLoad"]
+        );
+        assert_eq!(path.stop, PathStop::Terminal);
+        assert_eq!(run.bridged.paths.len(), 2);
+        let other = run
+            .bridged
+            .paths
+            .iter()
+            .find(|other| other.path_key != path.path_key)
+            .expect("other sibling");
+        assert_eq!(other.stop, PathStop::Terminal);
+        assert_eq!(other.events.len(), 1);
+        assert_eq!(other.events[0].constructor, "memoryLoad");
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn shared_symbolic_address_binds_one_term() {
+        let (mut run, vocabulary) = run(Fixture::Sym, p1(), BUDGET);
+        let evaluation = assert_both(
+            &mut run,
+            &wl_after(&vocabulary),
+            PatternOutcome::Match,
+            None,
+        );
+        let path = only_witness_path(&run, &evaluation);
+        let witness = &evaluation.witnesses[0];
+        assert_eq!(witness.bindings.len(), 1);
+        assert_eq!(witness.bindings[0].name, "A");
+        assert_eq!(witness.bindings[0].term, addr(nat("X")));
+        assert!(witness.assumptions.is_empty());
+        assert_eq!(
+            witness.path_predicate,
+            Pattern::Top {
+                sort: kore_sort("SortGeneratedTopCell")
+            }
+        );
+        assert_eq!(path.stop, PathStop::Terminal);
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn distinct_symbolic_addresses_match_under_unifier_assumption() {
+        let (mut run, vocabulary) = run(Fixture::Sym, p6(), BUDGET);
+        let plan = wl_after(&vocabulary);
+        let plain = outcome(&run, &plan);
+        assert_eq!(
+            (plain.outcome, plain.failure),
+            (PatternOutcome::Unknown, Some(PathStop::SolverUnknown))
+        );
+        let evaluation = decided(&mut run, &plan);
+        // Both profiles (SYM-3B-03): the binding `X = Y` is eliminated on the `\top` path, so the
+        // relation query is empty and `Sat` needs no solver.
+        assert_eq!(
+            (evaluation.outcome, evaluation.failure),
+            (PatternOutcome::Match, None)
+        );
+        assert_witness_paths(&run, &evaluation);
+        let path = only_witness_path(&run, &evaluation);
+        let witness = &evaluation.witnesses[0];
+        assert_eq!(witness.event_indices, [0, 1]);
+        assert_eq!(witness.bindings.len(), 1);
+        assert_eq!(witness.bindings[0].name, "A");
+        assert_eq!(witness.bindings[0].term, addr(nat("X")));
+        assert_eq!(
+            witness.assumptions,
+            [TermRelation {
+                left: nat("X"),
+                right: nat("Y")
+            }]
+        );
+        assert_eq!(
+            witness.path_predicate,
+            Pattern::Top {
+                sort: kore_sort("SortGeneratedTopCell")
+            }
+        );
+        assert_eq!(path.stop, PathStop::Terminal);
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn clashing_symbolic_addresses_do_not_match() {
+        let (mut run, vocabulary) = run(Fixture::Sym, p7(), BUDGET);
+        let plan = wl_after(&vocabulary);
+        let plain = outcome(&run, &plan);
+        assert_eq!(
+            (plain.outcome, plain.failure),
+            (PatternOutcome::Unknown, Some(PathStop::SolverUnknown))
+        );
+        let evaluation = decided(&mut run, &plan);
+        assert_eq!(
+            (evaluation.outcome, evaluation.failure),
+            (PatternOutcome::NoMatch, None)
+        );
+        assert!(evaluation.complete_coverage);
+        assert!(evaluation.witnesses.is_empty());
+        let [path] = run.bridged.paths.as_slice() else {
+            panic!("one path")
+        };
+        assert_eq!(path.stop, PathStop::Terminal);
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn symbolic_depth_bound_absence_is_unknown_depth_limit() {
+        let (mut run, vocabulary) = run(
+            Fixture::Sym,
+            p8(),
+            ExecutionBudget {
+                max_depth: Some(1),
+                ..BUDGET
+            },
+        );
+        let [leaf] = run.execution.leaves() else {
+            panic!("one leaf")
+        };
+        assert_eq!(
+            (leaf.halt, leaf.feasibility),
+            (HaltClass::DepthBound, LeafFeasibility::Syntactic)
+        );
+        let evaluation = assert_both(
+            &mut run,
+            &wl_after(&vocabulary),
+            PatternOutcome::Unknown,
+            Some(PathStop::DepthLimit),
+        );
+        assert!(evaluation.witnesses.is_empty());
+        assert_eq!(run.bridged.paths[0].stop, PathStop::DepthLimit);
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn depth_cut_prefix_still_witnesses() {
+        let (mut run, vocabulary) = run(
+            Fixture::Sym,
+            p8(),
+            ExecutionBudget {
+                max_depth: Some(1),
+                ..BUDGET
+            },
+        );
+        let evaluation = assert_both(&mut run, &w_only(&vocabulary), PatternOutcome::Match, None);
+        let path = only_witness_path(&run, &evaluation);
+        assert_eq!(evaluation.witnesses[0].event_indices, [0]);
+        assert_eq!(evaluation.witnesses[0].stop_reason, PathStop::DepthLimit);
+        assert_eq!(path.stop, PathStop::DepthLimit);
+        assert!(!path.complete);
+    }
+
+    /// README 6.4 merges the two identical bounded prefixes into one step-bridged path;
+    /// both raw leaves remain BreadthBound with Syntactic feasibility.
+    #[test]
+    #[ignore = "kink"]
+    fn breadth_bound_absence_is_unknown_branch_limit() {
+        let (mut run, vocabulary) = run(
+            Fixture::Sym,
+            p9(),
+            ExecutionBudget {
+                max_breadth: Some(NonZeroUsize::new(1).expect("nonzero")),
+                ..BUDGET
+            },
+        );
+        assert_eq!(run.execution.leaves().len(), 2);
+        assert!(
+            run.execution
+                .leaves()
+                .iter()
+                .all(|leaf| (leaf.halt, leaf.feasibility)
+                    == (HaltClass::BreadthBound, LeafFeasibility::Syntactic))
+        );
+        // Re-pin R0b deliverable 4 (finding A-11): a breadth-bound leaf's path stops at
+        // `BackendLimit`, which vouches for no real prefix (was `BranchLimit`); still Unknown.
+        let evaluation = assert_both(
+            &mut run,
+            &wl_after(&vocabulary),
+            PatternOutcome::Unknown,
+            Some(PathStop::BackendLimit),
+        );
+        assert!(evaluation.witnesses.is_empty());
+        assert_eq!(run.bridged.paths.len(), 1);
+        assert!(
+            run.bridged
+                .paths
+                .iter()
+                .all(|path| path.stop == PathStop::BackendLimit
+                    && !path.complete
+                    && path.events.is_empty())
+        );
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn report_is_stable_across_backend_reuse() {
+        let row = report_rows()
+            .into_iter()
+            .find(|row| row.id == "P5-WL-after")
+            .expect("branching report row");
+        let side = cache::validator(row.fixture.name())
+            .compile_baseline()
+            .expect("fixture compiles");
+        let fresh = fresh_report(row, &side);
+        let mut backend = backend(&side.artifacts().definition_kore, row.fixture.module());
+        let first = report_on_backend(row, &side, &mut backend);
+        let second = report_on_backend(row, &side, &mut backend);
+        assert_identical_reports(row, &fresh, &first);
+        assert_identical_reports(row, &first, &second);
+    }
+
+    /// Audit (SYM-3A-09): an `anywhere` equation makes `wrap` non-injective. k-rust 347f693e's
+    /// kompile still marked it `injective` and its unifier decomposed it; since k-rust KK-51..KK-53
+    /// the attribute is withheld and the unifier keeps `wrap(s(X)) = wrap(z)` as an equation,
+    /// because an equation can rewrite an instance of `wrap(s(X))`. `wrap(s(X))` against `wrap(z)`
+    /// is equal for `X = z`, so the backend decider must not call them unequal, and the write/load
+    /// pair must not be `no-match`.
+    #[test]
+    #[ignore = "kink"]
+    fn non_free_injective_symbol_does_not_prove_a_clash() {
+        let program = |address: Pattern| {
+            seq(
+                write(wrap(address), nat("V")),
+                seq(load(wrap(z()), nat("W")), halt()),
+            )
+        };
+        // Re-pin R0a (findings C-15, E-14; k-rust KINK-11 8113ed089, e4766a728, ffd80eb64): at
+        // 927b9ce6 withheld value-production definedness left the ground instance Unknown in both
+        // profiles (precision loss, VI-03F, k-rust 4d80cea6). At 501f18b9 `ceil(wrap(z))` is known,
+        // so the run is decided: `collapse` rewrites `wrap(s(z))` to `wrap(z)`, the write and the
+        // load carry syntactically equal addresses, and the run ends Stuck. The outcome is Match
+        // through those equal payloads, with no relation assumption (never NoMatch, never an
+        // Unequal relation decision). Same in both profiles (decision 3: k-rust executes the
+        // definition correctly).
+        let (mut ground, vocabulary) = run(Fixture::Wrap, program(s(z())), BUDGET);
+        let plan = wl_after(&vocabulary);
+        let evaluation = decided(&mut ground, &plan);
+        assert_eq!(evaluation.outcome, PatternOutcome::Match);
+        assert!(!evaluation.witnesses.is_empty());
+        assert!(
+            evaluation
+                .witnesses
+                .iter()
+                .all(|witness| witness.assumptions.is_empty())
+        );
+        assert_eq!(
+            ground
+                .execution
+                .leaves()
+                .iter()
+                .map(|leaf| (leaf.halt, leaf.branch.depth))
+                .collect::<Vec<_>>(),
+            [(HaltClass::Stuck, 2)]
+        );
+        let [path] = ground.bridged.paths.as_slice() else {
+            panic!("one ground path")
+        };
+        assert!(path.complete);
+        let addresses = path
+            .events
+            .iter()
+            .map(|event| (event.constructor.as_str(), event.payload[0].clone()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            addresses,
+            [("memoryWrite", wrap(z())), ("memoryLoad", wrap(z()))]
+        );
+        let relation = ground
+            .backend
+            .with_solver(None, |definition, solver| {
+                let decider = BackendRelations::shared(
+                    definition,
+                    solver,
+                    TestInitialState::of_test(&ground.state),
+                );
+                Ok::<_, k_rust::backend::BackendError>(decider.relate(
+                    path,
+                    &[],
+                    &wrap(s(z())),
+                    &wrap(z()),
+                ))
+            })
+            .expect("decider");
+        // Re-pin R0c (R0a review 1 minor): the exact relation, measured the same in both profiles:
+        // the unifier keeps `wrap(s(z)) = wrap(z)` as an equation it cannot decide (`wrap` is not
+        // free), so the relation is Indeterminate, never Unequal.
+        assert_eq!(relation, RelationDecision::Indeterminate);
+        let (mut symbolic, vocabulary) = run(Fixture::Wrap, program(s(nat("X"))), BUDGET);
+        let plan = wl_after(&vocabulary);
+        // At 927b9ce6 (precision loss, VI-03F, k-rust 4d80cea6) the symbolic run split on wrap
+        // definedness under Z3 (two SolverUnknown leaves, `not defined` and `defined` with both
+        // events) and stopped before any event without Z3 (one SolverUnknown leaf).
+        // Re-pin R0a (findings E-14, E-15; k-rust KINK-10): at 501f18b9 each profile has one leaf
+        // carrying an `UndefinedInitialInstances` diagnostic (`\ceil(wrap(s(X)))`), so its path is
+        // BackendLimit, still incomplete: without Z3 an Indeterminate leaf before any event, with
+        // Z3 a Stuck leaf under the predicate `\ceil(wrap(s(X)))` after both events.
+        let paths = &symbolic.bridged.paths;
+        let [path] = paths.as_slice() else {
+            panic!("one symbolic path: {paths:?}")
+        };
+        assert_eq!(
+            symbolic.bridged.collection.stop,
+            CollectionStop::BackendLimit
+        );
+        assert_eq!(path.path_key, Some("leaf:0".to_owned()));
+        assert!(!path.complete, "{path:?}");
+        assert_eq!(path.stop, PathStop::BackendLimit);
+        assert_eq!(
+            path.execution_stop,
+            kink_pattern::ExecutionStop::BackendLimit
+        );
+        assert!(path.execution_terminal.is_none());
+        assert!(
+            symbolic.execution.leaves()[0]
+                .diagnostics
+                .iter()
+                .any(|diagnostic| matches!(
+                    diagnostic,
+                    k_rust::backend::BackendDiagnosticOutput::UndefinedInitialInstances { .. }
+                ))
+        );
+        if cfg!(feature = "z3") {
+            assert_eq!(symbolic.execution.leaves()[0].halt, HaltClass::Stuck);
+            assert_eq!(
+                path.path_predicate,
+                Pattern::Ceil {
+                    operand_sort: Box::new(kore_sort("SortAddress")),
+                    result_sort: kore_sort("SortGeneratedTopCell"),
+                    argument: Box::new(wrap(s(nat("X")))),
+                }
+            );
+            assert_eq!(path.events.len(), 2);
+            assert_eq!(path.events[0].constructor, "memoryWrite");
+            assert_eq!(path.events[1].constructor, "memoryLoad");
+            assert_eq!(path.events[0].payload, vec![wrap(s(nat("X"))), nat("V")]);
+            assert_eq!(path.events[1].payload, vec![wrap(z()), nat("W")]);
+            assert!(
+                path.events
+                    .iter()
+                    .all(|event| event.presence == kink_pattern::EventPresence::Certain)
+            );
+        } else {
+            assert_eq!(
+                symbolic.execution.leaves()[0].halt,
+                HaltClass::Indeterminate
+            );
+            assert!(path.events.is_empty());
+            assert_eq!(
+                path.path_predicate,
+                Pattern::Top {
+                    sort: kore_sort("SortGeneratedTopCell"),
+                }
+            );
+        }
+        // A clash below the free `addr` constructor (P7) is still proved.
+        let (mut free, free_vocabulary) = run(Fixture::Sym, p7(), BUDGET);
+        assert_eq!(
+            decided(&mut free, &wl_after(&free_vocabulary)).outcome,
+            PatternOutcome::NoMatch
+        );
+        let evaluation = decided(&mut symbolic, &plan);
+        assert_eq!(
+            evaluation.outcome,
+            PatternOutcome::Unknown,
+            "{evaluation:?}"
+        );
+        assert!(evaluation.witnesses.is_empty());
+        assert_eq!(outcome(&symbolic, &plan).outcome, PatternOutcome::Unknown);
+    }
+
+    /// Audit (SYM-3A-09): leaf feasibility and the solver-free `Sat` assume every valuation of the
+    /// initial variables follows a clean no-Z3 path. `other` is `owise` below rules that cover
+    /// every `Nat`, so no value reaches the write/load events behind it; a symbolic subject must
+    /// not take `other` as if the higher-priority rules were refuted.
+    #[test]
+    #[ignore = "kink"]
+    fn owise_rule_is_not_taken_for_a_symbolic_subject() {
+        let program = |selector: Pattern| {
+            support::app(
+                "Lblpick",
+                vec![
+                    selector,
+                    seq(
+                        write(addr(z()), nat("V")),
+                        seq(load(addr(z()), nat("W")), halt()),
+                    ),
+                ],
+            )
+        };
+        for ground in [z(), s(z())] {
+            let (mut run, vocabulary) = run(Fixture::Owise, program(ground), BUDGET);
+            assert_eq!(
+                decided(&mut run, &wl_after(&vocabulary)).outcome,
+                PatternOutcome::NoMatch
+            );
+        }
+        let (mut symbolic, vocabulary) = run(Fixture::Owise, program(nat("X")), BUDGET);
+        // No-Z3: matching `z` or `s(_)` against `X` needs a narrowing condition, which `NoSolver`
+        // cannot accept, so the priority group is undecided and the one leaf is `Indeterminate`.
+        // Z3: narrowing is accepted; `zero` and `succ` each give a `Stuck` leaf on the ground
+        // `halt` whose predicate keeps its narrowing condition (`X = z`, `X = s(_)`), and `other`
+        // is not taken (k-rust refutes its remainder by the finite constructors of `Nat`). The
+        // predicates are over `Nat`, which Z3 abstracts, so no exact `Sat` shows the leaves
+        // feasible and they stay `SolverUnknown` (SYM-3B-02).
+        let stops: Vec<_> = symbolic
+            .bridged
+            .paths
+            .iter()
+            .map(|path| path.stop)
+            .collect();
+        assert_eq!(
+            stops,
+            by_profile(
+                vec![PathStop::SolverUnknown],
+                vec![PathStop::SolverUnknown, PathStop::SolverUnknown]
+            )
+        );
+        for path in &symbolic.bridged.paths {
+            assert!(path.events.is_empty(), "{path:?}");
+            if PROFILE == SolverProfile::Z3 {
+                assert!(!matches!(path.path_predicate, Pattern::Top { .. }));
+            }
+        }
+        let failure = PathStop::SolverUnknown;
+        let plan = wl_after(&vocabulary);
+        for evaluation in [decided(&mut symbolic, &plan), outcome(&symbolic, &plan)] {
+            assert_eq!(
+                evaluation.outcome,
+                PatternOutcome::Unknown,
+                "{evaluation:?}"
+            );
+            assert_eq!(evaluation.failure, Some(failure));
+        }
+    }
+
+    /// Audit (SYM-3A-09): the solver-free `Sat` for witness assumptions needs the path predicate
+    /// to be exactly `\top`. `pin` pins `X = z` and `Y = s(z)` after the write/load events, so
+    /// `X = Y` is infeasible with the leaf predicate; k-rust keeps both equations in the leaf
+    /// predicate rather than substituting them away, so the leaf is `SolverUnknown` and the result
+    /// stays `unknown`. Instances with an undefined `pin` result have a separate `Trivial` leaf.
+    #[test]
+    #[ignore = "kink"]
+    fn ensures_constraint_keeps_a_later_witness_unknown() {
+        let program = seq(
+            write(addr(nat("X")), nat("V")),
+            seq(
+                load(addr(nat("Y")), nat("W")),
+                support::app("Lblpin", vec![nat("X"), nat("Y"), halt()]),
+            ),
+        );
+        let (mut run, vocabulary) = run(Fixture::Ensures, program, BUDGET);
+        assert_eq!(run.execution.leaves()[0].halt, HaltClass::Trivial);
+        let path = run.bridged.paths.last().expect("successor path");
+        assert_eq!(path.stop, PathStop::SolverUnknown);
+        assert!(!matches!(path.path_predicate, Pattern::Top { .. }));
+        let evaluation = decided(&mut run, &wl_after(&vocabulary));
+        assert_eq!(
+            (evaluation.outcome, evaluation.failure),
+            (PatternOutcome::Unknown, Some(PathStop::SolverUnknown))
+        );
+    }
+
+    /// SYM-3B-02, README 3.1: `stop(1)`'s only rewrite is undefined, so k-rust reports the state
+    /// `stop(1)` itself as a `Trivial` leaf after the write and load. KK-66: a ground run of this
+    /// program performs the write and the load and then has no defined step, so the leaf is a
+    /// complete `UndefinedStep` path in both profiles. Its events are real and witness the match; the
+    /// undefined step emits no event.
+    #[test]
+    #[ignore = "kink"]
+    fn ground_undefined_step_prefix_witnesses_a_match() {
+        let (mut run, vocabulary) = run(Fixture::Bottom, trivial_program(), BUDGET);
+        let [leaf] = run.execution.leaves() else {
+            panic!("one leaf")
+        };
+        assert_eq!((leaf.halt, leaf.branch.depth), (HaltClass::Trivial, 2));
+        let [path] = run.bridged.paths.as_slice() else {
+            panic!("one path")
+        };
+        assert_eq!(path.stop, PathStop::UndefinedStep);
+        assert!(path.complete);
+        let terminal = path.execution_terminal.as_ref().expect("terminal");
+        assert_eq!(terminal.kind, ExecutionTerminalKind::UndefinedStep);
+        assert!(terminal.state.free_variables().is_empty());
+        assert_eq!(path.events.len(), 2);
+        let plan = gwl_after(&vocabulary);
+        let plain = outcome(&run, &plan);
+        for evaluation in [plain, decided(&mut run, &plan)] {
+            assert_eq!(
+                (evaluation.outcome, evaluation.failure),
+                (PatternOutcome::Match, None)
+            );
+            assert!(evaluation.complete_coverage);
+            let [witness] = evaluation.witnesses.as_slice() else {
+                panic!("one witness")
+            };
+            assert_eq!(witness.stop_reason, PathStop::UndefinedStep);
+            assert_eq!(witness.bindings[0].term, support::int(1));
+        }
+    }
+
+    /// SYM-3B-02, README 3.1: an initial state whose path condition is `\bottom` has no instance.
+    /// k-rust reports one `Vacuous` leaf at depth 0; the bridge discards it in both profiles, the
+    /// collection is an empty clean exhaustion, the result is `no-match` with complete coverage,
+    /// and the report lists the leaf under `discarded`.
+    #[test]
+    #[ignore = "kink"]
+    fn vacuous_initial_state_is_a_discarded_path() {
+        let (mut run, vocabulary) = run_state(Fixture::Bottom, vacuous_state(), BUDGET);
+        let [leaf] = run.execution.leaves() else {
+            panic!("one leaf")
+        };
+        assert_eq!((leaf.halt, leaf.branch.depth), (HaltClass::Vacuous, 0));
+        assert!(run.bridged.paths.is_empty());
+        assert_eq!(run.bridged.collection.stop, CollectionStop::SearchExhausted);
+        assert!(run.bridged.collection.empty_search_decision.is_some());
+        let plan = gwl_after(&vocabulary);
+        let evaluation = assert_both(&mut run, &plan, PatternOutcome::NoMatch, None);
+        assert!(evaluation.complete_coverage);
+        let report = step3_report(ReportInput {
+            profile: PROFILE,
+            test_id: "vacuous",
+            budget: &BUDGET,
+            backend_options: BACKEND_OPTIONS,
+            result: ReportResult::Ok {
+                execution: &run.execution,
+                bridged: &run.report_bridged,
+                evaluation: &evaluation,
+            },
+        });
+        assert_eq!(report["outcome"], "no-match");
+        assert_eq!(report["paths"], serde_json::json!([]));
+        assert_eq!(
+            report["discarded"],
+            serde_json::json!([{ "key": "leaf:0", "halt": "vacuous", "reason": "vacuous" }])
+        );
+    }
+
+    /// An undefined step commits no transition, so its rule appears in no event; k-rust names it on
+    /// the `Trivial` leaf instead (`ExecutionLeaf::rule_id`/`rule_label`). The adapter keeps it and the
+    /// report states it as the path's `undefined_rule`: the `stop` rule for the ground `stop(1)`,
+    /// whose `ensures` is refuted, and the `apart` rule for `apart(X, Y)` under `X = Y`, whose
+    /// `ensures` is carried. The id is the one the rule catalog gives the rule. The rule is named
+    /// whether or not the leaf is shown feasible, and every other path's `undefined_rule` is null.
+    #[test]
+    #[ignore = "kink"]
+    fn undefined_step_names_its_rule_in_the_report() {
+        for (id, program, label) in [
+            ("ground-stop", trivial_program(), "SYMBOTTOM.stop"),
+            ("symbolic-apart", apart_program(), "SYMBOTTOM.apart"),
+        ] {
+            let (mut run, vocabulary) = run(Fixture::Bottom, program, BUDGET);
+            let catalog_id = run
+                .backend
+                .rule_catalog(Some(Fixture::Bottom.module()))
+                .expect("rule catalog")
+                .into_iter()
+                .find(|rule| rule.label.as_deref() == Some(label))
+                .unwrap_or_else(|| panic!("{id}: {label} is in the catalog"))
+                .id;
+            let named = |leaf: &AdaptedLeaf| {
+                leaf.undefined_rule
+                    .as_ref()
+                    .map(|rule| (rule.id.clone(), rule.label.clone()))
+            };
+            let leaves = run.execution.leaves().to_vec();
+            assert_eq!(leaves[0].halt, HaltClass::Trivial, "{id}");
+            assert_eq!(
+                named(&leaves[0]),
+                Some((catalog_id.clone(), Some(label.to_owned()))),
+                "{id}"
+            );
+            assert!(
+                leaves[1..].iter().all(|leaf| leaf.undefined_rule.is_none()),
+                "{id}"
+            );
+            let evaluation = decided(&mut run, &gwl_after(&vocabulary));
+            let report = step3_report(ReportInput {
+                profile: PROFILE,
+                test_id: id,
+                budget: &BUDGET,
+                backend_options: BACKEND_OPTIONS,
+                result: ReportResult::Ok {
+                    execution: &run.execution,
+                    bridged: &run.report_bridged,
+                    evaluation: &evaluation,
+                },
+            });
+            let paths = report["paths"].as_array().expect("paths");
+            assert_eq!(paths.len(), leaves.len(), "{id}");
+            assert_eq!(
+                paths[0]["undefined_rule"],
+                serde_json::json!({ "id": catalog_id, "label": label }),
+                "{id}"
+            );
+            assert!(
+                paths[1..]
+                    .iter()
+                    .all(|path| path["undefined_rule"].is_null()),
+                "{id}"
+            );
+        }
+    }
+
+    /// A guarded `/Int` result has no undefined-step leaf under Z3. Zero-denominator instances
+    /// stay in the rule remainder, while the defined instances reach `done`.
+    #[test]
+    #[ignore = "kink"]
+    fn guarded_division_covers_disjoint_and_shared_addresses() {
+        use HaltClass::{Indeterminate, Stuck};
+        use LeafFeasibility::{Solver, Syntactic};
+        let program = |write_at, load_at| {
+            seq(
+                write(addr(support::int(write_at)), integer("V")),
+                seq(
+                    load(addr(support::int(load_at)), integer("W")),
+                    support::app("Lbldivide", vec![support::int(10), integer("D")]),
+                ),
+            )
+        };
+        for (write_at, load_at, z3_outcome) in [
+            (1, 2, PatternOutcome::NoMatch),
+            (1, 1, PatternOutcome::Match),
+        ] {
+            let (mut run, vocabulary) = run(Fixture::Division, program(write_at, load_at), BUDGET);
+            assert_eq!(
+                leaf_rows(&run),
+                by_profile(
+                    vec![(Indeterminate, Syntactic, PathStop::SolverUnknown)],
+                    vec![(Stuck, Solver, PathStop::Terminal); 2],
+                )
+            );
+            assert!(
+                run.execution
+                    .leaves()
+                    .iter()
+                    .all(|leaf| leaf.halt != HaltClass::Trivial)
+            );
+            let evaluation = decided(&mut run, &gwl_after(&vocabulary));
+            assert_eq!(
+                evaluation.outcome,
+                by_profile(PatternOutcome::Unknown, z3_outcome)
+            );
+            assert_eq!(
+                evaluation.failure,
+                by_profile(Some(PathStop::SolverUnknown), None)
+            );
+        }
+    }
+
+    /// SYM-3B-05 (README R16): rules whose applicability to a symbolic `Int` depends on its value
+    /// without a `requires` do not make a symbolic `Stuck` leaf wrongly complete. With Z3, k-rust
+    /// narrows a repeated rule variable (`copy(A, A)` against `copy(X, Y)`), an `Int` literal
+    /// (`pin(0)`), a `Bool` literal (`flag(true)`) and a literal with an `owise` fallback
+    /// (`pick(0)`): each run has the narrowed path with both events under the equation and a path
+    /// under its negation, both complete, and WL-after is a match. Without Z3 the narrowing is an
+    /// `Indeterminate` leaf.
+    #[test]
+    #[ignore = "kink"]
+    fn value_dependent_rule_patterns_are_narrowed_not_stuck() {
+        use HaltClass::{Indeterminate, Stuck};
+        use LeafFeasibility::{Solver, Syntactic};
+        let pick = |op: &str, argument: Pattern| support::app(op, vec![argument]);
+        let programs = [
+            (
+                "copy",
+                support::app("Lblcopy", vec![integer("X"), integer("Y")]),
+                1,
+            ),
+            ("pin", pick("Lblpin", integer("X")), 1),
+            ("flag", pick("Lblflag", support::var("B", "SortBool")), 1),
+            ("pick", pick("Lblpick", integer("X")), 2),
+        ];
+        for (id, op, negated_depth) in programs {
+            let (mut run, vocabulary) =
+                run(Fixture::Narrow, write_op_load(op, integer("X")), BUDGET);
+            let mut rows = leaf_rows(&run)
+                .into_iter()
+                .zip(run.execution.leaves().iter().map(|leaf| leaf.branch.depth))
+                .collect::<Vec<_>>();
+            rows.sort_by_key(|(_, depth)| *depth);
+            let expected = by_profile(
+                vec![((Indeterminate, Syntactic, PathStop::SolverUnknown), 1)],
+                // The narrowed path has both events (depth 3); the negated one stops at the op
+                // (depth 1), or, for `pick`, takes the `owise` rule to `halt` (depth 2).
+                vec![
+                    ((Stuck, Solver, PathStop::Terminal), negated_depth),
+                    ((Stuck, Solver, PathStop::Terminal), 3),
+                ],
+            );
+            assert_eq!(rows, expected, "{id}");
+            if PROFILE == SolverProfile::Z3 {
+                assert!(
+                    run.bridged
+                        .paths
+                        .iter()
+                        .all(|path| !matches!(path.path_predicate, Pattern::Top { .. })),
+                    "{id}: both paths carry the narrowing condition or its negation"
+                );
+            }
+            assert_eq!(
+                decided_outcome(&mut run, &gwl_after(&vocabulary)),
+                by_profile(
+                    (PatternOutcome::Unknown, Some(PathStop::SolverUnknown)),
+                    (PatternOutcome::Match, None)
+                ),
+                "{id}"
+            );
+        }
+    }
 }

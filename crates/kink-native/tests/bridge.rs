@@ -9,6 +9,8 @@ mod support;
 #[path = "../../../testdata/k/step_support.rs"]
 mod step_support;
 
+mod cache;
+
 use std::{cell::RefCell, num::NonZeroUsize, time::Duration};
 
 use k_rust::backend::{Backend, BackendOptions};
@@ -38,8 +40,8 @@ const BUDGET: ExecutionBudget = ExecutionBudget {
     max_breadth: None,
 };
 
-fn counter_validator() -> NativeValidator {
-    NativeValidator::bind(support::load("counter.k"), CompileOptions::default())
+fn counter_validator() -> &'static NativeValidator {
+    cache::validator("counter.k")
 }
 
 fn z() -> Pattern {
@@ -77,79 +79,6 @@ fn symbol_sorts(side: &ValidatedDefinition) -> SymbolSorts {
     SymbolSorts::from_definition(
         &parse_definition(&side.artifacts().definition_kore).expect("compiled KORE parses"),
     )
-}
-
-#[test]
-fn deleting_first_equal_copy_has_equivalent_compilation() {
-    let validator = NativeValidator::bind(
-        support::load("duplicate_unlabelled.k"),
-        CompileOptions::default(),
-    );
-    let baseline = validator
-        .compile_baseline()
-        .expect("duplicate source compiles");
-    let mutant = validator
-        .validate(
-            &Patch::new(vec![Edit::DeleteSentence {
-                at: kink_patch::SentenceRef::new("DUPLICATE_UNLABELLED", 0),
-            }])
-            .expect("patch"),
-        )
-        .expect("deletion compiles");
-    assert!(equivalent_compilation(&baseline, &mutant).expect("KORE parses"));
-}
-
-#[test]
-fn deleting_second_equal_copy_has_equivalent_compilation() {
-    let validator = NativeValidator::bind(
-        support::load("duplicate_unlabelled.k"),
-        CompileOptions::default(),
-    );
-    let baseline = validator
-        .compile_baseline()
-        .expect("duplicate source compiles");
-    let mutant = validator
-        .validate(
-            &Patch::new(vec![Edit::DeleteSentence {
-                at: kink_patch::SentenceRef::new("DUPLICATE_UNLABELLED", 1),
-            }])
-            .expect("patch"),
-        )
-        .expect("deletion compiles");
-    assert!(equivalent_compilation(&baseline, &mutant).expect("KORE parses"));
-}
-
-#[test]
-fn inserting_anonymous_clone_has_equivalent_compilation() {
-    let validator = NativeValidator::bind(support::load("unlabelled.k"), CompileOptions::default());
-    let rule = kink_patch::SentenceRef::new("UNLABELLED", 2);
-    let mut clone = validator.baseline().sentence(&rule).expect("rule").clone();
-    for key in [
-        AttributeKey::Label,
-        AttributeKey::UniqueId,
-        AttributeKey::Origin,
-        AttributeKey::Location,
-        AttributeKey::Source,
-        AttributeKey::SourceId,
-        AttributeKey::SentenceStartOffset,
-        AttributeKey::SentenceEndOffset,
-        AttributeKey::ContentStartLine,
-        AttributeKey::ContentStartColumn,
-        AttributeKey::ContentStartOffset,
-    ] {
-        clone.attributes_mut().remove(key.as_str());
-    }
-    let patch = Patch::new(vec![Edit::InsertSentence {
-        position: InsertPosition::After(rule.clone()),
-        ordinal: 0,
-        sentence: clone,
-    }])
-    .expect("patch");
-    let baseline = validator.compile_baseline().expect("baseline compiles");
-    let mutant = validator
-        .validate(&patch)
-        .expect("anonymous clone compiles");
-    assert!(equivalent_compilation(&baseline, &mutant).expect("KORE parses"));
 }
 
 /// One observed run of `state` on a compiled side.
@@ -335,7 +264,7 @@ fn deterministic_runs_are_complete_under_path_set() {
     let specs = vec![step_support::counter(true).remove(0)];
     let vocabulary = vocabulary(&[("increment", &[])]);
     let run = run(
-        &validator,
+        validator,
         &baseline,
         "COUNTER",
         &specs,
@@ -369,54 +298,6 @@ fn deterministic_runs_are_complete_under_path_set() {
     assert_eq!(result.witnesses.len(), 3);
 }
 
-/// Finding 7 of the migration design: the mutant whose `branch` never applies still ends in
-/// `selected(true)`, through `fallback`. Both executions have the same trace. Each side
-/// emits the same whole-transition event because fallback performs the same step.
-#[test]
-fn observed_counter_and_fallback_mutant_match_the_same_transition() {
-    let validator = counter_validator();
-    let baseline = validator.compile_baseline().expect("counter.k compiles");
-    let at = TermRef::new(support::rule(validator.baseline(), "COUNTER.branch"), [1]);
-    let patch = Patch::new(vec![Edit::ReplaceTerm {
-        expected: validator.baseline().term(&at).expect("requires").clone(),
-        at,
-        replacement: Term::Token {
-            token: "false".to_owned(),
-            sort: KastSort::new("Bool"),
-        },
-    }])
-    .expect("one edit");
-    let mutant = validator.validate(&patch).expect("the mutant compiles");
-    let specs = vec![step_support::counter(true).remove(1)];
-    let vocabulary = vocabulary(&[("branchTaken", &[])]);
-    let plan = single_atom(&vocabulary, "branchTaken", None);
-    let sides = [
-        (&baseline, PatternOutcome::Match),
-        (&mutant, PatternOutcome::Match),
-    ];
-    let mut finals = Vec::new();
-    for (side, expected) in sides {
-        let run = run(
-            &validator,
-            side,
-            "COUNTER",
-            &specs,
-            &vocabulary,
-            &t2(),
-            BUDGET,
-        );
-        assert_eq!(run.bridged.collection.stop, CollectionStop::SearchExhausted);
-        let result = outcome(&run, &plan);
-        assert_eq!(result.outcome, expected);
-        assert!(result.complete_coverage);
-        let [path] = run.bridged.paths.as_slice() else {
-            panic!("one path");
-        };
-        finals.push(path.execution_terminal.clone().expect("terminal").state);
-    }
-    assert_eq!(finals[0], finals[1], "the final state does not change");
-}
-
 #[test]
 fn domain_payloads_decode_through_kore_json() {
     let validator = counter_validator();
@@ -428,7 +309,7 @@ fn domain_payloads_decode_through_kore_json() {
     let specs = vec![increment];
     let vocabulary = vocabulary(&[("incremented", &["SortGeneratedTopCell"])]);
     let run = run(
-        &validator,
+        validator,
         &baseline,
         "COUNTER",
         &specs,
@@ -454,50 +335,9 @@ fn domain_payloads_decode_through_kore_json() {
     assert_eq!(result.witnesses[2].bindings[0].term, last.payload[0]);
 }
 
-/// PathSet keeps both paths that converge on `done`, so an absent event is decidable.
-#[test]
-fn converging_branches_reach_pattern_no_match_with_both_events() {
-    let validator = NativeValidator::bind(support::load("nd.k"), CompileOptions::default());
-    let baseline = validator.compile_baseline().expect("nd.k compiles");
-    let start = support::initial_state(
-        kore_application("Lblstart", Vec::new(), Vec::new()),
-        "SortS",
-    );
-    let vocabulary = vocabulary(&[("left", &[]), ("right", &[]), ("spin", &[])]);
-    let run = run(
-        &validator,
-        &baseline,
-        "ND",
-        &[
-            nd_event("left", "Lblstart", "Lblmid1"),
-            nd_event("right", "Lblstart", "Lblmid2"),
-            nd_event("spin", "Lblspin", "Lblspin"),
-        ],
-        &vocabulary,
-        &start,
-        BUDGET,
-    );
-    assert_eq!(run.bridged.collection.stop, CollectionStop::SearchExhausted);
-    assert_eq!(run.bridged.paths.len(), 2);
-    let observed = run
-        .bridged
-        .paths
-        .iter()
-        .map(|path| {
-            assert!(path.complete);
-            assert_eq!(path.events.len(), 1);
-            path.events[0].constructor.as_str()
-        })
-        .collect::<std::collections::BTreeSet<_>>();
-    assert_eq!(observed, ["left", "right"].into());
-    let result = outcome(&run, &single_atom(&vocabulary, "spin", None));
-    assert_eq!(result.outcome, PatternOutcome::NoMatch);
-    assert!(result.complete_coverage);
-}
-
 #[test]
 fn depth_bound_ground_absence_is_unknown() {
-    let validator = NativeValidator::bind(support::load("nd.k"), CompileOptions::default());
+    let validator = cache::validator("nd.k");
     let baseline = validator.compile_baseline().expect("nd.k compiles");
     let start = support::initial_state(
         kore_application("Lblstart", Vec::new(), Vec::new()),
@@ -505,7 +345,7 @@ fn depth_bound_ground_absence_is_unknown() {
     );
     let vocabulary = vocabulary(&[("left", &[]), ("right", &[]), ("l2", &[])]);
     let run = run(
-        &validator,
+        validator,
         &baseline,
         "ND",
         &[
@@ -546,117 +386,6 @@ fn depth_bound_ground_absence_is_unknown() {
     assert_eq!(l2.failure, Some(PathStop::DepthLimit));
 }
 
-#[test]
-fn breadth_bound_ground_absence_is_unknown() {
-    let validator = NativeValidator::bind(support::load("nd.k"), CompileOptions::default());
-    let baseline = validator.compile_baseline().expect("nd.k compiles");
-    let start = support::initial_state(
-        kore_application("Lblstart", Vec::new(), Vec::new()),
-        "SortS",
-    );
-    let vocabulary = vocabulary(&[("left", &[]), ("right", &[]), ("l2", &[])]);
-    let run = run(
-        &validator,
-        &baseline,
-        "ND",
-        &[
-            nd_event("left", "Lblstart", "Lblmid1"),
-            nd_event("right", "Lblstart", "Lblmid2"),
-            nd_event("l2", "Lblmid1", "Lbldone"),
-        ],
-        &vocabulary,
-        &start,
-        ExecutionBudget {
-            max_breadth: Some(NonZeroUsize::new(1).unwrap()),
-            ..BUDGET
-        },
-    );
-    assert_eq!(run.execution.leaves().len(), 2);
-    assert!(
-        run.execution
-            .leaves()
-            .iter()
-            .all(|leaf| leaf.halt == HaltClass::BreadthBound)
-    );
-    // Re-pin R0b deliverable 4 (finding A-11): a breadth-bound leaf's state was never
-    // normalised, so its path stops at `BackendLimit`, which vouches for no real prefix (was
-    // `BranchLimit`, which did). The transition into it may be undefined on every instance, so
-    // neither its event nor its term is evidence: a pattern over that transition is Unknown, not
-    // a Match.
-    assert_eq!(run.bridged.collection.stop, CollectionStop::BackendLimit);
-    assert!(
-        run.bridged
-            .paths
-            .iter()
-            .all(|path| !path.complete && !path.stop.has_real_prefix())
-    );
-    let l2 = outcome(&run, &single_atom(&vocabulary, "l2", None));
-    assert_eq!(l2.outcome, PatternOutcome::Unknown);
-    assert_eq!(l2.failure, Some(PathStop::BackendLimit));
-    for event in ["left", "right"] {
-        let present = outcome(&run, &single_atom(&vocabulary, event, None));
-        assert_eq!(present.outcome, PatternOutcome::Unknown, "{event}");
-    }
-}
-
-/// Critique C2: a nonterminating run is cancelled by the watchdog and reported as timed out;
-/// its leaf states are not decoded.
-#[test]
-fn nonterminating_execution_is_timeout() {
-    let validator = NativeValidator::bind(support::load("nd.k"), CompileOptions::default());
-    let baseline = validator.compile_baseline().expect("nd.k compiles");
-    let spin = support::initial_state(kore_application("Lblspin", Vec::new(), Vec::new()), "SortS");
-    let vocabulary = vocabulary(&[("spin", &[])]);
-    let run = run(
-        &validator,
-        &baseline,
-        "ND",
-        &[nd_event("spin", "Lblspin", "Lblspin")],
-        &vocabulary,
-        &spin,
-        ExecutionBudget {
-            time: Duration::from_millis(200),
-            ..BUDGET
-        },
-    );
-    assert!(run.execution.timed_out());
-    assert!(
-        run.execution
-            .leaves()
-            .iter()
-            .all(|leaf| leaf.halt == HaltClass::Cancelled)
-    );
-    assert!(run.bridged.paths.is_empty());
-    assert_eq!(run.bridged.collection.stop, CollectionStop::TimeLimit);
-    let result = outcome(&run, &single_atom(&vocabulary, "spin", None));
-    assert_eq!(result.outcome, PatternOutcome::Unknown);
-}
-
-/// VI-03F: cancellation before the solver operation starts may return a backend error.
-/// A zero wall-clock budget is TimeLimit in both profiles, with no complete path.
-#[test]
-fn zero_budget_execution_is_timeout() {
-    let validator = NativeValidator::bind(support::load("nd.k"), CompileOptions::default());
-    let baseline = validator.compile_baseline().expect("nd.k compiles");
-    let spin = support::initial_state(kore_application("Lblspin", Vec::new(), Vec::new()), "SortS");
-    let vocabulary = vocabulary(&[("spin", &[])]);
-    let run = run(
-        &validator,
-        &baseline,
-        "ND",
-        &[nd_event("spin", "Lblspin", "Lblspin")],
-        &vocabulary,
-        &spin,
-        ExecutionBudget {
-            time: Duration::ZERO,
-            ..BUDGET
-        },
-    );
-    assert!(run.execution.timed_out());
-    assert!(run.bridged.paths.is_empty());
-    assert_eq!(run.bridged.collection.stop, CollectionStop::TimeLimit);
-}
-
 /// The side of `undecided.k` on which the rule `label` applies: its `requires false` is
 /// replaced with `true`.
 fn enabled(validator: &NativeValidator, label: &str) -> ValidatedDefinition {
@@ -673,108 +402,6 @@ fn enabled(validator: &NativeValidator, label: &str) -> ValidatedDefinition {
     validator
         .validate(&patch)
         .expect("the enabled side compiles")
-}
-
-/// A carried `ensures`, vacuous successor or diagnosed path has an event but no witness.
-#[test]
-fn undecided_live_occurrences_are_no_witness() {
-    let validator = NativeValidator::bind(support::load("undecided.k"), CompileOptions::default());
-    let baseline = validator.compile_baseline().expect("undecided.k compiles");
-    let slow = enabled(&validator, "UNDECIDED.slow");
-    let program = |symbol| kore_application(symbol, Vec::new(), Vec::new());
-    let tight = ExecutionBudget {
-        max_simplification_iterations: 3,
-        ..BUDGET
-    };
-    // (id, side, observed rule, initial state, budget, leaf halt, path stop)
-    #[rustfmt::skip]
-    let rows = [
-        ("carried-ensures", &baseline, "UNDECIDED.carryAlways", support::initial_state(program("LblcarryAlways"), "SortS"), BUDGET, HaltClass::Stuck, PathStop::SolverUnknown),
-        ("vacuous-successor", &baseline, "UNDECIDED.step", support::deferred_vacuous_state(program("Lblvacuous"), "SortS"), BUDGET, HaltClass::Vacuous, PathStop::SolverUnknown),
-        ("diagnosed-run", &slow, "UNDECIDED.slow", support::initial_state(program("Lbldraining"), "SortS"), tight, HaltClass::Stuck, PathStop::BackendLimit),
-    ];
-    for (id, side, label, state, budget, halt, stop) in rows {
-        let constructor = label.rsplit('.').next().expect("label").to_owned();
-        let symbol = match id {
-            "carried-ensures" => "LblcarryAlways",
-            "vacuous-successor" => "Lblvacuous",
-            "diagnosed-run" => "Lbldraining",
-            _ => unreachable!(),
-        };
-        let specs = [StepEventSpec {
-            constructor: constructor.clone(),
-            pre: support::k_config(program(symbol), "SortS", "R", "C"),
-            post: None,
-            payload: Vec::new(),
-        }];
-        let vocabulary = vocabulary(&[(constructor.as_str(), &[])]);
-        let run = run(
-            &validator,
-            side,
-            "UNDECIDED",
-            &specs,
-            &vocabulary,
-            &state,
-            budget,
-        );
-        if id == "carried-ensures" {
-            assert_eq!(run.execution.leaves()[0].halt, HaltClass::Trivial);
-            assert_eq!(run.bridged.paths[0].stop, PathStop::SolverUnknown);
-            assert!(run.bridged.paths[0].events.is_empty());
-        }
-        let leaf = run.execution.leaves().last().expect("one successor leaf");
-        let diagnostics = leaf
-            .diagnostics
-            .iter()
-            .chain(leaf.candidate_diagnostics.iter().flatten())
-            .chain(leaf.remainder_diagnostics.iter());
-        let diagnostics = diagnostics.collect::<Vec<_>>();
-        assert_eq!(
-            !diagnostics.is_empty(),
-            stop == PathStop::BackendLimit,
-            "{id}"
-        );
-        if id == "diagnosed-run" {
-            assert!(
-                diagnostics.iter().any(|diagnostic| matches!(
-                    diagnostic,
-                    k_rust::backend::BackendDiagnosticOutput::SimplificationBudgetExhausted {
-                        limit: 3,
-                        ..
-                    }
-                )),
-                "{id}: expected budget exhaustion, got {diagnostics:?}"
-            );
-        }
-        assert_eq!(leaf.halt, halt, "{id}");
-        if id == "vacuous-successor" {
-            assert!(
-                run.bridged.paths.is_empty(),
-                "{id}: refuted leaf is discarded"
-            );
-            assert_eq!(
-                outcome(&run, &single_atom(&vocabulary, &constructor, None)).outcome,
-                PatternOutcome::NoMatch,
-                "{id}"
-            );
-            continue;
-        }
-        let path = run.bridged.paths.last().expect("one successor path");
-        assert_eq!(
-            path.events
-                .iter()
-                .map(|event| event.constructor.as_str())
-                .collect::<Vec<_>>(),
-            [constructor.as_str()],
-            "{id}: a step left the declared pre-state"
-        );
-        assert!(!path.complete, "{id}");
-        assert_eq!(path.stop, stop, "{id}");
-        let result = outcome(&run, &single_atom(&vocabulary, &constructor, None));
-        assert_eq!(result.outcome, PatternOutcome::Unknown, "{id}");
-        assert!(result.witnesses.is_empty(), "{id}");
-        assert_eq!(result.failure, Some(stop), "{id}");
-    }
 }
 
 // ---------------------------------------------------------------- SO-09 close-out audits
@@ -843,323 +470,6 @@ fn audit_so_prestart_cancel_is_timeout_on_every_adapter_run() {
         .execute_unobserved(&mut backend, &t1(), zero)
         .expect("a pre-start cancel is not an adapter failure");
     assert!(unobserved.timed_out);
-}
-
-/// Attack (c) of the k-rust 927b9ce6 intake (T-DIAG): a leaf carrying `RuleConditionFailed`
-/// (new in k-rust 7d3d8e69) is never complete. `rulecondfail.k`'s `f(X) => 1 requires X
-/// +Float 1.0 >Float 0.0`; the mutant writes the literal `1.0f`, so the condition's
-/// `FLOAT.add` meets mismatched formats, the equation stays unapplied, and k-rust attaches
-/// `RuleConditionFailed { failure: Builtin(MismatchedFloatFormats) }`. Measured in both
-/// profiles: every mutant leaf of `run(2.0)` and `done(f(2.0))` carries it, every path of both
-/// bridges is incomplete `BackendLimit` (collection `BackendLimit`), and no leaf is discarded.
-/// The baseline's runs are complete (`halt`), so the difference is visible only as Unknown.
-///
-/// Re-pin R0a (finding E-10; k-rust 19f7b3d90, 3f0feebbc, `MismatchedFloatFormats` removed): at
-/// 501f18b9 an execution evaluates binary32 `+Float` binary64 exactly and rounds once to binary64,
-/// so the condition holds, `f` applies, no leaf carries `RuleConditionFailed`, and the mutant's
-/// paths are complete `Terminal` leaves whose final states equal the baseline's (both `halt`):
-/// the mutant agrees here, nothing distinguishes. The binary64 destination is k-rust's choice
-/// (decision 1: R0b refuses comparisons that reference such hooks).
-///
-/// Re-pin R0c (R0a review 1 minor): `r0c/rcfdisj.k` produces `RuleConditionFailed` again at
-/// 501f18b9, through a condition whose simplification meets a disjunctive equation, so the
-/// test's claim is exercised again: every leaf carrying it gives an incomplete `BackendLimit`
-/// path in both bridges, and none is discarded.
-///
-/// Re-pin probe P-1 (k-rust 58720d2e5, KINK-17/1): the `1.0f` mutant's leaves carry a
-/// `float-destination` mark, so its paths are incomplete `BackendLimit` ones again, through the
-/// mark rather than a failed condition.
-#[test]
-fn audit_so_rule_condition_failed_leaf_is_never_complete() {
-    use k_rust::backend::BackendDiagnosticOutput;
-    let validator =
-        NativeValidator::bind(support::load("rulecondfail.k"), CompileOptions::default());
-    let at = TermRef::new(
-        support::rule(validator.baseline(), "RULECONDFAIL.f"),
-        [1, 0, 1],
-    );
-    let literal = validator.baseline().term(&at).expect("the literal").clone();
-    assert_eq!(
-        literal,
-        Term::Token {
-            token: "1.0".into(),
-            sort: KastSort::new("Float"),
-        }
-    );
-    let patch = Patch::new(vec![Edit::ReplaceTerm {
-        expected: literal,
-        at,
-        replacement: Term::Token {
-            token: "1.0f".into(),
-            sort: KastSort::new("Float"),
-        },
-    }])
-    .expect("patch");
-    let baseline = validator
-        .compile_baseline()
-        .expect("rulecondfail.k compiles");
-    let mutant = validator.validate(&patch).expect("the mutant compiles");
-    let float = Pattern::DomainValue {
-        sort: kore_sort("SortFloat"),
-        value: "2.0".into(),
-    };
-    let programs = [
-        kore_application("Lblrun", Vec::new(), vec![float.clone()]),
-        kore_application(
-            "Lbldone",
-            Vec::new(),
-            vec![kore_application("Lblf", Vec::new(), vec![float])],
-        ),
-    ];
-    let sorts = symbol_sorts(&baseline);
-    let normal = |_: &Pattern| ExecutionTerminalKind::Normal;
-    let mut finals = std::collections::BTreeMap::new();
-    for (label, side) in [("baseline", &baseline), ("mutant", &mutant)] {
-        for program in &programs {
-            let state = support::initial_state(program.clone(), "SortProg");
-            let mut backend = Backend::new(
-                &side.artifacts().definition_kore,
-                "RULECONDFAIL",
-                BackendOptions::default(),
-            )
-            .expect("backend");
-            let adapter = ExecutionAdapter::with_profile(SolverProfile::BUILD);
-            let execution = adapter
-                .execute(&mut backend, &state, BUDGET)
-                .expect("execution adapts");
-            let stepped = adapter
-                .execute_steps(&mut backend, &state, BUDGET)
-                .expect("execution adapts")
-                .expect("step run");
-            let failed = |leaf: &kink_native::execution::AdaptedLeaf| {
-                leaf.diagnostics.iter().any(|diagnostic| {
-                    matches!(
-                        diagnostic,
-                        BackendDiagnosticOutput::RuleConditionFailed { .. }
-                    )
-                })
-            };
-            let context = BridgeContext {
-                test_id: "rcf",
-                classify: &normal,
-                sorts: &sorts,
-            };
-            let observation =
-                StepObservation::new(&mut backend, Vec::new()).expect("no declaration");
-            let (event_free, steps) = backend
-                .with_solver(None, |definition, solver| {
-                    let decider = ObservationDecider::new(
-                        definition,
-                        solver,
-                        TestInitialState::of_test(&state),
-                    );
-                    Ok::<_, k_rust::backend::BackendError>((
-                        kink_native::bridge::paths_from_execution(&execution, &context, &|term| {
-                            decider.definition_independent(term)
-                        })
-                        .expect("bridges"),
-                        paths_from_steps(&context, &stepped, &observation, &decider)
-                            .expect("steps bridge"),
-                    ))
-                })
-                .expect("decider");
-            let rows = event_free
-                .paths
-                .iter()
-                .chain(&steps.paths)
-                .map(|path| (path.complete, path.stop))
-                .collect::<Vec<_>>();
-            eprintln!(
-                "SO-09 (c) {label} {program:?}: leaves {:?}; paths {rows:?}; collections {:?} {:?}",
-                execution
-                    .leaves()
-                    .iter()
-                    .map(|leaf| (leaf.halt, failed(leaf)))
-                    .collect::<Vec<_>>(),
-                event_free.collection.stop,
-                steps.collection.stop,
-            );
-            // Both sides alike at 501f18b9 (E-10): no RuleConditionFailed, no discard; the
-            // baseline's every path a complete terminal, the collections exhausted.
-            assert!(
-                !execution.leaves().iter().any(failed),
-                "{label} {program:?}"
-            );
-            assert!(
-                execution
-                    .leaves()
-                    .iter()
-                    .all(|leaf| kink_native::bridge::discarded(leaf).is_none())
-            );
-            assert!(!rows.is_empty());
-            // Re-pin probe P-1 (k-rust 58720d2e5; KINK-17/1, head 728e7eb34, merge 3a196ed14;
-            // k-rust's draft answers-add3 section 2.1 "New marks of open values"): the mutant's
-            // `+Float` of a binary32 and a binary64 operand rounds to a destination format no text
-            // names, so every mutant leaf now carries an `implementation-chosen-value` mark
-            // (`FLOAT.add`, class `float-destination`), and kink reads a diagnosed leaf as
-            // incomplete: every mutant path of both bridges is an incomplete `BackendLimit` one
-            // and the collections stop at `BackendLimit` (at 501f18b9 they were complete
-            // `Terminal` paths equal to the baseline's). Fail-closed: the mutant no longer agrees
-            // here, it is unknown.
-            let chosen = |leaf: &kink_native::execution::AdaptedLeaf| {
-                leaf.diagnostics.iter().any(|diagnostic| {
-                    matches!(
-                        diagnostic,
-                        BackendDiagnosticOutput::ImplementationChosenValue { hook, class }
-                            if hook == "FLOAT.add" && class == "float-destination"
-                    )
-                })
-            };
-            if label == "mutant" {
-                assert!(
-                    execution.leaves().iter().all(chosen),
-                    "{label} {program:?}: {:?}",
-                    execution.leaves()
-                );
-                assert!(
-                    rows.iter()
-                        .all(|row| *row == (false, PathStop::BackendLimit)),
-                    "{label} {program:?}: {rows:?}"
-                );
-                assert_eq!(event_free.collection.stop, CollectionStop::BackendLimit);
-                assert_eq!(steps.collection.stop, CollectionStop::BackendLimit);
-                // No mutant path carries a complete terminal any more, so the mutant's finals are
-                // not compared with the baseline's (at 501f18b9 they were equal).
-                continue;
-            }
-            assert!(
-                !execution.leaves().iter().any(chosen),
-                "{label} {program:?}"
-            );
-            assert!(
-                rows.iter().all(|row| *row == (true, PathStop::Terminal)),
-                "{label} {program:?}: {rows:?}"
-            );
-            assert_eq!(event_free.collection.stop, CollectionStop::SearchExhausted);
-            assert_eq!(steps.collection.stop, CollectionStop::SearchExhausted);
-            finals.insert(
-                (label, format!("{program:?}")),
-                event_free
-                    .paths
-                    .iter()
-                    .map(|path| path.execution_terminal.clone().expect("terminal").state)
-                    .collect::<Vec<_>>(),
-            );
-        }
-    }
-    // The baseline's finals are both `halt` (the mutant's are no longer decided, above).
-    assert_eq!(finals.len(), programs.len());
-
-    // Re-pin R0c (R0a review 1 minor): `r0c/rcfdisj.k` again produces RuleConditionFailed at
-    // 501f18b9 (a condition whose simplification meets a disjunctive equation). Every leaf of
-    // `run(2)` and `done(f(2))` carries it, both bridges give only incomplete `BackendLimit`
-    // paths, and no leaf is discarded: a failed condition never makes a complete leaf.
-    // Re-pin P-2 (k-rust 8f8ad57c5; MLP/4b, head d5bead028, merge fede20744): k-rust refuses the
-    // unguarded `X #Or 0` at compile now, so the fixture guards both alternatives with
-    // predicates that both hold at 2; the failure, the leaves and the rows below are unchanged.
-    let validator = NativeValidator::bind(
-        support::load_path(
-            &std::path::Path::new(support::DIR).join("r0c/rcfdisj.k"),
-            "RCFDISJ",
-        ),
-        CompileOptions::default(),
-    );
-    let side = validator.compile_baseline().expect("rcfdisj.k compiles");
-    let sorts = symbol_sorts(&side);
-    let two = Pattern::DomainValue {
-        sort: kore_sort("SortInt"),
-        value: "2".into(),
-    };
-    for program in [
-        programs_rcf_run(&two),
-        kore_application(
-            "Lbldone",
-            Vec::new(),
-            vec![kore_application("Lblf", Vec::new(), vec![two.clone()])],
-        ),
-    ] {
-        let state = support::initial_state(program.clone(), "SortProg");
-        let mut backend = Backend::new(
-            &side.artifacts().definition_kore,
-            "RCFDISJ",
-            BackendOptions::default(),
-        )
-        .expect("backend");
-        let adapter = ExecutionAdapter::with_profile(SolverProfile::BUILD);
-        let execution = adapter
-            .execute(&mut backend, &state, BUDGET)
-            .expect("execution adapts");
-        let stepped = adapter
-            .execute_steps(&mut backend, &state, BUDGET)
-            .expect("execution adapts")
-            .expect("step run");
-        let failed = |leaf: &kink_native::execution::AdaptedLeaf| {
-            leaf.diagnostics.iter().any(|diagnostic| {
-                matches!(
-                    diagnostic,
-                    BackendDiagnosticOutput::RuleConditionFailed { .. }
-                )
-            })
-        };
-        let context = BridgeContext {
-            test_id: "rcf",
-            classify: &normal,
-            sorts: &sorts,
-        };
-        let observation = StepObservation::new(&mut backend, Vec::new()).expect("no declaration");
-        let (event_free, steps) = backend
-            .with_solver(None, |definition, solver| {
-                let decider =
-                    ObservationDecider::new(definition, solver, TestInitialState::of_test(&state));
-                Ok::<_, k_rust::backend::BackendError>((
-                    kink_native::bridge::paths_from_execution(&execution, &context, &|term| {
-                        decider.definition_independent(term)
-                    })
-                    .expect("bridges"),
-                    paths_from_steps(&context, &stepped, &observation, &decider)
-                        .expect("steps bridge"),
-                ))
-            })
-            .expect("decider");
-        let rows = event_free
-            .paths
-            .iter()
-            .chain(&steps.paths)
-            .map(|path| (path.complete, path.stop))
-            .collect::<Vec<_>>();
-        // Measured: `run(2)` steps to `done(f(2))` with `f` unapplied, a Trivial and a Stuck
-        // leaf, in both profiles; `done(f(2))` ends Indeterminate without a solver and Stuck
-        // with Z3. The failure is `ConflictingResults` over `pick`'s two alternatives.
-        assert_eq!(
-            execution
-                .leaves()
-                .iter()
-                .map(|leaf| (leaf.halt, failed(leaf)))
-                .collect::<Vec<_>>(),
-            if program == programs_rcf_run(&two) {
-                vec![(HaltClass::Trivial, true), (HaltClass::Stuck, true)]
-            } else if SolverProfile::BUILD == SolverProfile::Z3 {
-                vec![(HaltClass::Stuck, true)]
-            } else {
-                vec![(HaltClass::Indeterminate, true)]
-            },
-            "{program:?}"
-        );
-        assert!(
-            execution
-                .leaves()
-                .iter()
-                .all(|leaf| kink_native::bridge::discarded(leaf).is_none())
-        );
-        assert!(!rows.is_empty());
-        assert!(
-            rows.iter()
-                .all(|row| *row == (false, PathStop::BackendLimit)),
-            "{program:?}: {rows:?}"
-        );
-        assert_eq!(event_free.collection.stop, CollectionStop::BackendLimit);
-        assert_eq!(steps.collection.stop, CollectionStop::BackendLimit);
-    }
 }
 
 /// `run(value)` of `r0c/rcfdisj.k`.
@@ -1234,4 +544,700 @@ fn audit_so_every_stop_cause_is_a_non_complete_stop() {
         StepObservationError::from(refused()),
         StepObservationError::Internalization(_)
     ));
+}
+
+mod kink_tier {
+    use super::*;
+
+    /// Attack (c) of the k-rust 927b9ce6 intake (T-DIAG): a leaf carrying `RuleConditionFailed`
+    /// (new in k-rust 7d3d8e69) is never complete. `rulecondfail.k`'s `f(X) => 1 requires X
+    /// +Float 1.0 >Float 0.0`; the mutant writes the literal `1.0f`, so the condition's
+    /// `FLOAT.add` meets mismatched formats, the equation stays unapplied, and k-rust attaches
+    /// `RuleConditionFailed { failure: Builtin(MismatchedFloatFormats) }`. Measured in both
+    /// profiles: every mutant leaf of `run(2.0)` and `done(f(2.0))` carries it, every path of both
+    /// bridges is incomplete `BackendLimit` (collection `BackendLimit`), and no leaf is discarded.
+    /// The baseline's runs are complete (`halt`), so the difference is visible only as Unknown.
+    ///
+    /// Re-pin R0a (finding E-10; k-rust 19f7b3d90, 3f0feebbc, `MismatchedFloatFormats` removed): at
+    /// 501f18b9 an execution evaluates binary32 `+Float` binary64 exactly and rounds once to binary64,
+    /// so the condition holds, `f` applies, no leaf carries `RuleConditionFailed`, and the mutant's
+    /// paths are complete `Terminal` leaves whose final states equal the baseline's (both `halt`):
+    /// the mutant agrees here, nothing distinguishes. The binary64 destination is k-rust's choice
+    /// (decision 1: R0b refuses comparisons that reference such hooks).
+    ///
+    /// Re-pin R0c (R0a review 1 minor): `r0c/rcfdisj.k` produces `RuleConditionFailed` again at
+    /// 501f18b9, through a condition whose simplification meets a disjunctive equation, so the
+    /// test's claim is exercised again: every leaf carrying it gives an incomplete `BackendLimit`
+    /// path in both bridges, and none is discarded.
+    ///
+    /// Re-pin probe P-1 (k-rust 58720d2e5, KINK-17/1): the `1.0f` mutant's leaves carry a
+    /// `float-destination` mark, so its paths are incomplete `BackendLimit` ones again, through the
+    /// mark rather than a failed condition.
+    #[test]
+    #[ignore = "kink"]
+    fn audit_so_rule_condition_failed_leaf_is_never_complete() {
+        use k_rust::backend::BackendDiagnosticOutput;
+        let validator = cache::validator("rulecondfail.k");
+        let at = TermRef::new(
+            support::rule(validator.baseline(), "RULECONDFAIL.f"),
+            [1, 0, 1],
+        );
+        let literal = validator.baseline().term(&at).expect("the literal").clone();
+        assert_eq!(
+            literal,
+            Term::Token {
+                token: "1.0".into(),
+                sort: KastSort::new("Float"),
+            }
+        );
+        let patch = Patch::new(vec![Edit::ReplaceTerm {
+            expected: literal,
+            at,
+            replacement: Term::Token {
+                token: "1.0f".into(),
+                sort: KastSort::new("Float"),
+            },
+        }])
+        .expect("patch");
+        let baseline = validator
+            .compile_baseline()
+            .expect("rulecondfail.k compiles");
+        let mutant = validator.validate(&patch).expect("the mutant compiles");
+        let float = Pattern::DomainValue {
+            sort: kore_sort("SortFloat"),
+            value: "2.0".into(),
+        };
+        let programs = [
+            kore_application("Lblrun", Vec::new(), vec![float.clone()]),
+            kore_application(
+                "Lbldone",
+                Vec::new(),
+                vec![kore_application("Lblf", Vec::new(), vec![float])],
+            ),
+        ];
+        let sorts = symbol_sorts(&baseline);
+        let normal = |_: &Pattern| ExecutionTerminalKind::Normal;
+        let mut finals = std::collections::BTreeMap::new();
+        for (label, side) in [("baseline", &baseline), ("mutant", &mutant)] {
+            for program in &programs {
+                let state = support::initial_state(program.clone(), "SortProg");
+                let mut backend = Backend::new(
+                    &side.artifacts().definition_kore,
+                    "RULECONDFAIL",
+                    BackendOptions::default(),
+                )
+                .expect("backend");
+                let adapter = ExecutionAdapter::with_profile(SolverProfile::BUILD);
+                let execution = adapter
+                    .execute(&mut backend, &state, BUDGET)
+                    .expect("execution adapts");
+                let stepped = adapter
+                    .execute_steps(&mut backend, &state, BUDGET)
+                    .expect("execution adapts")
+                    .expect("step run");
+                let failed = |leaf: &kink_native::execution::AdaptedLeaf| {
+                    leaf.diagnostics.iter().any(|diagnostic| {
+                        matches!(
+                            diagnostic,
+                            BackendDiagnosticOutput::RuleConditionFailed { .. }
+                        )
+                    })
+                };
+                let context = BridgeContext {
+                    test_id: "rcf",
+                    classify: &normal,
+                    sorts: &sorts,
+                };
+                let observation =
+                    StepObservation::new(&mut backend, Vec::new()).expect("no declaration");
+                let (event_free, steps) = backend
+                    .with_solver(None, |definition, solver| {
+                        let decider = ObservationDecider::new(
+                            definition,
+                            solver,
+                            TestInitialState::of_test(&state),
+                        );
+                        Ok::<_, k_rust::backend::BackendError>((
+                            kink_native::bridge::paths_from_execution(
+                                &execution,
+                                &context,
+                                &|term| decider.definition_independent(term),
+                            )
+                            .expect("bridges"),
+                            paths_from_steps(&context, &stepped, &observation, &decider)
+                                .expect("steps bridge"),
+                        ))
+                    })
+                    .expect("decider");
+                let rows = event_free
+                    .paths
+                    .iter()
+                    .chain(&steps.paths)
+                    .map(|path| (path.complete, path.stop))
+                    .collect::<Vec<_>>();
+                eprintln!(
+                    "SO-09 (c) {label} {program:?}: leaves {:?}; paths {rows:?}; collections {:?} {:?}",
+                    execution
+                        .leaves()
+                        .iter()
+                        .map(|leaf| (leaf.halt, failed(leaf)))
+                        .collect::<Vec<_>>(),
+                    event_free.collection.stop,
+                    steps.collection.stop,
+                );
+                // Both sides alike at 501f18b9 (E-10): no RuleConditionFailed, no discard; the
+                // baseline's every path a complete terminal, the collections exhausted.
+                assert!(
+                    !execution.leaves().iter().any(failed),
+                    "{label} {program:?}"
+                );
+                assert!(
+                    execution
+                        .leaves()
+                        .iter()
+                        .all(|leaf| kink_native::bridge::discarded(leaf).is_none())
+                );
+                assert!(!rows.is_empty());
+                // Re-pin probe P-1 (k-rust 58720d2e5; KINK-17/1, head 728e7eb34, merge 3a196ed14;
+                // k-rust's draft answers-add3 section 2.1 "New marks of open values"): the mutant's
+                // `+Float` of a binary32 and a binary64 operand rounds to a destination format no text
+                // names, so every mutant leaf now carries an `implementation-chosen-value` mark
+                // (`FLOAT.add`, class `float-destination`), and kink reads a diagnosed leaf as
+                // incomplete: every mutant path of both bridges is an incomplete `BackendLimit` one
+                // and the collections stop at `BackendLimit` (at 501f18b9 they were complete
+                // `Terminal` paths equal to the baseline's). Fail-closed: the mutant no longer agrees
+                // here, it is unknown.
+                let chosen = |leaf: &kink_native::execution::AdaptedLeaf| {
+                    leaf.diagnostics.iter().any(|diagnostic| {
+                        matches!(
+                            diagnostic,
+                            BackendDiagnosticOutput::ImplementationChosenValue { hook, class }
+                                if hook == "FLOAT.add" && class == "float-destination"
+                        )
+                    })
+                };
+                if label == "mutant" {
+                    assert!(
+                        execution.leaves().iter().all(chosen),
+                        "{label} {program:?}: {:?}",
+                        execution.leaves()
+                    );
+                    assert!(
+                        rows.iter()
+                            .all(|row| *row == (false, PathStop::BackendLimit)),
+                        "{label} {program:?}: {rows:?}"
+                    );
+                    assert_eq!(event_free.collection.stop, CollectionStop::BackendLimit);
+                    assert_eq!(steps.collection.stop, CollectionStop::BackendLimit);
+                    // No mutant path carries a complete terminal any more, so the mutant's finals are
+                    // not compared with the baseline's (at 501f18b9 they were equal).
+                    continue;
+                }
+                assert!(
+                    !execution.leaves().iter().any(chosen),
+                    "{label} {program:?}"
+                );
+                assert!(
+                    rows.iter().all(|row| *row == (true, PathStop::Terminal)),
+                    "{label} {program:?}: {rows:?}"
+                );
+                assert_eq!(event_free.collection.stop, CollectionStop::SearchExhausted);
+                assert_eq!(steps.collection.stop, CollectionStop::SearchExhausted);
+                finals.insert(
+                    (label, format!("{program:?}")),
+                    event_free
+                        .paths
+                        .iter()
+                        .map(|path| path.execution_terminal.clone().expect("terminal").state)
+                        .collect::<Vec<_>>(),
+                );
+            }
+        }
+        // The baseline's finals are both `halt` (the mutant's are no longer decided, above).
+        assert_eq!(finals.len(), programs.len());
+
+        // Re-pin R0c (R0a review 1 minor): `r0c/rcfdisj.k` again produces RuleConditionFailed at
+        // 501f18b9 (a condition whose simplification meets a disjunctive equation). Every leaf of
+        // `run(2)` and `done(f(2))` carries it, both bridges give only incomplete `BackendLimit`
+        // paths, and no leaf is discarded: a failed condition never makes a complete leaf.
+        // Re-pin P-2 (k-rust 8f8ad57c5; MLP/4b, head d5bead028, merge fede20744): k-rust refuses the
+        // unguarded `X #Or 0` at compile now, so the fixture guards both alternatives with
+        // predicates that both hold at 2; the failure, the leaves and the rows below are unchanged.
+        let validator = NativeValidator::bind(
+            support::load_path(
+                &std::path::Path::new(support::DIR).join("r0c/rcfdisj.k"),
+                "RCFDISJ",
+            ),
+            CompileOptions::default(),
+        );
+        let side = validator.compile_baseline().expect("rcfdisj.k compiles");
+        let sorts = symbol_sorts(&side);
+        let two = Pattern::DomainValue {
+            sort: kore_sort("SortInt"),
+            value: "2".into(),
+        };
+        for program in [
+            programs_rcf_run(&two),
+            kore_application(
+                "Lbldone",
+                Vec::new(),
+                vec![kore_application("Lblf", Vec::new(), vec![two.clone()])],
+            ),
+        ] {
+            let state = support::initial_state(program.clone(), "SortProg");
+            let mut backend = Backend::new(
+                &side.artifacts().definition_kore,
+                "RCFDISJ",
+                BackendOptions::default(),
+            )
+            .expect("backend");
+            let adapter = ExecutionAdapter::with_profile(SolverProfile::BUILD);
+            let execution = adapter
+                .execute(&mut backend, &state, BUDGET)
+                .expect("execution adapts");
+            let stepped = adapter
+                .execute_steps(&mut backend, &state, BUDGET)
+                .expect("execution adapts")
+                .expect("step run");
+            let failed = |leaf: &kink_native::execution::AdaptedLeaf| {
+                leaf.diagnostics.iter().any(|diagnostic| {
+                    matches!(
+                        diagnostic,
+                        BackendDiagnosticOutput::RuleConditionFailed { .. }
+                    )
+                })
+            };
+            let context = BridgeContext {
+                test_id: "rcf",
+                classify: &normal,
+                sorts: &sorts,
+            };
+            let observation =
+                StepObservation::new(&mut backend, Vec::new()).expect("no declaration");
+            let (event_free, steps) = backend
+                .with_solver(None, |definition, solver| {
+                    let decider = ObservationDecider::new(
+                        definition,
+                        solver,
+                        TestInitialState::of_test(&state),
+                    );
+                    Ok::<_, k_rust::backend::BackendError>((
+                        kink_native::bridge::paths_from_execution(&execution, &context, &|term| {
+                            decider.definition_independent(term)
+                        })
+                        .expect("bridges"),
+                        paths_from_steps(&context, &stepped, &observation, &decider)
+                            .expect("steps bridge"),
+                    ))
+                })
+                .expect("decider");
+            let rows = event_free
+                .paths
+                .iter()
+                .chain(&steps.paths)
+                .map(|path| (path.complete, path.stop))
+                .collect::<Vec<_>>();
+            // Measured: `run(2)` steps to `done(f(2))` with `f` unapplied, a Trivial and a Stuck
+            // leaf, in both profiles; `done(f(2))` ends Indeterminate without a solver and Stuck
+            // with Z3. The failure is `ConflictingResults` over `pick`'s two alternatives.
+            assert_eq!(
+                execution
+                    .leaves()
+                    .iter()
+                    .map(|leaf| (leaf.halt, failed(leaf)))
+                    .collect::<Vec<_>>(),
+                if program == programs_rcf_run(&two) {
+                    vec![(HaltClass::Trivial, true), (HaltClass::Stuck, true)]
+                } else if SolverProfile::BUILD == SolverProfile::Z3 {
+                    vec![(HaltClass::Stuck, true)]
+                } else {
+                    vec![(HaltClass::Indeterminate, true)]
+                },
+                "{program:?}"
+            );
+            assert!(
+                execution
+                    .leaves()
+                    .iter()
+                    .all(|leaf| kink_native::bridge::discarded(leaf).is_none())
+            );
+            assert!(!rows.is_empty());
+            assert!(
+                rows.iter()
+                    .all(|row| *row == (false, PathStop::BackendLimit)),
+                "{program:?}: {rows:?}"
+            );
+            assert_eq!(event_free.collection.stop, CollectionStop::BackendLimit);
+            assert_eq!(steps.collection.stop, CollectionStop::BackendLimit);
+        }
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn breadth_bound_ground_absence_is_unknown() {
+        let validator = cache::validator("nd.k");
+        let baseline = validator.compile_baseline().expect("nd.k compiles");
+        let start = support::initial_state(
+            kore_application("Lblstart", Vec::new(), Vec::new()),
+            "SortS",
+        );
+        let vocabulary = vocabulary(&[("left", &[]), ("right", &[]), ("l2", &[])]);
+        let run = run(
+            validator,
+            &baseline,
+            "ND",
+            &[
+                nd_event("left", "Lblstart", "Lblmid1"),
+                nd_event("right", "Lblstart", "Lblmid2"),
+                nd_event("l2", "Lblmid1", "Lbldone"),
+            ],
+            &vocabulary,
+            &start,
+            ExecutionBudget {
+                max_breadth: Some(NonZeroUsize::new(1).unwrap()),
+                ..BUDGET
+            },
+        );
+        assert_eq!(run.execution.leaves().len(), 2);
+        assert!(
+            run.execution
+                .leaves()
+                .iter()
+                .all(|leaf| leaf.halt == HaltClass::BreadthBound)
+        );
+        // Re-pin R0b deliverable 4 (finding A-11): a breadth-bound leaf's state was never
+        // normalised, so its path stops at `BackendLimit`, which vouches for no real prefix (was
+        // `BranchLimit`, which did). The transition into it may be undefined on every instance, so
+        // neither its event nor its term is evidence: a pattern over that transition is Unknown, not
+        // a Match.
+        assert_eq!(run.bridged.collection.stop, CollectionStop::BackendLimit);
+        assert!(
+            run.bridged
+                .paths
+                .iter()
+                .all(|path| !path.complete && !path.stop.has_real_prefix())
+        );
+        let l2 = outcome(&run, &single_atom(&vocabulary, "l2", None));
+        assert_eq!(l2.outcome, PatternOutcome::Unknown);
+        assert_eq!(l2.failure, Some(PathStop::BackendLimit));
+        for event in ["left", "right"] {
+            let present = outcome(&run, &single_atom(&vocabulary, event, None));
+            assert_eq!(present.outcome, PatternOutcome::Unknown, "{event}");
+        }
+    }
+
+    /// PathSet keeps both paths that converge on `done`, so an absent event is decidable.
+    #[test]
+    #[ignore = "kink"]
+    fn converging_branches_reach_pattern_no_match_with_both_events() {
+        let validator = cache::validator("nd.k");
+        let baseline = validator.compile_baseline().expect("nd.k compiles");
+        let start = support::initial_state(
+            kore_application("Lblstart", Vec::new(), Vec::new()),
+            "SortS",
+        );
+        let vocabulary = vocabulary(&[("left", &[]), ("right", &[]), ("spin", &[])]);
+        let run = run(
+            validator,
+            &baseline,
+            "ND",
+            &[
+                nd_event("left", "Lblstart", "Lblmid1"),
+                nd_event("right", "Lblstart", "Lblmid2"),
+                nd_event("spin", "Lblspin", "Lblspin"),
+            ],
+            &vocabulary,
+            &start,
+            BUDGET,
+        );
+        assert_eq!(run.bridged.collection.stop, CollectionStop::SearchExhausted);
+        assert_eq!(run.bridged.paths.len(), 2);
+        let observed = run
+            .bridged
+            .paths
+            .iter()
+            .map(|path| {
+                assert!(path.complete);
+                assert_eq!(path.events.len(), 1);
+                path.events[0].constructor.as_str()
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(observed, ["left", "right"].into());
+        let result = outcome(&run, &single_atom(&vocabulary, "spin", None));
+        assert_eq!(result.outcome, PatternOutcome::NoMatch);
+        assert!(result.complete_coverage);
+    }
+
+    /// Deleting either of two equal unlabelled copies of a rule compiles to a definition
+    /// equivalent to the baseline (one baseline compile, one mutant per copy).
+    #[test]
+    #[ignore = "kink"]
+    fn deleting_either_equal_copy_has_equivalent_compilation() {
+        let validator = cache::validator("duplicate_unlabelled.k");
+        let baseline = validator
+            .compile_baseline()
+            .expect("duplicate source compiles");
+        for copy in [0, 1] {
+            let mutant = validator
+                .validate(
+                    &Patch::new(vec![Edit::DeleteSentence {
+                        at: kink_patch::SentenceRef::new("DUPLICATE_UNLABELLED", copy),
+                    }])
+                    .expect("patch"),
+                )
+                .expect("deletion compiles");
+            assert!(
+                equivalent_compilation(&baseline, &mutant).expect("KORE parses"),
+                "copy {copy}"
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn inserting_anonymous_clone_has_equivalent_compilation() {
+        let validator = cache::validator("unlabelled.k");
+        let rule = kink_patch::SentenceRef::new("UNLABELLED", 2);
+        let mut clone = validator.baseline().sentence(&rule).expect("rule").clone();
+        for key in [
+            AttributeKey::Label,
+            AttributeKey::UniqueId,
+            AttributeKey::Origin,
+            AttributeKey::Location,
+            AttributeKey::Source,
+            AttributeKey::SourceId,
+            AttributeKey::SentenceStartOffset,
+            AttributeKey::SentenceEndOffset,
+            AttributeKey::ContentStartLine,
+            AttributeKey::ContentStartColumn,
+            AttributeKey::ContentStartOffset,
+        ] {
+            clone.attributes_mut().remove(key.as_str());
+        }
+        let patch = Patch::new(vec![Edit::InsertSentence {
+            position: InsertPosition::After(rule.clone()),
+            ordinal: 0,
+            sentence: clone,
+        }])
+        .expect("patch");
+        let baseline = validator.compile_baseline().expect("baseline compiles");
+        let mutant = validator
+            .validate(&patch)
+            .expect("anonymous clone compiles");
+        assert!(equivalent_compilation(&baseline, &mutant).expect("KORE parses"));
+    }
+
+    /// Critique C2: a nonterminating run is cancelled by the watchdog and reported as timed out;
+    /// its leaf states are not decoded.
+    #[test]
+    #[ignore = "kink"]
+    fn nonterminating_execution_is_timeout() {
+        let validator = cache::validator("nd.k");
+        let baseline = validator.compile_baseline().expect("nd.k compiles");
+        let spin =
+            support::initial_state(kore_application("Lblspin", Vec::new(), Vec::new()), "SortS");
+        let vocabulary = vocabulary(&[("spin", &[])]);
+        let run = run(
+            validator,
+            &baseline,
+            "ND",
+            &[nd_event("spin", "Lblspin", "Lblspin")],
+            &vocabulary,
+            &spin,
+            ExecutionBudget {
+                time: Duration::from_millis(200),
+                ..BUDGET
+            },
+        );
+        assert!(run.execution.timed_out());
+        assert!(
+            run.execution
+                .leaves()
+                .iter()
+                .all(|leaf| leaf.halt == HaltClass::Cancelled)
+        );
+        assert!(run.bridged.paths.is_empty());
+        assert_eq!(run.bridged.collection.stop, CollectionStop::TimeLimit);
+        let result = outcome(&run, &single_atom(&vocabulary, "spin", None));
+        assert_eq!(result.outcome, PatternOutcome::Unknown);
+    }
+
+    /// Finding 7 of the migration design: the mutant whose `branch` never applies still ends in
+    /// `selected(true)`, through `fallback`. Both executions have the same trace. Each side
+    /// emits the same whole-transition event because fallback performs the same step.
+    #[test]
+    #[ignore = "kink"]
+    fn observed_counter_and_fallback_mutant_match_the_same_transition() {
+        let validator = counter_validator();
+        let baseline = validator.compile_baseline().expect("counter.k compiles");
+        let at = TermRef::new(support::rule(validator.baseline(), "COUNTER.branch"), [1]);
+        let patch = Patch::new(vec![Edit::ReplaceTerm {
+            expected: validator.baseline().term(&at).expect("requires").clone(),
+            at,
+            replacement: Term::Token {
+                token: "false".to_owned(),
+                sort: KastSort::new("Bool"),
+            },
+        }])
+        .expect("one edit");
+        let mutant = validator.validate(&patch).expect("the mutant compiles");
+        let specs = vec![step_support::counter(true).remove(1)];
+        let vocabulary = vocabulary(&[("branchTaken", &[])]);
+        let plan = single_atom(&vocabulary, "branchTaken", None);
+        let sides = [
+            (&baseline, PatternOutcome::Match),
+            (&mutant, PatternOutcome::Match),
+        ];
+        let mut finals = Vec::new();
+        for (side, expected) in sides {
+            let run = run(
+                validator,
+                side,
+                "COUNTER",
+                &specs,
+                &vocabulary,
+                &t2(),
+                BUDGET,
+            );
+            assert_eq!(run.bridged.collection.stop, CollectionStop::SearchExhausted);
+            let result = outcome(&run, &plan);
+            assert_eq!(result.outcome, expected);
+            assert!(result.complete_coverage);
+            let [path] = run.bridged.paths.as_slice() else {
+                panic!("one path");
+            };
+            finals.push(path.execution_terminal.clone().expect("terminal").state);
+        }
+        assert_eq!(finals[0], finals[1], "the final state does not change");
+    }
+
+    /// A carried `ensures`, vacuous successor or diagnosed path has an event but no witness.
+    #[test]
+    #[ignore = "kink"]
+    fn undecided_live_occurrences_are_no_witness() {
+        let validator = cache::validator("undecided.k");
+        let baseline = validator.compile_baseline().expect("undecided.k compiles");
+        let slow = enabled(validator, "UNDECIDED.slow");
+        let program = |symbol| kore_application(symbol, Vec::new(), Vec::new());
+        let tight = ExecutionBudget {
+            max_simplification_iterations: 3,
+            ..BUDGET
+        };
+        // (id, side, observed rule, initial state, budget, leaf halt, path stop)
+        #[rustfmt::skip]
+        let rows = [
+            ("carried-ensures", &baseline, "UNDECIDED.carryAlways", support::initial_state(program("LblcarryAlways"), "SortS"), BUDGET, HaltClass::Stuck, PathStop::SolverUnknown),
+            ("vacuous-successor", &baseline, "UNDECIDED.step", support::deferred_vacuous_state(program("Lblvacuous"), "SortS"), BUDGET, HaltClass::Vacuous, PathStop::SolverUnknown),
+            ("diagnosed-run", &slow, "UNDECIDED.slow", support::initial_state(program("Lbldraining"), "SortS"), tight, HaltClass::Stuck, PathStop::BackendLimit),
+        ];
+        for (id, side, label, state, budget, halt, stop) in rows {
+            let constructor = label.rsplit('.').next().expect("label").to_owned();
+            let symbol = match id {
+                "carried-ensures" => "LblcarryAlways",
+                "vacuous-successor" => "Lblvacuous",
+                "diagnosed-run" => "Lbldraining",
+                _ => unreachable!(),
+            };
+            let specs = [StepEventSpec {
+                constructor: constructor.clone(),
+                pre: support::k_config(program(symbol), "SortS", "R", "C"),
+                post: None,
+                payload: Vec::new(),
+            }];
+            let vocabulary = vocabulary(&[(constructor.as_str(), &[])]);
+            let run = run(
+                validator,
+                side,
+                "UNDECIDED",
+                &specs,
+                &vocabulary,
+                &state,
+                budget,
+            );
+            if id == "carried-ensures" {
+                assert_eq!(run.execution.leaves()[0].halt, HaltClass::Trivial);
+                assert_eq!(run.bridged.paths[0].stop, PathStop::SolverUnknown);
+                assert!(run.bridged.paths[0].events.is_empty());
+            }
+            let leaf = run.execution.leaves().last().expect("one successor leaf");
+            let diagnostics = leaf
+                .diagnostics
+                .iter()
+                .chain(leaf.candidate_diagnostics.iter().flatten())
+                .chain(leaf.remainder_diagnostics.iter());
+            let diagnostics = diagnostics.collect::<Vec<_>>();
+            assert_eq!(
+                !diagnostics.is_empty(),
+                stop == PathStop::BackendLimit,
+                "{id}"
+            );
+            if id == "diagnosed-run" {
+                assert!(
+                    diagnostics.iter().any(|diagnostic| matches!(
+                        diagnostic,
+                        k_rust::backend::BackendDiagnosticOutput::SimplificationBudgetExhausted {
+                            limit: 3,
+                            ..
+                        }
+                    )),
+                    "{id}: expected budget exhaustion, got {diagnostics:?}"
+                );
+            }
+            assert_eq!(leaf.halt, halt, "{id}");
+            if id == "vacuous-successor" {
+                assert!(
+                    run.bridged.paths.is_empty(),
+                    "{id}: refuted leaf is discarded"
+                );
+                assert_eq!(
+                    outcome(&run, &single_atom(&vocabulary, &constructor, None)).outcome,
+                    PatternOutcome::NoMatch,
+                    "{id}"
+                );
+                continue;
+            }
+            let path = run.bridged.paths.last().expect("one successor path");
+            assert_eq!(
+                path.events
+                    .iter()
+                    .map(|event| event.constructor.as_str())
+                    .collect::<Vec<_>>(),
+                [constructor.as_str()],
+                "{id}: a step left the declared pre-state"
+            );
+            assert!(!path.complete, "{id}");
+            assert_eq!(path.stop, stop, "{id}");
+            let result = outcome(&run, &single_atom(&vocabulary, &constructor, None));
+            assert_eq!(result.outcome, PatternOutcome::Unknown, "{id}");
+            assert!(result.witnesses.is_empty(), "{id}");
+            assert_eq!(result.failure, Some(stop), "{id}");
+        }
+    }
+
+    /// VI-03F: cancellation before the solver operation starts may return a backend error.
+    /// A zero wall-clock budget is TimeLimit in both profiles, with no complete path.
+    #[test]
+    #[ignore = "kink"]
+    fn zero_budget_execution_is_timeout() {
+        let validator = cache::validator("nd.k");
+        let baseline = validator.compile_baseline().expect("nd.k compiles");
+        let spin =
+            support::initial_state(kore_application("Lblspin", Vec::new(), Vec::new()), "SortS");
+        let vocabulary = vocabulary(&[("spin", &[])]);
+        let run = run(
+            validator,
+            &baseline,
+            "ND",
+            &[nd_event("spin", "Lblspin", "Lblspin")],
+            &vocabulary,
+            &spin,
+            ExecutionBudget {
+                time: Duration::ZERO,
+                ..BUDGET
+            },
+        );
+        assert!(run.execution.timed_out());
+        assert!(run.bridged.paths.is_empty());
+        assert_eq!(run.bridged.collection.stop, CollectionStop::TimeLimit);
+    }
 }

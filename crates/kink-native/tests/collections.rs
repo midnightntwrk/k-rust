@@ -222,65 +222,6 @@ fn execute_rows(
     terminals
 }
 
-#[test]
-fn natural_collection_terminals_and_bridge_rows() {
-    let store = Fixture::new("collstore.k", "COLLSTORE", "COLLSTORE-SYNTAX");
-    let t = PathStop::Terminal;
-    let u = PathStop::UndefinedStep;
-    let s = PathStop::SolverUnknown;
-    let terms = execute_rows(
-        &store,
-        &[
-            ("put1", "put(1, 10)", true, t),
-            ("put21", "seq(put(2, 20), put(1, 10))", true, t),
-            ("put12", "seq(put(1, 10), put(2, 20))", true, t),
-            ("two", "putTwo(1, 10, 2, 20)", true, t),
-            ("tworev", "putTwoRev(1, 10, 2, 20)", true, t),
-            ("put10", "seq(put(10, 1), put(9, 1))", true, t),
-            ("set21", "seq(addSet(2), addSet(1))", true, t),
-            ("set12", "seq(addSet(1), addSet(2))", true, t),
-            ("list21", "seq(logList(2), logList(1))", true, t),
-            ("list12", "seq(logList(1), logList(2))", true, t),
-            ("fkey0", "fKey(0)", true, t),
-            ("nest", "nest(3)", true, t),
-            ("halt", "halt()", true, t),
-            ("clear", "seq(put(1, 10), clear())", true, t),
-            ("fkey1", "fKey(1)", false, s),
-            ("fval1", "fVal(1)", false, s),
-            ("byteskey", "bytesKey(\"a\")", false, s),
-            ("dupkey", "seq(put(1, 10), dupKey(1))", true, u),
-            ("dupkeysame", "seq(put(1, 1), dupKey(1))", true, u),
-            ("dupelem", "seq(addSet(1), dupElem(1))", true, u),
-        ],
-    );
-    for id in ["put12", "two", "tworev"] {
-        assert_eq!(terms["put21"], terms[id], "N2 {id}");
-    }
-    assert_eq!(terms["set21"], terms["set12"], "N2 Set order");
-    assert_ne!(terms["list21"], terms["list12"], "N2 List order");
-    let cell = Fixture::new("cellmap.k", "CELLMAP", "CELLMAP-SYNTAX");
-    assert_eq!(
-        declaration_census(&cell.compiled)
-            .expect("census")
-            .verdict(),
-        CensusVerdict::Natural
-    );
-    let terms = execute_rows(
-        &cell,
-        &[
-            ("open21", "seq(open(2, 20), open(1, 10))", true, t),
-            ("open12", "seq(open(1, 10), open(2, 20))", true, t),
-            ("opendup", "seq(open(1, 10), open(1, 11))", true, u),
-        ],
-    );
-    assert_eq!(terms["open21"], terms["open12"], "N2 cell map order");
-    let imp = Fixture::new("collimp.k", "COLLIMP", "COLLIMP-SYNTAX");
-    execute_rows(
-        &imp,
-        &[("sum", "var x ; var y ; x = 1 + 2 ; y = x + x ;", true, t)],
-    );
-}
-
 /// Re-pin R0a (finding E-06; k-rust f07565265, 55a57846b, bc90d4226): at 927b9ce6 B1 compiled,
 /// its census flagged the roles .LI, _LI_ and mkFoo (rule C, N6) and `start(1)` ran to an
 /// incomplete SolverUnknown path. At 501f18b9 k-rust refuses the misfit role itself
@@ -373,6 +314,10 @@ fn elements(term: &Pattern, unit: &str, concat: &str, out: &mut Vec<Pattern>) {
     } else {
         out.push(term.clone());
     }
+}
+
+fn inj(from: &str, to: &str, value: Pattern) -> Pattern {
+    kore_application("inj", vec![kore_sort(from), kore_sort(to)], vec![value])
 }
 
 #[test]
@@ -538,141 +483,6 @@ fn collection_permutations_repeats_and_position_rows() {
         .expect("solver");
 }
 
-fn inj(from: &str, to: &str, value: Pattern) -> Pattern {
-    kore_application("inj", vec![kore_sort(from), kore_sort(to)], vec![value])
-}
-
-#[test]
-fn collection_free_tv01_fix1_and_stuck_terminals_keep_exact_values() {
-    let fixture = Fixture::new("unbound.k", "TV01TERMINAL", "TV01TERMINAL");
-    let seven = || support::int(7);
-    let done = |value| support::app("Lbldone", vec![value]);
-    let check = |value| support::app("Lblcheck", vec![value]);
-    let wrap = |value| support::app("Lblwrap", vec![value]);
-    // Every TV01-FIX1 row, including the term checked separately beneath kseq.
-    let nested = inj("SortVal", "SortKItem", inj("SortInt", "SortVal", seven()));
-    let rows = [
-        ("strict", done(inj("SortInt", "SortVal", seven()))),
-        ("strict-ctor", done(wrap(seven()))),
-        (
-            "strict-var",
-            done(inj("SortInt", "SortVal", support::var("X", "SortInt"))),
-        ),
-        ("canonical-check", check(seven())),
-        ("identity", check(inj("SortInt", "SortInt", seven()))),
-        (
-            "identity-under-strict",
-            done(inj(
-                "SortInt",
-                "SortVal",
-                inj("SortInt", "SortInt", seven()),
-            )),
-        ),
-        (
-            "identity-val",
-            done(inj("SortVal", "SortVal", wrap(seven()))),
-        ),
-        ("reversed", check(inj("SortVal", "SortInt", wrap(seven())))),
-        (
-            "ill-sorted-dv",
-            done(inj(
-                "SortInt",
-                "SortVal",
-                Pattern::DomainValue {
-                    sort: kore_sort("SortBool"),
-                    value: "true".into(),
-                },
-            )),
-        ),
-        (
-            "ill-sorted-ctor",
-            done(inj("SortInt", "SortVal", wrap(seven()))),
-        ),
-        (
-            "ill-sorted-var",
-            done(inj("SortInt", "SortVal", support::var("V", "SortVal"))),
-        ),
-        ("nested", nested.clone()),
-        (
-            "nested-state",
-            support::initial_state(
-                support::app("Lblhold", vec![support::app("LblListItem", vec![nested])]),
-                "SortProg",
-            ),
-        ),
-        (
-            "bridge-identity",
-            support::initial_state(check(inj("SortInt", "SortInt", seven())), "SortProg"),
-        ),
-        (
-            "bridge-canonical",
-            support::initial_state(check(support::int(3)), "SortProg"),
-        ),
-    ];
-    let mut backend = fixture.backend();
-    for (id, term) in rows {
-        backend
-            .with_solver(None, |definition, solver| {
-                let decider =
-                    ObservationDecider::new(definition, solver, TestInitialState::of_test(&term));
-                assert_eq!(
-                    decider.terminal_value(&term),
-                    decider.definition_independent(&term).then(|| term.clone()),
-                    "STOP N9 TV01-FIX1 {id}"
-                );
-                Ok::<_, BackendError>(())
-            })
-            .expect("solver");
-    }
-    let z = || support::app("Lblz", vec![]);
-    let s = |p| support::app("Lbls", vec![p]);
-    let rows = [
-        (
-            "counter.k",
-            "COUNTER",
-            support::initial_state(
-                support::app("Lblcounter", vec![z(), s(s(s(z())))]),
-                "SortCounter",
-            ),
-        ),
-        (
-            "guardeddiv.k",
-            "GUARDEDDIV",
-            support::initial_state(
-                support::app("Lbldivide", vec![support::int(10), support::int(2)]),
-                "SortProg",
-            ),
-        ),
-    ];
-    for (file, main, initial) in rows {
-        let fixture = Fixture::new(file, main, main);
-        let mut backend = fixture.backend();
-        let execution = ExecutionAdapter::with_profile(SolverProfile::BUILD)
-            .execute(&mut backend, &initial, BUDGET)
-            .expect("execution");
-        assert!(!execution.timed_out());
-        assert_eq!(execution.leaves().len(), 1);
-        assert_eq!(execution.leaves()[0].halt, HaltClass::Stuck);
-        let raw = from_value(&execution.leaves()[0].branch.state).expect("leaf KORE");
-        backend
-            .with_solver(None, |definition, solver| {
-                let decider = ObservationDecider::new(
-                    definition,
-                    solver,
-                    TestInitialState::of_test(&initial),
-                );
-                assert!(decider.definition_independent(&raw));
-                assert_eq!(
-                    decider.terminal_value(&raw),
-                    Some(raw.clone()),
-                    "STOP N9 {main} terminal bytes"
-                );
-                Ok::<_, BackendError>(())
-            })
-            .expect("solver");
-    }
-}
-
 mod external {
     use super::*;
 
@@ -718,5 +528,204 @@ mod external {
             eprintln!("CS16 N1 external {main}: every terminal canonical byte for byte");
         }
     }).expect("external measurement thread").join().unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+    }
+}
+
+mod kink_tier {
+    use super::*;
+
+    #[test]
+    #[ignore = "kink"]
+    fn collection_free_tv01_fix1_and_stuck_terminals_keep_exact_values() {
+        let fixture = Fixture::new("unbound.k", "TV01TERMINAL", "TV01TERMINAL");
+        let seven = || support::int(7);
+        let done = |value| support::app("Lbldone", vec![value]);
+        let check = |value| support::app("Lblcheck", vec![value]);
+        let wrap = |value| support::app("Lblwrap", vec![value]);
+        // Every TV01-FIX1 row, including the term checked separately beneath kseq.
+        let nested = inj("SortVal", "SortKItem", inj("SortInt", "SortVal", seven()));
+        let rows = [
+            ("strict", done(inj("SortInt", "SortVal", seven()))),
+            ("strict-ctor", done(wrap(seven()))),
+            (
+                "strict-var",
+                done(inj("SortInt", "SortVal", support::var("X", "SortInt"))),
+            ),
+            ("canonical-check", check(seven())),
+            ("identity", check(inj("SortInt", "SortInt", seven()))),
+            (
+                "identity-under-strict",
+                done(inj(
+                    "SortInt",
+                    "SortVal",
+                    inj("SortInt", "SortInt", seven()),
+                )),
+            ),
+            (
+                "identity-val",
+                done(inj("SortVal", "SortVal", wrap(seven()))),
+            ),
+            ("reversed", check(inj("SortVal", "SortInt", wrap(seven())))),
+            (
+                "ill-sorted-dv",
+                done(inj(
+                    "SortInt",
+                    "SortVal",
+                    Pattern::DomainValue {
+                        sort: kore_sort("SortBool"),
+                        value: "true".into(),
+                    },
+                )),
+            ),
+            (
+                "ill-sorted-ctor",
+                done(inj("SortInt", "SortVal", wrap(seven()))),
+            ),
+            (
+                "ill-sorted-var",
+                done(inj("SortInt", "SortVal", support::var("V", "SortVal"))),
+            ),
+            ("nested", nested.clone()),
+            (
+                "nested-state",
+                support::initial_state(
+                    support::app("Lblhold", vec![support::app("LblListItem", vec![nested])]),
+                    "SortProg",
+                ),
+            ),
+            (
+                "bridge-identity",
+                support::initial_state(check(inj("SortInt", "SortInt", seven())), "SortProg"),
+            ),
+            (
+                "bridge-canonical",
+                support::initial_state(check(support::int(3)), "SortProg"),
+            ),
+        ];
+        let mut backend = fixture.backend();
+        for (id, term) in rows {
+            backend
+                .with_solver(None, |definition, solver| {
+                    let decider = ObservationDecider::new(
+                        definition,
+                        solver,
+                        TestInitialState::of_test(&term),
+                    );
+                    assert_eq!(
+                        decider.terminal_value(&term),
+                        decider.definition_independent(&term).then(|| term.clone()),
+                        "STOP N9 TV01-FIX1 {id}"
+                    );
+                    Ok::<_, BackendError>(())
+                })
+                .expect("solver");
+        }
+        let z = || support::app("Lblz", vec![]);
+        let s = |p| support::app("Lbls", vec![p]);
+        let rows = [
+            (
+                "counter.k",
+                "COUNTER",
+                support::initial_state(
+                    support::app("Lblcounter", vec![z(), s(s(s(z())))]),
+                    "SortCounter",
+                ),
+            ),
+            (
+                "guardeddiv.k",
+                "GUARDEDDIV",
+                support::initial_state(
+                    support::app("Lbldivide", vec![support::int(10), support::int(2)]),
+                    "SortProg",
+                ),
+            ),
+        ];
+        for (file, main, initial) in rows {
+            let fixture = Fixture::new(file, main, main);
+            let mut backend = fixture.backend();
+            let execution = ExecutionAdapter::with_profile(SolverProfile::BUILD)
+                .execute(&mut backend, &initial, BUDGET)
+                .expect("execution");
+            assert!(!execution.timed_out());
+            assert_eq!(execution.leaves().len(), 1);
+            assert_eq!(execution.leaves()[0].halt, HaltClass::Stuck);
+            let raw = from_value(&execution.leaves()[0].branch.state).expect("leaf KORE");
+            backend
+                .with_solver(None, |definition, solver| {
+                    let decider = ObservationDecider::new(
+                        definition,
+                        solver,
+                        TestInitialState::of_test(&initial),
+                    );
+                    assert!(decider.definition_independent(&raw));
+                    assert_eq!(
+                        decider.terminal_value(&raw),
+                        Some(raw.clone()),
+                        "STOP N9 {main} terminal bytes"
+                    );
+                    Ok::<_, BackendError>(())
+                })
+                .expect("solver");
+        }
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn natural_collection_terminals_and_bridge_rows() {
+        let store = Fixture::new("collstore.k", "COLLSTORE", "COLLSTORE-SYNTAX");
+        let t = PathStop::Terminal;
+        let u = PathStop::UndefinedStep;
+        let s = PathStop::SolverUnknown;
+        let terms = execute_rows(
+            &store,
+            &[
+                ("put1", "put(1, 10)", true, t),
+                ("put21", "seq(put(2, 20), put(1, 10))", true, t),
+                ("put12", "seq(put(1, 10), put(2, 20))", true, t),
+                ("two", "putTwo(1, 10, 2, 20)", true, t),
+                ("tworev", "putTwoRev(1, 10, 2, 20)", true, t),
+                ("put10", "seq(put(10, 1), put(9, 1))", true, t),
+                ("set21", "seq(addSet(2), addSet(1))", true, t),
+                ("set12", "seq(addSet(1), addSet(2))", true, t),
+                ("list21", "seq(logList(2), logList(1))", true, t),
+                ("list12", "seq(logList(1), logList(2))", true, t),
+                ("fkey0", "fKey(0)", true, t),
+                ("nest", "nest(3)", true, t),
+                ("halt", "halt()", true, t),
+                ("clear", "seq(put(1, 10), clear())", true, t),
+                ("fkey1", "fKey(1)", false, s),
+                ("fval1", "fVal(1)", false, s),
+                ("byteskey", "bytesKey(\"a\")", false, s),
+                ("dupkey", "seq(put(1, 10), dupKey(1))", true, u),
+                ("dupkeysame", "seq(put(1, 1), dupKey(1))", true, u),
+                ("dupelem", "seq(addSet(1), dupElem(1))", true, u),
+            ],
+        );
+        for id in ["put12", "two", "tworev"] {
+            assert_eq!(terms["put21"], terms[id], "N2 {id}");
+        }
+        assert_eq!(terms["set21"], terms["set12"], "N2 Set order");
+        assert_ne!(terms["list21"], terms["list12"], "N2 List order");
+        let cell = Fixture::new("cellmap.k", "CELLMAP", "CELLMAP-SYNTAX");
+        assert_eq!(
+            declaration_census(&cell.compiled)
+                .expect("census")
+                .verdict(),
+            CensusVerdict::Natural
+        );
+        let terms = execute_rows(
+            &cell,
+            &[
+                ("open21", "seq(open(2, 20), open(1, 10))", true, t),
+                ("open12", "seq(open(1, 10), open(2, 20))", true, t),
+                ("opendup", "seq(open(1, 10), open(1, 11))", true, u),
+            ],
+        );
+        assert_eq!(terms["open21"], terms["open12"], "N2 cell map order");
+        let imp = Fixture::new("collimp.k", "COLLIMP", "COLLIMP-SYNTAX");
+        execute_rows(
+            &imp,
+            &[("sum", "var x ; var y ; x = 1 + 2 ; y = x + x ;", true, t)],
+        );
     }
 }

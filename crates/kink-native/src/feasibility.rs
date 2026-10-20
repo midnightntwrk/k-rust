@@ -993,46 +993,6 @@ mod tests {
         )));
     }
 
-    #[test]
-    fn shared_relations_refuse_noncanonical_integer_identity() {
-        let mut backend = backend("symmem.k", "SYMMEM");
-        let state = symmem_state();
-        let real = path(PathStop::DepthLimit, top());
-        backend
-            .with_solver(None, |definition, solver| {
-                let relations =
-                    BackendRelations::shared(definition, solver, TestInitialState::of_test(&state));
-                for (bytes, canonical) in [
-                    (b"01".as_slice(), b"1".as_slice()),
-                    (b"+1", b"1"),
-                    (b"-0", b"0"),
-                ] {
-                    let value = Pattern::DomainValue {
-                        sort: k_rust::kompile::initial_configuration::kore_sort("SortInt"),
-                        value: bytes.to_vec().into(),
-                    };
-                    let internal = definition
-                        .admit_unverified(&value, &[])
-                        .internalize_term()
-                        .expect("Int accepts this decimal form");
-                    assert_eq!(
-                        externalize::term(&internal),
-                        Pattern::DomainValue {
-                            sort: k_rust::kompile::initial_configuration::kore_sort("SortInt"),
-                            value: canonical.to_vec().into(),
-                        }
-                    );
-                    assert_eq!(relations.relate(&real, &[], &value, &value), Indeterminate);
-                    assert_eq!(
-                        relations.feasible(&real, &[relation(value.clone(), value)]),
-                        Unknown
-                    );
-                }
-                Ok::<_, BackendError>(())
-            })
-            .expect("shared decider");
-    }
-
     fn nat(name: &str) -> Pattern {
         support::var(name, "SortNat")
     }
@@ -1317,110 +1277,6 @@ mod tests {
         for ((id, answer), (.., expected)) in answers.into_iter().zip(&rows) {
             assert_eq!(&answer, expected, "{id}");
         }
-    }
-
-    #[test]
-    fn backend_relations_decide_assumption_feasibility_without_a_solver() {
-        let mut symmem = backend("symmem.k", "SYMMEM");
-        let (x, y) = (nat("X"), nat("Y"));
-        let constrained = Pattern::Equals {
-            operand_sort: Box::new(k_rust::kompile::initial_configuration::kore_sort("SortNat")),
-            result_sort: k_rust::kompile::initial_configuration::kore_sort("SortGeneratedTopCell"),
-            left: Box::new(y.clone()),
-            right: Box::new(z()),
-        };
-        // On a `\top` path, bindings of variables to constructor terms are eliminated and the
-        // relation query is empty: `Sat` without asking a solver, in both profiles (SYM-3B-03).
-        // (id, path, assumptions, expected)
-        let rows = [
-            (
-                "empty-on-real-prefix",
-                path(PathStop::DepthLimit, top()),
-                vec![],
-                Sat,
-            ),
-            (
-                "variable-identification",
-                path(PathStop::DepthLimit, top()),
-                vec![relation(x.clone(), y.clone())],
-                Sat,
-            ),
-            (
-                "constructor-instantiation",
-                path(PathStop::Terminal, top()),
-                vec![relation(x.clone(), s(y.clone()))],
-                Sat,
-            ),
-            (
-                "joint-clash",
-                path(PathStop::DepthLimit, top()),
-                vec![relation(x.clone(), z()), relation(x.clone(), s(y.clone()))],
-                Unsat,
-            ),
-            (
-                "no-real-prefix",
-                path(PathStop::SolverUnknown, top()),
-                vec![relation(x.clone(), y.clone())],
-                Unknown,
-            ),
-            (
-                "path-condition-needs-a-solver",
-                path(PathStop::DepthLimit, constrained),
-                vec![relation(x.clone(), y.clone())],
-                Unknown,
-            ),
-            (
-                "foreign-variable",
-                path(PathStop::DepthLimit, top()),
-                vec![relation(nat("Q"), y.clone())],
-                Unknown,
-            ),
-        ];
-        let state = symmem_state();
-        let answers = symmem
-            .with_solver(None, |definition, solver| {
-                let relations =
-                    BackendRelations::shared(definition, solver, TestInitialState::of_test(&state));
-                Ok::<_, BackendError>(
-                    rows.iter()
-                        .map(|(id, path, assumptions, _)| {
-                            (*id, relations.feasible(path, assumptions))
-                        })
-                        .collect::<Vec<_>>(),
-                )
-            })
-            .expect("relations");
-        for ((id, answer), (.., expected)) in answers.into_iter().zip(&rows) {
-            assert_eq!(answer, *expected, "{id}");
-        }
-    }
-
-    #[test]
-    fn ground_function_pairs_are_indeterminate() {
-        let mut guarded = backend("guardedmem.k", "GUARDEDMEM");
-        let state = support::initial_state(support::app("Lblhalt", vec![]), "SortProg");
-        let answers = guarded
-            .with_solver(None, |definition, solver| {
-                let plus = definition
-                    .symbols()
-                    .values()
-                    .find(|symbol| symbol.attributes.hook.as_deref() == Some("INT.add"))
-                    .expect("+Int")
-                    .name
-                    .to_string();
-                let one_plus_one = support::app(&plus, vec![support::int(1), support::int(1)]);
-                let relations =
-                    BackendRelations::shared(definition, solver, TestInitialState::of_test(&state));
-                let real = path(PathStop::Terminal, top());
-                Ok::<_, BackendError>([
-                    relations.relate(&real, &[], &one_plus_one, &support::int(2)),
-                    relations.relate(&real, &[], &one_plus_one, &support::int(3)),
-                    relations.relate(&real, &[], &support::int(1), &support::int(2)),
-                    relations.relate(&real, &[], &support::int(2), &support::int(2)),
-                ])
-            })
-            .expect("relations");
-        assert_eq!(answers, [Indeterminate, Indeterminate, Unequal, Equal]);
     }
 
     /// A solver that answers every satisfiability query with one scripted result.
@@ -1848,124 +1704,6 @@ mod tests {
         )
     }
 
-    /// VI preserves the free ExW0 in W = 1 and exists Ex#W!0. W = 2 (Unsat).
-    /// The pre-VI binder spelling ExW0 captures W in the second equality (Solver).
-    /// Without Z3 both constrained states have Unknown feasibility.
-    #[test]
-    fn decoded_binders_do_not_capture() {
-        let mut guarded = backend("guardedmem.k", "GUARDEDMEM");
-        let rows = guarded
-            .with_solver(None, |definition, solver| {
-                let inhabitation = Inhabitation::of(definition);
-                let w = support::var("ExW0", "SortInt");
-                let binder = externalize::external_variable_name("Ex#W!0");
-                let mut rows = Vec::new();
-                for name in [&binder, "ExW0"] {
-                    let Pattern::Variable(variable) = &support::var(name, "SortInt") else {
-                        unreachable!()
-                    };
-                    let state = constrained(
-                        constrained(
-                            guarded_state(w.clone()),
-                            equals("SortInt", w.clone(), support::int(1)),
-                        ),
-                        Pattern::Exists {
-                            sort: top_sort(),
-                            variable: Box::new(variable.clone()),
-                            body: Box::new(equals("SortInt", w.clone(), support::int(2))),
-                        },
-                    );
-                    rows.push(leaf_feasibility(
-                        definition,
-                        solver,
-                        &inhabitation,
-                        &codec::to_value(&state).expect("decoded state encodes"),
-                    ));
-                }
-                Ok::<_, BackendError>(rows)
-            })
-            .expect("binder rows");
-        let expected = if cfg!(feature = "z3") {
-            vec![LeafFeasibility::Unsat, LeafFeasibility::Solver]
-        } else {
-            vec![LeafFeasibility::Unknown; 2]
-        };
-        assert_eq!(rows, expected);
-    }
-
-    /// VI-06 attack VI-AT7, the row `decoded_binders_do_not_capture` cannot build from KORE:
-    /// an internal binder `Ex#W!0` (a mint, never a read name) printed next to a free
-    /// variable that a test spelled `Ex-hW-b0`, the binder's own printed spelling. k-rust's
-    /// printer renames the binder apart (`apart_binders`: `Ex#W!0!binder0`, printed
-    /// `Ex-hW-b0-bbinder0`), so the read-back state keeps the real `w = 1 and exists v. w = 2`:
-    /// Unsat under Z3, not the captured, satisfiable `w = 1 and exists w. w = 2`. Without Z3
-    /// the state is Unknown.
-    #[test]
-    fn audit_vi_at7_initial_name_spelled_like_a_printed_binder_is_not_captured() {
-        let mut guarded = backend("guardedmem.k", "GUARDEDMEM");
-        let (binder, row) = guarded
-            .with_solver(None, |definition, solver| {
-                let inhabitation = Inhabitation::of(definition);
-                let w = support::var("Ex-hW-b0", "SortInt");
-                let Pattern::Variable(read_binder) = &support::var("B", "SortInt") else {
-                    unreachable!()
-                };
-                let read = constrained(
-                    constrained(
-                        guarded_state(w.clone()),
-                        equals("SortInt", w.clone(), support::int(1)),
-                    ),
-                    Pattern::Exists {
-                        sort: top_sort(),
-                        variable: Box::new(read_binder.clone()),
-                        body: Box::new(equals("SortInt", w.clone(), support::int(2))),
-                    },
-                );
-                let mut internal = definition
-                    .admit_unverified(&read, &[])
-                    .internalize_pattern()
-                    .expect("state internalizes");
-                let mut minted = 0;
-                for predicate in &mut internal.constraints {
-                    if let k_rust_backend::rule::Predicate::Exists(variable, _) = predicate {
-                        *variable = variable.with_name("Ex#W!0");
-                        minted += 1;
-                    }
-                }
-                assert_eq!(minted, 1, "one binder: {:?}", internal.constraints);
-                let printed = externalize::constrained_pattern(&internal);
-                let mut binders = Vec::new();
-                k_rust::kore::walk::for_each_post_order(&printed, |node| {
-                    if let Pattern::Exists { variable, .. } = node {
-                        binders.push(variable.name.clone());
-                    }
-                });
-                assert_eq!(
-                    printed
-                        .free_variables()
-                        .into_iter()
-                        .map(|variable| variable.name)
-                        .collect::<Vec<_>>(),
-                    ["Ex-hW-b0", "V"]
-                );
-                let row = leaf_feasibility(
-                    definition,
-                    solver,
-                    &inhabitation,
-                    &codec::to_value(&printed).expect("printed state encodes"),
-                );
-                Ok::<_, BackendError>((binders, row))
-            })
-            .expect("binder row");
-        assert_eq!(binder, ["Ex-hW-b0-bbinder0"]);
-        let expected = if cfg!(feature = "z3") {
-            LeafFeasibility::Unsat
-        } else {
-            LeafFeasibility::Unknown
-        };
-        assert_eq!(row, expected);
-    }
-
     /// Under the documented explicit-definedness premise, leaf feasibility uses the solver's
     /// `Unsat`, and uses its `Sat` only for an exactly
     /// translated predicate over a constructor term; `NoSolver` adds nothing.
@@ -2286,135 +2024,6 @@ mod tests {
         );
     }
 
-    /// The test's initial variables are linked whatever their spelling: a digit suffix, an old
-    /// mint spelling (`ExVarI0`, `RuleX`) and a printed mint spelling (`Ex-hX-b0`) all
-    /// name request variables. Rename-only change (VI-03F): v3 reads Ex-hX-b0 verbatim. All or nothing: one variable
-    /// of an uninhabited sort leaves no initial variable.
-    #[test]
-    fn initial_variables_are_every_inhabited_initial_variable() {
-        let mut symmem = backend("symmem.k", "SYMMEM");
-        let (a, b, c, d) = (nat("X1"), nat("ExVarI0"), nat("RuleX"), nat("Ex-hX-b0"));
-        let state = support::initial_state(
-            support::app(
-                "Lblseq",
-                vec![
-                    support::app("Lblwrite", vec![addr(a.clone()), b.clone()]),
-                    support::app(
-                        "Lblseq",
-                        vec![
-                            support::app("Lblload", vec![addr(c.clone()), d.clone()]),
-                            support::app("Lblhalt", vec![]),
-                        ],
-                    ),
-                ],
-            ),
-            "SortProg",
-        );
-        let real = path(PathStop::DepthLimit, top());
-        let (variables, answers) = symmem
-            .with_solver(None, |definition, solver| {
-                let relations =
-                    BackendRelations::shared(definition, solver, TestInitialState::of_test(&state));
-                Ok::<_, BackendError>((
-                    relations.variables.clone(),
-                    [
-                        relations.relate(&real, &[], &addr(a.clone()), &addr(a.clone())),
-                        relations.relate(&real, &[], &addr(a.clone()), &addr(c.clone())),
-                        relations.relate(&real, &[], &b, &d),
-                    ],
-                ))
-            })
-            .expect("relations");
-        assert_eq!(
-            variables,
-            Some(
-                ["X1", "ExVarI0", "RuleX", "Ex-hX-b0"]
-                    .into_iter()
-                    .map(|name| Variable::new(name, Sort::simple("SortNat")))
-                    .collect()
-            )
-        );
-        assert_eq!(
-            answers,
-            [
-                Equal,
-                EqualIf(vec![relation(c.clone(), a.clone())]),
-                EqualIf(vec![relation(d.clone(), b.clone())]),
-            ]
-        );
-        let definition =
-            BackendDefinition::internalize(&parse_definition(EMPTY).expect("KORE"), "MAIN")
-                .expect("definition");
-        let solver = k_rust_backend::smt::NoSolver;
-        let inhabited = support::var("VarS", "SortS");
-        let empty = support::var("VarE", "SortEmpty");
-        assert_eq!(
-            BackendRelations::shared(&definition, &solver, TestInitialState::of_test(&inhabited))
-                .variables,
-            Some(BTreeSet::from([Variable::new(
-                "VarS",
-                Sort::simple("SortS")
-            )]))
-        );
-        let pair = support::app(
-            "Lblpair",
-            vec![inhabited, support::app("Lblwrap", vec![empty])],
-        );
-        assert_eq!(
-            BackendRelations::shared(&definition, &solver, TestInitialState::of_test(&pair))
-                .variables,
-            None
-        );
-    }
-
-    #[test]
-    fn shared_relations_refuse_identity_injections() {
-        let mut backend = backend("subsort_steps.k", "SUBSORT'Unds'STEPS");
-        let y = support::var("Y", "SortLarge");
-        let state = support::initial_state(support::app("Lblstep", vec![y.clone()]), "SortProg");
-        let identity = k_rust::kompile::initial_configuration::kore_application(
-            "inj",
-            vec![
-                k_rust::kompile::initial_configuration::kore_sort("SortLarge"),
-                k_rust::kompile::initial_configuration::kore_sort("SortLarge"),
-            ],
-            vec![y.clone()],
-        );
-        let real = path(PathStop::DepthLimit, top());
-        backend
-            .with_solver(None, |definition, solver| {
-                let shared =
-                    BackendRelations::shared(definition, solver, TestInitialState::of_test(&state));
-                assert_eq!(
-                    shared.relate(&real, &[], &identity, &y),
-                    RelationDecision::Indeterminate
-                );
-                assert_eq!(
-                    shared.feasible(&real, &[relation(identity.clone(), y.clone())]),
-                    Feasibility::Unknown
-                );
-                assert_eq!(
-                    shared.relate(&real, &[relation(identity.clone(), y.clone())], &y, &y),
-                    RelationDecision::Indeterminate
-                );
-                let invalid_state = support::initial_state(
-                    support::app("Lblstep", vec![identity.clone()]),
-                    "SortProg",
-                );
-                assert_eq!(
-                    shared_leaf_feasibility(
-                        definition,
-                        solver,
-                        &Inhabitation::of(definition),
-                        &codec::to_value(&invalid_state).expect("state JSON"),
-                    ),
-                    LeafFeasibility::Unknown
-                );
-                Ok::<_, BackendError>(())
-            })
-            .expect("relations");
-    }
-
     /// state-observations SO-03 review R1-D3/R2-D2 (probe `r6`), the printed-name exposure
     /// closed by variable identity: `go(B)` narrows `B:Box` to `c(I)` with a fresh `I`, and the
     /// test's own variable is named `ExVarI0`, the spelling k-rust printed that mint in before
@@ -2560,6 +2169,432 @@ mod tests {
         } else {
             assert_eq!(feasibility, vec![LeafFeasibility::Syntactic]);
             assert_eq!(events, vec![Vec::new()]);
+        }
+    }
+
+    mod kink_tier {
+        use super::*;
+
+        /// VI-06 attack VI-AT7, the row `decoded_binders_do_not_capture` cannot build from KORE:
+        /// an internal binder `Ex#W!0` (a mint, never a read name) printed next to a free
+        /// variable that a test spelled `Ex-hW-b0`, the binder's own printed spelling. k-rust's
+        /// printer renames the binder apart (`apart_binders`: `Ex#W!0!binder0`, printed
+        /// `Ex-hW-b0-bbinder0`), so the read-back state keeps the real `w = 1 and exists v. w = 2`:
+        /// Unsat under Z3, not the captured, satisfiable `w = 1 and exists w. w = 2`. Without Z3
+        /// the state is Unknown.
+        #[test]
+        #[ignore = "kink"]
+        fn audit_vi_at7_initial_name_spelled_like_a_printed_binder_is_not_captured() {
+            let mut guarded = backend("guardedmem.k", "GUARDEDMEM");
+            let (binder, row) = guarded
+                .with_solver(None, |definition, solver| {
+                    let inhabitation = Inhabitation::of(definition);
+                    let w = support::var("Ex-hW-b0", "SortInt");
+                    let Pattern::Variable(read_binder) = &support::var("B", "SortInt") else {
+                        unreachable!()
+                    };
+                    let read = constrained(
+                        constrained(
+                            guarded_state(w.clone()),
+                            equals("SortInt", w.clone(), support::int(1)),
+                        ),
+                        Pattern::Exists {
+                            sort: top_sort(),
+                            variable: Box::new(read_binder.clone()),
+                            body: Box::new(equals("SortInt", w.clone(), support::int(2))),
+                        },
+                    );
+                    let mut internal = definition
+                        .admit_unverified(&read, &[])
+                        .internalize_pattern()
+                        .expect("state internalizes");
+                    let mut minted = 0;
+                    for predicate in &mut internal.constraints {
+                        if let k_rust_backend::rule::Predicate::Exists(variable, _) = predicate {
+                            *variable = variable.with_name("Ex#W!0");
+                            minted += 1;
+                        }
+                    }
+                    assert_eq!(minted, 1, "one binder: {:?}", internal.constraints);
+                    let printed = externalize::constrained_pattern(&internal);
+                    let mut binders = Vec::new();
+                    k_rust::kore::walk::for_each_post_order(&printed, |node| {
+                        if let Pattern::Exists { variable, .. } = node {
+                            binders.push(variable.name.clone());
+                        }
+                    });
+                    assert_eq!(
+                        printed
+                            .free_variables()
+                            .into_iter()
+                            .map(|variable| variable.name)
+                            .collect::<Vec<_>>(),
+                        ["Ex-hW-b0", "V"]
+                    );
+                    let row = leaf_feasibility(
+                        definition,
+                        solver,
+                        &inhabitation,
+                        &codec::to_value(&printed).expect("printed state encodes"),
+                    );
+                    Ok::<_, BackendError>((binders, row))
+                })
+                .expect("binder row");
+            assert_eq!(binder, ["Ex-hW-b0-bbinder0"]);
+            let expected = if cfg!(feature = "z3") {
+                LeafFeasibility::Unsat
+            } else {
+                LeafFeasibility::Unknown
+            };
+            assert_eq!(row, expected);
+        }
+
+        #[test]
+        #[ignore = "kink"]
+        fn backend_relations_decide_assumption_feasibility_without_a_solver() {
+            let mut symmem = backend("symmem.k", "SYMMEM");
+            let (x, y) = (nat("X"), nat("Y"));
+            let constrained = Pattern::Equals {
+                operand_sort: Box::new(k_rust::kompile::initial_configuration::kore_sort(
+                    "SortNat",
+                )),
+                result_sort: k_rust::kompile::initial_configuration::kore_sort(
+                    "SortGeneratedTopCell",
+                ),
+                left: Box::new(y.clone()),
+                right: Box::new(z()),
+            };
+            // On a `\top` path, bindings of variables to constructor terms are eliminated and the
+            // relation query is empty: `Sat` without asking a solver, in both profiles (SYM-3B-03).
+            // (id, path, assumptions, expected)
+            let rows = [
+                (
+                    "empty-on-real-prefix",
+                    path(PathStop::DepthLimit, top()),
+                    vec![],
+                    Sat,
+                ),
+                (
+                    "variable-identification",
+                    path(PathStop::DepthLimit, top()),
+                    vec![relation(x.clone(), y.clone())],
+                    Sat,
+                ),
+                (
+                    "constructor-instantiation",
+                    path(PathStop::Terminal, top()),
+                    vec![relation(x.clone(), s(y.clone()))],
+                    Sat,
+                ),
+                (
+                    "joint-clash",
+                    path(PathStop::DepthLimit, top()),
+                    vec![relation(x.clone(), z()), relation(x.clone(), s(y.clone()))],
+                    Unsat,
+                ),
+                (
+                    "no-real-prefix",
+                    path(PathStop::SolverUnknown, top()),
+                    vec![relation(x.clone(), y.clone())],
+                    Unknown,
+                ),
+                (
+                    "path-condition-needs-a-solver",
+                    path(PathStop::DepthLimit, constrained),
+                    vec![relation(x.clone(), y.clone())],
+                    Unknown,
+                ),
+                (
+                    "foreign-variable",
+                    path(PathStop::DepthLimit, top()),
+                    vec![relation(nat("Q"), y.clone())],
+                    Unknown,
+                ),
+            ];
+            let state = symmem_state();
+            let answers = symmem
+                .with_solver(None, |definition, solver| {
+                    let relations = BackendRelations::shared(
+                        definition,
+                        solver,
+                        TestInitialState::of_test(&state),
+                    );
+                    Ok::<_, BackendError>(
+                        rows.iter()
+                            .map(|(id, path, assumptions, _)| {
+                                (*id, relations.feasible(path, assumptions))
+                            })
+                            .collect::<Vec<_>>(),
+                    )
+                })
+                .expect("relations");
+            for ((id, answer), (.., expected)) in answers.into_iter().zip(&rows) {
+                assert_eq!(answer, *expected, "{id}");
+            }
+        }
+
+        /// VI preserves the free ExW0 in W = 1 and exists Ex#W!0. W = 2 (Unsat).
+        /// The pre-VI binder spelling ExW0 captures W in the second equality (Solver).
+        /// Without Z3 both constrained states have Unknown feasibility.
+        #[test]
+        #[ignore = "kink"]
+        fn decoded_binders_do_not_capture() {
+            let mut guarded = backend("guardedmem.k", "GUARDEDMEM");
+            let rows = guarded
+                .with_solver(None, |definition, solver| {
+                    let inhabitation = Inhabitation::of(definition);
+                    let w = support::var("ExW0", "SortInt");
+                    let binder = externalize::external_variable_name("Ex#W!0");
+                    let mut rows = Vec::new();
+                    for name in [&binder, "ExW0"] {
+                        let Pattern::Variable(variable) = &support::var(name, "SortInt") else {
+                            unreachable!()
+                        };
+                        let state = constrained(
+                            constrained(
+                                guarded_state(w.clone()),
+                                equals("SortInt", w.clone(), support::int(1)),
+                            ),
+                            Pattern::Exists {
+                                sort: top_sort(),
+                                variable: Box::new(variable.clone()),
+                                body: Box::new(equals("SortInt", w.clone(), support::int(2))),
+                            },
+                        );
+                        rows.push(leaf_feasibility(
+                            definition,
+                            solver,
+                            &inhabitation,
+                            &codec::to_value(&state).expect("decoded state encodes"),
+                        ));
+                    }
+                    Ok::<_, BackendError>(rows)
+                })
+                .expect("binder rows");
+            let expected = if cfg!(feature = "z3") {
+                vec![LeafFeasibility::Unsat, LeafFeasibility::Solver]
+            } else {
+                vec![LeafFeasibility::Unknown; 2]
+            };
+            assert_eq!(rows, expected);
+        }
+
+        #[test]
+        #[ignore = "kink"]
+        fn ground_function_pairs_are_indeterminate() {
+            let mut guarded = backend("guardedmem.k", "GUARDEDMEM");
+            let state = support::initial_state(support::app("Lblhalt", vec![]), "SortProg");
+            let answers = guarded
+                .with_solver(None, |definition, solver| {
+                    let plus = definition
+                        .symbols()
+                        .values()
+                        .find(|symbol| symbol.attributes.hook.as_deref() == Some("INT.add"))
+                        .expect("+Int")
+                        .name
+                        .to_string();
+                    let one_plus_one = support::app(&plus, vec![support::int(1), support::int(1)]);
+                    let relations = BackendRelations::shared(
+                        definition,
+                        solver,
+                        TestInitialState::of_test(&state),
+                    );
+                    let real = path(PathStop::Terminal, top());
+                    Ok::<_, BackendError>([
+                        relations.relate(&real, &[], &one_plus_one, &support::int(2)),
+                        relations.relate(&real, &[], &one_plus_one, &support::int(3)),
+                        relations.relate(&real, &[], &support::int(1), &support::int(2)),
+                        relations.relate(&real, &[], &support::int(2), &support::int(2)),
+                    ])
+                })
+                .expect("relations");
+            assert_eq!(answers, [Indeterminate, Indeterminate, Unequal, Equal]);
+        }
+
+        /// The test's initial variables are linked whatever their spelling: a digit suffix, an old
+        /// mint spelling (`ExVarI0`, `RuleX`) and a printed mint spelling (`Ex-hX-b0`) all
+        /// name request variables. Rename-only change (VI-03F): v3 reads Ex-hX-b0 verbatim. All or nothing: one variable
+        /// of an uninhabited sort leaves no initial variable.
+        #[test]
+        #[ignore = "kink"]
+        fn initial_variables_are_every_inhabited_initial_variable() {
+            let mut symmem = backend("symmem.k", "SYMMEM");
+            let (a, b, c, d) = (nat("X1"), nat("ExVarI0"), nat("RuleX"), nat("Ex-hX-b0"));
+            let state = support::initial_state(
+                support::app(
+                    "Lblseq",
+                    vec![
+                        support::app("Lblwrite", vec![addr(a.clone()), b.clone()]),
+                        support::app(
+                            "Lblseq",
+                            vec![
+                                support::app("Lblload", vec![addr(c.clone()), d.clone()]),
+                                support::app("Lblhalt", vec![]),
+                            ],
+                        ),
+                    ],
+                ),
+                "SortProg",
+            );
+            let real = path(PathStop::DepthLimit, top());
+            let (variables, answers) = symmem
+                .with_solver(None, |definition, solver| {
+                    let relations = BackendRelations::shared(
+                        definition,
+                        solver,
+                        TestInitialState::of_test(&state),
+                    );
+                    Ok::<_, BackendError>((
+                        relations.variables.clone(),
+                        [
+                            relations.relate(&real, &[], &addr(a.clone()), &addr(a.clone())),
+                            relations.relate(&real, &[], &addr(a.clone()), &addr(c.clone())),
+                            relations.relate(&real, &[], &b, &d),
+                        ],
+                    ))
+                })
+                .expect("relations");
+            assert_eq!(
+                variables,
+                Some(
+                    ["X1", "ExVarI0", "RuleX", "Ex-hX-b0"]
+                        .into_iter()
+                        .map(|name| Variable::new(name, Sort::simple("SortNat")))
+                        .collect()
+                )
+            );
+            assert_eq!(
+                answers,
+                [
+                    Equal,
+                    EqualIf(vec![relation(c.clone(), a.clone())]),
+                    EqualIf(vec![relation(d.clone(), b.clone())]),
+                ]
+            );
+            let definition =
+                BackendDefinition::internalize(&parse_definition(EMPTY).expect("KORE"), "MAIN")
+                    .expect("definition");
+            let solver = k_rust_backend::smt::NoSolver;
+            let inhabited = support::var("VarS", "SortS");
+            let empty = support::var("VarE", "SortEmpty");
+            assert_eq!(
+                BackendRelations::shared(
+                    &definition,
+                    &solver,
+                    TestInitialState::of_test(&inhabited)
+                )
+                .variables,
+                Some(BTreeSet::from([Variable::new(
+                    "VarS",
+                    Sort::simple("SortS")
+                )]))
+            );
+            let pair = support::app(
+                "Lblpair",
+                vec![inhabited, support::app("Lblwrap", vec![empty])],
+            );
+            assert_eq!(
+                BackendRelations::shared(&definition, &solver, TestInitialState::of_test(&pair))
+                    .variables,
+                None
+            );
+        }
+
+        #[test]
+        #[ignore = "kink"]
+        fn shared_relations_refuse_identity_injections() {
+            let mut backend = backend("subsort_steps.k", "SUBSORT'Unds'STEPS");
+            let y = support::var("Y", "SortLarge");
+            let state =
+                support::initial_state(support::app("Lblstep", vec![y.clone()]), "SortProg");
+            let identity = k_rust::kompile::initial_configuration::kore_application(
+                "inj",
+                vec![
+                    k_rust::kompile::initial_configuration::kore_sort("SortLarge"),
+                    k_rust::kompile::initial_configuration::kore_sort("SortLarge"),
+                ],
+                vec![y.clone()],
+            );
+            let real = path(PathStop::DepthLimit, top());
+            backend
+                .with_solver(None, |definition, solver| {
+                    let shared = BackendRelations::shared(
+                        definition,
+                        solver,
+                        TestInitialState::of_test(&state),
+                    );
+                    assert_eq!(
+                        shared.relate(&real, &[], &identity, &y),
+                        RelationDecision::Indeterminate
+                    );
+                    assert_eq!(
+                        shared.feasible(&real, &[relation(identity.clone(), y.clone())]),
+                        Feasibility::Unknown
+                    );
+                    assert_eq!(
+                        shared.relate(&real, &[relation(identity.clone(), y.clone())], &y, &y),
+                        RelationDecision::Indeterminate
+                    );
+                    let invalid_state = support::initial_state(
+                        support::app("Lblstep", vec![identity.clone()]),
+                        "SortProg",
+                    );
+                    assert_eq!(
+                        shared_leaf_feasibility(
+                            definition,
+                            solver,
+                            &Inhabitation::of(definition),
+                            &codec::to_value(&invalid_state).expect("state JSON"),
+                        ),
+                        LeafFeasibility::Unknown
+                    );
+                    Ok::<_, BackendError>(())
+                })
+                .expect("relations");
+        }
+
+        #[test]
+        #[ignore = "kink"]
+        fn shared_relations_refuse_noncanonical_integer_identity() {
+            let mut backend = backend("symmem.k", "SYMMEM");
+            let state = symmem_state();
+            let real = path(PathStop::DepthLimit, top());
+            backend
+                .with_solver(None, |definition, solver| {
+                    let relations = BackendRelations::shared(
+                        definition,
+                        solver,
+                        TestInitialState::of_test(&state),
+                    );
+                    for (bytes, canonical) in [
+                        (b"01".as_slice(), b"1".as_slice()),
+                        (b"+1", b"1"),
+                        (b"-0", b"0"),
+                    ] {
+                        let value = Pattern::DomainValue {
+                            sort: k_rust::kompile::initial_configuration::kore_sort("SortInt"),
+                            value: bytes.to_vec().into(),
+                        };
+                        let internal = definition
+                            .admit_unverified(&value, &[])
+                            .internalize_term()
+                            .expect("Int accepts this decimal form");
+                        assert_eq!(
+                            externalize::term(&internal),
+                            Pattern::DomainValue {
+                                sort: k_rust::kompile::initial_configuration::kore_sort("SortInt"),
+                                value: canonical.to_vec().into(),
+                            }
+                        );
+                        assert_eq!(relations.relate(&real, &[], &value, &value), Indeterminate);
+                        assert_eq!(
+                            relations.feasible(&real, &[relation(value.clone(), value)]),
+                            Unknown
+                        );
+                    }
+                    Ok::<_, BackendError>(())
+                })
+                .expect("shared decider");
         }
     }
 }

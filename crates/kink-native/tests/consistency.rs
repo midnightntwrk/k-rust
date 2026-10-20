@@ -112,24 +112,6 @@ fn the_probe_head_makes_k_rust_check_every_pair() {
     });
 }
 
-/// Only the pairs of the symbols the edit can change are read: the baseline's own equations stay
-/// a trusted premise. The baseline's guards are complementary, so its pair is refuted.
-#[test]
-fn the_check_reads_the_heads_the_edit_can_change() {
-    on_a_big_stack(|| {
-        let validator = nomatch();
-        let compiled = validator.compile_baseline().unwrap();
-        assert_eq!(check_heads(&compiled, None), Ok(()));
-        let (side, _) = guard_mutant(&validator, "NOMATCH.fneg", "5");
-        assert_eq!(check_heads(&side, Some(&BTreeSet::new())), Ok(()));
-        assert_eq!(
-            check_heads(&side, Some(&BTreeSet::from(["go".to_owned()]))),
-            Ok(())
-        );
-        assert!(check_heads(&side, Some(&BTreeSet::from(["f".to_owned()]))).is_err());
-    });
-}
-
 /// The k-rust text the check's soundness rests on (file relative to the k-rust tree, first and
 /// last line, sha256 of the lines joined by newlines). At 501f18b9: that `M_NF` is a model when
 /// evaluation terminates and the critical pairs join (947); what the check classifies and how a
@@ -281,68 +263,93 @@ fn the_probe_head_makes_k_rust_classify_self_pairs() {
     });
 }
 
-/// Re-pin R0c-fix-4: the source reading is a fail-closed cross-check of the compiled
-/// definitions. On `r0c/cfgf.k`, `fpos` (`[[ f(I) => 1 ]] <k> _ </k>`) compiles to an equation of
-/// `f`; a source reading that redefines nothing (as kink-patch read such a rule at 25e229e) is
-/// contradicted by the compiled equation of the touched sentence, so the effect is unread. With
-/// kink-patch's reading (`f` redefined) the mutant is read and refused as inconsistent, and the
-/// compiled diff alone (an empty source reading that touches no sentence) still checks `f`.
-#[test]
-fn a_compiled_equation_of_a_touched_sentence_must_be_redefined() {
-    on_a_big_stack(|| {
-        let validator = r0c("cfgf");
-        let baseline = validator.baseline();
-        let compiled = validator.compile_baseline().unwrap();
-        let equations = CompiledEquations::of(&compiled).unwrap();
-        let rule = support::rule(baseline, "CFGF.fpos");
-        let at = TermRef::new(rule.clone(), [1, 1]);
-        let expected = baseline.term(&at).expect("the guard literal").clone();
-        let patch = Patch::new(vec![Edit::ReplaceTerm {
-            at,
-            expected,
-            replacement: Term::Token {
-                token: "-5".into(),
-                sort: Sort::new("Int"),
-            },
-        }])
-        .unwrap();
-        let support = ClaimSupport::new(baseline);
-        let effect = support.effect(baseline, &patch).unwrap();
-        assert_eq!(effect.redefined, Some(BTreeSet::from(["f".to_owned()])));
-        let side = validator
-            .validate(support.withdraw(baseline, &patch).unwrap().patch().unwrap())
+mod kink_tier {
+    use super::*;
+
+    /// Re-pin R0c-fix-4: the source reading is a fail-closed cross-check of the compiled
+    /// definitions. On `r0c/cfgf.k`, `fpos` (`[[ f(I) => 1 ]] <k> _ </k>`) compiles to an equation of
+    /// `f`; a source reading that redefines nothing (as kink-patch read such a rule at 25e229e) is
+    /// contradicted by the compiled equation of the touched sentence, so the effect is unread. With
+    /// kink-patch's reading (`f` redefined) the mutant is read and refused as inconsistent, and the
+    /// compiled diff alone (an empty source reading that touches no sentence) still checks `f`.
+    #[test]
+    #[ignore = "kink"]
+    fn a_compiled_equation_of_a_touched_sentence_must_be_redefined() {
+        on_a_big_stack(|| {
+            let validator = r0c("cfgf");
+            let baseline = validator.baseline();
+            let compiled = validator.compile_baseline().unwrap();
+            let equations = CompiledEquations::of(&compiled).unwrap();
+            let rule = support::rule(baseline, "CFGF.fpos");
+            let at = TermRef::new(rule.clone(), [1, 1]);
+            let expected = baseline.term(&at).expect("the guard literal").clone();
+            let patch = Patch::new(vec![Edit::ReplaceTerm {
+                at,
+                expected,
+                replacement: Term::Token {
+                    token: "-5".into(),
+                    sort: Sort::new("Int"),
+                },
+            }])
             .unwrap();
-        let misread = SourceEffect {
-            redefined: Some(BTreeSet::new()),
-            affected: Some(BTreeSet::new()),
-            touched: effect.touched.clone(),
-        };
-        let Err(MutantFailure::UnreadEquations(unread)) = admit_mutant(&equations, &side, &misread)
-        else {
-            panic!("the compiled equation of fpos is unread")
-        };
-        assert!(
-            unread.iter().any(|equation| equation.head == "Lblf"
-                && equation.equation == "CFGF.fpos"
-                && equation.origin == Some(SentenceOrigin::Baseline(rule.clone()))),
-            "{unread:?}"
-        );
-        assert!(matches!(
-            admit_mutant(&equations, &side, &effect),
-            Err(MutantFailure::Inconsistent(Inconsistency::Unjoined(_)))
-        ));
-        let compiled_only = SourceEffect {
-            redefined: Some(BTreeSet::new()),
-            affected: Some(BTreeSet::new()),
-            touched: BTreeSet::new(),
-        };
-        assert!(matches!(
-            admit_mutant(&equations, &side, &compiled_only),
-            Err(MutantFailure::Inconsistent(Inconsistency::Unjoined(_)))
-        ));
-        // The baseline against itself changes nothing and is admitted with nothing checked.
-        let none = admit_mutant(&equations, &compiled, &compiled_only).unwrap();
-        assert!(none.changed.is_empty(), "{none:?}");
-        assert_eq!(none.checked, Some(BTreeSet::new()));
-    });
+            let support = ClaimSupport::new(baseline);
+            let effect = support.effect(baseline, &patch).unwrap();
+            assert_eq!(effect.redefined, Some(BTreeSet::from(["f".to_owned()])));
+            let side = validator
+                .validate(support.withdraw(baseline, &patch).unwrap().patch().unwrap())
+                .unwrap();
+            let misread = SourceEffect {
+                redefined: Some(BTreeSet::new()),
+                affected: Some(BTreeSet::new()),
+                touched: effect.touched.clone(),
+            };
+            let Err(MutantFailure::UnreadEquations(unread)) =
+                admit_mutant(&equations, &side, &misread)
+            else {
+                panic!("the compiled equation of fpos is unread")
+            };
+            assert!(
+                unread.iter().any(|equation| equation.head == "Lblf"
+                    && equation.equation == "CFGF.fpos"
+                    && equation.origin == Some(SentenceOrigin::Baseline(rule.clone()))),
+                "{unread:?}"
+            );
+            assert!(matches!(
+                admit_mutant(&equations, &side, &effect),
+                Err(MutantFailure::Inconsistent(Inconsistency::Unjoined(_)))
+            ));
+            let compiled_only = SourceEffect {
+                redefined: Some(BTreeSet::new()),
+                affected: Some(BTreeSet::new()),
+                touched: BTreeSet::new(),
+            };
+            assert!(matches!(
+                admit_mutant(&equations, &side, &compiled_only),
+                Err(MutantFailure::Inconsistent(Inconsistency::Unjoined(_)))
+            ));
+            // The baseline against itself changes nothing and is admitted with nothing checked.
+            let none = admit_mutant(&equations, &compiled, &compiled_only).unwrap();
+            assert!(none.changed.is_empty(), "{none:?}");
+            assert_eq!(none.checked, Some(BTreeSet::new()));
+        });
+    }
+
+    /// Only the pairs of the symbols the edit can change are read: the baseline's own equations stay
+    /// a trusted premise. The baseline's guards are complementary, so its pair is refuted.
+    #[test]
+    #[ignore = "kink"]
+    fn the_check_reads_the_heads_the_edit_can_change() {
+        on_a_big_stack(|| {
+            let validator = nomatch();
+            let compiled = validator.compile_baseline().unwrap();
+            assert_eq!(check_heads(&compiled, None), Ok(()));
+            let (side, _) = guard_mutant(&validator, "NOMATCH.fneg", "5");
+            assert_eq!(check_heads(&side, Some(&BTreeSet::new())), Ok(()));
+            assert_eq!(
+                check_heads(&side, Some(&BTreeSet::from(["go".to_owned()]))),
+                Ok(())
+            );
+            assert!(check_heads(&side, Some(&BTreeSet::from(["f".to_owned()]))).is_err());
+        });
+    }
 }

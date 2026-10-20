@@ -4,24 +4,22 @@
 #[path = "../../../testdata/k/support.rs"]
 mod support;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::time::Duration;
 
 use k_rust::backend::{Backend, BackendOptions};
-use k_rust::builtin;
 use k_rust::definition::{AttributeKey, Sentence};
 use k_rust::kast::{Sort as KastSort, Term};
 use k_rust::kompile::CompileOptions;
 use k_rust::kompile::initial_configuration::{kore_application, kore_sort};
 use k_rust::kore::{ast::Pattern, parser::parse_definition};
-use k_rust::outer::ResolvedSource;
 use kink_native::coverage::{
     Authorship, COVERAGE_DOMAIN, RuleAuthors, TestCoverage, UNMAPPED_INSERTED, coverage_digest,
     coverage_text,
 };
 use kink_native::execution::{ExecutionAdapter, ExecutionBudget, SolverProfile};
 use kink_native::{NativeValidator, ValidatedDefinition};
-use kink_patch::{Baseline, Edit, InsertPosition, Patch, SentenceRef, TermRef};
+use kink_patch::{Edit, InsertPosition, Patch, SentenceRef, TermRef};
 use serde_json::json;
 
 const BUDGET: ExecutionBudget = ExecutionBudget {
@@ -249,188 +247,6 @@ fn coverage_pins() {
     });
 }
 
-/// The deliberate duplicate's one compiled id has both sentences as authors, and a run of it
-/// covers both (scout-coverage M-C1).
-#[test]
-fn duplicate_unlabelled_id_maps_to_both_sentences() {
-    with_stack(|| {
-        let (validator, side) = compile("duplicate_unlabelled.k");
-        let authors = RuleAuthors::of(&side);
-        let written = validator
-            .baseline()
-            .authored_sentences()
-            .filter(|(_, sentence)| matches!(sentence, Sentence::Rule { .. }))
-            .map(|(at, _)| at)
-            .collect::<BTreeSet<_>>();
-        assert_eq!(written.len(), 2);
-        let shared = authors
-            .iter()
-            .filter(|(_, authorship)| {
-                matches!(authorship, Authorship::Sentences(sentences) if *sentences == written)
-            })
-            .map(|(id, _)| id.to_owned())
-            .collect::<Vec<_>>();
-        assert_eq!(shared.len(), 1, "one id for the two equal sentences");
-        let state = support::initial_state(app("Lblx", vec![]), "SortS");
-        let run = runs(&side, "DUPLICATE'Unds'UNLABELLED", "x", &state);
-        assert!(run.observed.complete);
-        assert_eq!(run.observed.rule_ids, shared.iter().cloned().collect());
-        assert_eq!(run.observed.sentences, written);
-        assert_eq!(run.observed, run.unobserved);
-        // The two equal sentences compile to one axiom, so the step run observes it too.
-        assert_eq!(Some(&run.observed), run.stepped.as_ref());
-    });
-}
-
-/// Coverage bytes are a function of the definition, the state and the build: two loads,
-/// compiles and runs agree byte for byte, and no host path enters them.
-#[test]
-fn coverage_text_is_deterministic() {
-    with_stack(|| {
-        let coverage = || {
-            let (_, counter) = compile("counter.k");
-            let (_, guardeddiv) = compile("guardeddiv.k");
-            vec![
-                runs(&counter, "COUNTER", "t1", &counter_state()).observed,
-                runs(&counter, "COUNTER", "t2", &choose_state(bool_value("true"))).observed,
-                runs(&guardeddiv, "GUARDEDDIV", "divide", &divide_state()).observed,
-            ]
-        };
-        let (first, second) = (coverage(), coverage());
-        assert_eq!(coverage_text(&first), coverage_text(&second));
-        assert_eq!(coverage_digest(&first), coverage_digest(&second));
-        assert_eq!(
-            coverage_digest(&first),
-            kink_patch::payload_digest(COVERAGE_DOMAIN, coverage_text(&first).as_bytes())
-        );
-        let text = coverage_text(&first);
-        assert!(!text.contains(env!("CARGO_MANIFEST_DIR")));
-        assert!(!text.contains("/home"));
-        let value: serde_json::Value = serde_json::from_str(&text).expect("JSON");
-        assert_eq!(value[0]["test_id"], "t1");
-        assert_eq!(value[0]["complete"], true);
-        assert_eq!(
-            value[0]["sentences"],
-            json!([{"module": "COUNTER", "index": 0}])
-        );
-        assert_eq!(value[0]["unmapped"], json!([]));
-        eprintln!("COVERAGE_TEXT {text}");
-        eprintln!("COVERAGE_DIGEST {}", coverage_digest(&first));
-    });
-}
-
-/// Every Compile address of every top-level testdata definition names a sentence of the
-/// definition it compiled (the packet's STOP condition), and every executable rewrite id has
-/// provenance (M-C2). The per-definition table goes to the handoff.
-#[test]
-fn rule_authors_resolve_over_testdata() {
-    with_stack(|| {
-        let mut paths: Vec<_> = std::fs::read_dir(support::DIR)
-            .unwrap()
-            .map(|entry| entry.unwrap().path())
-            .filter(|path| path.extension().is_some_and(|extension| extension == "k"))
-            .collect();
-        paths.sort();
-        let mut totals = BTreeMap::<String, u64>::new();
-        for path in paths {
-            let name = path.file_name().unwrap().to_str().unwrap().to_owned();
-            let text = std::fs::read_to_string(&path).unwrap();
-            let module = text
-                .lines()
-                .filter_map(|line| line.trim().strip_prefix("module "))
-                .next_back()
-                .unwrap()
-                .split_whitespace()
-                .next()
-                .unwrap()
-                .to_owned();
-            let mut resolver = |_: &str, required: &str| {
-                builtin::embedded(required).ok_or_else(|| format!("{required} is not embedded"))
-            };
-            let Ok(baseline) = Baseline::load(
-                ResolvedSource::new(&name, text.clone()),
-                &module,
-                None,
-                &mut resolver,
-                &support::options(),
-            ) else {
-                eprintln!("COVERAGE_MAP_LOAD_REFUSED {name}");
-                continue;
-            };
-            let compiled =
-                NativeValidator::bind(baseline, CompileOptions::default()).compile_baseline();
-            // Re-pin R0a (finding E-06; k-rust f07565265, 55a57846b, bc90d4226): b1coll.k and
-            // t13role.k are refused by compilation at 501f18b9; the refusal is pinned, not skipped.
-            let side = match (support::expected_compile_failure(&name), compiled) {
-                (None, Ok(side)) => side,
-                (None, Err(error)) => panic!("{name}: {error}"),
-                (
-                    Some((stage, detail)),
-                    Err(kink_native::NativeFailure::Compilation {
-                        stage: actual,
-                        detail: text,
-                    }),
-                ) => {
-                    assert_eq!(actual, stage, "{name}: {text}");
-                    assert!(
-                        detail.iter().all(|fragment| text.contains(fragment)),
-                        "{name}: {text}"
-                    );
-                    eprintln!("COVERAGE_MAP_COMPILE_REFUSED {name}");
-                    continue;
-                }
-                (Some(_), Ok(_)) => panic!("{name}: expected a compile refusal, compiled"),
-            };
-            let authors = RuleAuthors::of(&side);
-            assert!(
-                authors.unresolved().is_empty(),
-                "{name}: {:?}",
-                authors.unresolved()
-            );
-            for id in &side.artifacts().execution_rewrite_order {
-                assert!(authors.get(id).is_some(), "{name}: {id} has no provenance");
-            }
-            let mut counts = BTreeMap::<String, u64>::new();
-            for (_, authorship) in authors.iter() {
-                let key = match authorship {
-                    Authorship::Sentences(sentences) => {
-                        let kinds = sentences
-                            .iter()
-                            .map(|at| {
-                                let sentence = side
-                                    .definition()
-                                    .modules
-                                    .iter()
-                                    .find(|candidate| candidate.name == at.module)
-                                    .and_then(|module| {
-                                        module.local_sentences.get(at.index as usize)
-                                    })
-                                    .expect("a resolved address names a sentence");
-                                match &**sentence {
-                                    Sentence::Rule { .. } => "rule",
-                                    Sentence::Production { .. } => "production",
-                                    Sentence::Claim { .. } => "claim",
-                                    _ => "other",
-                                }
-                            })
-                            .collect::<BTreeSet<_>>();
-                        format!(
-                            "{}:{}",
-                            if sentences.len() == 1 { "one" } else { "many" },
-                            kinds.into_iter().collect::<Vec<_>>().join("+")
-                        )
-                    }
-                    Authorship::Unmapped(reason) => format!("unmapped:{reason}"),
-                };
-                *counts.entry(key.clone()).or_default() += 1;
-                *totals.entry(key).or_default() += 1;
-            }
-            eprintln!("COVERAGE_MAP {}", json!({"file": name, "ids": counts}));
-        }
-        eprintln!("COVERAGE_MAP_TOTALS {}", json!(totals));
-    });
-}
-
 /// A user `strict` production's heating and cooling rules have no written rule: their ids map
 /// to the production's Compile address. A run that heats and cools covers them.
 #[test]
@@ -505,100 +321,177 @@ fn anonymous(sentence: &Sentence) -> Sentence {
     clone
 }
 
-/// The baseline ids none of whose authors the patch writes, and the generated ids (no
-/// author), are ids of the mutant with the same authors once its addresses are mapped back
-/// through its origins (README 4.5's removed(m) premise); the written sentences' own ids are
-/// gone; an inserted sentence with new content is `inserted`, one equal to a baseline
-/// sentence joins that sentence's id.
-#[test]
-fn mutant_authors_map_back_to_the_baseline() {
-    with_stack(|| {
-        let validator =
-            NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
-        let baseline = validator.baseline();
-        let base = RuleAuthors::of(&validator.compile_baseline().expect("baseline"));
-        let increment = support::rule(baseline, "COUNTER.increment");
-        let branch = support::rule(baseline, "COUNTER.branch");
-        let fallback = support::rule(baseline, "COUNTER.fallback");
-        let requires_false = {
-            let at = TermRef::new(branch.clone(), [1]);
-            Patch::new(vec![Edit::ReplaceTerm {
-                expected: baseline.term(&at).expect("condition").clone(),
-                at,
-                replacement: bool_token("false"),
-            }])
-            .expect("patch")
-        };
-        let delete_fallback = Patch::new(vec![Edit::DeleteSentence {
-            at: fallback.clone(),
-        }])
-        .expect("patch");
-        let clone_increment = Patch::new(vec![Edit::InsertSentence {
-            position: InsertPosition::Before(increment.clone()),
-            ordinal: 0,
-            sentence: anonymous(baseline.sentence(&increment).expect("rule")),
-        }])
-        .expect("patch");
-        let new_rule = {
-            let mut sentence = anonymous(baseline.sentence(&branch).expect("rule"));
-            if let Sentence::Rule { requires, .. } = &mut sentence {
-                *requires = bool_token("false");
-            }
-            Patch::new(vec![Edit::InsertSentence {
-                position: InsertPosition::ModuleStart("COUNTER".into()),
-                ordinal: 0,
-                sentence,
-            }])
-            .expect("patch")
-        };
-        for (name, patch) in [
-            ("requires-false", &requires_false),
-            ("delete-fallback", &delete_fallback),
-            ("clone-increment", &clone_increment),
-            ("insert-new-rule", &new_rule),
-        ] {
-            let mutant = validator.validate(patch).expect("the mutant compiles");
-            let authors = RuleAuthors::of(&mutant);
-            assert!(authors.unresolved().is_empty(), "{name}");
-            let written = patch
-                .written_sentences()
-                .into_iter()
+mod kink_tier {
+    use super::*;
+
+    /// The deliberate duplicate's one compiled id has both sentences as authors, and a run of it
+    /// covers both (scout-coverage M-C1).
+    #[test]
+    #[ignore = "kink"]
+    fn duplicate_unlabelled_id_maps_to_both_sentences() {
+        with_stack(|| {
+            let (validator, side) = compile("duplicate_unlabelled.k");
+            let authors = RuleAuthors::of(&side);
+            let written = validator
+                .baseline()
+                .authored_sentences()
+                .filter(|(_, sentence)| matches!(sentence, Sentence::Rule { .. }))
+                .map(|(at, _)| at)
                 .collect::<BTreeSet<_>>();
-            for (id, authorship) in base.iter() {
-                let unwritten = match authorship {
-                    Authorship::Sentences(sentences) => sentences.is_disjoint(&written),
-                    Authorship::Unmapped(_) => true,
-                };
-                if unwritten {
-                    assert_eq!(authors.get(id), Some(authorship), "{name}: {id}");
-                } else {
-                    assert_eq!(authors.get(id), None, "{name}: written {id} is removed");
-                }
-            }
-            let added = authors
+            assert_eq!(written.len(), 2);
+            let shared = authors
                 .iter()
-                .filter(|(id, _)| base.get(id).is_none())
-                .map(|(id, authorship)| (id.to_owned(), authorship.clone()))
+                .filter(|(_, authorship)| {
+                    matches!(authorship, Authorship::Sentences(sentences) if *sentences == written)
+                })
+                .map(|(id, _)| id.to_owned())
                 .collect::<Vec<_>>();
-            match name {
-                "requires-false" => {
-                    assert_eq!(added.len(), 1, "{name}: {added:?}");
-                    assert_eq!(
-                        added[0].1,
-                        Authorship::Sentences([branch.clone()].into_iter().collect())
-                    );
+            assert_eq!(shared.len(), 1, "one id for the two equal sentences");
+            let state = support::initial_state(app("Lblx", vec![]), "SortS");
+            let run = runs(&side, "DUPLICATE'Unds'UNLABELLED", "x", &state);
+            assert!(run.observed.complete);
+            assert_eq!(run.observed.rule_ids, shared.iter().cloned().collect());
+            assert_eq!(run.observed.sentences, written);
+            assert_eq!(run.observed, run.unobserved);
+            // The two equal sentences compile to one axiom, so the step run observes it too.
+            assert_eq!(Some(&run.observed), run.stepped.as_ref());
+        });
+    }
+
+    /// Coverage bytes are a function of the definition, the state and the build: two loads,
+    /// compiles and runs agree byte for byte, and no host path enters them.
+    #[test]
+    #[ignore = "kink"]
+    fn coverage_text_is_deterministic() {
+        with_stack(|| {
+            let coverage = || {
+                let (_, counter) = compile("counter.k");
+                let (_, guardeddiv) = compile("guardeddiv.k");
+                vec![
+                    runs(&counter, "COUNTER", "t1", &counter_state()).observed,
+                    runs(&counter, "COUNTER", "t2", &choose_state(bool_value("true"))).observed,
+                    runs(&guardeddiv, "GUARDEDDIV", "divide", &divide_state()).observed,
+                ]
+            };
+            let (first, second) = (coverage(), coverage());
+            assert_eq!(coverage_text(&first), coverage_text(&second));
+            assert_eq!(coverage_digest(&first), coverage_digest(&second));
+            assert_eq!(
+                coverage_digest(&first),
+                kink_patch::payload_digest(COVERAGE_DOMAIN, coverage_text(&first).as_bytes())
+            );
+            let text = coverage_text(&first);
+            assert!(!text.contains(env!("CARGO_MANIFEST_DIR")));
+            assert!(!text.contains("/home"));
+            let value: serde_json::Value = serde_json::from_str(&text).expect("JSON");
+            assert_eq!(value[0]["test_id"], "t1");
+            assert_eq!(value[0]["complete"], true);
+            assert_eq!(
+                value[0]["sentences"],
+                json!([{"module": "COUNTER", "index": 0}])
+            );
+            assert_eq!(value[0]["unmapped"], json!([]));
+            eprintln!("COVERAGE_TEXT {text}");
+            eprintln!("COVERAGE_DIGEST {}", coverage_digest(&first));
+        });
+    }
+
+    /// The baseline ids none of whose authors the patch writes, and the generated ids (no
+    /// author), are ids of the mutant with the same authors once its addresses are mapped back
+    /// through its origins (README 4.5's removed(m) premise); the written sentences' own ids are
+    /// gone; an inserted sentence with new content is `inserted`, one equal to a baseline
+    /// sentence joins that sentence's id.
+    #[test]
+    #[ignore = "kink"]
+    fn mutant_authors_map_back_to_the_baseline() {
+        with_stack(|| {
+            let validator =
+                NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
+            let baseline = validator.baseline();
+            let base = RuleAuthors::of(&validator.compile_baseline().expect("baseline"));
+            let increment = support::rule(baseline, "COUNTER.increment");
+            let branch = support::rule(baseline, "COUNTER.branch");
+            let fallback = support::rule(baseline, "COUNTER.fallback");
+            let requires_false = {
+                let at = TermRef::new(branch.clone(), [1]);
+                Patch::new(vec![Edit::ReplaceTerm {
+                    expected: baseline.term(&at).expect("condition").clone(),
+                    at,
+                    replacement: bool_token("false"),
+                }])
+                .expect("patch")
+            };
+            let delete_fallback = Patch::new(vec![Edit::DeleteSentence {
+                at: fallback.clone(),
+            }])
+            .expect("patch");
+            let clone_increment = Patch::new(vec![Edit::InsertSentence {
+                position: InsertPosition::Before(increment.clone()),
+                ordinal: 0,
+                sentence: anonymous(baseline.sentence(&increment).expect("rule")),
+            }])
+            .expect("patch");
+            let new_rule = {
+                let mut sentence = anonymous(baseline.sentence(&branch).expect("rule"));
+                if let Sentence::Rule { requires, .. } = &mut sentence {
+                    *requires = bool_token("false");
                 }
-                "delete-fallback" => assert!(added.is_empty(), "{name}: {added:?}"),
-                "clone-increment" => {
-                    // Equal content: the clone joins increment's id and adds no author.
-                    assert!(added.is_empty(), "{name}: {added:?}");
+                Patch::new(vec![Edit::InsertSentence {
+                    position: InsertPosition::ModuleStart("COUNTER".into()),
+                    ordinal: 0,
+                    sentence,
+                }])
+                .expect("patch")
+            };
+            for (name, patch) in [
+                ("requires-false", &requires_false),
+                ("delete-fallback", &delete_fallback),
+                ("clone-increment", &clone_increment),
+                ("insert-new-rule", &new_rule),
+            ] {
+                let mutant = validator.validate(patch).expect("the mutant compiles");
+                let authors = RuleAuthors::of(&mutant);
+                assert!(authors.unresolved().is_empty(), "{name}");
+                let written = patch
+                    .written_sentences()
+                    .into_iter()
+                    .collect::<BTreeSet<_>>();
+                for (id, authorship) in base.iter() {
+                    let unwritten = match authorship {
+                        Authorship::Sentences(sentences) => sentences.is_disjoint(&written),
+                        Authorship::Unmapped(_) => true,
+                    };
+                    if unwritten {
+                        assert_eq!(authors.get(id), Some(authorship), "{name}: {id}");
+                    } else {
+                        assert_eq!(authors.get(id), None, "{name}: written {id} is removed");
+                    }
                 }
-                "insert-new-rule" => {
-                    assert_eq!(added.len(), 1, "{name}: {added:?}");
-                    assert_eq!(added[0].1, Authorship::Unmapped(UNMAPPED_INSERTED.into()));
+                let added = authors
+                    .iter()
+                    .filter(|(id, _)| base.get(id).is_none())
+                    .map(|(id, authorship)| (id.to_owned(), authorship.clone()))
+                    .collect::<Vec<_>>();
+                match name {
+                    "requires-false" => {
+                        assert_eq!(added.len(), 1, "{name}: {added:?}");
+                        assert_eq!(
+                            added[0].1,
+                            Authorship::Sentences([branch.clone()].into_iter().collect())
+                        );
+                    }
+                    "delete-fallback" => assert!(added.is_empty(), "{name}: {added:?}"),
+                    "clone-increment" => {
+                        // Equal content: the clone joins increment's id and adds no author.
+                        assert!(added.is_empty(), "{name}: {added:?}");
+                    }
+                    "insert-new-rule" => {
+                        assert_eq!(added.len(), 1, "{name}: {added:?}");
+                        assert_eq!(added[0].1, Authorship::Unmapped(UNMAPPED_INSERTED.into()));
+                    }
+                    _ => unreachable!(),
                 }
-                _ => unreachable!(),
             }
-        }
-    });
+        });
+    }
 }

@@ -947,29 +947,34 @@ mod tests {
             .expect("definition");
     }
 
-    #[test]
-    fn same_non_free_head_does_not_decompose_to_an_absence() {
-        let validator =
-            NativeValidator::bind(support::load("residue.k"), CompileOptions::default());
-        let side = validator.compile_baseline().expect("residue compiles");
-        let mut backend = Backend::new(
-            &side.artifacts().definition_kore,
-            "RESIDUE",
-            BackendOptions::default(),
-        )
-        .expect("backend");
-        backend
-            .with_solver(None, |definition, _| -> Result<(), BackendError> {
-                let mut walk = Walk::default();
-                walk.pair(
-                    definition,
-                    &support::app("Lblf", vec![support::int(1)]),
-                    &support::app("Lblf", vec![support::int(2)]),
-                );
-                assert!(walk.undecided);
-                assert!(!walk.absent);
-                Ok(())
-            })
-            .expect("definition");
+    mod kink_tier {
+        use super::*;
+
+        #[test]
+        #[ignore = "kink"]
+        fn same_non_free_head_does_not_decompose_to_an_absence() {
+            let validator =
+                NativeValidator::bind(support::load("residue.k"), CompileOptions::default());
+            let side = validator.compile_baseline().expect("residue compiles");
+            let mut backend = Backend::new(
+                &side.artifacts().definition_kore,
+                "RESIDUE",
+                BackendOptions::default(),
+            )
+            .expect("backend");
+            backend
+                .with_solver(None, |definition, _| -> Result<(), BackendError> {
+                    let mut walk = Walk::default();
+                    walk.pair(
+                        definition,
+                        &support::app("Lblf", vec![support::int(1)]),
+                        &support::app("Lblf", vec![support::int(2)]),
+                    );
+                    assert!(walk.undecided);
+                    assert!(!walk.absent);
+                    Ok(())
+                })
+                .expect("definition");
+        }
     }
 }

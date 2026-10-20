@@ -141,135 +141,6 @@ fn unbound_mutants(validator: &NativeValidator) -> [(&'static str, Patch); 2] {
     [("Lblfreq", freq), ("Lblpart", part)]
 }
 
-/// AT12 at the leaf. A call written in a ground initial state that no rule rewrites, `done(c)`
-/// for `c` in `freq(3)` and `part(1)`, is one `Stuck` leaf whose state is the ground term with
-/// the call kept: no predicate, no diagnostic (`freq`'s requires-only variable has a contingent
-/// condition, and `part` has no equation for 1), feasibility `Unknown` (the call is not a free
-/// constructor). The mutant evaluates the call (`freq(3) = 1`, `part(1) = 7`) and its leaf is
-/// the `Syntactic` `done(1)` or `done(7)`. Both definitions agree on every defined input, so the
-/// two ground terminals denote the same value in a model of the baseline, but they are distinct
-/// terms. `fres(3)` (an unbound result variable) keeps the call with an `UndecidedCondition`
-/// diagnostic instead, which the bridge maps to `BackendLimit`.
-///
-/// Re-pin R0a (finding E-14; k-rust KINK-10): at 501f18b9 the baseline's kept-call leaves of
-/// `freq(3)` and `part(1)` carry an `UndefinedInitialInstances` diagnostic (the initial state's
-/// call may be undefined), so they are diagnosed (fail-closed); at 927b9ce6 they carried none.
-///
-/// Re-pin L-1: the outcome of `freq(3)` depends on the profile. Without Z3 the baseline keeps
-/// the call as above. Under Z3 the baseline evaluates it, as the mutant does: its leaf is the
-/// undiagnosed `Syntactic` `done(1)`. Since k-rust BIND/A3 (commit 3be422d93, head 6ddf8c236,
-/// merge 1c0cccc86) the condition-only `Z` is quantified existentially inside the condition
-/// (`exists Z. Z >Int 3`), which Z3 decides; that is the axiom closed over `Z` (decisions log
-/// 2026-10-20, "a variable of a rule's condition alone is read existentially"). `part(1)` and
-/// `fres(3)` are the same in both profiles.
-#[test]
-fn kept_calls_in_ground_terminals_are_not_values() {
-    let validator = NativeValidator::bind(support::load("unbound.k"), CompileOptions::default());
-    let baseline = validator.compile_baseline().expect("unbound compiles");
-    for ((call, patch), (argument, value)) in unbound_mutants(&validator)
-        .into_iter()
-        .zip([(3, 1), (1, 7)])
-    {
-        let initial = support::initial_state(
-            support::app(
-                "Lbldone",
-                vec![support::app(call, vec![support::int(argument)])],
-            ),
-            "SortProg",
-        );
-        let kept = leaves(&baseline, "UNBOUND", &initial);
-        let [leaf] = kept.as_slice() else {
-            panic!("{call}: one baseline leaf, got {}", kept.len())
-        };
-        if call == "Lblfreq" && cfg!(feature = "z3") {
-            // Re-pin L-1: under Z3 the baseline leaf of `freq(3)` moves from the kept call
-            // (Stuck, Unknown, diagnosed with UndefinedInitialInstances) to the undiagnosed
-            // Syntactic `done(1)`, by k-rust BIND/A3 (commit 3be422d93, head 6ddf8c236, merge
-            // 1c0cccc86: a condition-only variable is read existentially, which Z3 decides),
-            // accepted by Sebastien (decisions log 2026-10-20, "a variable of a rule's condition
-            // alone is read existentially"). No-Z3 is unchanged (the other branch).
-            assert_eq!(
-                (
-                    leaf.halt,
-                    leaf.feasibility,
-                    bridge::discarded(leaf),
-                    diagnosed(leaf)
-                ),
-                (HaltClass::Stuck, LeafFeasibility::Syntactic, None, false),
-                "{call}"
-            );
-            assert_eq!(
-                state(leaf),
-                support::initial_state(
-                    support::app("Lbldone", vec![support::int(value)]),
-                    "SortProg"
-                ),
-                "{call}: the call is evaluated"
-            );
-        } else {
-            assert_eq!(
-                (
-                    leaf.halt,
-                    leaf.feasibility,
-                    bridge::discarded(leaf),
-                    diagnosed(leaf)
-                ),
-                (HaltClass::Stuck, LeafFeasibility::Unknown, None, true),
-                "{call}"
-            );
-            assert!(
-                leaf.diagnostics.iter().any(|diagnostic| matches!(
-                    diagnostic,
-                    k_rust::backend::BackendDiagnosticOutput::UndefinedInitialInstances { .. }
-                )),
-                "{call}: {:?}",
-                leaf.diagnostics
-            );
-            assert_eq!(
-                state(leaf),
-                initial,
-                "{call}: the call is kept, unconstrained"
-            );
-        }
-        let mutant = validator.validate(&patch).expect("mutant compiles");
-        let evaluated = leaves(&mutant, "UNBOUND", &initial);
-        let [leaf] = evaluated.as_slice() else {
-            panic!("{call}: one mutant leaf")
-        };
-        assert_eq!(
-            (
-                leaf.halt,
-                leaf.feasibility,
-                bridge::discarded(leaf),
-                diagnosed(leaf)
-            ),
-            (HaltClass::Stuck, LeafFeasibility::Syntactic, None, false),
-            "{call}"
-        );
-        assert_eq!(
-            state(leaf),
-            support::initial_state(
-                support::app("Lbldone", vec![support::int(value)]),
-                "SortProg"
-            ),
-            "{call}"
-        );
-    }
-    let initial = support::initial_state(
-        support::app(
-            "Lbldone",
-            vec![support::app("Lblfres", vec![support::int(3)])],
-        ),
-        "SortProg",
-    );
-    let kept = leaves(&baseline, "UNBOUND", &initial);
-    let [leaf] = kept.as_slice() else {
-        panic!("fres: one leaf")
-    };
-    assert_eq!((leaf.halt, diagnosed(leaf)), (HaltClass::Stuck, true));
-    assert!(contains_symbol(&state(leaf), "Lblfres"));
-}
-
 // ---------------------------------------------------------------- T-UNSAT
 
 /// One leaf with a K instance: its halt, feasibility and discard, and the relation query
@@ -643,187 +514,6 @@ fn assert_no_refuted_instance(label: &str, rows: &[ReviewLeaf]) {
     }
 }
 
-/// TV-01 review 2, T-UNSAT attack 1: complementary conditions over a partial term
-/// (`partialreq.k (TV01UNSAT)`). For `dv` (`/Int`) and `md` (`%Int`) at `Y = 0`, and for `cmp` (the user
-/// partial function `part`) at `X = 1`, neither condition is defined, so the stuck remainder
-/// has K instances; with both negations read as total it is `not P and not (not P)`, which a
-/// solver refutes. `ow` pits `part`'s condition against an owise rule, whose leaf has the
-/// instance `X = 1`. Every leaf with a named instance must stay unrefuted in both profiles;
-/// with Z3, `dv` and `md` must also keep a leaf for the remainder (else instances are lost).
-#[test]
-fn review_complementary_partial_conditions_keep_their_stuck_instances() {
-    let x = || int("X");
-    let y = || int("Y");
-    let cases: [(&str, Pattern, Instances); 4] = [
-        (
-            "dv",
-            support::app("Lbldv", vec![x(), y()]),
-            vec![
-                ("dv", vec![equal("X", 1), equal("Y", 0)]),
-                ("yes", vec![equal("X", 1), equal("Y", 1)]),
-                ("no", vec![equal("X", 0), equal("Y", 1)]),
-            ],
-        ),
-        (
-            "md",
-            support::app("Lblmd", vec![x(), y()]),
-            vec![
-                ("md", vec![equal("X", 1), equal("Y", 0)]),
-                ("yes", vec![equal("X", 0), equal("Y", 1)]),
-                ("no", vec![equal("X", 1), equal("Y", 2)]),
-            ],
-        ),
-        (
-            "cmp",
-            support::app("Lblcmp", vec![x()]),
-            vec![("cmp", vec![equal("X", 1)]), ("yes", vec![equal("X", 0)])],
-        ),
-        (
-            "ow",
-            support::app("Lblow", vec![x()]),
-            vec![
-                ("ow", vec![equal("X", 1)]),
-                ("yes", vec![equal("X", 0)]),
-                ("no", vec![equal("X", 1)]),
-            ],
-        ),
-    ];
-    for (label, program, instances) in cases {
-        let initial = support::initial_state(program, "SortProg");
-        let rows = review_leaves("partialreq.k", "TV01UNSAT", &initial, &instances);
-        assert_no_refuted_instance(label, &rows);
-        if cfg!(feature = "z3") && matches!(label, "dv" | "md") {
-            assert!(
-                rows.iter().any(|row| row.head == label),
-                "{label}: no leaf keeps the undefined-divisor instances"
-            );
-        }
-    }
-}
-
-/// TV-01 deliverable 5 (R2-F1): test-written conditions with partial applications beneath
-/// `\not` must be REFUSED by the campaign's shared input boundary before execution.
-/// `neither` has the instance X = 1, Y = 0 yet k-rust previously halted it Vacuous at depth 0.
-/// `reflexive` and `reflexive-part` previously kept Stuck leaves; they match the same admission
-/// rule. Measured in both profiles: all three are REFUSED (`InvalidState`) before execution;
-/// campaign admission maps these to `BaselineOracleFailed`. This boundary does not inspect
-/// k-rust-built leaves. R3-F1 adds implies/iff/predicate-equals negation notations:
-/// before the polarity guard, each was admitted and produced (Vacuous, Unknown, depth 0,
-/// discarded Vacuous) in both profiles; after it, each is REFUSED before execution.
-#[test]
-fn review_test_written_partial_conditions_are_not_refuted() {
-    const DIV: &str = r"Lbl'UndsSlsh'Int'Unds'{}(X:SortInt{}, Y:SortInt{})";
-    let not_equals = |atom: String, value: &str| {
-        format!(
-            r#"\not{{SortGeneratedTopCell{{}}}}(\equals{{SortBool{{}}, SortGeneratedTopCell{{}}}}({atom}, \dv{{SortBool{{}}}}("{value}")))"#
-        )
-    };
-    let reflexive = not_equals(
-        format!("Lbl'UndsEqlsEqls'Int'Unds'{{}}({DIV}, {DIV})"),
-        "true",
-    );
-    let positive = format!(r#"Lbl'Unds-GT-'Int'Unds'{{}}({DIV}, \dv{{SortInt{{}}}}("0"))"#);
-    let neither = format!(
-        r"\and{{SortGeneratedTopCell{{}}}}({}, {})",
-        not_equals(positive.clone(), "true"),
-        not_equals(positive.clone(), "false")
-    );
-    // R3-F1: these notations express negation in matching logic without a literal Not.
-    let negation_equivalent_pair = |connective: &str| {
-        let negate = |value: &str| {
-            format!(
-                r#"\{connective}(\equals{{SortBool{{}},SortGeneratedTopCell{{}}}}({positive},\dv{{SortBool{{}}}}("{value}")),\bottom{{SortGeneratedTopCell{{}}}}())"#
-            )
-        };
-        format!(
-            r"\and{{SortGeneratedTopCell{{}}}}({},{})",
-            negate("true"),
-            negate("false")
-        )
-    };
-    let mut measured = Vec::new();
-    const PART: &str = r"Lblpart{}(X:SortInt{})";
-    let reflexive_part = not_equals(
-        format!("Lbl'UndsEqlsEqls'Int'Unds'{{}}({PART}, {PART})"),
-        "true",
-    );
-    for (label, condition) in [
-        ("reflexive", reflexive),
-        ("neither", neither),
-        ("reflexive-part", reflexive_part),
-        (
-            "implies",
-            negation_equivalent_pair("implies{SortGeneratedTopCell{}}"),
-        ),
-        (
-            "iff",
-            negation_equivalent_pair("iff{SortGeneratedTopCell{}}"),
-        ),
-        (
-            "pred-equals",
-            negation_equivalent_pair("equals{SortGeneratedTopCell{},SortGeneratedTopCell{}}"),
-        ),
-    ] {
-        let condition =
-            k_rust::kore::parser::parse_pattern(&condition).expect("the condition parses");
-        let validator = NativeValidator::bind(
-            support::load_path(
-                &std::path::Path::new(support::DIR).join("partialreq.k"),
-                "TV01UNSAT",
-            ),
-            CompileOptions::default(),
-        );
-        let side = validator.compile_baseline().expect("fixture compiles");
-        let initial = Pattern::And {
-            sort: kore_sort("SortGeneratedTopCell"),
-            arguments: vec![
-                support::initial_state(
-                    support::app("Lblpair", vec![int("X"), int("Y")]),
-                    "SortProg",
-                ),
-                condition,
-            ],
-        };
-        let mut backend = backend(&side, "TV01UNSAT");
-        // The same input admission entry point run_campaign uses, before either adapter path.
-        let admission = bridge::validate_test_initial_state(&mut backend, &initial);
-        let mut executed = false;
-        let result = admission.and_then(|()| {
-            executed = true;
-            ExecutionAdapter::with_profile(SolverProfile::BUILD).execute(
-                &mut backend,
-                &initial,
-                BUDGET,
-            )
-        });
-        eprintln!(
-            "TV01-INPUT {label}: executed={executed}, leaves={:?}",
-            result.as_ref().ok().map(|execution| execution
-                .leaves()
-                .iter()
-                .map(|leaf| (
-                    leaf.halt,
-                    leaf.feasibility,
-                    leaf.branch.depth,
-                    bridge::discarded(leaf)
-                ))
-                .collect::<Vec<_>>())
-        );
-        measured.push((label, executed, result));
-    }
-    eprintln!("TV01-INPUT measured: {measured:?}");
-    for (label, executed, result) in measured {
-        assert!(!executed, "{label}: must be REFUSED before execution");
-        assert!(
-            matches!(
-                result,
-                Err(kink_native::execution::ExecutionAdapterFailure::InvalidState(_))
-            ),
-            "{label}: expected REFUSED invalid test input, got {result:?}"
-        );
-    }
-}
-
 /// Input-boundary coverage: negation at arbitrary depth (including double negation),
 /// undeclared totality and missing symbols fail closed. Constructors, injections, domain
 /// values and declared-total functions remain admitted; a partial call outside negation
@@ -994,95 +684,6 @@ fn review_paths(bridged: &bridge::BridgedPaths) -> Vec<ReviewPath> {
         .collect()
 }
 
-/// TV-01 review 2: with `part(0) => 7` disabled, the mutant keeps a call in each ground state.
-/// The side's own definition-independence check must leave every path incomplete with no terminal in both profiles.
-/// The review report preserves the temporary counterfactual that bypassed this check; persisted callers meet the bridge contract.
-#[test]
-fn review_kept_calls_do_not_supply_terminals() {
-    let validator = NativeValidator::bind(
-        support::load_path(
-            &std::path::Path::new(support::DIR).join("unbound.k"),
-            "TV01TERMINAL",
-        ),
-        CompileOptions::default(),
-    );
-    let baseline = validator.baseline();
-    let requires = TermRef::new(support::rule(baseline, "TV01TERMINAL.part"), [1]);
-    let patch = Patch::new(vec![Edit::ReplaceTerm {
-        expected: baseline.term(&requires).expect("requires").clone(),
-        replacement: Term::Token {
-            token: "false".into(),
-            sort: Sort::new("Bool"),
-        },
-        at: requires,
-    }])
-    .expect("patch");
-    let mutant = validator.validate(&patch).expect("mutant compiles");
-    let sorts = kink_pattern::SymbolSorts::from_definition(
-        &k_rust::kore::parser::parse_definition(&mutant.artifacts().definition_kore)
-            .expect("compiled KORE parses"),
-    );
-    let part0 = || support::app("Lblpart", vec![support::int(0)]);
-    let int_val = |value: Pattern| {
-        k_rust::kompile::initial_configuration::kore_application(
-            "inj",
-            vec![kore_sort("SortInt"), kore_sort("SortVal")],
-            vec![value],
-        )
-    };
-    let states = [
-        ("inj", support::app("Lbldone", vec![int_val(part0())])),
-        (
-            "ctor",
-            support::app("Lbldone", vec![support::app("Lblwrap", vec![part0()])]),
-        ),
-        ("class", support::app("Lblcheck", vec![part0()])),
-        ("owise-rule", support::app("Lblsel", vec![part0()])),
-        (
-            "owise-fn",
-            support::app(
-                "Lbldone",
-                vec![int_val(support::app("Lblfsel", vec![part0()]))],
-            ),
-        ),
-    ];
-    let normal = |_: &Pattern| kink_pattern::ExecutionTerminalKind::Normal;
-    for (label, program) in states {
-        let initial = support::initial_state(program, "SortProg");
-        let mut side = backend(&mutant, "TV01TERMINAL");
-        let execution = ExecutionAdapter::with_profile(SolverProfile::BUILD)
-            .execute(&mut side, &initial, BUDGET)
-            .expect("event-free execution");
-        let context = bridge::BridgeContext {
-            test_id: label,
-            classify: &normal,
-            sorts: &sorts,
-        };
-        let guarded = side
-            .with_solver(None, |definition, solver| {
-                let decider = kink_native::step_events::ObservationDecider::new(
-                    definition,
-                    solver,
-                    TestInitialState::of_test(&initial),
-                );
-                Ok::<_, BackendError>(bridge::paths_from_execution(
-                    &execution,
-                    &context,
-                    &|term| decider.definition_independent(term),
-                ))
-            })
-            .expect("backend definition");
-        let guarded = review_paths(&guarded.expect("guarded bridge"));
-        eprintln!("TV01-REVIEW bridge {label}: guarded {guarded:?}");
-        assert!(
-            guarded
-                .iter()
-                .all(|(complete, _, terminal)| !complete && terminal.is_none()),
-            "{label}: a guarded path is complete: {guarded:?}"
-        );
-    }
-}
-
 // ---------------------------------------------------------------- TV-01 fix 1: identity injections
 
 /// `inj{From,To}(value)`.
@@ -1092,195 +693,6 @@ fn inj(from: &str, to: &str, value: Pattern) -> Pattern {
         vec![kore_sort(from), kore_sort(to)],
         vec![value],
     )
-}
-
-/// TV-01 fix 1 (review R1-F1): a sort injection is a value, and admissible test input, only in
-/// k-rust's normal form: strict (a proper subsort source), one argument whose sort is the
-/// source, and not nested. The identity `inj{SortInt,SortInt}(7)`, the reversed
-/// `inj{SortVal,SortInt}`, the nested `inj{SortVal,SortKItem}(inj{SortInt,SortVal}(7))` and the
-/// ill-sorted `inj{SortInt,SortVal}(true)` and `inj{SortInt,SortVal}(wrap(7))` are none. Each
-/// row checks the decider's definition independence of the program and the input guard on the
-/// initial state holding it (refused exactly when not independent here, since every other
-/// application is a free constructor).
-#[test]
-fn injections_are_values_only_in_normal_form() {
-    let validator = NativeValidator::bind(
-        support::load_path(
-            &std::path::Path::new(support::DIR).join("unbound.k"),
-            "TV01TERMINAL",
-        ),
-        CompileOptions::default(),
-    );
-    let side = validator.compile_baseline().expect("fixture compiles");
-    let seven = || support::int(7);
-    let truth = || Pattern::DomainValue {
-        sort: kore_sort("SortBool"),
-        value: "true".into(),
-    };
-    let done = |value: Pattern| support::app("Lbldone", vec![value]);
-    let check = |value: Pattern| support::app("Lblcheck", vec![value]);
-    let wrap = |value: Pattern| support::app("Lblwrap", vec![value]);
-    let rows = [
-        ("strict", done(inj("SortInt", "SortVal", seven())), true),
-        ("strict-ctor", done(wrap(seven())), true),
-        (
-            "strict-var",
-            done(inj("SortInt", "SortVal", int("X"))),
-            true,
-        ),
-        ("canonical-check", check(seven()), true),
-        ("identity", check(inj("SortInt", "SortInt", seven())), false),
-        (
-            "identity-under-strict",
-            done(inj(
-                "SortInt",
-                "SortVal",
-                inj("SortInt", "SortInt", seven()),
-            )),
-            false,
-        ),
-        (
-            "identity-val",
-            done(inj("SortVal", "SortVal", wrap(seven()))),
-            false,
-        ),
-        (
-            "reversed",
-            check(inj("SortVal", "SortInt", wrap(seven()))),
-            false,
-        ),
-        (
-            "ill-sorted-dv",
-            done(inj("SortInt", "SortVal", truth())),
-            false,
-        ),
-        (
-            "ill-sorted-ctor",
-            done(inj("SortInt", "SortVal", wrap(seven()))),
-            false,
-        ),
-        (
-            "ill-sorted-var",
-            done(inj("SortInt", "SortVal", support::var("V", "SortVal"))),
-            false,
-        ),
-    ];
-    let mut backend = backend(&side, "TV01TERMINAL");
-    for (label, program, expected) in rows {
-        let initial = support::initial_state(program.clone(), "SortProg");
-        let independent = backend
-            .with_solver(None, |definition, solver| {
-                let decider = kink_native::step_events::ObservationDecider::new(
-                    definition,
-                    solver,
-                    TestInitialState::of_test(&initial),
-                );
-                Ok::<_, BackendError>(decider.definition_independent(&program))
-            })
-            .expect("backend definition");
-        let admitted = bridge::validate_test_initial_state(&mut backend, &initial).is_ok();
-        eprintln!("TV01-FIX1 {label}: independent={independent} admitted={admitted}");
-        assert_eq!(independent, expected, "{label}: definition independence");
-        assert_eq!(admitted, expected, "{label}: input admission");
-    }
-    // A nested pair: the program itself is well formed, the term under `kseq` is not normal.
-    let nested = inj("SortVal", "SortKItem", inj("SortInt", "SortVal", seven()));
-    let nested_independent = backend
-        .with_solver(None, |definition, solver| {
-            let decider = kink_native::step_events::ObservationDecider::new(
-                definition,
-                solver,
-                TestInitialState::of_test(&nested),
-            );
-            Ok::<_, BackendError>(decider.definition_independent(&nested))
-        })
-        .expect("backend definition");
-    assert!(!nested_independent, "a nested injection pair is not normal");
-    let nested_state = support::initial_state(
-        support::app("Lblhold", vec![support::app("LblListItem", vec![nested])]),
-        "SortProg",
-    );
-    assert!(
-        bridge::validate_test_initial_state(&mut backend, &nested_state).is_err(),
-        "a nested injection pair is refused as test input"
-    );
-}
-
-/// TV-01 fix 1 (review R1-F1), below the input guard: the baseline `check(7) => done(7)` leaves
-/// a test-written `check(inj{SortInt,SortInt}(7))` stuck. Its stuck term is not a value, so the
-/// guarded bridge gives an incomplete path with no terminal in both profiles (before the fix:
-/// a complete `Normal` terminal, compared against the mutant's `done(7)`).
-#[test]
-fn identity_injections_do_not_supply_terminals() {
-    let validator = NativeValidator::bind(
-        support::load_path(
-            &std::path::Path::new(support::DIR).join("unbound.k"),
-            "TV01TERMINAL",
-        ),
-        CompileOptions::default(),
-    );
-    let side = validator.compile_baseline().expect("fixture compiles");
-    let sorts = kink_pattern::SymbolSorts::from_definition(
-        &k_rust::kore::parser::parse_definition(&side.artifacts().definition_kore)
-            .expect("compiled KORE parses"),
-    );
-    let normal = |_: &Pattern| kink_pattern::ExecutionTerminalKind::Normal;
-    for (label, program, complete) in [
-        (
-            "identity",
-            support::app("Lblcheck", vec![inj("SortInt", "SortInt", support::int(7))]),
-            false,
-        ),
-        (
-            "canonical",
-            support::app("Lblcheck", vec![support::int(3)]),
-            true,
-        ),
-    ] {
-        let initial = support::initial_state(program, "SortProg");
-        let mut backend = backend(&side, "TV01TERMINAL");
-        let execution = ExecutionAdapter::with_profile(SolverProfile::BUILD)
-            .execute(&mut backend, &initial, BUDGET)
-            .expect("event-free execution");
-        let halts = execution
-            .leaves()
-            .iter()
-            .map(|leaf| leaf.halt)
-            .collect::<Vec<_>>();
-        assert_eq!(halts, [HaltClass::Stuck], "{label}: the baseline is stuck");
-        let context = bridge::BridgeContext {
-            test_id: label,
-            classify: &normal,
-            sorts: &sorts,
-        };
-        let bridged = backend
-            .with_solver(None, |definition, solver| {
-                let decider = kink_native::step_events::ObservationDecider::new(
-                    definition,
-                    solver,
-                    TestInitialState::of_test(&initial),
-                );
-                Ok::<_, BackendError>(bridge::paths_from_execution(
-                    &execution,
-                    &context,
-                    &|term| decider.definition_independent(term),
-                ))
-            })
-            .expect("backend definition")
-            .expect("guarded bridge");
-        let paths = bridged
-            .paths
-            .iter()
-            .map(|path| (path.complete, path.stop, path.execution_terminal.is_some()))
-            .collect::<Vec<_>>();
-        eprintln!("TV01-FIX1 bridge {label}: {paths:?}");
-        let expected = if complete {
-            (true, PathStop::Terminal, true)
-        } else {
-            (false, PathStop::SolverUnknown, false)
-        };
-        assert_eq!(paths, [expected], "{label}");
-    }
 }
 
 /// VI-T10 R4-D1: both equalities hold at Y = 0 in matching logic (bottom equals bottom).
@@ -1369,6 +781,183 @@ fn audit_vi_t10_partial_equalities_require_input_refusal() {
     }
 }
 
+/// The declarations of the tb02 fixtures that the test-state input guards read, written as
+/// KORE: the hooked String, Bytes, Float and Int sorts, the unhooked token sorts `Id` and
+/// `Tok`, and K's `Id2String` and tb02token.k's `tok2s` (both total, hook
+/// `STRING.token2string` over an unhooked token sort). The kink tier runs the same guards on
+/// the compiled fixtures (`kink_tier::audit_vi_t11_*`).
+const INPUT_GUARD_DECLARATIONS: &str = r#"
+    hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
+    hooked-sort SortBytes{} [hook{}("BYTES.Bytes"), hasDomainValues{}()]
+    hooked-sort SortFloat{} [hook{}("FLOAT.Float"), hasDomainValues{}()]
+    hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+    sort SortId{} [hasDomainValues{}(), token{}()]
+    sort SortTok{} [hasDomainValues{}(), token{}()]
+    hooked-symbol LblId2String'LParUndsRParUnds'ID-COMMON'Unds'String'Unds'Id{}(SortId{}) : SortString{} [function{}(), total{}(), hook{}("STRING.token2string")]
+    hooked-symbol Lbltok2s{}(SortTok{}) : SortString{} [function{}(), total{}(), hook{}("STRING.token2string")]
+"#;
+
+fn inline_backend(declarations: &str) -> Backend {
+    Backend::new(
+        &format!("[] module MAIN {declarations} endmodule []"),
+        "MAIN",
+        BackendOptions::default(),
+    )
+    .expect("inline backend")
+}
+
+fn refused(backend: &mut Backend, input: &Pattern) -> bool {
+    matches!(
+        bridge::validate_test_initial_state(backend, input),
+        Err(kink_native::execution::ExecutionAdapterFailure::InvalidState(_))
+    )
+}
+
+/// The TB-02 input guards of `audit_vi_t11_invalid_utf8_string_guard_is_independent_of_polarity`,
+/// `audit_vi_t11_review3_invalid_utf8_token_guard_is_independent_of_polarity`,
+/// `audit_vi_t11_review2_float_guard_is_independent_of_polarity` and
+/// `audit_vi_t11_review4_token_hooks_over_builtin_sorts_refuse_every_state` (kink tier, on the
+/// compiled tb02 fixtures), on the fixtures' relevant declarations written as KORE, with the
+/// same inputs: invalid UTF-8 is refused in every non-Bytes domain value and String literal at
+/// either polarity, valid text and every Bytes value are admitted, every Float domain value is
+/// refused, and a definition declaring a token hook over a builtin sort refuses every state.
+#[test]
+fn audit_vi_t11_input_guards_on_the_fixture_declarations() {
+    let negate = |sort: &str, value: Pattern| Pattern::Not {
+        sort: kore_sort(sort),
+        argument: Box::new(value),
+    };
+    let raw = |sort: &str, byte: u8| Pattern::DomainValue {
+        sort: kore_sort(sort),
+        value: vec![byte].into(),
+    };
+    let apply = |symbol: &str, argument: Pattern| Pattern::Application {
+        symbol: k_rust::kore::ast::Symbol {
+            name: symbol.into(),
+            sort_parameters: Vec::new(),
+        },
+        arguments: vec![argument],
+    };
+    let parse = |source: &str| k_rust::kore::parser::parse_pattern(source).expect("input parses");
+    let mut backend = inline_backend(INPUT_GUARD_DECLARATIONS);
+    // tb02string.k (VI-T11, E-08): host-built invalid UTF-8 String values are refused.
+    for value in [raw("SortString", 0x80), Pattern::String(vec![0x80].into())] {
+        for input in [value.clone(), negate("SortString", value)] {
+            assert!(refused(&mut backend, &input), "{input:?}");
+        }
+    }
+    for source in [
+        r#"\dv{SortString{}}("A")"#,
+        r#"\dv{SortString{}}("\u0080")"#,
+        r#""\xc3\xa9""#,
+        r#"\dv{SortString{}}("\x80")"#,
+        r#""\x80""#,
+    ] {
+        let input = parse(source);
+        let admission = bridge::validate_test_initial_state(&mut backend, &input);
+        assert!(admission.is_ok(), "{source}: {admission:?}");
+    }
+    // tb02token.k (TB02-R3-F1): invalid UTF-8 in any token or non-Bytes value is refused.
+    for (source, value) in [
+        ("id-x80", raw("SortId", 0x80)),
+        ("id-xff", raw("SortId", 0xff)),
+        ("tok-x80", raw("SortTok", 0x80)),
+        (
+            "id2string-x80",
+            apply(
+                "LblId2String'LParUndsRParUnds'ID-COMMON'Unds'String'Unds'Id",
+                raw("SortId", 0x80),
+            ),
+        ),
+        ("tok2s-x80", apply("Lbltok2s", raw("SortTok", 0x80))),
+        ("int-x80", raw("SortInt", 0x80)),
+    ] {
+        for input in [value.clone(), negate("SortString", value)] {
+            assert!(refused(&mut backend, &input), "{source}: {input:?}");
+        }
+    }
+    for source in [
+        r#"\dv{SortId{}}("A")"#,
+        r#"\dv{SortId{}}("\u0080")"#,
+        r#"\dv{SortTok{}}("\xc3\xa9")"#,
+        r#"Lbltok2s{}(\dv{SortTok{}}("\u0080"))"#,
+        r#"\dv{SortId{}}("\x80")"#,
+        r#"\dv{SortId{}}("\xff")"#,
+        r#"\dv{SortTok{}}("\x80")"#,
+        r#"LblId2String'LParUndsRParUnds'ID-COMMON'Unds'String'Unds'Id{}(\dv{SortId{}}("\x80"))"#,
+        r#"Lbltok2s{}(\dv{SortTok{}}("\x80"))"#,
+        // tb02bytes.k: Bytes keeps every byte sequence (review F3).
+        r#"\dv{SortBytes{}}("\x80")"#,
+        r#"\dv{SortBytes{}}("\xff")"#,
+    ] {
+        let value = parse(source);
+        for input in [value.clone(), negate("SortString", value)] {
+            let admission = bridge::validate_test_initial_state(&mut backend, &input);
+            assert!(admission.is_ok(), "{source}: {input:?}: {admission:?}");
+        }
+    }
+    // tb02float.k (TB02-R2-F1): every test-written Float token is refused at any polarity.
+    for spelling in [
+        "1.0",
+        "1.00",
+        "1.0e0",
+        "1.0d",
+        "1.0p53x11",
+        "10.0e-1",
+        "1.0000000000000000e0",
+        "1.0000000000000000e+00",
+    ] {
+        let value = Pattern::DomainValue {
+            sort: kore_sort("SortFloat"),
+            value: spelling.into(),
+        };
+        for input in [value.clone(), negate("SortFloat", value)] {
+            assert!(refused(&mut backend, &input), "{spelling}: {input:?}");
+        }
+    }
+    // tb02bytestoken.k and tb02stringtoken.k (TB02-R4-F1): STRING.token2string over a builtin
+    // argument sort, or STRING.string2token into a builtin result sort, refuses every state:
+    // here states the declarations above admit (the control), at either polarity.
+    for (module, declaration, states) in [
+        (
+            "TB02BYTESTOKEN",
+            r#"hooked-symbol Lblb2s{}(SortBytes{}) : SortString{} [function{}(), total{}(), hook{}("STRING.token2string")]"#,
+            [
+                r#"\dv{SortInt{}}("1")"#,
+                r#"\dv{SortInt{}}("128")"#,
+                r#"Lblb2s{}(\dv{SortBytes{}}("A"))"#,
+            ],
+        ),
+        (
+            "TB02STRINGTOKEN",
+            r#"hooked-symbol Lbls2b{}(SortString{}) : SortBytes{} [function{}(), total{}(), hook{}("STRING.string2token")]"#,
+            [
+                r#"\dv{SortInt{}}("1")"#,
+                r#"\dv{SortString{}}("A")"#,
+                r#"Lbls2b{}(\dv{SortString{}}("A"))"#,
+            ],
+        ),
+    ] {
+        let mut backend = inline_backend(&format!("{INPUT_GUARD_DECLARATIONS} {declaration}"));
+        for source in states {
+            let state = parse(source);
+            // Control: without the token-hook declaration the state is admitted, so the
+            // refusal below is the declaration's.
+            let admission = bridge::validate_test_initial_state(
+                &mut inline_backend(INPUT_GUARD_DECLARATIONS),
+                &state,
+            );
+            assert!(
+                admission.is_ok(),
+                "{module} control {source}: {admission:?}"
+            );
+            for input in [state.clone(), negate("SortInt", state)] {
+                assert!(refused(&mut backend, &input), "{module}: {input:?}");
+            }
+        }
+    }
+}
+
 /// VI-T11: free set variables are refused explicitly before the backend's undecided step.
 /// A set binder is local and is not a free test-state input.
 #[test]
@@ -1393,117 +982,6 @@ fn audit_vi_t11_free_set_variables_require_input_refusal() {
     let local =
         k_rust::kore::parser::parse_pattern(r"\mu{}(@M:SortS{},@M:SortS{})").expect("local binder");
     assert!(bridge::validate_test_initial_state(&mut backend, &local).is_ok());
-}
-
-/// VI-T10: admitted monotone predicates, defined and undefined valuations, plus a genuinely
-/// empty predicate. Report every depth-0 discard and require an actual-instance row to stay.
-#[test]
-fn audit_vi_t10_positive_predicates_do_not_discard_instances() {
-    const PART: &str = r"Lblpart{}(X:SortInt{})";
-    const TOP: &str = "SortGeneratedTopCell{}";
-    let atom = format!(r#"\equals{{SortInt{{}},{TOP}}}({PART},\dv{{SortInt{{}}}}("7"))"#);
-    let rows = [
-        ("ceil", format!(r"\ceil{{SortInt{{}},{TOP}}}({PART})"), true),
-        ("equals", atom.clone(), true),
-        (
-            "in",
-            format!(r#"\in{{SortInt{{}},{TOP}}}({PART},\dv{{SortInt{{}}}}("7"))"#),
-            true,
-        ),
-        (
-            "and",
-            format!(r"\and{{{TOP}}}({atom},\top{{{TOP}}}())"),
-            true,
-        ),
-        ("or", format!(r"\or{{{TOP}}}({atom},\top{{{TOP}}}())"), true),
-        (
-            "exists",
-            format!(r"\exists{{{TOP}}}(X:SortInt{{}},{atom})"),
-            true,
-        ),
-        (
-            "forall",
-            format!(r"\forall{{{TOP}}}(X:SortInt{{}},{atom})"),
-            false,
-        ),
-        (
-            "empty",
-            format!(
-                r#"\equals{{SortInt{{}},{TOP}}}(\dv{{SortInt{{}}}}("1"),\dv{{SortInt{{}}}}("2"))"#
-            ),
-            false,
-        ),
-    ];
-    let validator = NativeValidator::bind(
-        support::load_path(
-            &std::path::Path::new(support::DIR).join("partialreq.k"),
-            "TV01UNSAT",
-        ),
-        CompileOptions::default(),
-    );
-    let side = validator.compile_baseline().expect("baseline");
-    for (label, condition, inhabited) in rows {
-        let initial = Pattern::And {
-            sort: kore_sort("SortGeneratedTopCell"),
-            arguments: vec![
-                support::initial_state(
-                    support::app("Lblpair", vec![int("X"), int("Y")]),
-                    "SortProg",
-                ),
-                k_rust::kore::parser::parse_pattern(&condition).expect("predicate"),
-            ],
-        };
-        let mut backend = backend(&side, "TV01UNSAT");
-        bridge::validate_test_initial_state(&mut backend, &initial).expect("positive predicate");
-        let execution = ExecutionAdapter::with_profile(SolverProfile::BUILD)
-            .execute(&mut backend, &initial, BUDGET)
-            .expect("execution");
-        let rows = execution
-            .leaves()
-            .iter()
-            .map(|leaf| {
-                (
-                    leaf.halt,
-                    leaf.feasibility,
-                    leaf.branch.depth,
-                    bridge::discarded(leaf),
-                )
-            })
-            .collect::<Vec<_>>();
-        eprintln!("TB02-POSITIVE {label}: {rows:?}");
-        assert_eq!(
-            rows,
-            [(
-                if label == "empty" {
-                    HaltClass::Vacuous
-                } else {
-                    HaltClass::Stuck
-                },
-                if label == "or" {
-                    LeafFeasibility::Syntactic
-                } else {
-                    LeafFeasibility::Unknown
-                },
-                0,
-                if label == "empty" {
-                    Some(DiscardReason::Vacuous)
-                } else {
-                    None
-                }
-            )],
-            "{label}"
-        );
-        if inhabited {
-            assert!(
-                rows.iter().all(
-                    |(halt, feasibility, _, discard)| *halt != HaltClass::Vacuous
-                        && *feasibility != LeafFeasibility::Unsat
-                        && discard.is_none()
-                ),
-                "{label}: an X=0 instance was dropped"
-            );
-        }
-    }
 }
 
 /// Executes directly so refusal regressions can retain the evidence behind the guard.
@@ -1539,334 +1017,1098 @@ fn audit_vi_t10_relation_rows(
         .expect("instance queries")
 }
 
-/// Review F5: Y=0 makes Y=1 outside every leaf, including the tautological or/exists rows.
-#[test]
-fn audit_vi_t10_positive_predicate_instance_queries_are_not_refuted() {
-    const PART: &str = r"Lblpart{}(X:SortInt{})";
-    const TOP: &str = "SortGeneratedTopCell{}";
-    let atom = format!(r#"\equals{{SortInt{{}},{TOP}}}({PART},\dv{{SortInt{{}}}}("7"))"#);
-    let validator = NativeValidator::bind(
-        support::load_path(
-            &std::path::Path::new(support::DIR).join("partialreq.k"),
-            "TV01UNSAT",
-        ),
-        CompileOptions::default(),
-    );
-    let side = validator.compile_baseline().expect("baseline");
-    for (label, source) in [
-        ("ceil", format!(r"\ceil{{SortInt{{}},{TOP}}}({PART})")),
-        ("equals", atom.clone()),
-        (
-            "in",
-            format!(r#"\in{{SortInt{{}},{TOP}}}({PART},\dv{{SortInt{{}}}}("7"))"#),
-        ),
-        ("and", format!(r"\and{{{TOP}}}({atom},\top{{{TOP}}}())")),
-        ("or", format!(r"\or{{{TOP}}}({atom},\top{{{TOP}}}())")),
-        ("exists", format!(r"\exists{{{TOP}}}(X:SortInt{{}},{atom})")),
-    ] {
+mod kink_tier {
+    use super::*;
+
+    /// AT12 at the leaf. A call written in a ground initial state that no rule rewrites, `done(c)`
+    /// for `c` in `freq(3)` and `part(1)`, is one `Stuck` leaf whose state is the ground term with
+    /// the call kept: no predicate, no diagnostic (`freq`'s requires-only variable has a contingent
+    /// condition, and `part` has no equation for 1), feasibility `Unknown` (the call is not a free
+    /// constructor). The mutant evaluates the call (`freq(3) = 1`, `part(1) = 7`) and its leaf is
+    /// the `Syntactic` `done(1)` or `done(7)`. Both definitions agree on every defined input, so the
+    /// two ground terminals denote the same value in a model of the baseline, but they are distinct
+    /// terms. `fres(3)` (an unbound result variable) keeps the call with an `UndecidedCondition`
+    /// diagnostic instead, which the bridge maps to `BackendLimit`.
+    ///
+    /// Re-pin R0a (finding E-14; k-rust KINK-10): at 501f18b9 the baseline's kept-call leaves of
+    /// `freq(3)` and `part(1)` carry an `UndefinedInitialInstances` diagnostic (the initial state's
+    /// call may be undefined), so they are diagnosed (fail-closed); at 927b9ce6 they carried none.
+    ///
+    /// Re-pin L-1: the outcome of `freq(3)` depends on the profile. Without Z3 the baseline keeps
+    /// the call as above. Under Z3 the baseline evaluates it, as the mutant does: its leaf is the
+    /// undiagnosed `Syntactic` `done(1)`. Since k-rust BIND/A3 (commit 3be422d93, head 6ddf8c236,
+    /// merge 1c0cccc86) the condition-only `Z` is quantified existentially inside the condition
+    /// (`exists Z. Z >Int 3`), which Z3 decides; that is the axiom closed over `Z` (decisions log
+    /// 2026-10-20, "a variable of a rule's condition alone is read existentially"). `part(1)` and
+    /// `fres(3)` are the same in both profiles.
+    #[test]
+    #[ignore = "kink"]
+    fn kept_calls_in_ground_terminals_are_not_values() {
+        let validator =
+            NativeValidator::bind(support::load("unbound.k"), CompileOptions::default());
+        let baseline = validator.compile_baseline().expect("unbound compiles");
+        for ((call, patch), (argument, value)) in unbound_mutants(&validator)
+            .into_iter()
+            .zip([(3, 1), (1, 7)])
+        {
+            let initial = support::initial_state(
+                support::app(
+                    "Lbldone",
+                    vec![support::app(call, vec![support::int(argument)])],
+                ),
+                "SortProg",
+            );
+            let kept = leaves(&baseline, "UNBOUND", &initial);
+            let [leaf] = kept.as_slice() else {
+                panic!("{call}: one baseline leaf, got {}", kept.len())
+            };
+            if call == "Lblfreq" && cfg!(feature = "z3") {
+                // Re-pin L-1: under Z3 the baseline leaf of `freq(3)` moves from the kept call
+                // (Stuck, Unknown, diagnosed with UndefinedInitialInstances) to the undiagnosed
+                // Syntactic `done(1)`, by k-rust BIND/A3 (commit 3be422d93, head 6ddf8c236, merge
+                // 1c0cccc86: a condition-only variable is read existentially, which Z3 decides),
+                // accepted by Sebastien (decisions log 2026-10-20, "a variable of a rule's condition
+                // alone is read existentially"). No-Z3 is unchanged (the other branch).
+                assert_eq!(
+                    (
+                        leaf.halt,
+                        leaf.feasibility,
+                        bridge::discarded(leaf),
+                        diagnosed(leaf)
+                    ),
+                    (HaltClass::Stuck, LeafFeasibility::Syntactic, None, false),
+                    "{call}"
+                );
+                assert_eq!(
+                    state(leaf),
+                    support::initial_state(
+                        support::app("Lbldone", vec![support::int(value)]),
+                        "SortProg"
+                    ),
+                    "{call}: the call is evaluated"
+                );
+            } else {
+                assert_eq!(
+                    (
+                        leaf.halt,
+                        leaf.feasibility,
+                        bridge::discarded(leaf),
+                        diagnosed(leaf)
+                    ),
+                    (HaltClass::Stuck, LeafFeasibility::Unknown, None, true),
+                    "{call}"
+                );
+                assert!(
+                    leaf.diagnostics.iter().any(|diagnostic| matches!(
+                        diagnostic,
+                        k_rust::backend::BackendDiagnosticOutput::UndefinedInitialInstances { .. }
+                    )),
+                    "{call}: {:?}",
+                    leaf.diagnostics
+                );
+                assert_eq!(
+                    state(leaf),
+                    initial,
+                    "{call}: the call is kept, unconstrained"
+                );
+            }
+            let mutant = validator.validate(&patch).expect("mutant compiles");
+            let evaluated = leaves(&mutant, "UNBOUND", &initial);
+            let [leaf] = evaluated.as_slice() else {
+                panic!("{call}: one mutant leaf")
+            };
+            assert_eq!(
+                (
+                    leaf.halt,
+                    leaf.feasibility,
+                    bridge::discarded(leaf),
+                    diagnosed(leaf)
+                ),
+                (HaltClass::Stuck, LeafFeasibility::Syntactic, None, false),
+                "{call}"
+            );
+            assert_eq!(
+                state(leaf),
+                support::initial_state(
+                    support::app("Lbldone", vec![support::int(value)]),
+                    "SortProg"
+                ),
+                "{call}"
+            );
+        }
+        let initial = support::initial_state(
+            support::app(
+                "Lbldone",
+                vec![support::app("Lblfres", vec![support::int(3)])],
+            ),
+            "SortProg",
+        );
+        let kept = leaves(&baseline, "UNBOUND", &initial);
+        let [leaf] = kept.as_slice() else {
+            panic!("fres: one leaf")
+        };
+        assert_eq!((leaf.halt, diagnosed(leaf)), (HaltClass::Stuck, true));
+        assert!(contains_symbol(&state(leaf), "Lblfres"));
+    }
+
+    /// TV-01 review 2, T-UNSAT attack 1: complementary conditions over a partial term
+    /// (`partialreq.k (TV01UNSAT)`). For `dv` (`/Int`) and `md` (`%Int`) at `Y = 0`, and for `cmp` (the user
+    /// partial function `part`) at `X = 1`, neither condition is defined, so the stuck remainder
+    /// has K instances; with both negations read as total it is `not P and not (not P)`, which a
+    /// solver refutes. `ow` pits `part`'s condition against an owise rule, whose leaf has the
+    /// instance `X = 1`. Every leaf with a named instance must stay unrefuted in both profiles;
+    /// with Z3, `dv` and `md` must also keep a leaf for the remainder (else instances are lost).
+    #[test]
+    #[ignore = "kink"]
+    fn review_complementary_partial_conditions_keep_their_stuck_instances() {
+        let x = || int("X");
+        let y = || int("Y");
+        let cases: [(&str, Pattern, Instances); 4] = [
+            (
+                "dv",
+                support::app("Lbldv", vec![x(), y()]),
+                vec![
+                    ("dv", vec![equal("X", 1), equal("Y", 0)]),
+                    ("yes", vec![equal("X", 1), equal("Y", 1)]),
+                    ("no", vec![equal("X", 0), equal("Y", 1)]),
+                ],
+            ),
+            (
+                "md",
+                support::app("Lblmd", vec![x(), y()]),
+                vec![
+                    ("md", vec![equal("X", 1), equal("Y", 0)]),
+                    ("yes", vec![equal("X", 0), equal("Y", 1)]),
+                    ("no", vec![equal("X", 1), equal("Y", 2)]),
+                ],
+            ),
+            (
+                "cmp",
+                support::app("Lblcmp", vec![x()]),
+                vec![("cmp", vec![equal("X", 1)]), ("yes", vec![equal("X", 0)])],
+            ),
+            (
+                "ow",
+                support::app("Lblow", vec![x()]),
+                vec![
+                    ("ow", vec![equal("X", 1)]),
+                    ("yes", vec![equal("X", 0)]),
+                    ("no", vec![equal("X", 1)]),
+                ],
+            ),
+        ];
+        for (label, program, instances) in cases {
+            let initial = support::initial_state(program, "SortProg");
+            let rows = review_leaves("partialreq.k", "TV01UNSAT", &initial, &instances);
+            assert_no_refuted_instance(label, &rows);
+            if cfg!(feature = "z3") && matches!(label, "dv" | "md") {
+                assert!(
+                    rows.iter().any(|row| row.head == label),
+                    "{label}: no leaf keeps the undefined-divisor instances"
+                );
+            }
+        }
+    }
+
+    /// TV-01 deliverable 5 (R2-F1): test-written conditions with partial applications beneath
+    /// `\not` must be REFUSED by the campaign's shared input boundary before execution.
+    /// `neither` has the instance X = 1, Y = 0 yet k-rust previously halted it Vacuous at depth 0.
+    /// `reflexive` and `reflexive-part` previously kept Stuck leaves; they match the same admission
+    /// rule. Measured in both profiles: all three are REFUSED (`InvalidState`) before execution;
+    /// campaign admission maps these to `BaselineOracleFailed`. This boundary does not inspect
+    /// k-rust-built leaves. R3-F1 adds implies/iff/predicate-equals negation notations:
+    /// before the polarity guard, each was admitted and produced (Vacuous, Unknown, depth 0,
+    /// discarded Vacuous) in both profiles; after it, each is REFUSED before execution.
+    #[test]
+    #[ignore = "kink"]
+    fn review_test_written_partial_conditions_are_not_refuted() {
+        const DIV: &str = r"Lbl'UndsSlsh'Int'Unds'{}(X:SortInt{}, Y:SortInt{})";
+        let not_equals = |atom: String, value: &str| {
+            format!(
+                r#"\not{{SortGeneratedTopCell{{}}}}(\equals{{SortBool{{}}, SortGeneratedTopCell{{}}}}({atom}, \dv{{SortBool{{}}}}("{value}")))"#
+            )
+        };
+        let reflexive = not_equals(
+            format!("Lbl'UndsEqlsEqls'Int'Unds'{{}}({DIV}, {DIV})"),
+            "true",
+        );
+        let positive = format!(r#"Lbl'Unds-GT-'Int'Unds'{{}}({DIV}, \dv{{SortInt{{}}}}("0"))"#);
+        let neither = format!(
+            r"\and{{SortGeneratedTopCell{{}}}}({}, {})",
+            not_equals(positive.clone(), "true"),
+            not_equals(positive.clone(), "false")
+        );
+        // R3-F1: these notations express negation in matching logic without a literal Not.
+        let negation_equivalent_pair = |connective: &str| {
+            let negate = |value: &str| {
+                format!(
+                    r#"\{connective}(\equals{{SortBool{{}},SortGeneratedTopCell{{}}}}({positive},\dv{{SortBool{{}}}}("{value}")),\bottom{{SortGeneratedTopCell{{}}}}())"#
+                )
+            };
+            format!(
+                r"\and{{SortGeneratedTopCell{{}}}}({},{})",
+                negate("true"),
+                negate("false")
+            )
+        };
+        let mut measured = Vec::new();
+        const PART: &str = r"Lblpart{}(X:SortInt{})";
+        let reflexive_part = not_equals(
+            format!("Lbl'UndsEqlsEqls'Int'Unds'{{}}({PART}, {PART})"),
+            "true",
+        );
+        for (label, condition) in [
+            ("reflexive", reflexive),
+            ("neither", neither),
+            ("reflexive-part", reflexive_part),
+            (
+                "implies",
+                negation_equivalent_pair("implies{SortGeneratedTopCell{}}"),
+            ),
+            (
+                "iff",
+                negation_equivalent_pair("iff{SortGeneratedTopCell{}}"),
+            ),
+            (
+                "pred-equals",
+                negation_equivalent_pair("equals{SortGeneratedTopCell{},SortGeneratedTopCell{}}"),
+            ),
+        ] {
+            let condition =
+                k_rust::kore::parser::parse_pattern(&condition).expect("the condition parses");
+            let validator = NativeValidator::bind(
+                support::load_path(
+                    &std::path::Path::new(support::DIR).join("partialreq.k"),
+                    "TV01UNSAT",
+                ),
+                CompileOptions::default(),
+            );
+            let side = validator.compile_baseline().expect("fixture compiles");
+            let initial = Pattern::And {
+                sort: kore_sort("SortGeneratedTopCell"),
+                arguments: vec![
+                    support::initial_state(
+                        support::app("Lblpair", vec![int("X"), int("Y")]),
+                        "SortProg",
+                    ),
+                    condition,
+                ],
+            };
+            let mut backend = backend(&side, "TV01UNSAT");
+            // The same input admission entry point run_campaign uses, before either adapter path.
+            let admission = bridge::validate_test_initial_state(&mut backend, &initial);
+            let mut executed = false;
+            let result = admission.and_then(|()| {
+                executed = true;
+                ExecutionAdapter::with_profile(SolverProfile::BUILD).execute(
+                    &mut backend,
+                    &initial,
+                    BUDGET,
+                )
+            });
+            eprintln!(
+                "TV01-INPUT {label}: executed={executed}, leaves={:?}",
+                result.as_ref().ok().map(|execution| execution
+                    .leaves()
+                    .iter()
+                    .map(|leaf| (
+                        leaf.halt,
+                        leaf.feasibility,
+                        leaf.branch.depth,
+                        bridge::discarded(leaf)
+                    ))
+                    .collect::<Vec<_>>())
+            );
+            measured.push((label, executed, result));
+        }
+        eprintln!("TV01-INPUT measured: {measured:?}");
+        for (label, executed, result) in measured {
+            assert!(!executed, "{label}: must be REFUSED before execution");
+            assert!(
+                matches!(
+                    result,
+                    Err(kink_native::execution::ExecutionAdapterFailure::InvalidState(_))
+                ),
+                "{label}: expected REFUSED invalid test input, got {result:?}"
+            );
+        }
+    }
+
+    /// TV-01 review 2: with `part(0) => 7` disabled, the mutant keeps a call in each ground state.
+    /// The side's own definition-independence check must leave every path incomplete with no terminal in both profiles.
+    /// The review report preserves the temporary counterfactual that bypassed this check; persisted callers meet the bridge contract.
+    #[test]
+    #[ignore = "kink"]
+    fn review_kept_calls_do_not_supply_terminals() {
+        let validator = NativeValidator::bind(
+            support::load_path(
+                &std::path::Path::new(support::DIR).join("unbound.k"),
+                "TV01TERMINAL",
+            ),
+            CompileOptions::default(),
+        );
+        let baseline = validator.baseline();
+        let requires = TermRef::new(support::rule(baseline, "TV01TERMINAL.part"), [1]);
+        let patch = Patch::new(vec![Edit::ReplaceTerm {
+            expected: baseline.term(&requires).expect("requires").clone(),
+            replacement: Term::Token {
+                token: "false".into(),
+                sort: Sort::new("Bool"),
+            },
+            at: requires,
+        }])
+        .expect("patch");
+        let mutant = validator.validate(&patch).expect("mutant compiles");
+        let sorts = kink_pattern::SymbolSorts::from_definition(
+            &k_rust::kore::parser::parse_definition(&mutant.artifacts().definition_kore)
+                .expect("compiled KORE parses"),
+        );
+        let part0 = || support::app("Lblpart", vec![support::int(0)]);
+        let int_val = |value: Pattern| {
+            k_rust::kompile::initial_configuration::kore_application(
+                "inj",
+                vec![kore_sort("SortInt"), kore_sort("SortVal")],
+                vec![value],
+            )
+        };
+        let states = [
+            ("inj", support::app("Lbldone", vec![int_val(part0())])),
+            (
+                "ctor",
+                support::app("Lbldone", vec![support::app("Lblwrap", vec![part0()])]),
+            ),
+            ("class", support::app("Lblcheck", vec![part0()])),
+            ("owise-rule", support::app("Lblsel", vec![part0()])),
+            (
+                "owise-fn",
+                support::app(
+                    "Lbldone",
+                    vec![int_val(support::app("Lblfsel", vec![part0()]))],
+                ),
+            ),
+        ];
+        let normal = |_: &Pattern| kink_pattern::ExecutionTerminalKind::Normal;
+        for (label, program) in states {
+            let initial = support::initial_state(program, "SortProg");
+            let mut side = backend(&mutant, "TV01TERMINAL");
+            let execution = ExecutionAdapter::with_profile(SolverProfile::BUILD)
+                .execute(&mut side, &initial, BUDGET)
+                .expect("event-free execution");
+            let context = bridge::BridgeContext {
+                test_id: label,
+                classify: &normal,
+                sorts: &sorts,
+            };
+            let guarded = side
+                .with_solver(None, |definition, solver| {
+                    let decider = kink_native::step_events::ObservationDecider::new(
+                        definition,
+                        solver,
+                        TestInitialState::of_test(&initial),
+                    );
+                    Ok::<_, BackendError>(bridge::paths_from_execution(
+                        &execution,
+                        &context,
+                        &|term| decider.definition_independent(term),
+                    ))
+                })
+                .expect("backend definition");
+            let guarded = review_paths(&guarded.expect("guarded bridge"));
+            eprintln!("TV01-REVIEW bridge {label}: guarded {guarded:?}");
+            assert!(
+                guarded
+                    .iter()
+                    .all(|(complete, _, terminal)| !complete && terminal.is_none()),
+                "{label}: a guarded path is complete: {guarded:?}"
+            );
+        }
+    }
+
+    /// TV-01 fix 1 (review R1-F1): a sort injection is a value, and admissible test input, only in
+    /// k-rust's normal form: strict (a proper subsort source), one argument whose sort is the
+    /// source, and not nested. The identity `inj{SortInt,SortInt}(7)`, the reversed
+    /// `inj{SortVal,SortInt}`, the nested `inj{SortVal,SortKItem}(inj{SortInt,SortVal}(7))` and the
+    /// ill-sorted `inj{SortInt,SortVal}(true)` and `inj{SortInt,SortVal}(wrap(7))` are none. Each
+    /// row checks the decider's definition independence of the program and the input guard on the
+    /// initial state holding it (refused exactly when not independent here, since every other
+    /// application is a free constructor).
+    #[test]
+    #[ignore = "kink"]
+    fn injections_are_values_only_in_normal_form() {
+        let validator = NativeValidator::bind(
+            support::load_path(
+                &std::path::Path::new(support::DIR).join("unbound.k"),
+                "TV01TERMINAL",
+            ),
+            CompileOptions::default(),
+        );
+        let side = validator.compile_baseline().expect("fixture compiles");
+        let seven = || support::int(7);
+        let truth = || Pattern::DomainValue {
+            sort: kore_sort("SortBool"),
+            value: "true".into(),
+        };
+        let done = |value: Pattern| support::app("Lbldone", vec![value]);
+        let check = |value: Pattern| support::app("Lblcheck", vec![value]);
+        let wrap = |value: Pattern| support::app("Lblwrap", vec![value]);
+        let rows = [
+            ("strict", done(inj("SortInt", "SortVal", seven())), true),
+            ("strict-ctor", done(wrap(seven())), true),
+            (
+                "strict-var",
+                done(inj("SortInt", "SortVal", int("X"))),
+                true,
+            ),
+            ("canonical-check", check(seven()), true),
+            ("identity", check(inj("SortInt", "SortInt", seven())), false),
+            (
+                "identity-under-strict",
+                done(inj(
+                    "SortInt",
+                    "SortVal",
+                    inj("SortInt", "SortInt", seven()),
+                )),
+                false,
+            ),
+            (
+                "identity-val",
+                done(inj("SortVal", "SortVal", wrap(seven()))),
+                false,
+            ),
+            (
+                "reversed",
+                check(inj("SortVal", "SortInt", wrap(seven()))),
+                false,
+            ),
+            (
+                "ill-sorted-dv",
+                done(inj("SortInt", "SortVal", truth())),
+                false,
+            ),
+            (
+                "ill-sorted-ctor",
+                done(inj("SortInt", "SortVal", wrap(seven()))),
+                false,
+            ),
+            (
+                "ill-sorted-var",
+                done(inj("SortInt", "SortVal", support::var("V", "SortVal"))),
+                false,
+            ),
+        ];
+        let mut backend = backend(&side, "TV01TERMINAL");
+        for (label, program, expected) in rows {
+            let initial = support::initial_state(program.clone(), "SortProg");
+            let independent = backend
+                .with_solver(None, |definition, solver| {
+                    let decider = kink_native::step_events::ObservationDecider::new(
+                        definition,
+                        solver,
+                        TestInitialState::of_test(&initial),
+                    );
+                    Ok::<_, BackendError>(decider.definition_independent(&program))
+                })
+                .expect("backend definition");
+            let admitted = bridge::validate_test_initial_state(&mut backend, &initial).is_ok();
+            eprintln!("TV01-FIX1 {label}: independent={independent} admitted={admitted}");
+            assert_eq!(independent, expected, "{label}: definition independence");
+            assert_eq!(admitted, expected, "{label}: input admission");
+        }
+        // A nested pair: the program itself is well formed, the term under `kseq` is not normal.
+        let nested = inj("SortVal", "SortKItem", inj("SortInt", "SortVal", seven()));
+        let nested_independent = backend
+            .with_solver(None, |definition, solver| {
+                let decider = kink_native::step_events::ObservationDecider::new(
+                    definition,
+                    solver,
+                    TestInitialState::of_test(&nested),
+                );
+                Ok::<_, BackendError>(decider.definition_independent(&nested))
+            })
+            .expect("backend definition");
+        assert!(!nested_independent, "a nested injection pair is not normal");
+        let nested_state = support::initial_state(
+            support::app("Lblhold", vec![support::app("LblListItem", vec![nested])]),
+            "SortProg",
+        );
+        assert!(
+            bridge::validate_test_initial_state(&mut backend, &nested_state).is_err(),
+            "a nested injection pair is refused as test input"
+        );
+    }
+
+    /// TV-01 fix 1 (review R1-F1), below the input guard: the baseline `check(7) => done(7)` leaves
+    /// a test-written `check(inj{SortInt,SortInt}(7))` stuck. Its stuck term is not a value, so the
+    /// guarded bridge gives an incomplete path with no terminal in both profiles (before the fix:
+    /// a complete `Normal` terminal, compared against the mutant's `done(7)`).
+    #[test]
+    #[ignore = "kink"]
+    fn identity_injections_do_not_supply_terminals() {
+        let validator = NativeValidator::bind(
+            support::load_path(
+                &std::path::Path::new(support::DIR).join("unbound.k"),
+                "TV01TERMINAL",
+            ),
+            CompileOptions::default(),
+        );
+        let side = validator.compile_baseline().expect("fixture compiles");
+        let sorts = kink_pattern::SymbolSorts::from_definition(
+            &k_rust::kore::parser::parse_definition(&side.artifacts().definition_kore)
+                .expect("compiled KORE parses"),
+        );
+        let normal = |_: &Pattern| kink_pattern::ExecutionTerminalKind::Normal;
+        for (label, program, complete) in [
+            (
+                "identity",
+                support::app("Lblcheck", vec![inj("SortInt", "SortInt", support::int(7))]),
+                false,
+            ),
+            (
+                "canonical",
+                support::app("Lblcheck", vec![support::int(3)]),
+                true,
+            ),
+        ] {
+            let initial = support::initial_state(program, "SortProg");
+            let mut backend = backend(&side, "TV01TERMINAL");
+            let execution = ExecutionAdapter::with_profile(SolverProfile::BUILD)
+                .execute(&mut backend, &initial, BUDGET)
+                .expect("event-free execution");
+            let halts = execution
+                .leaves()
+                .iter()
+                .map(|leaf| leaf.halt)
+                .collect::<Vec<_>>();
+            assert_eq!(halts, [HaltClass::Stuck], "{label}: the baseline is stuck");
+            let context = bridge::BridgeContext {
+                test_id: label,
+                classify: &normal,
+                sorts: &sorts,
+            };
+            let bridged = backend
+                .with_solver(None, |definition, solver| {
+                    let decider = kink_native::step_events::ObservationDecider::new(
+                        definition,
+                        solver,
+                        TestInitialState::of_test(&initial),
+                    );
+                    Ok::<_, BackendError>(bridge::paths_from_execution(
+                        &execution,
+                        &context,
+                        &|term| decider.definition_independent(term),
+                    ))
+                })
+                .expect("backend definition")
+                .expect("guarded bridge");
+            let paths = bridged
+                .paths
+                .iter()
+                .map(|path| (path.complete, path.stop, path.execution_terminal.is_some()))
+                .collect::<Vec<_>>();
+            eprintln!("TV01-FIX1 bridge {label}: {paths:?}");
+            let expected = if complete {
+                (true, PathStop::Terminal, true)
+            } else {
+                (false, PathStop::SolverUnknown, false)
+            };
+            assert_eq!(paths, [expected], "{label}");
+        }
+    }
+
+    /// VI-T10: admitted monotone predicates, defined and undefined valuations, plus a genuinely
+    /// empty predicate. Report every depth-0 discard and require an actual-instance row to stay.
+    #[test]
+    #[ignore = "kink"]
+    fn audit_vi_t10_positive_predicates_do_not_discard_instances() {
+        const PART: &str = r"Lblpart{}(X:SortInt{})";
+        const TOP: &str = "SortGeneratedTopCell{}";
+        let atom = format!(r#"\equals{{SortInt{{}},{TOP}}}({PART},\dv{{SortInt{{}}}}("7"))"#);
+        let rows = [
+            ("ceil", format!(r"\ceil{{SortInt{{}},{TOP}}}({PART})"), true),
+            ("equals", atom.clone(), true),
+            (
+                "in",
+                format!(r#"\in{{SortInt{{}},{TOP}}}({PART},\dv{{SortInt{{}}}}("7"))"#),
+                true,
+            ),
+            (
+                "and",
+                format!(r"\and{{{TOP}}}({atom},\top{{{TOP}}}())"),
+                true,
+            ),
+            ("or", format!(r"\or{{{TOP}}}({atom},\top{{{TOP}}}())"), true),
+            (
+                "exists",
+                format!(r"\exists{{{TOP}}}(X:SortInt{{}},{atom})"),
+                true,
+            ),
+            (
+                "forall",
+                format!(r"\forall{{{TOP}}}(X:SortInt{{}},{atom})"),
+                false,
+            ),
+            (
+                "empty",
+                format!(
+                    r#"\equals{{SortInt{{}},{TOP}}}(\dv{{SortInt{{}}}}("1"),\dv{{SortInt{{}}}}("2"))"#
+                ),
+                false,
+            ),
+        ];
+        let validator = NativeValidator::bind(
+            support::load_path(
+                &std::path::Path::new(support::DIR).join("partialreq.k"),
+                "TV01UNSAT",
+            ),
+            CompileOptions::default(),
+        );
+        let side = validator.compile_baseline().expect("baseline");
+        for (label, condition, inhabited) in rows {
+            let initial = Pattern::And {
+                sort: kore_sort("SortGeneratedTopCell"),
+                arguments: vec![
+                    support::initial_state(
+                        support::app("Lblpair", vec![int("X"), int("Y")]),
+                        "SortProg",
+                    ),
+                    k_rust::kore::parser::parse_pattern(&condition).expect("predicate"),
+                ],
+            };
+            let mut backend = backend(&side, "TV01UNSAT");
+            bridge::validate_test_initial_state(&mut backend, &initial)
+                .expect("positive predicate");
+            let execution = ExecutionAdapter::with_profile(SolverProfile::BUILD)
+                .execute(&mut backend, &initial, BUDGET)
+                .expect("execution");
+            let rows = execution
+                .leaves()
+                .iter()
+                .map(|leaf| {
+                    (
+                        leaf.halt,
+                        leaf.feasibility,
+                        leaf.branch.depth,
+                        bridge::discarded(leaf),
+                    )
+                })
+                .collect::<Vec<_>>();
+            eprintln!("TB02-POSITIVE {label}: {rows:?}");
+            assert_eq!(
+                rows,
+                [(
+                    if label == "empty" {
+                        HaltClass::Vacuous
+                    } else {
+                        HaltClass::Stuck
+                    },
+                    if label == "or" {
+                        LeafFeasibility::Syntactic
+                    } else {
+                        LeafFeasibility::Unknown
+                    },
+                    0,
+                    if label == "empty" {
+                        Some(DiscardReason::Vacuous)
+                    } else {
+                        None
+                    }
+                )],
+                "{label}"
+            );
+            if inhabited {
+                assert!(
+                    rows.iter().all(
+                        |(halt, feasibility, _, discard)| *halt != HaltClass::Vacuous
+                            && *feasibility != LeafFeasibility::Unsat
+                            && discard.is_none()
+                    ),
+                    "{label}: an X=0 instance was dropped"
+                );
+            }
+        }
+    }
+
+    /// Review F5: Y=0 makes Y=1 outside every leaf, including the tautological or/exists rows.
+    #[test]
+    #[ignore = "kink"]
+    fn audit_vi_t10_positive_predicate_instance_queries_are_not_refuted() {
+        const PART: &str = r"Lblpart{}(X:SortInt{})";
+        const TOP: &str = "SortGeneratedTopCell{}";
+        let atom = format!(r#"\equals{{SortInt{{}},{TOP}}}({PART},\dv{{SortInt{{}}}}("7"))"#);
+        let validator = NativeValidator::bind(
+            support::load_path(
+                &std::path::Path::new(support::DIR).join("partialreq.k"),
+                "TV01UNSAT",
+            ),
+            CompileOptions::default(),
+        );
+        let side = validator.compile_baseline().expect("baseline");
+        for (label, source) in [
+            ("ceil", format!(r"\ceil{{SortInt{{}},{TOP}}}({PART})")),
+            ("equals", atom.clone()),
+            (
+                "in",
+                format!(r#"\in{{SortInt{{}},{TOP}}}({PART},\dv{{SortInt{{}}}}("7"))"#),
+            ),
+            ("and", format!(r"\and{{{TOP}}}({atom},\top{{{TOP}}}())")),
+            ("or", format!(r"\or{{{TOP}}}({atom},\top{{{TOP}}}())")),
+            ("exists", format!(r"\exists{{{TOP}}}(X:SortInt{{}},{atom})")),
+        ] {
+            let initial = Pattern::And {
+                sort: kore_sort("SortGeneratedTopCell"),
+                arguments: vec![
+                    support::initial_state(
+                        support::app("Lblpair", vec![int("X"), int("Y")]),
+                        "SortProg",
+                    ),
+                    k_rust::kore::parser::parse_pattern(&source).expect("positive condition"),
+                    k_rust::kore::parser::parse_pattern(
+                        r#"\equals{SortInt{},SortGeneratedTopCell{}}(Y:SortInt{},\dv{SortInt{}}("0"))"#,
+                    )
+                    .expect("Y=0"),
+                ],
+            };
+            bridge::validate_test_initial_state(&mut backend(&side, "TV01UNSAT"), &initial)
+                .expect("admitted");
+            let rows = audit_vi_t10_relation_rows(
+                &side,
+                "TV01UNSAT",
+                &initial,
+                &[equal("X", 0), equal("Y", 0)],
+                &[equal("X", 0), equal("Y", 1)],
+            );
+            eprintln!("TB02-POSITIVE-QUERY {label}: {rows:?}");
+            let solved = cfg!(feature = "z3") && label == "or";
+            assert_eq!(
+                rows,
+                [row(
+                    HaltClass::Stuck,
+                    if solved {
+                        LeafFeasibility::Solver
+                    } else {
+                        LeafFeasibility::Unknown
+                    },
+                    if solved {
+                        Feasibility::Sat
+                    } else {
+                        Feasibility::Unknown
+                    },
+                    if solved {
+                        Feasibility::Unsat
+                    } else {
+                        Feasibility::Unknown
+                    }
+                )],
+                "{label}"
+            );
+            assert!(
+                rows.iter()
+                    .all(|row| row.at_instance != Feasibility::Unsat && row.discarded.is_none())
+            );
+        }
+    }
+
+    /// Review F6: measure the declared-total String2Bytes hook's Bottom residue; do not refuse it.
+    ///
+    /// Re-pin R0a (finding E-11; k-rust 5ea4e0d74 "leave String2Bytes of a code point above 255
+    /// unevaluated"): at 927b9ce6 `\ceil(String2Bytes("Ā"))` left a Bottom residue (one Vacuous leaf,
+    /// discarded); at 501f18b9 the application stays unevaluated and is read as defined by the hook's
+    /// `total` attribute, so the run is one complete, syntactically feasible Stuck leaf at depth 0.
+    /// That reading is an implementation choice (decision 1): R0b makes every comparison of a
+    /// definition that references `BYTES.string2bytes` Unknown.
+    #[test]
+    #[ignore = "kink"]
+    fn audit_vi_t10_string2bytes_declared_totality_residue() {
+        let validator =
+            NativeValidator::bind(support::load("tb02input.k"), CompileOptions::default());
+        let side = validator.compile_baseline().expect("baseline");
+        let definition = k_rust::kore::parser::parse_definition(&side.artifacts().definition_kore)
+            .expect("KORE");
+        let symbol = definition
+            .modules
+            .iter()
+            .flat_map(|module| &module.sentences)
+            .find_map(|sentence| {
+                if let k_rust::kore::ast::Sentence::SymbolDeclaration { symbol, .. } = sentence
+                    && symbol.name.contains("String2Bytes")
+                {
+                    Some(symbol.clone())
+                } else {
+                    None
+                }
+            })
+            .expect("compiled String2Bytes symbol");
+        eprintln!("TB02-STRING2BYTES symbol: {}", symbol.name);
         let initial = Pattern::And {
             sort: kore_sort("SortGeneratedTopCell"),
             arguments: vec![
-                support::initial_state(
-                    support::app("Lblpair", vec![int("X"), int("Y")]),
-                    "SortProg",
-                ),
-                k_rust::kore::parser::parse_pattern(&source).expect("positive condition"),
-                k_rust::kore::parser::parse_pattern(
-                    r#"\equals{SortInt{},SortGeneratedTopCell{}}(Y:SortInt{},\dv{SortInt{}}("0"))"#,
-                )
-                .expect("Y=0"),
+                support::initial_state(support::app("Lbldone", vec![support::int(1)]), "SortProg"),
+                Pattern::Ceil {
+                    operand_sort: Box::new(kore_sort("SortBytes")),
+                    result_sort: kore_sort("SortGeneratedTopCell"),
+                    argument: Box::new(Pattern::Application {
+                        symbol,
+                        arguments: vec![Pattern::DomainValue {
+                            sort: kore_sort("SortString"),
+                            value: "Ā".into(),
+                        }],
+                    }),
+                },
             ],
         };
-        bridge::validate_test_initial_state(&mut backend(&side, "TV01UNSAT"), &initial)
-            .expect("admitted");
-        let rows = audit_vi_t10_relation_rows(
-            &side,
-            "TV01UNSAT",
-            &initial,
-            &[equal("X", 0), equal("Y", 0)],
-            &[equal("X", 0), equal("Y", 1)],
-        );
-        eprintln!("TB02-POSITIVE-QUERY {label}: {rows:?}");
-        let solved = cfg!(feature = "z3") && label == "or";
+        bridge::validate_test_initial_state(&mut backend(&side, "TB02INPUT"), &initial)
+            .expect("not refused");
+        let rows = leaves(&side, "TB02INPUT", &initial)
+            .iter()
+            .map(|leaf| {
+                (
+                    leaf.halt,
+                    leaf.feasibility,
+                    leaf.branch.depth,
+                    bridge::discarded(leaf),
+                )
+            })
+            .collect::<Vec<_>>();
+        eprintln!("TB02-STRING2BYTES: {rows:?}");
         assert_eq!(
             rows,
-            [row(
-                HaltClass::Stuck,
-                if solved {
-                    LeafFeasibility::Solver
-                } else {
-                    LeafFeasibility::Unknown
-                },
-                if solved {
-                    Feasibility::Sat
-                } else {
-                    Feasibility::Unknown
-                },
-                if solved {
-                    Feasibility::Unsat
-                } else {
-                    Feasibility::Unknown
-                }
-            )],
-            "{label}"
-        );
-        assert!(
-            rows.iter()
-                .all(|row| row.at_instance != Feasibility::Unsat && row.discarded.is_none())
+            [(HaltClass::Stuck, LeafFeasibility::Syntactic, 0, None)]
         );
     }
-}
 
-/// Review F6: measure the declared-total String2Bytes hook's Bottom residue; do not refuse it.
-///
-/// Re-pin R0a (finding E-11; k-rust 5ea4e0d74 "leave String2Bytes of a code point above 255
-/// unevaluated"): at 927b9ce6 `\ceil(String2Bytes("Ā"))` left a Bottom residue (one Vacuous leaf,
-/// discarded); at 501f18b9 the application stays unevaluated and is read as defined by the hook's
-/// `total` attribute, so the run is one complete, syntactically feasible Stuck leaf at depth 0.
-/// That reading is an implementation choice (decision 1): R0b makes every comparison of a
-/// definition that references `BYTES.string2bytes` Unknown.
-#[test]
-fn audit_vi_t10_string2bytes_declared_totality_residue() {
-    let validator = NativeValidator::bind(support::load("tb02input.k"), CompileOptions::default());
-    let side = validator.compile_baseline().expect("baseline");
-    let definition =
-        k_rust::kore::parser::parse_definition(&side.artifacts().definition_kore).expect("KORE");
-    let symbol = definition
-        .modules
-        .iter()
-        .flat_map(|module| &module.sentences)
-        .find_map(|sentence| {
-            if let k_rust::kore::ast::Sentence::SymbolDeclaration { symbol, .. } = sentence
-                && symbol.name.contains("String2Bytes")
-            {
-                Some(symbol.clone())
-            } else {
-                None
-            }
-        })
-        .expect("compiled String2Bytes symbol");
-    eprintln!("TB02-STRING2BYTES symbol: {}", symbol.name);
-    let initial = Pattern::And {
-        sort: kore_sort("SortGeneratedTopCell"),
-        arguments: vec![
-            support::initial_state(support::app("Lbldone", vec![support::int(1)]), "SortProg"),
-            Pattern::Ceil {
-                operand_sort: Box::new(kore_sort("SortBytes")),
-                result_sort: kore_sort("SortGeneratedTopCell"),
-                argument: Box::new(Pattern::Application {
-                    symbol,
-                    arguments: vec![Pattern::DomainValue {
-                        sort: kore_sort("SortString"),
-                        value: "Ā".into(),
-                    }],
-                }),
-            },
-        ],
-    };
-    bridge::validate_test_initial_state(&mut backend(&side, "TB02INPUT"), &initial)
-        .expect("not refused");
-    let rows = leaves(&side, "TB02INPUT", &initial)
-        .iter()
-        .map(|leaf| {
+    /// F1: a bare String pattern carries the same String value as its domain-value spelling.
+    ///
+    /// Re-pin R0a (finding E-08; k-rust 4a3b0b099, 3a8af2805, 61fa9e32d): a KORE `\xhh` in a String
+    /// literal is U+00hh at 501f18b9, so the texts `"\x80"` parse to the valid value U+0080 and are
+    /// admitted. The guard stays pinned on host-built patterns whose payload is not UTF-8, the
+    /// route that remains (every KORE reader now yields UTF-8).
+    #[test]
+    #[ignore = "kink"]
+    fn audit_vi_t11_invalid_utf8_string_guard_is_independent_of_polarity() {
+        let validator =
+            NativeValidator::bind(support::load("tb02string.k"), CompileOptions::default());
+        let side = validator.compile_baseline().expect("baseline");
+        let mut backend = backend(&side, "TB02STRING");
+        for (source, value) in [
             (
-                leaf.halt,
-                leaf.feasibility,
-                leaf.branch.depth,
-                bridge::discarded(leaf),
-            )
-        })
-        .collect::<Vec<_>>();
-    eprintln!("TB02-STRING2BYTES: {rows:?}");
-    assert_eq!(
-        rows,
-        [(HaltClass::Stuck, LeafFeasibility::Syntactic, 0, None)]
-    );
-}
-
-/// F1: a bare String pattern carries the same String value as its domain-value spelling.
-///
-/// Re-pin R0a (finding E-08; k-rust 4a3b0b099, 3a8af2805, 61fa9e32d): a KORE `\xhh` in a String
-/// literal is U+00hh at 501f18b9, so the texts `"\x80"` parse to the valid value U+0080 and are
-/// admitted. The guard stays pinned on host-built patterns whose payload is not UTF-8, the
-/// route that remains (every KORE reader now yields UTF-8).
-#[test]
-fn audit_vi_t11_invalid_utf8_string_guard_is_independent_of_polarity() {
-    let validator = NativeValidator::bind(support::load("tb02string.k"), CompileOptions::default());
-    let side = validator.compile_baseline().expect("baseline");
-    let mut backend = backend(&side, "TB02STRING");
-    for (source, value) in [
-        (
-            "dv-x80",
-            Pattern::DomainValue {
-                sort: kore_sort("SortString"),
-                value: vec![0x80].into(),
-            },
-        ),
-        ("string-x80", Pattern::String(vec![0x80].into())),
-    ] {
-        for input in [
-            value.clone(),
-            Pattern::Not {
-                sort: kore_sort("SortString"),
-                argument: Box::new(value),
-            },
-        ] {
-            assert!(
-                matches!(
-                    bridge::validate_test_initial_state(&mut backend, &input),
-                    Err(kink_native::execution::ExecutionAdapterFailure::InvalidState(_))
-                ),
-                "{source}: {input:?}"
-            );
-        }
-    }
-    for source in [
-        r#"\dv{SortString{}}("A")"#,
-        r#"\dv{SortString{}}("\u0080")"#,
-        r#""\xc3\xa9""#,
-        // The invalid inputs at 927b9ce6 (E-08): U+0080 at 501f18b9.
-        r#"\dv{SortString{}}("\x80")"#,
-        r#""\x80""#,
-    ] {
-        let input = k_rust::kore::parser::parse_pattern(source).expect("valid UTF-8");
-        assert!(bridge::validate_test_initial_state(&mut backend, &input).is_ok());
-    }
-}
-
-/// TB02-R3-F1: invalid UTF-8 is refused in every domain value whose sort is not
-/// `BYTES.Bytes`-hooked, at any polarity: `STRING.token2string` turns any token into a
-/// String byte for byte. Bytes keeps every byte sequence (review F3).
-///
-/// Re-pin R0a (finding E-08; k-rust 4a3b0b099, 3a8af2805, 61fa9e32d): a KORE `\xhh` in a token
-/// literal is U+00hh at 501f18b9, so those texts are valid and admitted; the guard stays pinned
-/// on host-built domain values whose payload is not UTF-8.
-#[test]
-fn audit_vi_t11_review3_invalid_utf8_token_guard_is_independent_of_polarity() {
-    let validator = NativeValidator::bind(support::load("tb02token.k"), CompileOptions::default());
-    let side = validator.compile_baseline().expect("token fixture");
-    let mut tokens = backend(&side, "TB02TOKEN");
-    let negate = |value: Pattern| Pattern::Not {
-        sort: kore_sort("SortString"),
-        argument: Box::new(value),
-    };
-    let raw = |sort: &str, byte: u8| Pattern::DomainValue {
-        sort: kore_sort(sort),
-        value: vec![byte].into(),
-    };
-    let apply = |symbol: &str, argument: Pattern| Pattern::Application {
-        symbol: k_rust::kore::ast::Symbol {
-            name: symbol.into(),
-            sort_parameters: Vec::new(),
-        },
-        arguments: vec![argument],
-    };
-    for (source, value) in [
-        ("id-x80", raw("SortId", 0x80)),
-        ("id-xff", raw("SortId", 0xff)),
-        ("tok-x80", raw("SortTok", 0x80)),
-        (
-            "id2string-x80",
-            apply(
-                "LblId2String'LParUndsRParUnds'ID-COMMON'Unds'String'Unds'Id",
-                raw("SortId", 0x80),
+                "dv-x80",
+                Pattern::DomainValue {
+                    sort: kore_sort("SortString"),
+                    value: vec![0x80].into(),
+                },
             ),
-        ),
-        ("tok2s-x80", apply("Lbltok2s", raw("SortTok", 0x80))),
-        ("int-x80", raw("SortInt", 0x80)),
-    ] {
-        for input in [value.clone(), negate(value)] {
-            let admission = bridge::validate_test_initial_state(&mut tokens, &input);
-            assert!(
-                matches!(
-                    admission,
-                    Err(kink_native::execution::ExecutionAdapterFailure::InvalidState(_))
-                ),
-                "{source}: {input:?}: {admission:?}"
-            );
-        }
-    }
-    for source in [
-        r#"\dv{SortId{}}("A")"#,
-        r#"\dv{SortId{}}("\u0080")"#,
-        r#"\dv{SortTok{}}("\xc3\xa9")"#,
-        r#"Lbltok2s{}(\dv{SortTok{}}("\u0080"))"#,
-        // The invalid inputs at 927b9ce6 (E-08): code points U+0080 and U+00FF at 501f18b9.
-        r#"\dv{SortId{}}("\x80")"#,
-        r#"\dv{SortId{}}("\xff")"#,
-        r#"\dv{SortTok{}}("\x80")"#,
-        r#"LblId2String'LParUndsRParUnds'ID-COMMON'Unds'String'Unds'Id{}(\dv{SortId{}}("\x80"))"#,
-        r#"Lbltok2s{}(\dv{SortTok{}}("\x80"))"#,
-    ] {
-        let value = k_rust::kore::parser::parse_pattern(source).expect("valid UTF-8");
-        for input in [value.clone(), negate(value)] {
-            let admission = bridge::validate_test_initial_state(&mut tokens, &input);
-            assert!(admission.is_ok(), "{source}: {input:?}: {admission:?}");
-        }
-    }
-    let validator = NativeValidator::bind(support::load("tb02bytes.k"), CompileOptions::default());
-    let side = validator.compile_baseline().expect("Bytes fixture");
-    let mut bytes = backend(&side, "TB02BYTES");
-    for source in [r#"\dv{SortBytes{}}("\x80")"#, r#"\dv{SortBytes{}}("\xff")"#] {
-        let value = k_rust::kore::parser::parse_pattern(source).expect("Bytes value");
-        for input in [value.clone(), negate(value)] {
-            let admission = bridge::validate_test_initial_state(&mut bytes, &input);
-            assert!(admission.is_ok(), "{source}: {input:?}: {admission:?}");
-        }
-    }
-}
-
-/// TB02-R4-F1: a definition declaring `STRING.token2string` over a builtin argument sort or
-/// `STRING.string2token` into a builtin result sort is refused for every test state, at any
-/// polarity, canonical or not: the hooks move bytes between Bytes and String unchanged and
-/// the definition alone reaches them. The same hooks over unhooked token sorts (`Id`, a user
-/// `[token]` sort) stay admitted (`audit_vi_t11_review3_invalid_utf8_token_guard_is_independent_of_polarity`).
-#[test]
-fn audit_vi_t11_review4_token_hooks_over_builtin_sorts_refuse_every_state() {
-    for (fixture, module, programs) in [
-        (
-            "tb02bytestoken.k",
-            "TB02BYTESTOKEN",
-            vec![
-                support::app("Lbldone", vec![support::int(1)]),
-                support::app("Lblstart", vec![support::int(128)]),
-                support::app(
-                    "LblstringRange",
-                    vec![support::app(
-                        "Lblb2s",
-                        vec![
-                            k_rust::kore::parser::parse_pattern(r#"\dv{SortBytes{}}("A")"#)
-                                .expect("Bytes value"),
-                        ],
-                    )],
-                ),
-            ],
-        ),
-        (
-            "tb02stringtoken.k",
-            "TB02STRINGTOKEN",
-            vec![
-                support::app("Lbldone", vec![support::int(1)]),
-                support::app(
-                    "LblbytesWidth",
-                    vec![
-                        k_rust::kore::parser::parse_pattern(r#"\dv{SortString{}}("A")"#)
-                            .expect("String value"),
-                    ],
-                ),
-            ],
-        ),
-    ] {
-        let validator = NativeValidator::bind(support::load(fixture), CompileOptions::default());
-        let side = validator.compile_baseline().expect("token hook fixture");
-        let mut backend = backend(&side, module);
-        for program in programs {
-            let state = support::initial_state(program, "SortProg");
+            ("string-x80", Pattern::String(vec![0x80].into())),
+        ] {
             for input in [
-                state.clone(),
+                value.clone(),
                 Pattern::Not {
-                    sort: kore_sort("SortGeneratedTopCell"),
-                    argument: Box::new(state),
+                    sort: kore_sort("SortString"),
+                    argument: Box::new(value),
+                },
+            ] {
+                assert!(
+                    matches!(
+                        bridge::validate_test_initial_state(&mut backend, &input),
+                        Err(kink_native::execution::ExecutionAdapterFailure::InvalidState(_))
+                    ),
+                    "{source}: {input:?}"
+                );
+            }
+        }
+        for source in [
+            r#"\dv{SortString{}}("A")"#,
+            r#"\dv{SortString{}}("\u0080")"#,
+            r#""\xc3\xa9""#,
+            // The invalid inputs at 927b9ce6 (E-08): U+0080 at 501f18b9.
+            r#"\dv{SortString{}}("\x80")"#,
+            r#""\x80""#,
+        ] {
+            let input = k_rust::kore::parser::parse_pattern(source).expect("valid UTF-8");
+            assert!(bridge::validate_test_initial_state(&mut backend, &input).is_ok());
+        }
+    }
+
+    /// TB02-R3-F1: invalid UTF-8 is refused in every domain value whose sort is not
+    /// `BYTES.Bytes`-hooked, at any polarity: `STRING.token2string` turns any token into a
+    /// String byte for byte. Bytes keeps every byte sequence (review F3).
+    ///
+    /// Re-pin R0a (finding E-08; k-rust 4a3b0b099, 3a8af2805, 61fa9e32d): a KORE `\xhh` in a token
+    /// literal is U+00hh at 501f18b9, so those texts are valid and admitted; the guard stays pinned
+    /// on host-built domain values whose payload is not UTF-8.
+    #[test]
+    #[ignore = "kink"]
+    fn audit_vi_t11_review3_invalid_utf8_token_guard_is_independent_of_polarity() {
+        let validator =
+            NativeValidator::bind(support::load("tb02token.k"), CompileOptions::default());
+        let side = validator.compile_baseline().expect("token fixture");
+        let mut tokens = backend(&side, "TB02TOKEN");
+        let negate = |value: Pattern| Pattern::Not {
+            sort: kore_sort("SortString"),
+            argument: Box::new(value),
+        };
+        let raw = |sort: &str, byte: u8| Pattern::DomainValue {
+            sort: kore_sort(sort),
+            value: vec![byte].into(),
+        };
+        let apply = |symbol: &str, argument: Pattern| Pattern::Application {
+            symbol: k_rust::kore::ast::Symbol {
+                name: symbol.into(),
+                sort_parameters: Vec::new(),
+            },
+            arguments: vec![argument],
+        };
+        for (source, value) in [
+            ("id-x80", raw("SortId", 0x80)),
+            ("id-xff", raw("SortId", 0xff)),
+            ("tok-x80", raw("SortTok", 0x80)),
+            (
+                "id2string-x80",
+                apply(
+                    "LblId2String'LParUndsRParUnds'ID-COMMON'Unds'String'Unds'Id",
+                    raw("SortId", 0x80),
+                ),
+            ),
+            ("tok2s-x80", apply("Lbltok2s", raw("SortTok", 0x80))),
+            ("int-x80", raw("SortInt", 0x80)),
+        ] {
+            for input in [value.clone(), negate(value)] {
+                let admission = bridge::validate_test_initial_state(&mut tokens, &input);
+                assert!(
+                    matches!(
+                        admission,
+                        Err(kink_native::execution::ExecutionAdapterFailure::InvalidState(_))
+                    ),
+                    "{source}: {input:?}: {admission:?}"
+                );
+            }
+        }
+        for source in [
+            r#"\dv{SortId{}}("A")"#,
+            r#"\dv{SortId{}}("\u0080")"#,
+            r#"\dv{SortTok{}}("\xc3\xa9")"#,
+            r#"Lbltok2s{}(\dv{SortTok{}}("\u0080"))"#,
+            // The invalid inputs at 927b9ce6 (E-08): code points U+0080 and U+00FF at 501f18b9.
+            r#"\dv{SortId{}}("\x80")"#,
+            r#"\dv{SortId{}}("\xff")"#,
+            r#"\dv{SortTok{}}("\x80")"#,
+            r#"LblId2String'LParUndsRParUnds'ID-COMMON'Unds'String'Unds'Id{}(\dv{SortId{}}("\x80"))"#,
+            r#"Lbltok2s{}(\dv{SortTok{}}("\x80"))"#,
+        ] {
+            let value = k_rust::kore::parser::parse_pattern(source).expect("valid UTF-8");
+            for input in [value.clone(), negate(value)] {
+                let admission = bridge::validate_test_initial_state(&mut tokens, &input);
+                assert!(admission.is_ok(), "{source}: {input:?}: {admission:?}");
+            }
+        }
+        let validator =
+            NativeValidator::bind(support::load("tb02bytes.k"), CompileOptions::default());
+        let side = validator.compile_baseline().expect("Bytes fixture");
+        let mut bytes = backend(&side, "TB02BYTES");
+        for source in [r#"\dv{SortBytes{}}("\x80")"#, r#"\dv{SortBytes{}}("\xff")"#] {
+            let value = k_rust::kore::parser::parse_pattern(source).expect("Bytes value");
+            for input in [value.clone(), negate(value)] {
+                let admission = bridge::validate_test_initial_state(&mut bytes, &input);
+                assert!(admission.is_ok(), "{source}: {input:?}: {admission:?}");
+            }
+        }
+    }
+
+    /// TB02-R4-F1: a definition declaring `STRING.token2string` over a builtin argument sort or
+    /// `STRING.string2token` into a builtin result sort is refused for every test state, at any
+    /// polarity, canonical or not: the hooks move bytes between Bytes and String unchanged and
+    /// the definition alone reaches them. The same hooks over unhooked token sorts (`Id`, a user
+    /// `[token]` sort) stay admitted (`audit_vi_t11_review3_invalid_utf8_token_guard_is_independent_of_polarity`).
+    #[test]
+    #[ignore = "kink"]
+    fn audit_vi_t11_review4_token_hooks_over_builtin_sorts_refuse_every_state() {
+        for (fixture, module, programs) in [
+            (
+                "tb02bytestoken.k",
+                "TB02BYTESTOKEN",
+                vec![
+                    support::app("Lbldone", vec![support::int(1)]),
+                    support::app("Lblstart", vec![support::int(128)]),
+                    support::app(
+                        "LblstringRange",
+                        vec![support::app(
+                            "Lblb2s",
+                            vec![
+                                k_rust::kore::parser::parse_pattern(r#"\dv{SortBytes{}}("A")"#)
+                                    .expect("Bytes value"),
+                            ],
+                        )],
+                    ),
+                ],
+            ),
+            (
+                "tb02stringtoken.k",
+                "TB02STRINGTOKEN",
+                vec![
+                    support::app("Lbldone", vec![support::int(1)]),
+                    support::app(
+                        "LblbytesWidth",
+                        vec![
+                            k_rust::kore::parser::parse_pattern(r#"\dv{SortString{}}("A")"#)
+                                .expect("String value"),
+                        ],
+                    ),
+                ],
+            ),
+        ] {
+            let validator =
+                NativeValidator::bind(support::load(fixture), CompileOptions::default());
+            let side = validator.compile_baseline().expect("token hook fixture");
+            let mut backend = backend(&side, module);
+            for program in programs {
+                let state = support::initial_state(program, "SortProg");
+                for input in [
+                    state.clone(),
+                    Pattern::Not {
+                        sort: kore_sort("SortGeneratedTopCell"),
+                        argument: Box::new(state),
+                    },
+                ] {
+                    let admission = bridge::validate_test_initial_state(&mut backend, &input);
+                    assert!(
+                        matches!(
+                            admission,
+                            Err(kink_native::execution::ExecutionAdapterFailure::InvalidState(_))
+                        ),
+                        "{module}: {input:?}: {admission:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// TB02-R2-F1: every test-written Float token is refused at any polarity,
+    /// including the rule literal and k-rust's hook-produced canonical spelling.
+    #[test]
+    #[ignore = "kink"]
+    fn audit_vi_t11_review2_float_guard_is_independent_of_polarity() {
+        let validator =
+            NativeValidator::bind(support::load("tb02float.k"), CompileOptions::default());
+        let side = validator.compile_baseline().expect("Float fixture");
+        let mut backend = backend(&side, "TB02FLOAT");
+        for spelling in [
+            "1.0",
+            "1.00",
+            "1.0e0",
+            "1.0d",
+            "1.0p53x11",
+            "10.0e-1",
+            "1.0000000000000000e0",
+            "1.0000000000000000e+00",
+        ] {
+            let value = Pattern::DomainValue {
+                sort: kore_sort("SortFloat"),
+                value: spelling.into(),
+            };
+            for input in [
+                value.clone(),
+                Pattern::Not {
+                    sort: kore_sort("SortFloat"),
+                    argument: Box::new(value),
                 },
             ] {
                 let admission = bridge::validate_test_initial_state(&mut backend, &input);
@@ -1875,49 +2117,9 @@ fn audit_vi_t11_review4_token_hooks_over_builtin_sorts_refuse_every_state() {
                         admission,
                         Err(kink_native::execution::ExecutionAdapterFailure::InvalidState(_))
                     ),
-                    "{module}: {input:?}: {admission:?}"
+                    "{spelling}: {input:?}: {admission:?}"
                 );
             }
-        }
-    }
-}
-
-/// TB02-R2-F1: every test-written Float token is refused at any polarity,
-/// including the rule literal and k-rust's hook-produced canonical spelling.
-#[test]
-fn audit_vi_t11_review2_float_guard_is_independent_of_polarity() {
-    let validator = NativeValidator::bind(support::load("tb02float.k"), CompileOptions::default());
-    let side = validator.compile_baseline().expect("Float fixture");
-    let mut backend = backend(&side, "TB02FLOAT");
-    for spelling in [
-        "1.0",
-        "1.00",
-        "1.0e0",
-        "1.0d",
-        "1.0p53x11",
-        "10.0e-1",
-        "1.0000000000000000e0",
-        "1.0000000000000000e+00",
-    ] {
-        let value = Pattern::DomainValue {
-            sort: kore_sort("SortFloat"),
-            value: spelling.into(),
-        };
-        for input in [
-            value.clone(),
-            Pattern::Not {
-                sort: kore_sort("SortFloat"),
-                argument: Box::new(value),
-            },
-        ] {
-            let admission = bridge::validate_test_initial_state(&mut backend, &input);
-            assert!(
-                matches!(
-                    admission,
-                    Err(kink_native::execution::ExecutionAdapterFailure::InvalidState(_))
-                ),
-                "{spelling}: {input:?}: {admission:?}"
-            );
         }
     }
 }

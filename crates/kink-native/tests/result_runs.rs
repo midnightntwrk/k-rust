@@ -133,82 +133,6 @@ fn a_state_set_with_an_undefined_step_is_replaced_by_its_path_set() {
     });
 }
 
-/// k-rust KINK-16 criterion 2, as kink requests it: a budget at least the unbounded run's work
-/// gives the unbounded run, under either modality; one state less ends the run in one
-/// `work-bound` leaf, the last, which the bridge reads as an incomplete path without a real
-/// prefix or a term, so the collection stops at `BackendLimit` and no terminal is complete. A
-/// request without `max_work` never admits such a leaf.
-#[test]
-fn a_work_budget_stops_a_run_and_never_completes_it() {
-    on_a_big_stack(|| {
-        let (side, module) = fixture("l1", "workloop");
-        let mut backend = backend(&side, &module);
-        let sorts = SymbolSorts::from_definition(
-            &parse_definition(&side.artifacts().definition_kore).unwrap(),
-        );
-        let adapter = adapter();
-        let initial = state("Lblcount", 5);
-        for modality in [ResultModality::StateSet, ResultModality::PathSet] {
-            let run = |backend: &mut Backend, max_work| {
-                adapter
-                    .execute_result(
-                        backend,
-                        &initial,
-                        budget(),
-                        ResultRun { modality, max_work },
-                    )
-                    .unwrap()
-            };
-            let unbounded = run(&mut backend, None);
-            let work = unbounded.work();
-            assert!(work >= 6, "{modality:?}: {work}");
-            assert_eq!(halts(&unbounded).len(), 1);
-            assert_eq!(halts(&unbounded)[0].0, HaltClass::Stuck);
-            for budget_work in [work, work + 1] {
-                let bounded = run(&mut backend, Some(budget_work));
-                assert_eq!(halts(&bounded), halts(&unbounded), "{modality:?}");
-                assert_eq!(bounded.work(), work);
-            }
-            let stopped = run(&mut backend, Some(work - 1));
-            assert_eq!(
-                stopped.leaves().last().map(|leaf| leaf.halt),
-                Some(HaltClass::WorkBound),
-                "{modality:?}"
-            );
-            assert!(!stopped.timed_out());
-            let bridged = backend
-                .with_solver(None, |definition, solver| {
-                    let decider = ObservationDecider::new(
-                        definition,
-                        solver,
-                        TestInitialState::of_test(&initial),
-                    );
-                    Ok::<_, k_rust::backend::BackendError>(paths_from_execution_values(
-                        &stopped,
-                        &BridgeContext {
-                            test_id: "count",
-                            classify: &|_| ExecutionTerminalKind::Normal,
-                            sorts: &sorts,
-                        },
-                        &|term| decider.terminal_value(term),
-                    ))
-                })
-                .unwrap()
-                .unwrap();
-            assert_eq!(bridged.collection.stop, CollectionStop::BackendLimit);
-            let last = bridged.paths.last().unwrap();
-            assert!(!last.complete);
-            assert_eq!(last.stop, PathStop::BackendLimit);
-            assert!(!last.stop.has_real_prefix());
-            assert!(last.execution_terminal.is_none());
-        }
-        // A stepped run (never under a work budget) and a result run without one admit no
-        // work-bound leaf.
-        assert!(!HaltClass::WorkBound.adapter_admits(&budget()));
-        assert!(HaltClass::WorkBound.admitted_by(&budget(), Some(1)));
-    });
-}
-
 /// Every run collects k-rust's run coverage and carries no trace. A result run is unobserved
 /// (no branch identity), and its rule coverage names the rules it reached and applied; a stepped
 /// run keeps its branch identities, which name the same rewrite rules as k-rust's
@@ -279,26 +203,108 @@ fn every_run_collects_coverage_and_carries_no_trace() {
     });
 }
 
-/// Every request answers a cancellation with an error: a run whose time bound expires publishes
-/// no leaf and no coverage, and is a timeout (k-rust 501f18b9 `cancelled_result: error`).
-#[test]
-fn a_timed_out_run_publishes_no_leaf() {
-    on_a_big_stack(|| {
-        let (side, module) = fixture("l1", "workloop");
-        let mut backend = backend(&side, &module);
-        let adapter = adapter();
-        let short = ExecutionBudget {
-            time: Duration::from_millis(200),
-            max_depth: None,
-            ..budget()
-        };
-        // count(N) for a large N runs far past 200 ms.
-        let run = adapter
-            .execute(&mut backend, &state("Lblcount", 100_000_000), short)
-            .unwrap();
-        assert!(run.timed_out());
-        assert!(run.leaves().is_empty());
-        assert!(run.coverage().is_none());
-        assert_eq!(run.work(), 0);
-    });
+mod kink_tier {
+    use super::*;
+
+    /// Every request answers a cancellation with an error: a run whose time bound expires publishes
+    /// no leaf and no coverage, and is a timeout (k-rust 501f18b9 `cancelled_result: error`).
+    #[test]
+    #[ignore = "kink"]
+    fn a_timed_out_run_publishes_no_leaf() {
+        on_a_big_stack(|| {
+            let (side, module) = fixture("l1", "workloop");
+            let mut backend = backend(&side, &module);
+            let adapter = adapter();
+            let short = ExecutionBudget {
+                time: Duration::from_millis(200),
+                max_depth: None,
+                ..budget()
+            };
+            // count(N) for a large N runs far past 200 ms.
+            let run = adapter
+                .execute(&mut backend, &state("Lblcount", 100_000_000), short)
+                .unwrap();
+            assert!(run.timed_out());
+            assert!(run.leaves().is_empty());
+            assert!(run.coverage().is_none());
+            assert_eq!(run.work(), 0);
+        });
+    }
+
+    /// k-rust KINK-16 criterion 2, as kink requests it: a budget at least the unbounded run's work
+    /// gives the unbounded run, under either modality; one state less ends the run in one
+    /// `work-bound` leaf, the last, which the bridge reads as an incomplete path without a real
+    /// prefix or a term, so the collection stops at `BackendLimit` and no terminal is complete. A
+    /// request without `max_work` never admits such a leaf.
+    #[test]
+    #[ignore = "kink"]
+    fn a_work_budget_stops_a_run_and_never_completes_it() {
+        on_a_big_stack(|| {
+            let (side, module) = fixture("l1", "workloop");
+            let mut backend = backend(&side, &module);
+            let sorts = SymbolSorts::from_definition(
+                &parse_definition(&side.artifacts().definition_kore).unwrap(),
+            );
+            let adapter = adapter();
+            let initial = state("Lblcount", 5);
+            for modality in [ResultModality::StateSet, ResultModality::PathSet] {
+                let run = |backend: &mut Backend, max_work| {
+                    adapter
+                        .execute_result(
+                            backend,
+                            &initial,
+                            budget(),
+                            ResultRun { modality, max_work },
+                        )
+                        .unwrap()
+                };
+                let unbounded = run(&mut backend, None);
+                let work = unbounded.work();
+                assert!(work >= 6, "{modality:?}: {work}");
+                assert_eq!(halts(&unbounded).len(), 1);
+                assert_eq!(halts(&unbounded)[0].0, HaltClass::Stuck);
+                for budget_work in [work, work + 1] {
+                    let bounded = run(&mut backend, Some(budget_work));
+                    assert_eq!(halts(&bounded), halts(&unbounded), "{modality:?}");
+                    assert_eq!(bounded.work(), work);
+                }
+                let stopped = run(&mut backend, Some(work - 1));
+                assert_eq!(
+                    stopped.leaves().last().map(|leaf| leaf.halt),
+                    Some(HaltClass::WorkBound),
+                    "{modality:?}"
+                );
+                assert!(!stopped.timed_out());
+                let bridged = backend
+                    .with_solver(None, |definition, solver| {
+                        let decider = ObservationDecider::new(
+                            definition,
+                            solver,
+                            TestInitialState::of_test(&initial),
+                        );
+                        Ok::<_, k_rust::backend::BackendError>(paths_from_execution_values(
+                            &stopped,
+                            &BridgeContext {
+                                test_id: "count",
+                                classify: &|_| ExecutionTerminalKind::Normal,
+                                sorts: &sorts,
+                            },
+                            &|term| decider.terminal_value(term),
+                        ))
+                    })
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(bridged.collection.stop, CollectionStop::BackendLimit);
+                let last = bridged.paths.last().unwrap();
+                assert!(!last.complete);
+                assert_eq!(last.stop, PathStop::BackendLimit);
+                assert!(!last.stop.has_real_prefix());
+                assert!(last.execution_terminal.is_none());
+            }
+            // A stepped run (never under a work budget) and a result run without one admit no
+            // work-bound leaf.
+            assert!(!HaltClass::WorkBound.adapter_admits(&budget()));
+            assert!(HaltClass::WorkBound.admitted_by(&budget(), Some(1)));
+        });
+    }
 }

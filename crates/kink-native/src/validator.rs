@@ -529,162 +529,174 @@ mod tests {
         Patch::new(vec![Edit::ReplaceSentence { at, replacement }]).unwrap()
     }
 
-    /// Re-pin L1-3 and L1-3-fix-1: a mutant compiled ahead is the mutant its `validate` call
-    /// compiles alone, a patch given twice is compiled once and taken twice, a refused patch is
-    /// not kept (its `validate` call gives the refusal from the calling thread), one worker keeps
-    /// nothing, a chunk dropped drops only the uses it added (review L1-3-1 D4), no more than
-    /// the kept bound is compiled ahead (review D2), and a clone starts with nothing kept. The
-    /// worker count is forced, so a host that allows one compile worker still runs two threads
-    /// (review D3).
-    #[test]
-    fn compiled_ahead_mutants_are_their_own_compiles_and_refusals_are_not_kept() {
-        std::thread::Builder::new()
-            .stack_size(16 * 1024 * 1024)
-            .spawn(|| {
-                let validator =
-                    NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
-                let baseline = validator.baseline();
-                let compiles = requires(baseline, "COUNTER.branch", "false");
-                let other = requires(baseline, "COUNTER.branch", "true");
-                let false_term = Term::Token {
-                    token: "false".into(),
-                    sort: Sort::new("Bool"),
-                };
-                // The requires clause is `B`, not `false`: kink-patch refuses the edit.
-                let refused = Patch::new(vec![Edit::ReplaceTerm {
-                    at: TermRef::new(support::rule(baseline, "COUNTER.branch"), [1]),
-                    expected: false_term.clone(),
-                    replacement: false_term,
-                }])
+    mod kink_tier {
+        use super::*;
+
+        /// Re-pin L1-3 and L1-3-fix-1: a mutant compiled ahead is the mutant its `validate` call
+        /// compiles alone, a patch given twice is compiled once and taken twice, a refused patch is
+        /// not kept (its `validate` call gives the refusal from the calling thread), one worker keeps
+        /// nothing, a chunk dropped drops only the uses it added (review L1-3-1 D4), no more than
+        /// the kept bound is compiled ahead (review D2), and a clone starts with nothing kept. The
+        /// worker count is forced, so a host that allows one compile worker still runs two threads
+        /// (review D3).
+        #[test]
+        #[ignore = "kink"]
+        fn compiled_ahead_mutants_are_their_own_compiles_and_refusals_are_not_kept() {
+            std::thread::Builder::new()
+                .stack_size(16 * 1024 * 1024)
+                .spawn(|| {
+                    let validator = NativeValidator::bind(
+                        support::load("counter.k"),
+                        CompileOptions::default(),
+                    );
+                    let baseline = validator.baseline();
+                    let compiles = requires(baseline, "COUNTER.branch", "false");
+                    let other = requires(baseline, "COUNTER.branch", "true");
+                    let false_term = Term::Token {
+                        token: "false".into(),
+                        sort: Sort::new("Bool"),
+                    };
+                    // The requires clause is `B`, not `false`: kink-patch refuses the edit.
+                    let refused = Patch::new(vec![Edit::ReplaceTerm {
+                        at: TermRef::new(support::rule(baseline, "COUNTER.branch"), [1]),
+                        expected: false_term.clone(),
+                        replacement: false_term,
+                    }])
+                    .unwrap();
+                    let alone = validator.validate(&compiles);
+                    let other_alone = validator.validate(&other);
+                    let refusal = validator.validate(&refused);
+                    assert!(alone.is_ok(), "{alone:?}");
+                    assert!(other_alone.is_ok(), "{other_alone:?}");
+                    assert!(refusal.is_err());
+                    let bound = 3 * KEPT_PER_WORKER;
+
+                    let none =
+                        validator.compile_ahead_on(std::slice::from_ref(&compiles), 1, bound);
+                    assert!(
+                        held(&validator).is_empty(),
+                        "one worker compiles nothing ahead"
+                    );
+                    drop(none);
+
+                    let chunk = validator.compile_ahead_on(
+                        &[compiles.clone(), refused.clone(), compiles.clone()],
+                        3,
+                        bound,
+                    );
+                    assert_eq!(held(&validator), vec![(compiles.clone(), 2)]);
+                    assert_eq!(validator.validate(&compiles), alone);
+                    assert_eq!(held(&validator), vec![(compiles.clone(), 1)]);
+                    assert_eq!(validator.validate(&refused), refusal);
+                    assert_eq!(validator.clone().validate(&compiles), alone);
+                    assert_eq!(
+                        held(&validator),
+                        vec![(compiles.clone(), 1)],
+                        "a clone holds none"
+                    );
+                    assert_eq!(validator.validate(&compiles), alone);
+                    assert!(held(&validator).is_empty());
+                    drop(chunk);
+
+                    let first =
+                        validator.compile_ahead_on(std::slice::from_ref(&compiles), 3, bound);
+                    let second =
+                        validator.compile_ahead_on(std::slice::from_ref(&compiles), 3, bound);
+                    assert_eq!(
+                        held(&validator),
+                        vec![(compiles.clone(), 2)],
+                        "kept, not recompiled"
+                    );
+                    drop(second);
+                    assert_eq!(
+                        held(&validator),
+                        vec![(compiles.clone(), 1)],
+                        "a chunk drops only the uses it added"
+                    );
+                    drop(first);
+                    assert!(held(&validator).is_empty());
+                    assert_eq!(validator.validate(&compiles), alone);
+
+                    let bounded =
+                        validator.compile_ahead_on(&[compiles.clone(), other.clone()], 3, 1);
+                    assert_eq!(
+                        held(&validator),
+                        vec![(compiles.clone(), 1)],
+                        "no more than the bound is kept"
+                    );
+                    assert_eq!(validator.validate(&other), other_alone);
+                    assert_eq!(validator.validate(&compiles), alone);
+                    drop(bounded);
+
+                    // The capped entry point gives the same mutants with whatever the host allows.
+                    let capped = validator.compile_ahead(&[compiles.clone(), other.clone()], 3);
+                    assert_eq!(validator.validate(&other), other_alone);
+                    assert_eq!(validator.validate(&compiles), alone);
+                    drop(capped);
+                    assert!(held(&validator).is_empty());
+                })
+                .unwrap()
+                .join()
                 .unwrap();
-                let alone = validator.validate(&compiles);
-                let other_alone = validator.validate(&other);
-                let refusal = validator.validate(&refused);
-                assert!(alone.is_ok(), "{alone:?}");
-                assert!(other_alone.is_ok(), "{other_alone:?}");
-                assert!(refusal.is_err());
-                let bound = 3 * KEPT_PER_WORKER;
+        }
 
-                let none = validator.compile_ahead_on(std::slice::from_ref(&compiles), 1, bound);
-                assert!(
-                    held(&validator).is_empty(),
-                    "one worker compiles nothing ahead"
-                );
-                drop(none);
-
-                let chunk = validator.compile_ahead_on(
-                    &[compiles.clone(), refused.clone(), compiles.clone()],
-                    3,
-                    bound,
-                );
-                assert_eq!(held(&validator), vec![(compiles.clone(), 2)]);
-                assert_eq!(validator.validate(&compiles), alone);
-                assert_eq!(held(&validator), vec![(compiles.clone(), 1)]);
-                assert_eq!(validator.validate(&refused), refusal);
-                assert_eq!(validator.clone().validate(&compiles), alone);
-                assert_eq!(
-                    held(&validator),
-                    vec![(compiles.clone(), 1)],
-                    "a clone holds none"
-                );
-                assert_eq!(validator.validate(&compiles), alone);
-                assert!(held(&validator).is_empty());
-                drop(chunk);
-
-                let first = validator.compile_ahead_on(std::slice::from_ref(&compiles), 3, bound);
-                let second = validator.compile_ahead_on(std::slice::from_ref(&compiles), 3, bound);
-                assert_eq!(
-                    held(&validator),
-                    vec![(compiles.clone(), 2)],
-                    "kept, not recompiled"
-                );
-                drop(second);
-                assert_eq!(
-                    held(&validator),
-                    vec![(compiles.clone(), 1)],
-                    "a chunk drops only the uses it added"
-                );
-                drop(first);
-                assert!(held(&validator).is_empty());
-                assert_eq!(validator.validate(&compiles), alone);
-
-                let bounded = validator.compile_ahead_on(&[compiles.clone(), other.clone()], 3, 1);
-                assert_eq!(
-                    held(&validator),
-                    vec![(compiles.clone(), 1)],
-                    "no more than the bound is kept"
-                );
-                assert_eq!(validator.validate(&other), other_alone);
-                assert_eq!(validator.validate(&compiles), alone);
-                drop(bounded);
-
-                // The capped entry point gives the same mutants with whatever the host allows.
-                let capped = validator.compile_ahead(&[compiles.clone(), other.clone()], 3);
-                assert_eq!(validator.validate(&other), other_alone);
-                assert_eq!(validator.validate(&compiles), alone);
-                drop(capped);
-                assert!(held(&validator).is_empty());
-            })
-            .unwrap()
-            .join()
-            .unwrap();
-    }
-
-    /// Re-pin L1-3-fix-1 (review L1-3-1 D1): a patch of a rule 3000 terms deep, compiled ahead
-    /// with 4 workers on their default stacks, gives what `validate` gives on the calling thread,
-    /// with no abort. The patch is applied (and its edited rule typed, a recursion without a
-    /// stack guard) on the calling thread; a worker only relinks and compiles, which k-rust runs
-    /// on stacks sized from the definition. Before the fix the workers applied the patch, and
-    /// every depth of 1500 or more overflowed a worker's stack and aborted the process.
-    #[test]
-    fn a_deep_edited_rule_compiles_ahead_as_on_the_calling_thread() {
-        const DEPTH: usize = 3000;
-        std::thread::Builder::new()
-            .stack_size(256 << 20)
-            .spawn(|| {
-                let text = format!(
-                    "module DEEP-SYNTAX\n  imports INT-SYNTAX\n  syntax Exp ::= Int\n               \
-                     | \"go\" \"(\" Int \")\"\n               > left:\n                 Exp \"+\" \
-                     Exp [strict, symbol(add)]\nendmodule\n\nmodule DEEP\n  imports \
-                     DEEP-SYNTAX\n  imports INT\n  configuration <k> $PGM:Exp </k>\n  syntax \
-                     KResult ::= Int\n  syntax Peano ::= \"z\" | s(Peano)\n  syntax Exp ::= \
-                     deep(Peano)\n  rule [add]: I1:Int + I2:Int => I1 +Int I2\n  rule [big]: \
-                     go(I:Int) => deep({}z{}) requires I >Int 100\nendmodule\n",
-                    "s(".repeat(DEPTH),
-                    ")".repeat(DEPTH)
-                );
-                let mut resolver = |_: &str, required: &str| {
-                    k_rust::builtin::embedded(required)
-                        .ok_or_else(|| format!("{required} is not embedded"))
-                };
-                let baseline = Baseline::load(
-                    k_rust::outer::ResolvedSource::new("deep.k", text),
-                    "DEEP",
-                    None,
-                    &mut resolver,
-                    &support::options(),
-                )
+        /// Re-pin L1-3-fix-1 (review L1-3-1 D1): a patch of a rule 3000 terms deep, compiled ahead
+        /// with 4 workers on their default stacks, gives what `validate` gives on the calling thread,
+        /// with no abort. The patch is applied (and its edited rule typed, a recursion without a
+        /// stack guard) on the calling thread; a worker only relinks and compiles, which k-rust runs
+        /// on stacks sized from the definition. Before the fix the workers applied the patch, and
+        /// every depth of 1500 or more overflowed a worker's stack and aborted the process.
+        #[test]
+        #[ignore = "kink"]
+        fn a_deep_edited_rule_compiles_ahead_as_on_the_calling_thread() {
+            const DEPTH: usize = 3000;
+            std::thread::Builder::new()
+                .stack_size(256 << 20)
+                .spawn(|| {
+                    let text = format!(
+                        "module DEEP-SYNTAX\n  imports INT-SYNTAX\n  syntax Exp ::= Int\n               \
+                         | \"go\" \"(\" Int \")\"\n               > left:\n                 Exp \"+\" \
+                         Exp [strict, symbol(add)]\nendmodule\n\nmodule DEEP\n  imports \
+                         DEEP-SYNTAX\n  imports INT\n  configuration <k> $PGM:Exp </k>\n  syntax \
+                         KResult ::= Int\n  syntax Peano ::= \"z\" | s(Peano)\n  syntax Exp ::= \
+                         deep(Peano)\n  rule [add]: I1:Int + I2:Int => I1 +Int I2\n  rule [big]: \
+                         go(I:Int) => deep({}z{}) requires I >Int 100\nendmodule\n",
+                        "s(".repeat(DEPTH),
+                        ")".repeat(DEPTH)
+                    );
+                    let mut resolver = |_: &str, required: &str| {
+                        k_rust::builtin::embedded(required)
+                            .ok_or_else(|| format!("{required} is not embedded"))
+                    };
+                    let baseline = Baseline::load(
+                        k_rust::outer::ResolvedSource::new("deep.k", text),
+                        "DEEP",
+                        None,
+                        &mut resolver,
+                        &support::options(),
+                    )
+                    .unwrap();
+                    let validator = NativeValidator::bind(baseline, CompileOptions::default());
+                    let patch = requires(validator.baseline(), "DEEP.big", "true");
+                    let alone = validator.validate(&patch);
+                    assert!(alone.is_ok(), "{alone:?}");
+                    let chunk = validator.compile_ahead_on(
+                        &[patch.clone(), patch.clone()],
+                        4,
+                        4 * KEPT_PER_WORKER,
+                    );
+                    assert_eq!(
+                        held(&validator),
+                        vec![(patch.clone(), 2)],
+                        "a worker relinked and compiled the deep mutant"
+                    );
+                    assert_eq!(validator.validate(&patch), alone);
+                    assert_eq!(validator.validate(&patch), alone);
+                    drop(chunk);
+                })
+                .unwrap()
+                .join()
                 .unwrap();
-                let validator = NativeValidator::bind(baseline, CompileOptions::default());
-                let patch = requires(validator.baseline(), "DEEP.big", "true");
-                let alone = validator.validate(&patch);
-                assert!(alone.is_ok(), "{alone:?}");
-                let chunk = validator.compile_ahead_on(
-                    &[patch.clone(), patch.clone()],
-                    4,
-                    4 * KEPT_PER_WORKER,
-                );
-                assert_eq!(
-                    held(&validator),
-                    vec![(patch.clone(), 2)],
-                    "a worker relinked and compiled the deep mutant"
-                );
-                assert_eq!(validator.validate(&patch), alone);
-                assert_eq!(validator.validate(&patch), alone);
-                drop(chunk);
-            })
-            .unwrap()
-            .join()
-            .unwrap();
+        }
     }
 }

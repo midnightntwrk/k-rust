@@ -853,76 +853,6 @@ fn evaluated_hooks_no_builtin_file_documents_are_open() {
     }
 }
 
-/// Re-pin R0c-fix-1 deliverable 2 (R0c review 1 major 3, the reviewer's alpha-equivalence probe):
-/// beta reduction through `SUBSTITUTION.substOne`. On `run(app(lam(x, lam(y, x)), y))` the
-/// baseline gives `out(lam(y0, y))` and the mutant, which routes the substitution through `y0`,
-/// the alpha-equivalent `out(lam(y1, y))`: the two differ only in the suffix k-rust mints
-/// (substitution.md 83-88 leaves it to the backend). Both definitions are flagged, so neither
-/// run is evidence; before R0c-fix-1 neither was flagged and the pair distinguished.
-#[test]
-fn a_substitution_rule_flags_the_definition() {
-    on_a_big_stack(|| {
-        let program = parse_pattern(
-            r#"Lblrun{}(Lblapp{}(Lbllam{}(\dv{SortKVar{}}("x"), Lbllam{}(\dv{SortKVar{}}("y"), inj{SortKVar{}, SortExp{}}(\dv{SortKVar{}}("x")))), inj{SortKVar{}, SortExp{}}(\dv{SortKVar{}}("y"))))"#,
-        )
-        .unwrap();
-        let mut finals = Vec::new();
-        for name in ["lam", "lamm"] {
-            let (side, module) = fixture("r0c", name);
-            let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
-            assert!(
-                exclusions
-                    .implementation_chosen
-                    .iter()
-                    .any(|reference| reference.hook == "SUBSTITUTION.substOne"),
-                "{name}: {exclusions:?}"
-            );
-            let execution = run(&side, &module, program.clone());
-            let [leaf] = execution.leaves() else {
-                panic!("{name}: one leaf")
-            };
-            assert_eq!(leaf.halt, HaltClass::Stuck, "{name}");
-            finals.push(leaf.branch.state.to_string());
-            assert_eq!(
-                exclusions.run_exclusion(&execution),
-                Some(Exclusion::ImplementationChosenHook),
-                "{name}"
-            );
-        }
-        // The two finals differ, by the minted suffix alone.
-        assert!(finals[0].contains(r#""y0""#), "{}", finals[0]);
-        assert!(finals[1].contains(r#""y1""#), "{}", finals[1]);
-        assert_eq!(finals[0].replace(r#""y0""#, r#""y1""#), finals[1]);
-    });
-}
-
-/// Re-pin R0c-fix-1 deliverable 3 (R0c review 1 minor, the reviewer's probe): a definition with a
-/// `stdout` stream cell gets the prelude's stream rules, which apply `#write` (`IO.write`) and
-/// `Float2String`, with their prelude `Source`. The census counts every rewrite rule whatever its
-/// source, so the definition is flagged; before R0c-fix-1 it was not (the rules' source is
-/// `krust-builtin://domains.md`).
-#[test]
-fn prelude_stream_rules_are_counted_whatever_their_source() {
-    on_a_big_stack(|| {
-        let (side, module) = fixture("r0c", "outs");
-        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
-        let hooks = exclusions
-            .implementation_chosen
-            .iter()
-            .map(|reference| reference.hook.as_str())
-            .collect::<BTreeSet<_>>();
-        assert_eq!(
-            hooks,
-            BTreeSet::from(["IO.write", "STRING.float2string"]),
-            "{exclusions:?}"
-        );
-        assert_eq!(
-            exclusions.definition_exclusion(),
-            Some(Exclusion::ImplementationChosenHook)
-        );
-    });
-}
-
 /// Re-pin R0c-fix-1 deliverable 4 (R0c review 1 minor, decision 1): an undefined step of a rule
 /// whose right-hand side applies a short-circuit operator over an operand that may be undefined
 /// is excluded. On 0, `go` (`false andBool 10 /Int I >Int 0`), `fn` (the same through a function),
@@ -1008,145 +938,6 @@ fn a_short_circuit_step_over_an_undefined_operand_is_excluded() {
     });
 }
 
-/// Re-pin R0c-fix-2 deliverable 6 (R0c-fix-1 review major, the reviewer's `scsib.k`): `siba`'s
-/// right-hand side applies `andBool` over `10 /Int (I -Int 1) >Int 0` beside the same-priority
-/// sibling `sibb`. On `sib(1)` k-rust drops `siba`'s undefined candidate and the run is one
-/// complete Stuck leaf `other()` with no undefined-step leaf to read, where a short-circuiting
-/// backend also reaches `res(false)`: the leaf check misses it, and the definition-level rule
-/// excludes it. Before R0c-fix-2 the run was evidence.
-#[test]
-fn a_short_circuit_candidate_beside_a_sibling_excludes_the_definition() {
-    on_a_big_stack(|| {
-        let (side, module) = fixture("r0c", "scsib");
-        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
-        let siba = backend(&side, &module)
-            .rule_catalog(None)
-            .unwrap()
-            .into_iter()
-            .find(|rule| rule.label.as_deref() == Some("SCSIB.siba"))
-            .expect("siba")
-            .id;
-        assert_eq!(exclusions.short_circuit_results, [siba]);
-        assert_eq!(
-            exclusions.definition_exclusion(),
-            Some(Exclusion::ShortCircuitReading)
-        );
-        let execution = run(
-            &side,
-            &module,
-            support::app("Lblsib", vec![support::int(1)]),
-        );
-        let [leaf] = execution.leaves() else {
-            panic!("sib(1): one leaf")
-        };
-        assert_eq!(leaf.halt, HaltClass::Stuck);
-        let leaf_only = DefinitionExclusions {
-            short_circuit_results: Vec::new(),
-            ..exclusions.clone()
-        };
-        assert_eq!(leaf_only.run_exclusion(&execution), None);
-        assert_eq!(
-            exclusions.run_exclusion(&execution),
-            Some(Exclusion::ShortCircuitReading)
-        );
-    });
-}
-
-/// Re-pin R0c-fix-3 deliverable 5 (R0c-fix-2 review minor 3, `r0c/eqcond.k`): k-rust 501f18b9
-/// names an `\equals` between two possibly undefined terms in a rule or equation condition as a
-/// gap of its own answers ("Two gaps remain", `docs/compatibility.md`): its SMT translation has no
-/// model where both sides are undefined, so answers may wrongly be empty, `valid` or `proven`.
-/// `go`'s condition `{ 10 /Int I #Equals 10 /Int I }` is one, and excludes the definition; the K
-/// Bool conditions kompile states as `\equals(C, true)` are not.
-#[test]
-fn a_condition_that_equates_two_terms_excludes_the_definition() {
-    on_a_big_stack(|| {
-        let (side, module) = fixture("r0c", "eqcond");
-        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
-        let go = backend(&side, &module)
-            .rule_catalog(None)
-            .unwrap()
-            .into_iter()
-            .find(|rule| rule.label.as_deref() == Some("EQCOND.go"))
-            .expect("go")
-            .id;
-        assert_eq!(exclusions.equals_conditions, [go]);
-        assert_eq!(
-            exclusions.definition_exclusion(),
-            Some(Exclusion::EqualsCondition)
-        );
-        let (side, module) = fixture("r0c", "nomatch");
-        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
-        assert!(exclusions.equals_conditions.is_empty());
-        assert_eq!(exclusions.definition_exclusion(), None);
-    });
-}
-
-/// Re-pin R0c-fix-4 (R0c-fix-3 review minor 6, `r0c/eqlemma.k`): the scan reads every axiom's
-/// antecedents and both sides of its conclusion, whatever its left-hand side: the requires of a
-/// `#Ceil` lemma, an equation's `ensures` and a rewrite rule's `ensures` each hold
-/// `{ I #Equals .. }`, and each is listed; the equation `f` without one is not.
-#[test]
-fn an_equality_in_a_lemma_or_an_ensures_excludes_the_definition() {
-    on_a_big_stack(|| {
-        let (side, module) = fixture("r0c", "eqlemma");
-        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
-        let catalog = backend(&side, &module).rule_catalog(None).unwrap();
-        let id = |label: &str| {
-            catalog
-                .iter()
-                .find(|rule| rule.label.as_deref() == Some(label))
-                .unwrap_or_else(|| panic!("{label}"))
-                .id
-                .clone()
-        };
-        let mut expected = ["EQLEMMA.fceil", "EQLEMMA.g", "EQLEMMA.go"]
-            .map(id)
-            .to_vec();
-        expected.sort();
-        let mut found = exclusions.equals_conditions.clone();
-        found.sort();
-        assert_eq!(found, expected);
-        assert!(!found.contains(&id("EQLEMMA.f")));
-        assert_eq!(
-            exclusions.definition_exclusion(),
-            Some(Exclusion::EqualsCondition)
-        );
-    });
-}
-
-/// Re-pin R0-tail (R0c-fix-4 review minor 1, `r0c/eqexists.k`): a rewrite rule with an
-/// existential variable has its right-hand side under `\exists ?Y`, and the scan reads its
-/// `ensures` there too. `go`'s `{ ?Y #Equals 10 /Int I }` and `gy`'s two equalities are each
-/// listed, and `plain` is not. At 1ee9955 the scan read only an `\and` at the top of the right-hand
-/// side, and this definition was compared (the reviewer's probe: `equals_conditions []`).
-#[test]
-fn an_equality_in_an_existential_ensures_excludes_the_definition() {
-    on_a_big_stack(|| {
-        let (side, module) = fixture("r0c", "eqexists");
-        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
-        let catalog = backend(&side, &module).rule_catalog(None).unwrap();
-        let id = |label: &str| {
-            catalog
-                .iter()
-                .find(|rule| rule.label.as_deref() == Some(label))
-                .unwrap_or_else(|| panic!("{label}"))
-                .id
-                .clone()
-        };
-        let mut expected = ["EQEXISTS.go", "EQEXISTS.gy"].map(id).to_vec();
-        expected.sort();
-        let mut found = exclusions.equals_conditions.clone();
-        found.sort();
-        assert_eq!(found, expected);
-        assert!(!found.contains(&id("EQEXISTS.plain")));
-        assert_eq!(
-            exclusions.definition_exclusion(),
-            Some(Exclusion::EqualsCondition)
-        );
-    });
-}
-
 /// Re-pin R0c-fix-1 deliverable 4: a condition that depends on the short-circuit reading leaves
 /// no leaf to read. `rq`'s condition `true orBool 10 /Int I >Int 0` is undefined on 0 in k-rust,
 /// so `rq(0)` is a Stuck leaf naming no rule, where a short-circuiting backend steps to
@@ -1193,132 +984,6 @@ fn a_condition_that_depends_on_the_short_circuit_reading_excludes_the_definition
         assert_eq!(
             exclusions.run_exclusion(&value),
             Some(Exclusion::ShortCircuitReading)
-        );
-    });
-}
-
-/// Every testdata and example definition that compiles, by its definition-level exclusions
-/// (decision 1's census, the load's stack stops, C-10's role-rooted axioms). The census flags
-/// exactly the definitions whose own rules use an implementation-chosen hook: Float arithmetic
-/// (`rulecondfail`, `t12hook`, `t12probe`, `t12unev`) and `String2Bytes` (`t12probe`). Every
-/// comparison on them is unknown. No load counts a stack stop on this thread, and no definition
-/// has an axiom rooted at a collection role symbol.
-///
-/// Re-pin R0c: deliverable 8 rewrote the Bytes keys of `bytes-map` and both copies of
-/// `collstore` with `encodeBytes("UTF-8", ..)`, so R0b's three `String2Bytes` flags are gone;
-/// deliverable 2's domains.md additions flag no testdata or example definition. Re-pin
-/// R0c-fix-1's builtin-file additions, prelude rewrite rules and short-circuit reading flag none
-/// either.
-#[test]
-fn definition_exclusions_over_testdata() {
-    on_a_big_stack(|| {
-        let mut files = Vec::new();
-        let mut pending = vec![
-            root().join("testdata/k"),
-            root().join("testdata/flow"),
-            root().join("examples/imp"),
-        ];
-        while let Some(dir) = pending.pop() {
-            for entry in std::fs::read_dir(&dir).unwrap() {
-                let path = entry.unwrap().path();
-                if path.is_dir() {
-                    // The Z3 fixtures and R0b's, R0c's and re-pin adoption A-1's own fixtures
-                    // are pinned by their own tests (A-1's `marks.k` is flagged by design).
-                    if !path.ends_with("testdata/k/z3")
-                        && !path.ends_with("testdata/k/r0b")
-                        && !path.ends_with("testdata/k/r0c")
-                        && !path.ends_with("testdata/k/a1")
-                    {
-                        pending.push(path);
-                    }
-                } else if path.extension().is_some_and(|e| e == "k") {
-                    files.push(path);
-                }
-            }
-        }
-        files.sort();
-        let mut flagged = BTreeSet::new();
-        let mut short_circuit = BTreeSet::new();
-        let mut compiled = 0;
-        for path in files {
-            let name = path.strip_prefix(root()).unwrap().display().to_string();
-            let text = std::fs::read_to_string(&path).unwrap();
-            let module = text
-                .lines()
-                .filter_map(|l| l.trim().strip_prefix("module "))
-                .next_back()
-                .unwrap()
-                .split_whitespace()
-                .next()
-                .unwrap()
-                .to_owned();
-            let validator = NativeValidator::bind(
-                support::load_path(&path, &module),
-                CompileOptions::default(),
-            );
-            let Ok(side) = validator.compile_baseline() else {
-                continue;
-            };
-            compiled += 1;
-            let exclusions = DefinitionExclusions::of_validated(
-                &side,
-                &k_rust::kast::identifier::encode(&module),
-            )
-            .unwrap();
-            assert_eq!(exclusions.load_stack_stops, 0, "{name}");
-            assert!(exclusions.collections_trusted(), "{name}: {exclusions:?}");
-            assert!(
-                exclusions.short_circuit_conditions.is_empty(),
-                "{name}: {:?}",
-                exclusions.short_circuit_conditions
-            );
-            // Re-pin R0c-fix-3: no testdata or example condition equates two terms.
-            assert!(
-                exclusions.equals_conditions.is_empty(),
-                "{name}: {:?}",
-                exclusions.equals_conditions
-            );
-            if !exclusions.short_circuit_rules.is_empty() {
-                eprintln!(
-                    "SHORT_CIRCUIT_RULES {name} {:?}",
-                    exclusions.short_circuit_rules
-                );
-                short_circuit.insert(name.clone());
-            }
-            if !exclusions.implementation_chosen.is_empty() {
-                assert_eq!(
-                    exclusions.definition_exclusion(),
-                    Some(Exclusion::ImplementationChosenHook)
-                );
-                eprintln!(
-                    "IMPLEMENTATION_CHOSEN {name} {:?}",
-                    exclusions
-                        .implementation_chosen
-                        .iter()
-                        .map(|reference| (&reference.sentence, &reference.hook))
-                        .collect::<Vec<_>>()
-                );
-                flagged.insert(name);
-            }
-        }
-        assert!(compiled > 70, "{compiled}");
-        // Re-pin R0c-fix-1: counting every rewrite rule whatever its source (deliverable 3) and
-        // the short-circuit reading (deliverable 4) flag no testdata or example definition.
-        assert!(short_circuit.is_empty(), "{short_circuit:?}");
-        assert_eq!(
-            flagged,
-            [
-                "testdata/k/rulecondfail.k",
-                "testdata/k/t12hook.k",
-                "testdata/k/t12probe.k",
-                "testdata/k/t12unev.k",
-                // Re-pin R0c-fix-2: `keccak` is hooked `KRYPTO.keccak256`, which k-rust evaluates
-                // and no builtin file documents.
-                "testdata/k/t13implemented.k",
-            ]
-            .map(str::to_owned)
-            .into_iter()
-            .collect::<BTreeSet<_>>()
         );
     });
 }
@@ -1480,57 +1145,6 @@ fn an_undefined_step_that_contradicts_a_claim_excludes_the_run() {
     });
 }
 
-/// Finding C-10: an equation rooted at a collection role symbol (reported by the load as
-/// `IndexedAt(List)`) or a simplification rooted at one (which the load does not report) makes no
-/// collection term of the definition a terminal value; without the flag the same decider gives
-/// the canonical value.
-#[test]
-fn an_axiom_rooted_at_a_role_symbol_distrusts_collection_terminals() {
-    on_a_big_stack(|| {
-        for (name, element) in [("rolerooted", "LblListItem"), ("rolesimp", "LblSetItem")] {
-            let (side, module) = r0b(name);
-            let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
-            assert!(!exclusions.collections_trusted(), "{name}: {exclusions:?}");
-            assert_eq!(exclusions.definition_exclusion(), None, "{name}");
-            let execution = run(
-                &side,
-                &module,
-                support::app("Lblstart", vec![support::int(5)]),
-            );
-            assert_eq!(exclusions.run_exclusion(&execution), None, "{name}");
-            let [leaf] = execution.leaves() else {
-                panic!("{name}: {execution:?}")
-            };
-            let state = k_rust::kore::codec::from_value(&leaf.branch.state).unwrap();
-            let term = match &state {
-                Pattern::And { arguments, .. } => arguments[0].clone(),
-                term => term.clone(),
-            };
-            assert!(format!("{term:?}").contains(element), "{name}: {term:?}");
-            let initial =
-                support::initial_state(support::app("Lblstart", vec![support::int(5)]), "SortProg");
-            backend(&side, &module)
-                .with_solver(None, |definition, solver| {
-                    let trusted = ObservationDecider::new(
-                        definition,
-                        solver,
-                        TestInitialState::of_test(&initial),
-                    );
-                    assert!(trusted.terminal_value(&term).is_some(), "{name}");
-                    let distrusted = ObservationDecider::new(
-                        definition,
-                        solver,
-                        TestInitialState::of_test(&initial),
-                    )
-                    .trusting_collections(exclusions.collections_trusted());
-                    assert_eq!(distrusted.terminal_value(&term), None, "{name}");
-                    Ok::<_, k_rust::backend::BackendError>(())
-                })
-                .unwrap();
-        }
-    });
-}
-
 /// `deep(N)` recurses `N` levels, not in tail position (k-rust tests/execution_stack_stops.rs).
 const DEEP: &str = r#"[] module MAIN
     hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
@@ -1551,6 +1165,11 @@ endmodule []"#;
 /// Finding A-06: a run that met a stop for lack of native stack reports it (`stackStops`), both
 /// adapter entry points keep the count, and the run is excluded; the same run with the default
 /// stack budget reports none and is not excluded.
+///
+/// `deep(4000)`: with a zero simplification stack budget the run first meets a stack stop at
+/// about 2,000 levels (measured 2026-10-21 at the dev profile's opt-level 1 on an 8 MiB thread:
+/// 1,500 levels do not stop, 2,000 do), so 4,000 keeps a factor of two; the run with the
+/// default budget then costs a seventh of the former `deep(30000)`.
 #[test]
 fn a_run_with_a_stack_stop_is_excluded() {
     let result = |stack_budget: Option<usize>| {
@@ -1561,7 +1180,7 @@ fn a_run_with_a_stack_stop_is_excluded() {
                 if let Some(stack_budget) = stack_budget {
                     backend.set_simplification_stack_budget(stack_budget);
                 }
-                let state = parse_pattern(r#"done{}(deep{}(\dv{SortInt{}}("30000")))"#).unwrap();
+                let state = parse_pattern(r#"done{}(deep{}(\dv{SortInt{}}("4000")))"#).unwrap();
                 let bounds = ExecutionBudget {
                     max_depth: Some(0),
                     ..budget()
@@ -1673,32 +1292,6 @@ fn a_load_with_a_stack_stop_excludes_every_run() {
     assert_eq!(shallow.definition_exclusion(), None);
 }
 
-/// Decision 4 / finding C-09: census rule C stays exercised by a definition k-rust 501f18b9
-/// compiles: a well-sorted List whose role symbols carry no role hook is flagged under rule C for
-/// each of its three roles, so kink-corpus admission refuses it (`vi-t13`).
-#[test]
-fn a_compiling_hookless_role_is_refused_by_census_rule_c() {
-    on_a_big_stack(|| {
-        let (side, _) = r0b("hooklessrole");
-        let census = kink_native::declaration_census(&side).unwrap();
-        assert_eq!(census.verdict(), kink_native::CensusVerdict::Flagged);
-        let findings = census
-            .findings()
-            .iter()
-            .map(|finding| (finding.class, finding.symbol.clone()))
-            .collect::<Vec<_>>();
-        eprintln!("HOOKLESS {}", census.text());
-        assert_eq!(findings.len(), 3, "{}", census.text());
-        assert!(
-            findings
-                .iter()
-                .all(|(class, _)| *class == kink_native::CensusClass::C),
-            "{}",
-            census.text()
-        );
-    });
-}
-
 /// A hooked division: partial with the ceil equation `\ceil(mydiv(X, Y)) = (Y =/= 0)`, or
 /// declared `total`.
 fn division(total: bool) -> String {
@@ -1768,5 +1361,305 @@ fn a_mutant_leaf_is_admitted_under_the_mutant_definition() {
             (own, shared),
             (LeafFeasibility::Unknown, LeafFeasibility::Unknown)
         );
+    }
+}
+
+mod kink_tier {
+    use super::*;
+
+    /// Decision 4 / finding C-09: census rule C stays exercised by a definition k-rust 501f18b9
+    /// compiles: a well-sorted List whose role symbols carry no role hook is flagged under rule C for
+    /// each of its three roles, so kink-corpus admission refuses it (`vi-t13`).
+    #[test]
+    #[ignore = "kink"]
+    fn a_compiling_hookless_role_is_refused_by_census_rule_c() {
+        on_a_big_stack(|| {
+            let (side, _) = r0b("hooklessrole");
+            let census = kink_native::declaration_census(&side).unwrap();
+            assert_eq!(census.verdict(), kink_native::CensusVerdict::Flagged);
+            let findings = census
+                .findings()
+                .iter()
+                .map(|finding| (finding.class, finding.symbol.clone()))
+                .collect::<Vec<_>>();
+            eprintln!("HOOKLESS {}", census.text());
+            assert_eq!(findings.len(), 3, "{}", census.text());
+            assert!(
+                findings
+                    .iter()
+                    .all(|(class, _)| *class == kink_native::CensusClass::C),
+                "{}",
+                census.text()
+            );
+        });
+    }
+
+    /// Re-pin R0c-fix-3 deliverable 5 (R0c-fix-2 review minor 3, `r0c/eqcond.k`): k-rust 501f18b9
+    /// names an `\equals` between two possibly undefined terms in a rule or equation condition as a
+    /// gap of its own answers ("Two gaps remain", `docs/compatibility.md`): its SMT translation has no
+    /// model where both sides are undefined, so answers may wrongly be empty, `valid` or `proven`.
+    /// `go`'s condition `{ 10 /Int I #Equals 10 /Int I }` is one, and excludes the definition; the K
+    /// Bool conditions kompile states as `\equals(C, true)` are not.
+    #[test]
+    #[ignore = "kink"]
+    fn a_condition_that_equates_two_terms_excludes_the_definition() {
+        on_a_big_stack(|| {
+            let (side, module) = fixture("r0c", "eqcond");
+            let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+            let go = backend(&side, &module)
+                .rule_catalog(None)
+                .unwrap()
+                .into_iter()
+                .find(|rule| rule.label.as_deref() == Some("EQCOND.go"))
+                .expect("go")
+                .id;
+            assert_eq!(exclusions.equals_conditions, [go]);
+            assert_eq!(
+                exclusions.definition_exclusion(),
+                Some(Exclusion::EqualsCondition)
+            );
+            let (side, module) = fixture("r0c", "nomatch");
+            let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+            assert!(exclusions.equals_conditions.is_empty());
+            assert_eq!(exclusions.definition_exclusion(), None);
+        });
+    }
+
+    /// Re-pin R0c-fix-2 deliverable 6 (R0c-fix-1 review major, the reviewer's `scsib.k`): `siba`'s
+    /// right-hand side applies `andBool` over `10 /Int (I -Int 1) >Int 0` beside the same-priority
+    /// sibling `sibb`. On `sib(1)` k-rust drops `siba`'s undefined candidate and the run is one
+    /// complete Stuck leaf `other()` with no undefined-step leaf to read, where a short-circuiting
+    /// backend also reaches `res(false)`: the leaf check misses it, and the definition-level rule
+    /// excludes it. Before R0c-fix-2 the run was evidence.
+    #[test]
+    #[ignore = "kink"]
+    fn a_short_circuit_candidate_beside_a_sibling_excludes_the_definition() {
+        on_a_big_stack(|| {
+            let (side, module) = fixture("r0c", "scsib");
+            let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+            let siba = backend(&side, &module)
+                .rule_catalog(None)
+                .unwrap()
+                .into_iter()
+                .find(|rule| rule.label.as_deref() == Some("SCSIB.siba"))
+                .expect("siba")
+                .id;
+            assert_eq!(exclusions.short_circuit_results, [siba]);
+            assert_eq!(
+                exclusions.definition_exclusion(),
+                Some(Exclusion::ShortCircuitReading)
+            );
+            let execution = run(
+                &side,
+                &module,
+                support::app("Lblsib", vec![support::int(1)]),
+            );
+            let [leaf] = execution.leaves() else {
+                panic!("sib(1): one leaf")
+            };
+            assert_eq!(leaf.halt, HaltClass::Stuck);
+            let leaf_only = DefinitionExclusions {
+                short_circuit_results: Vec::new(),
+                ..exclusions.clone()
+            };
+            assert_eq!(leaf_only.run_exclusion(&execution), None);
+            assert_eq!(
+                exclusions.run_exclusion(&execution),
+                Some(Exclusion::ShortCircuitReading)
+            );
+        });
+    }
+
+    /// Re-pin R0c-fix-1 deliverable 2 (R0c review 1 major 3, the reviewer's alpha-equivalence probe):
+    /// beta reduction through `SUBSTITUTION.substOne`. On `run(app(lam(x, lam(y, x)), y))` the
+    /// baseline gives `out(lam(y0, y))` and the mutant, which routes the substitution through `y0`,
+    /// the alpha-equivalent `out(lam(y1, y))`: the two differ only in the suffix k-rust mints
+    /// (substitution.md 83-88 leaves it to the backend). Both definitions are flagged, so neither
+    /// run is evidence; before R0c-fix-1 neither was flagged and the pair distinguished.
+    #[test]
+    #[ignore = "kink"]
+    fn a_substitution_rule_flags_the_definition() {
+        on_a_big_stack(|| {
+            let program = parse_pattern(
+                r#"Lblrun{}(Lblapp{}(Lbllam{}(\dv{SortKVar{}}("x"), Lbllam{}(\dv{SortKVar{}}("y"), inj{SortKVar{}, SortExp{}}(\dv{SortKVar{}}("x")))), inj{SortKVar{}, SortExp{}}(\dv{SortKVar{}}("y"))))"#,
+            )
+            .unwrap();
+            let mut finals = Vec::new();
+            for name in ["lam", "lamm"] {
+                let (side, module) = fixture("r0c", name);
+                let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+                assert!(
+                    exclusions
+                        .implementation_chosen
+                        .iter()
+                        .any(|reference| reference.hook == "SUBSTITUTION.substOne"),
+                    "{name}: {exclusions:?}"
+                );
+                let execution = run(&side, &module, program.clone());
+                let [leaf] = execution.leaves() else {
+                    panic!("{name}: one leaf")
+                };
+                assert_eq!(leaf.halt, HaltClass::Stuck, "{name}");
+                finals.push(leaf.branch.state.to_string());
+                assert_eq!(
+                    exclusions.run_exclusion(&execution),
+                    Some(Exclusion::ImplementationChosenHook),
+                    "{name}"
+                );
+            }
+            // The two finals differ, by the minted suffix alone.
+            assert!(finals[0].contains(r#""y0""#), "{}", finals[0]);
+            assert!(finals[1].contains(r#""y1""#), "{}", finals[1]);
+            assert_eq!(finals[0].replace(r#""y0""#, r#""y1""#), finals[1]);
+        });
+    }
+
+    /// Finding C-10: an equation rooted at a collection role symbol (reported by the load as
+    /// `IndexedAt(List)`) or a simplification rooted at one (which the load does not report) makes no
+    /// collection term of the definition a terminal value; without the flag the same decider gives
+    /// the canonical value.
+    #[test]
+    #[ignore = "kink"]
+    fn an_axiom_rooted_at_a_role_symbol_distrusts_collection_terminals() {
+        on_a_big_stack(|| {
+            for (name, element) in [("rolerooted", "LblListItem"), ("rolesimp", "LblSetItem")] {
+                let (side, module) = r0b(name);
+                let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+                assert!(!exclusions.collections_trusted(), "{name}: {exclusions:?}");
+                assert_eq!(exclusions.definition_exclusion(), None, "{name}");
+                let execution = run(
+                    &side,
+                    &module,
+                    support::app("Lblstart", vec![support::int(5)]),
+                );
+                assert_eq!(exclusions.run_exclusion(&execution), None, "{name}");
+                let [leaf] = execution.leaves() else {
+                    panic!("{name}: {execution:?}")
+                };
+                let state = k_rust::kore::codec::from_value(&leaf.branch.state).unwrap();
+                let term = match &state {
+                    Pattern::And { arguments, .. } => arguments[0].clone(),
+                    term => term.clone(),
+                };
+                assert!(format!("{term:?}").contains(element), "{name}: {term:?}");
+                let initial = support::initial_state(
+                    support::app("Lblstart", vec![support::int(5)]),
+                    "SortProg",
+                );
+                backend(&side, &module)
+                    .with_solver(None, |definition, solver| {
+                        let trusted = ObservationDecider::new(
+                            definition,
+                            solver,
+                            TestInitialState::of_test(&initial),
+                        );
+                        assert!(trusted.terminal_value(&term).is_some(), "{name}");
+                        let distrusted = ObservationDecider::new(
+                            definition,
+                            solver,
+                            TestInitialState::of_test(&initial),
+                        )
+                        .trusting_collections(exclusions.collections_trusted());
+                        assert_eq!(distrusted.terminal_value(&term), None, "{name}");
+                        Ok::<_, k_rust::backend::BackendError>(())
+                    })
+                    .unwrap();
+            }
+        });
+    }
+
+    /// Re-pin R0c-fix-4 (R0c-fix-3 review minor 6, `r0c/eqlemma.k`): the scan reads every axiom's
+    /// antecedents and both sides of its conclusion, whatever its left-hand side: the requires of a
+    /// `#Ceil` lemma, an equation's `ensures` and a rewrite rule's `ensures` each hold
+    /// `{ I #Equals .. }`, and each is listed; the equation `f` without one is not.
+    #[test]
+    #[ignore = "kink"]
+    fn an_equality_in_a_lemma_or_an_ensures_excludes_the_definition() {
+        on_a_big_stack(|| {
+            let (side, module) = fixture("r0c", "eqlemma");
+            let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+            let catalog = backend(&side, &module).rule_catalog(None).unwrap();
+            let id = |label: &str| {
+                catalog
+                    .iter()
+                    .find(|rule| rule.label.as_deref() == Some(label))
+                    .unwrap_or_else(|| panic!("{label}"))
+                    .id
+                    .clone()
+            };
+            let mut expected = ["EQLEMMA.fceil", "EQLEMMA.g", "EQLEMMA.go"]
+                .map(id)
+                .to_vec();
+            expected.sort();
+            let mut found = exclusions.equals_conditions.clone();
+            found.sort();
+            assert_eq!(found, expected);
+            assert!(!found.contains(&id("EQLEMMA.f")));
+            assert_eq!(
+                exclusions.definition_exclusion(),
+                Some(Exclusion::EqualsCondition)
+            );
+        });
+    }
+
+    /// Re-pin R0-tail (R0c-fix-4 review minor 1, `r0c/eqexists.k`): a rewrite rule with an
+    /// existential variable has its right-hand side under `\exists ?Y`, and the scan reads its
+    /// `ensures` there too. `go`'s `{ ?Y #Equals 10 /Int I }` and `gy`'s two equalities are each
+    /// listed, and `plain` is not. At 1ee9955 the scan read only an `\and` at the top of the right-hand
+    /// side, and this definition was compared (the reviewer's probe: `equals_conditions []`).
+    #[test]
+    #[ignore = "kink"]
+    fn an_equality_in_an_existential_ensures_excludes_the_definition() {
+        on_a_big_stack(|| {
+            let (side, module) = fixture("r0c", "eqexists");
+            let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+            let catalog = backend(&side, &module).rule_catalog(None).unwrap();
+            let id = |label: &str| {
+                catalog
+                    .iter()
+                    .find(|rule| rule.label.as_deref() == Some(label))
+                    .unwrap_or_else(|| panic!("{label}"))
+                    .id
+                    .clone()
+            };
+            let mut expected = ["EQEXISTS.go", "EQEXISTS.gy"].map(id).to_vec();
+            expected.sort();
+            let mut found = exclusions.equals_conditions.clone();
+            found.sort();
+            assert_eq!(found, expected);
+            assert!(!found.contains(&id("EQEXISTS.plain")));
+            assert_eq!(
+                exclusions.definition_exclusion(),
+                Some(Exclusion::EqualsCondition)
+            );
+        });
+    }
+
+    /// Re-pin R0c-fix-1 deliverable 3 (R0c review 1 minor, the reviewer's probe): a definition with a
+    /// `stdout` stream cell gets the prelude's stream rules, which apply `#write` (`IO.write`) and
+    /// `Float2String`, with their prelude `Source`. The census counts every rewrite rule whatever its
+    /// source, so the definition is flagged; before R0c-fix-1 it was not (the rules' source is
+    /// `krust-builtin://domains.md`).
+    #[test]
+    #[ignore = "kink"]
+    fn prelude_stream_rules_are_counted_whatever_their_source() {
+        on_a_big_stack(|| {
+            let (side, module) = fixture("r0c", "outs");
+            let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+            let hooks = exclusions
+                .implementation_chosen
+                .iter()
+                .map(|reference| reference.hook.as_str())
+                .collect::<BTreeSet<_>>();
+            assert_eq!(
+                hooks,
+                BTreeSet::from(["IO.write", "STRING.float2string"]),
+                "{exclusions:?}"
+            );
+            assert_eq!(
+                exclusions.definition_exclusion(),
+                Some(Exclusion::ImplementationChosenHook)
+            );
+        });
     }
 }

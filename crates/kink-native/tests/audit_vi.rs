@@ -9,6 +9,8 @@
 #[path = "../../../testdata/k/support.rs"]
 mod support;
 
+mod cache;
+
 use std::{
     collections::{BTreeMap, BTreeSet},
     time::Duration,
@@ -17,7 +19,6 @@ use std::{
 use k_rust::backend::{Backend, BackendError, BackendOptions};
 use k_rust::definition::AttributeKey;
 use k_rust::kast::{Sort, Term};
-use k_rust::kompile::CompileOptions;
 use k_rust::kore::{
     ast::{Pattern, Variable, VariableKind},
     codec,
@@ -250,10 +251,17 @@ fn neutral_rows(fixture: &str) -> Vec<Row> {
     }
 }
 
-fn assert_naming_invariant(spellings: &[&str], context: &str) {
-    for (fixture, module, initial) in programs() {
-        let validator = NativeValidator::bind(support::load(fixture), CompileOptions::default());
-        let mut backend = backend(&validator, None, module);
+/// VI-AT2 and VI-AT3 (leaves) on one of `programs()`, compiled once: for each set of
+/// spellings, on a fresh backend, the neutral-name run has the measured `neutral_rows` and every
+/// rotation of the spellings over the program's free variables gives the neutral run's leaves.
+fn assert_naming_invariant(fixture: &str) {
+    let (_, module, initial) = programs()
+        .into_iter()
+        .find(|(name, _, _)| *name == fixture)
+        .expect("a VI-AT2/AT3 program");
+    let validator = cache::validator(fixture);
+    for (context, spellings) in [("AT2", &OLD_MINT_SPELLINGS), ("AT3", &NEW_MINT_SPELLINGS)] {
+        let mut backend = backend(validator, None, module);
         let neutral = summaries(&mut backend, &initial);
         eprintln!("{context} {fixture} neutral {neutral:?}");
         assert_eq!(
@@ -292,17 +300,24 @@ const NEW_MINT_SPELLINGS: [&str; 5] = [
 /// `X'Bang'apart1`, `Var'Ques'X0`) on symmem, guardedmem, conflate, conflate2 and conflate3:
 /// every leaf, Unsat, discard and free-variable count equals the neutral-name run, under
 /// every rotation of the spellings. No leaf is Unsat or discarded in either profile.
-#[test]
-fn audit_vi_at2_old_mint_spellings_equal_the_neutral_run() {
-    assert_naming_invariant(&OLD_MINT_SPELLINGS, "AT2");
-}
-
+///
 /// VI-AT3 (leaves): initial names spelled like v3 printed mints (`Ex-hVarI-b0` is
 /// `Ex#VarI!0` printed, the spelling of conflate's narrowing mint for `I`) next to that
 /// narrowing: every leaf equals the neutral-name run.
+///
+/// One test per fixture, each running both attacks on one compile.
 #[test]
-fn audit_vi_at3_new_mint_spellings_equal_the_neutral_run() {
-    assert_naming_invariant(&NEW_MINT_SPELLINGS, "AT3");
+fn audit_vi_at2_at3_mint_spellings_equal_the_neutral_run_on_conflate() {
+    assert_naming_invariant("conflate.k");
+}
+
+/// [`audit_vi_at2_at3_mint_spellings_equal_the_neutral_run_on_conflate`] on conflate2. Its
+/// one free variable `A` is spelled `ExVarI0` in the first AT2 rotation, so this also pins
+/// what `name_identity::initial_names_do_not_conflate_with_narrowing_mints` did (before VI,
+/// ExVarI0 made Z3 leaf 0 Unsat; under VI both names have the neutral name's leaves).
+#[test]
+fn audit_vi_at2_at3_mint_spellings_equal_the_neutral_run_on_conflate2() {
+    assert_naming_invariant("conflate2.k");
 }
 
 /// Free variables of `pattern` by name: two entries under one name are two variables printed
@@ -325,8 +340,8 @@ fn variables_by_name(pattern: &Pattern) -> BTreeMap<String, BTreeSet<Variable>> 
 /// with a request spelling.
 #[test]
 fn audit_vi_at3_new_mint_spellings_are_never_reminted() {
-    let validator = NativeValidator::bind(support::load("conflate.k"), CompileOptions::default());
-    let mut baseline = backend(&validator, None, "CONFLATE");
+    let validator = cache::validator("conflate.k");
+    let mut baseline = backend(validator, None, "CONFLATE");
     let program = |a: &str, b: &str, x: &str| {
         support::initial_state(
             seq(
@@ -425,44 +440,6 @@ fn minted_names(paths: &[Vec<Pattern>], initial: &BTreeSet<String>) -> BTreeSet<
         .collect()
 }
 
-/// VI-AT5: freshgen mints `?T` once per write, and `stamp` drops it, so on one path the
-/// existential leaves the state twice. With initial variables spelled like those mints
-/// (`Ex-hVar'Ques'T-b0` is `Ex#Var'Ques'T!0` printed), every leaf equals the neutral-name
-/// run, no minted name reappears after leaving the state, and no mint is spelled like an
-/// initial variable: the counter skips the request's spellings.
-#[test]
-fn audit_vi_at5_reused_existential_is_never_a_request_name() {
-    let validator = NativeValidator::bind(support::load("freshgen.k"), CompileOptions::default());
-    let mut baseline = backend(&validator, None, "FRESHGEN");
-    let neutral = summaries(&mut baseline, &two_writes("X", "Y"));
-    eprintln!("AT5 neutral {neutral:?}");
-    for (x, y) in [
-        ("X", "Y"),
-        ("X", "Ex-hVar'Ques'T-b0"),
-        ("Ex-hVar'Ques'T-b0", "Ex-hVar'Ques'T-b1"),
-        ("Ex-hVar'Ques'T-b1", "Ex-hVar'Ques'T-b2"),
-    ] {
-        let initial = two_writes(x, y);
-        assert_eq!(summaries(&mut baseline, &initial), neutral, "{x} {y}");
-        let names = [x.to_owned(), y.to_owned()].into_iter().collect();
-        let paths = stepped_states(&mut baseline, &initial);
-        for path in &paths {
-            assert_eq!(reappearing(path, &names), Vec::<String>::new(), "{x} {y}");
-        }
-        let minted = minted_names(&paths, &names);
-        eprintln!("AT5 {x} {y}: minted {minted:?}");
-        assert!(minted.is_disjoint(&names));
-        if cfg!(feature = "z3") {
-            assert!(
-                minted
-                    .iter()
-                    .any(|name| name.starts_with("Ex-hVar'Ques'T-b")),
-                "{x} {y}: the writes mint ?T: {minted:?}"
-            );
-        }
-    }
-}
-
 /// freshgen's guard split (AT1, without the rename): `write` keeps `A >Int 0` and an inserted
 /// copy takes `A ==Int 0`, so a symbolic write has one more branch that mints `?T`.
 fn freshgen_split(validator: &NativeValidator) -> Patch {
@@ -511,40 +488,14 @@ fn freshgen_split(validator: &NativeValidator) -> Patch {
     .expect("split")
 }
 
-/// VI-AT6: the guard split's extra branch also mints `?T` from the request's one counter, so
-/// the split's paths carry other mint counters than the baseline's (the shift is live), and
-/// the leaves keep their halts, feasibilities and discards in the same number per variable
-/// count. The campaign-level half (`coupled.rs` `audit_vi_at6_counter_shift_is_not_a_kill`)
-/// shows that the shift kills nothing.
-#[test]
-fn audit_vi_at6_counter_shift_is_live() {
-    let validator = NativeValidator::bind(support::load("freshgen.k"), CompileOptions::default());
-    let mut baseline = backend(&validator, None, "FRESHGEN");
-    let mut split = backend(&validator, Some(&freshgen_split(&validator)), "FRESHGEN");
-    let initial = two_writes("X", "Y");
-    let names = ["X".to_owned(), "Y".to_owned()].into_iter().collect();
-    let baseline_minted = minted_names(&stepped_states(&mut baseline, &initial), &names);
-    let split_minted = minted_names(&stepped_states(&mut split, &initial), &names);
-    eprintln!("AT6 baseline minted {baseline_minted:?}, split minted {split_minted:?}");
-    let baseline_leaves = summaries(&mut baseline, &initial);
-    let split_leaves = summaries(&mut split, &initial);
-    eprintln!("AT6 baseline leaves {baseline_leaves:?}, split leaves {split_leaves:?}");
-    if cfg!(feature = "z3") {
-        assert_ne!(
-            baseline_minted, split_minted,
-            "the split shifts the counters"
-        );
-    }
-}
-
 /// VI-AT8: a set variable spelled like a printed marked set variable, `@Rule-hM` (v3 prints
 /// `@Rule#M` so), reads back verbatim as a set variable of that name and prints unchanged.
 /// A test may hold it: execution admits the state and stops at one Indeterminate leaf, so the
 /// path is incomplete (kink-campaign `audit_vi_at8_set_variable_in_a_test_is_not_killed`).
 #[test]
 fn audit_vi_at8_set_variable_spelling_reads_back_verbatim() {
-    let validator = NativeValidator::bind(support::load("guardedmem.k"), CompileOptions::default());
-    let mut guarded = backend(&validator, None, "GUARDEDMEM");
+    let validator = cache::validator("guardedmem.k");
+    let mut guarded = backend(validator, None, "GUARDEDMEM");
     let set = Pattern::Variable(Variable {
         kind: VariableKind::Set,
         name: "@Rule-hM".to_owned(),
@@ -638,171 +589,264 @@ fn rename_variable(term: &mut Term, from: &str, to: &str) -> usize {
     }
 }
 
-/// VI-AT10 (KK-82 review R1-1): a test whose path condition names `Rule-hVarI`, the printed
-/// spelling of conflate's rule variable `Rule#VarI` that `go` narrows, has the same leaves as
-/// the neutral naming, on the baseline and on the alpha-renamed mutant (`I` to `K`).
-#[test]
-fn audit_vi_at10_forged_rule_variable_keeps_the_leaves() {
-    let validator = NativeValidator::bind(support::load("conflate.k"), CompileOptions::default());
-    let mut baseline = backend(&validator, None, "CONFLATE");
-    let mut mutant = backend(
-        &validator,
-        Some(&conflate_go_renamed(&validator, "K")),
-        "CONFLATE",
-    );
-    let program = |n: &str| {
-        support::initial_state(
+mod kink_tier {
+    use super::*;
+
+    /// [`audit_vi_at2_at3_mint_spellings_equal_the_neutral_run_on_conflate`] on symmem.
+    #[test]
+    #[ignore = "kink"]
+    fn audit_vi_at2_at3_mint_spellings_equal_the_neutral_run_on_symmem() {
+        assert_naming_invariant("symmem.k");
+    }
+
+    /// [`audit_vi_at2_at3_mint_spellings_equal_the_neutral_run_on_conflate`] on guardedmem.
+    #[test]
+    #[ignore = "kink"]
+    fn audit_vi_at2_at3_mint_spellings_equal_the_neutral_run_on_guardedmem() {
+        assert_naming_invariant("guardedmem.k");
+    }
+
+    /// [`audit_vi_at2_at3_mint_spellings_equal_the_neutral_run_on_conflate`] on conflate3.
+    #[test]
+    #[ignore = "kink"]
+    fn audit_vi_at2_at3_mint_spellings_equal_the_neutral_run_on_conflate3() {
+        assert_naming_invariant("conflate3.k");
+    }
+
+    /// VI-AT5: freshgen mints `?T` once per write, and `stamp` drops it, so on one path the
+    /// existential leaves the state twice. With initial variables spelled like those mints
+    /// (`Ex-hVar'Ques'T-b0` is `Ex#Var'Ques'T!0` printed), every leaf equals the neutral-name
+    /// run, no minted name reappears after leaving the state, and no mint is spelled like an
+    /// initial variable: the counter skips the request's spellings.
+    #[test]
+    #[ignore = "kink"]
+    fn audit_vi_at5_reused_existential_is_never_a_request_name() {
+        let validator = cache::validator("freshgen.k");
+        let mut baseline = backend(validator, None, "FRESHGEN");
+        let neutral = summaries(&mut baseline, &two_writes("X", "Y"));
+        eprintln!("AT5 neutral {neutral:?}");
+        for (x, y) in [
+            ("X", "Y"),
+            ("X", "Ex-hVar'Ques'T-b0"),
+            ("Ex-hVar'Ques'T-b0", "Ex-hVar'Ques'T-b1"),
+            ("Ex-hVar'Ques'T-b1", "Ex-hVar'Ques'T-b2"),
+        ] {
+            let initial = two_writes(x, y);
+            assert_eq!(summaries(&mut baseline, &initial), neutral, "{x} {y}");
+            let names = [x.to_owned(), y.to_owned()].into_iter().collect();
+            let paths = stepped_states(&mut baseline, &initial);
+            for path in &paths {
+                assert_eq!(reappearing(path, &names), Vec::<String>::new(), "{x} {y}");
+            }
+            let minted = minted_names(&paths, &names);
+            eprintln!("AT5 {x} {y}: minted {minted:?}");
+            assert!(minted.is_disjoint(&names));
+            if cfg!(feature = "z3") {
+                assert!(
+                    minted
+                        .iter()
+                        .any(|name| name.starts_with("Ex-hVar'Ques'T-b")),
+                    "{x} {y}: the writes mint ?T: {minted:?}"
+                );
+            }
+        }
+    }
+
+    /// VI-AT6: the guard split's extra branch also mints `?T` from the request's one counter, so
+    /// the split's paths carry other mint counters than the baseline's (the shift is live), and
+    /// the leaves keep their halts, feasibilities and discards in the same number per variable
+    /// count. The campaign-level half (`coupled.rs` `audit_vi_at6_counter_shift_is_not_a_kill`)
+    /// shows that the shift kills nothing.
+    #[test]
+    #[ignore = "kink"]
+    fn audit_vi_at6_counter_shift_is_live() {
+        let validator = cache::validator("freshgen.k");
+        let mut baseline = backend(validator, None, "FRESHGEN");
+        let mut split = backend(validator, Some(&freshgen_split(validator)), "FRESHGEN");
+        let initial = two_writes("X", "Y");
+        let names = ["X".to_owned(), "Y".to_owned()].into_iter().collect();
+        let baseline_minted = minted_names(&stepped_states(&mut baseline, &initial), &names);
+        let split_minted = minted_names(&stepped_states(&mut split, &initial), &names);
+        eprintln!("AT6 baseline minted {baseline_minted:?}, split minted {split_minted:?}");
+        let baseline_leaves = summaries(&mut baseline, &initial);
+        let split_leaves = summaries(&mut split, &initial);
+        eprintln!("AT6 baseline leaves {baseline_leaves:?}, split leaves {split_leaves:?}");
+        if cfg!(feature = "z3") {
+            assert_ne!(
+                baseline_minted, split_minted,
+                "the split shifts the counters"
+            );
+        }
+    }
+
+    /// VI-AT10 (KK-82 review R1-1): a test whose path condition names `Rule-hVarI`, the printed
+    /// spelling of conflate's rule variable `Rule#VarI` that `go` narrows, has the same leaves as
+    /// the neutral naming, on the baseline and on the alpha-renamed mutant (`I` to `K`).
+    #[test]
+    #[ignore = "kink"]
+    fn audit_vi_at10_forged_rule_variable_keeps_the_leaves() {
+        let validator = cache::validator("conflate.k");
+        let mut baseline = backend(validator, None, "CONFLATE");
+        let mut mutant = backend(
+            validator,
+            Some(&conflate_go_renamed(validator, "K")),
+            "CONFLATE",
+        );
+        let program = |n: &str| {
+            support::initial_state(
+                seq(
+                    op("check", vec![int(n)]),
+                    seq(
+                        op("go", vec![support::var("X", "SortBox")]),
+                        op("done", vec![]),
+                    ),
+                ),
+                "SortProg",
+            )
+        };
+        let neutral = summaries(&mut baseline, &program("N"));
+        eprintln!("AT10 neutral {neutral:?}");
+        assert_eq!(neutral.len(), if cfg!(feature = "z3") { 4 } else { 1 });
+        for n in ["N", "Rule-hVarI", "Rule-hI", "Rule-hVarK"] {
+            assert_eq!(
+                summaries(&mut baseline, &program(n)),
+                neutral,
+                "baseline {n}"
+            );
+            assert_eq!(summaries(&mut mutant, &program(n)), neutral, "mutant {n}");
+        }
+    }
+
+    /// VI-AT11 (KK-82 review R1-2): conflate's `go` variable renamed to a forged spelling
+    /// (`Rule-hX`, `X-b0`, `Ex-hVarI-b0`) compiles and gives the alpha-rename's leaves (`K`): the
+    /// compiled KORE variable is read verbatim and marked like any other rule variable.
+    #[test]
+    #[ignore = "kink"]
+    fn audit_vi_at11_forged_rule_variables_load_as_ordinary_names() {
+        let validator = cache::validator("conflate.k");
+        let initial = support::initial_state(
             seq(
-                op("check", vec![int(n)]),
+                op("check", vec![int("A")]),
                 seq(
                     op("go", vec![support::var("X", "SortBox")]),
                     op("done", vec![]),
                 ),
             ),
             "SortProg",
-        )
-    };
-    let neutral = summaries(&mut baseline, &program("N"));
-    eprintln!("AT10 neutral {neutral:?}");
-    assert_eq!(neutral.len(), if cfg!(feature = "z3") { 4 } else { 1 });
-    for n in ["N", "Rule-hVarI", "Rule-hI", "Rule-hVarK"] {
-        assert_eq!(
-            summaries(&mut baseline, &program(n)),
-            neutral,
-            "baseline {n}"
         );
-        assert_eq!(summaries(&mut mutant, &program(n)), neutral, "mutant {n}");
-    }
-}
-
-/// VI-AT11 (KK-82 review R1-2): conflate's `go` variable renamed to a forged spelling
-/// (`Rule-hX`, `X-b0`, `Ex-hVarI-b0`) compiles and gives the alpha-rename's leaves (`K`): the
-/// compiled KORE variable is read verbatim and marked like any other rule variable.
-#[test]
-fn audit_vi_at11_forged_rule_variables_load_as_ordinary_names() {
-    let validator = NativeValidator::bind(support::load("conflate.k"), CompileOptions::default());
-    let initial = support::initial_state(
-        seq(
-            op("check", vec![int("A")]),
-            seq(
-                op("go", vec![support::var("X", "SortBox")]),
-                op("done", vec![]),
-            ),
-        ),
-        "SortProg",
-    );
-    let mut alpha = backend(
-        &validator,
-        Some(&conflate_go_renamed(&validator, "K")),
-        "CONFLATE",
-    );
-    let neutral = summaries(&mut alpha, &initial);
-    for forged in ["Rule-hX", "X-b0", "Ex-hVarI-b0"] {
-        let patch = conflate_go_renamed(&validator, forged);
-        let side = validator.validate(&patch).expect("forged mutant compiles");
-        let kore = &side.artifacts().definition_kore;
-        let spelled = kore
-            .split(|c: char| !(c.is_ascii_alphanumeric() || c == '\'' || c == '-'))
-            .filter(|token| {
-                token.contains(forged) || token.contains(&forged.replace('-', "'Hyph'"))
-            })
-            .collect::<BTreeSet<_>>();
-        eprintln!("AT11 {forged}: KORE spellings {spelled:?}");
-        let mut forged_backend = backend(&validator, Some(&patch), "CONFLATE");
-        assert_eq!(
-            summaries(&mut forged_backend, &initial),
-            neutral,
-            "{forged}"
+        let mut alpha = backend(
+            validator,
+            Some(&conflate_go_renamed(validator, "K")),
+            "CONFLATE",
         );
-    }
-}
-
-/// VI-06 deliverable 6: since k-rust `4d80cea6`, `symwrap.k`'s `wrap` compiles as
-/// `anywhere, function, value-production` (self-reference withholds `functional`), so its runs
-/// stop before a relation is asked. `symwraptotal.k` keeps the non-injective head with a
-/// functional claim (`[function, total]`; compiled `anywhere, function, functional, total`
-/// with the functional axiom). Over it, `wrap(s(X))` against `wrap(z)` (equal at `X = z`) and
-/// `wrap(s(z))` against `wrap(z)` (equal) are never Unequal and their equation is never Unsat,
-/// in both profiles with the build's solver.
-#[test]
-fn audit_vi_symwrap_total_head_is_never_unequal() {
-    let validator =
-        NativeValidator::bind(support::load("symwraptotal.k"), CompileOptions::default());
-    let side = validator.compile_baseline().expect("symwraptotal compiles");
-    let kore = &side.artifacts().definition_kore;
-    let declaration = kore
-        .lines()
-        .skip_while(|line| !line.contains("symbol Lblwrap{}"))
-        .take_while(|line| !line.trim_start().starts_with(']'))
-        .collect::<String>();
-    for attribute in [
-        "anywhere{}()",
-        "function{}()",
-        "functional{}()",
-        "total{}()",
-    ] {
-        assert!(
-            declaration.contains(attribute),
-            "{attribute}: {declaration}"
-        );
-    }
-    assert!(!declaration.contains("constructor{}()"), "{declaration}");
-    assert!(!declaration.contains("injective{}()"), "{declaration}");
-    let mut backend = backend(&validator, None, "SYMWRAPTOTAL");
-    let nat = |name: &str| support::var(name, "SortNat");
-    let z = || op("z", vec![]);
-    let s = |value: Pattern| op("s", vec![value]);
-    let wrap = |value: Pattern| op("wrap", vec![value]);
-    let state = support::initial_state(
-        seq(
-            op("write", vec![wrap(s(nat("X"))), nat("V")]),
-            seq(op("load", vec![wrap(z()), nat("W")]), op("halt", vec![])),
-        ),
-        "SortProg",
-    );
-    let real = kink_pattern::PathInput {
-        test_id: "t".into(),
-        path_ordinal: 0,
-        path_key: None,
-        complete: false,
-        stop: kink_pattern::PathStop::Terminal,
-        execution_stop: kink_pattern::ExecutionStop::DepthLimit,
-        execution_terminal: None,
-        events: Vec::new(),
-        path_predicate: Pattern::Top {
-            sort: k_rust::kompile::initial_configuration::kore_sort("SortGeneratedTopCell"),
-        },
-        equivalences: Vec::new(),
-        inequalities: Vec::new(),
-    };
-    let (answers, queries) = backend
-        .with_solver(None, |definition, solver| {
-            let relations = kink_native::feasibility::BackendRelations::shared(
-                definition,
-                solver,
-                TestInitialState::of_test(&state),
+        let neutral = summaries(&mut alpha, &initial);
+        for forged in ["Rule-hX", "X-b0", "Ex-hVarI-b0"] {
+            let patch = conflate_go_renamed(validator, forged);
+            let side = validator.validate(&patch).expect("forged mutant compiles");
+            let kore = &side.artifacts().definition_kore;
+            let spelled = kore
+                .split(|c: char| !(c.is_ascii_alphanumeric() || c == '\'' || c == '-'))
+                .filter(|token| {
+                    token.contains(forged) || token.contains(&forged.replace('-', "'Hyph'"))
+                })
+                .collect::<BTreeSet<_>>();
+            eprintln!("AT11 {forged}: KORE spellings {spelled:?}");
+            let mut forged_backend = backend(validator, Some(&patch), "CONFLATE");
+            assert_eq!(
+                summaries(&mut forged_backend, &initial),
+                neutral,
+                "{forged}"
             );
-            let pairs = [(wrap(s(nat("X"))), wrap(z())), (wrap(s(z())), wrap(z()))];
-            let answers = pairs
-                .clone()
-                .map(|(left, right)| relations.relate(&real, &[], &left, &right));
-            let queries = pairs.map(|(left, right)| {
-                relations.feasible(&real, &[kink_pattern::TermRelation { left, right }])
-            });
-            Ok::<_, BackendError>((answers, queries))
-        })
-        .expect("relations");
-    assert_eq!(
-        answers,
-        [
-            kink_pattern::RelationDecision::Indeterminate,
-            kink_pattern::RelationDecision::Indeterminate,
-        ],
-        "never Unequal"
-    );
-    assert_eq!(
-        queries,
-        [kink_pattern::Feasibility::Unknown; 2],
-        "never Unsat"
-    );
+        }
+    }
+
+    /// VI-06 deliverable 6: since k-rust `4d80cea6`, `symwrap.k`'s `wrap` compiles as
+    /// `anywhere, function, value-production` (self-reference withholds `functional`), so its runs
+    /// stop before a relation is asked. `symwraptotal.k` keeps the non-injective head with a
+    /// functional claim (`[function, total]`; compiled `anywhere, function, functional, total`
+    /// with the functional axiom). Over it, `wrap(s(X))` against `wrap(z)` (equal at `X = z`) and
+    /// `wrap(s(z))` against `wrap(z)` (equal) are never Unequal and their equation is never Unsat,
+    /// in both profiles with the build's solver.
+    #[test]
+    #[ignore = "kink"]
+    fn audit_vi_symwrap_total_head_is_never_unequal() {
+        let validator = cache::validator("symwraptotal.k");
+        let side = validator.compile_baseline().expect("symwraptotal compiles");
+        let kore = &side.artifacts().definition_kore;
+        let declaration = kore
+            .lines()
+            .skip_while(|line| !line.contains("symbol Lblwrap{}"))
+            .take_while(|line| !line.trim_start().starts_with(']'))
+            .collect::<String>();
+        for attribute in [
+            "anywhere{}()",
+            "function{}()",
+            "functional{}()",
+            "total{}()",
+        ] {
+            assert!(
+                declaration.contains(attribute),
+                "{attribute}: {declaration}"
+            );
+        }
+        assert!(!declaration.contains("constructor{}()"), "{declaration}");
+        assert!(!declaration.contains("injective{}()"), "{declaration}");
+        let mut backend = backend(validator, None, "SYMWRAPTOTAL");
+        let nat = |name: &str| support::var(name, "SortNat");
+        let z = || op("z", vec![]);
+        let s = |value: Pattern| op("s", vec![value]);
+        let wrap = |value: Pattern| op("wrap", vec![value]);
+        let state = support::initial_state(
+            seq(
+                op("write", vec![wrap(s(nat("X"))), nat("V")]),
+                seq(op("load", vec![wrap(z()), nat("W")]), op("halt", vec![])),
+            ),
+            "SortProg",
+        );
+        let real = kink_pattern::PathInput {
+            test_id: "t".into(),
+            path_ordinal: 0,
+            path_key: None,
+            complete: false,
+            stop: kink_pattern::PathStop::Terminal,
+            execution_stop: kink_pattern::ExecutionStop::DepthLimit,
+            execution_terminal: None,
+            events: Vec::new(),
+            path_predicate: Pattern::Top {
+                sort: k_rust::kompile::initial_configuration::kore_sort("SortGeneratedTopCell"),
+            },
+            equivalences: Vec::new(),
+            inequalities: Vec::new(),
+        };
+        let (answers, queries) = backend
+            .with_solver(None, |definition, solver| {
+                let relations = kink_native::feasibility::BackendRelations::shared(
+                    definition,
+                    solver,
+                    TestInitialState::of_test(&state),
+                );
+                let pairs = [(wrap(s(nat("X"))), wrap(z())), (wrap(s(z())), wrap(z()))];
+                let answers = pairs
+                    .clone()
+                    .map(|(left, right)| relations.relate(&real, &[], &left, &right));
+                let queries = pairs.map(|(left, right)| {
+                    relations.feasible(&real, &[kink_pattern::TermRelation { left, right }])
+                });
+                Ok::<_, BackendError>((answers, queries))
+            })
+            .expect("relations");
+        assert_eq!(
+            answers,
+            [
+                kink_pattern::RelationDecision::Indeterminate,
+                kink_pattern::RelationDecision::Indeterminate,
+            ],
+            "never Unequal"
+        );
+        assert_eq!(
+            queries,
+            [kink_pattern::Feasibility::Unknown; 2],
+            "never Unsat"
+        );
+    }
 }

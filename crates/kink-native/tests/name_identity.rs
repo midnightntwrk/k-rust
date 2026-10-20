@@ -224,76 +224,8 @@ fn leaf_rows(
         .collect()
 }
 
-/// Before VI, ExVarI0 made Z3 leaf 0 (Stuck, Unsat, Some(Unsat)).
-/// Under VI both initial names have the neutral name's three undiscarded leaves;
-/// without Z3 each run has one (Indeterminate, Syntactic, None) leaf.
-#[test]
-fn initial_names_do_not_conflate_with_narrowing_mints() {
-    for name in ["A", "ExVarI0"] {
-        let initial = support::initial_state(
-            support::app(
-                "Lblseq",
-                vec![
-                    support::app("Lblcheck", vec![support::var(name, "SortInt")]),
-                    support::app(
-                        "Lblseq",
-                        vec![
-                            support::app("Lblmk", vec![]),
-                            support::app("Lbldone", vec![]),
-                        ],
-                    ),
-                ],
-            ),
-            "SortProg",
-        );
-        let expected = if cfg!(feature = "z3") {
-            vec![
-                (HaltClass::Stuck, LeafFeasibility::Unknown, None),
-                (HaltClass::Stuck, LeafFeasibility::Unknown, None),
-                (HaltClass::Stuck, LeafFeasibility::Solver, None),
-            ]
-        } else {
-            vec![(HaltClass::Indeterminate, LeafFeasibility::Syntactic, None)]
-        };
-        assert_eq!(
-            leaf_rows("conflate2.k", "CONFLATE2", &initial),
-            expected,
-            "{name}"
-        );
-    }
-}
-
-/// Before VI, nine burns made Z3 leaf 0 (Stuck, Unsat, Some(Unsat)).
-/// Under VI eight and nine burns both have three (Stuck, Unknown, None) leaves;
-/// without Z3 each has one (Indeterminate, Syntactic, None) leaf.
-#[test]
-fn fresh_counters_do_not_conflate_distinct_narrowing_mints() {
-    for burns in [8, 9] {
-        let mut program = support::app(
-            "Lblseq",
-            vec![
-                support::app("Lblnew2", vec![]),
-                support::app("Lbldone", vec![]),
-            ],
-        );
-        for _ in 0..burns {
-            program = support::app("Lblseq", vec![support::app("LblburnNew", vec![]), program]);
-        }
-        program = support::app("Lblseq", vec![support::app("Lblnew1", vec![]), program]);
-        let initial = support::initial_state(program, "SortProg");
-        assert!(initial.free_variables().is_empty(), "ground initial state");
-        let expected = if cfg!(feature = "z3") {
-            vec![(HaltClass::Stuck, LeafFeasibility::Unknown, None); 3]
-        } else {
-            vec![(HaltClass::Indeterminate, LeafFeasibility::Syntactic, None)]
-        };
-        assert_eq!(
-            leaf_rows("conflate3.k", "CONFLATE3", &initial),
-            expected,
-            "{burns} burns"
-        );
-    }
-}
+// Whether conflate2's initial `ExVarI0` stays apart from its narrowing mints is pinned by
+// `audit_vi::audit_vi_at2_at3_mint_spellings_equal_the_neutral_run_on_conflate2`.
 
 fn scope_backend(validator: &NativeValidator, patch: Option<&Patch>) -> Backend {
     let side = match patch {
@@ -356,52 +288,91 @@ fn scope_steps(backend: &mut Backend, initial: &Pattern) -> SteppedExecution {
         .expect("step states decode")
 }
 
-/// VI-AT1: ordinary identifiers preserve the baseline's leaf and state counts.
-/// Contract change (VI-03F): every KORE identifier is accepted verbatim, including
-/// EI-bB0-u2e-0-b1; a non-identifier is refused. The campaign-level scopeforge
-/// counterpart checks that forged names do not distinguish identical relations.
-/// Without Z3 baseline narrowing stops at the initial state.
-#[test]
-fn scope_name_forgery_does_not_prove_an_identical_relation() {
-    let validator = NativeValidator::bind(support::load("scopeforge.k"), CompileOptions::default());
-    let mut baseline = scope_backend(&validator, None);
-    let mut mutant = scope_backend(&validator, Some(&scope_mutant(&validator, false)));
-    let mut positive = scope_backend(&validator, Some(&scope_mutant(&validator, true)));
-    for name in ["X", "EI-bM0-b1"] {
-        let initial = support::initial_state(
-            support::app("Lblstart", vec![support::var(name, "SortAb")]),
-            "SortProg",
-        );
-        let bs = scope_steps(&mut baseline, &initial);
-        scope_steps(&mut mutant, &initial);
-        scope_steps(&mut positive, &initial);
-        // The portable control cannot compare a post-state the baseline never exposes.
-        assert_eq!(
-            bs.adapted.leaves().len(),
-            if cfg!(feature = "z3") { 2 } else { 1 },
-        );
-        if !cfg!(feature = "z3") {
-            assert_eq!(bs.adapted.leaves()[0].halt, HaltClass::Indeterminate);
-            assert_eq!(bs.states[0].len(), 1);
+mod kink_tier {
+    use super::*;
+
+    /// Before VI, nine burns made Z3 leaf 0 (Stuck, Unsat, Some(Unsat)).
+    /// Under VI eight and nine burns both have three (Stuck, Unknown, None) leaves;
+    /// without Z3 each has one (Indeterminate, Syntactic, None) leaf.
+    #[test]
+    #[ignore = "kink"]
+    fn fresh_counters_do_not_conflate_distinct_narrowing_mints() {
+        for burns in [8, 9] {
+            let mut program = support::app(
+                "Lblseq",
+                vec![
+                    support::app("Lblnew2", vec![]),
+                    support::app("Lbldone", vec![]),
+                ],
+            );
+            for _ in 0..burns {
+                program = support::app("Lblseq", vec![support::app("LblburnNew", vec![]), program]);
+            }
+            program = support::app("Lblseq", vec![support::app("Lblnew1", vec![]), program]);
+            let initial = support::initial_state(program, "SortProg");
+            assert!(initial.free_variables().is_empty(), "ground initial state");
+            let expected = if cfg!(feature = "z3") {
+                vec![(HaltClass::Stuck, LeafFeasibility::Unknown, None); 3]
+            } else {
+                vec![(HaltClass::Indeterminate, LeafFeasibility::Syntactic, None)]
+            };
+            assert_eq!(
+                leaf_rows("conflate3.k", "CONFLATE3", &initial),
+                expected,
+                "{burns} burns"
+            );
         }
     }
-    let initial = support::initial_state(
-        support::app("Lblstart", vec![support::var("EI-bB0-u2e-0-b1", "SortAb")]),
-        "SortProg",
-    );
-    scope_steps(&mut baseline, &initial);
-    scope_steps(&mut mutant, &initial);
-    let invalid = support::initial_state(
-        support::app("Lblstart", vec![support::var("EI!B0.0!1", "SortAb")]),
-        "SortProg",
-    );
-    let failure = ExecutionAdapter::with_profile(SolverProfile::BUILD)
-        .execute_steps(&mut baseline, &invalid, BUDGET)
-        .expect_err("non-identifier refused");
-    assert_eq!(
-        failure,
-        ExecutionAdapterFailure::InvalidState(
-            "VariableName { name: \"EI!B0.0!1\", set: false }".into(),
-        )
-    );
+
+    /// VI-AT1: ordinary identifiers preserve the baseline's leaf and state counts.
+    /// Contract change (VI-03F): every KORE identifier is accepted verbatim, including
+    /// EI-bB0-u2e-0-b1; a non-identifier is refused. The campaign-level scopeforge
+    /// counterpart checks that forged names do not distinguish identical relations.
+    /// Without Z3 baseline narrowing stops at the initial state.
+    #[test]
+    #[ignore = "kink"]
+    fn scope_name_forgery_does_not_prove_an_identical_relation() {
+        let validator =
+            NativeValidator::bind(support::load("scopeforge.k"), CompileOptions::default());
+        let mut baseline = scope_backend(&validator, None);
+        let mut mutant = scope_backend(&validator, Some(&scope_mutant(&validator, false)));
+        let mut positive = scope_backend(&validator, Some(&scope_mutant(&validator, true)));
+        for name in ["X", "EI-bM0-b1"] {
+            let initial = support::initial_state(
+                support::app("Lblstart", vec![support::var(name, "SortAb")]),
+                "SortProg",
+            );
+            let bs = scope_steps(&mut baseline, &initial);
+            scope_steps(&mut mutant, &initial);
+            scope_steps(&mut positive, &initial);
+            // The portable control cannot compare a post-state the baseline never exposes.
+            assert_eq!(
+                bs.adapted.leaves().len(),
+                if cfg!(feature = "z3") { 2 } else { 1 },
+            );
+            if !cfg!(feature = "z3") {
+                assert_eq!(bs.adapted.leaves()[0].halt, HaltClass::Indeterminate);
+                assert_eq!(bs.states[0].len(), 1);
+            }
+        }
+        let initial = support::initial_state(
+            support::app("Lblstart", vec![support::var("EI-bB0-u2e-0-b1", "SortAb")]),
+            "SortProg",
+        );
+        scope_steps(&mut baseline, &initial);
+        scope_steps(&mut mutant, &initial);
+        let invalid = support::initial_state(
+            support::app("Lblstart", vec![support::var("EI!B0.0!1", "SortAb")]),
+            "SortProg",
+        );
+        let failure = ExecutionAdapter::with_profile(SolverProfile::BUILD)
+            .execute_steps(&mut baseline, &invalid, BUDGET)
+            .expect_err("non-identifier refused");
+        assert_eq!(
+            failure,
+            ExecutionAdapterFailure::InvalidState(
+                "VariableName { name: \"EI!B0.0!1\", set: false }".into(),
+            )
+        );
+    }
 }
