@@ -3272,6 +3272,11 @@ symbol = "apply_equation"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "simplify_child"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
 symbol = "simplify_on_stack"
 
 [[node.cost]]
