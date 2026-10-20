@@ -17,7 +17,7 @@ from support.hashing import sha256_file  # noqa: E402
 from support.krs import Invocation, build  # noqa: E402
 from support.packages import check_packages  # noqa: E402
 from support.process import run  # noqa: E402
-from support.tools import checkout_scratch, rustfmt_environment, z3_environment  # noqa: E402
+from support.tools import rustfmt_environment, target_environment, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -102,11 +102,10 @@ def main() -> None:
         raise GateError("tour-imp capstone is not byte-identical to the IMP operational authority")
     print("PASS source: capstone and chapter slices match IMP exactly")
 
-    target = checkout_scratch() / "tour-imp-root-target"
-    env = {**cli_environment(), "CARGO_TARGET_DIR": os.fspath(target)}
+    env = {**cli_environment(), **target_environment()}
     binary = build(env)
     gate = krs_gate.build(environment=env)
-    check_packages("tour-imp", krs=binary, env=env, target_dir=target)
+    check_packages("tour-imp", krs=binary, env=env)
 
     # The chapter slices lie outside every target's source directory, so they are named explicitly.
     run(

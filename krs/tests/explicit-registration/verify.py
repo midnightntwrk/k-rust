@@ -31,7 +31,7 @@ from support import ROOT, GateError, entry, krs_gate  # noqa: E402
 from support.hashing import sha256_bytes  # noqa: E402
 from support.krs import Invocation, build  # noqa: E402
 from support.process import compact, run  # noqa: E402
-from support.tools import executable, z3_environment  # noqa: E402
+from support.tools import executable, target_environment, z3_environment  # noqa: E402
 
 
 FIXTURE = ROOT / "tests" / "tour-minimal"
@@ -65,7 +65,11 @@ fn main() {
 
 
 def cli_environment() -> dict[str, str]:
-    return {**z3_environment(), "CARGO_TERM_COLOR": "never", "CARGO_NET_OFFLINE": "true"}
+    """The shared gate target for every build, the copies' collectors and census included."""
+
+    return {
+        **z3_environment(), **target_environment(), "CARGO_TERM_COLOR": "never", "CARGO_NET_OFFLINE": "true",
+    }
 
 
 def production_binary(override: Path | None, environment: dict[str, str]) -> Path:
