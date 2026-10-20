@@ -192,23 +192,6 @@ fn an_isolated_cell_fixes_exactly_its_ancestors_holes() {
         }
     }
 
-    // An explicit assignment that omits H and I keeps their anchors, which in c7's isolation
-    // fail its guard (the review's S1 failure: they used to be c7's answer).
-    let partial = Configuration {
-        name: "partial",
-        proposers: k_rust_fuzz::ProposerConfig {
-            anchors_first: false,
-            explicit: vec![std::collections::BTreeMap::from([(
-                "E".to_owned(),
-                k_rust_fuzz::Value::Int(31337.into()),
-            )])],
-            weights: std::collections::BTreeMap::new(),
-        },
-        target_blind: true,
-    };
-    let (run, _) = maze::run_isolated(c7, &partial, 0, 1);
-    assert_eq!(run.cases_to_hit, None);
-
     // In c7's isolation the blind proposer draws only H and I, so every case walks through c6
     // to room r6, where the nonlinear guard stops it.
     let blind = maze::isolated_spec(c7, &maze::blind(), 1);
@@ -233,6 +216,27 @@ fn an_isolated_cell_fixes_exactly_its_ancestors_holes() {
         covered,
         BTreeSet::from(["c1", "c2", "c3", "c4", "c5", "c6"])
     );
+}
+
+#[test]
+fn an_explicit_assignment_in_isolation_does_not_inherit_the_answer() {
+    let c7 = maze::cell_named("c7");
+    // An explicit assignment that omits H and I keeps their anchors, which in c7's isolation
+    // fail its guard (the review's S1 failure: they used to be c7's answer).
+    let partial = Configuration {
+        name: "partial",
+        proposers: k_rust_fuzz::ProposerConfig {
+            anchors_first: false,
+            explicit: vec![std::collections::BTreeMap::from([(
+                "E".to_owned(),
+                k_rust_fuzz::Value::Int(31337.into()),
+            )])],
+            weights: std::collections::BTreeMap::new(),
+        },
+        target_blind: true,
+    };
+    let (run, _) = maze::run_isolated(c7, &partial, 0, 1);
+    assert_eq!(run.cases_to_hit, None);
 }
 
 #[test]
