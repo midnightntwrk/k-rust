@@ -1050,7 +1050,7 @@ endmodule
     let definition = resolve_rule_bubbles(&lowered(&source("a => a ~> a"))).unwrap();
     assert_eq!(
         only_rule_body(&definition),
-        "a(.KList)=>a(.KList)~>a(.KList)"
+        "a(.KList)=>``a(.KList)~>a(.KList)``"
     );
     let rule = "a => a ~> a => a";
     let error =
@@ -1088,7 +1088,7 @@ endmodule
     };
     for (rule, expected) in [
         ("h(bar => bar)", "h(bar(.KList)=>bar(.KList))"),
-        ("g(a => a ~> a)", "g(a(.KList)=>a(.KList)~>a(.KList))"),
+        ("g(a => a ~> a)", "g(a(.KList)=>``a(.KList)~>a(.KList)``)"),
         (
             "f(a => a ~> a)",
             "f(a(.KList)=>seqish(a(.KList),a(.KList)))",
@@ -6636,7 +6636,7 @@ fn two_applications_source(k_attribute: &str, int_attribute: &str) -> String {
 }
 
 const APPLICATION_K_READING: &str =
-    "aK(#SemanticCastToK(X),#SemanticCastToInt(Y))=>#SemanticCastToK(X)~>#SemanticCastToInt(Y)";
+    "aK(#SemanticCastToK(X),#SemanticCastToInt(Y))=>``#SemanticCastToK(X)~>#SemanticCastToInt(Y)``";
 
 #[test]
 fn maximal_trees_avoided_at_every_divergence_point_stay_ambiguous() {
