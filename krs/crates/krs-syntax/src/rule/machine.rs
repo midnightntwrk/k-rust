@@ -18,7 +18,7 @@ use super::pattern::{
     NegativeLiteralSpans, RulePattern, parse_pattern_with_signs, parse_rule_pattern,
 };
 use crate::parse::{ParseError, validate_authored_binder};
-use crate::path::is_plain_path;
+use crate::path::{is_plain_path, parametric_collection_error};
 use crate::{
     InstanceField, InstanceItem, InstanceList, InstanceListDelimiter, InstanceRest,
     StateMacroContext, StateMacroRemainder, StateTerm, TermExpression, TermTree, TokenRange,
@@ -695,6 +695,9 @@ pub(super) fn parse_machine_clause(
             let binding = input.call(Ident::parse_any)?;
             input.parse::<Token![:]>()?;
             let sort: Path = input.parse()?;
+            if let Some(error) = parametric_collection_error(&sort, true) {
+                return Err(error.into());
+            }
             if !is_plain_path(&sort) {
                 return Err(syn::Error::new(
                     sort.span(),

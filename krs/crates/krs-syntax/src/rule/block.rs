@@ -19,7 +19,7 @@ use crate::parse::{
     KrsSyntax, ParseError, checked_ordinal, structured,
     unsupported_rule_signature as unsupported_signature,
 };
-use crate::path::is_plain_path;
+use crate::path::{is_plain_path, parametric_collection_error};
 use crate::term_sort::{TermSort, parse_readable_sort};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, TermExpression, TokenRange};
 
@@ -1176,6 +1176,9 @@ impl RuleBlock {
                             let binding = first;
                             input.parse::<Token![:]>()?;
                             let sort: Path = input.parse()?;
+                            if let Some(error) = parametric_collection_error(&sort, true) {
+                                return Err(error.into());
+                            }
                             if !is_plain_path(&sort) {
                                 return Err(syn::Error::new(
                                     sort.span(),
