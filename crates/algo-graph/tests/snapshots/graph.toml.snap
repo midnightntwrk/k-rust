@@ -2765,6 +2765,11 @@ symbol = "fetch_k_cell"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/rule.rs"
+symbol = "k_cell_is_exact"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rule.rs"
 symbol = "first_with_k_cell"
 
 [[node.sites]]
@@ -2782,7 +2787,7 @@ bound = "O(k log k) index lookups plus O(r) covers checks plus O(c) candidate cl
 
 [[node.cost]]
 mode = "subject_index"
-bound = "O(1) unless the subject's stored k_cells count is 1, then O(d x a) to fetch the cell"
+bound = "O(1) unless the subject's stored k_cells count is 1, then O(d x a) to check (k_cell_is_exact) and fetch the cell, plus the items of each collection on the path when the subject is not constructor_like"
 
 [[node]]
 kind = "algorithm"

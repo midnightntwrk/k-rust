@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "backend.rule.select"
 //! name = "single-symbol rule selection"
-//! sites = ["applicable_groups", "applicable_rewrite_groups", "term_index", "rule_index", "subject_index", "fetch_k_cell", "first_with_k_cell", "find_k_cells"]
+//! sites = ["applicable_groups", "applicable_rewrite_groups", "term_index", "rule_index", "subject_index", "fetch_k_cell", "k_cell_is_exact", "first_with_k_cell", "find_k_cells"]
 //! variable = "k = index keys; c = candidate rules returned for one step; r = rules stored under the subject's key and the Variable key for rigid subjects, or all rules for a non-rigid subject; d = depth of the subject's one <k> cell; a = children of a node on the path to it"
 //! counters = []
 //! span = "per call"
@@ -18,7 +18,7 @@
 //!
 //! [[cost]]
 //! mode = "subject_index"
-//! bound = "O(1) unless the subject's stored k_cells count is 1, then O(d x a) to fetch the cell"
+//! bound = "O(1) unless the subject's stored k_cells count is 1, then O(d x a) to check (k_cell_is_exact) and fetch the cell, plus the items of each collection on the path when the subject is not constructor_like"
 //! ```
 //!
 //! Axiom-shape classification and rule indexes. Every theory uses the top-symbol `TermIndex`;
@@ -29,7 +29,8 @@
 //! Candidate count is the exact-symbol then variable-symbol sequence for a subject whose root is
 //! fixed, or every term-index bucket for any other subject (`SubjectKey::buckets`), filtered by
 //! `rule.index.covers(subject)`. Selection costs O(log k) index lookups plus one `covers` check
-//! per rule in the selected buckets; `Counter::RewriteRuleAttempts` is bumped by the caller per
+//! per rule in the selected buckets (a `Sorted` key's check is one bit test, against the sort
+//! number the subject key holds); `Counter::RewriteRuleAttempts` is bumped by the caller per
 //! candidate tried.
 //!
 //! The index uses `Anything` for absent or malformed `<k>` cells, variables, functions, macro
@@ -39,11 +40,21 @@
 //! `Anything`; on the subject side an overloaded `anywhere` head is fixed only with evidence
 //! that it is a normal form on every instance (the simplifier's certificate or
 //! `BackendDefinition::instance_normal`), since an equation may give an instance of any other
-//! application another head. A rule's non-overloaded `anywhere` head is `Anywhere`. It strips
-//! injections and meets conjunctions (`CellIndex::meet`); `None`, two distinct rigid
-//! conjuncts, covers only `Anything`. These
+//! application another head. A rule's non-overloaded `anywhere` head is `Anywhere`. A rule's
+//! item `inj{S, _}(X:S)` is `Sorted`, which covers the subject items whose rigid sort (the sort of
+//! a free constructor in no overload relation or of a domain value, under at most one injection)
+//! is below `S`, and every item without one. Other injections are stripped, and conjunctions are
+//! met (`CellIndex::meet`); `None`, two distinct rigid conjuncts, covers only `Anything`. These
 //! conservative cases correspond to the matcher's overload, AC, variable, injection, and
 //! symbolic-function paths; a later matcher extension must keep this list sound.
+//!
+//! A rule whose left-hand side holds two `<k>` cells that every match sends to two distinct
+//! `<k>` cells of the subject (`rigid_k_cells`), both along one path, is not offered to a subject
+//! whose one exact cell lies alone on that path (`RuleIndex::refuted_by_k_cells`).
+//!
+//! A subject's `<k>` cell is keyed only when every instance of the subject has it as its one
+//! `<k>` cell (`k_cell_is_exact`): not through a collection with a rest or with an item that is
+//! not `constructor_like`, whose instances may hold further cells, nor through a function.
 //!
 //! A subject's keys hold for the term they were computed from, and only for it: the matcher
 //! refutes a dropped candidate against that term. An `anywhere` head keyed `Overloaded`, a
@@ -71,6 +82,7 @@ use crate::{
     definition::{
         BackendDefinition, DefinitionError, UnlicensedInjectionSite, UnstatedDefinedness,
     },
+    matching::{SortId, SortSet},
     substitution::{Substitution, substitute},
     term::{
         AlgebraicAxioms, HeadRole, MapDefinition, Name, SetDefinition, Sort, Term, TermKind,
@@ -559,11 +571,49 @@ pub enum CellIndex {
     Map,
     List,
     Set,
+    /// A rule's item `inj{S, _}(X:S)`: an injection of a variable of its source sort `S`, a closed
+    /// sort with a known head. Only a rule's key uses it. It reads the subject's rigid sort
+    /// ([`SubjectKey`]): the sort `T` of a subject item that is a free-constructor application in
+    /// no overload relation or a domain value, or the source of an injection of one. Such an item
+    /// is the injection of an `S` value only when `T` is below `S`; otherwise the rewrite matcher
+    /// refutes the pair by sorts (`matching::Matcher::match_differing_injections`, or the root
+    /// policy for an item without an injection).
+    Sorted(SortedKey),
+}
+
+/// The sorts of a [`CellIndex::Sorted`] key, and the numbered sorts below every one of them: the
+/// rigid sorts of the subject items the key covers. A conjunction of two such items keys the
+/// sorts below both.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct SortedKey {
+    sorts: Vec<Sort>,
+    below: SortSet,
+}
+
+impl SortedKey {
+    /// The sorts the key's items inject from.
+    pub fn sorts(&self) -> &[Sort] {
+        &self.sorts
+    }
+
+    fn meet(&self, other: &Self) -> Self {
+        let mut sorts = self.sorts.clone();
+        sorts.extend(other.sorts.iter().cloned());
+        sorts.sort();
+        sorts.dedup();
+        Self {
+            sorts,
+            below: self.below.intersection(&other.below),
+        }
+    }
 }
 
 impl CellIndex {
+    /// Whether a rule with this key may match a subject item with the key `subject`, whose rigid
+    /// sort is not known. A `Sorted` key reads only that sort ([`Self::covers_item`]), so it
+    /// covers every key.
     pub fn covers(&self, subject: &Self) -> bool {
-        matches!(self, Self::Anything)
+        matches!(self, Self::Anything | Self::Sorted(_))
             || matches!(subject, Self::Anything)
             || (self == subject && !matches!(self, Self::None))
             || matches!(
@@ -577,11 +627,25 @@ impl CellIndex {
     /// cover every term that both conjuncts' keys cover. A function conjunct is `Anything` and
     /// leaves the other key; two distinct `Overloaded`/`Anywhere` keys both cover `Overloaded`;
     /// any other two distinct keys share only `Anything`, which `None` covers.
+    /// Whether a rule with this key may match a subject item with the key `subject` and the rigid
+    /// sort `sort` (`None` when the item has none): a `Sorted` key covers the numbered sorts below
+    /// its sorts, and an item without a rigid sort.
+    pub(crate) fn covers_item(&self, subject: &Self, sort: Option<SortId>) -> bool {
+        match self {
+            Self::Sorted(key) => sort.is_none_or(|sort| key.below.contains(sort)),
+            _ => self.covers(subject),
+        }
+    }
+
     pub fn meet(self, other: Self) -> Self {
         match (self, other) {
             (Self::None, _) | (_, Self::None) => Self::None,
             (Self::Anything, other) | (other, Self::Anything) => other,
             (left, right) if left == right => left,
+            (Self::Sorted(left), Self::Sorted(right)) => Self::Sorted(left.meet(&right)),
+            // A `Sorted` conjunct refutes only by sort; the other key refutes wherever its conjunct
+            // does, and the conjunction with it.
+            (Self::Sorted(_), other) | (other, Self::Sorted(_)) => other,
             (Self::Overloaded | Self::Anywhere(_), Self::Overloaded | Self::Anywhere(_)) => {
                 Self::Overloaded
             }
@@ -590,24 +654,76 @@ impl CellIndex {
     }
 }
 
+/// One step of the path from a term's root to a `<k>` cell: an argument of an application of a
+/// symbol, the operand of an injection, the key or the value of a map entry, an item of a list,
+/// an element of a set. A match pairs a pattern's position with a subject's position along the
+/// same steps (`RuleIndex::covers`).
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct RuleIndex(Vec<CellIndex>);
+pub enum KStep {
+    Argument(Name, usize),
+    Injection,
+    MapKey,
+    MapValue,
+    ListItem,
+    SetElement,
+    /// Before the step into a subject's collection item: the collection holds other items. A
+    /// rule's path never holds it, so such a subject is never refuted by its `<k>` cells: a
+    /// pattern's two items may be paired with two of the subject's, and the matcher then need
+    /// not refute the pair by itself.
+    AmongOthers,
+}
+
+/// A path of [`KStep`]s from a term's root to a `<k>` cell.
+pub type KPath = Arc<[KStep]>;
+
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct RuleIndex {
+    cells: Vec<CellIndex>,
+    /// The path of a rule's two `<k>` cells, when its left-hand side holds two that every match
+    /// sends to two distinct `<k>` cells of the subject (`rigid_k_cells`) and both lie along this
+    /// one path of steps (`rigid_k_cell_paths`); always `None` in a subject's key.
+    two_k_cells_at: Option<KPath>,
+}
 
 impl RuleIndex {
     /// Whether a rule with these keys may match the subject `subject` was computed from: every
     /// cell key covers the subject's.
     pub fn covers(&self, subject: &SubjectKey) -> bool {
-        let subject = subject.cells();
-        self.0.len() == subject.len()
+        let cells = subject.cells();
+        !self.refuted_by_k_cells(subject)
+            && self.cells.len() == cells.len()
             && self
-                .0
+                .cells
                 .iter()
-                .zip(subject)
-                .all(|(rule, subject)| rule.covers(subject))
+                .zip(cells)
+                .zip(subject.sorts)
+                .all(|((rule, cell), sort)| rule.covers_item(cell, sort))
     }
 
     pub fn cells(&self) -> &[CellIndex] {
-        &self.0
+        &self.cells
+    }
+
+    /// The path of both of the rule's two `<k>` cells, when they lie along one path.
+    pub fn two_k_cells_at(&self) -> Option<&[KStep]> {
+        self.two_k_cells_at.as_deref()
+    }
+
+    /// Whether the subject has fewer `<k>` cells than every match of the rule needs.
+    ///
+    /// The rule sends its two cells to two distinct `<k>` cells of the subject, both at the
+    /// subject positions its one path of steps reaches. A subject whose one cell lies on that
+    /// same path, exact (`k_cell_is_exact`: the applications on it are free constructors and its
+    /// collections have no rest), with no other item in any collection on it (no `AmongOthers`
+    /// step), has at that path one position in every instance, which holds its one cell. Both of
+    /// the rule's cells would be matched against that one position, so no match exists; and the
+    /// matcher refutes the pair, at the first collection where the pattern has two items against
+    /// the subject's one. What the subject holds off that path is not read.
+    fn refuted_by_k_cells(&self, subject: &SubjectKey) -> bool {
+        matches!(
+            (&self.two_k_cells_at, &subject.k_path),
+            (Some(rule), Some(subject)) if rule == subject
+        )
     }
 }
 
@@ -619,6 +735,12 @@ impl RuleIndex {
 pub struct SubjectKey {
     top: TopKey,
     cells: RuleIndex,
+    /// The rigid sort of each cell item, read by `Sorted` keys (`subject_sort`).
+    sorts: [Option<SortId>; 2],
+    /// The path of the subject's one `<k>` cell when it is exact (`k_cell_is_exact`), recorded only
+    /// when some rule of the definition has a path for its two cells
+    /// (`BackendDefinition::keys_k_paths`).
+    k_path: Option<KPath>,
 }
 
 /// The subject's term index, and whether its root is the root of every value the subject
@@ -638,6 +760,15 @@ impl SubjectKey {
     /// The cell keys: the head of the subject's one `<k>` cell and the item after it.
     pub fn cells(&self) -> &[CellIndex] {
         self.cells.cells()
+    }
+
+    /// This key with no rigid sort for either cell item: the key `Sorted` keys cover entirely.
+    #[cfg(test)]
+    pub(crate) fn without_sorts(&self) -> Self {
+        Self {
+            sorts: [None, None],
+            ..self.clone()
+        }
     }
 
     /// The term-index buckets this key offers, in trial order: the own bucket, then `Variable`,
@@ -2279,7 +2410,128 @@ pub fn insert_rewrite_theory(theory: &mut RewriteTheory, rule: RewriteRule, inde
 }
 
 pub fn rule_index(definition: &BackendDefinition, term: &Term) -> RuleIndex {
-    index_of(definition, term, KeySide::Rule)
+    let mut index = index_of(definition, term, KeySide::Rule).cells;
+    if term.attributes().k_cells() == 2 && rigid_k_cells(definition, term) == 2 {
+        let mut paths = Vec::new();
+        rigid_k_cell_paths(definition, term, &mut Vec::new(), &mut paths);
+        if let [first, second] = paths.as_slice()
+            && first == second
+        {
+            index.two_k_cells_at = Some(first.as_slice().into());
+        }
+    }
+    index
+}
+
+/// The paths of the `<k>` cells `rigid_k_cells` counts, outside any conjunction: through free
+/// constructors in no overload relation, injections, map entries and list items.
+fn rigid_k_cell_paths(
+    definition: &BackendDefinition,
+    term: &Term,
+    path: &mut Vec<KStep>,
+    paths: &mut Vec<Vec<KStep>>,
+) {
+    if term.attributes().k_cells() == 0 || paths.len() > 2 {
+        return;
+    }
+    let below = |step: KStep, term: &Term, path: &mut Vec<KStep>, paths: &mut Vec<_>| {
+        path.push(step);
+        rigid_k_cell_paths(definition, term, path, paths);
+        path.pop();
+    };
+    match term.kind() {
+        TermKind::Application {
+            symbol, arguments, ..
+        } => {
+            if symbol.is(WellKnownSymbol::KCell) {
+                paths.push(path.clone());
+            } else if symbol.attributes.head_role() == HeadRole::FreeConstructor
+                && !definition.overloads().is_overloaded(&symbol.name)
+            {
+                for (position, argument) in arguments.iter().enumerate() {
+                    below(
+                        KStep::Argument(symbol.name.clone(), position),
+                        argument,
+                        path,
+                        paths,
+                    );
+                }
+            }
+        }
+        TermKind::Injection { term, .. } => below(KStep::Injection, term, path, paths),
+        TermKind::Map { entries, .. } => {
+            for (key, value) in entries.iter() {
+                below(KStep::MapKey, key, path, paths);
+                below(KStep::MapValue, value, path, paths);
+            }
+        }
+        TermKind::List { heads, rest, .. } => {
+            for item in heads
+                .iter()
+                .chain(rest.iter().flat_map(|(_, tails)| tails.iter()))
+            {
+                below(KStep::ListItem, item, path, paths);
+            }
+        }
+        TermKind::And(..)
+        | TermKind::Set { .. }
+        | TermKind::DomainValue { .. }
+        | TermKind::Variable(_) => {}
+    }
+}
+
+/// The `<k>` cells of a rule's left-hand side, not nested in a `<k>` cell, that every match of it
+/// sends to distinct `<k>` cells of the subject, saturated at 2.
+///
+/// A match pairs a free constructor in no overload relation with an application of the same
+/// symbol, argument by argument, an injection with an injection, operand to operand, the entries
+/// of a map with distinct entries of the subject's map (a defined map binds each key once, so two
+/// pattern entries never meet one subject entry), and the items of a list with items at distinct
+/// positions. So two cells reached from the root through such positions only, at different
+/// arguments, entries, entry parts or items, meet two distinct subterms of the subject, at
+/// positions under no `<k>` cell (their ancestors are the pattern's, which are not `<k>`); and a
+/// `<k>` constructor meets, in a `constructor_like` subject, only a `<k>` cell. Any other root
+/// above a cell (a variable, a function, an equation head, an overloaded production, a macro or
+/// alias, a set, whose matching may leave elements undecided) is not followed. Both conjuncts of
+/// a conjunction are matched against the same subject, so it counts the larger of their counts,
+/// not their sum.
+fn rigid_k_cells(definition: &BackendDefinition, term: &Term) -> u8 {
+    fn sum(counts: impl Iterator<Item = u8>) -> u8 {
+        counts.fold(0, |total, count| (total + count).min(2))
+    }
+    if term.attributes().k_cells() == 0 {
+        return 0;
+    }
+    match term.kind() {
+        TermKind::Application {
+            symbol, arguments, ..
+        } => {
+            if symbol.is(WellKnownSymbol::KCell) {
+                1
+            } else if symbol.attributes.head_role() == HeadRole::FreeConstructor
+                && !definition.overloads().is_overloaded(&symbol.name)
+            {
+                sum(arguments
+                    .iter()
+                    .map(|argument| rigid_k_cells(definition, argument)))
+            } else {
+                0
+            }
+        }
+        TermKind::Injection { term, .. } => rigid_k_cells(definition, term),
+        TermKind::And(left, right) => {
+            rigid_k_cells(definition, left).max(rigid_k_cells(definition, right))
+        }
+        TermKind::Map { entries, .. } => sum(entries
+            .iter()
+            .flat_map(|(key, value)| [key, value])
+            .map(|part| rigid_k_cells(definition, part))),
+        TermKind::List { heads, rest, .. } => sum(heads
+            .iter()
+            .chain(rest.iter().flat_map(|(_, tails)| tails.iter()))
+            .map(|item| rigid_k_cells(definition, item))),
+        TermKind::Set { .. } | TermKind::DomainValue { .. } | TermKind::Variable(_) => 0,
+    }
 }
 
 /// The side of the matcher a key is computed for: a rule's left-hand side, matched as written,
@@ -2290,13 +2542,37 @@ enum KeySide {
     Subject,
 }
 
-fn index_of(definition: &BackendDefinition, term: &Term, side: KeySide) -> RuleIndex {
+/// The cell keys of a term read on one side, with, on the subject side, the rigid sort of each
+/// cell item (`subject_sort`) and the path of its one `<k>` cell.
+struct CellKeys {
+    cells: RuleIndex,
+    sorts: [Option<SortId>; 2],
+    k_path: Option<KPath>,
+}
+
+/// The cell keys of `term` read on `side` ([`CellKeys`]; the sorts and the path are `None` on the
+/// rule side, which does not read them).
+fn index_of(definition: &BackendDefinition, term: &Term, side: KeySide) -> CellKeys {
     // The index keys on the one `<k>` cell not nested in a `<k>` cell, and on nothing when there
     // are none or several. The stored count, saturated at 2, says which case holds, and the cell
     // is fetched only when it is 1: the same cell as the first that `find_k_cells` collects
     // (`rule_index_same` of lean/KRust/TermAttributes.lean).
+    // A subject's cell is keyed only when every instance of the subject has it as its one `<k>`
+    // cell (`k_cell_is_exact`): a rule's cell may otherwise match another cell of an instance.
+    // Its path is recorded when some rule's two cells have one (`RuleIndex::refuted_by_k_cells`).
+    let mut k_path = None;
     let cell = match term.attributes().k_cells() {
-        1 => fetch_k_cell(term),
+        1 if side == KeySide::Rule => fetch_k_cell(term),
+        1 if definition.keys_k_paths() => {
+            let mut path = Vec::new();
+            if k_cell_is_exact(term, Some(&mut path)) {
+                k_path = Some(path.into());
+                fetch_k_cell(term)
+            } else {
+                None
+            }
+        }
+        1 if k_cell_is_exact(term, None) => fetch_k_cell(term),
         _ => None,
     };
     // The second key is the item after the head, when the cell is `kseq(head, kseq(next, _))`:
@@ -2305,19 +2581,66 @@ fn index_of(definition: &BackendDefinition, term: &Term, side: KeySide) -> RuleI
     // constructor, a domain value, a collection), which the matcher refutes; a function
     // application or an `anywhere` head on either side is a wildcard.
     // Any other tail (`.K`, a variable, a function) keys nothing.
-    let head = cell
-        .and_then(k_cell_head)
-        .map_or(CellIndex::Anything, |head| {
-            cell_index(definition, head, side)
-        });
-    let next = match cell
-        .and_then(k_cell_next)
-        .map(|next| cell_index(definition, next, side))
-    {
+    let head_item = cell.and_then(k_cell_head);
+    let next_item = cell.and_then(k_cell_next);
+    let head = head_item.map_or(CellIndex::Anything, |head| {
+        cell_index(definition, head, side)
+    });
+    let next = match next_item.map(|next| cell_index(definition, next, side)) {
         None | Some(CellIndex::Anywhere(_)) => CellIndex::Anything,
         Some(next) => next,
     };
-    RuleIndex(vec![head, next])
+    let sorts = match side {
+        KeySide::Rule => [None, None],
+        KeySide::Subject => [
+            head_item.and_then(|item| subject_sort(definition, item, &head)),
+            next_item.and_then(|item| subject_sort(definition, item, &next)),
+        ],
+    };
+    CellKeys {
+        cells: RuleIndex {
+            cells: vec![head, next],
+            two_k_cells_at: None,
+        },
+        sorts,
+        k_path,
+    }
+}
+
+/// The rigid sort of a subject item whose key is `key`: the sort `T` of an item that is a
+/// free-constructor application in no overload relation or a domain value (keyed `Constructor` or
+/// `Value`), or the source `T` of an injection of one, when the order numbers `T`.
+///
+/// Every instance of such an item is that application or value, or its injection from `T`: its
+/// root is free, so no equation gives an instance another root. A free-constructor value of sort
+/// `T`, or a domain value, is no injection, and two injections into one sort have a common value
+/// only from a common subsort; so the item is the injection `inj{S, _}(v)` of a value `v` of sort
+/// `S` only when `T` is below `S` (`CellIndex::Sorted`). Any other item (a variable, a function, an
+/// equation head, an overloaded head, a macro or alias, an uninterpreted symbol, a collection, a
+/// conjunction) may denote an injection from some subsort, and has no rigid sort.
+fn subject_sort(definition: &BackendDefinition, item: &Term, key: &CellIndex) -> Option<SortId> {
+    if !matches!(key, CellIndex::Constructor(_) | CellIndex::Value(_)) {
+        return None;
+    }
+    let sorts = definition.sort_graph();
+    match item.kind() {
+        TermKind::Injection { source, term, .. }
+            if matches!(
+                term.kind(),
+                TermKind::Application { .. } | TermKind::DomainValue { .. }
+            ) =>
+        {
+            sorts.sort_id(source)
+        }
+        TermKind::DomainValue { sort, .. } => sorts.sort_id(sort),
+        TermKind::Application { .. } => sorts.sort_id(&item.sort()),
+        TermKind::Injection { .. }
+        | TermKind::And(..)
+        | TermKind::Map { .. }
+        | TermKind::List { .. }
+        | TermKind::Set { .. }
+        | TermKind::Variable(_) => None,
+    }
 }
 
 /// The keys of a subject. The top key is fixed exactly when `classify_value`, with the
@@ -2334,9 +2657,16 @@ pub fn subject_index(definition: &BackendDefinition, term: &Term) -> SubjectKey 
         Head::Fixed(_) | Head::Residual => TopKey::Fixed(index),
         Head::Open(_) => TopKey::Open(index),
     };
+    let CellKeys {
+        cells,
+        sorts,
+        k_path,
+    } = index_of(definition, term, KeySide::Subject);
     SubjectKey {
         top,
-        cells: index_of(definition, term, KeySide::Subject),
+        cells,
+        sorts,
+        k_path,
     }
 }
 
@@ -2377,6 +2707,130 @@ pub(crate) fn fetch_k_cell(term: &Term) -> Option<&Term> {
             first_with_k_cell(elements.first_with_k_cells().into_iter().chain(rest.iter()))
         }
         TermKind::DomainValue { .. } | TermKind::Variable(_) => None,
+    }
+}
+
+/// Whether the one `<k>` cell of `term` (whose stored `k_cells` count is 1) is, in every instance
+/// of `term`, the only `<k>` cell a rule's `<k>` cell can be matched against.
+///
+/// A rule's left-hand side and the subject hold their `<k>` cells at the cell path the
+/// configuration declares. Along that path the matcher pairs a free constructor's arguments with
+/// the subject's arguments of the same symbol, position for position, and an injection's operand
+/// with the operand; so through those the rule's cell meets exactly the subject's term at the
+/// same position. A collection on the path pairs each pattern item with some subject item, or
+/// with the part of the subject its rest or a symbolic item denotes: an instance of a rest
+/// variable, or of a variable or function in another item, may hold further items with their own
+/// `<k>` cells, which the stored count, a count of the cells written in the term, does not see.
+/// The rule's cell may then be matched against one of those, whatever the visible cell's head.
+/// So the cell is exact only when every collection on the path has no rest and every item of it
+/// besides the one leading to the cell is `constructor_like` (it denotes itself, a term without
+/// a variable or a non-free root, and the count already says it holds no `<k>` cell), and every
+/// application on the path is a free constructor (a function or an equation head may denote a
+/// value whose subterms are not its arguments). A `constructor_like` term satisfies all of this
+/// below it, which decides a ground configuration at once. A conjunction is matched conjunct by
+/// conjunct against the same subject, and is not keyed.
+///
+/// With `path`, the steps from `term` to the cell are appended to it (`KStep`), so that the
+/// walk continues below a `constructor_like` term to the cell.
+fn k_cell_is_exact(term: &Term, mut path: Option<&mut Vec<KStep>>) -> bool {
+    let rigid = term.attributes().constructor_like;
+    if rigid && path.is_none() {
+        return true;
+    }
+    fn holds(term: &Term) -> bool {
+        term.attributes().k_cells() > 0
+    }
+    // The item that leads to the cell, exact, after checking that every other item is rigid
+    // (unless the collection is), with the step to it.
+    fn through<'t>(
+        rigid: bool,
+        items: impl Iterator<Item = (KStep, &'t Term)>,
+        mut path: Option<&mut Vec<KStep>>,
+    ) -> bool {
+        let mut holder = None;
+        let mut others = false;
+        for (step, item) in items {
+            if holds(item) && holder.is_none() {
+                holder = Some((step, item));
+            } else if !rigid && !item.attributes().constructor_like {
+                return false;
+            } else {
+                others = true;
+            }
+        }
+        let Some((step, item)) = holder else {
+            return false;
+        };
+        if let Some(path) = path.as_deref_mut() {
+            if others {
+                path.push(KStep::AmongOthers);
+            }
+            path.push(step);
+        }
+        k_cell_is_exact(item, path)
+    }
+    match term.kind() {
+        TermKind::Application {
+            symbol, arguments, ..
+        } => {
+            if symbol.is(WellKnownSymbol::KCell) {
+                return true;
+            }
+            let Some(position) = arguments.iter().position(holds) else {
+                return false;
+            };
+            if !rigid && symbol.attributes.head_role() != HeadRole::FreeConstructor {
+                return false;
+            }
+            if let Some(path) = path.as_deref_mut() {
+                path.push(KStep::Argument(symbol.name.clone(), position));
+            }
+            k_cell_is_exact(&arguments[position], path)
+        }
+        TermKind::Injection { term, .. } => {
+            if let Some(path) = path.as_deref_mut() {
+                path.push(KStep::Injection);
+            }
+            k_cell_is_exact(term, path)
+        }
+        // The other part of the entry that leads to the cell (its key, when the cell is in its
+        // value) is not read: a pattern entry meets the cell only through this entry.
+        TermKind::Map { entries, rest, .. } => {
+            (rigid || rest.is_none())
+                && through(
+                    rigid,
+                    entries.iter().flat_map(|(key, value)| {
+                        // A part of the entry that leads to the cell stands for the entry; an
+                        // entry without one is checked part by part.
+                        let (first, second) = if holds(key) {
+                            ((KStep::MapKey, key), None)
+                        } else if holds(value) {
+                            ((KStep::MapValue, value), None)
+                        } else {
+                            ((KStep::MapKey, key), Some((KStep::MapValue, value)))
+                        };
+                        std::iter::once(first).chain(second)
+                    }),
+                    path,
+                )
+        }
+        TermKind::List { heads, rest, .. } => {
+            (rigid || rest.is_none())
+                && through(
+                    rigid,
+                    heads.iter().map(|item| (KStep::ListItem, item)),
+                    path,
+                )
+        }
+        TermKind::Set { elements, rest, .. } => {
+            (rigid || rest.is_none())
+                && through(
+                    rigid,
+                    elements.iter().map(|item| (KStep::SetElement, item)),
+                    path,
+                )
+        }
+        TermKind::And(..) | TermKind::DomainValue { .. } | TermKind::Variable(_) => false,
     }
 }
 
@@ -2506,6 +2960,21 @@ fn k_cell_next(cell: &Term) -> Option<&Term> {
 #[deny(clippy::wildcard_enum_match_arm)]
 fn cell_index(definition: &BackendDefinition, term: &Term, side: KeySide) -> CellIndex {
     match term.kind() {
+        // A rule's `inj{S, _}(X:S)` is keyed by the sorts below `S`, when the order decides them.
+        TermKind::Injection { source, term, .. }
+            if side == KeySide::Rule
+                && matches!(term.kind(), TermKind::Variable(variable) if &variable.sort == source) =>
+        {
+            definition
+                .sort_graph()
+                .numbered_below(source)
+                .map_or(CellIndex::Anything, |below| {
+                    CellIndex::Sorted(SortedKey {
+                        sorts: vec![source.clone()],
+                        below,
+                    })
+                })
+        }
         TermKind::Injection { term, .. } => cell_index(definition, term, side),
         TermKind::And(left, right) => {
             cell_index(definition, left, side).meet(cell_index(definition, right, side))
