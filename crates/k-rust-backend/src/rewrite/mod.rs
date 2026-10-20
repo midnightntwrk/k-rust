@@ -160,13 +160,11 @@ pub struct AppliedRule {
     pub pattern: Pattern,
     pub label: Option<String>,
     pub unique_id: String,
-    /// Where the rule is written (its first origin), when the KORE carries it: with `unique_id`
-    /// and `label`, what a contradicted claim its successor's normalization observes names
-    /// (`crate::path_facts::ObservingRule`).
-    pub(crate) origin: Option<crate::rule::RuleOrigin>,
-    /// Whether the rule claims `pattern`'s term defined, which the successor's normalization can
-    /// refute (`crate::path_facts::claims_defined_result`).
-    pub(crate) claims_defined_result: bool,
+    /// The rule's shared identity: its id, label and origin, what a contradicted claim its
+    /// successor's normalization observes names (`crate::path_facts::ObservingRule`), and whether
+    /// it claims `pattern`'s term defined, which that normalization can refute
+    /// (`crate::path_facts::claims_defined_result`).
+    pub(crate) identity: Arc<crate::path_facts::RuleIdentity>,
     /// Whether the attempt that built this candidate depended on something that may differ
     /// between models before the candidate was built (it decided the step's premises), which a
     /// record of the rule's claim the successor's normalization observes rests on too
@@ -201,18 +199,12 @@ pub struct AppliedRule {
 impl AppliedRule {
     /// The rule, as a contradicted claim its successor's normalization observes names it.
     pub(crate) fn observing_rule(&self) -> crate::path_facts::ObservingRule {
-        crate::path_facts::ObservingRule {
-            unique_id: self.unique_id.clone(),
-            label: self.label.clone(),
-            origin: self.origin.clone(),
-            claims_defined_result: self.claims_defined_result,
-            premises_depend: self.premises_depend,
-        }
+        crate::path_facts::ObservingRule::with(Arc::clone(&self.identity), self.premises_depend)
     }
 }
 
 /// Every field but the `normalized` cache, which is work derived from `pattern`, and the rule's
-/// `origin` and `claims_defined_result`, which `unique_id` names within a definition, and
+/// `identity`, which `unique_id` names within a definition, and
 /// `premises_depend`, a fact of the work that built it.
 impl std::fmt::Debug for AppliedRule {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

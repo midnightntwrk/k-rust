@@ -441,6 +441,8 @@ pub struct ComputedRuleAttributes {
     /// show; for a rule that keeps a run-time obligation (`undefined_symbols` not empty); and for
     /// every other rule. The load sets it once: a second discharge keeps it.
     pub definedness_discharged: bool,
+    /// The rule's shared identity, built at its first use (`path_facts::RuleIdentity::of`).
+    pub identity: crate::path_facts::RuleIdentityCell,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -4572,6 +4574,8 @@ where
             unread_map_frames: rename_set(&computed.unread_map_frames),
             discharged_by: computed.discharged_by.clone(),
             definedness_discharged: computed.definedness_discharged,
+            // A renaming of variables keeps the rule's id, label, origin and claim.
+            identity: computed.identity.sharing(),
         },
         existentials: rename_set(&rule.existentials),
     };
