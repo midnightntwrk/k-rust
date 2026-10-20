@@ -3,139 +3,54 @@
 //! counters.
 //!
 //! The executor and the classifier are crate-private, so these are unit tests. They run FZ-FIX's
-//! fixture definitions (`tests/data`, embedded here), compiled in-process the way
-//! `tests/support/mod.rs` compiles them; that module names the crate `k_rust_fuzz` and so cannot
-//! be included from `src/` (`workers/interfaces.md`, requested change 2).
-
-use std::sync::OnceLock;
+//! fixture definitions through `tests/support/mod.rs` (included by path, which the crate root
+//! allows with `extern crate self as k_rust_fuzz`).
 
 use k_rust::{
     backend::{
-        Backend, BackendOptions, CancellationToken, ExecutionStrategy, HaltReasonOutput,
-        ResultModalityOutput, StopCause,
-    },
-    builtin::embedded,
-    kast::Sort,
-    kompile::{
-        CompilationBackend, CompileOptions, ConfigurationAssembler, ProgramGrammar,
-        compile_loaded_definition,
+        CancellationToken, ExecutionStrategy, HaltReasonOutput, ResultModalityOutput, StopCause,
     },
     kore::{ast::Pattern as KorePattern, parser::parse_pattern, printer::Printer as KorePrinter},
-    outer::{LoadOptions, ResolvedSource, load_for_compilation},
 };
 
 use super::*;
-use crate::{
-    error::CampaignError,
-    spec::{CompiledDefinition, DEFAULT_MAX_WORK},
-};
+use crate::{error::CampaignError, spec::DEFAULT_MAX_WORK};
+
+#[path = "../../tests/support/mod.rs"]
+mod support;
+
+use support::Compiled;
 
 // ---------------------------------------------------------------- fixtures
 
-struct Fixture {
-    definition: CompiledDefinition,
-    grammar: ProgramGrammar,
+fn imp() -> &'static Compiled {
+    support::IMP.compiled()
 }
 
-fn compile(file: &str, source: &str, main_module: &str) -> Fixture {
-    let mut resolver = |_: &str, required: &str| {
-        embedded(required).ok_or_else(|| format!("unexpected require {required}"))
-    };
-    let options = LoadOptions {
-        implicit_sources: vec![embedded("prelude.md").expect("the prelude is embedded")],
-        ..CompilationBackend::Rust.load_options()
-    };
-    let (loaded, syntax_module) = load_for_compilation(
-        ResolvedSource::new(file, source),
-        main_module,
-        None,
-        &mut resolver,
-        &options,
-    )
-    .unwrap_or_else(|error| panic!("{file} does not load: {error:?}"));
-    let artifacts = compile_loaded_definition(&loaded, CompileOptions::default())
-        .unwrap_or_else(|error| panic!("{file} does not compile: {error}"));
-    let frontend = loaded.into_definition();
-    let grammar = ProgramGrammar::new(&frontend)
-        .unwrap_or_else(|error| panic!("{file} has no program grammar: {error}"));
-    let definition =
-        CompiledDefinition::from_artifacts(main_module, syntax_module, frontend, artifacts)
-            .unwrap_or_else(|error| panic!("{file}: {error}"));
-    Fixture {
-        definition,
-        grammar,
-    }
+fn rules() -> &'static Compiled {
+    support::RULES.compiled()
 }
 
-macro_rules! fixture {
-    ($name:ident, $file:literal, $main:literal) => {
-        fn $name() -> &'static Fixture {
-            static FIXTURE: OnceLock<Fixture> = OnceLock::new();
-            FIXTURE.get_or_init(|| {
-                compile(
-                    $file,
-                    include_str!(concat!("../../tests/data/", $file)),
-                    $main,
-                )
-            })
-        }
-    };
+fn chosen() -> &'static Compiled {
+    support::CHOSEN.compiled()
 }
 
-fixture!(imp, "imp/imp.k", "IMP");
-fixture!(rules, "rules/rules.k", "RULES");
-fixture!(chosen, "chosen/chosen.k", "CHOSEN");
-fixture!(loadclaim, "loadclaim/loadclaim.k", "LOADCLAIM");
-fixture!(taint, "taint/taint.k", "TAINT");
+fn loadclaim() -> &'static Compiled {
+    support::LOADCLAIM.compiled()
+}
+
+fn taint() -> &'static Compiled {
+    support::TAINT.compiled()
+}
 
 const DIV_IMP: &str = include_str!("../../tests/data/imp/div.imp");
 const LOOP_IMP: &str = include_str!("../../tests/data/imp/loop.imp");
 
-impl Fixture {
+/// Running FZ-FIX's compiled fixtures through the executor.
+trait Run {
     /// The initial configuration of `text`, as `krun --io off` assembles it.
-    fn initial(&self, text: &str) -> KorePattern {
-        let definition = &self.definition;
-        let mut assembler = ConfigurationAssembler::new(
-            &self.grammar,
-            &definition.main_module,
-            &definition.syntax_module,
-            &definition.configuration_variables,
-        );
-        assembler
-            .program_file(&Sort::new("Pgm"), text, "program")
-            .expect("the program parses");
-        assembler
-            .bind_stream_defaults(false, false, || {
-                Ok::<_, k_rust::kompile::ConfigurationError>(Vec::new())
-            })
-            .expect("stream defaults bind");
-        assembler.finish().expect("the configuration assembles")
-    }
-
-    /// A backend on krun's route.
-    fn backend(&self) -> Backend {
-        let definition = &self.definition;
-        let BackendRoute::SourceExecution {
-            execution_rewrite_order,
-        } = &definition.route
-        else {
-            panic!("fixtures are compiled on krun's route");
-        };
-        let internalized = Backend::internalize_source_definition(
-            &definition.kore,
-            &definition.main_module,
-            execution_rewrite_order,
-        )
-        .expect("the definition internalizes");
-        Backend::from_internalized(internalized, BackendOptions::default())
-            .expect("the backend builds")
-    }
-
-    fn executor(&self, options: &CaseOptions) -> Executor {
-        Executor::with_backend(self.backend(), &self.grammar, &self.definition, options)
-            .expect("the executor builds")
-    }
-
+    fn initial_of(&self, text: &str) -> KorePattern;
+    fn executor(&self, options: &CaseOptions) -> Executor;
     /// Run `text` with `options` and `needs`, judging the leaves against `patterns`.
     fn run_with(
         &self,
@@ -143,28 +58,51 @@ impl Fixture {
         options: &CaseOptions,
         needs: &TargetNeeds,
         patterns: &[&str],
+    ) -> CaseResult;
+    fn run(&self, text: &str) -> CaseResult {
+        self.run_with(text, &CaseOptions::default(), &TargetNeeds::default(), &[])
+    }
+}
+
+impl Run for Compiled {
+    fn initial_of(&self, text: &str) -> KorePattern {
+        self.assemble("program", text, &[])
+            .unwrap_or_else(|error| panic!("{text} does not assemble: {error}"))
+    }
+
+    fn executor(&self, options: &CaseOptions) -> Executor {
+        Executor::with_backend(
+            self.source_backend(),
+            &self.grammar,
+            &self.definition(),
+            options,
+        )
+        .expect("the executor builds")
+    }
+
+    fn run_with(
+        &self,
+        text: &str,
+        options: &CaseOptions,
+        needs: &TargetNeeds,
+        patterns: &[&str],
     ) -> CaseResult {
+        let definition = self.definition();
         let mut executor = self.executor(options);
         let matchers: Vec<LeafMatcher> = patterns
             .iter()
             .map(|pattern| {
-                LeafMatcher::compile_with(&mut executor, &self.grammar, &self.definition, pattern)
+                LeafMatcher::compile_with(&mut executor, &self.grammar, &definition, pattern)
                     .unwrap_or_else(|error| panic!("{pattern} does not compile: {error}"))
             })
             .collect();
         let matchers: Vec<&LeafMatcher> = matchers.iter().collect();
         let shape = CaseRequestShape::new(options, needs);
         executor
-            .run(&self.initial(text), &shape, &matchers, None)
+            .run(&self.initial_of(text), &shape, &matchers, None)
             .expect("no solver prelude fails")
     }
-
-    fn run(&self, text: &str) -> CaseResult {
-        self.run_with(text, &CaseOptions::default(), &TargetNeeds::default(), &[])
-    }
 }
-
-use crate::spec::BackendRoute;
 
 fn only_leaf(result: &CaseResult) -> &LeafReport {
     assert!(result.failure.is_none(), "{:?}", result.failure);
@@ -426,7 +364,7 @@ fn records_the_load_observed_do_not_taint_leaves() {
 fn a_terminal_halt_on_the_only_stop_rule_is_a_clean_hit_candidate() {
     let fixture = rules();
     let id = fixture
-        .backend()
+        .source_backend()
         .rule_catalog(None)
         .expect("a catalog")
         .into_iter()
@@ -530,10 +468,14 @@ fn a_normal_end_pattern_that_does_not_compile_is_refused() {
         normal_end_pattern: Some("<nosuchcell> .K </nosuchcell>".to_owned()),
         ..CaseOptions::default()
     };
-    let error =
-        Executor::with_backend(imp().backend(), &imp().grammar, &imp().definition, &options)
-            .err()
-            .expect("the pattern is refused");
+    let error = Executor::with_backend(
+        imp().source_backend(),
+        &imp().grammar,
+        &imp().definition(),
+        &options,
+    )
+    .err()
+    .expect("the pattern is refused");
     assert!(
         matches!(error, CampaignError::NormalEndPattern { .. }),
         "{error:?}"
@@ -564,7 +506,7 @@ fn a_cancelled_caller_makes_the_case_a_timeout_outside_the_contract() {
     let token = CancellationToken::new();
     token.cancel();
     let result = executor
-        .run(&fixture.initial(DIV_IMP), &shape, &[], Some(&token))
+        .run(&fixture.initial_of(DIV_IMP), &shape, &[], Some(&token))
         .expect("no solver prelude fails");
     let reached = vec![false; result.leaves.len()];
     assert_eq!(class(&result, &reached, false), OutcomeClass::Timeout);
