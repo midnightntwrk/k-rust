@@ -66,7 +66,7 @@ use crate::{
     kast::{Label, NodeHead, Sort, Term, TermParts},
     kompile::{
         SentenceTyper, SentenceTyping, SortInjector,
-        fresh_names::{FreshNames, GeneratedVariableIdentity},
+        fresh_names::{self, FreshNames, GeneratedVariableIdentity},
     },
     provenance::GeneratingPass,
 };
@@ -234,6 +234,11 @@ pub(crate) fn expand_macros_pass(
                             internal_labels,
                         ));
                         diagnostics.extend(check_smt_lemmas(&[sentence], expander.productions));
+                        diagnostics.extend(check_macro_existentials(
+                            sentence,
+                            &expander.existentials,
+                            expander.productions,
+                        ));
                         if reports_unexpanded_macros
                             && contains_macro_symbol(sentence, expander.productions)
                         {
@@ -255,6 +260,146 @@ pub(crate) fn expand_macros_pass(
         diagnostics.sort();
         diagnostics.dedup();
         Err(ExpandMacrosError { diagnostics })
+    }
+}
+
+/// A macro is textual substitution, so a `?` variable a macro brings into a sentence is judged as
+/// the same variable written there (`existentials`, the minted names with the name and macro they
+/// stand for): one that lands in a left-hand side is refused as an authored `?` there is, and one
+/// free in the right side or `ensures` of a function, `anywhere` or `simplification` rule, an
+/// equation, which cannot quantify it, is refused at the sentence, naming what the macro writes.
+fn check_macro_existentials(
+    sentence: &Sentence,
+    existentials: &BTreeMap<String, (String, String)>,
+    productions: &ProductionCatalog<'_>,
+) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    if existentials.is_empty() {
+        return diagnostics;
+    }
+    let (body, ensures, attributes) = match sentence {
+        Sentence::Rule {
+            body,
+            ensures,
+            attributes,
+            ..
+        } => (body, Some(ensures), Some(attributes)),
+        Sentence::Claim { body, .. } => (body, None, None),
+        Sentence::SyntaxSort { .. }
+        | Sentence::SortSynonym { .. }
+        | Sentence::SyntaxLexical { .. }
+        | Sentence::Production { .. }
+        | Sentence::SyntaxAssociativity { .. }
+        | Sentence::SyntaxPriority { .. }
+        | Sentence::ContextAlias { .. }
+        | Sentence::Context { .. }
+        | Sentence::Configuration { .. }
+        | Sentence::Bubble { .. } => return diagnostics,
+    };
+    let written = |name: &str| {
+        let (written, macro_label) = &existentials[name];
+        format!("{written} of macro {macro_label}")
+    };
+    let mut in_left = BTreeSet::new();
+    left_side_variables(body, false, &mut Vec::new(), &mut in_left);
+    for name in in_left
+        .iter()
+        .filter(|name| existentials.contains_key(*name))
+    {
+        diagnostics.push(Diagnostic::error(
+            DiagnosticCode::InvalidExistentialVariable,
+            format!(
+                "Existential variable {} found in LHS. Existential variables are only allowed in the RHS.",
+                written(name)
+            ),
+            sentence,
+        ));
+    }
+    let equation = attributes.is_some_and(|attributes| {
+        attributes.has(AttributeKey::Anywhere)
+            || attributes.has(AttributeKey::Simplification)
+            || matches!(body.unannotated(), Term::Rewrite { left, .. }
+                if matches!(left.unannotated(), Term::Apply { label, .. }
+                    if productions
+                        .productions_for(&LabelHead::from(label))
+                        .iter()
+                        .any(|id| productions.production(*id).attributes().has(AttributeKey::Function))))
+    });
+    if equation {
+        let right = match body.unannotated() {
+            Term::Rewrite { right, .. } => Some(right.as_ref()),
+            Term::Variable { .. }
+            | Term::Apply { .. }
+            | Term::As { .. }
+            | Term::Sequence(_)
+            | Term::InjectedLabel(_)
+            | Term::Token { .. }
+            | Term::Annotated { .. } => None,
+        };
+        let mut free = BTreeSet::new();
+        for root in right.into_iter().chain(ensures) {
+            for occurrence in crate::kast::binding::occurrences(root) {
+                if occurrence.role == crate::kast::binding::Role::Free
+                    && existentials.contains_key(occurrence.name)
+                {
+                    free.insert(occurrence.name.to_owned());
+                }
+            }
+        }
+        if !free.is_empty() {
+            diagnostics.push(Diagnostic::error(
+                DiagnosticCode::InvalidExistentialVariable,
+                format!(
+                    "cannot encode equations with existential variables: {}",
+                    free.iter()
+                        .map(|name| written(name))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+                sentence,
+            ));
+        }
+    }
+    diagnostics
+}
+
+/// The names of the variables of `term` free outside the right side of every rewrite in it, where
+/// a rule matches: the left side of a rewrite and every position no rewrite encloses. A variable
+/// a quantifier binds (`kast::binding`; `quantified` holds the names bound around `term`) is the
+/// quantifier's own, not one the rule matches, so neither it nor its binder is a name here.
+fn left_side_variables(
+    term: &Term,
+    in_right: bool,
+    quantified: &mut Vec<String>,
+    names: &mut BTreeSet<String>,
+) {
+    if let Some(quantifier) = crate::kast::binding::quantifier(term) {
+        let depth = quantified.len();
+        quantified.extend(quantifier.bound().into_iter().map(str::to_owned));
+        left_side_variables(quantifier.body, in_right, quantified, names);
+        quantified.truncate(depth);
+        return;
+    }
+    match term.unannotated() {
+        Term::Variable { name, .. } => {
+            if !in_right && !quantified.contains(name) {
+                names.insert(name.clone());
+            }
+        }
+        Term::Rewrite { left, right } => {
+            left_side_variables(left, in_right, quantified, names);
+            left_side_variables(right, true, quantified, names);
+        }
+        other @ (Term::Apply { .. }
+        | Term::As { .. }
+        | Term::Sequence(_)
+        | Term::InjectedLabel(_)
+        | Term::Token { .. }
+        | Term::Annotated { .. }) => {
+            for child in other.children() {
+                left_side_variables(child, in_right, quantified, names);
+            }
+        }
     }
 }
 
@@ -653,6 +798,11 @@ struct Expander<'view, 'definition> {
     macro_typer: Option<SentenceTyper<'definition>>,
     fresh: FreshNames,
     generated: BTreeSet<GeneratedVariableIdentity>,
+    /// The `?` variables minted in the current sentence for a macro's `?` variable, each with the
+    /// name its macro writes and the label of that macro, so a refusal can name what was written.
+    existentials: BTreeMap<String, (String, String)>,
+    /// The label of the macro rule being instantiated.
+    macro_label: String,
     /// Rewrites by `macro-rec` and `alias-rec` rules made since the sentence or standalone
     /// term began expanding.
     recursive_rewrites: usize,
@@ -796,6 +946,8 @@ impl<'view, 'definition> Expander<'view, 'definition> {
             macro_typer,
             fresh: FreshNames::default(),
             generated: BTreeSet::new(),
+            existentials: BTreeMap::new(),
+            macro_label: String::new(),
             recursive_rewrites: 0,
             growth_allowance: MIN_RECURSIVE_GROWTH,
             red_zone: stack_zone(0),
@@ -805,6 +957,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
     fn expand_sentence(&mut self, sentence: Sentence) -> Result<Sentence, Diagnostic> {
         self.fresh = FreshNames::for_sentence(&sentence);
         self.generated.clear();
+        self.existentials.clear();
         self.begin(sentence_depth(&sentence));
         if self.typer.is_some() {
             let fields: &[u32] = match &sentence {
@@ -1192,6 +1345,9 @@ impl<'view, 'definition> Expander<'view, 'definition> {
             }
         });
         let settled = settled_variables(&rule.left, settled);
+        if let Term::Apply { label, .. } = rule.left.unannotated() {
+            self.macro_label.clone_from(&label.name);
+        }
         with_stack(self.red_zone, || {
             self.substitute(
                 rule.right.clone(),
@@ -1719,13 +1875,21 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                 if name == "#Configuration" {
                     (Term::Variable { name, sort }, Known::Unknown)
                 } else {
-                    let generated_name = self.fresh.mint("_Gen");
-                    self.generated
-                        .insert(GeneratedVariableIdentity::element(generated_name.clone()));
+                    // A macro is textual substitution, so a variable of the macro's right side that no
+                    // parameter receives is, at each use, a new variable of the using sentence
+                    // with the same role: its sigil is kept, and a `?` variable stays existential.
+                    let identity = self.fresh.mint_generated(fresh_names::sigil(&name));
                     let variable = Term::Variable {
-                        name: generated_name,
+                        name: identity.name.clone(),
                         sort,
                     };
+                    if name.starts_with('?') {
+                        self.existentials.insert(
+                            identity.name.clone(),
+                            (name.clone(), self.macro_label.clone()),
+                        );
+                    }
+                    self.generated.insert(identity);
                     fresh.insert(name, variable.clone());
                     (variable, Known::Unknown)
                 }

@@ -1169,6 +1169,95 @@ fn anonymous_check_warns_of_a_quantifier_whose_binder_is_anonymous() {
     assert!(warnings_of(quantifier("#Forall", "Y", x_differs("Y"))).is_empty());
 }
 
+/// FU-52: occurrences are counted per variable, not per spelling. In `X => 0 requires
+/// #Exists X . {X ==K 1}` the left side's `X` occurs once and the quantifier's `X` is another
+/// variable, so the left side's is reported unused, exactly as with the binder named `Z`.
+#[test]
+fn anonymous_check_counts_a_bound_variable_apart_from_a_free_one_of_its_spelling() {
+    let unused = |binder: &str| {
+        let sentence = Sentence::Rule {
+            body: rewrite(Term::variable("X"), token("0")),
+            requires: Term::apply(
+                "#Exists",
+                vec![
+                    Term::variable(binder),
+                    Term::apply("_==K_", vec![Term::variable(binder), token("1")]),
+                ],
+            ),
+            ensures: truth(),
+            attributes: located(),
+        };
+        check_anonymous_variables(&[&sentence])
+            .into_iter()
+            .filter(|diagnostic| diagnostic.code == DiagnosticCode::UnusedVariable)
+            .map(|diagnostic| diagnostic.message)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        unused("X"),
+        [
+            "Variable 'X' defined but not used. Prefix variable name with underscore if this is intentional."
+        ]
+    );
+    assert_eq!(unused("X"), unused("Z"));
+}
+
+/// A local function binds the variables of its pattern in its own scope (`kast::binding`), so a
+/// match pattern's `X` in `go(X) => done(1) requires X :=K h()` and a `#fun` parameter `X` are
+/// variables of their own, apart from the rule's `X`: each occurs once, and both are reported
+/// unused, exactly as with the parameter named `Q`.
+#[test]
+fn anonymous_check_counts_a_local_function_parameter_apart_from_a_rule_variable() {
+    let unused = |sentence: Sentence| {
+        check_anonymous_variables(&[&sentence])
+            .into_iter()
+            .filter(|diagnostic| diagnostic.code == DiagnosticCode::UnusedVariable)
+            .map(|diagnostic| diagnostic.message)
+            .collect::<Vec<_>>()
+    };
+    let rule = |body: Term, requires: Term| Sentence::Rule {
+        body,
+        requires,
+        ensures: truth(),
+        attributes: located(),
+    };
+    let go = |argument: Term| Term::apply("go", vec![argument]);
+    let done = |argument: Term| Term::apply("done", vec![argument]);
+    let matched = |parameter: &str| {
+        rule(
+            rewrite(go(Term::variable("X")), done(token("1"))),
+            Term::apply(
+                "_:=K_",
+                vec![Term::variable(parameter), Term::apply("h", vec![])],
+            ),
+        )
+    };
+    let function = |parameter: &str| {
+        rule(
+            rewrite(
+                go(Term::variable("X")),
+                done(Term::apply(
+                    "#fun2",
+                    vec![
+                        rewrite(Term::variable(parameter), token("1")),
+                        Term::variable("X"),
+                    ],
+                )),
+            ),
+            truth(),
+        )
+    };
+    let message = |name: &str| {
+        format!(
+            "Variable '{name}' defined but not used. Prefix variable name with underscore if this is intentional."
+        )
+    };
+    assert_eq!(unused(matched("X")), [message("X"), message("X")]);
+    assert_eq!(unused(matched("Q")), [message("X"), message("Q")]);
+    assert_eq!(unused(function("X")), [message("X")]);
+    assert_eq!(unused(function("Q")), [message("Q")]);
+}
+
 #[test]
 fn anonymous_check_preserves_context_exemptions_and_generated_suppression() {
     let context = Sentence::Context {
@@ -1325,6 +1414,38 @@ fn concrete_mode_rejects_each_existential_occurrence() {
         3
     );
     assert!(symbolic.is_empty());
+}
+
+/// FU-57: the concrete backend refuses a sentence's existential variables, the free `?`
+/// variables. A `?` variable a quantifier binds is that quantifier's variable, so
+/// `#Forall ?B . {?B #Equals ?B}` on the right side holds no existential, as with `B`, while a
+/// free `?Y` beside it is one.
+#[test]
+fn concrete_mode_counts_only_free_existential_variables() {
+    let forall = |name: &str| {
+        Term::apply(
+            "#Forall",
+            vec![
+                Term::variable(name),
+                Term::apply("_==K_", vec![Term::variable(name), Term::variable(name)]),
+            ],
+        )
+    };
+    let unsupported = |right: Term| {
+        check_rhs_variables(
+            &[&rule_with_body(rewrite(token("0"), right))],
+            StructuralCheckOptions::default(),
+        )
+        .iter()
+        .filter(|diagnostic| diagnostic.code == DiagnosticCode::UnsupportedExistentialVariable)
+        .count()
+    };
+    assert_eq!(unsupported(forall("?B")), 0);
+    assert_eq!(unsupported(forall("B")), 0);
+    assert_eq!(
+        unsupported(Term::sequence([forall("?B"), Term::variable("?Y")])),
+        1
+    );
 }
 
 #[test]

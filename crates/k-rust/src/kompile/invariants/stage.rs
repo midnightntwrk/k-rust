@@ -33,7 +33,12 @@
 //! - C1: every variable free in the `requires` or `ensures` of a rule, claim, context or context
 //!   alias after a stage occurs in the sentence's body, or occurred free in a condition of the
 //!   same sentence before the stage, or is `HOLE` of a context alias. A variable a `#Exists` or
-//!   `#Forall` of the condition binds is not free ([`crate::kast::binding`] states the rule).
+//!   `#Forall` of the condition binds is not free ([`crate::kast::binding`] states the rule). A
+//!   `?` variable the same sentence did not hold before the stage, free or bound, is a fresh
+//!   existential the stage introduced, which its sentence quantifies (as R3 reads it), so it is
+//!   exempt: `expand macros` inlines a macro's `?Y` as a fresh `?_Gen<n>` of the using sentence.
+//!   A `?` name the sentence held bound before is not: a stage that drops a `#Exists ?X` binder
+//!   changes the condition.
 //!   The same sentence before the stage is the family of rule-like sentences before it that
 //!   share one of its input addresses ([`Attributes::input_addresses`], which provenance carries
 //!   through every stage): the heating and cooling rules of one context, every context of one
@@ -134,13 +139,18 @@ pub(crate) struct StageChecks {
     conditions: Option<ConditionVariables>,
 }
 
-/// The variables free in the conditions of the rule-like sentences of a definition (C1).
+/// The variables free in the conditions of the rule-like sentences of a definition, and the `?`
+/// names that occur anywhere in them, free or bound (C1).
 #[derive(Debug, Default)]
 struct ConditionVariables {
     /// Per input address, those of the sentences that carry it.
     by_input: BTreeMap<InputAddress, BTreeSet<String>>,
     /// Per module, those of all its sentences.
     by_module: BTreeMap<String, BTreeSet<String>>,
+    /// Per input address, the `?` names of the sentences that carry it.
+    existentials_by_input: BTreeMap<InputAddress, BTreeSet<String>>,
+    /// Per module, the `?` names of all its sentences.
+    existentials_by_module: BTreeMap<String, BTreeSet<String>>,
 }
 
 impl ConditionVariables {
@@ -161,17 +171,56 @@ impl ConditionVariables {
                 if !configuration_bound {
                     names.remove(CONFIGURATION_VARIABLE);
                 }
+                let mut existentials = BTreeSet::new();
+                for (_, term) in sentence.terms() {
+                    term.visit_preorder(&mut |node| {
+                        if let Term::Variable { name, .. } = node
+                            && name.starts_with('?')
+                        {
+                            existentials.insert(name.clone());
+                        }
+                    });
+                }
                 for address in sentence.attributes().input_addresses() {
                     variables
                         .by_input
                         .entry(address.clone())
                         .or_default()
                         .extend(names.iter().cloned());
+                    variables
+                        .existentials_by_input
+                        .entry(address.clone())
+                        .or_default()
+                        .extend(existentials.iter().cloned());
                 }
                 in_module.extend(names);
+                variables
+                    .existentials_by_module
+                    .entry(module.name.clone())
+                    .or_default()
+                    .extend(existentials);
             }
         }
         variables
+    }
+
+    /// The `?` names that occur, free or bound, in `sentence` of module `module` before the stage,
+    /// over the same family of sentences as [`Self::before`].
+    fn existentials_before(&self, module: &str, sentence: &Sentence) -> BTreeSet<String> {
+        let addresses = sentence.attributes().input_addresses();
+        if addresses.is_empty() {
+            return self
+                .existentials_by_module
+                .get(module)
+                .cloned()
+                .unwrap_or_default();
+        }
+        addresses
+            .iter()
+            .filter_map(|address| self.existentials_by_input.get(address))
+            .flatten()
+            .cloned()
+            .collect()
     }
 
     /// The condition variables of `sentence` of module `module` before the stage: those of the
@@ -331,6 +380,7 @@ impl StageChecks {
                     let introduced = introduced_condition_variables(
                         sentence,
                         &earlier.before(&module.name, sentence),
+                        &earlier.existentials_before(&module.name, sentence),
                         renames_anonymous,
                         configuration_bound,
                     );
@@ -554,6 +604,7 @@ fn holds_configuration(term: &Term) -> bool {
 fn introduced_condition_variables(
     sentence: &Sentence,
     before: &BTreeSet<String>,
+    existentials_before: &BTreeSet<String>,
     renames_anonymous: bool,
     configuration_bound: bool,
 ) -> Vec<(CheckedRoot, BTreeSet<String>)> {
@@ -571,7 +622,11 @@ fn introduced_condition_variables(
         .filter_map(|(root, condition)| {
             let mut names = free_variables(condition);
             names.retain(|name| {
-                let allowed = !configuration_bound && name == CONFIGURATION_VARIABLE
+                // A `?` name the sentence did not hold at all is a fresh existential the stage
+                // introduced (`expand macros` inlining a macro's `?Y`); one it held, bound, is a
+                // binder the stage dropped, which changes the condition.
+                let allowed = name.starts_with('?') && !existentials_before.contains(name)
+                    || !configuration_bound && name == CONFIGURATION_VARIABLE
                     || in_body.contains(name)
                     || before.contains(name)
                     || is_alias && name == "HOLE"
@@ -1229,11 +1284,11 @@ mod tests {
                 is_int(&format!("{name}Gen0"))
             })
         }
-        fn rename_to_existential(
+        fn rename_to_fresh(
             input: &PassInput<'_>,
             _: &mut PipelineState,
         ) -> Result<PassOutcome, PassError> {
-            replace_requires(input, |_| is_int("?_Gen0"))
+            replace_requires(input, |_| is_int("!_Gen0"))
         }
         for prefix in ["", "?", "!", "@"] {
             let output = run(
@@ -1255,13 +1310,104 @@ mod tests {
             run(
                 &[stage(
                     "resolve anonymous variables",
-                    rename_to_existential,
+                    rename_to_fresh,
                     Artifacts::NONE,
                 )],
                 definition(vec![addressed(conditioned(is_int("_")), 0)]),
             );
         });
-        assert!(message.contains("?_Gen0 in requires"), "{message}");
+        assert!(message.contains("!_Gen0 in requires"), "{message}");
+    }
+
+    /// A stage that drops the binder of a `#Exists ?X` in a condition, plainly or under `#Not`,
+    /// leaves free a `?` name the sentence held bound before the stage: that changes the condition
+    /// (`¬∃X.P` is not `∃X.¬P`), so C1 refuses it, as for a plain binder.
+    #[test]
+    fn a_stage_that_drops_a_question_binder_breaks_c1() {
+        fn exists(name: &str, body: Term) -> Term {
+            Term::apply("#Exists", vec![Term::variable(name), body])
+        }
+        #[expect(
+            clippy::wildcard_enum_match_arm,
+            reason = "only a quantifier's body is taken; any other term stays"
+        )]
+        fn body(term: &Term) -> Term {
+            match term {
+                Term::Apply { arguments, .. } => arguments[1].clone(),
+                other => other.clone(),
+            }
+        }
+        #[expect(
+            clippy::wildcard_enum_match_arm,
+            reason = "only a negation is looked through; any other condition is the quantifier"
+        )]
+        fn drop_binder(
+            input: &PassInput<'_>,
+            _: &mut PipelineState,
+        ) -> Result<PassOutcome, PassError> {
+            replace_requires(input, |requires| match &requires {
+                Term::Apply { label, arguments } if label.name == "#Not" => {
+                    Term::apply("#Not", vec![body(&arguments[0])])
+                }
+                other => body(other),
+            })
+        }
+        for (what, input, name) in [
+            ("exists ?X", exists("?X", is_int("?X")), "?X"),
+            (
+                "not exists ?X",
+                Term::apply("#Not", vec![exists("?X", is_int("?X"))]),
+                "?X",
+            ),
+            ("exists X1", exists("X1", is_int("X1")), "X1"),
+        ] {
+            let message = panic_message(|| {
+                run(
+                    &[stage("dropping stage", drop_binder, Artifacts::NONE)],
+                    definition(vec![addressed(conditioned(input.clone()), 0)]),
+                );
+            });
+            assert!(message.contains("C1"), "{what}: {message}");
+            assert!(
+                message.contains(&format!("{name} in requires")),
+                "{what}: {message}"
+            );
+        }
+    }
+
+    /// An existential `?` variable is quantified by its sentence, so a stage that introduces one
+    /// into a condition (`expand macros` inlining a macro's `?Y` as a fresh `?_Gen0`) introduces
+    /// no free variable, while the same stage introducing a plain variable breaks C1.
+    #[test]
+    fn an_existential_variable_a_stage_introduces_is_no_free_condition_variable() {
+        fn introduce_existential(
+            input: &PassInput<'_>,
+            _: &mut PipelineState,
+        ) -> Result<PassOutcome, PassError> {
+            replace_requires(input, |_| is_int("?_Gen0"))
+        }
+        fn introduce_plain(
+            input: &PassInput<'_>,
+            _: &mut PipelineState,
+        ) -> Result<PassOutcome, PassError> {
+            replace_requires(input, |_| is_int("_Gen0"))
+        }
+        let output = run(
+            &[stage(
+                "expand macros",
+                introduce_existential,
+                Artifacts::NONE,
+            )],
+            definition(vec![addressed(conditioned(is_int("X")), 0)]),
+        );
+        assert_eq!(output.modules[0].local_sentences.len(), 1);
+        let message = panic_message(|| {
+            run(
+                &[stage("expand macros", introduce_plain, Artifacts::NONE)],
+                definition(vec![addressed(conditioned(is_int("X")), 0)]),
+            );
+        });
+        assert!(message.contains("_Gen0 in requires"), "{message}");
     }
 
     /// The anonymous exemption is per sentence: renaming one sentence's `_` does not license a

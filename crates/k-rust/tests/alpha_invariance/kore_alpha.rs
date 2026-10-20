@@ -5,9 +5,12 @@
 //! normal form of an axiom or claim renames each free variable by its first occurrence in a
 //! preorder walk of the pattern and then of the attributes, and each binder by its position in
 //! that walk, so two sentences have equal normal forms exactly when they are alpha-equivalent
-//! (with the free variables matched in order of occurrence). A canonical name keeps the encoded
-//! prefix of the K name it replaces (`Var`, and the sigil and `_` codes such as `'Ques'` or
-//! `'Unds'`), since the renamings of the harness keep sigils and `_` prefixes.
+//! (with the free variables matched in order of occurrence). A free variable's canonical name
+//! keeps the encoded prefix of the K name it replaces (`Var`, and the sigil and `_` codes such as
+//! `'Ques'` or `'Unds'`), since a free variable's sigil means something (`?X` is existential) and
+//! the renamings of the harness keep sigils and `_` prefixes. A binder's does not: a KORE binder
+//! binds its own variable whatever its name, so `\exists(Var'Ques'Y, P)` and `\exists(VarQY, P)`
+//! (P renamed alike) are the same pattern, and a binder's canonical name is its position alone.
 
 use std::collections::BTreeMap;
 
@@ -87,7 +90,7 @@ impl Normaliser {
         } else {
             "B"
         };
-        format!("{}{kind}{}", prefix(&variable.name), self.binders)
+        format!("Var{kind}{}", self.binders)
     }
 
     fn pattern(&mut self, pattern: &Pattern, scope: &mut Vec<(Variable, String)>) -> Pattern {
@@ -552,10 +555,15 @@ fn alpha_equivalent_axioms_have_one_normal_form_and_others_do_not() {
         normal(&forall("VarY", &neq("VarX", "VarY"))),
         normal(&forall("VarY", &neq("VarX", "VarZ")))
     );
-    // A sigil is kept: `?X` and `X` are not interchangeable.
+    // A free variable's sigil is kept: `?X` and `X` are not interchangeable.
     assert_ne!(
         normal(&neq("Var'Ques'X", "VarY")),
         normal(&neq("VarX", "VarY"))
+    );
+    // A binder's is not: it binds its own variable whatever its name.
+    assert_eq!(
+        normal(&forall("Var'Ques'Y", &neq("VarX", "Var'Ques'Y"))),
+        normal(&forall("VarQY", &neq("VarX", "VarQY")))
     );
     assert_eq!(prefix("Var'QuesUnds'Gen1"), "Var'QuesUnds'");
     assert_eq!(prefix("Var'Unds'Gen1"), "Var'Unds'");

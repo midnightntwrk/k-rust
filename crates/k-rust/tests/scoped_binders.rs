@@ -185,3 +185,263 @@ fn a_non_variable_binder_is_refused_at_its_rule() {
         );
     }
 }
+
+/// The error diagnostics, rendered as `code@line: message`, of compiling the module `P` written
+/// as `source`, or the compile's stage and message when it fails without one; `Ok` when it
+/// compiles.
+fn compile_source(source: &str) -> Result<(), Vec<String>> {
+    let loaded = load("P", source);
+    compile_loaded_definition(&loaded, CompileOptions::default())
+        .map(|_| ())
+        .map_err(|error| {
+            let errors = error
+                .diagnostics
+                .into_iter()
+                .filter(|diagnostic| diagnostic.severity == Severity::Error)
+                .collect::<Vec<_>>();
+            if errors.is_empty() {
+                vec![format!("{}: {}", error.stage, error.message)]
+            } else {
+                rendered(&errors)
+            }
+        })
+}
+
+const MACRO_HEADER: &str = "module P\n  imports INT\n  imports BOOL\n  imports SET\n  syntax KItem ::= go(Int) | done(Int) | go2(Pair)\n  syntax Pair ::= wrap(Int, Int)\n";
+
+/// KORE's `\exists` and `\forall` bind element variables, so a quantifier over a set variable has
+/// no encoding: it is refused at its rule, located, when written there (line 7) and when a macro's
+/// right side writes it (line 8, the macro rule), since a use of the macro is the same text.
+#[test]
+fn a_quantifier_over_a_set_variable_is_refused_at_its_rule() {
+    let message = "InvalidBinder@{line}: The binder @S of #Exists is a set variable: a quantifier binds an element variable, so a quantifier over a set variable has no meaning here.";
+    let authored = format!(
+        "{MACRO_HEADER}  rule [p]: <k> go(X) => done(X) ... </k> requires #Exists @S:Set . {{@S #Equals .Set}}\nendmodule\n"
+    );
+    assert_eq!(
+        compile_source(&authored),
+        Err(vec![message.replace("{line}", "7")])
+    );
+    let through_macro = format!(
+        "{MACRO_HEADER}  syntax Bool ::= m(Int) [macro]\n  rule m(N) => #Exists @S:Set . {{@S #Equals .Set}}\n  rule [p]: <k> go(X) => done(X) ... </k> requires m(X)\nendmodule\n"
+    );
+    assert_eq!(
+        compile_source(&through_macro),
+        Err(vec![message.replace("{line}", "8")])
+    );
+}
+
+/// A macro is textual substitution, so a macro's `?Y` is judged as the `?Y` written at the use:
+/// in a left-hand side it is refused as an authored one is, and free in a function's right side,
+/// an equation, it is refused at the using rule, naming what the macro writes.
+#[test]
+fn a_macro_existential_is_judged_as_written_at_its_use() {
+    let lhs = format!(
+        "{MACRO_HEADER}  syntax Pair ::= mw(Int) [macro]\n  rule mw(N) => wrap(N, ?Y)\n  rule [p]: <k> go2(mw(X)) => done(X) ... </k>\nendmodule\n"
+    );
+    let refusal = compile_source(&lhs).expect_err("a macro ?Y in a left side is refused");
+    assert_eq!(refusal.len(), 1, "{refusal:?}");
+    assert!(
+        refusal[0].starts_with("InvalidExistentialVariable@9: Existential variable ?Y of macro ")
+            && refusal[0]
+                .ends_with("found in LHS. Existential variables are only allowed in the RHS."),
+        "{refusal:?}"
+    );
+    let authored =
+        format!("{MACRO_HEADER}  rule [p]: <k> go2(wrap(X, ?Y)) => done(X) ... </k>\nendmodule\n");
+    assert!(
+        compile_source(&authored)
+            .expect_err("an authored ?Y in a left side is refused")
+            .iter()
+            .any(|error| error.starts_with(
+                "InvalidExistentialVariable@7: Existential variable ?Y found in LHS."
+            )),
+    );
+    let equation = format!(
+        "{MACRO_HEADER}  syntax Int ::= mi(Int) [macro] | f(Int) [function]\n  rule mi(N) => N +Int ?Y\n  rule [f]: f(X) => mi(X)\nendmodule\n"
+    );
+    let refusal = compile_source(&equation).expect_err("an equation cannot quantify a macro ?Y");
+    assert_eq!(refusal.len(), 1, "{refusal:?}");
+    assert!(
+        refusal[0].starts_with(
+            "InvalidExistentialVariable@9: cannot encode equations with existential variables: ?Y of macro "
+        ),
+        "{refusal:?}"
+    );
+}
+
+/// FU-56: the function-symbol check reads a quantifier through `kast::binding`. A map key read
+/// by value needs the rule to bind the variables it reads, which are its free variables; in
+/// `f(#Exists Y:Int . Y)` the `Y` is the quantifier's own, so the key reads no variable and the
+/// definition compiles, whatever the binder is called: no error at all. A free `W` the rule binds
+/// nowhere else is refused with `IllegalFunctionOnLhs`.
+///
+/// The one refusal the `Y` and `Z` keys may meet is the matching-logic position check's: a
+/// quantifier at a matched position has no matching meaning (`MlConstructPosition`, the matrix's
+/// `extra/*-lhs__nested-*` cells), which MLP/4b's walk states and this branch's base precedes.
+#[test]
+fn a_quantifier_in_a_by_value_read_binds_its_own_variable() {
+    let errors = |key: &str| {
+        let source = format!(
+            "module P\n  imports INT\n  imports MAP\n  syntax KItem ::= go(Int) | done(Int)\n  syntax Int ::= f(Int) [function]\n  rule f(X) => X\n  configuration <k> $PGM:KItem </k> <m> .Map </m>\n  rule [p]: <k> go(_) => done(0) ... </k> <m> ({key} |-> _) ... </m>\nendmodule\n"
+        );
+        let loaded = load("P", &source);
+        compile_loaded_definition(&loaded, CompileOptions::default())
+            .err()
+            .map(|error| error.diagnostics)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|diagnostic| diagnostic.severity == Severity::Error)
+            .collect::<Vec<_>>()
+    };
+    for binder in ["Y", "Z"] {
+        let key = format!("f(#Exists {binder}:Int . {binder})");
+        let found = errors(&key);
+        assert!(
+            found
+                .iter()
+                .all(|diagnostic| diagnostic.code == DiagnosticCode::MlConstructPosition),
+            "{key}: {:?}",
+            rendered(&found)
+        );
+    }
+    let free = errors("f(W)");
+    assert!(
+        free.iter().any(
+            |diagnostic| diagnostic.code == DiagnosticCode::IllegalFunctionOnLhs
+                && diagnostic
+                    .message
+                    .contains("this rule binds W nowhere else")
+        ),
+        "{:?}",
+        rendered(&free)
+    );
+}
+
+/// FU-55: a `concrete` or `symbolic` attribute names free variables of its rule, since it lies
+/// outside every quantifier. One naming a variable only a quantifier binds, or none at all, is
+/// refused by the definition checks at its rule, whatever the binder is called.
+#[test]
+fn an_attribute_naming_no_free_variable_is_refused_at_its_rule() {
+    let message = |key: &str, name: &str| {
+        format!(
+            "InvalidAttribute@7: The {key} attribute names {name}, which is no free variable of the sentence: an attribute lies outside every quantifier and local function, so a name it lists must be a variable the sentence uses free."
+        )
+    };
+    let rule = |binder: &str, attribute: &str| {
+        format!(
+            "syntax Int ::= f(Int) [function]\n  rule f(X) => X requires #Exists {binder}:Int . {{{binder} #Equals X}} [simplification, {attribute}]"
+        )
+    };
+    for key in ["concrete", "symbolic"] {
+        for binder in ["Z", "W"] {
+            assert_eq!(
+                compile_result(&rule(binder, &format!("{key}(Z)"))),
+                Err(message(key, "Z")),
+                "{key} {binder}"
+            );
+        }
+        assert_eq!(
+            compile_result(&rule("W", &format!("{key}(X)"))),
+            Ok(()),
+            "{key}(X) names the free X"
+        );
+    }
+    assert_eq!(
+        compile_result(&rule("W", "concrete(Q)")),
+        Err(message("concrete", "Q"))
+    );
+}
+
+/// A `?` variable that a quantifier binds is that quantifier's own variable, whatever its
+/// spelling, so the check that refuses an existential variable outside a right side judges
+/// `#Exists ?Y . P` as it judges `#Exists Y . P`: in a `requires`, and below a constructor in the
+/// left side of a rewrite rule or of a function rule, the two spellings give the same result and
+/// neither is refused as an existential. A `?Y` free there is still refused, also beside a
+/// quantifier that binds `?Y` elsewhere.
+#[test]
+fn a_question_mark_binder_is_judged_as_its_plain_spelling() {
+    let existential = |result: &Result<(), String>| {
+        result
+            .as_ref()
+            .err()
+            .is_some_and(|errors| errors.contains("InvalidExistentialVariable"))
+    };
+    let shapes = [
+        "rule [p]: <k> go(X) => done(X) ... </k> requires #Exists $Y:Int . {$Y #Equals X}",
+        "rule [p]: <k> go(X) => done(X) ... </k> requires #Forall $Y:Int . {$Y +Int 0 #Equals $Y}",
+        "syntax KItem ::= box(Pair)\n  rule [p]: <k> box(f(#Exists $Y:Int . $Y, 1)) => done(0) ... </k>",
+        "syntax Int ::= k(Pair) [function]\n  rule [p]: k(f(#Forall $Y:Int . $Y, 1)) => 1\n  rule k(_) => 0 [owise]",
+    ];
+    for shape in shapes {
+        let written = |binder: &str| compile_result(&shape.replace("$Y", binder));
+        let sigil = written("?Y");
+        let plain = written("QY");
+        assert!(!existential(&sigil), "{shape}: {sigil:?}");
+        assert_eq!(
+            sigil.map_err(|errors| errors.replace("?Y", "QY")),
+            plain,
+            "{shape}"
+        );
+    }
+    assert_eq!(
+        compile_result(
+            "rule [p]: <k> go(X) => done(X) ... </k> requires #Exists ?Y:Int . {?Y #Equals X}"
+        ),
+        Ok(()),
+        "a requires binder over ?Y compiles"
+    );
+    let free = [
+        "rule [p]: <k> go(X) => done(X) ... </k> requires ?Y ==Int X",
+        "rule [p]: <k> go(?Y) => done(0) ... </k>",
+        "rule [p]: <k> go(X) => done(X) ... </k> requires {?Y #Equals X} #And (#Exists ?Y:Int . {?Y #Equals X})",
+    ];
+    for rule in free {
+        let errors = compile_result(rule).expect_err(rule);
+        assert_eq!(
+            errors
+                .matches("InvalidExistentialVariable@6: Existential variable ?Y found in LHS.")
+                .count(),
+            1,
+            "{rule}: {errors}"
+        );
+    }
+}
+
+/// A macro's `?` variable bound by a quantifier the macro writes is that quantifier's own
+/// variable at each use, so a use in a left side is not refused as an existential there.
+#[test]
+fn a_macro_question_mark_binder_is_not_an_existential_at_its_use() {
+    let source = format!(
+        "{MACRO_HEADER}  syntax Pair ::= mq(Int) [macro]\n  rule mq(N) => wrap(N, #Exists ?Y:Int . ?Y)\n  rule [p]: <k> go2(mq(X)) => done(X) ... </k>\nendmodule\n"
+    );
+    let result = compile_source(&source);
+    assert!(
+        result.as_ref().err().is_none_or(|errors| !errors
+            .iter()
+            .any(|error| error.starts_with("InvalidExistentialVariable"))),
+        "{result:?}"
+    );
+}
+
+/// A local function's parameter is matched against the value the function is applied to when the
+/// function is evaluated, not against the subject when the rule is chosen, so it is no variable of
+/// the rule and a `concrete` attribute naming it names no free variable: it is refused at its rule
+/// by the definition checks, as `concrete(Q)` is, for a match pattern and a `#fun` parameter.
+#[test]
+fn an_attribute_naming_a_local_function_parameter_is_refused_at_its_rule() {
+    let message = "InvalidAttribute@7: The concrete attribute names Z, which is no free variable of the sentence: an attribute lies outside every quantifier and local function, so a name it lists must be a variable the sentence uses free.";
+    for rule in [
+        "syntax Int ::= f(Int) [function]\n  rule f(X) => X requires Z :=K X [simplification, concrete(Z)]",
+        "syntax Int ::= f(Int) [function]\n  rule f(X) => #fun(Z => Z)(X) [simplification, concrete(Z)]",
+    ] {
+        assert_eq!(compile_result(rule), Err(message.to_owned()), "{rule}");
+    }
+    assert_eq!(
+        compile_result(
+            "syntax Int ::= f(Int) [function]\n  rule f(X) => #fun(Z => Z)(X) [simplification, concrete(X)]"
+        ),
+        Ok(()),
+        "concrete(X) names the rule's free X"
+    );
+}

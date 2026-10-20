@@ -2403,10 +2403,11 @@ fn complement_implication_condition(
         )
         .chain(universals.iter().cloned())
         .collect::<BTreeSet<_>>();
-    let introduced = covered
-        .free_variables()
-        .difference(&in_scope)
-        .cloned()
+    // Outermost first in order of first occurrence, so the binders' order depends on where the
+    // variables occur, not on their names.
+    let introduced = crate::rewrite::free_variables_by_first_occurrence(&covered)
+        .into_iter()
+        .filter(|variable| !in_scope.contains(variable))
         .collect::<Vec<_>>();
     for variable in introduced.into_iter().rev() {
         covered = crate::rule::Predicate::Exists(variable, Arc::new(covered));

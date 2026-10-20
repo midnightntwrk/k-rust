@@ -603,15 +603,27 @@ fn an_equation_whose_question_variables_are_all_bound_is_emitted() {
     }
 }
 
-/// The refusal of a function, `anywhere` or macro rule with a free `?` variable names the free
-/// `?` variables only: `?B`, bound by its quantifier, is not an existential of the rule. The
-/// macro is not used, so the refusal of its own axiom is what is observed: expanding it at a use
-/// site mints its free `?Y` without the sigil (BIND/A8).
+/// The refusal of a function or `anywhere` rule with a free `?` variable names the free `?`
+/// variables only: `?B`, bound by its quantifier, is not an existential of the rule. A macro is
+/// textual substitution, so its free `?Y` is an existential of its text (BIND/A8): its axiom
+/// quantifies `?Y` existentially around the right side, binding exactly the free `?Y`, and the
+/// macro is used with `?Y` existential at the use site.
 #[test]
 fn the_equation_existentials_refusal_names_only_the_free_question_variables() {
     for (module, _, sentences) in
         bound_question_sentences(|variable| format!(" #And {{?Y #Equals {variable}}}"))
     {
+        if module == "MAC" {
+            let artifacts = compile_probe(&existential_probe(module, &sentences), module)
+                .unwrap_or_else(|error| panic!("MAC should compile: {error}"));
+            let macros: String = artifacts.macros_kore.split_whitespace().collect();
+            assert!(
+                macros.contains("\\exists{SortBool{}}(Var'Ques'Y:"),
+                "{}",
+                artifacts.macros_kore
+            );
+            continue;
+        }
         let sentences = sentences.replace(" requires m(X)", "");
         let error = compile_probe(&existential_probe(module, &sentences), module)
             .err()
@@ -4022,5 +4034,45 @@ case_tests! {
         assert!(!super::declares_sequence_symbol(
             &artifacts.syntax_definition_kore
         ));
+    }
+}
+
+/// A macro's `?Y` is an existential variable of the macro's text, so each use of the macro
+/// introduces its own existential variable, with its sigil: `requires s(X) #And s(X +Int 1)`
+/// over `s(N) => {?Y #Equals N +Int 1}` quantifies two distinct `?` variables inside the
+/// condition, and neither is left free in the rule.
+#[test]
+fn each_use_of_a_macro_existential_is_its_own_existential_variable() {
+    let definition = compiled_probe(
+        &existential_probe(
+            "TWICE",
+            "  syntax Bool ::= s(Int) [macro]\n  rule s(N) => {?Y #Equals N +Int 1}\n  rule [p]: <k> go(X) => done(X) ... </k> requires s(X) #And s(X +Int 1)\n",
+        ),
+        "TWICE",
+    );
+    let pattern = labelled_axiom(&definition, "TWICE.p");
+    let mut binders = Vec::new();
+    collect_existentials(pattern, &mut binders);
+    let existential = binders
+        .iter()
+        .filter(|name| name.starts_with("Var'Ques"))
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(existential.len(), 2, "{binders:?} in {pattern}");
+    assert!(
+        pattern
+            .free_variables()
+            .iter()
+            .all(|variable| !variable.name.starts_with("Var'Ques")),
+        "{pattern}"
+    );
+}
+
+/// The variable of every `\exists` of `pattern`, in preorder.
+fn collect_existentials(pattern: &Pattern, binders: &mut Vec<String>) {
+    if let Pattern::Exists { variable, .. } = pattern {
+        binders.push(variable.name.clone());
+    }
+    for child in k_rust::kore::walk::children(pattern) {
+        collect_existentials(child, binders);
     }
 }

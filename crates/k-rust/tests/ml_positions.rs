@@ -367,12 +367,17 @@ impl CellSpec {
 // ---------------------------------------------------------------- PENDING
 
 /// The number of cells of the matrix.
-const CELL_COUNT: usize = 529;
+const CELL_COUNT: usize = 533;
 
 /// The cells that deviate at the ML lane's base, each with the ticket after which it conforms
 /// and the builds in which it deviates (see the module documentation).
 #[rustfmt::skip]
 pub const PENDING: &[(&str, &str, Class, Class)] = &[
+    // MLP/4b (4, BIND/A9 fix round 1): a quantifier below a symbol of a left side compiles on this branch, whose base precedes MLP/4b, and the backend refuses the definition at load; MLP/4b's matched-position walk refuses it at its rule.
+    ("extra/fun-lhs__nested-exists", "MLP/4b", Class::Refused, Class::Refused),
+    ("extra/rule-lhs__nested-exists", "MLP/4b", Class::Refused, Class::Refused),
+    ("extra/rule-lhs__nested-forall", "MLP/4b", Class::Refused, Class::Refused),
+    ("extra/simp-lhs__nested-forall", "MLP/4b", Class::Refused, Class::Refused),
     // unassigned (2): follow-ups FU-20 and FU-21 (decisions.toml, "MLP/0 questions"): a predicate lemma whose subject is a disjunction, and a predicate lemma on a ground atom of a rewrite rule's condition, are not applied.
     // One cause (FU-48, the proposed ticket MLP/10): predicate lemmas are matched after definedness hoisting has rewritten each atom to ⌈f(X)⌉ ∧ atom, so a disjunction's left side no longer matches, and the ceil hoisted beside a lemma's result is never absorbed. The answers are incomplete, not wrong.
     ("psimp/pred-simp__eq-eq-ground", "unassigned", Class::Undecided, Class::Undecided),
