@@ -293,7 +293,7 @@ pub(super) fn parse_int(text: &str) -> Result<BigInt, String> {
 
 /// An `MInt{width}` literal, `[\+\-]?[0-9]+[pP][0-9]+`, whose suffix names `width`: its signed
 /// decimal reduced modulo `2^width`.
-pub(super) fn parse_mint(text: &str, width: u32) -> Result<Value, String> {
+pub(crate) fn parse_mint(text: &str, width: u32) -> Result<Value, String> {
     let not_literal = || format!("{text:?} is not an MInt{{{width}}} literal");
     let (number, suffix) = text.split_once(['p', 'P']).ok_or_else(not_literal)?;
     if suffix.is_empty() || !suffix.bytes().all(|byte| byte.is_ascii_digit()) {

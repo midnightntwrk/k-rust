@@ -798,8 +798,14 @@ fn mint_resolves_and_matches_the_backend() {
         );
         assert_eq!(kore, backend, "{spelling}");
         assert_eq!(parse_k_text(spelling, &mint).as_ref(), Ok(&value));
+        // The frontend keeps a literal as written (`-56p8`); the backend reduces it to its
+        // canonical text on internalization, so the two readings are compared there.
         if let Some(read) = frontend_with_inference(&syntax, spelling, "MInt{8}") {
-            assert_eq!(read, kore, "{spelling}");
+            assert_eq!(
+                internalized(definition, &read),
+                internalized(definition, &kore),
+                "{spelling}"
+            );
         }
     }
     assert_eq!(print_k_text(&value, &mint).unwrap(), "200p8");
@@ -827,10 +833,25 @@ fn mint_resolves_and_matches_the_backend() {
             Err(error) => panic!("{drawn:?}: {error:?}"),
         };
         if let Some(read) = frontend_with_inference(&syntax, &text, k_name_or_mint(sort)) {
-            assert_eq!(read, to_kore(&drawn, sort).unwrap(), "`{text}`");
+            assert_eq!(
+                internalized(definition, &read),
+                internalized(definition, &to_kore(&drawn, sort).unwrap()),
+                "`{text}`"
+            );
             assert_eq!(parse_k_text(&text, sort).as_ref(), Ok(&drawn));
         }
     }
+}
+
+/// `pattern` internalized in `definition`'s backend and externalized again: its normal form,
+/// in which a machine-integer literal has its canonical text.
+fn internalized(definition: &TestDefinition, pattern: &Pattern) -> Pattern {
+    let internal = definition
+        .backend
+        .admit_unverified(pattern, &[])
+        .internalize_pattern()
+        .unwrap_or_else(|error| panic!("{pattern:?} does not internalize: {error}"));
+    externalize::term(&internal.term)
 }
 
 fn k_name_or_mint(sort: &ValueSort) -> &str {

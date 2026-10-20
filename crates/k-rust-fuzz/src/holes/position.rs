@@ -19,7 +19,7 @@ use crate::{
     spec::{CompiledDefinition, ProgramInput},
     values::{
         Value, ValueSort,
-        print::{print_k_text, to_kore, to_kore_with_sort},
+        print::{parse_mint, print_k_text, to_kore, to_kore_with_sort},
         term::second_value,
     },
 };
@@ -281,7 +281,7 @@ fn locate(
         KorePattern::DomainValue { sort, value },
     ) = (differences.as_slice(), found, anchor)
         && found_sort == sort
-        && same_integer(found_value.as_bytes(), value.as_bytes())
+        && same_literal_value(found_value.as_bytes(), value.as_bytes())
     {
         return Err(format!(
             "the anchor is written `{}`, which the configuration keeps as written, while the \
@@ -301,14 +301,24 @@ fn locate(
     ))
 }
 
-/// Whether two domain-value texts are integers of one value (`07`, `+7` and `7`).
-fn same_integer(left: &[u8], right: &[u8]) -> bool {
-    let parse = |text: &[u8]| {
+/// Whether two domain-value texts are literals of one value: integers (`07`, `+7` and `7`), or
+/// machine integers of one width (`-56p8` and `200p8`, both the residue 200 modulo `2^8`).
+fn same_literal_value(left: &[u8], right: &[u8]) -> bool {
+    let integer = |text: &[u8]| {
         std::str::from_utf8(text)
             .ok()
             .and_then(|text| text.parse::<num_bigint::BigInt>().ok())
     };
-    matches!((parse(left), parse(right)), (Some(left), Some(right)) if left == right)
+    let machine_integer = |text: &[u8]| {
+        let text = std::str::from_utf8(text).ok()?;
+        let (_, width) = text.rsplit_once(['p', 'P'])?;
+        parse_mint(text, width.parse().ok()?).ok()
+    };
+    matches!((integer(left), integer(right)), (Some(left), Some(right)) if left == right)
+        || matches!(
+            (machine_integer(left), machine_integer(right)),
+            (Some(left), Some(right)) if left == right
+        )
 }
 
 /// The paths of the outermost subterms at which `left` and `right` differ in their root node,
@@ -457,4 +467,45 @@ pub(super) fn check(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use k_rust::kore::parser::parse_pattern;
+
+    use super::locate;
+
+    fn pattern(text: &str) -> k_rust::kore::ast::Pattern {
+        parse_pattern(text).expect("the pattern parses")
+    }
+
+    #[test]
+    fn a_machine_integer_anchor_written_other_than_canonically_is_named() {
+        // The frontend keeps a literal as written (`-56p8`), while a hole's values are compared
+        // in their canonical spelling (`200p8`): the refusal says so, as for an `Int`.
+        let at = |literal: &str| {
+            pattern(&format!(
+                r#"Lblw8{{}}(\dv{{SortMInt{{Sort8{{}}}}}}("{literal}"))"#
+            ))
+        };
+        let dv = |literal: &str| pattern(&format!(r#"\dv{{SortMInt{{Sort8{{}}}}}}("{literal}")"#));
+        for written in ["-56p8", "+200p8", "0200P8"] {
+            let message = locate(&at(written), &at("201p8"), &dv("200p8"), &dv("201p8"))
+                .expect_err("a spelling other than the canonical one is refused");
+            assert!(
+                message.contains(&format!("written `{written}`"))
+                    && message.contains("canonically"),
+                "{written}: {message}"
+            );
+        }
+        // Another value is not a spelling of the anchor.
+        let message = locate(&at("57p8"), &at("201p8"), &dv("200p8"), &dv("201p8"))
+            .expect_err("another value is refused");
+        assert!(!message.contains("canonically"), "{message}");
+        // The canonical spelling is located.
+        assert_eq!(
+            locate(&at("200p8"), &at("201p8"), &dv("200p8"), &dv("201p8")),
+            Ok(vec![0])
+        );
+    }
 }
