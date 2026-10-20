@@ -98,6 +98,7 @@ use crate::{
         SymbolType, Term, TermKind, Variable,
         domain::{TextRejection, validate_text},
         names::{HookName, variable_name_problems},
+        sort_name,
     },
 };
 
@@ -1125,6 +1126,11 @@ pub struct BackendDefinition {
     /// [`Self::console_reach`].
     console_reach: crate::deferred::ConsoleReach,
     finite_sort_constructors: BTreeMap<Sort, FiniteConstructorDomain>,
+    /// [`domain_kind_in`] of the sorts table at each builtin sort, in the order of
+    /// `BuiltinSort::ALL`, computed once at load: [`Self::domain_kind`] answers from it for a
+    /// sort that is a builtin's shared allocation (`Sort::shared_builtin_index`), as every hook
+    /// result of a builtin sort is, without looking its name up in the table.
+    builtin_domain_kinds: [Option<DomainKind>; BuiltinSort::ALL.len()],
     /// Which sorts may contain a `KVar` token; computed on first use by `SUBSTITUTION.substOne`.
     kvar_sorts: OnceLock<KVarSorts>,
     /// The sorts known to have a value; computed on first use by `sort_is_inhabited`.
@@ -2475,7 +2481,7 @@ impl BackendDefinition {
                     has_domain_values: attributes.has(KoreAttribute::HasDomainValues),
                     collection,
                 };
-                if sorts.insert(Name::from(name.as_str()), info).is_some() {
+                if sorts.insert(sort_name(name.as_str()), info).is_some() {
                     return Err(DefinitionError::DuplicateSort(name.clone()));
                 }
             }
@@ -2733,6 +2739,8 @@ impl BackendDefinition {
         };
         let value_productions = declared_with(KoreAttribute::ValueProduction);
         let impure_symbols = declared_with(KoreAttribute::Impure);
+        let builtin_domain_kinds =
+            BuiltinSort::ALL.map(|builtin| domain_kind_in(&sorts, &Sort::builtin(builtin)));
         let mut result = Self {
             main_module: main_module.into(),
             modules: ordered
@@ -2758,6 +2766,7 @@ impl BackendDefinition {
             impure_symbols,
             console_reach: crate::deferred::ConsoleReach::default(),
             finite_sort_constructors: BTreeMap::new(),
+            builtin_domain_kinds,
             kvar_sorts: OnceLock::new(),
             inhabited_sorts: OnceLock::new(),
             value_claims: crate::confluence::ValueClaims::withheld(),
@@ -3617,6 +3626,9 @@ impl BackendDefinition {
     /// them otherwise here would let the backend hold two values (`07` and `7`) that the solver
     /// reads as one.
     pub fn domain_kind(&self, sort: &Sort) -> Option<DomainKind> {
+        if let Some(index) = sort.shared_builtin_index() {
+            return self.builtin_domain_kinds[index];
+        }
         domain_kind_in(&self.sorts, sort)
     }
 
@@ -4109,13 +4121,15 @@ pub(crate) fn internalize_sort(
     variables: &BTreeSet<Name>,
 ) -> Result<Sort, DefinitionError> {
     match sort {
-        kore::Sort::Variable(name) if variables.contains(name.as_str()) => {
-            Ok(Sort::Variable(name.as_str().into()))
-        }
-        kore::Sort::Variable(name) => Err(DefinitionError::UnknownSort(name.clone())),
+        kore::Sort::Variable(name) => match variables.get(name.as_str()) {
+            Some(name) => Ok(Sort::Variable(name.clone())),
+            None => Err(DefinitionError::UnknownSort(name.clone())),
+        },
         kore::Sort::Application { name, arguments } => {
-            let info = sorts
-                .get(name.as_str())
+            // The table's own name: every sort of one name shares one allocation, so comparing
+            // two of them takes the pointer shortcut of `Ord for Sort` and `Arc`'s equality.
+            let (table_name, info) = sorts
+                .get_key_value(name.as_str())
                 .ok_or_else(|| DefinitionError::UnknownSort(name.clone()))?;
             if arguments.len() != info.parameters.len() {
                 return Err(DefinitionError::WrongSortArity {
@@ -4125,7 +4139,7 @@ pub(crate) fn internalize_sort(
                 });
             }
             Ok(Sort::application(
-                name.as_str(),
+                table_name.clone(),
                 arguments
                     .iter()
                     .map(|sort| internalize_sort(sort, sorts, variables))
@@ -7126,6 +7140,111 @@ mod tests {
             matches!(result, Err(DefinitionError::VariableName { .. })),
             "{:?}",
             result.err()
+        );
+    }
+
+    /// Every internalized sort of one name holds the sort table's name allocation, the builtin
+    /// sorts the one `Sort::builtin` holds, and a sort variable the symbol's own name: comparing
+    /// two of them is a pointer comparison, not a reading of their text.
+    #[test]
+    fn internalized_sorts_of_one_name_share_one_name_allocation() {
+        let syntax = parse_definition(indoc! {r#"
+            []
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                sort SortFoo{} []
+                sort SortBox{S} []
+                symbol f{}(SortFoo{}, SortInt{}) : SortFoo{} [constructor{}()]
+                symbol g{}(SortFoo{}) : SortInt{} [function{}()]
+                symbol box{S}(S) : SortBox{S} [constructor{}()]
+            endmodule []
+        "#})
+        .unwrap();
+        let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+        let shares = |sort: &Sort, expected: &Name| match sort {
+            Sort::Application { name, .. } | Sort::Variable(name) => Arc::ptr_eq(name, expected),
+        };
+        let table = |name: &str| {
+            definition
+                .sorts()
+                .get_key_value(name)
+                .map(|(name, _)| name.clone())
+                .unwrap()
+        };
+        let Sort::Application { name: builtin, .. } = Sort::builtin(BuiltinSort::Int) else {
+            unreachable!()
+        };
+        assert!(Arc::ptr_eq(&table("SortInt"), &builtin));
+
+        let symbol = |name: &str| definition.symbols()[name].clone();
+        let (f, g, boxed) = (symbol("f"), symbol("g"), symbol("box"));
+        assert!(shares(&f.argument_sorts[0], &table("SortFoo")));
+        assert!(shares(&f.argument_sorts[1], &builtin));
+        assert!(shares(&f.result_sort, &table("SortFoo")));
+        assert!(shares(&g.argument_sorts[0], &table("SortFoo")));
+        assert!(shares(&g.result_sort, &builtin));
+        assert!(shares(&boxed.argument_sorts[0], &boxed.sort_variables[0]));
+        let Sort::Application { name, arguments } = &boxed.result_sort else {
+            panic!("{:?}", boxed.result_sort)
+        };
+        assert!(Arc::ptr_eq(name, &table("SortBox")));
+        assert!(shares(&arguments[0], &boxed.sort_variables[0]));
+
+        let pattern = parse_pattern(r#"f{}(X:SortFoo{}, \dv{SortInt{}}("1"))"#).unwrap();
+        let term = definition.internalize_term(&pattern, &[]).unwrap();
+        let TermKind::Application { arguments, .. } = term.kind() else {
+            panic!("{term:?}")
+        };
+        let TermKind::Variable(variable) = arguments[0].kind() else {
+            panic!("{term:?}")
+        };
+        assert!(shares(&variable.sort, &table("SortFoo")));
+        let TermKind::DomainValue { sort, .. } = arguments[1].kind() else {
+            panic!("{term:?}")
+        };
+        assert!(shares(sort, &builtin));
+    }
+
+    /// The kinds held for the builtin sorts are the sorts table's: `domain_kind` of a builtin
+    /// sort's shared allocation equals the table lookup of a sort of the same name in an
+    /// allocation of its own, which the shortcut does not take, for builtin sorts the definition
+    /// declares with and without a hook and for ones it does not declare.
+    #[test]
+    fn builtin_domain_kinds_are_the_sort_tables() {
+        let syntax = parse_definition(indoc! {r#"
+            []
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                sort SortBool{} [hasDomainValues{}()]
+                hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
+                sort SortBytes{} []
+                sort SortK{} [hasDomainValues{}()]
+            endmodule []
+        "#})
+        .unwrap();
+        let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+        for builtin in BuiltinSort::ALL {
+            let shared = Sort::builtin(builtin);
+            let own = Sort::simple(builtin.kore_name());
+            assert!(shared.shared_builtin_index().is_some());
+            assert_eq!(own.shared_builtin_index(), None);
+            assert_eq!(
+                definition.domain_kind(&shared),
+                definition.domain_kind(&own),
+                "{builtin:?}"
+            );
+        }
+        assert_eq!(
+            definition.domain_kind(&Sort::builtin(BuiltinSort::Int)),
+            Some(DomainKind::Int)
+        );
+        assert_eq!(
+            definition.domain_kind(&Sort::builtin(BuiltinSort::String)),
+            Some(DomainKind::String)
+        );
+        assert_eq!(
+            definition.domain_kind(&Sort::builtin(BuiltinSort::Bytes)),
+            None
         );
     }
 }

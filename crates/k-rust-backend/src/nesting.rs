@@ -115,8 +115,9 @@ pub const STACK_LIMIT: usize = 256 << 20;
 /// exceed this budget, where it stops with `StackExhausted`. A recursion that stays within its
 /// thread's stack maps nothing, so the budget costs nothing until it is used.
 ///
-/// 1 GiB holds about 200,000 levels of a recursive function in a release build (`size(c(T)) =
-/// 1 +Int size(T)`, about 5 KiB per level), where an 8 MiB thread alone held about 1,700. The
+/// 1 GiB holds about 550,000 levels of a recursive function in a release build (`size(c(T)) =
+/// 1 +Int size(T)`, about 2 KiB of stack per level), where an 8 MiB thread alone holds about
+/// 4,000 (`tests::recursion_stack`). The
 /// segments are reserved address space whose pages are committed as the recursion touches them,
 /// so a runaway recursion commits up to the budget before it stops. 1 GiB is a quarter of
 /// [`STACK_LIMIT`], so it stays under the same reservation bounds.
