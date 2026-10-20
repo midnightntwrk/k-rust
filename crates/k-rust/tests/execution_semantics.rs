@@ -2955,8 +2955,13 @@ fn an_execute_request_asks_for_traces_unless_it_says_otherwise() {
 ///   to 4 (a rewrite of the computation cell would leave `f(1)` unevaluated below `+Int`);
 /// - `m(X) #as _T => X` is a rule of the macro production `m`, so `m` is expanded where `h`'s
 ///   right side applies it and where a program writes it;
+/// - `pair(X, Y) #as _P => pair(Y, X) requires X >Int Y [anywhere]` is an equation of the
+///   constructor `pair`, so `pair(3, 1)` becomes `pair(1, 3)`;
 /// - `pair(X, Y) #as P => swap(P) requires X >Int Y [anywhere]` binds `P` to the matched
-///   `pair(X, Y)` in the emitted equation, so `pair(3, 1)` becomes `pair(1, 3)`.
+///   `pair(X, Y)` in the emitted equation. That equation states `pair(X, Y) = swap(pair(X, Y))`,
+///   whose right side holds an instance of its own left side under the same condition, so a
+///   normalization that simplifies arguments first applies it again to that instance without
+///   end; only the emitted statement is checked.
 #[test]
 fn a_root_alias_leaves_a_rule_of_its_head() {
     const FUNCTION: &str = r#"
@@ -3040,10 +3045,24 @@ endmodule
         .map(|variable| variable.name)
         .collect::<Vec<_>>();
     assert!(!free.iter().any(|name| name == "VarP"), "{free:?}");
-    let leaves = text(&execute(&compiled, "MAIN", None));
+
+    const ANYWHERE_RUN: &str = r#"
+module MAIN
+  imports INT
+  imports BOOL
+  syntax Pair ::= pair(Int, Int) [symbol(pair)]
+  rule pair(X, Y) #as _P => pair(Y, X) requires X >Int Y [anywhere]
+  configuration <k> $PGM:Pair </k>
+endmodule
+"#;
+    let leaves = text(&execute(
+        &compile(ANYWHERE_RUN, "MAIN", "MAIN", "Pair", "pair(3, 1)"),
+        "MAIN",
+        None,
+    ));
     assert_eq!(leaves.len(), 1, "{leaves:?}");
     assert!(
-        leaves[0].contains(r#"Lblpair{}(\dv{SortInt{}}("1"),\dv{SortInt{}}("3"))"#),
+        leaves[0].contains(r#"Lblpair{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("3"))"#),
         "{leaves:?}"
     );
 }
