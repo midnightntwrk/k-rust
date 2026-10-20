@@ -46,7 +46,7 @@ use k_rust::{backend::HaltReasonOutput, kore::ast::Pattern as KorePattern};
 use crate::{
     error::CampaignError,
     exec::{self, CaseResult, LeafReport, OutcomeClass, TargetNeeds, UncleanReason},
-    report::EngineDefect,
+    report::{EngineDefect, KillKind},
     spec::{BackendRoute, CaseOptions, CompiledDefinition, PathMode},
 };
 
@@ -64,18 +64,32 @@ pub(crate) struct DifferentialPlan {
 /// The judgement of one baseline/mutant pair.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct DifferentialJudgement {
-    /// The case's class: `baseline-incomplete` when the baseline's ends are incomplete;
-    /// otherwise `hit` for an added or a removed end, else the mutant's class.
+    /// The case's class: `rejected` when the baseline refuses the initial state,
+    /// `baseline-incomplete` when the baseline's ends are incomplete; otherwise `hit` for an
+    /// added or a removed end, else the mutant's class or `unsupported`.
     pub(crate) class: OutcomeClass,
-    /// For a hit by an added end, the index of the mutant leaf whose configuration the baseline
-    /// cannot reach.
+    /// For a hit by an added end, the index of the mutant leaf whose configuration (the added
+    /// end) the baseline cannot reach.
     pub(crate) killing_leaf: Option<usize>,
     /// For a hit by a removed end (all-paths mode only), the index of the baseline leaf whose
-    /// configuration the mutant cannot reach. A hit has at least one of the two indices.
+    /// configuration (the removed end) the mutant cannot reach. A hit has at least one of the
+    /// two indices, and may have both.
     pub(crate) removed_end: Option<usize>,
 }
 
 impl DifferentialJudgement {
+    /// The witness of a hit: its kind and the index of its end, a mutant leaf for
+    /// [`KillKind::AddedEnd`] and a baseline leaf for [`KillKind::RemovedEnd`]. When a hit has
+    /// both, the added end is the witness, as in the one-path mode. `None` for any other class.
+    pub(crate) fn witness(&self) -> Option<(KillKind, usize)> {
+        if self.class != OutcomeClass::Hit {
+            return None;
+        }
+        self.killing_leaf
+            .map(|index| (KillKind::AddedEnd, index))
+            .or_else(|| self.removed_end.map(|index| (KillKind::RemovedEnd, index)))
+    }
+
     const fn class(class: OutcomeClass) -> Self {
         Self {
             class,
@@ -166,14 +180,19 @@ pub(crate) fn equivalent(
 /// such as an unevaluated application of a total function may denote the baseline's end, so its
 /// syntactic difference proves nothing.
 ///
-/// An incomplete baseline makes the case `baseline-incomplete`, whatever the mutant did.
+/// A baseline that refuses the initial state (an `Err` with a refused state, or only `vacuous`
+/// leaves at depth 0) makes the case `rejected`, as [`exec::classify`] classes it: the input is
+/// not a state of the baseline, so there is nothing to compare. An incomplete baseline makes the
+/// case `baseline-incomplete`, whatever the mutant did.
 /// Otherwise the mutant's leaves are classed by [`exec::classify`], a leaf "reaching the target"
 /// when it is an added end. Two outcomes are neither a hit nor a pass, and are `unsupported`,
 /// as a target-reaching leaf that is not clean is (ARCHITECTURE 5.3):
-/// - an added or removed end exists, but some mutant leaf carries an implementation-chosen value
-///   mark (condition 3 is a fact of the whole result);
+/// - an added or removed end exists, but the mutant's result carries an implementation-chosen
+///   value: a mark on some leaf, or a value or contradicted claim the run noted on no leaf
+///   ([`CaseResult::run_facts_off_leaves`]); condition 3 is a fact of the whole result;
 /// - no kill exists, but some end outside the other side's set could not be judged: a clean
-///   natural end that is not constructor-only, a mutant `stuck` leaf that is not clean, or a
+///   natural end that is not constructor-only, a `stuck` leaf that is not clean or whose
+///   natural end is undecided ([`UncleanReason::NaturalEndUndecided`]), or a
 ///   would-be kill against a complete set that holds an end that is not data (the set is
 ///   complete, so the case is not `baseline-incomplete`, but its ends cannot be compared).
 ///
@@ -187,6 +206,11 @@ pub(crate) fn judge_pair(
     paths: PathMode,
     run_to_completion: bool,
 ) -> Result<DifferentialJudgement, EngineDefect> {
+    if exec::classify(baseline, &vec![false; baseline.leaves.len()], false)?
+        == OutcomeClass::Rejected
+    {
+        return Ok(DifferentialJudgement::class(OutcomeClass::Rejected));
+    }
     let Some(baseline_set) = complete_ends(baseline) else {
         return Ok(DifferentialJudgement::class(
             OutcomeClass::BaselineIncomplete,
@@ -202,10 +226,11 @@ pub(crate) fn judge_pair(
     let killing_leaf = added.kills.iter().position(|&kills| kills);
     let removed_end = removed.kills.iter().position(|&kills| kills);
     let class = exec::classify(mutant, &added.kills, run_to_completion)?;
-    let chosen_value = mutant.leaves.iter().any(|leaf| {
-        leaf.unclean
-            .contains(&UncleanReason::ImplementationChosenValue)
-    });
+    let chosen_value = mutant.run_facts_off_leaves
+        || mutant.leaves.iter().any(|leaf| {
+            leaf.unclean
+                .contains(&UncleanReason::ImplementationChosenValue)
+        });
     if (killing_leaf.is_some() || removed_end.is_some()) && chosen_value {
         return Ok(DifferentialJudgement::class(OutcomeClass::Unsupported));
     }
@@ -234,12 +259,30 @@ pub(crate) fn judge_pair(
 ///
 /// A complete run returned leaves, was not stopped by the safety limit, counted no stack stop,
 /// SMT unknown or run allowance refusal, is inside the determinism contract (no stack stop in
-/// its definition's load either, [`CaseResult::determinism_breaks`]), and every leaf is a clean `stuck` leaf or an undefined
-/// step (`trivial`) whose only unclean reason is its halt: a decided, ceil-free configuration
-/// with no diagnostic, the configuration before the undefined step. Load records are facts about
-/// the definition and do not make a run incomplete (T-5).
+/// its definition's load either, [`CaseResult::determinism_breaks`]), noted no
+/// implementation-chosen value or contradicted claim that no leaf carries
+/// ([`CaseResult::run_facts_off_leaves`]), and every leaf is a clean `stuck` leaf or an
+/// undefined step (`trivial`) whose only unclean reason is its halt: a decided, ceil-free
+/// configuration with no diagnostic, the configuration before the undefined step. Load records
+/// are facts about the definition and do not make a run incomplete (T-5).
+///
+/// Why the off-leaf facts matter (review B1): an unmarked leaf exists in every model of the
+/// definition, but work that read an open value and vanished (an undefined candidate beside a
+/// defined sibling) may give another leaf in another model, so the leaves are not every end. The
+/// flag matches a run-listed value to leaf marks by hook and class, so it may miss an off-leaf
+/// value whose twin is on some leaf; that leaf's mark already makes the side incomplete.
+///
+/// Run-observed unsupported hooks need no such check. An application left unevaluated as an
+/// unsupported hook stays in the term as an uncomputed function application. Work ends on no
+/// leaf only through a decision: a right-hand side shown undefined, a condition shown false, or
+/// a higher-priority rule shown to apply. A decision that needs the hook's value cannot be taken
+/// while the value is unknown: the step halts `indeterminate`, or the application stays in the
+/// leaf, where `ceil_free` and condition 4 judge it. A decision that does not need the value is
+/// the same in every model. An implementation-chosen value differs because it is evaluated to
+/// one value, which can drive such a decision.
 fn complete_ends(result: &CaseResult) -> Option<BTreeSet<&KorePattern>> {
     let run_clean = result.failure.is_none()
+        && !result.run_facts_off_leaves
         && !result.safety_limit_hit
         && result.stack_stops == 0
         && result.smt_unknowns == 0
@@ -304,7 +347,9 @@ impl Verdicts {
             if leaf.halt != HaltReasonOutput::Stuck || others_set.contains(&leaf.state) {
                 continue;
             }
-            if !leaf.is_clean() {
+            // A leaf whose natural end is undecided is clean, but neither a natural end nor an
+            // abnormal stop is established for it, so it is no kill and no proof of none.
+            if !leaf.is_clean() || leaf.natural_end_undecided() {
                 verdicts.undecided = true;
             } else if leaf.natural_end {
                 match leaf.constructor_only {
@@ -341,7 +386,10 @@ mod tests {
     use k_rust::kore::parser::parse_pattern;
 
     use super::*;
-    use crate::{exec::CaseFailure, report::LoadRecord};
+    use crate::{
+        exec::{CaseFailure, FailureCause},
+        report::LoadRecord,
+    };
 
     /// A final configuration `<generatedTop>(<k>(.K), <out>(N), <generatedCounter>(C))`.
     fn config(out: i64, counter: i64) -> KorePattern {
@@ -390,6 +438,7 @@ mod tests {
             stack_stops: 0,
             smt_unknowns: 0,
             run_allowance_refusals: 0,
+            run_facts_off_leaves: false,
             load_records: Vec::new(),
             safety_limit_hit: false,
             failure: None,
@@ -508,7 +557,7 @@ mod tests {
 
     #[test]
     fn run_level_facts_make_a_side_incomplete() {
-        let cases: [fn(&mut CaseResult); 7] = [
+        let cases: [fn(&mut CaseResult); 9] = [
             |r| r.stack_stops = 1,
             |r| r.smt_unknowns = 1,
             |r| r.run_allowance_refusals = 1,
@@ -518,6 +567,10 @@ mod tests {
                 r.leaves.clear();
             },
             |r| r.leaves.clear(),
+            // The failure check alone, with the leaves kept.
+            |r| r.failure = Some(CaseFailure::other("err")),
+            // A chosen value or claim the run noted on no leaf (review B1).
+            |r| r.run_facts_off_leaves = true,
             // A stack stop in the definition's load puts the case outside the determinism
             // contract.
             |r| {
@@ -782,6 +835,63 @@ mod tests {
         }
     }
 
+    #[test]
+    fn a_baseline_that_refuses_the_initial_state_is_rejected() {
+        let mutant = result(vec![natural(config(5, 0), Some(true))]);
+        let mut refused = result(Vec::new());
+        refused.failure = Some(CaseFailure {
+            message: "refused".to_owned(),
+            cause: FailureCause::StateRefused,
+        });
+        let mut vacuous = leaf(
+            HaltReasonOutput::Vacuous,
+            config(0, 0),
+            vec![UncleanReason::Halt],
+        );
+        vacuous.depth = 0;
+        let vacuous = result(vec![vacuous]);
+        for baseline in [&refused, &vacuous] {
+            for paths in BOTH_MODES {
+                assert_eq!(
+                    judge(baseline, &mutant, paths),
+                    DifferentialJudgement::class(OutcomeClass::Rejected),
+                    "{paths:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_kill_beside_mutant_facts_off_its_leaves_is_unsupported() {
+        // The mutant noted a chosen value on no leaf: condition 3 is a fact of the whole result.
+        let mut mutant = result(vec![natural(config(5, 0), Some(true))]);
+        mutant.run_facts_off_leaves = true;
+        for paths in BOTH_MODES {
+            assert_eq!(
+                judge(&coin_baseline(), &mutant, paths),
+                DifferentialJudgement::class(OutcomeClass::Unsupported),
+                "{paths:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_witness_is_the_added_end_first_then_the_removed_end() {
+        assert_eq!(hit(Some(1), None).witness(), Some((KillKind::AddedEnd, 1)));
+        assert_eq!(
+            hit(None, Some(0)).witness(),
+            Some((KillKind::RemovedEnd, 0))
+        );
+        assert_eq!(
+            hit(Some(1), Some(0)).witness(),
+            Some((KillKind::AddedEnd, 1))
+        );
+        assert_eq!(
+            DifferentialJudgement::class(OutcomeClass::Miss).witness(),
+            None
+        );
+    }
+
     // ---- removed ends (all-paths mode)
 
     #[test]
@@ -838,6 +948,28 @@ mod tests {
         assert_eq!(
             judge(&coin_baseline(), &mutant, PathMode::AllPaths),
             DifferentialJudgement::class(OutcomeClass::Unsupported)
+        );
+    }
+
+    #[test]
+    fn a_baseline_end_whose_natural_end_is_undecided_is_no_proof_of_a_miss() {
+        // The baseline's 3 is clean but its natural end is undecided (review S4): outside the
+        // mutant's complete set it is neither a removed end nor an abnormal stop.
+        let mut undecided = leaf(
+            HaltReasonOutput::Stuck,
+            config(3, 0),
+            vec![UncleanReason::NaturalEndUndecided],
+        );
+        undecided.constructor_only = Some(true);
+        let baseline = result(vec![undecided, natural(config(4, 0), Some(true))]);
+        let mutant = result(vec![natural(config(4, 0), Some(true))]);
+        assert_eq!(
+            judge(&baseline, &mutant, PathMode::AllPaths),
+            DifferentialJudgement::class(OutcomeClass::Unsupported)
+        );
+        assert_eq!(
+            judge(&baseline, &mutant, PathMode::OnePath),
+            DifferentialJudgement::class(OutcomeClass::Miss)
         );
     }
 
@@ -1045,7 +1177,7 @@ mod fixture_tests {
     }
 
     #[test]
-    fn a_chosen_value_mark_refuses_the_kill_and_its_absence_allows_it() {
+    fn a_marked_baseline_end_makes_it_incomplete_and_an_unmarked_pair_kills() {
         // listKeys(1, 2): both sides read keys_list of a two-key map and carry the mark, and the
         // ends differ; the marked baseline end makes its set incomplete.
         for paths in BOTH_MODES {
@@ -1143,5 +1275,120 @@ mod fixture_tests {
                 "{paths:?}"
             );
         }
+    }
+
+    /// Options without a work bound: a depth bound only (`effective_max_work` is `None`), under
+    /// which the backend does not copy run facts onto every leaf.
+    fn unbudgeted(paths: PathMode) -> CaseOptions {
+        CaseOptions {
+            paths,
+            max_depth: Some(10),
+            ..CaseOptions::default()
+        }
+    }
+
+    /// Run `pick(1, 2)` on `fixture` as `side`'s plan asks under `options`.
+    fn pick(fixture: &'static Fixture, needs: &TargetNeeds, options: &CaseOptions) -> CaseResult {
+        let program = support::VANISH.program("vanish/pick.pgm");
+        Side::new(fixture, needs, options).run(program.file, program.text)
+    }
+
+    #[test]
+    fn a_baseline_end_that_vanished_in_another_model_makes_the_baseline_incomplete() {
+        // VANISH's `split` reads keys_list, divides by zero in k-rust's listing and vanishes
+        // beside `plain` (end 0); the mutant ends with 10, which `split` gives in the other
+        // listing (review B1, D16).
+        for paths in BOTH_MODES {
+            let options = unbudgeted(paths);
+            assert_eq!(options.effective_max_work(), None);
+            let plan = plan(&options);
+            let baseline = pick(&support::VANISH, &plan.baseline, &options);
+            assert!(
+                baseline.run_facts_off_leaves,
+                "{paths:?}: FZ-04 B3 end to end"
+            );
+            assert_eq!(baseline.leaves.len(), 1, "{paths:?}");
+            assert!(
+                baseline.leaves[0].is_clean(),
+                "{paths:?}: no leaf carries the mark"
+            );
+            let mutant = pick(&support::VANISH_KILL, &plan.mutant, &options);
+            assert_eq!(
+                judge_pair(&baseline, &mutant, paths, false).expect("no engine defect"),
+                DifferentialJudgement::class(OutcomeClass::BaselineIncomplete),
+                "{paths:?}"
+            );
+        }
+        // Under the default work bound the mark is on the leaf, with the same class.
+        let program = support::VANISH.program("vanish/pick.pgm");
+        for paths in BOTH_MODES {
+            assert_eq!(
+                judge_on(
+                    &support::VANISH,
+                    &support::VANISH_KILL,
+                    program.file,
+                    program.text,
+                    &options(paths)
+                ),
+                DifferentialJudgement::class(OutcomeClass::BaselineIncomplete),
+                "{paths:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_mutant_that_read_an_open_value_on_no_leaf_does_not_kill() {
+        // The roles exchanged: the mutant's end 0 is outside the baseline's {10}, but the
+        // mutant noted a chosen value on no leaf (condition 3).
+        for paths in BOTH_MODES {
+            let options = unbudgeted(paths);
+            let plan = plan(&options);
+            let baseline = pick(&support::VANISH_KILL, &plan.baseline, &options);
+            let mutant = pick(&support::VANISH, &plan.mutant, &options);
+            // One path carries the value on its leaf; all paths note it on no leaf.
+            let marked = mutant.leaves.iter().any(|leaf| {
+                leaf.unclean
+                    .contains(&UncleanReason::ImplementationChosenValue)
+            });
+            assert_eq!(
+                (marked, mutant.run_facts_off_leaves),
+                (paths == PathMode::OnePath, paths == PathMode::AllPaths),
+                "{paths:?}"
+            );
+            assert_eq!(
+                judge_pair(&baseline, &mutant, paths, false).expect("no engine defect"),
+                DifferentialJudgement::class(OutcomeClass::Unsupported),
+                "{paths:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn unbudgeted_all_paths_runs_find_added_and_removed_ends() {
+        let options = unbudgeted(PathMode::AllPaths);
+        let flip = |mutant, n: i64| {
+            judge_on(
+                &support::COIN,
+                mutant,
+                "coin/flip.pgm",
+                &format!("flip({n})"),
+                &options,
+            )
+        };
+        let added = flip(&support::COIN_KILL, 11);
+        assert_eq!(
+            added.witness().map(|(kind, _)| kind),
+            Some(KillKind::AddedEnd)
+        );
+        let removed = flip(&support::COIN_PRIO, 3);
+        assert_eq!(
+            removed.witness().map(|(kind, _)| kind),
+            Some(KillKind::RemovedEnd)
+        );
+        assert_eq!(flip(&support::COIN_SWAPPED, 3), MISS);
+        assert_eq!(
+            flip(&support::COIN_FUNC, 11),
+            DifferentialJudgement::class(OutcomeClass::Unsupported)
+        );
     }
 }

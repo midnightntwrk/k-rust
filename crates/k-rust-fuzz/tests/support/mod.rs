@@ -444,6 +444,17 @@ fixture!(COIN_PRIO, "coin/coin-prio.k", "COIN", COIN_PROGRAMS);
 fixture!(COIN_KILL, "coin/coin-kill.k", "COIN", COIN_PROGRAMS);
 fixture!(COIN_FUNC, "coin/coin-func.k", "COIN", COIN_PROGRAMS);
 
+/// The vanished-end pair (FZ-08 review B1). Not in `ALL`: `tests/fixtures.rs` does not judge
+/// it; the differential judge's tests (`src/target/differential.rs`) run it.
+pub const VANISH_PROGRAMS: &[Program] = &[program!("vanish/pick.pgm")];
+fixture!(VANISH, "vanish/vanish.k", "VANISH", VANISH_PROGRAMS);
+fixture!(
+    VANISH_KILL,
+    "vanish/vanish-kill.k",
+    "VANISH",
+    VANISH_PROGRAMS
+);
+
 fixture!(
     LEDGER,
     "ledger/ledger.k",
