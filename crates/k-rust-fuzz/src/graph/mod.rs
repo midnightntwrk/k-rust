@@ -47,35 +47,46 @@
 //! proposers: the dictionary (ARCHITECTURE 8.3) reads the rules within a radius of the target
 //! ([`RuleGraph::distances_to`]) and the functions their conditions call
 //! ([`RuleGraph::requires_functions`], [`FunctionCalls`]); the climb (8.4) scores a case by
-//! the distance from the rules it applied to the target. The campaign reports an unreachable
-//! target as a warning ([`RuleGraph::statically_unreachable`]) and continues, and checks that
-//! every rule a case applied is reachable ([`RuleGraph::unreachable_applied`]); a violation is
-//! an engine defect.
+//! the distance from the rules it applied to the target, read from one
+//! [`RuleGraph::distances_to`] computed per campaign. On real definitions many rules end with a
+//! bare continuation in `<k>` (`=> .K ...`), which enables every rule, so distances there are
+//! mostly 1 or 2; the proposers should not be tuned on the GRAPH fixture alone.
+//!
+//! The campaign computes one [`entry::Entry`] from the hole template ([`RuleGraph::entry`],
+//! [`entry::hole_template`]), reports an unreachable target as a warning
+//! ([`RuleGraph::statically_unreachable`]) and continues, and checks every case's coverage
+//! against the same entry ([`RuleGraph::unreachable_applied`]); a violation is an engine defect.
 //!
 //! Every output is ordered (rule ids are sorted, sets are `BTreeSet`s), so the graph and every
 //! answer are a function of the definition.
 
 mod calls;
+pub(crate) mod entry;
 #[cfg(test)]
 mod tests;
 
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::{
+    collections::{BTreeMap, BTreeSet, VecDeque},
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 pub(crate) use calls::FunctionCalls;
 use calls::Part;
 use k_rust::{
-    backend::{Backend, BackendError, PatternRequest},
+    backend::{Backend, BackendError},
     k_rust_backend::{
         definition::BackendDefinition,
         rule::{
-            CellIndex, IndexedRewriteRule, RuleIndex, RuleRhs, SubjectKey, TermIndex,
-            subject_index, term_index,
+            CellIndex, ClassifiedAxiom, IndexedRewriteRule, RuleIndex, RuleRhs, SubjectKey,
+            TermIndex, subject_index, term_index,
         },
         term::{HeadRole, Sort, Term, TermKind},
     },
-    kore::{ast::Pattern as KorePattern, codec},
     names::WellKnownSymbol,
 };
+
+/// The source of [`RuleGraph::identity`].
+static NEXT_GRAPH: AtomicU64 = AtomicU64::new(0);
 
 /// The rule enablement graph of one definition, built once per definition.
 #[derive(Clone, Debug)]
@@ -95,22 +106,12 @@ pub(crate) struct RuleGraph {
     /// Some rule holds a `<k>` cell inside a collection or more than one `<k>` cell.
     shared_k: bool,
     calls: FunctionCalls,
-}
-
-/// The rules a configuration enables, from which the campaign's reachability is computed.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct Entry {
-    nodes: BTreeSet<usize>,
-    /// The configuration, or the definition, may hold more than one `<k>` cell: the
-    /// `statically-unreachable` warning is withheld.
-    withheld: bool,
-}
-
-impl Entry {
-    /// The ids of the rules the configuration enables.
-    pub(crate) fn rules(&self, graph: &RuleGraph) -> BTreeSet<String> {
-        graph.named(&self.nodes)
-    }
+    /// The ids of the definition's equations (function, simplification and definedness
+    /// axioms, `BackendDefinition::classified_axioms`), which coverage also names.
+    equation_ids: BTreeSet<String>,
+    /// Distinguishes this graph from every other built in the process, so that an [`entry::Entry`]
+    /// is used only with the graph that computed it. A clone keeps it, being the same graph.
+    identity: u64,
 }
 
 /// One executable rule's left-hand-side keys.
@@ -253,6 +254,7 @@ impl RuleGraph {
                 })
             })
             .collect();
+        let equation_ids = equation_ids(definition);
         let mut selection = Selection::new(definition, shared_k);
         let mut successors = vec![BTreeSet::new(); ids.len()];
         let mut predecessors = vec![BTreeSet::new(); ids.len()];
@@ -279,6 +281,8 @@ impl RuleGraph {
             predecessors,
             shared_k,
             calls: FunctionCalls::new(definition),
+            equation_ids,
+            identity: NEXT_GRAPH.fetch_add(1, Ordering::Relaxed),
         }
     }
 
@@ -289,50 +293,6 @@ impl RuleGraph {
     /// When the backend cannot select its definition.
     pub(crate) fn of_backend(backend: &mut Backend) -> Result<Self, BackendError> {
         backend.with_solver_over(None, &[], |definition, _| Ok(Self::new(definition)))
-    }
-
-    /// The rules `initial` enables: `initial` is simplified by `backend` (its
-    /// `initGeneratedTopCell` application evaluated), internalized, and keyed on the subject side.
-    ///
-    /// # Errors
-    ///
-    /// When `backend` does not simplify or internalize `initial`.
-    pub(crate) fn entry(
-        &self,
-        backend: &mut Backend,
-        initial: &KorePattern,
-    ) -> Result<Entry, BackendError> {
-        let simplified = backend.simplify(PatternRequest::new(initial.clone()))?;
-        let simplified = codec::from_value(&simplified).map_err(|error| {
-            BackendError::new(format!(
-                "the simplified configuration does not decode: {error}"
-            ))
-        })?;
-        backend.with_solver_over(None, &[&simplified], |definition, _| {
-            let pattern = definition
-                .admit_unverified(&simplified, &[])
-                .internalize_pattern()
-                .map_err(|error| {
-                    BackendError::new(format!(
-                        "the simplified configuration does not internalize: {error}"
-                    ))
-                })?;
-            Ok(self.entry_of(definition, &pattern.term))
-        })
-    }
-
-    /// The rules the configuration `term` of `definition` enables.
-    pub(crate) fn entry_of(&self, definition: &BackendDefinition, term: &Term) -> Entry {
-        let withheld = self.shared_k || shares_k(term);
-        let mut selection = Selection::new(definition, withheld);
-        let subject = selection.subject(term);
-        let nodes = self
-            .targets
-            .iter()
-            .filter(|target| selection.enables(&subject, target))
-            .map(|target| target.node)
-            .collect();
-        Entry { nodes, withheld }
     }
 
     /// The rule ids, sorted.
@@ -418,44 +378,12 @@ impl RuleGraph {
     }
 
     /// The least number of edges from `from` to `to`, `None` when `to` is unreachable from it.
+    ///
+    /// Each call runs a breadth-first search over the whole graph; a consumer that scores many
+    /// cases against one target (the climb) computes [`Self::distances_to`] once per campaign
+    /// and looks the applied rules up in it.
     pub(crate) fn distance(&self, from: &str, to: &str) -> Option<usize> {
         self.distances_to(to).get(from).copied()
-    }
-
-    /// The rules reachable from `entry`'s rules, those included.
-    pub(crate) fn reachable(&self, entry: &Entry) -> BTreeSet<String> {
-        self.named(&self.reachable_nodes(entry))
-    }
-
-    /// The `statically-unreachable` warning for `target` (ARCHITECTURE 6.3): `Some` when
-    /// `target` is a rule of the graph that is not reachable from `entry`'s rules. Withheld
-    /// (`None`) when more than one `<k>` cell may exist. A warning, never a refusal.
-    pub(crate) fn statically_unreachable(&self, entry: &Entry, target: &str) -> Option<String> {
-        let node = *self.nodes.get(target)?;
-        (!entry.withheld && !self.reachable_nodes(entry).contains(&node)).then(|| {
-            format!(
-                "statically-unreachable: rule {target} is not reachable in the rule graph from \
-                 the rules the initial configuration enables"
-            )
-        })
-    }
-
-    /// The self-check (ARCHITECTURE 6.3): the rewrite rules among `applied` (a run's coverage
-    /// `applied`, whose equation ids are ignored) that are not reachable from `entry`'s rules,
-    /// sorted. Every id it returns is an engine defect: a rule that applied lies outside the
-    /// graph's over-approximation.
-    pub(crate) fn unreachable_applied<'a>(
-        &self,
-        entry: &Entry,
-        applied: impl IntoIterator<Item = &'a str>,
-    ) -> Vec<String> {
-        let reachable = self.reachable_nodes(entry);
-        let unreachable: BTreeSet<usize> = applied
-            .into_iter()
-            .filter_map(|id| self.nodes.get(id).copied())
-            .filter(|node| !reachable.contains(node))
-            .collect();
-        self.named(&unreachable).into_iter().collect()
     }
 
     /// The function-call edges of the definition's function theory.
@@ -482,19 +410,6 @@ impl RuleGraph {
             self.calls.collect_rule(rule, part, &mut called);
         }
         self.calls.closure(called)
-    }
-
-    fn reachable_nodes(&self, entry: &Entry) -> BTreeSet<usize> {
-        let mut reached = entry.nodes.clone();
-        let mut pending: Vec<usize> = entry.nodes.iter().copied().collect();
-        while let Some(node) = pending.pop() {
-            for &next in &self.successors[node] {
-                if reached.insert(next) {
-                    pending.push(next);
-                }
-            }
-        }
-        reached
     }
 
     fn named(&self, nodes: &BTreeSet<usize>) -> BTreeSet<String> {
@@ -527,8 +442,8 @@ fn right_hand_terms(rhs: &RuleRhs) -> Vec<&Term> {
 }
 
 /// At each cell position of `lhs` where `index` is rigid (a constructor, a domain value or a
-/// collection), the sort of the rooted term there ([`rooted`]): a value that matches it has that
-/// root, at that sort.
+/// collection), the sort of the term there whose root gave the key ([`rooted`]): a value that
+/// matches it has that root, at that sort.
 fn rigid_sorts(lhs: &Term, index: &RuleIndex) -> [Option<Sort>; 2] {
     let terms = cell_terms(lhs);
     let mut sorts = [None, None];
@@ -545,26 +460,58 @@ fn rigid_sorts(lhs: &Term, index: &RuleIndex) -> [Option<Sort>; 2] {
         );
         *sort = terms[position]
             .filter(|_| rigid)
-            .and_then(rooted)
+            .zip(index.cells().get(position))
+            .and_then(|(term, key)| rooted(term, key))
             .map(Term::sort);
     }
     sorts
 }
 
-/// The term under `term`'s injections and conjunctions that has a root: an application, a
-/// domain value or a collection. A conjunction (an `#as` pattern) matches a value only if each
-/// conjunct does, so the value has the root of a rooted conjunct, at that conjunct's sort.
-fn rooted(term: &Term) -> Option<&Term> {
-    match term.kind() {
-        TermKind::Injection { term, .. } => rooted(term),
-        TermKind::And(left, right) => rooted(left).or_else(|| rooted(right)),
-        TermKind::Application { .. }
-        | TermKind::DomainValue { .. }
-        | TermKind::Map { .. }
-        | TermKind::List { .. }
-        | TermKind::Set { .. } => Some(term),
-        TermKind::Variable(_) => None,
+/// The term under `term`'s injections and conjunctions whose root gave the rigid key `key`: an
+/// application of the key's constructor, the key's domain value, or a collection of the key's
+/// kind. A conjunction (an `#as` pattern) matches a value only if each conjunct does, and its
+/// key is the meet of the conjuncts' keys (`CellIndex::meet`), so a rigid key comes from a
+/// conjunct with that root; a matching value has that root, at that conjunct's sort. `None`
+/// when no conjunct agrees with the key, or two of different sorts do.
+fn rooted<'t>(term: &'t Term, key: &CellIndex) -> Option<&'t Term> {
+    let mut found: Vec<&Term> = Vec::new();
+    agreeing(term, key, &mut found);
+    let (first, rest) = found.split_first()?;
+    rest.iter()
+        .all(|other| other.sort() == first.sort())
+        .then_some(*first)
+}
+
+fn agreeing<'t>(term: &'t Term, key: &CellIndex, found: &mut Vec<&'t Term>) {
+    let agrees = match (term.kind(), key) {
+        (TermKind::Injection { term, .. }, _) => return agreeing(term, key, found),
+        (TermKind::And(left, right), _) => {
+            agreeing(left, key, found);
+            agreeing(right, key, found);
+            return;
+        }
+        (TermKind::Application { symbol, .. }, CellIndex::Constructor(name)) => {
+            symbol.name == *name
+        }
+        (TermKind::DomainValue { value, .. }, CellIndex::Value(written)) => value == written,
+        (TermKind::Map { .. }, CellIndex::Map)
+        | (TermKind::List { .. }, CellIndex::List)
+        | (TermKind::Set { .. }, CellIndex::Set) => true,
+        _ => false,
+    };
+    if agrees {
+        found.push(term);
     }
+}
+
+/// The ids of the definition's axioms other than rewrite rules.
+fn equation_ids(definition: &BackendDefinition) -> BTreeSet<String> {
+    definition
+        .classified_axioms()
+        .iter()
+        .filter(|axiom| !matches!(axiom, ClassifiedAxiom::Rewrite { .. }))
+        .map(|axiom| axiom.attributes().unique_id.clone())
+        .collect()
 }
 
 /// The terms the backend's cell keys are computed from: the head of the one `<k>` cell not

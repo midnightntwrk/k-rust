@@ -8,9 +8,13 @@
 //!
 //! The edges are derived from the backend's function theory rather than taken from the
 //! frontend's label dependency graph: the theory holds the equations evaluation uses, it names
-//! symbols as the backend's terms do, and reading it needs no change to the facade. Symbols
-//! without equations (hooked builtins, constructors) are no nodes: the definition states nothing
-//! about their evaluation that a proposer could harvest.
+//! symbols as the backend's terms do, and reading it needs no change to the facade.
+//!
+//! A node is a symbol with an equation stored in the function theory under that symbol. Symbols
+//! without one (constructors, hooked builtins evaluated by their hook) are no nodes. The
+//! simplification and definedness equations are in other theories and are not read, so a
+//! `simplification` lemma does not make its head a node. An equation stored under a bucket that
+//! is not a symbol (`Variable`, `Injection`, `And`) is skipped: no call names it.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
