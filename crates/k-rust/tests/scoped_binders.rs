@@ -8,9 +8,11 @@
 //! inference build.
 
 use k_rust::{
+    backend::{Backend, BackendOptions, ExecuteRequest},
     builtin::embedded,
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
+    kore::{codec, parser::parse_pattern, printer::Printer},
     outer::{LoadOptions, LoadedDefinition, ResolvedSource, load_with_options},
 };
 
@@ -270,42 +272,57 @@ fn a_macro_existential_is_judged_as_written_at_its_use() {
     );
 }
 
-/// FU-56: the function-symbol check reads a quantifier through `kast::binding`. A map key read
-/// by value needs the rule to bind the variables it reads, which are its free variables; in
-/// `f(#Exists Y:Int . Y)` the `Y` is the quantifier's own, so the key reads no variable and the
-/// definition compiles, whatever the binder is called: no error at all. A free `W` the rule binds
-/// nowhere else is refused with `IllegalFunctionOnLhs`.
+/// FU-56: a local function's pattern binds its own variables (`kast::binding`), so the match
+/// pattern's `X` in `go(X:Int) => done(1) requires X :=K h()` is a variable of its own, apart from
+/// the rule's `X`, and takes its own sort at its position, `K`, not the rule variable's `Int`.
+/// The pattern `X` matches every term, `h()` included, so the condition holds and `go(5)`
+/// rewrites to `done(1)`; were the pattern's `X` read at `Int`, `h()` would never match it and
+/// `go(5)` would be stuck.
 ///
-/// The one refusal the `Y` and `Z` keys may meet is the matching-logic position check's: a
-/// quantifier at a matched position has no matching meaning (`MlConstructPosition`, the matrix's
-/// `extra/*-lhs__nested-*` cells), which MLP/4b's walk states and this branch's base precedes.
+/// A map key read by value needs the rule to bind the variables it reads, which are its free
+/// variables, so a free `W` the rule binds nowhere else is refused with `IllegalFunctionOnLhs`.
 #[test]
-fn a_quantifier_in_a_by_value_read_binds_its_own_variable() {
-    let errors = |key: &str| {
-        let source = format!(
-            "module P\n  imports INT\n  imports MAP\n  syntax KItem ::= go(Int) | done(Int)\n  syntax Int ::= f(Int) [function]\n  rule f(X) => X\n  configuration <k> $PGM:KItem </k> <m> .Map </m>\n  rule [p]: <k> go(_) => done(0) ... </k> <m> ({key} |-> _) ... </m>\nendmodule\n"
-        );
-        let loaded = load("P", &source);
-        compile_loaded_definition(&loaded, CompileOptions::default())
-            .err()
-            .map(|error| error.diagnostics)
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|diagnostic| diagnostic.severity == Severity::Error)
-            .collect::<Vec<_>>()
-    };
-    for binder in ["Y", "Z"] {
-        let key = format!("f(#Exists {binder}:Int . {binder})");
-        let found = errors(&key);
-        assert!(
-            found
-                .iter()
-                .all(|diagnostic| diagnostic.code == DiagnosticCode::MlConstructPosition),
-            "{key}: {:?}",
-            rendered(&found)
-        );
-    }
-    let free = errors("f(W)");
+fn a_match_pattern_variable_is_its_own_variable_and_a_free_map_key_is_refused() {
+    let source = "module P\n  imports INT\n  imports BOOL\n  syntax KItem ::= go(Int) | done(Int) | h()\n  configuration <k> $PGM:KItem </k>\n  rule [p]: <k> go(X:Int) => done(1) ... </k> requires X :=K h()\nendmodule\n";
+    let kore = compile_loaded_definition(&load("P", source), CompileOptions::default())
+        .unwrap_or_else(|error| panic!("{:?}", rendered(&error.diagnostics)))
+        .definition_kore;
+    let mut backend = Backend::new(&kore, "P", BackendOptions::default())
+        .unwrap_or_else(|error| panic!("Backend::new: {error}"));
+    let go = "Lblgo'LParUndsRParUnds'P'Unds'KItem'Unds'Int{}";
+    let initial = parse_pattern(&format!(
+        "Lbl'-LT-'generatedTop'-GT-'{{}}(Lbl'-LT-'k'-GT-'{{}}(kseq{{}}({go}(\\dv{{SortInt{{}}}}(\"5\")), dotk{{}}())), Lbl'-LT-'generatedCounter'-GT-'{{}}(\\dv{{SortInt{{}}}}(\"0\")))"
+    ))
+    .unwrap();
+    let result = backend
+        .execute(ExecuteRequest {
+            max_depth: Some(5),
+            ..ExecuteRequest::new(initial)
+        })
+        .unwrap_or_else(|error| panic!("go(5): {error}"));
+    let leaves = result
+        .leaves
+        .iter()
+        .map(|leaf| {
+            Printer::compact().print_pattern(
+                &codec::from_value(&leaf.state).expect("a result state is KORE JSON"),
+            )
+        })
+        .collect::<Vec<_>>();
+    let done = "Lbldone'LParUndsRParUnds'P'Unds'KItem'Unds'Int{}(\\dv{SortInt{}}(\"1\"))";
+    assert!(
+        leaves.len() == 1 && leaves[0].contains(done) && !leaves[0].contains(go),
+        "go(5) must rewrite to done(1): {leaves:?}"
+    );
+
+    let source = "module P\n  imports INT\n  imports MAP\n  syntax KItem ::= go(Int) | done(Int)\n  syntax Int ::= f(Int) [function]\n  rule f(X) => X\n  configuration <k> $PGM:KItem </k> <m> .Map </m>\n  rule [p]: <k> go(_) => done(0) ... </k> <m> (f(W) |-> _) ... </m>\nendmodule\n";
+    let free = compile_loaded_definition(&load("P", source), CompileOptions::default())
+        .err()
+        .map(|error| error.diagnostics)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|diagnostic| diagnostic.severity == Severity::Error)
+        .collect::<Vec<_>>();
     assert!(
         free.iter().any(
             |diagnostic| diagnostic.code == DiagnosticCode::IllegalFunctionOnLhs
