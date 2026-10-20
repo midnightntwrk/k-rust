@@ -32,6 +32,11 @@
     reason = "phase-1 interface stubs (FZ-01); removed at integration round 1"
 )]
 
+// Unit tests include the integration tests' fixture support module (tests/support), which names
+// this crate `k_rust_fuzz`, so that crate-private code is tested against the real fixtures.
+#[cfg(test)]
+extern crate self as k_rust_fuzz;
+
 pub(crate) mod assemble;
 mod engine;
 pub mod error;
