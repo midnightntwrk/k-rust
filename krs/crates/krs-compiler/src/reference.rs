@@ -1272,7 +1272,7 @@ fn render_rule(
             }
         })?;
         let ty = render_sort_type(sort, package)?;
-        parameters.push(quote!(#name: #ty));
+        parameters.push((binding.name.clone(), quote!(#name: #ty)));
     }
 
     let mut left_cells = Vec::new();
@@ -1424,6 +1424,22 @@ fn render_rule(
         rule.nondet.as_ref(),
         &label,
     );
+    // A `cells!` rule declares its typed binders in their first-occurrence
+    // order in the subject, which lists the cells in another order than
+    // the readable record (map reads first), so the order is read back from
+    // the rendered subject.
+    let subject = quote!(#(#left_cells,)* #state @ ..);
+    let order = krs_syntax::parse_cells_pattern(subject.clone())
+        .and_then(|cells| krs_syntax::cells_pattern_term_binders(&cells))
+        .map_err(ReferenceExpansionError::KrsSyntax)?;
+    let position = |name: &str| {
+        order
+            .iter()
+            .position(|binder| binder.unraw() == name)
+            .unwrap_or(usize::MAX)
+    };
+    parameters.sort_by_key(|(name, _)| position(name));
+    let parameters = parameters.into_iter().map(|(_, parameter)| parameter);
     syn::parse2(quote! {
         #(#attrs)*
         #(#existential_helpers)*
@@ -1431,10 +1447,7 @@ fn render_rule(
         #requires
         pub fn #name(
             #(#parameters,)*
-            k::cells! {
-                #(#left_cells,)*
-                #state @ ..
-            }: #configuration,
+            k::cells! { #subject }: #configuration,
         ) -> #configuration {
             k::cells! {
                 #(#right_cells,)*

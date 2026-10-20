@@ -650,31 +650,58 @@ pub fn sum(
     }
 }
 "#;
-    let emitted = [readable, cells].map(|rule| {
-        let temporary = temp_dir();
-        let manifest =
-            materialize_fixture(temporary.path(), &TWO_ENTRY_READ.replace("{rule}", rule));
-        let output = temporary.path().join("emitted");
-        assert_success(&command(
-            target.path(),
-            &manifest,
-            "emit-k",
-            Some(&output),
-            &[],
-        ));
-        let definition = fs::read_to_string(output.join("definition.k")).unwrap();
-        let start = definition
-            .find("  rule [sum]:")
-            .expect("the sum rule is emitted");
-        let sentence = &definition[start..];
-        sentence[..sentence.find("endmodule").unwrap_or(sentence.len())].to_owned()
-    });
+    let emitted = [readable, cells]
+        .map(|rule| emit_sum_rule(target.path(), &TWO_ENTRY_READ.replace("{rule}", rule)));
     assert_eq!(
         emitted[0],
         "  rule [sum]:\n    <mem> 0 |-> X:Int 1 |-> Y:Int ... </mem>\n    <acc> S:Int => S:Int +Int (X:Int +Int Y:Int) </acc>\n",
         "{emitted:#?}"
     );
     assert_eq!(emitted[0], emitted[1]);
+}
+
+/// Emits a `TWO_ENTRY_READ` package and returns its `sum` rule sentence.
+fn emit_sum_rule(target: &Path, source: &str) -> String {
+    let temporary = temp_dir();
+    let manifest = materialize_fixture(temporary.path(), source);
+    let output = temporary.path().join("emitted");
+    assert_success(&command(target, &manifest, "emit-k", Some(&output), &[]));
+    let definition = fs::read_to_string(output.join("definition.k")).unwrap();
+    let start = definition
+        .find("  rule [sum]:")
+        .expect("the sum rule is emitted");
+    let sentence = &definition[start..];
+    sentence[..sentence.find("endmodule").unwrap_or(sentence.len())].to_owned()
+}
+
+#[test]
+fn expanded_map_reads_compile_back_to_the_same_rule() {
+    let target = shared_fixture_target();
+    // `acc` comes first in the record, while the reference `cells!` subject
+    // lists the map read first; its typed binders follow the subject.
+    for rule in [
+        "sum: { acc: s, mem: { 0 -> x, .. } } => { acc: int::add(s, x) };",
+        "sum: { acc: s, mem: { 0 -> x, 1 -> y, .. } } => { acc: int::add(s, int::add(x, y)) };",
+    ] {
+        let source =
+            TWO_ENTRY_READ.replace("{rule}", &format!("krs::rules! {{ for Machine; {rule} }}"));
+        let temporary = temp_dir();
+        let manifest = materialize_fixture(temporary.path(), &source);
+        let expanded = command(target.path(), &manifest, "expand", None, &[]);
+        assert_success(&expanded);
+        // The reference spelling names the facade `k`.
+        let expanded = format!(
+            "extern crate krs as k;\n{}",
+            String::from_utf8(expanded.stdout).unwrap()
+        );
+        // The reference spelling names the map's frame `rest0 @ ..`, which
+        // K writes as an unused variable where the readable read writes `...`.
+        assert_eq!(
+            emit_sum_rule(target.path(), &expanded).replace("Rest0:Map", "..."),
+            emit_sum_rule(target.path(), &source),
+            "{expanded}"
+        );
+    }
 }
 
 fn command(

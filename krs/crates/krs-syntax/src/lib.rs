@@ -88,7 +88,8 @@ pub use state_rule::{
     ClaimEnsures, ClaimSortCandidate, FUNCTION_CONTEXT_ONLY_ON_EQUATIONS,
     FUNCTION_CONTEXT_REMAINDER, FUNCTION_CONTEXT_SHAPE, FunctionContext, StateClaimItem,
     StateContextAliasItem, StateRuleBinding, StateRuleBindingKind, StateRuleItem,
-    StateRuleReferenceKind, is_cells_parameter, parse_state_context_alias_item,
+    StateRuleReferenceKind, cells_pattern_term_binders, is_cells_parameter,
+    parse_state_context_alias_item,
 };
 pub use syntax_list::{
     SyntaxListAttribute, SyntaxListCons, SyntaxListDeclaration, SyntaxListTerminator,
