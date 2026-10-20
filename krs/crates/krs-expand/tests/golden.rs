@@ -715,6 +715,14 @@ k::rules! {
         env: set(e, name, value),
     }
     where value: Value;
+
+    swap: {
+        computation: [StmtSyntax::Swap(a, b), ..],
+        env: { a -> x, b -> y, .. },
+    } => {
+        computation: [x, y, ..],
+    }
+    where a: Id, b: Id;
 }
 ",
     ),

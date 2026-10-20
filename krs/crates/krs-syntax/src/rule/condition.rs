@@ -91,14 +91,13 @@ impl RuleCondition {
 /// One explicit gradual extra-cell clause in a readable rule.
 #[derive(Clone, Debug)]
 pub enum RuleExtra {
-    /// Failable preserved map binding read.
+    /// Failable preserved read of one or more entries of a map cell.
     HaveMap {
         /// Named fixed cell.
         cell: Ident,
-        /// Required key term.
-        key: Box<TermExpression>,
-        /// Value binder introduced only when the map item is present.
-        value: Ident,
+        /// The read entries, at least one, in authored order; their keys are
+        /// pairwise distinct terms.
+        entries: Vec<RuleMapEntry>,
     },
     /// Simultaneous map update.
     UpdateMap {
@@ -161,6 +160,16 @@ pub(super) fn condition_token_range(input: ParseStream<'_>) -> syn::Result<Token
     Ok(TokenRange::for_tokens(&tokens)?)
 }
 
+/// One entry of a map read: the rule applies only where the map holds an
+/// entry for `key`, and `value` binds what that entry maps to.
+#[derive(Clone, Debug)]
+pub struct RuleMapEntry {
+    /// Required key term.
+    pub key: Box<TermExpression>,
+    /// Value binder introduced only when the map item is present.
+    pub value: Ident,
+}
+
 /// One validated ordinary three-argument map update.
 #[derive(Clone, Debug)]
 pub struct RuleMapUpdate {
@@ -192,8 +201,10 @@ impl From<HaveMapExtra> for RuleExtra {
     fn from(extra: HaveMapExtra) -> Self {
         Self::HaveMap {
             cell: extra.cell,
-            key: extra.key,
-            value: extra.value,
+            entries: vec![RuleMapEntry {
+                key: extra.key,
+                value: extra.value,
+            }],
         }
     }
 }

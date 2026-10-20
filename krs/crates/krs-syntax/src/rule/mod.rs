@@ -10,7 +10,7 @@ pub use block::{
     RuleHeadResult, RuleImport, RuleNarrowing, parse_rule_block_source_with_trivia,
 };
 pub(crate) use condition::take_requires_helper;
-pub use condition::{RuleCondition, RuleExtra, RuleMapUpdate};
+pub use condition::{RuleCondition, RuleExtra, RuleMapEntry, RuleMapUpdate};
 pub use existentials::RuleExistentials;
 pub use item::{BINDER_LIST_CONTRACT, RuleBinder, RuleItem, RuleParameter};
 pub use pattern::RulePattern;

@@ -865,3 +865,108 @@ fn function_context_binders_are_named_with_the_rule() {
         "B:Int"
     );
 }
+
+/// A configuration variable denotes the same external value wherever the
+/// initializer reads it, so it prints `$NAME:Sort` inside a map value as at
+/// a cell's root, a variable read by two cells prints twice, and the
+/// declaration maps to its first occurrence.
+#[test]
+fn configuration_variables_print_as_dollar_names_anywhere_in_an_initializer() {
+    use krs_ir::{ConfigurationRoot, FixedCell, FixedConfigurationVariable, FixedInitializerCell};
+
+    let context = context();
+    let id = |name: &str| krs_ir::SemanticId::new(name.to_owned()).unwrap();
+    let cell = |name: &str| krs_ir_levels::SymbolId::new(format!("cell.{name}")).unwrap();
+    let variable = |key: &str, name: &str| {
+        DefinitionTerm::variable(node(key), DefinitionSortRef::int(), id(name))
+    };
+    let declaration = |name: &str, external: &str| {
+        FixedConfigurationVariable::new(
+            node(&format!("{name}.declaration")),
+            id(name),
+            external,
+            DefinitionSortRef::int(),
+            false,
+        )
+        .unwrap()
+    };
+    let registers = DefinitionTerm::map(
+        node("regs.value"),
+        MapOperands::Items(NonEmpty::new(
+            MapEntry {
+                key: int("regs.key.a", "0"),
+                value: variable("regs.a", "a"),
+            },
+            vec![MapEntry {
+                key: int("regs.key.b", "1"),
+                value: variable("regs.b", "b"),
+            }],
+        )),
+    );
+    let configuration = krs_ir_levels::ConfigurationSentence::new(
+        node("configuration"),
+        id("configuration"),
+        ConfigurationRoot::GeneratedTop,
+        vec![
+            FixedCell::leaf(
+                node("regs.cell"),
+                cell("regs"),
+                "regs",
+                Vec::new(),
+                DefinitionSortRef::map(),
+            )
+            .unwrap(),
+            FixedCell::leaf(
+                node("acc.cell"),
+                cell("acc"),
+                "acc",
+                Vec::new(),
+                DefinitionSortRef::int(),
+            )
+            .unwrap(),
+            FixedCell::leaf(
+                node("init.cell"),
+                cell("init"),
+                "init",
+                Vec::new(),
+                DefinitionSortRef::int(),
+            )
+            .unwrap(),
+        ],
+        node("initializer"),
+        id("initializer"),
+        vec![declaration("a", "A"), declaration("b", "B")],
+        vec![
+            FixedInitializerCell::term(node("regs.initializer"), cell("regs"), registers),
+            FixedInitializerCell::term(
+                node("acc.initializer"),
+                cell("acc"),
+                variable("acc.a", "a"),
+            ),
+            FixedInitializerCell::term(
+                node("init.initializer"),
+                cell("init"),
+                variable("init.a", "a"),
+            ),
+        ],
+    )
+    .unwrap();
+    let mut writer = super::Writer::default();
+    super::sentence::emit_sentence(
+        &krs_ir_levels::DefinitionSentence::Configuration(configuration),
+        &context,
+        &mut writer,
+    )
+    .unwrap();
+    assert_eq!(
+        writer.source,
+        "  configuration\n    <regs> 0 |-> $A:Int 1 |-> $B:Int </regs>\n    <acc> $A:Int </acc>\n    <init> $A:Int </init>\n\n",
+    );
+    let range = |key: &str| writer.ranges[node(key).key()];
+    assert_eq!(range("a.declaration"), range("regs.a"));
+    assert_eq!(range("b.declaration"), range("regs.b"));
+    assert_eq!(
+        &writer.source[range("acc.a").start()..range("acc.a").end()],
+        "$A:Int"
+    );
+}

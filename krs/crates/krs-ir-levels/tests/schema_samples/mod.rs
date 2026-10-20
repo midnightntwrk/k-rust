@@ -910,6 +910,14 @@ impl<S: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolHeadRu
         }]
     }
 }
+impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolHeadRuleMapEntry<T> {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            key: sample::<T>(),
+            value_binding: sample::<String>(),
+        }]
+    }
+}
 impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolRuleKSequenceItem<T> {
     fn samples() -> Vec<Self> {
         vec![Self {
@@ -2079,8 +2087,7 @@ impl<
             vec![
                 Self::HaveMap {
                     cell: sample::<I>(),
-                    key: sample::<T>(),
-                    value_binding: sample::<String>(),
+                    entries: sample::<Vec<ProtocolHeadRuleMapEntry<T>>>(),
                 },
                 Self::UpdateMap {
                     cell: sample::<I>(),

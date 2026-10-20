@@ -1372,8 +1372,10 @@ mod tests {
                     key,
                     name: "missing".to_owned(),
                 },
-                key: unresolved_term("Extra"),
-                value_binding: "value".to_owned(),
+                entries: vec![krs_ir::ProtocolHeadRuleMapEntry {
+                    key: unresolved_term("Extra"),
+                    value_binding: "value".to_owned(),
+                }],
             }],
             existentials: Vec::new(),
             ensures: None,

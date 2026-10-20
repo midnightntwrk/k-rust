@@ -1483,6 +1483,22 @@ fn validate_cells_path(path: &Path, span: proc_macro2::Span) -> Result<(), Synta
     Ok(())
 }
 
+/// The term binders a `cells!` pattern introduces, in the first-occurrence
+/// preorder that a rule's typed term parameters follow.
+///
+/// # Errors
+///
+/// Returns the binding error a `cells!` rule subject would report.
+pub fn cells_pattern_term_binders(cells: &CellsExpression) -> Result<Vec<Ident>, SyntaxError> {
+    let mut bindings = Vec::new();
+    collect_cells_bindings(cells, &mut bindings)?;
+    Ok(bindings
+        .into_iter()
+        .filter(|binding| binding.kind == StateRuleBindingKind::Term)
+        .map(|binding| binding.name)
+        .collect())
+}
+
 fn collect_cells_bindings(
     cells: &CellsExpression,
     output: &mut Vec<StateRuleBinding>,

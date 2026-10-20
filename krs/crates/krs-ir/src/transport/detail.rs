@@ -110,6 +110,7 @@ details! {
 details! {
     /// A state term validation failure.
     StateTermReason {
+        EmptyMapRead => "a map read requires at least one entry",
         OneSidedAliasReusesResultFrame => "a one-sided context alias cannot reuse a result frame",
         UnexpectedAnonymousOccurrence => "anonymous occurrences are claim-subject-only",
         InvalidApplicationPathOrHeadClass => "application path keys or head class are invalid",

@@ -2,6 +2,7 @@
 
 use krs_syntax::KrsSyntax;
 use krs_syntax::{ProvenanceRole, RuleExtra, RuleHeadResult};
+use quote::ToTokens;
 
 #[test]
 fn nonlinear_subject_bindings_are_one_catalog_entry_with_repeated_occurrences() {
@@ -189,8 +190,8 @@ fn control_flow_results_and_gradual_map_extras_are_structured() {
     );
     assert!(matches!(
         clause.extras(),
-        [RuleExtra::HaveMap { cell, value, .. }]
-            if cell == "env" && value == "value"
+        [RuleExtra::HaveMap { cell, entries }]
+            if cell == "env" && matches!(entries.as_slice(), [entry] if entry.value == "value")
     ));
     let roles = clause
         .provenance()
@@ -201,6 +202,61 @@ fn control_flow_results_and_gradual_map_extras_are_structured() {
     assert!(roles.contains(&ProvenanceRole::RuleLeftCellsField));
     assert!(roles.contains(&ProvenanceRole::RuleLeftMapKey));
     assert!(roles.contains(&ProvenanceRole::RuleLeftMapValue));
+}
+
+#[test]
+fn machine_map_patterns_read_several_entries_of_one_cell() {
+    let block = krs_syntax::RuleBlock::parse_source(
+        r"
+        for Machine;
+
+        swap: {
+            computation: [Swap(a, b), ..],
+            regs: { a -> x, Reg::B -> y, b -> z, .. },
+        } => {
+            computation: [x, y, z, ..],
+        };
+        ",
+    )
+    .unwrap();
+    let clause = &block.clauses()[0];
+    assert_eq!(
+        clause
+            .bindings()
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        ["a", "b", "x", "y", "z"]
+    );
+    let [RuleExtra::HaveMap { cell, entries }] = clause.extras() else {
+        panic!("expected one map read, got {:?}", clause.extras());
+    };
+    assert_eq!(cell, "regs");
+    assert_eq!(
+        entries
+            .iter()
+            .map(|entry| (
+                entry.key.expression().to_token_stream().to_string(),
+                entry.value.to_string()
+            ))
+            .collect::<Vec<_>>(),
+        [
+            ("a".to_owned(), "x".to_owned()),
+            ("Reg :: B".to_owned(), "y".to_owned()),
+            ("b".to_owned(), "z".to_owned()),
+        ]
+    );
+    let anchors = clause.provenance().unwrap();
+    let ordinals = |role| {
+        anchors
+            .iter()
+            .filter(|anchor| anchor.role() == role)
+            .map(krs_syntax::ProvenanceAnchor::ordinal)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(ordinals(ProvenanceRole::RuleLeftCellsField), [0]);
+    assert_eq!(ordinals(ProvenanceRole::RuleLeftMapKey), [0, 1, 2]);
+    assert_eq!(ordinals(ProvenanceRole::RuleLeftMapValue), [0, 1, 2]);
 }
 
 #[test]
@@ -248,8 +304,8 @@ fn final_machine_records_preserve_cells_bindings_and_configuration_ownership() {
     );
     assert!(matches!(
         block.clauses()[0].extras(),
-        [RuleExtra::HaveMap { cell, value, .. }]
-            if cell == "env" && value == "value"
+        [RuleExtra::HaveMap { cell, entries }]
+            if cell == "env" && matches!(entries.as_slice(), [entry] if entry.value == "value")
     ));
     assert!(matches!(
         block.clauses()[1].extras(),
@@ -358,6 +414,26 @@ fn malformed_blocks_fail_at_the_local_construct() {
         (
             "for Machine; x: { computation: [a, ..], env: { a => v, .. } } => { computation: [a, ..] };",
             "`=>` is reserved for rewrites; map entries use `->`",
+        ),
+        (
+            "for Machine; x: { computation: [a, ..], env: { a -> v, a -> w, .. } } => { computation: [v, ..] };",
+            "a machine-rule map pattern reads key `a` twice; its entries are distinct items of the map, so no map matches it",
+        ),
+        (
+            "for Machine; x: { computation: [a, ..], env: { Key(1) -> v, b -> w, Key(1) -> u, .. } } => { computation: [v, ..] };",
+            "reads key `Key (1)` twice",
+        ),
+        (
+            "for Machine; x: { computation: [a, ..], env: { a -> v, b -> v, .. } } => { computation: [v, ..] };",
+            "duplicate readable rule binding `v`",
+        ),
+        (
+            "for Machine; x: { computation: [a, ..], env: { a -> v, b -> w } } => { computation: [v, ..] };",
+            "a machine-rule map pattern is `{ key -> value, .. }`",
+        ),
+        (
+            "for Machine; x: { computation: [a, ..], env: { a -> v, b -> w, } } => { computation: [v, ..] };",
+            "a machine-rule map pattern is `{ key -> value, .. }`",
         ),
         (
             "for Machine; x: { computation: [a, ..], stack: Cons(v, rest) } => { computation: [a, ..] };",

@@ -57,6 +57,7 @@ Colours belong to terminals: `color = "magenta"` paints every terminal, and `col
 `#[k::function(total, memo, ...)]` gives a function K's `memo` hint, written as a bare flag after the totality in both layers: the Haskell backend may cache its results, while the LLVM backend and k-rust accept the hint and ignore it, so results never depend on it.
 `#[k::function(total, fresh_generator, ...)]` makes a total function of one Int field K's `freshGenerator` of its result sort, the function a [fresh binder](#fresh-values) of that sort draws from.
 Initializer parameters may use `#[k::config_var(name = "PGM", main)]`.
+A configuration variable is a value supplied at start, so the initializer may read it anywhere and more than once, as in `regs: k::map![Reg::A -> a, Reg::B -> b]`; each read is K's `$NAME:Sort`.
 Readable rule clauses can carry `#[k::rule(owise, label = "...")]` when they are an explicit fallback.
 
 `#[k::requires]` guards rules, equations, and claims with an object-language Bool as allowed by the containing sentence.
@@ -91,6 +92,12 @@ The omitted computation cell is framed like every omitted cell, so the rule fire
 `krs expand` writes the reference `cells!` rule without a `KCell` entry or tail.
 Such a rule is rejected when it changes no cell (`krs::analysis::rule-changes-no-cell`), and when every cell pattern is a variable or `_` of the cell's sort and it has no guard, because it is then always enabled and execution never terminates (`krs::analysis::always-enabled-rule`).
 The overlap check treats two rules that share no cell as independent, because they commute; rules that share cells are compared on those cells only.
+
+A readable record reads entries of a Map cell with `env: { name -> value, .. }`: the rule applies only where the key is present, `value` binds what it maps to, and the cell is left unchanged, so the result record does not restate `env`.
+It may read several, `regs: { a -> x, b -> y, .. }`, which is K's `<regs> A |-> X B |-> Y ... </regs>` and the `cells!` entry `regs: k::configuration::Cell(map![a -> x, b -> y, ..])`.
+Each item is a different entry of the map, so the pattern matches only where the keys differ: with `a` and `b` bound to one key, the rule does not apply.
+Two keys written as the same term could never differ, so `{ a -> x, a -> y, .. }` is a syntax error, and so is the pattern `map![a -> x, a -> y, ..]` in a `cells!` entry; read one entry and bind its value once instead.
+Inside a `cells!` entry, `k::map![..]` is the same map as `map![..]`, as it is in an initializer.
 
 ### Whole nested-cell variables
 
@@ -172,11 +179,15 @@ It counts as a binder before the binders inside its pattern, so `fn wrap_pair(p:
 `Red() | Green() | Blue()` in a left-hand side is the Rust or-pattern you know: it matches what any of its alternatives matches.
 K spells it `( red ( ) #Or green ( ) #Or blue ( ) )`, and KRS emits exactly that, always parenthesised and in source order.
 `rgb: Color(Red() | Green() | Blue()) => 1;` turns `color(green())` into `1` and leaves `color(3)` stuck, and the equation `fn code_rgb(k::term![ColorCode(Red() | Green() | Blue())]: Term<Int>) -> Term<Int> { 1 }` emits `rule code ( ( red ( ) #Or green ( ) #Or blue ( ) ) ) => 1`.
-In a readable clause the whole subject may be an or-pattern, `primary: Red() | Green() | Blue() => 1;`, which matches at the head of the computation cell; alternatives may also appear in any subterm of a `k::term![..]` subject, a `cells!` cell value, a `k!` item, or a `map!` key or value.
+In a readable clause the whole subject may be an or-pattern, `primary: Red() | Green() | Blue() => 1;`, which matches at the head of the computation cell; in a transition or a claim, alternatives may also appear in any subterm of a `k::term![..]` subject, a `cells!` cell value, a `k!` item, or a `map!` key or value.
 In Rust, `|` tries its alternatives left to right; in K, `#Or` means "any of these", and when two alternatives match one term with different bindings the backends disagree: on `pick(pair(1, 2))`, `pick(Pair(x, y) | Pair(y, x)) => x` gives `1` on the LLVM backend and `1 #Or 2` on the Haskell backend.
 KRS lets you write `|` only where the readings agree.
 Every alternative binds the same names (``variable `x` is not bound in all alternatives``, rustc's E0408), each at one sort, and two alternatives that bind names must not match one term with different bindings (`krs::analysis::ambiguous-or-pattern`): `Pick(Pair(x, Red()) | Pair(x, Green()))` is accepted, `Pick(Pair(x, y) | Pair(y, x))` is not, and alternatives that bind no names may overlap freely.
 The rule-overlap check treats an or-pattern as each of its alternatives.
+An equation's alternatives compile only at the root of an argument of the function it defines, where `Code(Red() | Green())` is the two equations `code(red())` and `code(green())`.
+A constructor and an alias distribute over `|`, so alternatives below either mean the same as alternatives at the root, and KRS asks for that spelling: `Code(op @ (Red() | Green()))` is written `Code((op @ Red()) | (op @ Green()))`, and `Code(Pair(x, Red() | Green()))` is written `Code(Pair(x, Red()) | Pair(x, Green()))` or as one equation per alternative.
+`krs check` rejects `|` below a constructor or an alias of an equation's or anywhere rule's left-hand side, in a function context cell, and at an argument's root when the alternatives' sort is below the argument's, which sort injection places below an injection (`krs::analysis::invalid-pattern-or`).
+A `k::matches!` pattern follows the same rule at its own root, because K tests it with a generated equation, and a simplification, which rewrites one term, takes no `|` at all.
 `|` in a result, a requires or ensures condition, or an initializer is a syntax error that points to `||`, `bool::or`, or `k::or_bool!` for Boolean disjunction; so are `|` next to a `..` remainder, `|` between whole machine records, and `|` joining whole `k::term![..]` subjects, whose root is the matched constructor or function.
 
 ### Shape tests

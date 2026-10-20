@@ -6,7 +6,7 @@ use syn::spanned::Spanned;
 use syn::{Attribute, Expr, Ident, ItemFn, ItemUse, Meta, Path, Token, Type, UseTree};
 
 use super::condition::{
-    HaveMapExtra, MapUpdateExtra, RuleExtra, condition_token_range, parse_have_extra,
+    HaveMapExtra, MapUpdateExtra, RuleExtra, RuleMapEntry, condition_token_range, parse_have_extra,
     parse_update_extra,
 };
 use super::item::RuleItem;
@@ -413,6 +413,7 @@ impl RuleClause {
             RuleTermCounters::default()
         };
         let mut have_cell = 0_usize;
+        let mut have_entry = 0_usize;
         let mut update_cell = 0_usize;
         // Optional and collection states (KF-023) number their K-sequence
         // and instance anchors per side; the right side continues after a
@@ -427,7 +428,7 @@ impl RuleClause {
             .count();
         for extra in &self.extras {
             match extra {
-                RuleExtra::HaveMap { cell, key, value } => {
+                RuleExtra::HaveMap { cell, entries } => {
                     let ordinal = checked_ordinal(
                         have_cell,
                         ProvenanceRole::RuleLeftCellsField,
@@ -439,17 +440,26 @@ impl RuleClause {
                         ordinal,
                         TokenRange::for_tokens(cell)?,
                     ));
-                    anchors.push(ProvenanceAnchor::new(
-                        ProvenanceRole::RuleLeftMapKey,
-                        ordinal,
-                        TokenRange::for_tokens(key.expression())?,
-                    ));
-                    anchors.push(ProvenanceAnchor::new(
-                        ProvenanceRole::RuleLeftMapValue,
-                        ordinal,
-                        TokenRange::for_tokens(value)?,
-                    ));
-                    append_rule_term_anchors(&mut anchors, key, RuleTermSide::Left, &mut left)?;
+                    // Keys and values are numbered per entry, across every map read.
+                    for RuleMapEntry { key, value } in entries {
+                        let entry = checked_ordinal(
+                            have_entry,
+                            ProvenanceRole::RuleLeftMapKey,
+                            value.span(),
+                        )?;
+                        have_entry += 1;
+                        anchors.push(ProvenanceAnchor::new(
+                            ProvenanceRole::RuleLeftMapKey,
+                            entry,
+                            TokenRange::for_tokens(key.expression())?,
+                        ));
+                        anchors.push(ProvenanceAnchor::new(
+                            ProvenanceRole::RuleLeftMapValue,
+                            entry,
+                            TokenRange::for_tokens(value)?,
+                        ));
+                        append_rule_term_anchors(&mut anchors, key, RuleTermSide::Left, &mut left)?;
+                    }
                 }
                 RuleExtra::UpdateMap { cell, update, .. } => {
                     let [base, key, value] = update.arguments();
@@ -680,7 +690,9 @@ impl RuleClause {
         let mut terms = vec![self.rule.parameter().pattern.nodes()];
         for extra in &self.extras {
             match extra {
-                RuleExtra::HaveMap { key, .. } => terms.push(key.nodes()),
+                RuleExtra::HaveMap { entries, .. } => {
+                    terms.extend(entries.iter().map(|entry| entry.key.nodes()));
+                }
                 RuleExtra::RewriteCell { before, .. } => terms.push(before.nodes()),
                 RuleExtra::RewriteState { before, .. } => {
                     terms.extend(before.terms().into_iter().map(TermExpression::nodes));
