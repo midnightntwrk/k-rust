@@ -1654,20 +1654,27 @@ fn parse_group_entry(
     }
 }
 
+/// Parses a leaf cell's content. `k!` and `map!` are read by their last
+/// path segment, so `k::map![..]` is the same map as `map![..]`, as in
+/// instance children and initializers; another qualified macro, such as
+/// `k::fragment![..]`, is an ordinary term.
 fn parse_state_term(
     tokens: TokenStream,
     context: StateMacroContext,
 ) -> Result<StateTerm, SyntaxError> {
-    if let Some((name, payload)) = macro_payload(&tokens) {
-        return match name.as_str() {
-            "k" => Ok(StateTerm::KSequence(parse_k_sequence(payload, context)?)),
-            "map" => Ok(StateTerm::Map(parse_map(payload, context)?)),
-            _ => Err(state_error(
-                "cells",
-                "cell contents use only `k!` or `map!` state macros",
-                tokens.span(),
-            )),
-        };
+    if let Some((name, payload)) = qualified_macro_payload(&tokens) {
+        match name.as_str() {
+            "k" => return Ok(StateTerm::KSequence(parse_k_sequence(payload, context)?)),
+            "map" => return Ok(StateTerm::Map(parse_map(payload, context)?)),
+            _ if macro_payload(&tokens).is_some() => {
+                return Err(state_error(
+                    "cells",
+                    "cell contents use only `k!` or `map!` state macros",
+                    tokens.span(),
+                ));
+            }
+            _ => {}
+        }
     }
     Ok(StateTerm::Term(state_term_tokens(tokens, context)?))
 }

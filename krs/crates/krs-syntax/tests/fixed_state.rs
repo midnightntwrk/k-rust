@@ -7,6 +7,7 @@ use krs_syntax::{
     SyntaxErrorKind,
 };
 use krs_test_support::assert_rejects;
+use quote::ToTokens;
 
 #[test]
 fn generated_and_named_roots_and_cell_payloads_are_closed() {
@@ -1207,4 +1208,46 @@ fn whole_nested_cell_entries_are_binders_wildcards_or_fragments() {
     )
     .unwrap_err();
     assert_eq!(error.kind(), &group_entry);
+}
+
+#[test]
+fn qualified_state_macros_in_leaf_cells_read_as_the_unqualified_ones() {
+    for (qualified, unqualified) in [
+        (
+            "k: KCell(X, tail @ ..), env: Cell(k::map![X -> V, rest @ ..]), state @ ..",
+            "k: KCell(X, tail @ ..), env: Cell(map![X -> V, rest @ ..]), state @ ..",
+        ),
+        (
+            "k: k::configuration::KCell(X, ..), env: k::configuration::Cell(krs::map![X -> V, ..]), state @ ..",
+            "k: k::configuration::KCell(X, ..), env: k::configuration::Cell(map![X -> V, ..]), state @ ..",
+        ),
+    ] {
+        let parse = |source| {
+            krs_syntax::parse_cells_pattern(krs_syntax::parse::tokens_from_source(source).unwrap())
+                .unwrap()
+        };
+        // The two spellings differ only in token positions.
+        let shape = |cells: &krs_syntax::CellsExpression| {
+            let StateTerm::KSequence(_) = cells.entries()[0].value() else {
+                panic!("the computation cell is a K sequence")
+            };
+            let StateTerm::Map(map) = cells.entries()[1].value() else {
+                panic!("the env cell is a map")
+            };
+            let krs_syntax::MapBody::Items { items, remainder } = map.body() else {
+                panic!("the map has items")
+            };
+            let items = items
+                .iter()
+                .map(|item| {
+                    (
+                        item.key().expression().to_token_stream().to_string(),
+                        item.value().expression().to_token_stream().to_string(),
+                    )
+                })
+                .collect::<Vec<_>>();
+            (items, remainder.binding().map(ToString::to_string))
+        };
+        assert_eq!(shape(&parse(qualified)), shape(&parse(unqualified)));
+    }
 }
