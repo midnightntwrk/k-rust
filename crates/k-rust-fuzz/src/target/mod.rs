@@ -1,6 +1,6 @@
 //! Targets: what a case must do to be a hit, their resolution against a definition, and the
 //! judgement of a case result (ARCHITECTURE 4). Owner: FZ-05; the differential judge is FZ-08's
-//! ([`differential`]); the observer target is FZ-10's.
+//! ([`differential`]); the observer target is FZ-10's ([`observer`]).
 //!
 //! Every target is an existential goal. A universal property is stated as the target "a clean
 //! natural end violates P", with [`Target::negated_property`] set, and its hit is reported as a
@@ -9,12 +9,17 @@
 pub(crate) mod differential;
 #[cfg(test)]
 mod fixture_tests;
+mod observer;
 mod rule;
 #[cfg(test)]
 mod tests;
 
 use k_rust::backend::HaltReasonOutput;
 use serde::{Deserialize, Serialize};
+
+pub use observer::{
+    ConfigurationView, Observer, ObserverHandle, ObserverTarget, ObserverVerdict, contains_symbol,
+};
 
 use crate::{
     assemble::ProgramAssembly,
@@ -50,7 +55,7 @@ pub enum TargetKind {
     /// The mutant reaches a clean end the baseline cannot reach on the same input
     /// (ARCHITECTURE 4.3).
     Differential(DifferentialTarget),
-    /// A client observer accepts (ARCHITECTURE 4.1, 9.2); refused until FZ-10.
+    /// A client observer accepts (ARCHITECTURE 4.1, 9.2), fed after the run ([`observer`]).
     Observer(ObserverTarget),
 }
 
@@ -132,12 +137,6 @@ pub enum PatternAt {
 #[serde(rename_all = "kebab-case")]
 pub struct DifferentialTarget {}
 
-/// Placeholder for the observer target, which FZ-10 defines with the `Observer` trait of
-/// ARCHITECTURE 9.2; [`crate::Campaign::new`] refuses it until then.
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub struct ObserverTarget {}
-
 /// Where a hit reached the target (ARCHITECTURE 5.3, D16).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum HitSite {
@@ -183,6 +182,12 @@ enum Resolved {
     PatternFinal,
     /// The differential target, judged by [`differential::judge_pair`].
     Differential,
+    /// An observer target, judged from observed execution
+    /// ([`ResolvedTarget::run_and_judge`]).
+    Observer {
+        /// The observation filter: the rules whose steps are observed, or every event.
+        rules: Option<Vec<String>>,
+    },
 }
 
 /// For each leaf of `result`, whether it is an end leaf that matches the target's only matcher
@@ -227,9 +232,9 @@ impl ResolvedTarget {
     /// Resolve `target` for `executor`'s definition. Rules go through
     /// `Backend::rule_catalog(None)`; an entry with `shared_identity`, with
     /// `executable: false` or with id `UNKNOWN` is refused, and so is an equation in M1. A
-    /// pattern compiles to a [`LeafMatcher`]. `at: any-state` and observers are refused until
-    /// their tickets land. A differential target resolves here to its baseline's part; the pair
-    /// is judged by [`differential::judge_pair`].
+    /// pattern compiles to a [`LeafMatcher`]. `at: any-state` is refused until G-4. An observer
+    /// target without its observer is refused (`observer::resolve`). A differential target
+    /// resolves here to its baseline's part; the pair is judged by [`differential::judge_pair`].
     ///
     /// # Errors
     ///
@@ -274,11 +279,7 @@ impl ResolvedTarget {
                 }
             },
             TargetKind::Differential(_) => Resolved::Differential,
-            TargetKind::Observer(_) => {
-                return Err(CampaignError::Target(TargetProblem::Unsupported(
-                    "observer targets are not provided before FZ-10".to_owned(),
-                )));
-            }
+            TargetKind::Observer(target) => observer::resolve(target, executor)?,
         };
         Ok(Self {
             target: target.clone(),
@@ -297,7 +298,9 @@ impl ResolvedTarget {
             Resolved::Rule { id, mode } => {
                 rule::rule_needs(id, *mode, self.target.run_to_completion, paths)
             }
-            Resolved::PatternFinal | Resolved::Differential => TargetNeeds::default(),
+            Resolved::PatternFinal | Resolved::Differential | Resolved::Observer { .. } => {
+                TargetNeeds::default()
+            }
         }
     }
 
@@ -315,7 +318,8 @@ impl ResolvedTarget {
     ///
     /// [`EngineDefect`] from classification; for a leaf without the pattern matcher's
     /// judgement; for a differential target, whose cases [`differential::judge_pair`] judges;
-    /// and for a `hit` class with no clean reaching leaf.
+    /// for an observer target, whose cases [`Self::run_and_judge`] judges; and for a `hit`
+    /// class with no clean reaching leaf.
     pub(crate) fn judge(&self, result: &CaseResult) -> Result<Judgement, EngineDefect> {
         let run_to_completion = self.target.run_to_completion;
         let (reached, blocked) = match &self.resolved {
@@ -328,6 +332,12 @@ impl ResolvedTarget {
                 return Err(EngineDefect {
                     case: None,
                     description: "a differential case was judged as a single run".to_owned(),
+                });
+            }
+            Resolved::Observer { .. } => {
+                return Err(EngineDefect {
+                    case: None,
+                    description: "an observer case was judged without its observed run".to_owned(),
                 });
             }
         };
