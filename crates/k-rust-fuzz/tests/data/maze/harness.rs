@@ -28,10 +28,10 @@ use k_rust::{
 };
 use k_rust_fuzz::{
     BackendRoute, Budget, CallerIdentity, Campaign, CampaignSpec, CaseOptions, CompiledDefinition,
-    Definitions, HoleDecl, HoleLocation, ProgramInput, ProgramSource, ProposerConfig, SpanAddress,
-    Target, TargetKind, Value,
+    Definitions, HoleDecl, HoleLocation, OutcomeClass, ProgramInput, ProgramSource, ProposerConfig,
+    SpanAddress, Target, TargetKind, Value,
     report::{CampaignOutcome, FuzzReport, HitLabel},
-    spec::{DEFAULT_REJECTION_CAP, ProgramText},
+    spec::{DEFAULT_REJECTION_CAP, ProgramText, ProposerKind},
     target::{RuleMode, RuleRef, RuleTarget},
     values::{Constraints, GenerationBounds},
 };
@@ -40,32 +40,45 @@ use k_rust_fuzz::{
 pub const DEFINITION_FILE: &str = "maze/maze.k";
 const SOURCE: &str = include_str!("maze.k");
 
-/// A program of the maze: one `walk` of nine integer literals, the holes' anchors.
-#[derive(Clone, Copy, Debug)]
+/// A program of the maze: one `walk` of nine distinct integer literals, the holes' anchors.
+#[derive(Clone, Debug)]
 pub struct Program {
-    /// The file under `tests/data`, which is also the program's name in hole addresses.
-    pub file: &'static str,
-    pub text: &'static str,
+    /// The program's name in hole addresses: its file under `tests/data` for [`walk`], a
+    /// generated name for an isolated program.
+    pub file: String,
+    pub text: String,
 }
 
 /// The benchmark's program, `walk(0, 1, 2, 3, 4, 5, 6, 7, 8)`. Its anchors fail `c1`'s guard
 /// `A > 0`, so the anchor case reaches no cell.
-pub const WALK: Program = Program {
-    file: "maze/walk.pgm",
-    text: include_str!("walk.pgm"),
-};
+pub fn walk() -> Program {
+    Program {
+        file: "maze/walk.pgm".into(),
+        text: include_str!("walk.pgm").into(),
+    }
+}
 
-/// The program of the isolated mode: its anchors are `c7`'s witness, which extends the
-/// witness of every corridor cell, so they satisfy the choice sets [`isolated_spec`] puts on
-/// any cell's ancestor holes.
-pub const DEEP: Program = Program {
-    file: "maze/deep.pgm",
-    text: include_str!("deep.pgm"),
-};
+/// The anchor of each hole that an isolated program leaves free. Each fails every guard that
+/// reads the hole, given any ancestor's witness values: `A = 0` fails `c1`; `B = -100` fails
+/// `c2` and `s1`; `C = 3` fails every guard of `r2`, `s3` included; `D = -3` fails `c4` and
+/// `s4`; `E = 4` fails `c5`; `F = 5` and `G = 6` fail `c6` and `s5`; `H = 8` and `I = 9` fail
+/// `c7`. They differ from each other and from every witness value, so the literals of an
+/// isolated program are distinct, as [`holes`]'s `find` texts need.
+pub const FREE_ANCHORS: [(&str, i64); 9] = [
+    ("A", 0),
+    ("B", -100),
+    ("C", 3),
+    ("D", -3),
+    ("E", 4),
+    ("F", 5),
+    ("G", 6),
+    ("H", 8),
+    ("I", 9),
+];
 
 impl Program {
     /// The anchor literals, in the order of [`HOLES`].
-    pub fn literals(&self) -> Vec<&'static str> {
+    pub fn literals(&self) -> Vec<&str> {
         let arguments = self
             .text
             .trim_end()
@@ -77,6 +90,7 @@ impl Program {
         literals
     }
 }
+
 const MAIN_MODULE: &str = "MAZE";
 
 /// What a cell's guard tests, and so which proposer is meant to crack it
@@ -291,6 +305,10 @@ pub fn cell_named(label: &str) -> &'static Cell {
 ///
 /// If the maze does not load or compile, or compiles with a diagnostic.
 pub fn definition() -> Arc<CompiledDefinition> {
+    // This mirrors `compile` in `tests/support/mod.rs` call for call (resolver, load options,
+    // `load_for_compilation`, `compile_loaded_definition`, the no-diagnostic check), because
+    // `support::Fixture` cannot be built outside that module. Keep the two in step until the
+    // maze joins `support::ALL` (workers/interfaces.md, "FZ-13").
     static DEFINITION: OnceLock<Arc<CompiledDefinition>> = OnceLock::new();
     Arc::clone(DEFINITION.get_or_init(|| {
         let mut resolver = |_: &str, required: &str| {
@@ -351,7 +369,7 @@ pub fn holes(program: &Program) -> Vec<HoleDecl> {
                 name: (*name).into(),
                 sort: "Int".into(),
                 location: HoleLocation::Span(SpanAddress {
-                    program: program.file.into(),
+                    program: program.file.clone(),
                     line: None,
                     find,
                     literal: (*literal).into(),
@@ -369,13 +387,24 @@ pub struct Configuration {
     /// The name the tables print.
     pub name: &'static str,
     pub proposers: ProposerConfig,
+    /// The configuration's case sequence does not depend on the target: every weighted
+    /// proposer ignores the target and the history (blind), and the explicit assignments are
+    /// fixed. [`run_coverage`] requires it, and [`check`] then also requires a parent to be
+    /// reached in no more cases than its child.
+    pub target_blind: bool,
 }
 
-/// The blind baseline: the anchors, then blind generation only (ARCHITECTURE 8.1, 8.2).
+/// The blind baseline: the anchors, then blind generation only (ARCHITECTURE 8.1, 8.2), spelled
+/// out so that a change of `ProposerConfig::default()` cannot change the baseline.
 pub fn blind() -> Configuration {
     Configuration {
         name: "blind",
-        proposers: ProposerConfig::default(),
+        proposers: ProposerConfig {
+            anchors_first: true,
+            explicit: Vec::new(),
+            weights: BTreeMap::from([(ProposerKind::Blind, 1)]),
+        },
+        target_blind: true,
     }
 }
 
@@ -401,10 +430,15 @@ pub fn witness_only(cell: &Cell) -> Configuration {
             explicit: vec![assignment],
             weights: BTreeMap::new(),
         },
+        target_blind: true,
     }
 }
 
 /// The holes that the guards of `cell`'s ancestors read and the cell's own guard does not.
+///
+/// A hole the cell's own guard reads stays free even when an ancestor reads it too, so `c2`
+/// (`B > A`, under `c1`'s `A > 0`) is not isolated: fixing `A` would turn its ordering into the
+/// range `B > 1`, and its isolated campaign still has to pass `c1`.
 pub fn ancestor_holes(cell: &Cell) -> BTreeSet<&'static str> {
     let mut holes = BTreeSet::new();
     let mut parent = cell.parent;
@@ -419,42 +453,75 @@ pub fn ancestor_holes(cell: &Cell) -> BTreeSet<&'static str> {
     holes
 }
 
-/// The campaign that measures `cell` in isolation: on [`DEEP`], every hole of
-/// [`ancestor_holes`] is fixed to its anchor, the cell's witness value, by a one-value choice
-/// set, so a proposer measured this way only has to pass the cell's own guard; the other holes
-/// stay free. The anchor case is skipped, since [`DEEP`]'s anchors fire every corridor cell.
+/// The witness values an isolation of `cell` fixes its ancestor holes to: the cell's witness,
+/// or, for an unreachable cell, its parent's (the path to its room); `None` for `u3`, which has
+/// no parent.
+pub fn isolation_witness(cell: &Cell) -> Option<&'static [(&'static str, i64)]> {
+    if cell.reachable() {
+        Some(cell.witness)
+    } else {
+        cell.parent.map(|parent| cell_named(parent).witness)
+    }
+}
+
+/// The program of `cell`'s isolation: the witness value ([`isolation_witness`]) on every hole
+/// of [`ancestor_holes`], and [`FREE_ANCHORS`] on the other holes. No anchor gives the cell's
+/// answer away to a proposer that reads anchors (the holes an explicit assignment omits, a seed
+/// corpus, a climb that starts from the anchors), and the anchor case is a `miss`.
 ///
 /// # Panics
 ///
-/// If the cell is unreachable (it has no witness).
-pub fn isolated_spec(cell: &Cell, configuration: &Configuration, seed: u64) -> CampaignSpec {
-    assert!(cell.reachable(), "the cell {} has no witness", cell.label);
+/// If the cell has no isolation ([`isolation_witness`]).
+pub fn isolated_program(cell: &Cell) -> Program {
+    let witness = isolation_witness(cell)
+        .unwrap_or_else(|| panic!("the cell {} has no isolation", cell.label));
     let fixed = ancestor_holes(cell);
-    let mut spec = spec_on(&DEEP, cell, configuration, seed);
-    spec.proposers.anchors_first = false;
-    for (hole, literal) in spec.holes.iter_mut().zip(DEEP.literals()) {
+    let literals: Vec<String> = FREE_ANCHORS
+        .iter()
+        .map(|(hole, free)| {
+            let value = if fixed.contains(hole) {
+                witness.iter().find(|(name, _)| name == hole).map_or_else(
+                    || panic!("{}'s isolation witness has no {hole}", cell.label),
+                    |(_, value)| *value,
+                )
+            } else {
+                *free
+            };
+            value.to_string()
+        })
+        .collect();
+    Program {
+        file: format!("maze/isolated-{}.pgm", cell.label),
+        text: format!("walk({})\n", literals.join(", ")),
+    }
+}
+
+/// The campaign that measures `cell` in isolation: on [`isolated_program`], every hole of
+/// [`ancestor_holes`] is fixed to its anchor, the witness value, by a one-value choice set, so a
+/// proposer measured this way only has to pass the guard of the cell's room. The other holes
+/// stay free, with anchors that fail that room's guards. A negative control is isolated on its
+/// parent's witness: a proposer must then find nothing with only its room's guard to beat.
+///
+/// # Panics
+///
+/// If the cell has no isolation ([`isolation_witness`]).
+pub fn isolated_spec(cell: &Cell, configuration: &Configuration, seed: u64) -> CampaignSpec {
+    let program = isolated_program(cell);
+    let fixed = ancestor_holes(cell);
+    let literals: Vec<String> = program.literals().into_iter().map(str::to_owned).collect();
+    let mut spec = spec_on(&program, cell, configuration, seed);
+    for (hole, literal) in spec.holes.iter_mut().zip(literals) {
         if fixed.contains(hole.name.as_str()) {
-            let value = cell
-                .witness
-                .iter()
-                .find(|(name, _)| *name == hole.name)
-                .map_or(0, |(_, value)| *value);
-            assert_eq!(
-                literal,
-                value.to_string(),
-                "{}'s anchor of {}",
-                DEEP.file,
-                hole.name
-            );
+            let value: i64 = literal.parse().expect("an integer literal");
             hole.constraints.choices = Some(vec![Value::Int(value.into())]);
         }
     }
     spec
 }
 
-/// The campaign that measures `cell` under `configuration` at `seed`, on [`WALK`].
+/// The campaign that measures `cell` under `configuration` at `seed`, on [`walk`].
 pub fn spec(cell: &Cell, configuration: &Configuration, seed: u64) -> CampaignSpec {
-    spec_on(&WALK, cell, configuration, seed)
+    spec_on(&walk(), cell, configuration, seed)
 }
 
 fn spec_on(
@@ -470,8 +537,8 @@ fn spec_on(
         },
         program: ProgramInput::Source(ProgramSource {
             program: Some(ProgramText {
-                name: program.file.into(),
-                text: program.text.into(),
+                name: program.file.clone(),
+                text: program.text.clone(),
                 start_sort: "Pgm".into(),
             }),
             config_vars: Vec::new(),
@@ -485,7 +552,12 @@ fn spec_on(
             run_to_completion: false,
             negated_property: false,
         },
-        options: CaseOptions::default(),
+        options: CaseOptions {
+            // TODO(FZ-06): `shrink: false` once FZ-06's `CaseOptions::shrink` is committed. The
+            // metric is cases to the first confirmed hit, which shrinking does not change, and a
+            // blind hit's shrinking costs 20-30 s (research note, "The metric and the modes").
+            ..CaseOptions::default()
+        },
         proposers: configuration.proposers.clone(),
         bounds: GenerationBounds::default(),
         rejection_cap: DEFAULT_REJECTION_CAP,
@@ -558,6 +630,22 @@ fn run_spec(cell: &'static Cell, spec: CampaignSpec, budget: u64) -> (CellRun, F
         CampaignOutcome::NoWitnessFound { .. } => None,
         other => panic!("cell {}: the campaign ended {other:?}", cell.label),
     };
+    // Every walk of the maze ends naturally, so every case is a clean `miss`, or the one `hit`
+    // that ended the campaign. Any other class (a bound, `unsupported`, a rejection) or a case
+    // outside the determinism contract is a defect of the benchmark or of the engine, and its
+    // coverage would not mean that a cell fired.
+    let hits = u64::from(cases_to_hit.is_some());
+    let mut expected = BTreeMap::from([(OutcomeClass::Miss, report.totals.cases - hits)]);
+    if hits == 1 {
+        expected.insert(OutcomeClass::Hit, 1);
+    }
+    expected.retain(|_, count| *count > 0);
+    assert_eq!(
+        report.totals.classes, expected,
+        "cell {}: every case is a clean miss or the hit",
+        cell.label
+    );
+    assert_eq!(report.totals.outside_determinism, 0, "cell {}", cell.label);
     let run = CellRun {
         cell: cell.label,
         cases_to_hit,
@@ -573,6 +661,9 @@ pub struct MazeRun {
     pub configuration: &'static str,
     /// Each cell measured in isolation ([`isolated_spec`]).
     pub isolated: bool,
+    /// The configuration is target-blind and the cells were measured on one program, so a
+    /// child's first hit is also a hit of its parent in the same case ([`check`]).
+    pub target_blind: bool,
     pub seed: u64,
     pub budget: u64,
     /// One entry per cell, in the order of [`CELLS`].
@@ -671,21 +762,41 @@ impl CoverageRun {
     }
 }
 
-/// The cells `budget` cases of `configuration` at `seed` fire, from one campaign aimed at `u3`,
-/// which no case reaches, so that the campaign spends its whole budget and never shrinks.
+/// The cells `budget` cases of `configuration` at `seed` fire, from one campaign aimed at `u1`,
+/// which no case reaches (its guard is unsatisfiable, but the rule graph reaches it, so no
+/// handling of statically unreachable targets applies), so that the campaign spends its whole
+/// budget and never shrinks.
 ///
-/// This is the distinct-cells half of the metric, at the cost of one campaign. It is a
-/// measurement of `configuration` only when its case sequence does not depend on the target
-/// (the blind baseline): a target-directed configuration aimed at `u3` measures nothing about
-/// the other cells. On the maze every walk ends cleanly with no undefined step, so a cell in
-/// coverage `applied` fired on its leaf.
+/// This is the distinct-cells half of the metric, at the cost of one campaign, and it is valid
+/// only for a target-blind configuration ([`Configuration::target_blind`]):
+/// - the schedule and value RNGs are seeded from the campaign seed alone, and the blind proposer
+///   ignores its context and observes nothing, so the holes, the generators and the case
+///   sequence do not depend on the target;
+/// - only the campaign's own target is judged, and the first confirmed hit ends a campaign, so
+///   confirmation and shrinking run after its last case and draw from neither RNG;
+/// - so the first `budget` cases of the `u1` campaign are those of every cell's campaign, and a
+///   cell is in coverage `applied` within them exactly when its own campaign would hit within
+///   them, given that every case is a clean `miss` ([`run_cell`] asserts it): a clean leaf's
+///   coverage holds only rules that fired on its path.
 ///
 /// # Panics
 ///
-/// As [`run_cell`].
+/// As [`run_cell`]; if the configuration is not target-blind; if a case is anything but a clean
+/// `miss`, or the report carries a warning.
 pub fn run_coverage(configuration: &Configuration, seed: u64, budget: u64) -> CoverageRun {
-    let (run, report) = run_cell(cell_named("u3"), configuration, seed, budget);
-    assert_eq!(run.cases_to_hit, None, "u3 is unreachable");
+    assert!(
+        configuration.target_blind,
+        "coverage measures only a target-blind configuration, not {}",
+        configuration.name
+    );
+    let (run, report) = run_cell(cell_named("u1"), configuration, seed, budget);
+    assert_eq!(run.cases_to_hit, None, "u1 is unreachable");
+    assert_eq!(
+        report.totals.classes,
+        BTreeMap::from([(OutcomeClass::Miss, budget)]),
+        "every coverage case is a clean miss"
+    );
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
     let applied: BTreeSet<&str> = report
         .totals
         .coverage
@@ -733,6 +844,7 @@ pub fn run_maze(configuration: &Configuration, seed: u64, budget: u64) -> MazeRu
     MazeRun {
         configuration: configuration.name,
         isolated: false,
+        target_blind: configuration.target_blind,
         seed,
         budget,
         cells: CELLS
@@ -742,19 +854,21 @@ pub fn run_maze(configuration: &Configuration, seed: u64, budget: u64) -> MazeRu
     }
 }
 
-/// Measure every reachable cell in isolation ([`isolated_spec`]) under `configuration` at
-/// `seed`. Unreachable cells have no isolation and are not run: their entries are not reached,
-/// with 0 cases.
+/// Measure every cell that has an isolation ([`isolated_spec`]) under `configuration` at
+/// `seed`. `u3` has none and is not run: its entry is not reached, with 0 cases.
 pub fn run_maze_isolated(configuration: &Configuration, seed: u64, budget: u64) -> MazeRun {
     MazeRun {
         configuration: configuration.name,
         isolated: true,
+        // Each isolation has its own program and choice sets, so a child's isolated campaign
+        // shares no case with its parent's.
+        target_blind: false,
         seed,
         budget,
         cells: CELLS
             .iter()
             .map(|cell| {
-                if cell.reachable() {
+                if isolation_witness(cell).is_some() {
                     run_isolated(cell, configuration, seed, budget).0
                 } else {
                     CellRun {
@@ -770,15 +884,15 @@ pub fn run_maze_isolated(configuration: &Configuration, seed: u64, budget: u64) 
 }
 
 /// Check what every configuration must satisfy on the maze: no unreachable cell is reached,
-/// and a reached cell's parent is reached in no more cases, when the configuration's case
-/// sequence does not depend on the target (`target_blind`; the blind baseline). A
+/// and, when [`MazeRun::target_blind`], a reached cell's parent is reached in no more cases. A
 /// target-directed configuration may reach a child before it reaches the parent on its own
 /// campaign, so only the first property holds for it.
 ///
 /// # Panics
 ///
 /// On a violation.
-pub fn check(run: &MazeRun, target_blind: bool) {
+pub fn check(run: &MazeRun) {
+    let target_blind = run.target_blind;
     let by_cell: BTreeMap<&str, &CellRun> =
         run.cells.iter().map(|cell| (cell.cell, cell)).collect();
     for cell in &CELLS {
@@ -806,42 +920,102 @@ pub fn check(run: &MazeRun, target_blind: bool) {
     }
 }
 
-/// A table over several seeds of one configuration: per cell, the seeds that reached it and the
-/// least, median and greatest cases to it over those seeds.
+/// The cases to a cell at one seed as a censored value: `None`, not reached within the budget,
+/// counts as more than the budget and sorts after every number.
+fn censored(cases: Option<u64>) -> (bool, u64) {
+    cases.map_or((true, 0), |cases| (false, cases))
+}
+
+/// The censored median of a cell's cases over several seeds: the lower median (the element at
+/// index `(n - 1) / 2` of the sorted values) with unreached seeds counted as more than the
+/// budget; `None` when that median is unreached.
+///
+/// A configuration beats another on a cell when it reaches the cell at more seeds, or at as many
+/// seeds with a lower censored median: the comparison is lexicographic on (seeds reached,
+/// censored median). Over 5 seeds a one-seed difference is noise; an acceptance claim uses
+/// [`pairwise`] at the same seeds.
+pub fn censored_median(runs: &[MazeRun], index: usize) -> Option<u64> {
+    let mut cases: Vec<(bool, u64)> = runs
+        .iter()
+        .map(|run| censored(run.cells[index].cases_to_hit))
+        .collect();
+    cases.sort_unstable();
+    let (unreached, median) = cases[(cases.len() - 1) / 2];
+    (!unreached).then_some(median)
+}
+
+/// Per-seed pairs of `candidate` against `baseline` on the cell at `index`: (wins, losses, ties),
+/// where a win is fewer cases at the same seed, an unreached seed counting as more than the
+/// budget, and two unreached seeds tie. A one-sided sign test over the wins and losses is the
+/// acceptance statistic: with 5 seeds, 5 wins and no loss is significant at p = 1/32 < 0.05,
+/// and anything less is not.
+///
+/// # Panics
+///
+/// If the two sets of runs differ in seeds or budget.
+pub fn pairwise(candidate: &[MazeRun], baseline: &[MazeRun], index: usize) -> (u64, u64, u64) {
+    assert_eq!(candidate.len(), baseline.len(), "the same seeds");
+    let mut tally = (0, 0, 0);
+    for (ours, theirs) in candidate.iter().zip(baseline) {
+        assert_eq!(
+            (ours.seed, ours.budget),
+            (theirs.seed, theirs.budget),
+            "the same seed and budget"
+        );
+        let ours = censored(ours.cells[index].cases_to_hit);
+        let theirs = censored(theirs.cells[index].cases_to_hit);
+        match ours.cmp(&theirs) {
+            std::cmp::Ordering::Less => tally.0 += 1,
+            std::cmp::Ordering::Greater => tally.1 += 1,
+            std::cmp::Ordering::Equal => tally.2 += 1,
+        }
+    }
+    tally
+}
+
+/// A table over several seeds of one configuration: per cell, the seeds that reached it first,
+/// then the censored lower median ([`censored_median`], `>budget` when it is unreached), then
+/// the least and greatest cases over the seeds that reached it. A cell that no seed ran (`u3`
+/// in isolation) reads `not run`.
 pub fn summary(runs: &[MazeRun]) -> String {
     let mut table = String::new();
-    if let Some(first) = runs.first() {
-        writeln!(
-            table,
-            "configuration {}{} budget {} seeds {:?}",
-            first.configuration,
-            if first.isolated { " isolated" } else { "" },
-            first.budget,
-            runs.iter().map(|run| run.seed).collect::<Vec<_>>()
-        )
-        .expect("writing to a String");
-    }
-    writeln!(table, "cell  guard        reached  min  median  max").expect("writing to a String");
+    let Some(first) = runs.first() else {
+        return table;
+    };
+    writeln!(
+        table,
+        "configuration {}{} budget {} seeds {:?}",
+        first.configuration,
+        if first.isolated { " isolated" } else { "" },
+        first.budget,
+        runs.iter().map(|run| run.seed).collect::<Vec<_>>()
+    )
+    .expect("writing to a String");
+    writeln!(
+        table,
+        "cell  guard        reached  median (censored, lower)  min  max"
+    )
+    .expect("writing to a String");
     for (index, cell) in CELLS.iter().enumerate() {
+        let guard = format!("{:?}", cell.guard);
+        if runs.iter().all(|run| run.cells[index].cases == 0) {
+            writeln!(table, "{:<5} {guard:<12} not run", cell.label).expect("writing to a String");
+            continue;
+        }
         let mut cases: Vec<u64> = runs
             .iter()
             .filter_map(|run| run.cells[index].cases_to_hit)
             .collect();
         cases.sort_unstable();
-        let stats = if cases.is_empty() {
-            "-".to_owned()
-        } else {
-            format!(
-                "{}  {}  {}",
-                cases[0],
-                cases[cases.len() / 2],
-                cases[cases.len() - 1]
-            )
+        let median = censored_median(runs, index)
+            .map_or_else(|| format!(">{}", first.budget), |median| median.to_string());
+        let range = match (cases.first(), cases.last()) {
+            (Some(min), Some(max)) => format!("{min}  {max}"),
+            _ => "-".to_owned(),
         };
-        let guard = format!("{:?}", cell.guard);
         writeln!(
             table,
-            "{:<5} {guard:<12} {}/{}  {stats}",
+            "{:<5} {guard:<12} {}/{}  {median}  {range}",
             cell.label,
             cases.len(),
             runs.len()

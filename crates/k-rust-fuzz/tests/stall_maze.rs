@@ -92,6 +92,7 @@ fn no_witness_of_a_reachable_cell_reaches_an_unreachable_cell() {
                 explicit: witnesses.clone(),
                 weights: std::collections::BTreeMap::new(),
             },
+            target_blind: true,
         };
         let budget = u64::try_from(witnesses.len()).expect("a count") + 1;
         let (run, report) = maze::run_cell(cell, &configuration, 0, budget);
@@ -122,15 +123,85 @@ fn an_isolated_cell_fixes_exactly_its_ancestors_holes() {
         BTreeSet::from(["A", "B"])
     );
 
-    // Every reachable cell's witness satisfies its isolation's choice sets and hits in one
-    // case.
-    for cell in CELLS.iter().filter(|cell| cell.reachable()) {
-        let witness = maze::isolated_spec(cell, &maze::witness_only(cell), 0);
-        let report = Campaign::new(witness)
+    // `c2`'s own guard reads `A`, so `c2` is not isolated, and `u3` has no isolation.
+    assert_eq!(
+        maze::ancestor_holes(maze::cell_named("c2")),
+        BTreeSet::new()
+    );
+    assert!(maze::isolation_witness(maze::cell_named("u3")).is_none());
+
+    for cell in CELLS
+        .iter()
+        .filter(|cell| maze::isolation_witness(cell).is_some())
+    {
+        // The program's literals are distinct; the fixed holes carry the witness, the free
+        // holes the free anchors.
+        let program = maze::isolated_program(cell);
+        let literals = program.literals();
+        let distinct: BTreeSet<&str> = literals.iter().copied().collect();
+        assert_eq!(distinct.len(), literals.len(), "{}", program.text);
+        let fixed = maze::ancestor_holes(cell);
+        let witness = maze::isolation_witness(cell).expect("an isolation");
+        for ((hole, free), literal) in maze::FREE_ANCHORS.iter().zip(&literals) {
+            let expected = if fixed.contains(hole) {
+                witness
+                    .iter()
+                    .find(|(name, _)| name == hole)
+                    .expect("a witness value")
+                    .1
+            } else {
+                *free
+            };
+            assert_eq!(*literal, expected.to_string(), "{} {hole}", cell.label);
+        }
+
+        // The anchor case is a clean miss: no anchor gives the cell's answer away.
+        let anchors = Configuration {
+            name: "anchors",
+            proposers: k_rust_fuzz::ProposerConfig {
+                anchors_first: true,
+                explicit: Vec::new(),
+                weights: std::collections::BTreeMap::new(),
+            },
+            target_blind: true,
+        };
+        let report = Campaign::new(maze::isolated_spec(cell, &anchors, 0))
             .unwrap_or_else(|error| panic!("cell {}: {error}", cell.label))
             .run(k_rust_fuzz::Budget::Cases(1), None);
-        assert!(report.witness().is_some(), "cell {}", cell.label);
+        assert_eq!(
+            report.totals.classes.get(&OutcomeClass::Miss),
+            Some(&1),
+            "cell {}: the anchor case",
+            cell.label
+        );
+
+        // A reachable cell's witness satisfies the choice sets and hits in one case.
+        if cell.reachable() {
+            let witness = maze::isolated_spec(cell, &maze::witness_only(cell), 0);
+            let report = Campaign::new(witness)
+                .unwrap_or_else(|error| panic!("cell {}: {error}", cell.label))
+                .run(k_rust_fuzz::Budget::Cases(1), None);
+            assert!(report.witness().is_some(), "cell {}", cell.label);
+        }
     }
+
+    // An explicit assignment that omits H and I keeps their anchors, which in c7's isolation
+    // fail its guard (the review's S1 failure: they used to be c7's answer).
+    let partial = Configuration {
+        name: "partial",
+        proposers: k_rust_fuzz::ProposerConfig {
+            anchors_first: false,
+            explicit: vec![std::collections::BTreeMap::from([(
+                "E".to_owned(),
+                k_rust_fuzz::Value::Int(31337.into()),
+            )])],
+            weights: std::collections::BTreeMap::new(),
+        },
+        target_blind: true,
+    };
+    let (run, _) = maze::run_isolated(c7, &partial, 0, 1);
+    assert_eq!(run.cases_to_hit, None);
+
     // In c7's isolation the blind proposer draws only H and I, so every case walks through c6
     // to room r6, where the nonlinear guard stops it.
     let blind = maze::isolated_spec(c7, &maze::blind(), 1);
@@ -188,7 +259,7 @@ fn measure_blind() {
         maze::run_maze(&maze::blind(), seed, MEASURE_BUDGET)
     });
     for run in &runs {
-        maze::check(run, true);
+        maze::check(run);
         println!("{}", run.line());
     }
     println!("{}", maze::summary(&runs));
@@ -201,7 +272,7 @@ fn measure_blind_isolated() {
         maze::run_maze_isolated(&maze::blind(), seed, MEASURE_BUDGET)
     });
     for run in &runs {
-        maze::check(run, false);
+        maze::check(run);
         println!("{}", run.line());
     }
     println!("{}", maze::summary(&runs));
