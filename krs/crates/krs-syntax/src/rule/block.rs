@@ -19,7 +19,7 @@ use crate::parse::{
     KrsSyntax, ParseError, checked_ordinal, structured,
     unsupported_rule_signature as unsupported_signature,
 };
-use crate::path::is_plain_path;
+use crate::path::{is_plain_path, parametric_collection_error};
 use crate::term_sort::{TermSort, parse_readable_sort};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, TermExpression, TokenRange};
 
@@ -219,7 +219,7 @@ impl RuleClause {
         for extra in &self.extras {
             match extra {
                 RuleExtra::UpdateMap { update, .. } => written.push(update.term()),
-                RuleExtra::RewriteCell { after, .. } => written.push(after.as_ref()),
+                RuleExtra::RewriteCell { after, .. } => written.extend(after.as_deref()),
                 RuleExtra::RewriteState { after, .. } => {
                     written.extend(after.iter().flat_map(|after| after.terms()));
                 }
@@ -576,18 +576,27 @@ impl RuleClause {
                         wildcard += 1;
                     }
 
-                    let right_ordinal = checked_ordinal(
-                        update_cell,
-                        ProvenanceRole::RuleRightCellsField,
-                        cell.span(),
-                    )?;
-                    update_cell += 1;
-                    anchors.push(ProvenanceAnchor::new(
-                        ProvenanceRole::RuleRightCellsField,
-                        right_ordinal,
-                        TokenRange::for_tokens(cell)?,
-                    ));
-                    append_rule_term_anchors(&mut anchors, after, RuleTermSide::Right, &mut right)?;
+                    // A cell the result leaves out is read only and has no
+                    // result anchors.
+                    if let Some(after) = after {
+                        let right_ordinal = checked_ordinal(
+                            update_cell,
+                            ProvenanceRole::RuleRightCellsField,
+                            cell.span(),
+                        )?;
+                        update_cell += 1;
+                        anchors.push(ProvenanceAnchor::new(
+                            ProvenanceRole::RuleRightCellsField,
+                            right_ordinal,
+                            TokenRange::for_tokens(cell)?,
+                        ));
+                        append_rule_term_anchors(
+                            &mut anchors,
+                            after,
+                            RuleTermSide::Right,
+                            &mut right,
+                        )?;
+                    }
                 }
             }
         }
@@ -710,7 +719,9 @@ impl RuleClause {
         for extra in &self.extras {
             match extra {
                 RuleExtra::UpdateMap { update, .. } => terms.push(update.term().nodes()),
-                RuleExtra::RewriteCell { after, .. } => terms.push(after.nodes()),
+                RuleExtra::RewriteCell { after, .. } => {
+                    terms.extend(after.iter().map(|after| after.nodes()));
+                }
                 RuleExtra::RewriteState { after, .. } => terms.extend(
                     after
                         .iter()
@@ -1176,6 +1187,9 @@ impl RuleBlock {
                             let binding = first;
                             input.parse::<Token![:]>()?;
                             let sort: Path = input.parse()?;
+                            if let Some(error) = parametric_collection_error(&sort, true) {
+                                return Err(error.into());
+                            }
                             if !is_plain_path(&sort) {
                                 return Err(syn::Error::new(
                                     sort.span(),

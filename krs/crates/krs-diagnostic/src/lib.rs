@@ -168,6 +168,8 @@ pub struct Diagnostic {
     pub secondary: Vec<Label>,
     /// Additional explanations, in producer order.
     pub notes: Vec<String>,
+    /// Advice on how to fix the problem, in producer order.
+    pub help: Vec<String>,
 }
 
 impl Diagnostic {
@@ -181,6 +183,7 @@ impl Diagnostic {
             primary: Label::new(location),
             secondary: Vec::new(),
             notes: Vec::new(),
+            help: Vec::new(),
         }
     }
 
@@ -204,6 +207,13 @@ impl Diagnostic {
     #[must_use]
     pub fn with_note(mut self, note: impl Into<String>) -> Self {
         self.notes.push(note.into());
+        self
+    }
+
+    /// Appends advice on how to fix the problem.
+    #[must_use]
+    pub fn with_help(mut self, help: impl Into<String>) -> Self {
+        self.help.push(help.into());
         self
     }
 

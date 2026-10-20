@@ -2096,9 +2096,15 @@ impl<
                 },
                 Self::RewriteCell {
                     cell: sample::<I>(),
-                    result_key: sample::<ProvenanceKey>(),
+                    result_key: Some(sample::<ProvenanceKey>()),
                     before: sample::<T>(),
-                    after: sample::<T>(),
+                    after: Some(sample::<T>()),
+                },
+                Self::RewriteCell {
+                    cell: sample::<I>(),
+                    result_key: None,
+                    before: sample::<T>(),
+                    after: None,
                 },
                 Self::RewriteState {
                     cell: sample::<I>(),

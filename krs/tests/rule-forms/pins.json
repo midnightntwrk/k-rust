@@ -2,7 +2,7 @@
   "schema": 1,
   "expand": {
     "krs-rule-forms-priority": "1e58516f0df71440c0ddc01cbe465a380710cf7279e2077a78bc443ca4f34d9e",
-    "krs-rule-forms-nondet": "506052cf9063b348f0bd8a0b10cb92416c94e5a5dccb61583f9da8dded2c1c77",
+    "krs-rule-forms-nondet": "d3d2e88f75ae2bf3b8b5ec26f70af4b3cfba6c0f9cee9430ddfcc448c4d39bd8",
     "krs-rule-forms-anywhere": "f71bf961706e9c2102f3ee2c6044b41f9885608c49610eb5978f8f7424f2febf",
     "krs-rule-forms-casts": "3b3fd4ca305f6599d34a0fc02b9098fd1a12cc238301a8a125592c00d157cdb6",
     "krs-rule-forms-fresh": "bec7452965097741b27a12e94bd541e6288002e30c841ec1e6aa97a45906f5d2",
@@ -19,7 +19,7 @@
       "definition.k": "ae24e87b44019cb73f8d92516fffd48264ab29642fdfce613935e6ccd310f840"
     },
     "krs-rule-forms-nondet": {
-      "definition.k": "5af41292fbeeca999cb0f3f24fb4f7a7bd82ea05651506a86f31a9ec635a8111"
+      "definition.k": "42807d5178465cb3c912dd93523db29a740b3a2e0a7c78d1021307b873f473b4"
     },
     "krs-rule-forms-anywhere": {
       "definition.k": "b01afd6c438255b1e85927785b4496d27a68630b788f81885434359597a92d04"
@@ -60,7 +60,7 @@
   },
   "reference_sha256": {
     "krs-rule-forms-priority": "0202e94e00b86f71a5cee3eb585419499d433ba39d3dc400261934b2fdc63789",
-    "krs-rule-forms-nondet": "0d02da019bf4780642dbd96320b10d6215548a8faf2ad04d9706e1918b6a65a5",
+    "krs-rule-forms-nondet": "eaf47118c22304d522362fb0f65f21e709cdd35379d2fffaacfe0146c88b82e5",
     "krs-rule-forms-anywhere": "aa123df748e232b1331bd8dcb81eb2bebad3cef80b7d96306f82302b8dd3c61a",
     "krs-rule-forms-casts": "a3e8ce5d2ffa1f5b9c720cdc62b29ee5e90563761553e290f8b3d1b6a8f136a0",
     "krs-rule-forms-fresh": "3f27187918954b99620f5821f2c332297e96e6d3ff4fb3ac235ac19507c9edad",

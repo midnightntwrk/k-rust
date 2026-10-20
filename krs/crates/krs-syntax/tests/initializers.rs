@@ -270,6 +270,51 @@ fn unsupported_signatures_variables_and_ambiguous_main_are_rejected_locally() {
 }
 
 #[test]
+fn documentation_lint_levels_and_cfg_stay_on_the_initializer() {
+    let source = "/// Loads the program.\n\
+         #[doc(alias = \"start\")]\n\
+         #[allow(dead_code)] #[expect(unused_variables)] #[warn(missing_docs)]\n\
+         #[deny(unused_mut)] #[cfg(feature = \"x\")]\n\
+         fn init() -> Self { Self { k: KCell::new(k![Foo]) } }";
+    let initializer = krs_syntax::InitializerFunction::parse_source(source).unwrap();
+    let names: Vec<_> = initializer
+        .item()
+        .attrs
+        .iter()
+        .map(|attribute| attribute.path().get_ident().unwrap().to_string())
+        .collect();
+    assert_eq!(
+        names,
+        ["doc", "doc", "allow", "expect", "warn", "deny", "cfg"]
+    );
+}
+
+#[test]
+fn other_initializer_attributes_are_rejected_at_the_attribute() {
+    for attribute in [
+        "#[inline]",
+        "#[must_use]",
+        "#[forbid(unsafe_code)]",
+        "#[cfg_attr(test, allow(dead_code))]",
+        "#[clippy::cognitive_complexity]",
+        "#[::doc = \"x\"]",
+    ] {
+        let source = format!(
+            "/// Kept.\n{attribute}\nfn init() -> Self {{ Self {{ k: KCell::new(k![Foo]) }} }}"
+        );
+        let error = krs_syntax::InitializerFunction::parse_source(&source).unwrap_err();
+        assert!(
+            matches!(
+                error.kind(),
+                SyntaxErrorKind::UnsupportedInitializerSignature { .. }
+            ),
+            "{attribute}: {error:?}"
+        );
+        assert_eq!(error.span().start().line, 2, "{attribute}");
+    }
+}
+
+#[test]
 fn init_marker_rejects_payload_at_first_token() {
     let error = krs_syntax::InitAttribute::parse_source("unexpected").unwrap_err();
     assert!(matches!(
