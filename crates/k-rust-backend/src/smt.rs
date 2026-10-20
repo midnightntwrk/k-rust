@@ -853,6 +853,10 @@ impl SmtPrelude {
                 "(declare-fun {POWER_OUTSIDE_THE_INTEGERS} (Int Int) Real)"
             ));
         }
+        // K symbols that name the same `smtlib` function with the same SMT signature stand for
+        // one function, which is declared once: SMT-LIB rejects a second declaration of it, and
+        // a rejected prelude states nothing.
+        let mut declared = BTreeSet::new();
         for symbol in definition.symbols().values() {
             let Some(SmtType::Lib(name)) = &symbol.attributes.smt else {
                 continue;
@@ -862,11 +866,15 @@ impl SmtPrelude {
                 .iter()
                 .map(prelude_smt_sort)
                 .collect::<Result<Vec<_>, _>>()?;
-            declarations.push(format!(
+            let declaration = format!(
                 "(declare-fun {name} ({}) {})",
                 arguments.join(" "),
                 prelude_smt_sort(&symbol.result_sort)?
-            ));
+            );
+            if !declared.insert(declaration.clone()) {
+                continue;
+            }
+            declarations.push(declaration);
             if collection_size_hook(symbol.attributes.hook.as_deref())
                 && symbol.argument_sorts.len() == 1
                 && symbol.result_sort.is_builtin(BuiltinSort::Int)

@@ -1566,6 +1566,34 @@ mod tests {
         assert_eq!(solver.uncached_solve_count.load(Ordering::Relaxed), 1);
     }
 
+    /// K symbols that name one `smtlib` function with one SMT signature stand for one function,
+    /// declared once, so the prelude loads.
+    #[test]
+    fn symbols_sharing_an_smtlib_function_declare_it_once() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                symbol f{}(SortInt{}) : SortInt{} [function{}(), total{}(), smtlib{}("ff")]
+                symbol g{}(SortInt{}) : SortInt{} [function{}(), total{}(), smtlib{}("ff")]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let solver = Z3Solver::new(&definition).unwrap();
+        assert_eq!(
+            solver
+                .prelude
+                .declarations()
+                .iter()
+                .filter(|declaration| declaration.as_str() == "(declare-fun ff (Int) Int)")
+                .count(),
+            1
+        );
+        assert_eq!(cause(solver.check_prelude()), Ok(()));
+    }
+
     /// A query posed under a cancelled request stops with the cancellation before it reaches the
     /// cache or Z3, and records nothing about the prelude: it stays unchecked even when it is
     /// inconsistent, and the first check after the cancellation finds that.
