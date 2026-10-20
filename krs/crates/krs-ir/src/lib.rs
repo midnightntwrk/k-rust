@@ -59,9 +59,9 @@ pub use bundle::{
 pub use catalog::{
     BuiltinOperationNotation, BuiltinOperationSpec, BuiltinSort, BuiltinSortSpec,
     CollectionApplication, CollectionConcatenation, CollectionNotation, CollectionOperandSort,
-    CollectionOperationSpec, CollectionResultSort, FacadeMarker, HookOperationSpec,
+    CollectionOperationSpec, CollectionResultSort, FacadeMarker, GuardMeaning, HookOperationSpec,
     HookPointConstructor, HookPointSortSource, HookSignature, HookSortConstraint, IntLiterals,
-    MlConnective, MlOperand, OperationSort, RawKProfile,
+    MlConnective, MlOperand, OperationSort, RawKProfile, RelationLiteral,
 };
 pub use coordinates::{
     ByteRange, CoordinateError, DisplayPath, DisplayPathError, LineIndex, LineIndexError, Position,

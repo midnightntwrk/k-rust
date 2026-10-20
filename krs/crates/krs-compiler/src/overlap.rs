@@ -5,9 +5,10 @@
 //! simplifications, aliases, claims, anywhere rules, and heat and cool rules
 //! (K orders those by the result-sort condition it adds) are not. Rules at
 //! different priorities never overlap; rules of one `nondet` group may, and
-//! the group is validated instead; and literal complementary guards, or a
-//! guard conjunct that unification makes a false comparison of two Int
-//! literals, separate two rules after unification. Members of one `overload` family are one
+//! the group is validated instead; and complementary guard conjuncts (the
+//! catalog's [`GuardMeaning`] of each Bool-valued builtin), or a guard
+//! conjunct that unification makes false on literal operands, separate two
+//! rules after unification. Members of one `overload` family are one
 //! head: K's overload axioms identify `expDot(inj(L), F)` with
 //! `inj(lValDot(L, F))`, so their applications unify when their arguments do
 //! (clause 7c). An `A | B` or-pattern contributes the cross product of its
@@ -23,8 +24,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
-    ApplicationRef, BuiltinOperation, BuiltinSort, ListOperation, MapOperation,
-    ProductionAttribute, SemanticId, SetOperation, StableItemId,
+    ApplicationRef, BuiltinOperation, BuiltinSort, GuardMeaning, ItemKind, ListOperation,
+    MapOperation, ProductionAttribute, SemanticId, SetOperation, StableItemId,
 };
 use krs_ir_levels::{
     IrCondition, RuleBodyRef, SemanticApplicationRef, SemanticModule, SemanticRule,
@@ -287,6 +288,10 @@ struct SortGraph {
     descendants: BTreeMap<SemanticId, BTreeSet<SemanticId>>,
     /// The root of each `overload` family member's chain of targets (clause 7c).
     overload_roots: BTreeMap<StableItemId, StableItemId>,
+    /// Constructors whose applications are free terms: no function, hook,
+    /// alias, desugar or bracket production, and no anywhere rule's head.
+    /// Only these decide a ground `==K` guard (clause 4).
+    free_constructors: BTreeSet<StableItemId>,
 }
 
 impl SortGraph {
@@ -303,6 +308,23 @@ impl SortGraph {
                     .map(|sort| SemanticSortRef::Declared(sort.id().clone())),
             );
             for production in module.productions() {
+                if production.id().item_kind() == ItemKind::Constructor
+                    && !production.attributes().iter().any(|attribute| {
+                        matches!(
+                            attribute,
+                            ProductionAttribute::Function { .. }
+                                | ProductionAttribute::Hook { .. }
+                                | ProductionAttribute::RawHook { .. }
+                                | ProductionAttribute::Memo { .. }
+                                | ProductionAttribute::FreshGenerator { .. }
+                                | ProductionAttribute::Alias { .. }
+                                | ProductionAttribute::Desugar { .. }
+                                | ProductionAttribute::Bracket { .. }
+                        )
+                    })
+                {
+                    graph.free_constructors.insert(production.id().clone());
+                }
                 if let Some(target) =
                     production
                         .attributes()
@@ -353,6 +375,24 @@ impl SortGraph {
                 }
             }
         }
+        // An anywhere rule rewrites its head wherever it occurs, so that
+        // head's applications are not free terms; a head the check cannot
+        // name leaves no constructor free.
+        for rule in modules.iter().flat_map(SemanticModule::rules) {
+            if rule.anywhere().is_none() {
+                continue;
+            }
+            match rule.relational_body() {
+                RuleBodyRef::Term(body) => match head_application(body.from(), true) {
+                    Some(ApplicationRef::Declared(head)) => {
+                        graph.free_constructors.remove(head);
+                    }
+                    Some(ApplicationRef::Builtin(_) | ApplicationRef::Generated(_)) => {}
+                    None => graph.free_constructors.clear(),
+                },
+                _ => graph.free_constructors.clear(),
+            }
+        }
         // A strict list's value list joins its families as K's overload
         // axioms make it (KF-020).
         graph
@@ -389,6 +429,10 @@ impl SortGraph {
                 (ApplicationRef::Declared(left), ApplicationRef::Declared(right))
                     if self.overload_root(left) == self.overload_root(right)
             )
+    }
+
+    fn free_constructor(&self, production: &StableItemId) -> bool {
+        self.free_constructors.contains(production)
     }
 
     fn overload_root<'id>(&'id self, production: &'id StableItemId) -> &'id StableItemId {
@@ -1740,33 +1784,30 @@ impl Unifier<'_> {
         }
     }
 
-    /// Whether some conjunct of one guard is the literal complement of a
-    /// conjunct of the other (F2 amendment, clause 4).
+    /// Whether some conjunct of one guard is the complement of a conjunct of
+    /// the other (F2 amendment, clause 4).
     fn guards_complementary(&self, left: Option<&Pattern>, right: Option<&Pattern>) -> bool {
         let (Some(left), Some(right)) = (left, right) else {
             return false;
         };
         let left = conjuncts(left);
         let right = conjuncts(right);
-        left.iter().any(|left| {
-            right
-                .iter()
-                .any(|right| self.complementary(&Guard::of(left), &Guard::of(right)))
-        })
+        left.iter()
+            .any(|left| right.iter().any(|right| self.complementary(left, right)))
     }
 
     /// Whether the two guards cannot both hold under the current
     /// substitution: a pair of conjuncts is complementary, or a conjunct of
-    /// either guard is a false ground Int comparison (F2 amendment, clause 4).
+    /// either guard evaluates to false (F2 amendment, clause 4).
     fn guards_separate(&self, left: Option<&Pattern>, right: Option<&Pattern>) -> bool {
         self.guards_complementary(left, right)
             || self.guard_refuted(left)
             || self.guard_refuted(right)
     }
 
-    /// Whether some conjunct of a guard, after the unifier's substitution, is
-    /// a comparison of two Int literals that is false, such as `x >=Int 10`
-    /// once the other rule's pattern binds `x` to `0`.
+    /// Whether some conjunct of a guard, after the unifier's substitution,
+    /// evaluates to false, such as `x >=Int 10` once the other rule's
+    /// pattern binds `x` to `0`.
     fn guard_refuted(&self, guard: Option<&Pattern>) -> bool {
         guard.is_some_and(|guard| {
             conjuncts(guard)
@@ -1775,38 +1816,83 @@ impl Unifier<'_> {
         })
     }
 
-    /// The value of a guard conjunct whose operands are Int literals under
-    /// the current substitution: an Int comparison, or `bool::not` of one.
-    /// Anything else, including a literal outside `i128`, has no value here
-    /// (conservative).
+    /// The value of a guard conjunct under the current substitution: a Bool
+    /// literal, a relation literal ([`GuardMeaning::Relation`]) whose
+    /// canonical relation is decided on its operands, or a Boolean
+    /// connective of such conjuncts. Anything else has no value here
+    /// (conservative). A connective is decided by an operand that fixes it
+    /// whatever the other operand is, which also covers an undefined other
+    /// operand: an undefined conjunct does not hold either.
     fn ground_truth(&self, pattern: &Pattern) -> Option<bool> {
-        let Pattern::Application {
-            application: ApplicationRef::Builtin(operation),
-            arguments,
-            ..
-        } = pattern
-        else {
-            return None;
+        let pattern = self.resolve(pattern.clone());
+        let (operation, arguments) = match &pattern {
+            Pattern::Token {
+                sort: SemanticSortRef::Builtin(BuiltinSort::Bool),
+                value,
+            } => return bool_literal(value),
+            Pattern::Application {
+                application: ApplicationRef::Builtin(operation),
+                arguments,
+                ..
+            } => (*operation, arguments.as_slice()),
+            _ => return None,
         };
-        if let (BuiltinOperation::BoolNot, [negated]) = (operation, arguments.as_slice()) {
-            return self.ground_truth(negated).map(|value| !value);
-        }
-        let [left, right] = arguments.as_slice() else {
-            return None;
-        };
-        let compare = || Some(self.int_literal(left)?.cmp(&self.int_literal(right)?));
-        match operation {
-            BuiltinOperation::IntLess => compare().map(std::cmp::Ordering::is_lt),
-            BuiltinOperation::IntLessEqual => compare().map(std::cmp::Ordering::is_le),
-            BuiltinOperation::IntGreater => compare().map(std::cmp::Ordering::is_gt),
-            BuiltinOperation::IntGreaterEqual => compare().map(std::cmp::Ordering::is_ge),
-            BuiltinOperation::IntEqual => compare().map(std::cmp::Ordering::is_eq),
-            BuiltinOperation::IntNotEqual => compare().map(std::cmp::Ordering::is_ne),
+        match (operation.guard_meaning(), arguments) {
+            (GuardMeaning::Negation, [operand]) => self.ground_truth(operand).map(|value| !value),
+            (GuardMeaning::Conjunction, [left, right]) => {
+                connective(self.ground_truth(left), self.ground_truth(right), false)
+            }
+            (GuardMeaning::Disjunction, [left, right]) => {
+                connective(self.ground_truth(left), self.ground_truth(right), true)
+            }
+            (GuardMeaning::Implication, [left, right]) => connective(
+                self.ground_truth(left).map(|value| !value),
+                self.ground_truth(right),
+                true,
+            ),
+            (GuardMeaning::Relation(literal), [left, right]) => {
+                let (left, right) = if literal.swapped {
+                    (right, left)
+                } else {
+                    (left, right)
+                };
+                self.relation_truth(literal.relation, left, right)
+                    .map(|holds| holds == literal.positive)
+            }
             _ => None,
         }
     }
 
-    /// The value of an Int literal under the current substitution.
+    /// Whether a canonical relation holds of two operands that are literals
+    /// (or, for `==K`, terms built from literals and free constructors)
+    /// under the current substitution. `<String` is the lexicographic order
+    /// on code points, which is the byte order of their UTF-8 encoding.
+    /// Float equality is not evaluated.
+    fn relation_truth(
+        &self,
+        relation: BuiltinOperation,
+        left: &Pattern,
+        right: &Pattern,
+    ) -> Option<bool> {
+        match relation {
+            BuiltinOperation::IntLess => Some(self.int_literal(left)? < self.int_literal(right)?),
+            BuiltinOperation::IntEqual => Some(self.int_literal(left)? == self.int_literal(right)?),
+            BuiltinOperation::StringLess => {
+                Some(self.string_literal(left)? < self.string_literal(right)?)
+            }
+            BuiltinOperation::StringEqual => {
+                Some(self.string_literal(left)? == self.string_literal(right)?)
+            }
+            BuiltinOperation::BoolEqual => {
+                Some(self.ground_truth(left)? == self.ground_truth(right)?)
+            }
+            BuiltinOperation::KEqualEq => self.term_equal(left, right),
+            _ => None,
+        }
+    }
+
+    /// The value of an Int literal under the current substitution; a
+    /// literal outside `i128` has none.
     fn int_literal(&self, pattern: &Pattern) -> Option<i128> {
         match self.resolve(pattern.clone()) {
             Pattern::Token {
@@ -1817,95 +1903,316 @@ impl Unifier<'_> {
         }
     }
 
-    fn complementary(&self, left: &Guard<'_>, right: &Guard<'_>) -> bool {
-        match (left, right) {
-            (Guard::Not(negated), other) | (other, Guard::Not(negated))
-                if self.same(negated, other.pattern()) =>
-            {
-                true
-            }
-            (Guard::IntLess(a, b, _), Guard::IntLessEqual(c, d, _))
-            | (Guard::IntLessEqual(c, d, _), Guard::IntLess(a, b, _)) => {
-                self.same(a, d) && self.same(b, c)
-            }
-            (Guard::IntEqual(a, b, _), Guard::IntNotEqual(c, d, _))
-            | (Guard::IntNotEqual(c, d, _), Guard::IntEqual(a, b, _))
-            | (Guard::BoolEqual(a, b, _), Guard::BoolNotEqual(c, d, _))
-            | (Guard::BoolNotEqual(c, d, _), Guard::BoolEqual(a, b, _)) => {
-                (self.same(a, c) && self.same(b, d)) || (self.same(a, d) && self.same(b, c))
-            }
-            _ => false,
+    /// The value of a String literal under the current substitution, its
+    /// escapes decoded.
+    fn string_literal(&self, pattern: &Pattern) -> Option<String> {
+        match self.resolve(pattern.clone()) {
+            Pattern::Token {
+                sort: SemanticSortRef::Builtin(BuiltinSort::String),
+                value,
+            } => string_value(&value),
+            _ => None,
         }
+    }
+
+    /// `==K` of two terms under the current substitution, decided only when
+    /// both are K sequences of literals and free constructor applications.
+    /// Free constructors are injective and pairwise distinct, a literal is
+    /// no constructor application, and `~>` is associative with unit `.K`
+    /// over such items, so two such terms are equal exactly when they have
+    /// the same items. A variable, a function application, a collection or
+    /// a cell anywhere in an operand leaves the equality undecided.
+    fn term_equal(&self, left: &Pattern, right: &Pattern) -> Option<bool> {
+        let left = self.items(left)?;
+        let right = self.items(right)?;
+        if left.len() != right.len() {
+            return Some(false);
+        }
+        all_equal(
+            left.iter()
+                .zip(&right)
+                .map(|(left, right)| self.item_equal(left, right)),
+        )
+    }
+
+    /// The items of a K sequence of literals and free constructor
+    /// applications under the current substitution, or `None` when the term
+    /// is not one.
+    fn items(&self, pattern: &Pattern) -> Option<Vec<Pattern>> {
+        let resolved = self.resolve(pattern.clone());
+        match &resolved {
+            Pattern::KSequence { items, .. } => {
+                let mut flat = Vec::new();
+                for item in items {
+                    flat.extend(self.items(item)?);
+                }
+                Some(flat)
+            }
+            Pattern::Token { .. } => Some(vec![resolved]),
+            Pattern::Application {
+                application: ApplicationRef::Declared(id),
+                ..
+            } if self.graph.free_constructor(id) => Some(vec![resolved]),
+            _ => None,
+        }
+    }
+
+    /// `==K` of two items returned by [`Self::items`].
+    fn item_equal(&self, left: &Pattern, right: &Pattern) -> Option<bool> {
+        match (left, right) {
+            (
+                Pattern::Token {
+                    sort: left_sort,
+                    value: left_value,
+                },
+                Pattern::Token {
+                    sort: right_sort,
+                    value: right_value,
+                },
+            ) => {
+                if left_sort == right_sort {
+                    token_equal(left_sort, left_value, right_value)
+                } else {
+                    None
+                }
+            }
+            (
+                Pattern::Application {
+                    application: ApplicationRef::Declared(left_id),
+                    arguments: left_arguments,
+                    instance: left_instance,
+                    ..
+                },
+                Pattern::Application {
+                    application: ApplicationRef::Declared(right_id),
+                    arguments: right_arguments,
+                    instance: right_instance,
+                    ..
+                },
+            ) => {
+                if left_id == right_id {
+                    if left_instance != right_instance
+                        || left_arguments.len() != right_arguments.len()
+                    {
+                        return None;
+                    }
+                    all_equal(
+                        left_arguments
+                            .iter()
+                            .zip(right_arguments)
+                            .map(|(left, right)| self.term_equal(left, right)),
+                    )
+                } else if self.graph.overload_root(left_id) == self.graph.overload_root(right_id) {
+                    // Overload axioms identify applications of one family.
+                    None
+                } else {
+                    Some(false)
+                }
+            }
+            (Pattern::Token { .. }, Pattern::Application { .. })
+            | (Pattern::Application { .. }, Pattern::Token { .. }) => Some(false),
+            _ => None,
+        }
+    }
+
+    /// Whether two guard conjuncts cannot both hold: one is `bool::not` of
+    /// the other, or both are literals of one relation on the same operands
+    /// (in either order for a symmetric relation) with opposite polarity.
+    fn complementary(&self, left: &Pattern, right: &Pattern) -> bool {
+        if let (Some(left), Some(right)) = (relation_literal(left), relation_literal(right))
+            && left.relation == right.relation
+            && left.positive != right.positive
+            && ((self.same(left.operands[0], right.operands[0])
+                && self.same(left.operands[1], right.operands[1]))
+                || (left.symmetric
+                    && self.same(left.operands[0], right.operands[1])
+                    && self.same(left.operands[1], right.operands[0])))
+        {
+            return true;
+        }
+        negated(left).is_some_and(|negated| self.same(negated, right))
+            || negated(right).is_some_and(|negated| self.same(negated, left))
     }
 }
 
-/// One guard conjunct, with `>` and `>=` normalised to `<` and `<=` by swapping operands.
-enum Guard<'a> {
-    Not(&'a Pattern),
-    IntLess(&'a Pattern, &'a Pattern, &'a Pattern),
-    IntLessEqual(&'a Pattern, &'a Pattern, &'a Pattern),
-    IntEqual(&'a Pattern, &'a Pattern, &'a Pattern),
-    IntNotEqual(&'a Pattern, &'a Pattern, &'a Pattern),
-    BoolEqual(&'a Pattern, &'a Pattern, &'a Pattern),
-    BoolNotEqual(&'a Pattern, &'a Pattern, &'a Pattern),
-    Other(&'a Pattern),
+/// A guard conjunct read as a literal of a canonical relation, its operands
+/// in the relation's order (catalog [`GuardMeaning::Relation`]), with
+/// `bool::not` folded into the polarity.
+#[derive(Clone, Copy)]
+struct Literal<'a> {
+    relation: BuiltinOperation,
+    positive: bool,
+    symmetric: bool,
+    operands: [&'a Pattern; 2],
 }
 
-impl<'a> Guard<'a> {
-    fn of(pattern: &'a Pattern) -> Self {
-        let Pattern::Application {
+fn relation_literal(pattern: &Pattern) -> Option<Literal<'_>> {
+    let Pattern::Application {
+        application: ApplicationRef::Builtin(operation),
+        arguments,
+        ..
+    } = pattern
+    else {
+        return None;
+    };
+    match (operation.guard_meaning(), arguments.as_slice()) {
+        (GuardMeaning::Negation, [operand]) => relation_literal(operand).map(|literal| Literal {
+            positive: !literal.positive,
+            ..literal
+        }),
+        (GuardMeaning::Relation(meaning), [left, right]) => Some(Literal {
+            relation: meaning.relation,
+            positive: meaning.positive,
+            symmetric: meaning.symmetric,
+            operands: if meaning.swapped {
+                [right, left]
+            } else {
+                [left, right]
+            },
+        }),
+        _ => None,
+    }
+}
+
+/// The operand of a `bool::not` conjunct.
+fn negated(pattern: &Pattern) -> Option<&Pattern> {
+    match pattern {
+        Pattern::Application {
             application: ApplicationRef::Builtin(operation),
             arguments,
             ..
-        } = pattern
-        else {
-            return Self::Other(pattern);
-        };
-        match (operation, arguments.as_slice()) {
-            (BuiltinOperation::BoolNot, [negated]) => Self::Not(negated),
-            (BuiltinOperation::IntLess, [a, b]) => Self::IntLess(a, b, pattern),
-            (BuiltinOperation::IntGreater, [a, b]) => Self::IntLess(b, a, pattern),
-            (BuiltinOperation::IntLessEqual, [a, b]) => Self::IntLessEqual(a, b, pattern),
-            (BuiltinOperation::IntGreaterEqual, [a, b]) => Self::IntLessEqual(b, a, pattern),
-            (BuiltinOperation::IntEqual, [a, b]) => Self::IntEqual(a, b, pattern),
-            (BuiltinOperation::IntNotEqual, [a, b]) => Self::IntNotEqual(a, b, pattern),
-            (BuiltinOperation::BoolEqual, [a, b]) => Self::BoolEqual(a, b, pattern),
-            (BuiltinOperation::BoolNotEqual, [a, b]) => Self::BoolNotEqual(a, b, pattern),
-            _ => Self::Other(pattern),
+        } if matches!(operation.guard_meaning(), GuardMeaning::Negation) => {
+            match arguments.as_slice() {
+                [operand] => Some(operand),
+                _ => None,
+            }
         }
-    }
-
-    const fn pattern(&self) -> &'a Pattern {
-        match self {
-            Self::Not(pattern)
-            | Self::Other(pattern)
-            | Self::IntLess(_, _, pattern)
-            | Self::IntLessEqual(_, _, pattern)
-            | Self::IntEqual(_, _, pattern)
-            | Self::IntNotEqual(_, _, pattern)
-            | Self::BoolEqual(_, _, pattern)
-            | Self::BoolNotEqual(_, _, pattern) => pattern,
-        }
+        _ => None,
     }
 }
 
-/// The conjuncts of a guard: the operands of nested `bool::and` and
-/// `bool::and_then` (`&&`), each of which holds only when both operands do.
+/// A binary connective with an absorbing value (false for conjunction,
+/// true for disjunction): an operand with that value decides it, and two
+/// operands with the other value give the other value.
+fn connective(left: Option<bool>, right: Option<bool>, absorbing: bool) -> Option<bool> {
+    if left == Some(absorbing) || right == Some(absorbing) {
+        Some(absorbing)
+    } else if left == Some(!absorbing) && right == Some(!absorbing) {
+        Some(!absorbing)
+    } else {
+        None
+    }
+}
+
+/// The conjunction of component equalities of injective constructions: one
+/// unequal component makes the whole unequal, all equal make it equal.
+fn all_equal(components: impl Iterator<Item = Option<bool>>) -> Option<bool> {
+    let mut all = Some(true);
+    for component in components {
+        match component {
+            Some(false) => return Some(false),
+            Some(true) => {}
+            None => all = None,
+        }
+    }
+    all
+}
+
+fn bool_literal(value: &str) -> Option<bool> {
+    match value {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None,
+    }
+}
+
+/// Equality of two tokens of one sort: an Int, Bool or String literal by
+/// its value, an identifier or a user token by its lexeme. Other builtin
+/// tokens (Float, Bytes) are not compared.
+fn token_equal(sort: &SemanticSortRef, left: &str, right: &str) -> Option<bool> {
+    match sort {
+        SemanticSortRef::Builtin(BuiltinSort::Int) => {
+            Some(left.parse::<i128>().ok()? == right.parse::<i128>().ok()?)
+        }
+        SemanticSortRef::Builtin(BuiltinSort::Bool) => {
+            Some(bool_literal(left)? == bool_literal(right)?)
+        }
+        SemanticSortRef::Builtin(BuiltinSort::String) => {
+            Some(string_value(left)? == string_value(right)?)
+        }
+        SemanticSortRef::Builtin(BuiltinSort::Id) | SemanticSortRef::Declared(_) => {
+            Some(left == right)
+        }
+        _ => None,
+    }
+}
+
+/// The value of a String token: the quoted body with its `\n`, `\r`, `\t`,
+/// `\f`, `\"`, `\\`, `\xHH`, `\uHHHH` and `\UHHHHHHHH` escapes decoded, or
+/// `None` for a malformed token or an escape that names no character.
+fn string_value(token: &str) -> Option<String> {
+    let body = token.strip_prefix('"')?.strip_suffix('"')?;
+    let mut value = String::with_capacity(body.len());
+    let mut characters = body.chars();
+    while let Some(character) = characters.next() {
+        if character != '\\' {
+            value.push(character);
+            continue;
+        }
+        let digits = match characters.next()? {
+            'n' => {
+                value.push('\n');
+                continue;
+            }
+            'r' => {
+                value.push('\r');
+                continue;
+            }
+            't' => {
+                value.push('\t');
+                continue;
+            }
+            'f' => {
+                value.push('\u{c}');
+                continue;
+            }
+            escaped @ ('"' | '\\') => {
+                value.push(escaped);
+                continue;
+            }
+            'x' => 2,
+            'u' => 4,
+            'U' => 8,
+            _ => return None,
+        };
+        let hex = characters.by_ref().take(digits).collect::<String>();
+        if hex.len() != digits || !hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return None;
+        }
+        value.push(char::from_u32(u32::from_str_radix(&hex, 16).ok()?)?);
+    }
+    Some(value)
+}
+
+/// The conjuncts of a guard: the operands of nested conjunctions
+/// ([`GuardMeaning::Conjunction`]: `bool::and` and `bool::and_then`, `&&`),
+/// each of which holds only when both operands do.
 fn conjuncts(pattern: &Pattern) -> Vec<&Pattern> {
     match pattern {
         Pattern::Application {
-            application:
-                ApplicationRef::Builtin(BuiltinOperation::BoolAnd | BuiltinOperation::BoolAndThen),
+            application: ApplicationRef::Builtin(operation),
             arguments,
             ..
-        } => arguments.iter().flat_map(conjuncts).collect(),
+        } if matches!(operation.guard_meaning(), GuardMeaning::Conjunction) => {
+            arguments.iter().flat_map(conjuncts).collect()
+        }
         other => vec![other],
     }
 }
 
 /// Whether two transitions can apply to one configuration: their shared cells
-/// unify, no pair of literal guard conjuncts is complementary, and no guard
-/// conjunct is a false ground Int comparison.
+/// unify, no pair of guard conjuncts is complementary, and no guard conjunct
+/// evaluates to false on literal operands.
 fn transitions_overlap(
     left: &TransitionView<'_>,
     right: &TransitionView<'_>,
@@ -2326,6 +2633,9 @@ mod cell_collection_tests;
 
 #[cfg(test)]
 mod collection_theory_tests;
+
+#[cfg(test)]
+mod guard_meaning_tests;
 
 #[cfg(test)]
 mod tests {
