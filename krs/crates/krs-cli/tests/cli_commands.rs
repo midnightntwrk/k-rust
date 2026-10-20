@@ -724,6 +724,141 @@ fn expanded_map_reads_compile_back_to_the_same_rule() {
     }
 }
 
+/// A language whose `sum` rule reads `step` and `scale` and writes `acc`;
+/// `{rule}` is the rule.
+const READ_ONLY_CELLS: &str = r#"
+use krs::builtin::{Int, KSequence, int};
+use krs::{KResult, Term};
+
+krs::sorts! {
+    Stmt;
+    Value: Stmt + KResult;
+    impl Value for Int;
+}
+
+#[krs::configuration]
+pub struct Machine {
+    #[krs::cell]
+    pub k: KSequence,
+    #[krs::cell]
+    pub acc: Int,
+    #[krs::cell]
+    pub step: Int,
+    #[krs::cell]
+    pub scale: Int,
+}
+
+impl Machine {
+    #[krs::init]
+    pub fn init(
+        #[krs::config_var(name = "PGM", main)] program: Stmt,
+        acc: Int,
+        step: Int,
+        scale: Int,
+    ) -> Self {
+        Self {
+            k: krs::k![program],
+            acc,
+            step,
+            scale,
+        }
+    }
+}
+
+{rule}
+"#;
+
+#[test]
+fn a_cell_left_out_of_the_result_or_restated_unchanged_is_read_only() {
+    let target = shared_fixture_target();
+    let emit = |rule: &str| {
+        emit_sum_rule(
+            target.path(),
+            &READ_ONLY_CELLS.replace("{rule}", &format!("krs::rules! {{ for Machine; {rule} }}")),
+        )
+    };
+    // `step` is left out of the result and `scale` restated unchanged: both
+    // are matched and read, and neither is rewritten.
+    let readable = emit(
+        "sum: { k: [n, ..], acc: a, step: d, scale: 2 } => { k: [..], acc: int::add(a, int::mul(n, d)), scale: 2 } where n: Int;",
+    );
+    assert_eq!(
+        readable,
+        "  rule [sum]:\n    <k> N:Int => .K ... </k>\n    <acc> A:Int => A:Int +Int (N:Int *Int D:Int) </acc>\n    <step> D:Int </step>\n    <scale> 2 </scale>\n",
+    );
+    assert_eq!(
+        emit(
+            "sum: { k: [n, ..], acc: a, step: d, scale: 2 } => { k: [..], acc: int::add(a, int::mul(n, d)), step: d } where n: Int;",
+        ),
+        readable,
+    );
+
+    // `krs expand` writes the reference rule with a subject entry and no
+    // result entry for each read-only cell, and it compiles back to the
+    // same rule.
+    let source = READ_ONLY_CELLS.replace(
+        "{rule}",
+        "krs::rules! { for Machine; sum: { k: [n, ..], acc: a, step: d, scale: 2 } => { k: [..], acc: int::add(a, int::mul(n, d)) } where n: Int; }",
+    );
+    let temporary = temp_dir();
+    let manifest = materialize_fixture(temporary.path(), &source);
+    let expanded = command(target.path(), &manifest, "expand", None, &[]);
+    assert_success(&expanded);
+    let expanded = String::from_utf8(expanded.stdout).unwrap();
+    let words = expanded.split_whitespace().collect::<Vec<_>>().join(" ");
+    let (subject, result) = words
+        .split_once("-> crate::Machine")
+        .unwrap_or_else(|| panic!("the reference rule has a result:\n{expanded}"));
+    assert!(
+        subject.contains("step : k::configuration::Cell(d)"),
+        "{expanded}"
+    );
+    assert!(
+        subject.contains("scale : k::configuration::Cell(2)"),
+        "{expanded}"
+    );
+    assert!(!result.contains("step :"), "{expanded}");
+    assert!(!result.contains("scale :"), "{expanded}");
+    // The reference spelling names the computation cell's tail, which K
+    // writes as a variable where the readable rule writes `...`.
+    let without_k = |sentence: &str| {
+        sentence
+            .lines()
+            .filter(|line| !line.contains("<k>"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    assert_eq!(
+        without_k(&emit_sum_rule(
+            target.path(),
+            &format!("extern crate krs as k;\n{expanded}")
+        )),
+        without_k(&readable),
+        "{expanded}"
+    );
+}
+
+#[test]
+fn a_rule_without_the_computation_cell_that_only_reads_changes_no_cell() {
+    let target = shared_fixture_target();
+    for rule in [
+        "idle: { acc: a, step: 1 } => { acc: a };",
+        "idle: { acc: a, step: 1 } => {};",
+    ] {
+        let source =
+            READ_ONLY_CELLS.replace("{rule}", &format!("krs::rules! {{ for Machine; {rule} }}"));
+        let temporary = temp_dir();
+        let manifest = materialize_fixture(temporary.path(), &source);
+        let check = command(target.path(), &manifest, "check", None, &[]);
+        let stderr = String::from_utf8(check.stderr).unwrap();
+        assert!(!check.status.success(), "{rule} accepted:\n{stderr}");
+        assert!(
+            stderr.contains("krs::analysis::rule-changes-no-cell"),
+            "{rule}:\n{stderr}"
+        );
+    }
+}
+
 fn command(
     target: &Path,
     manifest: &Path,

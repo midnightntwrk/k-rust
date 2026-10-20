@@ -85,13 +85,21 @@ When the overlap is intended, put the rules in one group with `#[k::rule(nondet 
 The key is check-only and emits nothing; a group needs at least two rules at one priority, and each of its rules must overlap another (`krs::analysis::nondet-group`).
 Bare `#[k::strict]` is K's own evaluation-order nondeterminism and needs no key.
 
+### Cells a rule only reads
+
+A readable `for Machine` record matches cells on the left and writes cells on the right; a cell the pattern matches and the result leaves out is only read, and keeps its content.
+`store: { k: [Store(r), ..], z: v, regs: m } => { k: [..], regs: map::update(m, r, v) }` reads `z` to bind `v` and emits `<z> V:Int </z>` with no rewrite inside, the K reading of a cell the rule names without changing it.
+`krs expand` writes it as a `cells!` subject entry with no result entry, `z: k::configuration::Cell(v)`; a pattern that constrains the content, such as `z: 0`, is read the same way, and the rule applies only where it matches.
+Writing the cell back unchanged, `z: v` on both sides, denotes the same rule and emits the same read, so the result names only the cells the rule changes; a nested group entry (`frame: f`) and an ordinary leaf read alike.
+`z: _` left out of the result constrains and binds nothing, so the rule would be the same without it; it is a syntax error that asks for the entry to be removed.
+
 ### Rules that leave the computation cell out
 
 A K rule names only the cells it needs, and that includes `<k>`.
 A readable `for Machine` record may leave the computation cell out: `burn: { fuel: f, acc: a } => { fuel: int::sub(f, 1), acc: int::add(a, f) }` under `#[k::requires(int::gt(f, 0))]` emits `rule [burn]: <fuel> F:Int => F:Int -Int 1 </fuel> <acc> A:Int => A:Int +Int F:Int </acc> requires F:Int >Int 0`, with no `<k>`.
 The omitted computation cell is framed like every omitted cell, so the rule fires whenever its cells match, interleaved with the program; a Rust reader expects a struct pattern without `..` to be exhaustive, but here omission means untouched.
 `krs expand` writes the reference `cells!` rule without a `KCell` entry or tail.
-Such a rule is rejected when it changes no cell (`krs::analysis::rule-changes-no-cell`), and when every cell pattern is a variable or `_` of the cell's sort and it has no guard, because it is then always enabled and execution never terminates (`krs::analysis::always-enabled-rule`).
+Such a rule is rejected when it changes no cell, for instance when it only reads (`krs::analysis::rule-changes-no-cell`), and when every cell pattern is a variable or `_` of the cell's sort and it has no guard, because it is then always enabled and execution never terminates (`krs::analysis::always-enabled-rule`).
 The overlap check treats two rules that share no cell as independent, because they commute; rules that share cells are compared on those cells only.
 
 A readable record reads entries of a Map cell with `env: { name -> value, .. }`: the rule applies only where the key is present, `value` binds what it maps to, and the cell is left unchanged, so the result record does not restate `env`.
@@ -103,7 +111,7 @@ Inside a `cells!` entry, `k::map![..]` is the same map as `map![..]`, as it is i
 ### Whole nested-cell variables
 
 A nested cell is a value too: K gives `<frame>` the generated sort `FrameCell` (the cell name capitalised, hyphens removed, then `Cell`), so one variable captures the whole cell, as KEVM saves `<callState>` on its call stack.
-In a readable record, `frame: f` binds the nested cell itself, not a Rust copy of its fields: `push: { k: [Push(), ..], stack: s, frame: f } => { k: [..], stack: list::concat(list::item(f), s), frame: f }` emits `<stack> S:List => ListItem(F:FrameCell) S:List </stack> F:FrameCell`, and `pop` restores a saved frame with `frame: _` in the pattern and `frame: f` in the result, emitted as `(_:FrameCell => F:FrameCell)`.
+In a readable record, `frame: f` binds the nested cell itself, not a Rust copy of its fields: `push: { k: [Push(), ..], stack: s, frame: f } => { k: [..], stack: list::concat(list::item(f), s) }` emits `<stack> S:List => ListItem(F:FrameCell) S:List </stack> F:FrameCell`, and `pop` restores a saved frame with `frame: _` in the pattern and `frame: f` in the result, emitted as `(_:FrameCell => F:FrameCell)`.
 The group clause is written bare, never inside `<frame>...</frame>`, and a group the rule names covers every cell inside it.
 As in K, every generated cell sort is a subsort of `KItem`, so the binder may also fill a `KItem` field of a user production: with `Held { saved: k::KItem }`, `stack: list::concat(list::item(Held { saved: f }), s)` emits `ListItem(held ( F:FrameCell ))`.
 A nested entry is a group binder, `_` (patterns only), or a complete group term; in the reference spelling `krs expand` writes, it has no `Cell(..)` wrapper, because it mirrors the expanded struct, and the binder is typed by the nested `#[k::cell]` struct (`f: crate::Frame`).
@@ -300,7 +308,7 @@ pub fn assign(
 ```
 
 emits `rule [assign]: <k> (Name:Id = Value:Value ; => .K) ... </k> <env> Name:Id |-> (_ => Value:Value) ... </env>`, and the term-shaped `fn unmark_left(k::term![ExpSyntax::Pair(k::rewrite!(ExpSyntax::Marked(value) => value), _)]: Term<Exp>) {}` emits `rule pair ( (marked ( Value:Exp ) => Value:Exp) , _ )`, completed at the head of the computation cell like any term rule.
-A readable rule, or a reference rule with a result, restates the before and after of each cell it touches, which is the same rule; the single-body form is reference-only.
+A readable rule, or a reference rule with a result, states the before and after of each cell it changes, which is the same rule; the single-body form is reference-only.
 The left side of a rewrite is a pattern and binds like the rest of the subject; the right side is a term over those bindings, and `()` on the right is `.K`, which removes a whole K-sequence item.
 The binder list of a `cells!` rule declares the left image's binders (the subject with each rewrite replaced by its left side), in first-occurrence order.
 In a map a rewrite changes a value: `name -> k::rewrite!(_ => value)` requires the key to exist, while `map::update` in a result would add it, so assigning an undeclared variable is stuck in the local form and proceeds in the restating one.

@@ -1071,15 +1071,41 @@ fn assemble_machine_clause(
                 pattern,
                 tree: before_tree,
             } => {
-                let Some((_, MachineResultCell::Term(result))) = result_cells
+                let result = match result_cells
                     .iter()
                     .find(|(result_cell, _)| result_cell.unraw() == cell.unraw())
-                else {
-                    return Err(syn::Error::new(
-                        cell.span(),
-                        "an ordinary fixed-cell pattern requires a corresponding result",
-                    )
-                    .into());
+                {
+                    Some((_, MachineResultCell::Term(result))) => result,
+                    Some((result_cell, _)) => {
+                        return Err(syn::Error::new(
+                            result_cell.span(),
+                            "an ordinary fixed cell's result is one term; `[..]` writes only the computation cell or a List collection",
+                        )
+                        .into());
+                    }
+                    None => {
+                        // A cell the result leaves out keeps its content: the
+                        // rule only reads it. Read as `_`, it constrains and
+                        // binds nothing, so the entry would say nothing.
+                        if matches!(before_tree.as_ref(), TermTree::Wildcard(_)) {
+                            return Err(syn::Error::new(
+                                cell.span(),
+                                format!(
+                                    "`{}: _` matches any content and the result leaves the cell unchanged, so the entry has no effect; leave the cell out of the pattern",
+                                    cell.unraw()
+                                ),
+                            )
+                            .into());
+                        }
+                        extra_bindings.extend(pattern.bindings().iter().cloned());
+                        extras.push(RuleExtra::RewriteCell {
+                            cell: cell.clone(),
+                            before: pattern.clone(),
+                            before_tree: before_tree.clone(),
+                            after: None,
+                        });
+                        continue;
+                    }
                 };
                 let map_update = match pattern.native_pattern() {
                     Some(Pat::Ident(PatIdent { ident: base, .. })) => {
@@ -1096,7 +1122,9 @@ fn assemble_machine_clause(
                         cell: cell.clone(),
                         before: pattern.clone(),
                         before_tree: before_tree.clone(),
-                        after: Box::new(TermExpression::from_expression((**result).clone())?),
+                        after: Some(Box::new(TermExpression::from_expression(
+                            (**result).clone(),
+                        )?)),
                     });
                 }
             }

@@ -112,16 +112,21 @@ protocol_shape! {
             /// Complete registered `map::update(base, key, value)` application.
             update: T => [term_map],
         },
-        /// Simultaneous exact rewrite of one ordinary fixed leaf cell.
+        /// Exact match of one ordinary fixed cell, simultaneously rewritten
+        /// when the result restates it and read only when the result leaves
+        /// it out.
         RewriteCell {
             /// Selected cell, anchored at the authored subject field.
             cell: I => [cell_map],
-            /// Authored result-field provenance for the same cell.
-            result_key: ProvenanceKey => [keep],
+            /// Authored result-field provenance for the same cell, absent
+            /// when the result leaves the cell out (it is then read only).
+            #[serde(default = "Option::default", skip_serializing_if = "Option::is_none")]
+            result_key: Option<ProvenanceKey> => [keep],
             /// Complete exact cell-content pattern.
             before: T => [term_map],
-            /// Complete replacement cell content.
-            after: T => [term_map],
+            /// Complete replacement cell content, absent for a read.
+            #[serde(default = "Option::default", skip_serializing_if = "Option::is_none")]
+            after: Option<T> => [option term_map],
         },
         /// An optional (`?`) or collection (`*`) cell (KF-023): `Some(..)`,
         /// `None`, or an instance list, matched and possibly rewritten.
@@ -584,10 +589,16 @@ impl HostHeadRule {
                     cell
                 }
                 ProtocolHeadRuleExtra::RewriteCell {
-                    cell, result_key, ..
+                    cell,
+                    result_key,
+                    after,
+                    ..
                 } => {
                     if cell.key.role() != ProvenanceRole::RuleLeftCellsField
-                        || result_key.role() != ProvenanceRole::RuleRightCellsField
+                        || result_key
+                            .as_ref()
+                            .is_some_and(|key| key.role() != ProvenanceRole::RuleRightCellsField)
+                        || result_key.is_some() != after.is_some()
                     {
                         return Err(StateTransportError::InvalidTerm(
                             StateTermReason::OrdinaryCellRewriteProvenanceKey,
@@ -909,9 +920,9 @@ mod tests {
         );
         let rewrite = ProtocolHeadRuleExtra::RewriteCell {
             cell: 5,
-            result_key: result_key.clone(),
+            result_key: Some(result_key.clone()),
             before: 6,
-            after: 7,
+            after: Some(7),
         }
         .try_map_refs(&mut calls, &mut map_number, &mut map_number)
         .unwrap();
@@ -919,17 +930,17 @@ mod tests {
             rewrite,
             ProtocolHeadRuleExtra::RewriteCell {
                 cell: 15,
-                result_key: result_key.clone(),
+                result_key: Some(result_key.clone()),
                 before: 16,
-                after: 17,
+                after: Some(17),
             }
         );
         assert_eq!(calls, [1, 2, 3, 4, 5, 6, 7]);
         let failure = ProtocolHeadRuleExtra::RewriteCell {
             cell: 8,
-            result_key,
+            result_key: Some(result_key),
             before: 9,
-            after: 1,
+            after: Some(1),
         }
         .try_map_refs(&mut calls, &mut map_number, &mut map_number);
         assert_eq!(failure, Err("unresolved reference"));
@@ -990,9 +1001,9 @@ mod tests {
                     key: key.clone(),
                     name: "value".to_owned(),
                 },
-                result_key: key,
+                result_key: Some(key),
                 before: wire_term(),
-                after: wire_term(),
+                after: Some(wire_term()),
             }],
             existentials: Vec::new(),
             ensures: None,

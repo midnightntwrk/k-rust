@@ -368,7 +368,7 @@ fn machine_records_support_ordinary_fixed_cell_term_rewrites() {
         [RuleExtra::RewriteCell { cell, before, after, .. }]
             if cell == "valstack"
                 && before.spelling() == "Stack :: Cons (rhs , Stack :: Cons (lhs , rest))"
-                && after.spelling() == "rest"
+                && after.as_ref().is_some_and(|after| after.spelling() == "rest")
     ));
     let roles = clause
         .provenance()
@@ -380,6 +380,70 @@ fn machine_records_support_ordinary_fixed_cell_term_rewrites() {
     assert!(roles.contains(&ProvenanceRole::RuleRightCellsField));
     assert!(roles.contains(&ProvenanceRole::RuleLeftApplicationHead));
     assert!(roles.contains(&ProvenanceRole::RuleRightReference));
+}
+
+#[test]
+fn a_fixed_cell_left_out_of_the_result_is_read_only() {
+    let block = krs_syntax::RuleBlock::parse_source(
+        r"
+        for Machine;
+        use Instr::Store;
+
+        store: {
+            instrs: [Store(r), ..],
+            z: Value::Int(value),
+            regs: regs,
+            frame: f,
+        } => {
+            instrs: [..],
+            regs: map::update(regs, r, value),
+        }
+        where r: Reg;
+        ",
+    )
+    .unwrap();
+
+    let clause = &block.clauses()[0];
+    assert_eq!(
+        clause
+            .bindings()
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        ["r", "value", "regs", "f"]
+    );
+    // `z` and the group `frame` are read only; `regs` is updated.
+    let [
+        RuleExtra::RewriteCell {
+            cell: z,
+            before,
+            after: None,
+            ..
+        },
+        RuleExtra::UpdateMap { cell: regs, .. },
+        RuleExtra::RewriteCell {
+            cell: frame,
+            after: None,
+            ..
+        },
+    ] = clause.extras()
+    else {
+        panic!("expected two reads and an update: {:?}", clause.extras());
+    };
+    assert_eq!(z, "z");
+    assert_eq!(before.spelling(), "Value :: Int (value)");
+    assert_eq!(regs, "regs");
+    assert_eq!(frame, "frame");
+    // Each cell has a subject anchor; only the updated cell has a result anchor.
+    let anchors = clause.provenance().unwrap();
+    let count = |role| {
+        anchors
+            .iter()
+            .filter(|anchor| anchor.role() == role)
+            .count()
+    };
+    assert_eq!(count(ProvenanceRole::RuleLeftCellsField), 2);
+    assert_eq!(count(ProvenanceRole::RuleRightCellsField), 1);
 }
 
 #[test]
@@ -436,8 +500,12 @@ fn malformed_blocks_fail_at_the_local_construct() {
             "a machine-rule map pattern is `{ key -> value, .. }`",
         ),
         (
-            "for Machine; x: { computation: [a, ..], stack: Cons(v, rest) } => { computation: [a, ..] };",
-            "ordinary fixed-cell pattern requires a corresponding result",
+            "for Machine; x: { computation: [a, ..], stack: _ } => { computation: [a, ..] };",
+            "`stack: _` matches any content and the result leaves the cell unchanged, so the entry has no effect; leave the cell out of the pattern",
+        ),
+        (
+            "for Machine; x: { computation: [a, ..], stack: s } => { computation: [a, ..], stack: [a, ..] };",
+            "an ordinary fixed cell's result is one term",
         ),
         (
             "for Expr; x: Wrap(a) => a where update env = map::lookup(env, a);",

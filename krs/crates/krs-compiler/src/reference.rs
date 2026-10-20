@@ -1362,18 +1362,24 @@ fn render_rule(
                 let group = is_group_cell(&cell.cell, bundle);
                 let cell = render_rule_cell_field(&cell.cell, &rule.configuration, package)?;
                 let before = render_term(before, true, package, bundle)?;
-                let after = render_term(after, false, package, bundle)?;
+                let after = after
+                    .as_ref()
+                    .map(|after| render_term(after, false, package, bundle))
+                    .transpose()?;
+                // A read-only cell is a subject entry without a result entry.
                 if group {
                     // A nested field's entry has no wrapper (KF-016).
                     left_cells.push(quote!(#cell: #before));
-                    right_cells.push(quote!(#cell: #after));
+                    right_cells.extend(after.map(|after| quote!(#cell: #after)));
                 } else {
                     left_cells.push(quote! {
                         #cell: k::configuration::Cell(#before)
                     });
-                    right_cells.push(quote! {
-                        #cell: k::configuration::Cell(#after)
-                    });
+                    right_cells.extend(after.map(|after| {
+                        quote! {
+                            #cell: k::configuration::Cell(#after)
+                        }
+                    }));
                 }
             }
         }

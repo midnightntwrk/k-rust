@@ -18,6 +18,7 @@ Machine rules relate whole symbolic configurations while mentioning only the cel
 `for Machine;` makes each clause a configuration rule.
 The left side of `var` requires an identifier at the head of `k` and a matching `name -> value` entry in `env`.
 The right side replaces only that computation head.
+`env` is matched but not named on the right, so `var` only reads it: a cell the result leaves out keeps its content, and the result names only the cells a rule changes.
 
 The omitted environment cell and the `..` sequence tail and map tail are frames: they persist unchanged.
 This is one simultaneous symbolic rewrite, not a series of Rust field assignments.
