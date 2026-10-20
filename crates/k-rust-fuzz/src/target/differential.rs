@@ -157,9 +157,11 @@ pub(crate) fn equivalent(
 ///    printed KORE after k-rust's normalization.
 ///
 /// In the all-paths mode a case is also a hit by a *removed end* if conditions 1 and 3 hold, the
-/// mutant's run is complete in the sense of condition 1, and some baseline leaf is a clean
-/// natural end with a constructor-only configuration that is not in the mutant's set of final
-/// configurations.
+/// mutant's run is complete in the sense of condition 1 with every end constructor-only, and
+/// some baseline leaf is a clean natural end with a constructor-only configuration that is not
+/// in the mutant's set of final configurations. The mutant's ends must be data too: a mutant end
+/// such as an unevaluated application of a total function may denote the baseline's end, so its
+/// syntactic difference proves nothing.
 ///
 /// An incomplete baseline makes the case `baseline-incomplete`, whatever the mutant did.
 /// Otherwise the mutant's leaves are classed by [`exec::classify`], a leaf "reaching the target"
@@ -187,7 +189,7 @@ pub(crate) fn judge_pair(
     };
     let added = Verdicts::added(&baseline_set, mutant)?;
     let removed = match (paths, complete_ends(mutant)) {
-        (PathMode::AllPaths, Some(mutant_set)) => Verdicts::removed(baseline, &mutant_set)?,
+        (PathMode::AllPaths, Some(mutant_set)) => Verdicts::removed(baseline, mutant, &mutant_set)?,
         (PathMode::OnePath, _) | (PathMode::AllPaths, None) => Verdicts::none(baseline),
     };
     let killing_leaf = added.kills.iter().position(|&kills| kills);
@@ -280,13 +282,25 @@ impl Verdicts {
         Self::outside(mutant, baseline, "mutant")
     }
 
-    /// The baseline's ends that the mutant's complete set lacks. Every baseline leaf is a clean
-    /// end here (the baseline is complete), so no unclean leaf is met.
+    /// The baseline's ends that the mutant's complete set of ends, `mutant_set`, lacks. Every
+    /// baseline leaf is a clean end here (the baseline is complete), so no unclean leaf is met.
+    /// When some mutant end is not constructor-only, an end the mutant lacks syntactically may
+    /// still be one it reaches, so every such end is undecided rather than a kill.
     fn removed(
         baseline: &CaseResult,
-        mutant: &BTreeSet<&KorePattern>,
+        mutant: &CaseResult,
+        mutant_set: &BTreeSet<&KorePattern>,
     ) -> Result<Self, EngineDefect> {
-        Self::outside(baseline, mutant, "baseline")
+        let mut verdicts = Self::outside(baseline, mutant_set, "baseline")?;
+        let mutant_is_data = mutant
+            .leaves
+            .iter()
+            .all(|leaf| leaf.constructor_only == Some(true));
+        if !mutant_is_data && verdicts.kills.contains(&true) {
+            verdicts.kills.fill(false);
+            verdicts.undecided = true;
+        }
+        Ok(verdicts)
     }
 
     /// The leaves of `side` whose configuration `others` lacks.
@@ -789,6 +803,20 @@ mod tests {
     }
 
     #[test]
+    fn a_removed_end_beside_a_mutant_end_that_is_not_data_is_unsupported() {
+        // The mutant's end 4 is not constructor-only (say an unevaluated total function that
+        // happens to print apart from 3 and 4): it may denote 3, so 3 is not shown removed.
+        let mutant = result(vec![
+            natural(config(4, 0), Some(true)),
+            natural(config(6, 0), Some(false)),
+        ]);
+        assert_eq!(
+            judge(&coin_baseline(), &mutant, PathMode::AllPaths),
+            DifferentialJudgement::class(OutcomeClass::Unsupported)
+        );
+    }
+
+    #[test]
     fn a_removed_abnormal_stop_or_undefined_step_is_no_hit() {
         let baseline = result(vec![
             leaf(HaltReasonOutput::Stuck, config(3, 0), Vec::new()),
@@ -816,5 +844,260 @@ mod tests {
         assert!(judge_pair(&baseline, &mutant, PathMode::AllPaths, false).is_err());
         // The one-path mode never reads it.
         assert!(judge_pair(&baseline, &mutant, PathMode::OnePath, false).is_ok());
+    }
+}
+
+/// FZ-FIX's fixture module (`tests/support`), included in the unit tests because the judge is
+/// crate-private.
+#[cfg(test)]
+#[path = "../../tests/support/mod.rs"]
+mod support;
+
+/// The differential judge on FZ-FIX's baselines and mutants (`tests/data/README.md`), each side
+/// run through its own executor as a campaign case runs it.
+#[cfg(test)]
+mod fixture_tests {
+    use super::{
+        support::{self, Compiled, Fixture},
+        *,
+    };
+    use crate::{
+        assemble::ProgramAssembly,
+        exec::{CaseRequestShape, Executor},
+    };
+
+    /// One side of a differential case: its definition's executor and request shape.
+    struct Side {
+        compiled: &'static Compiled,
+        executor: Executor,
+        shape: CaseRequestShape,
+    }
+
+    impl Side {
+        fn new(fixture: &'static Fixture, needs: &TargetNeeds, options: &CaseOptions) -> Self {
+            let compiled = fixture.compiled();
+            let definition = compiled.definition();
+            let assembly = ProgramAssembly::new(&definition).expect("the fixture assembles");
+            let executor =
+                Executor::new(&definition, &assembly, options).expect("the executor builds");
+            Self {
+                compiled,
+                executor,
+                shape: CaseRequestShape::new(options, needs),
+            }
+        }
+
+        /// Run the program `text`, named `file`, on this side.
+        fn run(&mut self, file: &str, text: &str) -> CaseResult {
+            let initial = self
+                .compiled
+                .assemble(file, text, &[])
+                .expect("the program assembles");
+            self.executor
+                .run(&initial, &self.shape, &[], None)
+                .expect("no solver prelude failure")
+        }
+    }
+
+    /// Judge `text` on `baseline` and `mutant` under `options`, each side planned by [`plan`].
+    fn judge_on(
+        baseline: &'static Fixture,
+        mutant: &'static Fixture,
+        file: &str,
+        text: &str,
+        options: &CaseOptions,
+    ) -> DifferentialJudgement {
+        let plan = plan(options);
+        let baseline = Side::new(baseline, &plan.baseline, options).run(file, text);
+        let mutant = Side::new(mutant, &plan.mutant, options).run(file, text);
+        judge_pair(&baseline, &mutant, options.paths, false).expect("no engine defect")
+    }
+
+    fn options(paths: PathMode) -> CaseOptions {
+        CaseOptions {
+            paths,
+            ..CaseOptions::default()
+        }
+    }
+
+    /// `flip(n)` on the COIN baseline and `mutant`.
+    fn flip(mutant: &'static Fixture, n: i64, paths: PathMode) -> DifferentialJudgement {
+        judge_on(
+            &support::COIN,
+            mutant,
+            "coin/flip.pgm",
+            &format!("flip({n})"),
+            &options(paths),
+        )
+    }
+
+    const BOTH_MODES: [PathMode; 2] = [PathMode::OnePath, PathMode::AllPaths];
+    const MISS: DifferentialJudgement = DifferentialJudgement::class(OutcomeClass::Miss);
+
+    #[test]
+    fn single_paths_that_differ_inside_the_baseline_set_are_no_hit() {
+        // The swapped mutant's one path ends elsewhere than the baseline's one path, ...
+        let options = options(PathMode::OnePath);
+        let one_path = TargetNeeds {
+            paths: Some(PathMode::OnePath),
+            ..TargetNeeds::default()
+        };
+        let baseline =
+            Side::new(&support::COIN, &one_path, &options).run("coin/flip.pgm", "flip(3)");
+        let mutant =
+            Side::new(&support::COIN_SWAPPED, &one_path, &options).run("coin/flip.pgm", "flip(3)");
+        assert_eq!(baseline.leaves.len(), 1);
+        assert_eq!(mutant.leaves.len(), 1);
+        assert_ne!(baseline.leaves[0].state, mutant.leaves[0].state);
+        // ... but inside the baseline's set of ends {3, 4}: no hit in either mode.
+        for paths in BOTH_MODES {
+            assert_eq!(flip(&support::COIN_SWAPPED, 3, paths), MISS, "{paths:?}");
+        }
+    }
+
+    #[test]
+    fn a_mutant_that_adds_an_end_is_a_hit() {
+        for paths in BOTH_MODES {
+            let judgement = flip(&support::COIN_KILL, 11, paths);
+            assert_eq!(judgement.class, OutcomeClass::Hit, "{paths:?}");
+            assert_eq!(judgement.killing_leaf, Some(0), "{paths:?}");
+            // On the anchor the mutant is the baseline.
+            assert_eq!(flip(&support::COIN_KILL, 3, paths), MISS, "{paths:?}");
+        }
+        // On all paths the mutant's single end 13 also lacks both baseline ends 11 and 12.
+        assert!(
+            flip(&support::COIN_KILL, 11, PathMode::AllPaths)
+                .removed_end
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn a_mutant_that_removes_an_end_is_a_hit_on_all_paths_only() {
+        assert_eq!(flip(&support::COIN_PRIO, 3, PathMode::OnePath), MISS);
+        let judgement = flip(&support::COIN_PRIO, 3, PathMode::AllPaths);
+        assert_eq!(judgement.class, OutcomeClass::Hit);
+        assert_eq!(judgement.killing_leaf, None);
+        assert!(judgement.removed_end.is_some());
+    }
+
+    #[test]
+    fn an_added_end_holding_a_function_application_is_no_hit() {
+        // flip(11) ends with opaque(11) on the mutant: clean, ceil-free, not data.
+        for paths in BOTH_MODES {
+            assert_eq!(
+                flip(&support::COIN_FUNC, 11, paths),
+                DifferentialJudgement::class(OutcomeClass::Unsupported),
+                "{paths:?}"
+            );
+            assert_eq!(flip(&support::COIN_FUNC, 3, paths), MISS, "{paths:?}");
+        }
+    }
+
+    #[test]
+    fn a_depth_bound_below_the_run_makes_the_baseline_incomplete() {
+        // count(3) ends only under max_depth 5; the mutant does the same as the baseline.
+        let count = |max_depth| {
+            judge_on(
+                &support::COIN,
+                &support::COIN_KILL,
+                "coin/count.pgm",
+                "count(3)",
+                &CaseOptions {
+                    max_depth: Some(max_depth),
+                    ..CaseOptions::default()
+                },
+            )
+        };
+        for max_depth in [3, 4] {
+            assert_eq!(
+                count(max_depth),
+                DifferentialJudgement::class(OutcomeClass::BaselineIncomplete),
+                "max_depth {max_depth}"
+            );
+        }
+        assert_eq!(count(5), MISS);
+    }
+
+    #[test]
+    fn a_chosen_value_mark_refuses_the_kill_and_its_absence_allows_it() {
+        // listKeys(1, 2): both sides read keys_list of a two-key map and carry the mark, and the
+        // ends differ; the marked baseline end makes its set incomplete.
+        for paths in BOTH_MODES {
+            let program = support::CHOSEN.program("chosen/keys.pgm");
+            assert_eq!(
+                judge_on(
+                    &support::CHOSEN,
+                    &support::CHOSEN_KILL,
+                    program.file,
+                    program.text,
+                    &options(paths)
+                ),
+                DifferentialJudgement::class(OutcomeClass::BaselineIncomplete),
+                "{paths:?}"
+            );
+            // listKeys(1, 1): one key, no mark; the mutant ends with [1, 1], the baseline [1].
+            let judgement = judge_on(
+                &support::CHOSEN,
+                &support::CHOSEN_KILL,
+                program.file,
+                "listKeys(1, 1)",
+                &options(paths),
+            );
+            assert_eq!(judgement.class, OutcomeClass::Hit, "{paths:?}");
+            assert_eq!(judgement.killing_leaf, Some(0), "{paths:?}");
+        }
+    }
+
+    #[test]
+    fn equal_digests_and_orders_are_equivalent() {
+        let coin = support::COIN.compiled();
+        let layout = support::COIN_LAYOUT.compiled();
+        assert_eq!(coin.digest(), layout.digest());
+        assert!(equivalent(&coin.definition(), &layout.definition()).expect("digests"));
+        assert!(
+            equivalent(
+                &coin.definition_on(BackendRoute::FromDefinition),
+                &layout.definition_on(BackendRoute::FromDefinition),
+            )
+            .expect("digests")
+        );
+    }
+
+    #[test]
+    fn unequal_digests_are_not_equivalent() {
+        let coin = support::COIN.compiled().definition();
+        for mutant in [
+            &support::COIN_SWAPPED,
+            &support::COIN_PRIO,
+            &support::COIN_KILL,
+            &support::COIN_FUNC,
+        ] {
+            assert!(
+                !equivalent(&coin, &mutant.compiled().definition()).expect("digests"),
+                "{}",
+                mutant.file
+            );
+        }
+    }
+
+    #[test]
+    fn equal_digests_with_another_rewrite_order_route_or_module_are_not_equivalent() {
+        // FZ-FIX has no source pair with one digest and two orders (compiled KORE keeps the
+        // sentence order), so the pair is the baseline and itself with a permuted order.
+        let coin = support::COIN.compiled();
+        let mut order = coin.artifacts.execution_rewrite_order.clone();
+        assert!(order.len() >= 2, "COIN orders several rules: {order:?}");
+        order.reverse();
+        let permuted = coin.definition_on(BackendRoute::SourceExecution {
+            execution_rewrite_order: order,
+        });
+        assert!(!equivalent(&coin.definition(), &permuted).expect("digests"));
+        let kore_route = coin.definition_on(BackendRoute::FromDefinition);
+        assert!(!equivalent(&coin.definition(), &kore_route).expect("digests"));
+        assert!(!equivalent(&kore_route, &coin.definition()).expect("digests"));
+        let mut other_main = coin.definition();
+        other_main.main_module = "COIN-SYNTAX".to_owned();
+        assert!(!equivalent(&coin.definition(), &other_main).expect("digests"));
     }
 }
