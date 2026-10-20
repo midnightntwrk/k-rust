@@ -31,7 +31,7 @@ use crate::{
         BackendRoute, Budget, CampaignSpec, CaseOptions, CompiledDefinition, ProgramInput,
         ProposerConfig, ProposerKind,
     },
-    target::{PatternAt, TargetKind, differential},
+    target::{PatternAt, RuleMode, TargetKind, differential},
     values::{self, Generator, Value, ValueRng},
 };
 
@@ -74,7 +74,11 @@ impl Campaign {
     /// `literal` does not occur exactly once, overlapping spans, an anchor that does not parse
     /// back, a refused hole sort, explicit assignments that violate their constraints, an
     /// unknown, ambiguous or refused target, a hole sort missing on one side of a differential,
-    /// and a program that does not assemble with its anchor values.
+    /// and a program that does not assemble with its anchor values. In a differential campaign
+    /// the program must assemble with its anchor values on the mutant too, since each hole's
+    /// position is located on both sides: a mutant whose grammar refuses the anchor program is
+    /// a [`CampaignError::Program`] or [`CampaignError::AnchorDoesNotParse`], not a campaign of
+    /// rejected cases. Other values the mutant refuses make their cases `rejected`.
     pub fn new(spec: CampaignSpec) -> Result<Campaign, CampaignError> {
         check_definitions(&spec)?;
         check_proposers(&spec.proposers)?;
@@ -130,8 +134,11 @@ impl Campaign {
                             ),
                         });
                     }
-                    // A mutant that refuses the anchors refuses those cases; the frontend
-                    // digest still identifies its grammar.
+                    // `LiveCases::build` already refused a mutant that does not assemble the
+                    // program with its anchors (`RoundTripCheck::new` locates each hole on both
+                    // sides). A mutant that prints or round-trips the anchors differently
+                    // reaches here: it refuses those cases, and the frontend digest still
+                    // identifies its grammar.
                     Err(_) => initial.push(None),
                 }
             }
@@ -407,34 +414,56 @@ fn json<T: serde::Serialize + ?Sized>(value: &T) -> String {
     serde_json::to_string(value).expect("spec parts have string keys and no floats")
 }
 
-/// The clean-leaf facts a hit of `spec`'s target rests on (ARCHITECTURE 4.3, 5.2).
+/// The clean-leaf facts a hit of `spec`'s target rests on (ARCHITECTURE 4.3, 5.2), one per
+/// check `exec` makes before a leaf is clean ([`crate::exec::UncleanReason`]):
+/// - every target: the halt; a decided state, with no `undefined-initial-instances` on its
+///   path (D16); ceil-freeness; no implementation-chosen value, contradicted claim, iteration
+///   exhaustion or failed rule condition on the leaf; and a run with no stack stop, SMT
+///   unknown, allowance refusal or unsupported hook (D21);
+/// - a target that matches a pattern on the leaf (a pattern target, or any target with
+///   `run-to-completion`, which matches the normal-termination pattern): a decided match;
+/// - a target whose hit rests on run-level facts (the coverage modes, D18) or on a set of ends
+///   (differential): no run-level fact off every leaf (D16).
 fn clean_leaf_facts(spec: &CampaignSpec) -> Vec<String> {
     let mut facts: Vec<&str> = vec![
         "halt-stuck-or-target-terminal",
         "decided-state",
+        "no-undefined-initial-instances",
         "ceil-free",
         "no-implementation-chosen-value",
         "no-contradicted-claim",
         "no-iteration-exhaustion",
+        "no-rule-condition-failure",
         "no-stack-stops",
         "no-smt-unknowns",
         "no-allowance-refusal",
+        "no-unsupported-hook",
     ];
-    match &spec.target.kind {
+    let natural_end = match &spec.target.kind {
         TargetKind::Pattern(pattern) => {
             facts.push("empty-match-constraints");
-            if pattern.at == PatternAt::Final && spec.target.run_to_completion {
-                facts.push("natural-end");
-            }
+            facts.push("decided-match");
+            pattern.at == PatternAt::Final && spec.target.run_to_completion
         }
         // The differential conditions depend on the kind of kill; the loop adds them per
         // witness.
-        TargetKind::Differential(_) => {}
-        TargetKind::Rule(_) | TargetKind::Observer(_) => {
-            if spec.target.run_to_completion {
-                facts.push("natural-end");
-            }
+        TargetKind::Differential(_) => {
+            facts.push("no-run-facts-off-leaves");
+            false
         }
+        TargetKind::Rule(rule) => {
+            if matches!(rule.mode, RuleMode::Covered | RuleMode::ConditionReached) {
+                facts.push("no-run-facts-off-leaves");
+            }
+            spec.target.run_to_completion
+        }
+        TargetKind::Observer(_) => spec.target.run_to_completion,
+    };
+    if natural_end {
+        if !facts.contains(&"decided-match") {
+            facts.push("decided-match");
+        }
+        facts.push("natural-end");
     }
     facts.into_iter().map(str::to_owned).collect()
 }

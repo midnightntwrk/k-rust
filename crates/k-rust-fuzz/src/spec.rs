@@ -257,6 +257,13 @@ pub struct CaseOptions {
     pub normal_end_pattern: Option<String>,
     /// Per-case wall-clock safety limit in milliseconds. A case it stops is `timeout` and
     /// outside the determinism contract (ARCHITECTURE 5.1, 5.4). `None`: no limit.
+    ///
+    /// Without a limit nothing but the caller's token bounds one rewrite step: `max_work` and
+    /// `max_depth` count steps, and a step whose ground function evaluation does not terminate
+    /// never ends, so a definition with such a function makes [`crate::Campaign::run`] hang
+    /// until the token passed to it is cancelled. [`crate::Campaign::new`] takes no token, and
+    /// its internalizations and rule-graph entry run unbounded too. A library caller that runs
+    /// untrusted definitions should set a limit or pass a token.
     pub safety_limit_ms: Option<u64>,
     /// The solver options every backend of the campaign is built with (krun's
     /// `--smt-timeout` and `--smt-retry-limit`). `smtUnknowns` depend on them, so they are part
