@@ -193,6 +193,16 @@ pub enum SyntaxErrorKind {
     },
     /// A symbolic constructor field or rule type was not a supported `Term` sort.
     InvalidTermType,
+    /// A rule narrowing or a field or term sort gave one of K's unparameterized
+    /// collection sorts (`List`, `Map`, `Set`) generic arguments.
+    ParametricCollectionSort {
+        /// The collection sort: `List`, `Map`, or `Set`.
+        collection: &'static str,
+        /// The authored path without its generic arguments.
+        bare: String,
+        /// Whether the path is a `where` narrowing rather than a field or term sort.
+        narrowing: bool,
+    },
     /// A rule body was not exactly one unterminated term expression.
     UnsupportedRuleBody {
         /// Specific body restriction.
@@ -415,6 +425,7 @@ impl SyntaxErrorKind {
             }
             Self::UnsupportedRulePattern { .. } => codes::syntax::UNSUPPORTED_RULE_PATTERN,
             Self::InvalidTermType => codes::syntax::INVALID_TERM_TYPE,
+            Self::ParametricCollectionSort { .. } => codes::syntax::PARAMETRIC_COLLECTION_SORT,
             Self::UnsupportedRuleBody { .. } => codes::syntax::UNSUPPORTED_RULE_BODY,
             Self::UnexpectedMacro { .. } => codes::syntax::UNEXPECTED_MACRO,
             Self::UnsupportedTermExpression { .. } => codes::syntax::UNSUPPORTED_TERM_EXPRESSION,
@@ -650,6 +661,27 @@ impl fmt::Display for SyntaxError {
             }
             SyntaxErrorKind::InvalidTermType => {
                 formatter.write_str("expected `Term<SortPath>` or `Term<dyn SortPath>`")
+            }
+            SyntaxErrorKind::ParametricCollectionSort {
+                collection,
+                bare,
+                narrowing,
+            } => {
+                let test = if *narrowing {
+                    "a `where` narrowing tests the sort"
+                } else {
+                    "a field or term sort is the sort"
+                };
+                let contents = if *collection == "Map" {
+                    "its keys or values"
+                } else {
+                    "its elements"
+                };
+                write!(
+                    formatter,
+                    "K's `{collection}` sort is not parametric, so {test} `{collection}` and \
+                     cannot constrain {contents}; write `{bare}` without generic arguments"
+                )
             }
             SyntaxErrorKind::UnsupportedRuleBody { reason } => {
                 write!(formatter, "unsupported rule body: {reason}")

@@ -1319,8 +1319,10 @@ endmodule
     /// `a_decided_connective_in_an_equation_condition_is_marked`).
     /// An operand that reaches the read through an anywhere rule (`viaAny(0)`, and `fa()`, whose
     /// equation gives `viaAny(0)`) holds a console effect too, in a discarded `#if` branch and in
-    /// a condition (`pAnyCondIte`): whether an application may perform an effect is closed over
-    /// the definition's equations, not read from the `impure` attribute alone.
+    /// a condition (`pAnyCondIte`). `viaAny` is therefore `impure`, and it is not `total`: the
+    /// definedness of the discarded `viaAny(0)` (`pAnyIte`) depends on an application that is not
+    /// performed, so the run stops there at the unsupported hook, marked and with nothing read;
+    /// `fa()` is declared `total`, so `pAnyFunIte` goes on and reads.
     /// The operands compare the read with `==K`, which is defined whatever is read, so that the
     /// discarded `andThenBool` operand's definedness does not rest on a read that is not
     /// performed (that is the unsupported-hook outcome).
@@ -1332,27 +1334,26 @@ endmodule
                 .map(|hook| format!("{hook}/effect-order"))
                 .collect()
         };
-        let expected: [(&str, Vec<String>, &str); 16] = [
-            ("pAnd", effect_order(&["BOOL.and"]), "66"),
-            ("pOr", effect_order(&["BOOL.or"]), "66"),
-            ("pAndThen", Vec::new(), "65"),
-            ("pImplies", effect_order(&["BOOL.implies"]), "66"),
-            ("pImpliesWrite", effect_order(&["BOOL.implies"]), "65"),
-            ("pRelevant", Vec::new(), "66"),
-            ("pPure", Vec::new(), "65"),
-            ("pEmpty", Vec::new(), "65"),
-            ("pIte", effect_order(&["KEQUAL.ite"]), "65"),
-            ("pNest", effect_order(&["BOOL.and", "BOOL.or"]), "66"),
-            ("pFun", effect_order(&["BOOL.and"]), "66"),
-            ("pWrite", effect_order(&["BOOL.and"]), "65"),
-            ("pCondIte", effect_order(&["KEQUAL.ite"]), "65"),
-            ("pAnyIte", effect_order(&["KEQUAL.ite"]), "65"),
-            ("pAnyFunIte", effect_order(&["KEQUAL.ite"]), "65"),
-            ("pAnyCondIte", effect_order(&["KEQUAL.ite"]), "65"),
+        let expected: [(&str, Vec<String>, Option<&str>); 16] = [
+            ("pAnd", effect_order(&["BOOL.and"]), Some("66")),
+            ("pOr", effect_order(&["BOOL.or"]), Some("66")),
+            ("pAndThen", Vec::new(), Some("65")),
+            ("pImplies", effect_order(&["BOOL.implies"]), Some("66")),
+            ("pImpliesWrite", effect_order(&["BOOL.implies"]), Some("65")),
+            ("pRelevant", Vec::new(), Some("66")),
+            ("pPure", Vec::new(), Some("65")),
+            ("pEmpty", Vec::new(), Some("65")),
+            ("pIte", effect_order(&["KEQUAL.ite"]), Some("65")),
+            ("pNest", effect_order(&["BOOL.and", "BOOL.or"]), Some("66")),
+            ("pFun", effect_order(&["BOOL.and"]), Some("66")),
+            ("pWrite", effect_order(&["BOOL.and"]), Some("65")),
+            ("pCondIte", effect_order(&["KEQUAL.ite"]), Some("65")),
+            ("pAnyIte", effect_order(&["KEQUAL.ite"]), None),
+            ("pAnyFunIte", effect_order(&["KEQUAL.ite"]), Some("65")),
+            ("pAnyCondIte", effect_order(&["KEQUAL.ite"]), Some("65")),
         ];
         // A run with one leaf lists exactly that leaf's marks.
-        let expected =
-            expected.map(|(program, marks, read)| (program, marks.clone(), marks, Some(read)));
+        let expected = expected.map(|(program, marks, read)| (program, marks.clone(), marks, read));
         let found = expected.clone().map(|(program, _, _, _)| {
             let (marks, listed, read) = effect_run(program, false);
             (program, marks, listed, read)
@@ -1386,6 +1387,91 @@ endmodule
             effect_run("pAnyCond", true),
             (marks.clone(), marks, Some("65"))
         );
+    }
+
+    /// Labels that reach an effect through an anywhere rule (`viaAny`, and `fa` through it), an
+    /// `ensures` (`viaEns`), a macro's right side (`usesM` through `m`), a console hook not
+    /// declared `impure` (`fu` through `myGetc`), and a simplification whose right side copies a
+    /// matched application (`_+Int_`, through `eff(N) +Int 0 => eff(N)`); `lhsS` applies `eff`
+    /// only on a simplification's left side and `clean` reaches nothing.
+    const REACH: &str = r#"
+module MAIN
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  imports K-IO
+  syntax Pgm ::= "p"
+  configuration <k> $PGM:Pgm </k>
+  rule p => .K
+  syntax Int ::= fa() [function] | viaEns(Int) [function] | myGetc(Int) [function, hook(IO.getc)]
+               | fu() [function] | eff(Int) [function, impure] | lhsS(Int) [function]
+  syntax Num ::= Int | viaAny(Int) | m(Int) [macro] | usesM() [function] | clean(Int)
+  rule viaAny(N) => {#getc(N)}:>Int [anywhere]
+  rule fa() => {viaAny(0)}:>Int
+  rule viaEns(N) => N ensures {#getc(0)}:>Int ==Int 65
+  rule m(N) => {#getc(N)}:>Int
+  rule usesM() => m(0)
+  rule clean(N) => N [anywhere]
+  rule fu() => myGetc(0)
+  rule eff(N) => N
+  rule lhsS(N) => N
+  rule lhsS(eff(N)) => N [simplification]
+  rule eff(N) +Int 0 => eff(N) [simplification]
+endmodule
+"#;
+
+    /// The frontend's `impure` attribute and the backend's load-time console-effect set are one
+    /// closure from the same seeds over the same rules and rule parts, so on the compiled KORE of
+    /// the FU-27 and KINK-17/4 fixtures the symbols the KORE declares `impure` are exactly the
+    /// symbols the load finds.
+    #[test]
+    fn the_emitted_impure_attribute_equals_the_load_time_effect_set() {
+        for (name, source, program) in [("REACH", REACH, "p"), ("EFFECTS", EFFECTS, "pAnd")] {
+            let (kore, _) = compile(source, program);
+            let parsed = k_rust::kore::parser::parse_definition(&kore).unwrap();
+            let declared: BTreeSet<String> = parsed
+                .modules
+                .iter()
+                .flat_map(|module| module.sentences.iter())
+                .filter_map(|sentence| match sentence {
+                    k_rust::kore::ast::Sentence::SymbolDeclaration {
+                        symbol, attributes, ..
+                    } if attributes.0.iter().any(|attribute| {
+                        matches!(attribute, Pattern::Application { symbol, .. } if symbol.name == "impure")
+                    }) =>
+                    {
+                        Some(symbol.name.clone())
+                    }
+                    _ => None,
+                })
+                .collect();
+            let mut backend = backend(&kore);
+            let loaded = backend
+                .select_definition(None)
+                .unwrap()
+                .console_effect_symbols()
+                .expect("every effectful equation has a root symbol");
+            assert_eq!(declared, loaded, "{name}");
+            if name == "REACH" {
+                for symbol in [
+                    "Lblfa'LParRParUnds'MAIN'Unds'Int",
+                    "LblviaEns'LParUndsRParUnds'MAIN'Unds'Int'Unds'Int",
+                    "LblmyGetc'LParUndsRParUnds'MAIN'Unds'Int'Unds'Int",
+                    "Lblfu'LParRParUnds'MAIN'Unds'Int",
+                    "LblviaAny'LParUndsRParUnds'MAIN'Unds'Num'Unds'Int",
+                    "LblusesM'LParRParUnds'MAIN'Unds'Num",
+                    "Lbl'UndsPlus'Int'Unds'",
+                ] {
+                    assert!(declared.contains(symbol), "{symbol}: {declared:?}");
+                }
+                for symbol in [
+                    "LbllhsS'LParUndsRParUnds'MAIN'Unds'Int'Unds'Int",
+                    "Lblclean'LParUndsRParUnds'MAIN'Unds'Num'Unds'Int",
+                ] {
+                    assert!(!declared.contains(symbol), "{symbol}: {declared:?}");
+                }
+            }
+        }
     }
 
     /// A run without a console performs no effect, so a decided `#if` over a discarded `#write`

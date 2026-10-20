@@ -66,7 +66,6 @@ k::rules! {
         m: m,
     } => {
         k: [map::size(map::remove(m, key)), ..],
-        m: m,
     };
 
     /// `map::remove_all`: the size after removing the keys `{key, 3}`.
@@ -75,7 +74,6 @@ k::rules! {
         m: m,
     } => {
         k: [map::size(map::remove_all(m, set::union(set::item(key), set::item(3)))), ..],
-        m: m,
     };
 
     /// `map::keys`: whether `key` is a key.
@@ -84,7 +82,6 @@ k::rules! {
         m: m,
     } => {
         k: [set::contains(key, map::keys(m)), ..],
-        m: m,
     };
 
     /// `map::keys_list`: the number of keys.
@@ -93,7 +90,6 @@ k::rules! {
         m: m,
     } => {
         k: [list::size(map::keys_list(m)), ..],
-        m: m,
     };
 
     /// `map::values`: whether `key` is a value.
@@ -102,7 +98,6 @@ k::rules! {
         m: m,
     } => {
         k: [list::contains(key, map::values(m)), ..],
-        m: m,
     };
 
     /// `map::size`.
@@ -111,7 +106,6 @@ k::rules! {
         m: m,
     } => {
         k: [map::size(m), ..],
-        m: m,
     };
 
     /// `map::update_all`: `m` without `key`, updated with `m`, maps `key` to its value again.
@@ -120,7 +114,6 @@ k::rules! {
         m: m,
     } => {
         k: [int::add(map::get_or_default(map::update_all(map::remove(m, key), m), key, 0), 0), ..],
-        m: m,
     };
 
     /// `map::get_or_default`.
@@ -129,6 +122,5 @@ k::rules! {
         m: m,
     } => {
         k: [int::add(map::get_or_default(m, key, default), 0), ..],
-        m: m,
     };
 }

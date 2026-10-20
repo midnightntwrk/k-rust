@@ -5984,6 +5984,111 @@ fn a_predicate_lemma_binding_a_discarded_operand_does_not_evaluate_it() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// Labels that reach a console read through an anywhere rule (`viaAny`, and `fa` through it), an
+/// `ensures` (`viaEns`) and a macro's right side (`m`), and one that reaches none (`clean`).
+const ANYWHERE_EFFECT: &str = r#"
+requires "domains.md"
+module EFF
+  imports K-IO
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  syntax Num ::= Int
+  syntax Int ::= fa() [function, symbol(fa)] | viaEns(Int) [function, symbol(viaEns)]
+  syntax Num ::= viaAny(Int) [symbol(viaAny)]
+               | m(Int) [macro, symbol(m)]
+               | usesM() [function, symbol(usesM)]
+               | clean(Int) [symbol(clean)]
+  rule viaAny(N) => {#getc(N)}:>Int [anywhere]
+  rule fa() => {viaAny(0)}:>Int
+  rule viaEns(N) => N ensures {#getc(0)}:>Int ==Int 65
+  rule m(N) => {#getc(N)}:>Int
+  rule usesM() => m(0)
+  rule clean(N) => N [anywhere]
+  syntax KItem ::= res(K) [symbol(res)]
+  syntax Pgm ::= "pRead" | "pIte" | "pIteEns" | "pMacro"
+  configuration <k> $PGM:Pgm </k>
+  rule pRead => res(fa()) ~> res(clean(1))
+  rule pIte => res(#if true #then 1 #else fa() #fi) ~> res(fa())
+  rule pIteEns => res(#if true #then 1 #else 1 /Int viaEns(1) #fi) ~> res(fa())
+  rule pMacro => res(usesM()) ~> res(fa())
+endmodule
+"#;
+
+/// An application whose evaluation reaches a console read through an anywhere rule or an
+/// `ensures` is impure for every reader of the attribute: the compiled KORE declares it so for
+/// both backends, a run performs it where it is evaluated, and the operand of a decided `#if`
+/// whose definedness depends on it is the unsupported-hook outcome, with nothing read, instead of
+/// a result constrained by the `\ceil` of an effect.
+#[test]
+fn an_effect_reached_through_an_anywhere_rule_or_an_ensures_is_impure_for_every_reader() {
+    let (root, _) = fixture();
+    let compiled = compiled_for_execution(&root, "eff", ANYWHERE_EFFECT, "EFF", "EFF");
+    let llvm = root.join("eff-llvm");
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .arg("kcompile")
+        .arg(root.join("eff.k"))
+        .args([
+            "--main-module",
+            "EFF",
+            "--backend",
+            "llvm",
+            "--output-directory",
+        ])
+        .arg(&llvm)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    for directory in [&compiled, &llvm] {
+        let kore = fs::read_to_string(directory.join("definition.kore")).unwrap();
+        let impure = |symbol: &str| {
+            let start = kore
+                .find(&format!("symbol {symbol}{{}}("))
+                .unwrap_or_else(|| panic!("{symbol} should be declared"));
+            let attributes = &kore[start..];
+            let end = attributes.find("\n  ]").unwrap();
+            attributes[..end].contains("impure{}()")
+        };
+        for symbol in ["LblviaAny", "Lblfa", "LblviaEns", "Lblm", "LblusesM"] {
+            assert!(impure(symbol), "{symbol} in {}", directory.display());
+        }
+        assert!(!impure("Lblclean"), "{}", directory.display());
+    }
+    let run = |program: &str| {
+        output_with_stdin(
+            Command::new(env!("CARGO_BIN_EXE_krust"))
+                .arg("krun")
+                .arg("--definition")
+                .arg(&compiled)
+                .args(["--expression", program, "--sort", "Pgm", "--io", "on"]),
+            b"AB",
+        )
+    };
+    let read =
+        |code: &str| format!(r#"inj{{SortInt{{}}, SortKItem{{}}}}(\dv{{SortInt{{}}}}("{code}"))"#);
+    for program in ["pRead", "pMacro"] {
+        let output = run(program);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(output.status.success(), "{program}: {output:?}");
+        assert!(stdout.contains(&read("65")), "{program}: {stdout}");
+    }
+    assert!(String::from_utf8_lossy(&run("pMacro").stdout).contains(&read("66")));
+    for (program, symbol) in [("pIte", "Lblfa"), ("pIteEns", "LblviaEns")] {
+        let output = run(program);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(!output.status.success(), "{program}: {stdout}{stderr}");
+        assert!(
+            stderr.contains("depends on this impure application") && stderr.contains(symbol),
+            "{program}: {stderr}"
+        );
+        assert!(!stdout.contains("\\ceil"), "{program}: {stdout}");
+        assert!(!stdout.contains(&read("65")), "{program}: {stdout}");
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// A conditional whose discarded operand's definedness depends on a console read.
 const IMPURE_OPERAND: &str = r#"
 requires "domains.md"

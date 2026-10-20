@@ -281,6 +281,8 @@ struct RustDiagnostic {
     message: String,
     code: Option<RustDiagnosticCode>,
     spans: Vec<RustDiagnosticSpan>,
+    #[serde(default)]
+    children: Vec<RustDiagnosticChild>,
     rendered: Option<String>,
 }
 
@@ -289,12 +291,30 @@ struct RustDiagnosticCode {
     code: String,
 }
 
+/// A note, help, or suggestion that rustc attaches to a diagnostic.
+#[derive(serde::Deserialize)]
+struct RustDiagnosticChild {
+    level: String,
+    message: String,
+    #[serde(default)]
+    spans: Vec<RustDiagnosticSpan>,
+}
+
 #[derive(serde::Deserialize)]
 struct RustDiagnosticSpan {
     file_name: String,
     byte_start: u32,
     byte_end: u32,
     is_primary: bool,
+    #[serde(default)]
+    line_start: u32,
+    #[serde(default)]
+    column_start: u32,
+    #[serde(default)]
+    suggested_replacement: Option<String>,
+    /// Present when the span lies in macro-generated code rather than in tokens the author wrote.
+    #[serde(default)]
+    expansion: Option<serde::de::IgnoredAny>,
 }
 
 fn rust_diagnostics(
@@ -327,13 +347,14 @@ fn rust_diagnostics(
                 diagnostic.message.as_str(),
             ),
         };
+        let (notes, help) = rust_children(plan, manifest, &diagnostic.children)?;
         for span in diagnostic.spans.iter().filter(|span| span.is_primary) {
             if let Some(range) = rust_source_range(plan, manifest, span)? {
-                let view = diagnostic_envelope(
-                    Diagnostic::error(code.clone(), text.to_owned(), Location::Source(range)),
-                    DiagnosticStage::RustExpansion,
-                    None,
-                );
+                let mut relayed =
+                    Diagnostic::error(code.clone(), text.to_owned(), Location::Source(range));
+                relayed.notes.clone_from(&notes);
+                relayed.help.clone_from(&help);
+                let view = diagnostic_envelope(relayed, DiagnosticStage::RustExpansion, None);
                 diagnostics.extend(view);
             }
         }
@@ -345,11 +366,88 @@ fn rust_diagnostics(
     Ok(diagnostics)
 }
 
-fn rust_source_range(
+/// Translates rustc's children of one diagnostic into KRS notes and help, in rustc's order.
+///
+/// A child whose every span lies in macro-generated code describes tokens the author did not
+/// write, such as a KRS expansion's hidden helper items, so it is omitted. A suggested
+/// replacement is relayed as the edit it makes to the authored source; one that would edit
+/// generated code or a file outside the selected packages is not an edit the author can make.
+fn rust_children(
     plan: &CollectorPlan,
     manifest: &str,
-    span: &RustDiagnosticSpan,
-) -> Result<Option<SourceRange>, CommandError> {
+    children: &[RustDiagnosticChild],
+) -> Result<(Vec<String>, Vec<String>), CommandError> {
+    let mut notes = Vec::new();
+    let mut help = Vec::new();
+    for child in children {
+        if !child.spans.is_empty() && child.spans.iter().all(|span| span.expansion.is_some()) {
+            continue;
+        }
+        let mut edits = Vec::new();
+        let mut location = None;
+        for span in child.spans.iter().filter(|span| span.expansion.is_none()) {
+            let Some(source) = facet_source(plan, manifest, &span.file_name)? else {
+                continue;
+            };
+            let original = source.text(span)?;
+            let at = format!(
+                "{}:{}:{}",
+                source.relative, span.line_start, span.column_start
+            );
+            match span.suggested_replacement.as_deref() {
+                Some("") => edits.push(format!("remove `{original}` at {at}")),
+                Some(replacement) if original.is_empty() => {
+                    edits.push(format!("insert `{replacement}` at {at}"));
+                }
+                Some(replacement) => {
+                    edits.push(format!("replace `{original}` with `{replacement}` at {at}"));
+                }
+                None => {
+                    location.get_or_insert(at);
+                }
+            }
+        }
+        let text = match (edits.is_empty(), location) {
+            (false, _) => format!("{}: {}", child.message, edits.join("; ")),
+            (true, Some(at)) => format!("{} ({at})", child.message),
+            (true, None) => child.message.clone(),
+        };
+        match child.level.as_str() {
+            "help" => help.push(text),
+            "note" => notes.push(text),
+            level => notes.push(format!("{level}: {text}")),
+        }
+    }
+    Ok((notes, help))
+}
+
+/// A source file of a selected package, read at the revision rustc diagnosed.
+struct FacetSource<'a> {
+    facet: &'a crate::plan::ResolvedFacet,
+    relative: String,
+    bytes: Vec<u8>,
+}
+
+impl FacetSource<'_> {
+    /// The authored text a span covers.
+    fn text(&self, span: &RustDiagnosticSpan) -> Result<String, CommandError> {
+        self.bytes
+            .get(span.byte_start as usize..span.byte_end as usize)
+            .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
+            .ok_or_else(|| {
+                CommandError::InvalidMetadata(
+                    "Rust diagnostic range exceeds its source revision".to_owned(),
+                )
+            })
+    }
+}
+
+/// The selected package source a rustc span names, or `None` outside the selected packages.
+fn facet_source<'a>(
+    plan: &'a CollectorPlan,
+    manifest: &str,
+    file_name: &str,
+) -> Result<Option<FacetSource<'a>>, CommandError> {
     let Some(facet) = plan
         .facets()
         .iter()
@@ -360,7 +458,7 @@ fn rust_source_range(
     let manifest_directory = facet.manifest_path.parent().ok_or_else(|| {
         CommandError::InvalidMetadata("selected package manifest has no parent".to_owned())
     })?;
-    let path = Path::new(&span.file_name);
+    let path = Path::new(file_name);
     let path = if path.is_absolute() {
         path.to_path_buf()
     } else {
@@ -375,15 +473,31 @@ fn rust_source_range(
             CommandError::InvalidMetadata("Rust diagnostic source path is not UTF-8".to_owned())
         })?
         .replace('\\', "/");
-    let source = fs::read(&path).map_err(|source| CommandError::Io {
+    let bytes = fs::read(&path).map_err(|source| CommandError::Io {
         path: path.clone(),
         source,
     })?;
-    if span.byte_end as usize > source.len() {
+    Ok(Some(FacetSource {
+        facet,
+        relative,
+        bytes,
+    }))
+}
+
+fn rust_source_range(
+    plan: &CollectorPlan,
+    manifest: &str,
+    span: &RustDiagnosticSpan,
+) -> Result<Option<SourceRange>, CommandError> {
+    let Some(source) = facet_source(plan, manifest, &span.file_name)? else {
+        return Ok(None);
+    };
+    if span.byte_end as usize > source.bytes.len() {
         return Err(CommandError::InvalidMetadata(
             "Rust diagnostic range exceeds its source revision".to_owned(),
         ));
     }
+    let facet = source.facet;
     let package = PackageId::new(
         &facet.k_namespace,
         &facet.package_name,
@@ -393,8 +507,8 @@ fn rust_source_range(
     .map_err(|error| CommandError::InvalidMetadata(error.to_string()))?;
     let file = SourceFileId::new(
         package,
-        relative,
-        Sha256Digest::from_bytes(Sha256::digest(&source).into()),
+        source.relative,
+        Sha256Digest::from_bytes(Sha256::digest(&source.bytes).into()),
     )
     .map_err(|error| CommandError::InvalidMetadata(error.to_string()))?;
     SourceRange::new(file, span.byte_start, span.byte_end)
@@ -452,6 +566,10 @@ mod tests {
             byte_start: 10,
             byte_end: 14,
             is_primary: true,
+            line_start: 1,
+            column_start: 11,
+            suggested_replacement: None,
+            expansion: None,
         };
         let range = rust_source_range(&plan, manifest.to_str().unwrap(), &span)
             .unwrap()
@@ -523,6 +641,79 @@ mod tests {
                     "krs::syntax::invalid-color".to_owned(),
                     "bad colours".to_owned()
                 ),
+            ]
+        );
+    }
+
+    #[test]
+    fn rustc_children_are_relayed_as_notes_and_help_with_authored_edits() {
+        let source = "pub fn plain() {\n    let _ = Register::A();\n}\n";
+        let (_directory, manifest, plan) = language_plan(source);
+        let call = source.find("Register::A()").unwrap();
+        let parentheses = call + "Register::A".len();
+        let line = source.find('\n').unwrap() + 1;
+        let span = |start: usize, end: usize, primary: bool| {
+            serde_json::json!({
+                "file_name": "src/lib.rs",
+                "byte_start": start, "byte_end": end,
+                "line_start": 2, "column_start": start.saturating_sub(line) + 1,
+                "is_primary": primary, "expansion": null,
+            })
+        };
+        let mut removal = span(parentheses, parentheses + 2, true);
+        removal["suggested_replacement"] = serde_json::json!("");
+        let mut generated = span(0, 3, true);
+        generated["expansion"] = serde_json::json!({ "macro_decl_name": "#[k::constructors]" });
+        let stdout = serde_json::json!({
+            "reason": "compiler-message",
+            "manifest_path": manifest,
+            "message": {
+                "level": "error",
+                "message": "expected function, found enum variant `Register::A`",
+                "code": { "code": "E0618" },
+                "spans": [span(call, parentheses, true)],
+                "children": [
+                    {
+                        "level": "note",
+                        "message": "enum variant `Register::A` defined here",
+                        "spans": [span(call, call + 8, true)],
+                    },
+                    {
+                        "level": "help",
+                        "message": "`Register::A` is a unit enum variant, and does not take parentheses to be constructed",
+                        "spans": [removal],
+                    },
+                    {
+                        "level": "help",
+                        "message": "there is an associated function `__krs_hidden` with a similar name",
+                        "spans": [generated],
+                    },
+                    { "level": "note", "message": "spanless detail", "spans": [] },
+                ],
+                "rendered": null,
+            },
+        })
+        .to_string();
+        let [envelope] = rust_diagnostics(stdout.as_bytes(), &plan)
+            .unwrap()
+            .try_into()
+            .unwrap();
+        assert_eq!(envelope.code, "E0618");
+        assert_eq!(
+            envelope.message,
+            "expected function, found enum variant `Register::A`"
+        );
+        assert_eq!(
+            envelope.notes,
+            [
+                "enum variant `Register::A` defined here (src/lib.rs:2:13)",
+                "spanless detail",
+            ]
+        );
+        assert_eq!(
+            envelope.help,
+            [
+                "`Register::A` is a unit enum variant, and does not take parentheses to be constructed: remove `()` at src/lib.rs:2:24"
             ]
         );
     }

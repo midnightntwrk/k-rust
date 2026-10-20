@@ -90,8 +90,7 @@ k::rules! {
         k: [Add { lhs, rhs }, ..],
         counter: c
     } => {
-        k: [c, ..],
-        counter: c
+        k: [c, ..]
     }
     where lhs: Int, rhs: Int;
 }

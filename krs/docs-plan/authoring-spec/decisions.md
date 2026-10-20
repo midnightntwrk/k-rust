@@ -304,7 +304,10 @@ bug — report it, don't guess.
   mechanism; easiest to debug). A cell in the pattern but absent from the
   result is unchanged (framed) — the invisible-frame convention is
   accepted, mitigated by documentation (the Verus precedent).
-  A non-computation leaf cell may carry an ordinary constructor or literal pattern plus an ordinary replacement term; such a fixed-leaf rewrite must name the cell on both sides.
+  A non-computation leaf cell may carry an ordinary constructor or literal pattern plus an ordinary replacement term.
+  *E7 note: a matched cell may be left out of the result (2026-10).*
+  A fixed cell, leaf or nested group, that the pattern matches and the result leaves out is read only (`CellPost::Preserve`), as the framing convention above says; so is one the result restates as the same term, which denotes the same rule.
+  An entry `cell: _` left out of the result constrains and binds nothing, so it is a syntax error that asks for the entry to be removed.
   This is the protocol-16 W1 extension qualified by KWasm's `<valstack>` operand-loading rules; it preserves the distinct framed-map forms and does not imply repeated symbolic equality in patterns.
   *E7 note: the computation cell may be omitted (2026-10, KF-015).*
   The record may leave the computation cell out; it is then framed like

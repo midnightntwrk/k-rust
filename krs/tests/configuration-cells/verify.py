@@ -15,12 +15,12 @@ the outcomes must agree:
   writes acc to the computation cell, so both routes end with `6` there.
   `krs check` accepts the package: `done` and `burn` share no cell, so the
   overlap check does not report them (F2 amendment, clause 5);
-- `groups`: `push: { .., frame: f } => { stack: list::concat(list::item(f), s), frame: f }`
+- `groups`: `push: { .., frame: f } => { stack: list::concat(list::item(f), s) }`
   binds the whole nested cell `<frame>` to one variable of K's generated
   sort `FrameCell`, and `pop` restores it with `frame: f` on the result
   side. The emitted rules name `F:FrameCell` and write the group clause
   bare; `krs expand` writes the entry without a `Cell(..)` wrapper and types
-  the binder by the nested `#[k::cell]` struct. `save`/`restore` restate the
+  the binder by the nested `#[k::cell]` struct. `save`/`restore` name the
   leaves and rebuild the frame with `k::fragment!`, and `call`/`ret` are the
   reference spelling of `push`/`pop`, and `wrap`/`unwrap` save the frame
   inside `held(..)`, a user production with a `KItem` field, which the

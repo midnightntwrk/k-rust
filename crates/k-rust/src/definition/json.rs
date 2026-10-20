@@ -76,6 +76,10 @@ pub const PROVENANCE_FORMAT: &str = "KRUST-PROVENANCE";
 /// `sources`. The bytes are a function of each receipt's normal form, not of how the writer's
 /// memory shares sets or paths. A version 7 document is refused: every writer of one can write
 /// it again, and a reader of version 7 would keep the quadratic decoding version 8 replaces.
+/// Version 8 has since gained one generating pass name, `lower-term-conjunctions` (k-rust
+/// 0.8.0), without moving: an earlier version 8 reader refuses a document that names it as an
+/// unknown pass instead of misreading it, and this reader still reads every document an earlier
+/// version 8 writer wrote.
 pub const PROVENANCE_VERSION: u32 = 8;
 
 #[derive(Clone, Copy, Eq, PartialEq)]

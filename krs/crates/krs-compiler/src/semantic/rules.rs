@@ -840,7 +840,9 @@ fn infer_head_rule(
                     }
                 })?;
                 builder.infer(before, Some(expected), true)?;
-                builder.infer(after, Some(expected), false)?;
+                if let Some(after) = after {
+                    builder.infer(after, Some(expected), false)?;
+                }
             }
             krs_ir::ProtocolHeadRuleExtra::RewriteState {
                 cell,
@@ -1125,9 +1127,9 @@ fn lower_head_rule_fixed_extra(
         return lower_head_rule_group_rewrite(
             builder,
             cell,
-            result_key,
+            result_key.as_ref(),
             before,
-            after,
+            after.as_ref(),
             &declaration.declaration,
         );
     };
@@ -1145,7 +1147,15 @@ fn lower_head_rule_fixed_extra(
             result_key,
             before,
             after,
-        } => lower_head_rule_cell_rewrite(builder, cell, result_key, before, after, *wrapper, sort),
+        } => lower_head_rule_cell_rewrite(
+            builder,
+            cell,
+            result_key.as_ref(),
+            before,
+            after.as_ref(),
+            *wrapper,
+            sort,
+        ),
         krs_ir::ProtocolHeadRuleExtra::RewriteState { .. } => {
             unreachable!("optional and collection extras are lowered by cell_states")
         }
@@ -1261,12 +1271,15 @@ fn lower_head_rule_collection_write(
     ))
 }
 
+/// Lowers an ordinary leaf cell entry of a readable record. The cell is read
+/// only when the result leaves it out or restates its pattern unchanged, and
+/// rewritten otherwise.
 fn lower_head_rule_cell_rewrite(
     builder: &mut StructuredTermBuilder<'_>,
     cell: &DescriptorCellReference,
-    result_key: &ProvenanceKey,
+    result_key: Option<&ProvenanceKey>,
     before: &DescriptorTerm,
-    after: &DescriptorTerm,
+    after: Option<&DescriptorTerm>,
     wrapper: krs_ir::CellWrapper,
     sort: &DescriptorSortReference,
 ) -> Result<FixedCellClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
@@ -1282,53 +1295,73 @@ fn lower_head_rule_cell_rewrite(
     }
     let expected = semantic_sort_ref(&sort.sort);
     let before = builder.lower(before, Some(&expected), true)?;
-    let after = builder.lower(after, Some(&expected), false)?;
+    let post = lower_restated_post(builder, &before, after, &expected)?;
     let clause = FixedCellClause::new(
         semantic_origin(descriptor, cell.key.clone(), "completed-cell-rewrite")?,
         semantic_cell_id(&cell.cell)?,
         before,
-        CellPost::Replace { term: after },
+        post,
         CellContentFrame::Exact,
     );
-    let _ = semantic_origin(
-        descriptor,
-        result_key.clone(),
-        "completed-cell-rewrite-result",
-    )?;
+    if let Some(result_key) = result_key {
+        let _ = semantic_origin(
+            descriptor,
+            result_key.clone(),
+            "completed-cell-rewrite-result",
+        )?;
+    }
     Ok(clause)
+}
+
+/// The post-state of a readable record's cell entry: unchanged when the
+/// result leaves the cell out or restates the same term, which denote the
+/// same rule, and replaced otherwise.
+fn lower_restated_post(
+    builder: &mut StructuredTermBuilder<'_>,
+    before: &SemanticTerm,
+    after: Option<&DescriptorTerm>,
+    expected: &SemanticSortRef,
+) -> Result<CellPost<SemanticTerm>, DescriptorLoweringError> {
+    let Some(after) = after else {
+        return Ok(CellPost::Preserve);
+    };
+    let after = builder.lower(after, Some(expected), false)?;
+    Ok(if same_term(before, &after) {
+        CellPost::Preserve
+    } else {
+        CellPost::Replace { term: after }
+    })
 }
 
 /// Lowers a whole nested (group) cell entry of a readable record, such as
 /// `frame: f`, into a whole-cell clause of the group's generated cell sort
-/// (KF-016). An entry restated unchanged is preserved.
+/// (KF-016). An entry left out of the result or restated unchanged is
+/// preserved.
 fn lower_head_rule_group_rewrite(
     builder: &mut StructuredTermBuilder<'_>,
     cell: &DescriptorCellReference,
-    result_key: &ProvenanceKey,
+    result_key: Option<&ProvenanceKey>,
     before: &DescriptorTerm,
-    after: &DescriptorTerm,
+    after: Option<&DescriptorTerm>,
     declaration: &StableItemId,
 ) -> Result<FixedCellClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
     let descriptor = builder.descriptor;
     let expected = SemanticSortRef::Cell(declaration.clone());
     let before = builder.lower(before, Some(&expected), true)?;
-    let after = builder.lower(after, Some(&expected), false)?;
-    let post = if same_term(&before, &after) {
-        CellPost::Preserve
-    } else {
-        CellPost::Replace { term: after }
-    };
+    let post = lower_restated_post(builder, &before, after, &expected)?;
     let clause = FixedCellClause::whole(
         semantic_origin(descriptor, cell.key.clone(), "completed-group-rewrite")?,
         semantic_cell_id(&cell.cell)?,
         before,
         post,
     );
-    let _ = semantic_origin(
-        descriptor,
-        result_key.clone(),
-        "completed-group-rewrite-result",
-    )?;
+    if let Some(result_key) = result_key {
+        let _ = semantic_origin(
+            descriptor,
+            result_key.clone(),
+            "completed-group-rewrite-result",
+        )?;
+    }
     Ok(clause)
 }
 

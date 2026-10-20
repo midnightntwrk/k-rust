@@ -15,7 +15,7 @@ module NAT-SYNTAX
 
   // `plus(m, n)` is the sum of `m` and `n`.
   syntax Nat ::= "plus" "(" Nat "," Nat ")" [symbol(plus), function, total]
-  // `pred(n)` is the number before `n`; `pred(zero)` has no value.
+  // `pred(n)` is the number before `n`; no equation constrains `pred(zero)`.
   syntax Nat ::= "pred" "(" Nat ")" [symbol(pred), function]
   syntax Nat ::= "s" "(" Nat ")" [symbol(succ), group(krsgroup-ed0b6ff63cf0cba2ebb2a364), format(%1%2%3%4)]
   // `times(m, n)` is the product of `m` and `n`.

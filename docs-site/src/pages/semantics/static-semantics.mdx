@@ -24,7 +24,7 @@ This is not Rust `Option`; undefinedness belongs to the symbolic theory.
 Function structs describe symbolic applications.
 Their Rust fields are operands, not values consumed by executing Rust function bodies.
 
-### An undefined partial application
+### An uncovered partial application
 
 The fixture's partial function has exactly one equation, guarded by `0 <=Int value`.
 The positive claim `partial-equation` checks the defined case `#nonnegativeIdentity(7) => 7` through the pinned Haskell proof route.
@@ -35,12 +35,12 @@ Now consider the other side of that same guard:
 ```
 
 The head is well sorted, so this is not an authoring error.
-Its only equation is inapplicable, and because `NonnegativeIdentity` was declared `partial`, the application has no denotation: semantic bottom.
+Its only equation is inapplicable, and because `NonnegativeIdentity` was declared `partial`, the application is unconstrained, not semantic bottom: it may be undefined, or it may have a value that no equation names, and the definition decides neither.
 There is no `None` constructor to inspect and no Rust call that returns a value.
-Bottom is also not an authored `trap` term or a complete normal form; if a transition needs this result, it cannot obtain one.
+The application is also not an authored `trap` term or a complete normal form; if a transition needs its value, no equation supplies one.
 
 The focused tour evidence gate checks the partial declaration, its sole guarded equation, the negative ground input, and the pinned proved positive case together.
-This example is a static-semantics consequence, not a claimed `krun` trace: bottom is the absence of a result in the theory.
+This example is a static-semantics consequence, not a claimed `krun` trace: the theory gives the application no value and does not rule one out.
 
 ## Equations and priority
 

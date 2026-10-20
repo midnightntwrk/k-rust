@@ -621,7 +621,20 @@ pub struct Secondary {
 }
 
 impl Secondary {
+    /// Documentation, lint levels, and `cfg` stay on the generated method.
     #[language_host::init]
+    #[cfg(not(test))]
+    #[deny(unused_variables)]
+    pub fn init(#[language_host::config_var(name = "PGM", main)] program: Term<dyn KItemSort>) -> Self {
+        Self {
+            k: language_host::configuration::KCell::new(k![program]),
+        }
+    }
+
+    /// `cfg` selects this initializer in test builds instead.
+    #[language_host::init]
+    #[cfg(test)]
+    #[allow(clippy::needless_pass_by_value)]
     pub fn init(#[language_host::config_var(name = "PGM", main)] program: Term<dyn KItemSort>) -> Self {
         Self {
             k: language_host::configuration::KCell::new(k![program]),

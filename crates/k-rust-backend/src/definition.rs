@@ -2253,6 +2253,13 @@ impl BackendDefinition {
         &self.console_reach
     }
 
+    /// The names of the symbols whose applications may perform a console effect, as the load
+    /// computes them (the crate's private `ConsoleReach`), sorted; `None` when an equation whose
+    /// left-hand side has no symbol at its root mentions one, so that every term may.
+    pub fn console_effect_symbols(&self) -> Option<std::collections::BTreeSet<String>> {
+        self.console_reach.symbol_names()
+    }
+
     /// Whether `term` is an application of a `value-production` symbol that no equation of the
     /// definition reduces, on any instance, so that the application is defined wherever its
     /// arguments are.
