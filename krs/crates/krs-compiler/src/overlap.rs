@@ -517,7 +517,7 @@ impl<'graph> Unifier<'graph> {
             && !matches!(right, Pattern::Variable { .. })
             && let Some(theory) = Collection::of(&left).or_else(|| Collection::of(&right))
         {
-            return self.unify_collection(theory, left, false, right, false);
+            return self.unify_collection(theory, &left, false, &right, false);
         }
         match (left, right) {
             (
@@ -1392,9 +1392,9 @@ impl Unifier<'_> {
         };
         self.unify_collection(
             theory,
-            left,
+            &left,
             left_frame != Frame::Exact,
-            right,
+            &right,
             right_frame != Frame::Exact,
         )
     }
@@ -1447,9 +1447,9 @@ impl Unifier<'_> {
     fn unify_collection(
         &mut self,
         theory: Collection,
-        left: Pattern,
+        left: &Pattern,
         left_framed: bool,
-        right: Pattern,
+        right: &Pattern,
         right_framed: bool,
     ) -> bool {
         // A K-sequence item injects into `KItem`, so sequence sides are
@@ -1471,8 +1471,8 @@ impl Unifier<'_> {
         // other side; if that binding fails (a sort the variable cannot
         // take), the general procedure below decides instead.
         for (segments, other, other_framed) in [
-            (&left_segments, &right, right_framed),
-            (&right_segments, &left, left_framed),
+            (&left_segments, right, right_framed),
+            (&right_segments, left, left_framed),
         ] {
             if !other_framed
                 && let [Segment::Open(Some(variable @ Pattern::Variable { .. }))] =
