@@ -1115,7 +1115,7 @@ dependencies = [
 
 [[package]]
 name = "k-rust"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "clap",
  "indexmap",
@@ -1150,7 +1150,7 @@ dependencies = [
 
 [[package]]
 name = "k-rust-backend"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "indoc",
  "insta",
@@ -1188,7 +1188,7 @@ dependencies = [
 
 [[package]]
 name = "k-rust-kore"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "indoc",
  "insta",
@@ -1202,7 +1202,7 @@ dependencies = [
 
 [[package]]
 name = "k-rust-napi"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "k-rust",
  "napi",
@@ -1221,7 +1221,7 @@ dependencies = [
 
 [[package]]
 name = "k-rust-wasm"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "k-rust",
  "serde",
