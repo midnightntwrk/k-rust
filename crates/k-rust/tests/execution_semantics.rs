@@ -2014,6 +2014,96 @@ fn an_undefined_instance_of_the_initial_configuration_has_no_result() {
     }
 }
 
+/// A definition whose first step consumes a partial Boolean of the configuration by a literal
+/// pattern position (`stb(false, I)`, `stn(true, I)`), and whose next step distinguishes the
+/// instances where that Boolean was undefined (`chk(0)`).
+#[cfg(feature = "z3-inference")]
+const CONSUMED_PARTIAL_BOOLEAN: &str = r#"
+module CB-SYNTAX
+  imports INT-SYNTAX
+  imports BOOL-SYNTAX
+  syntax Pgm ::= stb(Bool, Int) [symbol(stb)] | stn(Bool, Int) [symbol(stn)]
+               | chk(Int) [symbol(chk)] | bad() [symbol(bad)] | good() [symbol(good)]
+endmodule
+
+module CB
+  imports CB-SYNTAX
+  imports INT
+  imports BOOL
+  configuration <k> $PGM:Pgm </k>
+  rule <k> stb(false, I) => chk(I) ... </k>
+  rule <k> stn(true, I) => chk(I) ... </k>
+  rule <k> chk(0) => bad() ... </k>
+  rule <k> chk(I) => good() ... </k> requires I =/=Int 0
+endmodule
+"#;
+
+/// `stb(X /Int Y >Int 0, Y)` is undefined where `Y` is 0, so it has no instance there and
+/// nothing is reached from it there. Its first step consumes `X /Int Y >Int 0` by the literal
+/// `false` and leaves `chk(Y)`, whose term no longer holds the quotient, so only the successor's
+/// constraints can keep `Y = 0` out: `\not(X /Int Y >Int 0)` alone holds there (the solver reads
+/// `/Int` as a total operation), and `chk(0) => bad()` would then apply. So no run reaches
+/// `bad()`, by execution (both strategies) or search, and every `good()` it reaches states that
+/// `Y` is not 0. The same holds where the step consumes `notBool (X /Int Y >Int 0)` by `true`.
+#[cfg(feature = "z3-inference")]
+#[test]
+fn a_first_step_that_consumes_a_partial_boolean_reaches_nothing_from_its_undefined_instances() {
+    use k_rust::backend::ExecutionStrategy;
+
+    let compiled = compile(CONSUMED_PARTIAL_BOOLEAN, "CB", "CB-SYNTAX", "Pgm", "good()");
+    let comparison = r#"Lbl'Unds-GT-'Int'Unds'{}(Lbl'UndsSlsh'Int'Unds'{}(VarX:SortInt{}, VarY:SortInt{}), \dv{SortInt{}}("0"))"#;
+    let y_is_not_zero = r#"\not{SortGeneratedTopCell{}}(\equals{SortInt{}, SortGeneratedTopCell{}}(VarY:SortInt{}, \dv{SortInt{}}("0")))"#;
+    for program in [
+        format!("Lblstb{{}}({comparison}, VarY:SortInt{{}})"),
+        format!("Lblstn{{}}(LblnotBool'Unds'{{}}({comparison}), VarY:SortInt{{}})"),
+    ] {
+        let initial = undefined_instances_initial(&program);
+        for strategy in [ExecutionStrategy::All, ExecutionStrategy::Any] {
+            let mut backend =
+                Backend::new(&compiled.kore, "CB", BackendOptions::default()).unwrap();
+            let result = backend
+                .execute(ExecuteRequest {
+                    strategy,
+                    ..ExecuteRequest::new(initial.clone())
+                })
+                .unwrap();
+            let states = text(&result);
+            assert!(
+                states.iter().all(|state| !state.contains("Lblbad{}(")),
+                "{program} {strategy:?}: {states:#?}"
+            );
+            let good = states
+                .iter()
+                .filter(|state| state.contains("Lblgood{}("))
+                .collect::<Vec<_>>();
+            assert!(
+                !good.is_empty() && good.iter().all(|state| state.contains(y_is_not_zero)),
+                "{program} {strategy:?}: {states:#?}"
+            );
+        }
+        let mut backend = Backend::new(&compiled.kore, "CB", BackendOptions::default()).unwrap();
+        let response = backend
+            .search(SearchRequest {
+                search_type: SearchTypeArg::Final,
+                ..SearchRequest::new(initial.clone())
+            })
+            .unwrap();
+        assert!(response.incomplete.is_empty(), "{:?}", response.incomplete);
+        let found = response
+            .states
+            .iter()
+            .map(|found| {
+                Printer::compact().print_pattern(&codec::from_value(&found.state).unwrap())
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            found.iter().all(|state| !state.contains("Lblbad{}("))
+                && found.iter().any(|state| state.contains("Lblgood{}(")),
+            "{program} search: {found:#?}"
+        );
+    }
+}
+
 /// The definedness of `sti(X /Int Y)` is `Y` not 0. When the initial constraints establish it
 /// (`Y >Int 0`), the configuration has no undefined instance, so nothing is restricted or named;
 /// when they refute it together (`Y *Int Y ==Int 0`, which no single obligation's simplification

@@ -117,6 +117,14 @@ fn apply_priority_group<'r>(
 ) -> Stoppable<PriorityGroupOutcome> {
     let mut applied = Vec::new();
     let mut trivial = Vec::new();
+    // The subject's decided definedness the constraints do not already state: every part of the
+    // step (each successor, the remainder) is restricted to the instances where it holds.
+    let restriction = subject_definedness
+        .restriction()
+        .iter()
+        .filter(|obligation| !pattern.constraints.contains(obligation))
+        .cloned()
+        .collect::<Vec<_>>();
     // The work every application of the group (candidate or refuted) depends on: the remainder
     // is built from the negation of each application's applicability, so it depends on all of it.
     let mut remainder_work = Vec::new();
@@ -144,6 +152,7 @@ fn apply_priority_group<'r>(
                 for group in groups {
                     let common = group.common.unwrap_or_default();
                     for mut application in group.applied {
+                        restrict_successor(&mut application.applied, &restriction);
                         application.applied.diagnostics =
                             in_emission_order([common.as_slice(), &application.diagnostics]);
                         undefined_work.extend(application.diagnostics.iter().cloned());
@@ -198,12 +207,6 @@ fn apply_priority_group<'r>(
     // The remainder is the part of the subject no rule of the group applies to, among its
     // instances: those where its decided definedness fails are none, so it is simplified
     // knowing that definedness and states it, `simplify(R | D) ∧ D` being `R ∧ D`.
-    let restriction = subject_definedness
-        .restriction()
-        .iter()
-        .filter(|obligation| !pattern.constraints.contains(obligation))
-        .cloned()
-        .collect::<Vec<_>>();
     let known = if restriction.is_empty() {
         std::borrow::Cow::Borrowed(pattern.constraints.as_slice())
     } else {
@@ -363,6 +366,28 @@ fn classify_first_group(
             remainder,
             trivial,
         },
+    }
+}
+
+/// `successor`, built by a rule applied to a subject whose decided definedness is `restriction`
+/// ([`SubjectDefinedness::Where`]), restricted to the instances where that definedness holds.
+///
+/// A step is a transition: its successor may denote only states some defined instance of the
+/// subject reaches. The subject denotes `⌈t⌉ ∧ t ∧ φ`, and `restriction` is what `⌈t⌉` leaves
+/// open under `φ`, so restricting the successor by it removes only instances reached from no
+/// configuration. The step states the definedness of what it binds and of the collections it
+/// consumes, but a subterm a recovery consumed (decided by a condition over its operands, such as
+/// an equality's operands or a conditional's taken branch) may leave nothing in the successor's
+/// term or constraints that keeps an instance where it is undefined out; stating the subject's
+/// definedness keeps every such instance out, whichever recovery consumed it. A successor's
+/// normalization has not run yet: the step's caller (or the sequential step, after this) does it
+/// on the restricted constraints.
+fn restrict_successor(successor: &mut AppliedRule, restriction: &[Predicate]) {
+    if !restriction.is_empty() {
+        extend_unique(
+            &mut successor.pattern.constraints,
+            restriction.iter().cloned(),
+        );
     }
 }
 
@@ -1188,6 +1213,7 @@ pub(super) fn rewrite_step_any(
                     let mut applied_group = Vec::with_capacity(group.applied.len());
                     let mut undefined_work = Vec::new();
                     for mut application in group.applied {
+                        restrict_successor(&mut application.applied, restriction);
                         if !later_alternative {
                             applied_group.push(application);
                             continue;
