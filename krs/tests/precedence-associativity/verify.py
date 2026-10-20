@@ -17,7 +17,7 @@ from support.pins import Ledger  # noqa: E402
 from support.reference import (  # noqa: E402
     Key, Pin, Snapshot, add_refresh_argument, repository_inputs, substitute,
 )
-from support.tools import z3_environment  # noqa: E402
+from support.tools import target_environment, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -72,12 +72,9 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory(prefix="krs-precedence-associativity-") as temporary:
         workspace = Path(temporary)
-        target = workspace / "target"
-        environment = {**z3_environment(), "CARGO_TARGET_DIR": str(target)}
+        environment = {**z3_environment(), **target_environment()}
         binary = build(environment)
-        check_packages(
-            "precedence-associativity", krs=binary, env=environment, target_dir=target
-        )
+        check_packages("precedence-associativity", krs=binary, env=environment)
         emitted = workspace / "emitted"
         invocation = Invocation(binary, MANIFEST, PACKAGE, "main")
         invocation.run("check", environment=environment)

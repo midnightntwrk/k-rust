@@ -133,7 +133,7 @@ from support.krs import build  # noqa: E402
 from support.packages import check_packages  # noqa: E402
 from support.pins import Ledger  # noqa: E402
 from support.reference import Key, Pin, Snapshot, add_refresh_argument, repository_inputs  # noqa: E402
-from support.tools import checkout_scratch, z3_environment  # noqa: E402
+from support.tools import target_environment, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -953,11 +953,10 @@ def main() -> int:
     if pins.get("schema") != 1:
         raise GateError("pins.json is not the schema-1 builtin-domains ledger")
 
-    target = checkout_scratch() / "builtin-domains-target"
-    environment = {**z3_environment(), "CARGO_TARGET_DIR": os.fspath(target), "CARGO_TERM_COLOR": "never"}
+    environment = {**z3_environment(), **target_environment(), "CARGO_TERM_COLOR": "never"}
     krs = build(environment)
     gate = krs_gate.configured_or_build()
-    check_packages("builtin-domains", krs=krs, env=environment, target_dir=target)
+    check_packages("builtin-domains", krs=krs, env=environment)
 
     with tempfile.TemporaryDirectory(prefix="krs-builtin-domains-") as temporary:
         workspace = Path(temporary)

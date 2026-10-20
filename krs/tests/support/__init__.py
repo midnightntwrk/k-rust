@@ -22,9 +22,10 @@ The modules are:
   digests;
 - `support.pins`: ledger loading, input and output pins, and `--record`;
 - `support.lock`: the `Krs.lock` toolchain and schema pins;
-- `support.packages`: standalone Rust package ownership and gate checks;
+- `support.packages`: standalone Rust package ownership, format checks, and lint;
 - `support.tools`: executable, Z3 library, K tool, rustfmt, and rust-analyzer
-  discovery, plus the scratch root and checkout-specific Cargo target directory;
+  discovery, plus the scratch root, the checkout-specific scratch directory, and
+  the Cargo target directory the gates share;
 - `support.krs`: the CLI build and invocation policy;
 - `support.report`: gate result lines and failure accounting;
 - `support.diagnostics`: JSON diagnostic envelope extraction;

@@ -13,7 +13,7 @@ from support import INSPIRATIONS, entry  # noqa: E402
 from support.imp_oracle import KAST, DivisionCase, RejectionPin, Spec, main as run_oracle  # noqa: E402
 from support.krs import build  # noqa: E402
 from support.packages import check_packages  # noqa: E402
-from support.tools import checkout_scratch, z3_environment  # noqa: E402
+from support.tools import z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -155,9 +155,8 @@ KAST_SPEC = KAST(
 
 
 def main() -> int:
-    target = checkout_scratch() / "imp-state-root-target"
     environment = z3_environment()
-    check_packages("imp-state", krs=build(environment), env=environment, target_dir=target)
+    check_packages("imp-state", krs=build(environment), env=environment)
     return run_oracle(SPEC, KAST_SPEC)
 
 

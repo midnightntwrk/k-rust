@@ -3,8 +3,8 @@ name: KRS
 # The CI workflow already builds, lints, formats, and tests every workspace crate, KRS's
 # (krs/crates/*) included, on the declared minimum and current Rust. This workflow adds the
 # checks KRS owns: its tour verifiers, gate support tests, repository hygiene, the feature and
-# target variants of its crates, its documentation, the separate semantics workspace, and the
-# browser worker.
+# target variants of its crates, the lint of its standalone test packages, its documentation, the
+# separate semantics workspace, and the browser worker.
 
 on:
   pull_request:
@@ -121,6 +121,9 @@ jobs:
 
       - name: Check KRS without default features on the minimum supported Rust
         run: cargo +1.99.0 check -p krs --no-default-features --locked --offline
+
+      - name: Lint the standalone test packages on current and minimum supported Rust
+        run: tests/gates.sh lint
 
       - name: Test the semantics workspace
         run: cargo +stable test --manifest-path semantics/Cargo.toml --locked --offline --workspace

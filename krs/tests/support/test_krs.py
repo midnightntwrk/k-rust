@@ -168,5 +168,49 @@ class FreshEmissionTests(unittest.TestCase):
                 krs.fresh_deterministic_emissions(self.invocation, self.workspace)
 
 
+class PruneTests(unittest.TestCase):
+    def collector(self, target: Path, root: Path, identity: str, package: Path) -> list[Path]:
+        name = f"krs-generated-collector-{identity}"
+        crate = name.replace("-", "_")
+        directory = target / "krs" / "collectors" / identity
+        directory.mkdir(parents=True)
+        (directory / "Cargo.toml").write_text(
+            f'[package]\nname = "{name}"\n\n[dependencies]\n'
+            f'fixture = {{ package = "fixture", path = {json.dumps(str(package))} }}\n'
+            f'__krs_host_runtime = {{ package = "krs", path = {json.dumps(str(root))} }}\n',
+            encoding="utf-8",
+        )
+        profile = target / "x86_64-unknown-linux-gnu" / "debug"
+        artifacts = [
+            directory, profile / name, profile / f"{name}.d", profile / "deps" / f"{crate}-0123",
+            profile / ".fingerprint" / f"{name}-0123", profile / "incremental" / f"{crate}-4567",
+        ]
+        for artifact in artifacts[1:]:
+            artifact.parent.mkdir(parents=True, exist_ok=True)
+            if artifact.parent.name in {".fingerprint", "incremental"}:
+                artifact.mkdir()
+            else:
+                artifact.write_bytes(b"")
+        return artifacts
+
+    def test_removes_only_collectors_whose_packages_are_gone(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            target = base / "target"
+            root = base / "krs"
+            live_package = base / "live"
+            for directory in (root, live_package):
+                directory.mkdir()
+            live = self.collector(target, root, "a" * 32, live_package)
+            dead = self.collector(target, root, "b" * 32, base / "deleted")
+            unrelated = target / "x86_64-unknown-linux-gnu" / "debug" / "deps" / "krs_collector-0123"
+            unrelated.write_bytes(b"")
+            self.assertEqual(krs.prune_dead_collectors(target), 1)
+            self.assertTrue(all(path.exists() for path in live))
+            self.assertFalse(any(path.exists() for path in dead))
+            self.assertTrue(unrelated.exists())
+            self.assertEqual(krs.prune_dead_collectors(target), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -16,7 +16,7 @@ from support.diagnostics import cargo_primary_span, envelopes, krs_diagnostics, 
 from support.krs import Invocation, build  # noqa: E402
 from support.packages import check_packages  # noqa: E402
 from support.process import compact, render, run  # noqa: E402
-from support.tools import checkout_scratch, executable, z3_environment  # noqa: E402
+from support.tools import checkout_scratch, executable, target_environment, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -41,7 +41,7 @@ FRESH_PLACEMENT = (
 def run_failing(command: list[str | Path]) -> subprocess.CompletedProcess[str]:
     """Run a command the negative case requires to fail."""
 
-    result = run(command, environment=z3_environment(), check=False)
+    result = run(command, environment={**z3_environment(), **target_environment()}, check=False)
     if result.returncode == 0:
         raise GateError(f"command should fail: {render(command)}\n{compact(result)}")
     return result
@@ -164,10 +164,9 @@ def check_private_lemma(binary: Path, environment: dict[str, str], scratch: Path
 
 
 def main() -> None:
-    target = checkout_scratch() / "tour-negatives-root-target"
-    environment = {**z3_environment(), "CARGO_TARGET_DIR": os.fspath(target)}
+    environment = {**z3_environment(), **target_environment()}
     binary = build(environment)
-    check_packages("tour-negatives", krs=binary, env=environment, target_dir=target)
+    check_packages("tour-negatives", krs=binary, env=environment)
     check_overlap(binary)
     print("PASS overlap: structured analysis code, exact second Foo head, and default human snippet")
     check_private_lemma(binary, environment, checkout_scratch() / "tour-negatives-fixtures")

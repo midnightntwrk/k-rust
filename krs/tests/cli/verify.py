@@ -24,7 +24,7 @@ from support.reference import (  # noqa: E402
     Key, Output, Pin, Snapshot, add_refresh_argument, reduce_kprove_temp, sorted_kore_claims,
 )
 from support.report import Results  # noqa: E402
-from support.tools import executable, z3_environment  # noqa: E402
+from support.tools import checkout_scratch, executable, tool_target, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -163,10 +163,11 @@ def verify_k_artifacts(directory: Path, forbidden_paths: list[Path], gate: Path)
     return artifacts
 
 
-def positive_run(binary: Path, workspace: Path, results: Results, gate: Path) -> dict[str, bytes] | None:
+def positive_run(
+    binary: Path, workspace: Path, target: Path, results: Results, gate: Path
+) -> dict[str, bytes] | None:
     language = workspace / "language"
     manifest = materialize(language)
-    target = workspace / "target"
     emitted = workspace / "emitted"
     native = workspace / "native"
 
@@ -344,7 +345,7 @@ def verify_relocation(results: Results, left: dict[str, bytes], right: dict[str,
 
 def negative_cases(binary: Path, workspace: Path, results: Results) -> None:
     manifest = materialize(workspace / "missing-language")
-    target = workspace / "negative-target"
+    target = tool_target()
 
     missing_option = cli_command(binary, "check", manifest, target, definition=None)
     option_ok = missing_option.returncode == 2 and b"missing --definition" in missing_option.stderr
@@ -360,7 +361,7 @@ def negative_cases(binary: Path, workspace: Path, results: Results) -> None:
         binary,
         "expand",
         ambiguous / "Cargo.toml",
-        workspace / "ambiguous-target",
+        target,
         package="duplicated-semantics",
     )
     ambiguity_ok = ambiguous_process.returncode != 0 and b"matches 2 resolved packages" in ambiguous_process.stderr
@@ -375,7 +376,7 @@ def negative_cases(binary: Path, workspace: Path, results: Results) -> None:
             binary,
             command,
             broken_manifest,
-            workspace / "broken-target",
+            target,
             output=workspace / "broken-output" if command == "build" else None,
         )
         diagnostics = krs_diagnostics(broken.stderr)
@@ -406,7 +407,7 @@ def negative_cases(binary: Path, workspace: Path, results: Results) -> None:
         cwd=workspace,
         environment={
             **z3_environment(),
-            "CARGO_TARGET_DIR": str(workspace / "broken-target"),
+            "CARGO_TARGET_DIR": str(target),
             "CARGO_NET_OFFLINE": "true",
             "CARGO_TERM_COLOR": "never",
         },
@@ -430,7 +431,7 @@ def negative_cases(binary: Path, workspace: Path, results: Results) -> None:
     sentinel = b"do not overwrite\n"
     (unsafe_output / "definition.k").write_bytes(sentinel)
     (unsafe_output / "unrelated.txt").write_bytes(sentinel)
-    unsafe = cli_command(binary, "emit-k", safe_manifest, workspace / "safe-target", output=unsafe_output)
+    unsafe = cli_command(binary, "emit-k", safe_manifest, target, output=unsafe_output)
     preserved = (
         unsafe.returncode != 0
         and b"refusing to replace non-KRS artifact directory" in unsafe.stderr
@@ -441,8 +442,7 @@ def negative_cases(binary: Path, workspace: Path, results: Results) -> None:
     results.add("unsafe_output", "PASS" if preserved else "FAIL", "nonempty unowned output rejected without changing bytes" if preserved else compact(unsafe))
 
     run_manifest = materialize(workspace / "run-language")
-    run_target = workspace / "run-target"
-    unknown_variable = cli_command(binary, "run", run_manifest, run_target, extra=("-c", "ENV=.Map"))
+    unknown_variable = cli_command(binary, "run", run_manifest, target, extra=("-c", "ENV=.Map"))
     unknown_ok = (
         unknown_variable.returncode == 1
         and b"unknown configuration variable `ENV`" in unknown_variable.stderr
@@ -451,7 +451,7 @@ def negative_cases(binary: Path, workspace: Path, results: Results) -> None:
         "run_unknown_variable", "PASS" if unknown_ok else "FAIL",
         "krs run rejects -c for an undeclared variable" if unknown_ok else compact(unknown_variable),
     )
-    stray = cli_command(binary, "run", run_manifest, run_target, extra=("foo.prog",))
+    stray = cli_command(binary, "run", run_manifest, target, extra=("foo.prog",))
     stray_ok = stray.returncode == 2 and b"the init function takes no program (no $PGM); do not pass FILE" in stray.stderr
     results.add(
         "run_stray_file", "PASS" if stray_ok else "FAIL",
@@ -580,7 +580,7 @@ def dollar_id_claims(
     manifest = materialize(workspace / "language", DOLLAR_IDS)
     emitted = workspace / "emitted"
     emit = cli_command(
-        binary, "emit-k", manifest, workspace / "target", package=DOLLAR_IDS_PACKAGE, output=emitted,
+        binary, "emit-k", manifest, tool_target(), package=DOLLAR_IDS_PACKAGE, output=emitted,
     )
     if emit.returncode != 0 or not (emitted / "spec.k").is_file():
         results.add("dollar_id_claims", "FAIL", f"emit-k did not write spec.k: {compact(emit)}")
@@ -651,7 +651,7 @@ def claims_proofs(
     """
 
     manifest = materialize(workspace / "language", CLAIMS)
-    target = workspace / "target"
+    target = tool_target()
     emitted = workspace / "emitted"
     try:
         prove = cli_command(binary, "prove", manifest, target, package=CLAIMS_PACKAGE, extra=("--output", "json"))
@@ -755,8 +755,12 @@ def main() -> int:
         first_root = Path(first_raw)
         second_root = Path(second_raw) / "different" / "depth"
         second_root.mkdir(parents=True)
-        first = positive_run(binary, first_root / "run-a", results, gate)
-        second = positive_run(binary, second_root / "run-b", results, gate)
+        # Every command builds in the shared gate target except the relocated run, whose
+        # target of its own lets the comparison cover the target's location as well.
+        first = positive_run(binary, first_root / "run-a", tool_target(), results, gate)
+        second = positive_run(
+            binary, second_root / "run-b", checkout_scratch() / "cli-relocated-target", results, gate,
+        )
         if first is not None and second is not None:
             verify_relocation(results, first, second)
             claims = dollar_id_claims(

@@ -216,7 +216,7 @@ class RustBuild:
     @property
     def detail(self) -> str:
         return (
-            "authored package formatting, Clippy, and MSRV checks; authored and expanded "
+            "authored package formatting checks; authored and expanded "
             "helper tests; authored helper docs; kompile tests; gate self-tests; "
             "krs/krs-gate builds; diagnostic and readable IMP LSP evidence"
         )
@@ -407,7 +407,7 @@ def phase_rust(context: Context) -> RustBuild:
 
     krs = build(env, timeout=600)
     context.built_gate = krs_gate.build(environment=env)
-    check_packages("imp", krs=krs, env=env, target_dir=context.target)
+    check_packages("imp", krs=krs, env=env)
     # These live LSP probes select authored tokens. A mere rust-analyzer
     # --version check is deliberately insufficient evidence.
     run(

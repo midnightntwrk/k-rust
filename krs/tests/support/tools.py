@@ -21,7 +21,7 @@ def nix_store() -> Path:
 def scratch_root() -> Path:
     """The disk-backed directory for gate workspaces and Cargo targets.
 
-    `KRS_GATE_SCRATCH` overrides the default `/var/tmp`; per-gate target
+    `KRS_GATE_SCRATCH` overrides the default `/var/tmp`; the heavy gates' target
     variables such as `KRS_KWASM_ROOT_TARGET` still override single targets.
     The directory is created if it does not exist.
     """
@@ -50,14 +50,17 @@ def executable(name: str) -> str:
 
 
 def tool_target() -> Path:
-    """The Cargo target directory every gate builds its tools (`krs`, `krs-gate`) in.
+    """The Cargo target directory the gates build their tools (`krs`, `krs-gate`) in.
 
-    The tools are the only gate builds that link k-rust, so one shared directory
-    rebuilds them once after a k-rust change rather than once per gate; each gate
-    keeps its own target directory for the packages it compiles, which do not
-    link k-rust. It is `KRS_TOOL_TARGET`, else the caller's `CARGO_TARGET_DIR`,
-    else the repository's `target/`, where `cargo build` and `cargo test` put the
-    same crates.
+    The light gates also compile every package they check here, and so do the
+    collectors that `krs` generates for those packages, which inherit
+    `CARGO_TARGET_DIR`: one directory compiles the KRS facade, its proc macros,
+    and the tools once, rather than once per gate. Cargo keys each artifact by
+    package, features, profile, and compiler, so packages that select different
+    features of one crate keep separate artifacts here, and a build is
+    serialized by Cargo's lock on the directory. It is `KRS_TOOL_TARGET`, else
+    the caller's `CARGO_TARGET_DIR`, else the repository's `target/`, where
+    `cargo build` and `cargo test` put the same crates.
     """
 
     configured = os.environ.get("KRS_TOOL_TARGET") or os.environ.get("CARGO_TARGET_DIR")
@@ -65,6 +68,12 @@ def tool_target() -> Path:
         return REPOSITORY / "target"
     target = Path(configured)
     return target if target.is_absolute() else ROOT / target
+
+
+def target_environment() -> dict[str, str]:
+    """The environment entry that makes Cargo, and `krs` through it, build in `tool_target`."""
+
+    return {"CARGO_TARGET_DIR": os.fspath(tool_target())}
 
 
 def workspace_debug_binary(name: str) -> Path:

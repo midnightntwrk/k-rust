@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError, entry  # noqa: E402
 from support.pins import Ledger  # noqa: E402
 from support.process import run  # noqa: E402
-from support.tools import z3_environment  # noqa: E402
+from support.tools import target_environment, z3_environment  # noqa: E402
 
 
 def text(relative: str) -> str:
@@ -37,7 +37,7 @@ def require_named_tests(package: str, target: tuple[str, ...], *expected: str) -
     listed = run(
         ["cargo", "+stable", "test", "--locked", "-p", package, *target, "--", "--list"],
         cwd=ROOT,
-        environment=z3_environment(),
+        environment={**z3_environment(), **target_environment()},
         timeout=1800,
     )
     names = {
