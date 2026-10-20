@@ -189,15 +189,16 @@ impl SortRule {
         })
     }
 
-    /// The K names of the sorts whose values are not data, which a data table must not enter:
-    /// the program-syntax sorts other than builtins (whose literals are exempt) and the cell
-    /// sorts (`TextSyntax::new`'s `excluded`).
+    /// The K names of the sorts whose values are not data, which a data table must not enter
+    /// (`TextSyntax::new`'s `excluded`): the program-syntax sorts as the rule computes them
+    /// (builtins among them; the values module admits builtins before it reads this set), the
+    /// cell sorts and K's internal sorts such as `KResult`.
     pub(super) fn excluded(&self) -> Vec<String> {
         self.program_syntax
             .iter()
-            .filter(|sort| !self.hooked.contains_key(*sort))
             .chain(&self.cells)
             .cloned()
+            .chain(K_INTERNAL_SORTS.map(str::to_owned))
             .collect()
     }
 
