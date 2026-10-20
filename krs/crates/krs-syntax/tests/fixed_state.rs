@@ -1251,3 +1251,31 @@ fn qualified_state_macros_in_leaf_cells_read_as_the_unqualified_ones() {
         assert_eq!(shape(&parse(qualified)), shape(&parse(unqualified)));
     }
 }
+
+#[test]
+fn map_patterns_reject_a_key_named_twice() {
+    let repeated = SyntaxErrorKind::InvalidStateMacro {
+        macro_name: "map",
+        reason: "a map pattern names one key twice; \
+                 its items are distinct entries of the map, so no map matches it",
+    };
+    assert_rejects!(
+        krs_syntax::parse_map_pattern(
+            krs_syntax::parse::tokens_from_source("Key(1) -> v, b -> w, Key(1) -> u, ..").unwrap()
+        ),
+        error if error.kind() == &repeated
+    );
+    assert_rejects!(
+        krs_syntax::parse_cells_pattern(
+            krs_syntax::parse::tokens_from_source(
+                "env: k::configuration::Cell(k::map![a -> x, a -> y, ..]), state @ .."
+            )
+            .unwrap()
+        ),
+        error if error.kind() == &repeated
+    );
+    krs_syntax::parse_map_pattern(
+        krs_syntax::parse::tokens_from_source("a -> x, b -> y, ..").unwrap(),
+    )
+    .unwrap();
+}

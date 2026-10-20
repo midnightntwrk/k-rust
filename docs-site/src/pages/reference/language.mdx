@@ -96,7 +96,7 @@ The overlap check treats two rules that share no cell as independent, because th
 A readable record reads entries of a Map cell with `env: { name -> value, .. }`: the rule applies only where the key is present, `value` binds what it maps to, and the cell is left unchanged, so the result record does not restate `env`.
 It may read several, `regs: { a -> x, b -> y, .. }`, which is K's `<regs> A |-> X B |-> Y ... </regs>` and the `cells!` entry `regs: k::configuration::Cell(map![a -> x, b -> y, ..])`.
 Each item is a different entry of the map, so the pattern matches only where the keys differ: with `a` and `b` bound to one key, the rule does not apply.
-Two keys written as the same term could never differ, so `{ a -> x, a -> y, .. }` is a syntax error; read one entry and bind its value once instead.
+Two keys written as the same term could never differ, so `{ a -> x, a -> y, .. }` is a syntax error, and so is the pattern `map![a -> x, a -> y, ..]` in a `cells!` entry; read one entry and bind its value once instead.
 Inside a `cells!` entry, `k::map![..]` is the same map as `map![..]`, as it is in an initializer.
 
 ### Whole nested-cell variables

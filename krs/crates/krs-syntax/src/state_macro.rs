@@ -1076,6 +1076,7 @@ fn parse_map(
             }
 
             let first = parse_map_item_key(input)?;
+            let mut keys = vec![first.to_string()];
             parse_map_item_arrow(input)?;
             let value = parse_state_item(input, context)?;
             let mut items = vec![MapItem {
@@ -1093,6 +1094,18 @@ fn parse_map(
                     break;
                 }
                 let key = parse_map_item_key(input)?;
+                // A pattern's items are distinct entries of the map, so two
+                // keys that are the same term can never both match.
+                let text = key.to_string();
+                if context == StateMacroContext::Pattern && keys.contains(&text) {
+                    return Err(state_error(
+                        "map",
+                        "a map pattern names one key twice; \
+                         its items are distinct entries of the map, so no map matches it",
+                        key.span(),
+                    ));
+                }
+                keys.push(text);
                 parse_map_item_arrow(input)?;
                 let value = parse_state_item(input, context)?;
                 items.push(MapItem {
