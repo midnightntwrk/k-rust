@@ -315,6 +315,16 @@ impl Chart {
         }
     }
 
+    /// Whether this chart, at `position`, holds a completed item of `sort` that starts here: a
+    /// phrase of the sort over no text. The completed nodes of the boundary `(sort, position)`
+    /// at this chart are built from exactly these items (`completed_nodes`), so where there is
+    /// none they are no nodes, with no violation and no cycle.
+    pub(super) fn has_empty_completion(&self, sort: usize, position: usize) -> bool {
+        self.completed
+            .get(&sort)
+            .is_some_and(|states| states.iter().any(|state| state.origin == position))
+    }
+
     /// The span of the text of a node completed at this chart's position `end` from `origin`:
     /// from the start of its first token to the end of its last, as input offsets.
     ///

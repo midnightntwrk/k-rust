@@ -2716,43 +2716,48 @@ impl Grammar {
                         }
 
                         // Aycock/Horspool nullable fix: a completed nullable
-                        // production may have been processed before this caller.
-                        let completed = completed_nodes(
-                            &charts[position],
-                            self,
-                            sort_id,
-                            position,
-                            position,
-                            input,
-                            provenance,
-                            priority_memos,
-                            filter,
-                            cycles,
-                            stand_in,
-                            cut_repetitions,
-                        );
-                        if let Some(cycle) = &completed.cycle {
-                            return Err(cycle.clone());
-                        }
-                        if first_violation.is_none() {
-                            first_violation.clone_from(&completed.violation);
-                        }
-                        let completed = self.filter_associative_boundary(
-                            state,
-                            &completed.nodes,
-                            filter,
-                            &mut first_violation,
-                        );
-                        if !completed.is_empty() {
-                            self.add_chart_extensions(
-                                &mut charts[position],
-                                State {
-                                    dot: state.dot + 1,
-                                    ..state
-                                },
-                                &derivations,
-                                Some(&pack_alternatives(&completed)),
-                            )?;
+                        // production may have been processed before this caller. Its nodes are
+                        // those of the items of the sort completed here from here
+                        // (`completed_nodes`); where there is none, they are no nodes, no
+                        // violation and no cycle, and the item is not advanced.
+                        if charts[position].has_empty_completion(sort_id, position) {
+                            let completed = completed_nodes(
+                                &charts[position],
+                                self,
+                                sort_id,
+                                position,
+                                position,
+                                input,
+                                provenance,
+                                priority_memos,
+                                filter,
+                                cycles,
+                                stand_in,
+                                cut_repetitions,
+                            );
+                            if let Some(cycle) = &completed.cycle {
+                                return Err(cycle.clone());
+                            }
+                            if first_violation.is_none() {
+                                first_violation.clone_from(&completed.violation);
+                            }
+                            let completed = self.filter_associative_boundary(
+                                state,
+                                &completed.nodes,
+                                filter,
+                                &mut first_violation,
+                            );
+                            if !completed.is_empty() {
+                                self.add_chart_extensions(
+                                    &mut charts[position],
+                                    State {
+                                        dot: state.dot + 1,
+                                        ..state
+                                    },
+                                    &derivations,
+                                    Some(&pack_alternatives(&completed)),
+                                )?;
+                            }
                         }
                     }
                     Some(_) => {
@@ -5145,6 +5150,57 @@ mod chart_tests {
         eprintln!("d^8 chart work: {counters:?}");
         assert!(counters.existing_state_growth_changes > 0);
         assert_eq!(counters.completion_revisit_derivations_read, 0);
+    }
+
+    #[test]
+    fn a_nonterminal_item_reads_empty_completions_only_where_one_exists() {
+        let nonterminal = |sort: &str| ProductionItem::NonTerminal {
+            sort: Sort::new(sort),
+            name: None,
+        };
+        let terminal = |text: &str| ProductionItem::Terminal(text.to_owned());
+        let mut grammar = Grammar::default();
+        for (sort, items, label) in [
+            (
+                "S",
+                vec![nonterminal("S"), terminal("+"), nonterminal("T")],
+                "plus",
+            ),
+            ("S", vec![nonterminal("T")], "t"),
+            ("T", vec![terminal("x")], "x"),
+            (
+                "T",
+                vec![
+                    terminal("("),
+                    nonterminal("O"),
+                    nonterminal("S"),
+                    terminal(")"),
+                ],
+                "paren",
+            ),
+            ("O", Vec::new(), "none"),
+        ] {
+            grammar
+                .add(
+                    Sort::new(sort),
+                    items,
+                    Some(Label::new(label)),
+                    false,
+                    false,
+                )
+                .unwrap();
+        }
+        reset_chart_work_counters();
+        assert!(grammar.parse(&Sort::new("S"), "x + x + x").is_ok());
+        // No sort is completed over no text, so only the root collection asks for the
+        // completed nodes of a boundary.
+        assert_eq!(chart_work_counters().completed_nodes_calls, 1);
+
+        // `O` is completed over no text after `(`; the item waiting for it there still reads
+        // that completion and goes on to `S`.
+        reset_chart_work_counters();
+        assert!(grammar.parse(&Sort::new("S"), "x + (x + x)").is_ok());
+        assert!(chart_work_counters().completed_nodes_calls > 1);
     }
 
     #[test]
