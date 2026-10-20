@@ -382,8 +382,13 @@ fn assert_check_measurement(temporary: &Path, target: &Path, manifest: &Path, st
     assert_eq!(timings["command"], "check");
     assert_eq!(timings["status"], "ok");
     assert!(timings["failed_span"].is_null());
+    let ids = span_ids(&timings);
+    let lowered = ids
+        .iter()
+        .position(|(id, _)| id == "definition.lower")
+        .unwrap();
     assert_eq!(
-        span_ids(&timings),
+        ids[..=lowered],
         [
             ("cargo.metadata.input", 0),
             ("host.discover", 0),
@@ -408,10 +413,25 @@ fn assert_check_measurement(temporary: &Path, target: &Path, manifest: &Path, st
             ("protocol.decode", 0),
             ("semantic.lower", 0),
             ("definition.lower", 0),
-            ("check.adapt", 0),
-            ("release", 0),
         ]
         .map(|(id, depth)| (id.to_owned(), depth))
+    );
+    // `check` runs the native judgement `build` runs, minus `native.write`.
+    assert_eq!(
+        ids[lowered + 1..]
+            .iter()
+            .filter(|(_, depth)| *depth == 0)
+            .map(|(id, _)| id.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "native.adapt",
+            "native.prepare",
+            "native.compile",
+            "native.reparse.definition",
+            "native.reparse.syntax",
+            "native.provenance",
+            "release",
+        ]
     );
     assert_timing_invariants(&timings);
     let counters = read_json(&counters_path);
@@ -815,6 +835,16 @@ pub struct Sha256Digest {{
             .iter()
             .any(|(id, _)| id == "result.reuse")
     );
+    // `check` runs the same native judgement, so it reports the same warnings.
+    let check = command(
+        target.path(),
+        &manifest,
+        "check",
+        None,
+        &["--backend", "llvm"],
+    );
+    assert_success(&check);
+    assert_eq!(check.stderr, first.stderr);
 }
 
 #[test]
@@ -876,5 +906,144 @@ fn native_rejection_reports_the_authored_rust_item_on_every_backend() {
         assert_eq!(range["file"]["package_relative_path"], "src/lib.rs");
         assert_eq!(range["start_byte"], start, "{stderr}");
         assert_eq!(range["end_byte"], start + item.len(), "{stderr}");
+
+        // `check --backend B` predicts `build --backend B`: it refuses the
+        // definition with the same diagnostic, from the same native stage.
+        let check_timings_path = temporary
+            .path()
+            .join(format!("{backend}-check-timings.json"));
+        let check = command(
+            target.path(),
+            &manifest,
+            "check",
+            None,
+            &[
+                "--backend",
+                backend,
+                "--timings",
+                check_timings_path.to_str().unwrap(),
+            ],
+        );
+        let check_stderr = String::from_utf8(check.stderr).unwrap();
+        assert!(!check.status.success(), "check {backend} accepted");
+        assert!(check.stdout.is_empty(), "check {backend}");
+        assert_eq!(check_stderr, stderr, "check {backend}");
+        assert_eq!(
+            read_json(&check_timings_path)["failed_span"],
+            "native.compile",
+            "check {backend}"
+        );
     }
+}
+
+/// An existential rule result, which concrete (LLVM) execution cannot run.
+const RULE_EXISTENTIAL: &str = r#"
+use krs::KItem;
+use krs::builtin::{Int, KSequence};
+
+krs::sorts! {
+    Exp: KItem;
+    impl Exp for Int;
+}
+
+#[krs::configuration]
+pub struct Machine {
+    #[krs::cell]
+    pub k: KSequence,
+}
+
+impl Machine {
+    #[krs::init]
+    pub fn init(pgm: Exp) -> Self {
+        Self { k: krs::k![pgm] }
+    }
+}
+
+#[krs::rule(label = "zero-to-unknown")]
+#[krs::exists(x: Int)]
+pub fn zero_to_unknown(
+    krs::cells! { k: krs::configuration::KCell(0, tail @ ..), state @ .. }: Machine,
+) -> Machine {
+    krs::cells! { k: krs::configuration::KCell(x, ..tail), ..state }
+}
+"#;
+
+#[test]
+fn check_warns_where_build_refuses_the_route_and_compiles_where_it_does_not() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = materialize_fixture(temporary.path(), RULE_EXISTENTIAL);
+    let refusal = "route `native-llvm` refuses this definition";
+
+    let build = command(
+        target.path(),
+        &manifest,
+        "build",
+        Some(&temporary.path().join("llvm")),
+        &["--backend", "llvm"],
+    );
+    let build_stderr = String::from_utf8(build.stderr).unwrap();
+    assert!(!build.status.success(), "{build_stderr}");
+    assert!(build_stderr.contains(refusal), "{build_stderr}");
+
+    // The route lacks a feature; that is the route's property, so `check`
+    // warns with the refusal `build` reports and compiles nothing natively.
+    let llvm_timings = temporary.path().join("llvm-check-timings.json");
+    let llvm = command(
+        target.path(),
+        &manifest,
+        "check",
+        None,
+        &[
+            "--backend",
+            "llvm",
+            "--no-reuse",
+            "--timings",
+            llvm_timings.to_str().unwrap(),
+        ],
+    );
+    let llvm_stderr = String::from_utf8(llvm.stderr).unwrap();
+    assert_success_with(&llvm.status, &llvm_stderr);
+    assert!(
+        llvm_stderr.contains("krs::capability::unavailable") && llvm_stderr.contains(refusal),
+        "{llvm_stderr}"
+    );
+    assert!(
+        !span_ids(&read_json(&llvm_timings))
+            .iter()
+            .any(|(id, _)| id.starts_with("native.")),
+        "check compiled for a route that refuses the definition"
+    );
+
+    // The haskell route runs existential results: `check` compiles natively
+    // and has nothing to warn about.
+    let haskell_timings = temporary.path().join("haskell-check-timings.json");
+    let haskell = command(
+        target.path(),
+        &manifest,
+        "check",
+        None,
+        &[
+            "--backend",
+            "haskell",
+            "--no-reuse",
+            "--timings",
+            haskell_timings.to_str().unwrap(),
+        ],
+    );
+    let haskell_stderr = String::from_utf8(haskell.stderr).unwrap();
+    assert_success_with(&haskell.status, &haskell_stderr);
+    assert!(
+        !haskell_stderr.contains("krs::capability::unavailable"),
+        "{haskell_stderr}"
+    );
+    assert!(
+        span_ids(&read_json(&haskell_timings))
+            .iter()
+            .any(|(id, depth)| id == "native.compile" && *depth == 0)
+    );
+}
+
+fn assert_success_with(status: &std::process::ExitStatus, stderr: &str) {
+    assert!(status.success(), "command failed:\n{stderr}");
 }

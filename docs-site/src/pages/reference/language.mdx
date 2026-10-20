@@ -76,9 +76,10 @@ The standalone `#[k::priority(N)]` attribute is retired: KRS rejects it and name
 K does not forbid overlapping rules: when two rules can apply to one configuration, `krun` takes one and `krun --search` finds both.
 KRS reports such a pair, because in Rust two arms matching one input are usually a mistake (`krs::analysis::overlapping-rule-heads`).
 The check covers every transition: readable clauses, `#[k::rule]` functions (completed to the head of the computation cell), and `cells!` rules; equations are not checked.
-Rules at different priorities never overlap, and two rules whose guards contain literal complements, such as `int::ne(rhs, 0)` and `int::eq(rhs, 0)`, `int::lt` and `int::ge`, or `g` and `bool::not(g)`, are separate.
-So are two rules where unifying the patterns turns a guard into a false comparison of two Int literals: a rule on `0` and a rule on `x` with `int::ge(x, 10)` never apply to one configuration, because `0 >=Int 10` is false (K tutorial lesson 1.21).
-Any other pair of guards is treated as possibly overlapping; KRS does no arithmetic and asks no solver.
+Rules at different priorities never overlap, and two rules whose guards contain complementary conjuncts are separate: `g` and `bool::not(g)`, or an equality and its negation on the same operands (`int::eq` and `int::ne`, likewise for `bool`, `string`, `kequal` and `float`, and `bool::xor` against `bool::eq`), or an Int or String comparison and its converse-negation (`int::lt(a, b)` and `int::ge(a, b)`, `string::le(a, b)` and `string::gt(a, b)`).
+So are two rules where unifying the patterns makes a guard false on literal operands: a rule on `0` and a rule on `x` with `int::ge(x, 10)` never apply to one configuration, because `0 >=Int 10` is false (K tutorial lesson 1.21); the same holds for a String comparison of two literals, a Bool guard the other rule binds to `false`, and `kequal::eq(v, Null())` when the other rule pins `v` to another constructor.
+The Float orders are not complements, because a NaN operand makes both `a <Float b` and `a >=Float b` false.
+Any other pair of guards is treated as possibly overlapping; KRS evaluates guards only on literals and constructor terms, and asks no solver.
 Members of one `overload` family are one head, as K's overload axioms make them: a rule on `ExpSyntax::Dot` whose base is an `LVal` overlaps a rule on `LValSyntax::Dot`, while a rule on `ExpSyntax::Dot` whose base is an `Int` does not.
 When the overlap is intended, put the rules in one group with `#[k::rule(nondet = toss)]`.
 The key is check-only and emits nothing; a group needs at least two rules at one priority, and each of its rules must overlap another (`krs::analysis::nondet-group`).

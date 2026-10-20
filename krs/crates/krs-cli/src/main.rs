@@ -32,7 +32,7 @@ Usage:
   krs fmt --stdin [--edition YEAR]
 
 Commands:
-  check                     Build and run the collector; report Rust and theory errors
+  check                     Judge the definition as build does for --backend; write nothing
   expand                    Render the selected Rust reference surface
   emit-k                    Emit canonical K and shared artifacts
   build                     Compile native backend artifacts

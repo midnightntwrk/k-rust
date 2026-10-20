@@ -243,7 +243,7 @@ register_codes! {
     }
     /// Diagnostics from the backend capability table (V8).
     capability {
-        UNAVAILABLE: "krs::capability::unavailable" => "A backend route lacks a feature the definition needs; it refuses the definition before compiling it.",
+        UNAVAILABLE: "krs::capability::unavailable" => "A backend route lacks a feature the definition needs; `build` and the run commands refuse the definition before compiling it, and `check` warns.",
         IGNORED_ENSURES: "krs::capability::ignored-ensures" => "A transition has an `ensures` condition, which concrete (LLVM) execution ignores.",
     }
     /// Diagnostics from Rust token parsing and KRS syntax validation.

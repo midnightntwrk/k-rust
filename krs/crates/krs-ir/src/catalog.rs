@@ -2186,6 +2186,164 @@ impl BuiltinOperation {
     }
 }
 
+/// What a Bool-valued builtin states when it is a conjunct of a rule's
+/// `requires`, read without evaluating its operands: the facts the overlap
+/// check uses to decide that two guards cannot both hold.
+///
+/// Every operation whose catalog result sort is `Bool` has a meaning other
+/// than [`GuardMeaning::NonBoolean`], and only those do; a compile-time
+/// assertion below enforces it, so a new Bool-valued builtin cannot be added
+/// without deciding what it states.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GuardMeaning {
+    /// The catalog result sort is not `Bool`.
+    NonBoolean,
+    /// `notBool g`: holds exactly when its one operand is false.
+    Negation,
+    /// `andBool` and `andThenBool`: hold exactly when both operands hold.
+    Conjunction,
+    /// `orBool` and `orElseBool`: hold exactly when an operand holds.
+    Disjunction,
+    /// `impliesBool`: holds unless the first operand holds and the second
+    /// does not.
+    Implication,
+    /// A binary relation literal; see [`RelationLiteral`].
+    Relation(RelationLiteral),
+    /// Bool-valued, with no complement among the builtins and no literal
+    /// evaluation; the text says why.
+    Opaque(&'static str),
+}
+
+/// `op(a, b)` read as a literal of a canonical relation `R`: it holds exactly
+/// when `R(a, b)` (or `R(b, a)` when `swapped`) holds, if `positive`, or
+/// exactly when it does not hold, otherwise.
+///
+/// Two literals of one relation on the same operands with opposite polarity
+/// are complements, so no valuation satisfies both.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RelationLiteral {
+    /// The canonical relation, itself a positive, unswapped literal of itself.
+    pub relation: BuiltinOperation,
+    /// Whether the operands are read in reverse order.
+    pub swapped: bool,
+    /// Whether the literal is the relation (true) or its negation (false).
+    pub positive: bool,
+    /// Whether the relation is symmetric, so operand order never matters.
+    pub symmetric: bool,
+}
+
+const fn relation(
+    relation: BuiltinOperation,
+    swapped: bool,
+    positive: bool,
+    symmetric: bool,
+) -> GuardMeaning {
+    GuardMeaning::Relation(RelationLiteral {
+        relation,
+        swapped,
+        positive,
+        symmetric,
+    })
+}
+
+/// A strict total order `<`: `a < b`, `a > b` (`b < a`), `a >= b`
+/// (`not a < b`, by totality) and `a <= b` (`not b < a`).
+const fn order(less: BuiltinOperation, swapped: bool, positive: bool) -> GuardMeaning {
+    relation(less, swapped, positive, false)
+}
+
+/// An equality and its negation; equality is symmetric.
+const fn equality(equal: BuiltinOperation, positive: bool) -> GuardMeaning {
+    relation(equal, false, positive, true)
+}
+
+impl BuiltinOperation {
+    /// What the operation states as a guard conjunct (see [`GuardMeaning`]).
+    ///
+    /// Each classification follows from the operation's definition:
+    /// `=/=Int`, `=/=Bool`, `=/=String`, `=/=K` and `=/=Float` are defined
+    /// as `notBool` of the matching equality, and `xorBool` is `=/=Bool` by
+    /// its truth table. `<Int` and `<String` (lexicographic on code points)
+    /// are strict total orders, so `>=` is the negation of `<` and `<=` the
+    /// negation of the converse. IEEE 754 `<Float` is not total: with a NaN
+    /// operand `a <Float b` and `a >=Float b` are both false, so neither is
+    /// the negation of the other and the Float orders are opaque.
+    #[must_use]
+    pub const fn guard_meaning(self) -> GuardMeaning {
+        const FLOAT_ORDER: &str = "IEEE 754 order is partial: with a NaN operand a comparison \
+                                   and its converse-negation are both false, so neither is \
+                                   the negation of the other";
+        const PREDICATE: &str = "a predicate no builtin complements";
+        match self {
+            Self::IntLess => order(Self::IntLess, false, true),
+            Self::IntGreater => order(Self::IntLess, true, true),
+            Self::IntGreaterEqual => order(Self::IntLess, false, false),
+            Self::IntLessEqual => order(Self::IntLess, true, false),
+            Self::IntEqual => equality(Self::IntEqual, true),
+            Self::IntNotEqual => equality(Self::IntEqual, false),
+            Self::StringLess => order(Self::StringLess, false, true),
+            Self::StringGreater => order(Self::StringLess, true, true),
+            Self::StringGreaterEqual => order(Self::StringLess, false, false),
+            Self::StringLessEqual => order(Self::StringLess, true, false),
+            Self::StringEqual => equality(Self::StringEqual, true),
+            Self::StringNotEqual => equality(Self::StringEqual, false),
+            Self::BoolEqual => equality(Self::BoolEqual, true),
+            Self::BoolNotEqual | Self::BoolXor => equality(Self::BoolEqual, false),
+            Self::KEqualEq => equality(Self::KEqualEq, true),
+            Self::KEqualNe => equality(Self::KEqualEq, false),
+            Self::FloatEqual => equality(Self::FloatEqual, true),
+            Self::FloatNotEqual => equality(Self::FloatEqual, false),
+            Self::BoolNot => GuardMeaning::Negation,
+            Self::BoolAnd | Self::BoolAndThen => GuardMeaning::Conjunction,
+            Self::BoolOr | Self::BoolOrElse => GuardMeaning::Disjunction,
+            Self::BoolImplies => GuardMeaning::Implication,
+            Self::FloatLess
+            | Self::FloatLessEqual
+            | Self::FloatGreater
+            | Self::FloatGreaterEqual => GuardMeaning::Opaque(FLOAT_ORDER),
+            Self::IntDivides | Self::FloatIsNan | Self::FloatIsInfinite | Self::FloatSign => {
+                GuardMeaning::Opaque(PREDICATE)
+            }
+            Self::StringToBool => {
+                GuardMeaning::Opaque("a partial conversion, defined only on \"true\" and \"false\"")
+            }
+            _ => GuardMeaning::NonBoolean,
+        }
+    }
+}
+
+// Every Bool-valued builtin, and only those, has a guard meaning; a canonical
+// relation is a positive, unswapped literal of itself with the same symmetry,
+// and a symmetric relation never needs its operands swapped.
+const _: () = {
+    let mut index = 0;
+    while index < BuiltinOperation::ALL.len() {
+        let operation = BuiltinOperation::ALL[index];
+        let boolean = matches!(
+            operation.result_sort(),
+            OperationSort::Builtin(BuiltinSort::Bool)
+        );
+        let meaning = operation.guard_meaning();
+        assert!(
+            boolean != matches!(meaning, GuardMeaning::NonBoolean),
+            "a Bool-valued builtin needs a guard meaning, and only those have one"
+        );
+        if let GuardMeaning::Relation(literal) = meaning {
+            assert!(!(literal.symmetric && literal.swapped));
+            let GuardMeaning::Relation(canonical) = literal.relation.guard_meaning() else {
+                panic!("a canonical relation is a relation literal of itself");
+            };
+            assert!(
+                canonical.relation as usize == literal.relation as usize
+                    && !canonical.swapped
+                    && canonical.positive
+                    && canonical.symmetric == literal.symmetric
+            );
+        }
+        index += 1;
+    }
+};
+
 /// Sort constraint on one collection-operation operand.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CollectionOperandSort {
