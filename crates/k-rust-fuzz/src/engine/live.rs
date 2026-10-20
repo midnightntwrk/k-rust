@@ -21,6 +21,7 @@ use crate::{
         self, Abort, CaseRequestShape, CaseResult, CompiledPattern, Executor, NormalEnd,
         OutcomeClass, PatternCompiler, TargetNeeds,
     },
+    graph::{self, RuleGraph, entry::Entry},
     holes::{self, InstantiatedProgram, PrintedValue, ResolvedHoles, RoundTripCheck},
     report::{DefinitionRole, HoleValue, KillKind, Reaching, RejectionReason, WitnessSide},
     spec::{BackendRoute, CampaignSpec, CompiledDefinition, PathMode, ProgramInput},
@@ -710,12 +711,87 @@ impl DefinitionCache {
     }
 }
 
+/// The rule graph of the baseline definition with the campaign's entry (ARCHITECTURE 6.3),
+/// computed once per campaign from the hole template ([`graph::entry::hole_template`]) on the
+/// graph's own backend, which no case uses, so that its solver cache is no case's.
+///
+/// The graph's warnings go into the report, and every case's coverage `applied` is checked
+/// against the entry: a rule applied outside the graph, or an id the definition does not know,
+/// is an engine defect noted on the case ([`RuleGraph::unreachable_applied`]). Differential
+/// campaigns are not checked: a case's coverage there is the mutant's, and each side would need
+/// its own graph.
+pub(crate) struct GraphCheck {
+    graph: RuleGraph,
+    entry: Entry,
+    /// The warnings for the report: the vacuous-template warning, and for a rule target the
+    /// `statically-unreachable` warning.
+    warnings: Vec<String>,
+}
+
+impl GraphCheck {
+    /// Build the graph and the entry for `cases`' baseline and target, or `None` when there is
+    /// no entry: a differential campaign, a template that cannot be built (a hole position that
+    /// does not lead to a subterm, a hole sort without a KORE sort), a backend or graph that
+    /// does not build, or a template that does not execute at depth 0. No entry means no
+    /// warning and no self-check, never a refusal of the campaign.
+    pub(crate) fn build(spec: &CampaignSpec, cases: &LiveCases) -> Option<Self> {
+        let Judge::Target(target) = &cases.judge else {
+            return None;
+        };
+        let side = &cases.baseline;
+        let mut holes = Vec::new();
+        for (position, hole) in side.round_trip.positions().iter().zip(&side.holes.holes) {
+            if let Some(path) = position {
+                holes.push((path.clone(), hole.kore_sort().ok()?));
+            }
+        }
+        let template = graph::entry::hole_template(side.round_trip.anchor_configuration(), &holes)?;
+        let mut backend =
+            build_backend(&spec.definitions.baseline, spec.options.backend.options()).ok()?;
+        let graph = RuleGraph::of_backend(&mut backend).ok()?;
+        let entry = graph
+            .entry(&mut backend, side.shape.request(template))
+            .ok()?;
+        let mut warnings = Vec::new();
+        warnings.extend(graph.vacuous_warning(&entry).ok().flatten());
+        if let Some(id) = target.rule_id() {
+            warnings.extend(graph.statically_unreachable(&entry, id).ok().flatten());
+        }
+        Some(Self {
+            graph,
+            entry,
+            warnings,
+        })
+    }
+
+    /// The warnings the report carries for this campaign.
+    pub(crate) fn warnings(&self) -> &[String] {
+        &self.warnings
+    }
+
+    /// The engine defects of one case whose coverage `applied` holds `applied`: one description
+    /// per applied rule the graph cannot reach from the entry and per unknown id
+    /// ([`graph::entry::AppliedCheck::defects`]). Ambiguous ids (shared by a rule and an
+    /// equation) are not defects and are not reported per case.
+    pub(crate) fn defects(&self, applied: &[String]) -> Vec<String> {
+        match self
+            .graph
+            .unreachable_applied(&self.entry, applied.iter().map(String::as_str))
+        {
+            Ok(check) => check.defects(),
+            Err(foreign) => vec![foreign.to_string()],
+        }
+    }
+}
+
 /// The campaign's runner: the campaign's own [`LiveCases`] for cases, a fresh one per
 /// confirmation, built from the campaign's [`DefinitionCache`] (filled on the first
 /// confirmation).
 pub(crate) struct LiveRunner {
     pub(crate) cases: LiveCases,
     pub(crate) cache: Arc<OnceLock<Result<DefinitionCache, String>>>,
+    /// The campaign's rule-graph self-check, run on every case's coverage.
+    pub(crate) graph: Option<Arc<GraphCheck>>,
 }
 
 impl CaseRunner for LiveRunner {
@@ -724,7 +800,13 @@ impl CaseRunner for LiveRunner {
         values: &[Value],
         cancel: Option<&CancellationToken>,
     ) -> Result<CaseRun, Abort> {
-        run_live(&mut self.cases, values, cancel)
+        let mut run = run_live(&mut self.cases, values, cancel)?;
+        if let Some(graph) = &self.graph
+            && run.class != OutcomeClass::Rejected
+        {
+            run.defects.extend(graph.defects(&run.applied));
+        }
+        Ok(run)
     }
 
     /// A fresh `Backend` (fresh solver, fresh session) over a copy of the cached internalized

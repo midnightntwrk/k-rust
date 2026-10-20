@@ -42,6 +42,9 @@ pub(crate) struct LoopSettings {
     pub(crate) constraints: Vec<Constraints>,
     /// Holes whose refused sort an override admitted.
     pub(crate) sort_overrides: Vec<SortOverride>,
+    /// Campaign-level warnings known before the first case (the rule graph's), which every
+    /// report starts with.
+    pub(crate) warnings: Vec<String>,
 }
 
 /// Run cases until the budget is spent, a witness is confirmed and shrunk, the rejection cap
@@ -60,6 +63,7 @@ pub(crate) fn run_loop(
     cancel: Option<&CancellationToken>,
 ) -> FuzzReport {
     let mut state = State::new(budget);
+    state.warnings.clone_from(&settings.warnings);
     let mut feedback = CoverageFeedback::default();
     let ending = loop {
         if is_cancelled(cancel) {
@@ -177,7 +181,9 @@ pub(crate) fn report_without_cases(
     budget: Budget,
     outcome: CampaignOutcome,
 ) -> FuzzReport {
-    State::new(budget).report(settings, budget, outcome)
+    let mut state = State::new(budget);
+    state.warnings.clone_from(&settings.warnings);
+    state.report(settings, budget, outcome)
 }
 
 fn is_cancelled(cancel: Option<&CancellationToken>) -> bool {

@@ -16,7 +16,7 @@ use k_rust::backend::CancellationToken;
 
 use self::{
     campaign_loop::{Ending, LoopSettings, no_witness, report_without_cases, run_loop},
-    live::{LiveCases, LiveRunner},
+    live::{GraphCheck, LiveCases, LiveRunner},
     proposer::{BlindProposer, Proposer},
     schedule::{Schedule, derive_seed},
 };
@@ -52,6 +52,9 @@ pub struct Campaign {
     /// The immutable internalized definitions confirmations build fresh backends from, filled
     /// on the first confirmation and kept across runs.
     definition_cache: Arc<OnceLock<Result<live::DefinitionCache, String>>>,
+    /// The rule graph and the campaign's entry, computed once in [`Campaign::new`] on a backend
+    /// of their own, for the report's warnings and the per-case self-check (ARCHITECTURE 6.3).
+    graph: Option<Arc<GraphCheck>>,
 }
 
 impl Campaign {
@@ -137,6 +140,7 @@ impl Campaign {
             Some(mutant) => differential::equivalent(&spec.definitions.baseline, mutant)?,
             None => false,
         };
+        let graph = GraphCheck::build(&spec, &cases).map(Arc::new);
         let settings = LoopSettings {
             identity: identity(&spec, &initial)?,
             rejection_cap: spec.rejection_cap,
@@ -155,6 +159,10 @@ impl Campaign {
                 .iter()
                 .flat_map(ResolvedHole::sort_overrides)
                 .collect(),
+            warnings: graph
+                .as_ref()
+                .map(|graph| graph.warnings().to_vec())
+                .unwrap_or_default(),
         };
         Ok(Campaign {
             spec,
@@ -163,6 +171,7 @@ impl Campaign {
             settings,
             equivalent,
             definition_cache: Arc::new(OnceLock::new()),
+            graph,
         })
     }
 
@@ -227,6 +236,7 @@ impl Campaign {
         let mut runner = LiveRunner {
             cases,
             cache: Arc::clone(&self.definition_cache),
+            graph: self.graph.clone(),
         };
         run_loop(
             &mut runner,

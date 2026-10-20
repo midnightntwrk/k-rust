@@ -164,6 +164,16 @@ pub(crate) struct ResolvedHole {
 }
 
 impl ResolvedHole {
+    /// The KORE sort of the hole's declared sort ([`ValueSort::kore_sort`]): the sort of every
+    /// value the hole takes, whatever its own subsort.
+    ///
+    /// # Errors
+    ///
+    /// As [`ValueSort::kore_sort`].
+    pub(crate) fn kore_sort(&self) -> Result<k_rust::kore::ast::Sort, String> {
+        self.sort.kore_sort()
+    }
+
     /// The report's record of what this hole's override admitted (ARCHITECTURE 2.4): one
     /// [`SortOverride`] per entry of [`Self::refusals`], in order, naming the refused sort, so
     /// that a hole whose values may contain two refused sorts (`both(Id, Stmt)`) reports both.
@@ -510,6 +520,18 @@ impl RoundTripCheck {
         holes: &ResolvedHoles,
     ) -> Result<Self, CampaignError> {
         position::locate_all(assembly, definition, program, holes)
+    }
+
+    /// The configuration assembled with every anchor.
+    pub(crate) fn anchor_configuration(&self) -> &KorePattern {
+        &self.anchor_configuration
+    }
+
+    /// Each hole's position in [`Self::anchor_configuration`], in the order of the holes: the
+    /// path of `kore::walk::children` indices to the subterm that holds the hole's value
+    /// (ARCHITECTURE 2.3). `None` for a KORE-template hole, which has no anchor.
+    pub(crate) fn positions(&self) -> &[Option<Vec<usize>>] {
+        &self.positions
     }
 
     /// Check `assembled` against the intended `values` (in the order of the holes).

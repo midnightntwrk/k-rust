@@ -286,6 +286,29 @@ pub(super) fn value_of(pattern: &KorePattern, sort: &ValueSort) -> Result<Value,
     }
 }
 
+impl ValueSort {
+    /// The sort's own KORE sort: the sort a hole declared with this sort holds (`SortInt`,
+    /// `SortMInt{Sort64{}}`, `SortList`, `SortTx`), as opposed to the own sort of one value
+    /// ([`super::print::kore_sort_of`]), which for a data value may be a subsort.
+    ///
+    /// # Errors
+    ///
+    /// A message when a token sort's name does not parse, or a data sort has no table entry.
+    pub(crate) fn kore_sort(&self) -> Result<KoreSort, String> {
+        match self {
+            Self::List { symbols, .. } | Self::Set { symbols, .. } | Self::Map { symbols, .. } => {
+                Ok(simple_sort(&symbols.kore_sort))
+            }
+            Self::Data { table, sort, .. } => table
+                .sorts
+                .first()
+                .map(|entry| simple_sort(&entry.kore_sort))
+                .ok_or_else(|| format!("the data sort {sort} has no table entry")),
+            builtin => builtin_kore_sort(builtin),
+        }
+    }
+}
+
 /// The KORE sort of the domain values of the builtin or renamed sort `sort`.
 fn builtin_kore_sort(sort: &ValueSort) -> Result<KoreSort, String> {
     Ok(match sort {

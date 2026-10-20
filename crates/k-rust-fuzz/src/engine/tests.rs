@@ -239,6 +239,7 @@ fn settings(holes: usize) -> LoopSettings {
         clean_leaf_facts: vec!["ceil-free".into()],
         constraints: vec![Constraints::default(); holes],
         sort_overrides: Vec::new(),
+        warnings: Vec::new(),
     }
 }
 

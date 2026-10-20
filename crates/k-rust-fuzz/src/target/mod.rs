@@ -328,6 +328,14 @@ impl ResolvedTarget {
         }
     }
 
+    /// The catalog id of a rule target's rule; `None` for every other kind.
+    pub(crate) fn rule_id(&self) -> Option<&str> {
+        match &self.resolved {
+            Resolved::Rule { id, .. } => Some(id),
+            Resolved::PatternFinal | Resolved::Differential | Resolved::Observer { .. } => None,
+        }
+    }
+
     /// The target's patterns compiled for its definition, in the order of [`Self::matchers`],
     /// for [`Self::resolve_with`] on another backend of the same definition.
     pub(crate) fn compiled_patterns(&self) -> Vec<CompiledPattern> {

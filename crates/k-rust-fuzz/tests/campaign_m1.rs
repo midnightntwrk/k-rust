@@ -18,7 +18,7 @@ use k_rust_fuzz::{
     values::{Constraints, GenerationBounds},
 };
 use num_bigint::BigInt;
-use support::{CHOSEN, Fixture, IMP, RULES};
+use support::{CHOSEN, Fixture, GRAPH, IMP, RULES, VALUE};
 
 /// An `Int` hole at `literal` inside the unique text `find` of `program`.
 fn int_hole(name: &str, program: &str, find: &str, literal: &str) -> HoleDecl {
@@ -431,4 +431,85 @@ fn a_campaign_without_shrinking_reports_its_first_witness_only() {
     assert_eq!(report.totals.cases, shrinking.totals.cases);
     assert_eq!(witness.first, shrinking.witness().expect("a witness").first);
     assert!(report.totals.work < shrinking.totals.work);
+}
+
+/// A `fired` rule target on the rule labelled `label`.
+fn fired(label: &str) -> Target {
+    Target {
+        kind: TargetKind::Rule(RuleTarget {
+            rule: RuleRef::Label(label.into()),
+            mode: RuleMode::Fired,
+        }),
+        run_to_completion: false,
+        negated_property: false,
+    }
+}
+
+fn unreachable_warnings(report: &FuzzReport) -> Vec<&String> {
+    report
+        .warnings
+        .iter()
+        .filter(|warning| warning.starts_with("statically-unreachable"))
+        .collect()
+}
+
+#[test]
+fn a_statically_unreachable_rule_target_is_warned_and_the_campaign_runs() {
+    // GRAPH: `start(N)` enables `go`, then `finish`; only `stray` produces what `other` needs.
+    let campaign = |label: &str| {
+        let mut setup = Setup::new(&GRAPH, "graph/start.pgm", fired(label));
+        setup.holes = vec![int_hole("N", "graph/start.pgm", "start(5)", "5")];
+        setup.run(Budget::Cases(8))
+    };
+    let report = campaign("other");
+    let warnings = unreachable_warnings(&report);
+    assert_eq!(warnings.len(), 1, "{:?}", report.warnings);
+    assert!(warnings[0].contains("is not reachable"), "{}", warnings[0]);
+    assert_eq!(report.totals.cases, 8);
+    assert_eq!(classes(&report), [(OutcomeClass::Miss, 8)]);
+    // Every case's applied rules are in the graph's reach: the self-check finds no defect.
+    assert!(
+        report.engine_defects.is_empty(),
+        "{:?}",
+        report.engine_defects
+    );
+    let report = campaign("finish");
+    assert!(
+        unreachable_warnings(&report).is_empty(),
+        "{:?}",
+        report.warnings
+    );
+    assert!(report.witness().is_some(), "{:?}", report.outcome);
+    assert!(
+        report.engine_defects.is_empty(),
+        "{:?}",
+        report.engine_defects
+    );
+}
+
+#[test]
+fn the_rule_graph_entry_is_the_hole_template_not_the_anchor() {
+    // VALUE: `$N` is the whole `<k>` cell. Keyed on the anchor 5, `zero` would look
+    // unreachable; keyed on the template's variable of sort `Int`, it is an entry rule.
+    let mut setup = Setup::new(&VALUE, "graph/value.pgm", fired("zero"));
+    setup.holes = vec![HoleDecl {
+        name: "N".into(),
+        sort: "Int".into(),
+        location: HoleLocation::ConfigVar { name: "N".into() },
+        constraints: Constraints::default(),
+        allow_refused_sort: false,
+    }];
+    setup.proposers = explicit(&[&[("N", 5)], &[("N", 0)]]);
+    let report = setup.run(Budget::Cases(4));
+    assert!(
+        unreachable_warnings(&report).is_empty(),
+        "{:?}",
+        report.warnings
+    );
+    assert!(report.witness().is_some(), "{:?}", report.outcome);
+    assert!(
+        report.engine_defects.is_empty(),
+        "{:?}",
+        report.engine_defects
+    );
 }
