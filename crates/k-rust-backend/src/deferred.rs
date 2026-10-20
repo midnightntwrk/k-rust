@@ -12,8 +12,8 @@
 //! Every statement of the definedness of (i) the operand a literal deciding operand discards, or
 //! (ii) an operand other than the deciding one while the deciding operand is not a literal (such
 //! operands are left unsimplified), exists only as [`Predicate::Defined`] atoms, created only by
-//! [`deferred_obligations`]. Such an operand is not evaluated beyond the bounded steps that decide
-//! its atoms: an atom is decided only by [`decide_defined`] (folding by pure builtin hooks on
+//! `deferred_obligations`. Such an operand is not evaluated beyond the bounded steps that decide
+//! its atoms: an atom is decided only by `decide_defined` (folding by pure builtin hooks on
 //! ground constructor-like arguments, collections included, with the value of one equation step on
 //! literal arguments whose right-hand side those hooks fold to a literal; ceil equations whose
 //! instantiated condition that folding decides, or whose instance is stated in the atom's place
@@ -25,7 +25,7 @@
 //!
 //! An operand whose definedness depends on an impure application (a console read, or a function
 //! whose equations perform an effect) cannot be decided without performing it, and a constraint
-//! must never hold an impure application: [`deferred_obligations`] returns that case as a
+//! must never hold an impure application: `deferred_obligations` returns that case as a
 //! [`DeferredOutcome`], which its callers turn into the step's unsupported-hook stop.
 
 use std::{cell::RefCell, collections::VecDeque, marker::PhantomData, sync::Arc};

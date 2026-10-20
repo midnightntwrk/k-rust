@@ -1468,9 +1468,9 @@ pub enum DefinitionError {
     },
     RulePattern(RulePatternError),
     /// An axiom with an `\equals` whose operands are not both terms and not both predicates
-    /// ([`PredicateReading`]), such as `\equals{Bool, R}(\and{Bool}(B1, B2), false)` or
+    /// (`PredicateReading`), such as `\equals{Bool, R}(\and{Bool}(B1, B2), false)` or
     /// `\equals{Int, R}(X, \or{Int}(1, 2))`, outside the encoding `\equals{Bool, R}(P, true)`
-    /// of a condition at a frontend's condition slot ([`crate::rule::ConditionSlot`]): an operand
+    /// of a condition at a frontend's condition slot (`crate::rule::ConditionSlot`): an operand
     /// that is a matching-logic connective over terms denotes a set of values, and a term beside a
     /// predicate is no predicate, so no predicate the backend reads states what the equality
     /// states. Carries the axiom's name and position
@@ -1501,11 +1501,11 @@ pub enum UnstatedDefinedness {
     /// An `\equals` whose operands are not both terms holds a term where a predicate is read
     /// (`\equals{Bool, R}(\and{Bool}(B1, B2), false)`, `\equals{Bool, R}(B, \top{Bool}())`):
     /// that equality would be read as the `\iff` of its operands taken as predicates, which is
-    /// not its meaning ([`PredicateReading`]). Outside an axiom, this is also the error the
+    /// not its meaning (`PredicateReading`). Outside an axiom, this is also the error the
     /// reading itself returns for such an equality.
     TermReadAsPredicate,
     /// A claim's side has a predicate the backend's reading refuses
-    /// ([`PredicateReading`]): a connective over terms conjoined to a term
+    /// (`PredicateReading`): a connective over terms conjoined to a term
     /// ([`RulePatternError::TermConnectiveInConjunction`]) or a term of another sort than Bool
     /// read as a predicate ([`RulePatternError::NonBoolTermAsPredicate`]).
     RefusedReading(Box<RulePatternError>),
