@@ -3,7 +3,7 @@
 //!
 //! ASCII alphanumerics and `-` pass through; every other UTF-16 unit becomes a four-letter
 //! mnemonic from `TABLE` or four hex digits, and a run of encoded units shares one pair of
-//! apostrophes. The eight KORE keywords get a `'Kywd'` suffix so they lex as identifiers.
+//! apostrophes. The eleven KORE keywords get a `'Kywd'` suffix so they lex as identifiers.
 //! `decode(encode(name)) == name` for every name; the backend's `external_variable_name` is a
 //! different encoding (one escape per character, hex by scalar value) and is not this one.
 
@@ -19,16 +19,21 @@ const SORT_PREFIX: &str = "Sort";
 const VARIABLE_PREFIX: &str = "Var";
 const SET_VARIABLE_SIGIL: char = '@';
 
-/// KORE keywords a K name may spell; encoded with the `Kywd` code appended.
-const KEYWORDS: [&str; 8] = [
+/// The words the KORE lexer reserves (every identifier-shaped token it does not lex as an
+/// identifier); a K name spelling one is encoded with the `Kywd` code appended. A K module may be
+/// named `claim`, `import` or `where`, so all of them are needed, not only the declaration words.
+const KEYWORDS: [&str; 11] = [
     "module",
     "endmodule",
+    "import",
     "sort",
     "hooked-sort",
     "symbol",
     "hooked-symbol",
-    "alias",
     "axiom",
+    "claim",
+    "alias",
+    "where",
 ];
 const KEYWORD_CODE: &str = "Kywd";
 
@@ -299,6 +304,25 @@ mod tests {
             assert_eq!(decode(&encoded).as_deref(), Ok(keyword));
         }
         assert_eq!(decode("'Kywd'"), Ok(String::new()));
+    }
+
+    #[test]
+    fn every_keyword_is_reserved_and_its_encoding_lexes_as_one_identifier() {
+        use crate::kore::lexer::{TokenKind, lex};
+        for keyword in KEYWORDS {
+            let plain = lex(keyword).expect("a keyword lexes");
+            assert!(
+                plain.iter().all(|token| token.kind != TokenKind::Id),
+                "{keyword} is not reserved by the lexer"
+            );
+            let encoded = encode(keyword);
+            let tokens = lex(&encoded).expect("an encoded keyword lexes");
+            assert_eq!(tokens.len(), 1, "{encoded}: {tokens:?}");
+            assert_eq!(tokens[0].kind, TokenKind::Id, "{encoded}");
+        }
+        for name in ["claims", "importer", "wherever", "Claim"] {
+            assert_eq!(encode(name), name);
+        }
     }
 
     #[test]
