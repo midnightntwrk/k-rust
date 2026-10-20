@@ -66,7 +66,7 @@ use k_rust::{
         printer::Printer as KorePrinter,
         walk::for_each_post_order,
     },
-    krun::{KrunDefinition, ProgramText},
+    krun::{InitialTerm, KrunDefinition, ProgramText, with_initial_term},
     names::KoreAttribute,
     native::{
         ExecutionPayload, FileResolver, load_runnable_artifact, unpublish_runnable_artifact,
@@ -83,7 +83,7 @@ use k_rust_backend::{
     definition::Admission,
     externalize::{self, External},
     proof::{ProofError, ProofLeafOutcome, ProofOptions, ProofSearchOrder, ProofStatus},
-    rewrite::{ExecutionMode, Pattern},
+    rewrite::ExecutionMode,
     search::SearchType,
     simplify::DEFAULT_MAX_SIMPLIFICATION_ITERATIONS,
     smt::{ModelResult, Z3Options},
@@ -2513,6 +2513,8 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     };
     let match_target_source =
         select_match_target_source(options.search.as_ref(), compiled_surface_pattern);
+    // The binding steps below are `KrunAssembler::assemble`'s, in its order (`k_rust::krun`),
+    // taken one by one around the timing phases and the `NAME=VALUE` split of each `-c`.
     let mut assembler = definition.assembler(&program_grammar);
     let program_bound = assembler.binds_program(program_supplied);
     if program_bound {
@@ -2612,17 +2614,11 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     for warning in k_rust::backend::execution::value_claim_warnings(&backend) {
         eprintln!("{warning}");
     }
-    // The initial configuration is as deep as the program and the configuration values, which
-    // nothing bounds: validating, internalizing and executing it recurse over it, and so do the
-    // drops of the internal terms built from it. All of it runs on a stack the backend measures
-    // from the configuration and the definition (`BackendDefinition::with_stack_for`), which
-    // refuses a configuration too deep for any stack it provides.
-    let zone = backend.operation_depth(&[&initial]);
-    let (output, backend, internalize_seconds, execute_seconds) =
-        k_rust_backend::nesting::with_stack(zone, || -> Result<_, Box<dyn Error>> {
-            let function_symbols = backend.function_symbol_names();
-            backend.validate_executable_pattern(&initial)?;
-            let initial = backend.admit_unverified(&initial, &[]).internalize_term()?;
+    // The initial configuration is prepared and run on the stack the backend measures for it.
+    let (output, backend, internalize_seconds, execute_seconds) = with_initial_term(
+        backend,
+        &initial,
+        |backend, term: InitialTerm| -> Result<_, Box<dyn Error>> {
             let match_target = match match_target_source {
                 Some(MatchTargetSource::Surface(compiled)) => {
                     Some(prepare_backend_match_target(&backend, compiled)?)
@@ -2653,10 +2649,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
             )?;
             let output = backend.run_cli(
                 None,
-                vec![Pattern {
-                    term: initial,
-                    constraints: Vec::new(),
-                }],
+                vec![term.pattern],
                 BackendRunOptions {
                     depth: options.depth,
                     max_simplification_iterations: options.max_simplification_iterations,
@@ -2667,7 +2660,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
                     strategy: options.strategy,
                     search: options.search,
                     match_target,
-                    function_symbols,
+                    function_symbols: term.function_symbols,
                     stop_leaves: None,
                     step_timeout: options.step_timeout,
                     moving_average_timeout: options.moving_average_timeout,
@@ -2678,10 +2671,8 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
             let execute_seconds = started.elapsed().as_secs_f64();
             drop(execute_phase);
             Ok((output, backend, internalize_seconds, execute_seconds))
-        })
-        .map_err(|error| {
-            format!("the initial configuration is too deep for the backend: {error}")
-        })??;
+        },
+    )?;
     let output_phase =
         tracing::info_span!("phase", name = tracing::field::display("output")).entered();
     let started = Instant::now();
@@ -4074,6 +4065,7 @@ mod tests {
         claim::ReachabilityMode,
         definition::{BackendDefinition, PatternOrPredicate},
         implication::ImplicationCondition,
+        rewrite::Pattern,
         rule::Predicate,
         search::PatternMatch,
         simplify::{
