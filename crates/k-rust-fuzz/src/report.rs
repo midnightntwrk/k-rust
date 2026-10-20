@@ -318,8 +318,11 @@ pub struct WitnessCase {
     /// (ARCHITECTURE 4.3).
     pub sides: Vec<WitnessSide>,
     /// The step count of the reaching leaf (the killing mutant leaf of a differential
-    /// witness).
-    pub steps: u64,
+    /// witness). Absent for a hit of the whole run, which names no leaf: a coverage-mode rule
+    /// target over several leaves (ARCHITECTURE 5.3, D16), whose witness is the case with every
+    /// leaf's configuration in `sides`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub steps: Option<u64>,
 }
 
 /// One definition's run of a witness case.
@@ -468,7 +471,7 @@ mod tests {
                 initial_configuration: "Lbl'-LT-'generatedTop'-GT-'{}()".into(),
                 final_configurations: vec!["Lbl'-LT-'generatedTop'-GT-'{}()".into()],
             }],
-            steps: 12,
+            steps: Some(12),
         };
         FuzzReport {
             schema: REPORT_SCHEMA.into(),

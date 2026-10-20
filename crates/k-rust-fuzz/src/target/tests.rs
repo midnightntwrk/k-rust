@@ -15,12 +15,14 @@ use k_rust::{
 };
 
 use super::{
-    Judgement, Resolved, ResolvedTarget, RuleMode, RuleRef, Target, TargetKind, pattern_reached,
+    HitSite, Judgement, Resolved, ResolvedTarget, RuleMode, RuleRef, Target, TargetKind,
+    pattern_reached,
     rule::{blocked, resolve_rule, rule_needs, rule_reached},
 };
 use crate::{
     error::TargetProblem,
     exec::{CaseResult, LeafReport, OutcomeClass, TargetNeeds, UncleanReason},
+    spec::PathMode,
 };
 
 const SOURCE: &str = "Source(rules/rules.k)";
@@ -160,9 +162,8 @@ fn entries_whose_coverage_may_come_from_elsewhere_are_refused() {
         Err(TargetProblem::SharedIdentity)
     );
     assert_eq!(resolve(label("frozen")), Err(TargetProblem::NotExecutable));
-    // A non-executable equation is refused as not executable before it is refused as an
-    // equation.
-    assert_eq!(resolve(label("dormant")), Err(TargetProblem::NotExecutable));
+    // A non-executable equation is refused as an equation, the refusal no attribute lifts.
+    assert_eq!(resolve(label("dormant")), Err(TargetProblem::Equation));
     assert_eq!(resolve(label("double")), Err(TargetProblem::Equation));
     assert_eq!(resolve(label("simp")), Err(TargetProblem::Equation));
     assert_eq!(resolve(source("rules.k", 41)), Err(TargetProblem::Equation));
@@ -170,28 +171,34 @@ fn entries_whose_coverage_may_come_from_elsewhere_are_refused() {
 }
 
 #[test]
-fn fired_asks_for_the_rule_as_only_stop_rule_or_for_traces_under_run_to_completion() {
+fn fired_always_traces_and_stops_early_only_on_one_path_without_run_to_completion() {
+    let traced = TargetNeeds {
+        trace: true,
+        ..TargetNeeds::default()
+    };
     assert_eq!(
-        rule_needs("id-div", RuleMode::Fired, false),
+        rule_needs("id-div", RuleMode::Fired, false, PathMode::OnePath),
         TargetNeeds {
             terminal_rules: vec!["id-div".to_owned()],
-            ..TargetNeeds::default()
+            ..traced.clone()
         }
     );
     assert_eq!(
-        rule_needs("id-div", RuleMode::Fired, true),
-        TargetNeeds {
-            trace: true,
-            ..TargetNeeds::default()
-        }
+        rule_needs("id-div", RuleMode::Fired, false, PathMode::AllPaths),
+        traced
     );
+    for paths in [PathMode::OnePath, PathMode::AllPaths] {
+        assert_eq!(rule_needs("id-div", RuleMode::Fired, true, paths), traced);
+    }
     for mode in [RuleMode::Covered, RuleMode::ConditionReached] {
         for run_to_completion in [false, true] {
-            assert_eq!(
-                rule_needs("id-div", mode, run_to_completion),
-                TargetNeeds::default(),
-                "{mode:?}"
-            );
+            for paths in [PathMode::OnePath, PathMode::AllPaths] {
+                assert_eq!(
+                    rule_needs("id-div", mode, run_to_completion, paths),
+                    TargetNeeds::default(),
+                    "{mode:?}"
+                );
+            }
         }
     }
 }
@@ -229,6 +236,7 @@ fn case(leaves: Vec<LeafReport>, applied: &[&str], matched: &[&str]) -> CaseResu
         load_records: Vec::new(),
         safety_limit_hit: false,
         failure: None,
+        run_facts_off_leaves: false,
     }
 }
 
@@ -310,20 +318,23 @@ fn condition_reached_holds_on_a_failing_guard_and_fired_and_covered_do_not() {
 }
 
 #[test]
-fn a_terminal_halt_reaches_only_when_the_rule_is_the_only_stop_rule() {
+fn fired_is_judged_from_the_trace_and_a_terminal_halt_decides_nothing_by_itself() {
     let terminal = || leaf(HaltReasonOutput::Terminal, Vec::new(), false);
-    let result = case(vec![terminal(), natural_end()], &["id-div"], &["id-div"]);
-    // Without run-to-completion the request's only terminal rule is the target's.
-    assert_eq!(
-        rule_reached("id-div", RuleMode::Fired, false, &result),
-        [true, false]
+    let mut stopped_on_rule = terminal();
+    stopped_on_rule.rewrites = vec!["id-check-miss".to_owned(), "id-div".to_owned()];
+    // A terminal halt whose trace does not end with the rule (another stop rule of some other
+    // request shape) does not reach it; the early stop's trace ends with the rule's entry.
+    let result = case(
+        vec![terminal(), stopped_on_rule, natural_end()],
+        &["id-div"],
+        &["id-div"],
     );
-    // Under run-to-completion the request has no terminal rule, so a terminal halt names no
-    // rule and only the trace counts.
-    assert_eq!(
-        rule_reached("id-div", RuleMode::Fired, true, &result),
-        [false, false]
-    );
+    for run_to_completion in [false, true] {
+        assert_eq!(
+            rule_reached("id-div", RuleMode::Fired, run_to_completion, &result),
+            [false, true, false]
+        );
+    }
 }
 
 #[test]
@@ -416,11 +427,11 @@ fn judge(target: &ResolvedTarget, result: &CaseResult) -> Judgement {
 #[test]
 fn needs_follow_the_resolved_rule() {
     assert_eq!(
-        rule_target("id-div", RuleMode::Fired, false).needs(),
-        rule_needs("id-div", RuleMode::Fired, false)
+        rule_target("id-div", RuleMode::Fired, false).needs(PathMode::AllPaths),
+        rule_needs("id-div", RuleMode::Fired, false, PathMode::AllPaths)
     );
     assert_eq!(
-        rule_target("id-div", RuleMode::Covered, true).needs(),
+        rule_target("id-div", RuleMode::Covered, true).needs(PathMode::OnePath),
         TargetNeeds::default()
     );
 }
@@ -430,11 +441,11 @@ fn the_undefined_step_is_undefined_when_fired_and_an_unclean_reach_when_covered(
     let result = undefined_div();
     let fired = judge(&rule_target("id-div", RuleMode::Fired, false), &result);
     assert_eq!(fired.class, OutcomeClass::Undefined);
-    assert_eq!(fired.hit_leaf, None);
+    assert_eq!(fired.hit_site, None);
     // Covered reaches the rule, but on a leaf that is not clean: never a hit.
     let covered = judge(&rule_target("id-div", RuleMode::Covered, false), &result);
     assert_eq!(covered.class, OutcomeClass::Unsupported);
-    assert_eq!(covered.hit_leaf, None);
+    assert_eq!(covered.hit_site, None);
     assert!(!covered.blocked);
 }
 
@@ -449,7 +460,7 @@ fn a_failing_guard_is_a_condition_reached_hit_and_a_blocked_miss_otherwise() {
         reached,
         Judgement {
             class: OutcomeClass::Hit,
-            hit_leaf: Some(0),
+            hit_site: Some(HitSite::Leaf(0)),
             blocked: true,
         }
     );
@@ -471,18 +482,18 @@ fn run_to_completion_needs_a_natural_end_and_a_bounded_reach_is_reached_unfinish
     let cut = case(vec![bounded], &["id-div"], &["id-div"]);
     let unfinished = judge(&rule_target("id-div", RuleMode::Fired, true), &cut);
     assert_eq!(unfinished.class, OutcomeClass::ReachedUnfinished);
-    assert_eq!(unfinished.hit_leaf, None);
+    assert_eq!(unfinished.hit_site, None);
 
     let mut stopped = leaf(HaltReasonOutput::Stuck, Vec::new(), false);
     stopped.rewrites = vec!["id-div".to_owned()];
     let result = case(vec![stopped], &["id-div"], &["id-div"]);
     let finished = judge(&rule_target("id-div", RuleMode::Fired, true), &result);
     assert_ne!(finished.class, OutcomeClass::Hit);
-    assert_eq!(finished.hit_leaf, None);
+    assert_eq!(finished.hit_site, None);
     // Without run-to-completion a clean abnormal stop on the rule's path is a hit.
     let covered = judge(&rule_target("id-div", RuleMode::Covered, false), &result);
     assert_eq!(covered.class, OutcomeClass::Hit);
-    assert_eq!(covered.hit_leaf, Some(0));
+    assert_eq!(covered.hit_site, Some(HitSite::Leaf(0)));
 }
 
 #[test]
@@ -491,12 +502,13 @@ fn a_coverage_hit_over_several_leaves_needs_every_leaf_clean() {
     let mixed = case(vec![natural_end(), undefined], &["id-div"], &["id-div"]);
     let judgement = judge(&rule_target("id-div", RuleMode::Covered, false), &mixed);
     assert_eq!(judgement.class, OutcomeClass::Unsupported);
-    assert_eq!(judgement.hit_leaf, None);
+    assert_eq!(judgement.hit_site, None);
 
+    // Every leaf clean: a hit of the run, which names no leaf (D13, D16).
     let clean = case(vec![natural_end(), natural_end()], &["id-div"], &["id-div"]);
     let judgement = judge(&rule_target("id-div", RuleMode::Covered, true), &clean);
     assert_eq!(judgement.class, OutcomeClass::Hit);
-    assert_eq!(judgement.hit_leaf, Some(0));
+    assert_eq!(judgement.hit_site, Some(HitSite::Run));
 }
 
 fn pattern_target(run_to_completion: bool) -> ResolvedTarget {
@@ -521,7 +533,7 @@ fn a_pattern_at_final_is_hit_by_a_clean_end_and_unsupported_on_an_unclean_match(
     let stopped = case(vec![abnormal], &[], &[]);
     let judgement = judge(&pattern_target(false), &stopped);
     assert_eq!(judgement.class, OutcomeClass::Hit);
-    assert_eq!(judgement.hit_leaf, Some(0));
+    assert_eq!(judgement.hit_site, Some(HitSite::Leaf(0)));
     assert!(!judgement.blocked);
     assert_ne!(
         judge(&pattern_target(true), &stopped).class,
@@ -539,7 +551,10 @@ fn a_pattern_at_final_is_hit_by_a_clean_end_and_unsupported_on_an_unclean_match(
         judge(&pattern_target(false), &unclean).class,
         OutcomeClass::Unsupported
     );
-    assert_eq!(pattern_target(false).needs(), TargetNeeds::default());
+    assert_eq!(
+        pattern_target(false).needs(PathMode::AllPaths),
+        TargetNeeds::default()
+    );
 }
 
 #[test]
@@ -554,5 +569,32 @@ fn a_differential_target_is_not_judged_here() {
         matchers: Vec::new(),
     };
     assert!(target.judge(&failing_guard()).is_err());
-    assert_eq!(target.needs(), TargetNeeds::default());
+    assert_eq!(target.needs(PathMode::OnePath), TargetNeeds::default());
+}
+
+#[test]
+fn a_pattern_match_on_a_cut_leaf_does_not_reach_a_final_target() {
+    let mut cut = leaf(
+        HaltReasonOutput::DepthBound,
+        vec![UncleanReason::Halt],
+        false,
+    );
+    cut.matches = vec![true];
+    let mut undefined = leaf(HaltReasonOutput::Trivial, vec![UncleanReason::Halt], false);
+    undefined.matches = vec![true];
+    let mut terminal = leaf(HaltReasonOutput::Terminal, Vec::new(), false);
+    terminal.matches = vec![true];
+    let ends = case(vec![cut.clone(), undefined, terminal], &[], &[]);
+    assert_eq!(pattern_reached(&ends), Ok(vec![false, true, true]));
+
+    let bounded = case(vec![cut], &[], &[]);
+    for run_to_completion in [false, true] {
+        let judgement = judge(&pattern_target(run_to_completion), &bounded);
+        assert_eq!(
+            judgement.class,
+            OutcomeClass::DepthBound,
+            "{run_to_completion}"
+        );
+        assert_eq!(judgement.hit_site, None);
+    }
 }

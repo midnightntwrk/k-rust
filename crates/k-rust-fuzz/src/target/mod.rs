@@ -13,6 +13,7 @@ mod rule;
 #[cfg(test)]
 mod tests;
 
+use k_rust::backend::HaltReasonOutput;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -20,7 +21,7 @@ use crate::{
     error::{CampaignError, TargetProblem},
     exec::{self, CaseResult, Executor, LeafMatcher, OutcomeClass, TargetNeeds},
     report::EngineDefect,
-    spec::CompiledDefinition,
+    spec::{CompiledDefinition, PathMode},
 };
 
 /// A campaign's target (ARCHITECTURE 4.1).
@@ -80,8 +81,10 @@ pub enum RuleRef {
     /// The rule's source position: a catalog origin with this `source` whose `location` starts
     /// on `line`.
     Source {
-        /// The source file: the catalog's `Source(path)` text, the path inside it, or a suffix
-        /// of that path that starts after a `/` (`rules.k` for `Source(tests/rules/rules.k)`).
+        /// The source file: the catalog's `Source(path)` text, the path inside it, a suffix of
+        /// that path that starts after a `/` (`rules.k` for `Source(tests/rules/rules.k)`), or
+        /// an absolute path that ends with `/` and the catalog's relative path. Equal written
+        /// axioms share one catalog entry, so a reference to one of their positions names all.
         source: String,
         /// The one-based line the rule starts on.
         line: u32,
@@ -135,13 +138,24 @@ pub struct DifferentialTarget {}
 #[serde(rename_all = "kebab-case")]
 pub struct ObserverTarget {}
 
+/// Where a hit reached the target (ARCHITECTURE 5.3, D16).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum HitSite {
+    /// This clean leaf reaches the target: its path fired the rule or its state matches.
+    Leaf(usize),
+    /// The run reaches the target, and no one leaf can be named: a coverage-mode hit over
+    /// several leaves, every one of which is clean, so the witness is the case and every leaf's
+    /// configuration, without a single final configuration.
+    Run,
+}
+
 /// The judgement of one case against a resolved target.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Judgement {
     /// The case's class.
     pub(crate) class: OutcomeClass,
-    /// For a hit, the index of the clean leaf that reaches the target.
-    pub(crate) hit_leaf: Option<usize>,
+    /// For a hit, where the target was reached.
+    pub(crate) hit_site: Option<HitSite>,
     /// The target rule is in coverage `matched` but not `applied`: its condition was entered
     /// and it built no successor (a blocked rule, ARCHITECTURE 6.2).
     pub(crate) blocked: bool,
@@ -171,13 +185,16 @@ enum Resolved {
     Differential,
 }
 
-/// For each leaf of `result`, whether it matches the target's only matcher (ARCHITECTURE 4.1,
-/// `at: final`).
+/// For each leaf of `result`, whether it is an end leaf that matches the target's only matcher
+/// (ARCHITECTURE 4.1, `at: final`; 5.3, D16).
 ///
-/// [`crate::exec::LeafReport::matches`] is judged on every leaf whose state can be decided,
-/// clean or not, so that a matching leaf that is not clean classes as `unsupported`, never as
-/// `miss` (ARCHITECTURE 5.3). Whether a hit may rest on the leaf (clean, and a natural end under
-/// `run-to-completion`) is [`crate::exec::classify`]'s question.
+/// Only a leaf whose halt is an end (`stuck`, `trivial` or `terminal`) holds a final state; a
+/// leaf cut by a bound, a timeout or a cancellation does not, so its match says nothing about
+/// the end the run never reached, and the leaf classes by its halt. On end leaves,
+/// [`crate::exec::LeafReport::matches`] is judged whenever the state can be decided, clean or
+/// not, so that a matching leaf that is not clean classes as `unsupported`, never as `miss`.
+/// Whether a hit may rest on the leaf (clean, and a natural end under `run-to-completion`) is
+/// [`crate::exec::classify`]'s question.
 ///
 /// # Errors
 ///
@@ -189,7 +206,13 @@ fn pattern_reached(result: &CaseResult) -> Result<Vec<bool>, EngineDefect> {
         .iter()
         .enumerate()
         .map(|(index, leaf)| match leaf.matches.first() {
-            Some(matched) => Ok(*matched),
+            Some(matched) => Ok(*matched
+                && matches!(
+                    leaf.halt,
+                    HaltReasonOutput::Stuck
+                        | HaltReasonOutput::Trivial
+                        | HaltReasonOutput::Terminal
+                )),
             None => Err(EngineDefect {
                 case: None,
                 description: format!(
@@ -264,14 +287,15 @@ impl ResolvedTarget {
         })
     }
 
-    /// What every execute request must carry for this target (traces and terminal rules for
-    /// `fired` without `run-to-completion`; ARCHITECTURE 5.1).
+    /// What every execute request on `paths` must carry for this target (traces for `fired`,
+    /// and its rule as the only terminal rule on one path without `run-to-completion`;
+    /// ARCHITECTURE 5.1, D16).
     ///
     /// The differential target's needs per side come from [`differential::plan`].
-    pub(crate) fn needs(&self) -> TargetNeeds {
+    pub(crate) fn needs(&self, paths: PathMode) -> TargetNeeds {
         match &self.resolved {
             Resolved::Rule { id, mode } => {
-                rule::rule_needs(id, *mode, self.target.run_to_completion)
+                rule::rule_needs(id, *mode, self.target.run_to_completion, paths)
             }
             Resolved::PatternFinal | Resolved::Differential => TargetNeeds::default(),
         }
@@ -308,7 +332,7 @@ impl ResolvedTarget {
             }
         };
         let class = exec::classify(result, &reached, run_to_completion)?;
-        let hit_leaf = if class == OutcomeClass::Hit {
+        let hit_site = if class == OutcomeClass::Hit {
             let leaf = result
                 .leaves
                 .iter()
@@ -316,20 +340,32 @@ impl ResolvedTarget {
                 .position(|(leaf, reached)| {
                     *reached && leaf.is_clean() && (!run_to_completion || leaf.natural_end)
                 });
-            if leaf.is_none() {
+            let Some(leaf) = leaf else {
                 return Err(EngineDefect {
                     case: None,
                     description: "a case classed `hit` has no clean leaf that reaches the target"
                         .to_owned(),
                 });
-            }
-            leaf
+            };
+            // Run coverage over several leaves names no leaf (D13): the hit is the run's.
+            let run_level = matches!(
+                &self.resolved,
+                Resolved::Rule {
+                    mode: RuleMode::Covered | RuleMode::ConditionReached,
+                    ..
+                }
+            ) && result.leaves.len() > 1;
+            Some(if run_level {
+                HitSite::Run
+            } else {
+                HitSite::Leaf(leaf)
+            })
         } else {
             None
         };
         Ok(Judgement {
             class,
-            hit_leaf,
+            hit_site,
             blocked,
         })
     }

@@ -64,10 +64,12 @@ pub(crate) struct HitDetail {
     /// Each definition's initial and final configurations: the baseline, then the mutant of a
     /// differential case.
     pub(crate) sides: Vec<WitnessSide>,
-    /// The depth of the reaching leaf.
-    pub(crate) steps: u64,
-    /// The reaching leaf's configuration (the killing mutant leaf of a differential case), as
-    /// KORE text: the case and its confirmation agree only when these are equal.
+    /// The depth of the reaching leaf; `None` for a hit of the whole run, which names no leaf
+    /// (ARCHITECTURE 5.3, D16).
+    pub(crate) steps: Option<u64>,
+    /// The reaching leaf's configuration (the killing mutant leaf of a differential case), or
+    /// for a hit of the whole run every leaf's configuration in the backend's order, one per
+    /// line, as KORE text: the case and its confirmation agree only when these are equal.
     pub(crate) reaching_state: String,
     /// The `krun` command line that re-runs the case, when one is equivalent.
     pub(crate) krun_command: Option<String>,

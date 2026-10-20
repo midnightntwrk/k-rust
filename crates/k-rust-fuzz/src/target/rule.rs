@@ -10,12 +10,13 @@
 
 use std::collections::BTreeSet;
 
-use k_rust::backend::{CompiledRuleKind, CompiledRuleOutput, HaltReasonOutput, RunCoverageOutput};
+use k_rust::backend::{CompiledRuleKind, CompiledRuleOutput, RunCoverageOutput};
 
 use super::{RuleMode, RuleRef};
 use crate::{
     error::TargetProblem,
     exec::{CaseResult, TargetNeeds},
+    spec::PathMode,
 };
 
 /// Resolve `rule` to the unique id of one catalog entry, refusing the entries whose coverage may
@@ -25,8 +26,11 @@ use crate::{
 ///   label is `<module>.<text>`, so `div` names `RULES.div` when no other module has a `div`.
 /// - `UniqueId` matches the entries with that id.
 /// - `Source` matches the entries with an origin written in that source (the catalog's
-///   `Source(path)` text, the path inside it, or a suffix of that path at a `/`) whose location
-///   starts on that line.
+///   `Source(path)` text, the path inside it, a suffix of that path at a `/`, or an absolute
+///   path that ends with `/` and the catalog's relative path) whose location starts on that
+///   line. Equal written axioms are one catalog entry with all their origins and one id, so a
+///   reference to one position also counts firings of an identical sentence at another
+///   position: the two have the same meaning, but a claim about the position names both.
 ///
 /// Entries matching one reference that carry different ids are an ambiguity; entries that carry
 /// one id are that id's entries, which `shared_identity` flags when there are several.
@@ -82,6 +86,10 @@ pub(crate) fn resolve_rule(
     let Some(entry) = matching.first() else {
         return Err(TargetProblem::UnknownRule);
     };
+    // The permanent refusal first: an equation stays refused in M1 whatever its attributes.
+    if entry.kind != CompiledRuleKind::Rewrite {
+        return Err(TargetProblem::Equation);
+    }
     if entry.id == "UNKNOWN" {
         return Err(TargetProblem::UnknownId);
     }
@@ -91,24 +99,26 @@ pub(crate) fn resolve_rule(
     if !entry.executable {
         return Err(TargetProblem::NotExecutable);
     }
-    if entry.kind != CompiledRuleKind::Rewrite {
-        return Err(TargetProblem::Equation);
-    }
     Ok(entry.id.clone())
 }
 
 /// Whether the catalog's source text `written` (`Source(path)`) names the source `given`: the
-/// text itself, its path, or a suffix of the path that starts after a `/`.
+/// text itself, its path, a suffix of the path that starts after a `/`, or a longer path (an
+/// absolute one) that ends with `/` and the catalog's path, which the compiler recorded relative
+/// to where it ran.
 fn source_matches(written: &str, given: &str) -> bool {
     let path = written
         .strip_prefix("Source(")
         .and_then(|path| path.strip_suffix(')'))
         .unwrap_or(written);
+    let ends_at_directory = |long: &str, short: &str| {
+        long.strip_suffix(short)
+            .is_some_and(|rest| rest.ends_with('/'))
+    };
     written == given
         || path == given
-        || path
-            .strip_suffix(given)
-            .is_some_and(|directory| directory.ends_with('/'))
+        || ends_at_directory(path, given)
+        || ends_at_directory(given, path)
 }
 
 /// The first line of a catalog location `Location(start_line,start_column,end_line,end_column)`.
@@ -119,32 +129,39 @@ fn start_line(location: &str) -> Option<u32> {
     (parts.count() == 3).then_some(line)
 }
 
-/// What every request of a rule target needs (ARCHITECTURE 5.1).
+/// What every request of a rule target needs (ARCHITECTURE 5.1, 5.3; D16).
 ///
-/// `fired` without run-to-completion makes the rule the request's only terminal rule: a path
-/// ends where the rule fires, so its `terminal` leaf is that firing's successor and names the
-/// rule without a trace (T-14). Under run-to-completion the path continues past the firing, so
-/// the leaf's trace is asked for. The coverage modes read coverage, which every request
-/// collects.
-pub(crate) fn rule_needs(id: &str, mode: RuleMode, run_to_completion: bool) -> TargetNeeds {
-    match (mode, run_to_completion) {
-        (RuleMode::Fired, false) => TargetNeeds {
-            terminal_rules: vec![id.to_owned()],
-            ..TargetNeeds::default()
-        },
-        (RuleMode::Fired, true) => TargetNeeds {
+/// `fired` is judged from each leaf's trace, so it always asks for traces. Without
+/// run-to-completion and on one path it also makes the rule the request's only terminal rule,
+/// as an early stop: the path ends at the rule's first firing, whose `Rewrite` entry ends the
+/// leaf's trace. Under all paths it does not: the backend applies a stop rule only on a step with
+/// a single successor, so a firing at a branching step would not stop its path anyway, and the
+/// stop rule would move sibling candidates' facts onto every successor. The coverage modes read
+/// coverage, which every request collects.
+pub(crate) fn rule_needs(
+    id: &str,
+    mode: RuleMode,
+    run_to_completion: bool,
+    paths: PathMode,
+) -> TargetNeeds {
+    match mode {
+        RuleMode::Fired => TargetNeeds {
             trace: true,
+            terminal_rules: if !run_to_completion && paths == PathMode::OnePath {
+                vec![id.to_owned()]
+            } else {
+                Vec::new()
+            },
             ..TargetNeeds::default()
         },
-        (RuleMode::Covered | RuleMode::ConditionReached, _) => TargetNeeds::default(),
+        RuleMode::Covered | RuleMode::ConditionReached => TargetNeeds::default(),
     }
 }
 
 /// For each leaf of `result`, whether it reaches the rule `id` in `mode` (ARCHITECTURE 4.2).
 ///
-/// - `fired`: the leaf's trace has a `Rewrite` entry of the rule, or, without run-to-completion,
-///   the leaf halted `terminal`, which only the target's rule can cause because it is the
-///   request's only terminal rule ([`rule_needs`]).
+/// - `fired`: the leaf's trace has a `Rewrite` entry of the rule. A `terminal` halt decides
+///   nothing by itself: the early stop of [`rule_needs`] ends the trace with the rule's entry.
 /// - `covered` and `condition-reached`: the run's coverage `applied`, respectively `matched`,
 ///   holds the rule. Coverage is a fact of the whole run, not of one leaf (ARCHITECTURE 5.3,
 ///   D13). A run with one leaf is that leaf's path, so the leaf reaches the target exactly when
@@ -173,10 +190,7 @@ pub(crate) fn rule_reached(
         RuleMode::Fired => result
             .leaves
             .iter()
-            .map(|leaf| {
-                leaf.rewrites.iter().any(|entry| entry == id)
-                    || (!run_to_completion && leaf.halt == HaltReasonOutput::Terminal)
-            })
+            .map(|leaf| leaf.rewrites.iter().any(|entry| entry == id))
             .collect(),
         RuleMode::Covered => run_reached(
             covered(|coverage| &coverage.applied),

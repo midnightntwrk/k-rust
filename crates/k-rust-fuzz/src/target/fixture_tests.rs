@@ -7,19 +7,25 @@
 //!   which ends through `check-miss`.
 //! - IMP `le.imp` ends with `r |-> 1` on its anchor and `r |-> 0` for `x > y`; `div.imp` with
 //!   `y = 0` is a clean abnormal stop (`10 / 0` on `<k>`).
+//! - COIN `flip(3)` under all paths: one step with two candidates, `heads` (ending with
+//!   `<out> 3 </out>`) and `tails` (`<out> 4 </out>`), so the backend applies no stop rule there.
 
 #[path = "../../tests/support/mod.rs"]
 mod support;
 
-use support::{Compiled, IMP, RULES};
+use k_rust::kore::printer::Printer;
+use support::{COIN, Compiled, IMP, RULES};
 
-use super::{Judgement, PatternAt, PatternTarget, ResolvedTarget, RuleMode, RuleRef, RuleTarget};
+use super::{
+    HitSite, Judgement, PatternAt, PatternTarget, Resolved, ResolvedTarget, RuleMode, RuleRef,
+    RuleTarget,
+};
 use crate::{
     Target, TargetKind,
     assemble::ProgramAssembly,
     error::{CampaignError, TargetProblem},
-    exec::{CaseRequestShape, Executor, OutcomeClass},
-    spec::{CaseOptions, CompiledDefinition},
+    exec::{CaseRequestShape, CaseResult, Executor, OutcomeClass},
+    spec::{CaseOptions, CompiledDefinition, PathMode},
 };
 
 /// A target with its definition, assembly and executor, as a campaign builds them.
@@ -37,7 +43,24 @@ impl Harness {
     }
 
     fn on(compiled: &'static Compiled, definition: CompiledDefinition) -> Self {
-        let options = CaseOptions::default();
+        Self::with(compiled, definition, CaseOptions::default())
+    }
+
+    /// Every path, with `normal_end_pattern` when given.
+    fn all_paths(compiled: &'static Compiled, normal_end_pattern: Option<&str>) -> Self {
+        let options = CaseOptions {
+            paths: PathMode::AllPaths,
+            normal_end_pattern: normal_end_pattern.map(str::to_owned),
+            ..CaseOptions::default()
+        };
+        Self::with(compiled, compiled.definition(), options)
+    }
+
+    fn with(
+        compiled: &'static Compiled,
+        definition: CompiledDefinition,
+        options: CaseOptions,
+    ) -> Self {
         let assembly = ProgramAssembly::new(&definition).expect("the definition assembles");
         let executor =
             Executor::new(&definition, &assembly, &options).expect("the executor builds");
@@ -56,6 +79,17 @@ impl Harness {
 
     /// Run the program `file` with `find` replaced by `replace` (once) and judge it.
     fn judge(&mut self, target: &Target, file: &str, find: &str, replace: &str) -> Judgement {
+        self.run(target, file, find, replace).0
+    }
+
+    /// [`Self::judge`], with the case's result.
+    fn run(
+        &mut self,
+        target: &Target,
+        file: &str,
+        find: &str,
+        replace: &str,
+    ) -> (Judgement, CaseResult) {
         let resolved = self.resolve(target).expect("the target resolves");
         let program = self.compiled.fixture.program(file);
         assert_eq!(program.text.matches(find).count(), 1, "{find} in {file}");
@@ -64,14 +98,15 @@ impl Harness {
             .compiled
             .assemble(program.file, &text, program.bindings)
             .unwrap_or_else(|error| panic!("{text} does not assemble: {error}"));
-        let shape = CaseRequestShape::new(&self.options, &resolved.needs());
+        let shape = CaseRequestShape::new(&self.options, &resolved.needs(self.options.paths));
         let result = self
             .executor
             .run(&initial, &shape, &resolved.matchers(), None)
             .expect("no abort");
-        resolved
+        let judgement = resolved
             .judge(&result)
-            .unwrap_or_else(|defect| panic!("{defect:?}: {result:#?}"))
+            .unwrap_or_else(|defect| panic!("{defect:?}: {result:#?}"));
+        (judgement, result)
     }
 }
 
@@ -127,7 +162,7 @@ fn fired_and_covered_differ_on_the_undefined_right_hand_side() {
             OutcomeClass::Unsupported
         };
         assert_eq!(class(&covered), expected, "{covered:?}");
-        assert_eq!(covered.hit_leaf, None);
+        assert_eq!(covered.hit_site, None);
     }
     // On the anchor `div(10, 2)` the rule fires: a terminal halt on it as the only stop rule,
     // or its `Rewrite` entry on the trace of the natural end.
@@ -144,7 +179,7 @@ fn fired_and_covered_differ_on_the_undefined_right_hand_side() {
                 OutcomeClass::Hit,
                 "{mode:?} {judgement:?}"
             );
-            assert_eq!(judgement.hit_leaf, Some(0));
+            assert_eq!(judgement.hit_site, Some(HitSite::Leaf(0)));
         }
     }
 }
@@ -162,7 +197,7 @@ fn condition_reached_holds_on_a_failing_guard() {
         reached,
         Judgement {
             class: OutcomeClass::Hit,
-            hit_leaf: Some(0),
+            hit_site: Some(HitSite::Leaf(0)),
             blocked: true,
         }
     );
@@ -220,14 +255,18 @@ fn the_real_catalog_refuses_shared_non_executable_and_equation_entries() {
         refusal(&mut rules, "double"),
         CampaignError::Target(TargetProblem::Equation)
     );
+    // A non-executable equation: the equation refusal comes first.
     assert_eq!(
         refusal(&mut rules, "dormant"),
-        CampaignError::Target(TargetProblem::NotExecutable)
+        CampaignError::Target(TargetProblem::Equation)
     );
     assert_eq!(
         refusal(&mut rules, "nothing"),
         CampaignError::Target(TargetProblem::UnknownRule)
     );
+    let by_label = rules
+        .resolve(&rule("check-hit", RuleMode::Fired, false))
+        .expect("check-hit resolves");
     let source = rules.resolve(&Target {
         kind: TargetKind::Rule(RuleTarget {
             rule: RuleRef::Source {
@@ -239,7 +278,14 @@ fn the_real_catalog_refuses_shared_non_executable_and_equation_entries() {
         run_to_completion: false,
         negated_property: false,
     });
-    assert!(source.is_ok(), "{:?}", source.err());
+    let source = source.expect("the source position resolves");
+    assert!(
+        matches!(&by_label.resolved, Resolved::Rule { .. }),
+        "{:?}",
+        by_label.resolved
+    );
+    // The same id as the label's, not merely some rule.
+    assert_eq!(source.resolved, by_label.resolved);
 
     // A rewrite rule marked non-executable in caller KORE (kink's route).
     let compiled = RULES.compiled();
@@ -274,7 +320,7 @@ fn a_pattern_at_final_is_hit_by_a_matching_clean_end() {
         OutcomeClass::Hit,
         "{counterexample:?}"
     );
-    assert_eq!(counterexample.hit_leaf, Some(0));
+    assert_eq!(counterexample.hit_site, Some(HitSite::Leaf(0)));
     let anchor = imp.judge(&pattern(ends_zero, true), "imp/le.imp", "x = 3;", "x = 3;");
     assert_eq!(class(&anchor), OutcomeClass::Miss, "{anchor:?}");
 
@@ -290,5 +336,166 @@ fn a_pattern_at_final_is_hit_by_a_matching_clean_end() {
         OutcomeClass::ReachedUnfinished,
         "{unfinished:?}"
     );
-    assert_eq!(unfinished.hit_leaf, None);
+    assert_eq!(unfinished.hit_site, None);
+}
+
+/// The index of the leaf of `result` whose `<out>` cell holds `value`.
+fn leaf_with_out(result: &CaseResult, value: i64) -> usize {
+    let cell = format!("Lbl'-LT-'out'-GT-'{{}}(\\dv{{SortInt{{}}}}(\"{value}\"))");
+    let printed: Vec<String> = result
+        .leaves
+        .iter()
+        .map(|leaf| Printer::compact().print_pattern(&leaf.state))
+        .collect();
+    let found: Vec<usize> = (0..printed.len())
+        .filter(|index| printed[*index].contains(&cell))
+        .collect();
+    let [index] = found.as_slice() else {
+        panic!("one leaf with {cell}: {printed:#?}");
+    };
+    *index
+}
+
+#[test]
+fn fired_at_a_branching_step_under_all_paths_is_a_hit_on_the_firing_leaf() {
+    let mut coin = Harness::all_paths(COIN.compiled(), None);
+    for (label, out) in [("heads", 3), ("tails", 4)] {
+        for run_to_completion in [false, true] {
+            let (judgement, result) = coin.run(
+                &rule(label, RuleMode::Fired, run_to_completion),
+                "coin/flip.pgm",
+                "3",
+                "3",
+            );
+            assert_eq!(result.leaves.len(), 2, "{result:#?}");
+            assert_eq!(
+                class(&judgement),
+                OutcomeClass::Hit,
+                "{label} {judgement:?}"
+            );
+            assert_eq!(
+                judgement.hit_site,
+                Some(HitSite::Leaf(leaf_with_out(&result, out))),
+                "{label}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_coverage_hit_over_several_clean_leaves_is_the_runs() {
+    let mut coin = Harness::all_paths(COIN.compiled(), None);
+    for mode in [RuleMode::Covered, RuleMode::ConditionReached] {
+        for label in ["heads", "tails"] {
+            for run_to_completion in [false, true] {
+                let judgement = coin.judge(
+                    &rule(label, mode, run_to_completion),
+                    "coin/flip.pgm",
+                    "3",
+                    "3",
+                );
+                assert_eq!(
+                    judgement,
+                    Judgement {
+                        class: OutcomeClass::Hit,
+                        hit_site: Some(HitSite::Run),
+                        blocked: false,
+                    },
+                    "{mode:?} {label}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn a_coverage_reach_over_several_leaves_is_no_hit_unless_every_leaf_qualifies() {
+    // Only the `heads` end (`<out> 3 </out>`) is a natural end; the `tails` end is a clean
+    // abnormal stop. Coverage holds both rules but names neither leaf.
+    let mut coin = Harness::all_paths(COIN.compiled(), Some("<k> .K </k> <out> 3 </out>"));
+    for label in ["heads", "tails"] {
+        // Under run-to-completion the `tails` end does not qualify, so the reach is attributed
+        // to it alone: reached but not finished.
+        let unfinished = coin.judge(
+            &rule(label, RuleMode::Covered, true),
+            "coin/flip.pgm",
+            "3",
+            "3",
+        );
+        assert_eq!(
+            class(&unfinished),
+            OutcomeClass::ReachedUnfinished,
+            "{label} {unfinished:?}"
+        );
+        assert_eq!(unfinished.hit_site, None);
+        // Without run-to-completion both leaves are clean ends: the run's hit.
+        let hit = coin.judge(
+            &rule(label, RuleMode::Covered, false),
+            "coin/flip.pgm",
+            "3",
+            "3",
+        );
+        assert_eq!(class(&hit), OutcomeClass::Hit, "{label}");
+        assert_eq!(hit.hit_site, Some(HitSite::Run));
+    }
+    // `fired` names the leaf: `heads` ends naturally, `tails` does not.
+    let heads = coin.judge(
+        &rule("heads", RuleMode::Fired, true),
+        "coin/flip.pgm",
+        "3",
+        "3",
+    );
+    assert_eq!(class(&heads), OutcomeClass::Hit, "{heads:?}");
+    let tails = coin.judge(
+        &rule("tails", RuleMode::Fired, true),
+        "coin/flip.pgm",
+        "3",
+        "3",
+    );
+    assert_eq!(class(&tails), OutcomeClass::ReachedUnfinished, "{tails:?}");
+}
+
+#[test]
+fn a_pattern_match_cut_by_a_bound_keeps_the_bound_class() {
+    // `div.imp` cut once its declarations ran: the cut state already holds x, y and q, as the
+    // pattern asks, but it is not a final state.
+    let declared = "<state> M </state> requires size(M) ==Int 3";
+    let mut cut_matches = 0;
+    for depth in 1..=12 {
+        let mut imp = Harness::with(
+            IMP.compiled(),
+            IMP.compiled().definition(),
+            CaseOptions {
+                max_depth: Some(depth),
+                ..CaseOptions::default()
+            },
+        );
+        for run_to_completion in [false, true] {
+            let (judgement, result) = imp.run(
+                &pattern(declared, run_to_completion),
+                "imp/div.imp",
+                "y = 2;",
+                "y = 2;",
+            );
+            let [leaf] = result.leaves.as_slice() else {
+                panic!("one path: {result:#?}");
+            };
+            // The cut state holds the three declared variables, so the pattern would match it
+            // were it an end.
+            let entries = Printer::compact()
+                .print_pattern(&leaf.state)
+                .matches("Lbl'UndsPipe'-'-GT-Unds'")
+                .count();
+            if leaf.halt == k_rust::backend::HaltReasonOutput::DepthBound && entries == 3 {
+                cut_matches += 1;
+                assert_eq!(
+                    class(&judgement),
+                    OutcomeClass::DepthBound,
+                    "depth {depth}, run-to-completion {run_to_completion}"
+                );
+                assert_eq!(judgement.hit_site, None);
+            }
+        }
+    }
+    assert!(cut_matches > 0, "no depth cut a matching state");
 }

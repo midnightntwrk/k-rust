@@ -78,7 +78,7 @@ fn detail(values: &[Value], state: &str) -> HitDetail {
             initial_configuration: format!("init{values:?}"),
             final_configurations: vec![state.to_owned()],
         }],
-        steps: 3,
+        steps: Some(3),
         reaching_state: state.to_owned(),
         krun_command: Some(format!("krust krun {values:?}")),
     }

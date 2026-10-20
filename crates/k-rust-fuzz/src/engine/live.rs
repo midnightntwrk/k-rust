@@ -14,7 +14,7 @@ use crate::{
     holes::{self, InstantiatedProgram, PrintedValue, ResolvedHoles, RoundTripCheck},
     report::{DefinitionRole, HoleValue, RejectionReason, WitnessSide},
     spec::{BackendRoute, CampaignSpec, CompiledDefinition, PathMode, ProgramInput},
-    target::{ResolvedTarget, TargetKind, differential},
+    target::{HitSite, ResolvedTarget, TargetKind, differential},
     values::{self, Value, print},
 };
 
@@ -151,7 +151,8 @@ impl LiveCases {
                 &spec.definitions.baseline,
                 &baseline.assembly,
             )?;
-            baseline.shape = CaseRequestShape::new(&spec.options, &target.needs());
+            baseline.shape =
+                CaseRequestShape::new(&spec.options, &target.needs(spec.options.paths));
             Judge::Target(target)
         };
         Ok(Self {
@@ -271,16 +272,31 @@ impl LiveCases {
                 run.class = judgement.class;
                 run.blocked = judgement.blocked;
                 if judgement.class == OutcomeClass::Hit {
-                    let leaf = judgement
-                        .hit_leaf
-                        .and_then(|index| result.leaves.get(index));
-                    match leaf {
-                        Some(leaf) => {
+                    // A leaf hit names its leaf; a hit of the whole run (D16) names none, and
+                    // rests on every leaf's configuration.
+                    let reached = match judgement.hit_site {
+                        Some(HitSite::Leaf(index)) => result
+                            .leaves
+                            .get(index)
+                            .map(|leaf| (Some(leaf.depth), leaf.state.to_string())),
+                        Some(HitSite::Run) => Some((
+                            None,
+                            result
+                                .leaves
+                                .iter()
+                                .map(|leaf| leaf.state.to_string())
+                                .collect::<Vec<_>>()
+                                .join("\n"),
+                        )),
+                        None => None,
+                    };
+                    match reached {
+                        Some((steps, reaching_state)) => {
                             run.hit = Some(HitDetail {
                                 holes: self.hole_values(values, &prepared.printed),
                                 sides: vec![side_of(DefinitionRole::Baseline, &prepared, &result)],
-                                steps: leaf.depth,
-                                reaching_state: leaf.state.to_string(),
+                                steps,
+                                reaching_state,
                                 krun_command: self.krun_command(&prepared.instantiated),
                             });
                         }
@@ -367,7 +383,7 @@ impl LiveCases {
                                         final_configurations: mutant_ends,
                                     },
                                 ],
-                                steps: leaf.depth,
+                                steps: Some(leaf.depth),
                                 reaching_state: leaf.state.to_string(),
                                 krun_command: None,
                             });
