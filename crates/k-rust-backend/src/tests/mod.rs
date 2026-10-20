@@ -6,7 +6,6 @@ mod definedness;
 mod definedness_oracle;
 mod domain_values;
 mod externalize;
-mod index_audit;
 pub(crate) mod lean_bridge;
 mod matching;
 mod matching_oracle;

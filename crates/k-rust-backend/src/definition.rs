@@ -1155,9 +1155,6 @@ pub struct BackendDefinition {
     /// declared `preserves-definedness`, or an equation of a symbol declared `total` (or
     /// `functional`). Set by `internalize`; see [`Self::declares_claims`].
     declares_claims: bool,
-    /// Some rewrite rule's index sends its two `<k>` cells along one path
-    /// (`rule::RuleIndex::two_k_cells_at`), so a subject's key records its own cell's path.
-    keys_k_paths: bool,
     /// Every term equation's left-hand side by root symbol, for the normal-form checker; built
     /// on first use by `normal_form_catalog`.
     #[cfg(feature = "check-normal-forms")]
@@ -2770,7 +2767,6 @@ impl BackendDefinition {
             discharge_counts: DischargeCounts::default(),
             term_equation_in_predicate_theory: false,
             declares_claims: false,
-            keys_k_paths: false,
             deepest,
             #[cfg(feature = "check-normal-forms")]
             normal_form_catalog: OnceLock::new(),
@@ -2795,7 +2791,6 @@ impl BackendDefinition {
                 InternalizedRule::Term(RuleKind::Rewrite, rule) => {
                     result.declares_claims |= rule.attributes.preserves_definedness;
                     let index = rule_index(&result, &rule.lhs);
-                    result.keys_k_paths |= index.two_k_cells_at().is_some();
                     insert_rewrite_theory(&mut result.rewrite_theory, rule, index);
                 }
                 InternalizedRule::Term(kind, rule) => {
@@ -3032,12 +3027,6 @@ impl BackendDefinition {
     /// such a definition.
     pub(crate) fn declares_claims(&self) -> bool {
         self.declares_claims
-    }
-
-    /// Whether a subject's rule-selection key records the path of its `<k>` cell: some rewrite
-    /// rule's two `<k>` cells lie along one path (`rule::RuleIndex::two_k_cells_at`).
-    pub(crate) fn keys_k_paths(&self) -> bool {
-        self.keys_k_paths
     }
 
     /// Whether the term simplifier's equation selection (`rule::applicable_groups` on
