@@ -58,8 +58,9 @@ use crate::names::BuiltinSort;
 use crate::{
     definition::{
         Attributes, Definition, DefinitionViews, LabelHead, ModuleId, ProductionCatalog,
-        ResolvedDefinition, Sentence, SortCatalog,
+        ResolvedDefinition, RuleHead, Sentence, SortCatalog,
         checks::{self, check_functions_with_internal_labels},
+        peel_aliases,
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     inner::ParsedProgram,
@@ -129,8 +130,8 @@ impl MacroRule {
 #[derive(Clone)]
 struct HeadInstance {
     /// The path of the head in the rule's typing: the left side of the top rewrite, or the
-    /// body when the rewrite is nested.
-    path: &'static [u32],
+    /// body when the rewrite is nested, then the aliased pattern of each root alias.
+    path: Vec<u32>,
     /// The number of sort parameters of the head's production.
     parameters: usize,
     /// The depth of the rule, from which the typing's stack zone is measured.
@@ -751,7 +752,10 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         let mut token_macros = BTreeMap::<Sort, Vec<MacroRule>>::new();
         // Invariant: `macros` and `token_macros` hold, in ascending priority order, every rule of `all` before `rule` whose left side is an application, a token, or a sorted variable; each iteration consumes one entry of `all`.
         for (rule, _) in all {
-            match rule.left.unannotated() {
+            // A root alias names the subject and constrains nothing: the rule is keyed by the
+            // pattern it aliases.
+            let root = peel_aliases(&rule.left);
+            match root.unannotated() {
                 Term::Apply { label, .. } => {
                     macros.entry(LabelHead::from(label)).or_default().push(rule)
                 }
@@ -759,11 +763,9 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                     token_macros.entry(sort.clone()).or_default().push(rule)
                 }
                 Term::Variable { sort, .. } => {
-                    let sort = sort.clone().or_else(|| {
-                        rule.left
-                            .metadata()
-                            .and_then(|metadata| metadata.sort.clone())
-                    });
+                    let sort = sort
+                        .clone()
+                        .or_else(|| root.metadata().and_then(|metadata| metadata.sort.clone()));
                     if let Some(sort) = sort {
                         token_macros.entry(sort).or_default().push(rule);
                     }
@@ -1531,6 +1533,12 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                 Ok(true)
             }
             Term::Token { .. } => Ok(pattern == subject),
+            // `P #as V` matches exactly what `P` matches and binds `V` to the whole subject.
+            Term::As {
+                pattern: aliased,
+                alias,
+            } => Ok(self.matches(bindings, aliased, subject)?
+                && self.matches(bindings, alias, subject)?),
             _ if matches!(
                 subject.unannotated(),
                 Term::Variable { .. } | Term::Token { .. }
@@ -1849,7 +1857,7 @@ enum Tried {
 /// to. A position the shape does not record gets the default shape.
 #[expect(
     clippy::wildcard_enum_match_arm,
-    reason = "a left side that matched is made of applications, tokens and variables"
+    reason = "a left side that matched is made of applications, tokens, variables and aliases"
 )]
 fn take_bindings<'pattern>(
     pattern: &'pattern Term,
@@ -1860,6 +1868,14 @@ fn take_bindings<'pattern>(
     match pattern.unannotated() {
         Term::Variable { name, .. } => {
             bindings.entry(name.as_str()).or_insert((subject, shape));
+        }
+        // The alias stands for the whole subject the aliased pattern matched.
+        Term::As {
+            pattern: aliased,
+            alias,
+        } => {
+            take_bindings(alias, subject.clone(), shape.clone(), bindings);
+            take_bindings(aliased, subject, shape, bindings);
         }
         Term::Apply {
             arguments: patterns,
@@ -1887,7 +1903,7 @@ fn take_bindings<'pattern>(
 /// [`take_bindings`]. `shape` records every position of the subject.
 #[expect(
     clippy::wildcard_enum_match_arm,
-    reason = "a left side that matched is made of applications, tokens and variables"
+    reason = "a left side that matched is made of applications, tokens, variables and aliases"
 )]
 fn binding_shapes<'pattern, 'shape>(
     pattern: &'pattern Term,
@@ -1897,6 +1913,10 @@ fn binding_shapes<'pattern, 'shape>(
     match pattern.unannotated() {
         Term::Variable { name, .. } => {
             bindings.entry(name.as_str()).or_insert(shape);
+        }
+        Term::As { pattern, alias } => {
+            binding_shapes(alias, shape, bindings);
+            binding_shapes(pattern, shape, bindings);
         }
         Term::Apply { arguments, .. } => {
             debug_assert_eq!(arguments.len(), shape.children.len());
@@ -2047,9 +2067,10 @@ fn instance_depth(pattern: &Term, depths: &BTreeMap<&str, usize>) -> usize {
                 deepest = deepest.max(depth);
                 pending.extend([(&**left, depth + 1), (&**right, depth + 1)]);
             }
+            // An alias is not a node of the instance: its pattern and its variable both stand
+            // for the term at its position.
             Term::As { pattern, alias } => {
-                deepest = deepest.max(depth);
-                pending.extend([(&**pattern, depth + 1), (&**alias, depth + 1)]);
+                pending.extend([(&**pattern, depth), (&**alias, depth)]);
             }
             _ => deepest = deepest.max(depth),
         }
@@ -2089,7 +2110,9 @@ fn settled_variables<'pattern>(
         }
     }
     let mut names = BTreeSet::new();
-    if let Term::Apply { arguments, .. } = pattern.unannotated() {
+    // A root alias stands for the whole subject, which is not settled; the arguments of the
+    // aliased application are those `settled` describes.
+    if let Term::Apply { arguments, .. } = peel_aliases(pattern).unannotated() {
         for (argument, settled) in arguments.iter().zip(settled) {
             if *settled {
                 collect(argument, &mut names);
@@ -2429,19 +2452,26 @@ fn instances_agree(head: Option<&[Option<Sort>]>, subject: &Instance) -> bool {
 fn parametric_head(
     productions: &ProductionCatalog<'_>,
     rule: &MacroRule,
-) -> Option<(&'static [u32], usize)> {
-    let Term::Apply { label, .. } = rule.left.unannotated() else {
+) -> Option<(Vec<u32>, usize)> {
+    let Term::Apply { label, .. } = peel_aliases(&rule.left).unannotated() else {
         return None;
     };
     let (parameters, ..) = production_parameters(productions, label)?;
     let Sentence::Rule { body, .. } = &rule.sentence else {
         return None;
     };
-    let path: &'static [u32] = if matches!(body.unannotated(), Term::Rewrite { .. }) {
-        &[0, 0]
-    } else {
-        &[0]
-    };
+    // The body field, then the rewrite's left side, then the pattern (child 0) of each root
+    // alias down to the head.
+    let mut path = vec![0];
+    let mut left = body.unannotated();
+    if let Term::Rewrite { left: written, .. } = left {
+        path.push(0);
+        left = written.unannotated();
+    }
+    while let Term::As { pattern, .. } = left {
+        path.push(0);
+        left = pattern.unannotated();
+    }
     Some((path, parameters.len()))
 }
 
@@ -2455,7 +2485,7 @@ fn head_instance(
     typer
         .typing(&rule.sentence)
         .ok()
-        .and_then(|typing| typing.instances.get(head.path).cloned())
+        .and_then(|typing| typing.instances.get(head.path.as_slice()).cloned())
         .unwrap_or_else(|| vec![None; head.parameters])
 }
 
@@ -2470,18 +2500,14 @@ fn macro_rule_recursion(sentence: &Sentence, productions: &ProductionCatalog<'_>
     };
     // Whether the rule is a macro rule depends only on its attributes and on the production at
     // the root of its left-hand side, so the other rules of the module, of any size or depth,
-    // are not walked.
-    #[expect(
-        clippy::wildcard_enum_match_arm,
-        reason = "Term is syntax; only the listed variants are special here"
-    )]
+    // are not walked. The root is the rule's head as every stage reads it ([`RuleHead::of`]):
+    // `m(X) #as V => R` is a rule of `m`.
     let production_attributes = if attributes.has(AttributeKey::Simplification) {
         None
     } else {
-        match left_root(body) {
-            Term::Apply { label, .. } => productions.attributes_for(&LabelHead::from(label)),
-            _ => None,
-        }
+        RuleHead::of(body)
+            .label()
+            .and_then(|label| productions.attributes_for(&LabelHead::from(label)))
     };
     if !attributes.has_any(&AttributeKey::MACRO_LIKE)
         && !production_attributes
@@ -2512,25 +2538,6 @@ fn macro_rule(id: usize, sentence: &Sentence, recursive: bool, depth: usize) -> 
         recursive,
         depth,
         head_instance: None,
-    }
-}
-
-/// The root of a rule body's left-hand side without its annotations: the root of
-/// `rewrite_projection(body, false).unannotated()`, found by stepping through the annotations
-/// and the rewrites above it rather than by projecting the body.
-fn left_root(body: &Term) -> &Term {
-    let mut term = body;
-    loop {
-        match term {
-            Term::Annotated { term: inner, .. } => term = inner,
-            Term::Rewrite { left, .. } => term = left,
-            Term::InjectedLabel(_)
-            | Term::As { .. }
-            | Term::Variable { .. }
-            | Term::Sequence(_)
-            | Term::Apply { .. }
-            | Term::Token { .. } => return term,
-        }
     }
 }
 

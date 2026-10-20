@@ -11,7 +11,8 @@ use std::fmt;
 use crate::definition::AttributeKey;
 use crate::{
     definition::{
-        Definition, LabelHead, LabelResultSort, ProductionCatalog, ProductionItem, Sentence,
+        Definition, LabelHead, LabelResultSort, ProductionCatalog, ProductionItem, RuleHead,
+        Sentence,
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{GeneratedCell, InternalLabel, Label, Sort, Term},
@@ -286,22 +287,16 @@ fn plain_error(message: impl Into<String>) -> Diagnostic {
 
 /// Whether `term`, a rule body, is a function application or a rewrite whose left side is one: a
 /// function rule's body, which compilation emits as an equation rather than in a cell.
+///
+/// The application is the rule's head as [`RuleHead::of`] reads it for every stage and check:
+/// root aliases are looked through, since `f(X) #as V => R` is a rule of `f` exactly as
+/// `f(X) => R[f(X)/V]` is.
 pub(crate) fn is_function(term: &Term, productions: &ProductionCatalog<'_>) -> bool {
-    #[expect(
-        clippy::wildcard_enum_match_arm,
-        reason = "Term is syntax; only the listed variants are special here"
-    )]
-    let application = match term.unannotated() {
-        Term::Apply { label, .. } => Some((term, label)),
-        Term::Rewrite { left, .. } => match left.unannotated() {
-            Term::Apply { label, .. } => Some((left.as_ref(), label)),
-            _ => None,
-        },
-        _ => None,
-    };
-    application.is_some_and(|(application, label)| {
-        is_function_application(application, label, productions)
-    })
+    RuleHead::of(term)
+        .application()
+        .is_some_and(|(application, label, _)| {
+            is_function_application(application, label, productions)
+        })
 }
 
 fn is_function_application(
@@ -637,5 +632,40 @@ mod tests {
             wrapped_rules >= 20,
             "only {wrapped_rules} wrapped sentences"
         );
+    }
+}
+
+#[cfg(test)]
+mod aliased_head_tests {
+    use crate::kompile::stage_harness::{labelled, render, run_to_stage};
+
+    /// A rule's defining symbol is the root of its left-hand pattern, and `f(X) #as _V` denotes
+    /// exactly what `f(X)` denotes, so `f(X) #as _V => done(X)` is an equation of the function
+    /// `f` as `plain(X) => done(X)` is one of `plain`: the stage leaves both bodies as written,
+    /// for emission as equations, and wraps only the rule of the constructor `a` in the
+    /// computation cell.
+    #[test]
+    fn an_aliased_function_rule_is_not_wrapped_in_the_computation_cell() {
+        let run = run_to_stage(
+            r#"
+module MAIN
+  syntax K
+  syntax Exp ::= "a" [symbol(a)] | "b" [symbol(b)] | done(Exp) [symbol(done)]
+  syntax Exp ::= f(Exp) [function, symbol(f)] | plain(Exp) [function, symbol(plain)]
+  configuration <k> a </k>
+  rule f(X) #as _V => done(X) [label(aliased)]
+  rule plain(X) => done(X) [label(plain)]
+  rule a => f(b) [label(step)]
+endmodule
+"#,
+            "add implicit computation cell",
+        );
+        for (label, wrapped) in [("aliased", false), ("plain", false), ("step", true)] {
+            let before = labelled(&run.input, "MAIN", label);
+            let after = labelled(run.output(), "MAIN", label);
+            assert_eq!((before.len(), after.len()), (1, 1), "{label}");
+            let (before, after) = (render(before[0]), render(after[0]));
+            assert_eq!(before != after, wrapped, "{label}: {before} became {after}");
+        }
     }
 }

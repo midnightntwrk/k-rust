@@ -37,6 +37,7 @@
 use super::binders::generated_exists_all;
 use super::roles::{EmittedEquation, SymbolRoles};
 use super::*;
+use crate::definition::peel_aliases;
 use crate::kast::binding;
 use crate::kompile::sort_injections::SentenceSortVariables;
 use k_rust_kore::measure::{self, Counter};
@@ -161,7 +162,7 @@ pub(super) fn emit_rule_or_claim(
         // Resolving the head is work the macro axiom does not need, so it runs only when the
         // check does, and a head that does not resolve to one production skips the check.
         if cfg!(debug_assertions) {
-            let application = peel_alias(left);
+            let application = peel_aliases(left);
             if let Term::Apply { label, .. } = application.unannotated()
                 && !label.is(WellKnownSymbol::Inj)
                 && let Ok(production) =
@@ -322,7 +323,7 @@ fn equation_info<'a>(
     attributes: &KAttributes,
     productions: &ProductionCatalog<'_>,
 ) -> Result<Option<EquationInfo<'a>>, ModuleToKoreError> {
-    let application = peel_alias(left);
+    let application = peel_aliases(left);
     let Term::Apply { label, arguments } = application.unannotated() else {
         return Ok(None);
     };
@@ -746,7 +747,7 @@ fn emit_owise_equation(
         let Term::Apply {
             arguments: competitor_children,
             ..
-        } = peel_alias(&refreshed_left).unannotated()
+        } = peel_aliases(&refreshed_left).unannotated()
         else {
             return Err(ModuleToKoreError::UnsupportedRuleKind {
                 kind: "non-application function competitor for owise".into(),

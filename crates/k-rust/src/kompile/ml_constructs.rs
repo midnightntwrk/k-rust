@@ -71,7 +71,7 @@ use std::cell::OnceCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::convert::Infallible;
 
-use crate::definition::{AttributeKey, Definition, Sentence};
+use crate::definition::{AttributeKey, Definition, RuleHead, Sentence};
 use crate::kast::{GeneratedLabel, InternalLabel, Label, Term, TermParts};
 use crate::provenance::GeneratingPass;
 
@@ -756,10 +756,10 @@ where
         else {
             continue;
         };
-        let Term::Rewrite { left, right } = body.unannotated() else {
-            continue;
-        };
-        let Term::Apply { label: head, .. } = left.unannotated() else {
+        // The head as every stage reads it ([`RuleHead::of`]): an aliased equation
+        // `f(X) #as V => R` is one of `f`'s defining equations.
+        let rule_head = RuleHead::of(body);
+        let (Some(right), Some(head)) = (rule_head.right, rule_head.label()) else {
             continue;
         };
         if attributes.has(AttributeKey::Simplification)
@@ -770,7 +770,7 @@ where
             continue;
         }
         let mut applied = BTreeSet::new();
-        for root in [&**right, requires, ensures] {
+        for root in [right, requires, ensures] {
             root.visit_preorder(&mut |node| {
                 if let Term::Apply { label, .. } = node.unannotated() {
                     applied.insert(label.name.clone());
@@ -857,12 +857,7 @@ where
         else {
             continue;
         };
-        let left = if let Term::Rewrite { left, .. } = body.unannotated() {
-            left.unannotated()
-        } else {
-            body.unannotated()
-        };
-        let Term::Apply { label: head, .. } = left else {
+        let Some(head) = RuleHead::of(body).label() else {
             continue;
         };
         if !(functions.contains(&head.name)

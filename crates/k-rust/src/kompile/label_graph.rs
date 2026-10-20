@@ -38,7 +38,7 @@ use petgraph::Direction::Incoming;
 use petgraph::graph::{DiGraph, NodeIndex};
 
 use crate::definition::{
-    AttributeKey, LabelHead, ProductionCatalog, RuleCatalog, Sentence, match_rule_label,
+    AttributeKey, LabelHead, ProductionCatalog, RuleCatalog, RuleHead, Sentence, match_rule_label,
 };
 use crate::kast::Term;
 use crate::names::WellKnownSymbol;
@@ -259,26 +259,14 @@ fn right_side_root_label(body: &Term) -> Option<LabelHead> {
     Some(LabelHead::from(label))
 }
 
+/// The label an `anywhere` rule rewrites: its head ([`RuleHead::of`], root aliases looked
+/// through), or the injected argument's label when the head is an injection.
 fn anywhere_lhs_label(rule: &Sentence) -> Option<LabelHead> {
     let Sentence::Rule { body, .. } = rule else {
         return None;
     };
-    #[expect(
-        clippy::wildcard_enum_match_arm,
-        reason = "Term is not a sentence kind; only the listed variants are special here"
-    )]
-    let left = match body.unannotated() {
-        Term::Rewrite { left, .. } => left.as_ref(),
-        _ => body,
-    };
-    let Term::Apply { label, arguments } = left.unannotated() else {
-        return None;
-    };
-    if !label.is(WellKnownSymbol::Inj) {
-        return Some(LabelHead::from(label));
-    }
-    let Term::Apply { label, .. } = arguments.first()?.unannotated() else {
-        return None;
-    };
-    Some(LabelHead::from(label))
+    let head = RuleHead::of(body);
+    head.injected()
+        .or_else(|| head.label().filter(|label| !label.is(WellKnownSymbol::Inj)))
+        .map(LabelHead::from)
 }
