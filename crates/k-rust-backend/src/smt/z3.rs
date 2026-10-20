@@ -2420,7 +2420,7 @@ mod tests {
                 "{atom:?}"
             );
             assert_eq!(
-                cause(solver.is_sat(&[atom.clone()], &Substitution::new())),
+                cause(solver.is_sat(std::slice::from_ref(&atom), &Substitution::new())),
                 Ok(Ok(Satisfiability::Sat)),
                 "{atom:?}"
             );
