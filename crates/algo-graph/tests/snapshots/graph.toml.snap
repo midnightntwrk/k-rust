@@ -3082,6 +3082,11 @@ symbol = "normalize_hereditary"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/rewrite/predicates.rs"
+symbol = "free_variables_by_first_occurrence"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/predicates.rs"
 symbol = "predicate_root_truth"
 
 [[node.sites]]
