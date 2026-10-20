@@ -13,7 +13,7 @@ use k_rust::{
     kore::{ast::Pattern as KorePattern, parser::parse_pattern, printer::Printer as KorePrinter},
 };
 
-use super::*;
+use super::{run::PatternCompiler, *};
 use crate::{error::CampaignError, spec::DEFAULT_MAX_WORK};
 
 #[path = "../../tests/support/mod.rs"]
@@ -682,6 +682,7 @@ fn a_leaf_unclean_beyond_its_halt_is_unsupported_whether_or_not_it_reaches() {
         U::Internalization("x".to_owned()),
         U::SimplificationFailure,
         U::UndecidedMatch,
+        U::UnsupportedHook,
     ];
     for reason in reasons {
         for halt in [HaltReasonOutput::Stuck, HaltReasonOutput::DepthBound] {
@@ -1120,4 +1121,346 @@ fn an_undecided_natural_end_matters_only_where_the_natural_end_does() {
     assert_eq!(class(&case, &[true], true), OutcomeClass::Unsupported);
     // Without a reach it is neither `miss` nor `stuck`.
     assert_eq!(class(&case, &[false], false), OutcomeClass::Unsupported);
+}
+
+// ---------------------------------------------------------------- round 3 (review 2, D21)
+
+/// A definition under `tests/data` that `tests/support` does not list yet, compiled the way it
+/// compiles fixtures.
+struct Local {
+    definition: k_rust_fuzz::CompiledDefinition,
+    grammar: k_rust::kompile::ProgramGrammar,
+}
+
+impl Local {
+    fn compile(file: &str, source: &str, main_module: &str) -> Self {
+        use k_rust::{
+            builtin::embedded,
+            kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
+            outer::{LoadOptions, ResolvedSource, load_for_compilation},
+        };
+        let mut resolver = |_: &str, required: &str| {
+            embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+        };
+        let options = LoadOptions {
+            implicit_sources: vec![embedded("prelude.md").expect("the prelude is embedded")],
+            ..CompilationBackend::Rust.load_options()
+        };
+        let (loaded, syntax_module) = load_for_compilation(
+            ResolvedSource::new(file, source),
+            main_module,
+            None,
+            &mut resolver,
+            &options,
+        )
+        .unwrap_or_else(|error| panic!("{file} does not load: {error:?}"));
+        let artifacts = compile_loaded_definition(&loaded, CompileOptions::default())
+            .unwrap_or_else(|error| panic!("{file} does not compile: {error}"));
+        let frontend = loaded.into_definition();
+        let grammar = k_rust::kompile::ProgramGrammar::new(&frontend)
+            .unwrap_or_else(|error| panic!("{file} has no program grammar: {error}"));
+        let definition = k_rust_fuzz::CompiledDefinition::from_artifacts(
+            main_module,
+            syntax_module,
+            frontend,
+            artifacts,
+        )
+        .unwrap_or_else(|error| panic!("{file}: {error}"));
+        Self {
+            definition,
+            grammar,
+        }
+    }
+
+    fn run(&self, text: &str, options: &CaseOptions) -> CaseResult {
+        let backend = crate::assemble::build_backend(&self.definition, options.backend.options())
+            .expect("the backend builds");
+        let mut executor =
+            Executor::with_backend(backend, &self.grammar, &self.definition, options)
+                .expect("the executor builds");
+        let definition = &self.definition;
+        let mut assembler = k_rust::kompile::ConfigurationAssembler::new(
+            &self.grammar,
+            &definition.main_module,
+            &definition.syntax_module,
+            &definition.configuration_variables,
+        );
+        assembler
+            .program_file(&k_rust::kast::Sort::new("Pgm"), text, "program")
+            .expect("the program parses");
+        assembler
+            .bind_stream_defaults(false, false, || {
+                Ok::<_, k_rust::kompile::ConfigurationError>(Vec::new())
+            })
+            .expect("stream defaults bind");
+        let initial = assembler.finish().expect("the configuration assembles");
+        let shape = CaseRequestShape::new(options, &TargetNeeds::default());
+        executor
+            .run(&initial, &shape, &[], None)
+            .expect("no solver prelude fails")
+    }
+}
+
+fn steer() -> &'static Local {
+    static STEER: std::sync::OnceLock<Local> = std::sync::OnceLock::new();
+    STEER.get_or_init(|| {
+        Local::compile(
+            "steer/steer.k",
+            include_str!("../../tests/data/steer/steer.k"),
+            "UNSP",
+        )
+    })
+}
+
+/// [`budgets`] in both path modes.
+fn modes_and_budgets() -> Vec<CaseOptions> {
+    let mut all = Vec::new();
+    for paths in [PathMode::OnePath, PathMode::AllPaths] {
+        for options in budgets() {
+            all.push(CaseOptions { paths, ..options });
+        }
+    }
+    all
+}
+
+#[test]
+fn an_end_steered_by_an_unsupported_hook_is_never_clean() {
+    // D21, FZ-08 review 2: `fa`'s condition `1 <<Int 33554432 >Int 0` is not computed, so the
+    // equation evaluator takes `fb` and the run ends with a clean-looking `<out> 2`, where a
+    // backend that computes the shift ends with 1. Only `unsupportedHooks` records it.
+    for options in modes_and_budgets() {
+        let result = steer().run(include_str!("../../tests/data/steer/big.pgm"), &options);
+        assert!(result.failure.is_none(), "{:?}", result.failure);
+        assert!(!result.leaves.is_empty());
+        for leaf in &result.leaves {
+            assert!(
+                leaf.unclean.contains(&UncleanReason::UnsupportedHook),
+                "{:?} {:?}",
+                options.paths,
+                leaf.unclean
+            );
+            assert!(!leaf.is_clean());
+            assert!(!leaf.natural_end);
+        }
+        for reached in [false, true] {
+            let reached = vec![reached; result.leaves.len()];
+            for run_to_completion in [false, true] {
+                assert_eq!(
+                    class(&result, &reached, run_to_completion),
+                    OutcomeClass::Unsupported,
+                    "{:?}",
+                    options.paths
+                );
+            }
+        }
+        // The value is computed: `fa` applies, a clean natural end.
+        let computed = steer().run(include_str!("../../tests/data/steer/go.pgm"), &options);
+        let leaf = only_leaf(&computed);
+        assert!(leaf.is_clean(), "{:?}", leaf.unclean);
+        assert!(leaf.natural_end);
+    }
+}
+
+#[test]
+fn a_vanished_candidate_s_chosen_value_flags_the_all_paths_run() {
+    // Review B3 and S5, VANISH `pick(1, 2)`: `split` reads `keys_list` and vanishes beside
+    // `plain`. Without a work budget under all paths the surviving leaf is clean and the flag
+    // is set; with the budget the leaf carries the mark; on one path the step marks the leaf.
+    let fixture = support::VANISH.compiled();
+    let text = include_str!("../../tests/data/vanish/pick.pgm");
+    let unbudgeted = CaseOptions {
+        paths: PathMode::AllPaths,
+        max_depth: Some(10_000),
+        ..CaseOptions::default()
+    };
+    let result = fixture.run_with(text, &unbudgeted, &TargetNeeds::default(), &[]);
+    let leaf = only_leaf(&result);
+    assert!(leaf.is_clean(), "{:?}", leaf.unclean);
+    assert!(leaf.natural_end);
+    assert!(result.run_facts_off_leaves);
+    assert_eq!(class(&result, &[false], false), OutcomeClass::Unsupported);
+    assert_eq!(class(&result, &[true], false), OutcomeClass::Hit);
+
+    let budgeted = CaseOptions {
+        paths: PathMode::AllPaths,
+        ..CaseOptions::default()
+    };
+    let result = fixture.run_with(text, &budgeted, &TargetNeeds::default(), &[]);
+    let leaf = only_leaf(&result);
+    assert!(
+        leaf.unclean
+            .contains(&UncleanReason::ImplementationChosenValue),
+        "{:?}",
+        leaf.unclean
+    );
+    assert!(!result.run_facts_off_leaves);
+    assert_eq!(class(&result, &[false], false), OutcomeClass::Unsupported);
+
+    for options in budgets() {
+        let one_path = fixture.run_with(text, &options, &TargetNeeds::default(), &[]);
+        let leaf = only_leaf(&one_path);
+        assert!(
+            leaf.unclean
+                .contains(&UncleanReason::ImplementationChosenValue),
+            "{:?}",
+            leaf.unclean
+        );
+        assert!(!one_path.run_facts_off_leaves);
+    }
+}
+
+#[test]
+fn a_solver_unknown_while_matching_is_counted() {
+    // Review 2, NI-2: an `unknown` depends on the clock.
+    use k_rust::k_rust_backend::{search::PatternMatchError, smt::SmtError};
+    let unknown = run::verdict(Ok(Err(PatternMatchError::Smt(SmtError::Unknown(
+        "timeout".to_owned(),
+    )))))
+    .expect("not a stop");
+    assert_eq!(unknown, (run::MatchVerdict::Undecided, true));
+    let unavailable =
+        run::verdict(Ok(Err(PatternMatchError::Smt(SmtError::Unavailable)))).expect("not a stop");
+    assert_eq!(unavailable, (run::MatchVerdict::Undecided, false));
+    assert_eq!(
+        run::verdict(Ok(Ok(Vec::new()))).expect("not a stop"),
+        (run::MatchVerdict::NotMatched, false)
+    );
+    // Counted with the run's unknowns, they are a determinism break.
+    let mut case = result(vec![natural()]);
+    case.smt_unknowns = 1;
+    assert_eq!(case.determinism_breaks(), [DeterminismBreak::SmtUnknowns]);
+}
+
+#[test]
+fn the_last_step_of_a_stopped_unnormalised_leaf_is_not_established() {
+    // Review 2, S1.
+    let leaf = |reason: &str| -> k_rust::backend::ExecutionLeaf {
+        serde_json::from_value(serde_json::json!({
+            "state": {},
+            "depth": 2,
+            "reason": reason,
+            "trace": [
+                {"depth": 0, "kind": "rewrite", "uniqueId": "a"},
+                {"depth": 1, "kind": "simplification", "uniqueId": "s"},
+                {"depth": 1, "kind": "rewrite", "uniqueId": "b"},
+            ],
+        }))
+        .expect("an execution leaf")
+    };
+    for halt in ["work-bound", "timeout", "cancelled"] {
+        assert_eq!(run::established_rewrites(&leaf(halt)), ["a"], "{halt}");
+    }
+    for halt in ["stuck", "depth-bound", "trivial", "terminal"] {
+        assert_eq!(run::established_rewrites(&leaf(halt)), ["a", "b"], "{halt}");
+    }
+    // A work-bound run: the leaf's established rewrites are a prefix of the trace's.
+    let options = CaseOptions {
+        max_work: Some(20),
+        ..CaseOptions::default()
+    };
+    let needs = TargetNeeds {
+        trace: true,
+        ..TargetNeeds::default()
+    };
+    let cut = imp().run_with(LOOP_IMP, &options, &needs, &[]);
+    let leaf = only_leaf(&cut);
+    assert_eq!(leaf.halt, HaltReasonOutput::WorkBound);
+    let full = imp().run_with(
+        LOOP_IMP,
+        &CaseOptions {
+            max_work: Some(21),
+            ..CaseOptions::default()
+        },
+        &needs,
+        &[],
+    );
+    let longer = &only_leaf(&full).rewrites;
+    assert!(longer.len() > leaf.rewrites.len());
+    assert_eq!(longer[..leaf.rewrites.len()], leaf.rewrites[..]);
+}
+
+#[test]
+fn an_observed_run_judges_the_same_leaves_and_returns_them() {
+    // FZ-10's request: one run, under the executor's limits.
+    let fixture = imp();
+    for options in [
+        CaseOptions::default(),
+        CaseOptions {
+            safety_limit_ms: Some(600_000),
+            ..CaseOptions::default()
+        },
+    ] {
+        let mut executor = fixture.executor(&options);
+        let shape = CaseRequestShape::new(&options, &TargetNeeds::default());
+        let initial = fixture.initial_of(DIV_IMP);
+        let plain = executor
+            .run(&initial, &shape, &[], None)
+            .expect("no solver prelude fails");
+        let (observed, leaves) = executor
+            .run_observed(&initial, &shape, &[], None, Some(Vec::new()))
+            .expect("no solver prelude fails");
+        assert_eq!(leaves.len(), observed.leaves.len());
+        assert_eq!(observed.leaves.len(), plain.leaves.len());
+        assert_eq!(observed.work, plain.work);
+        for (judged, raw) in observed.leaves.iter().zip(&leaves) {
+            assert_eq!(judged.halt, raw.reason);
+        }
+        assert!(
+            !leaves[0].branch.is_empty(),
+            "branch identities are retained"
+        );
+        assert_eq!(only_leaf(&observed).unclean, only_leaf(&plain).unclean);
+        assert_eq!(
+            only_leaf(&observed).natural_end,
+            only_leaf(&plain).natural_end
+        );
+    }
+}
+
+#[test]
+fn patterns_compiled_once_prepare_on_fresh_backends() {
+    // FZ-06's request: compile once per campaign, prepare per backend.
+    let fixture = imp();
+    let definition = fixture.definition();
+    let options = CaseOptions::default();
+    let compiler = PatternCompiler::new(&definition).expect("the execution definition resolves");
+    let normal_end = compiler
+        .normal_end(&fixture.grammar, &options)
+        .expect("the default compiles");
+    let target = compiler
+        .compile(
+            &fixture.grammar,
+            "<state> M </state> requires size(M) ==Int 3",
+        )
+        .expect("the target compiles");
+    let shape = CaseRequestShape::new(&options, &TargetNeeds::default());
+    let initial = fixture.initial_of(DIV_IMP);
+    for _ in 0..2 {
+        let mut executor =
+            Executor::with_normal_end(fixture.source_backend(), &normal_end, &options)
+                .expect("the executor builds");
+        let matcher = LeafMatcher::prepare(&mut executor, &target).expect("the target prepares");
+        let result = executor
+            .run(&initial, &shape, &[&matcher], None)
+            .expect("no solver prelude fails");
+        let leaf = only_leaf(&result);
+        assert!(leaf.natural_end);
+        assert_eq!(leaf.matches, [true]);
+        // A later surface pattern still compiles on such an executor.
+        let late =
+            LeafMatcher::compile_with(&mut executor, &fixture.grammar, &definition, "<k> .K </k>")
+                .expect("compiles");
+        let result = executor
+            .run(&initial, &shape, &[&late], None)
+            .expect("no solver prelude fails");
+        assert_eq!(only_leaf(&result).matches, [true]);
+    }
+    let refused = CaseOptions {
+        normal_end_pattern: Some("<nosuchcell> .K </nosuchcell>".to_owned()),
+        ..CaseOptions::default()
+    };
+    assert!(matches!(
+        compiler.normal_end(&fixture.grammar, &refused),
+        Err(CampaignError::NormalEndPattern { .. })
+    ));
 }

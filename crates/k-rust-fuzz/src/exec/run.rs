@@ -5,7 +5,7 @@ use k_rust::{
     backend::{
         Backend, BackendDiagnosticOutput, BackendError, CancellationToken, ChosenValueOutput,
         ContradictedClaimOutput, ExecuteRequest, ExecutionLeaf, ExecutionResult, HaltReasonOutput,
-        ObservedInOutput, StopCause, search::prepare_backend_match_target,
+        ObservedInOutput, ObservedRequest, StopCause, search::prepare_backend_match_target,
     },
     definition::{AttributeKey, Attributes, ResolvedDefinition},
     k_rust_backend::{
@@ -14,11 +14,11 @@ use k_rust::{
         rewrite::Pattern,
         search::{PatternMatch, PatternMatchError, match_disjunction_with_solver},
         simplify::SimplificationOptions,
-        smt::SmtSolver,
+        smt::{SmtError, SmtSolver},
         stop::Stoppable,
         term::{HeadRole, Term},
     },
-    kompile::{ProgramGrammar, compile_search_pattern},
+    kompile::{CompiledSearchPattern, ProgramGrammar, compile_search_pattern},
     kore::{ast::Pattern as KorePattern, codec},
 };
 
@@ -36,6 +36,90 @@ use crate::{
 /// The default normal-termination pattern: an empty `<k>` cell, the rest of the configuration
 /// free (ARCHITECTURE 5.2, R-2).
 const DEFAULT_NORMAL_END: &str = "<k> .K </k>";
+
+/// Compiles surface patterns (krun's `--pattern` syntax) against one definition: the program
+/// grammar parses them and the execution definition, resolved once here, gives them their
+/// meaning (`compile_search_pattern`). The result is backend-independent KORE, so a campaign
+/// compiles each pattern once and prepares it on every fresh backend ([`LeafMatcher::prepare`];
+/// FZ-06's confirmation request).
+pub(crate) struct PatternCompiler {
+    execution_resolved: ResolvedDefinition,
+    main_module: String,
+}
+
+impl PatternCompiler {
+    /// Resolve `definition`'s execution definition.
+    ///
+    /// # Errors
+    ///
+    /// [`CampaignError::Definition`] when it does not resolve.
+    pub(crate) fn new(definition: &CompiledDefinition) -> Result<Self, CampaignError> {
+        let execution_resolved = ResolvedDefinition::resolve(&definition.execution_definition)
+            .map_err(|error| CampaignError::Definition {
+                message: format!("the execution definition does not resolve: {error}"),
+            })?;
+        Ok(Self {
+            execution_resolved,
+            main_module: definition.main_module.clone(),
+        })
+    }
+
+    /// Compile `pattern` (`requires` allowed) with the program grammar `grammar`.
+    ///
+    /// # Errors
+    ///
+    /// The compiler's message.
+    pub(crate) fn compile(
+        &self,
+        grammar: &ProgramGrammar,
+        pattern: &str,
+    ) -> Result<CompiledPattern, String> {
+        compile_search_pattern(
+            grammar.resolved(),
+            &self.execution_resolved,
+            &self.main_module,
+            pattern,
+            pattern_attributes(pattern),
+        )
+        .map(|search| CompiledPattern { search })
+        .map_err(|error| error.to_string())
+    }
+
+    /// Compile the normal-termination pattern of `options`: the given one, or `<k> .K </k>`.
+    ///
+    /// # Errors
+    ///
+    /// [`CampaignError::NormalEndPattern`] when it does not compile.
+    pub(crate) fn normal_end(
+        &self,
+        grammar: &ProgramGrammar,
+        options: &CaseOptions,
+    ) -> Result<NormalEnd, CampaignError> {
+        let (text, default) = match options.normal_end_pattern.as_deref() {
+            Some(pattern) => (pattern, false),
+            None => (DEFAULT_NORMAL_END, true),
+        };
+        let pattern = self
+            .compile(grammar, text)
+            .map_err(|message| CampaignError::NormalEndPattern { message })?;
+        Ok(NormalEnd { pattern, default })
+    }
+}
+
+/// A compiled surface pattern, independent of any backend.
+#[derive(Clone, Debug)]
+pub(crate) struct CompiledPattern {
+    search: CompiledSearchPattern,
+}
+
+/// A campaign's compiled normal-termination pattern.
+#[derive(Clone, Debug)]
+pub(crate) struct NormalEnd {
+    pattern: CompiledPattern,
+    /// It is the default `<k> .K </k>`, which applies only to a configuration with exactly one
+    /// `<k>` cell.
+    default: bool,
+}
 
 /// A pattern prepared for leaf matching in one definition: `compile_search_pattern` over the
 /// program grammar and the execution definition, then `prepare_backend_match_target`
@@ -73,7 +157,9 @@ impl LeafMatcher {
         Self::compile_with(executor, assembly.grammar(), definition, pattern)
     }
 
-    /// [`Self::compile`] with the program grammar given directly.
+    /// [`Self::compile`] with the program grammar given directly. The executor resolves the
+    /// execution definition on its first compilation if it was built from a compiled
+    /// normal-end pattern.
     ///
     /// # Errors
     ///
@@ -84,13 +170,28 @@ impl LeafMatcher {
         definition: &CompiledDefinition,
         pattern: &str,
     ) -> Result<Self, String> {
-        compile_matcher(
-            &mut executor.backend,
-            grammar,
-            &executor.execution_resolved,
-            &definition.main_module,
-            pattern,
-        )
+        if executor.compiler.is_none() {
+            executor.compiler =
+                Some(PatternCompiler::new(definition).map_err(|error| error.to_string())?);
+        }
+        let compiled = executor
+            .compiler
+            .as_ref()
+            .expect("the compiler was just built")
+            .compile(grammar, pattern)?;
+        Self::prepare(executor, &compiled)
+    }
+
+    /// Prepare a compiled pattern on `executor`'s backend (`prepare_backend_match_target`).
+    ///
+    /// # Errors
+    ///
+    /// The backend's message.
+    pub(crate) fn prepare(
+        executor: &mut Executor,
+        pattern: &CompiledPattern,
+    ) -> Result<Self, String> {
+        prepare_matcher(&mut executor.backend, pattern)
     }
 }
 
@@ -120,21 +221,11 @@ fn pattern_attributes(contents: &str) -> Attributes {
     attributes
 }
 
-fn compile_matcher(
+fn prepare_matcher(
     backend: &mut Backend,
-    grammar: &ProgramGrammar,
-    execution_resolved: &ResolvedDefinition,
-    main_module: &str,
-    pattern: &str,
+    pattern: &CompiledPattern,
 ) -> Result<LeafMatcher, String> {
-    let compiled = compile_search_pattern(
-        grammar.resolved(),
-        execution_resolved,
-        main_module,
-        pattern,
-        pattern_attributes(pattern),
-    )
-    .map_err(|error| error.to_string())?;
+    let compiled = pattern.search.clone();
     let kore = compiled.pattern.clone();
     let (target, mode_independent) = backend
         .with_solver_over(None, &[&kore], |definition, _solver| {
@@ -168,8 +259,9 @@ pub(crate) struct Executor {
     normal_end: LeafMatcher,
     /// The normal-termination pattern is the default `<k> .K </k>`.
     default_normal_end: bool,
-    /// The execution definition, resolved once for every pattern compiled against it.
-    execution_resolved: ResolvedDefinition,
+    /// The pattern compiler, built on the first [`LeafMatcher::compile_with`] when the executor
+    /// was built from a compiled normal-end pattern.
+    compiler: Option<PatternCompiler>,
     max_simplification_iterations: usize,
     /// Stops for lack of stack in the definition's load (ARCHITECTURE 5.4).
     load_stack_stops: usize,
@@ -205,9 +297,31 @@ impl Executor {
     ///
     /// As [`Self::new`], but for building the backend.
     pub(crate) fn with_backend(
-        mut backend: Backend,
+        backend: Backend,
         grammar: &ProgramGrammar,
         definition: &CompiledDefinition,
+        options: &CaseOptions,
+    ) -> Result<Self, CampaignError> {
+        let compiler = PatternCompiler::new(definition)?;
+        let normal_end = compiler.normal_end(grammar, options)?;
+        let mut executor = Self::with_normal_end(backend, &normal_end, options)?;
+        executor.compiler = Some(compiler);
+        Ok(executor)
+    }
+
+    /// An executor over a backend the caller built on the definition's route, with the
+    /// normal-termination pattern compiled once per campaign ([`PatternCompiler::normal_end`]);
+    /// only its preparation on this backend runs here. Confirmations use it with a fresh backend
+    /// (FZ-06's request).
+    ///
+    /// # Errors
+    ///
+    /// [`CampaignError::Definition`] when the main module does not load;
+    /// [`CampaignError::NormalEndPattern`] when the pattern does not prepare on this backend;
+    /// [`CampaignError::InvalidOptions`] for a safety limit on wasm32, which has no threads.
+    pub(crate) fn with_normal_end(
+        mut backend: Backend,
+        normal_end: &NormalEnd,
         options: &CaseOptions,
     ) -> Result<Self, CampaignError> {
         #[cfg(target_arch = "wasm32")]
@@ -218,10 +332,6 @@ impl Executor {
                     .to_owned(),
             });
         }
-        let execution_resolved = ResolvedDefinition::resolve(&definition.execution_definition)
-            .map_err(|error| CampaignError::Definition {
-                message: format!("the execution definition does not resolve: {error}"),
-            })?;
         let loaded =
             backend
                 .select_definition(None)
@@ -230,23 +340,13 @@ impl Executor {
                 })?;
         let load_stack_stops = load_stack_stops(&loaded);
         drop(loaded);
-        let (pattern, default_normal_end) = match options.normal_end_pattern.as_deref() {
-            Some(pattern) => (pattern, false),
-            None => (DEFAULT_NORMAL_END, true),
-        };
-        let normal_end = compile_matcher(
-            &mut backend,
-            grammar,
-            &execution_resolved,
-            &definition.main_module,
-            pattern,
-        )
-        .map_err(|message| CampaignError::NormalEndPattern { message })?;
+        let prepared = prepare_matcher(&mut backend, &normal_end.pattern)
+            .map_err(|message| CampaignError::NormalEndPattern { message })?;
         Ok(Self {
             backend,
-            normal_end,
-            default_normal_end,
-            execution_resolved,
+            normal_end: prepared,
+            default_normal_end: normal_end.default,
+            compiler: None,
             max_simplification_iterations: options.max_simplification_iterations,
             load_stack_stops,
             safety_limit_ms: options.safety_limit_ms,
@@ -278,6 +378,38 @@ impl Executor {
         matchers: &[&LeafMatcher],
         cancel: Option<&CancellationToken>,
     ) -> Result<CaseResult, Abort> {
+        self.run_with(initial, shape, matchers, cancel, None)
+            .map(|(result, _)| result)
+    }
+
+    /// [`Self::run`] through `Backend::execute_observed` with the event allowlist `rules`, in the
+    /// same token scope, safety limit and work budget, so that an observer case runs once
+    /// (FZ-10's request). `execute_observed` answers the same leaves in the same order as
+    /// `execute`; the raw observed leaves (branch identities and observations) are returned
+    /// beside the judged result, empty when the result is a failure.
+    ///
+    /// # Errors
+    ///
+    /// [`Abort`] for a failed solver prelude.
+    pub(crate) fn run_observed(
+        &mut self,
+        initial: &KorePattern,
+        shape: &CaseRequestShape,
+        matchers: &[&LeafMatcher],
+        cancel: Option<&CancellationToken>,
+        rules: Option<Vec<String>>,
+    ) -> Result<(CaseResult, Vec<ExecutionLeaf>), Abort> {
+        self.run_with(initial, shape, matchers, cancel, Some(rules))
+    }
+
+    fn run_with(
+        &mut self,
+        initial: &KorePattern,
+        shape: &CaseRequestShape,
+        matchers: &[&LeafMatcher],
+        cancel: Option<&CancellationToken>,
+        observed: Option<Option<Vec<String>>>,
+    ) -> Result<(CaseResult, Vec<ExecutionLeaf>), Abort> {
         let request = shape.request(initial.clone());
         let judge = Judge {
             normal_end: &self.normal_end,
@@ -311,18 +443,18 @@ impl Executor {
                 forward: cancel.map(|caller| (caller.clone(), token.clone())),
                 ..judge
             };
-            let outcome = token.scope(|| judge.execute(backend, request));
+            let outcome = token.scope(|| judge.execute(backend, request, observed));
             // A deadline that passes after the run returned and before this disarm still marks
             // the case `timeout` though its result is complete: conservative (review N3).
             let fired = armed.disarm();
-            return outcome.map(|mut result| {
+            return outcome.map(|(mut result, leaves)| {
                 result.safety_limit_hit = fired;
-                result
+                (result, leaves)
             });
         }
         match cancel {
-            Some(token) => token.scope(|| judge.execute(backend, request)),
-            None => judge.execute(backend, request),
+            Some(token) => token.scope(|| judge.execute(backend, request, observed)),
+            None => judge.execute(backend, request, observed),
         }
     }
 }
@@ -382,7 +514,7 @@ struct Judge<'a> {
 
 /// A leaf pattern's verdict on one leaf.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum MatchVerdict {
+pub(super) enum MatchVerdict {
     Matched,
     NotMatched,
     /// Undecided, matched only under constraints, or matched in execution mode only.
@@ -397,19 +529,32 @@ struct Internal {
     normal_end: bool,
     matches: Vec<bool>,
     constructor_only: Option<bool>,
+    /// Solver `unknown`s the leaf's matching met, in either evaluation mode (review 2, NI-2).
+    smt_unknowns: usize,
 }
 
 impl Judge<'_> {
-    fn execute(&self, backend: &mut Backend, request: ExecuteRequest) -> Result<CaseResult, Abort> {
-        let executed = backend.execute(request);
+    fn execute(
+        &self,
+        backend: &mut Backend,
+        request: ExecuteRequest,
+        observed: Option<Option<Vec<String>>>,
+    ) -> Result<(CaseResult, Vec<ExecutionLeaf>), Abort> {
+        let executed = match observed {
+            None => backend.execute(request),
+            Some(rules) => backend.execute_observed(ObservedRequest { request, rules }),
+        };
         if let Some((caller, case)) = &self.forward
             && caller.is_cancelled()
         {
             case.cancel();
         }
         match executed {
-            Ok(result) => self.judge(backend, result),
-            Err(error) => Ok(self.failed(failure_of(&error)?)),
+            Ok(result) => {
+                let judged = self.judge(backend, &result)?;
+                Ok((judged, result.leaves))
+            }
+            Err(error) => Ok((self.failed(failure_of(&error)?), Vec::new())),
         }
     }
 
@@ -439,7 +584,7 @@ impl Judge<'_> {
         })
     }
 
-    fn judge(&self, backend: &mut Backend, result: ExecutionResult) -> Result<CaseResult, Abort> {
+    fn judge(&self, backend: &mut Backend, result: &ExecutionResult) -> Result<CaseResult, Abort> {
         let run_allowance_refusals = result
             .allowance_refusals
             .iter()
@@ -454,6 +599,16 @@ impl Judge<'_> {
         }
         if run_allowance_refusals > 0 {
             run_reasons.push(UncleanReason::AllowanceRefusal);
+        }
+        // D21: an application left unevaluated as an unsupported hook can steer the equation
+        // evaluator, which applies another equation of the priority group when a condition over
+        // it is undecided (FZ-08 review 2, `steer.k`), and no leaf records the choice.
+        if result
+            .unsupported_hooks
+            .iter()
+            .any(|hook| hook.observed_in == ObservedInOutput::Run)
+        {
+            run_reasons.push(UncleanReason::UnsupportedHook);
         }
         let mut leaves = Vec::with_capacity(result.leaves.len());
         for (index, leaf) in result.leaves.iter().enumerate() {
@@ -471,12 +626,7 @@ impl Judge<'_> {
                 unclean,
                 natural_end: false,
                 matches: vec![false; self.matchers.len()],
-                rewrites: leaf
-                    .trace
-                    .iter()
-                    .filter(|entry| entry.kind == "rewrite")
-                    .map(|entry| entry.unique_id.clone())
-                    .collect(),
+                rewrites: established_rewrites(leaf),
                 constructor_only: None,
             });
         }
@@ -484,7 +634,9 @@ impl Judge<'_> {
             Ok(internal) => internal,
             Err(error) => return Ok(self.failed(failure_of(&error)?)),
         };
+        let mut smt_unknowns = result.smt_unknowns;
         for (leaf, internal) in leaves.iter_mut().zip(internal) {
+            smt_unknowns = smt_unknowns.saturating_add(internal.smt_unknowns);
             leaf.unclean.extend(internal.reasons);
             leaf.unclean.sort();
             leaf.unclean.dedup();
@@ -492,15 +644,15 @@ impl Judge<'_> {
             leaf.matches = internal.matches;
             leaf.constructor_only = internal.constructor_only;
         }
-        let run_facts_off_leaves = run_facts_off_leaves(&result);
-        let mut load_records = load_records(&result);
+        let run_facts_off_leaves = run_facts_off_leaves(result);
+        let mut load_records = load_records(result);
         load_records.extend(self.load_stack_stop_record());
         Ok(CaseResult {
             leaves,
             work: result.work,
-            coverage: result.coverage,
+            coverage: result.coverage.clone(),
             stack_stops: result.stack_stops,
-            smt_unknowns: result.smt_unknowns,
+            smt_unknowns,
             run_allowance_refusals,
             load_records,
             safety_limit_hit: false,
@@ -649,7 +801,13 @@ impl Judge<'_> {
             if self.default_normal_end && attributes.k_cells() != 1 {
                 internal.reasons.push(UncleanReason::NaturalEndUndecided);
             } else {
-                match self.match_leaf(definition, solver, self.normal_end, &pattern)? {
+                match self.match_leaf(
+                    definition,
+                    solver,
+                    self.normal_end,
+                    &pattern,
+                    &mut internal,
+                )? {
                     MatchVerdict::Matched => internal.normal_end = true,
                     MatchVerdict::NotMatched => {}
                     MatchVerdict::Undecided => {
@@ -659,7 +817,7 @@ impl Judge<'_> {
             }
         }
         for (index, matcher) in self.matchers.iter().enumerate() {
-            match self.match_leaf(definition, solver, matcher, &pattern)? {
+            match self.match_leaf(definition, solver, matcher, &pattern, &mut internal)? {
                 MatchVerdict::Matched => internal.matches[index] = true,
                 MatchVerdict::NotMatched => {}
                 MatchVerdict::Undecided => internal.reasons.push(UncleanReason::UndecidedMatch),
@@ -684,6 +842,7 @@ impl Judge<'_> {
         solver: &dyn SmtSolver,
         matcher: &LeafMatcher,
         subject: &Pattern,
+        internal: &mut Internal,
     ) -> Result<MatchVerdict, BackendError> {
         let run = |mode| {
             with_evaluation(mode, || {
@@ -696,11 +855,16 @@ impl Judge<'_> {
                 )
             })
         };
-        let execution = verdict(run(EvaluationMode::Execution))?;
+        let mut decide = |outcome| {
+            let (verdict, unknown) = verdict(outcome)?;
+            internal.smt_unknowns += usize::from(unknown);
+            Ok::<_, BackendError>(verdict)
+        };
+        let execution = decide(run(EvaluationMode::Execution))?;
         if matcher.mode_independent || execution == MatchVerdict::Undecided {
             return Ok(execution);
         }
-        let proof = verdict(run(EvaluationMode::Proof))?;
+        let proof = decide(run(EvaluationMode::Proof))?;
         Ok(if proof == execution {
             execution
         } else {
@@ -709,17 +873,49 @@ impl Judge<'_> {
     }
 }
 
-fn verdict(
+/// A matcher outcome's verdict, and whether the matcher met a solver `unknown`, which depends on
+/// the clock (review 2, NI-2).
+pub(super) fn verdict(
     outcome: Stoppable<Result<Vec<PatternMatch>, PatternMatchError>>,
-) -> Result<MatchVerdict, BackendError> {
+) -> Result<(MatchVerdict, bool), BackendError> {
     Ok(
         match outcome.map_err(|stop| BackendError::from(stop.into_cause()))? {
             Ok(matches) if matches.iter().any(|found| found.constraints.is_empty()) => {
-                MatchVerdict::Matched
+                (MatchVerdict::Matched, false)
             }
-            Ok(matches) if matches.is_empty() => MatchVerdict::NotMatched,
-            Ok(_) | Err(_) => MatchVerdict::Undecided,
+            Ok(matches) if matches.is_empty() => (MatchVerdict::NotMatched, false),
+            Err(PatternMatchError::Smt(SmtError::Unknown(_))) => (MatchVerdict::Undecided, true),
+            Ok(_) | Err(_) => (MatchVerdict::Undecided, false),
         },
+    )
+}
+
+/// The unique ids of a leaf's `Rewrite` trace entries whose step results exist. A `work-bound`,
+/// `timeout` or `cancelled` leaf holds the state where exploration stopped, as taken from the
+/// worklist, unexpanded and unnormalised: its last rewrite built that state, which may still
+/// normalize to `\bottom` (an undefined step, or a candidate a sibling covers), so that entry
+/// is not established and is left out (review 2, S1). Every earlier entry built a state that
+/// the run went on to step.
+pub(super) fn established_rewrites(leaf: &ExecutionLeaf) -> Vec<String> {
+    let mut rewrites: Vec<String> = leaf
+        .trace
+        .iter()
+        .filter(|entry| entry.kind == "rewrite")
+        .map(|entry| entry.unique_id.clone())
+        .collect();
+    if stopped_unnormalised(leaf.reason) {
+        rewrites.pop();
+    }
+    rewrites
+}
+
+/// Whether a leaf of this halt holds an unexpanded, unnormalised stopped state, which is not a
+/// reached result (`HaltReasonOutput::WorkBound`; a timeout or cancellation stops a state the
+/// same way).
+fn stopped_unnormalised(halt: HaltReasonOutput) -> bool {
+    matches!(
+        halt,
+        HaltReasonOutput::WorkBound | HaltReasonOutput::Timeout | HaltReasonOutput::Cancelled
     )
 }
 

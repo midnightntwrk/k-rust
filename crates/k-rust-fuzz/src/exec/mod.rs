@@ -11,7 +11,7 @@
 //! so that every target kind shares one precedence: the target's judge decides which leaves
 //! reach it, and [`classify`] decides what that makes the case.
 
-mod run;
+pub(crate) mod run;
 #[cfg(test)]
 mod tests;
 #[cfg(not(target_arch = "wasm32"))]
@@ -223,6 +223,11 @@ pub enum UncleanReason {
     SmtUnknowns,
     /// The run observed an allowance refusal (`observedIn: run`).
     AllowanceRefusal,
+    /// The run left an application unevaluated as an unsupported hook (`observedIn: run`;
+    /// D21). An equation whose condition is over such a value is undecided, so the simplifier
+    /// applies another equation of its priority group, and the leaf may rest on that choice with
+    /// no mark (FZ-08 review 2, `steer.k`). A run-level fact, on every leaf of the run.
+    UnsupportedHook,
     /// The leaf could not be internalized in its definition; the message.
     Internalization(String),
     /// Its diagnostics record a rule whose side conditions failed to simplify
@@ -267,7 +272,10 @@ pub struct LeafReport {
     pub halt: HaltReasonOutput,
     /// The leaf's depth (rewrite steps on its path).
     pub depth: u64,
-    /// The leaf's configuration as KORE, after k-rust's normalization.
+    /// The leaf's configuration as KORE, after k-rust's normalization. For a `work-bound`,
+    /// `timeout` or `cancelled` leaf it is the stopped state as taken from the worklist,
+    /// unexpanded and unnormalised: not a reached configuration, so no target, observer or
+    /// coverage attribution may treat it as reached (review 2, S1).
     pub state: KorePattern,
     /// Why the leaf is not clean. Sorted, each reason once; a clean leaf holds none but
     /// [`UncleanReason::NaturalEndUndecided`].
@@ -282,8 +290,10 @@ pub struct LeafReport {
     /// visible (D13). `false` on any other leaf, and on a leaf whose match was undecided
     /// ([`UncleanReason::UndecidedMatch`]).
     pub matches: Vec<bool>,
-    /// The unique ids of the `Rewrite` entries of the leaf's trace, in order; empty unless the
-    /// request asked for traces.
+    /// The unique ids of the `Rewrite` entries of the leaf's trace whose step results exist, in
+    /// order; empty unless the request asked for traces. For a `work-bound`, `timeout` or
+    /// `cancelled` leaf the last entry is left out: it built the stopped, unnormalised state,
+    /// which may normalize to `\bottom` (review 2, S1).
     pub rewrites: Vec<String>,
     /// When the request asked for it and the leaf's state can be decided: the leaf's
     /// internalized configuration consists only of free-constructor applications, injections,
@@ -367,7 +377,9 @@ pub struct CaseResult {
     pub coverage: Option<RunCoverageOutput>,
     /// `ExecutionResult::stack_stops`.
     pub stack_stops: usize,
-    /// `ExecutionResult::smt_unknowns`.
+    /// `ExecutionResult::smt_unknowns`, plus the solver `unknown`s the leaf matching met in
+    /// either evaluation mode, which depend on the clock as much as the run's do (review 2,
+    /// NI-2).
     pub smt_unknowns: usize,
     /// Allowance refusals the run observed (`observedIn: run`).
     pub run_allowance_refusals: usize,
@@ -525,7 +537,14 @@ impl CaseRequestShape {
 /// matches), and for the run-level coverage modes the judge marks the leaves that may carry the
 /// run's fact (with several leaves, every leaf only when every leaf could carry a hit; D13).
 /// `run_to_completion` additionally requires a target-reaching clean leaf to be a natural end,
-/// and makes a reaching leaf that is cut, undefined or an abnormal stop `reached-unfinished`. A `terminal`
+/// and makes a reaching leaf that is cut, undefined or an abnormal stop `reached-unfinished`.
+///
+/// Contract on `reached` for `work-bound`, `timeout` and `cancelled` leaves (review 2, S1): their
+/// state is the stopped, unnormalised state, not a reached configuration. A judge may mark such
+/// a leaf reaching only from its [`LeafReport::rewrites`], which leave out the last step's
+/// entry; a reach attributed from run coverage or from an observer that read the stopped state
+/// must not be marked on it. Such a leaf then takes its halt's class (`work-bound`, `timeout`)
+/// instead of `reached-unfinished`. A `terminal`
 /// leaf is a hit candidate only because the target's rule is the only stop rule (T-14).
 ///
 /// # Errors
