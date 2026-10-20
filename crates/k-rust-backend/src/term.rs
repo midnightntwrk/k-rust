@@ -1355,6 +1355,33 @@ impl Term {
         )
     }
 
+    /// [`Self::int`] of a machine integer, written without a `BigInt`: the decimal digits of its
+    /// magnitude, after a `-` when it is negative, which is the canonical `Int` text (no sign
+    /// for zero or a positive value, no leading zero), so the canonicalizer is not run again.
+    pub(crate) fn small_int(value: i64) -> Self {
+        // `i64::MIN` has 19 digits; with its sign, 20 bytes.
+        let mut text = [0_u8; 20];
+        let mut start = text.len();
+        let mut magnitude = value.unsigned_abs();
+        loop {
+            start -= 1;
+            text[start] = b'0' + (magnitude % 10) as u8;
+            magnitude /= 10;
+            if magnitude == 0 {
+                break;
+            }
+        }
+        if value < 0 {
+            start -= 1;
+            text[start] = b'-';
+        }
+        Self::domain_value_of_canonical(
+            DomainKind::Int,
+            Sort::builtin(BuiltinSort::Int),
+            KoreString::from_bytes(&text[start..]),
+        )
+    }
+
     /// The `Bool` domain value `true` or `false`, at the sort `SortBool`, which has the `Bool`
     /// kind by its name whether or not a definition hooks it.
     pub fn bool(value: bool) -> Self {
