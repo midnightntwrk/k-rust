@@ -5,7 +5,7 @@ description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]
 [
     SentenceSummary {
         kind: "rule",
-        body: "`<k>_</k>_MAIN_KCell_K`(#noDots(.KList),foo(#token(\"0\",\"Int\")) #as #SemanticCastToK(V)=>#SemanticCastToK(V)~>#SemanticCastToK(X),#dots(.KList))",
+        body: "`<k>_</k>_MAIN_KCell_K`(#noDots(.KList),``foo(#token(\"0\",\"Int\")) #as #SemanticCastToK(V)``=>``#SemanticCastToK(V)~>#SemanticCastToK(X)``,#dots(.KList))",
         requires: "#token(\"true\",\"Bool\")",
         ensures: Some(
             "#token(\"true\",\"Bool\")",

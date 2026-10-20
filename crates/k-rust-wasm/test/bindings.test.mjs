@@ -349,6 +349,34 @@ test('round-trips KAST and KORE through typed JSON', () => {
   )
 })
 
+test('prints KAST text that reads back as the printed term', () => {
+  for (const [source, text] of [
+    ['``X~>foo(.KList)``=>Y', '``X~>foo(.KList)``=>Y'],
+    ['X~>``foo(.KList)=>Y``', 'X~>``foo(.KList)=>Y``'],
+    ['``X=>Y``=>Z', '``X=>Y``=>Z'],
+    ['``X #as Y``=>Z', '``X #as Y``=>Z'],
+  ]) {
+    const parsed = parseKast(source)
+    assert.equal(parsed.text, text)
+    assert.equal(printKast(parsed.kast), text)
+    assert.deepEqual(parseKast(printKast(parsed.kast)).kast, parsed.kast)
+  }
+  const rewrite = parseKast('``X~>foo(.KList)``=>Y').kast
+  assert.equal(rewrite.term.node, 'KRewrite')
+  assert.equal(rewrite.term.lhs.node, 'KSequence')
+
+  const variable = parseKast('X').kast
+  const sort = parseKast('#token("1","Int")').kast.term.sort
+  assert.throws(
+    () => printKast({ ...variable, term: { ...variable.term, sort } }),
+    /variable X has sort Int/,
+  )
+  assert.throws(
+    () => printKast({ ...variable, term: { ...variable.term, name: '@X' } }),
+    /not readable as textual KAST/,
+  )
+})
+
 test('runs portable backend operations and reports the SMT boundary', () => {
   const backend = createBackend({ definitionKore: backendDefinition, moduleName: 'MAIN' })
   const a = parseKore('a{}()').kore

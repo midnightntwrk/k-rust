@@ -2786,11 +2786,11 @@ mod tests {
         };
         assert_eq!(
             outcome(false).as_deref(),
-            Some("atom(.KList)=>atom(.KList)~>atom(.KList)")
+            Some("atom(.KList)=>``atom(.KList)~>atom(.KList)``")
         );
         assert_eq!(
             outcome(true).as_deref(),
-            Some("start(atom(.KList)=>atom(.KList)~>atom(.KList))")
+            Some("start(atom(.KList)=>``atom(.KList)~>atom(.KList)``)")
         );
     }
 
@@ -2816,7 +2816,7 @@ mod tests {
                 "[ a => a ~> a ]",
             )
             .unwrap();
-            let expected = "o0(atom(.KList)=>atom(.KList)~>atom(.KList))";
+            let expected = "o0(atom(.KList)=>``atom(.KList)~>atom(.KList)``)";
             let expected = if labelled_start {
                 format!("start({expected})")
             } else {
