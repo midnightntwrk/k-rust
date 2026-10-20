@@ -3,7 +3,9 @@
 //!
 //! The report is canonical: its fields serialize in declaration order, every map is ordered,
 //! integers and byte strings in values are text, and no float occurs, so equal reports are equal
-//! bytes ([`FuzzReport::to_canonical_json`]). A campaign's report is a function of its
+//! bytes ([`FuzzReport::to_canonical_json`]). The seed and the budget, which a caller may draw
+//! at random or set to an extreme, are decimal strings; every other integer is a count or a
+//! bound that a JavaScript client reads exactly as long as it stays below 2^53. A campaign's report is a function of its
 //! specification, budget, seed, the k-rust revision and [`crate::ENGINE_VERSION`]
 //! (ARCHITECTURE 5.4).
 
@@ -36,14 +38,10 @@ pub struct FuzzReport {
     pub version: u32,
     /// Everything the report is a function of.
     pub identity: ReportIdentity,
-    /// How the campaign ended.
+    /// How the campaign ended, with the witness or the bounded no-witness statement.
     pub outcome: CampaignOutcome,
     /// Counts over every case.
     pub totals: Totals,
-    /// The confirmed witness, when one was found.
-    pub witness: Option<Witness>,
-    /// The bounded statement of a campaign that found no witness.
-    pub no_witness: Option<NoWitness>,
     /// Records the definitions' loads observed, reported once per campaign; they taint no leaf
     /// (T-5).
     pub load_records: Vec<LoadRecord>,
@@ -62,6 +60,28 @@ impl FuzzReport {
     #[must_use]
     pub fn to_canonical_json(&self) -> String {
         serde_json::to_string(self).expect("a report has string map keys and no floats")
+    }
+
+    /// The confirmed witness, when the campaign found one.
+    #[must_use]
+    pub fn witness(&self) -> Option<&Witness> {
+        match &self.outcome {
+            CampaignOutcome::WitnessFound { witness } => Some(witness),
+            _ => None,
+        }
+    }
+
+    /// The bounded no-witness statement, when the campaign ended without a witness for a
+    /// reason other than equivalence.
+    #[must_use]
+    pub fn no_witness(&self) -> Option<&NoWitness> {
+        match &self.outcome {
+            CampaignOutcome::NoWitnessFound { no_witness }
+            | CampaignOutcome::RejectedOut { no_witness }
+            | CampaignOutcome::Cancelled { no_witness }
+            | CampaignOutcome::Aborted { no_witness, .. } => Some(no_witness),
+            CampaignOutcome::WitnessFound { .. } | CampaignOutcome::Equivalent => None,
+        }
     }
 
     /// Read a report written by [`Self::to_canonical_json`].
@@ -91,7 +111,14 @@ pub struct ReportIdentity {
     pub overlay_digest: String,
     /// [`digest_hex`] of the canonical JSON of the target.
     pub target_digest: String,
-    /// The case options as given, with [`CaseOptions::effective_max_work`] applied.
+    /// [`digest_hex`] of the baseline's initial configuration with every hole at its anchor,
+    /// as printed KORE: it identifies the grammar, the configuration-variable bindings and the
+    /// stream defaults the program was assembled with, which the program digest does not
+    /// (two grammars can parse one text differently). `None` when a hole has no anchor (a
+    /// KORE-template variable); the template itself is then the program digest's input.
+    pub initial_configuration_digest: Option<String>,
+    /// The case options as given, with [`CaseOptions::effective_max_work`] applied; they carry
+    /// the backend's solver options.
     pub options: CaseOptions,
     /// The proposer configuration.
     pub proposers: ProposerConfig,
@@ -99,12 +126,16 @@ pub struct ReportIdentity {
     pub bounds: GenerationBounds,
     /// The rejection cap.
     pub rejection_cap: u64,
-    /// The campaign seed.
+    /// The campaign seed, as a decimal string.
+    #[serde(with = "decimal_u64")]
     pub seed: u64,
     /// The budget [`crate::Campaign::run`] was given.
     pub budget: Budget,
     /// The executing thread's stack size, as the caller gave it.
     pub thread_stack_size: Option<u64>,
+    /// `"z3"` when the crate was built with its `z3` feature, `"none"` otherwise: a build
+    /// without a solver leaves undecided some conditions a solver decides.
+    pub solver: String,
 }
 
 /// Which definition of the campaign.
@@ -123,6 +154,10 @@ pub enum DefinitionRole {
 pub struct DefinitionIdentity {
     /// Baseline or mutant.
     pub role: DefinitionRole,
+    /// The main module, which the execution digest does not cover.
+    pub main_module: String,
+    /// The module whose grammar parses the program.
+    pub syntax_module: String,
     /// The execution digest of its KORE definition, as text.
     pub execution_digest: String,
     /// `"source-execution"` or `"from-definition"` ([`crate::BackendRoute`]).
@@ -132,25 +167,42 @@ pub struct DefinitionIdentity {
     pub execution_rewrite_order_digest: Option<String>,
 }
 
-/// How a campaign ended.
+/// How a campaign ended, with what it found. Every ending without a witness except
+/// equivalence carries the bounded statement, so that no report of a campaign that stopped
+/// early reads as a pass.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(tag = "status", rename_all = "kebab-case")]
+#[serde(tag = "status", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum CampaignOutcome {
-    /// A witness was found and confirmed.
-    WitnessFound,
-    /// The budget ran out without a confirmed witness.
-    NoWitnessFound,
+    /// A witness was found and confirmed. A cancellation or abort during shrinking keeps this
+    /// outcome: the witness was confirmed before it.
+    WitnessFound {
+        /// The witness.
+        witness: Witness,
+    },
+    /// The budget ran out, or every proposer was exhausted, without a confirmed witness.
+    NoWitnessFound {
+        /// The bounded statement.
+        no_witness: NoWitness,
+    },
     /// Differential: equal execution digests (and rewrite orders) ended the campaign before any
     /// case (ARCHITECTURE 4.3).
     Equivalent,
     /// The rejection cap was reached (ARCHITECTURE 9.2).
-    RejectedOut,
+    RejectedOut {
+        /// The bounded statement.
+        no_witness: NoWitness,
+    },
     /// The caller's cancellation token stopped the campaign.
-    Cancelled,
+    Cancelled {
+        /// The bounded statement.
+        no_witness: NoWitness,
+    },
     /// A failure every case would repeat ended the campaign (a failed solver prelude).
     Aborted {
         /// Why.
         reason: String,
+        /// The bounded statement.
+        no_witness: NoWitness,
     },
 }
 
@@ -160,13 +212,17 @@ pub enum CampaignOutcome {
 pub struct Totals {
     /// Cases run, rejected cases included; confirmation and shrink runs excluded.
     pub cases: u64,
-    /// Backend work over every execution, confirmation and shrinking included.
+    /// Backend work over every execution, confirmation and shrinking included, with every case
+    /// charged at least 1 ([`Budget::Work`]).
     pub work: u64,
     /// Cases per class; classes with no case are omitted.
     pub classes: BTreeMap<OutcomeClass, u64>,
     /// Rejected cases per thousand cases, rounded down.
     pub rejection_rate_permille: u64,
-    /// Rules some case reached.
+    /// Rejected cases per reason; reasons with no case are omitted. The counts sum to the
+    /// `rejected` entry of [`Self::classes`].
+    pub rejections: BTreeMap<RejectionReason, u64>,
+    /// Rules the cases reached (see [`CoverageTotals`]).
     pub coverage: CoverageTotals,
     /// Cases in which the target rule was blocked (ARCHITECTURE 6.2).
     pub target_blocked: u64,
@@ -177,7 +233,14 @@ pub struct Totals {
     pub outside_determinism: u64,
 }
 
-/// The rules some scored case reached (ARCHITECTURE 6.1).
+/// The rules the campaign's cases reached (ARCHITECTURE 6.1, 9.3).
+///
+/// Every executed case inside the determinism contract contributes, whatever its class: a
+/// bounded case's coverage is what it reached before the bound, which is deterministic. A
+/// rejected case executes nothing, and a case outside the determinism contract (a timeout, say)
+/// reached a clock- or thread-dependent set, so neither contributes. Confirmation and shrink
+/// runs repeat or vary a case and do not contribute either. Only `miss` cases feed the
+/// proposers' feedback (R-18); that restriction is about guidance, not about this total.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct CoverageTotals {
@@ -185,6 +248,23 @@ pub struct CoverageTotals {
     pub applied: BTreeSet<String>,
     /// Rule ids in some case's coverage `matched`.
     pub matched: BTreeSet<String>,
+}
+
+/// Why a case was `rejected` (ARCHITECTURE 2.3, 5.3).
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RejectionReason {
+    /// A value violates its hole's sort or constraints.
+    Constraint,
+    /// A value cannot be printed as K text or KORE at its hole's sort.
+    Print,
+    /// The instantiated program or a binding does not parse, or the configuration does not
+    /// assemble.
+    Assembly,
+    /// A value did not parse back, at its hole's position, to the value intended.
+    RoundTrip,
+    /// The backend refused the initial state (`vacuous` at depth 0).
+    BackendRefused,
 }
 
 /// How a hit is labelled (ARCHITECTURE 4, 5.3).
@@ -207,10 +287,17 @@ pub struct Witness {
     pub first: WitnessCase,
     /// The shrunk witness, each step of which was confirmed; `None` when nothing shrank.
     pub shrunk: Option<WitnessCase>,
-    /// The clean-leaf facts that were checked (ARCHITECTURE 5.2).
+    /// The clean-leaf facts that were checked (ARCHITECTURE 5.2), and for a differential target
+    /// the conditions of ARCHITECTURE 4.3.
     pub clean_leaf_facts: Vec<String>,
-    /// The equivalent `krun` command line.
-    pub krun_command: String,
+    /// The `krun` command line that re-runs the shrunk witness when there is one, otherwise the
+    /// first: the instantiated program passed with `-e`, the configuration variables with `-c`,
+    /// `--io off`, the strategy of the path mode, the depth bound and the solver options, with
+    /// the compiled definition's directory left as `<definition-dir>`. `krun` has no work
+    /// bound, so a campaign bounded by `max-work` says so in a trailing comment. `None` when no
+    /// `krun` run is equivalent: a KORE-template program, a backend on the `from-definition`
+    /// route (krun orders rules by the compiler's rewrite order), or a differential pair.
+    pub krun_command: Option<String>,
 }
 
 /// One confirmed witness case (ARCHITECTURE 2.6).
@@ -219,14 +306,27 @@ pub struct Witness {
 pub struct WitnessCase {
     /// The hole overlay with values, in declaration order.
     pub holes: Vec<HoleValue>,
-    /// The concrete initial configuration, as KORE text.
-    pub initial_configuration: String,
     /// The class confirmation gave (`hit`).
     pub class: OutcomeClass,
-    /// The final configuration or configurations, as KORE text.
-    pub final_configurations: Vec<String>,
-    /// The step count of the reaching leaf.
+    /// What each definition's run started from and ended in: the baseline, then for a
+    /// differential witness the mutant, whose killing end is not among the baseline's ends
+    /// (ARCHITECTURE 4.3).
+    pub sides: Vec<WitnessSide>,
+    /// The step count of the reaching leaf (the killing mutant leaf of a differential
+    /// witness).
     pub steps: u64,
+}
+
+/// One definition's run of a witness case.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct WitnessSide {
+    /// Baseline or mutant.
+    pub role: DefinitionRole,
+    /// The concrete initial configuration this definition's grammar assembled, as KORE text.
+    pub initial_configuration: String,
+    /// Every leaf's configuration, as KORE text, in the backend's order.
+    pub final_configurations: Vec<String>,
 }
 
 /// One hole of a witness: its location and its value as K text, KORE and value
@@ -251,13 +351,13 @@ pub struct HoleValue {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct NoWitness {
-    /// The sentence: the cases run, the path mode explored, and the bound to raise.
+    /// The sentence: the cases run, the path mode explored, and the bound to raise. In
+    /// one-path mode it always names the all-paths option: no execution result says whether a
+    /// one-path run passed over another applicable rule (R-15), so the engine cannot restrict
+    /// the suggestion to campaigns where one did.
     pub statement: String,
     /// The path mode the cases ran in.
     pub path_mode: PathMode,
-    /// Some one-path case had an alternative candidate, so the all-paths mode may find more
-    /// (R-15).
-    pub alternatives_seen: bool,
 }
 
 /// A record a definition's load observed (`observedIn: load`): a fact about the definition,
@@ -295,6 +395,25 @@ pub struct EngineDefect {
     pub description: String,
 }
 
+/// Serialize a `u64` as a decimal string, which JavaScript reads exactly at any size.
+pub(crate) mod decimal_u64 {
+    use serde::{Deserialize, Deserializer, Serializer, de::Error};
+
+    #[expect(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "serde's `with` passes a reference to the field"
+    )]
+    pub(crate) fn serialize<S: Serializer>(value: &u64, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(value)
+    }
+
+    pub(crate) fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error> {
+        String::deserialize(deserializer)?
+            .parse()
+            .map_err(D::Error::custom)
+    }
+}
+
 /// The lowercase hex SHA-256 of `bytes`, the digest every report identity field uses.
 #[must_use]
 pub fn digest_hex(bytes: &[u8]) -> String {
@@ -314,7 +433,7 @@ mod tests {
     use super::*;
     use crate::{
         holes::SpanAddress,
-        spec::{CaseOptions, ProposerConfig},
+        spec::{CaseOptions, ProposerConfig, ProposerKind},
     };
 
     /// A report with every optional part present and every collection non-empty, so that a
@@ -334,9 +453,12 @@ mod tests {
         };
         let case = WitnessCase {
             holes: vec![hole],
-            initial_configuration: "Lbl'-LT-'generatedTop'-GT-'{}()".into(),
             class: OutcomeClass::Hit,
-            final_configurations: vec!["Lbl'-LT-'generatedTop'-GT-'{}()".into()],
+            sides: vec![WitnessSide {
+                role: DefinitionRole::Baseline,
+                initial_configuration: "Lbl'-LT-'generatedTop'-GT-'{}()".into(),
+                final_configurations: vec!["Lbl'-LT-'generatedTop'-GT-'{}()".into()],
+            }],
             steps: 12,
         };
         FuzzReport {
@@ -347,6 +469,8 @@ mod tests {
                 k_rust_revision: "b322de1ab".into(),
                 definitions: vec![DefinitionIdentity {
                     role: DefinitionRole::Baseline,
+                    main_module: "IMP".into(),
+                    syntax_module: "IMP-SYNTAX".into(),
                     execution_digest: "0123".into(),
                     route: "source-execution".into(),
                     execution_rewrite_order_digest: Some(digest_hex(b"rule-1\nrule-2")),
@@ -354,6 +478,7 @@ mod tests {
                 program_digest: digest_hex(b"program"),
                 overlay_digest: digest_hex(b"overlay"),
                 target_digest: digest_hex(b"target"),
+                initial_configuration_digest: Some(digest_hex(b"initial")),
                 options: CaseOptions {
                     max_work: Some(100_000),
                     ..CaseOptions::default()
@@ -367,11 +492,20 @@ mod tests {
                 },
                 bounds: GenerationBounds::default(),
                 rejection_cap: 10,
-                seed: 0x5eed,
+                seed: u64::MAX,
                 budget: Budget::Cases(5000),
                 thread_stack_size: Some(64 << 20),
+                solver: "none".into(),
             },
-            outcome: CampaignOutcome::WitnessFound,
+            outcome: CampaignOutcome::WitnessFound {
+                witness: Witness {
+                    label: HitLabel::PropertyFailure,
+                    first: case.clone(),
+                    shrunk: Some(case),
+                    clean_leaf_facts: vec!["ceil-free".into()],
+                    krun_command: Some("krust krun transfer.imp".into()),
+                },
+            },
             totals: Totals {
                 cases: 40,
                 work: 1234,
@@ -381,6 +515,10 @@ mod tests {
                     (OutcomeClass::Hit, 1),
                 ]),
                 rejection_rate_permille: 50,
+                rejections: BTreeMap::from([
+                    (RejectionReason::RoundTrip, 1),
+                    (RejectionReason::BackendRefused, 1),
+                ]),
                 coverage: CoverageTotals {
                     applied: BTreeSet::from(["b".to_owned(), "a".to_owned()]),
                     matched: BTreeSet::from(["c".to_owned()]),
@@ -389,18 +527,6 @@ mod tests {
                 best_score: Some(vec![0, 2]),
                 outside_determinism: 0,
             },
-            witness: Some(Witness {
-                label: HitLabel::PropertyFailure,
-                first: case.clone(),
-                shrunk: Some(case),
-                clean_leaf_facts: vec!["ceil-free".into()],
-                krun_command: "krust krun transfer.imp".into(),
-            }),
-            no_witness: Some(NoWitness {
-                statement: "No witness in 40 cases.".into(),
-                path_mode: PathMode::OnePath,
-                alternatives_seen: false,
-            }),
             load_records: vec![LoadRecord {
                 kind: "contradicted-claim".into(),
                 detail: "total".into(),
@@ -425,6 +551,26 @@ mod tests {
         let read = FuzzReport::from_json(&text).expect("the report reads back");
         assert_eq!(read, report);
         assert_eq!(read.to_canonical_json(), text);
+
+        let mut cancelled = report;
+        cancelled.outcome = CampaignOutcome::Aborted {
+            reason: "prelude".into(),
+            no_witness: NoWitness {
+                statement: "No witness.".into(),
+                path_mode: PathMode::AllPaths,
+            },
+        };
+        let text = cancelled.to_canonical_json();
+        assert!(
+            text.contains(concat!(
+                r#""outcome":{"status":"aborted","reason":"prelude","no-witness":"#,
+                r#"{"statement":"No witness.","path-mode":"all-paths"}}"#
+            )),
+            "{text}"
+        );
+        assert_eq!(FuzzReport::from_json(&text).expect("reads back"), cancelled);
+        assert_eq!(cancelled.witness(), None);
+        assert!(cancelled.no_witness().is_some());
     }
 
     #[test]
@@ -433,24 +579,29 @@ mod tests {
         let expected = concat!(
             r#"{"schema":"krust-fuzz-report","version":1,"identity":{"engine-version":1,"#,
             r#""k-rust-revision":"b322de1ab","definitions":[{"role":"baseline","#,
+            r#""main-module":"IMP","syntax-module":"IMP-SYNTAX","#,
             r#""execution-digest":"0123","route":"source-execution","#,
             r#""execution-rewrite-order-digest":"#,
             r#""ORDER"}],"#,
             r#""program-digest":"PROGRAM","overlay-digest":"OVERLAY","target-digest":"TARGET","#,
+            r#""initial-configuration-digest":"INITIAL","#,
             r#""options":{"paths":"one-path","max-depth":null,"max-work":100000,"#,
             r#""max-simplification-iterations":ITER,"normal-end-pattern":null,"#,
-            r#""safety-limit-ms":null},"proposers":{"anchors-first":true,"explicit":"#,
+            r#""safety-limit-ms":null,"backend":{"smt-timeout-ms":125,"smt-retry-limit":3}},"#,
+            r#""proposers":{"anchors-first":true,"explicit":"#,
             r#"[{"AMOUNT":{"bytes":"00ab"}}],"weights":{"blind":1}},"#,
             r#""bounds":{"int-bits":64,"length":16,"depth":4},"rejection-cap":10,"#,
-            r#""seed":24301,"budget":{"cases":5000},"thread-stack-size":67108864},"#,
-            r#""outcome":{"status":"witness-found"},"totals":{"cases":40,"work":1234,"#,
-            r#""classes":{"hit":1,"miss":37,"rejected":2},"rejection-rate-permille":50,"#,
-            r#""coverage":{"applied":["a","b"],"matched":["c"]},"target-blocked":3,"#,
-            r#""best-score":[0,2],"outside-determinism":0},"witness":{"label":"property-failure","#,
+            r#""seed":"18446744073709551615","budget":{"cases":"5000"},"#,
+            r#""thread-stack-size":67108864,"solver":"none"},"#,
+            r#""outcome":{"status":"witness-found","witness":{"label":"property-failure","#,
             r#""first":CASE,"shrunk":CASE,"clean-leaf-facts":["ceil-free"],"#,
-            r#""krun-command":"krust krun transfer.imp"},"no-witness":{"#,
-            r#""statement":"No witness in 40 cases.","path-mode":"one-path","#,
-            r#""alternatives-seen":false},"load-records":[{"kind":"contradicted-claim","#,
+            r#""krun-command":"krust krun transfer.imp"}},"#,
+            r#""totals":{"cases":40,"work":1234,"#,
+            r#""classes":{"hit":1,"miss":37,"rejected":2},"rejection-rate-permille":50,"#,
+            r#""rejections":{"round-trip":1,"backend-refused":1},"#,
+            r#""coverage":{"applied":["a","b"],"matched":["c"]},"target-blocked":3,"#,
+            r#""best-score":[0,2],"outside-determinism":0},"#,
+            r#""load-records":[{"kind":"contradicted-claim","#,
             r#""detail":"total"}],"sort-overrides":[{"hole":"X","sort":"Id","#,
             r#""refusal":"Token"}],"warnings":["statically-unreachable"],"#,
             r#""engine-defects":[{"case":7,"description":"confirmation disagreed"}]}"#,
@@ -459,15 +610,17 @@ mod tests {
             r#"{"holes":[{"name":"AMOUNT","location":{"kind":"span","#,
             r#""program":"transfer.imp","line":4,"find":"amount = 250;","literal":"250"},"#,
             r#""k-text":"-7","kore":"\\dv{SortInt{}}(\"-7\")","#,
-            r#""value":{"int":"-7"}}],"#,
-            r#""initial-configuration":"Lbl'-LT-'generatedTop'-GT-'{}()","class":"hit","#,
-            r#""final-configurations":["Lbl'-LT-'generatedTop'-GT-'{}()"],"steps":12}"#,
+            r#""value":{"int":"-7"}}],"class":"hit","#,
+            r#""sides":[{"role":"baseline","#,
+            r#""initial-configuration":"Lbl'-LT-'generatedTop'-GT-'{}()","#,
+            r#""final-configurations":["Lbl'-LT-'generatedTop'-GT-'{}()"]}],"steps":12}"#,
         );
         let expected = expected
             .replace("ORDER", &digest_hex(b"rule-1\nrule-2"))
             .replace("PROGRAM", &digest_hex(b"program"))
             .replace("OVERLAY", &digest_hex(b"overlay"))
             .replace("TARGET", &digest_hex(b"target"))
+            .replace("INITIAL", &digest_hex(b"initial"))
             .replace(
                 "ITER",
                 &CaseOptions::default()
@@ -476,6 +629,48 @@ mod tests {
             )
             .replace("CASE", case);
         assert_eq!(text, expected);
+    }
+
+    /// Map keys serialize in the derived `Ord`, which is declaration order: reordering either
+    /// enum would change report bytes without a `REPORT_VERSION` bump. This test freezes both
+    /// orders; a precedence order belongs in a separate function.
+    #[test]
+    fn class_and_proposer_keys_serialize_in_a_frozen_order() {
+        let classes: BTreeMap<OutcomeClass, u64> =
+            OutcomeClass::ALL.iter().map(|class| (*class, 0)).collect();
+        assert_eq!(
+            serde_json::to_string(&classes).expect("serializes"),
+            concat!(
+                r#"{"hit":0,"miss":0,"stuck":0,"reached-unfinished":0,"depth-bound":0,"#,
+                r#""work-bound":0,"timeout":0,"undefined":0,"unsupported":0,"rejected":0,"#,
+                r#""baseline-incomplete":0}"#
+            )
+        );
+        let weights = BTreeMap::from([
+            (ProposerKind::Solve, 5),
+            (ProposerKind::Corpus, 4),
+            (ProposerKind::Climb, 3),
+            (ProposerKind::Dictionary, 2),
+            (ProposerKind::Blind, 1),
+        ]);
+        assert_eq!(
+            serde_json::to_string(&weights).expect("serializes"),
+            r#"{"blind":1,"dictionary":2,"climb":3,"corpus":4,"solve":5}"#
+        );
+        let reasons = BTreeMap::from([
+            (RejectionReason::BackendRefused, 5),
+            (RejectionReason::RoundTrip, 4),
+            (RejectionReason::Assembly, 3),
+            (RejectionReason::Print, 2),
+            (RejectionReason::Constraint, 1),
+        ]);
+        assert_eq!(
+            serde_json::to_string(&reasons).expect("serializes"),
+            concat!(
+                r#"{"constraint":1,"print":2,"assembly":3,"round-trip":4,"#,
+                r#""backend-refused":5}"#
+            )
+        );
     }
 
     #[test]

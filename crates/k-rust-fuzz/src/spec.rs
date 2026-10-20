@@ -1,11 +1,14 @@
 //! The campaign specification: everything a campaign's report is a function of, apart from the
 //! budget (ARCHITECTURE 5.4, 9.2).
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
 use k_rust::{
-    backend::ExecutionDigest, definition::Definition as FrontendDefinition, kast::Sort as KastSort,
-    kompile::CompiledKoreArtifacts, kore::ast::Definition as KoreDefinition,
+    backend::{BackendOptions, ExecutionDigest},
+    definition::Definition as FrontendDefinition,
+    kast::Sort as KastSort,
+    kompile::CompiledKoreArtifacts,
+    kore::ast::Definition as KoreDefinition,
     kore::ast::Pattern as KorePattern,
 };
 use serde::{Deserialize, Serialize};
@@ -73,14 +76,15 @@ pub struct CallerIdentity {
 /// The definitions a campaign runs on (ARCHITECTURE 9.2).
 ///
 /// A `mutant` is present exactly when the target is differential; [`crate::Campaign::new`]
-/// refuses any other combination.
+/// refuses any other combination. The definitions are shared, so that a client running many
+/// campaigns over one definition (one per program, target or mutant) does not copy it.
 #[derive(Clone, Debug)]
 pub struct Definitions {
     /// The definition every case runs on; the baseline of a differential target, whose
     /// signature hole values are generated from (ARCHITECTURE 4.3).
-    pub baseline: CompiledDefinition,
+    pub baseline: Arc<CompiledDefinition>,
     /// The mutant of a differential target.
-    pub mutant: Option<CompiledDefinition>,
+    pub mutant: Option<Arc<CompiledDefinition>>,
 }
 
 /// One compiled definition and the route its backend is built on (ARCHITECTURE 5.4, T-6).
@@ -245,6 +249,43 @@ pub struct CaseOptions {
     /// Per-case wall-clock safety limit in milliseconds. A case it stops is `timeout` and
     /// outside the determinism contract (ARCHITECTURE 5.1, 5.4). `None`: no limit.
     pub safety_limit_ms: Option<u64>,
+    /// The solver options every backend of the campaign is built with (krun's
+    /// `--smt-timeout` and `--smt-retry-limit`). `smtUnknowns` depend on them, so they are part
+    /// of the report's identity. The SMT prelude and the simplification stack budget are always
+    /// the backend's defaults.
+    pub backend: BackendSettings,
+}
+
+/// The solver options of every backend a campaign builds: a serializable copy of
+/// `k_rust::backend::BackendOptions`, recorded in the report.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct BackendSettings {
+    /// `BackendOptions::smt_timeout_ms`.
+    pub smt_timeout_ms: u32,
+    /// `BackendOptions::smt_retry_limit`.
+    pub smt_retry_limit: u32,
+}
+
+impl Default for BackendSettings {
+    fn default() -> Self {
+        let defaults = BackendOptions::default();
+        Self {
+            smt_timeout_ms: defaults.smt_timeout_ms,
+            smt_retry_limit: defaults.smt_retry_limit,
+        }
+    }
+}
+
+impl BackendSettings {
+    /// The backend options these settings stand for.
+    #[must_use]
+    pub fn options(self) -> BackendOptions {
+        BackendOptions {
+            smt_timeout_ms: self.smt_timeout_ms,
+            smt_retry_limit: self.smt_retry_limit,
+        }
+    }
 }
 
 impl Default for CaseOptions {
@@ -257,6 +298,7 @@ impl Default for CaseOptions {
                 k_rust::k_rust_backend::simplify::DEFAULT_MAX_SIMPLIFICATION_ITERATIONS,
             normal_end_pattern: None,
             safety_limit_ms: None,
+            backend: BackendSettings::default(),
         }
     }
 }
@@ -323,16 +365,22 @@ impl Default for ProposerConfig {
 /// How much a campaign may spend (ARCHITECTURE 9.2).
 ///
 /// There is deliberately no wall-clock budget: it would make the number of cases depend on the
-/// host (R-27).
+/// host (R-27). In JSON the limit is a decimal string, which JavaScript clients read exactly
+/// whatever its size.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Budget {
-    /// At most this many cases, rejected cases included.
-    Cases(u64),
+    /// At most this many cases, rejected cases included. Confirmation and shrink runs are not
+    /// cases; the engine caps shrinking separately.
+    Cases(#[serde(with = "crate::report::decimal_u64")] u64),
     /// At most this much backend work: the sum of `work` over every execution the campaign runs,
     /// including confirmation, shrinking, both sides of a differential case and the solve
-    /// proposer's runs (R-7).
-    Work(u64),
+    /// proposer's runs (R-7). Every case is charged at least 1, rejected and failed (`Err`)
+    /// cases included, so a campaign whose cases do no work still ends. An execution starts
+    /// only while the work spent is below the budget, except the confirmation of a candidate
+    /// hit, which always runs; the total may therefore exceed the budget by the last
+    /// execution's work and one confirmation's.
+    Work(#[serde(with = "crate::report::decimal_u64")] u64),
 }
 
 #[cfg(test)]
@@ -355,7 +403,7 @@ mod tests {
         assert_eq!(budget_limit(Budget::Work(7)), ("work", 7));
         assert_eq!(
             serde_json::to_string(&Budget::Work(7)).expect("a budget serializes"),
-            r#"{"work":7}"#
+            r#"{"work":"7"}"#
         );
     }
 

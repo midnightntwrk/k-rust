@@ -1,16 +1,37 @@
 //! The engine: campaign validation, the loop over cases, the proposer schedule, the budget,
 //! confirmation, shrinking and the report (ARCHITECTURE 1, 7, 8, 9.2, 9.3). Owner: FZ-06.
 
+mod campaign_loop;
+mod live;
 pub(crate) mod proposer;
+mod runner;
+mod schedule;
+mod shrink;
+#[cfg(test)]
+mod tests;
+
+use std::sync::Arc;
 
 use k_rust::backend::CancellationToken;
 
+use self::{
+    campaign_loop::{Ending, LoopSettings, no_witness, report_without_cases, run_loop},
+    live::{LiveCases, LiveRunner},
+    proposer::{BlindProposer, Proposer},
+    schedule::{Schedule, derive_seed},
+};
 use crate::{
     error::CampaignError,
-    exec::CaseResult,
-    report::FuzzReport,
-    spec::{Assignment, Budget, CampaignSpec},
-    target::Judgement,
+    report::{
+        CampaignOutcome, DefinitionIdentity, DefinitionRole, FuzzReport, HitLabel, ReportIdentity,
+        SortOverride, Totals, digest_hex,
+    },
+    spec::{
+        BackendRoute, Budget, CampaignSpec, CaseOptions, CompiledDefinition, ProgramInput,
+        ProposerConfig, ProposerKind,
+    },
+    target::{PatternAt, TargetKind, differential},
+    values::{self, Generator, Value, ValueRng},
 };
 
 /// A validated campaign (ARCHITECTURE 9.2).
@@ -19,15 +40,26 @@ use crate::{
 /// runs cases on the calling thread until the budget is spent, a witness is confirmed, the
 /// rejection cap is reached or the caller cancels.
 pub struct Campaign {
-    spec: CampaignSpec,
+    spec: Arc<CampaignSpec>,
+    /// The case execution [`Campaign::new`] built, which the first run uses; later runs build
+    /// their own.
+    cases: Option<LiveCases>,
+    explicit: Vec<Vec<Value>>,
+    settings: LoopSettings,
+    /// Differential: the definitions are equivalent, so no case runs (ARCHITECTURE 4.3).
+    equivalent: bool,
 }
 
 impl Campaign {
-    /// Validate `spec` (ARCHITECTURE 9.2): build each definition's backend on its route and its
-    /// program assembly, resolve the holes ([`crate::holes`]) and their generators
-    /// ([`crate::values`]), resolve the target ([`crate::target`]), check the explicit
-    /// assignments against the holes' constraints, refuse a proposer this build or milestone
-    /// does not provide, and assemble and run-check the program with its anchor values.
+    /// Validate `spec` (ARCHITECTURE 9.2): check that a mutant is given exactly for a
+    /// differential target and that every weighted proposer is provided, build each
+    /// definition's backend on its route and its program assembly, resolve the holes
+    /// ([`crate::holes`]) and their generators ([`crate::values`]), resolve the target
+    /// ([`crate::target`]), check the explicit assignments against the holes' constraints, and
+    /// assemble and round-trip-check the program with its anchor values.
+    ///
+    /// The backend's acceptance of the anchors' initial state is not executed here: the first
+    /// case runs it, and a refusal is a `rejected` case with the reason `backend-refused`.
     ///
     /// # Errors
     ///
@@ -35,9 +67,75 @@ impl Campaign {
     /// `literal` does not occur exactly once, overlapping spans, an anchor that does not parse
     /// back, a refused hole sort, explicit assignments that violate their constraints, an
     /// unknown, ambiguous or refused target, a hole sort missing on one side of a differential,
-    /// and a program that does not assemble or is refused with its anchor values.
+    /// and a program that does not assemble with its anchor values.
     pub fn new(spec: CampaignSpec) -> Result<Campaign, CampaignError> {
-        unimplemented!("FZ-06")
+        check_definitions(&spec)?;
+        check_proposers(&spec.proposers)?;
+        let spec = Arc::new(spec);
+        let cases = LiveCases::build(Arc::clone(&spec))?;
+        let holes = &cases.baseline.holes.holes;
+        let names: Vec<String> = holes.iter().map(|hole| hole.decl.name.clone()).collect();
+        let anchors: Vec<Option<Value>> = holes.iter().map(|hole| hole.anchor.clone()).collect();
+        for (index, assignment) in spec.proposers.explicit.iter().enumerate() {
+            for hole in holes {
+                if let Some(value) = assignment.get(&hole.decl.name) {
+                    values::check_constraints(value, &hole.sort, &hole.decl.constraints).map_err(
+                        |message| CampaignError::ExplicitAssignment {
+                            index,
+                            hole: hole.decl.name.clone(),
+                            message,
+                        },
+                    )?;
+                }
+            }
+        }
+        let explicit = explicit_proposals(&names, &anchors, &spec.proposers)?;
+        generators(&cases, &spec)?;
+        let initial = match cases.anchor_configuration() {
+            None => None,
+            Some(Ok(configuration)) => Some(digest_hex(configuration.to_string().as_bytes())),
+            Some(Err(reason)) => {
+                return Err(CampaignError::Program {
+                    message: format!("the program with its anchor values is refused: {reason:?}"),
+                });
+            }
+        };
+        let equivalent = match &spec.definitions.mutant {
+            Some(mutant) => differential::equivalent(&spec.definitions.baseline, mutant)?,
+            None => false,
+        };
+        let settings = LoopSettings {
+            identity: identity(&spec, initial)?,
+            rejection_cap: spec.rejection_cap,
+            options: spec.options.clone(),
+            label: if spec.target.negated_property {
+                HitLabel::PropertyFailure
+            } else {
+                HitLabel::Hit
+            },
+            clean_leaf_facts: clean_leaf_facts(&spec),
+            constraints: holes
+                .iter()
+                .map(|hole| hole.decl.constraints.clone())
+                .collect(),
+            sort_overrides: holes
+                .iter()
+                .filter_map(|hole| {
+                    hole.overridden.as_ref().map(|refusal| SortOverride {
+                        hole: hole.decl.name.clone(),
+                        sort: hole.decl.sort.clone(),
+                        refusal: format!("{refusal:?}"),
+                    })
+                })
+                .collect(),
+        };
+        Ok(Campaign {
+            spec,
+            cases: Some(cases),
+            explicit,
+            settings,
+            equivalent,
+        })
     }
 
     /// The specification this campaign was built from.
@@ -50,52 +148,248 @@ impl Campaign {
     /// is reached, or `cancel` is cancelled (ARCHITECTURE 9.2).
     ///
     /// Every case runs on the calling thread. `Budget::Work` charges every execution:
-    /// confirmation, shrinking and both sides of a differential case included. The proposers
-    /// are mixed by a deterministic schedule seeded from the campaign seed; the explicit
-    /// proposer tries the anchors first (ARCHITECTURE 8.1). A candidate hit becomes a witness
-    /// only after [`confirm`] agrees; a disagreement is an engine defect (ARCHITECTURE 7). The
-    /// report is a function of the specification, the budget, the k-rust revision and
-    /// [`crate::ENGINE_VERSION`], outside the determinism exclusions it counts
+    /// confirmation, shrinking and both sides of a differential case included, and at least 1
+    /// per case. The explicit proposer tries the anchors first (ARCHITECTURE 8.1); the other
+    /// proposers are mixed by a deterministic schedule seeded from the campaign seed. A
+    /// candidate hit becomes a witness only after a confirmation on a fresh backend agrees; a
+    /// disagreement is an engine defect (ARCHITECTURE 7).
+    ///
+    /// Each run starts from fresh proposer state, and every run after the first also from
+    /// fresh backends and assemblies, so a second run reports exactly what a fresh campaign
+    /// with the same spec and budget reports: no solver cache or proposer state carries over
     /// (ARCHITECTURE 5.4).
     pub fn run(&mut self, budget: Budget, cancel: Option<CancellationToken>) -> FuzzReport {
-        unimplemented!("FZ-06")
+        if self.equivalent {
+            return report_without_cases(&self.settings, budget, CampaignOutcome::Equivalent);
+        }
+        let cases = match self.cases.take() {
+            Some(cases) => cases,
+            None => match LiveCases::build(Arc::clone(&self.spec)) {
+                Ok(cases) => cases,
+                Err(error) => {
+                    let no_witness = no_witness(
+                        Ending::Aborted,
+                        &Totals::default(),
+                        budget,
+                        &self.spec.options,
+                        self.spec.rejection_cap,
+                    );
+                    return report_without_cases(
+                        &self.settings,
+                        budget,
+                        CampaignOutcome::Aborted {
+                            reason: format!("the campaign's backends did not rebuild: {error}"),
+                            no_witness,
+                        },
+                    );
+                }
+            },
+        };
+        let generators = generators(&cases, &self.spec).expect("Campaign::new built them");
+        // Campaign::new refused every other weighted proposer; the schedule takes them in
+        // ProposerKind order when there are several.
+        let mut proposers: Vec<(u32, Box<dyn Proposer>)> = Vec::new();
+        if let Some(&weight) = self.spec.proposers.weights.get(&ProposerKind::Blind)
+            && weight > 0
+        {
+            let rng = ValueRng::from_seed(derive_seed(self.spec.seed, "values"));
+            proposers.push((weight, Box::new(BlindProposer::new(generators, rng))));
+        }
+        let mut schedule = Schedule::new(self.spec.seed, self.explicit.clone(), proposers);
+        let mut runner = LiveRunner { cases };
+        run_loop(
+            &mut runner,
+            &mut schedule,
+            &self.settings,
+            budget,
+            cancel.as_ref(),
+        )
     }
 }
 
-/// A confirmation's verdict on a candidate (ARCHITECTURE 7).
-pub(crate) struct Confirmation {
-    /// The confirmation's own execution result (both sides' mutant result for a differential).
-    pub(crate) result: CaseResult,
-    /// The confirmation's judgement.
-    pub(crate) judgement: Judgement,
-    /// The confirmation agrees with the case: it is a hit too, with an equal reaching leaf.
-    pub(crate) agrees: bool,
-    /// The work the confirmation spent, charged to the budget.
-    pub(crate) work: u64,
+/// A mutant is given exactly when the target is differential.
+fn check_definitions(spec: &CampaignSpec) -> Result<(), CampaignError> {
+    let differential = matches!(spec.target.kind, TargetKind::Differential(_));
+    if differential == spec.definitions.mutant.is_some() {
+        Ok(())
+    } else {
+        Err(CampaignError::DefinitionsMismatch)
+    }
 }
 
-/// Confirm `candidate` independently of the path that found it (ARCHITECTURE 7, R-4):
-/// instantiate the overlay on the original program text, assemble with a fresh
-/// [`crate::assemble::ProgramAssembly`], run on a fresh backend through the public
-/// `Backend::execute` with the campaign's options, re-resolve the target for that backend,
-/// reclassify and check the target again; for a differential target, re-run both sides.
+/// Every proposer with a positive weight is one this milestone provides: only blind sampling
+/// in M1 (ARCHITECTURE 8, 11).
+fn check_proposers(config: &ProposerConfig) -> Result<(), CampaignError> {
+    for (kind, weight) in &config.weights {
+        if *weight > 0 && *kind != ProposerKind::Blind {
+            let name = serde_json::to_value(kind)
+                .ok()
+                .and_then(|name| name.as_str().map(str::to_owned))
+                .unwrap_or_default();
+            return Err(CampaignError::InvalidOptions {
+                message: format!("the {name} proposer is not provided in this milestone"),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// One generator per hole, in hole order.
+fn generators(cases: &LiveCases, spec: &CampaignSpec) -> Result<Vec<Generator>, CampaignError> {
+    cases
+        .baseline
+        .holes
+        .holes
+        .iter()
+        .map(|hole| {
+            Generator::new(&hole.sort, &hole.decl.constraints, &spec.bounds).map_err(|message| {
+                CampaignError::InvalidConstraints {
+                    hole: hole.decl.name.clone(),
+                    message,
+                }
+            })
+        })
+        .collect()
+}
+
+/// The report identity of `spec`, with a placeholder budget the loop replaces
+/// (ARCHITECTURE 5.4, 9.3).
+fn identity(spec: &CampaignSpec, initial: Option<String>) -> Result<ReportIdentity, CampaignError> {
+    let definition = |role, definition: &CompiledDefinition| -> Result<_, CampaignError> {
+        let (route, order) = match &definition.route {
+            BackendRoute::SourceExecution {
+                execution_rewrite_order,
+            } => (
+                "source-execution",
+                Some(digest_hex(execution_rewrite_order.join("\n").as_bytes())),
+            ),
+            BackendRoute::FromDefinition => ("from-definition", None),
+        };
+        Ok(DefinitionIdentity {
+            role,
+            main_module: definition.main_module.clone(),
+            syntax_module: definition.syntax_module.clone(),
+            execution_digest: definition.execution_digest()?.to_string(),
+            route: route.into(),
+            execution_rewrite_order_digest: order,
+        })
+    };
+    let mut definitions = vec![definition(
+        DefinitionRole::Baseline,
+        &spec.definitions.baseline,
+    )?];
+    if let Some(mutant) = &spec.definitions.mutant {
+        definitions.push(definition(DefinitionRole::Mutant, mutant)?);
+    }
+    let program = match &spec.program {
+        ProgramInput::Source(source) => format!("source:{}", json(source)),
+        ProgramInput::KoreTemplate(pattern) => format!("kore:{pattern}"),
+    };
+    Ok(ReportIdentity {
+        engine_version: crate::ENGINE_VERSION,
+        k_rust_revision: spec.identity.k_rust_revision.clone(),
+        definitions,
+        program_digest: digest_hex(program.as_bytes()),
+        overlay_digest: digest_hex(json(&spec.holes).as_bytes()),
+        target_digest: digest_hex(json(&spec.target).as_bytes()),
+        initial_configuration_digest: initial,
+        options: CaseOptions {
+            max_work: spec.options.effective_max_work(),
+            ..spec.options.clone()
+        },
+        proposers: spec.proposers.clone(),
+        bounds: spec.bounds,
+        rejection_cap: spec.rejection_cap,
+        seed: spec.seed,
+        budget: Budget::Cases(0),
+        thread_stack_size: spec.identity.thread_stack_size,
+        solver: if cfg!(feature = "z3") { "z3" } else { "none" }.into(),
+    })
+}
+
+/// Canonical JSON of a spec part the identity digests.
+fn json<T: serde::Serialize + ?Sized>(value: &T) -> String {
+    serde_json::to_string(value).expect("spec parts have string keys and no floats")
+}
+
+/// The clean-leaf facts a hit of `spec`'s target rests on (ARCHITECTURE 4.3, 5.2).
+fn clean_leaf_facts(spec: &CampaignSpec) -> Vec<String> {
+    let mut facts: Vec<&str> = vec![
+        "halt-stuck-or-target-terminal",
+        "decided-state",
+        "ceil-free",
+        "no-implementation-chosen-value",
+        "no-contradicted-claim",
+        "no-iteration-exhaustion",
+        "no-stack-stops",
+        "no-smt-unknowns",
+        "no-allowance-refusal",
+    ];
+    match &spec.target.kind {
+        TargetKind::Pattern(pattern) => {
+            facts.push("empty-match-constraints");
+            if pattern.at == PatternAt::Final && spec.target.run_to_completion {
+                facts.push("natural-end");
+            }
+        }
+        TargetKind::Differential(_) => facts.extend([
+            "baseline-complete",
+            "natural-end",
+            "constructor-only",
+            "not-in-baseline-ends",
+        ]),
+        TargetKind::Rule(_) | TargetKind::Observer(_) => {
+            if spec.target.run_to_completion {
+                facts.push("natural-end");
+            }
+        }
+    }
+    facts.into_iter().map(str::to_owned).collect()
+}
+
+/// The explicit proposals (ARCHITECTURE 8.1), each a value per hole in hole order: the anchors
+/// first when `config.anchors_first` and every hole has one, then each of `config.explicit`,
+/// whose omitted holes keep their anchors.
 ///
 /// # Errors
 ///
-/// A message when the fresh backend or assembly cannot be built, or the run aborts; the engine
-/// reports it as an engine defect, never as a hit.
-pub(crate) fn confirm(spec: &CampaignSpec, candidate: &Assignment) -> Result<Confirmation, String> {
-    unimplemented!("FZ-06")
-}
-
-/// Shrink a confirmed witness (ARCHITECTURE 7): propose smaller assignments (proptest value
-/// trees for blindly generated values; integer and collection-length moves for others), confirm
-/// each with `confirm_candidate`, and keep a candidate only if it still hits. Returns the
-/// smallest confirmed assignment, or `None` when nothing smaller hits. `confirm_candidate`
-/// charges its work to the budget and returns `None` when the budget is spent.
-pub(crate) fn shrink(
-    witness: &Assignment,
-    confirm_candidate: &mut dyn FnMut(&Assignment) -> Option<bool>,
-) -> Option<Assignment> {
-    unimplemented!("FZ-06")
+/// [`CampaignError::ExplicitAssignment`] for an assignment that names no hole, or that omits a
+/// hole without an anchor.
+pub(crate) fn explicit_proposals(
+    names: &[String],
+    anchors: &[Option<Value>],
+    config: &ProposerConfig,
+) -> Result<Vec<Vec<Value>>, CampaignError> {
+    let mut proposals = Vec::with_capacity(config.explicit.len() + 1);
+    if config.anchors_first
+        && let Some(all) = anchors.iter().cloned().collect::<Option<Vec<Value>>>()
+    {
+        proposals.push(all);
+    }
+    for (index, assignment) in config.explicit.iter().enumerate() {
+        if let Some(unknown) = assignment.keys().find(|name| !names.contains(name)) {
+            return Err(CampaignError::ExplicitAssignment {
+                index,
+                hole: unknown.clone(),
+                message: "no hole has this name".into(),
+            });
+        }
+        let values = names
+            .iter()
+            .zip(anchors)
+            .map(|(name, anchor)| {
+                assignment
+                    .get(name)
+                    .or(anchor.as_ref())
+                    .cloned()
+                    .ok_or_else(|| CampaignError::ExplicitAssignment {
+                        index,
+                        hole: name.clone(),
+                        message: "the hole has no anchor value and the assignment omits it".into(),
+                    })
+            })
+            .collect::<Result<Vec<Value>, CampaignError>>()?;
+        proposals.push(values);
+    }
+    Ok(proposals)
 }

@@ -212,3 +212,23 @@ impl fmt::Display for CampaignError {
 }
 
 impl std::error::Error for CampaignError {}
+
+/// A backend failure while a campaign is validated (for example inside
+/// `Backend::with_solver`, which hole and value resolution run in) is a definition problem.
+impl From<k_rust::backend::BackendError> for CampaignError {
+    fn from(error: k_rust::backend::BackendError) -> Self {
+        Self::Definition {
+            message: error.to_string(),
+        }
+    }
+}
+
+/// A stop while a campaign is validated (`Backend::with_solver`'s stop boundary) is a
+/// definition problem: validation runs outside any case and outside the caller's token.
+impl From<k_rust::backend::StopCause> for CampaignError {
+    fn from(cause: k_rust::backend::StopCause) -> Self {
+        Self::Definition {
+            message: format!("validation stopped: {cause}"),
+        }
+    }
+}

@@ -1,0 +1,245 @@
+//! The golden determinism test (ARCHITECTURE 5.4, 9.3; finding T-15).
+//!
+//! The crate has no executable, so the test re-executes its own test binary
+//! (`std::env::current_exe()`, `--exact golden_child`) twice, with different environments, and
+//! requires the reports the two children print to be byte-identical to each other and to the
+//! report of the parent process. The environments differ in every variable proptest reads, in
+//! locale, time zone, home directory and backtrace settings: none of them may reach the report.
+//!
+//! The test also pins a fingerprint of the case sequence (each report's witness values, case
+//! count and classes) for the current [`ENGINE_VERSION`], so that a change to the proposers,
+//! the schedule or the generators that changes the sequence fails here until the version is
+//! bumped and the fingerprint re-pinned. `KRUST_FUZZ_GOLDEN_PRINT=1` prints the fingerprint.
+
+mod support;
+
+use std::{collections::BTreeMap, process::Command, sync::Arc};
+
+use k_rust_fuzz::{
+    Budget, CallerIdentity, Campaign, CampaignSpec, CaseOptions, Definitions, ENGINE_VERSION,
+    HoleDecl, HoleLocation, ProgramInput, ProposerConfig, SpanAddress, Target, TargetKind,
+    report::{FuzzReport, digest_hex},
+    spec::DEFAULT_REJECTION_CAP,
+    target::{PatternAt, PatternTarget},
+    values::{Constraints, GenerationBounds},
+};
+use support::IMP;
+
+/// The variable that makes [`golden_child`] run the campaigns and print their reports.
+const CHILD: &str = "KRUST_FUZZ_GOLDEN_CHILD";
+const BEGIN: &str = "=====BEGIN-KRUST-FUZZ-REPORTS=====";
+const END: &str = "=====END-KRUST-FUZZ-REPORTS=====";
+
+/// The pinned fingerprint of the golden campaigns' case sequence at [`ENGINE_VERSION`] 1.
+/// Pinned at integration round 1, when the modules behind the engine landed; re-pin it, with
+/// a version bump, only when the case sequence is meant to change.
+const PINNED: Option<(u32, &str)> = None;
+
+fn int_hole(name: &str, program: &str, find: &str, literal: &str) -> HoleDecl {
+    HoleDecl {
+        name: name.into(),
+        sort: "Int".into(),
+        location: HoleLocation::Span(SpanAddress {
+            program: program.into(),
+            line: None,
+            find: find.into(),
+            literal: literal.into(),
+        }),
+        constraints: Constraints::default(),
+        allow_refused_sort: false,
+    }
+}
+
+fn spec(program: &str, holes: Vec<HoleDecl>, violation: &str, seed: u64) -> CampaignSpec {
+    let compiled = IMP.compiled();
+    CampaignSpec {
+        definitions: Definitions {
+            baseline: Arc::new(compiled.definition()),
+            mutant: None,
+        },
+        program: ProgramInput::Source(compiled.program_source(program)),
+        holes,
+        target: Target {
+            kind: TargetKind::Pattern(PatternTarget {
+                pattern: violation.into(),
+                at: PatternAt::Final,
+            }),
+            run_to_completion: false,
+            negated_property: true,
+        },
+        options: CaseOptions::default(),
+        proposers: ProposerConfig {
+            anchors_first: true,
+            explicit: vec![BTreeMap::from([(
+                "Y".to_owned(),
+                k_rust_fuzz::Value::Int((-1).into()),
+            )])],
+            weights: ProposerConfig::default().weights,
+        },
+        bounds: GenerationBounds::default(),
+        rejection_cap: DEFAULT_REJECTION_CAP,
+        seed,
+        identity: CallerIdentity {
+            k_rust_revision: "fz26-golden".into(),
+            thread_stack_size: None,
+        },
+    }
+}
+
+/// Two campaigns: one that finds, confirms and shrinks a witness (`le.imp`), and one that runs
+/// out of budget (`commute.imp`).
+fn golden_reports() -> Vec<FuzzReport> {
+    let le = spec(
+        "imp/le.imp",
+        vec![
+            int_hole("X", "imp/le.imp", "x = 3;", "3"),
+            int_hole("Y", "imp/le.imp", "y = 5;", "5"),
+        ],
+        r#"<k> .K </k> <state> (#token("r", "Id") |-> R:Int) _:Map </state> requires R =/=Int 1"#,
+        0x00c0_ffee,
+    );
+    let commute = spec(
+        "imp/commute.imp",
+        vec![
+            int_hole("X", "imp/commute.imp", "x = 3;", "3"),
+            int_hole("Y", "imp/commute.imp", "y = 5;", "5"),
+        ],
+        concat!(
+            r#"<k> .K </k> <state> (#token("a", "Id") |-> A:Int) "#,
+            r#"(#token("b", "Id") |-> B:Int) _:Map </state> requires A =/=Int B"#
+        ),
+        0x0bad_5eed,
+    );
+    [(le, Budget::Cases(40)), (commute, Budget::Cases(24))]
+        .into_iter()
+        .map(|(spec, budget)| {
+            Campaign::new(spec)
+                .expect("the golden campaign is valid")
+                .run(budget, None)
+        })
+        .collect()
+}
+
+fn render(reports: &[FuzzReport]) -> String {
+    reports
+        .iter()
+        .map(FuzzReport::to_canonical_json)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The case sequence's fingerprint: what the proposers and the schedule decide, without the
+/// configurations and work counts that k-rust's own revision decides.
+fn fingerprint(reports: &[FuzzReport]) -> String {
+    let parts: Vec<String> = reports
+        .iter()
+        .map(|report| {
+            let witness = report.witness().map(|witness| {
+                let values = |case: &k_rust_fuzz::report::WitnessCase| {
+                    case.holes
+                        .iter()
+                        .map(|hole| serde_json::to_string(&hole.value).expect("serializes"))
+                        .collect::<Vec<_>>()
+                        .join(",")
+                };
+                (values(&witness.first), witness.shrunk.as_ref().map(values))
+            });
+            format!(
+                "{}|{:?}|{}",
+                report.totals.cases,
+                witness,
+                serde_json::to_string(&report.totals.classes).expect("serializes")
+            )
+        })
+        .collect();
+    digest_hex(parts.join("\n").as_bytes())
+}
+
+/// Runs the golden campaigns and prints their reports, only when [`CHILD`] is set; otherwise it
+/// does nothing, so that an ordinary test run passes it.
+#[test]
+fn golden_child() {
+    if std::env::var_os(CHILD).is_none() {
+        return;
+    }
+    println!("{BEGIN}\n{}\n{END}", render(&golden_reports()));
+}
+
+fn child_reports(environment: &[(&str, Option<&str>)]) -> String {
+    let executable = std::env::current_exe().expect("the test binary's path");
+    let mut command = Command::new(executable);
+    command
+        .args(["--exact", "golden_child", "--nocapture", "--test-threads=1"])
+        .env(CHILD, "1");
+    for (name, value) in environment {
+        match value {
+            Some(value) => command.env(name, value),
+            None => command.env_remove(name),
+        };
+    }
+    let output = command.output().expect("the child runs");
+    let stdout = String::from_utf8(output.stdout).expect("UTF-8");
+    assert!(
+        output.status.success(),
+        "child failed: {stdout}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let start = stdout.find(BEGIN).expect("the child printed its reports") + BEGIN.len();
+    let end = stdout.find(END).expect("the child finished its reports");
+    stdout[start..end].trim().to_owned()
+}
+
+#[test]
+fn the_same_campaign_in_two_processes_gives_byte_identical_reports() {
+    let quiet = [
+        ("PROPTEST_CASES", None),
+        ("PROPTEST_RNG_SEED", None),
+        ("PROPTEST_RNG_ALGORITHM", None),
+        ("PROPTEST_MAX_SHRINK_ITERS", None),
+        ("PROPTEST_MAX_LOCAL_REJECTS", None),
+        ("PROPTEST_MAX_GLOBAL_REJECTS", None),
+        ("PROPTEST_FAILURE_PERSISTENCE", None),
+        ("RUST_BACKTRACE", Some("0")),
+        ("LC_ALL", Some("C")),
+        ("TZ", Some("UTC")),
+    ];
+    let noisy = [
+        ("PROPTEST_CASES", Some("3")),
+        ("PROPTEST_RNG_SEED", Some("424242")),
+        ("PROPTEST_RNG_ALGORITHM", Some("xs")),
+        ("PROPTEST_MAX_SHRINK_ITERS", Some("1")),
+        ("PROPTEST_MAX_LOCAL_REJECTS", Some("1")),
+        ("PROPTEST_MAX_GLOBAL_REJECTS", Some("1")),
+        ("PROPTEST_FAILURE_PERSISTENCE", Some("direct")),
+        ("RUST_BACKTRACE", Some("full")),
+        ("LC_ALL", Some("tr_TR.UTF-8")),
+        ("TZ", Some("Pacific/Chatham")),
+        ("HOME", Some("/nonexistent-krust-fuzz-home")),
+    ];
+    let first = child_reports(&quiet);
+    let second = child_reports(&noisy);
+    assert_eq!(first, second, "the environment reached the report");
+    let reports = golden_reports();
+    assert_eq!(render(&reports), first, "the parent's report differs");
+
+    let computed = fingerprint(&reports);
+    if std::env::var_os("KRUST_FUZZ_GOLDEN_PRINT").is_some() {
+        eprintln!("golden fingerprint at engine version {ENGINE_VERSION}: {computed}");
+    }
+    match PINNED {
+        Some((version, pinned)) => {
+            assert_eq!(
+                version, ENGINE_VERSION,
+                "ENGINE_VERSION changed: re-pin the fingerprint for the new version"
+            );
+            assert_eq!(
+                computed, pinned,
+                "the case sequence changed without an ENGINE_VERSION bump"
+            );
+        }
+        None => panic!(
+            "no fingerprint is pinned for engine version {ENGINE_VERSION}; pin \
+             Some(({ENGINE_VERSION}, \"{computed}\")) in tests/golden.rs"
+        ),
+    }
+}
