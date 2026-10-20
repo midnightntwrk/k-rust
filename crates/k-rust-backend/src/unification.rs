@@ -484,6 +484,9 @@ fn unification_root_policy<'t>(
                     UnifierStep::Decompose(Decomposition::SameApplication(same))
                 }
                 RootComparison::ArityMismatch => UnifierStep::ArgumentLengthsDiffer,
+                // One symbol whose sort arguments are one only on some instances of their sort
+                // variables: unifying them needs a sort substitution, which this unifier lacks.
+                RootComparison::OpenSortArguments => UnifierStep::Unsupported,
                 // Compared by their own arms in `Unifier::unify_one` before any classification.
                 RootComparison::DomainValues | RootComparison::Injections => UnifierStep::Keep,
                 RootComparison::Collections(_) => UnifierStep::Unsupported,

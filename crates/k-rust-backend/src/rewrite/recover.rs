@@ -41,7 +41,7 @@ use crate::{
     ite::{IteSplit, SplitSide, split_ite_pair},
     matching::{
         Bindings, CollectionSolution, FailReason, MatchMode, MatchResult, Narrowing,
-        match_terms_in_definition, solve_collection_pairs_in_definition,
+        UndecidedReason, match_terms_in_definition, solve_collection_pairs_in_definition,
     },
     rule::{Predicate, RewriteRule},
     simplify::{SimplificationError, SimplificationOptions, simplify_with_solver},
@@ -66,6 +66,9 @@ use super::{
 /// An empty remainder means the match is complete.
 pub(crate) enum RecoveredMatch {
     Failed(FailReason),
+    /// A pair of the remainder asks a question the matcher does not answer
+    /// ([`MatchResult::Undecided`]): the match is neither refuted nor reduced to pairs.
+    Undecided(UndecidedReason),
     Matched {
         solution: MatchSolution,
         remainder: Vec<(Term, Term)>,
@@ -180,6 +183,9 @@ fn recover_by_simplifying_pairs(
             MatchResult::Failed(reason) => {
                 return Ok(RecoveredMatch::Failed(reason));
             }
+            MatchResult::Undecided(reason) => {
+                return Ok(RecoveredMatch::Undecided(reason));
+            }
             MatchResult::Indeterminate {
                 substitution: found,
                 remainder,
@@ -238,7 +244,9 @@ fn recover_by_simplifying_pairs(
                 matched.bind(&found);
                 continue;
             }
-            MatchResult::Failed(_) | MatchResult::Indeterminate { .. } => {}
+            MatchResult::Failed(_)
+            | MatchResult::Indeterminate { .. }
+            | MatchResult::Undecided(_) => {}
         }
         unresolved.extend(pair_remainder);
     }
@@ -736,6 +744,12 @@ fn search_symbolic_map_key_matches(
         let (substitution, unresolved) =
             match match_terms_in_definition(MatchMode::Rewrite, definition, &rest, &subject_rest) {
                 MatchResult::Failed(_) => return,
+                // Not refuted: the branch keeps the pair, which the attempt leaves undecided.
+                MatchResult::Undecided(_) => {
+                    let mut unresolved = unresolved;
+                    unresolved.push((rest, subject_rest));
+                    (substitution, unresolved)
+                }
                 MatchResult::Success(found) => (compose(&found, &substitution), unresolved),
                 MatchResult::Indeterminate {
                     substitution: found,
@@ -777,6 +791,11 @@ fn search_symbolic_map_key_matches(
             subject_value,
         ) {
             MatchResult::Failed(_) => continue,
+            MatchResult::Undecided(_) => {
+                let mut next_unresolved = unresolved.clone();
+                next_unresolved.push((pattern_value, subject_value.clone()));
+                (substitution.clone(), next_unresolved)
+            }
             MatchResult::Success(found) => (compose(&found, &substitution), unresolved.clone()),
             MatchResult::Indeterminate {
                 substitution: found,
@@ -837,6 +856,7 @@ pub(super) fn recover_boolean_matches(
             let operand = substitute(&operand, &substitution);
             match match_terms_in_definition(MatchMode::Implies, definition, &operand, &expected) {
                 MatchResult::Failed(_) => return Some(Vec::new()),
+                MatchResult::Undecided(_) => branch_remainder.push((operand, expected.clone())),
                 MatchResult::Success(found) => {
                     substitution = compose(&found, &substitution);
                 }
@@ -1077,6 +1097,14 @@ pub(super) fn recover_equality_matches(
                 &split.right,
             ) {
                 MatchResult::Failed(_) => Vec::new(),
+                MatchResult::Undecided(_) => {
+                    untouched.push((split.left, split.right));
+                    vec![PartialRuleMatch {
+                        substitution,
+                        conditions: Vec::new(),
+                        remainder: untouched,
+                    }]
+                }
                 MatchResult::Success(found) => vec![PartialRuleMatch {
                     substitution: compose(&found, &substitution),
                     conditions: Vec::new(),
@@ -1231,6 +1259,7 @@ pub(super) fn recover_ite_matches(
         let matched = match_terms_in_definition(MatchMode::Rewrite, definition, &pattern, &subject);
         let (found, mut branch_remainder) = match matched {
             MatchResult::Failed(_) => continue,
+            MatchResult::Undecided(_) => (Substitution::new(), vec![(pattern, subject)]),
             MatchResult::Success(found) => (found, Vec::new()),
             MatchResult::Indeterminate {
                 substitution,
@@ -1245,6 +1274,7 @@ pub(super) fn recover_ite_matches(
         if matches!(side, SplitSide::Pattern) {
             match match_terms_in_definition(MatchMode::Rewrite, definition, &condition, &value) {
                 MatchResult::Failed(_) => continue,
+                MatchResult::Undecided(_) => branch_remainder.push((condition.clone(), value)),
                 MatchResult::Success(found) => {
                     substitution = compose(&found, &substitution);
                 }
@@ -1376,7 +1406,9 @@ pub(super) fn recover_overload_symbolic_match(
     let found = match match_terms_in_definition(MatchMode::Rewrite, definition, &rule_term, &lifted)
     {
         MatchResult::Success(found) => found,
-        MatchResult::Failed(_) | MatchResult::Indeterminate { .. } => return None,
+        MatchResult::Failed(_) | MatchResult::Indeterminate { .. } | MatchResult::Undecided(_) => {
+            return None;
+        }
     };
     Some((
         compose(&found, &substitution),
