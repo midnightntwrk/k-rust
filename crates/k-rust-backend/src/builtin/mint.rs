@@ -4,9 +4,11 @@
 //! elements are the `2^W` bit patterns of width `W`, with no sign of their own. An operation reads
 //! a pattern as its unsigned residue `u` in `[0, 2^W)`, or in two's complement as `s = u` when
 //! `u < 2^(W-1)` and `s = u - 2^W` otherwise. A total operation on patterns that agrees with
-//! `MInt2Unsigned` is arithmetic modulo `2^W`, and the declared `smt-hook`s (`bvadd`, `bvmul`,
-//! `bvult`, `bvslt`, `bv2int`, `int2bv`, ...) state exactly these operations to a solver, so an
-//! evaluator that disagreed with them would let the backend derive two values for one term.
+//! `MInt2Unsigned` is arithmetic modulo `2^W`, which is what the declared `smt-hook`s (`bvadd`,
+//! `bvmul`, `bvult`, `bvslt`, `bv2int`, `int2bv`, ...) describe. The backend's solver does not
+//! interpret `MInt` (only `Int` and `Bool`), so it never applies these hooks: an `MInt`
+//! application at a solver-visible position is an opaque value of its sort (`smt.rs`,
+//! `hook_is_well_sorted`). The evaluator is therefore the only reading of these operations.
 //!
 //! Division and remainder are partial: there is no quotient by zero, so a zero divisor is
 //! undefined (`\bottom`). SMT-LIB gives `bvudiv`, `bvurem`, `bvsdiv` and `bvsrem` values at a zero

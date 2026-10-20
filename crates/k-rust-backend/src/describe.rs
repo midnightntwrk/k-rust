@@ -481,6 +481,12 @@ impl Display for SmtError {
             Self::InconsistentGroundTruth => {
                 formatter.write_str("the solver found the path condition unsatisfiable")
             }
+            Self::MalformedScript { message } => {
+                write!(
+                    formatter,
+                    "the solver rejected the query as malformed ({message})"
+                )
+            }
             Self::MissingModel => formatter.write_str("the solver gave no model"),
             Self::MissingModelValue(variable) => write!(
                 formatter,

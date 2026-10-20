@@ -3336,7 +3336,7 @@ bound = "O(e) evictions for e oldest entries removed to satisfy both limits"
 
 [[node.cost]]
 mode = "prelude consistency"
-bound = "zero checks after a sat query; otherwise at most one prelude check, with configured retries, before the first unsat answer"
+bound = "zero checks after a sat query; otherwise at most one prelude check, with configured retries, before the first unsat answer or rejected script"
 
 [[node]]
 kind = "algorithm"

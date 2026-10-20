@@ -726,6 +726,7 @@ export type SmtFailure =
   | { kind: 'unavailable' }
   | { kind: 'unknown'; reason: string }
   | { kind: 'inconsistent-ground-truth' }
+  | { kind: 'malformed-script'; message: string }
   | { kind: 'missing-model' }
   | { kind: 'missing-model-value'; variable: Kore }
   | { kind: 'invalid-model-value'; variable: Kore; value: string }

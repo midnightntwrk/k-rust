@@ -205,7 +205,12 @@ impl<'a> SExprParser<'a> {
 /// a top-level atom that shows its term defined (docs/compatibility.md, "Solver decisions over
 /// partial operations").
 /// SMT hook translations, SMT lemma axioms and the user prelude are trusted, except that a power
-/// is read as itself only where an integer is its value (`guard_powers`).
+/// is read as itself only where an integer is its value (`guard_powers`), and that a hook is
+/// read at all only where its operation is a term at the application's sorts
+/// (`hook_is_well_sorted`): elsewhere the application is abstracted. Every SMT term of an
+/// uninterpreted sort therefore contains a declared constant, a bound variable or an `smtlib`
+/// function of that sort, each of which records `Approximate`, so no translation over a sort the
+/// solver does not interpret is `Exact`.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum Exactness {
     Approximate,
@@ -281,6 +286,16 @@ impl TranslationState {
                 symbol, arguments, ..
             } => match &symbol.attributes.smt {
                 None => Ok(self.abstract_term(term, Exactness::Approximate)),
+                // A hook whose operation is not a term at the application's sorts (every
+                // `FLOAT` and `MINT` hook, an `INT` hook over a renamed `Int` sort) is no
+                // reading of it; the application is then an opaque value of its sort, as one
+                // without an `smt` attribute. That over-approximates: every K valuation extends
+                // to a model by giving the constant the application's value.
+                Some(SmtType::Hook(hook))
+                    if !hook_is_well_sorted(hook, &term.sort(), arguments) =>
+                {
+                    Ok(self.abstract_term(term, Exactness::Approximate))
+                }
                 Some(SmtType::Lib(name)) => {
                     self.translate_application(name, arguments, Exactness::Approximate)
                 }
@@ -592,9 +607,9 @@ impl TranslationState {
     /// values; every other sort is declared as an uninterpreted sort, whose models need not have
     /// them, so naming it records `Approximate`. Every sort of a query is named here.
     fn smt_sort(&mut self, sort: &Sort) -> Result<String, TranslationError> {
-        let (name, exactness) = sort_denotation(sort)?;
-        self.approximate(exactness);
-        Ok(name)
+        let sort = sort_denotation(sort)?;
+        self.approximate(sort.exactness());
+        Ok(sort.name())
     }
 
     /// The declarations of the constants and functions that stand for abstracted terms and
@@ -853,6 +868,10 @@ impl SmtPrelude {
                 "(declare-fun {POWER_OUTSIDE_THE_INTEGERS} (Int Int) Real)"
             ));
         }
+        // K symbols that name the same `smtlib` function with the same SMT signature stand for
+        // one function, which is declared once: SMT-LIB rejects a second declaration of it, and
+        // a rejected prelude states nothing.
+        let mut declared = BTreeSet::new();
         for symbol in definition.symbols().values() {
             let Some(SmtType::Lib(name)) = &symbol.attributes.smt else {
                 continue;
@@ -862,11 +881,15 @@ impl SmtPrelude {
                 .iter()
                 .map(prelude_smt_sort)
                 .collect::<Result<Vec<_>, _>>()?;
-            declarations.push(format!(
+            let declaration = format!(
                 "(declare-fun {name} ({}) {})",
                 arguments.join(" "),
                 prelude_smt_sort(&symbol.result_sort)?
-            ));
+            );
+            if !declared.insert(declaration.clone()) {
+                continue;
+            }
+            declarations.push(declaration);
             if collection_size_hook(symbol.attributes.hook.as_deref())
                 && symbol.argument_sorts.len() == 1
                 && symbol.result_sort.is_builtin(BuiltinSort::Int)
@@ -1126,36 +1149,118 @@ fn translate_smt_lemma(rule: &RewriteRule) -> Result<SExpr, TranslationError> {
     }
 }
 
-/// The SMT-LIB sort that stands for `sort`, and whether it denotes the K sort's values: `Int`
-/// and `Bool` do; every other sort is declared as an uninterpreted sort
+/// The SMT-LIB sort that stands for a K sort in a translation (`sort_denotation`).
+///
+/// Only `Int` and `Bool` are interpreted: they denote the K sort's values, and the SMT-LIB
+/// theory operations over them are the ones an `smt-hook` names. Every other sort is an
+/// uninterpreted sort, declared by the prelude, whose models need not have the K sort's values
+/// and over which no theory operation is defined. Interpreting a further sort (a floating-point
+/// or bit-vector sort) is a new variant here, and `hook_is_well_sorted` then decides which hooks
+/// it admits.
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum SmtSort {
+    Int,
+    Bool,
+    /// The SMT-LIB sort expression that names the declared uninterpreted sort.
+    Uninterpreted(String),
+}
+
+impl SmtSort {
+    fn name(&self) -> String {
+        match self {
+            Self::Int => "Int".into(),
+            Self::Bool => "Bool".into(),
+            Self::Uninterpreted(name) => name.clone(),
+        }
+    }
+
+    /// Whether the sort denotes the K sort's values: only an interpreted sort does.
+    const fn exactness(&self) -> Exactness {
+        match self {
+            Self::Int | Self::Bool => Exactness::Exact,
+            Self::Uninterpreted(_) => Exactness::Approximate,
+        }
+    }
+}
+
+/// The SMT-LIB sort that stands for `sort`: `Int` and `Bool` denote the K sorts named `SortInt`
+/// and `SortBool`; every other sort is declared as an uninterpreted sort
 /// (`SmtPrelude::from_definition`).
-fn sort_denotation(sort: &Sort) -> Result<(String, Exactness), TranslationError> {
+fn sort_denotation(sort: &Sort) -> Result<SmtSort, TranslationError> {
     match sort {
         Sort::Variable(_) => Err(TranslationError::ParametricSort(sort.clone())),
-        _ if sort.is_builtin(BuiltinSort::Int) => Ok(("Int".into(), Exactness::Exact)),
-        _ if sort.is_builtin(BuiltinSort::Bool) => Ok(("Bool".into(), Exactness::Exact)),
+        _ if sort.is_builtin(BuiltinSort::Int) => Ok(SmtSort::Int),
+        _ if sort.is_builtin(BuiltinSort::Bool) => Ok(SmtSort::Bool),
         Sort::Application { name, arguments } if arguments.is_empty() => {
-            Ok((quote(name), Exactness::Approximate))
+            Ok(SmtSort::Uninterpreted(quote(name)))
         }
-        Sort::Application { name, arguments } => Ok((
-            format!(
-                "({} {})",
-                quote(name),
-                arguments
-                    .iter()
-                    .map(prelude_smt_sort)
-                    .collect::<Result<Vec<_>, _>>()?
-                    .join(" ")
-            ),
-            Exactness::Approximate,
-        )),
+        Sort::Application { name, arguments } => Ok(SmtSort::Uninterpreted(format!(
+            "({} {})",
+            quote(name),
+            arguments
+                .iter()
+                .map(prelude_smt_sort)
+                .collect::<Result<Vec<_>, _>>()?
+                .join(" ")
+        ))),
+    }
+}
+
+/// Whether the application of the `smt-hook` `hook` to `arguments`, of sort `result`, is a term
+/// of the SMT-LIB signature the translation declares, so that the hook's operation may stand for
+/// the application.
+///
+/// An SMT-LIB function applied to arguments outside its rank is not a term of any signature: it
+/// denotes nothing, and a script containing it has no models to compare with K valuations. The
+/// theory operations a hook names (`+`, `<`, `fp.add`, `bvult`, `int2bv`, ...) are defined over
+/// interpreted sorts only, and the translation interprets only `Int` and `Bool` (`SmtSort`), so a
+/// hook is applied only where its result and every argument have an interpreted sort. Over any
+/// other sort (`Float`, `MInt{W}`, a sort hooked `INT.Int` under another name) its operands are
+/// constants of an uninterpreted sort that no theory operation accepts, whatever the hook says.
+///
+/// The core operators `=` and `distinct` are defined at every sort, of their arguments taken
+/// together, and `ite` at every sort of its branches under a `Bool` condition; each is admitted
+/// over any sort when its operands have one sort, as their rank requires.
+///
+/// A sort that has no SMT-LIB sort (a sort variable) admits no hook either.
+///
+/// The decision reads the sorts only. A hook over `Int` and `Bool` is trusted to name an
+/// operation of that rank, as the `Exactness` contract states; where its text is not one (an
+/// unknown operator, a wrong arity), the solver rejects the query's script, which is a query
+/// failure (`SmtError::MalformedScript`), never an answer.
+fn hook_is_well_sorted(hook: &SExpr, result: &Sort, arguments: &[Term]) -> bool {
+    let Ok(result) = sort_denotation(result) else {
+        return false;
+    };
+    let Ok(operands) = arguments
+        .iter()
+        .map(|argument| sort_denotation(&argument.sort()))
+        .collect::<Result<Vec<_>, _>>()
+    else {
+        return false;
+    };
+    let interpreted = |sort: &SmtSort| match sort {
+        SmtSort::Int | SmtSort::Bool => true,
+        SmtSort::Uninterpreted(_) => false,
+    };
+    match hook {
+        SExpr::Atom(operator) if operator == "=" || operator == "distinct" => {
+            result == SmtSort::Bool
+                && operands.len() >= 2
+                && operands.iter().all(|operand| *operand == operands[0])
+        }
+        SExpr::Atom(operator) if operator == "ite" => matches!(
+            operands.as_slice(),
+            [SmtSort::Bool, then, otherwise] if *then == result && *otherwise == result
+        ),
+        SExpr::Atom(_) | SExpr::List(_) => interpreted(&result) && operands.iter().all(interpreted),
     }
 }
 
 /// The SMT-LIB sort that stands for `sort` in the prelude, which declares the trusted
 /// signatures of `smtlib` symbols and the SMT lemmas, not a query, and so records nothing.
 fn prelude_smt_sort(sort: &Sort) -> Result<String, TranslationError> {
-    sort_denotation(sort).map(|(name, _)| name)
+    sort_denotation(sort).map(|sort| sort.name())
 }
 
 fn quote(name: &str) -> String {
@@ -1225,6 +1330,13 @@ pub enum SmtError {
     /// consumer needed an answer. Never a stop.
     Unknown(String),
     InconsistentGroundTruth,
+    /// The solver rejected the query's script (a parse or sort error, an undeclared or a
+    /// redeclared symbol), so it answered nothing about it; the payload is the solver's message.
+    /// The prelude is known to load when this is returned, so the query's own translation is at
+    /// fault. Never a stop.
+    MalformedScript {
+        message: String,
+    },
     MissingModel,
     MissingModelValue(Variable),
     InvalidModelValue {
@@ -2267,5 +2379,278 @@ mod tests {
                 closure_by_rounds(&interesting, expressions)
             );
         }
+    }
+
+    fn hooked(name: &str, hook: &str, arguments: Vec<Sort>, result: Sort) -> Arc<Symbol> {
+        symbol(
+            name,
+            Some(SmtType::Hook(SExpr::parse(hook).unwrap())),
+            arguments,
+            result,
+        )
+    }
+
+    /// The text `SmtPrelude::query` would pose for `predicates` as known facts, after the
+    /// definition's prelude: the mapping declarations and the assertions. And its exactness.
+    fn query_text(predicates: &[Predicate]) -> (String, Exactness) {
+        let (translation, declarations, _, known, _) =
+            translate_query(predicates, &Substitution::new(), &[]).unwrap();
+        let text = declarations
+            .into_iter()
+            .chain(known.iter().map(ToString::to_string))
+            .collect::<Vec<_>>()
+            .join("\n");
+        (text, translation.exactness())
+    }
+
+    fn float() -> Sort {
+        Sort::simple("SortFloat")
+    }
+
+    fn mint() -> Sort {
+        Sort::application("SortMInt", vec![Sort::simple("Sort8")])
+    }
+
+    fn boolean() -> Sort {
+        Sort::simple("SortBool")
+    }
+
+    fn int() -> Sort {
+        Sort::simple("SortInt")
+    }
+
+    fn variable(name: &str, sort: Sort) -> Term {
+        Term::variable(Variable::new(name, sort))
+    }
+
+    /// The solver interprets only `Int` and `Bool`, so an `fp.*` or `bv*` operation applied to
+    /// constants of the uninterpreted `Float` or `MInt` sort is no SMT-LIB term, and `fg.gt` is
+    /// no SMT-LIB function at all. Each such application is an opaque value of its own sort, and
+    /// the translation is `Approximate`: the script names none of these operators.
+    #[test]
+    fn float_and_mint_hook_applications_are_opaque_values_of_their_sort() {
+        let f = || variable("F", float());
+        let g = || variable("G", float());
+        let a = || variable("A", mint());
+        let b = || variable("B", mint());
+        let applications = [
+            (
+                hooked("isNaN", "fp.isNaN", vec![float()], boolean()),
+                vec![f()],
+            ),
+            (
+                hooked("gtFloat", "fg.gt", vec![float(), float()], boolean()),
+                vec![f(), g()],
+            ),
+            (
+                hooked("negFloat", "fp.neg", vec![float()], float()),
+                vec![f()],
+            ),
+            (
+                hooked(
+                    "mulFloat",
+                    "(fp.mul roundNearestTiesToEven #1 #2)",
+                    vec![float(), float()],
+                    float(),
+                ),
+                vec![f(), g()],
+            ),
+            (
+                hooked("addMInt", "bvadd", vec![mint(), mint()], mint()),
+                vec![a(), b()],
+            ),
+            (
+                hooked("ultMInt", "bvult", vec![mint(), mint()], boolean()),
+                vec![a(), b()],
+            ),
+            (
+                hooked(
+                    "neFloat",
+                    "(not (fp.eq #1 #2))",
+                    vec![float(), float()],
+                    boolean(),
+                ),
+                vec![f(), g()],
+            ),
+        ];
+        for (symbol, arguments) in applications {
+            let application = Term::application(symbol, Vec::new(), arguments);
+            let mut translation = TranslationState::new();
+            assert_eq!(
+                translation.translate_term(&application).unwrap(),
+                SExpr::atom("SMT-1"),
+                "{application:?}"
+            );
+            assert_eq!(translation.exactness(), Exactness::Approximate);
+            let predicate = if application.sort() == boolean() {
+                Predicate::Term(application.clone())
+            } else {
+                Predicate::Equals(application.clone(), variable("H", application.sort()))
+            };
+            let (text, exactness) = query_text(&[predicate]);
+            assert!(
+                !["fp.", "fg.", "bv", "roundNearest"]
+                    .iter()
+                    .any(|operator| text.contains(operator)),
+                "{text}"
+            );
+            assert_eq!(exactness, Exactness::Approximate, "{text}");
+        }
+    }
+
+    /// `MInt2Unsigned(Int2MInt(X)) <Int 0` has `Int` leaves and total symbols, but its
+    /// intermediate value is a machine integer, which the solver does not interpret: the
+    /// `MInt2Unsigned` application is an `Int` constant, and the translation is `Approximate`,
+    /// so a `Sat` for it shows no K valuation. Comparing two machine integers with `=` is a
+    /// well-sorted equation of two constants of the uninterpreted sort.
+    #[test]
+    fn an_int_over_an_uninterpreted_intermediate_value_is_not_exact() {
+        let int2mint = |argument| {
+            Term::application(
+                hooked("Int2MInt", "int2bv", vec![int()], mint()),
+                Vec::new(),
+                vec![argument],
+            )
+        };
+        let unsigned = Term::application(
+            hooked("MInt2Unsigned", "bv2int", vec![mint()], int()),
+            Vec::new(),
+            vec![int2mint(variable("X", int()))],
+        );
+        let negative = Predicate::Term(Term::application(
+            hooked("ltInt", "<", vec![int(), int()], boolean()),
+            Vec::new(),
+            vec![unsigned, integer("0")],
+        ));
+        let (text, exactness) = query_text(std::slice::from_ref(&negative));
+        assert_eq!(exactness, Exactness::Approximate);
+        assert_eq!(translation_exactness(&[negative]), Exactness::Approximate);
+        assert!(text.contains("(declare-const SMT-1 Int)"), "{text}");
+        assert!(text.contains("(< SMT-1 0)"), "{text}");
+        assert!(!text.contains("bv"), "{text}");
+
+        let equal = Predicate::Term(Term::application(
+            hooked("eqMInt", "=", vec![mint(), mint()], boolean()),
+            Vec::new(),
+            vec![
+                int2mint(variable("X", int())),
+                int2mint(variable("Y", int())),
+            ],
+        ));
+        let (text, exactness) = query_text(&[equal]);
+        assert_eq!(exactness, Exactness::Approximate);
+        assert!(text.contains("(= SMT-1 SMT-2)"), "{text}");
+        assert!(
+            text.contains("(declare-const SMT-1 (|SortMInt| |Sort8|))"),
+            "{text}"
+        );
+        assert!(!text.contains("bv"), "{text}");
+    }
+
+    /// `=`, `distinct` and `ite` are defined at every sort, so they are stated over operands of
+    /// an uninterpreted sort, as long as the operands have one sort (and `ite` a `Bool`
+    /// condition); an application outside their rank is an opaque value as any other.
+    #[test]
+    fn core_polymorphic_hooks_apply_over_operands_of_one_sort() {
+        let f = || variable("F", float());
+        let g = || variable("G", float());
+        let condition = || variable("C", boolean());
+        let translated = |symbol, arguments| {
+            let application = Term::application(symbol, Vec::new(), arguments);
+            TranslationState::new()
+                .translate_term(&application)
+                .unwrap()
+                .to_string()
+        };
+        assert_eq!(
+            translated(
+                hooked("ite", "ite", vec![boolean(), float(), float()], float()),
+                vec![condition(), f(), g()],
+            ),
+            "(ite SMT-1 SMT-2 SMT-3)"
+        );
+        assert_eq!(
+            translated(
+                hooked("eqFloatK", "=", vec![float(), float()], boolean()),
+                vec![f(), g()],
+            ),
+            "(= SMT-1 SMT-2)"
+        );
+        assert_eq!(
+            translated(
+                hooked("neFloatK", "distinct", vec![float(), float()], boolean()),
+                vec![f(), g()],
+            ),
+            "(distinct SMT-1 SMT-2)"
+        );
+        assert_eq!(
+            translated(
+                hooked("mixed", "=", vec![float(), int()], boolean()),
+                vec![f(), variable("X", int())],
+            ),
+            "SMT-1"
+        );
+        assert_eq!(
+            translated(
+                hooked("iteOverFloat", "ite", vec![float(), int(), int()], int()),
+                vec![f(), variable("X", int()), variable("Y", int())],
+            ),
+            "SMT-1"
+        );
+    }
+
+    /// A sort hooked `INT.Int` under another name has integer values, but the solver reads a
+    /// sort by its name, and declares `SortMyInt` as an uninterpreted sort, over which `+` and
+    /// `>` are not defined. Its hooked operations are opaque values, never `+` over constants of
+    /// `|SortMyInt|`.
+    #[test]
+    fn int_hooks_over_a_renamed_int_sort_are_opaque_values() {
+        let my_int = Sort::simple("SortMyInt");
+        let sum = Term::application(
+            hooked(
+                "addMyInt",
+                "+",
+                vec![my_int.clone(), my_int.clone()],
+                my_int.clone(),
+            ),
+            Vec::new(),
+            vec![variable("M", my_int.clone()), variable("N", my_int.clone())],
+        );
+        let greater = Predicate::Term(Term::application(
+            hooked(
+                "gtMyInt",
+                ">",
+                vec![my_int.clone(), my_int.clone()],
+                boolean(),
+            ),
+            Vec::new(),
+            vec![sum, variable("M", my_int)],
+        ));
+        let mut translation = TranslationState::new();
+        assert_eq!(
+            translation.translate_predicate(&greater).unwrap(),
+            SExpr::atom("SMT-1")
+        );
+        let (text, exactness) = query_text(&[greater]);
+        assert_eq!(exactness, Exactness::Approximate);
+        assert!(!text.contains("(+") && !text.contains("(>"), "{text}");
+    }
+
+    /// An `Int` hook over `Int` and `Bool` operands is still stated as its operation, exactly.
+    #[test]
+    fn int_hooks_over_int_operands_are_still_their_operation() {
+        let sum = Term::application(
+            hooked("addInt", "+", vec![int(), int()], int()),
+            Vec::new(),
+            vec![variable("X", int()), integer("1")],
+        );
+        let greater = Predicate::Term(Term::application(
+            hooked("gtInt", ">", vec![int(), int()], boolean()),
+            Vec::new(),
+            vec![sum, variable("X", int())],
+        ));
+        let (text, exactness) = query_text(&[greater]);
+        assert_eq!(exactness, Exactness::Exact);
+        assert!(text.contains("(> (+ SMT-1 1) SMT-1)"), "{text}");
     }
 }
