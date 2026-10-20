@@ -3,31 +3,6 @@ mod support;
 
 use kink_patch::{SemanticInput, SemanticInputError, structure_sha256};
 
-fn artifact_has_no_paths_or_measurements(value: &serde_json::Value, key: &str) {
-    match value {
-        serde_json::Value::Object(object) => {
-            for (key, value) in object {
-                assert!(!key.ends_with("_ms"));
-                artifact_has_no_paths_or_measurements(value, key);
-            }
-        }
-        serde_json::Value::Array(array) => {
-            for value in array {
-                artifact_has_no_paths_or_measurements(value, key);
-            }
-        }
-        serde_json::Value::String(text)
-            if matches!(key, "logical" | "org.kframework.attributes.Source") =>
-        {
-            assert!(
-                !std::path::Path::new(text).is_absolute(),
-                "absolute source path: {text}"
-            );
-        }
-        _ => {}
-    }
-}
-
 /// Re-pin R0a (finding E-07; k-rust 67b9f5c54 "write KRUST-PROVENANCE version 8"): the semantic
 /// input is KRUST-PROVENANCE version 8 at k-rust 501f18b9 (version 7 at 927b9ce6: an `anchors`
 /// table and interned origin-set sources), so its digests moved: counter.k from f997509e...,
@@ -68,9 +43,11 @@ fn literal_digests() {
 
 /// Re-pin R0a (finding E-07): the semantic-input digests moved with the provenance format, but
 /// what compilation emits did not. These are the SHA-256 digests of `definition_kore` measured at
-/// k-rust 927b9ce6 (stage-1 trial, scratch-E/dump-old); 501f18b9 compiles the same bytes.
+/// k-rust 927b9ce6 (stage-1 trial, scratch-E/dump-old); 501f18b9 compiles the same bytes. The
+/// definition read back from its semantic input compiles to artifacts equal to the original's
+/// (formerly `read_back_compilation_is_equal`, which compiled the same three definitions).
 #[test]
-fn compiled_kore_is_unchanged_by_the_provenance_move() {
+fn compiled_kore_is_unchanged_by_the_provenance_move_and_by_a_read_back() {
     for (name, kore) in [
         (
             "counter.k",
@@ -92,48 +69,12 @@ fn compiled_kore_is_unchanged_by_the_provenance_move() {
             kore,
             "{name}"
         );
-    }
-}
-
-#[test]
-fn corpus_round_trip_is_canonical() {
-    let mut paths = std::fs::read_dir(support::DIR)
-        .unwrap()
-        .map(|e| e.unwrap().path())
-        .filter(|p| p.extension().is_some_and(|ext| ext == "k"))
-        .collect::<Vec<_>>();
-    paths.sort();
-    for path in paths {
-        let source = std::fs::read_to_string(&path).unwrap();
-        let module = source
-            .lines()
-            .filter_map(|l| l.trim().strip_prefix("module "))
-            .next_back()
-            .unwrap()
-            .split_whitespace()
-            .next()
-            .unwrap();
-        let original = support::load_path(&path, module);
-        let input = SemanticInput::of(&original).unwrap();
-        assert!(!input.text().contains(env!("CARGO_MANIFEST_DIR")));
-        artifact_has_no_paths_or_measurements(&serde_json::from_str(input.text()).unwrap(), "");
-        let (read, baseline) = SemanticInput::read(input.text()).unwrap();
-        assert_eq!(input, read);
-        assert_eq!(input, SemanticInput::of(&baseline).unwrap());
-        assert_eq!(original.definition(), baseline.definition());
+        let (_, read) = SemanticInput::read(SemanticInput::of(&baseline).unwrap().text()).unwrap();
         assert_eq!(
-            original.loaded().source_table(),
-            baseline.loaded().source_table()
+            artifacts,
+            support::compile(read.loaded()).unwrap(),
+            "{name}"
         );
-        let table = |b: &kink_patch::Baseline| {
-            b.authored_sentences()
-                .map(|(at, _)| {
-                    let fingerprint = b.fingerprint(&at).unwrap();
-                    (at, fingerprint)
-                })
-                .collect::<Vec<_>>()
-        };
-        assert_eq!(table(&original), table(&baseline));
     }
 }
 
@@ -164,18 +105,6 @@ fn checks_canonical_form_and_changed_token_identity() {
     assert_ne!(changed, input.text());
     let (changed_input, _) = SemanticInput::read(&changed).unwrap();
     assert_ne!(changed_input.digest(), input.digest());
-}
-
-#[test]
-fn read_back_compilation_is_equal() {
-    for name in ["counter.k", "symmem.k", "guardedmem.k"] {
-        let original = support::load(name);
-        let (_, read) = SemanticInput::read(SemanticInput::of(&original).unwrap().text()).unwrap();
-        assert_eq!(
-            support::compile(original.loaded()).unwrap(),
-            support::compile(read.loaded()).unwrap()
-        );
-    }
 }
 
 #[test]

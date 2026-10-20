@@ -496,14 +496,81 @@ fn an_ill_sorted_structural_candidate_is_left_to_compilation() {
     );
 }
 
+/// The stack of the thread the deep tests load on and type on for reference: enough for the
+/// typing of their rules on the calling thread (`stack::TYPING_STACK_PER_LEVEL` per level plus
+/// its red zone), so `apply` types them in place there.
+const REFERENCE_STACK: usize = 64 << 20;
+
+/// The thread too small for the deep tests' typing.
+const SMALL_STACK: usize = 1 << 20;
+
+/// The typing diagnostics `apply` gives each of `patches` of `baseline` on a thread of `stack`
+/// bytes.
+fn typings_on(stack: usize, baseline: &Baseline, patches: &[Patch]) -> Vec<Vec<String>> {
+    std::thread::scope(|scope| {
+        std::thread::Builder::new()
+            .stack_size(stack)
+            .spawn_scoped(scope, || {
+                patches
+                    .iter()
+                    .map(|patch| {
+                        let mutant = apply(baseline, patch).unwrap();
+                        mutant
+                            .typing_diagnostics()
+                            .iter()
+                            .map(|d| d.message.clone())
+                            .collect::<Vec<_>>()
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap()
+            .join()
+            .unwrap()
+    })
+}
+
+/// A patch replacing the `requires` of the rule `label` by the token `token` (`true`, a `Bool`,
+/// or `1`, an `Int`).
+fn requires_patch(baseline: &Baseline, label: &str, token: &str) -> Patch {
+    let at = rule_ref(baseline, label);
+    let mut replacement = baseline.sentence(&at).unwrap().clone();
+    let Sentence::Rule { requires, .. } = &mut replacement else {
+        panic!("a rule");
+    };
+    *requires = Term::Token {
+        token: token.into(),
+        sort: Sort::new(if token == "1" { "Int" } else { "Bool" }),
+    };
+    Patch::new(vec![Edit::ReplaceSentence { at, replacement }]).unwrap()
+}
+
+/// Loads `text` once on the reference thread and gives the typings of the patches `patches`
+/// builds on the reference thread itself and on a thread of [`SMALL_STACK`] bytes.
+fn deep_typings(
+    text: String,
+    patches: fn(&Baseline) -> Vec<Patch>,
+) -> (Vec<Vec<String>>, Vec<Vec<String>>) {
+    std::thread::Builder::new()
+        .stack_size(REFERENCE_STACK)
+        .spawn(move || {
+            let baseline = load("DEEP", &text);
+            let patches = patches(&baseline);
+            let large = typings_on(REFERENCE_STACK, &baseline, &patches);
+            let small = typings_on(SMALL_STACK, &baseline, &patches);
+            (large, small)
+        })
+        .unwrap()
+        .join()
+        .unwrap()
+}
+
 /// Re-pin L1-3-fix-2 (review L1-3-2 D1): `apply` types an edited rule on a stack sized from the
-/// rule's deepest term, so a rule 5,000 terms deep gets on a 1 MiB thread the typing it gets on
-/// a 256 MiB one, error included. k-rust's typing (`SentenceTyper::typing_in`) has no stack guard
-/// and takes about 2 KiB per level: before the fix this thread overflowed and the process
-/// aborted, as kink-flow's 256 MiB thread did near 230,000 levels.
+/// rule's deepest term, so a deep rule gets on a 1 MiB thread the typing it gets on a 64 MiB one,
+/// error included. k-rust's typing (`SentenceTyper::typing_in`, `resolve_semantic_casts`) has no
+/// stack guard: before the fix this thread overflowed and the process aborted, as kink-flow's 256
+/// MiB thread did near 230,000 levels.
 #[test]
 fn a_deep_rule_is_typed_alike_on_a_thread_too_small_for_its_typing() {
-    const DEPTH: usize = 5_000;
     let text = format!(
         "module DEEP\n  imports INT\n  syntax Peano ::= \"z\" | s(Peano)\n  syntax Exp ::= \
          go(Int) | deep(Peano)\n  rule [big]: go(I:Int) => deep({}z{}) requires I >Int 100\n\
@@ -511,145 +578,81 @@ fn a_deep_rule_is_typed_alike_on_a_thread_too_small_for_its_typing() {
         "s(".repeat(DEPTH),
         ")".repeat(DEPTH)
     );
-    let typings = |stack: usize| {
-        let text = text.clone();
-        std::thread::Builder::new()
-            .stack_size(256 << 20)
-            .spawn(move || {
-                let baseline = load("DEEP", &text);
-                let at = rule_ref(&baseline, "DEEP.big");
-                let patches = ["true", "1"].map(|token| {
-                    let mut replacement = baseline.sentence(&at).unwrap().clone();
-                    let Sentence::Rule { requires, .. } = &mut replacement else {
-                        panic!("a rule");
-                    };
-                    *requires = Term::Token {
-                        token: token.into(),
-                        sort: Sort::new(if token == "1" { "Int" } else { "Bool" }),
-                    };
-                    Patch::new(vec![Edit::ReplaceSentence {
-                        at: at.clone(),
-                        replacement,
-                    }])
-                    .unwrap()
-                });
-                std::thread::scope(|scope| {
-                    std::thread::Builder::new()
-                        .stack_size(stack)
-                        .spawn_scoped(scope, || {
-                            patches
-                                .iter()
-                                .map(|patch| {
-                                    let mutant = apply(&baseline, patch).unwrap();
-                                    mutant
-                                        .typing_diagnostics()
-                                        .iter()
-                                        .map(|d| d.message.clone())
-                                        .collect::<Vec<_>>()
-                                })
-                                .collect::<Vec<_>>()
-                        })
-                        .unwrap()
-                        .join()
-                        .unwrap()
-                })
-            })
-            .unwrap()
-            .join()
-            .unwrap()
-    };
-    let large = typings(256 << 20);
+    let (large, small) = deep_typings(text, |baseline| {
+        ["true", "1"]
+            .map(|token| requires_patch(baseline, "DEEP.big", token))
+            .to_vec()
+    });
     assert!(large[0].is_empty(), "{large:?}");
     assert_eq!(
         large[1].len(),
         1,
         "an Int requires is a typing error: {large:?}"
     );
-    assert_eq!(typings(1 << 20), large);
+    assert_eq!(small, large);
+}
+
+/// Packet test-gate TG-P: the depth of the deep typing tests, down from 5,000 and 6,000. Without
+/// kink's stack guard (`stack::with_stack` calling its work in place), the typing of each of their
+/// shapes overflows a 2 MiB thread (twice the small thread) from 1,342 levels and a 1 MiB thread
+/// from 664, at the dev and test profile's `opt-level = 1`, in k-rust's
+/// `resolve_semantic_casts::transform` (TG-P handoff, with the probe); 1,500 is the smallest round
+/// depth above. universe.rs's deep test takes the same depth by the same measurement.
+const DEPTH: usize = 1_500;
+
+/// Checks the typings of a deep parametric rule (`#if` nested in an `#if` condition, or `#Not`
+/// nested in an `ensures`) whose `requires` is replaced by a `Bool` guard (typed in full) and by
+/// an `Int` one (a typing error).
+fn deep_parametric_rule_is_typed_alike(rule: &str) {
+    let text = format!(
+        "module DEEP\n  imports INT\n  imports BOOL\n  imports K-EQUAL\n  syntax Exp ::= go(Int) \
+         | deep(K)\n  {rule}\nendmodule\n"
+    );
+    let (large, small) = deep_typings(text, |baseline| {
+        ["true", "1"]
+            .map(|token| requires_patch(baseline, "DEEP.shape", token))
+            .to_vec()
+    });
+    assert!(large[0].is_empty(), "a Bool requires types: {large:?}");
+    assert_eq!(
+        large[1].len(),
+        1,
+        "an Int requires is a typing error: {large:?}"
+    );
+    assert!(!large[1][0].starts_with("not typed"), "{large:?}");
+    assert_eq!(small, large);
 }
 
 /// Re-pin L1-3-tail (review L1-3-fix-2-1 D2): the typing of a rule through parametric
 /// productions (`#if`, the ML connectives) touches about twice the stack per level that a unary
-/// symbol's does (`stack::TYPING_STACK_PER_LEVEL` records the measurement). Rules 6,000 levels
-/// deep of two such shapes, `#if` nested in an `#if` condition and `#Not` nested in an `ensures`,
-/// get on a 1 MiB thread the typing they get on a 256 MiB one, with a `Bool` guard (typed in full)
-/// and with an `Int` one (a typing error). Typed on the calling thread, they overflow it.
+/// symbol's does (`stack::TYPING_STACK_PER_LEVEL` records the measurement). A deep rule of
+/// `#if` nested in an `#if` condition gets on a 1 MiB thread the typing it gets on a 64 MiB one,
+/// with a `Bool` guard and with an `Int` one. Typed on the calling thread, it overflows it. Packet
+/// test-gate TG-P: formerly one test with the `#Not` shape, which the kink tier now checks on its
+/// own (loading its definition takes most of the time at this depth).
 #[test]
-fn deep_parametric_rules_are_typed_alike_on_a_thread_too_small_for_their_typing() {
-    const DEPTH: usize = 6_000;
-    let text = format!(
-        "module DEEP\n  imports INT\n  imports BOOL\n  imports K-EQUAL\n  syntax Exp ::= go(Int) \
-         | deep(K)\n  rule [cond]: go(I:Int) => deep(#if {}true{} #then 0 #else 1 #fi) requires \
-         I >Int 100\n  rule [ml]: go(I:Int) => deep(0) requires I <Int 100 ensures {}#Top{}\n\
-         endmodule\n",
+fn deep_if_conditions_are_typed_alike_on_a_thread_too_small_for_their_typing() {
+    deep_parametric_rule_is_typed_alike(&format!(
+        "rule [shape]: go(I:Int) => deep(#if {}true{} #then 0 #else 1 #fi) requires I >Int 100",
         "#if ".repeat(DEPTH),
         " #then true #else false #fi".repeat(DEPTH),
-        "#Not(".repeat(DEPTH),
-        ")".repeat(DEPTH),
-    );
-    let typings = |stack: usize| {
-        let text = text.clone();
-        std::thread::Builder::new()
-            .stack_size(256 << 20)
-            .spawn(move || {
-                let baseline = load("DEEP", &text);
-                let patches = [
-                    ("DEEP.cond", "true"),
-                    ("DEEP.cond", "1"),
-                    ("DEEP.ml", "true"),
-                    ("DEEP.ml", "1"),
-                ]
-                .map(|(label, token)| {
-                    let at = rule_ref(&baseline, label);
-                    let mut replacement = baseline.sentence(&at).unwrap().clone();
-                    let Sentence::Rule { requires, .. } = &mut replacement else {
-                        panic!("a rule");
-                    };
-                    *requires = Term::Token {
-                        token: token.into(),
-                        sort: Sort::new(if token == "1" { "Int" } else { "Bool" }),
-                    };
-                    Patch::new(vec![Edit::ReplaceSentence { at, replacement }]).unwrap()
-                });
-                std::thread::scope(|scope| {
-                    std::thread::Builder::new()
-                        .stack_size(stack)
-                        .spawn_scoped(scope, || {
-                            patches
-                                .iter()
-                                .map(|patch| {
-                                    let mutant = apply(&baseline, patch).unwrap();
-                                    mutant
-                                        .typing_diagnostics()
-                                        .iter()
-                                        .map(|d| d.message.clone())
-                                        .collect::<Vec<_>>()
-                                })
-                                .collect::<Vec<_>>()
-                        })
-                        .unwrap()
-                        .join()
-                        .unwrap()
-                })
-            })
-            .unwrap()
-            .join()
-            .unwrap()
-    };
-    let large = typings(256 << 20);
-    for (index, diagnostics) in large.iter().enumerate() {
-        if index % 2 == 0 {
-            assert!(diagnostics.is_empty(), "a Bool requires types: {large:?}");
-        } else {
-            assert_eq!(
-                diagnostics.len(),
-                1,
-                "an Int requires is a typing error: {large:?}"
-            );
-            assert!(!diagnostics[0].starts_with("not typed"), "{large:?}");
-        }
+    ));
+}
+
+mod kink_tier {
+    use super::*;
+
+    /// The `#Not` shape of the deep parametric rules: `#Not` nested in an `ensures`, on a 1 MiB
+    /// thread as on a 64 MiB one, with a `Bool` guard and with an `Int` one.
+    #[test]
+    #[ignore = "kink"]
+    fn deep_ml_connectives_are_typed_alike_on_a_thread_too_small_for_their_typing() {
+        deep_parametric_rule_is_typed_alike(&format!(
+            "rule [shape]: go(I:Int) => deep(0) requires I <Int 100 ensures {}#Top{}",
+            "#Not(".repeat(DEPTH),
+            ")".repeat(DEPTH),
+        ));
     }
-    assert_eq!(typings(1 << 20), large);
 }
 
 /// The one authored sentence labelled `label`.

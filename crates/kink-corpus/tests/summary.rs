@@ -147,226 +147,234 @@ fn assert_safe_json(path: &Path, forbidden: &[&str]) {
 }
 
 #[test]
-fn summary_is_reproducible_and_only_reads_the_digest_checked_store_copy() {
-    with_stack(|| {
-        let m = decode(&clean());
-        let a = store("deterministic-a");
-        let b = store("deterministic-b");
-        let report = run(&m, &a);
-        assert_eq!(run(&m, &b), report);
-        let generated = summarize(&a, &m.digest().to_string(), profile()).unwrap();
-        fn keys(value: &Value, expected: &[&str]) {
-            let mut actual = value
-                .as_object()
-                .unwrap()
-                .keys()
-                .map(String::as_str)
-                .collect::<Vec<_>>();
-            let mut expected = expected.to_vec();
-            actual.sort();
-            expected.sort();
-            assert_eq!(actual, expected);
-        }
-        keys(
-            generated.value(),
-            &[
-                "schema",
-                "version",
-                "corpus_manifest_sha256",
-                "profile",
-                "definitions",
-                "totals",
-                "exposed",
-            ],
-        );
-        let definition = &generated.value()["definitions"][0];
-        keys(
-            definition,
-            &["id", "admission", "census", "campaign", "patterns"],
-        );
-        keys(&definition["admission"], &["outcome", "stage", "reason"]);
-        keys(&definition["census"], &["verdict", "findings", "inert"]);
-        keys(
-            &definition["campaign"],
-            &[
-                "manifest_sha256",
-                "report_sha256",
-                "time_bound_fired",
-                "tally",
-                "unknown_causes",
-                "per_operator",
-                "score",
-            ],
-        );
-        keys(
-            &generated.value()["totals"],
-            &[
-                "definitions",
-                "tally",
-                "unknown_causes",
-                "score",
-                "patterns",
-            ],
-        );
-        keys(
-            &generated.value()["totals"]["definitions"],
-            &["listed", "admitted", "exposed", "refused", "error"],
-        );
-        keys(
-            &generated.value()["totals"]["patterns"],
-            &[
-                "tests_with_match",
-                "tests_no_match",
-                "tests_unknown",
-                "any_match",
-            ],
-        );
-        let first = generated.text();
-        assert_eq!(
-            first,
-            summarize(&b, &m.digest().to_string(), profile())
-                .unwrap()
-                .text()
-        );
-        let summary_path = a.profile_path(m.digest(), profile()).join("summary.json");
-        a.write_text(&summary_path, &first).unwrap();
-        assert_eq!(
-            first,
-            summarize(&a, &m.digest().to_string(), profile())
-                .unwrap()
-                .text()
-        );
-        assert_eq!(first, fs::read_to_string(&summary_path).unwrap());
-        assert_safe_json(
-            a.root(),
-            &[
-                workspace().to_str().unwrap(),
-                a.root().to_str().unwrap(),
-                "/home/",
-                "/tmp/",
-            ],
-        );
-        let copy = a.corpus_path(m.digest()).join("corpus-manifest.json");
-        assert_eq!(fs::read_to_string(&copy).unwrap(), m.text());
-        let mut changed = m.text().into_bytes();
-        changed[0] = b'[';
-        fs::write(&copy, changed).unwrap();
-        assert!(summarize(&a, &m.digest().to_string(), profile()).is_err());
-        assert_eq!(fs::read_to_string(&summary_path).unwrap(), first);
-        assert!(run_definition(&workspace(), &m, "clean", &a).is_err());
-        a.write_text(&copy, &m.text()).unwrap();
-        assert!(summarize(&a, &"0".repeat(64), profile()).is_err());
-        let wrong = a.root().join("0".repeat(64));
-        fs::create_dir_all(&wrong).unwrap();
-        fs::write(wrong.join("corpus-manifest.json"), m.text()).unwrap();
-        assert!(summarize(&a, &"0".repeat(64), profile()).is_err());
-        fs::write(&copy, serde_json::to_string_pretty(&m.value()).unwrap()).unwrap();
-        assert!(summarize(&a, &m.digest().to_string(), profile()).is_err());
-        fs::remove_file(&copy).unwrap();
-        assert!(summarize(&a, &m.digest().to_string(), profile()).is_err());
-        fs::remove_dir_all(a.root()).unwrap();
-        fs::remove_dir_all(b.root()).unwrap();
-    });
-}
-
-#[test]
-fn mutant_census_flag_moves_campaign_out_of_every_total() {
-    with_stack(|| {
-        let m = decode(&clean());
-        let s = store("flagged");
-        let mut report = run(&m, &s);
-        let before = document(&s, &m);
-        assert_eq!(before["totals"]["tally"], report["summary"]["tally"]);
-        report["manifest"]["admission"]["verdict"] = json!("flagged");
-        rewrite(&s, &m, &report);
-        let after = document(&s, &m);
-        assert_eq!(
-            after["definitions"][0]["admission"],
-            json!({"outcome":"refused","stage":"declaration-census","reason":"vi-t13-mutant"})
-        );
-        assert_eq!(after["totals"]["definitions"]["admitted"], 0);
-        assert_eq!(
-            after["totals"]["definitions"]["refused"]["declaration-census"],
-            1
-        );
-        for (_, count) in after["totals"]["tally"].as_object().unwrap() {
-            assert_eq!(count, 0, "STOP: flagged tally enters totals");
-        }
-        assert_eq!(after["exposed"], json!([]));
-        fs::remove_dir_all(s.root()).unwrap();
-    });
-}
-
-#[test]
-fn pattern_rows_follow_declared_slots_and_unknown_is_never_no_match() {
-    with_stack(|| {
-        let m = pattern_manifest(true);
-        let s = store("pattern");
-        let mut report = run(&m, &s);
-        let summary = document(&s, &m);
-        let rows = summary["definitions"][0]["patterns"].as_array().unwrap();
-        assert_eq!(rows.len(), 2);
-        for row in rows {
-            assert_eq!(row["oracle"], 1);
-            let baseline = report["baseline"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|r| r["test_id"] == row["test_id"])
-                .unwrap();
-            let side = &baseline["run"]["sides"][1];
-            let expected = if side["normal"]["pattern"].is_object() {
-                "match"
-            } else if side["normal"]["pattern"] == "no-match" {
-                "no-match"
-            } else {
-                "unknown"
-            };
-            assert_eq!(row["baseline"], expected);
-        }
-        for row in report["baseline"].as_array_mut().unwrap() {
-            row["run"]["sides"][1] = json!("unknown");
-        }
-        rewrite(&s, &m, &report);
-        let summary = document(&s, &m);
-        assert_eq!(
-            summary["totals"]["patterns"],
-            json!({"tests_with_match":0,"tests_no_match":0,"tests_unknown":2,"any_match":"unknown"})
-        );
-        for row in summary["definitions"][0]["patterns"].as_array().unwrap() {
-            assert_eq!(row["baseline"], "unknown");
-        }
-        report["baseline"][0]["run"]["sides"]
-            .as_array_mut()
-            .unwrap()
-            .pop();
-        rewrite(&s, &m, &report);
-        assert!(summarize(&s, &m.digest().to_string(), profile()).is_err());
-        fs::remove_dir_all(s.root()).unwrap();
-    });
-}
-
-#[test]
-fn unknown_state_sides_never_create_pattern_rows_or_pattern_totals() {
-    with_stack(|| {
-        let m = decode(&clean());
-        let s = store("state-only");
-        let mut report = run(&m, &s);
-        for row in report["baseline"].as_array_mut().unwrap() {
-            row["run"]["sides"][0] = json!("unknown");
-        }
-        rewrite(&s, &m, &report);
-        let summary = document(&s, &m);
-        assert!(summary["definitions"][0]["patterns"].is_null());
-        assert_eq!(summary["totals"]["patterns"]["tests_with_match"], 0);
-        assert_eq!(summary["totals"]["patterns"]["tests_no_match"], 0);
-        assert_eq!(summary["totals"]["patterns"]["tests_unknown"], 0);
-        fs::remove_dir_all(s.root()).unwrap();
-    });
-}
-
-#[test]
 fn summary_never_constructs_a_mutant_status() {
     let source = include_str!("../src/summary.rs");
     assert!(!source.contains("MutantStatus::"));
+}
+
+mod kink_tier {
+    use super::*;
+
+    #[test]
+    #[ignore = "kink"]
+    fn summary_is_reproducible_and_only_reads_the_digest_checked_store_copy() {
+        with_stack(|| {
+            let m = decode(&clean());
+            let a = store("deterministic-a");
+            let b = store("deterministic-b");
+            let report = run(&m, &a);
+            assert_eq!(run(&m, &b), report);
+            let generated = summarize(&a, &m.digest().to_string(), profile()).unwrap();
+            fn keys(value: &Value, expected: &[&str]) {
+                let mut actual = value
+                    .as_object()
+                    .unwrap()
+                    .keys()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>();
+                let mut expected = expected.to_vec();
+                actual.sort();
+                expected.sort();
+                assert_eq!(actual, expected);
+            }
+            keys(
+                generated.value(),
+                &[
+                    "schema",
+                    "version",
+                    "corpus_manifest_sha256",
+                    "profile",
+                    "definitions",
+                    "totals",
+                    "exposed",
+                ],
+            );
+            let definition = &generated.value()["definitions"][0];
+            keys(
+                definition,
+                &["id", "admission", "census", "campaign", "patterns"],
+            );
+            keys(&definition["admission"], &["outcome", "stage", "reason"]);
+            keys(&definition["census"], &["verdict", "findings", "inert"]);
+            keys(
+                &definition["campaign"],
+                &[
+                    "manifest_sha256",
+                    "report_sha256",
+                    "time_bound_fired",
+                    "tally",
+                    "unknown_causes",
+                    "per_operator",
+                    "score",
+                ],
+            );
+            keys(
+                &generated.value()["totals"],
+                &[
+                    "definitions",
+                    "tally",
+                    "unknown_causes",
+                    "score",
+                    "patterns",
+                ],
+            );
+            keys(
+                &generated.value()["totals"]["definitions"],
+                &["listed", "admitted", "exposed", "refused", "error"],
+            );
+            keys(
+                &generated.value()["totals"]["patterns"],
+                &[
+                    "tests_with_match",
+                    "tests_no_match",
+                    "tests_unknown",
+                    "any_match",
+                ],
+            );
+            let first = generated.text();
+            assert_eq!(
+                first,
+                summarize(&b, &m.digest().to_string(), profile())
+                    .unwrap()
+                    .text()
+            );
+            let summary_path = a.profile_path(m.digest(), profile()).join("summary.json");
+            a.write_text(&summary_path, &first).unwrap();
+            assert_eq!(
+                first,
+                summarize(&a, &m.digest().to_string(), profile())
+                    .unwrap()
+                    .text()
+            );
+            assert_eq!(first, fs::read_to_string(&summary_path).unwrap());
+            assert_safe_json(
+                a.root(),
+                &[
+                    workspace().to_str().unwrap(),
+                    a.root().to_str().unwrap(),
+                    "/home/",
+                    "/tmp/",
+                ],
+            );
+            let copy = a.corpus_path(m.digest()).join("corpus-manifest.json");
+            assert_eq!(fs::read_to_string(&copy).unwrap(), m.text());
+            let mut changed = m.text().into_bytes();
+            changed[0] = b'[';
+            fs::write(&copy, changed).unwrap();
+            assert!(summarize(&a, &m.digest().to_string(), profile()).is_err());
+            assert_eq!(fs::read_to_string(&summary_path).unwrap(), first);
+            assert!(run_definition(&workspace(), &m, "clean", &a).is_err());
+            a.write_text(&copy, &m.text()).unwrap();
+            assert!(summarize(&a, &"0".repeat(64), profile()).is_err());
+            let wrong = a.root().join("0".repeat(64));
+            fs::create_dir_all(&wrong).unwrap();
+            fs::write(wrong.join("corpus-manifest.json"), m.text()).unwrap();
+            assert!(summarize(&a, &"0".repeat(64), profile()).is_err());
+            fs::write(&copy, serde_json::to_string_pretty(&m.value()).unwrap()).unwrap();
+            assert!(summarize(&a, &m.digest().to_string(), profile()).is_err());
+            fs::remove_file(&copy).unwrap();
+            assert!(summarize(&a, &m.digest().to_string(), profile()).is_err());
+            fs::remove_dir_all(a.root()).unwrap();
+            fs::remove_dir_all(b.root()).unwrap();
+        });
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn mutant_census_flag_moves_campaign_out_of_every_total() {
+        with_stack(|| {
+            let m = decode(&clean());
+            let s = store("flagged");
+            let mut report = run(&m, &s);
+            let before = document(&s, &m);
+            assert_eq!(before["totals"]["tally"], report["summary"]["tally"]);
+            report["manifest"]["admission"]["verdict"] = json!("flagged");
+            rewrite(&s, &m, &report);
+            let after = document(&s, &m);
+            assert_eq!(
+                after["definitions"][0]["admission"],
+                json!({"outcome":"refused","stage":"declaration-census","reason":"vi-t13-mutant"})
+            );
+            assert_eq!(after["totals"]["definitions"]["admitted"], 0);
+            assert_eq!(
+                after["totals"]["definitions"]["refused"]["declaration-census"],
+                1
+            );
+            for (_, count) in after["totals"]["tally"].as_object().unwrap() {
+                assert_eq!(count, 0, "STOP: flagged tally enters totals");
+            }
+            assert_eq!(after["exposed"], json!([]));
+            fs::remove_dir_all(s.root()).unwrap();
+        });
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn pattern_rows_follow_declared_slots_and_unknown_is_never_no_match() {
+        with_stack(|| {
+            let m = pattern_manifest(true);
+            let s = store("pattern");
+            let mut report = run(&m, &s);
+            let summary = document(&s, &m);
+            let rows = summary["definitions"][0]["patterns"].as_array().unwrap();
+            assert_eq!(rows.len(), 2);
+            for row in rows {
+                assert_eq!(row["oracle"], 1);
+                let baseline = report["baseline"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|r| r["test_id"] == row["test_id"])
+                    .unwrap();
+                let side = &baseline["run"]["sides"][1];
+                let expected = if side["normal"]["pattern"].is_object() {
+                    "match"
+                } else if side["normal"]["pattern"] == "no-match" {
+                    "no-match"
+                } else {
+                    "unknown"
+                };
+                assert_eq!(row["baseline"], expected);
+            }
+            for row in report["baseline"].as_array_mut().unwrap() {
+                row["run"]["sides"][1] = json!("unknown");
+            }
+            rewrite(&s, &m, &report);
+            let summary = document(&s, &m);
+            assert_eq!(
+                summary["totals"]["patterns"],
+                json!({"tests_with_match":0,"tests_no_match":0,"tests_unknown":2,"any_match":"unknown"})
+            );
+            for row in summary["definitions"][0]["patterns"].as_array().unwrap() {
+                assert_eq!(row["baseline"], "unknown");
+            }
+            report["baseline"][0]["run"]["sides"]
+                .as_array_mut()
+                .unwrap()
+                .pop();
+            rewrite(&s, &m, &report);
+            assert!(summarize(&s, &m.digest().to_string(), profile()).is_err());
+            fs::remove_dir_all(s.root()).unwrap();
+        });
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn unknown_state_sides_never_create_pattern_rows_or_pattern_totals() {
+        with_stack(|| {
+            let m = decode(&clean());
+            let s = store("state-only");
+            let mut report = run(&m, &s);
+            for row in report["baseline"].as_array_mut().unwrap() {
+                row["run"]["sides"][0] = json!("unknown");
+            }
+            rewrite(&s, &m, &report);
+            let summary = document(&s, &m);
+            assert!(summary["definitions"][0]["patterns"].is_null());
+            assert_eq!(summary["totals"]["patterns"]["tests_with_match"], 0);
+            assert_eq!(summary["totals"]["patterns"]["tests_no_match"], 0);
+            assert_eq!(summary["totals"]["patterns"]["tests_unknown"], 0);
+            fs::remove_dir_all(s.root()).unwrap();
+        });
+    }
 }

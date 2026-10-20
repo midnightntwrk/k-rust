@@ -475,6 +475,9 @@ const ROWS: &[Row] = &[
     ),
 ];
 
+/// The rows whose edits read an attribute of their expected file (`Fixture::expected_attribute`).
+const READS_EXPECTED: &[&str] = &["add-attribute", "replace-attribute"];
+
 fn main_module(fixture: &str) -> &'static str {
     match fixture {
         "memory.k" => "MEMORY",
@@ -620,8 +623,10 @@ fn permuted_edits_build_equal_patches_and_equal_mutants() {
         } else {
             &counter
         };
-        let expected =
-            matches!(expect, Expect::File).then(|| load_expected(id, main_module(fixture)));
+        // Only the rows whose edits read an expected attribute load their expected file; each
+        // is a one-edit row, which this test skips.
+        let expected = (matches!(expect, Expect::File) && READS_EXPECTED.contains(id))
+            .then(|| load_expected(id, main_module(fixture)));
         let edits = edits(&Fixture {
             baseline,
             expected: expected.as_ref(),
@@ -681,36 +686,22 @@ fn raw_term_mut<'a>(sentence: &'a mut Sentence, path: &[u32]) -> &'a mut Term {
     term
 }
 
+/// An ill-sorted edit of `COUNTER.increment`: its row, path and replacement.
+type IllSortedRow = (&'static str, &'static [u32], fn(&Fixture) -> Term);
+
 /// Re-pin L2-2-fix-1: a typing error refuses no patch (a mutant is valid when it compiles), so
 /// each ill-sorted edit applies, with its error in compilation's typing view as a diagnostic, and
 /// k-rust's compilation refuses the mutant (before: `apply` refused each row locally-ill-formed,
-/// and three rows checked the raw edit against compilation).
-#[test]
-fn ill_sorted_edits_are_rejected_by_k_rust() {
+/// and three rows checked the raw edit against compilation). Rows: (row, path, replacement).
+fn ill_sorted_edits_are_rejected_by_k_rust(rows: &[IllSortedRow]) {
     let counter = support::load("counter.k");
     let f = Fixture {
         baseline: &counter,
         expected: None,
     };
-    // (row, path, replacement)
-    let rows: &[(&str, &[u32], Term)] = &[
-        ("bool-token-in-nat-position", &[0, 1, 0], boolean("true")),
-        ("non-bool-requires", &[1], z()),
-        ("arity-drift", &[0, 1], Term::apply("counter", vec![z()])),
-        ("unknown-label", &[0, 1, 0], Term::apply("noSuch", vec![])),
-        (
-            "original-reference-sort-drift",
-            &[0, 1, 0],
-            f.term("COUNTER.increment", &[0, 0]),
-        ),
-    ];
     for (row, path, replacement) in rows {
-        let patch = Patch::new(vec![f.replace(
-            "COUNTER.increment",
-            path,
-            replacement.clone(),
-        )])
-        .expect("patch");
+        let patch =
+            Patch::new(vec![f.replace("COUNTER.increment", path, replacement(&f))]).expect("patch");
         let mutant = apply(&counter, &patch).unwrap_or_else(|failure| panic!("{row}: {failure}"));
         assert_eq!(
             mutant
@@ -725,6 +716,40 @@ fn ill_sorted_edits_are_rejected_by_k_rust() {
             support::compile(&mutant.to_loaded(&counter).expect("the mutant relinks")).is_err(),
             "{row}: k-rust accepted an ill-sorted edit"
         );
+    }
+}
+
+/// Two rows of the ill-sorted edits, a non-`Bool` `requires` and an arity drift; the other three
+/// are in the kink tier (`typing.rs` `an_ill_sorted_structural_candidate_is_left_to_compilation`
+/// also has a `Bool` token compilation refuses in an `Int` position).
+#[test]
+fn ill_sorted_requires_and_arity_drift_are_rejected_by_k_rust() {
+    ill_sorted_edits_are_rejected_by_k_rust(&[
+        ("non-bool-requires", &[1], |_| z()),
+        ("arity-drift", &[0, 1], |_| {
+            Term::apply("counter", vec![z()])
+        }),
+    ]);
+}
+
+mod kink_tier {
+    use super::*;
+
+    /// The other three rows of the ill-sorted edits.
+    #[test]
+    #[ignore = "kink"]
+    fn ill_sorted_tokens_labels_and_reference_sorts_are_rejected_by_k_rust() {
+        ill_sorted_edits_are_rejected_by_k_rust(&[
+            ("bool-token-in-nat-position", &[0, 1, 0], |_| {
+                boolean("true")
+            }),
+            ("unknown-label", &[0, 1, 0], |_| {
+                Term::apply("noSuch", vec![])
+            }),
+            ("original-reference-sort-drift", &[0, 1, 0], |f| {
+                f.term("COUNTER.increment", &[0, 0])
+            }),
+        ]);
     }
 }
 

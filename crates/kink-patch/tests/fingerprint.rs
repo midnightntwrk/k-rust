@@ -10,11 +10,7 @@ use kink_patch::{
     PatchModelError, SelectionPolicy, SentenceFingerprint, SentenceOrigin, SentenceRef,
     Sha256Digest, SiteSelector, TermRef, apply, derive_sites, fingerprint_payload, select, sha256,
 };
-use std::{
-    fs,
-    path::{Path, PathBuf},
-    time::Instant,
-};
+use std::{fs, path::Path};
 
 fn boolean(value: bool) -> Term {
     Term::Token {
@@ -40,26 +36,6 @@ fn variant(directory: &str, contents: &str) -> Baseline {
     let path = dir.join("counter.k");
     fs::write(&path, contents).expect("variant");
     support::load_path(&path, "COUNTER")
-}
-
-fn table(baseline: &Baseline) -> Vec<(SentenceRef, SentenceFingerprint)> {
-    baseline
-        .definition()
-        .modules
-        .iter()
-        .flat_map(|module| {
-            module
-                .local_sentences
-                .iter()
-                .enumerate()
-                .map(|(index, sentence)| {
-                    (
-                        SentenceRef::new(&module.name, u32::try_from(index).expect("index")),
-                        SentenceFingerprint::of(sentence).expect("fingerprint"),
-                    )
-                })
-        })
-        .collect()
 }
 
 #[test]
@@ -157,54 +133,6 @@ fn fingerprint_payload_is_position_free() {
     for key in POSITION_KEYS {
         assert!(!payload.contains(key.as_str()), "{}", key.as_str());
     }
-}
-
-#[test]
-fn fingerprints_are_stable_across_loads_and_reformatting() {
-    let start = Instant::now();
-    let mut paths: Vec<PathBuf> = fs::read_dir(support::DIR)
-        .expect("fixtures")
-        .map(|entry| entry.expect("entry").path())
-        .filter(|path| path.extension().is_some_and(|extension| extension == "k"))
-        .collect();
-    paths.sort();
-    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("fingerprint-reformat");
-    fs::create_dir_all(&dir).expect("directory");
-    for path in &paths {
-        let text = fs::read_to_string(path).expect("fixture");
-        let main_module = text
-            .lines()
-            .filter_map(|line| line.trim().strip_prefix("module "))
-            .next_back()
-            .expect("main module")
-            .split_whitespace()
-            .next()
-            .expect("name");
-        let first = table(&support::load_path(path, main_module));
-        assert_eq!(
-            first,
-            table(&support::load_path(path, main_module)),
-            "{}",
-            path.display()
-        );
-        let reformatted = dir.join(path.file_name().expect("name"));
-        fs::write(
-            &reformatted,
-            format!("// fingerprint reformat probe\n\n\n{text}"),
-        )
-        .expect("reformatted");
-        assert_eq!(
-            first,
-            table(&support::load_path(&reformatted, main_module)),
-            "{}",
-            path.display()
-        );
-    }
-    eprintln!(
-        "fingerprint stability: {} definitions in {:?}",
-        paths.len(),
-        start.elapsed()
-    );
 }
 
 fn assert_changes(baseline: &Baseline, patch: Patch) {

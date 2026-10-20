@@ -657,14 +657,13 @@ fn single_paths_up_to_three_events_agree_with_evaluate_with() {
     tally.assert_covers_every_outcome();
 }
 
-/// Every trace of length 4..=6 over two reduced alphabets (one event per step, and two events
-/// per step), every plan, the scripted decider.
-#[test]
-fn single_paths_of_four_to_six_events_agree_with_evaluate_with() {
+/// Every trace of `lengths` over two reduced alphabets (one event per step, and two events per
+/// step), every plan, the scripted decider.
+fn single_paths_agree_with_evaluate_with(lengths: std::ops::RangeInclusive<usize>) {
     let plans = plans();
     let mut tally = Tally::default();
     for alphabet in [LONG_ONE, LONG_TWO] {
-        for length in 4..=6 {
+        for length in lengths.clone() {
             for word in words(&alphabet, length) {
                 for width in [1, 2] {
                     let tree =
@@ -683,8 +682,26 @@ fn single_paths_of_four_to_six_events_agree_with_evaluate_with() {
             }
         }
     }
-    eprintln!("CS04 single-path rows (length 4..=6): {tally:?}");
+    eprintln!("CS04 single-path rows (length {lengths:?}): {tally:?}");
     tally.assert_covers_every_outcome();
+}
+
+/// Every trace of length 4..=5 over two reduced alphabets, every plan, the scripted decider; the
+/// kink tier adds length 6.
+#[test]
+fn single_paths_of_four_to_five_events_agree_with_evaluate_with() {
+    single_paths_agree_with_evaluate_with(4..=5);
+}
+
+mod kink_tier {
+    use super::*;
+
+    /// Every trace of length 4..=6 over two reduced alphabets, every plan, the scripted decider.
+    #[test]
+    #[ignore = "kink"]
+    fn single_paths_of_four_to_six_events_agree_with_evaluate_with() {
+        single_paths_agree_with_evaluate_with(4..=6);
+    }
 }
 
 // ---------------------------------------------------------------- differential: trees

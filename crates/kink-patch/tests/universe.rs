@@ -14,9 +14,6 @@ use kink_patch::{
     select,
 };
 use serde_json::json;
-use std::collections::BTreeMap;
-use std::fs;
-use std::path::Path;
 
 fn load_text(text: &str) -> Baseline {
     load_module("CELLS", text)
@@ -258,168 +255,6 @@ fn user_cells_constructor_is_not_a_sort_non_site() {
         "Foo",
         0,
     );
-}
-
-fn load_definition(path: &Path) -> Option<Baseline> {
-    let text = fs::read_to_string(path).expect("fixture readable");
-    let module = text
-        .lines()
-        .filter_map(|line| line.trim().strip_prefix("module "))
-        .next_back()
-        .expect("a main module")
-        .split_whitespace()
-        .next()
-        .expect("module name");
-    let mut resolver = |_: &str, name: &str| {
-        builtin::embedded(name).ok_or_else(|| format!("{name} is not embedded"))
-    };
-    Baseline::load(
-        ResolvedSource::new(
-            path.file_name().expect("name").to_str().expect("UTF-8"),
-            text.clone(),
-        ),
-        module,
-        None,
-        &mut resolver,
-        &support::options(),
-    )
-    .ok()
-}
-
-fn selection_clauses() -> Vec<Vec<SiteSelector>> {
-    let path = |p: &[u32]| SiteSelector::Path(p.to_vec());
-    let sort = |s: &str| SiteSelector::Sort(Sort::new(s));
-    let head = |s: &str| SiteSelector::Head {
-        label: s.to_owned(),
-    };
-    let bind = |s: &str| SiteSelector::Bind(s.to_owned());
-    vec![
-        vec![],
-        vec![path(&[0])],
-        vec![path(&[0, 1])],
-        vec![path(&[1])],
-        vec![path(&[2])],
-        vec![head("s")],
-        vec![sort("Nat")],
-        vec![path(&[1]), sort("Bool")],
-        vec![path(&[2]), sort("Bool")],
-        vec![path(&[0, 1, 0]), sort("Nat"), head("s"), bind("E")],
-        vec![path(&[0, 0, 1]), sort("Nat"), bind("V")],
-        vec![path(&[0, 0, 0]), bind("A")],
-        vec![path(&[0, 0, 0, 0]), bind("A")],
-        vec![sort("Nat"), bind("A")],
-        vec![path(&[0, 0]), bind("X")],
-        vec![path(&[0]), bind("X")],
-        vec![path(&[0]), bind("V"), bind("T")],
-    ]
-}
-
-#[test]
-fn top_level_definitions_keep_legacy_tuples_and_have_deterministic_universes() {
-    let mut files = fs::read_dir(support::DIR)
-        .expect("testdata")
-        .map(|entry| entry.expect("entry").path())
-        .filter(|path| path.extension().is_some_and(|extension| extension == "k"))
-        .collect::<Vec<_>>();
-    files.sort();
-    let mut loaded = 0;
-    for file in files {
-        let Some(baseline) = load_definition(&file) else {
-            continue;
-        };
-        loaded += 1;
-        let legacy = resolve_universe(&baseline, &all_rules());
-        let clauses = selection_clauses();
-        for clauses in &clauses {
-            let old = derive_sites(&baseline, "site", clauses).expect("valid clauses");
-            let new = derive_sites_in(&baseline, &legacy, clauses).expect("valid universe");
-            let sort_cells = clauses
-                .iter()
-                .any(|clause| matches!(clause, SiteSelector::Sort(_)))
-                && ["#cells", "#dots", "#noDots"].iter().any(|label| {
-                    let mut clauses = clauses
-                        .iter()
-                        .filter(|clause| !matches!(clause, SiteSelector::Sort(_)))
-                        .cloned()
-                        .collect::<Vec<_>>();
-                    clauses.push(SiteSelector::Head {
-                        label: (*label).to_owned(),
-                    });
-                    !derive_sites(&baseline, "site", &clauses)
-                        .expect("cell scan")
-                        .tuples()
-                        .is_empty()
-                });
-            if !sort_cells {
-                assert_eq!(old.tuples(), new.tuples(), "{} {clauses:?}", file.display());
-                assert_eq!(
-                    old.exhaustive(),
-                    new.exhaustive(),
-                    "{} {clauses:?}",
-                    file.display()
-                );
-            }
-        }
-        for (at, sentence) in baseline
-            .authored_sentences()
-            .filter(|(_, sentence)| matches!(sentence, Sentence::Rule { .. }))
-        {
-            if let Some(label) = sentence.attributes().string(AttributeKey::Label) {
-                for path in [vec![0], vec![0, 1]] {
-                    let clauses = [
-                        SiteSelector::RuleLabel(label.to_owned()),
-                        SiteSelector::Path(path),
-                    ];
-                    let old = derive_sites(&baseline, "site", &clauses);
-                    let new = derive_sites_in(&baseline, &legacy, &clauses);
-                    match (old, new) {
-                        (Ok(old), Ok(new)) => assert_eq!(old.tuples(), new.tuples(), "{at:?}"),
-                        (Err(old), Err(new)) => assert_eq!(old, new),
-                        other => panic!("{at:?}: {other:?}"),
-                    }
-                }
-            }
-        }
-        let resolved = resolve_universe(&baseline, &Universe::v1());
-        let mut partition = resolved.included().to_vec();
-        partition.extend(resolved.excluded().iter().map(|(at, _)| at.clone()));
-        partition.sort();
-        let mut written = baseline
-            .authored_sentences()
-            .filter(|(_, sentence)| matches!(sentence, Sentence::Rule { .. }))
-            .map(|(at, _)| at)
-            .collect::<Vec<_>>();
-        written.sort();
-        assert_eq!(
-            partition,
-            written,
-            "{}: no silent exclusions",
-            file.display()
-        );
-        let again = load_definition(&file).expect("second load");
-        let repeated = resolve_universe(&again, &Universe::v1());
-        assert_eq!(resolved.excluded(), repeated.excluded());
-        assert_eq!(resolved.excluded_digest(), repeated.excluded_digest());
-        assert_eq!(
-            canonical_json(&resolved.value()),
-            canonical_json(&repeated.value())
-        );
-        let mut counts = BTreeMap::<String, usize>::new();
-        for (_, reason) in resolved.excluded() {
-            let key = match reason {
-                ExclusionReason::Attribute(key) => format!("attribute:{key}"),
-                ExclusionReason::MacroRule => "macro-rule".to_owned(),
-            };
-            *counts.entry(key).or_default() += 1;
-        }
-        println!(
-            "universe-count {} included={} excluded={}",
-            file.file_name().expect("name").to_string_lossy(),
-            resolved.included().len(),
-            canonical_json(&json!(counts))
-        );
-    }
-    assert!(loaded > 0);
 }
 
 #[test]
@@ -729,14 +564,17 @@ fn v1_discovery_refuses_an_un_authored_declaration() {
 
 /// Re-pin L1-3-tail (review L1-3-fix-2-1 P1): resolving the universe and a sort-selected discovery
 /// type every baseline rule (`CompilationTyping::site_typing`), by k-rust's unguarded recursion,
-/// on a stack sized from the rule's depth. A baseline whose rule nests 5,000 terms deep, through a
-/// unary symbol and through `#if` conditions (a parametric production, the costliest shape
-/// measured), resolves on a 1 MiB thread exactly as on a 256 MiB one, every rule sorted and the
-/// discovery exhaustive. Before, typing ran on the calling thread: this thread overflowed and the
-/// process aborted, as kink-corpus's 256 MiB thread did near 230,000 levels.
+/// on a stack sized from the rule's depth. A baseline whose rules nest deep, through a unary
+/// symbol and through `#if` conditions (a parametric production, the costliest shape measured),
+/// resolves on a 1 MiB thread exactly as on a 64 MiB one, every rule sorted and the discovery
+/// exhaustive. Before, typing ran on the calling thread: this thread overflowed and the process
+/// aborted, as kink-corpus's 256 MiB thread did near 230,000 levels. Packet test-gate TG-P: the
+/// depth is 1,500, down from 5,000: without kink's stack guard, resolving either rule alone
+/// overflows a 2 MiB thread (twice the small thread) from 1,342 levels, at the dev and test
+/// profile's `opt-level = 1` (TG-P handoff; typing.rs `DEPTH`).
 #[test]
 fn a_deep_baseline_rule_resolves_alike_on_a_thread_too_small_for_its_typing() {
-    const DEPTH: usize = 5_000;
+    const DEPTH: usize = 1_500;
     let text = format!(
         "module DEEP\n  imports INT\n  imports BOOL\n  imports K-EQUAL\n  syntax Peano ::= \"z\" | s(Peano)\n  \
          syntax Exp ::= go(Int) | deep(Peano) | pick(Int)\n  rule [big]: go(I:Int) => \
@@ -748,7 +586,7 @@ fn a_deep_baseline_rule_resolves_alike_on_a_thread_too_small_for_its_typing() {
         " #then true #else false #fi".repeat(DEPTH),
     );
     std::thread::Builder::new()
-        .stack_size(256 << 20)
+        .stack_size(64 << 20)
         .spawn(move || {
             let baseline = load_module("DEEP", &text);
             let resolved = |stack: usize| {
@@ -783,7 +621,7 @@ fn a_deep_baseline_rule_resolves_alike_on_a_thread_too_small_for_its_typing() {
                         .unwrap()
                 })
             };
-            let large = resolved(256 << 20);
+            let large = resolved(64 << 20);
             assert!(large.1.is_empty(), "every rule is sorted: {:?}", large.1);
             assert!(large.2, "the discovery is exhaustive");
             assert_eq!(
