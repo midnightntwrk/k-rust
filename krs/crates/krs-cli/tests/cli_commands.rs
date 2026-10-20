@@ -1250,6 +1250,36 @@ fn check_fails_where_a_route_refuses_and_backend_narrows_it_to_one_route() {
     );
 }
 
+/// `KRS_CHECK_AGREEMENT=1` runs the commands a check judges and fails on any
+/// disagreement; it holds for a refused default check and a passing narrowed one.
+#[test]
+fn check_agrees_with_the_commands_it_judges() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = materialize_fixture(temporary.path(), RULE_EXISTENTIAL);
+
+    for arguments in [&["--no-reuse"][..], &["--no-reuse", "--backend", "haskell"]] {
+        let mut process = krs_command!();
+        fixture_build_env(&mut process, target.path());
+        let agreed = process
+            .args(["check", "--manifest-path"])
+            .arg(&manifest)
+            .args([
+                "--package",
+                "krs-cli-foo-bar-fixture",
+                "--definition",
+                "main",
+            ])
+            .args(arguments)
+            .env("KRS_CHECK_AGREEMENT", "1")
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8(agreed.stderr).unwrap();
+        assert_eq!(agreed.status.success(), arguments.len() > 1, "{stderr}");
+        assert!(!stderr.contains("KRS_CHECK_AGREEMENT"), "{stderr}");
+    }
+}
+
 fn assert_success_with(status: std::process::ExitStatus, stderr: &str) {
     assert!(status.success(), "command failed:\n{stderr}");
 }

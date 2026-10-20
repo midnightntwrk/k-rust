@@ -25,6 +25,7 @@ use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
 
+mod agreement;
 mod collector;
 mod counters;
 mod exec;
@@ -263,6 +264,8 @@ struct PreparedDefinition {
     bundle: DescriptorBundle,
     semantic: krs_ir_levels::SemanticTheory,
     lowered: krs_compiler::LoweredDefinition,
+    /// k-rust's compiles of `lowered`, kept only for the agreement test.
+    compiles: agreement::CompileMemo,
 }
 
 type OutputArtifact = (String, Vec<u8>);
@@ -378,7 +381,7 @@ fn execute_with_sources(
     let (stdout, read_set) = run_collector(&collector_directory, &executable, measurement)?;
     let prepared = prepare(stdout, request.profile, measurement)?;
 
-    let outcome = match &request.command {
+    let mut outcome = match &request.command {
         Command::Check { backend, partition } => {
             check(&prepared, *backend, *partition, measurement)
                 .map(CommandExecution::without_artifacts)
@@ -400,6 +403,14 @@ fn execute_with_sources(
             )
         }
     };
+    if let Command::Check { backend, .. } = &request.command
+        && agreement::enabled()
+    {
+        let checked = outcome.as_ref().map(drop).map_err(ToString::to_string);
+        if let Err(disagreement) = agreement::verify(&prepared, *backend, checked) {
+            outcome = Err(disagreement);
+        }
+    }
     measurement.timings.span("release", |_| drop(prepared));
     if let Ok(ref value) = outcome
         && request.command.kind().reuses_results()
@@ -518,6 +529,7 @@ fn prepare(
         bundle,
         semantic,
         lowered,
+        compiles: agreement::CompileMemo::new(),
     })
 }
 
@@ -609,6 +621,7 @@ fn judge_routes(
     timings: &mut Timings,
 ) -> Result<crate::DiagnosticReports, CommandError> {
     let definition = prepared.lowered.definition();
+    let memo = &prepared.compiles;
     let enabled = timings.is_enabled();
     let compiled = std::thread::scope(|scope| {
         let workers = backends
@@ -625,7 +638,7 @@ fn judge_routes(
                         };
                         let id = format!("check.{}", Route::native(backend).name());
                         let compiled = timings
-                            .try_span(&id, |timings| compile_for(definition, backend, timings));
+                            .try_span(&id, |timings| memo.compile(definition, backend, timings));
                         (compiled, timings)
                     })
             })
@@ -998,7 +1011,9 @@ fn compile_native(
     ),
     CommandError,
 > {
-    let compiled = compile_for(prepared.lowered.definition(), backend, timings);
+    let compiled = prepared
+        .compiles
+        .compile(prepared.lowered.definition(), backend, timings);
     finish_native(prepared, backend, compiled, timings)
 }
 
@@ -1243,6 +1258,9 @@ pub enum CommandError {
         /// The refusal.
         source: Box<CommandError>,
     },
+    /// `KRS_CHECK_AGREEMENT=1`: the verdict of `krs check` differs from the
+    /// verdicts of the commands it judges.
+    CheckDisagreement(String),
 }
 
 impl fmt::Display for CommandError {
@@ -1320,7 +1338,7 @@ impl fmt::Display for CommandError {
                 path.display()
             ),
             Self::Exec(error) => error.fmt(formatter),
-            Self::Usage(message) => formatter.write_str(message),
+            Self::Usage(message) | Self::CheckDisagreement(message) => formatter.write_str(message),
             Self::Attributed { note, source } => write!(formatter, "{source} ({note})"),
         }
     }
@@ -1345,6 +1363,7 @@ impl Error for CommandError {
             Self::Exec(error) => Some(error),
             Self::Attributed { source, .. } => Some(source.as_ref()),
             Self::Usage(_)
+            | Self::CheckDisagreement(_)
             | Self::InvalidRequest(_)
             | Self::InvalidMetadata(_)
             | Self::ProcessFailed { .. }
