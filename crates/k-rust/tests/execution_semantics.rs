@@ -2948,6 +2948,106 @@ fn an_execute_request_asks_for_traces_unless_it_says_otherwise() {
     assert!(ExecuteRequest::new(parse_pattern("a{}()").unwrap()).trace);
 }
 
+/// A rule's defining symbol is the root of its left-hand pattern, and `P #as V` denotes what `P`
+/// denotes while naming the matched term, so a root alias changes no rule's role:
+///
+/// - `f(X) #as _V => X +Int 1` is an equation of the function `f`, so `f(1) +Int 2` evaluates
+///   to 4 (a rewrite of the computation cell would leave `f(1)` unevaluated below `+Int`);
+/// - `m(X) #as _T => X` is a rule of the macro production `m`, so `m` is expanded where `h`'s
+///   right side applies it and where a program writes it;
+/// - `pair(X, Y) #as P => swap(P) requires X >Int Y [anywhere]` binds `P` to the matched
+///   `pair(X, Y)` in the emitted equation, so `pair(3, 1)` becomes `pair(1, 3)`.
+#[test]
+fn a_root_alias_leaves_a_rule_of_its_head() {
+    const FUNCTION: &str = r#"
+module MAIN
+  imports INT
+  syntax Int ::= f(Int) [function, symbol(f)]
+  rule f(X) #as _V => X +Int 1
+  configuration <k> f($PGM:Int) +Int 2 </k>
+endmodule
+"#;
+    let leaves = text(&execute(
+        &compile(FUNCTION, "MAIN", "MAIN", "Int", "1"),
+        "MAIN",
+        None,
+    ));
+    assert_eq!(leaves.len(), 1, "{leaves:?}");
+    assert!(
+        leaves[0].contains(r#"\dv{SortInt{}}("4")"#) && !leaves[0].contains("Lblf{}"),
+        "{leaves:?}"
+    );
+
+    const MACRO: &str = r#"
+module MAIN
+  imports INT
+  syntax Int ::= m(Int) [macro, symbol(m)]
+  syntax Int ::= h(Int) [function, symbol(h)]
+  rule h(X) => m(X) +Int 1
+  rule m(X) #as _T => X
+  configuration <k> $PGM:Int </k>
+endmodule
+"#;
+    for (program, value) in [("h(1)", "2"), ("m(5)", "5")] {
+        let leaves = text(&execute(
+            &compile(MACRO, "MAIN", "MAIN", "Int", program),
+            "MAIN",
+            None,
+        ));
+        assert_eq!(leaves.len(), 1, "{program}: {leaves:?}");
+        assert!(
+            leaves[0].contains(&format!(r#"\dv{{SortInt{{}}}}("{value}")"#))
+                && !leaves[0].contains("Lblm{}")
+                && !leaves[0].contains("Lblh{}"),
+            "{program}: {leaves:?}"
+        );
+    }
+
+    const ANYWHERE: &str = r#"
+module MAIN
+  imports INT
+  imports BOOL
+  syntax Pair ::= pair(Int, Int) [symbol(pair)]
+  syntax Pair ::= swap(Pair) [function, symbol(swap)]
+  rule swap(pair(X, Y)) => pair(Y, X)
+  rule pair(X, Y) #as P => swap(P) requires X >Int Y [anywhere]
+  configuration <k> $PGM:Pair </k>
+endmodule
+"#;
+    let compiled = compile(ANYWHERE, "MAIN", "MAIN", "Pair", "pair(3, 1)");
+    // The equation of `pair` states its right side of the matched term, `swap(pair(X0, X1))`,
+    // and leaves no occurrence of the alias `P` free (a free `P` would state the equation for
+    // every value of `P`).
+    let syntax = k_rust::kore::parser::parse_definition(&compiled.kore).unwrap();
+    let printer = Printer::compact();
+    let equations = syntax
+        .modules
+        .iter()
+        .flat_map(|module| &module.sentences)
+        .filter_map(|sentence| match sentence {
+            k_rust::kore::ast::Sentence::Axiom { pattern, .. } => Some(pattern),
+            _ => None,
+        })
+        .filter(|pattern| {
+            let printed = printer.print_pattern(pattern);
+            printed.contains(r"\equals") && printed.contains("Lblswap{}(Lblpair{}(")
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(equations.len(), 1, "{equations:?}");
+    let free = equations[0]
+        .free_variables()
+        .into_iter()
+        .map(|variable| variable.name)
+        .collect::<Vec<_>>();
+    assert!(!free.iter().any(|name| name == "VarP"), "{free:?}");
+    let leaves = text(&execute(&compiled, "MAIN", None));
+    assert_eq!(leaves.len(), 1, "{leaves:?}");
+    assert!(
+        leaves[0].contains(r#"Lblpair{}(\dv{SortInt{}}("1"),\dv{SortInt{}}("3"))"#),
+        "{leaves:?}"
+    );
+}
+
 /// A local function whose body tests a sort: `#let Y = X #in isInt(Y)` lowers to a lambda over
 /// the sort predicate `isInt`, so `h(1)` rewrites to `m(true)`.
 #[test]

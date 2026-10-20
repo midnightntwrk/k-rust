@@ -170,23 +170,6 @@ impl<'a> RuleCatalog<'a> {
             .cloned()
             .collect()
     }
-
-    pub fn rule_lhs_has_macro_label(
-        &self,
-        rule: RuleId,
-        productions: &ProductionCatalog<'_>,
-    ) -> bool {
-        let Sentence::Rule { body, .. } = self.rule(rule) else {
-            unreachable!()
-        };
-        let Term::Rewrite { left, .. } = body.unannotated() else {
-            return false;
-        };
-        let Term::Apply { label, .. } = left.unannotated() else {
-            return false;
-        };
-        productions.macro_labels().contains(&LabelHead::from(label))
-    }
 }
 
 impl ResolvedDefinition {
@@ -204,48 +187,157 @@ impl ResolvedDefinition {
 /// The symbol that heads a rule; under `#withConfig`, the head of its first argument, or of that
 /// argument's left-hand side when it is a rewrite.
 ///
-/// This is the one reading of the symbol that heads a rule. An alias `P #as V` matches exactly
-/// the terms `P` matches and binds `V` to the whole term, so it is peeled wherever the head is
-/// read: `f(X) #as V => r` is headed by `f`, like `f(X) => r`.
+/// This is [`RuleHead::of`]'s label, or the empty label when the head is not an application.
 pub fn match_rule_label(rule: &Sentence) -> Label {
     let Sentence::Rule { body, .. } = rule else {
         panic!("match_rule_label requires a rule")
     };
-    matched_term_label(body)
+    RuleHead::of(body)
+        .label()
         .cloned()
         .unwrap_or_else(|| Label::new(""))
 }
 
-/// `term` without its annotations and the aliases around it.
-fn unaliased(term: &Term) -> &Term {
-    let mut term = term.unannotated();
-    while let Term::As { pattern, .. } = term {
-        term = pattern.unannotated();
+/// Whether a rule body has a rewrite at its top (under `#withConfig`'s first argument when the
+/// body is one), or none.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum HeadShape {
+    /// `L => R`: the head is read from `L`.
+    TopRewrite,
+    /// No rewrite at the top: the head is read from the body itself.
+    NoRewrite,
+}
+
+/// The one reading of "which symbol does this rule define": the root of the left-hand side of
+/// a rule body's top rewrite, or of the body when it has none.
+///
+/// A rule's defining symbol is a property of its left-hand pattern. An alias `P #as V` denotes
+/// exactly the terms `P` denotes and binds `V` to the matched term, so it constrains nothing
+/// beyond naming the subject: `f(X) #as V => R` has the instances of `f(X) => R[f(X)/V]` and is
+/// headed by `f`, like it. Every root alias, and every annotation, is therefore looked through
+/// ([`peel_aliases`]). Under `#withConfig(E, C)` the head is that of `E`, with `C` as the
+/// rule's configuration context, when `E` is headed by an application; otherwise the body is
+/// read as written.
+///
+/// Every classification keyed on the defining head (function equation versus rewrite of the
+/// computation cell, macro rule, `anywhere` equation, the number of rules of a symbol,
+/// dependency edges) reads it here, so two stages cannot classify one rule differently. A
+/// caller that needs a top rewrite tests [`Self::shape`] explicitly; an injection head `inj`
+/// is the head itself, and [`Self::injected`] reads its argument for a caller that wants it.
+#[derive(Clone, Copy, Debug)]
+pub struct RuleHead<'a> {
+    /// The left-hand side as written, root aliases and annotations included: the body itself
+    /// when it has no top rewrite.
+    pub left: &'a Term,
+    /// `left` without its root aliases: the root pattern, annotations kept so its metadata
+    /// (the production it resolves to, its sort) can be read.
+    pub root: &'a Term,
+    /// The right-hand side of the top rewrite; `None` for [`HeadShape::NoRewrite`].
+    pub right: Option<&'a Term>,
+    /// The configuration context `C` of a `#withConfig(E, C)` body.
+    pub context: Option<&'a Term>,
+}
+
+impl<'a> RuleHead<'a> {
+    /// The head of the rule body `body`.
+    pub fn of(body: &'a Term) -> Self {
+        if let Term::Apply { label, arguments } = unaliased(body)
+            && label.is(InternalLabel::WithConfig)
+            && let Some(first) = arguments.first()
+        {
+            let inner = Self::without_context(first);
+            if inner.label().is_some() {
+                return Self {
+                    context: arguments.get(1),
+                    ..inner
+                };
+            }
+        }
+        Self::without_context(body)
+    }
+
+    fn without_context(body: &'a Term) -> Self {
+        match unaliased(body) {
+            Term::Rewrite { left, right } => Self {
+                left,
+                root: peel_aliases(left),
+                right: Some(right.as_ref()),
+                context: None,
+            },
+            Term::Apply { .. }
+            | Term::Variable { .. }
+            | Term::Token { .. }
+            | Term::InjectedLabel(_)
+            | Term::As { .. }
+            | Term::Sequence(_)
+            | Term::Annotated { .. } => Self {
+                left: body,
+                root: peel_aliases(body),
+                right: None,
+                context: None,
+            },
+        }
+    }
+
+    pub fn shape(&self) -> HeadShape {
+        if self.right.is_some() {
+            HeadShape::TopRewrite
+        } else {
+            HeadShape::NoRewrite
+        }
+    }
+
+    /// The root application: the annotated root term, its label and its arguments.
+    pub fn application(&self) -> Option<(&'a Term, &'a Label, &'a [Term])> {
+        match self.root.unannotated() {
+            Term::Apply { label, arguments } => Some((self.root, label, arguments.as_slice())),
+            Term::Variable { .. }
+            | Term::Token { .. }
+            | Term::InjectedLabel(_)
+            | Term::Rewrite { .. }
+            | Term::As { .. }
+            | Term::Sequence(_)
+            | Term::Annotated { .. } => None,
+        }
+    }
+
+    /// The label of the root application.
+    pub fn label(&self) -> Option<&'a Label> {
+        self.application().map(|(_, label, _)| label)
+    }
+
+    /// When the root is an injection `inj(A)`, the label of `A`'s root application (aliases
+    /// looked through): the symbol a rule written at an injected position is a rule of.
+    pub fn injected(&self) -> Option<&'a Label> {
+        let (_, label, arguments) = self.application()?;
+        if !label.is(crate::names::WellKnownSymbol::Inj) {
+            return None;
+        }
+        match unaliased(arguments.first()?) {
+            Term::Apply { label, .. } => Some(label),
+            Term::Variable { .. }
+            | Term::Token { .. }
+            | Term::InjectedLabel(_)
+            | Term::Rewrite { .. }
+            | Term::As { .. }
+            | Term::Sequence(_)
+            | Term::Annotated { .. } => None,
+        }
+    }
+}
+
+/// `term` without the aliases at its root, keeping the annotations of the pattern they alias:
+/// `(P #as V) #as W` is `P`.
+pub fn peel_aliases(mut term: &Term) -> &Term {
+    while let Term::As { pattern, .. } = term.unannotated() {
+        term = pattern;
     }
     term
 }
 
-fn matched_term_label(term: &Term) -> Option<&Label> {
-    if let Term::Apply { label, arguments } = unaliased(term) {
-        if label.is(InternalLabel::WithConfig) {
-            match arguments.first().map(unaliased) {
-                Some(Term::Apply { label, .. }) => return Some(label),
-                Some(Term::Rewrite { left, .. }) => {
-                    if let Term::Apply { label, .. } = unaliased(left) {
-                        return Some(label);
-                    }
-                }
-                _ => {}
-            }
-        }
-        return Some(label);
-    }
-    if let Term::Rewrite { left, .. } = unaliased(term)
-        && let Term::Apply { label, .. } = unaliased(left)
-    {
-        return Some(label);
-    }
-    None
+/// `term` without its annotations and the aliases around it.
+fn unaliased(term: &Term) -> &Term {
+    peel_aliases(term).unannotated()
 }
 
 fn collect_unique<'a>(

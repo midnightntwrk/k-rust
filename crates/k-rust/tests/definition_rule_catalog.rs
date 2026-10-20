@@ -3,8 +3,8 @@ use std::sync::Arc;
 use std::collections::BTreeMap;
 
 use k_rust::definition::{
-    Attributes, ClaimId, Definition, FlatImport, FlatModule, ProductionItem, ResolvedDefinition,
-    RuleId, Sentence, match_rule_label,
+    Attributes, ClaimId, Definition, FlatImport, FlatModule, HeadShape, ProductionItem,
+    ResolvedDefinition, RuleHead, RuleId, Sentence, match_rule_label,
 };
 use k_rust::kast::{Label, Sort, Term};
 use serde_json::Value;
@@ -127,6 +127,92 @@ fn matches_the_label_under_an_alias() {
     assert_eq!(catalog.rules_for(&Label::new("aliased")), [RuleId(0)]);
 }
 
+/// Every shape of rule body, built from one head `f(X)` by the wrappers the readers of a rule's
+/// head have disagreed on (root aliases, nested or not; a top rewrite or none; `#withConfig`;
+/// an injection around the head), is read by [`RuleHead::of`] as headed by the same symbol,
+/// with the shape, context and injected argument the wrappers state. An alias names the matched
+/// term and constrains nothing, so wrapping the left side in any number of aliases never changes
+/// the head; `inj` is a symbol of its own and is reported as the head, its argument separately.
+#[test]
+fn the_rule_head_is_read_through_every_wrapper() {
+    let head = || Term::Apply {
+        label: Label::new("f"),
+        arguments: vec![Term::variable("X")],
+    };
+    let alias = |pattern: Term, name: &str| Term::As {
+        pattern: Box::new(pattern),
+        alias: Box::new(Term::variable(name)),
+    };
+    let inj = |argument: Term| Term::Apply {
+        label: Label::new("inj"),
+        arguments: vec![argument],
+    };
+    let with_config = |rule: Term| Term::Apply {
+        label: Label::new("#withConfig"),
+        arguments: vec![rule, Term::variable("CONFIG")],
+    };
+    let aliased = |term: Term, aliases: usize| {
+        (0..aliases).fold(term, |term, index| alias(term, &format!("V{index}")))
+    };
+    for aliases in 0..3 {
+        for injected in [false, true] {
+            for rewrite_at_top in [false, true] {
+                for configured in [false, true] {
+                    let left = if injected {
+                        aliased(inj(aliased(head(), aliases)), aliases)
+                    } else {
+                        aliased(head(), aliases)
+                    };
+                    let mut body = if rewrite_at_top { rewrite(left) } else { left };
+                    if configured {
+                        body = with_config(body);
+                    }
+                    let case = format!("{body}");
+                    let read = RuleHead::of(&body);
+                    let expected = if injected { "inj" } else { "f" };
+                    assert_eq!(
+                        read.label().map(|l| l.name.as_str()),
+                        Some(expected),
+                        "{case}"
+                    );
+                    assert_eq!(
+                        read.injected().map(|l| l.name.as_str()),
+                        injected.then_some("f"),
+                        "{case}"
+                    );
+                    assert_eq!(
+                        read.shape(),
+                        if rewrite_at_top {
+                            HeadShape::TopRewrite
+                        } else {
+                            HeadShape::NoRewrite
+                        },
+                        "{case}"
+                    );
+                    assert_eq!(read.context.is_some(), configured, "{case}");
+                    assert_eq!(
+                        match_rule_label(&rule(body.clone(), Attributes::default())).name,
+                        expected,
+                        "{case}"
+                    );
+                }
+            }
+        }
+    }
+    // A body whose root is not an application has no head.
+    assert!(
+        RuleHead::of(&rewrite(Term::variable("X")))
+            .label()
+            .is_none()
+    );
+    // `#withConfig` around a body without an application head is read as written.
+    let opaque = with_config(rewrite(Term::variable("X")));
+    assert_eq!(
+        RuleHead::of(&opaque).label().map(|l| l.name.as_str()),
+        Some("#withConfig")
+    );
+}
+
 #[test]
 fn derives_visible_local_sorted_and_grouped_sentence_views() {
     let base = FlatModule {
@@ -225,9 +311,9 @@ fn combines_rule_and_production_macro_labels() {
         .into_iter()
         .collect()
     );
-    let production_lhs = rules
-        .rules()
-        .find_map(|(id, rule)| (match_rule_label(rule).name == "productionMacro").then_some(id))
-        .unwrap();
-    assert!(rules.rule_lhs_has_macro_label(production_lhs, &productions));
+    assert!(
+        rules
+            .rules()
+            .any(|(_, rule)| match_rule_label(rule).name == "productionMacro")
+    );
 }

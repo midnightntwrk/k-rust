@@ -51,8 +51,8 @@ use serde_json::Value;
 use crate::definition::{
     AssociativityRelations, AttributeKey, Attributes as KAttributes, Definition as KDefinition,
     LabelHead, ModuleId, OverloadOrder, PartialOrder, ProductionCatalog, ProductionId,
-    ProductionItem, RelationError, ResolveError, ResolvedDefinition, RuleCatalog, Sentence,
-    SortCatalog, SortHead,
+    ProductionItem, RelationError, ResolveError, ResolvedDefinition, RuleCatalog, RuleHead,
+    Sentence, SortCatalog, SortHead,
     production_kind::{
         BracketName, DeclaredTotality, ProductionKind, UnitInstance, UnitInstanceError,
         is_builtin_label, mentions_parameter,
@@ -900,6 +900,10 @@ pub(crate) fn module_to_kore_from_resolved_with_options_and_sources(
     {
         check_variable_sorts(sentence, &|| sentence.to_string())?;
     }
+    // An owise equation competes with every equation of its head in the emitted theory, so the
+    // generated equations join the rules as its competitors.
+    let mut owise_competitors =
+        OwiseCompetitors::with_generated_axioms(&generated_axioms.semantics);
     modules
         .semantics
         .sentences
@@ -915,7 +919,6 @@ pub(crate) fn module_to_kore_from_resolved_with_options_and_sources(
     // Keep ordinary rule injection separate: it resets sentence-local injector state and fixes
     // the error order. Only successful results from the first owise scan are reusable by later
     // owise scans over this immutable, already-rebased rule list.
-    let mut owise_competitors = OwiseCompetitors::default();
     let emission_context = RuleEmissionContext {
         valued: &valued,
         productions: &productions,
@@ -1310,16 +1313,10 @@ fn propagate_macro_attribute(sentence: &Sentence, productions: &ProductionCatalo
     else {
         return sentence.clone();
     };
-    #[expect(
-        clippy::wildcard_enum_match_arm,
-        reason = "Term is not a sentence kind; only the listed variants are special here"
-    )]
-    let left = match body.unannotated() {
-        Term::Rewrite { left, .. } => left.as_ref(),
-        _ => body,
-    };
-    let application = peel_alias(left);
-    let Term::Apply { label, .. } = application.unannotated() else {
+    // The head as every stage reads it ([`RuleHead::of`]). Unlike the pipeline's propagation,
+    // which needs a top rewrite to expand, this reading also marks a body without one, so the
+    // emitter treats a macro production's rule as a macro axiom whatever its shape.
+    let Some((application, label, _)) = RuleHead::of(body).application() else {
         return sentence.clone();
     };
     let Ok(production) = resolve_equation_production(application, label, productions) else {
@@ -1346,13 +1343,6 @@ fn propagate_macro_attribute(sentence: &Sentence, productions: &ProductionCatalo
         ensures: ensures.clone(),
         attributes,
     }
-}
-
-fn peel_alias(mut term: &Term) -> &Term {
-    while let Term::As { pattern, .. } = term.unannotated() {
-        term = pattern;
-    }
-    term
 }
 
 #[allow(clippy::too_many_arguments)]
