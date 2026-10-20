@@ -2337,4 +2337,122 @@ mod tests {
             );
         }
     }
+
+    /// A definition whose `Float`, `MInt{8}` and renamed-`Int` operations carry the `smt-hook`s
+    /// `domains.md` gives them (and `fg.gt`, which names no SMT-LIB function): the solver
+    /// interprets none of these sorts.
+    fn uninterpreted_sort_hook_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-sort SortFloat{} [hook{}("FLOAT.Float"), hasDomainValues{}()]
+                hooked-sort SortMInt{S} [hook{}("MINT.MInt"), hasDomainValues{}()]
+                sort Sort8{} []
+                hooked-sort SortMyInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                symbol ltInt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), smt-hook{}("<")]
+                symbol gtInt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), smt-hook{}(">")]
+                symbol isNaN{}(SortFloat{}) : SortBool{}
+                    [function{}(), total{}(), smt-hook{}("fp.isNaN")]
+                symbol gtFloat{}(SortFloat{}, SortFloat{}) : SortBool{}
+                    [function{}(), smt-hook{}("fg.gt")]
+                symbol ultMInt{}(SortMInt{Sort8{}}, SortMInt{Sort8{}}) : SortBool{}
+                    [function{}(), total{}(), smt-hook{}("bvult")]
+                symbol eqMInt{}(SortMInt{Sort8{}}, SortMInt{Sort8{}}) : SortBool{}
+                    [function{}(), total{}(), smt-hook{}("=")]
+                symbol int2MInt{}(SortInt{}) : SortMInt{Sort8{}}
+                    [function{}(), total{}(), smt-hook{}("int2bv")]
+                symbol mint2Unsigned{}(SortMInt{Sort8{}}) : SortInt{}
+                    [function{}(), total{}(), smt-hook{}("bv2int")]
+                symbol addMyInt{}(SortMyInt{}, SortMyInt{}) : SortMyInt{}
+                    [function{}(), total{}(), smt-hook{}("+")]
+                symbol gtMyInt{}(SortMyInt{}, SortMyInt{}) : SortBool{}
+                    [function{}(), total{}(), smt-hook{}(">")]
+                symbol iteK{S}(SortBool{}, S, S) : S
+                    [function{}(), total{}(), smt-hook{}("ite")]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+    }
+
+    /// An atom over a sort the solver does not interpret is an opaque Boolean, so the `Int`
+    /// facts beside it stay decidable: `X >Int 5 ∧ X <Int 3` is refuted whatever the atom says,
+    /// and `X >Int 5` still implies `X >Int 4` beside it.
+    #[test]
+    fn hooks_over_uninterpreted_sorts_leave_the_int_facts_decidable() {
+        let definition = uninterpreted_sort_hook_definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+        let fact = |source: &str| Predicate::Term(term(&definition, source));
+        let above = |bound: &str| {
+            fact(&format!(
+                r#"gtInt{{}}(X:SortInt{{}}, \dv{{SortInt{{}}}}("{bound}"))"#
+            ))
+        };
+        let below_three = fact(r#"ltInt{}(X:SortInt{}, \dv{SortInt{}}("3"))"#);
+        for atom in [
+            "isNaN{}(F:SortFloat{})",
+            "gtFloat{}(F:SortFloat{}, G:SortFloat{})",
+            "ultMInt{}(A:SortMInt{Sort8{}}, B:SortMInt{Sort8{}})",
+            "eqMInt{}(int2MInt{}(X:SortInt{}), int2MInt{}(Y:SortInt{}))",
+            "gtMyInt{}(addMyInt{}(M:SortMyInt{}, N:SortMyInt{}), M:SortMyInt{})",
+            r#"eqMInt{}(iteK{SortMInt{Sort8{}}}(C:SortBool{}, A:SortMInt{Sort8{}}, B:SortMInt{Sort8{}}), A:SortMInt{Sort8{}})"#,
+        ] {
+            let atom = fact(atom);
+            assert_eq!(
+                cause(solver.is_sat(
+                    &[atom.clone(), above("5"), below_three.clone()],
+                    &Substitution::new()
+                )),
+                Ok(Ok(Satisfiability::Unsat)),
+                "{atom:?}"
+            );
+            assert_eq!(
+                cause(solver.check_predicates(
+                    &[atom.clone(), above("5")],
+                    &Substitution::new(),
+                    &[above("4")]
+                )),
+                Ok(Ok(Validity::Valid)),
+                "{atom:?}"
+            );
+            assert_eq!(
+                cause(solver.is_sat(&[atom.clone()], &Substitution::new())),
+                Ok(Ok(Satisfiability::Sat)),
+                "{atom:?}"
+            );
+        }
+    }
+
+    /// `MInt2Unsigned(Int2MInt(X)) <Int 0` holds of no 8-bit machine integer, but the solver
+    /// does not interpret `MInt`, so it reads the `MInt2Unsigned` value as an unconstrained
+    /// integer: the query is `Sat` of an approximate translation, which shows no K valuation, so
+    /// no model is returned for it.
+    #[test]
+    fn an_int_over_a_machine_integer_has_no_model_as_a_k_valuation() {
+        let definition = uninterpreted_sort_hook_definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+        let negative = Predicate::Term(term(
+            &definition,
+            r#"ltInt{}(mint2Unsigned{}(int2MInt{}(X:SortInt{})), \dv{SortInt{}}("0"))"#,
+        ));
+        assert_eq!(
+            crate::smt::translation_exactness(std::slice::from_ref(&negative)),
+            crate::smt::Exactness::Approximate
+        );
+        assert_eq!(
+            cause(solver.is_sat(std::slice::from_ref(&negative), &Substitution::new())),
+            Ok(Ok(Satisfiability::Sat))
+        );
+        assert_eq!(
+            cause(solver.get_model(&ModelQuery::for_solver_tests(
+                &[negative],
+                &Substitution::new()
+            ))),
+            Ok(Ok(ModelResult::Unknown(APPROXIMATE_MODEL_REASON.into())))
+        );
+    }
 }
