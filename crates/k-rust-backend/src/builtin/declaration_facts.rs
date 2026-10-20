@@ -3,8 +3,9 @@
 //!
 //! The evaluators reachable from the `BOOL`, `INT`, `STRING` and `FLOAT` hooks, and the checks
 //! the evaluation entry applies around them, read a definition's sorts only through these
-//! facts: the kind of a sort's domain values (the `FLOAT` operands' kind check, the check of the
-//! domain values a hook built, `STRING.string2token`'s result) and whether a sort has domain
+//! facts: the kind of a sort's domain values (the check that an argument's sort has the kind its
+//! name gives the hooks' readers, the check of the domain values a hook built,
+//! `STRING.string2token`'s result) and whether a sort has domain
 //! values at all (`STRING.string2token`). The subsort order is the third fact: it decides where
 //! a term of one sort stands at another, as an injection. So a caller that has the declarations
 //! of a definition without having loaded it, such as the frontend's constant fold before it

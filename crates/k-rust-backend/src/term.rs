@@ -3006,6 +3006,50 @@ impl DomainKind {
             _ => Self::Token,
         })
     }
+
+    /// Whether two texts can name one element of a sort of this kind, so that its canonical text
+    /// is not always the text as written (`canonical_text`): `07` and `7` are one integer,
+    /// `01p8` and `1p8` one machine integer, `1.0` and `1.00` one Float. A Boolean's, a
+    /// `String`'s and a `Bytes` value's text is its one text, as a token's is.
+    pub(crate) fn identifies_texts(self) -> bool {
+        match self {
+            Self::Int | Self::MInt(_) | Self::Float => true,
+            Self::Bool | Self::String | Self::Bytes | Self::Token => false,
+        }
+    }
+
+    /// The kind the builtin hooks' argument readers take a domain value of `sort` to have,
+    /// judging by the sort's name alone: `SortInt`, `SortBool`, `SortString`, `SortBytes` and
+    /// `SortFloat` their builtins' kinds, and `SortMInt{Sort<digits>{}}` the machine integers of
+    /// that width. `None` for every other sort, a `SortMInt` whose argument names no numeral or
+    /// is still a sort variable included: no reader reads a literal of one.
+    ///
+    /// It is the kind the definition gives the sort only where the definition declares the
+    /// sort with its builtin's hook ([`Self::of_declared_sort`]; `SortInt` and `SortBool` take
+    /// their kinds from their names). Where this kind identifies texts
+    /// ([`Self::identifies_texts`]) and the definition gives the sort another, the evaluation
+    /// entry refuses the application before any reader sees the argument
+    /// (`crate::builtin::misread_by_name`).
+    pub(crate) fn named(sort: &Sort) -> Option<Self> {
+        let Sort::Application { name, arguments } = sort else {
+            return None;
+        };
+        if !arguments.is_empty() {
+            return match mint_width(sort)? {
+                MIntWidth::NoWidth => None,
+                width => Some(Self::MInt(width)),
+            };
+        }
+        [
+            (BuiltinSort::Int, Self::Int),
+            (BuiltinSort::Bool, Self::Bool),
+            (BuiltinSort::String, Self::String),
+            (BuiltinSort::Bytes, Self::Bytes),
+            (BuiltinSort::Float, Self::Float),
+        ]
+        .into_iter()
+        .find_map(|(builtin, kind)| (name.as_ref() == builtin.kore_name()).then_some(kind))
+    }
 }
 
 /// The width of `sort` when it is a machine-integer sort `SortMInt{A}`: `Bits(n)` when `A` is

@@ -42,7 +42,7 @@ use crate::{
     matching::{InjectionEquality, SortGraph, match_injection_equality},
     stop::{Layered, Stoppable, Unwind},
     term::{
-        FunctionType, Sort, SymbolType, Term, TermKind,
+        DomainKind, FunctionType, Sort, SymbolType, Term, TermKind, Variable,
         domain::BuiltDomainValues,
         head::{Fixed, FixedRoot, Head, NoEvidence, RootComparison, classify_value, compare_roots},
         names::{HookName, HookNamespace},
@@ -242,8 +242,11 @@ pub(crate) fn evaluate_in_definition(
 ///
 /// It is the entry's composition, not a second one: the entry calls the same function, with the
 /// loaded definition as its facts. In order, it
-/// - refuses `FLOAT` operands of `SortFloat` where the facts give that sort another kind than
-///   `Float` (an unhooked `SortFloat` is a token sort whose texts are its values);
+/// - refuses an application of a hook that reads builtin values (`reads_builtin_values`) to an
+///   argument whose sort's name makes the readers take it for a Float or a machine integer while
+///   the facts give the sort another kind (`misread_by_name`): an unhooked `SortFloat` or
+///   `SortMInt{Sort8{}}` is a token sort whose texts are its values, which those readings would
+///   identify;
 /// - runs the hook's evaluator with the declared result sort and the facts;
 /// - keeps a value only if every domain value the hook built has the kind the facts give its
 ///   sort (a builtin hook declared at a sort whose hook gives its values another kind gives no
@@ -632,16 +635,22 @@ fn evaluate_composed(
     loaded: Loaded<'_>,
     mode: Option<EvaluationMode>,
 ) -> HookResult<BuiltinResult> {
-    // The `FLOAT` hooks read a domain value of `SortFloat` as a Float. It is one only where the
-    // definition gives that sort the `Float` kind: an unhooked `SortFloat` is a token sort, whose
-    // texts `1.0` and `1.00` are two values, so no Float hook reads them, whatever its result.
+    // The hooks' readers take an argument for a builtin value by its sort's name: a domain value
+    // of `SortFloat` for a Float, one of `SortMInt{Sort8{}}` for an 8-bit pattern, and
+    // `bitwidthMInt` takes 8 for any term of that sort. That is the element the argument denotes
+    // only where the definition gives its sort the builtin's kind. An unhooked `SortFloat` or
+    // `SortMInt{Sort8{}}` is a token sort: its texts `1.0` and `1.00`, or `01p8` and `1p8`, are
+    // two elements, which `==K` and apartness keep apart, while a reader would take them for one
+    // value, so that `01p8 ==MInt 1p8` would hold of two terms the definition says differ. Such
+    // a token is no Float and no machine integer, so the description of a hook that reads one
+    // gives the application no value, whatever its result sort, and it is not evaluated. This
+    // one check stands for every reader and every namespace (`misread_by_name` says which sorts
+    // it covers, and why `String` and `Bytes` tokens are not among them).
     if let Some(facts) = facts
-        && hook.starts_with("FLOAT.")
-        && arguments.iter().any(|argument| {
-            matches!(argument.kind(), TermKind::DomainValue { sort, .. }
-                if sort.is_builtin(BuiltinSort::Float)
-                    && facts.domain_kind(sort) != Some(crate::term::DomainKind::Float))
-        })
+        && reads_builtin_values(hook)
+        && arguments
+            .iter()
+            .any(|argument| misread_by_name(argument, facts))
     {
         return Ok(BuiltinResult::NotApplicable);
     }
@@ -730,6 +739,62 @@ fn evaluate_composed(
         }
     }
     Ok(result)
+}
+
+/// Whether `hook` reads its arguments as builtin values, which its evaluator recognises by their
+/// sorts' names. The `KEQUAL`, collection and `SUBSTITUTION` hooks compare, store and rebuild
+/// their arguments as terms, whatever they denote, and `STRING.token2string` reads any domain
+/// value's text as a token's; every other hook, one of a namespace added later included, is
+/// taken to read builtin values, so that a new reader cannot skip the check in
+/// [`evaluate_composed`].
+fn reads_builtin_values(hook: &str) -> bool {
+    hook != "STRING.token2string"
+        && !matches!(
+            HookName::parse(hook).map(HookName::kind),
+            Some(
+                HookNamespace::KEqual
+                    | HookNamespace::List
+                    | HookNamespace::Map
+                    | HookNamespace::Set
+                    | HookNamespace::Substitution
+            )
+        )
+}
+
+/// Whether the hooks' readers would take `argument` for a builtin value its sort does not hold,
+/// one that identifies elements the sort keeps apart: its sort's name gives it a builtin kind
+/// ([`DomainKind::named`]) under which two texts can name one element
+/// ([`DomainKind::identifies_texts`]), and `facts` give the sort another kind, or none.
+///
+/// The `String` and `Bytes` kinds are not checked. A value of either holds its payload as its one
+/// text, and the payload's encoding follows the sort's KORE name, not its kind
+/// (`LiteralEncoding::of_domain_value`), so at a token sort named `SortString` or `SortBytes`
+/// two tokens are equal exactly when the strings or byte sequences a reader takes them for are:
+/// the reading is a function of the token and identifies none. `SortInt` and `SortBool` are not
+/// looked up: their names fix their kinds wherever they have domain values
+/// ([`DomainKind::of_declared_sort`]), and where they have none no domain value of theirs exists
+/// for a reader to read.
+fn misread_by_name(argument: &Term, facts: &dyn DeclarationFacts<Sort = Sort>) -> bool {
+    let sort = argument_sort(argument);
+    match DomainKind::named(&sort) {
+        None | Some(DomainKind::Int | DomainKind::Bool) => false,
+        Some(named) => named.identifies_texts() && facts.domain_kind(&sort) != Some(named),
+    }
+}
+
+/// The sort of `term`, borrowed where the term holds it.
+fn argument_sort(term: &Term) -> std::borrow::Cow<'_, Sort> {
+    use std::borrow::Cow;
+    match term.kind() {
+        TermKind::DomainValue { sort, .. } | TermKind::Variable(Variable { sort, .. }) => {
+            Cow::Borrowed(sort)
+        }
+        TermKind::Injection { target, .. } => Cow::Borrowed(target),
+        TermKind::Application { symbol, .. } if symbol.sort_variables.is_empty() => {
+            Cow::Borrowed(&symbol.result_sort)
+        }
+        _ => Cow::Owned(term.sort()),
+    }
 }
 
 /// Evaluation does not change the sort of the term it evaluates: the value of an application
@@ -4530,5 +4595,114 @@ mod tests {
                 "effect-order",
             ]
         );
+    }
+
+    /// Every hook is taken to read builtin values but the ones that read their arguments as
+    /// terms (`KEQUAL`, the collections, `SUBSTITUTION`) or as tokens (`STRING.token2string`),
+    /// so a hook of a namespace the dispatcher does not know yet is checked too.
+    #[test]
+    fn every_hook_but_the_term_readers_reads_builtin_values() {
+        for hook in [
+            "INT.add",
+            "BOOL.and",
+            "STRING.length",
+            "STRING.string2token",
+            "BYTES.length",
+            "FLOAT.eq",
+            "MINT.eq",
+            "MINT.bitwidth",
+            "KRYPTO.keccak256",
+            "HASH.sha256",
+            "IO.write",
+            "IO.logString",
+            "NEWNAMESPACE.operation",
+        ] {
+            assert!(reads_builtin_values(hook), "{hook}");
+        }
+        for hook in [
+            "KEQUAL.eq",
+            "KEQUAL.ite",
+            "LIST.get",
+            "MAP.lookup",
+            "SET.in",
+            "SUBSTITUTION.substOne",
+            "STRING.token2string",
+        ] {
+            assert!(!reads_builtin_values(hook), "{hook}");
+        }
+    }
+
+    /// The facts of a definition that declares `SortMInt{S}`, `SortFloat`, `SortString` and
+    /// `SortBytes` with their builtins' hooks when `hooked`, and as token sorts otherwise.
+    struct BuiltinNamedSorts {
+        hooked: bool,
+    }
+
+    impl DeclarationFacts for BuiltinNamedSorts {
+        type Sort = Sort;
+
+        fn domain_kind(&self, sort: &Sort) -> Option<DomainKind> {
+            let hook = match sort {
+                Sort::Application { name, .. } => match name.as_ref() {
+                    "SortMInt" => "MINT.MInt",
+                    "SortFloat" => "FLOAT.Float",
+                    "SortString" => "STRING.String",
+                    "SortBytes" => "BYTES.Bytes",
+                    _ => return DomainKind::of_declared_sort(sort, true, None),
+                },
+                Sort::Variable(_) => return None,
+            };
+            DomainKind::of_declared_sort(sort, true, self.hooked.then_some(hook))
+        }
+
+        fn has_domain_values(&self, _: &Sort) -> bool {
+            true
+        }
+
+        fn check_subsort(&self, sub: &Sort, sup: &Sort) -> bool {
+            sub == sup
+        }
+    }
+
+    /// An argument is misread exactly where its sort's name gives it a kind that identifies
+    /// texts (a Float, a machine integer) and the definition gives the sort another: a domain
+    /// value, a variable and an application of an unhooked `SortMInt{Sort8{}}` or `SortFloat`,
+    /// not a token of an unhooked `SortString` or `SortBytes`, whose payload is its one text, and
+    /// no argument of a hooked sort, of `SortInt` or of a sort whose name is no builtin's.
+    #[test]
+    fn an_argument_is_misread_where_its_name_and_its_kind_disagree_on_its_elements() {
+        let word = Sort::application(k_rust_kore::names::MINT_SORT, vec![Sort::simple("Sort8")]);
+        let float = Sort::builtin(BuiltinSort::Float);
+        let arguments = |sort: &Sort, text: &str| {
+            vec![
+                Term::raw_domain_value(sort.clone(), text),
+                Term::variable(Variable::new("X", sort.clone())),
+                hooked("TEST.any", sort.clone(), Vec::new()),
+            ]
+        };
+        for (with_hooks, misread) in [(false, true), (true, false)] {
+            let facts = BuiltinNamedSorts { hooked: with_hooks };
+            for argument in arguments(&word, "1p8")
+                .into_iter()
+                .chain(arguments(&float, "1.0"))
+            {
+                assert_eq!(
+                    misread_by_name(&argument, &facts),
+                    misread,
+                    "{argument:?}, hooked: {with_hooks}"
+                );
+            }
+            for argument in arguments(&Sort::builtin(BuiltinSort::String), "a")
+                .into_iter()
+                .chain(arguments(&Sort::builtin(BuiltinSort::Bytes), "a"))
+                .chain(arguments(&Sort::builtin(BuiltinSort::Int), "1"))
+                .chain(arguments(&Sort::simple("SortWord"), "1p8"))
+            {
+                assert!(
+                    !misread_by_name(&argument, &facts),
+                    "{argument:?}, hooked: {with_hooks}"
+                );
+            }
+        }
     }
 }
