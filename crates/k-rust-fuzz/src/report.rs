@@ -119,6 +119,9 @@ pub struct ReportIdentity {
     pub proposers: ProposerConfig,
     /// The generation bounds used.
     pub bounds: GenerationBounds,
+    /// The hard caps of this build's generators, which bound every value whatever the bounds
+    /// and constraints ask for.
+    pub caps: GenerationCaps,
     /// The rejection cap, as a decimal string.
     #[serde(with = "decimal_u64")]
     pub rejection_cap: u64,
@@ -134,6 +137,33 @@ pub struct ReportIdentity {
     /// it), `"none"` otherwise: a build without a solver leaves undecided some conditions a
     /// solver decides.
     pub solver: String,
+}
+
+/// The hard caps of the value generators (`crate::values`).
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct GenerationCaps {
+    /// The largest bit length of any generated integer (`values::MAX_INT_BITS`).
+    pub int_bits: u32,
+    /// The largest generated length (`values::MAX_GENERATED_LENGTH`).
+    pub length: u64,
+    /// The largest depth of a generated data-sort term (`values::MAX_DEPTH`).
+    pub depth: u32,
+    /// The most values a generator enumerates (`values::generator::ENUMERATION_LIMIT`).
+    pub enumeration: u64,
+}
+
+impl GenerationCaps {
+    /// The caps of this build.
+    #[must_use]
+    pub fn current() -> Self {
+        Self {
+            int_bits: crate::values::MAX_INT_BITS,
+            length: crate::values::MAX_GENERATED_LENGTH,
+            depth: crate::values::MAX_DEPTH,
+            enumeration: crate::values::generator::ENUMERATION_LIMIT,
+        }
+    }
 }
 
 /// Which definition of the campaign.
@@ -167,6 +197,10 @@ pub struct DefinitionIdentity {
     /// [`digest_hex`] of the `Debug` rendering of the execution definition that pattern targets
     /// and the normal-termination pattern are compiled in.
     pub execution_definition_digest: String,
+    /// [`digest_hex`] of `syntaxDefinition.kore` and of `macros.kore`, joined by a newline:
+    /// collection and data-sort values are printed from the one and read back through the
+    /// other, so they decide which values round-trip (D19).
+    pub syntax_definition_digest: String,
     /// [`digest_hex`] of this definition's initial configuration, as printed KORE, assembled
     /// by its own grammar with every hole at its anchor (or, when some hole has no anchor, at
     /// the first explicit assignment's values): it pins the grammar, the configuration-variable
@@ -575,6 +609,7 @@ mod tests {
                     syntax_module: "IMP-SYNTAX".into(),
                     frontend_digest: digest_hex(b"frontend"),
                     execution_definition_digest: digest_hex(b"execution"),
+                    syntax_definition_digest: digest_hex(b"syntax"),
                     initial_configuration_digest: Some(digest_hex(b"initial")),
                     execution_digest: "0123".into(),
                     route: "source-execution".into(),
@@ -595,6 +630,12 @@ mod tests {
                     ..ProposerConfig::default()
                 },
                 bounds: GenerationBounds::default(),
+                caps: GenerationCaps {
+                    int_bits: 4096,
+                    length: 65536,
+                    depth: 16,
+                    enumeration: 65536,
+                },
                 rejection_cap: 10,
                 seed: u64::MAX,
                 budget: Budget::Cases(5000),
@@ -688,16 +729,20 @@ mod tests {
             r#""main-module":"IMP","syntax-module":"IMP-SYNTAX","#,
             r#""execution-digest":"0123","route":"source-execution","#,
             r#""frontend-digest":"FRONTEND","execution-definition-digest":"EXECUTION","#,
+            r#""syntax-definition-digest":"SYNDEF","#,
             r#""initial-configuration-digest":"INITIAL","#,
             r#""execution-rewrite-order-digest":"#,
             r#""ORDER"}],"#,
             r#""program-digest":"PROGRAM","overlay-digest":"OVERLAY","target-digest":"TARGET","#,
             r#""options":{"paths":"one-path","max-depth":null,"max-work":100000,"#,
             r#""max-simplification-iterations":ITER,"normal-end-pattern":null,"#,
-            r#""safety-limit-ms":null,"backend":{"smt-timeout-ms":125,"smt-retry-limit":3}},"#,
+            r#""safety-limit-ms":null,"backend":{"smt-timeout-ms":125,"smt-retry-limit":3},"#,
+            r#""shrink":true},"#,
             r#""proposers":{"anchors-first":true,"explicit":"#,
             r#"[{"AMOUNT":{"bytes":"00ab"}}],"weights":{"blind":1}},"#,
-            r#""bounds":{"int-bits":64,"length":16,"depth":4},"rejection-cap":"10","#,
+            r#""bounds":{"int-bits":64,"length":16,"depth":4},"#,
+            r#""caps":{"int-bits":4096,"length":65536,"depth":16,"enumeration":65536},"#,
+            r#""rejection-cap":"10","#,
             r#""seed":"18446744073709551615","budget":{"cases":"5000"},"#,
             r#""thread-stack-size":"67108864","solver":"none"},"#,
             r#""outcome":{"status":"witness-found","witness":{"label":"property-failure","#,
@@ -731,6 +776,7 @@ mod tests {
             .replace("TARGET", &digest_hex(b"target"))
             .replace("INITIAL", &digest_hex(b"initial"))
             .replace("FRONTEND", &digest_hex(b"frontend"))
+            .replace("SYNDEF", &digest_hex(b"syntax"))
             .replace("EXECUTION", &digest_hex(b"execution"))
             .replace("CASES", &digest_hex(b"cases"))
             .replace(

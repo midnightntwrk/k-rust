@@ -10,7 +10,7 @@ mod shrink;
 #[cfg(test)]
 mod tests;
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use k_rust::backend::CancellationToken;
 
@@ -23,8 +23,8 @@ use self::{
 use crate::{
     error::CampaignError,
     report::{
-        CampaignOutcome, DefinitionIdentity, DefinitionRole, FuzzReport, HitLabel, ReportIdentity,
-        SortOverride, Totals, digest_hex,
+        CampaignOutcome, DefinitionIdentity, DefinitionRole, FuzzReport, GenerationCaps, HitLabel,
+        ReportIdentity, SortOverride, Totals, digest_hex,
     },
     spec::{
         BackendRoute, Budget, CampaignSpec, CaseOptions, CompiledDefinition, ProgramInput,
@@ -48,6 +48,9 @@ pub struct Campaign {
     settings: LoopSettings,
     /// Differential: the definitions are equivalent, so no case runs (ARCHITECTURE 4.3).
     equivalent: bool,
+    /// The immutable internalized definitions confirmations build fresh backends from, filled
+    /// on the first confirmation and kept across runs.
+    definition_cache: Arc<OnceLock<Result<live::DefinitionCache, String>>>,
 }
 
 impl Campaign {
@@ -164,6 +167,7 @@ impl Campaign {
             explicit,
             settings,
             equivalent,
+            definition_cache: Arc::new(OnceLock::new()),
         })
     }
 
@@ -225,7 +229,10 @@ impl Campaign {
             proposers.push((weight, Box::new(BlindProposer::new(generators, rng))));
         }
         let mut schedule = Schedule::new(self.spec.seed, self.explicit.clone(), proposers);
-        let mut runner = LiveRunner { cases };
+        let mut runner = LiveRunner {
+            cases,
+            cache: Arc::clone(&self.definition_cache),
+        };
         run_loop(
             &mut runner,
             &mut schedule,
@@ -306,6 +313,13 @@ fn identity(
             syntax_module: definition.syntax_module.clone(),
             frontend_digest: debug_digest(&definition.frontend_definition),
             execution_definition_digest: debug_digest(&definition.execution_definition),
+            syntax_definition_digest: digest_hex(
+                format!(
+                    "{}\n{}",
+                    definition.syntax_definition_kore, definition.macros_kore
+                )
+                .as_bytes(),
+            ),
             initial_configuration_digest: initial.cloned().flatten(),
             execution_digest: definition.execution_digest()?.to_string(),
             route: route.into(),
@@ -337,6 +351,7 @@ fn identity(
         },
         proposers: spec.proposers.clone(),
         bounds: spec.bounds,
+        caps: GenerationCaps::current(),
         rejection_cap: spec.rejection_cap,
         seed: spec.seed,
         budget: Budget::Cases(0),

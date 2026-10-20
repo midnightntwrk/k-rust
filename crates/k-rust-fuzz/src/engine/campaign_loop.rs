@@ -245,6 +245,22 @@ fn finish_witness(
 ) -> Witness {
     let Proposal { values, trees, .. } = proposal;
     let kind = first.kill;
+    if !settings.options.shrink {
+        return Witness {
+            label: settings.label,
+            krun_command: first.krun_command.clone(),
+            clean_leaf_facts: witness_facts(&settings.clean_leaf_facts, kind),
+            first: WitnessCase {
+                holes: first.holes,
+                class: OutcomeClass::Hit,
+                sides: first.sides,
+                reaching: first.reaching,
+                kill: first.kill,
+                steps: first.steps,
+            },
+            shrunk: None,
+        };
+    }
     let mut last: Option<HitDetail> = None;
     let mut runs = 0_u64;
     let shrunk = {

@@ -2,9 +2,16 @@
 //! program instantiated and assembled ([`crate::holes`], [`crate::assemble`]), executed and
 //! judged ([`crate::exec`], [`crate::target`]). Owner: FZ-06.
 
-use std::{fmt::Write as _, sync::Arc};
+use std::{
+    fmt::Write as _,
+    sync::{Arc, OnceLock},
+};
 
-use k_rust::{backend::CancellationToken, kore::ast::Pattern as KorePattern};
+use k_rust::{
+    backend::{Backend, CancellationToken},
+    k_rust_backend::definition::BackendDefinition,
+    kore::ast::Pattern as KorePattern,
+};
 
 use super::runner::{CaseRun, CaseRunner, HitDetail};
 use crate::{
@@ -25,8 +32,17 @@ pub(crate) struct Side {
     assembly: ProgramAssembly,
     executor: Executor,
     pub(crate) holes: ResolvedHoles,
-    round_trip: RoundTripCheck,
+    round_trip: Arc<RoundTripCheck>,
     shape: CaseRequestShape,
+}
+
+/// What a side may reuse from a [`DefinitionCache`]: the internalized definition its fresh
+/// backend copies, and the hole resolution and round-trip positions, which are functions of the
+/// grammar, the program and the hole declarations alone.
+#[derive(Clone, Copy, Default)]
+struct Seed<'a> {
+    internalized: Option<&'a BackendDefinition>,
+    resolved: Option<(&'a ResolvedHoles, &'a Arc<RoundTripCheck>)>,
 }
 
 impl Side {
@@ -34,9 +50,32 @@ impl Side {
         spec: &CampaignSpec,
         definition: &Arc<CompiledDefinition>,
         role: DefinitionRole,
+        seed: Seed<'_>,
     ) -> Result<Self, CampaignError> {
         let assembly = ProgramAssembly::new(definition)?;
-        let mut executor = Executor::new(definition, &assembly, &spec.options)?;
+        let mut executor = match seed.internalized {
+            // A fresh backend over a copy of the cached, immutable internalized definition.
+            Some(internalized) => {
+                let backend = Backend::from_internalized(
+                    internalized.clone(),
+                    spec.options.backend.options(),
+                )
+                .map_err(CampaignError::from)?;
+                Executor::with_backend(backend, assembly.grammar(), definition, &spec.options)?
+            }
+            None => Executor::new(definition, &assembly, &spec.options)?,
+        };
+        if let Some((holes, round_trip)) = seed.resolved {
+            return Ok(Self {
+                role,
+                definition: Arc::clone(definition),
+                assembly,
+                executor,
+                holes: holes.clone(),
+                round_trip: Arc::clone(round_trip),
+                shape: CaseRequestShape::new(&spec.options, &TargetNeeds::default()),
+            });
+        }
         let holes = executor
             .backend_mut()
             .with_solver(None, |backend, _| {
@@ -57,7 +96,12 @@ impl Side {
                 },
                 (_, error) => error,
             })?;
-        let round_trip = RoundTripCheck::new(&assembly, definition, &spec.program, &holes)?;
+        let round_trip = Arc::new(RoundTripCheck::new(
+            &assembly,
+            definition,
+            &spec.program,
+            &holes,
+        )?);
         Ok(Self {
             role,
             definition: Arc::clone(definition),
@@ -144,8 +188,21 @@ impl LiveCases {
     ///
     /// The [`CampaignError`] of the first module that refuses the spec.
     pub(crate) fn build(spec: Arc<CampaignSpec>) -> Result<Self, CampaignError> {
-        let mut baseline =
-            Side::build(&spec, &spec.definitions.baseline, DefinitionRole::Baseline)?;
+        Self::build_with(spec, None)
+    }
+
+    /// [`Self::build`], with each side's backend built from `cache`'s internalized definition
+    /// when it holds one.
+    pub(crate) fn build_with(
+        spec: Arc<CampaignSpec>,
+        cache: Option<&DefinitionCache>,
+    ) -> Result<Self, CampaignError> {
+        let mut baseline = Side::build(
+            &spec,
+            &spec.definitions.baseline,
+            DefinitionRole::Baseline,
+            cache.map(|cache| cache.baseline.seed()).unwrap_or_default(),
+        )?;
         let judge = if let TargetKind::Differential(_) = spec.target.kind {
             let mutant_definition = spec
                 .definitions
@@ -153,7 +210,15 @@ impl LiveCases {
                 .as_ref()
                 .ok_or(CampaignError::DefinitionsMismatch)?;
             let plan = differential::plan(&spec.options);
-            let mut mutant = Side::build(&spec, mutant_definition, DefinitionRole::Mutant)?;
+            let mut mutant = Side::build(
+                &spec,
+                mutant_definition,
+                DefinitionRole::Mutant,
+                cache
+                    .and_then(|cache| cache.mutant.as_ref())
+                    .map(SideCache::seed)
+                    .unwrap_or_default(),
+            )?;
             baseline.shape = CaseRequestShape::new(&spec.options, &plan.baseline);
             mutant.shape = CaseRequestShape::new(&spec.options, &plan.mutant);
             Judge::Differential(Box::new(mutant))
@@ -503,10 +568,109 @@ fn quote(text: &str) -> String {
     format!("'{}'", text.replace('\'', r"'\''"))
 }
 
+/// What confirmations reuse (ARCHITECTURE 7): each side's internalized definition, which every
+/// confirmation copies into a fresh backend, and its hole resolution and round-trip positions,
+/// which depend only on the grammar, the program and the hole declarations. Every confirmation
+/// still builds a fresh `Backend`, a fresh program assembly that assembles its configuration
+/// from the instantiated text, and a freshly resolved target. Internalization is a pure function of the KORE definition, the main module
+/// and the rewrite order; the result is immutable apart from lazily computed facts of the
+/// definition itself (`OnceLock`s of inhabited sorts and the like), which are the same whoever
+/// computes them. Every mutable cache that could make a run depend on earlier runs (the
+/// solver and its cache of decided answers, the session's module table) belongs to the
+/// `Backend`, which each confirmation builds anew, so no such state is shared.
+///
+/// Only the `source-execution` route's internalization is cached: the `from-definition` route
+/// internalizes inside the backend's session, and a confirmation on it builds its backend from
+/// the KORE as the campaign's own backend was built.
+pub(crate) struct DefinitionCache {
+    baseline: SideCache,
+    mutant: Option<SideCache>,
+}
+
+/// One side's part of a [`DefinitionCache`].
+struct SideCache {
+    internalized: Option<BackendDefinition>,
+    holes: ResolvedHoles,
+    round_trip: Arc<RoundTripCheck>,
+}
+
+impl SideCache {
+    fn seed(&self) -> Seed<'_> {
+        Seed {
+            internalized: self.internalized.as_ref(),
+            resolved: Some((&self.holes, &self.round_trip)),
+        }
+    }
+}
+
+impl DefinitionCache {
+    /// Internalize every `source-execution` definition of `spec` once, then resolve the holes
+    /// and locate their positions once, on a build of its own (not the campaign's).
+    ///
+    /// # Errors
+    ///
+    /// The first refusal, as a [`CampaignError`].
+    pub(crate) fn build(spec: &Arc<CampaignSpec>) -> Result<Self, CampaignError> {
+        let internalize = |definition: &CompiledDefinition| match &definition.route {
+            BackendRoute::SourceExecution {
+                execution_rewrite_order,
+            } => Backend::internalize_source_definition(
+                &definition.kore,
+                &definition.main_module,
+                execution_rewrite_order,
+            )
+            .map(Some)
+            .map_err(CampaignError::from),
+            BackendRoute::FromDefinition => Ok(None),
+        };
+        let baseline = internalize(&spec.definitions.baseline)?;
+        let mutant = match &spec.definitions.mutant {
+            Some(mutant) => internalize(mutant)?,
+            None => None,
+        };
+        let side = |definition, role, internalized: &Option<BackendDefinition>| {
+            Side::build(
+                spec,
+                definition,
+                role,
+                Seed {
+                    internalized: internalized.as_ref(),
+                    resolved: None,
+                },
+            )
+            .map(|side| (side.holes, side.round_trip))
+        };
+        let (holes, round_trip) = side(
+            &spec.definitions.baseline,
+            DefinitionRole::Baseline,
+            &baseline,
+        )?;
+        let baseline = SideCache {
+            internalized: baseline,
+            holes,
+            round_trip,
+        };
+        let mutant = match &spec.definitions.mutant {
+            Some(definition) => {
+                let (holes, round_trip) = side(definition, DefinitionRole::Mutant, &mutant)?;
+                Some(SideCache {
+                    internalized: mutant,
+                    holes,
+                    round_trip,
+                })
+            }
+            None => None,
+        };
+        Ok(Self { baseline, mutant })
+    }
+}
+
 /// The campaign's runner: the campaign's own [`LiveCases`] for cases, a fresh one per
-/// confirmation.
+/// confirmation, built from the campaign's [`DefinitionCache`] (filled on the first
+/// confirmation).
 pub(crate) struct LiveRunner {
     pub(crate) cases: LiveCases,
+    pub(crate) cache: Arc<OnceLock<Result<DefinitionCache, String>>>,
 }
 
 impl CaseRunner for LiveRunner {
@@ -518,12 +682,20 @@ impl CaseRunner for LiveRunner {
         run_live(&mut self.cases, values, cancel)
     }
 
+    /// A fresh `Backend` (fresh solver, fresh session) over a copy of the cached internalized
+    /// definition, with a fresh assembly, fresh hole resolution and a freshly resolved target.
     fn confirm(
         &mut self,
         values: &[Value],
         cancel: Option<&CancellationToken>,
     ) -> Result<CaseRun, String> {
-        let mut fresh = LiveCases::build(Arc::clone(&self.cases.spec))
+        let spec = Arc::clone(&self.cases.spec);
+        let cache = self
+            .cache
+            .get_or_init(|| DefinitionCache::build(&spec).map_err(|error| error.to_string()))
+            .as_ref()
+            .map_err(|error| format!("the definition did not internalize: {error}"))?;
+        let mut fresh = LiveCases::build_with(spec, Some(cache))
             .map_err(|error| format!("the fresh backend or assembly did not build: {error}"))?;
         run_live(&mut fresh, values, cancel).map_err(|abort| abort.reason)
     }

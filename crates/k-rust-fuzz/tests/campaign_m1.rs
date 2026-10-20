@@ -417,3 +417,18 @@ fn a_mutant_without_a_differential_target_is_refused() {
         Err(CampaignError::DefinitionsMismatch)
     ));
 }
+
+#[test]
+fn a_campaign_without_shrinking_reports_its_first_witness_only() {
+    let mut setup = le();
+    setup.options.shrink = false;
+    let shrinking = le().run(Budget::Cases(200));
+    let report = setup.run(Budget::Cases(200));
+    let witness = report.witness().expect("a witness");
+    assert_eq!(witness.shrunk, None);
+    assert!(!report.identity.options.shrink);
+    // The same cases ran; only the shrink runs are missing from the work.
+    assert_eq!(report.totals.cases, shrinking.totals.cases);
+    assert_eq!(witness.first, shrinking.witness().expect("a witness").first);
+    assert!(report.totals.work < shrinking.totals.work);
+}

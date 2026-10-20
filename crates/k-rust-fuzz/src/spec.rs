@@ -109,6 +109,12 @@ pub struct CompiledDefinition {
     pub configuration_variables: BTreeMap<String, KastSort>,
     /// The parsed KORE definition the backend executes (`definition.kore`).
     pub kore: KoreDefinition,
+    /// `syntaxDefinition.kore` (`CompiledKoreArtifacts::syntax_definition_kore`): the
+    /// productions' formats, from which data-sort and collection values are printed as K text
+    /// (krs-unparse, D19). `definition.kore` does not carry them.
+    pub syntax_definition_kore: String,
+    /// `macros.kore` (`CompiledKoreArtifacts::macros_kore`), which reading K text back expands.
+    pub macros_kore: String,
     /// How the backend is built from [`Self::kore`]; it selects the one path `strategy: any`
     /// follows, so it is part of the campaign's identity.
     pub route: BackendRoute,
@@ -143,6 +149,8 @@ impl CompiledDefinition {
             execution_definition: artifacts.execution_definition,
             configuration_variables: artifacts.configuration_variables,
             kore,
+            syntax_definition_kore: artifacts.syntax_definition_kore,
+            macros_kore: artifacts.macros_kore,
             route: BackendRoute::SourceExecution {
                 execution_rewrite_order: artifacts.execution_rewrite_order,
             },
@@ -255,6 +263,12 @@ pub struct CaseOptions {
     /// of the report's identity. The SMT prelude and the simplification stack budget are always
     /// the backend's defaults.
     pub backend: BackendSettings,
+    /// Shrink a confirmed witness (ARCHITECTURE 7); `true` by default. With `false` the report's
+    /// witness has no shrunk case and the campaign spends nothing after the first confirmed
+    /// hit, which is what a benchmark of cases-to-first-hit wants. It is not an option of a
+    /// case's execution, but it lives here so that the report's identity records it with the
+    /// other options.
+    pub shrink: bool,
 }
 
 /// The solver options of every backend a campaign builds: a serializable copy of
@@ -300,6 +314,7 @@ impl Default for CaseOptions {
             normal_end_pattern: None,
             safety_limit_ms: None,
             backend: BackendSettings::default(),
+            shrink: true,
         }
     }
 }
