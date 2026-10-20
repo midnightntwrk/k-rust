@@ -161,7 +161,8 @@ impl CaseAssembler<'_> {
 
     // FZ-G15: this body becomes `KrunAssembler::assemble(&KrunInputs { start_sort, program:
     // program.map(|p| ProgramText { text, file: name, from_standard_input: false }),
-    // configuration_variables, io: false }, || Ok(Vec::new()))`.
+    // configuration_variables: &pairs, io: false }, || Ok(Vec::new()))`, with `pairs` the
+    // bindings as a `Vec<(&str, &str)>`.
     fn assemble_source(
         &mut self,
         program: Option<&ProgramText>,
@@ -191,8 +192,8 @@ impl CaseAssembler<'_> {
 /// empty, so `$STDIN` is `"\n"`, as `krun --io off < /dev/null` binds it.
 ///
 /// FZ-G15: a copy of the private `buffered_stdin_bytes` of `crates/k-rust/src/main.rs` at
-/// `b322de1ab`, which G15 makes public and applies inside `KrunAssembler::bind_stream_defaults`;
-/// the copy goes with the switch.
+/// `b322de1ab`. `KrunAssembler::assemble` applies krun's own to what the reader returns, so the
+/// copy goes with the switch and the reader returns the empty input.
 fn buffered_stdin_bytes(mut input: Vec<u8>) -> Vec<u8> {
     let trimmed = input
         .iter()
