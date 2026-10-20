@@ -139,6 +139,15 @@ impl HaltClass {
     }
 }
 
+// One build is one profile only while this crate's `z3` feature and k-rust's `z3-inference` are
+// on together: in a workspace where another member enables k-rust's default features (k-rust's
+// own workspace), k-rust would run Z3 under a kink that selects and expects no-Z3. Fail the build
+// rather than reject every backend at run time.
+const _: () = assert!(
+    cfg!(feature = "z3") == k_rust::Z3_INFERENCE,
+    "kink-native's `z3` feature must be on exactly when k-rust's `z3-inference` is"
+);
+
 /// The solver profile of a backend. k-rust chooses its solver at compile time, so one build is
 /// one profile: `NoZ3` without the `z3` feature of this crate, `Z3` with it (README section 9 of
 /// `draft/tasks/symbolic-branching`).
