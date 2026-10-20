@@ -88,9 +88,17 @@ test('exposes the diagnostic on only the branch candidate that emitted it', () =
 })
 
 const termExhausted = [{ kind: 'simplification-budget-exhausted', limit: 3, subject: 'term' }]
+// The fixture's KORE carries no source or location attributes, so a rule's origin is only its
+// sentence: its index among all of MAIN's sentences (the sort, nine symbols, then the axioms).
+const sentenceIndex = { 'norm-c': 11, 'check-ok': 12 }
 const conditionExhausted = (ruleId) => [
   { kind: 'simplification-budget-exhausted', limit: 3, subject: 'predicates' },
-  { kind: 'rule-condition-unsimplified', ruleId, limit: 3 },
+  {
+    kind: 'rule-condition-unsimplified',
+    ruleId,
+    origin: { source: null, location: null, sentence: { module: 'MAIN', index: sentenceIndex[ruleId] } },
+    limit: 3,
+  },
 ]
 const ending = (entries, field, symbol) =>
   entries.find((entry) => JSON.stringify(entry[field]).includes(`"name":"${symbol}"`))

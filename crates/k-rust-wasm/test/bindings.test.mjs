@@ -73,9 +73,17 @@ test('exposes the diagnostic on only the branch candidate that emitted it', () =
 })
 
 const termExhausted = [{ kind: 'simplification-budget-exhausted', limit: 3, subject: 'term' }]
+// The fixture's KORE carries no source or location attributes, so a rule's origin is only its
+// sentence: its index among all of MAIN's sentences (the sort, nine symbols, then the axioms).
+const sentenceIndex = { 'norm-c': 11, 'check-ok': 12 }
 const conditionExhausted = (ruleId) => [
   { kind: 'simplification-budget-exhausted', limit: 3, subject: 'predicates' },
-  { kind: 'rule-condition-unsimplified', ruleId, limit: 3 },
+  {
+    kind: 'rule-condition-unsimplified',
+    ruleId,
+    origin: { source: null, location: null, sentence: { module: 'MAIN', index: sentenceIndex[ruleId] } },
+    limit: 3,
+  },
 ]
 const ending = (entries, field, symbol) =>
   entries.find((entry) => JSON.stringify(entry[field]).includes(`"name":"${symbol}"`))
@@ -126,9 +134,24 @@ test('exposes the compiled rule catalog', () => {
 })
 
 // Without associativity or priorities, a+a+a has two well-sorted trees that denote different terms,
-// so no sort decision can pick one: the error must name the ambiguity and list both readings.
-const bothAdditionReadings =
-  /Parsing ambiguity\.[\s\S]*add\(a\(\.KList\),add\(a\(\.KList\),a\(\.KList\)\)\)[\s\S]*add\(add\(a\(\.KList\),a\(\.KList\)\),a\(\.KList\)\)/
+// add(a, add(a, a)) and add(add(a, a), a), so no sort decision can pick one. Both are rooted at
+// add and differ at its two operands together, so the error names the ambiguity by those two
+// subterms, each at its first character, with the readings each takes: a or add(a, a).
+const additionAmbiguity = (prefix, first, second) => ({
+  name: 'Error',
+  message:
+    `${prefix}Parsing ambiguity: the readings differ in 2 subterms.\n` +
+    [first, second]
+      .map(
+        (at, index) =>
+          `Subterm ${index + 1} at ${at}:\n` +
+          '1: syntax Exp ::= "a" [symbol(a)]\n' +
+          '    a(.KList)\n' +
+          '2: syntax Exp ::= Exp "+" Exp [symbol(add)]\n' +
+          '    add(a(.KList),a(.KList))',
+      )
+      .join('\n'),
+})
 
 test('compiles a portable definition into all KORE artifacts', () => {
   const compiled = compileDefinition({
@@ -180,7 +203,7 @@ test('rejects a value-building parametric application at a token sort', () => {
   )
 })
 
-test('reports both readings of an ambiguous rule', () => {
+test('reports an ambiguous rule by the two subterms its readings differ in', () => {
   assert.throws(
     () =>
       compileDefinition({
@@ -192,7 +215,7 @@ test('reports both readings of an ambiguous rule', () => {
         `,
         moduleName: 'MAIN',
       }),
-    bothAdditionReadings,
+    additionAmbiguity('definition.k:4:18: could not parse rule in module "MAIN": ', '4:18', '4:20'),
   )
 })
 
@@ -285,7 +308,7 @@ test('infers nested parametric applications portably', () => {
   assert.deepEqual(parsed.kast.term.args[0].label.params, [])
 })
 
-test('reports both readings of an ambiguous program', () => {
+test('reports an ambiguous program by the two subterms its readings differ in', () => {
   assert.throws(
     () =>
       parseProgram({
@@ -299,7 +322,7 @@ test('reports both readings of an ambiguous program', () => {
         program: 'a+a+a',
         includePrelude: false,
       }),
-    bothAdditionReadings,
+    additionAmbiguity('could not parse program as Exp with module "MAIN": ', '1:1', '1:3'),
   )
 })
 
