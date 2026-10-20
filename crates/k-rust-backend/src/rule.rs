@@ -52,6 +52,7 @@
 //! again for it.
 
 use std::{
+    borrow::Cow,
     cell::Cell,
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
@@ -1951,17 +1952,27 @@ pub fn internalize_axiom(
             //
             // Under `Xi ∈ Pi`, `Xi` is the subject's argument at position i. A right-hand side
             // or requires that names `Xi` (an equation whose head carries a root alias states the
-            // alias as `f(X⃗)`) means that argument, so the rule's left-hand side keeps `Xi` at
-            // position i beside `Pi`, as `\and(Pi, Xi)`, and matching binds it there. Putting
-            // `Pi` alone in place of `Xi` would leave `Xi` free in the other parts, a variable
-            // no match binds, and the rule would not state the axiom's equation. A rule whose
-            // other parts do not name `Xi` keeps `Pi` alone, which states the same equation.
+            // alias as `f(X⃗)`) means that argument; putting `Pi` in place of `Xi` on the
+            // left-hand side only would leave `Xi` free in the other parts, a variable no match
+            // binds, and the rule would not state the axiom's equation. Where `Pi` denotes at
+            // most one element (`is_functional_pattern`: every symbol is interpreted as a partial
+            // function, an element variable denotes one element, and the pattern has no `\and`),
+            // `Xi ∈ Pi` is `Xi = Pi`, so the rule states `Pi` for `Xi` in its requires and
+            // right-hand side and keeps `f(.., Pi, ..)` as its left-hand side: a match of `Pi`
+            // instantiates it to the subject's argument. Otherwise, or where a quantifier of
+            // those parts would capture a variable of `Pi`, the left-hand side keeps `Xi` beside
+            // `Pi`, as `\and(Pi, Xi)`, and matching binds it to that argument. A rule whose other
+            // parts do not name `Xi` keeps `Pi` alone, which states the same equation.
             let named = {
                 let mut named = rhs.free_variables();
                 named.extend(requires.free_variables());
                 named
             };
-            let mut binding_alternatives = vec![Substitution::new()];
+            let mut readings = vec![BinderReading {
+                bindings: Substitution::new(),
+                requires: Cow::Borrowed(requires),
+                rhs: Cow::Borrowed(rhs),
+            }];
             for binder in binders {
                 let variable =
                     definition.internalize_variable(&binder.variable, sort_parameters)?;
@@ -1969,48 +1980,39 @@ pub fn internalize_axiom(
                 let alternatives = binder_disjuncts(&binder.pattern)
                     .into_iter()
                     .filter_map(|pattern| {
-                        live_matched(definition.internalize_term_with_validation(
+                        let term = live_matched(definition.internalize_term_with_validation(
                             &pattern,
                             sort_parameters,
                             injection_role,
                         ))
-                        .transpose()
+                        .transpose()?;
+                        Some(term.map(|term| (pattern, term)))
                     })
                     .collect::<Result<Vec<_>, _>>()?;
                 if alternatives.is_empty() {
                     return Ok(vec![]);
                 }
-                for alternative in &alternatives {
+                for (_, alternative) in &alternatives {
                     if variable.sort != alternative.sort() {
                         return Err(DefinitionError::RulePattern(
                             RulePatternError::BinderSortMismatch(binder.variable.clone()),
                         ));
                     }
                 }
-                let alternatives = if keeps_variable {
-                    alternatives
-                        .into_iter()
-                        .map(|alternative| Term::and(alternative, Term::variable(variable.clone())))
-                        .collect()
-                } else {
-                    alternatives
-                };
-                binding_alternatives = binding_alternatives
-                    .into_iter()
-                    .flat_map(|bindings| {
-                        alternatives.iter().cloned().map({
-                            let variable = variable.clone();
-                            move |alternative| {
-                                let mut bindings = bindings.clone();
-                                bindings.insert(variable.clone(), alternative);
-                                bindings
-                            }
-                        })
-                    })
-                    .collect();
+                let mut extended = Vec::with_capacity(readings.len() * alternatives.len());
+                for reading in &readings {
+                    for (pattern, term) in &alternatives {
+                        extended.push(reading.bind(
+                            &binder.variable,
+                            &variable,
+                            pattern,
+                            term,
+                            keeps_variable,
+                        ));
+                    }
+                }
+                readings = extended;
             }
-            let requires =
-                internalize_requires(definition, requires, sort_parameters, injection_role)?;
             // A right-hand side that is `\top`, or `\top` with predicates (`#Top ensures P`),
             // gives the application no term to equal: it states that the application is every
             // value of its sort, which no application of a function or anywhere head is unless
@@ -2027,49 +2029,64 @@ pub fn internalize_axiom(
                     sentence: Box::new(sentence.clone()),
                 })
             };
-            let (rhs, ensures) = internalize_term_rhs(
-                definition,
-                rhs,
-                sort_parameters,
-                injection_role,
-                ConditionSlot::Last,
-                PredicateReading::Written,
-            )
-            .map_err(|error| match error {
-                DefinitionError::RulePattern(RulePatternError::MissingTerm) => {
-                    top_function_equation()
-                }
-                error => error,
-            })?;
-            if matches!(rhs, RuleRhs::Top) {
-                return Err(top_function_equation());
-            }
             let rename =
                 |variable: &Variable| variable.with_provenance(VariableProvenance::Equation);
-            let rhs = rename_rhs(rhs, rename);
-            let requires = rename_predicates(&requires, rename);
-            let ensures = rename_predicates(&ensures, rename);
+            let stated = |requires: &kore::Pattern,
+                          rhs: &kore::Pattern|
+             -> Result<(RuleRhs, Vec<Predicate>, Vec<Predicate>), DefinitionError> {
+                let requires =
+                    internalize_requires(definition, requires, sort_parameters, injection_role)?;
+                let (rhs, ensures) = internalize_term_rhs(
+                    definition,
+                    rhs,
+                    sort_parameters,
+                    injection_role,
+                    ConditionSlot::Last,
+                    PredicateReading::Written,
+                )
+                .map_err(|error| match error {
+                    DefinitionError::RulePattern(RulePatternError::MissingTerm) => {
+                        top_function_equation()
+                    }
+                    error => error,
+                })?;
+                if matches!(rhs, RuleRhs::Top) {
+                    return Err(top_function_equation());
+                }
+                Ok((
+                    rename_rhs(rhs, rename),
+                    rename_predicates(&requires, rename),
+                    rename_predicates(&ensures, rename),
+                ))
+            };
+            // The axiom's own requires and right-hand side, shared by every rule that states no
+            // binder pattern in them.
+            let written = stated(requires, rhs)?;
             // The rules of one axiom are its alternatives, numbered as a rewrite's left-hand
             // side alternatives are, so the axiom's identity names all of them as one axiom.
-            let split = binding_alternatives.len() > 1;
-            Ok(binding_alternatives
+            let split = readings.len() > 1;
+            readings
                 .into_iter()
                 .enumerate()
-                .map(|(index, bindings)| {
-                    InternalizedRule::Term(
+                .map(|(index, reading)| {
+                    let (rhs, requires, ensures) = match (&reading.requires, &reading.rhs) {
+                        (Cow::Borrowed(_), Cow::Borrowed(_)) => written.clone(),
+                        (requires, rhs) => stated(&**requires, &**rhs)?,
+                    };
+                    Ok(InternalizedRule::Term(
                         RuleKind::Function,
                         make_rule(
-                            rename_term(&substitute(&lhs, &bindings), rename),
-                            rhs.clone(),
-                            requires.clone(),
-                            ensures.clone(),
+                            rename_term(&substitute(&lhs, &reading.bindings), rename),
+                            rhs,
+                            requires,
+                            ensures,
                             attributes.clone(),
                             BTreeSet::new(),
                             split.then_some(index),
                         ),
-                    )
+                    ))
                 })
-                .collect())
+                .collect()
         }
         ClassifiedAxiom::Ceil {
             sort_parameters,
@@ -3673,6 +3690,58 @@ pub(crate) fn term_disjuncts(pattern: &kore::Pattern) -> Vec<kore::Pattern> {
         .into_iter()
         .filter(|alternative| !matches!(alternative, kore::Pattern::Bottom { .. }))
         .collect()
+}
+
+/// One rule of a function or anywhere axiom `requires ∧ ⋀ Xi ∈ Pi → f(X⃗) = rhs` while its
+/// binders are read: the left-hand side's bindings of the binders read so far, and the requires
+/// and right-hand side with every `Pi` stated in them for its `Xi`.
+struct BinderReading<'a> {
+    bindings: Substitution,
+    requires: Cow<'a, kore::Pattern>,
+    rhs: Cow<'a, kore::Pattern>,
+}
+
+impl BinderReading<'_> {
+    /// This reading with `variable ∈ pattern` read as well (`internal` and `term` are their
+    /// internal forms). Where the requires or right-hand side names `variable` (`named`) and
+    /// `pattern` denotes at most one element, `variable ∈ pattern` is `variable = pattern`, so
+    /// `pattern` is stated for `variable` in them and `term` alone is bound. Where it names
+    /// `variable` otherwise, the binding keeps `variable` beside `term`, so matching binds it to
+    /// the subject's argument. Where it does not name `variable`, `term` alone is bound.
+    fn bind(
+        &self,
+        variable: &kore::Variable,
+        internal: &Variable,
+        pattern: &kore::Pattern,
+        term: &Term,
+        named: bool,
+    ) -> Self {
+        let stated = (named && crate::rewrite::is_functional_pattern(term))
+            .then(|| {
+                let requires = self.requires.substitute_free(variable, pattern)?;
+                let rhs = self.rhs.substitute_free(variable, pattern)?;
+                Some((requires, rhs))
+            })
+            .flatten();
+        let mut bindings = self.bindings.clone();
+        let (left, requires, rhs) = match stated {
+            Some((requires, rhs)) => (term.clone(), Cow::Owned(requires), Cow::Owned(rhs)),
+            None => {
+                let left = if named {
+                    Term::and(term.clone(), Term::variable(internal.clone()))
+                } else {
+                    term.clone()
+                };
+                (left, self.requires.clone(), self.rhs.clone())
+            }
+        };
+        bindings.insert(internal.clone(), left);
+        Self {
+            bindings,
+            requires,
+            rhs,
+        }
+    }
 }
 
 /// The disjuncts of a function equation's argument binder `Xi ∈ P`, `\bottom` ones dropped.
@@ -5419,9 +5488,11 @@ mod tests {
 
     /// An equation whose right-hand side names its argument variable `X` (an alias of the
     /// matched application, `f(X) #as V`, states `V` as `f(X)`) means by `X` the subject's
-    /// argument, so each rule binds `X` beside the argument's pattern, as `\and(P, X)`, and has
-    /// no unbound variable. An equation whose right-hand side does not name `X` keeps the
-    /// pattern alone.
+    /// argument, and each rule has no unbound variable. Under `X ∈ P` with `P` denoting at most
+    /// one element, `X` is `P`: the rule states `P` for `X` in its right-hand side and keeps `P`
+    /// alone as the argument. Under a conjunction `P`, the rule binds `X` beside it, as
+    /// `\and(P, X)`. An equation whose right-hand side does not name `X` keeps the pattern
+    /// alone.
     #[test]
     fn an_argument_variable_the_right_hand_side_names_is_bound_by_the_left_hand_side() {
         let equation = |binder: &str, right: &str| {
@@ -5461,14 +5532,25 @@ mod tests {
         };
         assert_eq!(
             equation(r"wrap{}(Y:SortS{})", r"wrap{}(X:SortS{})"),
-            [(true, true)]
+            [(false, true)]
+        );
+        assert_eq!(
+            equation(r"Y:SortS{}", r"wrap{}(X:SortS{})"),
+            [(false, true)]
         );
         assert_eq!(
             equation(
                 r"\or{SortS{}}(a{}(), wrap{}(Y:SortS{}))",
                 r"wrap{}(X:SortS{})"
             ),
-            [(true, true), (true, true)]
+            [(false, true), (false, true)]
+        );
+        assert_eq!(
+            equation(
+                r"\and{SortS{}}(wrap{}(Y:SortS{}), Z:SortS{})",
+                r"wrap{}(X:SortS{})"
+            ),
+            [(true, true)]
         );
         assert_eq!(
             equation(r"wrap{}(Y:SortS{})", r"wrap{}(Y:SortS{})"),

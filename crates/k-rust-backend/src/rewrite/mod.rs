@@ -39,14 +39,15 @@ pub(crate) use predicates::{
     violates_finite_constructor_domain,
 };
 use recover::{
-    GeneralUnificationRecovery, freshen_unbound_rule_variables, is_functional_pattern,
-    recover_boolean_matches, recover_equality_matches, recover_function_equality_match,
-    recover_functional_symbolic_match, recover_general_unification, recover_ite_matches,
-    recover_map_not_in_keys_matches, recover_overload_symbolic_match,
-    recover_symbolic_map_key_matches, solve_collection_remainders_with_narrowing,
+    GeneralUnificationRecovery, freshen_unbound_rule_variables, recover_boolean_matches,
+    recover_equality_matches, recover_function_equality_match, recover_functional_symbolic_match,
+    recover_general_unification, recover_ite_matches, recover_map_not_in_keys_matches,
+    recover_overload_symbolic_match, recover_symbolic_map_key_matches,
+    solve_collection_remainders_with_narrowing,
 };
 pub(crate) use recover::{
-    RecoveredMatch, collection_unification_definedness, recover_indeterminate_match,
+    RecoveredMatch, collection_unification_definedness, is_functional_pattern,
+    recover_indeterminate_match,
 };
 use roles::{Applicability, Remainder};
 #[cfg(test)]

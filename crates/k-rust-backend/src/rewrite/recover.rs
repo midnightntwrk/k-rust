@@ -584,7 +584,12 @@ fn is_collection_term(term: &Term) -> bool {
     )
 }
 
-pub(super) fn is_functional_pattern(term: &Term) -> bool {
+/// Whether `term` denotes at most one element: every symbol is interpreted as a partial function
+/// (a constructor as a total one), a collection literal is an application of its partial
+/// concatenation and element symbols, and an element variable denotes one element. It answers
+/// no at an `\and`, which also denotes at most one element when an operand does, because a
+/// conjunction is no term a caller can state in place of a variable or bind a variable to.
+pub(crate) fn is_functional_pattern(term: &Term) -> bool {
     match term.kind() {
         TermKind::Application {
             symbol, arguments, ..
