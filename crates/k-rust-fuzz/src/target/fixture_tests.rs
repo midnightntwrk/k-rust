@@ -12,7 +12,7 @@
 
 use k_rust::kore::printer::Printer;
 
-use crate::support::{COIN, Compiled, IMP, RULES};
+use crate::support::{COIN, Compiled, IMP, RULES, SIBLING};
 
 use super::{
     HitSite, Judgement, PatternAt, PatternTarget, Resolved, ResolvedTarget, RuleMode, RuleRef,
@@ -535,51 +535,9 @@ fn fired_stops_early_under_all_paths_so_a_cut_after_the_firing_is_still_a_hit() 
     );
 }
 
-/// The SIBLING fixture (`tests/data/sibling`), compiled in-process as `tests/support` compiles
-/// the others.
-fn sibling() -> &'static CompiledDefinition {
-    use std::sync::OnceLock;
-
-    use k_rust::{
-        builtin::embedded,
-        kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
-        outer::{LoadOptions, ResolvedSource, load_for_compilation},
-    };
-
-    static SIBLING: OnceLock<CompiledDefinition> = OnceLock::new();
-    SIBLING.get_or_init(|| {
-        let file = "sibling/sibling.k";
-        let source = include_str!("../../tests/data/sibling/sibling.k");
-        let mut resolver = |_: &str, required: &str| {
-            embedded(required).ok_or_else(|| format!("unexpected require {required}"))
-        };
-        let options = LoadOptions {
-            implicit_sources: vec![embedded("prelude.md").expect("the prelude is embedded")],
-            ..CompilationBackend::Rust.load_options()
-        };
-        let (loaded, syntax_module) = load_for_compilation(
-            ResolvedSource::new(file, source),
-            "SIBLING",
-            None,
-            &mut resolver,
-            &options,
-        )
-        .unwrap_or_else(|error| panic!("{file} does not load: {error:?}"));
-        let artifacts = compile_loaded_definition(&loaded, CompileOptions::default())
-            .unwrap_or_else(|error| panic!("{file} does not compile: {error}"));
-        CompiledDefinition::from_artifacts(
-            "SIBLING",
-            syntax_module,
-            loaded.into_definition(),
-            artifacts,
-        )
-        .unwrap_or_else(|error| panic!("{file}: {error}"))
-    })
-}
-
 #[test]
 fn a_coverage_fact_resting_on_a_vanished_candidate_is_never_a_hit() {
-    let definition = sibling();
+    let definition = &SIBLING.compiled().definition();
     // A depth bound and no work bound: under `max_work` every leaf would carry every run fact
     // (ARCHITECTURE 5.2), and the off-leaf case would not arise.
     let options = CaseOptions {
@@ -596,7 +554,7 @@ fn a_coverage_fact_resting_on_a_vanished_candidate_is_never_a_hit() {
             &crate::holes::InstantiatedProgram::Source {
                 program: Some(crate::spec::ProgramText {
                     name: "sibling/sib.pgm".to_owned(),
-                    text: include_str!("../../tests/data/sibling/sib.pgm").to_owned(),
+                    text: SIBLING.program("sibling/sib.pgm").text.to_owned(),
                     start_sort: "Pgm".to_owned(),
                 }),
                 config_vars: Vec::new(),

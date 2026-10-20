@@ -18,6 +18,7 @@
 
 #[path = "data/maze/harness.rs"]
 mod maze;
+mod support;
 
 use std::{collections::BTreeSet, thread};
 

@@ -22,10 +22,12 @@
 //!   messages, which can reach a report through a hole value that does not parse. A golden test
 //!   must not vary it between its processes.
 //!
-//! [`Fixture::compiled`] refuses a fixture whose compilation reports any diagnostic, so that a
-//! fixture that drifts into a warning fails here first.
+//! [`Fixture::compiled`] refuses a fixture whose compilation reports any diagnostic other than
+//! the ones it declares ([`Fixture::diagnostics`]), so that a fixture that drifts into a warning
+//! fails here first.
 //!
-//! Test binaries include this module with `mod support;`.
+//! Test binaries include this module with `mod support;`; the crate's unit tests share one copy,
+//! declared in `src/lib.rs` as `crate::support`.
 
 #![allow(
     dead_code,
@@ -38,6 +40,7 @@ use k_rust::{
     backend::{Backend, BackendOptions, ExecutionDigest, execution_digest},
     builtin::embedded,
     definition::Definition,
+    diagnostic::DiagnosticCode,
     kast::Sort,
     kompile::{
         CompilationBackend, CompileOptions, CompiledKoreArtifacts, ConfigurationAssembler,
@@ -71,6 +74,9 @@ pub struct Fixture {
     /// The sort the program parser starts at (`krun --sort`).
     pub start_sort: &'static str,
     pub programs: &'static [Program],
+    /// The diagnostics the fixture compiles with on purpose, by code (TOY's missing syntax
+    /// module); any other diagnostic, or a missing one, refuses it.
+    pub diagnostics: &'static [DiagnosticCode],
     compiled: &'static OnceLock<Compiled>,
 }
 
@@ -122,7 +128,19 @@ impl Fixture {
     }
 }
 
-fn compile(fixture: &'static Fixture) -> Compiled {
+/// Load `source`, whose source name is `file`, and compile it, as [`Fixture::compiled`] does:
+/// the frontend definition, the syntax module and the compiler's output.
+///
+/// # Panics
+///
+/// If the definition does not load or compile, or compiles with diagnostics whose codes are
+/// not exactly `expected`.
+fn load_and_compile(
+    file: &str,
+    source: &str,
+    main_module: &str,
+    expected: &[DiagnosticCode],
+) -> (Definition, String, CompiledKoreArtifacts) {
     let mut resolver = |_: &str, required: &str| {
         embedded(required).ok_or_else(|| format!("unexpected require {required}"))
     };
@@ -131,27 +149,37 @@ fn compile(fixture: &'static Fixture) -> Compiled {
         ..CompilationBackend::Rust.load_options()
     };
     let (loaded, syntax_module) = load_for_compilation(
-        ResolvedSource::new(fixture.file, fixture.source),
-        fixture.main_module,
+        ResolvedSource::new(file, source),
+        main_module,
         None,
         &mut resolver,
         &options,
     )
-    .unwrap_or_else(|error| panic!("{} does not load: {error:?}", fixture.file));
+    .unwrap_or_else(|error| panic!("{file} does not load: {error:?}"));
     let artifacts =
         compile_loaded_definition(&loaded, CompileOptions::default()).unwrap_or_else(|error| {
-            panic!(
-                "{} does not compile: {error}: {:#?}",
-                fixture.file, error.diagnostics
-            )
+            panic!("{file} does not compile: {error}: {:#?}", error.diagnostics)
         });
-    assert!(
-        artifacts.diagnostics.is_empty(),
-        "{} compiles with diagnostics: {:#?}",
-        fixture.file,
+    let codes: Vec<DiagnosticCode> = artifacts
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.code)
+        .collect();
+    assert_eq!(
+        codes, expected,
+        "{file} compiles with other diagnostics than expected: {:#?}",
         artifacts.diagnostics
     );
-    let frontend: Definition = loaded.into_definition();
+    (loaded.into_definition(), syntax_module, artifacts)
+}
+
+fn compile(fixture: &'static Fixture) -> Compiled {
+    let (frontend, syntax_module, artifacts) = load_and_compile(
+        fixture.file,
+        fixture.source,
+        fixture.main_module,
+        fixture.diagnostics,
+    );
     let grammar = ProgramGrammar::new(&frontend)
         .unwrap_or_else(|error| panic!("{} has no program grammar: {error}", fixture.file));
     let kore = parse_definition(&artifacts.definition_kore)
@@ -163,6 +191,19 @@ fn compile(fixture: &'static Fixture) -> Compiled {
         artifacts,
         kore,
     }
+}
+
+/// The campaign's view, on `krun`'s route, of a definition that is not a fixture: `source`
+/// under the source name `file` (for example a path a test wrote it to), compiled as a fixture
+/// is.
+///
+/// # Panics
+///
+/// If the definition does not load or compile, or compiles with any diagnostic.
+pub fn compile_source(file: &str, source: &str, main_module: &str) -> CompiledDefinition {
+    let (frontend, syntax_module, artifacts) = load_and_compile(file, source, main_module, &[]);
+    CompiledDefinition::from_artifacts(main_module, syntax_module, frontend, artifacts)
+        .unwrap_or_else(|error| panic!("{file}: {error:?}"))
 }
 
 impl Compiled {
@@ -384,12 +425,16 @@ macro_rules! program {
 
 macro_rules! fixture {
     ($name:ident, $file:literal, $main:literal, $programs:expr) => {
+        fixture!($name, $file, $main, $programs, diagnostics = []);
+    };
+    ($name:ident, $file:literal, $main:literal, $programs:expr, diagnostics = [$($code:ident),*]) => {
         pub static $name: Fixture = Fixture {
             file: $file,
             source: data!($file),
             main_module: $main,
             start_sort: "Pgm",
             programs: $programs,
+            diagnostics: &[$(DiagnosticCode::$code),*],
             compiled: {
                 static COMPILED: OnceLock<Compiled> = OnceLock::new();
                 &COMPILED
@@ -444,8 +489,7 @@ fixture!(COIN_PRIO, "coin/coin-prio.k", "COIN", COIN_PROGRAMS);
 fixture!(COIN_KILL, "coin/coin-kill.k", "COIN", COIN_PROGRAMS);
 fixture!(COIN_FUNC, "coin/coin-func.k", "COIN", COIN_PROGRAMS);
 
-/// The vanished-end pair (FZ-08 review B1). Not in `ALL`: `tests/fixtures.rs` does not judge
-/// it; the differential judge's tests (`src/target/differential.rs`) run it.
+/// The vanished-end pair (FZ-08 review B1).
 pub const VANISH_PROGRAMS: &[Program] = &[program!("vanish/pick.pgm")];
 fixture!(VANISH, "vanish/vanish.k", "VANISH", VANISH_PROGRAMS);
 fixture!(
@@ -480,8 +524,8 @@ fixture!(
     ]
 );
 
-// The rule graph's fixtures (FZ-G8). Not in `ALL`: `tests/fixtures.rs` does not judge them; the
-// graph's tests (`src/graph/tests.rs`) run their programs and check their ends.
+// The rule graph's fixtures (FZ-G8): the graph's tests (`src/graph/tests.rs`) run their
+// programs and check their ends.
 fixture!(
     GRAPH,
     "graph/graph.k",
@@ -505,9 +549,52 @@ fixture!(
     &[program!("graph/shape.pgm", "SHAPE" = "graph/shape.s")]
 );
 
-/// Every fixture that `tests/fixtures.rs` judges, in the order of `tests/data/README.md`; the
-/// fixtures declared outside it say why.
-pub static ALL: [&Fixture; 14] = [
+fixture!(
+    SIBLING,
+    "sibling/sibling.k",
+    "SIBLING",
+    &[program!("sibling/sib.pgm")]
+);
+
+// An end steered by a hook k-rust does not compute (D21).
+fixture!(
+    STEER,
+    "steer/steer.k",
+    "UNSP",
+    &[program!("steer/go.pgm"), program!("steer/big.pgm")]
+);
+
+// The hole overlay's and the values module's fixtures (FZ-02, FZ-03).
+fixture!(
+    TOY,
+    "toy/toy.k",
+    "TOY",
+    &[program!("toy/send.pgm", "TX" = "toy/send.tx")],
+    diagnostics = [MissingSyntaxModule]
+);
+fixture!(
+    WRAPS,
+    "wraps/wraps.k",
+    "WRAPS",
+    &[program!("wraps/one.pgm")]
+);
+fixture!(
+    STREAMS,
+    "streams/streams.k",
+    "STREAMS",
+    &[program!("streams/go.pgm", "LIMIT" = "streams/go.limit")]
+);
+// No program: the values tests assemble `run` with one binding per configuration variable.
+fixture!(VALUES, "values/values.k", "VALUES", &[]);
+
+// The stall benchmark's maze (FZ-13); `tests/data/maze/harness.rs` holds its cells.
+fixture!(MAZE, "maze/maze.k", "MAZE", &[program!("maze/walk.pgm")]);
+
+/// Every fixture that `tests/fixtures.rs` judges, in the order of `tests/data/README.md`: each
+/// compiles, converts to a campaign definition on both routes, and assembles every program.
+/// TOY is left out because its syntax module is its main module, where the check expects
+/// `<MAIN>-SYNTAX`; `src/holes/tests.rs` covers it.
+pub static ALL: [&Fixture; 25] = [
     &IMP,
     &UNSIGNED,
     &CHOSEN,
@@ -519,7 +606,18 @@ pub static ALL: [&Fixture; 14] = [
     &COIN_PRIO,
     &COIN_KILL,
     &COIN_FUNC,
+    &VANISH,
+    &VANISH_KILL,
     &LEDGER,
     &LOADCLAIM,
     &TAINT,
+    &GRAPH,
+    &VALUE,
+    &SHAPE,
+    &SIBLING,
+    &STEER,
+    &WRAPS,
+    &STREAMS,
+    &VALUES,
+    &MAZE,
 ];

@@ -8,10 +8,10 @@
 //! no confirmed witness reached within the budget is not reached, whatever the reason. Witnesses
 //! are not shrunk (`CaseOptions::shrink` is false), so a campaign spends nothing after its hit.
 //!
-//! A test binary includes this file with `#[path = "data/maze/harness.rs"] mod maze;`, so a
-//! proposer ticket can measure its configuration beside the blind baseline. The definition is
-//! compiled in-process in the portable build, exactly as `tests/support` compiles the shared
-//! fixtures, once per test binary.
+//! A test binary includes this file with `#[path = "data/maze/harness.rs"] mod maze;`, beside
+//! `mod support;` at its root, so a proposer ticket can measure its configuration beside the
+//! blind baseline. The definition is the shared fixture `support::MAZE`, compiled in-process in
+//! the portable build once per test binary.
 
 #![allow(dead_code, reason = "each test binary uses a subset of the harness")]
 
@@ -21,12 +21,7 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-use k_rust::{
-    backend::{Backend, BackendOptions},
-    builtin::embedded,
-    kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
-    outer::{LoadOptions, ResolvedSource, load_for_compilation},
-};
+use k_rust::backend::{Backend, BackendOptions};
 use k_rust_fuzz::{
     BackendRoute, Budget, CallerIdentity, Campaign, CampaignSpec, CaseOptions, CompiledDefinition,
     Definitions, HoleDecl, HoleLocation, OutcomeClass, ProgramInput, ProgramSource, ProposerConfig,
@@ -36,10 +31,6 @@ use k_rust_fuzz::{
     target::{RuleMode, RuleRef, RuleTarget},
     values::{Constraints, GenerationBounds},
 };
-
-/// The definition's file under `tests/data`, which is also its source name.
-pub const DEFINITION_FILE: &str = "maze/maze.k";
-const SOURCE: &str = include_str!("maze.k");
 
 /// A program of the maze: one `walk` of nine distinct integer literals, the holes' anchors.
 #[derive(Clone, Debug)]
@@ -298,56 +289,14 @@ pub fn cell_named(label: &str) -> &'static Cell {
         .unwrap_or_else(|| panic!("the maze has no cell {label}"))
 }
 
-/// The maze compiled in-process, as `tests/support` compiles the shared fixtures: loaded with
-/// the embedded prelude and the Rust backend's load options, compiled with no diagnostic, on
-/// `krun`'s route.
+/// The maze on `krun`'s route: `support::MAZE`, compiled with no diagnostic.
 ///
 /// # Panics
 ///
 /// If the maze does not load or compile, or compiles with a diagnostic.
 pub fn definition() -> Arc<CompiledDefinition> {
-    // This mirrors `compile` in `tests/support/mod.rs` call for call (resolver, load options,
-    // `load_for_compilation`, `compile_loaded_definition`, the no-diagnostic check), because
-    // `support::Fixture` cannot be built outside that module. Keep the two in step until the
-    // maze joins `support::ALL` (workers/interfaces.md, "FZ-13").
     static DEFINITION: OnceLock<Arc<CompiledDefinition>> = OnceLock::new();
-    Arc::clone(DEFINITION.get_or_init(|| {
-        let mut resolver = |_: &str, required: &str| {
-            embedded(required).ok_or_else(|| format!("unexpected require {required}"))
-        };
-        let options = LoadOptions {
-            implicit_sources: vec![embedded("prelude.md").expect("the prelude is embedded")],
-            ..CompilationBackend::Rust.load_options()
-        };
-        let (loaded, syntax_module) = load_for_compilation(
-            ResolvedSource::new(DEFINITION_FILE, SOURCE),
-            MAIN_MODULE,
-            None,
-            &mut resolver,
-            &options,
-        )
-        .unwrap_or_else(|error| panic!("the maze does not load: {error:?}"));
-        let artifacts = compile_loaded_definition(&loaded, CompileOptions::default())
-            .unwrap_or_else(|error| {
-                panic!(
-                    "the maze does not compile: {error}: {:#?}",
-                    error.diagnostics
-                )
-            });
-        assert!(
-            artifacts.diagnostics.is_empty(),
-            "the maze compiles with diagnostics: {:#?}",
-            artifacts.diagnostics
-        );
-        let definition = CompiledDefinition::from_artifacts(
-            MAIN_MODULE,
-            syntax_module,
-            loaded.into_definition(),
-            artifacts,
-        )
-        .unwrap_or_else(|error| panic!("the maze: {error:?}"));
-        Arc::new(definition)
-    }))
+    Arc::clone(DEFINITION.get_or_init(|| Arc::new(crate::support::MAZE.compiled().definition())))
 }
 
 /// The nine `Int` holes `A` .. `I` at the literals of `program`, without constraints. Each

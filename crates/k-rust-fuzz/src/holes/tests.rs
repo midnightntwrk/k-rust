@@ -5,16 +5,13 @@ use std::sync::OnceLock;
 
 use k_rust::{
     backend::{Backend, BackendOptions, ExecuteRequest},
-    builtin::embedded,
     k_rust_backend::definition::BackendDefinition,
-    kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
     kore::{
         ast::{KoreString, Pattern, Sort as KoreSort, Symbol, Variable, VariableKind},
         codec,
         parser::parse_pattern,
         printer::Printer,
     },
-    outer::{LoadOptions, ResolvedSource, load_for_compilation},
 };
 use num_bigint::BigInt;
 
@@ -35,12 +32,8 @@ use crate::{
 };
 
 const IMP_K: &str = include_str!("../../tests/data/imp/imp.k");
-const STREAMS_K: &str = include_str!("../../tests/data/streams/streams.k");
 const GO_PGM: &str = include_str!("../../tests/data/streams/go.pgm");
-const VALUES_K: &str = include_str!("../../tests/data/values/values.k");
-const TOY_K: &str = include_str!("../../tests/data/toy/toy.k");
 const TOY_PGM: &str = include_str!("../../tests/data/toy/send.pgm");
-const WRAPS_K: &str = include_str!("../../tests/data/wraps/wraps.k");
 const ONE_PGM: &str = include_str!("../../tests/data/wraps/one.pgm");
 const COMMUTE_IMP: &str = include_str!("../../tests/data/imp/commute.imp");
 const LOOP_IMP: &str = include_str!("../../tests/data/imp/loop.imp");
@@ -48,54 +41,24 @@ const SUM_PGM: &str = include_str!("../../tests/data/unsigned/sum.pgm");
 const SETTLE_PGM: &str = include_str!("../../tests/data/ledger/settle.pgm");
 const SETTLE_TX: &str = include_str!("../../tests/data/ledger/settle.tx");
 
-/// Compile a fixture the shared support module does not list, as `tests/support` compiles its
-/// fixtures: the embedded prelude as an implicit source, the Rust backend's load options, then
-/// `compile_loaded_definition`; the frontend definition is the loaded one, as krun keeps it.
-fn compile(file: &str, source: &str, main_module: &str) -> CompiledDefinition {
-    let mut resolver = |_: &str, required: &str| {
-        embedded(required).ok_or_else(|| format!("unexpected require {required}"))
-    };
-    let options = LoadOptions {
-        implicit_sources: vec![embedded("prelude.md").expect("the prelude is embedded")],
-        ..CompilationBackend::Rust.load_options()
-    };
-    let (loaded, syntax_module) = load_for_compilation(
-        ResolvedSource::new(file, source),
-        main_module,
-        None,
-        &mut resolver,
-        &options,
-    )
-    .unwrap_or_else(|error| panic!("{file} does not load: {error:?}"));
-    let artifacts = compile_loaded_definition(&loaded, CompileOptions::default())
-        .unwrap_or_else(|error| panic!("{file} does not compile: {error}"));
-    CompiledDefinition::from_artifacts(
-        main_module,
-        syntax_module,
-        loaded.into_definition(),
-        artifacts,
-    )
-    .unwrap_or_else(|error| panic!("{file}: {error}"))
-}
-
 fn values() -> &'static CompiledDefinition {
     static DEFINITION: OnceLock<CompiledDefinition> = OnceLock::new();
-    DEFINITION.get_or_init(|| compile("values/values.k", VALUES_K, "VALUES"))
+    DEFINITION.get_or_init(|| support::VALUES.compiled().definition())
 }
 
 fn toy() -> &'static CompiledDefinition {
     static DEFINITION: OnceLock<CompiledDefinition> = OnceLock::new();
-    DEFINITION.get_or_init(|| compile("toy/toy.k", TOY_K, "TOY"))
+    DEFINITION.get_or_init(|| support::TOY.compiled().definition())
 }
 
 fn streams() -> &'static CompiledDefinition {
     static DEFINITION: OnceLock<CompiledDefinition> = OnceLock::new();
-    DEFINITION.get_or_init(|| compile("streams/streams.k", STREAMS_K, "STREAMS"))
+    DEFINITION.get_or_init(|| support::STREAMS.compiled().definition())
 }
 
 fn wraps() -> &'static CompiledDefinition {
     static DEFINITION: OnceLock<CompiledDefinition> = OnceLock::new();
-    DEFINITION.get_or_init(|| compile("wraps/wraps.k", WRAPS_K, "WRAPS"))
+    DEFINITION.get_or_init(|| support::WRAPS.compiled().definition())
 }
 
 fn imp() -> &'static CompiledDefinition {
@@ -778,7 +741,7 @@ fn the_program_and_definition_files_are_never_modified() {
     let definition_name = definition_path.to_string_lossy().into_owned();
     let program_name = program_path.to_string_lossy().into_owned();
     let source = std::fs::read_to_string(&definition_path).expect("the definition is read");
-    let definition = compile(&definition_name, &source, "IMP");
+    let definition = support::compile_source(&definition_name, &source, "IMP");
     let text = std::fs::read_to_string(&program_path).expect("the program is read");
     let program = program(&program_name, &text, &[]);
     let holes = resolve_ok(

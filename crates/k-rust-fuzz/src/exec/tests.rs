@@ -1121,91 +1121,8 @@ fn an_undecided_natural_end_matters_only_where_the_natural_end_does() {
 
 // ---------------------------------------------------------------- round 3 (review 2, D21)
 
-/// A definition under `tests/data` that `tests/support` does not list yet, compiled the way it
-/// compiles fixtures.
-struct Local {
-    definition: k_rust_fuzz::CompiledDefinition,
-    grammar: k_rust::kompile::ProgramGrammar,
-}
-
-impl Local {
-    fn compile(file: &str, source: &str, main_module: &str) -> Self {
-        use k_rust::{
-            builtin::embedded,
-            kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
-            outer::{LoadOptions, ResolvedSource, load_for_compilation},
-        };
-        let mut resolver = |_: &str, required: &str| {
-            embedded(required).ok_or_else(|| format!("unexpected require {required}"))
-        };
-        let options = LoadOptions {
-            implicit_sources: vec![embedded("prelude.md").expect("the prelude is embedded")],
-            ..CompilationBackend::Rust.load_options()
-        };
-        let (loaded, syntax_module) = load_for_compilation(
-            ResolvedSource::new(file, source),
-            main_module,
-            None,
-            &mut resolver,
-            &options,
-        )
-        .unwrap_or_else(|error| panic!("{file} does not load: {error:?}"));
-        let artifacts = compile_loaded_definition(&loaded, CompileOptions::default())
-            .unwrap_or_else(|error| panic!("{file} does not compile: {error}"));
-        let frontend = loaded.into_definition();
-        let grammar = k_rust::kompile::ProgramGrammar::new(&frontend)
-            .unwrap_or_else(|error| panic!("{file} has no program grammar: {error}"));
-        let definition = k_rust_fuzz::CompiledDefinition::from_artifacts(
-            main_module,
-            syntax_module,
-            frontend,
-            artifacts,
-        )
-        .unwrap_or_else(|error| panic!("{file}: {error}"));
-        Self {
-            definition,
-            grammar,
-        }
-    }
-
-    fn run(&self, text: &str, options: &CaseOptions) -> CaseResult {
-        let backend = crate::assemble::build_backend(&self.definition, options.backend.options())
-            .expect("the backend builds");
-        let mut executor =
-            Executor::with_backend(backend, &self.grammar, &self.definition, options)
-                .expect("the executor builds");
-        let definition = &self.definition;
-        let mut assembler = k_rust::kompile::ConfigurationAssembler::new(
-            &self.grammar,
-            &definition.main_module,
-            &definition.syntax_module,
-            &definition.configuration_variables,
-        );
-        assembler
-            .program_file(&k_rust::kast::Sort::new("Pgm"), text, "program")
-            .expect("the program parses");
-        assembler
-            .bind_stream_defaults(false, false, || {
-                Ok::<_, k_rust::kompile::ConfigurationError>(Vec::new())
-            })
-            .expect("stream defaults bind");
-        let initial = assembler.finish().expect("the configuration assembles");
-        let shape = CaseRequestShape::new(options, &TargetNeeds::default());
-        executor
-            .run(&initial, &shape, &[], None)
-            .expect("no solver prelude fails")
-    }
-}
-
-fn steer() -> &'static Local {
-    static STEER: std::sync::OnceLock<Local> = std::sync::OnceLock::new();
-    STEER.get_or_init(|| {
-        Local::compile(
-            "steer/steer.k",
-            include_str!("../../tests/data/steer/steer.k"),
-            "UNSP",
-        )
-    })
+fn steer() -> &'static Compiled {
+    support::STEER.compiled()
 }
 
 /// [`budgets`] in both path modes.
@@ -1225,7 +1142,12 @@ fn an_end_steered_by_an_unsupported_hook_is_never_clean() {
     // equation evaluator takes `fb` and the run ends with a clean-looking `<out> 2`, where a
     // backend that computes the shift ends with 1. Only `unsupportedHooks` records it.
     for options in modes_and_budgets() {
-        let result = steer().run(include_str!("../../tests/data/steer/big.pgm"), &options);
+        let result = steer().run_with(
+            include_str!("../../tests/data/steer/big.pgm"),
+            &options,
+            &TargetNeeds::default(),
+            &[],
+        );
         assert!(result.failure.is_none(), "{:?}", result.failure);
         assert!(!result.leaves.is_empty());
         for leaf in &result.leaves {
@@ -1250,7 +1172,12 @@ fn an_end_steered_by_an_unsupported_hook_is_never_clean() {
             }
         }
         // The value is computed: `fa` applies, a clean natural end.
-        let computed = steer().run(include_str!("../../tests/data/steer/go.pgm"), &options);
+        let computed = steer().run_with(
+            include_str!("../../tests/data/steer/go.pgm"),
+            &options,
+            &TargetNeeds::default(),
+            &[],
+        );
         let leaf = only_leaf(&computed);
         assert!(leaf.is_clean(), "{:?}", leaf.unclean);
         assert!(leaf.natural_end);
