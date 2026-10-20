@@ -46,7 +46,7 @@ use crate::{
     assemble::ProgramAssembly,
     error::{CampaignError, SortRefusal},
     spec::{CompiledDefinition, ProgramInput, ProgramText},
-    values::{Constraints, Value, ValueSort, print::parse_k_text, resolve_value_sort},
+    values::{Constraints, TextSyntax, Value, ValueSort, print::parse_k_text, resolve_value_sort},
 };
 
 /// One hole declaration (ARCHITECTURE 2.2).
@@ -154,8 +154,12 @@ pub(crate) struct ResolvedHole {
     /// The anchor as a value, the first value the explicit proposer tries (ARCHITECTURE 2.2,
     /// 8.1); `None` for a KORE template variable.
     pub(crate) anchor: Option<Value>,
-    /// The refusal an override admitted, recorded in the report (ARCHITECTURE 2.4).
+    /// The first refusal an override admitted (the hole's own sort's, else the first sort its
+    /// values may contain), recorded in the report (ARCHITECTURE 2.4).
     pub(crate) overridden: Option<SortRefusal>,
+    /// Every refusal the override admitted: the refused sort and why, the hole's own sort first,
+    /// then the contained sorts by name. Empty when nothing was refused.
+    pub(crate) refusals: Vec<(String, SortRefusal)>,
 }
 
 /// Every hole of a campaign, in declaration order; values are passed in this order.
@@ -242,34 +246,59 @@ pub(crate) fn resolve(
     span::check_overlaps(decls, &located)?;
 
     let rule = sorts::SortRule::new(program, definition)?;
+    // Collection and data values print and read back as K text only through the definition's
+    // syntax (ARCHITECTURE 3, D19). A definition built without the compiler's syntax outputs
+    // (both empty) resolves without it: its collection and data anchors do not read back.
+    let text = (!definition.syntax_definition_kore.is_empty()
+        || !definition.macros_kore.is_empty())
+    .then(|| {
+        TextSyntax::new(
+            &definition.frontend_definition,
+            &definition.main_module,
+            &definition.syntax_definition_kore,
+            &definition.macros_kore,
+            rule.excluded(),
+        )
+        .map_err(|message| CampaignError::Definition {
+            message: format!("the definition's K-text syntax: {message}"),
+        })
+    })
+    .transpose()?;
     let mut holes = Vec::with_capacity(decls.len());
     for (decl, (site, anchor_text)) in decls.iter().zip(located) {
-        let mut overridden = rule.check(decl)?;
-        let sort = if overridden == Some(SortRefusal::Token) {
-            // A token sort has no generator of its own: an overridden hole takes tokens.
+        let refuse = |reason| CampaignError::RefusedHoleSort {
+            hole: decl.name.clone(),
+            sort: decl.sort.clone(),
+            reason,
+        };
+        let verdict = rule.verdict(decl)?;
+        let mut refusals = verdict.all(&decl.sort);
+        if let Some((_, reason)) = refusals.first()
+            && !decl.allow_refused_sort
+        {
+            return Err(refuse(reason.clone()));
+        }
+        // Only the hole's own token sort makes it a token hole; an override of a token sort its
+        // values contain (`Map<Id, Int>`, `rec(Id, Int)`) leaves the hole a value of its sort.
+        let own_token = verdict.own == Some(SortRefusal::Token);
+        let sort = if own_token {
             ValueSort::Token {
                 sort: decl.sort.clone(),
             }
         } else {
-            resolve_value_sort(&decl.sort, &decl.constraints, backend).map_err(|reason| {
-                CampaignError::RefusedHoleSort {
-                    hole: decl.name.clone(),
-                    sort: decl.sort.clone(),
-                    reason,
-                }
-            })?
+            match &text {
+                Some(text) => text.resolve(&decl.sort, &decl.constraints, backend),
+                None => resolve_value_sort(&decl.sort, &decl.constraints, backend),
+            }
+            .map_err(refuse)?
         };
         // The backend may see a token sort the frontend's token declarations do not name; a
         // token hole is admitted only with a recorded override, whichever side saw it.
-        if matches!(sort, ValueSort::Token { .. }) && overridden.is_none() {
+        if matches!(sort, ValueSort::Token { .. }) && !own_token {
             if !decl.allow_refused_sort {
-                return Err(CampaignError::RefusedHoleSort {
-                    hole: decl.name.clone(),
-                    sort: decl.sort.clone(),
-                    reason: SortRefusal::Token,
-                });
+                return Err(refuse(SortRefusal::Token));
             }
-            overridden = Some(SortRefusal::Token);
+            refusals.insert(0, (decl.sort.clone(), SortRefusal::Token));
         }
         let anchor = anchor_text
             .as_deref()
@@ -286,7 +315,8 @@ pub(crate) fn resolve(
             sort,
             anchor_text,
             anchor,
-            overridden,
+            overridden: refusals.first().map(|(_, reason)| reason.clone()),
+            refusals,
         });
     }
     Ok(ResolvedHoles { holes })

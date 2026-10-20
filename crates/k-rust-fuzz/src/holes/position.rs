@@ -1,7 +1,12 @@
 //! Hole positions in the assembled configuration, located by differential parsing, and the
 //! per-case round-trip check (ARCHITECTURE 2.3).
 
-use k_rust::kore::{ast::Pattern as KorePattern, node::PatternSource, printer::Printer, walk};
+use k_rust::kore::{
+    ast::{Pattern as KorePattern, Sort as KoreSort},
+    node::PatternSource,
+    printer::Printer,
+    walk,
+};
 use num_bigint::BigUint;
 use num_traits::{One, Zero};
 
@@ -13,8 +18,9 @@ use crate::{
     error::CampaignError,
     spec::{CompiledDefinition, ProgramInput},
     values::{
-        Value,
+        Value, ValueSort,
         print::{print_k_text, to_kore},
+        term::second_value,
     },
 };
 
@@ -59,7 +65,7 @@ pub(super) fn locate_all(
             .anchor
             .as_ref()
             .expect("a source hole has an anchor (anchor_printed)");
-        let second = alternative(anchor).ok_or_else(|| {
+        let second = alternative(anchor, &hole.sort).ok_or_else(|| {
             unlocatable(format!(
                 "sort {} has no second value to locate the hole's position with",
                 hole.decl.sort
@@ -107,10 +113,31 @@ fn anchor_printed(hole: &ResolvedHole) -> Result<PrintedValue, CampaignError> {
     let (Some(text), Some(anchor)) = (&hole.anchor_text, &hole.anchor) else {
         unreachable!("resolve gives every source hole an anchor");
     };
-    let kore = to_kore(anchor, &hole.sort).map_err(|error| CampaignError::AnchorDoesNotParse {
+    let refuse = |message: String| CampaignError::AnchorDoesNotParse {
         hole: hole.decl.name.clone(),
-        message: format!("the anchor has no KORE form: {error:?}"),
-    })?;
+        message,
+    };
+    // A collection or data anchor is read as the assembler reads it, so a set or map written in
+    // another order than the value's sorted one is found as written (D19); a builtin anchor's
+    // KORE is its domain value.
+    let kore = match &hole.sort {
+        ValueSort::List {
+            text: Some(syntax), ..
+        }
+        | ValueSort::Set {
+            text: Some(syntax), ..
+        }
+        | ValueSort::Map {
+            text: Some(syntax), ..
+        }
+        | ValueSort::Data {
+            text: Some(syntax), ..
+        } => syntax
+            .parse(text, &hole.decl.sort)
+            .map_err(|message| refuse(format!("the anchor does not read back: {message}")))?,
+        _ => to_kore(anchor, &hole.sort)
+            .map_err(|error| refuse(format!("the anchor has no KORE form: {error:?}")))?,
+    };
     Ok(PrintedValue {
         k_text: text.clone(),
         kore,
@@ -127,14 +154,14 @@ fn printed(value: &Value, hole: &ResolvedHole) -> Result<PrintedValue, String> {
 /// length where the sort allows, so that text positions after the hole (and the locations of a
 /// definition that records them) do not move: an integer changes its last digit, a string or a
 /// token its last character. `None` when the sort has one value or no second value is known
-/// (collections and data sorts, whose anchors are not read in M1).
+/// (`MInt{0}`).
 ///
 /// The length is not kept for a `Bool` (`true` and `false`), an empty string or byte string,
 /// and a string or byte string whose anchor is written with escapes (the second value is
 /// printed afresh). On a definition that records locations the later columns then differ too,
 /// no single subterm holds every difference, and the hole is refused: a false refusal, never a
 /// false acceptance.
-fn alternative(anchor: &Value) -> Option<Value> {
+fn alternative(anchor: &Value, sort: &ValueSort) -> Option<Value> {
     let ten = || BigUint::from(10_u8);
     let nine = || BigUint::from(9_u8);
     let other_last = |text: &str| {
@@ -184,7 +211,11 @@ fn alternative(anchor: &Value) -> Option<Value> {
                 value,
             }
         }
-        Value::List(_) | Value::Set(_) | Value::Map(_) | Value::Apply { .. } => return None,
+        // A collection loses its last item (or gains its least one), a data value changes its
+        // first changeable argument or takes another alternative (FZ-G6/FZ-09).
+        Value::List(_) | Value::Set(_) | Value::Map(_) | Value::Apply { .. } => {
+            return second_value(anchor, sort);
+        }
     })
 }
 
@@ -216,6 +247,18 @@ fn locate(
         };
         if left == anchor && right == second {
             return Ok(path.to_vec());
+        }
+        // A second data value of another own sort comes with its own injection to the
+        // position's sort (D19): the position is the injections' argument.
+        if let (Some((left_target, left_child)), Some((right_target, right_child))) =
+            (injection(left), injection(right))
+            && left_target == right_target
+            && left_child == anchor
+            && right_child == second
+        {
+            let mut path = path.to_vec();
+            path.push(0);
+            return Ok(path);
         }
     }
     let found = at(first, &common);
@@ -301,6 +344,26 @@ fn same_node(left: &KorePattern, right: &KorePattern) -> bool {
         && left_children.len() == right_children.len()
 }
 
+/// The target sort and the argument of an injection `inj{From, To}(argument)`.
+fn injection(pattern: &KorePattern) -> Option<(&KoreSort, &KorePattern)> {
+    match pattern {
+        KorePattern::Application { symbol, arguments }
+            if symbol.name == "inj" && symbol.sort_parameters.len() == 2 =>
+        {
+            match arguments.as_slice() {
+                [argument] => Some((&symbol.sort_parameters[1], argument)),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Whether `node` is `value`, or `value` injected to another sort.
+fn value_at(node: &KorePattern, value: &KorePattern) -> bool {
+    node == value || injection(node).is_some_and(|(_, argument)| argument == value)
+}
+
 fn at<'p>(pattern: &'p KorePattern, path: &[usize]) -> Option<&'p KorePattern> {
     path.iter().try_fold(pattern, |pattern, index| {
         walk::children(pattern).get(*index).copied()
@@ -334,9 +397,16 @@ pub(super) fn check(
             hole: name.clone(),
             found,
         };
+        let Some((last, upper)) = path.split_last() else {
+            // The position is the whole configuration.
+            if value_at(assembled, &value.kore) {
+                continue;
+            }
+            return Err(failure(quote(assembled)));
+        };
         let mut expected = &check.anchor_configuration;
         let mut actual = assembled;
-        for (depth, step) in path.iter().enumerate() {
+        for (depth, step) in upper.iter().enumerate() {
             if !same_node(expected, actual) {
                 return Err(failure(format!(
                     "{} at depth {depth} of the hole's position, where the configuration with \
@@ -354,8 +424,26 @@ pub(super) fn check(
             expected = next_expected;
             actual = next_actual;
         }
-        if *actual != value.kore {
-            return Err(failure(quote(actual)));
+        // `expected` and `actual` are the nodes above the position. A data value is injected to
+        // its position's sort from its own sort (D19), so a case value of another own sort than
+        // the anchor's comes with another injection, and one of the position's own sort with
+        // none; the value itself must be at the position either way.
+        let holds = if let Some((target, _)) = injection(expected) {
+            match injection(actual) {
+                Some((actual_target, child)) => actual_target == target && *child == value.kore,
+                None => *actual == value.kore,
+            }
+        } else {
+            same_node(expected, actual)
+                && walk::children(actual)
+                    .get(*last)
+                    .is_some_and(|child| value_at(child, &value.kore))
+        };
+        if !holds {
+            let found = walk::children(actual)
+                .get(*last)
+                .map_or_else(|| quote(actual), |child| quote(child));
+            return Err(failure(found));
         }
     }
     Ok(())

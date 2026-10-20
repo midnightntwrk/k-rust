@@ -30,12 +30,18 @@ use crate::{
     assemble::{ProgramAssembly, build_backend},
     error::{CampaignError, SortRefusal, SpanProblem},
     spec::{CompiledDefinition, ProgramInput, ProgramSource, ProgramText},
-    values::{Constraints, ElementSorts, Value, ValueSort},
+    values::{
+        Constraints, ElementSorts, Value, ValueSort,
+        print::{print_k_text, to_kore},
+    },
 };
 
 const IMP_K: &str = include_str!("../../tests/data/imp/imp.k");
 const STREAMS_K: &str = include_str!("../../tests/data/streams/streams.k");
 const GO_PGM: &str = include_str!("../../tests/data/streams/go.pgm");
+const VALUES_K: &str = include_str!("../../tests/data/values/values.k");
+const TOY_K: &str = include_str!("../../tests/data/toy/toy.k");
+const TOY_PGM: &str = include_str!("../../tests/data/toy/send.pgm");
 const WRAPS_K: &str = include_str!("../../tests/data/wraps/wraps.k");
 const ONE_PGM: &str = include_str!("../../tests/data/wraps/one.pgm");
 const COMMUTE_IMP: &str = include_str!("../../tests/data/imp/commute.imp");
@@ -72,6 +78,16 @@ fn compile(file: &str, source: &str, main_module: &str) -> CompiledDefinition {
         artifacts,
     )
     .unwrap_or_else(|error| panic!("{file}: {error}"))
+}
+
+fn values() -> &'static CompiledDefinition {
+    static DEFINITION: OnceLock<CompiledDefinition> = OnceLock::new();
+    DEFINITION.get_or_init(|| compile("values/values.k", VALUES_K, "VALUES"))
+}
+
+fn toy() -> &'static CompiledDefinition {
+    static DEFINITION: OnceLock<CompiledDefinition> = OnceLock::new();
+    DEFINITION.get_or_init(|| compile("toy/toy.k", TOY_K, "TOY"))
 }
 
 fn streams() -> &'static CompiledDefinition {
@@ -509,6 +525,7 @@ fn a_configuration_variable_hole_replaces_its_binding() {
             anchor_text: Some(SETTLE_TX.trim_end().to_owned()),
             anchor: None,
             overridden: None,
+            refusals: Vec::new(),
         }],
     };
     let value = PrintedValue {
@@ -660,6 +677,7 @@ fn every_free_template_variable_is_a_hole() {
         anchor_text: None,
         anchor: None,
         overridden: None,
+        refusals: Vec::new(),
     };
     let holes = ResolvedHoles {
         holes: vec![hole("A", "VarA"), hole("B", "VarB")],
@@ -757,14 +775,18 @@ fn the_program_and_definition_files_are_never_modified() {
     };
     let before = [snapshot(&definition_path), snapshot(&program_path)];
 
+    // The code under test sees the files' real paths: the definition's source name, the
+    // program's name (the file name its locations carry) and the spans' program.
+    let definition_name = definition_path.to_string_lossy().into_owned();
+    let program_name = program_path.to_string_lossy().into_owned();
     let source = std::fs::read_to_string(&definition_path).expect("the definition is read");
-    let definition = compile("imp.k", &source, "IMP");
+    let definition = compile(&definition_name, &source, "IMP");
     let text = std::fs::read_to_string(&program_path).expect("the program is read");
-    let program = program("commute.imp", &text, &[]);
+    let program = program(&program_name, &text, &[]);
     let holes = resolve_ok(
         &[
-            span("X", "Int", "commute.imp", None, "x = 3;", "3"),
-            span("Y", "Int", "commute.imp", Some(3), "5", "5"),
+            span("X", "Int", &program_name, None, "x = 3;", "3"),
+            span("Y", "Int", &program_name, Some(3), "5", "5"),
         ],
         &program,
         &definition,
@@ -793,8 +815,72 @@ fn the_program_and_definition_files_are_never_modified() {
     assert!(!result.leaves.is_empty());
 
     let after = [snapshot(&definition_path), snapshot(&program_path)];
+    let mut entries = std::fs::read_dir(&directory)
+        .expect("the temporary directory is listed")
+        .map(|entry| entry.expect("an entry").file_name())
+        .collect::<Vec<_>>();
+    entries.sort();
     std::fs::remove_dir_all(&directory).expect("the temporary directory is removed");
     assert_eq!(before, after);
+    // Nothing was written next to them either.
+    assert_eq!(entries, ["commute.imp", "imp.k"]);
+}
+
+#[test]
+fn the_crate_source_writes_no_file() {
+    // The crate's library code (tests excluded) names no filesystem write: the program and the
+    // specification are never modified or copied (ARCHITECTURE 2.1).
+    let forbidden = [
+        "std::fs",
+        "fs::",
+        "File::",
+        "OpenOptions",
+        "create_dir",
+        "remove_file",
+        "remove_dir",
+        "rename(",
+        "set_permissions",
+    ];
+    let mut pending = vec![std::path::PathBuf::from(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src"
+    ))];
+    let mut checked = 0;
+    while let Some(path) = pending.pop() {
+        if path.is_dir() {
+            for entry in std::fs::read_dir(&path).expect("a source directory is listed") {
+                pending.push(entry.expect("an entry").path());
+            }
+            continue;
+        }
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("");
+        if path.extension().is_none_or(|extension| extension != "rs")
+            || name == "tests.rs"
+            || name.ends_with("_tests.rs")
+            || name == "test_definition.rs"
+        {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path).expect("a source file is read");
+        // A file's own unit tests follow its `#[cfg(test)]` module.
+        let library = text.split("#[cfg(test)]\nmod ").next().unwrap_or(&text);
+        for (number, line) in library.lines().enumerate() {
+            let code = line.split("//").next().unwrap_or("");
+            for word in forbidden {
+                assert!(
+                    !code.contains(word),
+                    "{}:{}: `{word}` in library code: {line}",
+                    path.display(),
+                    number + 1
+                );
+            }
+        }
+        checked += 1;
+    }
+    assert!(checked > 10, "the crate's sources were found");
 }
 
 /// What `krust krun streams.k go.pgm --main-module STREAMS --sort Pgm -c LIMIT=3 --io off
@@ -988,8 +1074,187 @@ fn the_sorts_a_value_may_contain_are_data_too() {
         check("Nested"),
         refused("Nested", SortRefusal::ProgramSyntax)
     );
-    assert_eq!(check("Bag"), refused("Bag", SortRefusal::Computation));
+    assert_eq!(check("Sack"), refused("Sack", SortRefusal::Computation));
     assert_eq!(check("Stmt"), refused("Stmt", SortRefusal::ProgramSyntax));
+}
+
+#[test]
+fn builtin_operations_over_k_do_not_make_every_sort_program_syntax() {
+    // TOY is one module: the syntax module is the main module, which sees `size(Map)`,
+    // `K ==K K` and the like through DOMAINS. The program sort reaches `Int` and stops there.
+    let definition = toy();
+    let program = program("toy/send.pgm", TOY_PGM, &[("TX", "tx(1, 2)")]);
+    let check = |sort: &str| check_hole_sort(&config_var("H", sort, "TX"), &program, definition);
+    assert_eq!(check("Tx"), Ok(None));
+    assert_eq!(check("Pgm"), refused("Pgm", SortRefusal::ProgramSyntax));
+}
+
+#[test]
+fn constructors_decide_what_a_value_contains() {
+    let definition = wraps();
+    let program = program("wraps/one.pgm", ONE_PGM, &[]);
+    let decl = |sort: &str| span("H", sort, "wraps/one.pgm", None, "1", "1");
+    let check = |sort: &str| check_hole_sort(&decl(sort), &program, definition);
+    // A parametric constructor's argument may hold any sort.
+    assert_eq!(check("Box"), refused("Box", SortRefusal::Computation));
+    let overridden = HoleDecl {
+        allow_refused_sort: true,
+        ..decl("Box")
+    };
+    assert_eq!(
+        check_hole_sort(&overridden, &program, definition),
+        Ok(Some(SortRefusal::Computation))
+    );
+    // A helper function over a map builds no `Ledger` value.
+    assert_eq!(check("Ledger"), Ok(None));
+    // Every refusal is found, in the order of the sorts' names.
+    let rule = super::sorts::SortRule::new(&program, definition).expect("the rule");
+    let verdict = rule.verdict(&decl("Both")).expect("a verdict");
+    assert_eq!(verdict.own, None);
+    assert_eq!(
+        verdict.contained,
+        [
+            ("Id".to_owned(), SortRefusal::Token),
+            ("Stmt".to_owned(), SortRefusal::ProgramSyntax),
+        ]
+    );
+}
+
+#[test]
+fn an_override_of_a_contained_token_sort_keeps_the_hole_a_value_of_its_sort() {
+    let definition = values();
+    let program = program("values/run.pgm", "run", &values_bindings(&[]));
+    let decl = HoleDecl {
+        allow_refused_sort: true,
+        ..with_elements(
+            config_var("M", "Map", "MAP"),
+            ElementSorts::Entries {
+                key: "Id".to_owned(),
+                value: "Int".to_owned(),
+            },
+        )
+    };
+    let holes = resolve(
+        &[decl],
+        &program,
+        definition,
+        &backend_definition(definition),
+    )
+    .unwrap_or_else(|error| panic!("the hole resolves: {error}"));
+    let [hole] = holes.holes.as_slice() else {
+        panic!("one hole: {holes:?}");
+    };
+    assert!(
+        matches!(hole.sort, ValueSort::Map { .. }),
+        "{:?}",
+        hole.sort
+    );
+    assert_eq!(hole.overridden, Some(SortRefusal::Token));
+    assert_eq!(hole.refusals, [("Id".to_owned(), SortRefusal::Token)]);
+}
+
+/// The VALUES program's bindings, one per configuration variable, with `changes` replacing
+/// some.
+fn values_bindings<'a>(changes: &[(&'a str, &'a str)]) -> Vec<(&'a str, &'a str)> {
+    [
+        ("SHAPE", "circle(5)"),
+        ("REC", "rec(1, unit, leaf(0))"),
+        ("PAIR", "1 & 2"),
+        ("WRAPPER", "wrap(3)"),
+        ("ACCOUNT", "account(1, .Map)"),
+        ("LIST", ".List"),
+        ("SET", ".Set"),
+        ("MAP", ".Map"),
+    ]
+    .into_iter()
+    .map(|(name, value)| {
+        changes
+            .iter()
+            .find(|(changed, _)| *changed == name)
+            .copied()
+            .unwrap_or((name, value))
+    })
+    .collect()
+}
+
+/// Resolve, locate, and check `value` for one configuration-variable hole of VALUES.
+fn values_case(
+    decl: HoleDecl,
+    bindings: &[(&str, &str)],
+    value: &Value,
+) -> Result<(), super::RoundTripFailure> {
+    let definition = values();
+    let program = program("values/run.pgm", "run", bindings);
+    let holes = resolve(
+        &[decl],
+        &program,
+        definition,
+        &backend_definition(definition),
+    )
+    .unwrap_or_else(|error| panic!("the hole resolves: {error}"));
+    let assembly = ProgramAssembly::new(definition).expect("the grammar resolves");
+    let check = RoundTripCheck::new(&assembly, definition, &program, &holes)
+        .unwrap_or_else(|error| panic!("the anchor is located: {error}"));
+    let sort = &holes.holes[0].sort;
+    let printed = [PrintedValue {
+        k_text: print_k_text(value, sort).expect("the value prints"),
+        kore: to_kore(value, sort).expect("the value has KORE"),
+    }];
+    let built = assembly
+        .assemble(definition, &instantiate(&program, &holes, &printed))
+        .expect("the case assembles");
+    check.check(&built, &printed)
+}
+
+#[test]
+fn a_case_value_of_another_own_sort_than_the_anchor_round_trips() {
+    // The anchor is a `circle`; a `square` is injected to the position's sort from its own sort,
+    // so the node above the position differs, and the value is still the intended one (D19).
+    let int = |value: i64| Value::Int(BigInt::from(value));
+    let square = Value::Apply {
+        symbol: "Lblsquare".to_owned(),
+        arguments: vec![int(4), Value::Bool(true)],
+    };
+    let circle = Value::Apply {
+        symbol: "Lblcircle".to_owned(),
+        arguments: vec![int(9)],
+    };
+    let shape = || config_var("S", "Shape", "SHAPE");
+    let bindings = values_bindings(&[]);
+    assert_eq!(values_case(shape(), &bindings, &square), Ok(()));
+    assert_eq!(values_case(shape(), &bindings, &circle), Ok(()));
+}
+
+#[test]
+fn set_and_map_anchors_in_another_order_are_located() {
+    let int = |value: i64| Value::Int(BigInt::from(value));
+    let set = || {
+        with_elements(
+            config_var("S", "Set", "SET"),
+            ElementSorts::Elements {
+                element: "Int".to_owned(),
+            },
+        )
+    };
+    let bindings = values_bindings(&[("SET", "SetItem(3) SetItem(1) SetItem(2)")]);
+    assert_eq!(
+        values_case(set(), &bindings, &Value::Set(vec![int(1), int(7)])),
+        Ok(())
+    );
+    let map = || {
+        with_elements(
+            config_var("M", "Map", "MAP"),
+            ElementSorts::Entries {
+                key: "Int".to_owned(),
+                value: "Int".to_owned(),
+            },
+        )
+    };
+    let bindings = values_bindings(&[("MAP", "2 |-> 20 1 |-> 10")]);
+    assert_eq!(
+        values_case(map(), &bindings, &Value::Map(vec![(int(5), int(50))])),
+        Ok(())
+    );
 }
 
 #[test]
