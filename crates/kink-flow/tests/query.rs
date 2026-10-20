@@ -251,105 +251,6 @@ fn a_pattern_list_error_names_its_key() {
     assert!(!dir.join(CACHE_DIRECTORY).exists());
 }
 
-/// Flow F-18 deliverables 2, 3 and 5: a claimed hit is confirmed, with the matching state, its
-/// depth, the bindings of the variables the author wrote (and of no generated one) and the rules
-/// of a path to it; a `requires` is a condition on those bindings.
-#[test]
-fn a_claimed_hit_has_its_witness() {
-    let dir = fixture("calc", "claimed-hit");
-    let patterns = dir.join("PATTERNS-claims.toml");
-    write(&patterns, CALC_PATTERNS);
-    let (document, status) = plain(&dir.join("FLOW.toml"), &patterns);
-    assert_eq!(status, EXIT_OK, "{document:#}");
-    assert_eq!(document["schema"], "kink-flow-query");
-    assert_eq!(document["version"], 1);
-    assert_eq!(document["profile"], SolverProfile::BUILD.name());
-    let hit = row(&document, "above-two", "add");
-    assert_eq!(hit["answer"], "hit");
-    assert_eq!(hit["claimed"], true);
-    assert_eq!(hit["claim"], "confirmed");
-    assert_eq!(hit["cause"], Value::Null);
-    assert_eq!(hit["cached"], false);
-    let witness = &hit["witness"];
-    assert_eq!(witness["depth"], 1);
-    assert_eq!(witness["rendering"], "kore");
-    assert_eq!(witness["rules"], json!(["CALC.add"]));
-    assert_eq!(witness["state"]["truncated"], false);
-    assert!(
-        witness["state"]["kore"]
-            .as_str()
-            .unwrap()
-            .contains("\\dv{SortInt{}}(\"3\")")
-    );
-    // The only binding is the author's I; the cell completion's generated variables are not
-    // reported.
-    assert_eq!(
-        witness["bindings"],
-        json!([{"variable": "VarI:SortInt{}", "value": {"kore": "\\dv{SortInt{}}(\"3\")", "truncated": false}}])
-    );
-    // The pattern's own row: its KORE target, with the condition as an equation.
-    let pattern = &document["patterns"][0];
-    assert_eq!(pattern["outcome"], "valid");
-    assert_eq!(pattern["asked"], "claimed");
-    assert!(
-        pattern["kore"]
-            .as_str()
-            .unwrap()
-            .contains("\\equals{SortBool{}")
-    );
-    // The corpus form asks every program; only those that reach 3 hit.
-    assert_eq!(
-        answers(&document)
-            .into_iter()
-            .filter(|(p, _, _)| p == "three")
-            .collect::<Vec<_>>(),
-        expect(&[
-            ("three", "add", "hit"),
-            ("three", "nested", "no"),
-            ("three", "sub", "hit"),
-            ("three", "inline", "no"),
-        ])
-    );
-    assert_eq!(row(&document, "three", "add")["claim"], Value::Null);
-    assert_eq!(
-        row(&document, "three", "add")["witness"]["bindings"],
-        json!([])
-    );
-}
-
-/// Flow F-18 deliverable 5: a claim the run refutes is a `no` after a complete exploration of a
-/// comparable program, flagged `refuted` and listed in `refuted_claims`.
-#[test]
-fn a_refuted_claim_follows_a_complete_exploration() {
-    let dir = fixture("calc", "refuted");
-    let patterns = dir.join("PATTERNS-claims.toml");
-    write(&patterns, CALC_PATTERNS);
-    let (document, status) = plain(&dir.join("FLOW.toml"), &patterns);
-    assert_eq!(status, EXIT_OK);
-    let refuted = row(&document, "four", "add");
-    assert_eq!(refuted["answer"], "no");
-    assert_eq!(refuted["claim"], "refuted");
-    assert_eq!(refuted["cause"], Value::Null);
-    assert_eq!(refuted["witness"], Value::Null);
-    assert_eq!(
-        document["refuted_claims"],
-        json!([{"pattern": "four", "program": "add"}])
-    );
-    assert_eq!(
-        document["programs"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|p| p["id"] == "add")
-            .unwrap()["class"],
-        "comparable"
-    );
-    assert_eq!(
-        document["counts"],
-        json!({"hit": 3, "no": 3, "unknown": 0, "invalid-pattern": 0, "error": 0})
-    );
-}
-
 const LOOP_BOUNDED: &str = r#"
 [spec]
 entry = "loop.k"
@@ -368,54 +269,6 @@ file = "programs/spin.loop"
 id = "countdown"
 file = "programs/countdown.loop"
 "#;
-
-/// Flow F-18 deliverable 3: a depth bound or the clock turns a would-be `no` into `unknown`
-/// with its cause, and a hit is found in a run that never ends (the search stops at its first
-/// match); none of the unknowns is cached.
-#[test]
-fn a_bound_turns_a_would_be_no_into_unknown() {
-    let dir = fixture("loop", "bounds");
-    let bounded = dir.join("FLOW-bounded.toml");
-    write(&bounded, LOOP_BOUNDED);
-    let patterns = dir.join("PATTERNS.toml");
-    let (document, status) = plain(&bounded, &patterns);
-    assert_eq!(status, EXIT_OK, "{document:#}");
-    let cut = row(&document, "zero", "spin");
-    assert_eq!(cut["answer"], "unknown");
-    assert!(
-        cut["cause"]
-            .as_str()
-            .unwrap()
-            .contains("a path reached max_depth = 50"),
-        "{cut:#}"
-    );
-    assert_eq!(row(&document, "spin-five", "spin")["answer"], "hit");
-    assert_eq!(row(&document, "spin-five", "spin")["witness"]["depth"], 5);
-    assert_eq!(row(&document, "spin-five", "countdown")["answer"], "no");
-
-    // The clock: a depth the run cannot reach and a small time bound.
-    let (document, status) = plain(&dir.join("FLOW-timeout.toml"), &patterns);
-    assert_eq!(status, EXIT_OK, "{document:#}");
-    let timed = row(&document, "zero", "spin");
-    assert_eq!(timed["answer"], "unknown");
-    assert!(
-        timed["cause"]
-            .as_str()
-            .unwrap()
-            .starts_with("the search did not finish within time_ms = 500"),
-        "{timed:#}"
-    );
-    // The baseline run of spin times out, yet the hit stands: it is an existential fact.
-    assert_eq!(document["programs"][0]["class"], "timeout", "{document:#}");
-    assert_eq!(row(&document, "spin-five", "spin")["answer"], "hit");
-    // A complete exploration of a comparable program is a no.
-    assert_eq!(row(&document, "spin-five", "countdown")["answer"], "no");
-
-    let (again, _) = plain(&dir.join("FLOW-timeout.toml"), &patterns);
-    assert_eq!(row(&again, "zero", "spin")["cached"], false);
-    assert_eq!(row(&again, "zero", "spin")["answer"], "unknown");
-    assert_eq!(row(&again, "spin-five", "spin")["cached"], true);
-}
 
 /// Flow F-18 deliverable 6: the initial configuration and the final one count.
 #[test]
@@ -519,349 +372,6 @@ module IMPLCHOSEN
   rule [count]: <k> count(I) => keys(ListItem(I)) </k>
 endmodule
 "#;
-
-/// Flow F-18 deliverable 6: on a definition decision 1's census flags, a would-be `no` is
-/// `unknown` (another model of the open value could reach the pattern). At 501f18b9 a hit stayed
-/// a hit; since k-rust 58720d2e5 (KINK-17/1) the only match here carries an open-value mark, so
-/// it is `unknown` too (below).
-///
-/// Re-pin P-2 (P-1-review-1 cosmetic finding): renamed from
-/// `a_census_flagged_definition_gives_hits_and_no_no`, which no longer says what it asserts.
-#[test]
-fn a_census_flagged_definition_gives_no_hit_on_a_marked_match_and_no_no() {
-    let dir = scratch("census");
-    write(&dir.join("implchosen.k"), CENSUS_SPEC);
-    write(
-        &dir.join("FLOW.toml"),
-        "[spec]\nentry = \"implchosen.k\"\nmain_module = \"IMPLCHOSEN\"\nsyntax_module = \
-         \"IMPLCHOSEN-SYNTAX\"\n\n[[program]]\nid = \"start\"\ntext = \"start(1)\"\n",
-    );
-    write(
-        &dir.join("PATTERNS.toml"),
-        "[[pattern]]\nid = \"listed\"\npattern = \"<k> keys(_:List) </k>\"\n\n[[pattern]]\nid = \
-         \"never\"\npattern = \"<k> count(_) </k>\"\nprograms = [\"start\"]\n",
-    );
-    let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
-    assert_eq!(status, EXIT_OK, "{document:#}");
-    // Re-pin probe P-1 (k-rust 58720d2e5; KINK-17/1, head 728e7eb34, merge 3a196ed14; k-rust's
-    // draft answers-add3 section 2.1 "New marks of open values", which reach the four search
-    // responses too): the match's path read `keys_list` of two keys, so it carries an
-    // `implementation-chosen-value` mark (class `order`), and a hit needs a match without any
-    // backend diagnostic, so the would-be hit is `unknown` and is not cached. Fail-closed (hit ->
-    // unknown); adopting the marks (probe P-1 deliverable 5) decides whether a marked witness
-    // may be a hit.
-    let listed = row(&document, "listed", "start");
-    assert_eq!(listed["answer"], "unknown", "{listed:#}");
-    assert!(
-        listed["cause"]
-            .as_str()
-            .unwrap()
-            .contains("backend diagnostic"),
-        "{listed:#}"
-    );
-    let never = row(&document, "never", "start");
-    assert_eq!(never["answer"], "unknown");
-    assert_eq!(never["claim"], "unconfirmed");
-    assert!(
-        never["cause"]
-            .as_str()
-            .unwrap()
-            .contains("implementation-chosen-hook"),
-        "{never:#}"
-    );
-    // Neither unknown is cached (re-pin probe P-1: at 501f18b9 the hit was, one record).
-    assert_eq!(records(&dir).len(), 0);
-}
-
-/// Flow F-18 deliverable 2: a pattern that does not parse, that k-rust's pattern compiler
-/// refuses, or that names no cell of the configuration is `invalid-pattern` with k-rust's
-/// message, and never runs; the command still exits 0.
-#[test]
-fn an_invalid_pattern_never_runs() {
-    let dir = fixture("calc", "invalid");
-    let patterns = dir.join("PATTERNS-invalid.toml");
-    write(
-        &patterns,
-        r#"
-[[pattern]]
-id = "syntax"
-pattern = "<k> 1 +* </k>"
-programs = ["add"]
-
-[[pattern]]
-id = "ensures"
-pattern = "<k> I:Int </k> ensures I >Int 0"
-programs = ["add"]
-
-[[pattern]]
-id = "right-only"
-pattern = "<k> X => Y:Int </k>"
-programs = ["add"]
-
-[[pattern]]
-id = "cell"
-pattern = "<state> 1 </state>"
-programs = ["add"]
-"#,
-    );
-    let (document, status) = plain(&dir.join("FLOW.toml"), &patterns);
-    assert_eq!(status, EXIT_OK, "{document:#}");
-    for (id, detail) in [
-        ("syntax", "could not parse rule in module \"CALC\""),
-        (
-            "ensures",
-            "a search pattern cannot have an `ensures` clause",
-        ),
-        ("right-only", "occurs only on the right side of a rewrite"),
-        ("cell", "could not parse rule in module \"CALC\""),
-    ] {
-        let invalid = row(&document, id, "add");
-        assert_eq!(invalid["answer"], "invalid-pattern", "{id}");
-        assert_eq!(invalid["wall_ms"], Value::Null, "{id}: never run");
-        assert!(
-            invalid["cause"].as_str().unwrap().contains(detail),
-            "{id}: {invalid:#}"
-        );
-        let pattern = document["patterns"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|p| p["id"] == id)
-            .unwrap();
-        assert_eq!(pattern["outcome"], "invalid-pattern");
-        assert_eq!(pattern["digest"], Value::Null);
-    }
-    assert_eq!(document["counts"]["invalid-pattern"], 4);
-    assert!(records(&dir).is_empty());
-}
-
-/// Flow F-18 deliverable 4: a second command answers from the cache with no search; editing a
-/// program recomputes its rows only, and editing the specification or the budget recomputes
-/// every row.
-#[test]
-fn the_cache_is_reused_and_invalidated_by_key() {
-    let dir = fixture("calc", "cache");
-    let manifest = dir.join("FLOW.toml");
-    let patterns = dir.join("PATTERNS.toml");
-    let (first, status) = plain(&manifest, &patterns);
-    assert_eq!(status, EXIT_OK, "{first:#}");
-    assert!(cached(&first).iter().all(|c| !c));
-    let written = first["pattern_cache"]["records_written"].as_u64().unwrap();
-    assert!(written > 0);
-    assert_eq!(first["pattern_cache"]["enabled"], true);
-
-    let (second, _) = plain(&manifest, &patterns);
-    assert!(cached(&second).iter().all(|c| *c), "{second:#}");
-    assert_eq!(answers(&second), answers(&first));
-    assert_eq!(second["pattern_cache"]["records_written"], 0);
-    assert!(
-        second["rows"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|r| r["wall_ms"].is_null())
-    );
-    for (a, b) in first["rows"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .zip(second["rows"].as_array().unwrap())
-    {
-        assert_eq!(a["witness"], b["witness"]);
-    }
-
-    // A program edit: only add's rows are recomputed.
-    fs::write(dir.join("programs/add.calc"), "1 + 3\n").unwrap();
-    let (edited, _) = plain(&manifest, &patterns);
-    for row in edited["rows"].as_array().unwrap() {
-        assert_eq!(row["cached"], row["program"] != "add", "{row:#}");
-    }
-    assert_eq!(row(&edited, "result-three", "add")["answer"], "no");
-    assert_eq!(row(&edited, "result-three", "add")["claim"], "refuted");
-
-    // A specification edit, a comment included: every row is recomputed.
-    let mut spec = fs::read_to_string(dir.join("calc.k")).unwrap();
-    spec.push_str("// an edit\n");
-    fs::write(dir.join("calc.k"), spec).unwrap();
-    let (respec, _) = plain(&manifest, &patterns);
-    assert!(cached(&respec).iter().all(|c| !c));
-
-    // A budget change: every row is recomputed.
-    let mut text = fs::read_to_string(&manifest).unwrap();
-    text.push_str("\n[budget]\nmax_depth = 1000\n");
-    fs::write(&manifest, text).unwrap();
-    let (rebudget, _) = plain(&manifest, &patterns);
-    assert!(cached(&rebudget).iter().all(|c| !c));
-    assert_eq!(answers(&rebudget), answers(&respec));
-}
-
-/// Flow F-18 deliverable 4 (the CACHE-ID rule): a forged record under the current key is
-/// honoured (whoever can write the cache can forge an answer), and `--verify` re-derives every
-/// answer, reports the forged one and exits 1, writing nothing. A record whose digest does not
-/// recompute is not used.
-#[test]
-fn verify_reports_a_forged_record() {
-    let dir = fixture("calc", "forged");
-    let manifest = dir.join("FLOW.toml");
-    let patterns = dir.join("PATTERNS.toml");
-    let (first, _) = plain(&manifest, &patterns);
-    let hit = row(&first, "result-three", "add");
-    assert_eq!(hit["answer"], "hit");
-    let path = records(&dir)
-        .into_iter()
-        .find(|path| {
-            let record: Value = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
-            record["pattern_id"] == "result-three" && record["program_id"] == "add"
-        })
-        .unwrap();
-    let mut record: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
-    // The program's current result record holds the baseline run digest the forged no names.
-    let program = first["programs"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|p| p["id"] == "add")
-        .unwrap()["digest"]
-        .as_str()
-        .unwrap()
-        .to_owned();
-    let result: Value = serde_json::from_str(
-        &fs::read_to_string(
-            dir.join(CACHE_DIRECTORY)
-                .join("results")
-                .join(first["spec"]["digest"].as_str().unwrap())
-                .join(format!("{program}.json")),
-        )
-        .unwrap(),
-    )
-    .unwrap();
-    let run_sha256 = result["run_sha256"].clone();
-    assert!(run_sha256.is_string());
-    record["answer"] = json!("no");
-    record["witness"] = Value::Null;
-    record["baseline_run_sha256"] = run_sha256.clone();
-    record["record_sha256"] =
-        json!(record_sha256(&record["key"], "no", &Value::Null, &run_sha256).to_string());
-    let forged = serde_json::to_string(&record).unwrap();
-    fs::write(&path, &forged).unwrap();
-
-    let (trusted, status) = plain(&manifest, &patterns);
-    assert_eq!(status, EXIT_OK);
-    assert_eq!(row(&trusted, "result-three", "add")["answer"], "no");
-    assert_eq!(row(&trusted, "result-three", "add")["cached"], true);
-
-    let (verified, status) = verify(&manifest, &patterns);
-    assert_eq!(status, EXIT_CORPUS, "{verified:#}");
-    let live = row(&verified, "result-three", "add");
-    assert_eq!(live["answer"], "hit");
-    assert_eq!(live["verify"], "mismatch");
-    assert_eq!(row(&verified, "result-three", "sub")["verify"], "match");
-    let mismatches = verified["mismatches"].as_array().unwrap();
-    assert_eq!(mismatches.len(), 1, "{verified:#}");
-    assert_eq!(mismatches[0]["pattern"], "result-three");
-    assert_eq!(mismatches[0]["program"], "add");
-    assert_eq!(mismatches[0]["cached"]["answer"], "no");
-    assert_eq!(mismatches[0]["live"]["answer"], "hit");
-    assert_eq!(verified["pattern_cache"]["records_written"], 0);
-    assert_eq!(
-        fs::read_to_string(&path).unwrap(),
-        forged,
-        "--verify writes nothing"
-    );
-
-    // A record whose digest does not recompute is ignored and replaced.
-    record["record_sha256"] = json!("00".repeat(32));
-    fs::write(&path, serde_json::to_string(&record).unwrap()).unwrap();
-    let (recomputed, _) = plain(&manifest, &patterns);
-    assert_eq!(row(&recomputed, "result-three", "add")["answer"], "hit");
-    assert_eq!(row(&recomputed, "result-three", "add")["cached"], false);
-}
-
-/// Flow F-18 tail: `--verify` compares a stored hit's witness too. A record that keeps the hit
-/// but carries another witness (its digest recomputed) is used as it is by a plain query, and
-/// `--verify` reports it as a mismatch although both answers are hits.
-#[test]
-fn verify_reports_a_forged_witness() {
-    let dir = fixture("calc", "forged-witness");
-    let manifest = dir.join("FLOW.toml");
-    let patterns = dir.join("PATTERNS.toml");
-    let (first, _) = plain(&manifest, &patterns);
-    let hit = row(&first, "result-three", "add");
-    assert_eq!(hit["answer"], "hit");
-    let live_witness = hit["witness"].clone();
-    assert!(live_witness.is_object(), "{hit:#}");
-    let path = records(&dir)
-        .into_iter()
-        .find(|path| {
-            let record: Value = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
-            record["pattern_id"] == "result-three" && record["program_id"] == "add"
-        })
-        .unwrap();
-    let mut record: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
-    assert_eq!(record["answer"], "hit");
-    assert_eq!(record["witness"], live_witness);
-    let mut witness = live_witness.clone();
-    witness["depth"] = json!(99);
-    witness["rules"] = json!(["forged"]);
-    record["witness"] = witness.clone();
-    record["record_sha256"] = json!(
-        record_sha256(
-            &record["key"],
-            "hit",
-            &witness,
-            &record["baseline_run_sha256"]
-        )
-        .to_string()
-    );
-    let forged = serde_json::to_string(&record).unwrap();
-    fs::write(&path, &forged).unwrap();
-
-    // The digest recomputes, so a plain query uses the record, forged witness and all.
-    let (trusted, status) = plain(&manifest, &patterns);
-    assert_eq!(status, EXIT_OK, "{trusted:#}");
-    let cached = row(&trusted, "result-three", "add");
-    assert_eq!(cached["answer"], "hit");
-    assert_eq!(cached["cached"], true);
-    assert_eq!(cached["witness"], witness);
-
-    let (verified, status) = verify(&manifest, &patterns);
-    assert_eq!(status, EXIT_CORPUS, "{verified:#}");
-    let live = row(&verified, "result-three", "add");
-    assert_eq!(live["answer"], "hit");
-    assert_eq!(live["witness"], live_witness);
-    assert_eq!(live["verify"], "mismatch");
-    assert_eq!(row(&verified, "result-three", "sub")["verify"], "match");
-    let mismatches = verified["mismatches"].as_array().unwrap();
-    assert_eq!(mismatches.len(), 1, "{verified:#}");
-    assert_eq!(mismatches[0]["pattern"], "result-three");
-    assert_eq!(mismatches[0]["program"], "add");
-    assert_eq!(mismatches[0]["cached"]["answer"], "hit");
-    assert_eq!(mismatches[0]["cached"]["witness"], witness);
-    assert_eq!(mismatches[0]["live"]["answer"], "hit");
-    assert_eq!(mismatches[0]["live"]["witness"], live_witness);
-    assert_eq!(
-        fs::read_to_string(&path).unwrap(),
-        forged,
-        "--verify writes nothing"
-    );
-}
-
-/// Flow F-18: answers feed no verdict store. A query writes result records and pattern records
-/// only: no outcome, hint, memo or run document.
-#[test]
-fn a_query_writes_no_verdict_store() {
-    let dir = fixture("calc", "no-verdict");
-    let (_, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
-    assert_eq!(status, EXIT_OK);
-    let names = fs::read_dir(dir.join(CACHE_DIRECTORY))
-        .unwrap()
-        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
-        .collect::<BTreeSet<_>>();
-    assert_eq!(
-        names,
-        BTreeSet::from(["patterns".to_owned(), "results".to_owned()])
-    );
-}
 
 fn exclusions() -> DefinitionExclusions {
     DefinitionExclusions::default()
@@ -1094,117 +604,6 @@ impl Stepper {
     }
 }
 
-/// Flow F-18 stop rule 3: the search under the state set finds exactly the hits a walk of the
-/// state set one step at a time finds, on every program and pattern of these fixtures.
-#[test]
-fn the_search_finds_the_hits_stepping_finds() {
-    let calc = fixture("calc", "stepping-calc");
-    write(&calc.join("FLOW-both.toml"), NONDETERMINISTIC);
-    write(&calc.join("PATTERNS-orders.toml"), ORDERS);
-    write(&calc.join("PATTERNS-claims.toml"), CALC_PATTERNS);
-    let loop_dir = fixture("loop", "stepping-loop");
-    let cases = [
-        (calc.join("FLOW.toml"), calc.join("PATTERNS.toml")),
-        (calc.join("FLOW.toml"), calc.join("PATTERNS-claims.toml")),
-        (
-            calc.join("FLOW-both.toml"),
-            calc.join("PATTERNS-orders.toml"),
-        ),
-        (loop_dir.join("FLOW.toml"), loop_dir.join("PATTERNS.toml")),
-    ];
-    let mut compared = 0;
-    for (manifest, patterns) in cases {
-        let (document, status) = plain(&manifest, &patterns);
-        assert_eq!(status, EXIT_OK, "{document:#}");
-        let list = PatternList::read(&patterns).unwrap();
-        let stepper = Stepper::new(&manifest);
-        for row in document["rows"].as_array().unwrap() {
-            let entry = list
-                .patterns
-                .iter()
-                .find(|p| p.id == row["pattern"])
-                .unwrap();
-            let program = row["program"].as_str().unwrap();
-            let stepped = stepper.hit(program, &entry.pattern, 10_000);
-            let expected = match row["answer"].as_str().unwrap() {
-                "hit" => Some(true),
-                "no" => Some(false),
-                other => panic!("{other} in {row:#}"),
-            };
-            assert_eq!(stepped, expected, "{} on {program}", entry.id);
-            compared += 1;
-        }
-    }
-    assert_eq!(compared, 11 + 6 + 3 + 5);
-}
-
-/// Flow F-18 deliverable 5: the binary's `query` command, its document and its exit codes.
-#[test]
-fn the_binarys_query_command() {
-    let binary = env!("CARGO_BIN_EXE_kink-flow");
-    let dir = fixture("calc", "binary");
-    let manifest = dir.join("FLOW.toml");
-    let patterns = dir.join("PATTERNS.toml");
-    let cache = scratch("binary-cache");
-    let output = Command::new(binary)
-        .arg("query")
-        .arg(&manifest)
-        .arg(&patterns)
-        .args(["--only", "result-four", "--cache"])
-        .arg(&cache)
-        .output()
-        .unwrap();
-    assert_eq!(output.status.code(), Some(i32::from(EXIT_OK)));
-    let document: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(document["schema"], "kink-flow-query");
-    assert_eq!(answers(&document), expect(&[("result-four", "add", "no")]));
-    assert_eq!(
-        document["refuted_claims"],
-        json!([{"pattern": "result-four", "program": "add"}])
-    );
-    assert!(cache.join("patterns").is_dir());
-    assert!(!dir.join(CACHE_DIRECTORY).exists());
-    for (args, code) in [
-        (vec!["--only", "nope"], EXIT_USAGE),
-        (vec!["--verify", "--verify"], EXIT_USAGE),
-        (vec!["--bogus"], EXIT_USAGE),
-    ] {
-        let output = Command::new(binary)
-            .arg("query")
-            .arg(&manifest)
-            .arg(&patterns)
-            .args(&args)
-            .output()
-            .unwrap();
-        assert_eq!(output.status.code(), Some(i32::from(code)), "{args:?}");
-    }
-    let output = Command::new(binary)
-        .arg("query")
-        .arg(&manifest)
-        .arg(dir.join("MISSING.toml"))
-        .output()
-        .unwrap();
-    assert_eq!(output.status.code(), Some(i32::from(EXIT_USAGE)));
-    let bad = dir.join("BAD.toml");
-    fs::write(
-        &bad,
-        "[[pattern]]\nid = \"a\"\npattern = \"x\"\nlabel = 1\n",
-    )
-    .unwrap();
-    let output = Command::new(binary)
-        .arg("query")
-        .arg(&manifest)
-        .arg(&bad)
-        .output()
-        .unwrap();
-    assert_eq!(output.status.code(), Some(i32::from(EXIT_CORPUS)));
-    let document: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(
-        document["pattern_list"]["detail"],
-        "pattern \"a\".label: unknown key"
-    );
-}
-
 /// The example of the crate README's `PATTERNS.toml` section decodes and answers on the calc
 /// fixture.
 #[test]
@@ -1233,41 +632,6 @@ fn the_readme_example_answers() {
     );
 }
 
-/// Flow F-18 deliverable 4: the pattern cache is off exactly under the Z3 profile (as tier 1 is),
-/// which follows kink-native's `z3` feature; there a completed exploration is not a `no` (a solver
-/// query can time out silently) while a hit stays a hit. Under no-Z3 the cache is on.
-#[test]
-fn the_pattern_cache_is_off_exactly_under_the_z3_profile() {
-    let dir = fixture("calc", "profile");
-    let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
-    assert_eq!(status, EXIT_OK, "{document:#}");
-    assert_eq!(document["profile"], SolverProfile::BUILD.name());
-    assert_eq!(row(&document, "result-three", "add")["answer"], "hit");
-    let refuted = row(&document, "result-four", "add");
-    match SolverProfile::BUILD {
-        SolverProfile::Z3 => {
-            assert_eq!(document["pattern_cache"]["enabled"], false);
-            assert!(
-                document["pattern_cache"]["reason"]
-                    .as_str()
-                    .unwrap()
-                    .contains("z3 profile")
-            );
-            assert!(records(&dir).is_empty());
-            assert_eq!(refuted["answer"], "unknown");
-            assert!(refuted["cause"].as_str().unwrap().contains("z3 profile"));
-            let (again, _) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
-            assert!(cached(&again).iter().all(|c| !c));
-        }
-        SolverProfile::NoZ3 => {
-            assert_eq!(document["pattern_cache"]["enabled"], true);
-            assert_eq!(document["pattern_cache"]["reason"], Value::Null);
-            assert!(!records(&dir).is_empty());
-            assert_eq!(refuted["answer"], "no");
-        }
-    }
-}
-
 const CELLS_SPEC: &str = r#"
 module CELLS-SYNTAX
   imports INT-SYNTAX
@@ -1283,40 +647,6 @@ module CELLS
   rule <k> tick(0) => 0 </k>
 endmodule
 "#;
-
-/// Flow F-18 deliverable 3: a witness reports the bindings of the variables the author wrote
-/// only. k-rust's compiler completes the omitted sibling cells of `<count>` with variables
-/// (`_Gen<n>`) its list of generated variables does not name at 501f18b9, so kink also leaves
-/// out every variable spelled as k-rust's fresh-name passes spell one.
-#[test]
-fn a_witness_binds_only_the_authors_variables() {
-    let dir = scratch("cells");
-    write(&dir.join("cells.k"), CELLS_SPEC);
-    write(
-        &dir.join("FLOW.toml"),
-        "[spec]\nentry = \"cells.k\"\nmain_module = \"CELLS\"\nsyntax_module = \
-         \"CELLS-SYNTAX\"\n\n[[program]]\nid = \"three\"\ntext = \"tick(3)\"\n",
-    );
-    write(
-        &dir.join("PATTERNS.toml"),
-        "[[pattern]]\nid = \"counted-two\"\npattern = \"<count> N:Int </count> requires N >Int \
-         1\"\nprograms = [\"three\"]\n",
-    );
-    let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
-    assert_eq!(status, EXIT_OK, "{document:#}");
-    let kore = document["patterns"][0]["kore"].as_str().unwrap();
-    assert!(
-        kore.contains("Var'Unds'Gen"),
-        "the completion's variables: {kore}"
-    );
-    let hit = row(&document, "counted-two", "three");
-    assert_eq!(hit["answer"], "hit");
-    assert_eq!(hit["witness"]["depth"], 2);
-    assert_eq!(
-        hit["witness"]["bindings"],
-        json!([{"variable": "VarN:SortInt{}", "value": {"kore": "\\dv{SortInt{}}(\"2\")", "truncated": false}}])
-    );
-}
 
 /// The F-18 review's repro (scratch-F-18-review/repro-partial2): `f` is partial, and no
 /// equation covers `f(3)`.
@@ -1407,88 +737,6 @@ fn spec_dir(
     dir
 }
 
-/// F-18 review 1, critical: a hit needs the matched state's term to be defined. A reached state
-/// holding `f(3)`, an application of a partial function no equation reduces, may denote no
-/// configuration, and k-rust's match does not carry that undecided fact as a condition: it is
-/// `unknown` (`undefined-state`), never a confirmed claim, and nothing is cached. The same state
-/// with a total function, and a state holding a map, stay hits.
-#[test]
-fn a_hit_needs_a_defined_state() {
-    let dir = spec_dir(
-        "partial",
-        "calcp.k",
-        "CALCP",
-        PARTIAL_SPEC,
-        "[[program]]\nid = \"partial\"\ntext = \"1 + 2\"\n",
-        "[[pattern]]\nid = \"g-holds-an-int\"\npattern = \"<k> g(I:Int) </k>\"\nprograms = \
-         [\"partial\"]\n\n[[pattern]]\nid = \"reaches-100\"\npattern = \"<k> 100 </k>\"\nprograms \
-         = [\"partial\"]\n\n[[pattern]]\nid = \"never\"\npattern = \"<k> 5 </k>\"\nprograms = \
-         [\"partial\"]\n",
-    );
-    let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
-    assert_eq!(status, EXIT_OK, "{document:#}");
-    let partial = row(&document, "g-holds-an-int", "partial");
-    assert_eq!(partial["answer"], "unknown", "{partial:#}");
-    assert_eq!(partial["claim"], "unconfirmed");
-    assert_eq!(partial["witness"], Value::Null);
-    let cause = partial["cause"].as_str().unwrap();
-    assert!(cause.contains("undefined-state"), "{cause}");
-    assert!(cause.contains("(depth 2)"), "{cause}");
-    for pattern in ["reaches-100", "never"] {
-        assert_eq!(row(&document, pattern, "partial")["answer"], "unknown");
-    }
-    assert_eq!(document["counts"]["hit"], 0);
-    assert_eq!(document["pattern_cache"]["records_written"], 0);
-    assert!(records(&dir).is_empty());
-
-    let dir = spec_dir(
-        "total",
-        "calcg.k",
-        "CALCG",
-        TOTAL_SPEC,
-        "[[program]]\nid = \"partial\"\ntext = \"1 + 2\"\n\n[[program]]\nid = \"total\"\ntext = \
-         \"1 + 3\"\n",
-        "[[pattern]]\nid = \"g-any\"\npattern = \"<k> g(_) </k>\"\n",
-    );
-    let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
-    assert_eq!(status, EXIT_OK, "{document:#}");
-    let total = row(&document, "g-any", "total");
-    assert_eq!(total["answer"], "hit", "{total:#}");
-    assert!(
-        total["witness"]["state"]["kore"]
-            .as_str()
-            .unwrap()
-            .contains("Lblh{}"),
-        "{total:#}"
-    );
-    let partial = row(&document, "g-any", "partial");
-    assert_eq!(partial["answer"], "unknown", "{partial:#}");
-    assert!(
-        partial["cause"]
-            .as_str()
-            .unwrap()
-            .contains("undefined-state")
-    );
-
-    let dir = spec_dir(
-        "store",
-        "store.k",
-        "STORE",
-        STORE_SPEC,
-        "[[program]]\nid = \"start\"\ntext = \"start\"\n",
-        "[[pattern]]\nid = \"two-holds\"\npattern = \"<store> ... 2 |-> V:Int ... </store>\"\nprograms \
-         = [\"start\"]\n",
-    );
-    let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
-    assert_eq!(status, EXIT_OK, "{document:#}");
-    let store = row(&document, "two-holds", "start");
-    assert_eq!(store["answer"], "hit", "{store:#}");
-    assert_eq!(
-        store["witness"]["bindings"],
-        json!([{"variable": "VarV:SortInt{}", "value": {"kore": "\\dv{SortInt{}}(\"20\")", "truncated": false}}])
-    );
-}
-
 /// The result record of `program` in `document`'s cache under `dir`.
 fn result_record(dir: &Path, document: &Value, program: &str) -> PathBuf {
     let digest = document["programs"]
@@ -1513,66 +761,839 @@ fn forge(path: &Path, field: &str, value: Value) {
     fs::write(path, serde_json::to_string(&record).unwrap()).unwrap();
 }
 
-/// F-18 review 1, minor: a cached `no` is used only while the program's current result record is
-/// comparable with the baseline run digest the `no` was given against. A result record with
-/// another run digest, or of class timeout, under the same key makes the command search again
-/// (a timeout then gives unknown); a cached hit does not depend on the baseline.
-#[test]
-fn a_cached_no_needs_the_same_comparable_baseline() {
-    let dir = fixture("calc", "stored-no");
-    let manifest = dir.join("FLOW.toml");
-    let patterns = dir.join("PATTERNS.toml");
-    let (first, status) = plain(&manifest, &patterns);
-    assert_eq!(status, EXIT_OK, "{first:#}");
-    assert_eq!(row(&first, "result-four", "add")["answer"], "no");
-    let path = result_record(&dir, &first, "add");
-    let original: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
-    assert_eq!(original["class"], "comparable");
+mod kink_tier {
+    use super::*;
 
-    // Another baseline run digest: the stored no is not used; the live search says no again.
-    forge(&path, "run_sha256", json!("00".repeat(32)));
-    let (digest, _) = plain(&manifest, &patterns);
-    let no = row(&digest, "result-four", "add");
-    assert_eq!(
-        (no["cached"].clone(), no["answer"].clone()),
-        (json!(false), json!("no")),
-        "{no:#}"
-    );
-    assert_eq!(row(&digest, "result-three", "add")["cached"], true);
-
-    // A timeout under the same key: the no is not used, and the live answer is unknown.
-    fs::write(&path, serde_json::to_string(&original).unwrap()).unwrap();
-    let (again, _) = plain(&manifest, &patterns);
-    assert_eq!(row(&again, "result-four", "add")["answer"], "no");
-    forge(&path, "class", json!("timeout"));
-    let (timeout, _) = plain(&manifest, &patterns);
-    let unknown = row(&timeout, "result-four", "add");
-    assert_eq!(unknown["cached"], false, "{unknown:#}");
-    assert_eq!(unknown["answer"], "unknown", "{unknown:#}");
-    assert!(
-        unknown["cause"]
-            .as_str()
+    /// Flow F-18: answers feed no verdict store. A query writes result records and pattern records
+    /// only: no outcome, hint, memo or run document.
+    #[test]
+    #[ignore = "kink"]
+    fn a_query_writes_no_verdict_store() {
+        let dir = fixture("calc", "no-verdict");
+        let (_, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
+        assert_eq!(status, EXIT_OK);
+        let names = fs::read_dir(dir.join(CACHE_DIRECTORY))
             .unwrap()
-            .contains("and it is timeout")
-    );
-    let hit = row(&timeout, "result-three", "add");
-    assert_eq!(
-        (hit["cached"].clone(), hit["answer"].clone()),
-        (json!(true), json!("hit"))
-    );
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            names,
+            BTreeSet::from(["patterns".to_owned(), "results".to_owned()])
+        );
+    }
 
-    // Under --verify the answer is judged with the live baseline run, not the stale record: the
-    // live no is printed, and the command exits 1 for the result record's difference.
-    let (verified, status) = verify(&manifest, &patterns);
-    assert_eq!(status, EXIT_CORPUS, "{verified:#}");
-    assert_eq!(row(&verified, "result-four", "add")["answer"], "no");
-    assert!(
-        verified["mismatches"]
+    /// Flow F-18 deliverable 4: the pattern cache is off exactly under the Z3 profile (as tier 1 is),
+    /// which follows kink-native's `z3` feature; there a completed exploration is not a `no` (a solver
+    /// query can time out silently) while a hit stays a hit. Under no-Z3 the cache is on.
+    #[test]
+    #[ignore = "kink"]
+    fn the_pattern_cache_is_off_exactly_under_the_z3_profile() {
+        let dir = fixture("calc", "profile");
+        let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
+        assert_eq!(status, EXIT_OK, "{document:#}");
+        assert_eq!(document["profile"], SolverProfile::BUILD.name());
+        assert_eq!(row(&document, "result-three", "add")["answer"], "hit");
+        let refuted = row(&document, "result-four", "add");
+        match SolverProfile::BUILD {
+            SolverProfile::Z3 => {
+                assert_eq!(document["pattern_cache"]["enabled"], false);
+                assert!(
+                    document["pattern_cache"]["reason"]
+                        .as_str()
+                        .unwrap()
+                        .contains("z3 profile")
+                );
+                assert!(records(&dir).is_empty());
+                assert_eq!(refuted["answer"], "unknown");
+                assert!(refuted["cause"].as_str().unwrap().contains("z3 profile"));
+                let (again, _) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
+                assert!(cached(&again).iter().all(|c| !c));
+            }
+            SolverProfile::NoZ3 => {
+                assert_eq!(document["pattern_cache"]["enabled"], true);
+                assert_eq!(document["pattern_cache"]["reason"], Value::Null);
+                assert!(!records(&dir).is_empty());
+                assert_eq!(refuted["answer"], "no");
+            }
+        }
+    }
+
+    /// Flow F-18 deliverable 2: a pattern that does not parse, that k-rust's pattern compiler
+    /// refuses, or that names no cell of the configuration is `invalid-pattern` with k-rust's
+    /// message, and never runs; the command still exits 0.
+    #[test]
+    #[ignore = "kink"]
+    fn an_invalid_pattern_never_runs() {
+        let dir = fixture("calc", "invalid");
+        let patterns = dir.join("PATTERNS-invalid.toml");
+        write(
+            &patterns,
+            r#"
+[[pattern]]
+id = "syntax"
+pattern = "<k> 1 +* </k>"
+programs = ["add"]
+
+[[pattern]]
+id = "ensures"
+pattern = "<k> I:Int </k> ensures I >Int 0"
+programs = ["add"]
+
+[[pattern]]
+id = "right-only"
+pattern = "<k> X => Y:Int </k>"
+programs = ["add"]
+
+[[pattern]]
+id = "cell"
+pattern = "<state> 1 </state>"
+programs = ["add"]
+"#,
+        );
+        let (document, status) = plain(&dir.join("FLOW.toml"), &patterns);
+        assert_eq!(status, EXIT_OK, "{document:#}");
+        for (id, detail) in [
+            ("syntax", "could not parse rule in module \"CALC\""),
+            (
+                "ensures",
+                "a search pattern cannot have an `ensures` clause",
+            ),
+            ("right-only", "occurs only on the right side of a rewrite"),
+            ("cell", "could not parse rule in module \"CALC\""),
+        ] {
+            let invalid = row(&document, id, "add");
+            assert_eq!(invalid["answer"], "invalid-pattern", "{id}");
+            assert_eq!(invalid["wall_ms"], Value::Null, "{id}: never run");
+            assert!(
+                invalid["cause"].as_str().unwrap().contains(detail),
+                "{id}: {invalid:#}"
+            );
+            let pattern = document["patterns"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|p| p["id"] == id)
+                .unwrap();
+            assert_eq!(pattern["outcome"], "invalid-pattern");
+            assert_eq!(pattern["digest"], Value::Null);
+        }
+        assert_eq!(document["counts"]["invalid-pattern"], 4);
+        assert!(records(&dir).is_empty());
+    }
+
+    /// Flow F-18 deliverable 3: a witness reports the bindings of the variables the author wrote
+    /// only. k-rust's compiler completes the omitted sibling cells of `<count>` with variables
+    /// (`_Gen<n>`) its list of generated variables does not name at 501f18b9, so kink also leaves
+    /// out every variable spelled as k-rust's fresh-name passes spell one.
+    #[test]
+    #[ignore = "kink"]
+    fn a_witness_binds_only_the_authors_variables() {
+        let dir = scratch("cells");
+        write(&dir.join("cells.k"), CELLS_SPEC);
+        write(
+            &dir.join("FLOW.toml"),
+            "[spec]\nentry = \"cells.k\"\nmain_module = \"CELLS\"\nsyntax_module = \
+             \"CELLS-SYNTAX\"\n\n[[program]]\nid = \"three\"\ntext = \"tick(3)\"\n",
+        );
+        write(
+            &dir.join("PATTERNS.toml"),
+            "[[pattern]]\nid = \"counted-two\"\npattern = \"<count> N:Int </count> requires N >Int \
+             1\"\nprograms = [\"three\"]\n",
+        );
+        let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
+        assert_eq!(status, EXIT_OK, "{document:#}");
+        let kore = document["patterns"][0]["kore"].as_str().unwrap();
+        assert!(
+            kore.contains("Var'Unds'Gen"),
+            "the completion's variables: {kore}"
+        );
+        let hit = row(&document, "counted-two", "three");
+        assert_eq!(hit["answer"], "hit");
+        assert_eq!(hit["witness"]["depth"], 2);
+        assert_eq!(
+            hit["witness"]["bindings"],
+            json!([{"variable": "VarN:SortInt{}", "value": {"kore": "\\dv{SortInt{}}(\"2\")", "truncated": false}}])
+        );
+    }
+
+    /// Flow F-18 deliverable 5: a claim the run refutes is a `no` after a complete exploration of a
+    /// comparable program, flagged `refuted` and listed in `refuted_claims`.
+    #[test]
+    #[ignore = "kink"]
+    fn a_refuted_claim_follows_a_complete_exploration() {
+        let dir = fixture("calc", "refuted");
+        let patterns = dir.join("PATTERNS-claims.toml");
+        write(&patterns, CALC_PATTERNS);
+        let (document, status) = plain(&dir.join("FLOW.toml"), &patterns);
+        assert_eq!(status, EXIT_OK);
+        let refuted = row(&document, "four", "add");
+        assert_eq!(refuted["answer"], "no");
+        assert_eq!(refuted["claim"], "refuted");
+        assert_eq!(refuted["cause"], Value::Null);
+        assert_eq!(refuted["witness"], Value::Null);
+        assert_eq!(
+            document["refuted_claims"],
+            json!([{"pattern": "four", "program": "add"}])
+        );
+        assert_eq!(
+            document["programs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|p| p["id"] == "add")
+                .unwrap()["class"],
+            "comparable"
+        );
+        assert_eq!(
+            document["counts"],
+            json!({"hit": 3, "no": 3, "unknown": 0, "invalid-pattern": 0, "error": 0})
+        );
+    }
+
+    /// Flow F-18 deliverables 2, 3 and 5: a claimed hit is confirmed, with the matching state, its
+    /// depth, the bindings of the variables the author wrote (and of no generated one) and the rules
+    /// of a path to it; a `requires` is a condition on those bindings.
+    #[test]
+    #[ignore = "kink"]
+    fn a_claimed_hit_has_its_witness() {
+        let dir = fixture("calc", "claimed-hit");
+        let patterns = dir.join("PATTERNS-claims.toml");
+        write(&patterns, CALC_PATTERNS);
+        let (document, status) = plain(&dir.join("FLOW.toml"), &patterns);
+        assert_eq!(status, EXIT_OK, "{document:#}");
+        assert_eq!(document["schema"], "kink-flow-query");
+        assert_eq!(document["version"], 1);
+        assert_eq!(document["profile"], SolverProfile::BUILD.name());
+        let hit = row(&document, "above-two", "add");
+        assert_eq!(hit["answer"], "hit");
+        assert_eq!(hit["claimed"], true);
+        assert_eq!(hit["claim"], "confirmed");
+        assert_eq!(hit["cause"], Value::Null);
+        assert_eq!(hit["cached"], false);
+        let witness = &hit["witness"];
+        assert_eq!(witness["depth"], 1);
+        assert_eq!(witness["rendering"], "kore");
+        assert_eq!(witness["rules"], json!(["CALC.add"]));
+        assert_eq!(witness["state"]["truncated"], false);
+        assert!(
+            witness["state"]["kore"]
+                .as_str()
+                .unwrap()
+                .contains("\\dv{SortInt{}}(\"3\")")
+        );
+        // The only binding is the author's I; the cell completion's generated variables are not
+        // reported.
+        assert_eq!(
+            witness["bindings"],
+            json!([{"variable": "VarI:SortInt{}", "value": {"kore": "\\dv{SortInt{}}(\"3\")", "truncated": false}}])
+        );
+        // The pattern's own row: its KORE target, with the condition as an equation.
+        let pattern = &document["patterns"][0];
+        assert_eq!(pattern["outcome"], "valid");
+        assert_eq!(pattern["asked"], "claimed");
+        assert!(
+            pattern["kore"]
+                .as_str()
+                .unwrap()
+                .contains("\\equals{SortBool{}")
+        );
+        // The corpus form asks every program; only those that reach 3 hit.
+        assert_eq!(
+            answers(&document)
+                .into_iter()
+                .filter(|(p, _, _)| p == "three")
+                .collect::<Vec<_>>(),
+            expect(&[
+                ("three", "add", "hit"),
+                ("three", "nested", "no"),
+                ("three", "sub", "hit"),
+                ("three", "inline", "no"),
+            ])
+        );
+        assert_eq!(row(&document, "three", "add")["claim"], Value::Null);
+        assert_eq!(
+            row(&document, "three", "add")["witness"]["bindings"],
+            json!([])
+        );
+    }
+
+    /// Flow F-18 deliverable 6: on a definition decision 1's census flags, a would-be `no` is
+    /// `unknown` (another model of the open value could reach the pattern). At 501f18b9 a hit stayed
+    /// a hit; since k-rust 58720d2e5 (KINK-17/1) the only match here carries an open-value mark, so
+    /// it is `unknown` too (below).
+    ///
+    /// Re-pin P-2 (P-1-review-1 cosmetic finding): renamed from
+    /// `a_census_flagged_definition_gives_hits_and_no_no`, which no longer says what it asserts.
+    #[test]
+    #[ignore = "kink"]
+    fn a_census_flagged_definition_gives_no_hit_on_a_marked_match_and_no_no() {
+        let dir = scratch("census");
+        write(&dir.join("implchosen.k"), CENSUS_SPEC);
+        write(
+            &dir.join("FLOW.toml"),
+            "[spec]\nentry = \"implchosen.k\"\nmain_module = \"IMPLCHOSEN\"\nsyntax_module = \
+             \"IMPLCHOSEN-SYNTAX\"\n\n[[program]]\nid = \"start\"\ntext = \"start(1)\"\n",
+        );
+        write(
+            &dir.join("PATTERNS.toml"),
+            "[[pattern]]\nid = \"listed\"\npattern = \"<k> keys(_:List) </k>\"\n\n[[pattern]]\nid = \
+             \"never\"\npattern = \"<k> count(_) </k>\"\nprograms = [\"start\"]\n",
+        );
+        let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
+        assert_eq!(status, EXIT_OK, "{document:#}");
+        // Re-pin probe P-1 (k-rust 58720d2e5; KINK-17/1, head 728e7eb34, merge 3a196ed14; k-rust's
+        // draft answers-add3 section 2.1 "New marks of open values", which reach the four search
+        // responses too): the match's path read `keys_list` of two keys, so it carries an
+        // `implementation-chosen-value` mark (class `order`), and a hit needs a match without any
+        // backend diagnostic, so the would-be hit is `unknown` and is not cached. Fail-closed (hit ->
+        // unknown); adopting the marks (probe P-1 deliverable 5) decides whether a marked witness
+        // may be a hit.
+        let listed = row(&document, "listed", "start");
+        assert_eq!(listed["answer"], "unknown", "{listed:#}");
+        assert!(
+            listed["cause"]
+                .as_str()
+                .unwrap()
+                .contains("backend diagnostic"),
+            "{listed:#}"
+        );
+        let never = row(&document, "never", "start");
+        assert_eq!(never["answer"], "unknown");
+        assert_eq!(never["claim"], "unconfirmed");
+        assert!(
+            never["cause"]
+                .as_str()
+                .unwrap()
+                .contains("implementation-chosen-hook"),
+            "{never:#}"
+        );
+        // Neither unknown is cached (re-pin probe P-1: at 501f18b9 the hit was, one record).
+        assert_eq!(records(&dir).len(), 0);
+    }
+
+    /// Flow F-18 deliverable 5: the binary's `query` command, its document and its exit codes.
+    #[test]
+    #[ignore = "kink"]
+    fn the_binarys_query_command() {
+        let binary = env!("CARGO_BIN_EXE_kink-flow");
+        let dir = fixture("calc", "binary");
+        let manifest = dir.join("FLOW.toml");
+        let patterns = dir.join("PATTERNS.toml");
+        let cache = scratch("binary-cache");
+        let output = Command::new(binary)
+            .arg("query")
+            .arg(&manifest)
+            .arg(&patterns)
+            .args(["--only", "result-four", "--cache"])
+            .arg(&cache)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(i32::from(EXIT_OK)));
+        let document: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(document["schema"], "kink-flow-query");
+        assert_eq!(answers(&document), expect(&[("result-four", "add", "no")]));
+        assert_eq!(
+            document["refuted_claims"],
+            json!([{"pattern": "result-four", "program": "add"}])
+        );
+        assert!(cache.join("patterns").is_dir());
+        assert!(!dir.join(CACHE_DIRECTORY).exists());
+        for (args, code) in [
+            (vec!["--only", "nope"], EXIT_USAGE),
+            (vec!["--verify", "--verify"], EXIT_USAGE),
+            (vec!["--bogus"], EXIT_USAGE),
+        ] {
+            let output = Command::new(binary)
+                .arg("query")
+                .arg(&manifest)
+                .arg(&patterns)
+                .args(&args)
+                .output()
+                .unwrap();
+            assert_eq!(output.status.code(), Some(i32::from(code)), "{args:?}");
+        }
+        let output = Command::new(binary)
+            .arg("query")
+            .arg(&manifest)
+            .arg(dir.join("MISSING.toml"))
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(i32::from(EXIT_USAGE)));
+        let bad = dir.join("BAD.toml");
+        fs::write(
+            &bad,
+            "[[pattern]]\nid = \"a\"\npattern = \"x\"\nlabel = 1\n",
+        )
+        .unwrap();
+        let output = Command::new(binary)
+            .arg("query")
+            .arg(&manifest)
+            .arg(&bad)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(i32::from(EXIT_CORPUS)));
+        let document: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(
+            document["pattern_list"]["detail"],
+            "pattern \"a\".label: unknown key"
+        );
+    }
+
+    /// F-18 review 1, critical: a hit needs the matched state's term to be defined. A reached state
+    /// holding `f(3)`, an application of a partial function no equation reduces, may denote no
+    /// configuration, and k-rust's match does not carry that undecided fact as a condition: it is
+    /// `unknown` (`undefined-state`), never a confirmed claim, and nothing is cached. The same state
+    /// with a total function, and a state holding a map, stay hits.
+    #[test]
+    #[ignore = "kink"]
+    fn a_hit_needs_a_defined_state() {
+        let dir = spec_dir(
+            "partial",
+            "calcp.k",
+            "CALCP",
+            PARTIAL_SPEC,
+            "[[program]]\nid = \"partial\"\ntext = \"1 + 2\"\n",
+            "[[pattern]]\nid = \"g-holds-an-int\"\npattern = \"<k> g(I:Int) </k>\"\nprograms = \
+             [\"partial\"]\n\n[[pattern]]\nid = \"reaches-100\"\npattern = \"<k> 100 </k>\"\nprograms \
+             = [\"partial\"]\n\n[[pattern]]\nid = \"never\"\npattern = \"<k> 5 </k>\"\nprograms = \
+             [\"partial\"]\n",
+        );
+        let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
+        assert_eq!(status, EXIT_OK, "{document:#}");
+        let partial = row(&document, "g-holds-an-int", "partial");
+        assert_eq!(partial["answer"], "unknown", "{partial:#}");
+        assert_eq!(partial["claim"], "unconfirmed");
+        assert_eq!(partial["witness"], Value::Null);
+        let cause = partial["cause"].as_str().unwrap();
+        assert!(cause.contains("undefined-state"), "{cause}");
+        assert!(cause.contains("(depth 2)"), "{cause}");
+        for pattern in ["reaches-100", "never"] {
+            assert_eq!(row(&document, pattern, "partial")["answer"], "unknown");
+        }
+        assert_eq!(document["counts"]["hit"], 0);
+        assert_eq!(document["pattern_cache"]["records_written"], 0);
+        assert!(records(&dir).is_empty());
+
+        let dir = spec_dir(
+            "total",
+            "calcg.k",
+            "CALCG",
+            TOTAL_SPEC,
+            "[[program]]\nid = \"partial\"\ntext = \"1 + 2\"\n\n[[program]]\nid = \"total\"\ntext = \
+             \"1 + 3\"\n",
+            "[[pattern]]\nid = \"g-any\"\npattern = \"<k> g(_) </k>\"\n",
+        );
+        let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
+        assert_eq!(status, EXIT_OK, "{document:#}");
+        let total = row(&document, "g-any", "total");
+        assert_eq!(total["answer"], "hit", "{total:#}");
+        assert!(
+            total["witness"]["state"]["kore"]
+                .as_str()
+                .unwrap()
+                .contains("Lblh{}"),
+            "{total:#}"
+        );
+        let partial = row(&document, "g-any", "partial");
+        assert_eq!(partial["answer"], "unknown", "{partial:#}");
+        assert!(
+            partial["cause"]
+                .as_str()
+                .unwrap()
+                .contains("undefined-state")
+        );
+
+        let dir = spec_dir(
+            "store",
+            "store.k",
+            "STORE",
+            STORE_SPEC,
+            "[[program]]\nid = \"start\"\ntext = \"start\"\n",
+            "[[pattern]]\nid = \"two-holds\"\npattern = \"<store> ... 2 |-> V:Int ... </store>\"\nprograms \
+             = [\"start\"]\n",
+        );
+        let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
+        assert_eq!(status, EXIT_OK, "{document:#}");
+        let store = row(&document, "two-holds", "start");
+        assert_eq!(store["answer"], "hit", "{store:#}");
+        assert_eq!(
+            store["witness"]["bindings"],
+            json!([{"variable": "VarV:SortInt{}", "value": {"kore": "\\dv{SortInt{}}(\"20\")", "truncated": false}}])
+        );
+    }
+
+    /// Flow F-18 tail: `--verify` compares a stored hit's witness too. A record that keeps the hit
+    /// but carries another witness (its digest recomputed) is used as it is by a plain query, and
+    /// `--verify` reports it as a mismatch although both answers are hits.
+    #[test]
+    #[ignore = "kink"]
+    fn verify_reports_a_forged_witness() {
+        let dir = fixture("calc", "forged-witness");
+        let manifest = dir.join("FLOW.toml");
+        let patterns = dir.join("PATTERNS.toml");
+        let (first, _) = plain(&manifest, &patterns);
+        let hit = row(&first, "result-three", "add");
+        assert_eq!(hit["answer"], "hit");
+        let live_witness = hit["witness"].clone();
+        assert!(live_witness.is_object(), "{hit:#}");
+        let path = records(&dir)
+            .into_iter()
+            .find(|path| {
+                let record: Value =
+                    serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+                record["pattern_id"] == "result-three" && record["program_id"] == "add"
+            })
+            .unwrap();
+        let mut record: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(record["answer"], "hit");
+        assert_eq!(record["witness"], live_witness);
+        let mut witness = live_witness.clone();
+        witness["depth"] = json!(99);
+        witness["rules"] = json!(["forged"]);
+        record["witness"] = witness.clone();
+        record["record_sha256"] = json!(
+            record_sha256(
+                &record["key"],
+                "hit",
+                &witness,
+                &record["baseline_run_sha256"]
+            )
+            .to_string()
+        );
+        let forged = serde_json::to_string(&record).unwrap();
+        fs::write(&path, &forged).unwrap();
+
+        // The digest recomputes, so a plain query uses the record, forged witness and all.
+        let (trusted, status) = plain(&manifest, &patterns);
+        assert_eq!(status, EXIT_OK, "{trusted:#}");
+        let cached = row(&trusted, "result-three", "add");
+        assert_eq!(cached["answer"], "hit");
+        assert_eq!(cached["cached"], true);
+        assert_eq!(cached["witness"], witness);
+
+        let (verified, status) = verify(&manifest, &patterns);
+        assert_eq!(status, EXIT_CORPUS, "{verified:#}");
+        let live = row(&verified, "result-three", "add");
+        assert_eq!(live["answer"], "hit");
+        assert_eq!(live["witness"], live_witness);
+        assert_eq!(live["verify"], "mismatch");
+        assert_eq!(row(&verified, "result-three", "sub")["verify"], "match");
+        let mismatches = verified["mismatches"].as_array().unwrap();
+        assert_eq!(mismatches.len(), 1, "{verified:#}");
+        assert_eq!(mismatches[0]["pattern"], "result-three");
+        assert_eq!(mismatches[0]["program"], "add");
+        assert_eq!(mismatches[0]["cached"]["answer"], "hit");
+        assert_eq!(mismatches[0]["cached"]["witness"], witness);
+        assert_eq!(mismatches[0]["live"]["answer"], "hit");
+        assert_eq!(mismatches[0]["live"]["witness"], live_witness);
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            forged,
+            "--verify writes nothing"
+        );
+    }
+
+    /// Flow F-18 deliverable 3: a depth bound or the clock turns a would-be `no` into `unknown`
+    /// with its cause, and a hit is found in a run that never ends (the search stops at its first
+    /// match); none of the unknowns is cached.
+    #[test]
+    #[ignore = "kink"]
+    fn a_bound_turns_a_would_be_no_into_unknown() {
+        let dir = fixture("loop", "bounds");
+        let bounded = dir.join("FLOW-bounded.toml");
+        write(&bounded, LOOP_BOUNDED);
+        let patterns = dir.join("PATTERNS.toml");
+        let (document, status) = plain(&bounded, &patterns);
+        assert_eq!(status, EXIT_OK, "{document:#}");
+        let cut = row(&document, "zero", "spin");
+        assert_eq!(cut["answer"], "unknown");
+        assert!(
+            cut["cause"]
+                .as_str()
+                .unwrap()
+                .contains("a path reached max_depth = 50"),
+            "{cut:#}"
+        );
+        assert_eq!(row(&document, "spin-five", "spin")["answer"], "hit");
+        assert_eq!(row(&document, "spin-five", "spin")["witness"]["depth"], 5);
+        assert_eq!(row(&document, "spin-five", "countdown")["answer"], "no");
+
+        // The clock: a depth the run cannot reach and a small time bound.
+        let (document, status) = plain(&dir.join("FLOW-timeout.toml"), &patterns);
+        assert_eq!(status, EXIT_OK, "{document:#}");
+        let timed = row(&document, "zero", "spin");
+        assert_eq!(timed["answer"], "unknown");
+        assert!(
+            timed["cause"]
+                .as_str()
+                .unwrap()
+                .starts_with("the search did not finish within time_ms = 500"),
+            "{timed:#}"
+        );
+        // The baseline run of spin times out, yet the hit stands: it is an existential fact.
+        assert_eq!(document["programs"][0]["class"], "timeout", "{document:#}");
+        assert_eq!(row(&document, "spin-five", "spin")["answer"], "hit");
+        // A complete exploration of a comparable program is a no.
+        assert_eq!(row(&document, "spin-five", "countdown")["answer"], "no");
+
+        let (again, _) = plain(&dir.join("FLOW-timeout.toml"), &patterns);
+        assert_eq!(row(&again, "zero", "spin")["cached"], false);
+        assert_eq!(row(&again, "zero", "spin")["answer"], "unknown");
+        assert_eq!(row(&again, "spin-five", "spin")["cached"], true);
+    }
+
+    /// Flow F-18 deliverable 4 (the CACHE-ID rule): a forged record under the current key is
+    /// honoured (whoever can write the cache can forge an answer), and `--verify` re-derives every
+    /// answer, reports the forged one and exits 1, writing nothing. A record whose digest does not
+    /// recompute is not used.
+    #[test]
+    #[ignore = "kink"]
+    fn verify_reports_a_forged_record() {
+        let dir = fixture("calc", "forged");
+        let manifest = dir.join("FLOW.toml");
+        let patterns = dir.join("PATTERNS.toml");
+        let (first, _) = plain(&manifest, &patterns);
+        let hit = row(&first, "result-three", "add");
+        assert_eq!(hit["answer"], "hit");
+        let path = records(&dir)
+            .into_iter()
+            .find(|path| {
+                let record: Value =
+                    serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+                record["pattern_id"] == "result-three" && record["program_id"] == "add"
+            })
+            .unwrap();
+        let mut record: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        // The program's current result record holds the baseline run digest the forged no names.
+        let program = first["programs"]
             .as_array()
             .unwrap()
             .iter()
-            .any(|m| m["program"] == "add"
-                && m["detail"].as_str().is_some_and(|d| d.contains("class"))),
-        "{verified:#}"
-    );
+            .find(|p| p["id"] == "add")
+            .unwrap()["digest"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let result: Value = serde_json::from_str(
+            &fs::read_to_string(
+                dir.join(CACHE_DIRECTORY)
+                    .join("results")
+                    .join(first["spec"]["digest"].as_str().unwrap())
+                    .join(format!("{program}.json")),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let run_sha256 = result["run_sha256"].clone();
+        assert!(run_sha256.is_string());
+        record["answer"] = json!("no");
+        record["witness"] = Value::Null;
+        record["baseline_run_sha256"] = run_sha256.clone();
+        record["record_sha256"] =
+            json!(record_sha256(&record["key"], "no", &Value::Null, &run_sha256).to_string());
+        let forged = serde_json::to_string(&record).unwrap();
+        fs::write(&path, &forged).unwrap();
+
+        let (trusted, status) = plain(&manifest, &patterns);
+        assert_eq!(status, EXIT_OK);
+        assert_eq!(row(&trusted, "result-three", "add")["answer"], "no");
+        assert_eq!(row(&trusted, "result-three", "add")["cached"], true);
+
+        let (verified, status) = verify(&manifest, &patterns);
+        assert_eq!(status, EXIT_CORPUS, "{verified:#}");
+        let live = row(&verified, "result-three", "add");
+        assert_eq!(live["answer"], "hit");
+        assert_eq!(live["verify"], "mismatch");
+        assert_eq!(row(&verified, "result-three", "sub")["verify"], "match");
+        let mismatches = verified["mismatches"].as_array().unwrap();
+        assert_eq!(mismatches.len(), 1, "{verified:#}");
+        assert_eq!(mismatches[0]["pattern"], "result-three");
+        assert_eq!(mismatches[0]["program"], "add");
+        assert_eq!(mismatches[0]["cached"]["answer"], "no");
+        assert_eq!(mismatches[0]["live"]["answer"], "hit");
+        assert_eq!(verified["pattern_cache"]["records_written"], 0);
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            forged,
+            "--verify writes nothing"
+        );
+
+        // A record whose digest does not recompute is ignored and replaced.
+        record["record_sha256"] = json!("00".repeat(32));
+        fs::write(&path, serde_json::to_string(&record).unwrap()).unwrap();
+        let (recomputed, _) = plain(&manifest, &patterns);
+        assert_eq!(row(&recomputed, "result-three", "add")["answer"], "hit");
+        assert_eq!(row(&recomputed, "result-three", "add")["cached"], false);
+    }
+
+    /// Flow F-18 deliverable 4: a second command answers from the cache with no search; editing a
+    /// program recomputes its rows only, and editing the specification or the budget recomputes
+    /// every row.
+    #[test]
+    #[ignore = "kink"]
+    fn the_cache_is_reused_and_invalidated_by_key() {
+        let dir = fixture("calc", "cache");
+        let manifest = dir.join("FLOW.toml");
+        let patterns = dir.join("PATTERNS.toml");
+        let (first, status) = plain(&manifest, &patterns);
+        assert_eq!(status, EXIT_OK, "{first:#}");
+        assert!(cached(&first).iter().all(|c| !c));
+        let written = first["pattern_cache"]["records_written"].as_u64().unwrap();
+        assert!(written > 0);
+        assert_eq!(first["pattern_cache"]["enabled"], true);
+
+        let (second, _) = plain(&manifest, &patterns);
+        assert!(cached(&second).iter().all(|c| *c), "{second:#}");
+        assert_eq!(answers(&second), answers(&first));
+        assert_eq!(second["pattern_cache"]["records_written"], 0);
+        assert!(
+            second["rows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|r| r["wall_ms"].is_null())
+        );
+        for (a, b) in first["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .zip(second["rows"].as_array().unwrap())
+        {
+            assert_eq!(a["witness"], b["witness"]);
+        }
+
+        // A program edit: only add's rows are recomputed.
+        fs::write(dir.join("programs/add.calc"), "1 + 3\n").unwrap();
+        let (edited, _) = plain(&manifest, &patterns);
+        for row in edited["rows"].as_array().unwrap() {
+            assert_eq!(row["cached"], row["program"] != "add", "{row:#}");
+        }
+        assert_eq!(row(&edited, "result-three", "add")["answer"], "no");
+        assert_eq!(row(&edited, "result-three", "add")["claim"], "refuted");
+
+        // A specification edit, a comment included: every row is recomputed.
+        let mut spec = fs::read_to_string(dir.join("calc.k")).unwrap();
+        spec.push_str("// an edit\n");
+        fs::write(dir.join("calc.k"), spec).unwrap();
+        let (respec, _) = plain(&manifest, &patterns);
+        assert!(cached(&respec).iter().all(|c| !c));
+
+        // A budget change: every row is recomputed.
+        let mut text = fs::read_to_string(&manifest).unwrap();
+        text.push_str("\n[budget]\nmax_depth = 1000\n");
+        fs::write(&manifest, text).unwrap();
+        let (rebudget, _) = plain(&manifest, &patterns);
+        assert!(cached(&rebudget).iter().all(|c| !c));
+        assert_eq!(answers(&rebudget), answers(&respec));
+    }
+
+    /// F-18 review 1, minor: a cached `no` is used only while the program's current result record is
+    /// comparable with the baseline run digest the `no` was given against. A result record with
+    /// another run digest, or of class timeout, under the same key makes the command search again
+    /// (a timeout then gives unknown); a cached hit does not depend on the baseline.
+    #[test]
+    #[ignore = "kink"]
+    fn a_cached_no_needs_the_same_comparable_baseline() {
+        let dir = fixture("calc", "stored-no");
+        let manifest = dir.join("FLOW.toml");
+        let patterns = dir.join("PATTERNS.toml");
+        let (first, status) = plain(&manifest, &patterns);
+        assert_eq!(status, EXIT_OK, "{first:#}");
+        assert_eq!(row(&first, "result-four", "add")["answer"], "no");
+        let path = result_record(&dir, &first, "add");
+        let original: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(original["class"], "comparable");
+
+        // Another baseline run digest: the stored no is not used; the live search says no again.
+        forge(&path, "run_sha256", json!("00".repeat(32)));
+        let (digest, _) = plain(&manifest, &patterns);
+        let no = row(&digest, "result-four", "add");
+        assert_eq!(
+            (no["cached"].clone(), no["answer"].clone()),
+            (json!(false), json!("no")),
+            "{no:#}"
+        );
+        assert_eq!(row(&digest, "result-three", "add")["cached"], true);
+
+        // A timeout under the same key: the no is not used, and the live answer is unknown.
+        fs::write(&path, serde_json::to_string(&original).unwrap()).unwrap();
+        let (again, _) = plain(&manifest, &patterns);
+        assert_eq!(row(&again, "result-four", "add")["answer"], "no");
+        forge(&path, "class", json!("timeout"));
+        let (timeout, _) = plain(&manifest, &patterns);
+        let unknown = row(&timeout, "result-four", "add");
+        assert_eq!(unknown["cached"], false, "{unknown:#}");
+        assert_eq!(unknown["answer"], "unknown", "{unknown:#}");
+        assert!(
+            unknown["cause"]
+                .as_str()
+                .unwrap()
+                .contains("and it is timeout")
+        );
+        let hit = row(&timeout, "result-three", "add");
+        assert_eq!(
+            (hit["cached"].clone(), hit["answer"].clone()),
+            (json!(true), json!("hit"))
+        );
+
+        // Under --verify the answer is judged with the live baseline run, not the stale record: the
+        // live no is printed, and the command exits 1 for the result record's difference.
+        let (verified, status) = verify(&manifest, &patterns);
+        assert_eq!(status, EXIT_CORPUS, "{verified:#}");
+        assert_eq!(row(&verified, "result-four", "add")["answer"], "no");
+        assert!(
+            verified["mismatches"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|m| m["program"] == "add"
+                    && m["detail"].as_str().is_some_and(|d| d.contains("class"))),
+            "{verified:#}"
+        );
+    }
+
+    /// Flow F-18 stop rule 3: the search under the state set finds exactly the hits a walk of the
+    /// state set one step at a time finds, on every program and pattern of these fixtures.
+    #[test]
+    #[ignore = "kink"]
+    fn the_search_finds_the_hits_stepping_finds() {
+        let calc = fixture("calc", "stepping-calc");
+        write(&calc.join("FLOW-both.toml"), NONDETERMINISTIC);
+        write(&calc.join("PATTERNS-orders.toml"), ORDERS);
+        write(&calc.join("PATTERNS-claims.toml"), CALC_PATTERNS);
+        let loop_dir = fixture("loop", "stepping-loop");
+        let cases = [
+            (calc.join("FLOW.toml"), calc.join("PATTERNS.toml")),
+            (calc.join("FLOW.toml"), calc.join("PATTERNS-claims.toml")),
+            (
+                calc.join("FLOW-both.toml"),
+                calc.join("PATTERNS-orders.toml"),
+            ),
+            (loop_dir.join("FLOW.toml"), loop_dir.join("PATTERNS.toml")),
+        ];
+        let mut compared = 0;
+        for (manifest, patterns) in cases {
+            let (document, status) = plain(&manifest, &patterns);
+            assert_eq!(status, EXIT_OK, "{document:#}");
+            let list = PatternList::read(&patterns).unwrap();
+            let stepper = Stepper::new(&manifest);
+            for row in document["rows"].as_array().unwrap() {
+                let entry = list
+                    .patterns
+                    .iter()
+                    .find(|p| p.id == row["pattern"])
+                    .unwrap();
+                let program = row["program"].as_str().unwrap();
+                let stepped = stepper.hit(program, &entry.pattern, 10_000);
+                let expected = match row["answer"].as_str().unwrap() {
+                    "hit" => Some(true),
+                    "no" => Some(false),
+                    other => panic!("{other} in {row:#}"),
+                };
+                assert_eq!(stepped, expected, "{} on {program}", entry.id);
+                compared += 1;
+            }
+        }
+        assert_eq!(compared, 11 + 6 + 3 + 5);
+    }
 }

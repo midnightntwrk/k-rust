@@ -730,58 +730,63 @@ fn copy_dir(from: &Path, to: &Path) {
     }
 }
 
-/// Deliverable 8 (h): `kink-flow run` on the Markdown fixture kills one mutation and reports
-/// a survivor whose before and after texts are K text: the view's slice of the rule, and that
-/// slice with the edit applied. Nothing in the document is Markdown.
-#[test]
-fn run_on_markdown_kills_and_reports_k_text() {
-    let dir = scratch("run").join("markdown");
-    copy_dir(&markdown(), &dir);
-    let (document, ok) = search(
-        &dir.join("FLOW.toml"),
-        &dir.join("MUTATIONS.toml"),
-        &["inc-adds-two", "twice-adds-two-at-once"],
-    );
-    assert!(ok, "{document:#}");
-    let rows = document["mutations"].as_array().unwrap();
-    let row = |id: &str| rows.iter().find(|m| m["id"] == id).unwrap();
-    assert_eq!(
-        (
-            row("inc-adds-two")["status"].as_str(),
-            row("inc-adds-two")["killer"].as_str()
-        ),
-        (Some("killed"), Some("inc"))
-    );
-    let survivor = row("twice-adds-two-at-once");
-    assert_eq!(survivor["status"], "survived");
-    assert_eq!(
-        document["survivors"],
-        serde_json::json!(["twice-adds-two-at-once"])
-    );
-    assert_eq!(survivor["reaching"], serde_json::json!(["twice"]));
-    let rule = &survivor["rules"][0];
-    let view = fs::read_to_string(dir.join("spec-view.k")).unwrap();
-    let line = view.lines().nth(45).unwrap();
-    let before = line.trim();
-    assert_eq!(rule["file"], "spec.md");
-    assert_eq!(
-        (rule["start_line"].as_u64(), rule["end_line"].as_u64()),
-        (Some(46), Some(46))
-    );
-    assert_eq!(rule["label"], "LIT.twice");
-    assert_eq!(rule["before"], before);
-    assert_eq!(before, "rule [twice]: twice I:Int => I +Int 1 +Int 1");
-    assert_eq!(
-        rule["after"],
-        before.replace("I +Int 1 +Int 1", "I +Int 2").as_str()
-    );
-    let text = serde_json::to_string(&document).unwrap();
-    for prose in ["```", "Closing prose", "ghost", "# Lit"] {
-        assert!(!text.contains(prose), "{prose:?} in the run document");
+mod kink_tier {
+    use super::*;
+
+    /// Deliverable 8 (h): `kink-flow run` on the Markdown fixture kills one mutation and reports
+    /// a survivor whose before and after texts are K text: the view's slice of the rule, and that
+    /// slice with the edit applied. Nothing in the document is Markdown.
+    #[test]
+    #[ignore = "kink"]
+    fn run_on_markdown_kills_and_reports_k_text() {
+        let dir = scratch("run").join("markdown");
+        copy_dir(&markdown(), &dir);
+        let (document, ok) = search(
+            &dir.join("FLOW.toml"),
+            &dir.join("MUTATIONS.toml"),
+            &["inc-adds-two", "twice-adds-two-at-once"],
+        );
+        assert!(ok, "{document:#}");
+        let rows = document["mutations"].as_array().unwrap();
+        let row = |id: &str| rows.iter().find(|m| m["id"] == id).unwrap();
+        assert_eq!(
+            (
+                row("inc-adds-two")["status"].as_str(),
+                row("inc-adds-two")["killer"].as_str()
+            ),
+            (Some("killed"), Some("inc"))
+        );
+        let survivor = row("twice-adds-two-at-once");
+        assert_eq!(survivor["status"], "survived");
+        assert_eq!(
+            document["survivors"],
+            serde_json::json!(["twice-adds-two-at-once"])
+        );
+        assert_eq!(survivor["reaching"], serde_json::json!(["twice"]));
+        let rule = &survivor["rules"][0];
+        let view = fs::read_to_string(dir.join("spec-view.k")).unwrap();
+        let line = view.lines().nth(45).unwrap();
+        let before = line.trim();
+        assert_eq!(rule["file"], "spec.md");
+        assert_eq!(
+            (rule["start_line"].as_u64(), rule["end_line"].as_u64()),
+            (Some(46), Some(46))
+        );
+        assert_eq!(rule["label"], "LIT.twice");
+        assert_eq!(rule["before"], before);
+        assert_eq!(before, "rule [twice]: twice I:Int => I +Int 1 +Int 1");
+        assert_eq!(
+            rule["after"],
+            before.replace("I +Int 1 +Int 1", "I +Int 2").as_str()
+        );
+        let text = serde_json::to_string(&document).unwrap();
+        for prose in ["```", "Closing prose", "ghost", "# Lit"] {
+            assert!(!text.contains(prose), "{prose:?} in the run document");
+        }
+        // The user's Markdown file is untouched.
+        assert_eq!(
+            fs::read(dir.join("spec.md")).unwrap(),
+            fs::read(markdown().join("spec.md")).unwrap()
+        );
     }
-    // The user's Markdown file is untouched.
-    assert_eq!(
-        fs::read(dir.join("spec.md")).unwrap(),
-        fs::read(markdown().join("spec.md")).unwrap()
-    );
 }

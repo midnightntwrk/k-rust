@@ -105,47 +105,52 @@ fn executed(document: &Value) -> Vec<(String, String, Option<String>, bool)> {
         .collect()
 }
 
-#[test]
-fn a_mutant_that_never_ends_is_unknown_under_the_work_budget_and_never_cached() {
-    let manifest = fixture("loop-work", 2);
-    let started = std::time::Instant::now();
-    let first = search(&manifest);
-    // The time bound is a minute; the work budget stops the loop long before.
-    assert!(
-        started.elapsed() < std::time::Duration::from_secs(30),
-        "{:?}",
-        started.elapsed()
-    );
-    let entries = executed(&first);
-    assert_eq!(entries.len(), 2, "{entries:?}");
-    let (program, outcome, cause, cached) = &entries[0];
-    assert_eq!(
-        (program.as_str(), outcome.as_str(), *cached),
-        ("countdown", "unknown", false)
-    );
-    let cause = cause.as_deref().unwrap();
-    assert!(
-        cause.contains("the run reached its work budget (work_factor = 2)")
-            && cause.contains("work-bound 1"),
-        "{cause}"
-    );
-    assert_eq!(
-        (entries[1].0.as_str(), entries[1].1.as_str(), entries[1].3),
-        ("twice", "agree", false)
-    );
+mod kink_tier {
+    use super::*;
 
-    // A re-run: the agreement is cached, the unknown outcome is not.
-    let second = executed(&search(&manifest));
-    assert_eq!(
-        second
-            .iter()
-            .map(|(program, outcome, _, cached)| (program.as_str(), outcome.as_str(), *cached))
-            .collect::<Vec<_>>(),
-        [("twice", "agree", true), ("countdown", "unknown", false)]
-    );
+    #[test]
+    #[ignore = "kink"]
+    fn a_mutant_that_never_ends_is_unknown_under_the_work_budget_and_never_cached() {
+        let manifest = fixture("loop-work", 2);
+        let started = std::time::Instant::now();
+        let first = search(&manifest);
+        // The time bound is a minute; the work budget stops the loop long before.
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(30),
+            "{:?}",
+            started.elapsed()
+        );
+        let entries = executed(&first);
+        assert_eq!(entries.len(), 2, "{entries:?}");
+        let (program, outcome, cause, cached) = &entries[0];
+        assert_eq!(
+            (program.as_str(), outcome.as_str(), *cached),
+            ("countdown", "unknown", false)
+        );
+        let cause = cause.as_deref().unwrap();
+        assert!(
+            cause.contains("the run reached its work budget (work_factor = 2)")
+                && cause.contains("work-bound 1"),
+            "{cause}"
+        );
+        assert_eq!(
+            (entries[1].0.as_str(), entries[1].1.as_str(), entries[1].3),
+            ("twice", "agree", false)
+        );
 
-    // Another factor is another outcome key: nothing cached applies.
-    set_factor(&manifest, 3);
-    let third = executed(&search(&manifest));
-    assert!(third.iter().all(|(.., cached)| !cached), "{third:?}");
+        // A re-run: the agreement is cached, the unknown outcome is not.
+        let second = executed(&search(&manifest));
+        assert_eq!(
+            second
+                .iter()
+                .map(|(program, outcome, _, cached)| (program.as_str(), outcome.as_str(), *cached))
+                .collect::<Vec<_>>(),
+            [("twice", "agree", true), ("countdown", "unknown", false)]
+        );
+
+        // Another factor is another outcome key: nothing cached applies.
+        set_factor(&manifest, 3);
+        let third = executed(&search(&manifest));
+        assert!(third.iter().all(|(.., cached)| !cached), "{third:?}");
+    }
 }

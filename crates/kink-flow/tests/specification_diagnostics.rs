@@ -116,164 +116,170 @@ fn assert_sib_record(diagnostics: &Value, observing: &str) {
     );
 }
 
-#[test]
-fn records_are_reported_as_specification_diagnostics() {
-    let dir = scratch("records");
-    let manifest_path = dir.join("FLOW.toml");
-    let (document, exit) = results(
-        &manifest_path,
-        &ResultsOptions {
-            verify: false,
-            cache: None,
-            mutations: None,
-        },
-    );
-    assert_eq!(exit, EXIT_OK, "{document:#}");
-    // The baseline of `sib 0` is excluded by the record on its list alone, so the program is not
-    // comparable, and its row names the record.
-    let sib = program(&document, "sib-0");
-    assert_eq!(sib["class"], "unknown", "{sib:#}");
-    assert_sib_record(&sib["specification_diagnostics"], "SPEC.sibtd");
-    assert_eq!(sib["smt_unknowns"], 0);
-    let ok = program(&document, "ok-1");
-    assert_eq!(ok["class"], "comparable", "{ok:#}");
-    assert_eq!(ok["specification_diagnostics"], serde_json::json!([]));
+mod kink_tier {
+    use super::*;
 
-    let manifest = FlowManifest::read(&manifest_path).unwrap();
-    let list = MutationList::read(&dir.join("MUTATIONS.toml")).unwrap();
-    let (document, _) = run(
-        &manifest,
-        &list,
-        &RunOptions {
-            only: Vec::new(),
-            cache: None,
-            order: ProgramOrder::Corpus,
-            compile_workers: Some(1),
-            memo: kink_flow::memo::MemoUse::On,
-        },
-    );
-    assert_eq!(document["version"], 9);
-    assert_sib_record(
-        &program(&document, "sib-0")["specification_diagnostics"],
-        "SPEC.sibtd",
-    );
-    let [row] = document["mutations"].as_array().unwrap().as_slice() else {
-        panic!("one mutation: {document:#}")
-    };
-    assert_eq!(row["status"], "unknown", "{row:#}");
-    let [entry] = row["executed"].as_array().unwrap().as_slice() else {
-        panic!("one executed program: {row:#}")
-    };
-    assert_eq!(entry["program"], "ok-1");
-    assert_eq!(entry["failure"], "contradicted-claim", "{entry:#}");
-    let [record] = entry["specification_diagnostics"]
-        .as_array()
-        .unwrap()
-        .as_slice()
-    else {
-        panic!("one record: {entry:#}")
-    };
-    assert_eq!(record["k_label"], "td");
-    assert_eq!(record["observing_rule_label"], "SPEC.ok");
-    assert_eq!(record["ground"], true);
-}
+    /// Review A-1-review-1 finding 1: an excluded baseline's cause says the exclusion, not that its
+    /// final configuration is not comparable. `sib 0` (the record on k-rust's list alone, its one
+    /// leaf the plain value `done`: the campaign refuses the baseline) and `tv 0` (a leaf contradiction:
+    /// admitted, no sides) point at the specification diagnostics and say to fix the claim; `runh 1`
+    /// (testdata/k/a1/refusals.k: an unsupported hook on the list alone, its leaf the value `val(2)`)
+    /// names its own exclusion. Before A-1b each of the three gave the leaf-shape hint.
+    #[test]
+    #[ignore = "kink"]
+    fn an_excluded_baseline_names_its_exclusion() {
+        let dir = scratch("causes");
+        fs::write(
+            dir.join("FLOW.toml"),
+            FLOW.replace(
+                "id = \"ok-1\"\ntext = \"ok 1\"",
+                "id = \"tv-0\"\ntext = \"tv 0\"",
+            ),
+        )
+        .unwrap();
+        let (document, exit) = results(
+            &dir.join("FLOW.toml"),
+            &ResultsOptions {
+                verify: false,
+                cache: None,
+                mutations: None,
+            },
+        );
+        assert_eq!(exit, EXIT_OK, "{document:#}");
+        let sib = program(&document, "sib-0");
+        assert_eq!(sib["class"], "unknown", "{sib:#}");
+        let cause = sib["cause"].as_str().unwrap();
+        assert!(
+            cause.starts_with(
+                "the campaign runner refused the baseline run (BaselineOracleFailed: the baseline run \
+                 of test sib-0 is no evidence: contradicted-claim); the run is excluded \
+                 (contradicted-claim): the run contradicts a trusted claim of the definition: k-rust \
+                 lists a contradicted claim"
+            ),
+            "{cause}"
+        );
+        assert!(
+            cause.contains("in this row's specification_diagnostics"),
+            "{cause}"
+        );
+        assert!(cause.contains("fix the claim"), "{cause}");
+        assert!(!cause.contains(LEAF_SHAPE_HINT), "{cause}");
+        assert_sib_record(&sib["specification_diagnostics"], "SPEC.sibtd");
 
-/// Review A-1-review-1 finding 1: an excluded baseline's cause says the exclusion, not that its
-/// final configuration is not comparable. `sib 0` (the record on k-rust's list alone, its one
-/// leaf the plain value `done`: the campaign refuses the baseline) and `tv 0` (a leaf contradiction:
-/// admitted, no sides) point at the specification diagnostics and say to fix the claim; `runh 1`
-/// (testdata/k/a1/refusals.k: an unsupported hook on the list alone, its leaf the value `val(2)`)
-/// names its own exclusion. Before A-1b each of the three gave the leaf-shape hint.
-#[test]
-fn an_excluded_baseline_names_its_exclusion() {
-    let dir = scratch("causes");
-    fs::write(
-        dir.join("FLOW.toml"),
-        FLOW.replace(
-            "id = \"ok-1\"\ntext = \"ok 1\"",
-            "id = \"tv-0\"\ntext = \"tv 0\"",
-        ),
-    )
-    .unwrap();
-    let (document, exit) = results(
-        &dir.join("FLOW.toml"),
-        &ResultsOptions {
-            verify: false,
-            cache: None,
-            mutations: None,
-        },
-    );
-    assert_eq!(exit, EXIT_OK, "{document:#}");
-    let sib = program(&document, "sib-0");
-    assert_eq!(sib["class"], "unknown", "{sib:#}");
-    let cause = sib["cause"].as_str().unwrap();
-    assert!(
-        cause.starts_with(
-            "the campaign runner refused the baseline run (BaselineOracleFailed: the baseline run \
-             of test sib-0 is no evidence: contradicted-claim); the run is excluded \
-             (contradicted-claim): the run contradicts a trusted claim of the definition: k-rust \
-             lists a contradicted claim"
-        ),
-        "{cause}"
-    );
-    assert!(
-        cause.contains("in this row's specification_diagnostics"),
-        "{cause}"
-    );
-    assert!(cause.contains("fix the claim"), "{cause}");
-    assert!(!cause.contains(LEAF_SHAPE_HINT), "{cause}");
-    assert_sib_record(&sib["specification_diagnostics"], "SPEC.sibtd");
+        let tv = program(&document, "tv-0");
+        assert_eq!(tv["class"], "unknown", "{tv:#}");
+        let cause = tv["cause"].as_str().unwrap();
+        assert!(
+            cause.starts_with(
+                "the campaign runner gave the baseline run no sides: contradicted-claim; the run is \
+                 excluded (contradicted-claim): the run contradicts a trusted claim of the definition"
+            ),
+            "{cause}"
+        );
+        assert!(cause.contains("specification_diagnostics"), "{cause}");
+        assert!(cause.contains("fix the claim"), "{cause}");
+        assert!(!cause.contains(LEAF_SHAPE_HINT), "{cause}");
 
-    let tv = program(&document, "tv-0");
-    assert_eq!(tv["class"], "unknown", "{tv:#}");
-    let cause = tv["cause"].as_str().unwrap();
-    assert!(
-        cause.starts_with(
-            "the campaign runner gave the baseline run no sides: contradicted-claim; the run is \
-             excluded (contradicted-claim): the run contradicts a trusted claim of the definition"
-        ),
-        "{cause}"
-    );
-    assert!(cause.contains("specification_diagnostics"), "{cause}");
-    assert!(cause.contains("fix the claim"), "{cause}");
-    assert!(!cause.contains(LEAF_SHAPE_HINT), "{cause}");
+        let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
+            .join(format!("kink-flow-specification-{}", std::process::id()))
+            .join("unsupported");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/k/a1/refusals.k"),
+            dir.join("refusals.k"),
+        )
+        .unwrap();
+        fs::write(
+            dir.join("FLOW.toml"),
+            "[spec]\nentry = \"refusals.k\"\nmain_module = \"REFUSALS\"\n\
+             syntax_module = \"REFUSALS-SYNTAX\"\n\n[[program]]\nid = \"runh-1\"\ntext = \"runh(1)\"\n",
+        )
+        .unwrap();
+        let (document, exit) = results(
+            &dir.join("FLOW.toml"),
+            &ResultsOptions {
+                verify: false,
+                cache: None,
+                mutations: None,
+            },
+        );
+        assert_eq!(exit, EXIT_OK, "{document:#}");
+        let runh = program(&document, "runh-1");
+        assert_eq!(runh["class"], "unknown", "{runh:#}");
+        let cause = runh["cause"].as_str().unwrap();
+        assert!(
+            cause.starts_with(
+                "the campaign runner refused the baseline run (BaselineOracleFailed: the baseline run \
+                 of test runh-1 is no evidence: unsupported-hook); the run is excluded \
+                 (unsupported-hook): "
+            ),
+            "{cause}"
+        );
+        assert!(!cause.contains(LEAF_SHAPE_HINT), "{cause}");
+        assert_eq!(runh["specification_diagnostics"], serde_json::json!([]));
+    }
 
-    let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
-        .join(format!("kink-flow-specification-{}", std::process::id()))
-        .join("unsupported");
-    let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(&dir).unwrap();
-    fs::copy(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/k/a1/refusals.k"),
-        dir.join("refusals.k"),
-    )
-    .unwrap();
-    fs::write(
-        dir.join("FLOW.toml"),
-        "[spec]\nentry = \"refusals.k\"\nmain_module = \"REFUSALS\"\n\
-         syntax_module = \"REFUSALS-SYNTAX\"\n\n[[program]]\nid = \"runh-1\"\ntext = \"runh(1)\"\n",
-    )
-    .unwrap();
-    let (document, exit) = results(
-        &dir.join("FLOW.toml"),
-        &ResultsOptions {
-            verify: false,
-            cache: None,
-            mutations: None,
-        },
-    );
-    assert_eq!(exit, EXIT_OK, "{document:#}");
-    let runh = program(&document, "runh-1");
-    assert_eq!(runh["class"], "unknown", "{runh:#}");
-    let cause = runh["cause"].as_str().unwrap();
-    assert!(
-        cause.starts_with(
-            "the campaign runner refused the baseline run (BaselineOracleFailed: the baseline run \
-             of test runh-1 is no evidence: unsupported-hook); the run is excluded \
-             (unsupported-hook): "
-        ),
-        "{cause}"
-    );
-    assert!(!cause.contains(LEAF_SHAPE_HINT), "{cause}");
-    assert_eq!(runh["specification_diagnostics"], serde_json::json!([]));
+    #[test]
+    #[ignore = "kink"]
+    fn records_are_reported_as_specification_diagnostics() {
+        let dir = scratch("records");
+        let manifest_path = dir.join("FLOW.toml");
+        let (document, exit) = results(
+            &manifest_path,
+            &ResultsOptions {
+                verify: false,
+                cache: None,
+                mutations: None,
+            },
+        );
+        assert_eq!(exit, EXIT_OK, "{document:#}");
+        // The baseline of `sib 0` is excluded by the record on its list alone, so the program is not
+        // comparable, and its row names the record.
+        let sib = program(&document, "sib-0");
+        assert_eq!(sib["class"], "unknown", "{sib:#}");
+        assert_sib_record(&sib["specification_diagnostics"], "SPEC.sibtd");
+        assert_eq!(sib["smt_unknowns"], 0);
+        let ok = program(&document, "ok-1");
+        assert_eq!(ok["class"], "comparable", "{ok:#}");
+        assert_eq!(ok["specification_diagnostics"], serde_json::json!([]));
+
+        let manifest = FlowManifest::read(&manifest_path).unwrap();
+        let list = MutationList::read(&dir.join("MUTATIONS.toml")).unwrap();
+        let (document, _) = run(
+            &manifest,
+            &list,
+            &RunOptions {
+                only: Vec::new(),
+                cache: None,
+                order: ProgramOrder::Corpus,
+                compile_workers: Some(1),
+                memo: kink_flow::memo::MemoUse::On,
+            },
+        );
+        assert_eq!(document["version"], 9);
+        assert_sib_record(
+            &program(&document, "sib-0")["specification_diagnostics"],
+            "SPEC.sibtd",
+        );
+        let [row] = document["mutations"].as_array().unwrap().as_slice() else {
+            panic!("one mutation: {document:#}")
+        };
+        assert_eq!(row["status"], "unknown", "{row:#}");
+        let [entry] = row["executed"].as_array().unwrap().as_slice() else {
+            panic!("one executed program: {row:#}")
+        };
+        assert_eq!(entry["program"], "ok-1");
+        assert_eq!(entry["failure"], "contradicted-claim", "{entry:#}");
+        let [record] = entry["specification_diagnostics"]
+            .as_array()
+            .unwrap()
+            .as_slice()
+        else {
+            panic!("one record: {entry:#}")
+        };
+        assert_eq!(record["k_label"], "td");
+        assert_eq!(record["observing_rule_label"], "SPEC.ok");
+        assert_eq!(record["ground"], true);
+    }
 }

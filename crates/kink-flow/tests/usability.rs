@@ -9,6 +9,8 @@
 //! list gives the same statuses under corpus order, under the measured cost order and under a
 //! forged reversed cost order).
 
+mod flow_support;
+
 use kink_campaign::{FinalResult, OracleOutcome, OracleSide, OracleValue, SideRun};
 use kink_flow::{
     FlowManifest, MutationList,
@@ -179,87 +181,6 @@ fn without_timings(value: &Value) -> Value {
 }
 
 #[test]
-fn an_exit_stop_kill_names_its_slot_and_both_sides() {
-    // F-09's divzero, in small: the mutant's rule applies to 1 / 0 with an undefined result
-    // where the baseline is stuck. The exit stop distinguishes (the baseline's terminal ends
-    // normally under the flow's all-normal classifier, the mutant's is an undefined step); the
-    // whole final configuration agrees, because an undefined step's terminal is its pre-step
-    // configuration, the baseline's stuck one.
-    let dir = fixture("divide", "exit-stop");
-    let manifest = dir.join("FLOW.toml");
-    let document = search(&manifest, &dir.join("MUTATIONS.toml"), ProgramOrder::Corpus);
-    let row = mutation(&document, "guard-dropped");
-    assert_eq!(row["status"], "killed");
-    assert_eq!(row["killer"], "by-zero");
-    // Re-pin R0c-fix-3: version 5 adds each row's `inconsistent_pairs`; re-pin L2-2-fix-1:
-    // version 6 adds each row's `typing_diagnostics`; packet CACHE-ID: version 7 adds the
-    // document's `kink` identity; packet CACHE-ID-fix-1: version 8 adds its `kink_build`; re-pin
-    // adoption A-1: version 9 adds `specification_diagnostics` and `smt_unknowns`.
-    assert_eq!(document["version"], 9);
-    assert_eq!(row["typing_diagnostics"], json!([]));
-    assert_eq!(
-        entry(&document, "guard-dropped", "by-zero")["slots"],
-        json!({
-            "exit-stop": {
-                "outcome": "distinguish",
-                "sides": {"baseline": ["normal"], "mutant": ["undefined-step"]}
-            },
-            "whole-term": {"outcome": "agree"}
-        })
-    );
-    assert_eq!(
-        entry(&document, "guard-dropped", "quotient")["slots"],
-        json!({"exit-stop": {"outcome": "agree"}, "whole-term": {"outcome": "agree"}})
-    );
-}
-
-#[test]
-fn a_whole_term_kill_shows_the_mutants_final_configurations_on_the_killer_only() {
-    let dir = fixture("calc", "whole-term");
-    let manifest = dir.join("FLOW.toml");
-    let document = search(&manifest, &dir.join("MUTATIONS.toml"), ProgramOrder::Corpus);
-    // add-becomes-sub: `1 + 2` ends in -1 on the mutant, 3 on the baseline.
-    let killer = entry(&document, "add-becomes-sub", "add");
-    assert_eq!(killer["outcome"], "distinguish");
-    assert_eq!(killer["slots"]["exit-stop"], json!({"outcome": "agree"}));
-    let whole = &killer["slots"]["whole-term"];
-    assert_eq!(whole["outcome"], "distinguish");
-    assert_eq!(
-        whole["sides"]["baseline"],
-        json!({"final_configurations": 1})
-    );
-    assert_eq!(whole["sides"]["mutant"]["final_configurations"], 1);
-    let kore = whole["sides"]["mutant"]["kore"].as_array().unwrap();
-    assert_eq!(kore.len(), 1);
-    assert_eq!(kore[0]["truncated"], false);
-    let text = kore[0]["text"].as_str().unwrap();
-    assert!(text.contains("\\dv{SortInt{}}(\"-1\")"), "{text}");
-    assert!(!text.contains("\\dv{SortInt{}}(\"3\")"), "{text}");
-    // A survivor's agreeing programs have no sides; an agreeing slot never has any.
-    for entry in mutation(&document, "add-swaps-operands")["executed"]
-        .as_array()
-        .unwrap()
-    {
-        assert_eq!(
-            entry["slots"],
-            json!({"exit-stop": {"outcome": "agree"}, "whole-term": {"outcome": "agree"}}),
-            "{entry:#}"
-        );
-    }
-
-    // From the outcome cache the kill has no evidence at hand: its slots carry no sides.
-    let warm = search(&manifest, &dir.join("MUTATIONS.toml"), ProgramOrder::Corpus);
-    let cached = entry(&warm, "add-becomes-sub", "add");
-    assert_eq!(cached["cached"], true);
-    assert_eq!(
-        cached["slots"],
-        json!({"exit-stop": {"outcome": "agree"},
-               "whole-term": {"outcome": "distinguish", "sides": null}})
-    );
-    assert_eq!(cached["wall_ms"], Value::Null);
-}
-
-#[test]
 fn final_configurations_are_capped_at_4000_characters() {
     let term = |value: String| k_rust::kore::ast::Pattern::DomainValue {
         sort: k_rust::kompile::initial_configuration::kore_sort("SortString"),
@@ -296,78 +217,6 @@ fn final_configurations_are_capped_at_4000_characters() {
     );
 }
 
-#[test]
-fn timings_are_recorded_outside_every_digest_key_record_digest_and_hint() {
-    // Two cold runs of the same files (corpus order, so that nothing the clock decides can
-    // differ): the result records differ at most in wall_ms, the outcome records and the
-    // hints are byte-identical, and the run documents differ only in timing fields.
-    let one = fixture("calc", "timings-1");
-    let two = fixture("calc", "timings-2");
-    let mut documents = Vec::new();
-    for dir in [&one, &two] {
-        let document = search(
-            &dir.join("FLOW.toml"),
-            &dir.join("MUTATIONS.toml"),
-            ProgramOrder::Corpus,
-        );
-        // Every row has a wall time per call; every live executed entry its own run's time and
-        // the program's baseline run's.
-        for row in document["mutations"].as_array().unwrap() {
-            assert_eq!(
-                row["call_wall_ms"].as_array().unwrap().len(),
-                row["calls"].as_array().unwrap().len(),
-                "{row:#}"
-            );
-            assert!(
-                row["call_wall_ms"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .all(Value::is_u64)
-            );
-            for entry in row["executed"].as_array().unwrap() {
-                assert!(entry["wall_ms"].is_u64(), "{entry:#}");
-                assert!(entry["baseline_ms"].is_u64(), "{entry:#}");
-                // The result update ran every baseline live; the kill search reused them.
-                assert_eq!(entry["baseline_reused"], true, "{entry:#}");
-            }
-        }
-        for program in document["programs"].as_array().unwrap() {
-            assert!(program["wall_ms"].is_u64(), "{program:#}");
-        }
-        documents.push(document);
-    }
-    assert_eq!(
-        without_timings(&documents[0]),
-        without_timings(&documents[1])
-    );
-    let (records_one, records_two) = (
-        files(&cache_of(&one.join("FLOW.toml")).join("results")),
-        files(&cache_of(&two.join("FLOW.toml")).join("results")),
-    );
-    assert_eq!(
-        records_one.keys().collect::<Vec<_>>(),
-        records_two.keys().collect::<Vec<_>>()
-    );
-    for (path, text) in &records_one {
-        let (a, b): (Value, Value) = (
-            serde_json::from_str(text).unwrap(),
-            serde_json::from_str(&records_two[path]).unwrap(),
-        );
-        assert!(a["wall_ms"].is_u64() && b["wall_ms"].is_u64());
-        assert!(a["key"].get("wall_ms").is_none(), "{a:#}");
-        assert_eq!(without_timings(&a), without_timings(&b), "{path}");
-    }
-    assert_eq!(
-        files(&cache_of(&one.join("FLOW.toml")).join(OUTCOMES_DIRECTORY)),
-        files(&cache_of(&two.join("FLOW.toml")).join(OUTCOMES_DIRECTORY))
-    );
-    assert_eq!(
-        fs::read_to_string(hints_path(&cache_of(&one.join("FLOW.toml")))).unwrap(),
-        fs::read_to_string(hints_path(&cache_of(&two.join("FLOW.toml")))).unwrap()
-    );
-}
-
 /// `the run did not finish ...; when the bound fired k-rust returned N leaves (...), the
 /// deepest at depth D; those leaves had applied R of the T rules a run can observe`, or the
 /// no-leaf form.
@@ -387,138 +236,6 @@ fn assert_census_cause(cause: &str, prefix: &str, rules: Option<(usize, usize)>)
             "{cause}"
         );
     }
-}
-
-#[test]
-fn a_timeout_is_classified_from_its_one_live_run_with_its_census() {
-    // spin never ends: its baseline is class timeout, from the zero-mutant campaign's own run
-    // (one live run per program, no diagnostic run), and its cause carries the census.
-    let dir = fixture("loop", "timeout");
-    let manifest = dir.join("FLOW-timeout.toml");
-    let document = results_document(&manifest, None);
-    let spin = &document["programs"][0];
-    assert_eq!(spin["id"], "spin");
-    assert_eq!(spin["class"], "timeout");
-    assert!(spin["wall_ms"].as_u64().unwrap() >= 500, "{spin:#}");
-    // The loop specification has five rules a run can observe (double is an equation); a
-    // stopped spin run has applied the spin rule only.
-    assert_census_cause(
-        spin["cause"].as_str().unwrap(),
-        "the run did not finish within time_ms = 500; when the bound fired ",
-        Some((1, 5)),
-    );
-    assert_eq!(document["programs"][1]["class"], "comparable");
-    assert_eq!(
-        document["baseline_runs"],
-        json!({"live": 2, "reused": 0, "diagnostic": 0})
-    );
-    // A session record never makes a program comparable: the record is a timeout record.
-    let record = read_json(
-        &cache_of(&manifest)
-            .join("results")
-            .join(document["spec"]["digest"].as_str().unwrap())
-            .join(format!("{}.json", spin["digest"].as_str().unwrap())),
-    );
-    assert_eq!(record["class"], "timeout");
-    assert!(record["baseline"].is_null() && record["run_sha256"].is_null());
-    assert_eq!(record["cause"], spin["cause"]);
-
-    // An unknown baseline (a Bytes-keyed map) keeps its diagnostic run.
-    let bytes = fixture("bytes-map", "diagnostic").join("FLOW.toml");
-    let document = results_document(&bytes, None);
-    assert_eq!(document["programs"][0]["class"], "unknown");
-    assert_eq!(
-        document["baseline_runs"],
-        json!({"live": 1, "reused": 0, "diagnostic": 1})
-    );
-}
-
-#[test]
-fn a_mutants_timeout_and_depth_stop_carry_the_census() {
-    let dir = fixture("loop", "mutant-census");
-    let mutations = dir.join("MUTATIONS.toml");
-    let document = search(
-        &dir.join("FLOW-search.toml"),
-        &mutations,
-        ProgramOrder::Corpus,
-    );
-    let countdown = entry(&document, "countdown-escapes", "countdown");
-    assert_eq!(countdown["outcome"], "timeout");
-    assert!(
-        countdown["wall_ms"].as_u64().unwrap() >= 500,
-        "{countdown:#}"
-    );
-    assert_census_cause(
-        countdown["cause"].as_str().unwrap(),
-        "the mutant's run did not end within time_ms = 500; when the bound fired ",
-        None,
-    );
-
-    fs::remove_dir_all(dir.join(CACHE_DIRECTORY)).unwrap();
-    let document = search(
-        &dir.join("FLOW-depth.toml"),
-        &mutations,
-        ProgramOrder::Corpus,
-    );
-    let countdown = entry(&document, "countdown-escapes", "countdown");
-    assert_eq!(countdown["outcome"], "unknown");
-    let cause = countdown["cause"].as_str().unwrap();
-    assert!(
-        cause.ends_with(
-            "; the mutant's run: k-rust returned 1 leaf (depth-bound 1), the deepest at depth 200"
-        ),
-        "{cause}"
-    );
-}
-
-#[test]
-fn the_cheaper_killer_is_found_and_hinted_first() {
-    // slow and fast both reach the done rule and both kill done-returns-one; slow is first in
-    // corpus order and takes many more steps.
-    let cost = fixture("loop", "cost");
-    let document = search(
-        &cost.join("FLOW-cost.toml"),
-        &cost.join("MUTATIONS-cost.toml"),
-        ProgramOrder::Cost,
-    );
-    assert_eq!(document["order"], "cost");
-    let wall = |id: &str| {
-        document["programs"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|p| p["id"] == id)
-            .unwrap()["wall_ms"]
-            .as_u64()
-            .unwrap()
-    };
-    assert!(wall("slow") > wall("fast"), "{:#}", document["programs"]);
-    let row = mutation(&document, "done-returns-one");
-    assert_eq!(row["status"], "killed");
-    assert_eq!(row["killer"], "fast");
-    assert_eq!(
-        row["calls"],
-        json!([{"programs": ["fast", "slow"], "status": "killed"}])
-    );
-    let hints = read_json(&hints_path(&cache_of(&cost.join("FLOW-cost.toml"))));
-    let hinted = hints["hints"]
-        .as_object()
-        .unwrap()
-        .values()
-        .map(|h| h["program_id"].as_str().unwrap().to_owned())
-        .collect::<Vec<_>>();
-    assert_eq!(hinted, ["fast"]);
-
-    let corpus = fixture("loop", "corpus");
-    let document = search(
-        &corpus.join("FLOW-cost.toml"),
-        &corpus.join("MUTATIONS-cost.toml"),
-        ProgramOrder::Corpus,
-    );
-    assert_eq!(document["order"], "corpus");
-    let row = mutation(&document, "done-returns-one");
-    assert_eq!(row["status"], "killed");
-    assert_eq!(row["killer"], "slow");
 }
 
 /// Rewrite every result record's `wall_ms` so that cost order is the reverse of corpus
@@ -576,10 +293,12 @@ fn statuses_do_not_depend_on_the_order(
     mutations: &str,
 ) -> ([Value; 3], usize) {
     let slug = format!("{}-{manifest}-{mutations}", name.replace('/', "-"));
-    let corpus = fixture(name, &format!("order-corpus-{slug}"));
+    // The corpus-order run is the cold run shared with the other tests of this binary
+    // (`flow_support::after_cold`: `search` in corpus order).
+    let corpus = scratch(&format!("order-corpus-{slug}")).join(name);
+    let by_corpus = flow_support::after_cold(name, manifest, mutations, &corpus);
     let flow = corpus.join(manifest);
     let list = corpus.join(mutations);
-    let by_corpus = search(&flow, &list, ProgramOrder::Corpus);
 
     // The same result records with reversed costs; outcomes, hints and report forgotten.
     reverse_costs(&flow, &by_corpus);
@@ -635,70 +354,6 @@ fn statuses_do_not_depend_on_the_order(
     ([by_corpus, reversed, by_cost], shared)
 }
 
-#[test]
-fn calc_statuses_do_not_depend_on_the_order() {
-    let ([by_corpus, reversed, _], shared) =
-        statuses_do_not_depend_on_the_order("calc", "FLOW.toml", "MUTATIONS.toml");
-    assert!(shared > 0, "the byte-equality check compared records");
-    // The forged costs did reorder the search: inside each tier the survivor ran its programs
-    // in reverse corpus order (corpus order: add, nested, sub, inline; add, nested and inline
-    // reach the add rule).
-    assert_eq!(
-        mutation(&by_corpus, "add-swaps-operands")["calls"],
-        json!([{"programs": ["add", "nested", "inline", "sub"], "status": "survived"}])
-    );
-    assert_eq!(
-        mutation(&reversed, "add-swaps-operands")["calls"],
-        json!([{"programs": ["inline", "nested", "add", "sub"], "status": "survived"}])
-    );
-    assert_eq!(reversed["order"], "cost");
-}
-
-#[test]
-fn calc_status_list_statuses_do_not_depend_on_the_order() {
-    statuses_do_not_depend_on_the_order("calc", "FLOW.toml", "MUTATIONS-statuses.toml");
-}
-
-#[test]
-fn register_statuses_do_not_depend_on_the_order() {
-    statuses_do_not_depend_on_the_order("register", "FLOW.toml", "MUTATIONS.toml");
-}
-
-#[test]
-fn loop_timeout_statuses_do_not_depend_on_the_order() {
-    statuses_do_not_depend_on_the_order("loop", "FLOW-search.toml", "MUTATIONS.toml");
-}
-
-#[test]
-fn loop_depth_statuses_do_not_depend_on_the_order() {
-    statuses_do_not_depend_on_the_order("loop", "FLOW-depth.toml", "MUTATIONS.toml");
-}
-
-#[test]
-fn loop_cost_statuses_do_not_depend_on_the_order() {
-    statuses_do_not_depend_on_the_order("loop", "FLOW-cost.toml", "MUTATIONS-cost.toml");
-}
-
-#[test]
-fn markdown_statuses_do_not_depend_on_the_order() {
-    statuses_do_not_depend_on_the_order("markdown", "FLOW.toml", "MUTATIONS.toml");
-}
-
-#[test]
-fn twin_statuses_do_not_depend_on_the_order() {
-    statuses_do_not_depend_on_the_order("twin", "FLOW.toml", "MUTATIONS.toml");
-}
-
-#[test]
-fn divide_statuses_do_not_depend_on_the_order() {
-    statuses_do_not_depend_on_the_order("divide", "FLOW.toml", "MUTATIONS.toml");
-}
-
-#[test]
-fn map_store_statuses_do_not_depend_on_the_order() {
-    statuses_do_not_depend_on_the_order("map-store", "FLOW.toml", "MUTATIONS.toml");
-}
-
 mod heavy {
     use super::*;
 
@@ -714,98 +369,498 @@ mod heavy {
             statuses_do_not_depend_on_the_order(name, "FLOW.toml", "MUTATIONS.toml");
         }
     }
+
+    #[test]
+    #[ignore = "heavy"]
+    fn register_statuses_do_not_depend_on_the_order() {
+        statuses_do_not_depend_on_the_order("register", "FLOW.toml", "MUTATIONS.toml");
+    }
+
+    #[test]
+    #[ignore = "heavy"]
+    fn markdown_statuses_do_not_depend_on_the_order() {
+        statuses_do_not_depend_on_the_order("markdown", "FLOW.toml", "MUTATIONS.toml");
+    }
+
+    #[test]
+    #[ignore = "heavy"]
+    fn twin_statuses_do_not_depend_on_the_order() {
+        statuses_do_not_depend_on_the_order("twin", "FLOW.toml", "MUTATIONS.toml");
+    }
+
+    #[test]
+    #[ignore = "heavy"]
+    fn divide_statuses_do_not_depend_on_the_order() {
+        statuses_do_not_depend_on_the_order("divide", "FLOW.toml", "MUTATIONS.toml");
+    }
+
+    #[test]
+    #[ignore = "heavy"]
+    fn map_store_statuses_do_not_depend_on_the_order() {
+        statuses_do_not_depend_on_the_order("map-store", "FLOW.toml", "MUTATIONS.toml");
+    }
 }
 
-#[test]
-fn results_and_the_report_list_the_rules_no_mutation_targets() {
-    // The loop list targets only the countdown rule; the cost list only done.
-    let dir = fixture("loop", "untargeted");
-    let manifest = dir.join("FLOW.toml");
-    let document = results_document(&manifest, Some(dir.join("MUTATIONS.toml")));
-    let listed = |document: &Value| {
-        document["untargeted_rules"]
+mod kink_tier {
+    use super::*;
+
+    #[test]
+    #[ignore = "kink"]
+    fn calc_statuses_do_not_depend_on_the_order() {
+        let ([by_corpus, reversed, _], shared) =
+            statuses_do_not_depend_on_the_order("calc", "FLOW.toml", "MUTATIONS.toml");
+        assert!(shared > 0, "the byte-equality check compared records");
+        // The forged costs did reorder the search: inside each tier the survivor ran its programs
+        // in reverse corpus order (corpus order: add, nested, sub, inline; add, nested and inline
+        // reach the add rule).
+        assert_eq!(
+            mutation(&by_corpus, "add-swaps-operands")["calls"],
+            json!([{"programs": ["add", "nested", "inline", "sub"], "status": "survived"}])
+        );
+        assert_eq!(
+            mutation(&reversed, "add-swaps-operands")["calls"],
+            json!([{"programs": ["inline", "nested", "add", "sub"], "status": "survived"}])
+        );
+        assert_eq!(reversed["order"], "cost");
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn calc_status_list_statuses_do_not_depend_on_the_order() {
+        statuses_do_not_depend_on_the_order("calc", "FLOW.toml", "MUTATIONS-statuses.toml");
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn loop_timeout_statuses_do_not_depend_on_the_order() {
+        statuses_do_not_depend_on_the_order("loop", "FLOW-search.toml", "MUTATIONS.toml");
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn loop_depth_statuses_do_not_depend_on_the_order() {
+        statuses_do_not_depend_on_the_order("loop", "FLOW-depth.toml", "MUTATIONS.toml");
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn loop_cost_statuses_do_not_depend_on_the_order() {
+        statuses_do_not_depend_on_the_order("loop", "FLOW-cost.toml", "MUTATIONS-cost.toml");
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn a_timeout_is_classified_from_its_one_live_run_with_its_census() {
+        // spin never ends: its baseline is class timeout, from the zero-mutant campaign's own run
+        // (one live run per program, no diagnostic run), and its cause carries the census.
+        let dir = fixture("loop", "timeout");
+        let manifest = dir.join("FLOW-timeout.toml");
+        let document = results_document(&manifest, None);
+        let spin = &document["programs"][0];
+        assert_eq!(spin["id"], "spin");
+        assert_eq!(spin["class"], "timeout");
+        assert!(spin["wall_ms"].as_u64().unwrap() >= 500, "{spin:#}");
+        // The loop specification has five rules a run can observe (double is an equation); a
+        // stopped spin run has applied the spin rule only.
+        assert_census_cause(
+            spin["cause"].as_str().unwrap(),
+            "the run did not finish within time_ms = 500; when the bound fired ",
+            Some((1, 5)),
+        );
+        assert_eq!(document["programs"][1]["class"], "comparable");
+        assert_eq!(
+            document["baseline_runs"],
+            json!({"live": 2, "reused": 0, "diagnostic": 0})
+        );
+        // A session record never makes a program comparable: the record is a timeout record.
+        let record = read_json(
+            &cache_of(&manifest)
+                .join("results")
+                .join(document["spec"]["digest"].as_str().unwrap())
+                .join(format!("{}.json", spin["digest"].as_str().unwrap())),
+        );
+        assert_eq!(record["class"], "timeout");
+        assert!(record["baseline"].is_null() && record["run_sha256"].is_null());
+        assert_eq!(record["cause"], spin["cause"]);
+        // Test-gate TG-F: the assertions of tests/results.rs
+        // `a_non_terminating_program_is_class_timeout`, which ran the same command on the same
+        // files. Neither program is from the cache; the record keeps no final configuration and
+        // names the manifest's budget; a timeout is a result too: the next run reuses it.
+        let classes = |document: &Value| {
+            document["programs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|p| {
+                    (
+                        p["id"].as_str().unwrap().to_owned(),
+                        p["class"].as_str().unwrap().to_owned(),
+                        p["cached"].as_bool().unwrap(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        let expected = |cached: bool| {
+            vec![
+                ("spin".to_owned(), "timeout".to_owned(), cached),
+                ("countdown".to_owned(), "comparable".to_owned(), cached),
+            ]
+        };
+        assert_eq!(classes(&document), expected(false));
+        assert!(record["final_configuration"].is_null());
+        assert_eq!(record["key"]["budget"]["time_ms"], 500);
+        assert_eq!(record["key"]["budget"]["max_depth"], 1_000_000_000_u64);
+        assert_eq!(classes(&results_document(&manifest, None)), expected(true));
+
+        // An unknown baseline (a Bytes-keyed map) keeps its diagnostic run.
+        let bytes = fixture("bytes-map", "diagnostic").join("FLOW.toml");
+        let document = results_document(&bytes, None);
+        assert_eq!(document["programs"][0]["class"], "unknown");
+        assert_eq!(
+            document["baseline_runs"],
+            json!({"live": 1, "reused": 0, "diagnostic": 1})
+        );
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn an_exit_stop_kill_names_its_slot_and_both_sides() {
+        // F-09's divzero, in small: the mutant's rule applies to 1 / 0 with an undefined result
+        // where the baseline is stuck. The exit stop distinguishes (the baseline's terminal ends
+        // normally under the flow's all-normal classifier, the mutant's is an undefined step); the
+        // whole final configuration agrees, because an undefined step's terminal is its pre-step
+        // configuration, the baseline's stuck one.
+        let dir = fixture("divide", "exit-stop");
+        let manifest = dir.join("FLOW.toml");
+        let document = search(&manifest, &dir.join("MUTATIONS.toml"), ProgramOrder::Corpus);
+        let row = mutation(&document, "guard-dropped");
+        assert_eq!(row["status"], "killed");
+        assert_eq!(row["killer"], "by-zero");
+        // Re-pin R0c-fix-3: version 5 adds each row's `inconsistent_pairs`; re-pin L2-2-fix-1:
+        // version 6 adds each row's `typing_diagnostics`; packet CACHE-ID: version 7 adds the
+        // document's `kink` identity; packet CACHE-ID-fix-1: version 8 adds its `kink_build`; re-pin
+        // adoption A-1: version 9 adds `specification_diagnostics` and `smt_unknowns`.
+        assert_eq!(document["version"], 9);
+        assert_eq!(row["typing_diagnostics"], json!([]));
+        assert_eq!(
+            entry(&document, "guard-dropped", "by-zero")["slots"],
+            json!({
+                "exit-stop": {
+                    "outcome": "distinguish",
+                    "sides": {"baseline": ["normal"], "mutant": ["undefined-step"]}
+                },
+                "whole-term": {"outcome": "agree"}
+            })
+        );
+        assert_eq!(
+            entry(&document, "guard-dropped", "quotient")["slots"],
+            json!({"exit-stop": {"outcome": "agree"}, "whole-term": {"outcome": "agree"}})
+        );
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn a_mutants_timeout_and_depth_stop_carry_the_census() {
+        let dir = fixture("loop", "mutant-census");
+        let mutations = dir.join("MUTATIONS.toml");
+        let document = search(
+            &dir.join("FLOW-search.toml"),
+            &mutations,
+            ProgramOrder::Corpus,
+        );
+        let countdown = entry(&document, "countdown-escapes", "countdown");
+        assert_eq!(countdown["outcome"], "timeout");
+        assert!(
+            countdown["wall_ms"].as_u64().unwrap() >= 500,
+            "{countdown:#}"
+        );
+        assert_census_cause(
+            countdown["cause"].as_str().unwrap(),
+            "the mutant's run did not end within time_ms = 500; when the bound fired ",
+            None,
+        );
+
+        fs::remove_dir_all(dir.join(CACHE_DIRECTORY)).unwrap();
+        let document = search(
+            &dir.join("FLOW-depth.toml"),
+            &mutations,
+            ProgramOrder::Corpus,
+        );
+        let countdown = entry(&document, "countdown-escapes", "countdown");
+        assert_eq!(countdown["outcome"], "unknown");
+        let cause = countdown["cause"].as_str().unwrap();
+        assert!(
+            cause.ends_with(
+                "; the mutant's run: k-rust returned 1 leaf (depth-bound 1), the deepest at depth 200"
+            ),
+            "{cause}"
+        );
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn a_whole_term_kill_shows_the_mutants_final_configurations_on_the_killer_only() {
+        // The cold run, shared with the other tests of this binary (`flow_support::after_cold`).
+        let dir = scratch("whole-term").join("calc");
+        let document = flow_support::after_cold("calc", "FLOW.toml", "MUTATIONS.toml", &dir);
+        let manifest = dir.join("FLOW.toml");
+        // add-becomes-sub: `1 + 2` ends in -1 on the mutant, 3 on the baseline.
+        let killer = entry(&document, "add-becomes-sub", "add");
+        assert_eq!(killer["outcome"], "distinguish");
+        assert_eq!(killer["slots"]["exit-stop"], json!({"outcome": "agree"}));
+        let whole = &killer["slots"]["whole-term"];
+        assert_eq!(whole["outcome"], "distinguish");
+        assert_eq!(
+            whole["sides"]["baseline"],
+            json!({"final_configurations": 1})
+        );
+        assert_eq!(whole["sides"]["mutant"]["final_configurations"], 1);
+        let kore = whole["sides"]["mutant"]["kore"].as_array().unwrap();
+        assert_eq!(kore.len(), 1);
+        assert_eq!(kore[0]["truncated"], false);
+        let text = kore[0]["text"].as_str().unwrap();
+        assert!(text.contains("\\dv{SortInt{}}(\"-1\")"), "{text}");
+        assert!(!text.contains("\\dv{SortInt{}}(\"3\")"), "{text}");
+        // A survivor's agreeing programs have no sides; an agreeing slot never has any.
+        for entry in mutation(&document, "add-swaps-operands")["executed"]
             .as_array()
             .unwrap()
-            .iter()
-            .map(|rule| {
-                (
-                    rule["label"].as_str().map(str::to_owned),
-                    rule["start_line"].as_u64().unwrap(),
-                )
-            })
-            .collect::<Vec<_>>()
-    };
-    let lines = |document: &Value| {
-        listed(document)
-            .into_iter()
-            .map(|(_, line)| line)
-            .collect::<Vec<_>>()
-    };
-    // double (an equation, unlabelled, line 19), spin, done, twice, unused.
-    assert_eq!(lines(&document), [19, 20, 22, 23, 24]);
-    let rules = document["untargeted_rules"].as_array().unwrap();
-    assert_eq!(
-        rules[0],
-        json!({"module": "LOOP", "index": 2, "label": null, "file": "loop.k",
-               "start_line": 19, "end_line": 19, "address": {"file": "loop.k", "line": 19},
-               "text": "rule double(I) => I *Int 2"})
-    );
-    assert_eq!(rules[1]["address"], json!({"rule": "LOOP.spin"}));
-    assert_eq!(
-        rules[1]["text"],
-        "rule [spin]: spin(I:Int) => spin(I +Int 1)"
-    );
-    // Without a list there is nothing to compare with.
-    assert_eq!(
-        results_document(&manifest, None)["untargeted_rules"],
-        Value::Null
-    );
+        {
+            assert_eq!(
+                entry["slots"],
+                json!({"exit-stop": {"outcome": "agree"}, "whole-term": {"outcome": "agree"}}),
+                "{entry:#}"
+            );
+        }
 
-    // The run document (the report) lists them for the whole list, `--only` or not.
-    let run_document = search(&manifest, &dir.join("MUTATIONS.toml"), ProgramOrder::Corpus);
-    assert_eq!(
-        run_document["untargeted_rules"],
-        document["untargeted_rules"]
-    );
-    let both = dir.join("BOTH.toml");
-    fs::write(
-        &both,
-        format!(
-            "{}\n{}",
-            fs::read_to_string(dir.join("MUTATIONS.toml")).unwrap(),
-            fs::read_to_string(dir.join("MUTATIONS-cost.toml")).unwrap()
-        ),
-    )
-    .unwrap();
-    let flow = FlowManifest::read(&manifest).unwrap();
-    let list = MutationList::read(&both).unwrap();
-    let (only, ok) = run(
-        &flow,
-        &list,
-        &RunOptions {
-            only: vec!["countdown-escapes".into()],
-            cache: None,
-            order: ProgramOrder::Corpus,
-            compile_workers: None,
-            memo: kink_flow::memo::MemoUse::On,
-        },
-    );
-    assert!(ok, "{only:#}");
-    assert_eq!(only["mutations"].as_array().unwrap().len(), 1);
-    assert_eq!(lines(&only), [19, 20, 23, 24]);
-    // A mutation that does not resolve targets nothing.
-    let invalid = dir.join("INVALID.toml");
-    fs::write(
-        &invalid,
-        "[[mutation]]\nid = \"nowhere\"\n\n  [[mutation.edit]]\n  rule = \"spin\"\n  \
-         find = \"no such text\"\n  replace = \"x\"\n",
-    )
-    .unwrap();
-    let document = results_document(&manifest, Some(invalid));
-    assert_eq!(lines(&document), [19, 20, 21, 22, 23, 24]);
-    let labels = listed(&document)
-        .into_iter()
-        .filter_map(|(label, _)| label)
-        .collect::<BTreeSet<_>>();
-    assert!(labels.contains("LOOP.countdown"));
+        // From the outcome cache the kill has no evidence at hand: its slots carry no sides.
+        let warm = search(&manifest, &dir.join("MUTATIONS.toml"), ProgramOrder::Corpus);
+        let cached = entry(&warm, "add-becomes-sub", "add");
+        assert_eq!(cached["cached"], true);
+        assert_eq!(
+            cached["slots"],
+            json!({"exit-stop": {"outcome": "agree"},
+                   "whole-term": {"outcome": "distinguish", "sides": null}})
+        );
+        assert_eq!(cached["wall_ms"], Value::Null);
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn the_cheaper_killer_is_found_and_hinted_first() {
+        // slow and fast both reach the done rule and both kill done-returns-one; slow is first in
+        // corpus order and takes many more steps.
+        let cost = fixture("loop", "cost");
+        let document = search(
+            &cost.join("FLOW-cost.toml"),
+            &cost.join("MUTATIONS-cost.toml"),
+            ProgramOrder::Cost,
+        );
+        assert_eq!(document["order"], "cost");
+        let wall = |id: &str| {
+            document["programs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|p| p["id"] == id)
+                .unwrap()["wall_ms"]
+                .as_u64()
+                .unwrap()
+        };
+        assert!(wall("slow") > wall("fast"), "{:#}", document["programs"]);
+        let row = mutation(&document, "done-returns-one");
+        assert_eq!(row["status"], "killed");
+        assert_eq!(row["killer"], "fast");
+        assert_eq!(
+            row["calls"],
+            json!([{"programs": ["fast", "slow"], "status": "killed"}])
+        );
+        let hints = read_json(&hints_path(&cache_of(&cost.join("FLOW-cost.toml"))));
+        let hinted = hints["hints"]
+            .as_object()
+            .unwrap()
+            .values()
+            .map(|h| h["program_id"].as_str().unwrap().to_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(hinted, ["fast"]);
+
+        let corpus = fixture("loop", "corpus");
+        let document = search(
+            &corpus.join("FLOW-cost.toml"),
+            &corpus.join("MUTATIONS-cost.toml"),
+            ProgramOrder::Corpus,
+        );
+        assert_eq!(document["order"], "corpus");
+        let row = mutation(&document, "done-returns-one");
+        assert_eq!(row["status"], "killed");
+        assert_eq!(row["killer"], "slow");
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn timings_are_recorded_outside_every_digest_key_record_digest_and_hint() {
+        // Two cold runs of the same files (corpus order, so that nothing the clock decides can
+        // differ): the result records differ at most in wall_ms, the outcome records and the
+        // hints are byte-identical, and the run documents differ only in timing fields.
+        let one = fixture("calc", "timings-1");
+        let two = fixture("calc", "timings-2");
+        let mut documents = Vec::new();
+        for dir in [&one, &two] {
+            let document = search(
+                &dir.join("FLOW.toml"),
+                &dir.join("MUTATIONS.toml"),
+                ProgramOrder::Corpus,
+            );
+            // Every row has a wall time per call; every live executed entry its own run's time and
+            // the program's baseline run's.
+            for row in document["mutations"].as_array().unwrap() {
+                assert_eq!(
+                    row["call_wall_ms"].as_array().unwrap().len(),
+                    row["calls"].as_array().unwrap().len(),
+                    "{row:#}"
+                );
+                assert!(
+                    row["call_wall_ms"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .all(Value::is_u64)
+                );
+                for entry in row["executed"].as_array().unwrap() {
+                    assert!(entry["wall_ms"].is_u64(), "{entry:#}");
+                    assert!(entry["baseline_ms"].is_u64(), "{entry:#}");
+                    // The result update ran every baseline live; the kill search reused them.
+                    assert_eq!(entry["baseline_reused"], true, "{entry:#}");
+                }
+            }
+            for program in document["programs"].as_array().unwrap() {
+                assert!(program["wall_ms"].is_u64(), "{program:#}");
+            }
+            documents.push(document);
+        }
+        assert_eq!(
+            without_timings(&documents[0]),
+            without_timings(&documents[1])
+        );
+        let (records_one, records_two) = (
+            files(&cache_of(&one.join("FLOW.toml")).join("results")),
+            files(&cache_of(&two.join("FLOW.toml")).join("results")),
+        );
+        assert_eq!(
+            records_one.keys().collect::<Vec<_>>(),
+            records_two.keys().collect::<Vec<_>>()
+        );
+        for (path, text) in &records_one {
+            let (a, b): (Value, Value) = (
+                serde_json::from_str(text).unwrap(),
+                serde_json::from_str(&records_two[path]).unwrap(),
+            );
+            assert!(a["wall_ms"].is_u64() && b["wall_ms"].is_u64());
+            assert!(a["key"].get("wall_ms").is_none(), "{a:#}");
+            assert_eq!(without_timings(&a), without_timings(&b), "{path}");
+        }
+        assert_eq!(
+            files(&cache_of(&one.join("FLOW.toml")).join(OUTCOMES_DIRECTORY)),
+            files(&cache_of(&two.join("FLOW.toml")).join(OUTCOMES_DIRECTORY))
+        );
+        assert_eq!(
+            fs::read_to_string(hints_path(&cache_of(&one.join("FLOW.toml")))).unwrap(),
+            fs::read_to_string(hints_path(&cache_of(&two.join("FLOW.toml")))).unwrap()
+        );
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn results_and_the_report_list_the_rules_no_mutation_targets() {
+        // The loop list targets only the countdown rule; the cost list only done.
+        let dir = fixture("loop", "untargeted");
+        let manifest = dir.join("FLOW.toml");
+        let document = results_document(&manifest, Some(dir.join("MUTATIONS.toml")));
+        let listed = |document: &Value| {
+            document["untargeted_rules"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|rule| {
+                    (
+                        rule["label"].as_str().map(str::to_owned),
+                        rule["start_line"].as_u64().unwrap(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        let lines = |document: &Value| {
+            listed(document)
+                .into_iter()
+                .map(|(_, line)| line)
+                .collect::<Vec<_>>()
+        };
+        // double (an equation, unlabelled, line 19), spin, done, twice, unused.
+        assert_eq!(lines(&document), [19, 20, 22, 23, 24]);
+        let rules = document["untargeted_rules"].as_array().unwrap();
+        assert_eq!(
+            rules[0],
+            json!({"module": "LOOP", "index": 2, "label": null, "file": "loop.k",
+                   "start_line": 19, "end_line": 19, "address": {"file": "loop.k", "line": 19},
+                   "text": "rule double(I) => I *Int 2"})
+        );
+        assert_eq!(rules[1]["address"], json!({"rule": "LOOP.spin"}));
+        assert_eq!(
+            rules[1]["text"],
+            "rule [spin]: spin(I:Int) => spin(I +Int 1)"
+        );
+        // Without a list there is nothing to compare with.
+        assert_eq!(
+            results_document(&manifest, None)["untargeted_rules"],
+            Value::Null
+        );
+
+        // The run document (the report) lists them for the whole list, `--only` or not.
+        let run_document = search(&manifest, &dir.join("MUTATIONS.toml"), ProgramOrder::Corpus);
+        assert_eq!(
+            run_document["untargeted_rules"],
+            document["untargeted_rules"]
+        );
+        let both = dir.join("BOTH.toml");
+        fs::write(
+            &both,
+            format!(
+                "{}\n{}",
+                fs::read_to_string(dir.join("MUTATIONS.toml")).unwrap(),
+                fs::read_to_string(dir.join("MUTATIONS-cost.toml")).unwrap()
+            ),
+        )
+        .unwrap();
+        let flow = FlowManifest::read(&manifest).unwrap();
+        let list = MutationList::read(&both).unwrap();
+        let (only, ok) = run(
+            &flow,
+            &list,
+            &RunOptions {
+                only: vec!["countdown-escapes".into()],
+                cache: None,
+                order: ProgramOrder::Corpus,
+                compile_workers: None,
+                memo: kink_flow::memo::MemoUse::On,
+            },
+        );
+        assert!(ok, "{only:#}");
+        assert_eq!(only["mutations"].as_array().unwrap().len(), 1);
+        assert_eq!(lines(&only), [19, 20, 23, 24]);
+        // A mutation that does not resolve targets nothing.
+        let invalid = dir.join("INVALID.toml");
+        fs::write(
+            &invalid,
+            "[[mutation]]\nid = \"nowhere\"\n\n  [[mutation.edit]]\n  rule = \"spin\"\n  \
+             find = \"no such text\"\n  replace = \"x\"\n",
+        )
+        .unwrap();
+        let document = results_document(&manifest, Some(invalid));
+        assert_eq!(lines(&document), [19, 20, 21, 22, 23, 24]);
+        let labels = listed(&document)
+            .into_iter()
+            .filter_map(|(label, _)| label)
+            .collect::<BTreeSet<_>>();
+        assert!(labels.contains("LOOP.countdown"));
+    }
 }

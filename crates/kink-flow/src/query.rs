@@ -677,63 +677,68 @@ mod tests {
             .unwrap_or_else(|| panic!("no row ({pattern}, {program}) in {document:#}"))
     }
 
-    #[test]
-    fn a_cached_answer_is_judged_with_the_current_facts() {
-        let cache =
-            std::env::temp_dir().join(format!("kink-flow-query-rejudge-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&cache);
-        let (first, ok) = run(&cache, |_| {});
-        assert!(ok, "{first:#}");
-        assert_eq!(row(&first, "result-three", "add")["answer"], "hit");
-        assert_eq!(row(&first, "result-four", "add")["answer"], "no");
-        assert_eq!(row(&first, "result-four", "add")["cached"], false);
+    mod kink_tier {
+        use super::*;
 
-        // The same facts: both answers come from the cache.
-        let (second, _) = run(&cache, |_| {});
-        for (pattern, answer) in [("result-three", "hit"), ("result-four", "no")] {
-            let row = row(&second, pattern, "add");
-            assert_eq!(row["answer"], answer, "{row:#}");
-            assert_eq!(row["cached"], true, "{row:#}");
-        }
+        #[test]
+        #[ignore = "kink"]
+        fn a_cached_answer_is_judged_with_the_current_facts() {
+            let cache = std::env::temp_dir()
+                .join(format!("kink-flow-query-rejudge-{}", std::process::id()));
+            let _ = fs::remove_dir_all(&cache);
+            let (first, ok) = run(&cache, |_| {});
+            assert!(ok, "{first:#}");
+            assert_eq!(row(&first, "result-three", "add")["answer"], "hit");
+            assert_eq!(row(&first, "result-four", "add")["answer"], "no");
+            assert_eq!(row(&first, "result-four", "add")["cached"], false);
 
-        // This command's load counts a stack stop: neither cached answer stands.
-        let (stopped, _) = run(&cache, |exclusions| exclusions.load_stack_stops = 1);
-        for pattern in ["result-three", "result-four"] {
-            let row = row(&stopped, pattern, "add");
-            assert_eq!(row["cached"], true, "{row:#}");
-            assert_eq!(row["answer"], "unknown", "{row:#}");
-            assert!(
-                row["cause"].as_str().unwrap().contains("load-stack-stop"),
-                "{row:#}"
-            );
-        }
+            // The same facts: both answers come from the cache.
+            let (second, _) = run(&cache, |_| {});
+            for (pattern, answer) in [("result-three", "hit"), ("result-four", "no")] {
+                let row = row(&second, pattern, "add");
+                assert_eq!(row["answer"], answer, "{row:#}");
+                assert_eq!(row["cached"], true, "{row:#}");
+            }
 
-        // This command's census flags a hook: the cached no is unknown, the cached hit stands.
-        let (census, _) = run(&cache, |exclusions| {
-            exclusions.implementation_chosen.push(HookReference {
-                module: "M".into(),
-                sentence: "r".into(),
-                symbol: "Lblkeys'Unds'list".into(),
-                hook: "MAP.keys_list".into(),
+            // This command's load counts a stack stop: neither cached answer stands.
+            let (stopped, _) = run(&cache, |exclusions| exclusions.load_stack_stops = 1);
+            for pattern in ["result-three", "result-four"] {
+                let row = row(&stopped, pattern, "add");
+                assert_eq!(row["cached"], true, "{row:#}");
+                assert_eq!(row["answer"], "unknown", "{row:#}");
+                assert!(
+                    row["cause"].as_str().unwrap().contains("load-stack-stop"),
+                    "{row:#}"
+                );
+            }
+
+            // This command's census flags a hook: the cached no is unknown, the cached hit stands.
+            let (census, _) = run(&cache, |exclusions| {
+                exclusions.implementation_chosen.push(HookReference {
+                    module: "M".into(),
+                    sentence: "r".into(),
+                    symbol: "Lblkeys'Unds'list".into(),
+                    hook: "MAP.keys_list".into(),
+                });
             });
-        });
-        let no = row(&census, "result-four", "add");
-        assert_eq!(
-            (no["cached"].clone(), no["answer"].clone()),
-            (json!(true), json!("unknown"))
-        );
-        assert!(
-            no["cause"]
-                .as_str()
-                .unwrap()
-                .contains("implementation-chosen-hook"),
-            "{no:#}"
-        );
-        let hit = row(&census, "result-three", "add");
-        assert_eq!(
-            (hit["cached"].clone(), hit["answer"].clone()),
-            (json!(true), json!("hit"))
-        );
-        let _ = fs::remove_dir_all(&cache);
+            let no = row(&census, "result-four", "add");
+            assert_eq!(
+                (no["cached"].clone(), no["answer"].clone()),
+                (json!(true), json!("unknown"))
+            );
+            assert!(
+                no["cause"]
+                    .as_str()
+                    .unwrap()
+                    .contains("implementation-chosen-hook"),
+                "{no:#}"
+            );
+            let hit = row(&census, "result-three", "add");
+            assert_eq!(
+                (hit["cached"].clone(), hit["answer"].clone()),
+                (json!(true), json!("hit"))
+            );
+            let _ = fs::remove_dir_all(&cache);
+        }
     }
 }

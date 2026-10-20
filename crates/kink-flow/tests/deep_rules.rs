@@ -6,7 +6,9 @@
 //! the one program never reaches `[big]`). Before the fix, kink-patch's codec read k-rust's KAST
 //! JSON with serde_json's recursion limit of 128, so every depth past about 55 refused `[big]`'s
 //! mutation as `invalid-mutation` (`patch-rejected`). Each depth runs cold and then warm with the
-//! default compile workers, on a 256 MiB thread as the command does.
+//! default compile workers, on a 256 MiB thread as the command does; the two too-deep rows run
+//! cold only in the kink tier and cold and then warm in the heavy tier, and depths 60 and 200 run
+//! in the heavy tier (test-gate TG-F).
 
 use kink_flow::{
     FlowManifest, MutationList,
@@ -81,11 +83,12 @@ fn judged(document: &Value) -> Vec<Value> {
 }
 
 /// The cold and the warm run's rows.
-fn search(depth: usize) -> [Vec<Value>; 2] {
-    search_in(&fixture(depth), depth)
+fn search(depth: usize) -> Vec<Vec<Value>> {
+    search_in(&fixture(depth), depth, 2)
 }
 
-fn search_in(dir: &std::path::Path, depth: usize) -> [Vec<Value>; 2] {
+/// The rows of `rounds` runs in turn (cold, then warm) in `dir`.
+fn search_in(dir: &std::path::Path, depth: usize, rounds: usize) -> Vec<Vec<Value>> {
     let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
     let mutations = MutationList::read(&dir.join("MUTATIONS.toml")).unwrap();
     let options = RunOptions {
@@ -95,54 +98,42 @@ fn search_in(dir: &std::path::Path, depth: usize) -> [Vec<Value>; 2] {
         compile_workers: None,
         memo: kink_flow::memo::MemoUse::On,
     };
-    [(); 2].map(|()| {
-        let (document, ok) = run(&manifest, &mutations, &options);
-        assert!(ok, "depth {depth}: {document}");
-        judged(&document)
-    })
+    (0..rounds)
+        .map(|_| {
+            let (document, ok) = run(&manifest, &mutations, &options);
+            assert!(ok, "depth {depth}: {document}");
+            judged(&document)
+        })
+        .collect()
 }
 
-#[test]
-fn deep_rules_are_judged_as_at_depth_50() {
+/// [`search`] at depth 50, the rows every deeper rule must be judged as, with their statuses.
+fn shallow() -> Vec<Vec<Value>> {
+    let shallow = search(50);
+    let statuses = |rows: &[Value]| {
+        rows.iter()
+            .map(|row| format!("{}={}", row["id"], row["status"]))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        statuses(&shallow[0]),
+        [
+            "\"add-becomes-sub\"=\"killed\"",
+            "\"big-guard\"=\"survived\""
+        ]
+    );
+    assert_eq!(statuses(&shallow[1]), statuses(&shallow[0]));
+    shallow
+}
+
+/// `body` on a 256 MiB thread, as the command runs.
+fn on_big_stack(body: impl FnOnce() + Send + 'static) {
     std::thread::Builder::new()
         .stack_size(256 << 20)
-        .spawn(|| {
-            let shallow = search(50);
-            let statuses = |rows: &[Value]| {
-                rows.iter()
-                    .map(|row| format!("{}={}", row["id"], row["status"]))
-                    .collect::<Vec<_>>()
-            };
-            assert_eq!(
-                statuses(&shallow[0]),
-                [
-                    "\"add-becomes-sub\"=\"killed\"",
-                    "\"big-guard\"=\"survived\""
-                ]
-            );
-            assert_eq!(statuses(&shallow[1]), statuses(&shallow[0]));
-            for depth in [60, 200, 1500] {
-                assert_eq!(search(depth), shallow, "depth {depth} against depth 50");
-            }
-        })
+        .spawn(body)
         .unwrap()
         .join()
-        .unwrap();
-}
-
-/// Re-pin L1-3-fix-2 (review L1-3-2 D1): on a 16 MiB thread, a mutation of a rule 10,000 terms
-/// deep is judged as at depth 50, as on kink-flow's 256 MiB thread. Typing the edited rule
-/// (about 2 KiB of stack per level) and encoding its patch (about 3.9 KiB per level
-/// unoptimized) ran on the calling thread before the fix and overflowed this one, aborting the
-/// process; both now run on a stack sized from the rule's depth.
-#[test]
-fn deep_rules_are_judged_alike_on_a_thread_too_small_for_them() {
-    std::thread::Builder::new()
-        .stack_size(16 << 20)
-        .spawn(|| assert_eq!(search(10_000), search(50), "depth 10000 on 16 MiB"))
-        .unwrap()
-        .join()
-        .unwrap();
+        .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
 }
 
 /// Re-pin L1-3-fix-2 (review L1-3-2 D1): a replacement text whose rule is too deep for kink
@@ -152,51 +143,46 @@ fn deep_rules_are_judged_alike_on_a_thread_too_small_for_them() {
 /// other mutation of the list is still killed. Before, such a rule reached k-rust's unguarded
 /// typing on the calling thread and the process aborted, losing every row (300,000 levels on a
 /// 256 MiB thread in release); main 5a7f1f9 called it `patch-rejected`.
-#[test]
-fn a_rule_too_deep_for_kink_is_refused_by_name_and_the_other_rows_stand() {
-    std::thread::Builder::new()
-        .stack_size(256 << 20)
-        .spawn(|| {
-            let depth = kink_patch::MAX_JSON_DEPTH / 2;
-            let mutations = format!(
-                "[[mutation]]\nid = \"add-becomes-sub\"\n  [[mutation.edit]]\n  rule = \"add\"\n  \
-                 find = \"I1 +Int I2\"\n  replace = \"I1 -Int I2\"\n\n[[mutation]]\nid = \
-                 \"big-deep\"\n  [[mutation.edit]]\n  rule = \"big\"\n  find = \"deep(z)\"\n  \
-                 replace = \"deep({}z{})\"\n",
-                "s(".repeat(depth),
-                ")".repeat(depth)
+fn a_rule_too_deep_for_kink_is_refused_by_name_and_the_other_rows_stand(rounds: usize) {
+    on_big_stack(move || {
+        let depth = kink_patch::MAX_JSON_DEPTH / 2;
+        let mutations = format!(
+            "[[mutation]]\nid = \"add-becomes-sub\"\n  [[mutation.edit]]\n  rule = \"add\"\n  \
+             find = \"I1 +Int I2\"\n  replace = \"I1 -Int I2\"\n\n[[mutation]]\nid = \
+             \"big-deep\"\n  [[mutation.edit]]\n  rule = \"big\"\n  find = \"deep(z)\"\n  \
+             replace = \"deep({}z{})\"\n",
+            "s(".repeat(depth),
+            ")".repeat(depth)
+        );
+        let dir = fixture_with(&format!("too-deep-{rounds}"), 0, &mutations);
+        let runs = search_in(&dir, depth, rounds);
+        assert_eq!(runs.len(), rounds);
+        for rows in runs {
+            let row = |id: &str| {
+                rows.iter()
+                    .find(|row| row["id"] == id)
+                    .unwrap_or_else(|| panic!("no row {id}"))
+                    .clone()
+            };
+            assert_eq!(row("add-becomes-sub")["status"], "killed");
+            let deep = row("big-deep");
+            assert_eq!(deep["status"], "invalid-mutation", "{deep}");
+            assert_eq!(deep["reason"], "edited-rule-too-deep", "{deep}");
+            let detail = deep["detail"].as_str().unwrap();
+            assert!(detail.contains("MAX_JSON_DEPTH"), "{detail}");
+            // Re-pin L1-3-tail (review L1-3-fix-2-1 D4): the advice is about the whole edited
+            // rule, whose specification's rule is shallow, so a shallower edit is judged.
+            assert!(
+                detail.contains(&format!(
+                    "[DEEP.big] as edited nests {} term levels",
+                    depth + 3
+                )),
+                "{detail}"
             );
-            let dir = fixture_with("too-deep", 0, &mutations);
-            for rows in search_in(&dir, depth) {
-                let row = |id: &str| {
-                    rows.iter()
-                        .find(|row| row["id"] == id)
-                        .unwrap_or_else(|| panic!("no row {id}"))
-                        .clone()
-                };
-                assert_eq!(row("add-becomes-sub")["status"], "killed");
-                let deep = row("big-deep");
-                assert_eq!(deep["status"], "invalid-mutation", "{deep}");
-                assert_eq!(deep["reason"], "edited-rule-too-deep", "{deep}");
-                let detail = deep["detail"].as_str().unwrap();
-                assert!(detail.contains("MAX_JSON_DEPTH"), "{detail}");
-                // Re-pin L1-3-tail (review L1-3-fix-2-1 D4): the advice is about the whole
-                // edited rule, whose specification's rule is shallow, so a shallower edit is
-                // judged.
-                assert!(
-                    detail.contains(&format!(
-                        "[DEEP.big] as edited nests {} term levels",
-                        depth + 3
-                    )),
-                    "{detail}"
-                );
-                assert!(detail.contains("the specification's rule 4)"), "{detail}");
-                assert!(!detail.contains("no mutation that keeps"), "{detail}");
-            }
-        })
-        .unwrap()
-        .join()
-        .unwrap();
+            assert!(detail.contains("the specification's rule 4)"), "{detail}");
+            assert!(!detail.contains("no mutation that keeps"), "{detail}");
+        }
+    });
 }
 
 /// Re-pin L1-3-tail (review L1-3-fix-2-1 D4): when the specification's rule is itself too deep
@@ -204,48 +190,118 @@ fn a_rule_too_deep_for_kink_is_refused_by_name_and_the_other_rows_stand() {
 /// says that no mutation that keeps the rule's deep part can be judged in this build (a patch
 /// holds the whole edited rule; re-pin L1-4, review L1-3-tail-1 D4: not "no mutation of it",
 /// since one that replaces the deep part has a shallow patch). The other row is still killed.
-#[test]
-fn a_mutation_of_a_rule_already_too_deep_for_kink_says_no_mutation_of_it_is_judged() {
-    std::thread::Builder::new()
-        .stack_size(256 << 20)
-        .spawn(|| {
-            let depth = kink_patch::MAX_JSON_DEPTH / 2;
-            let dir = fixture_with("too-deep-baseline", depth, MUTATIONS);
-            for rows in search_in(&dir, depth) {
-                let row = |id: &str| {
-                    rows.iter()
-                        .find(|row| row["id"] == id)
-                        .unwrap_or_else(|| panic!("no row {id}"))
-                        .clone()
-                };
-                assert_eq!(row("add-becomes-sub")["status"], "killed");
-                let guard = row("big-guard");
-                assert_eq!(guard["status"], "invalid-mutation", "{guard}");
-                assert_eq!(guard["reason"], "edited-rule-too-deep", "{guard}");
-                let detail = guard["detail"].as_str().unwrap();
-                assert!(detail.contains("MAX_JSON_DEPTH"), "{detail}");
-                assert!(
-                    detail.contains(&format!(
-                        "[DEEP.big] nests {} term levels in the specification",
-                        depth + 3
-                    )),
-                    "{detail}"
-                );
-                // Review L1-3-tail-1 D4: only a mutation that keeps the deep part is out of
-                // reach; one that replaces it by a shallow term has a shallow patch.
-                assert!(
-                    detail.contains(
-                        "no mutation that keeps the rule's deep part can be judged in this build"
-                    ),
-                    "{detail}"
-                );
-                assert!(
-                    detail.contains("the patch of a mutation that keeps the rule's deep part"),
-                    "{detail}"
-                );
+fn a_mutation_of_a_rule_already_too_deep_for_kink_says_no_mutation_of_it_is_judged(rounds: usize) {
+    on_big_stack(move || {
+        let depth = kink_patch::MAX_JSON_DEPTH / 2;
+        let dir = fixture_with(&format!("too-deep-baseline-{rounds}"), depth, MUTATIONS);
+        let runs = search_in(&dir, depth, rounds);
+        assert_eq!(runs.len(), rounds);
+        for rows in runs {
+            let row = |id: &str| {
+                rows.iter()
+                    .find(|row| row["id"] == id)
+                    .unwrap_or_else(|| panic!("no row {id}"))
+                    .clone()
+            };
+            assert_eq!(row("add-becomes-sub")["status"], "killed");
+            let guard = row("big-guard");
+            assert_eq!(guard["status"], "invalid-mutation", "{guard}");
+            assert_eq!(guard["reason"], "edited-rule-too-deep", "{guard}");
+            let detail = guard["detail"].as_str().unwrap();
+            assert!(detail.contains("MAX_JSON_DEPTH"), "{detail}");
+            assert!(
+                detail.contains(&format!(
+                    "[DEEP.big] nests {} term levels in the specification",
+                    depth + 3
+                )),
+                "{detail}"
+            );
+            // Review L1-3-tail-1 D4: only a mutation that keeps the deep part is out of reach;
+            // one that replaces it by a shallow term has a shallow patch.
+            assert!(
+                detail.contains(
+                    "no mutation that keeps the rule's deep part can be judged in this build"
+                ),
+                "{detail}"
+            );
+            assert!(
+                detail.contains("the patch of a mutation that keeps the rule's deep part"),
+                "{detail}"
+            );
+        }
+    });
+}
+
+/// The two too-deep rows, cold only: each run loads, resolves and refuses a rule
+/// `MAX_JSON_DEPTH / 2` levels deep, minutes in this profile.
+mod kink_tier {
+    use super::*;
+
+    #[test]
+    #[ignore = "kink"]
+    fn a_rule_too_deep_for_kink_is_refused_by_name_and_the_other_rows_stand_cold() {
+        a_rule_too_deep_for_kink_is_refused_by_name_and_the_other_rows_stand(1);
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn a_mutation_of_a_rule_already_too_deep_for_kink_says_no_mutation_of_it_is_judged_cold() {
+        a_mutation_of_a_rule_already_too_deep_for_kink_says_no_mutation_of_it_is_judged(1);
+    }
+
+    /// Depth 1500, well past serde_json's limit of 128 that refused every depth past about 55
+    /// before the fix (depths 60 and 200: `heavy::deep_rules_at_60_and_200_are_judged_as_at_depth_50`).
+    #[test]
+    #[ignore = "kink"]
+    fn deep_rules_are_judged_as_at_depth_50() {
+        on_big_stack(|| {
+            let shallow = shallow();
+            assert_eq!(search(1500), shallow, "depth 1500 against depth 50");
+        });
+    }
+
+    /// Re-pin L1-3-fix-2 (review L1-3-2 D1): on a 16 MiB thread, a mutation of a rule 10,000 terms
+    /// deep is judged as at depth 50, as on kink-flow's 256 MiB thread. Typing the edited rule
+    /// (about 2 KiB of stack per level) and encoding its patch (about 3.9 KiB per level
+    /// unoptimized) ran on the calling thread before the fix and overflowed this one, aborting the
+    /// process; both now run on a stack sized from the rule's depth.
+    #[test]
+    #[ignore = "kink"]
+    fn deep_rules_are_judged_alike_on_a_thread_too_small_for_them() {
+        std::thread::Builder::new()
+            .stack_size(16 << 20)
+            .spawn(|| assert_eq!(search(10_000), search(50), "depth 10000 on 16 MiB"))
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+}
+
+/// The depths between 50 and 1500, and the too-deep rows cold and then warm.
+mod heavy {
+    use super::*;
+
+    #[test]
+    #[ignore = "heavy"]
+    fn deep_rules_at_60_and_200_are_judged_as_at_depth_50() {
+        on_big_stack(|| {
+            let shallow = shallow();
+            for depth in [60, 200] {
+                assert_eq!(search(depth), shallow, "depth {depth} against depth 50");
             }
-        })
-        .unwrap()
-        .join()
-        .unwrap();
+        });
+    }
+
+    #[test]
+    #[ignore = "heavy"]
+    fn a_rule_too_deep_for_kink_is_refused_by_name_and_the_other_rows_stand_cold_and_warm() {
+        a_rule_too_deep_for_kink_is_refused_by_name_and_the_other_rows_stand(2);
+    }
+
+    #[test]
+    #[ignore = "heavy"]
+    fn a_mutation_of_a_rule_already_too_deep_for_kink_says_no_mutation_of_it_is_judged_cold_and_warm()
+     {
+        a_mutation_of_a_rule_already_too_deep_for_kink_says_no_mutation_of_it_is_judged(2);
+    }
 }

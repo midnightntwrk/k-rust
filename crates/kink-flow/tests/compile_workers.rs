@@ -165,8 +165,7 @@ fn compare(name: &str, list: &str, workers: &[usize]) -> Vec<String> {
     cold_statuses
 }
 
-#[test]
-fn compile_workers_change_no_row_record_or_hint() {
+fn warn_if_one_worker() {
     if std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get) < 2 {
         // Review L1-3-1 D3: the workers are capped at the host's parallelism.
         eprintln!(
@@ -174,17 +173,40 @@ fn compile_workers_change_no_row_record_or_hint() {
              so the comparison is vacuous here"
         );
     }
-    let collstore = compare("collections/collstore", "MUTATIONS.toml", &[1, 2, 4]);
-    assert_eq!(collstore.len(), 9);
-    let calc = compare("calc", "MUTATIONS-statuses.toml", &[1, 4]);
-    assert_eq!(calc.len(), 6);
-    // Several statuses, a refusal before any test among them.
-    let all = collstore.iter().chain(&calc).collect::<Vec<_>>();
-    assert!(all.iter().any(|s| s.ends_with("=\"killed\"")));
-    assert!(all.iter().any(|s| s.ends_with("=\"survived\"")));
-    assert!(
-        all.iter()
-            .any(|s| s.ends_with("=\"invalid\"") || s.ends_with("=\"equivalent\"")),
-        "{all:?}"
-    );
+}
+
+/// One test per fixture list (test-gate TG-F, formerly `compile_workers_change_no_row_record_or_hint`):
+/// calc's status list, which holds every status class the former test required of the two lists
+/// together, in the kink tier, and collstore, whose 9 mutations span two chunks of 2 workers, in
+/// the heavy tier.
+mod kink_tier {
+    use super::*;
+
+    #[test]
+    #[ignore = "kink"]
+    fn compile_workers_change_no_row_record_or_hint_on_calc() {
+        warn_if_one_worker();
+        let calc = compare("calc", "MUTATIONS-statuses.toml", &[1, 4]);
+        assert_eq!(calc.len(), 6);
+        // Several statuses, a refusal before any test among them.
+        assert!(calc.iter().any(|s| s.ends_with("=\"killed\"")));
+        assert!(calc.iter().any(|s| s.ends_with("=\"survived\"")));
+        assert!(
+            calc.iter()
+                .any(|s| s.ends_with("=\"invalid\"") || s.ends_with("=\"equivalent\"")),
+            "{calc:?}"
+        );
+    }
+}
+
+mod heavy {
+    use super::*;
+
+    #[test]
+    #[ignore = "heavy"]
+    fn compile_workers_change_no_row_record_or_hint_on_collstore() {
+        warn_if_one_worker();
+        let collstore = compare("collections/collstore", "MUTATIONS.toml", &[1, 2, 4]);
+        assert_eq!(collstore.len(), 9);
+    }
 }

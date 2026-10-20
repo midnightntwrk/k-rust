@@ -43,11 +43,17 @@
 //! baseline coverage and, mutant by mutant, equal status, killers and plan: the corpus classifies
 //! every terminal normal and no corpus leaf is absorbed, so none of the three state-set-only kill
 //! routes can apply, and a verdict that depends on the modality fails the gate.
+//!
+//! The flow corpus runs as one kink-tier test per specification (test-gate TG-F; until then one
+//! test over every manifest), each compiling a mutant once for every manifest of its
+//! specification; a light test checks that these tests cover every manifest and that their
+//! minimums add up to the corpus minimums the one test asserted. The converging fixtures run in
+//! the kink tier, IMP in the heavy tier.
 
 #[path = "../../../testdata/k/support.rs"]
 mod support;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -74,7 +80,8 @@ use kink_native::feasibility::TestInitialState;
 use kink_native::step_events::ObservationDecider;
 use kink_native::{NativeValidator, ValidatedDefinition};
 use kink_patch::{
-    Baseline, ClaimSupport, Discovery, Edit, Patch, SelectionPolicy, SentenceRef, TermRef, select,
+    Baseline, ClaimSupport, Discovery, Edit, Patch, SelectionPolicy, SentenceRef, Sha256Digest,
+    TermRef, select,
 };
 use kink_pattern::{ExecutionTerminalKind, SymbolSorts};
 
@@ -236,6 +243,10 @@ struct Side<'a> {
     /// The side's depth bound is the differential's own, below the manifest's.
     capped: bool,
 }
+
+/// The claim-free compiled mutants of a specification, by (specification digest, patch digest);
+/// `None` for a mutation that resolves but has no claim-free compiled mutant.
+type Mutants = BTreeMap<(Sha256Digest, Sha256Digest), Option<ValidatedDefinition>>;
 
 /// The differential of every program of `programs` on `side`; see the module documentation.
 fn compare_side(
@@ -494,6 +505,7 @@ fn differential(
     stepped: bool,
     mutant_depth: Option<u64>,
     campaign: bool,
+    mutants: &mut Mutants,
 ) -> Tally {
     let mut tally = Tally::default();
     let manifest = FlowManifest::read(manifest_path).unwrap();
@@ -546,6 +558,7 @@ fn differential(
     // kink-flow run builds it (kink-patch `ClaimSupport::withdraw`).
     let baseline = spec.validator.baseline();
     let support = ClaimSupport::new(baseline);
+    let spec_digest = kink_flow::digest::spec_digest(&manifest, &spec.loaded.files);
     let mut resolved = Vec::new();
     let mut digests = BTreeSet::new();
     for list in mutation_lists(manifest_path) {
@@ -561,16 +574,23 @@ fn differential(
     let mut documented_mutants = BTreeSet::new();
     for mutation in &resolved {
         let mutant_label = format!("{label} mutant {}", mutation.id);
-        let built = support
-            .withdraw(baseline, &mutation.patch)
-            .ok()
-            .filter(kink_patch::Withdrawal::trusted)
-            .and_then(|withdrawal| {
-                spec.validator
-                    .validate(withdrawal.patch().unwrap_or(&mutation.patch))
+        // A manifest of the same specification (an equal specification digest: the same load
+        // and the same source files) has the same mutant: it is compiled once per
+        // specification.
+        let built = mutants
+            .entry((spec_digest, mutation.digest))
+            .or_insert_with(|| {
+                support
+                    .withdraw(baseline, &mutation.patch)
                     .ok()
+                    .filter(kink_patch::Withdrawal::trusted)
+                    .and_then(|withdrawal| {
+                        spec.validator
+                            .validate(withdrawal.patch().unwrap_or(&mutation.patch))
+                            .ok()
+                    })
             });
-        let Some(compiled) = built else {
+        let Some(compiled) = built.as_ref() else {
             tally.not_built.push(mutant_label);
             continue;
         };
@@ -579,7 +599,7 @@ fn differential(
         compare_side(
             &Side {
                 label: mutant_label,
-                compiled: &compiled,
+                compiled,
                 mutant: true,
                 stepped: false,
                 capped,
@@ -721,13 +741,138 @@ const CORPUS_MUTANT_DEPTH: u64 = 10_000;
 /// second), it only stops a run that hangs, and the corpus test fails when it fires.
 const MUTANT_BACKSTOP: Duration = Duration::from_secs(600);
 
-#[test]
-fn state_set_results_equal_path_set_results_over_the_flow_corpus_and_its_mutants() {
+/// What the differential of one specification directory of `testdata/flow` must at least
+/// compare.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Minimums {
+    compared: usize,
+    compared_on_mutants: usize,
+    mutants: usize,
+    campaign_verdicts: usize,
+}
+
+const fn at_least(
+    compared: usize,
+    compared_on_mutants: usize,
+    mutants: usize,
+    campaign_verdicts: usize,
+) -> Minimums {
+    Minimums {
+        compared,
+        compared_on_mutants,
+        mutants,
+        campaign_verdicts,
+    }
+}
+
+impl Minimums {
+    fn of(tally: &Tally) -> Self {
+        at_least(
+            tally.compared,
+            tally.compared_on_mutants,
+            tally.mutants,
+            tally.campaign_verdicts,
+        )
+    }
+
+    fn covers(&self, minimums: &Self) -> bool {
+        self.compared >= minimums.compared
+            && self.compared_on_mutants >= minimums.compared_on_mutants
+            && self.mutants >= minimums.mutants
+            && self.campaign_verdicts >= minimums.campaign_verdicts
+    }
+}
+
+/// The minimums of the whole flow corpus, which one corpus test asserted until test-gate TG-F
+/// split it into one test per specification directory: the minimums of [`CORPUS`] sum to at
+/// least these.
+const CORPUS_MINIMUMS: Minimums = at_least(250, 200, 60, 50);
+
+/// Every specification of `testdata/flow`: its directory and the manifests of that directory
+/// that use it, with what its differential compared at test-gate TG-F as its minimums (compared
+/// pairs, of them on mutants, mutants, campaign verdicts). Loop's baseline pairs under its
+/// 500 ms manifests are the only ones the clock may leave uncompared (both timed out): its
+/// minimum of compared pairs is 9 below the 29 compared; every other minimum is what was
+/// compared.
+const CORPUS: [(&str, &[&str], Minimums); 16] = [
+    ("bytes-map", &["FLOW.toml"], at_least(1, 0, 0, 0)),
+    (
+        "calc",
+        &["FLOW-bad-program.toml", "FLOW.toml"],
+        at_least(42, 36, 12, 14),
+    ),
+    ("collections/cellmap", &["FLOW.toml"], at_least(6, 4, 2, 2)),
+    ("collections/collenv", &["FLOW.toml"], at_least(9, 6, 2, 2)),
+    ("collections/collimp", &["FLOW.toml"], at_least(8, 6, 3, 3)),
+    (
+        "collections/collstore",
+        &["FLOW.toml"],
+        at_least(90, 81, 9, 0),
+    ),
+    ("compile-error", &["FLOW.toml"], at_least(0, 0, 0, 0)),
+    ("divide", &["FLOW.toml"], at_least(4, 2, 1, 1)),
+    (
+        "loop",
+        &[
+            "FLOW-cost.toml",
+            "FLOW-depth.toml",
+            "FLOW-search.toml",
+            "FLOW-timeout.toml",
+            "FLOW.toml",
+        ],
+        at_least(20, 20, 10, 8),
+    ),
+    ("macro", &["FLOW.toml"], at_least(6, 4, 2, 3)),
+    ("map-store", &["FLOW.toml"], at_least(5, 4, 4, 4)),
+    ("markdown", &["FLOW.toml"], at_least(28, 24, 6, 6)),
+    ("markdown", &["FLOW-view.toml"], at_least(28, 24, 6, 6)),
+    ("overlap", &["FLOW.toml"], at_least(3, 2, 2, 2)),
+    ("register", &["FLOW.toml"], at_least(15, 12, 4, 4)),
+    ("twin", &["FLOW.toml"], at_least(3, 2, 2, 2)),
+];
+
+/// The specification directory of a flow manifest, relative to `testdata/flow`, and the
+/// manifest's file name.
+fn specification_of(manifest: &Path) -> (String, String) {
+    (
+        manifest
+            .parent()
+            .unwrap()
+            .strip_prefix(repository().join("testdata/flow"))
+            .unwrap()
+            .display()
+            .to_string(),
+        manifest.file_name().unwrap().to_str().unwrap().to_owned(),
+    )
+}
+
+/// The differential over the manifests `manifests` of the specification directory `name` of
+/// `testdata/flow`, each mutant compiled once for all of them, against their [`CORPUS`]
+/// minimums.
+fn corpus_specification(name: &str, manifests: &[&str]) -> Tally {
+    let (_, _, minimums) = CORPUS
+        .iter()
+        .find(|(dir, files, _)| *dir == name && *files == manifests)
+        .unwrap_or_else(|| panic!("{name} {manifests:?} is not in CORPUS"));
+    let dir = repository().join("testdata/flow").join(name);
+    let name = format!("{name} {manifests:?}");
+    let manifests = manifests
+        .iter()
+        .map(|file| dir.join(file))
+        .collect::<Vec<_>>();
     let mut all = Tally::default();
-    for manifest in flow_manifests() {
+    let mut mutants = Mutants::new();
+    for manifest in manifests {
         // Every corpus program ends in milliseconds; a mutant that loops is cut at depth
         // CORPUS_MUTANT_DEPTH, never by the clock.
-        let tally = differential(&manifest, None, true, Some(CORPUS_MUTANT_DEPTH), true);
+        let tally = differential(
+            &manifest,
+            None,
+            true,
+            Some(CORPUS_MUTANT_DEPTH),
+            true,
+            &mut mutants,
+        );
         assert!(
             tally.faster.is_empty(),
             "{}: a state set finished where the path set timed out: {:?}",
@@ -736,29 +881,282 @@ fn state_set_results_equal_path_set_results_over_the_flow_corpus_and_its_mutants
         );
         all.extend(tally);
     }
-    eprintln!("MODALITY {all:#?}");
-    assert!(all.failed.is_empty(), "{:?}", all.failed);
+    eprintln!("MODALITY {name} {all:#?}");
+    assert!(all.failed.is_empty(), "{name}: {:?}", all.failed);
     // The depth bound decides every mutant run, never the clock: the comparison does not depend
     // on the host's speed.
-    assert!(all.mutant_timeouts.is_empty(), "{:?}", all.mutant_timeouts);
+    assert!(
+        all.mutant_timeouts.is_empty(),
+        "{name}: {:?}",
+        all.mutant_timeouts
+    );
     // No absorption on the corpus: every bounded leaf of a path set is one of the state set's.
-    assert!(all.absorbed.is_empty(), "{:?}", all.absorbed);
-    assert!(all.compared >= 250, "{}", all.compared);
-    assert!(all.mutants >= 60, "{}", all.mutants);
+    assert!(all.absorbed.is_empty(), "{name}: {:?}", all.absorbed);
+    let found = Minimums::of(&all);
     assert!(
-        all.compared_on_mutants >= 200,
-        "{}",
-        all.compared_on_mutants
+        found.covers(minimums),
+        "{name}: compared {found:?}, at least {minimums:?}"
     );
-    assert!(all.campaign_verdicts >= 50, "{}", all.campaign_verdicts);
-    // register/double is where the baseline's own merge happens (L1-1 review 1 minor 4).
+    all
+}
+
+/// The corpus tests below cover every specification directory of `testdata/flow`, and their
+/// minimums sum to the corpus minimums of the one corpus test they replace (test-gate TG-F): a
+/// new manifest directory fails here until it has its test.
+#[test]
+fn the_corpus_tests_cover_every_flow_specification_and_the_corpus_minimums() {
+    let found = flow_manifests()
+        .iter()
+        .map(|manifest| specification_of(manifest))
+        .collect::<Vec<_>>();
+    let listed = CORPUS
+        .iter()
+        .flat_map(|(dir, files, _)| {
+            files
+                .iter()
+                .map(|file| ((*dir).to_owned(), (*file).to_owned()))
+        })
+        .collect::<Vec<_>>();
+    // Each manifest in exactly one specification test.
+    assert_eq!(
+        listed.iter().collect::<BTreeSet<_>>(),
+        found.iter().collect::<BTreeSet<_>>()
+    );
+    assert_eq!(listed.len(), found.len(), "a manifest listed twice");
+    let sum = CORPUS
+        .iter()
+        .fold(Minimums::default(), |sum, (_, _, minimums)| {
+            at_least(
+                sum.compared + minimums.compared,
+                sum.compared_on_mutants + minimums.compared_on_mutants,
+                sum.mutants + minimums.mutants,
+                sum.campaign_verdicts + minimums.campaign_verdicts,
+            )
+        });
     assert!(
-        all.merged
-            .iter()
-            .any(|id| id == "testdata/flow/register/FLOW.toml double"),
-        "{:?}",
-        all.merged
+        sum.covers(&CORPUS_MINIMUMS),
+        "{sum:?} against {CORPUS_MINIMUMS:?}"
     );
+}
+
+/// State-set results equal path-set results over the flow corpus and its mutants: one test per
+/// specification directory of `testdata/flow` (until test-gate TG-F one test,
+/// `state_set_results_equal_path_set_results_over_the_flow_corpus_and_its_mutants`).
+mod kink_tier {
+    use super::*;
+
+    #[test]
+    #[ignore = "kink"]
+    fn modality_on_bytes_map() {
+        corpus_specification("bytes-map", &["FLOW.toml"]);
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn modality_on_calc() {
+        corpus_specification("calc", &["FLOW-bad-program.toml", "FLOW.toml"]);
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn modality_on_cellmap() {
+        corpus_specification("collections/cellmap", &["FLOW.toml"]);
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn modality_on_collenv() {
+        corpus_specification("collections/collenv", &["FLOW.toml"]);
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn modality_on_collimp() {
+        corpus_specification("collections/collimp", &["FLOW.toml"]);
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn modality_on_collstore() {
+        corpus_specification("collections/collstore", &["FLOW.toml"]);
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn modality_on_compile_error() {
+        corpus_specification("compile-error", &["FLOW.toml"]);
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn modality_on_divide() {
+        corpus_specification("divide", &["FLOW.toml"]);
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn modality_on_loop() {
+        corpus_specification(
+            "loop",
+            &[
+                "FLOW-cost.toml",
+                "FLOW-depth.toml",
+                "FLOW-search.toml",
+                "FLOW-timeout.toml",
+                "FLOW.toml",
+            ],
+        );
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn modality_on_macro() {
+        corpus_specification("macro", &["FLOW.toml"]);
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn modality_on_map_store() {
+        corpus_specification("map-store", &["FLOW.toml"]);
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn modality_on_markdown() {
+        corpus_specification("markdown", &["FLOW.toml"]);
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn modality_on_markdown_view() {
+        corpus_specification("markdown", &["FLOW-view.toml"]);
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn modality_on_overlap() {
+        corpus_specification("overlap", &["FLOW.toml"]);
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn modality_on_register() {
+        let all = corpus_specification("register", &["FLOW.toml"]);
+        // register/double is where the baseline's own merge happens (L1-1 review 1 minor 4).
+        assert!(
+            all.merged
+                .iter()
+                .any(|id| id == "testdata/flow/register/FLOW.toml double"),
+            "{:?}",
+            all.merged
+        );
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn modality_on_twin() {
+        corpus_specification("twin", &["FLOW.toml"]);
+    }
+
+    /// The converging fixtures of `testdata/k/l1` (L1-1 review 1 minors 1-4), baseline and mutants:
+    /// conv.k (two paths to one crash configuration; mutants `mc: 1 -> 2`, still converging, and
+    /// `mc: 1 -> 0`, converging undefined steps), convz.k, and absorb.k with and without a depth bound
+    /// that cuts one of two paths to one stuck configuration (mutant `start: 1 -> 2`). k-rust's merge
+    /// happens on the mutant side, the terminal classes include crashes, and the absorbed depth bound
+    /// is the one documented difference.
+    #[test]
+    #[ignore = "kink"]
+    fn state_set_results_equal_path_set_results_on_converging_fixtures() {
+        std::thread::Builder::new()
+            .stack_size(256 << 20)
+            .spawn(|| {
+                let mut tally = Tally::default();
+                for (name, module, start, classify, mutations, max_depth) in FIXTURES {
+                    let validator = NativeValidator::bind(
+                        support::load_path(
+                            &Path::new(support::DIR).join(format!("l1/{name}.k")),
+                            module,
+                        ),
+                        CompileOptions::default(),
+                    );
+                    let budget = ExecutionBudget {
+                        time: Duration::from_secs(20),
+                        max_simplification_iterations: 10_000,
+                        max_depth,
+                        max_breadth: None,
+                    };
+                    let programs = vec![(
+                        format!("{start}(3)"),
+                        support::initial_state(
+                            support::app(start, vec![support::int(3)]),
+                            "SortProg",
+                        ),
+                    )];
+                    let label = format!("{name} max_depth {max_depth:?}");
+                    let baseline = validator.compile_baseline().unwrap();
+                    compare_side(
+                        &Side {
+                            label: label.clone(),
+                            compiled: &baseline,
+                            mutant: false,
+                            stepped: true,
+                            capped: false,
+                        },
+                        module,
+                        &programs,
+                        budget,
+                        classify,
+                        &mut tally,
+                    );
+                    for (rule, from, to) in mutations {
+                        let mutant = validator
+                            .validate(&replace_token(validator.baseline(), rule, from, to))
+                            .unwrap();
+                        tally.mutants += 1;
+                        compare_side(
+                            &Side {
+                                label: format!("{label} mutant {rule} {from}->{to}"),
+                                compiled: &mutant,
+                                mutant: true,
+                                stepped: false,
+                                capped: false,
+                            },
+                            module,
+                            &programs,
+                            budget,
+                            classify,
+                            &mut tally,
+                        );
+                    }
+                }
+                eprintln!("MODALITY-L1 {tally:#?}");
+                assert!(tally.failed.is_empty(), "{:?}", tally.failed);
+                assert!(tally.faster.is_empty(), "{:?}", tally.faster);
+                assert_eq!((tally.compared, tally.compared_on_mutants), (8, 4));
+                // The merge happens on both conv mutants' sides.
+                for mutant in [
+                    "conv max_depth None mutant CONV.mc 1->2 Lbla(3)",
+                    "conv max_depth None mutant CONV.mc 1->0 Lbla(3)",
+                ] {
+                    assert!(
+                        tally.merged_on_mutants.iter().any(|id| id == mutant),
+                        "{mutant}: {:?}",
+                        tally.merged_on_mutants
+                    );
+                }
+                // The absorbed depth bound, on the baseline and on the mutant, and nowhere else.
+                assert_eq!(
+                    tally.absorbed,
+                    [
+                        "absorb max_depth Some(4) Lbls(3)",
+                        "absorb max_depth Some(4) mutant ABSORB.start 1->2 Lbls(3)",
+                    ]
+                );
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
 }
 
 /// The patch that replaces `rule`'s only Int token `from` by `to`.
@@ -863,102 +1261,6 @@ const FIXTURES: [Fixture; 4] = [
     ),
 ];
 
-/// The converging fixtures of `testdata/k/l1` (L1-1 review 1 minors 1-4), baseline and mutants:
-/// conv.k (two paths to one crash configuration; mutants `mc: 1 -> 2`, still converging, and
-/// `mc: 1 -> 0`, converging undefined steps), convz.k, and absorb.k with and without a depth bound
-/// that cuts one of two paths to one stuck configuration (mutant `start: 1 -> 2`). k-rust's merge
-/// happens on the mutant side, the terminal classes include crashes, and the absorbed depth bound
-/// is the one documented difference.
-#[test]
-fn state_set_results_equal_path_set_results_on_converging_fixtures() {
-    std::thread::Builder::new()
-        .stack_size(256 << 20)
-        .spawn(|| {
-            let mut tally = Tally::default();
-            for (name, module, start, classify, mutations, max_depth) in FIXTURES {
-                let validator = NativeValidator::bind(
-                    support::load_path(
-                        &Path::new(support::DIR).join(format!("l1/{name}.k")),
-                        module,
-                    ),
-                    CompileOptions::default(),
-                );
-                let budget = ExecutionBudget {
-                    time: Duration::from_secs(20),
-                    max_simplification_iterations: 10_000,
-                    max_depth,
-                    max_breadth: None,
-                };
-                let programs = vec![(
-                    format!("{start}(3)"),
-                    support::initial_state(support::app(start, vec![support::int(3)]), "SortProg"),
-                )];
-                let label = format!("{name} max_depth {max_depth:?}");
-                let baseline = validator.compile_baseline().unwrap();
-                compare_side(
-                    &Side {
-                        label: label.clone(),
-                        compiled: &baseline,
-                        mutant: false,
-                        stepped: true,
-                        capped: false,
-                    },
-                    module,
-                    &programs,
-                    budget,
-                    classify,
-                    &mut tally,
-                );
-                for (rule, from, to) in mutations {
-                    let mutant = validator
-                        .validate(&replace_token(validator.baseline(), rule, from, to))
-                        .unwrap();
-                    tally.mutants += 1;
-                    compare_side(
-                        &Side {
-                            label: format!("{label} mutant {rule} {from}->{to}"),
-                            compiled: &mutant,
-                            mutant: true,
-                            stepped: false,
-                            capped: false,
-                        },
-                        module,
-                        &programs,
-                        budget,
-                        classify,
-                        &mut tally,
-                    );
-                }
-            }
-            eprintln!("MODALITY-L1 {tally:#?}");
-            assert!(tally.failed.is_empty(), "{:?}", tally.failed);
-            assert!(tally.faster.is_empty(), "{:?}", tally.faster);
-            assert_eq!((tally.compared, tally.compared_on_mutants), (8, 4));
-            // The merge happens on both conv mutants' sides.
-            for mutant in [
-                "conv max_depth None mutant CONV.mc 1->2 Lbla(3)",
-                "conv max_depth None mutant CONV.mc 1->0 Lbla(3)",
-            ] {
-                assert!(
-                    tally.merged_on_mutants.iter().any(|id| id == mutant),
-                    "{mutant}: {:?}",
-                    tally.merged_on_mutants
-                );
-            }
-            // The absorbed depth bound, on the baseline and on the mutant, and nowhere else.
-            assert_eq!(
-                tally.absorbed,
-                [
-                    "absorb max_depth Some(4) Lbls(3)",
-                    "absorb max_depth Some(4) mutant ABSORB.start 1->2 Lbls(3)",
-                ]
-            );
-        })
-        .unwrap()
-        .join()
-        .unwrap();
-}
-
 mod heavy {
     use super::*;
 
@@ -983,6 +1285,7 @@ mod heavy {
                     false,
                     None,
                     false,
+                    &mut Mutants::new(),
                 )
             })
             .unwrap()

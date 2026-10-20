@@ -504,110 +504,6 @@ fn fixture_mutations() -> Vec<(Spec, Vec<ResolvedMutation>)> {
         .collect()
 }
 
-#[test]
-fn every_valid_fixture_mutation_changes_exactly_its_addressed_rules() {
-    for (spec, mutations) in fixture_mutations() {
-        let baseline = &spec.loaded.baseline;
-        for resolved in mutations {
-            let id = &resolved.id;
-            let edited =
-                load_source_with_overlay(&corpus_source(&spec.manifest), &resolved.edited_sources)
-                    .unwrap();
-            let replaced = shape(&resolved)
-                .into_iter()
-                .filter(|(kind, _)| *kind == "replace")
-                .map(|(_, at)| at)
-                .collect::<BTreeSet<_>>();
-            let deleted = shape(&resolved)
-                .into_iter()
-                .filter(|(kind, _)| *kind == "delete")
-                .map(|(_, at)| at)
-                .collect::<BTreeSet<_>>();
-            let mutant = apply(baseline, &resolved.patch).unwrap();
-            let definition = mutant.definition();
-            let mut seen = BTreeSet::new();
-            let mut outputs = 0;
-            for module in &definition.modules {
-                for (index, sentence) in module.local_sentences.iter().enumerate() {
-                    outputs += 1;
-                    let output = SentenceRef::new(module.name.clone(), index as u32);
-                    let Some(SentenceOrigin::Baseline(origin)) = mutant.origin(&output) else {
-                        panic!("{id}: {output:?} has no baseline origin");
-                    };
-                    seen.insert(origin.clone());
-                    let original = baseline.sentence(origin).unwrap();
-                    if !replaced.contains(origin) {
-                        // Untouched: the very baseline sentence, positions included.
-                        assert!(**sentence == *original, "{id}: {origin:?} changed");
-                        assert_eq!(
-                            SentenceFingerprint::of(sentence).ok(),
-                            SentenceFingerprint::of(original).ok(),
-                            "{id}: {origin:?}"
-                        );
-                        continue;
-                    }
-                    // Replaced: the edited load's rule at that place, with the baseline's
-                    // position and provenance attributes and nothing else of the baseline.
-                    let edited_index = origin.index
-                        - deleted
-                            .iter()
-                            .filter(|d| d.module == origin.module && d.index < origin.index)
-                            .count() as u32;
-                    let edited_sentence = edited
-                        .baseline
-                        .sentence(&SentenceRef::new(origin.module.clone(), edited_index))
-                        .unwrap();
-                    assert_eq!(
-                        SentenceFingerprint::of(sentence).unwrap(),
-                        SentenceFingerprint::of(edited_sentence).unwrap(),
-                        "{id}: {origin:?} is not the edited rule"
-                    );
-                    assert_ne!(
-                        SentenceFingerprint::of(sentence).unwrap(),
-                        SentenceFingerprint::of(original).unwrap(),
-                        "{id}: {origin:?} is unchanged"
-                    );
-                    let entries = sentence.attributes().entries();
-                    let original_entries = original.attributes().entries();
-                    let edited_entries = edited_sentence.attributes().entries();
-                    for (key, value) in entries.iter().chain(&original_entries) {
-                        let position = POSITION_KEYS.iter().any(|k| k.as_str() == key);
-                        let expected = if position {
-                            original_entries.get(key)
-                        } else {
-                            edited_entries.get(key)
-                        };
-                        assert_eq!(entries.get(key), expected, "{id}: {origin:?} {key} {value}");
-                    }
-                    for key in edited_entries.keys() {
-                        let position = POSITION_KEYS.iter().any(|k| k.as_str() == key);
-                        assert!(position || entries.contains_key(key), "{id}: {key}");
-                    }
-                    assert_eq!(
-                        sentence.attributes().value(AttributeKey::Label),
-                        original.attributes().value(AttributeKey::Label)
-                    );
-                }
-            }
-            let baseline_count = baseline
-                .definition()
-                .modules
-                .iter()
-                .map(|m| m.local_sentences.len())
-                .sum::<usize>();
-            assert_eq!(outputs, baseline_count - deleted.len(), "{id}");
-            for d in &deleted {
-                assert!(!seen.contains(d), "{id}: {d:?} still present");
-            }
-            assert_eq!(
-                resolved.patch.written_sentences(),
-                replaced.union(&deleted).cloned().collect::<Vec<_>>(),
-                "{id}"
-            );
-        }
-    }
-}
-
 /// Every `"Location(a,b,c,d)"` attribute value of a KORE text, as `"Location()"`.
 fn without_locations(text: &str) -> String {
     let mut normalised = String::with_capacity(text.len());
@@ -643,93 +539,6 @@ fn kore_digest(compiled: &ValidatedDefinition, normalise: fn(&str) -> String) ->
         "syntax": normalise(&artifacts.syntax_definition_kore),
     });
     payload_digest(COMPILED_KORE_DOMAIN, canonical_json(&value).as_bytes()).to_string()
-}
-
-/// README 5.5 as restated after F-04 review 1 (M2): compiling the patched baseline gives the
-/// compiled KORE of the edited sources after normalising every Location attribute, with an
-/// equal rewrite order. The patch keeps each replaced rule's baseline position attributes
-/// (kink-patch requires it of a ReplaceSentence), so a replacement that changes a rule's
-/// extent changes its Location in the edited sources only, and one that changes the line
-/// count also moves the Location of every later sentence of the file (the review's probe,
-/// pinned below). Location is provenance only in the k-rust backend (RuleOrigin) and enters
-/// no UNIQUE_ID. Checked over the calc and register fixture lists, the probe, and the valid
-/// mutations of the Markdown fixture, whose edited sources are loaded through the Markdown
-/// envelope (`ResolvedMutation::overlay`).
-#[test]
-fn the_patched_baseline_compiles_to_the_kore_of_the_edited_sources() {
-    let mut cases = fixture_mutations();
-    let calc = Spec::fixture("calc");
-    let line_break = calc
-        .resolve_edits(
-            "[[mutation.edit]]\nrule = \"add\"\nfind = \"I1 +Int I2\"\nreplace = \"I1 -Int\\n    I2\"\n",
-        )
-        .unwrap();
-    cases.push((calc, vec![line_break]));
-    let markdown = Spec::fixture("markdown");
-    let valid = fixture_list("markdown")
-        .mutations
-        .iter()
-        .filter_map(|m| markdown.resolve(m).ok())
-        .collect::<Vec<_>>();
-    assert_eq!(valid.len(), 6);
-    cases.push((markdown, valid));
-    let identity: fn(&str) -> String = str::to_owned;
-    let mut checked = Vec::new();
-    for (spec, mutations) in cases {
-        let validator = NativeValidator::bind(spec.loaded.baseline.clone(), Default::default());
-        for resolved in mutations {
-            let id = resolved.id.as_str();
-            let patched = validator
-                .validate(&resolved.patch)
-                .unwrap_or_else(|e| panic!("{id}: the patched baseline does not compile: {e}"));
-            let edited =
-                load_source_with_overlay(&corpus_source(&spec.manifest), resolved.overlay())
-                    .unwrap_or_else(|e| panic!("{id}: the edited sources do not load: {e}"));
-            let direct = NativeValidator::bind(edited.baseline.clone(), Default::default())
-                .compile_baseline()
-                .unwrap_or_else(|e| panic!("{id}: the edited sources do not compile: {e}"));
-            // The digest formula is kink-patch's compiled KORE identity.
-            assert_eq!(
-                kore_digest(&patched, identity),
-                patched.kore_sha256().to_string()
-            );
-            assert_eq!(
-                patched.artifacts().execution_rewrite_order,
-                direct.artifacts().execution_rewrite_order,
-                "{id}: the rewrite orders differ"
-            );
-            assert_eq!(
-                kore_digest(&patched, without_locations),
-                kore_digest(&direct, without_locations),
-                "{id}: the compiles differ beyond Location attributes"
-            );
-            let (from, to) = (
-                locations(&patched.artifacts().definition_kore),
-                locations(&direct.artifacts().definition_kore),
-            );
-            assert_eq!(from.len(), to.len(), "{id}");
-            let moved = from.iter().zip(&to).filter(|(a, b)| a != b).count();
-            checked.push((
-                format!("{}/{id}", spec.manifest.spec.entry),
-                patched.kore_sha256() == direct.kore_sha256(),
-                moved,
-            ));
-        }
-    }
-    let row = |key: &str| {
-        checked
-            .iter()
-            .find(|(k, _, _)| k == key)
-            .unwrap_or_else(|| panic!("{key} not checked: {checked:?}"))
-    };
-    // The probe: the replaced rule and the two rules below it moved one line down.
-    assert!(!row("calc.k/m").1);
-    assert!(row("calc.k/m").2 > 1, "{:?}", row("calc.k/m"));
-    // A delete keeps the rule's line, and an extent-preserving edit changes no Location.
-    assert!(row("calc.k/no-mul").1);
-    assert!(row("calc.k/add-becomes-sub").1);
-    assert!(row("spec.md/inc-adds-two").1);
-    assert_eq!(checked.len(), 9 + 1 + 6);
 }
 
 // ---------------------------------------------------------------------------------------
@@ -1236,4 +1045,207 @@ fn the_resolver_overlay_replaces_only_the_files_it_names() {
     .err()
     .unwrap();
     assert!(error.to_string().starts_with("nope.k: "), "{error}");
+}
+
+mod kink_tier {
+    use super::*;
+
+    /// README 5.5 as restated after F-04 review 1 (M2): compiling the patched baseline gives the
+    /// compiled KORE of the edited sources after normalising every Location attribute, with an
+    /// equal rewrite order. The patch keeps each replaced rule's baseline position attributes
+    /// (kink-patch requires it of a ReplaceSentence), so a replacement that changes a rule's
+    /// extent changes its Location in the edited sources only, and one that changes the line
+    /// count also moves the Location of every later sentence of the file (the review's probe,
+    /// pinned below). Location is provenance only in the k-rust backend (RuleOrigin) and enters
+    /// no UNIQUE_ID. Checked over the calc and register fixture lists, the probe, and the valid
+    /// mutations of the Markdown fixture, whose edited sources are loaded through the Markdown
+    /// envelope (`ResolvedMutation::overlay`).
+    #[test]
+    #[ignore = "kink"]
+    fn the_patched_baseline_compiles_to_the_kore_of_the_edited_sources() {
+        let mut cases = fixture_mutations();
+        let calc = Spec::fixture("calc");
+        let line_break = calc
+            .resolve_edits(
+                "[[mutation.edit]]\nrule = \"add\"\nfind = \"I1 +Int I2\"\nreplace = \"I1 -Int\\n    I2\"\n",
+            )
+            .unwrap();
+        cases.push((calc, vec![line_break]));
+        let markdown = Spec::fixture("markdown");
+        let valid = fixture_list("markdown")
+            .mutations
+            .iter()
+            .filter_map(|m| markdown.resolve(m).ok())
+            .collect::<Vec<_>>();
+        assert_eq!(valid.len(), 6);
+        cases.push((markdown, valid));
+        let identity: fn(&str) -> String = str::to_owned;
+        let mut checked = Vec::new();
+        for (spec, mutations) in cases {
+            let validator = NativeValidator::bind(spec.loaded.baseline.clone(), Default::default());
+            for resolved in mutations {
+                let id = resolved.id.as_str();
+                let patched = validator
+                    .validate(&resolved.patch)
+                    .unwrap_or_else(|e| panic!("{id}: the patched baseline does not compile: {e}"));
+                let edited =
+                    load_source_with_overlay(&corpus_source(&spec.manifest), resolved.overlay())
+                        .unwrap_or_else(|e| panic!("{id}: the edited sources do not load: {e}"));
+                let direct = NativeValidator::bind(edited.baseline.clone(), Default::default())
+                    .compile_baseline()
+                    .unwrap_or_else(|e| panic!("{id}: the edited sources do not compile: {e}"));
+                // The digest formula is kink-patch's compiled KORE identity.
+                assert_eq!(
+                    kore_digest(&patched, identity),
+                    patched.kore_sha256().to_string()
+                );
+                assert_eq!(
+                    patched.artifacts().execution_rewrite_order,
+                    direct.artifacts().execution_rewrite_order,
+                    "{id}: the rewrite orders differ"
+                );
+                assert_eq!(
+                    kore_digest(&patched, without_locations),
+                    kore_digest(&direct, without_locations),
+                    "{id}: the compiles differ beyond Location attributes"
+                );
+                let (from, to) = (
+                    locations(&patched.artifacts().definition_kore),
+                    locations(&direct.artifacts().definition_kore),
+                );
+                assert_eq!(from.len(), to.len(), "{id}");
+                let moved = from.iter().zip(&to).filter(|(a, b)| a != b).count();
+                checked.push((
+                    format!("{}/{id}", spec.manifest.spec.entry),
+                    patched.kore_sha256() == direct.kore_sha256(),
+                    moved,
+                ));
+            }
+        }
+        let row = |key: &str| {
+            checked
+                .iter()
+                .find(|(k, _, _)| k == key)
+                .unwrap_or_else(|| panic!("{key} not checked: {checked:?}"))
+        };
+        // The probe: the replaced rule and the two rules below it moved one line down.
+        assert!(!row("calc.k/m").1);
+        assert!(row("calc.k/m").2 > 1, "{:?}", row("calc.k/m"));
+        // A delete keeps the rule's line, and an extent-preserving edit changes no Location.
+        assert!(row("calc.k/no-mul").1);
+        assert!(row("calc.k/add-becomes-sub").1);
+        assert!(row("spec.md/inc-adds-two").1);
+        assert_eq!(checked.len(), 9 + 1 + 6);
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn every_valid_fixture_mutation_changes_exactly_its_addressed_rules() {
+        for (spec, mutations) in fixture_mutations() {
+            let baseline = &spec.loaded.baseline;
+            for resolved in mutations {
+                let id = &resolved.id;
+                let edited = load_source_with_overlay(
+                    &corpus_source(&spec.manifest),
+                    &resolved.edited_sources,
+                )
+                .unwrap();
+                let replaced = shape(&resolved)
+                    .into_iter()
+                    .filter(|(kind, _)| *kind == "replace")
+                    .map(|(_, at)| at)
+                    .collect::<BTreeSet<_>>();
+                let deleted = shape(&resolved)
+                    .into_iter()
+                    .filter(|(kind, _)| *kind == "delete")
+                    .map(|(_, at)| at)
+                    .collect::<BTreeSet<_>>();
+                let mutant = apply(baseline, &resolved.patch).unwrap();
+                let definition = mutant.definition();
+                let mut seen = BTreeSet::new();
+                let mut outputs = 0;
+                for module in &definition.modules {
+                    for (index, sentence) in module.local_sentences.iter().enumerate() {
+                        outputs += 1;
+                        let output = SentenceRef::new(module.name.clone(), index as u32);
+                        let Some(SentenceOrigin::Baseline(origin)) = mutant.origin(&output) else {
+                            panic!("{id}: {output:?} has no baseline origin");
+                        };
+                        seen.insert(origin.clone());
+                        let original = baseline.sentence(origin).unwrap();
+                        if !replaced.contains(origin) {
+                            // Untouched: the very baseline sentence, positions included.
+                            assert!(**sentence == *original, "{id}: {origin:?} changed");
+                            assert_eq!(
+                                SentenceFingerprint::of(sentence).ok(),
+                                SentenceFingerprint::of(original).ok(),
+                                "{id}: {origin:?}"
+                            );
+                            continue;
+                        }
+                        // Replaced: the edited load's rule at that place, with the baseline's
+                        // position and provenance attributes and nothing else of the baseline.
+                        let edited_index = origin.index
+                            - deleted
+                                .iter()
+                                .filter(|d| d.module == origin.module && d.index < origin.index)
+                                .count() as u32;
+                        let edited_sentence = edited
+                            .baseline
+                            .sentence(&SentenceRef::new(origin.module.clone(), edited_index))
+                            .unwrap();
+                        assert_eq!(
+                            SentenceFingerprint::of(sentence).unwrap(),
+                            SentenceFingerprint::of(edited_sentence).unwrap(),
+                            "{id}: {origin:?} is not the edited rule"
+                        );
+                        assert_ne!(
+                            SentenceFingerprint::of(sentence).unwrap(),
+                            SentenceFingerprint::of(original).unwrap(),
+                            "{id}: {origin:?} is unchanged"
+                        );
+                        let entries = sentence.attributes().entries();
+                        let original_entries = original.attributes().entries();
+                        let edited_entries = edited_sentence.attributes().entries();
+                        for (key, value) in entries.iter().chain(&original_entries) {
+                            let position = POSITION_KEYS.iter().any(|k| k.as_str() == key);
+                            let expected = if position {
+                                original_entries.get(key)
+                            } else {
+                                edited_entries.get(key)
+                            };
+                            assert_eq!(
+                                entries.get(key),
+                                expected,
+                                "{id}: {origin:?} {key} {value}"
+                            );
+                        }
+                        for key in edited_entries.keys() {
+                            let position = POSITION_KEYS.iter().any(|k| k.as_str() == key);
+                            assert!(position || entries.contains_key(key), "{id}: {key}");
+                        }
+                        assert_eq!(
+                            sentence.attributes().value(AttributeKey::Label),
+                            original.attributes().value(AttributeKey::Label)
+                        );
+                    }
+                }
+                let baseline_count = baseline
+                    .definition()
+                    .modules
+                    .iter()
+                    .map(|m| m.local_sentences.len())
+                    .sum::<usize>();
+                assert_eq!(outputs, baseline_count - deleted.len(), "{id}");
+                for d in &deleted {
+                    assert!(!seen.contains(d), "{id}: {d:?} still present");
+                }
+                assert_eq!(
+                    resolved.patch.written_sentences(),
+                    replaced.union(&deleted).cloned().collect::<Vec<_>>(),
+                    "{id}"
+                );
+            }
+        }
+    }
 }

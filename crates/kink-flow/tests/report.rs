@@ -131,435 +131,6 @@ fn contains(actual: &Value, excerpt: &Value) -> bool {
     }
 }
 
-/// Packet CACHE-ID: the run document names kink's semantics identity (kink-campaign
-/// `identity`), and `report` refuses a stored document that names another value of any one
-/// component, or none (every document before CACHE-ID, version 6): its statuses may rest on
-/// algorithms this build no longer runs. Re-pin L1-2-land: so is one that lacks the one-sided
-/// rule's component (`one_sided`, as at 830c18e) or names another version of it.
-#[test]
-fn a_report_written_under_another_identity_is_refused() {
-    use kink_flow::report::{ReportOptions, report};
-    let path = fixture("calc", "identity").join("FLOW.toml");
-    let (document, ok) = search(
-        &path,
-        &path.with_file_name("MUTATIONS.toml"),
-        &["add-becomes-sub"],
-    );
-    assert!(ok, "{document:#}");
-    assert_eq!(document["kink"], kink_campaign::kink_identity());
-    let manifest = FlowManifest::read(&path).unwrap();
-    let stored = path.with_file_name(CACHE_DIRECTORY).join(REPORT_FILE);
-    assert_eq!(
-        report(&manifest, &ReportOptions::default()),
-        (document.clone(), true)
-    );
-    let mut before = document.clone();
-    before["version"] = json!(6);
-    before.as_object_mut().unwrap().remove("kink");
-    // Re-pin L1-2-land: a document from before the one-sided rule was a component (830c18e).
-    let mut before_one_sided = document.clone();
-    before_one_sided["kink"]
-        .as_object_mut()
-        .unwrap()
-        .remove("one_sided")
-        .unwrap();
-    let mut stale = vec![before, before_one_sided];
-    for component in kink_campaign::KINK_IDENTITY {
-        let mut changed = document.clone();
-        changed["kink"][component.key] = json!(format!("{}-other", component.value));
-        stale.push(changed);
-    }
-    for stale in stale {
-        fs::write(&stored, stale.to_string()).unwrap();
-        let (refused, ok) = report(&manifest, &ReportOptions::default());
-        assert!(!ok, "{refused:#}");
-        assert_eq!(refused["schema"], MISSING_SCHEMA);
-        assert_eq!(refused["outcome"], "unreadable", "{refused:#}");
-    }
-}
-
-/// Packet CACHE-ID-fix-1 (CACHE-ID review 1 major): the run document names the build that wrote
-/// it (`kink_build`, the executable's digest), and `report` prints only a document this build
-/// wrote: most verdict code has no version constant, so an equal semantics identity does not
-/// show that the statuses would be the same. Forged first (another build, none, and a version-7
-/// document from before CACHE-ID-fix-1), then two real builds: the `kink-flow` binary refuses
-/// the document this test binary wrote, and this test binary refuses the binary's.
-#[test]
-fn a_report_written_by_another_build_is_refused() {
-    use kink_flow::report::{ReportOptions, report};
-    let this_build = kink_campaign::identity::build_identity_of(&std::env::current_exe().unwrap())
-        .unwrap()
-        .to_string();
-    let dir = fixture("calc", "build");
-    let path = dir.join("FLOW.toml");
-    let (document, ok) = search(
-        &path,
-        &path.with_file_name("MUTATIONS.toml"),
-        &["add-becomes-sub"],
-    );
-    assert!(ok, "{document:#}");
-    assert_eq!(document["version"], RUN_VERSION);
-    assert_eq!(document["kink_build"], this_build);
-    let manifest = FlowManifest::read(&path).unwrap();
-    let stored = path.with_file_name(CACHE_DIRECTORY).join(REPORT_FILE);
-    let written = fs::read_to_string(&stored).unwrap();
-    let mut other = document.clone();
-    other["kink_build"] = json!(kink_patch::sha256(b"another kink build").to_string());
-    let mut none = document.clone();
-    none.as_object_mut().unwrap().remove("kink_build");
-    let mut before = none.clone();
-    before["version"] = json!(7);
-    for stale in [other, none, before] {
-        fs::write(&stored, stale.to_string()).unwrap();
-        let (refused, ok) = report(&manifest, &ReportOptions::default());
-        assert!(!ok, "{refused:#}");
-        assert_eq!(refused["outcome"], "unreadable", "{refused:#}");
-    }
-    // Two real builds.
-    fs::write(&stored, &written).unwrap();
-    let by_binary = binary(&["report", "FLOW.toml"], &dir);
-    assert_eq!(by_binary.status.code(), Some(i32::from(EXIT_CORPUS)));
-    let refused: Value = serde_json::from_slice(&by_binary.stdout).unwrap();
-    assert_eq!(refused["outcome"], "unreadable", "{refused:#}");
-    let detail = refused["detail"].as_str().unwrap();
-    assert!(detail.contains(&this_build), "{detail}");
-    assert!(
-        detail.contains("its kink identity is this build's"),
-        "{detail}"
-    );
-    let ran = binary(
-        &[
-            "run",
-            "FLOW.toml",
-            "MUTATIONS.toml",
-            "--only",
-            "add-becomes-sub",
-        ],
-        &dir,
-    );
-    assert_eq!(ran.status.code(), Some(i32::from(EXIT_OK)));
-    let reported = binary(&["report", "FLOW.toml"], &dir);
-    assert_eq!(reported.status.code(), Some(i32::from(EXIT_OK)));
-    assert_eq!(reported.stdout, ran.stdout);
-    let (refused, ok) = report(&manifest, &ReportOptions::default());
-    assert!(!ok, "{refused:#}");
-    assert_eq!(refused["outcome"], "unreadable", "{refused:#}");
-}
-
-#[test]
-fn a_survivor_row_carries_its_rule_texts_reaching_programs_and_outcomes() {
-    let manifest = fixture("calc", "survivor").join("FLOW.toml");
-    let (document, ok) = search(&manifest, &manifest.with_file_name("MUTATIONS.toml"), &[]);
-    assert!(ok, "{document:#}");
-    assert_eq!(document["schema"], RUN_SCHEMA);
-    assert_eq!(document["version"], RUN_VERSION);
-    assert_eq!(document["survivors"], json!(["add-swaps-operands"]));
-    assert_eq!(document["unusable_programs"], json!([]));
-    let survivor = mutation(&document, "add-swaps-operands");
-    assert_eq!(survivor["status"], "survived");
-    // The two edits of the mutation address one rule; its text before and after is sliced
-    // from the sources by the sentence's span.
-    assert_eq!(
-        survivor["rules"],
-        json!([{
-            "module": "CALC",
-            "index": 1,
-            "file": "calc.k",
-            "label": "CALC.add",
-            "start_line": 21,
-            "end_line": 21,
-            "edits": [0, 1],
-            "before": "rule [add]: I1:Int + I2:Int => I1 +Int I2",
-            "after": "rule [add]: I1:Int + I2:Int => I2 +Int I1",
-        }])
-    );
-    assert_eq!(survivor["reaching"], json!(["add", "nested", "inline"]));
-    assert_eq!(
-        executed(&document, "add-swaps-operands"),
-        triples(&[
-            ("add", "agree", Value::Null),
-            ("nested", "agree", Value::Null),
-            ("inline", "agree", Value::Null),
-            ("sub", "agree", Value::Null),
-        ])
-    );
-    assert!(
-        survivor["action"]
-            .as_str()
-            .unwrap()
-            .starts_with("write a program that reaches an edited rule")
-    );
-    // A killed row names its killer and carries no survivor fields.
-    for id in [
-        "add-becomes-sub",
-        "sub-off-by-one",
-        "mul-becomes-add",
-        "no-mul",
-    ] {
-        let row = mutation(&document, id);
-        assert_eq!(row["status"], "killed", "{id}");
-        assert_eq!(row["rules"], Value::Null, "{id}");
-        assert_eq!(row["action"], Value::Null, "{id}");
-        assert!(row["killer"].is_string(), "{id}");
-    }
-
-    // A deleted rule has no text after the edit; with only `add` in the corpus, nothing
-    // reaches the mul rule, so nothing can kill its deletion.
-    let text = fs::read_to_string(&manifest).unwrap();
-    let only_add = text[..text.find("[[program]]\nid = \"nested\"").unwrap()].to_owned();
-    let manifest = manifest.with_file_name("FLOW-add.toml");
-    fs::write(&manifest, only_add).unwrap();
-    let (document, ok) = search(
-        &manifest,
-        &manifest.with_file_name("MUTATIONS.toml"),
-        &["no-mul"],
-    );
-    assert!(ok, "{document:#}");
-    assert_eq!(document["survivors"], json!(["no-mul"]));
-    let row = mutation(&document, "no-mul");
-    assert_eq!(row["status"], "survived");
-    assert_eq!(row["reaching"], json!([]));
-    assert_eq!(
-        row["rules"],
-        json!([{
-            "module": "CALC",
-            "index": 2,
-            "file": "calc.k",
-            "label": "CALC.mul",
-            "start_line": 22,
-            "end_line": 22,
-            "edits": [0],
-            "before": "rule [mul]: I1:Int * I2:Int => I1 *Int I2",
-            "after": null,
-        }])
-    );
-    assert_eq!(
-        executed(&document, "no-mul"),
-        triples(&[("add", "agree", Value::Null)])
-    );
-}
-
-#[test]
-fn rows_of_the_other_statuses_say_what_to_fix() {
-    let manifest = fixture("calc", "statuses").join("FLOW.toml");
-    let (document, ok) = search(
-        &manifest,
-        &manifest.with_file_name("MUTATIONS-statuses.toml"),
-        &["no-such-rule", "add-in-a-group", "add-unbound"],
-    );
-    assert!(ok, "{document:#}");
-    // Neither an equivalent nor an invalid mutant is a survivor: no program can kill it.
-    assert_eq!(document["survivors"], json!([]));
-    let row = mutation(&document, "no-such-rule");
-    assert_eq!(row["status"], "invalid-mutation");
-    assert_eq!(row["rules"], Value::Null);
-    assert!(
-        row["action"]
-            .as_str()
-            .unwrap()
-            .starts_with("fix the mutation")
-    );
-    for (id, status, action) in [
-        ("add-in-a-group", "equivalent", "nothing can kill it"),
-        ("add-unbound", "invalid", "fix the mutation"),
-    ] {
-        let row = mutation(&document, id);
-        assert_eq!(row["status"], status, "{id}");
-        assert_eq!(row["rules"][0]["label"], "CALC.add", "{id}");
-        assert_eq!(
-            row["rules"][0]["before"], "rule [add]: I1:Int + I2:Int => I1 +Int I2",
-            "{id}"
-        );
-        assert!(
-            row["action"].as_str().unwrap().starts_with(action),
-            "{id}: {}",
-            row["action"]
-        );
-    }
-}
-
-#[test]
-fn a_run_where_every_mutation_is_killed_lists_no_survivors() {
-    let manifest = fixture("register", "all-killed").join("FLOW.toml");
-    let (document, ok) = search(&manifest, &manifest.with_file_name("MUTATIONS.toml"), &[]);
-    assert!(ok, "{document:#}");
-    assert_eq!(document["survivors"], json!([]));
-    assert_eq!(document["counts"]["killed"], 4);
-    for row in document["mutations"].as_array().unwrap() {
-        assert_eq!(row["status"], "killed", "{row:#}");
-        assert_eq!(row["rules"], Value::Null, "{row:#}");
-        assert_eq!(row["action"], Value::Null, "{row:#}");
-    }
-}
-
-#[test]
-fn timeouts_unknowns_and_unusable_programs_carry_their_causes() {
-    // countdown(3) never ends on the mutant: under a 500 ms bound and a depth bound it cannot
-    // reach, its outcome is a timeout; twice agrees.
-    let dir = fixture("loop", "causes");
-    let mutations = dir.join("MUTATIONS.toml");
-    let (document, ok) = search(&dir.join("FLOW-search.toml"), &mutations, &[]);
-    assert!(ok, "{document:#}");
-    assert_eq!(document["survivors"], json!(["countdown-escapes"]));
-    assert_eq!(
-        mutation(&document, "countdown-escapes")["status"],
-        "timeout"
-    );
-    // F-13: a timeout's cause continues with the leaf census of the mutant's run
-    // (host-dependent; tests/usability.rs pins its form).
-    let mut entries = executed(&document, "countdown-escapes");
-    let cause = entries[0].2.as_str().unwrap().to_owned();
-    assert!(
-        cause.starts_with(
-            "the mutant's run did not end within time_ms = 500; when the bound fired "
-        ),
-        "{cause}"
-    );
-    entries[0].2 = json!("the mutant's run did not end within time_ms = 500");
-    assert_eq!(
-        entries,
-        triples(&[
-            (
-                "countdown",
-                "timeout",
-                json!("the mutant's run did not end within time_ms = 500")
-            ),
-            ("twice", "agree", Value::Null),
-        ])
-    );
-    assert!(
-        mutation(&document, "countdown-escapes")["action"]
-            .as_str()
-            .unwrap()
-            .starts_with("write a program that ends under the mutant")
-    );
-
-    // Under a depth bound of 200 and a generous time bound the same run stops at the depth
-    // bound: both oracle slots are unknown, for one cause.
-    fs::remove_dir_all(dir.join(CACHE_DIRECTORY)).unwrap();
-    let (document, ok) = search(&dir.join("FLOW-depth.toml"), &mutations, &[]);
-    assert!(ok, "{document:#}");
-    assert_eq!(document["survivors"], json!(["countdown-escapes"]));
-    assert_eq!(
-        mutation(&document, "countdown-escapes")["status"],
-        "unknown"
-    );
-    let executed = executed(&document, "countdown-escapes");
-    assert_eq!(executed.len(), 2);
-    assert_eq!(executed[0].1, "unknown");
-    assert!(
-        executed[0].2.as_str().unwrap().starts_with(
-            "exit-stop, whole-term: the mutant's run did not end in a value kink can compare \
-             (a path stopped at max_depth = 200"
-        ),
-        "{}",
-        executed[0].2
-    );
-    assert_eq!(executed[1], ("twice".into(), "agree".into(), Value::Null));
-
-    // A program that cannot kill is listed once, with its class and cause, and never run.
-    fs::remove_dir_all(dir.join(CACHE_DIRECTORY)).unwrap();
-    let (document, ok) = search(&dir.join("FLOW-timeout.toml"), &mutations, &[]);
-    assert!(ok, "{document:#}");
-    let mut unusable = document["unusable_programs"].clone();
-    let cause = unusable[0]["cause"].as_str().unwrap().to_owned();
-    assert!(
-        cause.starts_with("the run did not finish within time_ms = 500; when the bound fired "),
-        "{cause}"
-    );
-    unusable[0]["cause"] = json!("the run did not finish within time_ms = 500");
-    assert_eq!(
-        unusable,
-        json!([{"id": "spin", "class": "timeout",
-                "cause": "the run did not finish within time_ms = 500"}])
-    );
-    assert_eq!(
-        mutation(&document, "countdown-escapes")["calls"],
-        json!([{"programs": ["countdown"], "status": "timeout"}])
-    );
-}
-
-#[test]
-fn report_reprints_the_same_bytes() {
-    let dir = fixture("calc", "reprint");
-    let cache = dir.join(CACHE_DIRECTORY);
-    // No run yet: nothing to print.
-    let output = binary(&["report", "FLOW.toml"], &dir);
-    assert_eq!(output.status.code(), Some(i32::from(EXIT_CORPUS)));
-    let document: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(document["schema"], MISSING_SCHEMA);
-    assert_eq!(document["outcome"], "missing");
-
-    let ran = binary(
-        &[
-            "run",
-            "FLOW.toml",
-            "MUTATIONS.toml",
-            "--only",
-            "add-swaps-operands",
-        ],
-        &dir,
-    );
-    assert_eq!(ran.status.code(), Some(i32::from(EXIT_OK)));
-    let reported = binary(&["report", "FLOW.toml"], &dir);
-    assert_eq!(reported.status.code(), Some(i32::from(EXIT_OK)));
-    assert_eq!(reported.stdout, ran.stdout);
-    let document: Value = serde_json::from_slice(&ran.stdout).unwrap();
-    let stored: Value =
-        serde_json::from_str(&fs::read_to_string(cache.join(REPORT_FILE)).unwrap()).unwrap();
-    assert_eq!(stored, document);
-    assert_eq!(document["survivors"], json!(["add-swaps-operands"]));
-
-    // The report is the last run's: a run that selects no mutation replaces it too.
-    fs::write(dir.join("EMPTY.toml"), "").unwrap();
-    let empty = binary(&["run", "FLOW.toml", "EMPTY.toml"], &dir);
-    assert_eq!(empty.status.code(), Some(i32::from(EXIT_OK)));
-    let reported = binary(&["report", "FLOW.toml"], &dir);
-    assert_eq!(reported.stdout, empty.stdout);
-    let document: Value = serde_json::from_slice(&empty.stdout).unwrap();
-    assert_eq!(document["mutations"], json!([]));
-
-    // --cache selects another cache; a stored report that is not a current run document is
-    // refused, not printed.
-    let other = scratch("reprint-cache");
-    let output = binary(
-        &["report", "FLOW.toml", "--cache", other.to_str().unwrap()],
-        &dir,
-    );
-    assert_eq!(output.status.code(), Some(i32::from(EXIT_CORPUS)));
-    fs::write(
-        other.join(REPORT_FILE),
-        r#"{"schema": "kink-flow-run", "version": 1}"#,
-    )
-    .unwrap();
-    let output = binary(
-        &["report", "FLOW.toml", "--cache", other.to_str().unwrap()],
-        &dir,
-    );
-    assert_eq!(output.status.code(), Some(i32::from(EXIT_CORPUS)));
-    let document: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(document["outcome"], "unreadable");
-    fs::write(other.join(REPORT_FILE), "not json").unwrap();
-    let output = binary(
-        &["report", "FLOW.toml", "--cache", other.to_str().unwrap()],
-        &dir,
-    );
-    assert_eq!(output.status.code(), Some(i32::from(EXIT_CORPUS)));
-    for args in [
-        vec!["report"],
-        vec!["report", "missing.toml"],
-        vec!["report", "FLOW.toml", "--cache"],
-        vec!["report", "FLOW.toml", "--verify"],
-    ] {
-        let output = binary(&args, &dir);
-        assert_eq!(
-            output.status.code(),
-            Some(i32::from(EXIT_USAGE)),
-            "{args:?}"
-        );
-    }
-}
-
 /// One step of the README walkthrough: the action of its `<!-- example: ... -->` marker and
 /// the fenced block after it.
 struct Step {
@@ -603,110 +174,552 @@ fn walkthrough() -> Vec<Step> {
     steps
 }
 
-#[test]
-fn the_readme_walkthrough_works_as_written() {
-    let dir = fixture("calc", "readme");
-    let steps = walkthrough();
-    let mut kinds = Vec::new();
-    // The last command's stdout and document; the stdout of the last `run`.
-    let mut last: Option<(Vec<u8>, Value)> = None;
-    let mut last_run: Option<Vec<u8>> = None;
-    // Each `run` document, with the program ids of the manifest when it ran.
-    let mut runs = Vec::new();
-    for step in &steps {
-        let (kind, argument) = step
-            .action
-            .split_once(' ')
-            .unwrap_or((step.action.as_str(), ""));
-        kinds.push(kind.to_owned());
-        let text = format!("{}\n", step.body);
-        match kind {
-            // The fresh copy of testdata/flow/calc already holds the file, exactly as shown.
-            "file" => assert_eq!(
-                fs::read_to_string(dir.join(argument)).unwrap(),
-                text,
-                "{argument}"
-            ),
-            "write" => fs::write(dir.join(argument), &text).unwrap(),
-            "append" => {
-                let mut contents = fs::read_to_string(dir.join(argument)).unwrap();
-                contents.push_str(&text);
-                fs::write(dir.join(argument), contents).unwrap();
-            }
-            "run" => {
-                for command in step.body.lines().filter(|line| !line.trim().is_empty()) {
-                    let words = command.split_whitespace().collect::<Vec<_>>();
-                    assert_eq!(words[0], "kink-flow", "{command}");
-                    kinds.push(words[1].to_owned());
-                    let output = binary(&words[1..], &dir);
-                    assert_eq!(
-                        output.status.code(),
-                        Some(i32::from(EXIT_OK)),
-                        "{command}: {}",
-                        String::from_utf8_lossy(&output.stdout)
-                    );
-                    let document: Value = serde_json::from_slice(&output.stdout)
-                        .unwrap_or_else(|e| panic!("{command}: {e}"));
-                    match words[1] {
-                        "report" => assert_eq!(
-                            Some(&output.stdout),
-                            last_run.as_ref(),
-                            "report reprints the last run"
-                        ),
-                        "run" => {
-                            let manifest = FlowManifest::read(&dir.join(words[2])).unwrap();
-                            let programs = manifest
-                                .programs
-                                .iter()
-                                .map(|p| p.id.clone())
-                                .collect::<Vec<_>>();
-                            runs.push((document.clone(), programs));
-                            last_run = Some(output.stdout.clone());
-                        }
-                        _ => {}
-                    }
-                    last = Some((output.stdout, document));
-                }
-            }
-            "output" => {
-                let (_, document) = last.as_ref().expect("an output follows a command");
-                let excerpt: Value = serde_json::from_str(&step.body)
-                    .unwrap_or_else(|e| panic!("output {argument}: {e}"));
-                let actual = document
-                    .pointer(argument)
-                    .unwrap_or_else(|| panic!("output {argument}: no such value"));
-                assert!(
-                    contains(actual, &excerpt),
-                    "output {argument}: {actual:#} does not contain {excerpt:#}"
-                );
-            }
-            other => panic!("unknown example action {other:?}"),
+mod kink_tier {
+    use super::*;
+
+    #[test]
+    #[ignore = "kink"]
+    fn rows_of_the_other_statuses_say_what_to_fix() {
+        let manifest = fixture("calc", "statuses").join("FLOW.toml");
+        let (document, ok) = search(
+            &manifest,
+            &manifest.with_file_name("MUTATIONS-statuses.toml"),
+            &["no-such-rule", "add-in-a-group", "add-unbound"],
+        );
+        assert!(ok, "{document:#}");
+        // Neither an equivalent nor an invalid mutant is a survivor: no program can kill it.
+        assert_eq!(document["survivors"], json!([]));
+        let row = mutation(&document, "no-such-rule");
+        assert_eq!(row["status"], "invalid-mutation");
+        assert_eq!(row["rules"], Value::Null);
+        assert!(
+            row["action"]
+                .as_str()
+                .unwrap()
+                .starts_with("fix the mutation")
+        );
+        for (id, status, action) in [
+            ("add-in-a-group", "equivalent", "nothing can kill it"),
+            ("add-unbound", "invalid", "fix the mutation"),
+        ] {
+            let row = mutation(&document, id);
+            assert_eq!(row["status"], status, "{id}");
+            assert_eq!(row["rules"][0]["label"], "CALC.add", "{id}");
+            assert_eq!(
+                row["rules"][0]["before"], "rule [add]: I1:Int + I2:Int => I1 +Int I2",
+                "{id}"
+            );
+            assert!(
+                row["action"].as_str().unwrap().starts_with(action),
+                "{id}: {}",
+                row["action"]
+            );
         }
     }
-    // The section shows every input file and every command of the loop.
-    for kind in [
-        "file", "write", "append", "run", "output", "check", "results", "report",
-    ] {
+
+    /// Packet CACHE-ID: the run document names kink's semantics identity (kink-campaign
+    /// `identity`), and `report` refuses a stored document that names another value of any one
+    /// component, or none (every document before CACHE-ID, version 6): its statuses may rest on
+    /// algorithms this build no longer runs. Re-pin L1-2-land: so is one that lacks the one-sided
+    /// rule's component (`one_sided`, as at 830c18e) or names another version of it.
+    #[test]
+    #[ignore = "kink"]
+    fn a_report_written_under_another_identity_is_refused() {
+        use kink_flow::report::{ReportOptions, report};
+        let path = fixture("calc", "identity").join("FLOW.toml");
+        let (document, ok) = search(
+            &path,
+            &path.with_file_name("MUTATIONS.toml"),
+            &["add-becomes-sub"],
+        );
+        assert!(ok, "{document:#}");
+        assert_eq!(document["kink"], kink_campaign::kink_identity());
+        let manifest = FlowManifest::read(&path).unwrap();
+        let stored = path.with_file_name(CACHE_DIRECTORY).join(REPORT_FILE);
+        assert_eq!(
+            report(&manifest, &ReportOptions::default()),
+            (document.clone(), true)
+        );
+        let mut before = document.clone();
+        before["version"] = json!(6);
+        before.as_object_mut().unwrap().remove("kink");
+        // Re-pin L1-2-land: a document from before the one-sided rule was a component (830c18e).
+        let mut before_one_sided = document.clone();
+        before_one_sided["kink"]
+            .as_object_mut()
+            .unwrap()
+            .remove("one_sided")
+            .unwrap();
+        let mut stale = vec![before, before_one_sided];
+        for component in kink_campaign::KINK_IDENTITY {
+            let mut changed = document.clone();
+            changed["kink"][component.key] = json!(format!("{}-other", component.value));
+            stale.push(changed);
+        }
+        for stale in stale {
+            fs::write(&stored, stale.to_string()).unwrap();
+            let (refused, ok) = report(&manifest, &ReportOptions::default());
+            assert!(!ok, "{refused:#}");
+            assert_eq!(refused["schema"], MISSING_SCHEMA);
+            assert_eq!(refused["outcome"], "unreadable", "{refused:#}");
+        }
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn report_reprints_the_same_bytes() {
+        let dir = fixture("calc", "reprint");
+        let cache = dir.join(CACHE_DIRECTORY);
+        // No run yet: nothing to print.
+        let output = binary(&["report", "FLOW.toml"], &dir);
+        assert_eq!(output.status.code(), Some(i32::from(EXIT_CORPUS)));
+        let document: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(document["schema"], MISSING_SCHEMA);
+        assert_eq!(document["outcome"], "missing");
+
+        let ran = binary(
+            &[
+                "run",
+                "FLOW.toml",
+                "MUTATIONS.toml",
+                "--only",
+                "add-swaps-operands",
+            ],
+            &dir,
+        );
+        assert_eq!(ran.status.code(), Some(i32::from(EXIT_OK)));
+        let reported = binary(&["report", "FLOW.toml"], &dir);
+        assert_eq!(reported.status.code(), Some(i32::from(EXIT_OK)));
+        assert_eq!(reported.stdout, ran.stdout);
+        let document: Value = serde_json::from_slice(&ran.stdout).unwrap();
+        let stored: Value =
+            serde_json::from_str(&fs::read_to_string(cache.join(REPORT_FILE)).unwrap()).unwrap();
+        assert_eq!(stored, document);
+        assert_eq!(document["survivors"], json!(["add-swaps-operands"]));
+
+        // The report is the last run's: a run that selects no mutation replaces it too.
+        fs::write(dir.join("EMPTY.toml"), "").unwrap();
+        let empty = binary(&["run", "FLOW.toml", "EMPTY.toml"], &dir);
+        assert_eq!(empty.status.code(), Some(i32::from(EXIT_OK)));
+        let reported = binary(&["report", "FLOW.toml"], &dir);
+        assert_eq!(reported.stdout, empty.stdout);
+        let document: Value = serde_json::from_slice(&empty.stdout).unwrap();
+        assert_eq!(document["mutations"], json!([]));
+
+        // --cache selects another cache; a stored report that is not a current run document is
+        // refused, not printed.
+        let other = scratch("reprint-cache");
+        let output = binary(
+            &["report", "FLOW.toml", "--cache", other.to_str().unwrap()],
+            &dir,
+        );
+        assert_eq!(output.status.code(), Some(i32::from(EXIT_CORPUS)));
+        fs::write(
+            other.join(REPORT_FILE),
+            r#"{"schema": "kink-flow-run", "version": 1}"#,
+        )
+        .unwrap();
+        let output = binary(
+            &["report", "FLOW.toml", "--cache", other.to_str().unwrap()],
+            &dir,
+        );
+        assert_eq!(output.status.code(), Some(i32::from(EXIT_CORPUS)));
+        let document: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(document["outcome"], "unreadable");
+        fs::write(other.join(REPORT_FILE), "not json").unwrap();
+        let output = binary(
+            &["report", "FLOW.toml", "--cache", other.to_str().unwrap()],
+            &dir,
+        );
+        assert_eq!(output.status.code(), Some(i32::from(EXIT_CORPUS)));
+        for args in [
+            vec!["report"],
+            vec!["report", "missing.toml"],
+            vec!["report", "FLOW.toml", "--cache"],
+            vec!["report", "FLOW.toml", "--verify"],
+        ] {
+            let output = binary(&args, &dir);
+            assert_eq!(
+                output.status.code(),
+                Some(i32::from(EXIT_USAGE)),
+                "{args:?}"
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn a_run_where_every_mutation_is_killed_lists_no_survivors() {
+        let manifest = fixture("register", "all-killed").join("FLOW.toml");
+        let (document, ok) = search(&manifest, &manifest.with_file_name("MUTATIONS.toml"), &[]);
+        assert!(ok, "{document:#}");
+        assert_eq!(document["survivors"], json!([]));
+        assert_eq!(document["counts"]["killed"], 4);
+        for row in document["mutations"].as_array().unwrap() {
+            assert_eq!(row["status"], "killed", "{row:#}");
+            assert_eq!(row["rules"], Value::Null, "{row:#}");
+            assert_eq!(row["action"], Value::Null, "{row:#}");
+        }
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn timeouts_unknowns_and_unusable_programs_carry_their_causes() {
+        // countdown(3) never ends on the mutant: under a 500 ms bound and a depth bound it cannot
+        // reach, its outcome is a timeout; twice agrees.
+        let dir = fixture("loop", "causes");
+        let mutations = dir.join("MUTATIONS.toml");
+        let (document, ok) = search(&dir.join("FLOW-search.toml"), &mutations, &[]);
+        assert!(ok, "{document:#}");
+        assert_eq!(document["survivors"], json!(["countdown-escapes"]));
+        assert_eq!(
+            mutation(&document, "countdown-escapes")["status"],
+            "timeout"
+        );
+        // F-13: a timeout's cause continues with the leaf census of the mutant's run
+        // (host-dependent; tests/usability.rs pins its form).
+        let mut entries = executed(&document, "countdown-escapes");
+        let cause = entries[0].2.as_str().unwrap().to_owned();
         assert!(
-            kinds.iter().any(|k| k == kind),
-            "the walkthrough has no {kind}"
+            cause.starts_with(
+                "the mutant's run did not end within time_ms = 500; when the bound fired "
+            ),
+            "{cause}"
+        );
+        entries[0].2 = json!("the mutant's run did not end within time_ms = 500");
+        assert_eq!(
+            entries,
+            triples(&[
+                (
+                    "countdown",
+                    "timeout",
+                    json!("the mutant's run did not end within time_ms = 500")
+                ),
+                ("twice", "agree", Value::Null),
+            ])
+        );
+        assert!(
+            mutation(&document, "countdown-escapes")["action"]
+                .as_str()
+                .unwrap()
+                .starts_with("write a program that ends under the mutant")
+        );
+
+        // Under a depth bound of 200 and a generous time bound the same run stops at the depth
+        // bound: both oracle slots are unknown, for one cause.
+        fs::remove_dir_all(dir.join(CACHE_DIRECTORY)).unwrap();
+        let (document, ok) = search(&dir.join("FLOW-depth.toml"), &mutations, &[]);
+        assert!(ok, "{document:#}");
+        assert_eq!(document["survivors"], json!(["countdown-escapes"]));
+        assert_eq!(
+            mutation(&document, "countdown-escapes")["status"],
+            "unknown"
+        );
+        let executed = executed(&document, "countdown-escapes");
+        assert_eq!(executed.len(), 2);
+        assert_eq!(executed[0].1, "unknown");
+        assert!(
+            executed[0].2.as_str().unwrap().starts_with(
+                "exit-stop, whole-term: the mutant's run did not end in a value kink can compare \
+                 (a path stopped at max_depth = 200"
+            ),
+            "{}",
+            executed[0].2
+        );
+        assert_eq!(executed[1], ("twice".into(), "agree".into(), Value::Null));
+
+        // A program that cannot kill is listed once, with its class and cause, and never run.
+        fs::remove_dir_all(dir.join(CACHE_DIRECTORY)).unwrap();
+        let (document, ok) = search(&dir.join("FLOW-timeout.toml"), &mutations, &[]);
+        assert!(ok, "{document:#}");
+        let mut unusable = document["unusable_programs"].clone();
+        let cause = unusable[0]["cause"].as_str().unwrap().to_owned();
+        assert!(
+            cause.starts_with("the run did not finish within time_ms = 500; when the bound fired "),
+            "{cause}"
+        );
+        unusable[0]["cause"] = json!("the run did not finish within time_ms = 500");
+        assert_eq!(
+            unusable,
+            json!([{"id": "spin", "class": "timeout",
+                    "cause": "the run did not finish within time_ms = 500"}])
+        );
+        assert_eq!(
+            mutation(&document, "countdown-escapes")["calls"],
+            json!([{"programs": ["countdown"], "status": "timeout"}])
         );
     }
-    // The first run leaves a survivor; after the program the walkthrough adds, the last run
-    // kills it with that program, and nothing survives.
-    let (first, before) = runs.first().expect("a run");
-    let (last, _) = runs.last().unwrap();
-    assert!(runs.len() >= 2);
-    let survivors = first["survivors"].as_array().unwrap();
-    assert!(!survivors.is_empty());
-    assert_eq!(last["survivors"], json!([]));
-    for id in survivors {
-        let row = mutation(last, id.as_str().unwrap());
-        assert_eq!(row["status"], "killed", "{id}");
-        let killer = row["killer"].as_str().unwrap();
-        assert!(
-            !before.iter().any(|program| program == killer),
-            "{id} is killed by {killer}, a program the first run already had"
+
+    #[test]
+    #[ignore = "kink"]
+    fn a_survivor_row_carries_its_rule_texts_reaching_programs_and_outcomes() {
+        let manifest = fixture("calc", "survivor").join("FLOW.toml");
+        let (document, ok) = search(&manifest, &manifest.with_file_name("MUTATIONS.toml"), &[]);
+        assert!(ok, "{document:#}");
+        assert_eq!(document["schema"], RUN_SCHEMA);
+        assert_eq!(document["version"], RUN_VERSION);
+        assert_eq!(document["survivors"], json!(["add-swaps-operands"]));
+        assert_eq!(document["unusable_programs"], json!([]));
+        let survivor = mutation(&document, "add-swaps-operands");
+        assert_eq!(survivor["status"], "survived");
+        // The two edits of the mutation address one rule; its text before and after is sliced
+        // from the sources by the sentence's span.
+        assert_eq!(
+            survivor["rules"],
+            json!([{
+                "module": "CALC",
+                "index": 1,
+                "file": "calc.k",
+                "label": "CALC.add",
+                "start_line": 21,
+                "end_line": 21,
+                "edits": [0, 1],
+                "before": "rule [add]: I1:Int + I2:Int => I1 +Int I2",
+                "after": "rule [add]: I1:Int + I2:Int => I2 +Int I1",
+            }])
         );
+        assert_eq!(survivor["reaching"], json!(["add", "nested", "inline"]));
+        assert_eq!(
+            executed(&document, "add-swaps-operands"),
+            triples(&[
+                ("add", "agree", Value::Null),
+                ("nested", "agree", Value::Null),
+                ("inline", "agree", Value::Null),
+                ("sub", "agree", Value::Null),
+            ])
+        );
+        assert!(
+            survivor["action"]
+                .as_str()
+                .unwrap()
+                .starts_with("write a program that reaches an edited rule")
+        );
+        // A killed row names its killer and carries no survivor fields.
+        for id in [
+            "add-becomes-sub",
+            "sub-off-by-one",
+            "mul-becomes-add",
+            "no-mul",
+        ] {
+            let row = mutation(&document, id);
+            assert_eq!(row["status"], "killed", "{id}");
+            assert_eq!(row["rules"], Value::Null, "{id}");
+            assert_eq!(row["action"], Value::Null, "{id}");
+            assert!(row["killer"].is_string(), "{id}");
+        }
+
+        // A deleted rule has no text after the edit; with only `add` in the corpus, nothing
+        // reaches the mul rule, so nothing can kill its deletion.
+        let text = fs::read_to_string(&manifest).unwrap();
+        let only_add = text[..text.find("[[program]]\nid = \"nested\"").unwrap()].to_owned();
+        let manifest = manifest.with_file_name("FLOW-add.toml");
+        fs::write(&manifest, only_add).unwrap();
+        let (document, ok) = search(
+            &manifest,
+            &manifest.with_file_name("MUTATIONS.toml"),
+            &["no-mul"],
+        );
+        assert!(ok, "{document:#}");
+        assert_eq!(document["survivors"], json!(["no-mul"]));
+        let row = mutation(&document, "no-mul");
+        assert_eq!(row["status"], "survived");
+        assert_eq!(row["reaching"], json!([]));
+        assert_eq!(
+            row["rules"],
+            json!([{
+                "module": "CALC",
+                "index": 2,
+                "file": "calc.k",
+                "label": "CALC.mul",
+                "start_line": 22,
+                "end_line": 22,
+                "edits": [0],
+                "before": "rule [mul]: I1:Int * I2:Int => I1 *Int I2",
+                "after": null,
+            }])
+        );
+        assert_eq!(
+            executed(&document, "no-mul"),
+            triples(&[("add", "agree", Value::Null)])
+        );
+    }
+
+    /// Packet CACHE-ID-fix-1 (CACHE-ID review 1 major): the run document names the build that wrote
+    /// it (`kink_build`, the executable's digest), and `report` prints only a document this build
+    /// wrote: most verdict code has no version constant, so an equal semantics identity does not
+    /// show that the statuses would be the same. Forged first (another build, none, and a version-7
+    /// document from before CACHE-ID-fix-1), then two real builds: the `kink-flow` binary refuses
+    /// the document this test binary wrote, and this test binary refuses the binary's.
+    #[test]
+    #[ignore = "kink"]
+    fn a_report_written_by_another_build_is_refused() {
+        use kink_flow::report::{ReportOptions, report};
+        let this_build =
+            kink_campaign::identity::build_identity_of(&std::env::current_exe().unwrap())
+                .unwrap()
+                .to_string();
+        let dir = fixture("calc", "build");
+        let path = dir.join("FLOW.toml");
+        let (document, ok) = search(
+            &path,
+            &path.with_file_name("MUTATIONS.toml"),
+            &["add-becomes-sub"],
+        );
+        assert!(ok, "{document:#}");
+        assert_eq!(document["version"], RUN_VERSION);
+        assert_eq!(document["kink_build"], this_build);
+        let manifest = FlowManifest::read(&path).unwrap();
+        let stored = path.with_file_name(CACHE_DIRECTORY).join(REPORT_FILE);
+        let written = fs::read_to_string(&stored).unwrap();
+        let mut other = document.clone();
+        other["kink_build"] = json!(kink_patch::sha256(b"another kink build").to_string());
+        let mut none = document.clone();
+        none.as_object_mut().unwrap().remove("kink_build");
+        let mut before = none.clone();
+        before["version"] = json!(7);
+        for stale in [other, none, before] {
+            fs::write(&stored, stale.to_string()).unwrap();
+            let (refused, ok) = report(&manifest, &ReportOptions::default());
+            assert!(!ok, "{refused:#}");
+            assert_eq!(refused["outcome"], "unreadable", "{refused:#}");
+        }
+        // Two real builds.
+        fs::write(&stored, &written).unwrap();
+        let by_binary = binary(&["report", "FLOW.toml"], &dir);
+        assert_eq!(by_binary.status.code(), Some(i32::from(EXIT_CORPUS)));
+        let refused: Value = serde_json::from_slice(&by_binary.stdout).unwrap();
+        assert_eq!(refused["outcome"], "unreadable", "{refused:#}");
+        let detail = refused["detail"].as_str().unwrap();
+        assert!(detail.contains(&this_build), "{detail}");
+        assert!(
+            detail.contains("its kink identity is this build's"),
+            "{detail}"
+        );
+        let ran = binary(
+            &[
+                "run",
+                "FLOW.toml",
+                "MUTATIONS.toml",
+                "--only",
+                "add-becomes-sub",
+            ],
+            &dir,
+        );
+        assert_eq!(ran.status.code(), Some(i32::from(EXIT_OK)));
+        let reported = binary(&["report", "FLOW.toml"], &dir);
+        assert_eq!(reported.status.code(), Some(i32::from(EXIT_OK)));
+        assert_eq!(reported.stdout, ran.stdout);
+        let (refused, ok) = report(&manifest, &ReportOptions::default());
+        assert!(!ok, "{refused:#}");
+        assert_eq!(refused["outcome"], "unreadable", "{refused:#}");
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn the_readme_walkthrough_works_as_written() {
+        let dir = fixture("calc", "readme");
+        let steps = walkthrough();
+        let mut kinds = Vec::new();
+        // The last command's stdout and document; the stdout of the last `run`.
+        let mut last: Option<(Vec<u8>, Value)> = None;
+        let mut last_run: Option<Vec<u8>> = None;
+        // Each `run` document, with the program ids of the manifest when it ran.
+        let mut runs = Vec::new();
+        for step in &steps {
+            let (kind, argument) = step
+                .action
+                .split_once(' ')
+                .unwrap_or((step.action.as_str(), ""));
+            kinds.push(kind.to_owned());
+            let text = format!("{}\n", step.body);
+            match kind {
+                // The fresh copy of testdata/flow/calc already holds the file, exactly as shown.
+                "file" => assert_eq!(
+                    fs::read_to_string(dir.join(argument)).unwrap(),
+                    text,
+                    "{argument}"
+                ),
+                "write" => fs::write(dir.join(argument), &text).unwrap(),
+                "append" => {
+                    let mut contents = fs::read_to_string(dir.join(argument)).unwrap();
+                    contents.push_str(&text);
+                    fs::write(dir.join(argument), contents).unwrap();
+                }
+                "run" => {
+                    for command in step.body.lines().filter(|line| !line.trim().is_empty()) {
+                        let words = command.split_whitespace().collect::<Vec<_>>();
+                        assert_eq!(words[0], "kink-flow", "{command}");
+                        kinds.push(words[1].to_owned());
+                        let output = binary(&words[1..], &dir);
+                        assert_eq!(
+                            output.status.code(),
+                            Some(i32::from(EXIT_OK)),
+                            "{command}: {}",
+                            String::from_utf8_lossy(&output.stdout)
+                        );
+                        let document: Value = serde_json::from_slice(&output.stdout)
+                            .unwrap_or_else(|e| panic!("{command}: {e}"));
+                        match words[1] {
+                            "report" => assert_eq!(
+                                Some(&output.stdout),
+                                last_run.as_ref(),
+                                "report reprints the last run"
+                            ),
+                            "run" => {
+                                let manifest = FlowManifest::read(&dir.join(words[2])).unwrap();
+                                let programs = manifest
+                                    .programs
+                                    .iter()
+                                    .map(|p| p.id.clone())
+                                    .collect::<Vec<_>>();
+                                runs.push((document.clone(), programs));
+                                last_run = Some(output.stdout.clone());
+                            }
+                            _ => {}
+                        }
+                        last = Some((output.stdout, document));
+                    }
+                }
+                "output" => {
+                    let (_, document) = last.as_ref().expect("an output follows a command");
+                    let excerpt: Value = serde_json::from_str(&step.body)
+                        .unwrap_or_else(|e| panic!("output {argument}: {e}"));
+                    let actual = document
+                        .pointer(argument)
+                        .unwrap_or_else(|| panic!("output {argument}: no such value"));
+                    assert!(
+                        contains(actual, &excerpt),
+                        "output {argument}: {actual:#} does not contain {excerpt:#}"
+                    );
+                }
+                other => panic!("unknown example action {other:?}"),
+            }
+        }
+        // The section shows every input file and every command of the loop.
+        for kind in [
+            "file", "write", "append", "run", "output", "check", "results", "report",
+        ] {
+            assert!(
+                kinds.iter().any(|k| k == kind),
+                "the walkthrough has no {kind}"
+            );
+        }
+        // The first run leaves a survivor; after the program the walkthrough adds, the last run
+        // kills it with that program, and nothing survives.
+        let (first, before) = runs.first().expect("a run");
+        let (last, _) = runs.last().unwrap();
+        assert!(runs.len() >= 2);
+        let survivors = first["survivors"].as_array().unwrap();
+        assert!(!survivors.is_empty());
+        assert_eq!(last["survivors"], json!([]));
+        for id in survivors {
+            let row = mutation(last, id.as_str().unwrap());
+            assert_eq!(row["status"], "killed", "{id}");
+            let killer = row["killer"].as_str().unwrap();
+            assert!(
+                !before.iter().any(|program| program == killer),
+                "{id} is killed by {killer}, a program the first run already had"
+            );
+        }
     }
 }

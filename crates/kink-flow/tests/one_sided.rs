@@ -586,51 +586,56 @@ fn entry(document: &Value) -> (Value, Value, Value, Value, Value, Value, Value) 
     )
 }
 
-#[test]
-fn a_work_bound_mutant_run_kills_one_sidedly_through_the_flow() {
-    let document = std::thread::Builder::new()
-        .stack_size(256 << 20)
-        .spawn(|| {
-            let bounded = one_sided_corpus(Some(1));
-            let first = search(&bounded);
-            let second = search(&bounded);
-            let unbounded = search(&one_sided_corpus(None));
-            (first, second, unbounded)
-        })
-        .unwrap()
-        .join()
-        .unwrap();
-    let (first, second, unbounded) = document;
-    let killed = |cached: bool, sides_null: bool, exit_stop: &str| {
-        let (status, killer, outcome, exit, whole, sides, was_cached) = entry(if cached {
-            &second
-        } else if sides_null {
-            &first
-        } else {
-            &unbounded
-        });
-        assert_eq!(
-            (status, killer, outcome, was_cached),
-            (
-                Value::from("killed"),
-                Value::from("start"),
-                Value::from("distinguish"),
-                Value::from(cached)
-            )
-        );
-        if !cached {
+mod kink_tier {
+    use super::*;
+
+    #[test]
+    #[ignore = "kink"]
+    fn a_work_bound_mutant_run_kills_one_sidedly_through_the_flow() {
+        let document = std::thread::Builder::new()
+            .stack_size(256 << 20)
+            .spawn(|| {
+                let bounded = one_sided_corpus(Some(1));
+                let first = search(&bounded);
+                let second = search(&bounded);
+                let unbounded = search(&one_sided_corpus(None));
+                (first, second, unbounded)
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+        let (first, second, unbounded) = document;
+        let killed = |cached: bool, sides_null: bool, exit_stop: &str| {
+            let (status, killer, outcome, exit, whole, sides, was_cached) = entry(if cached {
+                &second
+            } else if sides_null {
+                &first
+            } else {
+                &unbounded
+            });
             assert_eq!(
-                (exit, whole),
-                (Value::from(exit_stop), Value::from("distinguish"))
+                (status, killer, outcome, was_cached),
+                (
+                    Value::from("killed"),
+                    Value::from("start"),
+                    Value::from("distinguish"),
+                    Value::from(cached)
+                )
             );
-            assert_eq!(sides.is_null(), sides_null, "{sides:#}");
-        }
-    };
-    // Under the budget: the exit stop (normal, no code) is the baseline's, so that slot is
-    // unknown; the whole term distinguishes one-sidedly, with no mutant value to show.
-    killed(false, true, "unknown");
-    // The re-run takes the killed outcome from tier 1 (keyed with the work budget).
-    killed(true, true, "unknown");
-    // Without a budget the mutant's run is complete and both slots compare.
-    killed(false, false, "agree");
+            if !cached {
+                assert_eq!(
+                    (exit, whole),
+                    (Value::from(exit_stop), Value::from("distinguish"))
+                );
+                assert_eq!(sides.is_null(), sides_null, "{sides:#}");
+            }
+        };
+        // Under the budget: the exit stop (normal, no code) is the baseline's, so that slot is
+        // unknown; the whole term distinguishes one-sidedly, with no mutant value to show.
+        killed(false, true, "unknown");
+        // The re-run takes the killed outcome from tier 1 (keyed with the work budget).
+        killed(true, true, "unknown");
+        // Without a budget the mutant's run is complete and both slots compare.
+        killed(false, false, "agree");
+    }
 }

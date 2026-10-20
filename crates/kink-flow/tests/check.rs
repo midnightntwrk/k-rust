@@ -431,74 +431,79 @@ fn binary(args: &[&std::ffi::OsStr]) -> (Option<i32>, String, String) {
     )
 }
 
-#[test]
-fn the_binarys_exit_codes() {
-    let path = |name: &str| flow(name).into_os_string();
-    let (code, stdout, _) = binary(&["check".as_ref(), &path("calc/FLOW.toml")]);
-    assert_eq!(code, Some(EXIT_OK.into()));
-    let document: Value = serde_json::from_str(&stdout).unwrap();
-    assert_eq!(document["spec"]["outcome"], "admitted");
-    assert_eq!(
-        document["programs"]
+mod kink_tier {
+    use super::*;
+
+    #[test]
+    #[ignore = "kink"]
+    fn the_binarys_exit_codes() {
+        let path = |name: &str| flow(name).into_os_string();
+        let (code, stdout, _) = binary(&["check".as_ref(), &path("calc/FLOW.toml")]);
+        assert_eq!(code, Some(EXIT_OK.into()));
+        let document: Value = serde_json::from_str(&stdout).unwrap();
+        assert_eq!(document["spec"]["outcome"], "admitted");
+        assert_eq!(
+            document["programs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|p| p["outcome"] == "ok")
+                .count(),
+            4
+        );
+
+        let (code, stdout, _) = binary(&["check".as_ref(), &path("register/FLOW.toml")]);
+        assert_eq!(code, Some(EXIT_OK.into()), "{stdout}");
+
+        let (code, stdout, _) = binary(&["check".as_ref(), &path("calc/FLOW-bad-program.toml")]);
+        assert_eq!(code, Some(EXIT_CORPUS.into()));
+        let document: Value = serde_json::from_str(&stdout).unwrap();
+        let refused = document["programs"]
             .as_array()
             .unwrap()
             .iter()
-            .filter(|p| p["outcome"] == "ok")
-            .count(),
-        4
-    );
+            .filter(|p| p["outcome"] == "refused")
+            .map(|p| p["id"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(refused, ["bad"]);
 
-    let (code, stdout, _) = binary(&["check".as_ref(), &path("register/FLOW.toml")]);
-    assert_eq!(code, Some(EXIT_OK.into()), "{stdout}");
+        let (code, stdout, _) = binary(&["check".as_ref(), &path("compile-error/FLOW.toml")]);
+        assert_eq!(code, Some(EXIT_CORPUS.into()));
+        let document: Value = serde_json::from_str(&stdout).unwrap();
+        assert_eq!(document["spec"]["stage"], "compile");
 
-    let (code, stdout, _) = binary(&["check".as_ref(), &path("calc/FLOW-bad-program.toml")]);
-    assert_eq!(code, Some(EXIT_CORPUS.into()));
-    let document: Value = serde_json::from_str(&stdout).unwrap();
-    let refused = document["programs"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|p| p["outcome"] == "refused")
-        .map(|p| p["id"].as_str().unwrap())
-        .collect::<Vec<_>>();
-    assert_eq!(refused, ["bad"]);
-
-    let (code, stdout, _) = binary(&["check".as_ref(), &path("compile-error/FLOW.toml")]);
-    assert_eq!(code, Some(EXIT_CORPUS.into()));
-    let document: Value = serde_json::from_str(&stdout).unwrap();
-    assert_eq!(document["spec"]["stage"], "compile");
-
-    let dir = scratch("binary");
-    write(
-        &dir.join("FLOW.toml"),
-        "[spec]\nentry = \"calc.k\"\nmain_module = \"CALC\"\nmode = 1\n",
-    );
-    let (code, stdout, _) = binary(&["check".as_ref(), dir.join("FLOW.toml").as_os_str()]);
-    assert_eq!(code, Some(EXIT_CORPUS.into()));
-    let document: Value = serde_json::from_str(&stdout).unwrap();
-    assert_eq!(
-        (&document["spec"]["stage"], &document["spec"]["reason"]),
-        (&Value::from("manifest"), &Value::from("invalid-manifest"))
-    );
-    assert_eq!(document["spec"]["detail"], "spec.mode: unknown key");
-
-    for args in [
-        vec![],
-        vec!["check".as_ref()],
-        vec!["run".as_ref(), path("calc/FLOW.toml").as_os_str()],
-        vec!["check".as_ref(), dir.join("MISSING.toml").as_os_str()],
-        vec![
-            "check".as_ref(),
-            path("calc/FLOW.toml").as_os_str(),
-            "extra".as_ref(),
-        ],
-    ] {
-        let (code, stdout, stderr) = binary(&args);
-        assert_eq!(code, Some(EXIT_USAGE.into()), "{args:?}");
-        assert!(stdout.is_empty(), "{args:?}");
-        assert!(
-            stderr.contains("usage: kink-flow check FLOW.toml"),
-            "{stderr}"
+        let dir = scratch("binary");
+        write(
+            &dir.join("FLOW.toml"),
+            "[spec]\nentry = \"calc.k\"\nmain_module = \"CALC\"\nmode = 1\n",
         );
+        let (code, stdout, _) = binary(&["check".as_ref(), dir.join("FLOW.toml").as_os_str()]);
+        assert_eq!(code, Some(EXIT_CORPUS.into()));
+        let document: Value = serde_json::from_str(&stdout).unwrap();
+        assert_eq!(
+            (&document["spec"]["stage"], &document["spec"]["reason"]),
+            (&Value::from("manifest"), &Value::from("invalid-manifest"))
+        );
+        assert_eq!(document["spec"]["detail"], "spec.mode: unknown key");
+
+        for args in [
+            vec![],
+            vec!["check".as_ref()],
+            vec!["run".as_ref(), path("calc/FLOW.toml").as_os_str()],
+            vec!["check".as_ref(), dir.join("MISSING.toml").as_os_str()],
+            vec![
+                "check".as_ref(),
+                path("calc/FLOW.toml").as_os_str(),
+                "extra".as_ref(),
+            ],
+        ] {
+            let (code, stdout, stderr) = binary(&args);
+            assert_eq!(code, Some(EXIT_USAGE.into()), "{args:?}");
+            assert!(stdout.is_empty(), "{args:?}");
+            assert!(
+                stderr.contains("usage: kink-flow check FLOW.toml"),
+                "{stderr}"
+            );
+        }
     }
 }
