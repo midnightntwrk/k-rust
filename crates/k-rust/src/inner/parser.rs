@@ -246,6 +246,31 @@ impl PredictionMode {
     }
 }
 
+/// Whether a recognition keeps in its charts' state maps the items that prediction adds.
+///
+/// An item at the start of its production has one derivation, the empty one, and keeps it: it
+/// is added with it, every derivation of it has no child, and the empty derivation covers
+/// itself. Its entry in the state map therefore only says that the item exists. Prediction adds
+/// each such item of a position once, as a sort is predicted once per position and a production
+/// is in the bucket of its own sort only, so the entry is never looked up to merge a later
+/// addition either. Recognition reads such an item through the agenda, which queues it, and,
+/// when it expects a nonterminal, through `waiting`; both hold it whether or not the state map
+/// does, in the same order. In a program or a rule bubble most items are predictions that
+/// never advance, so most of a chart's entries need not exist.
+///
+/// The no-parse diagnostic reads every item of a chart, in the state map's order
+/// (`Grammar::program_text_phrase` takes the first match in it), so every recognition whose
+/// charts a diagnostic reads keeps them (`Grammar::parse_attempt`).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Predictions {
+    /// Keep every predicted item in its chart's state map.
+    Kept,
+    /// Keep a predicted item only in the agenda and, when it expects a nonterminal, in
+    /// `waiting`. An empty production, which completes where it is predicted and whose node
+    /// the completed items of the chart provide, is kept.
+    Implied,
+}
+
 /// What a filtered recognition judges a skipped completion by (`Grammar::advanced_item_useful`).
 #[derive(Clone, Copy)]
 struct Reach<'a> {
@@ -559,6 +584,9 @@ impl DiagnosticWork {
 pub(super) struct WorkMeter {
     spent: u64,
     limit: u64,
+    /// Whether the steps count: false for a recognition no limit is defined on, whose steps
+    /// are neither spent nor limited (`Grammar::parse_attempt`).
+    metered: bool,
 }
 
 impl WorkMeter {
@@ -567,11 +595,27 @@ impl WorkMeter {
     }
 
     const fn limited(limit: u64) -> Self {
-        Self { spent: 0, limit }
+        Self {
+            spent: 0,
+            limit,
+            metered: true,
+        }
+    }
+
+    /// A meter for a recognition no limit is defined on: it counts nothing.
+    const fn unmetered() -> Self {
+        Self {
+            spent: 0,
+            limit: u64::MAX,
+            metered: false,
+        }
     }
 
     /// Counts `steps`; whether the total is still within the limit.
     fn charge(&mut self, steps: usize) -> bool {
+        if !self.metered {
+            return true;
+        }
         #[cfg(test)]
         update_chart_work_counters(|counters| counters.chart_steps += steps);
         self.spent = self
@@ -2206,29 +2250,65 @@ impl Grammar {
                 &mut scanner_cache,
             )));
         };
+        // A retry exists to be diagnosed when it fails, so its charts keep every item.
+        let predictions = match prediction_mode {
+            PredictionMode::Retry { .. } => Predictions::Kept,
+            PredictionMode::Filtered | PredictionMode::Unfiltered => Predictions::Implied,
+        };
+        let recognize = |predictions: Predictions,
+                         pruned: &mut bool,
+                         work: &mut WorkMeter,
+                         scanner_cache: &mut [ScanCacheEntry]| {
+            self.recognize(
+                start_id,
+                start_position,
+                input,
+                provenance,
+                prediction_mode,
+                PriorityFilter::Enforced,
+                None,
+                matches!(prediction_mode, PredictionMode::Retry { .. }),
+                predictions,
+                pruned,
+                work,
+                scanner_cache,
+                &priority_memos,
+            )
+        };
         let Recognition {
             charts,
             parses,
             first_violation,
             work_limit_reached,
-        } = self.recognize(
-            start_id,
-            start_position,
-            input,
-            provenance,
-            prediction_mode,
-            PriorityFilter::Enforced,
-            None,
-            matches!(prediction_mode, PredictionMode::Retry { .. }),
+        } = recognize(
+            predictions,
             &mut pruning.pruned,
-            work,
+            &mut *work,
             &mut scanner_cache,
-            &priority_memos,
         )?;
         if work_limit_reached {
             return Err(Failure::WorkLimit);
         }
         if parses.is_empty() {
+            // The diagnostic reads every item of the charts (`Predictions`): recognize again,
+            // keeping them. The recognition is a function of the grammar, the input and the
+            // mode (the priority memos and the scanner cache it shares are caches), so its
+            // charts are those of the first with the predicted items added; its steps are not
+            // counted, so the limit of a later diagnostic is the one the first sets, and the
+            // pruning the first recorded stands.
+            let charts = match predictions {
+                Predictions::Kept => charts,
+                Predictions::Implied => {
+                    drop(charts);
+                    recognize(
+                        Predictions::Kept,
+                        &mut false,
+                        &mut WorkMeter::unmetered(),
+                        &mut scanner_cache,
+                    )?
+                    .charts
+                }
+            };
             pruning.furthest = Some(
                 charts
                     .iter()
@@ -2372,6 +2452,7 @@ impl Grammar {
                 PriorityFilter::Ignored,
                 Some(&stand_in),
                 false,
+                Predictions::Kept,
                 pruned,
                 work,
                 scanner_cache,
@@ -2408,6 +2489,7 @@ impl Grammar {
             PriorityFilter::Ignored,
             None,
             true,
+            Predictions::Kept,
             pruned,
             work,
             scanner_cache,
@@ -2464,6 +2546,9 @@ impl Grammar {
     /// repeats already completed the same state), so the charts are those of a recognition that
     /// reports it; and a failed parse has no reading the relations allow, so the repetition is
     /// part of no reading of the input the recognition could report as infinitely ambiguous.
+    ///
+    /// `predictions` says whether the charts keep the items prediction adds in their state maps
+    /// ([`Predictions`]); everything else about the recognition is the same either way.
     #[allow(clippy::too_many_arguments)]
     fn recognize(
         &self,
@@ -2475,6 +2560,7 @@ impl Grammar {
         filter: PriorityFilter,
         stand_in: Option<&Rc<PackedTerm>>,
         cut_repetitions: bool,
+        predictions: Predictions,
         pruned: &mut bool,
         work: &mut WorkMeter,
         scanner_cache: &mut [ScanCacheEntry],
@@ -2608,7 +2694,8 @@ impl Grammar {
                         counters.revisit_pops += 1;
                     }
                 });
-                let Some(derivations) = charts[position].states.get(&state).cloned() else {
+                let Some(derivations) = charts[position].derivations(&state).map(Cow::into_owned)
+                else {
                     continue;
                 };
                 measure::add(
@@ -2705,15 +2792,28 @@ impl Grammar {
                                     continue;
                                 }
                                 measure::bump(Counter::ParserChartPredictionAttempts);
-                                self.add_chart_state(
-                                    &mut charts[position],
-                                    State {
-                                        production: predicted,
-                                        dot: 0,
-                                        origin: position,
-                                    },
-                                    [Vec::new()],
-                                )?;
+                                let predicted_state = State {
+                                    production: predicted,
+                                    dot: 0,
+                                    origin: position,
+                                };
+                                if predictions == Predictions::Implied
+                                    && !self.productions[predicted].items.is_empty()
+                                {
+                                    charts[position].add_prediction(predicted_state);
+                                    self.record_chart_addition(
+                                        &mut charts[position],
+                                        predicted_state,
+                                        true,
+                                        true,
+                                    );
+                                } else {
+                                    self.add_chart_state(
+                                        &mut charts[position],
+                                        predicted_state,
+                                        [Vec::new()],
+                                    )?;
+                                }
                             }
                         }
 
@@ -2995,12 +3095,12 @@ impl Grammar {
                                 .flatten()
                             {
                                 if let Some(completed) = boundary(caller)
-                                    && let Some(caller_derivations) = origin.states.get(caller)
+                                    && let Some(caller_derivations) = origin.derivations(caller)
                                 {
                                     advance(
                                         &mut later[0],
                                         *caller,
-                                        caller_derivations,
+                                        &caller_derivations,
                                         completed,
                                         Some(&*earlier),
                                     )?;
@@ -3016,8 +3116,8 @@ impl Grammar {
                                 .flatten()
                                 .filter_map(|caller| {
                                     let completed = boundary(caller)?;
-                                    charts[state.origin].states.get(caller).map(|derivations| {
-                                        (*caller, derivations.clone(), completed)
+                                    charts[state.origin].derivations(caller).map(|derivations| {
+                                        (*caller, derivations.into_owned(), completed)
                                     })
                                 })
                                 .collect::<Vec<_>>();
@@ -4710,7 +4810,9 @@ mod chart_tests {
             );
             assert!(result.is_err());
             assert!(pruning.pruned);
-            assert_eq!(CHART_PREDICTION_ATTEMPTS.get(), 1);
+            // The failed attempt is recognized twice, the second time keeping its predicted
+            // items for its diagnostic (`Predictions`); each predicts the regex once.
+            assert_eq!(CHART_PREDICTION_ATTEMPTS.get(), 2);
         }
     }
 
@@ -5100,6 +5202,7 @@ mod chart_tests {
                 PriorityFilter::Enforced,
                 None,
                 false,
+                Predictions::Implied,
                 &mut false,
                 &mut WorkMeter::unlimited(),
                 &mut scanner_cache,
@@ -5203,6 +5306,159 @@ mod chart_tests {
         reset_chart_work_counters();
         assert!(grammar.parse(&Sort::new("S"), "x + (x + x)").is_ok());
         assert!(chart_work_counters().completed_nodes_calls > 1);
+    }
+
+    /// A grammar of `(sort, items, label)` productions.
+    fn grammar_of(productions: Vec<(&str, Vec<ProductionItem>, &str)>) -> Grammar {
+        let mut grammar = Grammar::default();
+        for (sort, items, label) in productions {
+            grammar
+                .add(
+                    Sort::new(sort),
+                    items,
+                    Some(Label::new(label)),
+                    false,
+                    false,
+                )
+                .unwrap();
+        }
+        grammar
+    }
+
+    #[test]
+    fn a_recognition_that_implies_predicted_items_builds_the_same_chart() {
+        let nonterminal = |sort: &str| ProductionItem::NonTerminal {
+            sort: Sort::new(sort),
+            name: None,
+        };
+        let terminal = |text: &str| ProductionItem::Terminal(text.to_owned());
+        let expressions = grammar_of(vec![
+            (
+                "S",
+                vec![nonterminal("S"), terminal("+"), nonterminal("T")],
+                "plus",
+            ),
+            (
+                "S",
+                vec![nonterminal("S"), terminal("*"), nonterminal("T")],
+                "times",
+            ),
+            ("S", vec![nonterminal("T")], "t"),
+            ("T", vec![terminal("x")], "x"),
+            (
+                "T",
+                vec![
+                    terminal("("),
+                    nonterminal("O"),
+                    nonterminal("S"),
+                    terminal(")"),
+                ],
+                "paren",
+            ),
+            ("O", Vec::new(), "none"),
+            ("O", vec![terminal("!")], "bang"),
+        ]);
+        let ambiguous = grammar_of(vec![
+            ("S", vec![nonterminal("S"), nonterminal("S")], "cat"),
+            ("S", vec![nonterminal("S"), terminal("d")], "sd"),
+            ("S", vec![terminal("d")], "d"),
+        ]);
+        let cases = [
+            (&expressions, "x + (x * x) * x", true),
+            (&expressions, " (! x + ( x)) ", true),
+            (&expressions, "x + (x * ", false),
+            (&ambiguous, "d d d d d d", true),
+        ];
+        for (grammar, input, parses) in cases {
+            let start_id = grammar.sort_id(&Sort::new("S")).unwrap();
+            for mode in [PredictionMode::Filtered, PredictionMode::Unfiltered] {
+                let recognize = |predictions| {
+                    reset_chart_work_counters();
+                    let mut scanner_cache = vec![None; input.len() + 1];
+                    let start = grammar.canonical_position(input, 0, &mut scanner_cache);
+                    let recognition = grammar
+                        .recognize(
+                            start_id,
+                            start,
+                            input,
+                            ParseProvenance {
+                                source: SourceId(0),
+                                base_offset: 0,
+                            },
+                            mode,
+                            PriorityFilter::Enforced,
+                            None,
+                            false,
+                            predictions,
+                            &mut false,
+                            &mut WorkMeter::unlimited(),
+                            &mut scanner_cache,
+                            &RefCell::new(PackedPriorityMemos::default()),
+                        )
+                        .unwrap();
+                    (recognition, chart_work_counters())
+                };
+                let (kept, kept_work) = recognize(Predictions::Kept);
+                let (implied, implied_work) = recognize(Predictions::Implied);
+                assert_eq!(!kept.parses.is_empty(), parses, "{input}");
+                assert_eq!(implied.parses, kept.parses, "{input}");
+                assert_eq!(implied.first_violation, kept.first_violation, "{input}");
+                assert_eq!(implied_work, kept_work, "{input}");
+                let mut omitted = 0;
+                for (position, (implied, kept)) in
+                    implied.charts.iter().zip(&kept.charts).enumerate()
+                {
+                    assert_eq!(implied.waiting, kept.waiting, "{input} at {position}");
+                    assert_eq!(implied.completed, kept.completed, "{input} at {position}");
+                    assert_eq!(implied.states.is_empty(), kept.states.is_empty());
+                    for (state, derivations) in &kept.states {
+                        match implied.states.get(state) {
+                            Some(implied) => assert_eq!(implied, derivations),
+                            None => {
+                                // Only predicted items are omitted, and their derivations are
+                                // the ones the chart reports for them.
+                                assert_eq!(state.dot, 0);
+                                assert_eq!(state.origin, position);
+                                assert!(!grammar.productions[state.production].items.is_empty());
+                                assert_eq!(
+                                    implied.derivations(state).as_deref(),
+                                    Some(derivations)
+                                );
+                                omitted += 1;
+                            }
+                        }
+                    }
+                    assert!(
+                        implied
+                            .states
+                            .keys()
+                            .all(|state| kept.states.contains_key(state))
+                    );
+                }
+                assert!(omitted > 0, "{input}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_failed_parse_expects_what_its_predicted_items_expect() {
+        let nonterminal = |sort: &str| ProductionItem::NonTerminal {
+            sort: Sort::new(sort),
+            name: None,
+        };
+        let terminal = |text: &str| ProductionItem::Terminal(text.to_owned());
+        // After `a`, the predicted `B ::= O "x"` expects `O`; nothing is pruned, so the first
+        // attempt's diagnostic is the one reported, and it must read that predicted item.
+        let grammar = grammar_of(vec![
+            ("S", vec![terminal("a"), nonterminal("B")], "s"),
+            ("B", vec![nonterminal("O"), terminal("x")], "b"),
+            ("O", Vec::new(), "o"),
+        ]);
+        let Err(ParseError::NoParse { expected, .. }) = grammar.parse(&Sort::new("S"), "a y")
+        else {
+            panic!("`a y` has no parse");
+        };
+        assert!(expected.iter().any(|item| item == "O"), "{expected:?}");
     }
 
     #[test]

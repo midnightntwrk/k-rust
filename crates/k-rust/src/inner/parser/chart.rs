@@ -32,6 +32,7 @@
 //! Completed-node lookup is one hashed lookup on a hit and scans matching completed states on a miss.
 //! Chart adds, state changes, memo hits, misses, and completion candidates have dedicated counters.
 
+use std::borrow::Cow;
 #[cfg(test)]
 use std::cell::Cell;
 use std::cell::{OnceCell, RefCell};
@@ -706,6 +707,29 @@ impl Chart {
         }
         self.record_change(state, new_state, track_growth);
         Ok((true, new_state))
+    }
+
+    /// Queue `state`, an item at the start of its production that prediction adds to this
+    /// chart for the first time, without keeping it in the state map (`Predictions::Implied`,
+    /// whose doc says why that is the same recognition). It is counted and queued as
+    /// `add_with_status` counts and queues a new state.
+    pub(super) fn add_prediction(&mut self, state: State) {
+        debug_assert_eq!(state.dot, 0, "a predicted item starts its production");
+        measure::bump(Counter::ParserChartAddCalls);
+        #[cfg(test)]
+        update_chart_work_counters(|counters| counters.add_calls += 1);
+        self.record_change(state, true, false);
+    }
+
+    /// The derivations of `state`, an item of this chart: for an item at the start of its
+    /// production the empty derivation alone, which it always has and which a recognition that
+    /// does not keep predicted items does not store (`Predictions`).
+    pub(super) fn derivations(&self, state: &State) -> Option<Cow<'_, Derivations>> {
+        if state.dot == 0 {
+            Some(Cow::Owned(Derivations::One(Vec::new())))
+        } else {
+            self.states.get(state).map(Cow::Borrowed)
+        }
     }
 
     /// `add_with_status` of every derivation of `prefixes`, each extended by `last` when given,
