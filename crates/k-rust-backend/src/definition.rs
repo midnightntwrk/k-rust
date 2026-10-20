@@ -1126,6 +1126,11 @@ pub struct BackendDefinition {
     /// [`Self::console_reach`].
     console_reach: crate::deferred::ConsoleReach,
     finite_sort_constructors: BTreeMap<Sort, FiniteConstructorDomain>,
+    /// [`domain_kind_in`] of the sorts table at each builtin sort, in the order of
+    /// `BuiltinSort::ALL`, computed once at load: [`Self::domain_kind`] answers from it for a
+    /// sort that is a builtin's shared allocation (`Sort::shared_builtin_index`), as every hook
+    /// result of a builtin sort is, without looking its name up in the table.
+    builtin_domain_kinds: [Option<DomainKind>; BuiltinSort::ALL.len()],
     /// Which sorts may contain a `KVar` token; computed on first use by `SUBSTITUTION.substOne`.
     kvar_sorts: OnceLock<KVarSorts>,
     /// The sorts known to have a value; computed on first use by `sort_is_inhabited`.
@@ -2727,6 +2732,8 @@ impl BackendDefinition {
         };
         let value_productions = declared_with(KoreAttribute::ValueProduction);
         let impure_symbols = declared_with(KoreAttribute::Impure);
+        let builtin_domain_kinds =
+            BuiltinSort::ALL.map(|builtin| domain_kind_in(&sorts, &Sort::builtin(builtin)));
         let mut result = Self {
             main_module: main_module.into(),
             modules: ordered
@@ -2752,6 +2759,7 @@ impl BackendDefinition {
             impure_symbols,
             console_reach: crate::deferred::ConsoleReach::default(),
             finite_sort_constructors: BTreeMap::new(),
+            builtin_domain_kinds,
             kvar_sorts: OnceLock::new(),
             inhabited_sorts: OnceLock::new(),
             value_claims: crate::confluence::ValueClaims::withheld(),
@@ -3595,6 +3603,9 @@ impl BackendDefinition {
     /// them otherwise here would let the backend hold two values (`07` and `7`) that the solver
     /// reads as one.
     pub fn domain_kind(&self, sort: &Sort) -> Option<DomainKind> {
+        if let Some(index) = sort.shared_builtin_index() {
+            return self.builtin_domain_kinds[index];
+        }
         domain_kind_in(&self.sorts, sort)
     }
 
@@ -7169,5 +7180,48 @@ mod tests {
             panic!("{term:?}")
         };
         assert!(shares(sort, &builtin));
+    }
+
+    /// The kinds held for the builtin sorts are the sorts table's: `domain_kind` of a builtin
+    /// sort's shared allocation equals the table lookup of a sort of the same name in an
+    /// allocation of its own, which the shortcut does not take, for builtin sorts the definition
+    /// declares with and without a hook and for ones it does not declare.
+    #[test]
+    fn builtin_domain_kinds_are_the_sort_tables() {
+        let syntax = parse_definition(indoc! {r#"
+            []
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                sort SortBool{} [hasDomainValues{}()]
+                hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
+                sort SortBytes{} []
+                sort SortK{} [hasDomainValues{}()]
+            endmodule []
+        "#})
+        .unwrap();
+        let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+        for builtin in BuiltinSort::ALL {
+            let shared = Sort::builtin(builtin);
+            let own = Sort::simple(builtin.kore_name());
+            assert!(shared.shared_builtin_index().is_some());
+            assert_eq!(own.shared_builtin_index(), None);
+            assert_eq!(
+                definition.domain_kind(&shared),
+                definition.domain_kind(&own),
+                "{builtin:?}"
+            );
+        }
+        assert_eq!(
+            definition.domain_kind(&Sort::builtin(BuiltinSort::Int)),
+            Some(DomainKind::Int)
+        );
+        assert_eq!(
+            definition.domain_kind(&Sort::builtin(BuiltinSort::String)),
+            Some(DomainKind::String)
+        );
+        assert_eq!(
+            definition.domain_kind(&Sort::builtin(BuiltinSort::Bytes)),
+            None
+        );
     }
 }

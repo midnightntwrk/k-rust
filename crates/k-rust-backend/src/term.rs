@@ -175,6 +175,22 @@ impl Sort {
         )
     }
 
+    /// The position in `BuiltinSort::ALL` of the builtin sort this sort is, when it is the
+    /// nullary application of that builtin's shared name allocation, as [`Self::builtin`] and
+    /// every sort a definition internalizes hold it; `None` for any other sort, a sort of a
+    /// builtin's name in an allocation of its own included.
+    pub(crate) fn shared_builtin_index(&self) -> Option<usize> {
+        let Self::Application { name, arguments } = self else {
+            return None;
+        };
+        if !arguments.is_empty() {
+            return None;
+        }
+        builtin_names()
+            .iter()
+            .position(|builtin| Arc::ptr_eq(builtin, name))
+    }
+
     /// True when a sort variable occurs anywhere in the sort.
     pub fn has_variable(&self) -> bool {
         match self {
@@ -199,18 +215,22 @@ pub(crate) fn sort_name(name: &str) -> Name {
 /// One `Name` per `BuiltinSort` variant, created on first use and indexed by the variant's
 /// position in `BuiltinSort::ALL`.
 fn builtin_name(sort: BuiltinSort) -> Name {
-    static NAMES: OnceLock<Vec<Name>> = OnceLock::new();
-    let names = NAMES.get_or_init(|| {
-        BuiltinSort::ALL
-            .iter()
-            .map(|sort| Name::from(sort.kore_name()))
-            .collect()
-    });
     let index = BuiltinSort::ALL
         .iter()
         .position(|candidate| *candidate == sort)
         .expect("every builtin sort is listed in BuiltinSort::ALL");
-    names[index].clone()
+    builtin_names()[index].clone()
+}
+
+/// The `Name`s of [`builtin_name`], in the order of `BuiltinSort::ALL`.
+fn builtin_names() -> &'static [Name] {
+    static NAMES: OnceLock<Vec<Name>> = OnceLock::new();
+    NAMES.get_or_init(|| {
+        BuiltinSort::ALL
+            .iter()
+            .map(|sort| Name::from(sort.kore_name()))
+            .collect()
+    })
 }
 
 /// The kind of a variable. Element variables order before set variables, and a [`Variable`]
