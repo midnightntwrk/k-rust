@@ -99,12 +99,13 @@ fn hit(values: &[Value], work: u64, state: &str) -> CaseRun {
 
 type CaseScript = Box<dyn FnMut(&[Value]) -> CaseRun>;
 type ConfirmScript = Box<dyn FnMut(&[Value]) -> Result<CaseRun, String>>;
+type AdmissibleScript = Box<dyn Fn(usize, &Value) -> bool>;
 
 /// A runner whose cases and confirmations follow closures, recording every call.
 struct Scripted {
     case: CaseScript,
     confirm: ConfirmScript,
-    admissible: Box<dyn Fn(usize, &Value) -> bool>,
+    admissible: AdmissibleScript,
     abort_at: Option<usize>,
     cases: Vec<Vec<Value>>,
     confirmed: Vec<Vec<Value>>,

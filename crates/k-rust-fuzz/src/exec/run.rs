@@ -409,7 +409,7 @@ impl Executor {
         matchers: &[&LeafMatcher],
         cancel: Option<&CancellationToken>,
     ) -> Result<CaseResult, Abort> {
-        self.run_with(initial, shape, matchers, cancel, None)
+        self.run_with(initial, shape, matchers, cancel, Execution::Plain)
             .map(|(result, _)| result)
     }
 
@@ -430,7 +430,13 @@ impl Executor {
         cancel: Option<&CancellationToken>,
         rules: Option<Vec<String>>,
     ) -> Result<(CaseResult, Vec<ExecutionLeaf>), Abort> {
-        self.run_with(initial, shape, matchers, cancel, Some(rules))
+        self.run_with(
+            initial,
+            shape,
+            matchers,
+            cancel,
+            Execution::Observed { rules },
+        )
     }
 
     fn run_with(
@@ -439,7 +445,7 @@ impl Executor {
         shape: &CaseRequestShape,
         matchers: &[&LeafMatcher],
         cancel: Option<&CancellationToken>,
-        observed: Option<Option<Vec<String>>>,
+        execution: Execution,
     ) -> Result<(CaseResult, Vec<ExecutionLeaf>), Abort> {
         let request = shape.request(initial.clone());
         let judge = Judge {
@@ -474,7 +480,7 @@ impl Executor {
                 forward: cancel.map(|caller| (caller.clone(), token.clone())),
                 ..judge
             };
-            let outcome = token.scope(|| judge.execute(backend, request, observed));
+            let outcome = token.scope(|| judge.execute(backend, request, execution));
             // A deadline that passes after the run returned and before this disarm still marks
             // the case `timeout` though its result is complete: conservative (review N3).
             let fired = armed.disarm();
@@ -484,8 +490,8 @@ impl Executor {
             });
         }
         match cancel {
-            Some(token) => token.scope(|| judge.execute(backend, request, observed)),
-            None => judge.execute(backend, request, observed),
+            Some(token) => token.scope(|| judge.execute(backend, request, execution)),
+            None => judge.execute(backend, request, execution),
         }
     }
 }
@@ -529,6 +535,15 @@ fn load_stack_stops(definition: &BackendDefinition) -> usize {
         + definition.discharge_counts().stack_stops
 }
 
+/// How a case is executed.
+enum Execution {
+    /// `Backend::execute`.
+    Plain,
+    /// `Backend::execute_observed` with the observation filter `rules` (every event when
+    /// `None`).
+    Observed { rules: Option<Vec<String>> },
+}
+
 /// What one case's judgement needs besides the backend.
 struct Judge<'a> {
     normal_end: &'a LeafMatcher,
@@ -569,11 +584,13 @@ impl Judge<'_> {
         &self,
         backend: &mut Backend,
         request: ExecuteRequest,
-        observed: Option<Option<Vec<String>>>,
+        execution: Execution,
     ) -> Result<(CaseResult, Vec<ExecutionLeaf>), Abort> {
-        let executed = match observed {
-            None => backend.execute(request),
-            Some(rules) => backend.execute_observed(ObservedRequest { request, rules }),
+        let executed = match execution {
+            Execution::Plain => backend.execute(request),
+            Execution::Observed { rules } => {
+                backend.execute_observed(ObservedRequest { request, rules })
+            }
         };
         if let Some((caller, case)) = &self.forward
             && caller.is_cancelled()

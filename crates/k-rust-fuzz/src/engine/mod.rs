@@ -195,6 +195,15 @@ impl Campaign {
     /// fresh backends and assemblies, so a second run reports exactly what a fresh campaign
     /// with the same spec and budget reports: no solver cache or proposer state carries over
     /// (ARCHITECTURE 5.4).
+    ///
+    /// # Panics
+    ///
+    /// Never: [`Campaign::new`] built every hole's generator from the same holes and bounds,
+    /// so building them again cannot fail.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "ARCHITECTURE 9.2 fixes this signature; a token is a shared handle"
+    )]
     pub fn run(&mut self, budget: Budget, cancel: Option<CancellationToken>) -> FuzzReport {
         if self.equivalent {
             return report_without_cases(&self.settings, budget, CampaignOutcome::Equivalent);

@@ -183,12 +183,12 @@ fn int_target(constraints: &Constraints) -> BigInt {
         if let Some(min) = &range.min
             && &target < min
         {
-            target = min.clone();
+            target.clone_from(min);
         }
         if let Some(max) = &range.max
             && &target > max
         {
-            target = max.clone();
+            target.clone_from(max);
         }
     }
     target

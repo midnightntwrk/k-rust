@@ -58,6 +58,11 @@ pub struct FuzzReport {
 impl FuzzReport {
     /// The report as canonical JSON: compact, fields in declaration order, maps ordered. Equal
     /// reports give equal bytes.
+    ///
+    /// # Panics
+    ///
+    /// Never: every map of a report has string keys and no field is a float, which are the only
+    /// ways `serde_json` serialization fails.
     #[must_use]
     pub fn to_canonical_json(&self) -> String {
         serde_json::to_string(self).expect("a report has string map keys and no floats")
@@ -166,8 +171,8 @@ impl GenerationCaps {
             length: crate::values::MAX_GENERATED_LENGTH,
             depth: crate::values::MAX_DEPTH,
             enumeration: crate::values::generator::ENUMERATION_LIMIT,
-            value_size: u64::try_from(crate::values::MAX_VALUE_SIZE)
-                .expect("the value-size cap fits in u64"),
+            // 2^17: it fits.
+            value_size: u64::try_from(crate::values::MAX_VALUE_SIZE).unwrap_or(u64::MAX),
         }
     }
 }
@@ -579,6 +584,7 @@ mod tests {
 
     /// A report with every optional part present and every collection non-empty, so that a
     /// change to any field's serialization changes the bytes below.
+    #[expect(clippy::too_many_lines, reason = "one report literal with every field")]
     fn fixed_report() -> FuzzReport {
         let hole = HoleValue {
             name: "AMOUNT".into(),

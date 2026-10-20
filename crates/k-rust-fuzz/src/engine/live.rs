@@ -69,18 +69,17 @@ impl Side {
             }
             None => build_backend(definition, spec.options.backend.options())?,
         };
-        let (mut executor, normal_end) = match seed.normal_end {
-            Some(normal_end) => (
+        let (mut executor, normal_end) = if let Some(normal_end) = seed.normal_end {
+            (
                 Executor::with_normal_end(backend, normal_end, &spec.options)?,
                 normal_end.clone(),
-            ),
-            None => {
-                let compiler = PatternCompiler::new(definition)?;
-                let normal_end = compiler.normal_end(assembly.grammar(), &spec.options)?;
-                let executor = Executor::with_normal_end(backend, &normal_end, &spec.options)?
-                    .with_compiler(compiler);
-                (executor, normal_end)
-            }
+            )
+        } else {
+            let compiler = PatternCompiler::new(definition)?;
+            let normal_end = compiler.normal_end(assembly.grammar(), &spec.options)?;
+            let executor = Executor::with_normal_end(backend, &normal_end, &spec.options)?
+                .with_compiler(compiler);
+            (executor, normal_end)
         };
         if let Some((holes, round_trip)) = seed.resolved {
             return Ok(Self {
@@ -475,30 +474,27 @@ impl LiveCases {
                         };
                         side.leaves.get(index).map(|leaf| (kind, role, index, leaf))
                     });
-                    match witness {
-                        Some((kind, role, index, leaf)) => {
-                            let holes = self.hole_values(values, &baseline_case.printed);
-                            run.hit = Some(HitDetail {
-                                holes,
-                                sides: vec![
-                                    side_of(DefinitionRole::Baseline, &baseline_case, &baseline),
-                                    side_of(DefinitionRole::Mutant, &mutant_case, &mutated),
-                                ],
-                                reaching: Reaching {
-                                    role,
-                                    leaf: Some(index_u64(index)),
-                                },
-                                kill: Some(kind),
-                                steps: Some(leaf.depth),
-                                reaching_state: leaf.state.to_string(),
-                                krun_command: None,
-                            });
-                        }
-                        None => {
-                            run.class = OutcomeClass::Unsupported;
-                            run.defects
-                                .push("a kill names no leaf of either result".to_owned());
-                        }
+                    if let Some((kind, role, index, leaf)) = witness {
+                        let holes = self.hole_values(values, &baseline_case.printed);
+                        run.hit = Some(HitDetail {
+                            holes,
+                            sides: vec![
+                                side_of(DefinitionRole::Baseline, &baseline_case, &baseline),
+                                side_of(DefinitionRole::Mutant, &mutant_case, &mutated),
+                            ],
+                            reaching: Reaching {
+                                role,
+                                leaf: Some(index_u64(index)),
+                            },
+                            kill: Some(kind),
+                            steps: Some(leaf.depth),
+                            reaching_state: leaf.state.to_string(),
+                            krun_command: None,
+                        });
+                    } else {
+                        run.class = OutcomeClass::Unsupported;
+                        run.defects
+                            .push("a kill names no leaf of either result".to_owned());
                     }
                 }
             }

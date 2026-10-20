@@ -2,7 +2,7 @@
 //!
 //! The explicit proposals (the anchors, then the author's assignments) come first, in order,
 //! each exactly once (ARCHITECTURE 8.1). After them, each case's proposer is drawn from the
-//! scheduled proposers with probability proportional to its weight, by one draw from a ChaCha20
+//! scheduled proposers with probability proportional to its weight, by one draw from a `ChaCha20`
 //! generator seeded from the campaign seed. A proposer that has nothing left to propose leaves
 //! the schedule; when every proposer has left, the schedule is exhausted.
 

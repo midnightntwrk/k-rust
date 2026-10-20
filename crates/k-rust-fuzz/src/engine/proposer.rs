@@ -1,10 +1,10 @@
 //! The internal proposer interface and the M1 proposers (ARCHITECTURE 8, 10.1). Owner: FZ-06.
 //!
-//! It is shaped like LibAFL's decomposition so that the corpus proposer can move onto LibAFL at
+//! It is shaped like `LibAFL`'s decomposition so that the corpus proposer can move onto `LibAFL` at
 //! M5 if the adoption criterion of ARCHITECTURE 10.1 is met: the *input* is a [`Proposal`], the
 //! *observer* output is an [`Observation`], [`Feedback`] decides whether an observation is
 //! interesting, a [`Score`] ranks it, and each proposer is a *stage* that proposes the next
-//! input. No LibAFL type appears here.
+//! input. No `LibAFL` type appears here.
 //!
 //! M1 has two proposers: the explicit one (anchors, then the author's assignments), which the
 //! schedule runs first and which is not weighted ([`super::schedule::Schedule`]), and
@@ -58,7 +58,7 @@ impl ValueShrinker for ShrinkableValue {
     }
 }
 
-/// One proposed assignment (the LibAFL *input*): a value per hole, in hole order.
+/// One proposed assignment (the `LibAFL` *input*): a value per hole, in hole order.
 pub(crate) struct Proposal {
     /// The proposer that made it.
     pub(crate) origin: Origin,
@@ -86,7 +86,7 @@ impl Proposal {
     }
 }
 
-/// What the engine observed of one case (the LibAFL *observer* output; ARCHITECTURE 6.1).
+/// What the engine observed of one case (the `LibAFL` *observer* output; ARCHITECTURE 6.1).
 ///
 /// The M1 feedback reads the class and the coverage; the case number, the work and the score
 /// are for the corpus and climb proposers (ARCHITECTURE 6.4, 8.4, 8.5).
@@ -111,7 +111,7 @@ pub(crate) struct Observation {
     pub(crate) score: Option<Score>,
 }
 
-/// Decides whether an observation is interesting (the LibAFL *feedback*): new coverage or a
+/// Decides whether an observation is interesting (the `LibAFL` *feedback*): new coverage or a
 /// better score (ARCHITECTURE 6.2). Only `miss` cases are scored (R-18).
 pub(crate) trait Feedback {
     /// Whether `observation` adds coverage or improves the best score; updates the feedback's
@@ -156,7 +156,7 @@ pub(crate) struct ProposalContext<'a> {
     pub(crate) rng: &'a mut ChaCha20Rng,
 }
 
-/// A proposer (a LibAFL *stage*): proposes assignments and learns from their observations
+/// A proposer (a `LibAFL` *stage*): proposes assignments and learns from their observations
 /// (ARCHITECTURE 8). Every choice it makes derives from the campaign seed.
 pub(crate) trait Proposer {
     /// Which proposer this is.

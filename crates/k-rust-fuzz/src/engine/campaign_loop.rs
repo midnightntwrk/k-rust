@@ -12,7 +12,7 @@ use super::{
     shrink::{Verdict, shrink},
 };
 use crate::{
-    exec::OutcomeClass,
+    exec::{Abort, OutcomeClass},
     report::{
         CampaignOutcome, EngineDefect, FuzzReport, HitLabel, KillKind, LoadRecord, NoWitness,
         REPORT_SCHEMA, REPORT_VERSION, RejectionReason, ReportIdentity, SortOverride, Totals,
@@ -80,22 +80,11 @@ pub(crate) fn run_loop(
         };
         let case = state.totals.cases;
         state.sequence(&proposal.values);
-        let run = if let Some(failure) = &proposal.failure {
-            // No complete assignment was drawn: a `rejected` case that is not run. Its message
-            // is reported once per distinct text.
-            let warning =
-                format!("a generator failed to draw a value and the case was rejected: {failure}");
-            if !state.warnings.contains(&warning) {
-                state.warnings.push(warning);
-            }
-            CaseRun::rejected(RejectionReason::Generation, 0)
-        } else {
-            match runner.run_case(&proposal.values, cancel) {
-                Ok(run) => run,
-                Err(abort) => {
-                    state.abort = Some(abort.reason);
-                    break Ending::Aborted;
-                }
+        let run = match run_proposal(runner, &mut state, &proposal, cancel) {
+            Ok(run) => run,
+            Err(abort) => {
+                state.abort = Some(abort.reason);
+                break Ending::Aborted;
             }
         };
         state.charge(run.work);
@@ -104,9 +93,7 @@ pub(crate) fn run_loop(
             state.defect(Some(case), defect.clone());
         }
         for warning in &run.warnings {
-            if !state.warnings.contains(warning) {
-                state.warnings.push(warning.clone());
-            }
+            state.warn(warning.clone());
         }
         let mut class = run.class;
         if class == OutcomeClass::Hit {
@@ -177,6 +164,24 @@ pub(crate) fn run_loop(
         },
     };
     state.report(settings, budget, outcome)
+}
+
+/// Run `proposal` as a case, or, when no complete assignment was drawn (a generator failed),
+/// count it as a `rejected` case (`generation`) that is not run, with the generator's message
+/// as a warning.
+fn run_proposal(
+    runner: &mut dyn CaseRunner,
+    state: &mut State,
+    proposal: &Proposal,
+    cancel: Option<&CancellationToken>,
+) -> Result<CaseRun, Abort> {
+    if let Some(failure) = &proposal.failure {
+        state.warn(format!(
+            "a generator failed to draw a value and the case was rejected: {failure}"
+        ));
+        return Ok(CaseRun::rejected(RejectionReason::Generation, 0));
+    }
+    runner.run_case(&proposal.values, cancel)
 }
 
 /// The report of a run that executes no case (an equivalent differential pair, a failed
@@ -452,6 +457,13 @@ impl State {
         self.totals.case_sequence_digest = digest_hex(&bytes);
     }
 
+    /// Add `warning` to the report unless it already holds the same text.
+    fn warn(&mut self, warning: String) {
+        if !self.warnings.contains(&warning) {
+            self.warnings.push(warning);
+        }
+    }
+
     fn defect(&mut self, case: Option<u64>, description: String) {
         self.defects.push(EngineDefect { case, description });
     }
@@ -480,11 +492,12 @@ impl State {
     }
 
     fn totals_snapshot(&mut self) -> Totals {
-        self.totals.rejection_rate_permille = if self.totals.cases == 0 {
-            0
-        } else {
-            self.rejected().saturating_mul(1000) / self.totals.cases
-        };
+        // No case yet: a rate of 0.
+        self.totals.rejection_rate_permille = self
+            .rejected()
+            .saturating_mul(1000)
+            .checked_div(self.totals.cases)
+            .unwrap_or(0);
         self.totals.clone()
     }
 
@@ -531,6 +544,10 @@ pub(crate) enum Ending {
 /// cases and work spent, that it is no proof, why it ended, the path mode followed, every count
 /// of cases that could not yield a witness or could not be judged, and the bounds to raise. In
 /// one-path mode it always names the all-paths option (see [`NoWitness::statement`]).
+#[expect(
+    clippy::too_many_lines,
+    reason = "one statement, written clause by clause in the order it reads"
+)]
 pub(crate) fn no_witness(
     ending: Ending,
     totals: &Totals,
