@@ -576,6 +576,107 @@ endmodule
     );
 }
 
+/// A language whose `sum` rule reads two entries of the `mem` map; `{rule}`
+/// is the rule, in the readable or the `cells!` spelling.
+const TWO_ENTRY_READ: &str = r#"
+use krs::builtin::{Int, KSequence, Map, int};
+use krs::{KResult, Term};
+
+krs::sorts! {
+    Stmt;
+    Value: Stmt + KResult;
+    impl Value for Int;
+}
+
+#[krs::configuration]
+pub struct Machine {
+    #[krs::cell]
+    pub k: KSequence,
+    #[krs::cell]
+    pub acc: Int,
+    #[krs::cell]
+    pub mem: Map<Int, Int>,
+}
+
+impl Machine {
+    #[krs::init]
+    pub fn init(
+        #[krs::config_var(name = "PGM", main)] program: Stmt,
+        acc: Int,
+        mem: Map<Int, Int>,
+    ) -> Self {
+        Self {
+            k: krs::k![program],
+            acc,
+            mem,
+        }
+    }
+}
+
+{rule}
+"#;
+
+#[test]
+fn a_two_entry_map_read_emits_the_cells_rule_it_abbreviates() {
+    let target = shared_fixture_target();
+    let readable = r"
+krs::rules! {
+    for Machine;
+
+    sum: {
+        mem: { 0 -> x, 1 -> y, .. },
+        acc: s,
+    } => {
+        acc: int::add(s, int::add(x, y)),
+    };
+}
+";
+    // `krs::map!` is the `map!` of a `cells!` entry under its qualified name.
+    let cells = r#"
+#[krs::rule(label = "sum")]
+pub fn sum(
+    x: Term<Int>,
+    y: Term<Int>,
+    s: Term<Int>,
+    krs::cells! {
+        mem: krs::configuration::Cell(krs::map![0 -> x, 1 -> y, ..]),
+        acc: krs::configuration::Cell(s),
+        state @ ..
+    }: Machine,
+) -> Machine {
+    krs::cells! {
+        acc: krs::configuration::Cell(int::add(s, int::add(x, y))),
+        ..state
+    }
+}
+"#;
+    let emitted = [readable, cells].map(|rule| {
+        let temporary = temp_dir();
+        let manifest =
+            materialize_fixture(temporary.path(), &TWO_ENTRY_READ.replace("{rule}", rule));
+        let output = temporary.path().join("emitted");
+        assert_success(&command(
+            target.path(),
+            &manifest,
+            "emit-k",
+            Some(&output),
+            &[],
+        ));
+        let definition = fs::read_to_string(output.join("definition.k")).unwrap();
+        let start = definition
+            .find("  rule [sum]:")
+            .expect("the sum rule is emitted");
+        let sentence = &definition[start..];
+        sentence[..sentence.find("endmodule").unwrap_or(sentence.len())].to_owned()
+    });
+    assert_eq!(
+        emitted[0],
+        "  rule [sum]:\n    <mem> 0 |-> X:Int 1 |-> Y:Int ... </mem>\n    <acc> S:Int => S:Int +Int (X:Int +Int Y:Int) </acc>\n",
+        "{emitted:#?}"
+    );
+    assert_eq!(emitted[0], emitted[1]);
+}
+
 fn command(
     target: &Path,
     manifest: &Path,

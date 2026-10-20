@@ -10,7 +10,7 @@ use krs_ir::{
     StableItemId, StructuredRuleDescriptor,
 };
 use krs_ir_levels::{
-    MapOperands, SemanticCondition, SemanticNondetGroup, SemanticRule, SemanticRuleLabel,
+    MapEntry, MapOperands, SemanticCondition, SemanticNondetGroup, SemanticRule, SemanticRuleLabel,
     SemanticRulePriority, SemanticSimplification, SemanticSimplificationPriority, SemanticSortRef,
     SemanticTerm, SemanticVariable,
 };
@@ -737,12 +737,14 @@ fn seed_head_rule_sorts(
                 (semantic_sort_ref(&key.sort), semantic_sort_ref(&value.sort)),
             );
         }
-        if let krs_ir::ProtocolHeadRuleExtra::HaveMap { value_binding, .. } = extra
+        if let krs_ir::ProtocolHeadRuleExtra::HaveMap { entries, .. } = extra
             && let Some((_, value_sort)) = map_argument_sorts.get(&cell.cell)
         {
-            binding_sorts
-                .entry(value_binding.clone())
-                .or_insert_with(|| value_sort.clone());
+            for entry in entries {
+                binding_sorts
+                    .entry(entry.value_binding.clone())
+                    .or_insert_with(|| value_sort.clone());
+            }
         }
         if let krs_ir::ProtocolHeadRuleExtra::UpdateMap { base_binding, .. } = extra {
             let cell_sort = cell_sorts.get(&cell.cell).ok_or_else(|| {
@@ -798,12 +800,14 @@ fn infer_head_rule(
     }
     for extra in &rule.extras {
         match extra {
-            krs_ir::ProtocolHeadRuleExtra::HaveMap { cell, key, .. } => {
+            krs_ir::ProtocolHeadRuleExtra::HaveMap { cell, entries } => {
                 let expected = seeds
                     .map_argument_sorts
                     .get(&cell.cell)
                     .map(|(key_sort, _)| key_sort);
-                builder.infer(key, expected, true)?;
+                for entry in entries {
+                    builder.infer(&entry.key, expected, true)?;
+                }
             }
             krs_ir::ProtocolHeadRuleExtra::UpdateMap {
                 cell,
@@ -1128,11 +1132,9 @@ fn lower_head_rule_fixed_extra(
         );
     };
     match extra {
-        krs_ir::ProtocolHeadRuleExtra::HaveMap {
-            cell,
-            key,
-            value_binding,
-        } => lower_head_rule_map_read(builder, cell, key, value_binding, *wrapper, sort),
+        krs_ir::ProtocolHeadRuleExtra::HaveMap { cell, entries } => {
+            lower_head_rule_map_read(builder, cell, entries, *wrapper, sort)
+        }
         krs_ir::ProtocolHeadRuleExtra::UpdateMap {
             cell,
             base_binding,
@@ -1150,11 +1152,14 @@ fn lower_head_rule_fixed_extra(
     }
 }
 
+/// Lowers a read of entries `k1 -> v1, ..., kn -> vn` of a Map cell to the
+/// preserved cell pattern `K1 |-> V1 ... Kn |-> Vn _`. Its items are distinct
+/// entries of the map, so it matches only where the keys are pairwise
+/// different and each is present.
 fn lower_head_rule_map_read(
     builder: &mut StructuredTermBuilder<'_>,
     cell: &DescriptorCellReference,
-    key: &DescriptorTerm,
-    value_binding: &str,
+    entries: &[krs_ir::DescriptorHeadRuleMapEntry],
     wrapper: krs_ir::CellWrapper,
     sort: &DescriptorSortReference,
 ) -> Result<FixedCellClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
@@ -1167,26 +1172,42 @@ fn lower_head_rule_map_read(
             detail: format!("extra cell {:?} is not a Map cell", cell.cell.field),
         });
     }
-    let key = builder.lower(key, None, true)?;
-    let value_sort = builder
-        .binding_sorts
-        .get(value_binding)
-        .cloned()
-        .ok_or_else(|| DescriptorLoweringError::InvalidTerm {
+    let mut items = Vec::with_capacity(entries.len());
+    for (index, entry) in entries.iter().enumerate() {
+        let key = builder.lower(&entry.key, None, true)?;
+        let value_binding = &entry.value_binding;
+        let value_sort = builder
+            .binding_sorts
+            .get(value_binding)
+            .cloned()
+            .ok_or_else(|| DescriptorLoweringError::InvalidTerm {
+                id: Box::new(descriptor.id().clone()),
+                detail: format!("map value binding {value_binding:?} has no inferred sort"),
+            })?;
+        // Each value variable has its own origin; the first keeps the
+        // spelling of a one-entry read.
+        let role = match index {
+            0 => "map-binding-value".to_owned(),
+            index => format!("map-binding-value-{index}"),
+        };
+        let value = SemanticTerm::variable(
+            semantic_origin(descriptor, cell.key.clone(), &role)?,
+            value_sort,
+            SemanticId::new(value_binding.clone())?,
+        );
+        items.push(MapEntry { key, value });
+    }
+    let items =
+        MapOperands::items(items).map_err(|error| DescriptorLoweringError::InvalidTerm {
             id: Box::new(descriptor.id().clone()),
-            detail: format!("map value binding {value_binding:?} has no inferred sort"),
+            detail: error.to_string(),
         })?;
-    let value = SemanticTerm::variable(
-        semantic_origin(descriptor, cell.key.clone(), "map-binding-value")?,
-        value_sort,
-        SemanticId::new(value_binding.to_owned())?,
-    );
     Ok(FixedCellClause::new(
         semantic_origin(descriptor, cell.key.clone(), "completed-map-read")?,
         semantic_cell_id(&cell.cell)?,
         SemanticTerm::map(
             semantic_origin(descriptor, cell.key.clone(), "completed-map-item")?,
-            MapOperands::entry(key, value),
+            items,
         ),
         CellPost::Preserve,
         CellContentFrame::MapRemainder {

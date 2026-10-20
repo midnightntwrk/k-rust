@@ -185,10 +185,21 @@ fn expand_head_rule(
     let mut right_states = krs_syntax::ReadableStateCounters::after_head(clause.head_result());
     for extra in clause.extras() {
         match extra {
-            krs_syntax::RuleExtra::HaveMap { cell, key, value } => {
+            krs_syntax::RuleExtra::HaveMap { cell, entries } => {
                 let cell_name = cell.unraw().to_string();
-                let value_binding = value.unraw().to_string();
-                let key = builder.expand_wire(key.tree(), TermSide::Left, &mut slots)?;
+                let entries = entries
+                    .iter()
+                    .map(|entry| {
+                        Ok(krs_ir::wire::WireHeadRuleMapEntry {
+                            key: builder.expand_wire(
+                                entry.key.tree(),
+                                TermSide::Left,
+                                &mut slots,
+                            )?,
+                            value_binding: entry.value.unraw().to_string(),
+                        })
+                    })
+                    .collect::<Result<Vec<_>, ExpandError>>()?;
                 let ordinal = have_ordinal;
                 have_ordinal = have_ordinal.checked_add(1).ok_or_else(|| {
                     ExpandError::new(
@@ -202,8 +213,7 @@ fn expand_head_rule(
                         key: rule_left_cells_field_role.key(ordinal),
                         name: cell_name,
                     },
-                    key,
-                    value_binding,
+                    entries,
                 });
             }
             krs_syntax::RuleExtra::RewriteCell {

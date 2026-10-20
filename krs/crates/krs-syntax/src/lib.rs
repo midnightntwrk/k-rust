@@ -71,7 +71,7 @@ pub use range::TokenRange;
 pub use rule::{
     BINDER_LIST_CONTRACT, BracketAlternative, ReadableStateCounters, RuleBinder, RuleBlock,
     RuleClause, RuleClauseLayout, RuleCondition, RuleExistentials, RuleExtra, RuleHeadResult,
-    RuleImport, RuleItem, RuleMapUpdate, RuleNarrowing, RuleParameter, RulePattern,
+    RuleImport, RuleItem, RuleMapEntry, RuleMapUpdate, RuleNarrowing, RuleParameter, RulePattern,
     parse_rule_block_source_with_trivia,
 };
 pub use sorts::{SortsDeclaration, SortsEntry, SortsMembership, SortsSort};

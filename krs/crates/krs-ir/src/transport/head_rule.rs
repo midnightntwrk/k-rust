@@ -78,18 +78,30 @@ pub type HostHeadRuleResult = ProtocolHeadRuleResult<HostTerm>;
 pub type DescriptorHeadRuleResult = ProtocolHeadRuleResult<DescriptorTerm>;
 
 protocol_shape! {
+    /// One map entry a readable rule requires and binds the value of.
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct ProtocolHeadRuleMapEntry<T => term_map => U> {
+        /// Required map key.
+        pub key: T => [term_map],
+        /// Value binding introduced by the item match.
+        pub value_binding: String => [keep],
+    }
+}
+
+protocol_shape! {
     /// One explicit gradual extra-cell clause.
     #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
     #[serde(tag = "extra_kind", rename_all = "snake_case", deny_unknown_fields)]
     pub enum ProtocolHeadRuleExtra<I => cell_map => J, T => term_map => U> {
-        /// Failable preserved map-item match (`have cell[key -> let value]`).
+        /// Failable preserved match of one or more map entries
+        /// (`have cell[key -> let value]`, `cell: { k1 -> v1, k2 -> v2, .. }`).
+        /// The entries are distinct items of the map, so their keys differ.
         HaveMap {
             /// Selected map cell.
             cell: I => [cell_map],
-            /// Required map key.
-            key: T => [term_map],
-            /// Value binding introduced by the item match.
-            value_binding: String => [keep],
+            /// The matched entries, at least one, in authored order.
+            entries: Vec<ProtocolHeadRuleMapEntry<T>> => [vec nested term_map],
         },
         /// Simultaneous whole-map replacement by an ordinary update term.
         UpdateMap {
@@ -154,6 +166,10 @@ pub type HostHeadRuleExtra = ProtocolHeadRuleExtra<HostHeadRuleCellReference, Ho
 /// Host List-collection reading of an ambiguous bracketed cell value.
 pub type HostHeadRuleBracketAlternative =
     ProtocolHeadRuleBracketAlternative<HostSortReference, HostHeadRuleCellReference, HostTerm>;
+/// Host map entry of a map read.
+pub type HostHeadRuleMapEntry = ProtocolHeadRuleMapEntry<HostTerm>;
+/// Stable map entry of a map read.
+pub type DescriptorHeadRuleMapEntry = ProtocolHeadRuleMapEntry<DescriptorTerm>;
 /// Stable gradual extra-cell clause.
 pub type DescriptorHeadRuleExtra = ProtocolHeadRuleExtra<DescriptorCellReference, DescriptorTerm>;
 
@@ -446,12 +462,22 @@ fn validate_bindings<S, I, T>(
     }
     for extra in extras {
         let introduced = match extra {
-            ProtocolHeadRuleExtra::HaveMap { value_binding, .. } => value_binding,
-            ProtocolHeadRuleExtra::UpdateMap { base_binding, .. } => base_binding,
+            ProtocolHeadRuleExtra::HaveMap { entries, .. } => {
+                if entries.is_empty() {
+                    return Err(StateTransportError::InvalidTerm(
+                        StateTermReason::EmptyMapRead,
+                    ));
+                }
+                entries
+                    .iter()
+                    .map(|entry| entry.value_binding.as_str())
+                    .collect()
+            }
+            ProtocolHeadRuleExtra::UpdateMap { base_binding, .. } => vec![base_binding.as_str()],
             ProtocolHeadRuleExtra::RewriteCell { .. }
             | ProtocolHeadRuleExtra::RewriteState { .. } => continue,
         };
-        if !names.contains(introduced.as_str()) {
+        if introduced.iter().any(|name| !names.contains(name)) {
             return Err(StateTransportError::InvalidTerm(
                 StateTermReason::UndeclaredHeadRuleExtraBinding,
             ));
@@ -734,7 +760,7 @@ impl DescriptorHeadRule {
 mod tests {
     use super::{
         DescriptorHeadRule, HeadRule, ProtocolHeadRuleBinding, ProtocolHeadRuleExtra,
-        ProtocolHeadRuleHead, ProtocolHeadRuleResult,
+        ProtocolHeadRuleHead, ProtocolHeadRuleMapEntry, ProtocolHeadRuleResult,
     };
     use crate::stage::tests::CountingMap;
     use crate::wire::{
@@ -810,13 +836,49 @@ mod tests {
     }
 
     #[test]
+    fn map_reads_need_an_entry_and_declare_every_value_binding() {
+        use crate::StateTransportError;
+        use crate::transport::detail::StateTermReason;
+
+        let bindings = ["x", "y"].map(|name| ProtocolHeadRuleBinding::<u8> {
+            name: name.to_owned(),
+            refinement: None,
+        });
+        let read = |names: &[&str]| ProtocolHeadRuleExtra::<u8, u8>::HaveMap {
+            cell: 0,
+            entries: names
+                .iter()
+                .map(|name| ProtocolHeadRuleMapEntry {
+                    key: 0,
+                    value_binding: (*name).to_owned(),
+                })
+                .collect(),
+        };
+        assert!(super::validate_bindings(&bindings, &[read(&["x", "y"])]).is_ok());
+        assert!(matches!(
+            super::validate_bindings(&bindings, &[read(&[])]),
+            Err(StateTransportError::InvalidTerm(
+                StateTermReason::EmptyMapRead
+            ))
+        ));
+        assert!(matches!(
+            super::validate_bindings(&bindings, &[read(&["x", "z"])]),
+            Err(StateTransportError::InvalidTerm(
+                StateTermReason::UndeclaredHeadRuleExtraBinding
+            ))
+        ));
+    }
+
+    #[test]
     fn head_extra_traversal_maps_every_reference_and_stops_at_first_error() {
         let result_key = ProvenanceKey::new(ProvenanceRole::RuleRightCellsField, 0);
         let mut calls = Vec::new();
         let have = ProtocolHeadRuleExtra::HaveMap {
             cell: 1,
-            key: 2,
-            value_binding: "value".to_owned(),
+            entries: vec![ProtocolHeadRuleMapEntry {
+                key: 2,
+                value_binding: "value".to_owned(),
+            }],
         }
         .try_map_refs(&mut calls, &mut map_number, &mut map_number)
         .unwrap();
@@ -824,8 +886,10 @@ mod tests {
             have,
             ProtocolHeadRuleExtra::HaveMap {
                 cell: 11,
-                key: 12,
-                value_binding: "value".to_owned(),
+                entries: vec![ProtocolHeadRuleMapEntry {
+                    key: 12,
+                    value_binding: "value".to_owned(),
+                }],
             }
         );
         let update = ProtocolHeadRuleExtra::UpdateMap {
@@ -1034,8 +1098,10 @@ mod tests {
             }),
             extras: vec![ProtocolHeadRuleExtra::HaveMap {
                 cell,
-                key: descriptor_term(),
-                value_binding: "value".to_owned(),
+                entries: vec![ProtocolHeadRuleMapEntry {
+                    key: descriptor_term(),
+                    value_binding: "value".to_owned(),
+                }],
             }],
             existentials: Vec::new(),
             ensures: None,

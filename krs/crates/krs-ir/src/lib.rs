@@ -157,10 +157,11 @@ pub use transport::grammar::{
 pub use transport::grammar::{DescriptorTypedBinding, ProtocolTypedBinding};
 pub use transport::head_rule::{
     DescriptorHeadRule, DescriptorHeadRuleBinding, DescriptorHeadRuleExtra,
-    DescriptorHeadRuleResult, HeadRule, HostHeadRule, HostHeadRuleBinding,
-    HostHeadRuleBracketAlternative, HostHeadRuleCellReference, HostHeadRuleExtra,
-    HostHeadRuleResult, ProtocolHeadRuleBinding, ProtocolHeadRuleBracketAlternative,
-    ProtocolHeadRuleExtra, ProtocolHeadRuleHead, ProtocolHeadRuleResult, ResolvedHeadRule,
+    DescriptorHeadRuleMapEntry, DescriptorHeadRuleResult, HeadRule, HostHeadRule,
+    HostHeadRuleBinding, HostHeadRuleBracketAlternative, HostHeadRuleCellReference,
+    HostHeadRuleExtra, HostHeadRuleMapEntry, HostHeadRuleResult, ProtocolHeadRuleBinding,
+    ProtocolHeadRuleBracketAlternative, ProtocolHeadRuleExtra, ProtocolHeadRuleHead,
+    ProtocolHeadRuleMapEntry, ProtocolHeadRuleResult, ResolvedHeadRule,
 };
 pub use transport::rule::{
     Claim, ClaimBinder, ClaimModality, ConfigurationRule, ContextAlias, DescriptorClaim,
@@ -199,7 +200,7 @@ pub struct SchemaVersion(pub u32);
 
 impl SchemaVersion {
     /// The only version this release reads and writes.
-    pub const CURRENT: Self = Self(56);
+    pub const CURRENT: Self = Self(57);
 }
 
 impl Default for SchemaVersion {

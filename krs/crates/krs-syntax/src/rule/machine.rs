@@ -1,5 +1,5 @@
 use proc_macro2::{TokenStream, TokenTree};
-use quote::{quote, quote_spanned};
+use quote::{ToTokens, quote, quote_spanned};
 use syn::ext::IdentExt;
 use syn::parse::discouraged::Speculative;
 use syn::parse::{ParseStream, Parser};
@@ -10,7 +10,9 @@ use super::block::{
     BracketAlternative, RuleClause, RuleClauseLayout, RuleHeadResult, RuleNarrowing,
     take_rule_clause_attribute,
 };
-use super::condition::{MapUpdateExtra, RuleExtra, condition_token_range, parse_map_update};
+use super::condition::{
+    MapUpdateExtra, RuleExtra, RuleMapEntry, condition_token_range, parse_map_update,
+};
 use super::item::RuleItem;
 use super::pattern::{
     NegativeLiteralSpans, RulePattern, parse_pattern_with_signs, parse_rule_pattern,
@@ -24,11 +26,9 @@ use crate::{
 
 #[derive(Clone)]
 enum MachinePatternCell {
-    KHead(Pat, NegativeLiteralSpans),
-    MapItem {
-        key: Expr,
-        value: Ident,
-    },
+    KHead(Box<Pat>, NegativeLiteralSpans),
+    /// `{ k1 -> v1, k2 -> v2, .. }`: one or more entries of a map cell.
+    MapItems(Vec<(Expr, Ident)>),
     Term {
         pattern: Box<RulePattern>,
         tree: Box<TermTree>,
@@ -481,34 +481,7 @@ fn parse_machine_pattern_record(
         } else if content.peek(syn::token::Bracket) {
             MachinePatternCell::Bracket(content.parse()?)
         } else if content.peek(syn::token::Brace) {
-            let map = content.call(|input| {
-                let map;
-                braced!(map in input);
-                Ok(map)
-            })?;
-            let key = parse_expression_before_arrow(&map)?;
-            map.parse::<Token![->]>()?;
-            let value = map.call(Ident::parse_any)?;
-            validate_authored_binder(&value.to_string(), value.span())?;
-            map.parse::<Token![,]>()?;
-            if !map.peek(Token![..]) {
-                return Err(map
-                    .error(
-                        "a machine-rule map pattern reads one entry, `{ key -> value, .. }`; \
-                         a `k::cells!` rule matches several with `map![k1 -> v1, k2 -> v2, ..]`",
-                    )
-                    .into());
-            }
-            map.parse::<Token![..]>()?;
-            if map.peek(Token![,]) {
-                map.parse::<Token![,]>()?;
-            }
-            if !map.is_empty() {
-                return Err(map
-                    .error("a machine-rule map pattern is `{ key -> value, .. }`")
-                    .into());
-            }
-            MachinePatternCell::MapItem { key, value }
+            MachinePatternCell::MapItems(parse_machine_map_pattern(&content)?)
         } else {
             let (pattern, signs) = parse_pattern_with_signs(&content)?;
             let (pattern, tree) = match pattern {
@@ -547,6 +520,62 @@ fn parse_machine_pattern_record(
         }
     }
     Ok(cells)
+}
+
+/// Parses a readable map pattern, `{ k1 -> v1, ..., kn -> vn, .. }`: one
+/// or more entries of a map cell, each a key term and a value binder.
+fn parse_machine_map_pattern(content: ParseStream<'_>) -> Result<Vec<(Expr, Ident)>, ParseError> {
+    let map = content.call(|input| {
+        let map;
+        braced!(map in input);
+        Ok(map)
+    })?;
+    let mut entries: Vec<(Expr, Ident)> = Vec::new();
+    loop {
+        let key = parse_expression_before_arrow(&map)?;
+        map.parse::<Token![->]>()?;
+        let value = map.call(Ident::parse_any)?;
+        validate_authored_binder(&value.to_string(), value.span())?;
+        // The entries are distinct items of one map, so two keys
+        // that are the same term can never both match.
+        let text = key.to_token_stream().to_string();
+        if entries
+            .iter()
+            .any(|(existing, _)| existing.to_token_stream().to_string() == text)
+        {
+            return Err(syn::Error::new_spanned(
+                &key,
+                format!(
+                    "a machine-rule map pattern reads key `{text}` twice; \
+                     its entries are distinct items of the map, so no map matches it"
+                ),
+            )
+            .into());
+        }
+        entries.push((key, value));
+        if map.is_empty() {
+            break;
+        }
+        map.parse::<Token![,]>()?;
+        if map.peek(Token![..]) || map.is_empty() {
+            break;
+        }
+    }
+    if !map.peek(Token![..]) {
+        return Err(map
+            .error("a machine-rule map pattern is `{ key -> value, .. }`")
+            .into());
+    }
+    map.parse::<Token![..]>()?;
+    if map.peek(Token![,]) {
+        map.parse::<Token![,]>()?;
+    }
+    if !map.is_empty() {
+        return Err(map
+            .error("a machine-rule map pattern is `{ key -> value, .. }`")
+            .into());
+    }
+    Ok(entries)
 }
 
 pub(super) fn parse_expression_before_arrow(input: ParseStream<'_>) -> syn::Result<Expr> {
@@ -833,7 +862,7 @@ fn read_brackets(
         let pattern = match pattern {
             MachinePatternCell::Bracket(group) if is_computation(cell) => {
                 let (head, signs) = bracket_head(group)?;
-                MachinePatternCell::KHead(head, signs)
+                MachinePatternCell::KHead(Box::new(head), signs)
             }
             MachinePatternCell::Bracket(group) => MachinePatternCell::State(Box::new(
                 StateTerm::Instances(parse_readable_instances(group, StateMacroContext::Pattern)?),
@@ -959,7 +988,7 @@ fn assemble_machine_clause(
         match pattern {
             MachinePatternCell::KHead(head, signs) => {
                 if subject_k
-                    .replace((cell.clone(), head.clone(), signs.clone()))
+                    .replace((cell.clone(), head.as_ref().clone(), signs.clone()))
                     .is_some()
                 {
                     return Err(syn::Error::new(
@@ -969,7 +998,7 @@ fn assemble_machine_clause(
                     .into());
                 }
             }
-            MachinePatternCell::MapItem { key, value } => {
+            MachinePatternCell::MapItems(entries) => {
                 if result_cells
                     .iter()
                     .any(|(result_cell, _)| result_cell.unraw() == cell.unraw())
@@ -982,10 +1011,17 @@ fn assemble_machine_clause(
                 }
                 extras.push(RuleExtra::HaveMap {
                     cell: cell.clone(),
-                    key: Box::new(TermExpression::from_expression(key.clone())?),
-                    value: value.clone(),
+                    entries: entries
+                        .iter()
+                        .map(|(key, value)| {
+                            Ok(RuleMapEntry {
+                                key: Box::new(TermExpression::from_expression(key.clone())?),
+                                value: value.clone(),
+                            })
+                        })
+                        .collect::<Result<_, ParseError>>()?,
                 });
-                extra_bindings.push(value.clone());
+                extra_bindings.extend(entries.iter().map(|(_, value)| value.clone()));
             }
             MachinePatternCell::State(before) => {
                 let result = result_cells

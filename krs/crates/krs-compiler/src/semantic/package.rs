@@ -461,8 +461,10 @@ fn collect_head_rule_packages(
     }
     for extra in &rule.extras {
         match extra {
-            krs_ir::ProtocolHeadRuleExtra::HaveMap { key, .. } => {
-                collect_term_packages(key, packages);
+            krs_ir::ProtocolHeadRuleExtra::HaveMap { entries, .. } => {
+                for entry in entries {
+                    collect_term_packages(&entry.key, packages);
+                }
             }
             krs_ir::ProtocolHeadRuleExtra::UpdateMap { update, .. } => {
                 collect_term_packages(update, packages);

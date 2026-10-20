@@ -1325,17 +1325,19 @@ fn render_rule(
                 left_cells.push(left);
                 right_cells.extend(right);
             }
-            ProtocolHeadRuleExtra::HaveMap {
-                cell,
-                key,
-                value_binding,
-            } => {
+            ProtocolHeadRuleExtra::HaveMap { cell, entries } => {
                 let cell = render_rule_cell_field(&cell.cell, &rule.configuration, package)?;
-                let key = render_term(key, true, package, bundle)?;
-                let value = rust_ident(value_binding);
+                let entries = entries
+                    .iter()
+                    .map(|entry| {
+                        let key = render_term(&entry.key, true, package, bundle)?;
+                        let value = rust_ident(&entry.value_binding);
+                        Ok(quote!(#key -> #value))
+                    })
+                    .collect::<Result<Vec<_>, ReferenceExpansionError>>()?;
                 let rest = fresh_ident(&format!("rest{ordinal}"), &mut reserved);
                 left_cells.push(quote! {
-                    #cell: k::configuration::Cell(map![#key -> #value, #rest @ ..])
+                    #cell: k::configuration::Cell(map![#(#entries,)* #rest @ ..])
                 });
             }
             ProtocolHeadRuleExtra::UpdateMap {

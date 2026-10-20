@@ -18,8 +18,8 @@ use crate::transport::rule::{
     ProtocolRuleKSequence, ProtocolRuleMap, ProtocolRuleStateTerm,
 };
 use crate::{
-    ProtocolHeadRuleBinding, ProtocolHeadRuleExtra, ProtocolHeadRuleHead, ProtocolHeadRuleResult,
-    ProvenanceKey,
+    ProtocolHeadRuleBinding, ProtocolHeadRuleExtra, ProtocolHeadRuleHead, ProtocolHeadRuleMapEntry,
+    ProtocolHeadRuleResult, ProvenanceKey,
 };
 
 /// Index into the static host type-key table.
@@ -245,6 +245,8 @@ pub type WireTypedBinding = crate::ProtocolTypedBinding<WireSortReference>;
 pub type WireHeadRuleResult = ProtocolHeadRuleResult<WireTerm>;
 /// Static wire-stage computation-cell head and rewrite in a readable head rule.
 pub type WireHeadRuleHead = ProtocolHeadRuleHead<WireTerm>;
+/// Static wire-stage map entry of a map read in a readable head rule.
+pub type WireHeadRuleMapEntry = ProtocolHeadRuleMapEntry<WireTerm>;
 /// Static wire-stage extra-cell clause in a readable head rule.
 pub type WireHeadRuleExtra = ProtocolHeadRuleExtra<WireHeadRuleCellReference, WireTerm>;
 /// Macro-emitted List-collection reading of an ambiguous bracketed cell value.
