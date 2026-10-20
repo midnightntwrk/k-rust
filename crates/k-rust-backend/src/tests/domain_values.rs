@@ -657,6 +657,190 @@ fn float_hooks_read_no_token_of_an_unhooked_sort_float() {
     );
 }
 
+/// The declaration of a sort named after a builtin: with the builtin's hook when `hooked`,
+/// otherwise as a token sort.
+fn builtin_named_sort(sort: &str, hook: &str, hooked: bool) -> String {
+    if hooked {
+        format!(r#"hooked-sort {sort} [hook{{}}("{hook}"), hasDomainValues{{}}()]"#)
+    } else {
+        format!("sort {sort} [hasDomainValues{{}}()]")
+    }
+}
+
+/// `MINT`, `BYTES`, `KRYPTO` and `FLOAT` hooks whose results are `Int`, `Bool` or `String`
+/// values, over the sorts `SortMInt{S}`, `SortBytes` and `SortFloat`, declared with their
+/// builtins' hooks when `hooked` and as token sorts otherwise.
+fn scalar_definition(hooked: bool) -> String {
+    indoc::formatdoc!(
+        r#"
+            []
+            module MAIN
+                hooked-sort SortString{{}} [hook{{}}("STRING.String"), hasDomainValues{{}}()]
+                hooked-sort SortInt{{}} [hook{{}}("INT.Int"), hasDomainValues{{}}()]
+                hooked-sort SortBool{{}} [hook{{}}("BOOL.Bool"), hasDomainValues{{}}()]
+                {mint}
+                {bytes}
+                {float}
+                sort Sort8{{}} []
+                hooked-symbol eqW{{}}(SortMInt{{Sort8{{}}}}, SortMInt{{Sort8{{}}}}) : SortBool{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("MINT.eq")]
+                hooked-symbol ultW{{}}(SortMInt{{Sort8{{}}}}, SortMInt{{Sort8{{}}}}) : SortBool{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("MINT.ult")]
+                hooked-symbol uW{{}}(SortMInt{{Sort8{{}}}}) : SortInt{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("MINT.uvalue")]
+                hooked-symbol sW{{}}(SortMInt{{Sort8{{}}}}) : SortInt{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("MINT.svalue")]
+                hooked-symbol widthW{{}}(SortMInt{{Sort8{{}}}}) : SortInt{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("MINT.bitwidth")]
+                hooked-symbol lenB{{}}(SortBytes{{}}) : SortInt{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("BYTES.length")]
+                hooked-symbol getB{{}}(SortBytes{{}}, SortInt{{}}) : SortInt{{}}
+                    [function{{}}(), hook{{}}("BYTES.get")]
+                hooked-symbol b2s{{}}(SortBytes{{}}) : SortString{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("BYTES.bytes2string")]
+                hooked-symbol keccak{{}}(SortBytes{{}}) : SortString{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("KRYPTO.keccak256")]
+                hooked-symbol tok2s{{}}(SortBytes{{}}) : SortString{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("STRING.token2string")]
+                hooked-symbol eqF{{}}(SortFloat{{}}, SortFloat{{}}) : SortBool{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("FLOAT.eq")]
+            endmodule []
+        "#,
+        mint = builtin_named_sort("SortMInt{S}", "MINT.MInt", hooked),
+        bytes = builtin_named_sort("SortBytes{}", "BYTES.Bytes", hooked),
+        float = builtin_named_sort("SortFloat{}", "FLOAT.Float", hooked),
+    )
+}
+
+/// `STRING`, `BYTES` and `IO` hooks reading `SortString`, declared with the `STRING.String` hook
+/// when `hooked` and as a token sort otherwise.
+fn string_definition(hooked: bool) -> String {
+    indoc::formatdoc!(
+        r#"
+            []
+            module MAIN
+                {string}
+                hooked-sort SortInt{{}} [hook{{}}("INT.Int"), hasDomainValues{{}}()]
+                hooked-sort SortBool{{}} [hook{{}}("BOOL.Bool"), hasDomainValues{{}}()]
+                hooked-sort SortBytes{{}} [hook{{}}("BYTES.Bytes"), hasDomainValues{{}}()]
+                sort SortK{{}} []
+                hooked-symbol lenS{{}}(SortString{{}}) : SortInt{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("STRING.length")]
+                hooked-symbol eqS{{}}(SortString{{}}, SortString{{}}) : SortBool{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("STRING.eq")]
+                hooked-symbol s2i{{}}(SortString{{}}) : SortInt{{}}
+                    [function{{}}(), hook{{}}("STRING.string2int")]
+                hooked-symbol s2b{{}}(SortString{{}}) : SortBytes{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("BYTES.string2bytes")]
+                hooked-symbol logS{{}}(SortString{{}}) : SortK{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("IO.logString")]
+            endmodule []
+        "#,
+        string = builtin_named_sort("SortString{}", "STRING.String", hooked),
+    )
+}
+
+/// A hook reads no Float and no machine integer from a token sort that only shares the name of
+/// `SortFloat` or `SortMInt{W}`, whatever its result sort. At `SortMInt{Sort8{}}` hooked
+/// `MINT.MInt` the literals `01p8` and `1p8` are one element, so `==MInt` holds of them;
+/// unhooked, they are two tokens, which `==K` keeps apart, and `==MInt`, the readings, the
+/// ordering and the width are not evaluated on them, not even on a variable: the definition gives
+/// a token no machine-integer value. `1.0` and `1.00` at an unhooked `SortFloat` likewise.
+#[test]
+fn mint_and_float_hooks_read_no_token_of_a_sort_named_after_their_builtin() {
+    let (hooked, unhooked) = (
+        load(&scalar_definition(true)),
+        load(&scalar_definition(false)),
+    );
+    for pattern in [
+        r#"eqW{}(\dv{SortMInt{Sort8{}}}("01p8"), \dv{SortMInt{Sort8{}}}("1p8"))"#,
+        r#"ultW{}(\dv{SortMInt{Sort8{}}}("01p8"), \dv{SortMInt{Sort8{}}}("2p8"))"#,
+        r#"uW{}(\dv{SortMInt{Sort8{}}}("01p8"))"#,
+        r#"sW{}(\dv{SortMInt{Sort8{}}}("255p8"))"#,
+        r#"widthW{}(\dv{SortMInt{Sort8{}}}("1p8"))"#,
+        "widthW{}(VarX:SortMInt{Sort8{}})",
+        r#"eqF{}(\dv{SortFloat{}}("1.0"), \dv{SortFloat{}}("1.00"))"#,
+    ] {
+        let at_hooked = evaluated(&hooked, pattern);
+        assert!(
+            matches!(at_hooked, BuiltinResult::Value(_)),
+            "{pattern} at the hooked sort: {at_hooked:?}"
+        );
+        assert_eq!(
+            evaluated(&unhooked, pattern),
+            BuiltinResult::NotApplicable,
+            "{pattern} at the token sort"
+        );
+    }
+
+    // The contradiction a reading by the sort's name gives: at the hooked sort `01p8` and `1p8`
+    // are one term and `==MInt` holds; at the token sort they are two terms, so `==MInt` must not
+    // hold of them.
+    assert_eq!(
+        term(&hooked, r#"\dv{SortMInt{Sort8{}}}("01p8")"#),
+        term(&hooked, r#"\dv{SortMInt{Sort8{}}}("1p8")"#)
+    );
+    assert_eq!(
+        evaluated(
+            &hooked,
+            r#"eqW{}(\dv{SortMInt{Sort8{}}}("01p8"), \dv{SortMInt{Sort8{}}}("1p8"))"#
+        ),
+        BuiltinResult::Value(term(&hooked, r#"\dv{SortBool{}}("true")"#))
+    );
+    assert_ne!(
+        term(&unhooked, r#"\dv{SortMInt{Sort8{}}}("01p8")"#),
+        term(&unhooked, r#"\dv{SortMInt{Sort8{}}}("1p8")"#)
+    );
+}
+
+/// A `String` or `Bytes` value holds its payload as its one text, in the encoding of its sort's
+/// KORE name, so at a token sort named `SortString` or `SortBytes` two tokens are equal exactly
+/// when the strings or byte sequences the hooks read them as are: that reading identifies no two
+/// elements, and the `STRING`, `BYTES`, `KRYPTO` and `IO` hooks give a token the value they give
+/// the builtin value of the same payload. `STRING.token2string` reads any token's text.
+#[test]
+fn string_and_bytes_hooks_read_a_token_as_its_payload() {
+    for (definition, patterns) in [
+        (
+            scalar_definition as fn(bool) -> String,
+            vec![
+                r#"lenB{}(\dv{SortBytes{}}("abc"))"#,
+                r#"getB{}(\dv{SortBytes{}}("abc"), \dv{SortInt{}}("0"))"#,
+                r#"b2s{}(\dv{SortBytes{}}("abc"))"#,
+                r#"keccak{}(\dv{SortBytes{}}("abc"))"#,
+                r#"tok2s{}(\dv{SortBytes{}}("abc"))"#,
+            ],
+        ),
+        (
+            string_definition,
+            vec![
+                r#"lenS{}(\dv{SortString{}}("abc"))"#,
+                r#"eqS{}(\dv{SortString{}}("abc"), \dv{SortString{}}("abc"))"#,
+                r#"s2i{}(\dv{SortString{}}("12"))"#,
+                r#"s2b{}(\dv{SortString{}}("abc"))"#,
+                r#"logS{}(\dv{SortString{}}("abc"))"#,
+            ],
+        ),
+    ] {
+        let (hooked, unhooked) = (load(&definition(true)), load(&definition(false)));
+        for pattern in patterns {
+            let at_hooked = evaluated(&hooked, pattern);
+            assert!(
+                matches!(
+                    at_hooked,
+                    BuiltinResult::Value(_) | BuiltinResult::Effect(_)
+                ),
+                "{pattern} at the hooked sort: {at_hooked:?}"
+            );
+            assert_eq!(
+                evaluated(&unhooked, pattern),
+                at_hooked,
+                "{pattern} at the token sort"
+            );
+        }
+    }
+}
+
 /// `INT.add` at its natural sorts, at a token sort and at a sort hooked `INT.Int` under another
 /// name, `FLOAT.sign`, and `STRING.token2string` of a token.
 const DECLARED_DEFINITION: &str = indoc! {r#"
@@ -691,6 +875,7 @@ const DECLARED_DEFINITION: &str = indoc! {r#"
 fn evaluate_declared_agrees_with_the_entry() {
     let int = |text: &str| format!(r#"\dv{{SortInt{{}}}}("{text}")"#);
     let float = |text: &str| format!(r#"\dv{{SortFloat{{}}}}("{text}")"#);
+    let unhooked_scalars = scalar_definition(false);
     let cases = [
         (
             DEFINITION,
@@ -723,6 +908,14 @@ fn evaluate_declared_agrees_with_the_entry() {
                     float("1.0f"),
                     float("1.0")
                 ),
+            ],
+        ),
+        (
+            unhooked_scalars.as_str(),
+            vec![
+                r#"eqW{}(\dv{SortMInt{Sort8{}}}("01p8"), \dv{SortMInt{Sort8{}}}("1p8"))"#
+                    .to_owned(),
+                "widthW{}(VarX:SortMInt{Sort8{}})".to_owned(),
             ],
         ),
         (

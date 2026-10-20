@@ -123,7 +123,11 @@ fn literal_width(sort: &Sort) -> Option<Option<u64>> {
 }
 
 /// The machine integer `term` denotes, when it is a domain value of a machine-integer sort with a
-/// width: its canonical text is the decimal residue, `p`, and the digits of the sort's width.
+/// width in its canonical text: the decimal residue without a leading zero, `p`, and the digits
+/// of the sort's width. A machine-integer sort holds each element in that one text, so another
+/// text (`01p8`) is no element of it but a token of a sort that only shares its name, whose
+/// texts are distinct elements; reading it as the residue it spells would make two such tokens
+/// one machine integer.
 fn read_mint(term: &Term) -> Option<Word> {
     let TermKind::DomainValue { sort, value } = term.kind() else {
         return None;
@@ -133,6 +137,7 @@ fn read_mint(term: &Term) -> Option<Word> {
     if digits != mint_width_digits(sort)?
         || residue.is_empty()
         || !residue.bytes().all(|byte| byte.is_ascii_digit())
+        || (residue.len() > 1 && residue.starts_with('0'))
     {
         return None;
     }
@@ -478,4 +483,36 @@ fn order(
             }))
         })
         .into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Only a machine integer's canonical text is read as one, also without a definition: `01p8`
+    /// is no text a sort hooked `MINT.MInt` holds, so `==MInt` and `MInt2Unsigned` do not read it
+    /// as the residue 1 it spells, while `0p8` and `1p8` read as 0 and 1.
+    #[test]
+    fn only_a_canonical_literal_is_read_as_a_machine_integer() {
+        let sort = Sort::application(k_rust_kore::names::MINT_SORT, vec![Sort::simple("Sort8")]);
+        let literal = |text: &str| Term::raw_domain_value(sort.clone(), text);
+        for text in ["01p8", "00p8", "001p8"] {
+            assert!(read_mint(&literal(text)).is_none(), "{text}");
+        }
+        for (text, residue) in [("0p8", 0_u32), ("1p8", 1), ("255p8", 255)] {
+            assert_eq!(
+                read_mint(&literal(text)).map(|word| word.residue),
+                Some(BigUint::from(residue)),
+                "{text}"
+            );
+        }
+        assert_eq!(
+            evaluate("MINT.eq", &[literal("01p8"), literal("1p8")], None, true).unwrap(),
+            BuiltinResult::NotApplicable
+        );
+        assert_eq!(
+            evaluate("MINT.uvalue", &[literal("01p8")], None, true).unwrap(),
+            BuiltinResult::NotApplicable
+        );
+    }
 }
