@@ -1269,6 +1269,122 @@ fn emits_owise_competitors_as_a_right_nested_binary_disjunction() {
     assert_eq!(competitors, 2);
 }
 
+/// The disjuncts of the competitor guard `\not(C1 \or .. \or \bottom)` of the owise equation
+/// labelled `label` in the semantic module emitted from `source`, each printed without
+/// whitespace.
+fn owise_competitor_disjuncts(source: &str, label: &str) -> Vec<String> {
+    let modules = module_to_kore(&rules(source, "MAIN"), "MAIN").unwrap();
+    let owise = modules
+        .semantics
+        .sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Axiom {
+                pattern,
+                attributes,
+                ..
+            } => attributes
+                .0
+                .iter()
+                .any(|attribute| {
+                    matches!(
+                        attribute,
+                        Pattern::Application { symbol, arguments }
+                            if symbol.name == "label"
+                                && arguments == &[Pattern::String(label.into())]
+                    )
+                })
+                .then_some(pattern.as_ref()),
+            _ => None,
+        })
+        .expect("the owise equation should be emitted");
+    let Pattern::Implies { left, .. } = owise else {
+        panic!("owise equation should be an implication")
+    };
+    let Pattern::And { arguments, .. } = left.as_ref() else {
+        panic!("owise equation should conjoin its match conditions")
+    };
+    let mut disjunction = arguments
+        .iter()
+        .find_map(|argument| match argument {
+            Pattern::Not { argument, .. } => Some(argument.as_ref()),
+            _ => None,
+        })
+        .expect("the owise equation should negate its competitors");
+    let printer = Printer::compact();
+    let mut disjuncts = Vec::new();
+    // Invariant: `disjuncts` holds the printed disjuncts to the left of `disjunction`.
+    while let Pattern::Or { arguments, .. } = disjunction {
+        disjuncts.push(
+            printer
+                .print_pattern(&arguments[0])
+                .chars()
+                .filter(|character| !character.is_whitespace())
+                .collect::<String>(),
+        );
+        disjunction = &arguments[1];
+    }
+    assert!(
+        matches!(disjunction, Pattern::Bottom { .. }),
+        "the competitor disjunction should end in bottom"
+    );
+    disjuncts
+}
+
+/// An owise equation of `g` states its right side exactly where no other equation of `g` in the
+/// emitted theory applies, so its guard negates the equations that generated axioms state of `g`
+/// as well as the rules of `g` (CS-07-2).
+///
+/// - `hExp` is the greater element of the overload pair `(hVal, hExp)`, so the theory holds the
+///   overload axiom `hExp(inj(K0)) = inj(hVal(K0))`. Without it in the guard, the owise axiom
+///   would state `hExp(X0) = inj(zero)` at `X0 = inj(K0)` too, and the two axioms together would
+///   equate the distinct constructors `one` and `zero`.
+/// - `_+_` carries `unit(.L)`, so the theory holds `K + .L = K` and `.L + K = K`; without them in
+///   the guard, the owise axiom would state `a + .L = .L` beside `a + .L = a`.
+#[test]
+fn an_owise_guard_negates_the_generated_equations_of_its_head() {
+    let overload = indoc! {r#"
+        module MAIN
+          syntax Val ::= "one" [symbol(one)] | "zero" [symbol(zero)]
+          syntax Exp ::= Val
+          syntax Val ::= "h(" Val ")" [function, overload(h), symbol(hVal)]
+          syntax Exp ::= "h(" Exp ")" [function, overload(h), symbol(hExp)]
+          rule h(_:Val) => one
+          rule h(_:Exp) => zero [owise, label(otherwise)]
+        endmodule
+    "#};
+    let disjuncts = owise_competitor_disjuncts(overload, "otherwise");
+    assert!(
+        disjuncts.iter().any(|disjunct| {
+            disjunct.starts_with(r"\exists{R}(K0:SortVal{},")
+                && disjunct.contains(
+                    r"\in{SortExp{},R}(X0:SortExp{},inj{SortVal{},SortExp{}}(K0:SortVal{}))",
+                )
+        }),
+        "the overload axiom of hExp should compete with its owise equation: {disjuncts:?}"
+    );
+
+    let unit = indoc! {r#"
+        module MAIN
+          syntax L ::= ".L" [symbol(.L)]
+                     | "a" [symbol(a)]
+                     | L "+" L [function, unit(.L), symbol(plus)]
+          rule _:L + _:L => .L [owise, label(otherwise)]
+        endmodule
+    "#};
+    let disjuncts = owise_competitor_disjuncts(unit, "otherwise");
+    for position in ["X0", "X1"] {
+        let unit_match = format!(r"\in{{SortL{{}},R}}({position}:SortL{{}},Lbl'Stop'L{{}}())");
+        assert!(
+            disjuncts
+                .iter()
+                .any(|disjunct| disjunct.contains(&unit_match)),
+            "the unit axiom with .L at {position} should compete with the owise equation: {disjuncts:?}"
+        );
+    }
+    assert_eq!(disjuncts.len(), 2, "{disjuncts:?}");
+}
+
 module_snapshot!(
     routes_macro_and_alias_axioms_to_the_standalone_sentence_list,
     r#"

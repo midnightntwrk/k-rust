@@ -17,12 +17,12 @@
 //! id = "kompile.kore.owise"
 //! name = "construction of owise competitor predicates"
 //! sites = ["emit_owise_equation", "OwiseCompetitors"]
-//! variable = "R = module rules; O = owise equations; I = sort-injection and equation-shape work per rule; m = competitors sharing an owise equation's label and argument sorts; c = per-competitor refresh, matching and conversion work"
+//! variable = "R = module rules; G = generated axioms; O = owise equations; I = sort-injection and equation-shape work per rule; m = competitors of an owise equation (rules sharing its label and argument sorts, and generated equations of its head symbol); c = per-competitor refresh, matching and conversion work"
 //! counters = ["KompileOwiseCompetitorScans"]
 //!
 //! [[cost]]
 //! mode = "one module"
-//! bound = "O(R x (I + log R) + O x (m x c + log R))"
+//! bound = "O(G log G + R x (I + log R) + O x (m x c + log R + log G))"
 //! ```
 //!
 //! ```toml algorithm-site
@@ -32,7 +32,7 @@
 //! ```
 //!
 //! Rule, claim, macro, equation, and owise emission.
-//! Complexity: O(R(inject + convert)), plus one O(R) competitor scan per module with an owise equation and O(m) same-signature competitors per owise equation; `KompileOwiseCompetitorScans` counts the scanned rules and the visited competitors.
+//! Complexity: O(R(inject + convert)), plus one O(R) competitor scan per module with an owise equation, one O(G log G) index of the generated equations, and O(m) competitors per owise equation; `KompileOwiseCompetitorScans` counts the scanned rules and the visited competitors.
 
 use super::binders::generated_exists_all;
 use super::roles::{EmittedEquation, SymbolRoles};
@@ -703,7 +703,7 @@ fn emit_owise_equation(
                 .expect("indexed competitors are injected rules");
             variables.union(competitor_variables)
         });
-    let parameters = std::iter::once("R")
+    let parameters: Vec<String> = std::iter::once("R")
         .chain(sort_variables.names())
         .map(str::to_owned)
         .collect();
@@ -711,6 +711,7 @@ fn emit_owise_equation(
     let converter = &converter;
     // O1: bind one fresh KORE variable per argument and match the equation's own children.
     let predicate_sort = KoreSort::Variable("R".into());
+    let head = converter.convert_label(equation.label)?;
     let result_sort = converter.convert_sort(&equation.result_sort)?;
     let variables = equation_variables(&equation, converter)?;
     let own_matches = equation_matches(
@@ -727,7 +728,9 @@ fn emit_owise_equation(
     for name in avoid_variables {
         fresh.reserve(name.clone());
     }
-    // O3: visit each executable same-signature competitor once in rule-catalog order.
+    // O3: the competitors are every other executable equation of the head in the emitted theory:
+    // first each executable same-signature rule once, in rule-catalog order, then (O3b) each
+    // equation the module's generated axioms state of the head.
     let mut competitors = Vec::new();
     // Invariant: `competitors` contains exactly the accepted rules before `index`, each with
     // refreshed variables.
@@ -908,6 +911,20 @@ fn emit_owise_equation(
     if let Some(error) = failure {
         return Err(error.clone());
     }
+    // O3b: a generated equation of the head holds unconditionally wherever its left side
+    // matches, so it competes exactly like an unconditional rule of the head.
+    // Invariant: `competitors` ends with the competitor of every generated equation of the head
+    // before `generated`, in emission order.
+    for generated in owise_competitors.generated_equations(&head.name) {
+        measure::bump(Counter::KompileOwiseCompetitorScans);
+        competitors.push(generated_competitor(
+            generated,
+            &head,
+            &variables,
+            &parameters,
+            &predicate_sort,
+        )?);
+    }
     // O4: preserve competitor order in a right-associated disjunction ending in bottom.
     competitors.push(Pattern::Bottom {
         sort: predicate_sort.clone(),
@@ -929,7 +946,7 @@ fn emit_owise_equation(
         argument: Box::new(any_competitor),
     };
     let application = Pattern::Application {
-        symbol: converter.convert_label(equation.label)?,
+        symbol: head,
         arguments: variables.iter().cloned().map(Pattern::Variable).collect(),
     };
     equation_sentence(
@@ -959,8 +976,16 @@ fn emit_owise_equation(
     )
 }
 
-/// The executable competitors of a module's owise equations, grouped by head label and argument
-/// sorts.
+/// The executable competitors of a module's owise equations: the module's rules grouped by head
+/// label and argument sorts, and the equations its generated axioms state, grouped by head
+/// symbol.
+///
+/// An owise equation of `g` states `g(x̄) = R` exactly where no other equation of `g` applies, so
+/// its competitors are every other executable equation of `g` in the emitted theory, wherever
+/// that equation comes from. The rules are one source; the generated axioms are the other, and
+/// any of them of the form `\equals(g(p̄), _)` is an equation of `g` that holds wherever its left
+/// side matches: an overload axiom `g(place(K̄)) = place(lesser(K̄))` when `g` is the greater
+/// element of an overload pair, and the `unit`, `assoc` and `idem` axioms of `g`.
 ///
 /// Whether a rule competes with an owise equation depends only on the rule and on the equation's
 /// label and argument sorts, and the module's rule list is fixed during emission, so one scan of
@@ -973,9 +998,67 @@ pub(super) struct OwiseCompetitors {
     injected: Vec<Option<(Sentence, SentenceSortVariables)>>,
     by_signature: BTreeMap<(Label, Vec<Sort>), Vec<usize>>,
     failure: Option<ModuleToKoreError>,
+    /// The generated equations by the name of their head symbol, in emission order.
+    generated: BTreeMap<String, Vec<GeneratedEquation>>,
+}
+
+/// An equation `\equals(g(p0..pn), _)` that a generated axiom of the module states.
+#[derive(Clone, Debug)]
+pub(super) struct GeneratedEquation {
+    /// The head `g`, with its sort arguments.
+    symbol: Symbol,
+    /// The argument patterns `p0..pn` of the left side.
+    arguments: Vec<Pattern>,
+    /// The name of the axiom's first attribute (`symbol-overload`, `unit`, ...), for a refusal.
+    kind: String,
 }
 
 impl OwiseCompetitors {
+    /// The competitors of a module whose generated axioms are `generated_axioms`: every axiom
+    /// among them whose pattern is `\equals(g(p̄), _)` is an equation of `g`.
+    pub(super) fn with_generated_axioms(generated_axioms: &[KoreSentence]) -> Self {
+        let mut generated = BTreeMap::<String, Vec<GeneratedEquation>>::new();
+        // Invariant: `generated` holds, in order, the equation of every axiom before `axiom` whose
+        // pattern is an equation with an application on its left.
+        for axiom in generated_axioms {
+            let KoreSentence::Axiom {
+                pattern,
+                attributes,
+                ..
+            } = axiom
+            else {
+                continue;
+            };
+            let Pattern::Equals { left, .. } = pattern.as_ref() else {
+                continue;
+            };
+            let Pattern::Application { symbol, arguments } = left.as_ref() else {
+                continue;
+            };
+            let kind = match attributes.0.first() {
+                Some(Pattern::Application { symbol, .. }) => symbol.name.clone(),
+                _ => "generated".to_owned(),
+            };
+            generated
+                .entry(symbol.name.clone())
+                .or_default()
+                .push(GeneratedEquation {
+                    symbol: symbol.clone(),
+                    arguments: arguments.clone(),
+                    kind,
+                });
+        }
+        Self {
+            generated,
+            ..Self::default()
+        }
+    }
+
+    /// The generated equations whose head symbol is named `name`, in emission order.
+    fn generated_equations(&self, name: &str) -> &[GeneratedEquation] {
+        self.generated.get(name).map_or(&[][..], Vec::as_slice)
+    }
+
     fn scan_once(
         &mut self,
         module_rules: &[Sentence],
@@ -1045,6 +1128,93 @@ impl OwiseCompetitors {
             self.injected[index] = Some((injected, sort_variables));
         }
     }
+}
+
+/// The competitor of the generated equation `generated` in the guard of an owise equation of
+/// `head` over the argument variables `variables`: `\exists v̄. \top ∧ X0 ∈ p0 ∧ .. ∧ Xn ∈ pn`,
+/// where `v̄` are the variables of the left side `head(p0..pn)`. The equation is unconditional, so
+/// it applies exactly where its left side matches the arguments; the shape is the one the rule
+/// competitors have, with the condition `\top`.
+///
+/// The argument patterns are used as the axiom writes them, under its own variable names, bound
+/// inside this disjunct alone. The only other variables of the disjunct are `variables`, so a
+/// generated variable of one of their names, which would be captured, is refused, as are a head
+/// at other sort arguments than the owise equation's (the equation could apply at an instance of
+/// them, which this comparison does not decide) and sort variables the owise axiom does not bind.
+fn generated_competitor(
+    generated: &GeneratedEquation,
+    head: &Symbol,
+    variables: &[Variable],
+    parameters: &[String],
+    predicate_sort: &KoreSort,
+) -> Result<Pattern, ModuleToKoreError> {
+    let refuse = |reason: &str| ModuleToKoreError::UnsupportedRuleKind {
+        kind: format!(
+            "an owise equation of {} beside its generated {} equation {reason}",
+            head.name, generated.kind
+        ),
+    };
+    if generated.symbol != *head {
+        return Err(refuse("at other sort arguments"));
+    }
+    if generated.arguments.len() != variables.len() {
+        return Err(refuse("of another arity"));
+    }
+    let mut matches = Pattern::Top {
+        sort: predicate_sort.clone(),
+    };
+    // Invariant: `matches` is the conjunction, ending in top, of the `\in` constraints of the
+    // positions after the current one; each iteration prepends one position.
+    for (variable, argument) in variables.iter().zip(&generated.arguments).rev() {
+        matches = Pattern::And {
+            sort: predicate_sort.clone(),
+            arguments: vec![
+                Pattern::In {
+                    operand_sort: Box::new(variable.sort.clone()),
+                    result_sort: predicate_sort.clone(),
+                    left: Box::new(Pattern::Variable(variable.clone())),
+                    right: Box::new(argument.clone()),
+                },
+                matches,
+            ],
+        };
+    }
+    let candidate = Pattern::And {
+        sort: predicate_sort.clone(),
+        arguments: vec![
+            Pattern::Top {
+                sort: predicate_sort.clone(),
+            },
+            matches,
+        ],
+    };
+    if candidate
+        .sort_variables()
+        .iter()
+        .any(|name| !parameters.contains(name))
+    {
+        return Err(refuse(
+            "whose sort variables the owise equation does not bind",
+        ));
+    }
+    let owise_names = variables
+        .iter()
+        .map(|variable| variable.name.as_str())
+        .collect::<BTreeSet<_>>();
+    let mut quantified = Vec::new();
+    // Invariant: `quantified` holds every free variable of the left side's arguments before
+    // `argument`, once.
+    for argument in &generated.arguments {
+        for variable in argument.free_variables() {
+            if owise_names.contains(variable.name.as_str()) {
+                return Err(refuse("whose variables reuse an argument variable's name"));
+            }
+            if !quantified.contains(&variable) {
+                quantified.push(variable);
+            }
+        }
+    }
+    Ok(generated_exists_all(predicate_sort, quantified, candidate))
 }
 
 fn ignore_owise_competitor(sentence: &Sentence) -> bool {
@@ -2233,6 +2403,7 @@ mod tests {
             ],
             by_signature: BTreeMap::from([((Label::new("f"), vec![int]), vec![0])]),
             failure: None,
+            generated: BTreeMap::new(),
         };
         let attributes = KAttributes::default();
         let equation = equation_info(&left, &attributes, &catalog)
@@ -2330,6 +2501,7 @@ mod tests {
                 injected: vec![Some((competitor, SentenceSortVariables::default()))],
                 by_signature: BTreeMap::from([((Label::new("f"), vec![int.clone()]), vec![0])]),
                 failure: None,
+                generated: BTreeMap::new(),
             };
             let left = Term::apply("f", vec![variable("X")]);
             let attributes = KAttributes::default();
@@ -2426,6 +2598,7 @@ mod tests {
             injected: vec![Some((competitor, SentenceSortVariables::default()))],
             by_signature: BTreeMap::from([((Label::new("f"), vec![pair.clone()]), vec![0])]),
             failure: None,
+            generated: BTreeMap::new(),
         };
         let x = Term::Variable {
             name: "X".into(),
@@ -2800,6 +2973,7 @@ mod tests {
             ))],
             by_signature: BTreeMap::from([((Label::new("f"), vec![int]), vec![0])]),
             failure: None,
+            generated: BTreeMap::new(),
         };
         let attributes = KAttributes::default();
         let equation = equation_info(&left, &attributes, &catalog)
@@ -2949,6 +3123,118 @@ mod tests {
                 })
                 .collect::<Vec<_>>(),
             [Sort::new("A"), Sort::new("B")]
+        );
+    }
+
+    /// A generated equation competes as `\exists v̄. \top ∧ X0 ∈ p0 ∧ ..` over its own
+    /// variables; one whose head carries other sort arguments, or whose variables reuse an
+    /// argument variable's name, is refused rather than compared by symbol name alone (CS-07-2).
+    #[test]
+    fn a_generated_competitor_binds_its_variables_and_refuses_what_it_cannot_state() {
+        let sort = |name: &str, arguments: Vec<KoreSort>| KoreSort::Application {
+            name: name.into(),
+            arguments,
+        };
+        let variable = |name: &str, sort: KoreSort| Variable {
+            kind: VariableKind::Element,
+            name: name.into(),
+            sort,
+        };
+        let predicate_sort = KoreSort::Variable("R".into());
+        let parameters = vec!["R".to_owned()];
+        let exp = sort("SortExp", Vec::new());
+        let val = sort("SortVal", Vec::new());
+        let head = Symbol {
+            name: "LblhExp".into(),
+            sort_parameters: Vec::new(),
+        };
+        let inj = |argument: Pattern| Pattern::Application {
+            symbol: Symbol {
+                name: "inj".into(),
+                sort_parameters: vec![val.clone(), exp.clone()],
+            },
+            arguments: vec![argument],
+        };
+        let k0 = variable("K0", val.clone());
+        let generated = GeneratedEquation {
+            symbol: head.clone(),
+            arguments: vec![inj(Pattern::Variable(k0.clone()))],
+            kind: "symbol-overload".into(),
+        };
+        let x0 = variable("X0", exp.clone());
+        let competitor = generated_competitor(
+            &generated,
+            &head,
+            std::slice::from_ref(&x0),
+            &parameters,
+            &predicate_sort,
+        )
+        .unwrap();
+        let expected = Pattern::Exists {
+            sort: predicate_sort.clone(),
+            variable: Box::new(k0.clone()),
+            body: Box::new(Pattern::And {
+                sort: predicate_sort.clone(),
+                arguments: vec![
+                    Pattern::Top {
+                        sort: predicate_sort.clone(),
+                    },
+                    Pattern::And {
+                        sort: predicate_sort.clone(),
+                        arguments: vec![
+                            Pattern::In {
+                                operand_sort: Box::new(exp.clone()),
+                                result_sort: predicate_sort.clone(),
+                                left: Box::new(Pattern::Variable(x0.clone())),
+                                right: Box::new(inj(Pattern::Variable(k0.clone()))),
+                            },
+                            Pattern::Top {
+                                sort: predicate_sort.clone(),
+                            },
+                        ],
+                    },
+                ],
+            }),
+        };
+        assert_eq!(competitor, expected);
+
+        let instance = Symbol {
+            name: "LblhExp".into(),
+            sort_parameters: vec![sort("SortInt", Vec::new())],
+        };
+        let at_other_sorts = GeneratedEquation {
+            symbol: Symbol {
+                name: "LblhExp".into(),
+                sort_parameters: vec![KoreSort::Variable("S".into())],
+            },
+            ..generated.clone()
+        };
+        let refused = generated_competitor(
+            &at_other_sorts,
+            &instance,
+            std::slice::from_ref(&x0),
+            &parameters,
+            &predicate_sort,
+        );
+        assert!(
+            matches!(&refused, Err(ModuleToKoreError::UnsupportedRuleKind { kind }) if kind.contains("other sort arguments")),
+            "{refused:?}"
+        );
+
+        let capturing = GeneratedEquation {
+            arguments: vec![inj(Pattern::Variable(variable("X0", val.clone())))],
+            ..generated
+        };
+        let refused = generated_competitor(
+            &capturing,
+            &head,
+            std::slice::from_ref(&x0),
+            &parameters,
+            &predicate_sort,
+        );
+        assert!(
+            matches!(&refused, Err(ModuleToKoreError::UnsupportedRuleKind { kind }) if kind.contains("reuse")),
+            "{refused:?}"
         );
     }
 }

@@ -900,6 +900,10 @@ pub(crate) fn module_to_kore_from_resolved_with_options_and_sources(
     {
         check_variable_sorts(sentence, &|| sentence.to_string())?;
     }
+    // An owise equation competes with every equation of its head in the emitted theory, so the
+    // generated equations join the rules as its competitors.
+    let mut owise_competitors =
+        OwiseCompetitors::with_generated_axioms(&generated_axioms.semantics);
     modules
         .semantics
         .sentences
@@ -915,7 +919,6 @@ pub(crate) fn module_to_kore_from_resolved_with_options_and_sources(
     // Keep ordinary rule injection separate: it resets sentence-local injector state and fixes
     // the error order. Only successful results from the first owise scan are reusable by later
     // owise scans over this immutable, already-rebased rule list.
-    let mut owise_competitors = OwiseCompetitors::default();
     let emission_context = RuleEmissionContext {
         valued: &valued,
         productions: &productions,
