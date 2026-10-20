@@ -3,8 +3,7 @@
 //! counters.
 //!
 //! The executor and the classifier are crate-private, so these are unit tests. They run FZ-FIX's
-//! fixture definitions through `tests/support/mod.rs` (included by path, which the crate root
-//! allows with `extern crate self as k_rust_fuzz`).
+//! fixture definitions through the crate's test-only `support` module (`tests/support`).
 
 use k_rust::{
     backend::{
@@ -16,10 +15,7 @@ use k_rust::{
 use super::{run::PatternCompiler, *};
 use crate::{error::CampaignError, spec::DEFAULT_MAX_WORK};
 
-#[path = "../../tests/support/mod.rs"]
-mod support;
-
-use support::Compiled;
+use crate::support::{self, Compiled};
 
 // ---------------------------------------------------------------- fixtures
 

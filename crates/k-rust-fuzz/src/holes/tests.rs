@@ -1,9 +1,6 @@
 //! Tests of the hole overlay and of assembly (FZ-02), on FZ-FIX's fixture definitions
 //! (`tests/support`). The functions under test are crate-private, so these are unit tests.
 
-#[path = "../../tests/support/mod.rs"]
-mod support;
-
 use std::sync::OnceLock;
 
 use k_rust::{
@@ -30,6 +27,7 @@ use crate::{
     assemble::{ProgramAssembly, build_backend},
     error::{CampaignError, SortRefusal, SpanProblem},
     spec::{CompiledDefinition, ProgramInput, ProgramSource, ProgramText},
+    support,
     values::{
         Constraints, ElementSorts, Value, ValueSort,
         print::{print_k_text, to_kore},

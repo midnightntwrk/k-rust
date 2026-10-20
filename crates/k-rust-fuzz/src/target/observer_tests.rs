@@ -15,11 +15,9 @@ use std::sync::{
 
 use k_rust::backend::{CancellationToken, ExecutionLeaf, ObservationEventOutput, ObservedRequest};
 
-#[path = "../../tests/support/mod.rs"]
-mod support;
-
 use k_rust::kore::ast::Pattern as KorePattern;
-use support::{COIN, Compiled, RULES};
+
+use crate::support::{COIN, Compiled, RULES};
 
 use super::{
     ConfigurationView, Observer, ObserverTarget, ObserverVerdict, contains_symbol, walk_paths,

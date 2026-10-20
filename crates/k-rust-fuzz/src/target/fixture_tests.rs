@@ -10,11 +10,9 @@
 //! - COIN `flip(3)` under all paths: one step with two candidates, `heads` (ending with
 //!   `<out> 3 </out>`) and `tails` (`<out> 4 </out>`), so the backend applies no stop rule there.
 
-#[path = "../../tests/support/mod.rs"]
-mod support;
-
 use k_rust::kore::printer::Printer;
-use support::{COIN, Compiled, IMP, RULES};
+
+use crate::support::{COIN, Compiled, IMP, RULES};
 
 use super::{
     HitSite, Judgement, PatternAt, PatternTarget, Resolved, ResolvedTarget, RuleMode, RuleRef,

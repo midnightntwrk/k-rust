@@ -10,9 +10,6 @@
 //! - The self-check: every rewrite rule a real run applied is reachable from the entry, and ids
 //!   that are no node or equation are reported.
 
-#[path = "../../tests/support/mod.rs"]
-mod support;
-
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
@@ -35,12 +32,12 @@ use k_rust::{
         walk,
     },
 };
-use support::{Compiled, GRAPH, IMP, RULES, SHAPE, VALUE};
 
 use super::{
     RuleGraph,
     entry::{AppliedCheck, Entry, ForeignEntry, hole_template},
 };
+use crate::support::{Compiled, GRAPH, IMP, RULES, SHAPE, VALUE};
 
 fn graph_of(compiled: &Compiled) -> (Backend, RuleGraph) {
     let mut backend = compiled.source_backend();

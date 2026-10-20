@@ -1004,20 +1004,12 @@ mod tests {
     }
 }
 
-/// FZ-FIX's fixture module (`tests/support`), included in the unit tests because the judge is
-/// crate-private.
-#[cfg(test)]
-#[path = "../../tests/support/mod.rs"]
-mod support;
-
 /// The differential judge on FZ-FIX's baselines and mutants (`tests/data/README.md`), each side
 /// run through its own executor as a campaign case runs it.
 #[cfg(test)]
 mod fixture_tests {
-    use super::{
-        support::{self, Compiled, Fixture},
-        *,
-    };
+    use super::*;
+    use crate::support::{self, Compiled, Fixture};
     use crate::{
         assemble::ProgramAssembly,
         exec::{CaseRequestShape, Executor},
