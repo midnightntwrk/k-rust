@@ -259,7 +259,8 @@ impl From<TermConversionError> for ConfigurationError {
 ///
 /// Parsers, the macro expander, and the sort injectors are built on first use and kept, so one
 /// assembler should serve every configuration built for its definition. The program has its own
-/// parser and its own sort injector, apart from those of the configuration values. `finish`
+/// sort injector, apart from the one the configuration values share; parsers are kept per module,
+/// whichever input they were built for. `finish`
 /// returns the pattern and leaves the assembler empty for the next configuration.
 pub struct ConfigurationAssembler<'g> {
     grammar: &'g ProgramGrammar,
@@ -270,8 +271,6 @@ pub struct ConfigurationAssembler<'g> {
     macro_definition: Option<MacroExpansionDefinition>,
     parsers: BTreeMap<String, ProgramParser>,
     injector: Option<SortInjector<'g, 'g>>,
-    /// The syntax module's parser, which parses every program.
-    program_parser: Option<ProgramParser>,
     /// The injector the program is instantiated with, apart from [`Self::injector`], which the
     /// configuration values and the assembly share.
     program_injector: Option<SortInjector<'g, 'g>>,
@@ -297,7 +296,6 @@ impl<'g> ConfigurationAssembler<'g> {
             macro_definition: None,
             parsers: BTreeMap::new(),
             injector: None,
-            program_parser: None,
             program_injector: None,
             program: None,
             bound: BTreeSet::new(),
@@ -326,16 +324,15 @@ impl<'g> ConfigurationAssembler<'g> {
         if self.program.is_some() {
             return Err(ConfigurationError::Duplicate { name: "PGM".into() });
         }
-        if self.program_parser.is_none() {
-            self.program_parser = Some(ProgramParser::from_resolved(
-                self.grammar.resolved(),
-                &self.syntax_module,
-            )?);
+        // The syntax module's parser is kept with the configuration values' parsers, so a
+        // variable parsed with the same module shares it.
+        if !self.parsers.contains_key(&self.syntax_module) {
+            self.parsers.insert(
+                self.syntax_module.clone(),
+                ProgramParser::from_resolved(self.grammar.resolved(), &self.syntax_module)?,
+            );
         }
-        let parser = self
-            .program_parser
-            .as_ref()
-            .expect("the program parser was created above");
+        let parser = &self.parsers[&self.syntax_module];
         let denoted = parser.start_sort(start_sort).clone();
         let program = parser
             .parse_file(start_sort, text, file)

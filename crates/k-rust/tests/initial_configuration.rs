@@ -520,6 +520,13 @@ endmodule
     for (program, expected) in programs.iter().zip(&fresh) {
         assert_eq!(&build(&mut reused, program).unwrap(), expected, "{program}");
         assert_eq!(phantom(&mut reused), fresh_phantom, "after {program}");
+        // Again at once, with nothing cleared in between: each program starts the program
+        // injector's sort parameters afresh by itself.
+        assert_eq!(
+            phantom(&mut reused),
+            fresh_phantom,
+            "after a refused program"
+        );
         // A program that does not parse is refused and leaves nothing behind.
         assert!(matches!(
             build(&mut reused, "box("),
