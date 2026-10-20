@@ -291,7 +291,8 @@ pub enum Meaning {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Allow {
     None,
-    /// `#Floor`: no build decides it.
+    /// `#Floor`, or the definedness of a partial function's application that no equation
+    /// gives: no build decides it.
     Undecided,
     /// A quantified predicate, or a claim's arithmetic implication: the portable build has no
     /// solver for it.
@@ -378,10 +379,6 @@ pub const PENDING: &[(&str, &str, Class, Class)] = &[
     ("extra/rule-lhs__nested-exists", "MLP/4b", Class::Refused, Class::Refused),
     ("extra/rule-lhs__nested-forall", "MLP/4b", Class::Refused, Class::Refused),
     ("extra/simp-lhs__nested-forall", "MLP/4b", Class::Refused, Class::Refused),
-    // unassigned (2): follow-ups FU-20 and FU-21 (decisions.toml, "MLP/0 questions"): a predicate lemma whose subject is a disjunction, and a predicate lemma on a ground atom of a rewrite rule's condition, are not applied.
-    // One cause (FU-48, the proposed ticket MLP/10): predicate lemmas are matched after definedness hoisting has rewritten each atom to ⌈f(X)⌉ ∧ atom, so a disjunction's left side no longer matches, and the ceil hoisted beside a lemma's result is never absorbed. The answers are incomplete, not wrong.
-    ("psimp/pred-simp__eq-eq-ground", "unassigned", Class::Undecided, Class::Undecided),
-    ("psimp/pred-simp__or-lhs", "unassigned", Class::Conforms, Class::Undecided),
 ];
 
 // ---------------------------------------------------------------- observation
