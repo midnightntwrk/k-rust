@@ -38,6 +38,25 @@ pub(crate) struct CaseRun {
     pub(crate) warnings: Vec<String>,
     /// For a (candidate) hit, what a witness reports of it.
     pub(crate) hit: Option<HitDetail>,
+    /// What stopped paths of the result the class rests on, which the no-witness statement
+    /// reads for `reached-unfinished` and `baseline-incomplete` cases.
+    pub(crate) cut: Cut,
+}
+
+/// Which bounds stopped some path of the result a case's class rests on: the judged result of a
+/// rule or pattern case; of a differential case, the baseline's when the case is
+/// `baseline-incomplete` and the mutant's otherwise. The class alone does not say whether
+/// raising a bound could change a `reached-unfinished` or `baseline-incomplete` case: either
+/// also covers paths that stopped abnormally, which no bound changes.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct Cut {
+    /// A path stopped at the depth or breadth bound.
+    pub(crate) depth: bool,
+    /// A path stopped at the work bound.
+    pub(crate) work: bool,
+    /// The run or a path stopped at the clock: the per-case safety limit, a step deadline or
+    /// the caller's token.
+    pub(crate) clock: bool,
 }
 
 impl CaseRun {
@@ -55,6 +74,7 @@ impl CaseRun {
             defects: Vec::new(),
             warnings: Vec::new(),
             hit: None,
+            cut: Cut::default(),
         }
     }
 }

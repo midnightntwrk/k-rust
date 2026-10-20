@@ -7,13 +7,13 @@ use k_rust::backend::CancellationToken;
 use num_bigint::BigInt;
 
 use super::{
-    campaign_loop::{Ending, LoopSettings, MAX_SHRINK_RUNS, no_witness, run_loop},
+    campaign_loop::{CutCounts, Cuts, Ending, LoopSettings, MAX_SHRINK_RUNS, no_witness, run_loop},
     explicit_proposals,
     proposer::{
         CoverageFeedback, Feedback as _, Observation, Origin, Proposal, ProposalContext, Proposer,
         ValueShrinker,
     },
-    runner::{CaseRun, CaseRunner, HitDetail},
+    runner::{CaseRun, CaseRunner, Cut, HitDetail},
     schedule::{Schedule, derive_seed},
     shrink::{Verdict, shrink},
 };
@@ -56,6 +56,7 @@ fn run(class: OutcomeClass, work: u64) -> CaseRun {
         defects: Vec::new(),
         warnings: Vec::new(),
         hit: None,
+        cut: Cut::default(),
     }
 }
 
@@ -964,7 +965,14 @@ fn the_no_witness_statement_names_the_path_mode_and_the_bound_to_raise() {
         (OutcomeClass::DepthBound, 2),
         (OutcomeClass::WorkBound, 1),
     ]);
-    let statement = no_witness(Ending::Budget, &bounded, Budget::Cases(8), &options, 100);
+    let statement = no_witness(
+        Ending::Budget,
+        &bounded,
+        &Cuts::default(),
+        Budget::Cases(8),
+        &options,
+        100,
+    );
     assert_eq!(statement.path_mode, PathMode::OnePath);
     let text = statement.statement;
     for expected in [
@@ -985,7 +993,15 @@ fn the_no_witness_statement_names_the_path_mode_and_the_bound_to_raise() {
         ..CaseOptions::default()
     };
     let misses = totals_with(&[(OutcomeClass::Miss, 3)]);
-    let text = no_witness(Ending::Budget, &misses, Budget::Work(9000), &all_paths, 100).statement;
+    let text = no_witness(
+        Ending::Budget,
+        &misses,
+        &Cuts::default(),
+        Budget::Work(9000),
+        &all_paths,
+        100,
+    )
+    .statement;
     for expected in [
         "No witness was found in 3 cases",
         "all-paths mode",
@@ -1307,6 +1323,7 @@ fn the_statement_counts_every_case_that_could_not_yield_a_witness() {
     let text = no_witness(
         Ending::Budget,
         &all_incomplete,
+        &Cuts::default(),
         Budget::Cases(64),
         &CaseOptions::default(),
         100,
@@ -1330,7 +1347,15 @@ fn the_statement_counts_every_case_that_could_not_yield_a_witness() {
         max_depth: Some(9),
         ..CaseOptions::default()
     };
-    let text = no_witness(Ending::Budget, &mixed, Budget::Cases(10), &all_paths, 100).statement;
+    let text = no_witness(
+        Ending::Budget,
+        &mixed,
+        &Cuts::default(),
+        Budget::Cases(10),
+        &all_paths,
+        100,
+    )
+    .statement;
     for expected in [
         "4 cases were rejected and not run",
         "3 cases could not be judged (unsupported) and may hide a witness",
@@ -1352,6 +1377,7 @@ fn the_statement_counts_every_case_that_could_not_yield_a_witness() {
     let text = no_witness(
         Ending::RejectedOut,
         &rejected,
+        &Cuts::default(),
         Budget::Cases(10),
         &CaseOptions::default(),
         3,
@@ -1360,6 +1386,196 @@ fn the_statement_counts_every_case_that_could_not_yield_a_witness() {
     assert!(
         text.contains("rejection cap of 3 rejected cases (1 print, 2 assembly)"),
         "{text}"
+    );
+}
+
+#[test]
+fn the_statement_never_claims_every_path_explored_for_cut_or_unjudged_cases() {
+    // Phase-1 review S2: in all-paths mode, `baseline-incomplete` and `reached-unfinished`
+    // cases were not explored to their ends either.
+    let all_paths = CaseOptions {
+        paths: PathMode::AllPaths,
+        max_depth: Some(3),
+        ..CaseOptions::default()
+    };
+    let depth_cut = CutCounts {
+        depth: 10,
+        ..CutCounts::default()
+    };
+    let incomplete = totals_with(&[(OutcomeClass::BaselineIncomplete, 10)]);
+    let cuts = Cuts {
+        incomplete: depth_cut,
+        ..Cuts::default()
+    };
+    let text = no_witness(
+        Ending::Budget,
+        &incomplete,
+        &cuts,
+        Budget::Cases(10),
+        &all_paths,
+        100,
+    )
+    .statement;
+    for expected in [
+        "10 cases had an incomplete baseline, so no kill could be judged.",
+        "In 10 of them a baseline path stopped at max-depth 3: raise max-depth.",
+        "followed up to the bounds below (all-paths mode)",
+    ] {
+        assert!(text.contains(expected), "missing {expected:?} in {text:?}");
+    }
+    assert!(
+        !text.contains("Every path of each input was explored"),
+        "{text}"
+    );
+
+    // A baseline cut by no bound: no bound advice.
+    let cuts = Cuts {
+        incomplete: CutCounts {
+            none: 10,
+            ..CutCounts::default()
+        },
+        ..Cuts::default()
+    };
+    let text = no_witness(
+        Ending::Budget,
+        &incomplete,
+        &cuts,
+        Budget::Cases(10),
+        &all_paths,
+        100,
+    )
+    .statement;
+    assert!(
+        text.contains("In 10 of them no bound cut the baseline"),
+        "{text}"
+    );
+    assert!(!text.contains("raise max-depth"), "{text}");
+    assert!(
+        !text.contains("Every path of each input was explored"),
+        "{text}"
+    );
+
+    // Unfinished cases: bound advice only for the ones a bound cut.
+    let unfinished = totals_with(&[(OutcomeClass::ReachedUnfinished, 3)]);
+    let cuts = Cuts {
+        unfinished: CutCounts {
+            depth: 1,
+            none: 2,
+            ..CutCounts::default()
+        },
+        ..Cuts::default()
+    };
+    let text = no_witness(
+        Ending::Budget,
+        &unfinished,
+        &cuts,
+        Budget::Cases(3),
+        &all_paths,
+        100,
+    )
+    .statement;
+    for expected in [
+        "3 cases reached the target without ending naturally.",
+        "In 1 of them a path stopped at max-depth 3: raise max-depth so that they finish.",
+        "2 of them stopped abnormally (stuck before a natural end, or at an undefined step), \
+         which no bound changes.",
+    ] {
+        assert!(text.contains(expected), "missing {expected:?} in {text:?}");
+    }
+    assert!(
+        !text.contains("Every path of each input was explored"),
+        "{text}"
+    );
+    let abnormal = Cuts {
+        unfinished: CutCounts {
+            none: 3,
+            ..CutCounts::default()
+        },
+        ..Cuts::default()
+    };
+    let text = no_witness(
+        Ending::Budget,
+        &unfinished,
+        &abnormal,
+        Budget::Cases(3),
+        &all_paths,
+        100,
+    )
+    .statement;
+    assert!(!text.contains("so that they finish"), "{text}");
+    assert!(!text.contains("raise max-depth"), "{text}");
+}
+
+#[test]
+fn the_statement_does_not_say_backend_refused_cases_were_not_run() {
+    let mut rejected = totals_with(&[(OutcomeClass::Miss, 1), (OutcomeClass::Rejected, 5)]);
+    rejected.rejections = BTreeMap::from([
+        (RejectionReason::Print, 2),
+        (RejectionReason::BackendRefused, 3),
+    ]);
+    let text = no_witness(
+        Ending::Budget,
+        &rejected,
+        &Cuts::default(),
+        Budget::Cases(6),
+        &CaseOptions::default(),
+        100,
+    )
+    .statement;
+    for expected in [
+        "2 cases were rejected and not run.",
+        "3 cases were rejected by the backend, which refused the initial state.",
+    ] {
+        assert!(text.contains(expected), "missing {expected:?} in {text:?}");
+    }
+    rejected.rejections = BTreeMap::from([(RejectionReason::BackendRefused, 5)]);
+    let text = no_witness(
+        Ending::Budget,
+        &rejected,
+        &Cuts::default(),
+        Budget::Cases(6),
+        &CaseOptions::default(),
+        100,
+    )
+    .statement;
+    assert!(!text.contains("not run"), "{text}");
+    assert!(
+        text.contains("5 cases were rejected by the backend"),
+        "{text}"
+    );
+}
+
+#[test]
+fn the_loop_counts_what_cut_each_unfinished_case() {
+    let mut runner = Scripted::new(
+        |values| CaseRun {
+            cut: Cut {
+                work: as_int(&values[0]) % 2 == 0,
+                ..Cut::default()
+            },
+            ..run(OutcomeClass::ReachedUnfinished, 1)
+        },
+        |_| unreachable!("no case hits"),
+    );
+    let report = run_loop(
+        &mut runner,
+        &mut counter_schedule(1, 1),
+        &settings(1),
+        Budget::Cases(4),
+        None,
+    );
+    let statement = &report.no_witness().expect("no witness").statement;
+    assert!(
+        statement.contains("4 cases reached the target without ending naturally."),
+        "{statement}"
+    );
+    assert!(
+        statement.contains("In 2 of them a path stopped at max-work 1000: raise max-work"),
+        "{statement}"
+    );
+    assert!(
+        statement.contains("2 of them stopped abnormally"),
+        "{statement}"
     );
 }
 

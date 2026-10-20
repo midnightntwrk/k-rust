@@ -8,18 +8,18 @@ use std::{
 };
 
 use k_rust::{
-    backend::{Backend, CancellationToken},
+    backend::{Backend, CancellationToken, HaltReasonOutput, StopCause},
     k_rust_backend::definition::BackendDefinition,
     kore::ast::Pattern as KorePattern,
 };
 
-use super::runner::{CaseRun, CaseRunner, HitDetail};
+use super::runner::{CaseRun, CaseRunner, Cut, HitDetail};
 use crate::{
     assemble::{ProgramAssembly, build_backend},
     error::{CampaignError, SortRefusal},
     exec::{
-        self, Abort, CaseRequestShape, CaseResult, CompiledPattern, Executor, NormalEnd,
-        OutcomeClass, PatternCompiler, TargetNeeds,
+        self, Abort, CaseRequestShape, CaseResult, CompiledPattern, Executor, FailureCause,
+        NormalEnd, OutcomeClass, PatternCompiler, TargetNeeds,
     },
     graph::{self, RuleGraph, entry::Entry},
     holes::{self, HoleSite, InstantiatedProgram, PrintedValue, ResolvedHoles, RoundTripCheck},
@@ -377,6 +377,7 @@ impl LiveCases {
         let (result, judged) =
             target.run_and_judge(&mut side.executor, &prepared.assembled, &side.shape, cancel)?;
         let mut run = run_of(&result, &[&result]);
+        run.cut = cut_of(&result);
         match judged {
             Ok(judgement) => {
                 run.class = judgement.class;
@@ -471,6 +472,11 @@ impl LiveCases {
         ) {
             Ok(judgement) => {
                 run.class = judgement.class;
+                run.cut = cut_of(if judgement.class == OutcomeClass::BaselineIncomplete {
+                    &baseline
+                } else {
+                    &mutated
+                });
                 if judgement.class == OutcomeClass::Hit {
                     // An added end: the killing mutant leaf. A removed end (all-paths mode): the
                     // baseline end the mutant cannot reach. Both sides list every leaf.
@@ -547,6 +553,25 @@ fn run_of(covered: &CaseResult, sides: &[&CaseResult]) -> CaseRun {
         defects: Vec::new(),
         warnings: Vec::new(),
         hit: None,
+        cut: Cut::default(),
+    }
+}
+
+/// Which bounds stopped paths of `result` ([`Cut`]).
+fn cut_of(result: &CaseResult) -> Cut {
+    use HaltReasonOutput as H;
+    let halted = |halts: &[H]| result.leaves.iter().any(|leaf| halts.contains(&leaf.halt));
+    Cut {
+        depth: halted(&[H::DepthBound, H::BreadthBound]),
+        work: halted(&[H::WorkBound]),
+        clock: result.safety_limit_hit
+            || halted(&[H::Timeout, H::Cancelled])
+            || result.failure.as_ref().is_some_and(|failure| {
+                matches!(
+                    failure.cause,
+                    FailureCause::Stop(StopCause::Cancelled | StopCause::Deadline(_))
+                )
+            }),
     }
 }
 

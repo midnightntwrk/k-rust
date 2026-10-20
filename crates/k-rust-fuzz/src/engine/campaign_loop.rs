@@ -7,7 +7,7 @@ use k_rust::backend::CancellationToken;
 
 use super::{
     proposer::{CoverageFeedback, Feedback as _, Observation, Proposal},
-    runner::{CaseRun, CaseRunner, HitDetail},
+    runner::{CaseRun, CaseRunner, Cut, HitDetail},
     schedule::Schedule,
     shrink::{Verdict, shrink},
 };
@@ -150,6 +150,7 @@ pub(crate) fn run_loop(
     let no_witness = no_witness(
         ending,
         &state.totals_snapshot(),
+        &state.cuts,
         budget,
         &settings.options,
         settings.rejection_cap,
@@ -395,10 +396,43 @@ fn render(values: &[Value]) -> String {
     serde_json::to_string(values).expect("values serialize")
 }
 
+/// How many cases of one class had a path cut by each kind of bound ([`Cut`]), for the
+/// no-witness statement. A case cut by several kinds counts under each.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct CutCounts {
+    /// Cases with a path stopped at the depth or breadth bound.
+    pub(crate) depth: u64,
+    /// Cases with a path stopped at the work bound.
+    pub(crate) work: u64,
+    /// Cases stopped at the clock.
+    pub(crate) clock: u64,
+    /// Cases with no path cut by any bound.
+    pub(crate) none: u64,
+}
+
+impl CutCounts {
+    fn add(&mut self, cut: Cut) {
+        self.depth += u64::from(cut.depth);
+        self.work += u64::from(cut.work);
+        self.clock += u64::from(cut.clock);
+        self.none += u64::from(!(cut.depth || cut.work || cut.clock));
+    }
+}
+
+/// The [`CutCounts`] of the two classes whose remedy depends on what cut them.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct Cuts {
+    /// Of the `reached-unfinished` cases.
+    pub(crate) unfinished: CutCounts,
+    /// Of the `baseline-incomplete` cases.
+    pub(crate) incomplete: CutCounts,
+}
+
 /// The loop's running totals.
 struct State {
     budget: Budget,
     totals: Totals,
+    cuts: Cuts,
     load_records: BTreeSet<LoadRecord>,
     warnings: Vec<String>,
     defects: Vec<EngineDefect>,
@@ -413,6 +447,7 @@ impl State {
                 case_sequence_digest: digest_hex(b""),
                 ..Totals::default()
             },
+            cuts: Cuts::default(),
             load_records: BTreeSet::new(),
             warnings: Vec::new(),
             defects: Vec::new(),
@@ -471,6 +506,11 @@ impl State {
     /// Count a case under `class`.
     fn record(&mut self, run: &CaseRun, class: OutcomeClass) {
         *self.totals.classes.entry(class).or_insert(0) += 1;
+        match class {
+            OutcomeClass::ReachedUnfinished => self.cuts.unfinished.add(run.cut),
+            OutcomeClass::BaselineIncomplete => self.cuts.incomplete.add(run.cut),
+            _ => {}
+        }
         if class == OutcomeClass::Rejected {
             // `Totals::rejections` sums to the `rejected` count; every runner gives a reason.
             debug_assert!(run.rejection.is_some(), "a rejected case without a reason");
@@ -551,6 +591,7 @@ pub(crate) enum Ending {
 pub(crate) fn no_witness(
     ending: Ending,
     totals: &Totals,
+    cuts: &Cuts,
     budget: Budget,
     options: &CaseOptions,
     rejection_cap: u64,
@@ -600,8 +641,30 @@ pub(crate) fn no_witness(
     }
     let rejected = count(OutcomeClass::Rejected);
     if rejected > 0 && ending != Ending::RejectedOut {
-        write!(text, " {} rejected and not run.", plural_were(rejected))
+        // A case the backend refused ran, to depth 0; every other rejection is decided before
+        // the run.
+        let refused = totals
+            .rejections
+            .get(&RejectionReason::BackendRefused)
+            .copied()
+            .unwrap_or(0)
+            .min(rejected);
+        if rejected > refused {
+            write!(
+                text,
+                " {} rejected and not run.",
+                plural_were(rejected - refused)
+            )
             .expect("writing to a String");
+        }
+        if refused > 0 {
+            write!(
+                text,
+                " {} rejected by the backend, which refused the initial state.",
+                plural_were(refused)
+            )
+            .expect("writing to a String");
+        }
     }
     let unsupported = count(OutcomeClass::Unsupported);
     if unsupported > 0 {
@@ -620,6 +683,17 @@ pub(crate) fn no_witness(
             plural(incomplete, "case")
         )
         .expect("writing to a String");
+        bound_advice(&mut text, &cuts.incomplete, options, "a baseline path", "");
+        if cuts.incomplete.none > 0 {
+            write!(
+                text,
+                " In {} of them no bound cut the baseline: it stopped otherwise, or holds an end \
+                 that cannot be compared (undecided, not data, or resting on an \
+                 implementation-chosen value), which no bound changes.",
+                cuts.incomplete.none
+            )
+            .expect("writing to a String");
+        }
     }
     if totals.unconfirmed > 0 {
         write!(
@@ -652,7 +726,9 @@ pub(crate) fn no_witness(
             " Only k-rust's first-applicable path of each input was explored (one-path mode); \
              the all-paths option explores every path.",
         ),
-        PathMode::AllPaths if depth + work + timeouts + unsupported == 0 => {
+        PathMode::AllPaths
+            if depth + work + timeouts + unsupported + incomplete + unfinished == 0 =>
+        {
             text.push_str(" Every path of each input was explored (all-paths mode).");
         }
         PathMode::AllPaths => text.push_str(
@@ -695,11 +771,26 @@ pub(crate) fn no_witness(
     if unfinished > 0 {
         write!(
             text,
-            " {} reached the target without ending naturally: raise the bounds so that they \
-             finish.",
+            " {} reached the target without ending naturally.",
             plural(unfinished, "case")
         )
         .expect("writing to a String");
+        bound_advice(
+            &mut text,
+            &cuts.unfinished,
+            options,
+            "a path",
+            " so that they finish",
+        );
+        if cuts.unfinished.none > 0 {
+            write!(
+                text,
+                " {} of them stopped abnormally (stuck before a natural end, or at an \
+                 undefined step), which no bound changes.",
+                cuts.unfinished.none
+            )
+            .expect("writing to a String");
+        }
     }
     if ending == Ending::Budget {
         match budget {
@@ -717,6 +808,53 @@ pub(crate) fn no_witness(
     NoWitness {
         statement: text,
         path_mode: options.paths,
+    }
+}
+
+/// The bound advice for the cases of one class whose `what` was cut ([`CutCounts`]): one
+/// sentence per kind of bound, naming the bound and what to raise, with `purpose` after it.
+fn bound_advice(
+    text: &mut String,
+    counts: &CutCounts,
+    options: &CaseOptions,
+    what: &str,
+    purpose: &str,
+) {
+    if counts.depth > 0 {
+        let bound = options.max_depth.map_or_else(
+            || "its depth or breadth bound".to_owned(),
+            |d| format!("max-depth {d}"),
+        );
+        write!(
+            text,
+            " In {} of them {what} stopped at {bound}: raise max-depth{purpose}.",
+            counts.depth
+        )
+        .expect("writing to a String");
+    }
+    if counts.work > 0 {
+        let bound = options
+            .effective_max_work()
+            .map_or_else(|| "its work bound".to_owned(), |w| format!("max-work {w}"));
+        write!(
+            text,
+            " In {} of them {what} stopped at {bound}: raise max-work{purpose}.",
+            counts.work
+        )
+        .expect("writing to a String");
+    }
+    if counts.clock > 0 {
+        let advice = if options.safety_limit_ms.is_some() {
+            ": raise the per-case safety limit"
+        } else {
+            ""
+        };
+        write!(
+            text,
+            " In {} of them {what} timed out{advice}.",
+            counts.clock
+        )
+        .expect("writing to a String");
     }
 }
 

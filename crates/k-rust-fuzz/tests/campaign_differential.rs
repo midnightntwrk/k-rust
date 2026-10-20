@@ -11,8 +11,9 @@ use k_rust_fuzz::{
     HoleDecl, HoleLocation, ProgramInput, ProposerConfig, SpanAddress, Target, TargetKind,
     report::{CampaignOutcome, DefinitionRole, HitLabel, KillKind, Reaching},
     spec::DEFAULT_REJECTION_CAP,
+    spec::PathMode,
     target::DifferentialTarget,
-    values::{Constraints, GenerationBounds, Value},
+    values::{Constraints, GenerationBounds, IntRange, Value},
 };
 use num_bigint::BigInt;
 use support::{COIN, COIN_KILL, COIN_LAYOUT, Fixture, MAC, MAC_KILL};
@@ -169,4 +170,42 @@ fn a_macro_only_mutant_is_killed_on_both_routes() {
             witness.first.sides[1].final_configurations
         );
     }
+}
+
+#[test]
+fn incomplete_baselines_under_all_paths_name_the_depth_bound() {
+    // Phase-1 review S2: `count(N)` needs max_depth N + 2, so for N in [3, 50] every baseline
+    // is cut at max_depth 3, and no path of any input was explored to its end.
+    let mut spec = spec_on(&COIN, &COIN_KILL, "coin/count.pgm", None);
+    spec.options = CaseOptions {
+        paths: PathMode::AllPaths,
+        max_depth: Some(3),
+        ..CaseOptions::default()
+    };
+    spec.holes[0].constraints.range = Some(IntRange {
+        min: Some(BigInt::from(3)),
+        max: Some(BigInt::from(50)),
+    });
+    spec.proposers.explicit.clear();
+    let report = Campaign::new(spec)
+        .expect("valid")
+        .run(Budget::Cases(10), None);
+    assert_eq!(
+        report.totals.classes,
+        BTreeMap::from([(k_rust_fuzz::OutcomeClass::BaselineIncomplete, 10)])
+    );
+    let statement = &report.no_witness().expect("no witness").statement;
+    for expected in [
+        "10 cases had an incomplete baseline, so no kill could be judged.",
+        "In 10 of them a baseline path stopped at max-depth 3: raise max-depth.",
+    ] {
+        assert!(
+            statement.contains(expected),
+            "missing {expected:?} in {statement:?}"
+        );
+    }
+    assert!(
+        !statement.contains("Every path of each input was explored"),
+        "{statement}"
+    );
 }

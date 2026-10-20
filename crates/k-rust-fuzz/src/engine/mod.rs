@@ -15,7 +15,7 @@ use std::sync::{Arc, OnceLock};
 use k_rust::backend::CancellationToken;
 
 use self::{
-    campaign_loop::{Ending, LoopSettings, no_witness, report_without_cases, run_loop},
+    campaign_loop::{Cuts, Ending, LoopSettings, no_witness, report_without_cases, run_loop},
     live::{GraphCheck, LiveCases, LiveRunner},
     proposer::{BlindProposer, Proposer},
     schedule::{Schedule, derive_seed},
@@ -216,6 +216,7 @@ impl Campaign {
                     let no_witness = no_witness(
                         Ending::Aborted,
                         &Totals::default(),
+                        &Cuts::default(),
                         budget,
                         &self.spec.options,
                         self.spec.rejection_cap,
