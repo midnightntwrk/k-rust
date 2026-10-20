@@ -393,7 +393,9 @@ pub fn parse_program_native(options: NativeParseProgramOptions) -> Result<Native
 pub fn parse_kast_native(source: String) -> Result<NativeSerializedTerm> {
     let term = parse_term(&source).map_err(napi_error)?;
     Ok(NativeSerializedTerm {
-        text: KastPrinter::new().print_term(&term),
+        text: KastPrinter::new()
+            .try_print_term(&term)
+            .map_err(napi_error)?,
         json: kast_json::to_string(&term).map_err(napi_error)?,
     })
 }
@@ -402,7 +404,7 @@ pub fn parse_kast_native(source: String) -> Result<NativeSerializedTerm> {
 #[napi]
 pub fn print_kast_native(json: String) -> Result<String> {
     let term = kast_json::from_str(&json).map_err(napi_error)?;
-    Ok(KastPrinter::new().print_term(&term))
+    KastPrinter::new().try_print_term(&term).map_err(napi_error)
 }
 
 /// Convert a textual KORE pattern into canonical text and KORE JSON v1.

@@ -116,6 +116,7 @@ proptest! {
     fn textual_kast_round_trip(term in text_term()) {
         let printed = term.to_string();
         prop_assert_eq!(parser::parse_term(&printed).unwrap(), text_normalize(term.clone()));
+        prop_assert_eq!(k_rust::kast::printer::Printer::new().try_print_term(&term), Ok(printed));
     }
 
     #[test]

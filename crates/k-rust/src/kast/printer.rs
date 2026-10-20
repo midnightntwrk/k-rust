@@ -1,11 +1,48 @@
 //! Canonical textual KAST printing.
 
+use std::fmt::{self, Display, Formatter};
+
 use super::ast::{Label, Sort, Term};
 use super::names::InternalLabel;
 use super::string;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Printer;
+
+/// Why a term has no textual KAST that reads back as the same term.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Unprintable {
+    /// The textual format has no spelling for a variable's sort, so printing the variable would
+    /// read back as the unsorted variable, which matches a different set of terms.
+    SortedVariable { name: String, sort: Sort },
+    /// The reader reads a variable only as `[_A-Z][A-Za-z0-9'_]*`, so any other name (a set
+    /// variable's `@X`, for instance) would not read back.
+    UnreadableVariableName { name: String },
+    /// An application of the empty label would print as ` ``( `, which the reader takes as the
+    /// opening of a group.
+    EmptyApplicationLabel,
+}
+
+impl Display for Unprintable {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::SortedVariable { name, sort } => write!(
+                formatter,
+                "variable {name} has sort {}, which textual KAST cannot spell",
+                print_sort(sort)
+            ),
+            Self::UnreadableVariableName { name } => write!(
+                formatter,
+                "variable name {name:?} is not readable as textual KAST, which spells a variable \
+                 [_A-Z][A-Za-z0-9'_]*"
+            ),
+            Self::EmptyApplicationLabel => formatter
+                .write_str("an application of the empty label is not readable as textual KAST"),
+        }
+    }
+}
+
+impl std::error::Error for Unprintable {}
 
 impl Printer {
     pub const fn new() -> Self {
@@ -17,12 +54,22 @@ impl Printer {
     /// Rewrites, aliases and sequences are grouped so that the text reads back
     /// ([`crate::kast::parser::parse_term`]) as `term` up to sequence flattening and the
     /// identification of a one-item sequence with its item.
-    /// The text is lossy for what the format cannot spell: a variable's sort is not written, and
-    /// a variable name or an application label the reader cannot read is written as is.
+    /// The text is lossy for what the format cannot spell, which [`Printer::try_print_term`]
+    /// refuses instead: a variable's sort is not written, and a variable name or an application
+    /// label the reader cannot read is written as is.
     pub fn print_term(self, term: &Term) -> String {
         let mut output = String::new();
         print_term(&mut output, term, Position::TERM, false);
         output
+    }
+
+    /// Print `term` as textual KAST that reads back as `term`, up to sequence flattening and the
+    /// identification of a one-item sequence with its item, or say why no such text exists.
+    pub fn try_print_term(self, term: &Term) -> Result<String, Unprintable> {
+        if let Some(unprintable) = first_unprintable(term) {
+            return Err(unprintable);
+        }
+        Ok(self.print_term(term))
     }
 
     pub fn print_sort(self, sort: &Sort) -> String {
@@ -32,6 +79,41 @@ impl Printer {
     pub fn print_label(self, label: &Label) -> String {
         print_label(label, false)
     }
+}
+
+fn first_unprintable(term: &Term) -> Option<Unprintable> {
+    let mut pending = vec![term];
+    while let Some(term) = pending.pop() {
+        match term.unannotated() {
+            Term::Variable { name, sort } => {
+                if !is_readable_variable_name(name) {
+                    return Some(Unprintable::UnreadableVariableName { name: name.clone() });
+                }
+                if let Some(sort) = sort {
+                    return Some(Unprintable::SortedVariable {
+                        name: name.clone(),
+                        sort: sort.clone(),
+                    });
+                }
+            }
+            Term::Apply { label, .. } if label.name.is_empty() => {
+                return Some(Unprintable::EmptyApplicationLabel);
+            }
+            _ => {}
+        }
+        pending.extend(term.children().into_iter().rev());
+    }
+    None
+}
+
+/// Whether the reader reads `name` back as one variable: `[_A-Z][A-Za-z0-9'_]*`.
+fn is_readable_variable_name(name: &str) -> bool {
+    name.as_bytes().split_first().is_some_and(|(first, rest)| {
+        (*first == b'_' || first.is_ascii_uppercase())
+            && rest
+                .iter()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'\'' | b'_'))
+    })
 }
 
 /// The reader nonterminal that reads the text printed at a position, as the shapes it cannot
@@ -240,7 +322,7 @@ fn print_label(label: &Label, first_in_group: bool) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::Printer;
+    use super::{Printer, Unprintable};
     use crate::kast::ast::{Label, Sort, Term};
     use crate::kast::parser::parse_term;
 
@@ -355,6 +437,40 @@ mod tests {
                 "`` `_+_`(.KList) #as B``~>C",
             ),
         ]);
+    }
+
+    #[test]
+    fn refuses_what_textual_kast_cannot_spell() {
+        let sorted = Term::Variable {
+            name: "X".into(),
+            sort: Some(Sort::new("Int")),
+        };
+        assert_eq!(
+            Printer::new().try_print_term(&Term::apply("f", vec![sorted])),
+            Err(Unprintable::SortedVariable {
+                name: "X".into(),
+                sort: Sort::new("Int"),
+            })
+        );
+        for name in ["@X", "?X", "!X", "X:Int", "x", ""] {
+            assert_eq!(
+                Printer::new().try_print_term(&rewrite(var("Y"), var(name))),
+                Err(Unprintable::UnreadableVariableName { name: name.into() }),
+                "{name}"
+            );
+        }
+        assert_eq!(
+            Printer::new().try_print_term(&Term::apply("", Vec::new())),
+            Err(Unprintable::EmptyApplicationLabel)
+        );
+        assert_eq!(
+            Printer::new().try_print_term(&Term::InjectedLabel(Label::new(""))),
+            Ok("#klabel(``)".into())
+        );
+        assert_eq!(
+            Printer::new().try_print_term(&rewrite(seq([var("_X'1"), var("_")]), var("Y"))),
+            Ok("``_X'1~>_``=>Y".into())
+        );
     }
 
     #[test]
