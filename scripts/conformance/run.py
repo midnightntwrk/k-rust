@@ -1368,13 +1368,31 @@ KORE_OUTPUT_COMPARISON = (
     "KORE disjunct multiset and constraints modulo C10 existential renaming "
     "(reference_differential::executed_kore_matches_the_reference_backend)")
 
+# N15 (scripts/reference-normalisations.toml): with K_DIFFERENTIAL_DEFINITION set, the comparator may
+# equate the constraints of a term-equal pair only by `krust kore-implies` in both directions. That
+# equivalence is the port's own judgement, so a step that rests on it records this label instead of
+# KORE_OUTPUT_COMPARISON, and the number of such pairs in `implication_pairs`. The comparator prints
+# the count on a line starting with IMPLICATION_SUMMARY.
+IMPLICATION_KORE_OUTPUT_COMPARISON = (
+    "KORE disjunct multiset modulo C10 existential renaming, with the constraints of some paired "
+    "disjuncts equal only by krust kore-implies in both directions (N15; supplementary evidence, "
+    "docs/testing.md#comparator-evidence)")
+IMPLICATION_SUMMARY = re.compile(r"^N15 summary: (\d+) ", re.M)
+
+
+def kore_output_implication_pairs(comparator_output):
+    """The number of paired disjuncts the comparator equated only by N15, from its summary line."""
+    match = IMPLICATION_SUMMARY.search(comparator_output)
+    return int(match.group(1)) if match else 0
+
 
 def kore_output_comparison_environment(case, expected_path, kore_path, pattern=""):
     """C10: the structural comparator's environment for a recipe whose checked-in output is KORE. It names the
     recipe's --pattern `?` variables in K_DIFFERENTIAL_PATTERN_EXISTENTIALS (empty without a --pattern), so N4
     renames every other `?` variable of either result as a rule existential, bijectively and sort-preservingly per
     disjunct, as C7 does for kprint's `?` tokens; a `?` variable krust prints without a marker is a request
-    variable and stays fixed. K_DIFFERENTIAL_DEFINITION enables N15 when the reference kompiled definition exists."""
+    variable and stays fixed. K_DIFFERENTIAL_DEFINITION enables N15 when the reference kompiled definition exists;
+    compare_execution labels a pass that rests on it."""
     comparison_environment = {
         "K_REFERENCE_EXECUTION": expected_path,
         "K_RUST_EXECUTION": kore_path,
@@ -1404,7 +1422,12 @@ def compare_execution(case, rec, step, kout, kore_output, tag, pattern=""):
         trc, tout, terr = run_test_binary("executed_kore_matches_the_reference_backend",
                                           comparison_environment, case.dir)
         step["comparison"] = KORE_OUTPUT_COMPARISON
-        if trc == 0: return True
+        if trc == 0:
+            implication_pairs = kore_output_implication_pairs(tout)
+            if implication_pairs:
+                step["comparison"] = IMPLICATION_KORE_OUTPUT_COMPARISON
+                step["implication_pairs"] = implication_pairs
+            return True
         msg = re.search(r"panicked at[^\n]*\n(.*)", tout + terr, re.S)
         step["divergence"] = "\n".join(((msg.group(1) if msg else tout + terr).strip()).splitlines()[:DIFF_LINES])
         return False
@@ -2030,6 +2053,7 @@ def do_krun(case, rec, search_file=False):
                     )
                     if ok is False and sub.get("divergence"): step["fallback_divergence"] = sub["divergence"]
                     if sub.get("renamed_existentials"): step["fallback_renamed_existentials"] = True
+                    if sub.get("implication_pairs"): step["fallback_implication_pairs"] = sub["implication_pairs"]
                     if sub.get("comparison"): step["comparison"] = sub["comparison"]
         return step_record(case, **step)
     step["stage"] = "search" if any(x.startswith("--search") for x in extra) else "krun"
