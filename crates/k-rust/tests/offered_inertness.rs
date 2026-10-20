@@ -58,6 +58,20 @@ const MAX_DEPTH: u64 = 400;
 const MAX_BREADTH: usize = 16;
 const MAX_SIMPLIFICATION_ITERATIONS: usize = 100;
 
+/// The SMT options of every run. The oracle compares `smt.rlimit_count`, the Z3 work of the
+/// run's checks, which is a function of the queries only while no attempt is cut short: an
+/// attempt the wall clock ends answers unknown and is retried, and both attempts count. With
+/// the default 125 ms timeout a loaded host ends attempts that need microseconds of solver
+/// work (one run once counted 908 units on one side and 718 on the other, every other counter
+/// equal). A 60 s timeout leaves the clock no say, and the resource limit each attempt also
+/// carries, proportional to the timeout, saturates at Z3's largest (about 4.3e9 units), while
+/// a whole run of this corpus counts about a thousand; so every query is decided on its first
+/// attempt, as it is unloaded, and the count is the queries' own.
+const SOLVER_OPTIONS: BackendOptions = BackendOptions {
+    smt_timeout_ms: 60_000,
+    smt_retry_limit: 3,
+};
+
 /// The KORE of `source` and its configuration for `program` at sort `sort`.
 fn compile_in(source: &str, main: &str, sort: &str, program: &str) -> (String, Pattern) {
     let mut resolver = |_: &str, required: &str| {
@@ -195,7 +209,7 @@ fn run(
             max_simplification_iterations: MAX_SIMPLIFICATION_ITERATIONS,
             ..ExecuteRequest::new(initial.clone())
         };
-        let mut backend = Backend::new(&kore, &main, BackendOptions::default()).unwrap();
+        let mut backend = Backend::new(&kore, &main, SOLVER_OPTIONS).unwrap();
         let mut responses = vec![
             json(backend.execute(request())),
             json(backend.execute(ExecuteRequest {

@@ -238,7 +238,7 @@ pub(crate) fn resolve_function_with_config_pass(
 /// cell concretization and semantics-module generation, and so after macro expansion.
 ///
 /// After binding, a rule or claim that still holds the variable where the root of its left-hand
-/// side does not bind it ([`left_hand_side_binds_configuration`], the predicate of invariant CF1)
+/// side does not bind it (`left_hand_side_binds_configuration`, the predicate of invariant CF1)
 /// has no configuration in scope, and is rejected at the sentence
 /// ([`DiagnosticCode::InvalidFunctionConfiguration`]). Reading the configuration needs one in
 /// scope: a rewrite of the configuration has it (its left-hand side is the generated top cell, which

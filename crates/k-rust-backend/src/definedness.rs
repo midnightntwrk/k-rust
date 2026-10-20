@@ -1226,6 +1226,22 @@ fn condition_atom_term<'a>(
     }
 }
 
+/// The definedness obligations an atom implies: those of the operand it asserts equal to a value
+/// defined under `known` ([`condition_atom_term`]), which is empty wherever that operand is, so
+/// wherever `known` holds the atom is `\ceil(b) /\ atom`. These are the obligations
+/// [`condition_definedness`] states beside or with the atom under the same known predicates.
+/// None for a predicate that is not such an atom.
+pub(crate) fn atom_definedness(
+    definition: &BackendDefinition,
+    predicate: &Predicate,
+    known: &[Predicate],
+) -> Result<Vec<Predicate>, DeferredOutcome> {
+    match condition_atom_term(definition, predicate, known) {
+        Some(term) => ceil_term_walk(definition, term, AtCeilFree::Skip),
+        None => Ok(Vec::new()),
+    }
+}
+
 /// A conjunct of the condition: an atom keeps its shape and its obligations are hoisted.
 fn hoist_condition_definedness(
     definition: &BackendDefinition,

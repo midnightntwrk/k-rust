@@ -171,6 +171,7 @@ fn check_module_with_options_and_catalog(
         .chain(check_k_terms(&sentences))
         .chain(check_rewrites(&sentences))
         .chain(check_anonymous_variables(&sentences))
+        .chain(check_variable_naming_attributes(&sentences))
         .chain(check_rhs_variables(&sentences, options.clone()))
         .chain(if options.backend == StructuralCheckBackend::Rust {
             ml_positions::check_ml_construct_positions(&sentences, production_catalog, None)
@@ -260,6 +261,13 @@ pub(crate) fn check_ml_construct_positions_in_definition(
     diagnostics.sort();
     diagnostics.dedup();
     diagnostics
+}
+
+/// The refusals of the quantifiers of the search pattern `sentence`, judged as a rule, whose
+/// binder is no element variable, by the binder check of the definitions' rules
+/// ([`DiagnosticCode::InvalidBinder`]).
+pub(crate) fn search_pattern_binder_diagnostics(sentence: &Sentence) -> Vec<Diagnostic> {
+    rhs_variables::binder_diagnostics(sentence)
 }
 
 /// The refusals of the search pattern `sentence` by the matching-logic position walk (module
@@ -396,7 +404,13 @@ pub fn check_k_terms(sentences: &[&Sentence]) -> Vec<Diagnostic> {
 
 /// Where rewrites and `#as` may occur: a rule and a `#fun` have at least one rewrite, a rewrite is
 /// not nested in another, nor under a function rule's context or an `#as` pattern, `#as` is not
-/// on a right-hand side, and an existential variable is not on a left-hand side.
+/// on a right-hand side, and an existential variable is not on a left-hand side or in a
+/// `requires`.
+///
+/// An existential variable is a `?` variable free in the sentence, which the right side
+/// quantifies. A `?` variable that a quantifier binds (`#Exists ?Y . P`) is that quantifier's own
+/// variable, whatever its spelling (`kast::binding`), so it is judged as the same quantifier over
+/// `Y` is: neither its binder nor an occurrence it binds is refused.
 pub fn check_rewrites(sentences: &[&Sentence]) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     for sentence in sentences {
@@ -432,7 +446,8 @@ pub fn check_rewrites(sentences: &[&Sentence]) -> Vec<Diagnostic> {
 }
 
 /// A named variable that occurs once is reported as unused, and an anonymous-named variable that
-/// occurs more than once as used; `HOLE` and `HERE` in contexts are exempt. A quantifier whose
+/// occurs more than once as used, each variable counted apart from another of its spelling that a
+/// quantifier or a local function binds; `HOLE` and `HERE` in contexts are exempt. A quantifier whose
 /// binder is an anonymous variable (`#Exists _ . P`) is reported as binding nothing.
 pub fn check_anonymous_variables(sentences: &[&Sentence]) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
@@ -441,15 +456,27 @@ pub fn check_anonymous_variables(sentences: &[&Sentence]) -> Vec<Diagnostic> {
             continue;
         }
         warn_anonymous_binders(sentence, &mut diagnostics);
-        let mut counts = BTreeMap::<String, usize>::new();
-        for (_, term) in sentence.terms() {
-            term.visit_preorder(&mut |term| {
-                if let Term::Variable { name, .. } = term {
-                    *counts.entry(name.clone()).or_default() += 1;
-                }
-            });
+        // Occurrences are counted per variable, not per spelling (`kast::binding`): the free
+        // occurrences of a name in any term of the sentence are one variable, and each quantifier
+        // or local function (`#fun`, `#let`, a match `P :=K A`) binds a variable of its own for
+        // each name it binds, its binding occurrences included.
+        let mut counts = BTreeMap::<(Option<(usize, usize)>, String), usize>::new();
+        for (root, (_, term)) in sentence.terms().enumerate() {
+            for occurrence in crate::kast::binding::occurrences_in(
+                term,
+                crate::kast::binding::Binders::LocalFunctions,
+            ) {
+                let scope = match occurrence.role {
+                    crate::kast::binding::Role::Free => None,
+                    crate::kast::binding::Role::Bound { binder }
+                    | crate::kast::binding::Role::Binding { binder } => Some((root, binder)),
+                };
+                *counts
+                    .entry((scope, occurrence.name.to_owned()))
+                    .or_default() += 1;
+            }
         }
-        for (name, count) in counts {
+        for ((_, name), count) in counts {
             let named_anonymous = is_named_anonymous(&name);
             if count == 1
                 && !named_anonymous
@@ -472,6 +499,63 @@ pub fn check_anonymous_variables(sentences: &[&Sentence]) -> Vec<Diagnostic> {
                     DiagnosticCode::InvalidAnonymousVariable,
                     format!(
                         "Variable '{name}' declared as unused, but it is used. Remove underscore from variable name if this is intentional."
+                    ),
+                    sentence,
+                ));
+            }
+        }
+    }
+    diagnostics
+}
+
+/// FU-55: a `concrete` or `symbolic` attribute of a rule or claim names free variables of it. An
+/// attribute lies outside every quantifier's and every local function's scope, so a name it lists
+/// can only be a variable free in the sentence's terms (`kast::binding`, with local functions as
+/// binders); a name that is none is refused at the sentence. A local function's parameter is
+/// matched against the value the function is applied to when the function is evaluated, not
+/// against the subject when the rule is chosen, so `concrete(Z)` says nothing of it.
+pub fn check_variable_naming_attributes(sentences: &[&Sentence]) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    for sentence in sentences {
+        if !matches!(sentence, Sentence::Rule { .. } | Sentence::Claim { .. }) {
+            continue;
+        }
+        let attributes = sentence.attributes();
+        let keys = [AttributeKey::Concrete, AttributeKey::Symbolic];
+        if keys.iter().all(|key| attributes.string(*key).is_none()) {
+            continue;
+        }
+        let free = sentence
+            .terms()
+            .flat_map(|(_, term)| {
+                crate::kast::binding::free_variables_in(
+                    term,
+                    crate::kast::binding::Binders::LocalFunctions,
+                )
+            })
+            .collect::<BTreeSet<_>>();
+        for key in keys {
+            let Some(value) = attributes.string(key) else {
+                continue;
+            };
+            // Invariant: every name of `value` before `name` was checked.
+            for name in value
+                .split(',')
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+            {
+                let element = name.trim_start_matches('@');
+                if free.contains(name)
+                    || free.contains(element)
+                    || free.contains(&format!("@{element}"))
+                {
+                    continue;
+                }
+                diagnostics.push(Diagnostic::error(
+                    DiagnosticCode::InvalidAttribute,
+                    format!(
+                        "The {} attribute names {name}, which is no free variable of the sentence: an attribute lies outside every quantifier and local function, so a name it lists must be a variable the sentence uses free.",
+                        key.as_str()
                     ),
                     sentence,
                 ));
@@ -858,15 +942,28 @@ struct RewriteState {
     in_as: bool,
     in_function_context: bool,
     in_function_body: bool,
+    /// The names the quantifiers around the visited term bind there, innermost last.
+    quantified: Vec<String>,
 }
 
-// Invariant: the `state` flags describe the rewrite, `#as`, and `#fun` context enclosing `term`, and each recursive call descends into a strict subterm of `term`, so the size of the rule body bounds the calls.
+// Invariant: the `state` flags describe the rewrite, `#as`, and `#fun` context enclosing `term`, `state.quantified` the names the quantifiers around it bind, and each recursive call descends into a strict subterm of `term`, so the size of the rule body bounds the calls.
 fn visit_rewrite_term(
     term: &Term,
     state: &mut RewriteState,
     diagnostics: &mut Vec<Diagnostic>,
     sentence: &Sentence,
 ) {
+    // A quantifier's binder is its own variable, not an occurrence of the sentence's, and the
+    // names it binds are bound in its body (`kast::binding`).
+    if let Some(quantifier) = crate::kast::binding::quantifier(term) {
+        let depth = state.quantified.len();
+        state
+            .quantified
+            .extend(quantifier.bound().into_iter().map(str::to_owned));
+        visit_rewrite_term(quantifier.body, state, diagnostics, sentence);
+        state.quantified.truncate(depth);
+        return;
+    }
     match term.unannotated() {
         Term::Rewrite { left, right } => {
             let was_in_rewrite = state.in_rewrite;
@@ -923,7 +1020,7 @@ fn visit_rewrite_term(
             state.in_as = was_in_as;
         }
         Term::Variable { name, .. } => {
-            if !state.in_rewrite_rhs && name.starts_with('?') {
+            if !state.in_rewrite_rhs && name.starts_with('?') && !state.quantified.contains(name) {
                 diagnostics.push(Diagnostic::error(
                     DiagnosticCode::InvalidExistentialVariable,
                     format!(

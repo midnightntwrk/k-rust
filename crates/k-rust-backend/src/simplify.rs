@@ -31,7 +31,7 @@
 //! ```toml algorithm
 //! id = "backend.simplify.predicates"
 //! name = "conjunct-set predicate normalization"
-//! sites = ["simplify_predicates_with_solver", "simplify_predicates_entry", "distinct_conjuncts", "simplify_predicates_with_budget", "known_defined_subterms", "simplify_predicate_with_budget", "KnownConjuncts", "LevelConjuncts", "ShallowKey", "PredicateAssumptions", "apply_predicate_theory", "match_predicate", "collect_predicate_term_pairs", "normalize_root", "normalize_hereditary"]
+//! sites = ["simplify_predicates_with_solver", "simplify_predicates_entry", "distinct_conjuncts", "simplify_predicates_with_budget", "known_defined_subterms", "simplify_predicate_with_budget", "KnownConjuncts", "LevelConjuncts", "ShallowKey", "PredicateAssumptions", "written_predicate", "set_aside_definedness", "reattach_set_aside", "apply_predicate_theory", "match_predicate", "collect_predicate_term_pairs", "normalize_root", "normalize_hereditary"]
 //! variable = "b = simplification budget; n = conjuncts; e = equalities among the known and additional conjuncts; s = predicate nodes of a visited sub-predicate; w = the nodes a key reads: a visited sub-predicate's top node and its operands, each through one \\not; c = assumed conjuncts that share its key; k = known predicates"
 //! counters = ["SimplifyInvocations", "SimplifyAssumptionNodes", "SimplifyPredicateNodesVisited", "SimplifyConjunctNodes", "SimplifyKnownPredicates"]
 //! span = "per call"
@@ -47,7 +47,7 @@
 //!
 //! [[cost]]
 //! mode = "predicate equations (apply_predicate_theory)"
-//! bound = "per visited sub-predicate: the equations of its top connective only (indexed at load), each matched against it as deep as its left-hand side; the sub-predicate is walked for a name shared with the equation, and the equation renamed apart, only when the equation matched, could match, or met a shared name; a quantifier hides from the assumptions under it only the assumed conjuncts that mention its variable, the conjunct being simplified not among them"
+//! bound = "per visited sub-predicate: the equations of its top connective only (indexed at load), each matched against it as deep as its left-hand side; the sub-predicate is walked for a name shared with the equation, and the equation renamed apart, only when the equation matched, could match, or met a shared name; a quantifier hides from the assumptions under it only the assumed conjuncts that mention its variable, the conjunct being simplified not among them; before the equations, when its top connective has any, one walk of the sub-predicate, no deeper than the deepest left-hand side of those equations, that sets aside hoisted definedness conjuncts (written_predicate), with one ceil_term call per atom of each conjunction that holds a \\ceil, deferred, membership, absence or negation conjunct, and after an equation applies, one ceil_term call per conjunct atom of its result when a conjunct was set aside on the whole subject"
 //!
 //! [[cost]]
 //! mode = "normalization of a simplified sub-predicate (normalize_root, normalize_hereditary)"
@@ -2660,10 +2660,34 @@ fn simplify_predicate_on_stack(
             solver,
         );
     }
-    let Some(simplified) = apply_predicate_theory(
+    // A predicate equation `P = Q` is matched against the predicate as written, with the
+    // definedness conjuncts that hoisting stated beside its atoms set aside
+    // (`WrittenPredicate`): the subject equals its written form, those set aside on the whole
+    // subject hold wherever the instance is used, and they are conjoined to the result unless
+    // the result implies them.
+    let written = written_predicate(definition, &simplified, assumptions.terms.predicates)
+        .map_err(SimplificationError::from)?;
+    let (subject, set_aside) = match &written {
+        Some(written) => (&written.predicate, written.set_aside.as_slice()),
+        None => (&simplified, &[][..]),
+    };
+    let extended_known;
+    let known = if set_aside.is_empty() {
+        assumptions.terms.predicates
+    } else {
+        extended_known = assumptions
+            .terms
+            .predicates
+            .iter()
+            .chain(set_aside)
+            .cloned()
+            .collect::<Vec<_>>();
+        extended_known.as_slice()
+    };
+    let Some(rewritten) = apply_predicate_theory(
         definition,
-        &simplified,
-        assumptions.terms.predicates,
+        subject,
+        known,
         SimplificationOptions {
             max_iterations: limit,
             budget: BudgetPolicy::Fail,
@@ -2676,6 +2700,8 @@ fn simplify_predicate_on_stack(
         indeterminate.commit(|| Subject::Predicate(simplified.clone()));
         return Ok(simplified);
     };
+    let simplified =
+        reattach_set_aside(definition, set_aside, rewritten).map_err(SimplificationError::from)?;
     if *remaining == 0 {
         return Err(SimplificationError::PredicateIterationLimit {
             limit,
@@ -3142,6 +3168,286 @@ fn apply_ceil_equation_instance(
     Ok(EquationAttempt::Applied(normalize_predicate(
         Predicate::And(defined.into_result(rhs).into()),
     )))
+}
+
+/// A predicate as its author wrote it, beside the definedness conjuncts that hoisting stated
+/// (`definedness::condition_definedness`).
+///
+/// Hoisting conjoins to an atom `a` the obligations of the operand it asserts equal to a value
+/// defined under the known predicates, `\ceil(b) /\ a`, which equals `a` wherever the known
+/// predicates hold, because `a` is empty wherever `b` is (`definedness::atom_definedness`). A
+/// predicate equation `P = Q` states that `P` and `Q` are equal predicates, and is applied to a
+/// subject only where the known predicates hold, so its left-hand side is matched against the
+/// atoms without those conjuncts. Each definedness conjunct that an atom of the same conjunction
+/// implies is set aside, whether hoisting stated it or the author wrote it:
+/// - in a conjunction, it is removed, and it is a conjunct of the whole conjunction;
+/// - in a disjunction, each disjunct equals its own written form, and the conjuncts set aside
+///   from every disjunct are conjuncts of the whole disjunction;
+/// - below a negation, an implication, an equivalence or a quantifier, the operand equals its
+///   written form, and nothing set aside there is a conjunct of the whole.
+///
+/// Only a conjunct that is not itself such an atom is set aside (a `\ceil`, a deferred
+/// definedness atom, a membership, an absence or a negation), so no two conjuncts are set aside
+/// for implying each other.
+struct WrittenPredicate {
+    /// The written form, equal to the subject as a predicate.
+    predicate: Predicate,
+    /// The conjuncts set aside that are conjuncts of the whole subject: the subject is their
+    /// conjunction with `predicate`.
+    set_aside: Vec<Predicate>,
+}
+
+/// The written form of `predicate` ([`WrittenPredicate`]), or `None` when nothing is set aside or
+/// the definition has no predicate equation of its top connective.
+///
+/// An equation's left-hand side is matched only as deep as its connectives reach, so the walk
+/// stops at the depth of the deepest left-hand side of the predicate's top connective: below it a
+/// conjunct set aside could change no match. Each sub-predicate the simplifier visits is thus
+/// walked to a depth bounded by the definition's equations, not to its own height.
+fn written_predicate(
+    definition: &BackendDefinition,
+    predicate: &Predicate,
+    known: &[Predicate],
+) -> Result<Option<WrittenPredicate>, DeferredOutcome> {
+    let Some(theory) = definition.predicate_equations_for(predicate) else {
+        return Ok(None);
+    };
+    let depth = theory
+        .values()
+        .flatten()
+        .map(|rule| connective_depth(&rule.lhs))
+        .max()
+        .unwrap_or(0);
+    Ok(
+        set_aside_definedness(definition, predicate, known, depth)?.map(
+            |(predicate, set_aside)| WrittenPredicate {
+                predicate,
+                set_aside,
+            },
+        ),
+    )
+}
+
+/// The written form of a predicate equation's left-hand side ([`WrittenPredicate`]), with no known
+/// predicates, against which subjects are matched in their own written form.
+///
+/// A conjunct set aside from the left-hand side `P` is implied by the written form `W`, so `P`,
+/// which is `W` conjoined with what was set aside on the whole of it, is `W`: the equation
+/// `W = Q` is the equation `P = Q`. Unchanged when a definedness question has no answer.
+pub(crate) fn written_lemma_left_side(definition: &BackendDefinition, lhs: Predicate) -> Predicate {
+    match set_aside_definedness(definition, &lhs, &[], usize::MAX) {
+        Ok(Some((written, _implied))) => written,
+        Ok(None) | Err(_) => lhs,
+    }
+}
+
+/// The number of predicate nodes on the longest path from the root of `predicate` to an atom.
+fn connective_depth(predicate: &Predicate) -> usize {
+    1 + match predicate {
+        Predicate::And(inner) | Predicate::Or(inner) => {
+            inner.iter().map(connective_depth).max().unwrap_or(0)
+        }
+        Predicate::Not(inner) | Predicate::Exists(_, inner) | Predicate::Forall(_, inner) => {
+            connective_depth(inner)
+        }
+        Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
+            connective_depth(left).max(connective_depth(right))
+        }
+        Predicate::True
+        | Predicate::False
+        | Predicate::Term(_)
+        | Predicate::Equals(..)
+        | Predicate::Ceil(_)
+        | Predicate::Defined(_)
+        | Predicate::Floor(_)
+        | Predicate::In(..)
+        | Predicate::Absent(_) => 0,
+    }
+}
+
+/// The written form of `predicate` and the conjuncts set aside on the whole of it
+/// ([`WrittenPredicate`]), walking `depth` predicate nodes deep, with the atoms decided under
+/// `known` (below a quantifier, only those that do not mention its variable); `None` when nothing
+/// is set aside.
+fn set_aside_definedness(
+    definition: &BackendDefinition,
+    predicate: &Predicate,
+    known: &[Predicate],
+    depth: usize,
+) -> Result<Option<(Predicate, Vec<Predicate>)>, DeferredOutcome> {
+    if depth == 0 {
+        return Ok(None);
+    }
+    let below = depth - 1;
+    let operand = |inner: &Predicate| -> Result<Option<Arc<Predicate>>, DeferredOutcome> {
+        Ok(set_aside_definedness(definition, inner, known, below)?
+            .map(|(written, _)| Arc::new(written)))
+    };
+    let under_binder = |variable: &Variable,
+                        inner: &Predicate|
+     -> Result<Option<Arc<Predicate>>, DeferredOutcome> {
+        let holds = |fact: &Predicate| !mentions_free(fact, variable);
+        if known.iter().all(holds) {
+            return operand(inner);
+        }
+        let unshadowed = known
+            .iter()
+            .filter(|fact| holds(fact))
+            .cloned()
+            .collect::<Vec<_>>();
+        Ok(
+            set_aside_definedness(definition, inner, &unshadowed, below)?
+                .map(|(written, _)| Arc::new(written)),
+        )
+    };
+    Ok(match predicate {
+        Predicate::And(conjuncts) => {
+            let candidate = |conjunct: &Predicate| {
+                matches!(
+                    conjunct,
+                    Predicate::Ceil(_)
+                        | Predicate::Defined(_)
+                        | Predicate::In(..)
+                        | Predicate::Absent(_)
+                        | Predicate::Not(_)
+                )
+            };
+            let mut implied = Vec::new();
+            if conjuncts.iter().any(candidate) {
+                for conjunct in conjuncts.iter() {
+                    implied.extend(crate::definedness::atom_definedness(
+                        definition, conjunct, known,
+                    )?);
+                }
+            }
+            let mut changed = false;
+            let mut kept = Vec::with_capacity(conjuncts.len());
+            let mut set_aside: Vec<Predicate> = Vec::new();
+            for conjunct in conjuncts.iter() {
+                if candidate(conjunct) && implied.contains(conjunct) {
+                    changed = true;
+                    if !set_aside.contains(conjunct) {
+                        set_aside.push(conjunct.clone());
+                    }
+                    continue;
+                }
+                match set_aside_definedness(definition, conjunct, known, below)? {
+                    Some((written, inner)) => {
+                        changed = true;
+                        kept.push(written);
+                        for predicate in inner {
+                            if !set_aside.contains(&predicate) {
+                                set_aside.push(predicate);
+                            }
+                        }
+                    }
+                    None => kept.push(conjunct.clone()),
+                }
+            }
+            if !changed {
+                return Ok(None);
+            }
+            let written = if kept.len() == 1 {
+                kept.pop().expect("one conjunct is kept")
+            } else {
+                Predicate::And(kept.into())
+            };
+            Some((written, set_aside))
+        }
+        Predicate::Or(disjuncts) => {
+            let mut changed = false;
+            let mut written = Vec::with_capacity(disjuncts.len());
+            let mut common: Option<Vec<Predicate>> = None;
+            for disjunct in disjuncts.iter() {
+                let (disjunct, set_aside) =
+                    match set_aside_definedness(definition, disjunct, known, below)? {
+                        Some(parts) => {
+                            changed = true;
+                            parts
+                        }
+                        None => (disjunct.clone(), Vec::new()),
+                    };
+                written.push(disjunct);
+                common = Some(match common {
+                    None => set_aside,
+                    Some(common) => common
+                        .into_iter()
+                        .filter(|predicate| set_aside.contains(predicate))
+                        .collect(),
+                });
+            }
+            if !changed {
+                return Ok(None);
+            }
+            Some((Predicate::Or(written.into()), common.unwrap_or_default()))
+        }
+        Predicate::Not(inner) => operand(inner)?.map(|inner| (Predicate::Not(inner), Vec::new())),
+        Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
+            let (new_left, new_right) = (operand(left)?, operand(right)?);
+            if new_left.is_none() && new_right.is_none() {
+                return Ok(None);
+            }
+            let left = new_left.unwrap_or_else(|| left.clone());
+            let right = new_right.unwrap_or_else(|| right.clone());
+            Some((
+                if matches!(predicate, Predicate::Implies(..)) {
+                    Predicate::Implies(left, right)
+                } else {
+                    Predicate::Iff(left, right)
+                },
+                Vec::new(),
+            ))
+        }
+        Predicate::Exists(variable, inner) => under_binder(variable, inner)?
+            .map(|inner| (Predicate::Exists(variable.clone(), inner), Vec::new())),
+        Predicate::Forall(variable, inner) => under_binder(variable, inner)?
+            .map(|inner| (Predicate::Forall(variable.clone(), inner), Vec::new())),
+        Predicate::True
+        | Predicate::False
+        | Predicate::Term(_)
+        | Predicate::Equals(..)
+        | Predicate::Ceil(_)
+        | Predicate::Defined(_)
+        | Predicate::Floor(_)
+        | Predicate::In(..)
+        | Predicate::Absent(_) => None,
+    })
+}
+
+/// `result`, the rewritten written form, conjoined with the conjuncts set aside on the whole
+/// subject ([`WrittenPredicate`]), except those `result` implies: `\ceil(t) /\ φ` is `φ` when `φ`
+/// is `\bottom`, has `\ceil(t)` as a conjunct, or has a conjunct atom that implies it (`t = c`
+/// with `c` defined, `definedness::atom_definedness`).
+fn reattach_set_aside(
+    definition: &BackendDefinition,
+    set_aside: &[Predicate],
+    result: Predicate,
+) -> Result<Predicate, DeferredOutcome> {
+    if set_aside.is_empty() || result == Predicate::False {
+        return Ok(result);
+    }
+    let conjuncts = match &result {
+        Predicate::And(conjuncts) => conjuncts.to_vec(),
+        other => vec![other.clone()],
+    };
+    let mut implied = conjuncts.clone();
+    for conjunct in &conjuncts {
+        implied.extend(crate::definedness::atom_definedness(
+            definition,
+            conjunct,
+            &[],
+        )?);
+    }
+    let mut reattached = set_aside
+        .iter()
+        .filter(|predicate| !implied.contains(predicate))
+        .cloned()
+        .collect::<Vec<_>>();
+    if reattached.is_empty() {
+        return Ok(result);
+    }
+    reattached.push(result);
+    Ok(normalize_predicate(Predicate::And(reattached.into())))
 }
 
 /// Rewrite `predicate` by the first predicate equation that applies, in priority order; `None`

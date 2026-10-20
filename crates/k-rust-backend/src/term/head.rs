@@ -40,7 +40,7 @@
 //! `injective` attribute) is never evidence.
 //!
 //! The instance-normal scan's syntactic unification test reads an equation's left-hand side
-//! through `classify_value` too, with the oracle [`ScannedPatterns`]: it fixes an equation-head
+//! through `classify_value` too, with the oracle `ScannedPatterns`: it fixes an equation-head
 //! application written there at its own root where the load-time check admits that head, which
 //! is how a step of the normal-form model matches the pattern. That is evidence about the
 //! pattern, never about a value, and it has its own source.

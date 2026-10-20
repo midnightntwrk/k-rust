@@ -179,9 +179,10 @@ fn check_rule_variables(
     );
 }
 
-/// Report each quantifier of `term` whose binder is no variable: a quantifier binds one variable
-/// in its body (`kast::binding`), so `#Exists f(X, X) . P` has no meaning. The binder may stand
-/// under semantic casts, which only bound its sort.
+/// Report each quantifier of `term` whose binder is no variable, or is a set variable: a
+/// quantifier binds one element variable in its body (`kast::binding`), so `#Exists f(X, X) . P`
+/// and `#Exists @S . P` have no meaning. The binder may stand under semantic casts, which only
+/// bound its sort.
 fn check_binders(term: &Term, sentence: &Sentence, diagnostics: &mut Vec<Diagnostic>) {
     term.visit_preorder(&mut |node| {
         let Some(quantifier) = binding::quantifier(node) else {
@@ -194,17 +195,56 @@ fn check_binders(term: &Term, sentence: &Sentence, diagnostics: &mut Vec<Diagnos
         {
             binder = argument.unannotated();
         }
-        if !matches!(binder, Term::Variable { .. }) {
-            diagnostics.push(Diagnostic::error(
+        match binder {
+            Term::Variable { name, .. } if name.starts_with('@') => {
+                // KORE's `\exists` and `\forall` bind element variables, so a quantifier over a
+                // set variable has no encoding; written in a macro's right side it is the same
+                // text at every use.
+                diagnostics.push(Diagnostic::error(
+                    DiagnosticCode::InvalidBinder,
+                    format!(
+                        "The binder {name} of {} is a set variable: a quantifier binds an element variable, so a quantifier over a set variable has no meaning here.",
+                        quantifier.label.name
+                    ),
+                    sentence,
+                ));
+            }
+            Term::Variable { .. } => {}
+            Term::InjectedLabel(_)
+            | Term::Rewrite { .. }
+            | Term::As { .. }
+            | Term::Sequence(_)
+            | Term::Apply { .. }
+            | Term::Token { .. }
+            | Term::Annotated { .. } => diagnostics.push(Diagnostic::error(
                 DiagnosticCode::InvalidBinder,
                 format!(
                     "The binder of {} must be a variable: a quantifier binds one variable in its body.",
                     quantifier.label.name
                 ),
                 sentence,
-            ));
+            )),
         }
     });
+}
+
+/// The refusals of the quantifiers of the rule `sentence` (its body, `requires` and `ensures`)
+/// whose binder is no variable, or is a set variable ([`check_binders`]); none for any other
+/// sentence.
+pub(super) fn binder_diagnostics(sentence: &Sentence) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    if let Sentence::Rule {
+        body,
+        requires,
+        ensures,
+        ..
+    } = sentence
+    {
+        for term in [body, requires, ensures] {
+            check_binders(term, sentence, &mut diagnostics);
+        }
+    }
+    diagnostics
 }
 
 fn check_context_variables(
@@ -399,7 +439,9 @@ fn gather_variables(
         if position.lhs && !quantified.contains(name) {
             bound.insert(name.to_owned());
         }
-        if error_existential && name.starts_with('?') {
+        // Only a free `?` variable is an existential of the sentence; one a quantifier binds is
+        // that quantifier's variable, whatever its sigil.
+        if error_existential && name.starts_with('?') && !quantified.contains(name) {
             *unsupported_existentials += 1;
         }
         return;
@@ -424,15 +466,6 @@ fn gather_variables(
     // (`kast::binding`): the binder binds nothing at the sentence's positions, and inside the
     // body its names are the quantifier's own.
     if let Some(quantifier) = binding::quantifier(term) {
-        if error_existential {
-            quantifier.binder.visit_preorder(&mut |part| {
-                if let Term::Variable { name, .. } = part
-                    && name.starts_with('?')
-                {
-                    *unsupported_existentials += 1;
-                }
-            });
-        }
         let depth = quantified.len();
         quantified.extend(quantifier.bound().into_iter().map(str::to_owned));
         gather_variables(

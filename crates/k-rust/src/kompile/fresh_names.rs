@@ -52,6 +52,17 @@ impl GeneratedVariableIdentity {
     }
 }
 
+/// The sigil of a variable name: `?` (existential), `!` (fresh) or `@` (set variable), or `""`
+/// for none.
+pub(crate) fn sigil(name: &str) -> &'static str {
+    match name.chars().next() {
+        Some('?') => "?",
+        Some('!') => "!",
+        Some('@') => "@",
+        _ => "",
+    }
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct FreshNames {
     used: BTreeSet<String>,
@@ -83,6 +94,18 @@ impl FreshNames {
 
     pub(crate) fn contains(&self, name: &str) -> bool {
         self.used.contains(name)
+    }
+
+    /// Mint a variable the compiler introduces in the place of a variable with sigil `sigil`
+    /// (`""`, `?`, `!` or `@`, [`sigil`]): `{sigil}_Gen{n}`, which keeps the role the sigil gives
+    /// (existential, fresh, or a set variable), with the identity that records it as minted.
+    pub(crate) fn mint_generated(&mut self, sigil: &str) -> GeneratedVariableIdentity {
+        let name = self.mint(&format!("{sigil}_Gen"));
+        if sigil == "@" {
+            GeneratedVariableIdentity::set(name)
+        } else {
+            GeneratedVariableIdentity::element(name)
+        }
     }
 
     /// Mint the first unused `{prefix}{n}` from the counter on; the counter also advances past the

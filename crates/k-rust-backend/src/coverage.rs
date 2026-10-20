@@ -29,9 +29,9 @@
 //! candidates for a subject by priority group (a rewrite step, an equation scan of a term or a
 //! predicate, a definedness decision) stops before trying some of them, and where it tries one
 //! whose left-hand side matched: each candidate left untried is matched against the subject by
-//! a probe ([`offer`]) that runs isolated from the run, so that asking for the level changes
+//! a probe (`offer`) that runs isolated from the run, so that asking for the level changes
 //! nothing else ([`RunCoverage::offered`] states what it holds). Such a site takes its
-//! candidates from a [`Selection`], which offers what the site never took on every exit.
+//! candidates from a `Selection`, which offers what the site never took on every exit.
 //!
 //! Collection is crate-private: only the execute entry point opens one around a run, and the
 //! definition load around a rule's discharge. A caller that could open one around its own calls
@@ -110,8 +110,8 @@ use rustc_hash::FxHashSet;
 /// backend selected the axiom as a candidate for it, whether or not the site went on to decide
 /// the axiom's condition there. Two kinds of report add to it:
 /// - a candidate never tried: every site that selects candidates by priority group and stops
-///   before trying them all takes them from a [`Selection`], which offers each candidate the
-///   site never took, matched against the site's subject by a probe ([`offer`]). The sites are
+///   before trying them all takes them from a `Selection`, which offers each candidate the
+///   site never took, matched against the site's subject by a probe (`offer`). The sites are
 ///   the rewrite steps (`rewrite::step`: the rules of the groups below the step's first
 ///   productive or undecided group and of that undecided group after the rule that left it
 ///   undecided, the rules after the one that took the state under `ExecutionMode::Any`, and, in
@@ -133,7 +133,7 @@ use rustc_hash::FxHashSet;
 /// axiom in no set cannot change the run when it is raised, loses its `owise`, `concrete` or
 /// `symbolic`, or is lowered (a lower priority, an added `owise`, `concrete` or `symbolic`),
 /// whereas lowering an axiom in `offered` alone can. Each probe is one match attempt, isolated
-/// from the run ([`offer`]). An axiom already in a set is not probed again, but one whose probe
+/// from the run (`offer`). An axiom already in a set is not probed again, but one whose probe
 /// failed is probed again at the next site that skips it: the probes cost at most one match per
 /// candidate a site skipped, at every visit of the site while the candidate has not matched, so
 /// over a run they grow with the visits times the skipped candidates. A tried candidate costs no

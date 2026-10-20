@@ -42,7 +42,17 @@
 //!   target refuses at compile (a quantifier in a function's argument);
 //! - a named variable that occurs only in a rule's condition, one or two of one sort or beside a
 //!   binder, in a rewrite rule, a function rule with an `owise` competitor or a simplification
-//!   (`condition-only`).
+//!   (`condition-only`);
+//! - a `?` variable of a macro's right side, alone beside a binder, used twice in one condition,
+//!   or bound by the macro's own quantifier (`macro-existential`);
+//! - two free `?` variables of one sentence whose names and first occurrences are in opposite
+//!   orders, in the right side, the `ensures`, or one in each (`two-existentials`), the
+//!   orders of lifted and macro existentials under renaming (`existential-order`);
+//! - a match pattern's variable (`P :=K T`, `P :/=K T`) spelled like a variable of the rule, at
+//!   another sort or left to inference, as source text (`match`);
+//! - a `?` binder respelled without its sigil, in a `requires` (rewrite rule, function rule with
+//!   an `owise` competitor, claim) and below a constructor in a left side, as source text
+//!   (`sigil-binder`).
 //!
 //! The `owise` cross product of `owise_binders.rs` (its `shapes.rs`) is a family here too
 //! (`owise-cross`), so the competitors' binders are renamed under every strategy.
@@ -386,6 +396,213 @@ fn condition_only_variables() -> Vec<Case> {
             ),
             &["go(4)", "go(3)"],
         ));
+    }
+    cases
+}
+
+/// A `?` variable of a macro's right side that no parameter receives: at each use it is a fresh
+/// existential variable of the using sentence, with its sigil. Alone beside a binder (the BIND/A4
+/// rebase's probe), used twice in one condition, and bound by the macro's own quantifier.
+fn macro_existentials() -> Vec<Case> {
+    [
+        (
+            "probe",
+            "  rule m(N) => (#Exists ?B:Int . {?B #Equals N}) #And {?Y #Equals N}\n  rule [p]: <k> go(X) => done(X) ... </k> requires m(X)\n",
+        ),
+        (
+            "twice",
+            "  rule m(N) => {?Y #Equals N +Int 1}\n  rule [p]: <k> go(X) => done(X) ... </k> requires m(X) #And m(X +Int 1)\n",
+        ),
+        (
+            "bound",
+            "  rule m(N) => #Exists ?Y:Int . {?Y #Equals N}\n  rule [p]: <k> go(X) => done(X) ... </k> requires m(X)\n",
+        ),
+    ]
+    .into_iter()
+    .map(|(form, rules)| {
+        case(
+            format!("macro-existential/{form}"),
+            "G",
+            &format!("  syntax Bool ::= m(Int) [macro]\n{rules}"),
+            &["go(3)"],
+        )
+    })
+    .collect()
+}
+
+/// Two free `?` variables in one sentence, written so that their first occurrences and their
+/// names are in opposite orders (`?B` before `?A`): in the right side, in the `ensures`, and one
+/// in each. The lifted existentials follow first occurrences, so a renaming that swaps the
+/// names' order leaves the nested binders as they are.
+fn two_existentials() -> Vec<Case> {
+    [
+        (
+            "rhs",
+            "  rule [p]: <k> go(X) => done(?B +Int ?A) ... </k>\n",
+        ),
+        (
+            "ensures",
+            "  rule [p]: <k> go(X) => done(X) ... </k> ensures {?B #Equals X} #And {?A #Equals ?B}\n",
+        ),
+        (
+            "rhs-ensures",
+            "  rule [p]: <k> go(X) => done(?B) ... </k> ensures {?A #Equals X} #And {?B #Equals ?A}\n",
+        ),
+    ]
+    .into_iter()
+    .map(|(form, rules)| case(format!("two-existentials/{form}"), "G", rules, &["go(3)"]))
+    .collect()
+}
+
+/// Lifted existentials and macro existentials under renaming (the BIND/A8 review's cases): a `?`
+/// bound then free, three free `?` variables, nested macros each with a `?Y`, a macro used twice
+/// in a right side, a use-site `?Y` beside a macro's, a macro `?` beside an authored one, a macro
+/// `?` under a universal, and two `?` variables in one macro's text in opposite orders.
+fn existential_orders() -> Vec<Case> {
+    [
+        (
+            "bound-then-free-ens",
+            "  rule [p]: <k> go(X) => done(X) ... </k> ensures (#Exists ?A:Int . {?A #Equals X}) #And {?B #Equals X} #And {?A #Equals ?B}\n",
+        ),
+        (
+            "bound-then-free-rhs-ens",
+            "  rule [p]: <k> go(X) => done(?B) ... </k> ensures (#Exists ?A:Int . {?A #Equals ?B}) #And {?A #Equals X} #And {?B #Equals ?A}\n",
+        ),
+        (
+            "three-rhs",
+            "  rule [p]: <k> go(X) => done(?C +Int ?A +Int ?B) ... </k>\n",
+        ),
+        (
+            "macro-nest-req",
+            "  syntax Bool ::= m1(Int) [macro] | m2(Int) [macro]\n  rule m1(N) => {?Y #Equals N} #And m2(N +Int 1)\n  rule m2(N) => {?Y #Equals N}\n  rule [p]: <k> go(X) => done(X) ... </k> requires m1(X)\n",
+        ),
+        (
+            "macro-nest-ens",
+            "  syntax Bool ::= m1(Int) [macro] | m2(Int) [macro]\n  rule m1(N) => {?Y #Equals N} #And m2(N +Int 1)\n  rule m2(N) => {?Y #Equals N}\n  rule [p]: <k> go(X) => done(X) ... </k> ensures m1(X)\n",
+        ),
+        (
+            "macro-twice-rhs",
+            "  syntax Int ::= mi(Int) [macro]\n  rule mi(N) => N +Int ?Y\n  rule [p]: <k> go(X) => done(mi(X) +Int mi(X)) ... </k>\n",
+        ),
+        (
+            "macro-cap",
+            "  syntax Bool ::= m(Int) [macro]\n  rule m(N) => {?Y #Equals N +Int 1}\n  rule [p]: <k> go(X) => done(?Y) ... </k> ensures {?Y #Equals X} #And m(X)\n",
+        ),
+        (
+            "macro-mixed",
+            "  syntax Int ::= mi(Int) [macro]\n  rule mi(N) => N +Int ?Y\n  rule [p]: <k> go(X) => done(mi(X) +Int ?A) ... </k> ensures {?A #Equals X}\n",
+        ),
+        (
+            "macro-forall-ens",
+            "  syntax Bool ::= m(Int) [macro]\n  rule m(N) => {?Y #Equals N}\n  rule [p]: <k> go(X) => done(X) ... </k> ensures #Forall Z:Int . m(Z)\n",
+        ),
+        (
+            "macro-two-in-macro",
+            "  syntax Bool ::= m(Int) [macro]\n  rule m(N) => {?B #Equals N} #And {?A #Equals ?B}\n  rule [p]: <k> go(X) => done(X) ... </k> ensures m(X)\n",
+        ),
+    ]
+    .into_iter()
+    .map(|(form, rules)| case(format!("existential-order/{form}"), "G", rules, &["go(3)"]))
+    .collect()
+}
+
+/// The pattern of a match `P :=K T` (and `P :/=K T`) binds its variables in itself only, so a
+/// pattern variable spelled like a variable of the rule is a variable of its own, with its own
+/// sort. Written as source text beside the base with the pattern variable renamed to the rule's
+/// `X` (`text-shadow-match`), annotated at another sort or left to sort inference. The pattern's
+/// `Q` is a local function's parameter named nowhere else, so the parse stage compares with the
+/// base's parse with every `Q` renamed (`twin_variable`).
+fn match_patterns() -> Vec<Case> {
+    let mut cases = Vec::new();
+    for (operator, program_result) in [(":=K", "match"), (":/=K", "mismatch")] {
+        for (form, apart, shadow) in [("annotated", "Q:Bool", "X:Bool"), ("inferred", "Q", "X")] {
+            cases.push(
+                case(
+                    format!("match/{program_result}-{form}"),
+                    "G",
+                    &format!(
+                        "  rule [p]: <k> go(X) => done(X) ... </k> requires {apart} {operator} X >Int 2\n"
+                    ),
+                    &["go(3)"],
+                )
+                .twin_variable(
+                    "text-shadow-match",
+                    &format!(" {apart} {operator}"),
+                    &format!(" {shadow} {operator}"),
+                    ("Q", "X"),
+                ),
+            );
+        }
+    }
+    cases
+}
+
+/// A `?` binder respelled without its sigil (`sigil-binder`). A quantifier binds exactly its own
+/// variable whatever its spelling, so `#Exists ?Y . P` and `#Exists QY . P` (P renamed alike)
+/// are alpha-variants, and the compiled result must not depend on the sigil. Each case is written
+/// with `?Y` and compared with its source twin `text-sigil` spelled `QY`: in the `requires` of a
+/// rewrite rule (`requires`), of a function rule with an `owise` competitor (`requires-owise`)
+/// and of a claim (`requires-claim`), and below a constructor in the left side of a rewrite rule
+/// (`lhs`) and of a function rule (`lhs-function`), compiled without runs.
+fn sigil_binders() -> Vec<Case> {
+    let mut cases = Vec::new();
+    for kind in KINDS {
+        let q = kind.text();
+        let tag = kind.tag();
+        let formula = match kind {
+            Quantifier::Exists => format!("{q} ?Y:Int . {{?Y #Equals X}}"),
+            Quantifier::Forall => format!("{q} ?Y:Int . {{?Y +Int 0 #Equals ?Y}}"),
+        };
+        let pattern = format!("{q} ?Y:Int . ?Y");
+        let shapes: [(&str, String, &[&str], bool); 5] = [
+            (
+                "requires",
+                format!("  rule [p]: <k> go(X) => done(X) ... </k> requires {formula}\n"),
+                &["go(3)"],
+                false,
+            ),
+            (
+                "requires-owise",
+                format!(
+                    "  syntax Int ::= f(Int) [function]\n  rule f(X) => 1 requires {formula}\n  rule f(_) => 0 [owise]\n  rule [p]: <k> go(X) => done(f(X)) ... </k>\n"
+                ),
+                &["go(3)"],
+                false,
+            ),
+            (
+                "requires-claim",
+                format!(
+                    "  rule <k> go(X) => done(X) ... </k>\n  claim <k> go(X) => done(X) ... </k> requires {formula}\n"
+                ),
+                &[],
+                true,
+            ),
+            (
+                "lhs",
+                format!("  rule [p]: <k> goS(s({pattern})) => done(0) ... </k>\n"),
+                &[],
+                false,
+            ),
+            (
+                "lhs-function",
+                format!(
+                    "  syntax Int ::= k(Wrap) [function]\n  rule [p]: k(s({pattern})) => 1\n  rule k(_) => 0 [owise]\n"
+                ),
+                &[],
+                false,
+            ),
+        ];
+        for (shape, rules, programs, proving) in shapes {
+            let mut case = case(format!("sigil-binder/{tag}-{shape}"), "G", &rules, programs).twin(
+                "text-sigil",
+                "?Y",
+                "QY",
+            );
+            if proving {
+                case = case.for_proving();
+            }
+            cases.push(case);
+        }
     }
     cases
 }
@@ -1295,6 +1512,10 @@ pub fn cases() -> Vec<Case> {
         macro_binders(),
         anonymous_binders(),
         condition_only_variables(),
+        macro_existentials(),
+        two_existentials(),
+        existential_orders(),
+        match_patterns(),
         context_aliases(),
         function_binders(),
         owise_binders(),
@@ -1308,6 +1529,7 @@ pub fn cases() -> Vec<Case> {
         connectives(),
         macro_attributes(),
         existential_binders(),
+        sigil_binders(),
         hole_contexts(),
         copied_binders(),
         frozen_contexts(),

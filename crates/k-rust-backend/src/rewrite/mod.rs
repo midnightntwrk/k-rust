@@ -34,9 +34,9 @@ pub(crate) use execute::{
 pub use predicates::substitute_predicates;
 use predicates::{StateNames, extend_unique, pattern_variable_names};
 pub(crate) use predicates::{
-    check_concreteness, conjunctively_contains_alpha_equivalent, predicate_root_truth,
-    predicate_truth, predicates_truth, quantify_introduced_variables,
-    violates_finite_constructor_domain,
+    alpha_normal, check_concreteness, conjunctively_contains_alpha_equivalent,
+    free_variables_by_first_occurrence, predicate_root_truth, predicate_truth, predicates_truth,
+    quantify_introduced_variables, violates_finite_constructor_domain,
 };
 use recover::{
     GeneralUnificationRecovery, freshen_unbound_rule_variables, recover_boolean_matches,

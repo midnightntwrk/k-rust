@@ -291,7 +291,8 @@ pub enum Meaning {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Allow {
     None,
-    /// `#Floor`: no build decides it.
+    /// `#Floor`, or the definedness of a partial function's application that no equation
+    /// gives: no build decides it.
     Undecided,
     /// A quantified predicate, or a claim's arithmetic implication: the portable build has no
     /// solver for it.
@@ -367,16 +368,12 @@ impl CellSpec {
 // ---------------------------------------------------------------- PENDING
 
 /// The number of cells of the matrix.
-const CELL_COUNT: usize = 529;
+const CELL_COUNT: usize = 533;
 
 /// The cells that deviate at the ML lane's base, each with the ticket after which it conforms
 /// and the builds in which it deviates (see the module documentation).
 #[rustfmt::skip]
 pub const PENDING: &[(&str, &str, Class, Class)] = &[
-    // unassigned (2): follow-ups FU-20 and FU-21 (decisions.toml, "MLP/0 questions"): a predicate lemma whose subject is a disjunction, and a predicate lemma on a ground atom of a rewrite rule's condition, are not applied.
-    // One cause (FU-48, the proposed ticket MLP/10): predicate lemmas are matched after definedness hoisting has rewritten each atom to ⌈f(X)⌉ ∧ atom, so a disjunction's left side no longer matches, and the ceil hoisted beside a lemma's result is never absorbed. The answers are incomplete, not wrong.
-    ("psimp/pred-simp__eq-eq-ground", "unassigned", Class::Undecided, Class::Undecided),
-    ("psimp/pred-simp__or-lhs", "unassigned", Class::Conforms, Class::Undecided),
 ];
 
 // ---------------------------------------------------------------- observation

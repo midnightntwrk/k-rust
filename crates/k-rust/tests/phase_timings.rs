@@ -159,12 +159,29 @@ fn load_and_compile_phases_follow_the_public_table_order() {
             .count(),
         1
     );
-    let compile_names = compile_timings
-        .phases
-        .iter()
-        .map(|phase| phase.name)
+    assert_eq!(top_level_names(&compile_timings), expected_compile_names());
+    // In builds that check the kompile invariants, each stage records its check as its one
+    // child phase; no other compile phase has children.
+    let checks = cfg!(any(debug_assertions, feature = "kompile-invariant-checks"));
+    let stages = stage_descriptions()
+        .into_iter()
+        .map(|description| description.name)
         .collect::<Vec<_>>();
-    assert_eq!(compile_names, expected_compile_names());
+    let expected_names_and_depths = expected_compile_names()
+        .into_iter()
+        .flat_map(|name| {
+            let check = (checks && stages.contains(&name)).then_some(("check invariants", 1));
+            std::iter::once((name, 0)).chain(check)
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        compile_timings
+            .phases
+            .iter()
+            .map(|phase| (phase.name, phase.depth))
+            .collect::<Vec<_>>(),
+        expected_names_and_depths
+    );
 }
 
 /// A definition that loads and passes every transformation stage, and whose compile fails late,
