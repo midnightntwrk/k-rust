@@ -2282,8 +2282,7 @@ fn apply_rhs_alternative(
             },
             label: rule.attributes.label.clone(),
             unique_id: rule.attributes.unique_id.clone(),
-            origin: rule.attributes.origins.first().cloned(),
-            claims_defined_result: crate::path_facts::claims_defined_result(rule),
+            identity: crate::path_facts::RuleIdentity::of(rule),
             // What the successor's normalization inherits of this attempt's work, which decided
             // the step's premises: asked only where the rule's claim can be refuted there.
             premises_depend: if crate::path_facts::claims_defined_result(rule)

@@ -2166,8 +2166,8 @@ impl<'a> Execution<'a> {
         halt_reason: HaltReason,
     ) -> Stoppable<UndefinedStep> {
         self.roll_back(
-            &producer.rule_id,
-            &producer.label,
+            &producer.rule.unique_id,
+            &producer.rule.label,
             &producer.successor,
             &producer.effects,
         );
@@ -2182,8 +2182,8 @@ impl<'a> Execution<'a> {
             producer.index,
             &producer.before,
             &producer.successor,
-            &producer.rule_id,
-            &producer.label,
+            &producer.rule.unique_id,
+            &producer.rule.label,
             producer.rule.clone(),
             halt_reason,
             Vec::new(),
@@ -3623,8 +3623,6 @@ struct Producer {
     /// The successor as the step built it, before normalization: its constraints are the
     /// condition under which this candidate applies.
     successor: Pattern,
-    rule_id: String,
-    label: Option<String>,
     /// The rule, as the contradicted claims the successor's normalization observes name it
     /// (`crate::path_facts`).
     rule: crate::path_facts::ObservingRule,
@@ -3656,8 +3654,6 @@ pub(crate) struct Sibling {
     before: Pattern,
     built: Pattern,
     rule: crate::path_facts::ObservingRule,
-    rule_id: String,
-    label: Option<String>,
     remainder_simplifications: Vec<RemainderSimplification>,
 }
 
@@ -3669,8 +3665,8 @@ impl Sibling {
             self.index,
             &self.before,
             &self.built,
-            &self.rule_id,
-            &self.label,
+            &self.rule.unique_id,
+            &self.rule.label,
             self.rule.clone(),
             halt,
             Vec::new(),
@@ -3689,8 +3685,6 @@ impl Sibling {
             before: applied.before.clone(),
             built: applied.pattern.clone(),
             rule: applied.observing_rule(),
-            rule_id: applied.unique_id.clone(),
-            label: applied.label.clone(),
             remainder_simplifications: applied.remainder_simplifications.clone(),
         }
     }
@@ -3717,8 +3711,6 @@ impl Producer {
             },
             before: applied.before.clone(),
             successor: applied.pattern.clone(),
-            rule_id: applied.unique_id.clone(),
-            label: applied.label.clone(),
             rule: applied.observing_rule(),
             effects: applied.effects.clone(),
             remainder_simplifications: applied.remainder_simplifications.clone(),
@@ -4075,8 +4067,8 @@ pub(crate) fn sibling_undefined_parts<'s>(
                 sibling.index,
                 &sibling.before,
                 &sibling.built,
-                &sibling.rule_id,
-                &sibling.label,
+                &sibling.rule.unique_id,
+                &sibling.rule.label,
                 sibling.rule.clone(),
                 undefined.halt(depth),
                 work,
@@ -4650,6 +4642,43 @@ mod tests {
     // leaf returns its entries in order, as a trace kept in a vector of its own would. This pins
     // the representation's contract (`PathTrace`); it is not a regression test that fails at a
     // base where forks copied a vector.
+    /// Every step of a rule names it by one identity, built once from its attributes: a rule
+    /// attempt, an applied candidate, its successor's producer and each rule scope share it.
+    /// A renaming of the rule's variables keeps it; a copy of the rule, which may be changed
+    /// before it is used, builds its own, equal one.
+    #[test]
+    fn a_rules_steps_share_one_identity() {
+        use crate::path_facts::ObservingRule;
+        let definition = definition(
+            r#"axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                wrap{}(X:SortS{})
+            ) [label{}("loop")]"#,
+        );
+        let rule = definition
+            .rewrite_theory()
+            .values()
+            .flat_map(|groups| groups.values().flatten())
+            .find(|rule| rule.rule.attributes.label.as_deref() == Some("loop"))
+            .map(|rule| Arc::clone(&rule.rule))
+            .expect("the rule is in the definition");
+        let first = ObservingRule::of(&rule);
+        let second = ObservingRule::of(&rule);
+        assert!(std::ptr::eq(&*first, &*second));
+        assert_eq!(first.label.as_deref(), Some("loop"));
+        assert_eq!(first.unique_id, rule.attributes.unique_id);
+
+        // A subject holding the rule's own variables makes the rule be renamed apart.
+        let (renamed, _) = crate::rule::rename_apart(&rule, &rule.lhs.attributes().variables, &[])
+            .expect("the rule shares its variables with such a subject");
+        assert!(std::ptr::eq(&*ObservingRule::of(&renamed), &*first));
+
+        let copy = crate::rule::RewriteRule::clone(&rule);
+        let copied = ObservingRule::of(&copy);
+        assert!(!std::ptr::eq(&*copied, &*first));
+        assert_eq!(copied, first);
+    }
+
     #[test]
     fn a_fork_shares_its_parents_trace_and_extends_it_apart() {
         let definition = definition("");

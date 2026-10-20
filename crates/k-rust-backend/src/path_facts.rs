@@ -254,9 +254,10 @@ pub struct ContradictedPreservation {
 
 /// A rewrite rule by the parts a report names it by, and whether it claims that its result term
 /// is defined (`claims_defined_result`), the claim a normalization of its result can refute
-/// ([`note_contradicted_preservation`]).
-#[derive(Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct ObservingRule {
+/// ([`note_contradicted_preservation`]). One per rule, shared by every step that names it
+/// ([`RuleIdentity::of`]).
+#[derive(Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct RuleIdentity {
     /// The rule's `UNIQUE_ID`.
     pub unique_id: String,
     pub label: Option<String>,
@@ -265,10 +266,90 @@ pub struct ObservingRule {
     /// Whether one successor's normalization can refute the rule's `preserves-definedness`
     /// ([`claims_defined_result`]), a function of the rule.
     pub(crate) claims_defined_result: bool,
+}
+
+impl RuleIdentity {
+    fn new(rule: &RewriteRule) -> Self {
+        Self {
+            unique_id: rule.attributes.unique_id.clone(),
+            label: rule.attributes.label.clone(),
+            origin: rule.attributes.origins.first().cloned(),
+            claims_defined_result: claims_defined_result(rule),
+        }
+    }
+
+    /// `rule`'s identity, built at its first use and then shared: a rule attempt, an applied
+    /// candidate, its successor's producer and each rule scope of a step name the rule, so a
+    /// step would otherwise copy its id, label and origin several times.
+    pub(crate) fn of(rule: &RewriteRule) -> Arc<Self> {
+        let identity = rule
+            .computed_attributes
+            .identity
+            .0
+            .get_or_init(|| Arc::new(Self::new(rule)));
+        debug_assert_eq!(
+            **identity,
+            Self::new(rule),
+            "a rule's shared identity is the one its attributes give"
+        );
+        Arc::clone(identity)
+    }
+}
+
+/// A rule's [`RuleIdentity`] once it has been built ([`RuleIdentity::of`]): derived data, so it
+/// takes no part in the rule's equality, and a clone of the rule starts without it, since a
+/// clone may be changed before it is used.
+#[derive(Default)]
+pub struct RuleIdentityCell(std::sync::OnceLock<Arc<RuleIdentity>>);
+
+impl RuleIdentityCell {
+    /// A cell holding this one's identity, if built, for a rule that names the same rule.
+    pub(crate) fn sharing(&self) -> Self {
+        let cell = Self::default();
+        if let Some(identity) = self.0.get() {
+            let _ = cell.0.set(Arc::clone(identity));
+        }
+        cell
+    }
+}
+
+impl Clone for RuleIdentityCell {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+
+impl PartialEq for RuleIdentityCell {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for RuleIdentityCell {}
+
+impl std::fmt::Debug for RuleIdentityCell {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("RuleIdentityCell")
+    }
+}
+
+/// A rule as the work of one of its steps names it: its shared [`RuleIdentity`], whose fields it
+/// reads as its own, and what that step's work depended on.
+#[derive(Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ObservingRule {
+    identity: Arc<RuleIdentity>,
     /// For the normalization of a successor a step built, whether the step's attempt depended on
     /// something that may differ between models ([`Dependence`]): the work that decided its
     /// premises, which a record of the rule's claim rests on too.
     pub(crate) premises_depend: Dependence,
+}
+
+impl std::ops::Deref for ObservingRule {
+    type Target = RuleIdentity;
+
+    fn deref(&self) -> &RuleIdentity {
+        &self.identity
+    }
 }
 
 /// The parts that name the rule; `premises_depend` is a fact of one step's work, not of the
@@ -336,12 +417,14 @@ impl ObservingRule {
     }
 
     pub(crate) fn of(rule: &RewriteRule) -> Self {
+        Self::with(RuleIdentity::of(rule), Dependence::default())
+    }
+
+    /// The rule `identity`, as the work of a step that depended on `premises_depend` names it.
+    pub(crate) fn with(identity: Arc<RuleIdentity>, premises_depend: Dependence) -> Self {
         Self {
-            unique_id: rule.attributes.unique_id.clone(),
-            label: rule.attributes.label.clone(),
-            origin: rule.attributes.origins.first().cloned(),
-            claims_defined_result: claims_defined_result(rule),
-            premises_depend: Dependence::default(),
+            identity,
+            premises_depend,
         }
     }
 }
@@ -1234,13 +1317,15 @@ mod tests {
     #[test]
     fn a_rule_scope_is_restored_on_every_exit() {
         let rule = || {
-            Some(ObservingRule {
-                unique_id: "r".to_owned(),
-                label: None,
-                origin: None,
-                claims_defined_result: false,
-                premises_depend: Dependence::default(),
-            })
+            Some(ObservingRule::with(
+                Arc::new(RuleIdentity {
+                    unique_id: "r".to_owned(),
+                    label: None,
+                    origin: None,
+                    claims_defined_result: false,
+                }),
+                Dependence::default(),
+            ))
         };
         assert_eq!(observed_by(rule, || 1), 1);
         assert!(STATE.with_borrow(|state| state.rules.is_empty()));
