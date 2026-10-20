@@ -268,6 +268,20 @@ enum Predictions {
     /// Keep a predicted item only in the agenda and, when it expects a nonterminal, in
     /// `waiting`. An empty production, which completes where it is predicted and whose node
     /// the completed items of the chart provide, is kept.
+    ///
+    /// A filtered recognition that judges the relations also does not make a prediction that
+    /// no parse can advance past its first item: a production `A ::= B t ...` predicted at a
+    /// position where `B` is already predicted, when `B` matches no empty text and no token from
+    /// that position on is the lexeme `t`. Popping such an item would do nothing: it would
+    /// predict `B`, which is predicted already, and read the completions of `B` over no text
+    /// there, of which there are none. The scanner is deterministic (`PredictionMode`), so it
+    /// could only become `A ::= B . t ...` past a nonempty `B`, which scans nothing, completes
+    /// nothing and predicts nothing. So every other item, its derivations and the order in
+    /// which the agenda pops it are as they would be, and so are the forest and every error
+    /// recognition raises. What it would have changed is only what a diagnostic
+    /// reads: the dead items and the relations judged at their edges, the pruning recorded and
+    /// the work charged. A failed attempt therefore takes all of those from a recognition that
+    /// keeps every item (`Grammar::parse_attempt`).
     Implied,
 }
 
@@ -375,6 +389,11 @@ impl RemainingTokens {
 
     /// The first position at or after `after` where the token is a lexeme for which `accepts`
     /// holds.
+    /// The last position where the token is `lexeme`.
+    fn last_of(&self, lexeme: usize) -> Option<usize> {
+        self.positions.get(&lexeme)?.last().copied()
+    }
+
     fn first_from(&self, after: usize, accepts: impl Fn(usize) -> bool) -> Option<usize> {
         self.positions
             .iter()
@@ -2275,38 +2294,44 @@ impl Grammar {
                 &priority_memos,
             )
         };
+        // A recognition that implies its predicted items also skips predictions that only a
+        // diagnostic reads (`Predictions::Implied`), so what the diagnostic of a failure reads
+        // comes from a recognition that keeps them (below): its charts, its first violation,
+        // whether it pruned, and the work it charged, which sets the diagnostic's limit.
+        let mut implied_pruned = false;
+        let mut implied_work = WorkMeter::unmetered();
+        let (first_pruned, first_work) = match predictions {
+            Predictions::Kept => (&mut pruning.pruned, &mut *work),
+            Predictions::Implied => (&mut implied_pruned, &mut implied_work),
+        };
         let Recognition {
             charts,
             parses,
             first_violation,
             work_limit_reached,
-        } = recognize(
-            predictions,
-            &mut pruning.pruned,
-            &mut *work,
-            &mut scanner_cache,
-        )?;
+        } = recognize(predictions, first_pruned, first_work, &mut scanner_cache)?;
         if work_limit_reached {
             return Err(Failure::WorkLimit);
         }
         if parses.is_empty() {
-            // The diagnostic reads every item of the charts (`Predictions`): recognize again,
-            // keeping them. The recognition is a function of the grammar, the input and the
-            // mode (the priority memos and the scanner cache it shares are caches), so its
-            // charts are those of the first with the predicted items added; its steps are not
-            // counted, so the limit of a later diagnostic is the one the first sets, and the
-            // pruning the first recorded stands.
-            let charts = match predictions {
-                Predictions::Kept => charts,
+            // Recognize again, keeping every item. The recognition is a function of the
+            // grammar, the input, the mode and `predictions` (the priority memos and the scanner
+            // cache it shares are caches), and the one that keeps every item is the recognition
+            // the diagnostic is defined on.
+            let (charts, first_violation) = match predictions {
+                Predictions::Kept => (charts, first_violation),
                 Predictions::Implied => {
                     drop(charts);
-                    recognize(
+                    let kept = recognize(
                         Predictions::Kept,
-                        &mut false,
-                        &mut WorkMeter::unmetered(),
+                        &mut pruning.pruned,
+                        &mut *work,
                         &mut scanner_cache,
-                    )?
-                    .charts
+                    )?;
+                    if kept.work_limit_reached {
+                        return Err(Failure::WorkLimit);
+                    }
+                    (kept.charts, kept.first_violation)
                 }
             };
             pruning.furthest = Some(
@@ -2789,6 +2814,32 @@ impl Grammar {
                                 {
                                     measure::bump(Counter::ParserNonterminalPredictionsSkipped);
                                     *pruned = true;
+                                    continue;
+                                }
+                                // A production `A ::= B t ...` predicted here, when `B` is
+                                // already predicted here and matches no empty text and no token
+                                // from here on is the lexeme `t`, can advance past `B` only into
+                                // an item that never scans `t` (`Predictions::Implied`): it is
+                                // not made.
+                                if predictions == Predictions::Implied
+                                    && usefulness_filter == PriorityFilter::Enforced
+                                    && let Some(analysis) = prediction_analysis
+                                    && let Some((first, lexeme)) =
+                                        analysis.nonterminal_then_lexeme(predicted)
+                                    && predicted_at[first] == Some(position)
+                                    && remaining_tokens
+                                        .get_or_insert_with(|| {
+                                            RemainingTokens::new(
+                                                self,
+                                                input,
+                                                start_position,
+                                                scanner_cache,
+                                            )
+                                        })
+                                        .last_of(lexeme)
+                                        .is_none_or(|last| last < position)
+                                {
+                                    measure::bump(Counter::ParserNonterminalPredictionsSkipped);
                                     continue;
                                 }
                                 measure::bump(Counter::ParserChartPredictionAttempts);
@@ -5384,6 +5435,7 @@ mod chart_tests {
             (&expressions, "x + (x * x) * x", true),
             (&expressions, " (! x + ( x)) ", true),
             (&expressions, "x + (x * ", false),
+            (&expressions, "x + (x + x)", true),
             (&ambiguous, "d d d d d d", true),
         ];
         for (grammar, input, parses) in cases {
@@ -5419,22 +5471,44 @@ mod chart_tests {
                 let (implied, implied_work) = recognize(Predictions::Implied);
                 assert_eq!(!kept.parses.is_empty(), parses, "{input}");
                 assert_eq!(implied.parses, kept.parses, "{input}");
-                assert_eq!(implied.first_violation, kept.first_violation, "{input}");
-                assert_eq!(implied_work, kept_work, "{input}");
+                // Only a filtered recognition skips the predictions no parse advances past their
+                // first item; without them, it differs only in what diagnostics read.
+                let skips = mode == PredictionMode::Filtered;
+                if skips {
+                    assert!(implied_work.add_calls <= kept_work.add_calls, "{input}");
+                    if input == "x + (x + x)" {
+                        // `S ::= S "*" T` is never made.
+                        assert!(implied_work.add_calls < kept_work.add_calls, "{input}");
+                    }
+                } else {
+                    assert_eq!(implied.first_violation, kept.first_violation, "{input}");
+                    assert_eq!(implied_work, kept_work, "{input}");
+                }
                 let mut omitted = 0;
                 for (position, (implied, kept)) in
                     implied.charts.iter().zip(&kept.charts).enumerate()
                 {
-                    assert_eq!(implied.waiting, kept.waiting, "{input} at {position}");
+                    if skips {
+                        // The waiting items are those of `kept`, in its order, less skipped ones.
+                        for (sort, kept) in &kept.waiting {
+                            let implied = implied.waiting.get(sort).map_or(&[][..], Vec::as_slice);
+                            let mut rest = kept.iter();
+                            assert!(
+                                implied.iter().all(|state| rest.any(|kept| kept == state)),
+                                "{input} at {position}"
+                            );
+                        }
+                    } else {
+                        assert_eq!(implied.waiting, kept.waiting, "{input} at {position}");
+                    }
                     assert_eq!(implied.completed, kept.completed, "{input} at {position}");
                     assert_eq!(implied.states.is_empty(), kept.states.is_empty());
                     for (state, derivations) in &kept.states {
                         match implied.states.get(state) {
                             Some(implied) => assert_eq!(implied, derivations),
-                            None => {
-                                // Only predicted items are omitted, and their derivations are
-                                // the ones the chart reports for them.
-                                assert_eq!(state.dot, 0);
+                            None if state.dot == 0 => {
+                                // Predicted items are omitted, and their derivations are the
+                                // ones the chart reports for them.
                                 assert_eq!(state.origin, position);
                                 assert!(!grammar.productions[state.production].items.is_empty());
                                 assert_eq!(
@@ -5442,6 +5516,16 @@ mod chart_tests {
                                     Some(derivations)
                                 );
                                 omitted += 1;
+                            }
+                            None => {
+                                // A skipped prediction would only have become an item that
+                                // expects a lexeme no later token is.
+                                assert!(skips, "{input} at {position}: {state:?}");
+                                assert_eq!(state.dot, 1);
+                                assert!(matches!(
+                                    grammar.productions[state.production].items[1],
+                                    Item::Terminal(_)
+                                ));
                             }
                         }
                     }

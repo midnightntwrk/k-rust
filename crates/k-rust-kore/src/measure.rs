@@ -442,7 +442,8 @@ pub enum Counter {
     ParserChartPredictionAttempts,
     /// Predictions skipped by the FIRST-set filter, terminal-first productions.
     ParserTerminalPredictionsSkipped,
-    /// Predictions skipped by the FIRST-set filter, nonterminal-first productions.
+    /// Predictions of nonterminal-first productions skipped: by the FIRST-set filter, or because
+    /// no later token is the lexeme their second item reads.
     ParserNonterminalPredictionsSkipped,
     /// Packed-term candidates built for completed states.
     ParserChartCompletionCandidates,
