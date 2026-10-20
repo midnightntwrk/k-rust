@@ -433,6 +433,9 @@ pub struct ComputedRuleAttributes {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RewriteRule {
     pub lhs: Term,
+    /// The position of this rule among the rules of its axiom, when the axiom has several: the
+    /// alternatives of a rewrite's disjunctive left-hand side, or a function equation's choices
+    /// of one alternative per argument binder. `None` for an axiom internalized as one rule.
     pub lhs_alternative: Option<usize>,
     pub rhs: RuleRhs,
     pub requires: Condition,
@@ -1938,15 +1941,22 @@ pub fn internalize_axiom(
             else {
                 return Ok(vec![]);
             };
+            // The equation is `requires ∧ ⋀ Xi ∈ Pi → f(X⃗) = rhs`. Every symbol is interpreted
+            // pointwise, so a disjunction below a symbol of `Pi`, or below an operand of its
+            // `\and`, distributes to the root (`σ(.., A ∨ B, ..) = σ(.., A, ..) ∨ σ(.., B, ..)`,
+            // and `\and` distributes over `\or`), and `Xi ∈ (A ∨ B) → φ` is
+            // `(Xi ∈ A → φ) ∧ (Xi ∈ B → φ)`: one rule per choice of a disjunct for each argument,
+            // all of them with the axiom's attributes. A `\bottom` disjunct at the root is no
+            // value of `Xi`, so it gives no rule.
             let mut binding_alternatives = vec![Substitution::new()];
             for binder in binders {
                 let variable =
                     definition.internalize_variable(&binder.variable, sort_parameters)?;
-                let alternatives = binder_term_alternatives(&binder.pattern)
+                let alternatives = binder_disjuncts(&binder.pattern)
                     .into_iter()
                     .filter_map(|pattern| {
                         live_matched(definition.internalize_term_with_validation(
-                            pattern,
+                            &pattern,
                             sort_parameters,
                             injection_role,
                         ))
@@ -2017,9 +2027,13 @@ pub fn internalize_axiom(
             let rhs = rename_rhs(rhs, rename);
             let requires = rename_predicates(&requires, rename);
             let ensures = rename_predicates(&ensures, rename);
+            // The rules of one axiom are its alternatives, numbered as a rewrite's left-hand
+            // side alternatives are, so the axiom's identity names all of them as one axiom.
+            let split = binding_alternatives.len() > 1;
             Ok(binding_alternatives
                 .into_iter()
-                .map(|bindings| {
+                .enumerate()
+                .map(|(index, bindings)| {
                     InternalizedRule::Term(
                         RuleKind::Function,
                         make_rule(
@@ -2029,7 +2043,7 @@ pub fn internalize_axiom(
                             ensures.clone(),
                             attributes.clone(),
                             BTreeSet::new(),
-                            None,
+                            split.then_some(index),
                         ),
                     )
                 })
@@ -3639,6 +3653,19 @@ pub(crate) fn term_disjuncts(pattern: &kore::Pattern) -> Vec<kore::Pattern> {
         .collect()
 }
 
+/// The disjuncts of a function equation's argument binder `Xi ∈ P`, `\bottom` ones dropped.
+///
+/// `P` is the set of values of a term variable, so it is read at a term position from its root:
+/// every `\or` in it splits, also one at the root whose operands are themselves disjunctions
+/// (`\or(\or(a, b), \or(c, d))` is `a`, `b`, `c` and `d`), which [`term_disjuncts`] keeps whole
+/// at the root of a pattern that may be a predicate.
+fn binder_disjuncts(pattern: &kore::Pattern) -> Vec<kore::Pattern> {
+    distribute_term_or_with_context(pattern, true)
+        .into_iter()
+        .filter(|alternative| !matches!(alternative, kore::Pattern::Bottom { .. }))
+        .collect()
+}
+
 fn make_rule(
     lhs: Term,
     rhs: RuleRhs,
@@ -4539,19 +4566,6 @@ fn extract_binders(pattern: &kore::Pattern) -> Result<Vec<ArgumentBinder>, Axiom
     }
 }
 
-fn binder_term_alternatives(pattern: &kore::Pattern) -> Vec<&kore::Pattern> {
-    let kore::Pattern::Or { arguments, .. } = pattern else {
-        return vec![pattern];
-    };
-    if arguments.is_empty() {
-        return vec![pattern];
-    }
-    arguments
-        .iter()
-        .flat_map(binder_term_alternatives)
-        .collect()
-}
-
 fn extract_existentials(mut pattern: kore::Pattern) -> (kore::Pattern, Vec<kore::Variable>) {
     let mut variables = Vec::new();
     while let kore::Pattern::Exists { variable, body, .. } = &mut pattern {
@@ -5276,29 +5290,109 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn rejects_disjunction_nested_below_a_binder_term_head() {
-        let error = internalize_function(
-            r#"axiom{R} \implies{R}(
-                \and{R}(
-                    \top{R}(),
-                    \and{R}(
-                        \in{SortS{}, R}(
-                            X:SortS{},
-                            wrap{}(\or{SortS{}}(a{}(), b{}()))
-                        ),
-                        \top{R}()
+    /// The rules of the one-argument equation of `unary` whose argument binder is `pattern`.
+    fn unary_equation_rules(pattern: &str) -> Vec<InternalizedRule> {
+        internalize_function(&format!(
+            r#"axiom{{R}} \implies{{R}}(
+                \and{{R}}(
+                    \top{{R}}(),
+                    \and{{R}}(
+                        \in{{SortS{{}}, R}}(X:SortS{{}}, {pattern}),
+                        \top{{R}}()
                     )
                 ),
-                \equals{SortS{}, R}(
-                    unary{}(X:SortS{}),
-                    \and{SortS{}}(result{}(), \top{SortS{}}())
+                \equals{{SortS{{}}, R}}(
+                    unary{{}}(X:SortS{{}}),
+                    \and{{SortS{{}}}}(result{{}}(), \top{{SortS{{}}}}())
                 )
-            ) [label{}("nested-term-or")]"#,
-        )
-        .expect_err("only a binder's top-level disjunction is admissible");
+            ) [label{{}}("nested-term-or")]"#
+        ))
+        .unwrap_or_else(|error| panic!("{pattern}: {error:?}"))
+    }
 
-        assert_eq!(error, DefinitionError::ExpectedTerm("or"));
+    /// A binder that loaded before nested disjunctions were distributed has a disjunction at
+    /// most at its root, nested only in further root disjunctions, and every alternative is a
+    /// term (the term reader refused anything else). On such a binder the distribution gives the
+    /// alternatives the root split gave, in the same order: the binder is read at a term
+    /// position, so its root disjunctions, disjunctions of disjunctions included, are flattened
+    /// left to right, and an alternative with no `\or` below its root is its own one
+    /// distribution. So every definition that loaded before gets the same function rules.
+    #[test]
+    fn distribution_of_a_root_disjunction_is_the_former_root_split() {
+        // The split of a binder's root disjunction before nested ones were distributed.
+        fn root_split(pattern: &kore::Pattern) -> Vec<&kore::Pattern> {
+            let kore::Pattern::Or { arguments, .. } = pattern else {
+                return vec![pattern];
+            };
+            if arguments.is_empty() {
+                return vec![pattern];
+            }
+            arguments.iter().flat_map(root_split).collect()
+        }
+        for binder in [
+            r"a{}()",
+            r"X:SortS{}",
+            r"wrap{}(\and{SortS{}}(Y:SortS{}, a{}()))",
+            r"\or{SortS{}}(a{}(), b{}())",
+            r"\or{SortS{}}(a{}(), \or{SortS{}}(b{}(), c{}()))",
+            r"\or{SortS{}}(\or{SortS{}}(a{}(), b{}()), c{}())",
+            r"\or{SortS{}}(\or{SortS{}}(a{}(), wrap{}(b{}())), \or{SortS{}}(\and{SortS{}}(Y:SortS{}, c{}()), Z:SortS{}))",
+            r#"\or{SortS{}}(wrap{}(wrap{}(a{}())), \dv{SortS{}}("1"), \and{SortS{}}(Y:SortS{}, wrap{}(Z:SortS{})))"#,
+        ] {
+            let pattern = k_rust_kore::kore::parser::parse_pattern(binder).unwrap();
+            let before = root_split(&pattern)
+                .into_iter()
+                .cloned()
+                .collect::<Vec<_>>();
+            assert_eq!(binder_disjuncts(&pattern), before, "{binder}");
+        }
+    }
+
+    /// A disjunction below a symbol of an argument binder, or below its `\and`, is distributed
+    /// to the binder's root: the equation gives the rules of the binder's disjunction of
+    /// distributed terms, in the same order.
+    #[test]
+    fn distributes_a_disjunction_nested_below_a_binder_term_head() {
+        for (nested, distributed) in [
+            (
+                r"wrap{}(\or{SortS{}}(a{}(), b{}()))",
+                r"\or{SortS{}}(wrap{}(a{}()), wrap{}(b{}()))",
+            ),
+            (
+                r"wrap{}(wrap{}(\or{SortS{}}(a{}(), \or{SortS{}}(b{}(), c{}()))))",
+                r"\or{SortS{}}(wrap{}(wrap{}(a{}())), \or{SortS{}}(wrap{}(wrap{}(b{}())), wrap{}(wrap{}(c{}()))))",
+            ),
+            (
+                r"\and{SortS{}}(Y:SortS{}, \or{SortS{}}(a{}(), b{}()))",
+                r"\or{SortS{}}(\and{SortS{}}(Y:SortS{}, a{}()), \and{SortS{}}(Y:SortS{}, b{}()))",
+            ),
+            (
+                r"wrap{}(\and{SortS{}}(Y:SortS{}, \or{SortS{}}(a{}(), b{}())))",
+                r"\or{SortS{}}(wrap{}(\and{SortS{}}(Y:SortS{}, a{}())), wrap{}(\and{SortS{}}(Y:SortS{}, b{}())))",
+            ),
+        ] {
+            let rules = unary_equation_rules(nested);
+            assert_eq!(
+                rules.len(),
+                2 + usize::from(nested.contains("c{}")),
+                "{nested}"
+            );
+            assert_eq!(rules, unary_equation_rules(distributed), "{nested}");
+        }
+    }
+
+    /// A `\bottom` disjunct of an argument binder is no value of its variable, so it gives no
+    /// rule.
+    #[test]
+    fn a_bottom_disjunct_of_a_binder_gives_no_rule() {
+        assert_eq!(
+            unary_equation_rules(r"\or{SortS{}}(\bottom{SortS{}}(), a{}())"),
+            unary_equation_rules(r"a{}()"),
+        );
+        assert_eq!(
+            unary_equation_rules(r"wrap{}(\or{SortS{}}(\or{SortS{}}(), a{}()))"),
+            unary_equation_rules(r"wrap{}(a{}())"),
+        );
     }
 
     #[test]

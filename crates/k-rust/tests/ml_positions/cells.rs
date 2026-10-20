@@ -1574,14 +1574,14 @@ fn walk_cells(cells: &mut Vec<CellSpec>) {
             Meaning::Unstated,
         )
     });
-    cells.push(refused(
+    cells.push(accepted(
         "fun-lhs__or-below-symbol",
         format!("{KITEMS}  rule [p]: ff(g(1 #Or 2)) => 5\n"),
-        "g(1 #Or 2) is g(1) #Or g(2): ff(g(1)) = ff(g(2)) = 5, ff(g(3)) = 7; an equation's or-pattern below a symbol is refused (matched only at an argument's root)",
-        Meaning::States(Expect::runs(vec![
+        "g(1 #Or 2) is g(1) #Or g(2): ff(g(1)) = ff(g(2)) = 5, ff(g(3)) = 7; an equation's or-pattern below a symbol is distributed, one equation per alternative",
+        vec![
             Run::new(go(1), vec![stuck(done(5))]),
             Run::new(go(3), vec![stuck(done(7))]),
-        ])),
+        ],
     ));
     cells.push(accepted(
         "fun-lhs__or-of-or-root",
