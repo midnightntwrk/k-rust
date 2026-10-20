@@ -491,6 +491,14 @@ fn parse_machine_pattern_record(
             let value = map.call(Ident::parse_any)?;
             validate_authored_binder(&value.to_string(), value.span())?;
             map.parse::<Token![,]>()?;
+            if !map.peek(Token![..]) {
+                return Err(map
+                    .error(
+                        "a machine-rule map pattern reads one entry, `{ key -> value, .. }`; \
+                         a `k::cells!` rule matches several with `map![k1 -> v1, k2 -> v2, ..]`",
+                    )
+                    .into());
+            }
             map.parse::<Token![..]>()?;
             if map.peek(Token![,]) {
                 map.parse::<Token![,]>()?;

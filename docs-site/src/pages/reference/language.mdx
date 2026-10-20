@@ -93,6 +93,9 @@ The omitted computation cell is framed like every omitted cell, so the rule fire
 Such a rule is rejected when it changes no cell (`krs::analysis::rule-changes-no-cell`), and when every cell pattern is a variable or `_` of the cell's sort and it has no guard, because it is then always enabled and execution never terminates (`krs::analysis::always-enabled-rule`).
 The overlap check treats two rules that share no cell as independent, because they commute; rules that share cells are compared on those cells only.
 
+A readable record reads one entry of a Map cell with `env: { name -> value, .. }`: the rule applies only where the key is present, `value` binds what it maps to, and the cell is left unchanged, so the result record does not restate `env`.
+It reads one entry, and a second is a syntax error; a `cells!` rule matches several with `env: k::configuration::Cell(map![k1 -> v1, k2 -> v2, ..])`, K's `K1 |-> V1 K2 |-> V2 ...`, which also requires the keys to differ, because each item is a different entry of the map.
+
 ### Whole nested-cell variables
 
 A nested cell is a value too: K gives `<frame>` the generated sort `FrameCell` (the cell name capitalised, hyphens removed, then `Cell`), so one variable captures the whole cell, as KEVM saves `<callState>` on its call stack.

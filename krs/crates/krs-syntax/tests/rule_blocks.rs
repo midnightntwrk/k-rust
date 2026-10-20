@@ -360,6 +360,10 @@ fn malformed_blocks_fail_at_the_local_construct() {
             "`=>` is reserved for rewrites; map entries use `->`",
         ),
         (
+            "for Machine; x: { computation: [a, ..], env: { a -> v, b -> w, .. } } => { computation: [v, ..] };",
+            "a machine-rule map pattern reads one entry, `{ key -> value, .. }`; a `k::cells!` rule matches several with `map![k1 -> v1, k2 -> v2, ..]`",
+        ),
+        (
             "for Machine; x: { computation: [a, ..], stack: Cons(v, rest) } => { computation: [a, ..] };",
             "ordinary fixed-cell pattern requires a corresponding result",
         ),
