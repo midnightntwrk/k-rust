@@ -41,6 +41,7 @@ use crate::{
     },
     diagnostic::{Diagnostic, DiagnosticCode, DiagnosticPolicy, Severity},
     kast::{GeneratedLabel, Sort, Term},
+    kore::ast::Definition as KoreDefinition,
     kore::printer::Printer as KorePrinter,
     outer::{InputAddressing, LoadOptions, LoadedDefinition},
     provenance::{
@@ -50,8 +51,10 @@ use crate::{
     timings::PhaseTimings,
 };
 
-use super::module_to_kore::module_to_kore_from_resolved_with_options_and_sources;
 use super::module_to_kore::{BUILTIN_HOOK_NAMESPACES, is_real_hook};
+use super::module_to_kore::{
+    DeclarationModules, module_to_kore_from_resolved_with_options_and_sources,
+};
 use super::passes::number_sentence;
 use super::pipeline::{DeepestTerm, StageObserver, emission_phase, prologue_phase};
 use super::{ModuleToKoreOptions, rust_backend_hook_namespaces};
@@ -397,6 +400,51 @@ pub fn on_definitions_stack<'a, T>(
     DeepestTerm::of_all(definitions).run(stage, work)
 }
 
+/// The KORE definition a proof reads, as [`compile_loaded_definition_for_proof`] returns it.
+#[derive(Clone, Debug)]
+pub struct CompiledProofDefinition {
+    /// The value `definition.kore` of [`CompileOptions`]'s compilation denotes: the
+    /// [`CompiledKoreArtifacts::definition_kore`] text of the same call parses to it.
+    pub definition: KoreDefinition,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+/// [`compile_loaded_definition`] for a caller that reads only the compiled definition as a value,
+/// such as a prover: the same transformation, checks and KORE generation, and the same errors and
+/// diagnostics, without rendering the definition, syntax and macro texts.
+///
+/// The returned definition is the one [`CompiledKoreArtifacts::definition_kore`] prints for the
+/// same arguments, so parsing that text gives back an equal value; the caller is spared the
+/// printing and the parse.
+pub fn compile_loaded_definition_for_proof(
+    loaded: &LoadedDefinition,
+    options: CompileOptions,
+) -> Result<CompiledProofDefinition, CompileError> {
+    let mut timings = PhaseTimings::default();
+    let (execution_definition, definition, diagnostics, resolved) =
+        transform_loaded_definition(loaded, &options, &mut timings, &mut |_, _, _| {})?;
+    let emitted = DeepestTerm::of_all([&execution_definition, &definition]).run(
+        emission_phase::EMIT_KORE,
+        || {
+            emit_declarations(
+                loaded,
+                &options,
+                &mut timings,
+                Transformed {
+                    execution_definition,
+                    definition,
+                    diagnostics,
+                    resolved,
+                },
+            )
+        },
+    )??;
+    Ok(CompiledProofDefinition {
+        definition: emitted.generated.into_semantics_definition(),
+        diagnostics: emitted.diagnostics,
+    })
+}
+
 /// What the transformation stages give emission.
 struct Transformed {
     execution_definition: Definition,
@@ -413,6 +461,62 @@ fn emit_compiled(
     timings: &mut PhaseTimings,
     transformed: Transformed,
 ) -> Result<CompiledKoreArtifacts, CompileError> {
+    let Emitted {
+        generated,
+        diagnostics,
+        configuration_variables,
+        execution_definition,
+        execution_rewrite_order,
+        sentence_provenance,
+    } = emit_declarations(loaded, options, timings, transformed)?;
+    let printer = KorePrinter::pretty(options.kore_width);
+    let definition_kore = timings.time(emission_phase::PRINT_DEFINITION_KORE, || {
+        with_newline(generated.print_semantics_definition(printer))
+    });
+    let syntax_definition_kore = timings.time(emission_phase::PRINT_SYNTAX_DEFINITION_KORE, || {
+        with_newline(generated.print_syntax_definition(printer))
+    });
+    let macros_kore = timings.time(emission_phase::PRINT_MACROS_KORE, || {
+        with_newline(
+            generated
+                .macros
+                .iter()
+                .map(|sentence| printer.print_sentence(sentence))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )
+    });
+    Ok(CompiledKoreArtifacts {
+        definition_kore,
+        syntax_definition_kore,
+        macros_kore,
+        diagnostics,
+        configuration_variables,
+        execution_definition,
+        execution_rewrite_order,
+        sentence_provenance,
+    })
+}
+
+/// What emission computes before any text is rendered.
+struct Emitted {
+    generated: DeclarationModules,
+    diagnostics: Vec<Diagnostic>,
+    configuration_variables: BTreeMap<String, Sort>,
+    execution_definition: Definition,
+    execution_rewrite_order: Vec<String>,
+    sentence_provenance: BTreeMap<String, EmittedSentenceProvenance>,
+}
+
+/// Emission up to the KORE values: the checks of the transformed definition, its KORE
+/// declarations, and the provenance of the emitted sentences. Every error emission can raise is
+/// raised here; rendering the values as text cannot fail.
+fn emit_declarations(
+    loaded: &LoadedDefinition,
+    options: &CompileOptions,
+    timings: &mut PhaseTimings,
+    transformed: Transformed,
+) -> Result<Emitted, CompileError> {
     let Transformed {
         execution_definition,
         definition,
@@ -504,31 +608,11 @@ fn emit_compiled(
             },
         )
     })?;
-
-    let printer = KorePrinter::pretty(options.kore_width);
-    let definition_kore = timings.time(emission_phase::PRINT_DEFINITION_KORE, || {
-        with_newline(generated.print_semantics_definition(printer))
-    });
-    let syntax_definition_kore = timings.time(emission_phase::PRINT_SYNTAX_DEFINITION_KORE, || {
-        with_newline(generated.print_syntax_definition(printer))
-    });
-    let macros_kore = timings.time(emission_phase::PRINT_MACROS_KORE, || {
-        with_newline(
-            generated
-                .macros
-                .iter()
-                .map(|sentence| printer.print_sentence(sentence))
-                .collect::<Vec<_>>()
-                .join("\n"),
-        )
-    });
     let sentence_provenance =
         collect_sentence_provenance(&emitted_sources, &execution_definition, loaded)
             .map_err(|message| CompileError::from_error("emitted sentence provenance", message))?;
-    Ok(CompiledKoreArtifacts {
-        definition_kore,
-        syntax_definition_kore,
-        macros_kore,
+    Ok(Emitted {
+        generated,
         diagnostics,
         configuration_variables,
         execution_definition,

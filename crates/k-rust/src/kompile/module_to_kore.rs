@@ -164,6 +164,14 @@ impl DeclarationModules {
         self.definition_with(self.semantics.clone())
     }
 
+    /// [`Self::semantics_definition`], moving the semantics module into it instead of cloning it.
+    pub fn into_semantics_definition(self) -> KoreDefinition {
+        let mut definition = standard_kore_prelude();
+        definition.attributes = self.definition_attributes;
+        definition.modules.push(self.semantics);
+        definition
+    }
+
     /// Print [`Self::semantics_definition`] without cloning the semantics module into it.
     pub fn print_semantics_definition(&self, printer: crate::kore::printer::Printer) -> String {
         self.print_definition_with(printer, &self.semantics)
