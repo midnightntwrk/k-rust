@@ -152,7 +152,9 @@ pub(crate) fn eliminate_equated_variables(
 
 /// The free variables of `predicate`, each once, in order of first occurrence: its terms in the
 /// order [`Predicate::visit_terms`] visits them, each in preorder ([`immediate_children`]). An
-/// occurrence that a quantifier of `predicate` binds is not free.
+/// occurrence that a quantifier of `predicate` binds is not free. Like
+/// [`Predicate::free_variables`], it bumps `Counter::SimplifyPredicateNodesVisited` once per
+/// predicate node it reads.
 pub(crate) fn free_variables_by_first_occurrence(predicate: &Predicate) -> Vec<Variable> {
     fn term(term: &Term, bound: &[Variable], found: &mut Vec<Variable>) {
         let mut pending = vec![term];
@@ -173,6 +175,7 @@ pub(crate) fn free_variables_by_first_occurrence(predicate: &Predicate) -> Vec<V
         }
     }
     fn walk(predicate: &Predicate, bound: &mut Vec<Variable>, found: &mut Vec<Variable>) {
+        measure::bump(Counter::SimplifyPredicateNodesVisited);
         match predicate {
             Predicate::True | Predicate::False => {}
             Predicate::Term(inner)
