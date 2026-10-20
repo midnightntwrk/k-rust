@@ -33,7 +33,7 @@ use crate::{
     diagnostic,
     rewrite::{Truth, alpha_normal, predicates_truth, substitute_predicates},
     rule::{Predicate, rename_predicates},
-    simplify::{RuleCondition, SimplificationError, bool_value, hook_argument_definedness},
+    simplify::{RuleCondition, SimplificationError, hook_argument_definedness},
     stop::Stoppable,
     substitution::{Substitution, compose},
     term::{Term, TermKind, Variable, VariableKind},
@@ -177,27 +177,6 @@ impl InstantiatedCondition {
         known: &[Predicate],
     ) -> Result<Vec<Predicate>, DeferredOutcome> {
         condition_definedness(definition, self.0, known)
-    }
-
-    /// The instance's one atom over a variable-free, `ceil_free` Boolean term `t`, with the value
-    /// it states `t` has: `t` itself (`true`), or `t = b` or `b = t` for a Bool literal `b`. Such
-    /// a condition needs no definedness stated, and one evaluation of `t` can decide it
-    /// (`simplify::decide_ground_bool`).
-    pub(crate) fn ground_bool_atom(&self) -> Option<(&Term, bool)> {
-        let [predicate] = self.0.as_slice() else {
-            return None;
-        };
-        let (term, expected) = match predicate {
-            Predicate::Term(term) => (term, true),
-            Predicate::Equals(left, right) => match (bool_value(left), bool_value(right)) {
-                (_, Some(expected)) => (left, expected),
-                (Some(expected), None) => (right, expected),
-                (None, None) => return None,
-            },
-            _ => return None,
-        };
-        let attributes = term.attributes();
-        (attributes.variables.is_empty() && attributes.ceil_free()).then_some((term, expected))
     }
 
     /// Simplify the instance with the definedness of its Boolean terms explicit

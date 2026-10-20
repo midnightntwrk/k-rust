@@ -809,77 +809,6 @@ pub fn simplify_predicates_with_solver(
     )
 }
 
-/// The value of a ground `requires` atom by one evaluation, when the evaluation decides it
-/// silently; `None` when the caller must simplify the condition in full.
-///
-/// `term` is variable-free and `ceil_free` (one defined element in every model), and the atom
-/// states that it is `expected`. A condition made of that one atom, simplified under no fact but
-/// `\top` with a budget of at least one, is decided by exactly this evaluation: the conjunction
-/// fixed point simplifies its one conjunct under the assumption list `[\top]` (the conjunct's own
-/// slot) and an empty path condition, and that conjunct's first act is this call. When the call
-/// returns a Bool literal with nothing conjoined, the atom becomes an equality of two literals,
-/// `\top` or `\bottom`, and the condition `[]` or `[\bottom]` (the `\top` case takes the
-/// fixed point's second round, hence the budget). The rest of that work is scaffolding this
-/// skips.
-///
-/// "Silently" is: no stop and no failure, no diagnostic emitted (held in a buffer meanwhile), no
-/// path fact noted, nothing conjoined, no undefined term or `\bottom` found, no effect, and a
-/// Bool domain value. Every other outcome drops the held diagnostics and answers `None`, and the
-/// caller redoes the evaluation on the full path, which re-emits them; the path facts and caches
-/// the evaluation filled are sets and values the redo meets again. A stop commits the held
-/// diagnostics, as the full path's retraction scope keeps every report on a stop, and is returned.
-pub(crate) fn decide_ground_bool(
-    definition: &BackendDefinition,
-    term: &Term,
-    expected: bool,
-    options: SimplificationOptions,
-    solver: &dyn SmtSolver,
-) -> Stoppable<Option<bool>> {
-    let _apart = crate::rule::ApartScope::enter();
-    let _domain = crate::term::domain::DomainScope::enter(definition);
-    let _hook_values = crate::deferred::HookValueScope::enter(definition);
-    let facts = crate::path_facts::marker();
-    let (result, held) = diagnostic::buffer(|| {
-        let path_condition = PathConditionReplacements::new(&[]);
-        let mut remaining = options.max_iterations;
-        simplify_with_budget(
-            definition,
-            term,
-            &TermAssumptions {
-                predicates: &[Predicate::True],
-                path_condition: &path_condition,
-            },
-            SimplificationOptions {
-                max_iterations: options.max_iterations,
-                budget: BudgetPolicy::Fail,
-            },
-            &mut remaining,
-            &BTreeSet::new(),
-            solver,
-            None,
-        )
-    });
-    let simplified = match result {
-        Ok(simplified) => simplified,
-        Err(Unwind::Stop(stop)) => {
-            held.commit();
-            return Err(stop);
-        }
-        Err(Unwind::Fail(_)) => return Ok(None),
-    };
-    let silent = held.is_empty()
-        && !crate::path_facts::noted_since(facts)
-        && simplified.is_unconditional()
-        && simplified.undefined_term.is_none()
-        && simplified.bottom.is_none()
-        && simplified.exhausted.is_none()
-        && simplified.effects.is_empty();
-    Ok(silent
-        .then(|| bool_value(&simplified.term))
-        .flatten()
-        .map(|value| value == expected))
-}
-
 fn simplify_predicates_entry(
     definition: &BackendDefinition,
     predicates: &[Predicate],
@@ -4747,8 +4676,7 @@ fn align_subsort_operands(
     None
 }
 
-/// The value of a Bool domain value.
-pub(crate) fn bool_value(term: &Term) -> Option<bool> {
+fn bool_value(term: &Term) -> Option<bool> {
     let TermKind::DomainValue { sort, value } = term.kind() else {
         return None;
     };
