@@ -413,7 +413,21 @@ bug — report it, don't guess.
      (c) members of one overload family count as unifiable heads when their
      argument sorts are compatible (KF-038, after the KF-012 collection);
      (d) a parametric application's identity is its (symbol, instance)
-     pair (KF-027).
+     pair (KF-027); (e) List, Set and K-sequence patterns are unified
+     modulo their axioms (`_List_` and `~>` associative with a unit,
+     `_Set_` associative and commutative with a unit on disjoint operands),
+     because configurations hold collections modulo those axioms and a
+     syntactic mismatch of two collection patterns proves nothing. Each
+     side is flattened into elements and open segments (collection
+     variables, `K`-sorted items other than constructor applications, terms
+     the unifier does not model, and a cell's frame). Sequences unify their
+     forced positions, the elements before the first and after the last
+     open segment of both sides, and a closed side must have room for the
+     other's elements; sets compare cardinalities and unify elements only
+     when one element on each side is forced; anything else may overlap.
+     Bindings are committed only for forced positions, so the guard
+     procedure of clause 4 never reads an element pairing the unifier
+     chose (CS-11-2, decided 2026-10-20).
   8. *Intra-pattern check (KF-030),* for every sentence kind: two
      variable-binding or-alternatives that unify are rejected.
 

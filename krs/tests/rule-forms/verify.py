@@ -343,6 +343,7 @@ NEGATIVE = (
     "owise-simplification",
     "priority-alias",
     "unannotated-overlap",
+    "list-unit-overlap",
     "single-member-group",
     "stale-member",
     "mixed-priorities",
