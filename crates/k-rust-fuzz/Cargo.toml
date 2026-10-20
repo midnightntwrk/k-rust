@@ -1,0 +1,40 @@
+[package]
+name = "k-rust-fuzz"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+description = "Crafts concrete input values that make a program reach a target under a K specification"
+repository = "https://github.com/midnightntwrk/k-rust"
+license = "BSD-3-Clause"
+keywords = ["fuzzing", "k-framework", "kore", "testing"]
+categories = ["development-tools::testing"]
+publish = false
+
+[dependencies]
+# The portable build is the primary build (kink builds k-rust without default features); the
+# backend crate is reached through the facade's `k_rust::k_rust_backend` re-export.
+k-rust = { version = "=0.7.0", path = "../k-rust", default-features = false }
+num-bigint.workspace = true
+num-traits.workspace = true
+# Generation and value-tree shrinking. Spelled here rather than inherited: the workspace entry
+# enables proptest's `std`, which pulls an OS random source that does not build for
+# wasm32-unknown-unknown (ARCHITECTURE.md 3, T-2). Pinned exactly because ENGINE_VERSION covers
+# the case sequence, which the generator and RNG code of these versions determines.
+proptest = { version = "=1.11.0", default-features = false, features = ["alloc", "no_std"] }
+# The seeded schedule that drives every proposer choice (ARCHITECTURE.md 8, 10.1).
+rand = { version = "=0.9.5", default-features = false, features = ["alloc"] }
+rand_chacha = { version = "=0.9.0", default-features = false }
+serde.workspace = true
+serde_json.workspace = true
+# Digests of the program, the hole overlay, the target and the rewrite order in the report.
+sha2.workspace = true
+
+[dev-dependencies]
+indoc.workspace = true
+
+[features]
+# The solve proposer (ARCHITECTURE.md 8.6) needs a solver; the library builds without it.
+z3 = ["k-rust/z3-inference"]
+
+[lints]
+workspace = true
