@@ -5236,7 +5236,7 @@ endmodule
     /// The simplifier descends once per level of these terms, so its frames are among the passes
     /// over internal terms that the stack the backend provides per level must hold. At 5,000
     /// levels each request needs more than Node's main thread in every build (the simplifier
-    /// takes about 3 KiB per level in a release build), so the facade runs it on a segment of
+    /// takes about 2 KiB per level in a release build), so the facade runs it on a segment of
     /// exactly the size `nesting::stack_for_depth` gives for its height: a simplifier whose
     /// frames per level outgrew the bound stops with `StackExhausted` there, which the exact
     /// results rule out, or overflows the segment and aborts the test binary. At opt-level 1 each
@@ -5280,10 +5280,11 @@ endmodule
         });
     }
 
-    /// `lenb` counts a `cons` list like `len`, but its result nests two additions above the
-    /// count of the tail, so its simplification takes more stack per level of the list than the
-    /// backend provides per level (about 5.6 KiB in a release build, 8.1 KiB at opt-level 1 and
-    /// 35 KiB unoptimized, against 4, 6 and 24 KiB): on the segment the facade maps for 10,000
+    /// `lenb` counts a `cons` list like `len`, but its result nests four additions above the
+    /// count of the tail, each a level of the term simplifier's recursion (about 2 KiB in an
+    /// optimized build, `k_rust_backend`'s `tests::recursion_stack`), so its simplification takes
+    /// more stack per level of the list than the backend provides per level (4 KiB in a release
+    /// build, 6 KiB at opt-level 1, 24 KiB unoptimized): on the segment the facade maps for 10,000
     /// levels it reaches its red zone with thousands of levels of the list still below it. Each
     /// level binds the rest of the list, whose definedness is then derived, and the request must
     /// end with the count or with `StackExhausted`, not abort. Before the definedness walk kept
@@ -5305,7 +5306,7 @@ endmodule
                     \equals{SortInt{}, R}(
                         lenb{}(X0:SortL{}),
                         \and{SortInt{}}(
-                            intAdd{}(\dv{SortInt{}}("1"), intAdd{}(\dv{SortInt{}}("0"), lenb{}(T:SortL{}))),
+                            intAdd{}(\dv{SortInt{}}("1"), intAdd{}(\dv{SortInt{}}("0"), intAdd{}(\dv{SortInt{}}("0"), intAdd{}(\dv{SortInt{}}("0"), lenb{}(T:SortL{}))))),
                             \top{SortInt{}}()
                         )
                     )

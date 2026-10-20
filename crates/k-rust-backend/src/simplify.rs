@@ -80,6 +80,7 @@ use std::{
     borrow::Cow,
     cell::{Cell, RefCell},
     collections::BTreeSet,
+    ops::ControlFlow,
     sync::Arc,
 };
 
@@ -4996,22 +4997,14 @@ fn simplify_on_stack(
     mut execution: Option<&mut ExecutionEvaluationContext>,
 ) -> SimplifyResult<Simplification> {
     let mut term = term.clone();
-    let mut accumulated = Accumulated::default();
-    // The last equation applied in this lineage to an application of a `total` symbol, before
-    // any undefined term appeared: an undefined term reached afterwards lies in that equation's
-    // result, whose arguments were defined when it fired (`ContradictedTotal`).
-    let mut total_step: Option<TotalStep> = None;
-    // Whether a contradicted claim found here would be noted, so that the work done only to
-    // find one is worth doing (`claims_checked_in`).
-    let checks = claims_checked_in(definition);
-    // The function-equation steps this lineage took on `Unspecified` applications, oldest first,
-    // each an attempt that lasts to the end of the lineage (`UnspecifiedFrame`), and, after one
-    // failed, the equations its application is retried without.
-    let mut frames: Vec<UnspecifiedFrame> = Vec::new();
-    let mut retry: Option<UnspecifiedRetry> = None;
-    // The values this lineage's nested lineages computed for `Unspecified` applications, open
-    // from the first such step on (`UnspecifiedValues`).
-    let mut values: Option<UnspecifiedValues> = None;
+    let mut lineage = Lineage {
+        values: None,
+        retry: None,
+        frames: Vec::new(),
+        checks: claims_checked_in(definition),
+        total_step: None,
+        accumulated: Accumulated::default(),
+    };
     // Each round simplifies the children then the root; the rounds end on a fixed point, an
     // `evaluated` term, an exhausted budget, or a child's exhaustion; `remaining` grows only when
     // a failed attempt is undone. Invariant: `term` equals the input modulo `applied_rules` under
@@ -5025,7 +5018,7 @@ fn simplify_on_stack(
             stop::check()?;
             // A retried application is the subject of the step that failed: its children were
             // simplified in that round, and only its root is tried again.
-            let retried = retry.take();
+            let retried = lineage.retry.take();
             // The application before its children were simplified: the operands a short-circuit
             // hook evaluated, whose definedness its result entails (`hook_argument_definedness`).
             let before_children = retried.is_none().then(|| term.clone());
@@ -5052,170 +5045,265 @@ fn simplify_on_stack(
                     execution.as_deref_mut(),
                 )?
             };
-            // Where the root step's work begins: a record of the claim of a `total` application
-            // the step applies an equation to asks what the work from here on depended on
-            // (`crate::path_facts::note_contradicted_total`).
-            let before_root = if checks {
-                crate::path_facts::marker()
-            } else {
-                crate::path_facts::Marker::default()
-            };
-            let (root, root_step, root_equation, unspecified) = simplify_root(
+            match lineage.root_step(
                 definition,
-                &children.term,
-                before_children.as_ref(),
+                children,
+                before_children,
+                retried,
                 assumptions,
                 options,
+                remaining,
                 active_conditions,
                 solver,
                 execution.as_deref_mut(),
-                retried,
-            )?;
-            let children = accumulated.absorb(children);
-            let mut before_step = unspecified.as_ref().map(|_| accumulated.mark());
-            // The root step's own result conjoins `\bottom` and nothing says where: an applied
-            // equation's `#Bottom` right-hand side or refuted `ensures` (`FoundBottom`).
-            // Only the claim check reads where (`crate::path_facts::claims_checked`).
-            let root_bottom = root.undefined_term.is_none()
-                && root.bottom.is_none()
-                && checks
-                && root.conjoins_bottom();
-            let root = accumulated.absorb(root);
-            if accumulated.undefined_term.is_none() {
-                // A child's own report comes first: it names the innermost equation. Otherwise
-                // the undefined term arose in this lineage, after the last `total` step if there
-                // was one. The root step of this round is not that step's cause: an equation's
-                // result carries no undefined term, so a root report comes from a builtin or a
-                // repeated collection.
-                let (undefined, contradicted) = match children.undefined_term {
-                    Some(term) => (Some(term), children.contradicted_total),
-                    None => (root.undefined_term, None),
-                };
-                if let Some(undefined) = &undefined {
-                    accumulated.contradicted_total = contradicted.or_else(|| {
-                        total_step.as_ref().map(|step| {
-                            let contradicted = ContradictedTotal::new(
-                                step.application.clone(),
-                                &step.rule,
-                                undefined.clone(),
-                            );
-                            // Observed here, whatever becomes of this lineage's result: the
-                            // paths whose decisions rest on it carry the record
-                            // (`crate::path_facts`).
-                            crate::path_facts::note_contradicted_total(
-                                &contradicted,
-                                assumptions.unconditional(),
-                                step.from,
-                            );
-                            contradicted
-                        })
-                    });
-                }
-                accumulated.undefined_term = undefined;
+            )? {
+                ControlFlow::Continue(next) => term = next,
+                ControlFlow::Break(end) => break 'rounds end,
             }
-            // `\bottom` found below this lineage's root, other than as an undefined term, is where
-            // the result of the last `total` step reached it, as an undefined term is above.
-            if accumulated.undefined_term.is_none()
-                && accumulated.bottom.is_none()
-                && let Some(found) = &children.bottom
-            {
-                accumulated.bottom = Some(found_bottom(found, total_step.as_ref(), assumptions));
-            }
-            if let (Some(step), Some(mut before)) = (unspecified, before_step.take()) {
-                // The step's own result carries no report, so the reports now are those of the
-                // state the step was taken from.
-                before.refresh_reports(&accumulated);
-                let rule = root_equation
-                    .clone()
-                    .expect("an Unspecified step applies an equation");
-                values.get_or_insert_with(UnspecifiedValues::open);
-                frames.push(UnspecifiedFrame {
-                    evaluation: step.evaluation,
-                    application: children.term.clone(),
-                    rule,
-                    history: step.history,
-                    before: LineageState {
-                        accumulated: before,
-                        total_step: total_step.clone(),
-                        remaining: *remaining,
-                        io: execution
-                            .as_deref()
-                            .map(ExecutionEvaluationContext::snapshot),
-                        diagnostics: step.diagnostics,
-                    },
-                });
-            }
-            // The root step's own `\bottom`, after the reports of the state it was taken from
-            // (an undone `Unspecified` step takes it back with the step).
-            if accumulated.undefined_term.is_none() && accumulated.bottom.is_none() {
-                if let Some(found) = &root.bottom {
-                    accumulated.bottom =
-                        Some(found_bottom(found, total_step.as_ref(), assumptions));
-                } else if root_bottom {
-                    accumulated.bottom = Some(found_root_bottom(
-                        &children.term,
-                        root_equation.as_deref(),
-                        before_root,
-                        total_step.as_ref(),
-                        assumptions,
-                    ));
-                }
-            }
-            if accumulated.undefined_term.is_none()
-                && let Some(rule) = root_equation
-                && is_total_application(&children.term)
-            {
-                total_step = Some(TotalStep {
-                    application: children.term.clone(),
-                    rule,
-                    from: before_root,
-                });
-            }
-            if root.term.ptr_eq(&children.term)
-                || root.term == children.term
-                || root.term.attributes().evaluated
-            {
-                break 'rounds root.term;
-            }
-            // A determined function step is the definition's own computation, not a rewrite the
-            // simplifier chose, so it neither needs nor consumes budget (`RootStep`).
-            let charged = root_step != RootStep::DeterminedFunctionStep;
-            if charged && *remaining == 0 {
-                match options.budget {
-                    BudgetPolicy::Fail => {
-                        return Err(SimplificationError::IterationLimit {
-                            limit: options.max_iterations,
-                            term: root.term,
-                        }
-                        .into());
-                    }
-                    BudgetPolicy::KeepPartial => {
-                        accumulated.exhausted = Some(BudgetExhaustion {
-                            limit: options.max_iterations,
-                            subject: BudgetSubject::Term,
-                        });
-                        break 'rounds root.term;
-                    }
-                }
-            }
-            if accumulated.exhausted.is_some() {
-                break 'rounds root.term;
-            }
-            if charged {
-                *remaining -= 1;
-            }
-            term = root.term;
         };
-        // The lineage has its outcome; each of its `Unspecified` steps is decided on it, the
-        // latest first. A failed one is undone and its application tried again without it.
-        let Some(failed) = failed_unspecified_frame(&frames, &end, &accumulated) else {
-            if let Some(values) = &values
-                && let Some(first) = frames.first()
+        match lineage.end(
+            end,
+            assumptions,
+            options,
+            remaining,
+            active_conditions,
+            solver,
+            execution.as_deref_mut(),
+        ) {
+            ControlFlow::Break(simplification) => return Ok(simplification),
+            ControlFlow::Continue(application) => term = application,
+        }
+    }
+}
+
+/// What a lineage of [`simplify_on_stack`] keeps from round to round, besides its term.
+///
+/// A nested evaluation recurses through `simplify_on_stack` once per level, and only what is
+/// live across its children step is part of every frame of that recursion. The work of a round
+/// after that step ([`Lineage::root_step`]) and the end of the lineage ([`Lineage::end`]) run in
+/// functions of their own, not inlined, so that their temporaries are not.
+///
+/// The fields are declared in the reverse of the order in which the lineage creates them, so
+/// they are dropped in the order locals created in that order are: newest first. Dropping
+/// `values` and each frame's `evaluation` leaves thread-local stacks (`UnspecifiedValues`,
+/// `UnspecifiedEvaluation`).
+struct Lineage {
+    /// The values this lineage's nested lineages computed for `Unspecified` applications, open
+    /// from the first such step on (`UnspecifiedValues`).
+    values: Option<UnspecifiedValues>,
+    /// After an `Unspecified` step failed, the equations its application is retried without.
+    retry: Option<UnspecifiedRetry>,
+    /// The function-equation steps this lineage took on `Unspecified` applications, oldest first,
+    /// each an attempt that lasts to the end of the lineage (`UnspecifiedFrame`).
+    frames: Vec<UnspecifiedFrame>,
+    /// Whether a contradicted claim found here would be noted, so that the work done only to
+    /// find one is worth doing (`claims_checked_in`).
+    checks: bool,
+    /// The last equation applied in this lineage to an application of a `total` symbol, before
+    /// any undefined term appeared: an undefined term reached afterwards lies in that equation's
+    /// result, whose arguments were defined when it fired (`ContradictedTotal`).
+    total_step: Option<TotalStep>,
+    accumulated: Accumulated,
+}
+
+impl Lineage {
+    /// The rest of a round once its children step gave `children`: the root step, and what the
+    /// lineage keeps of both. `Continue` holds the term of the next round, `Break` the lineage's
+    /// outcome.
+    #[allow(clippy::too_many_arguments)]
+    #[inline(never)]
+    fn root_step(
+        &mut self,
+        definition: &BackendDefinition,
+        children: Simplification,
+        before_children: Option<Term>,
+        retried: Option<UnspecifiedRetry>,
+        assumptions: &TermAssumptions<'_>,
+        options: SimplificationOptions,
+        remaining: &mut usize,
+        active_conditions: &BTreeSet<(String, Term)>,
+        solver: &dyn SmtSolver,
+        mut execution: Option<&mut ExecutionEvaluationContext>,
+    ) -> SimplifyResult<ControlFlow<Term, Term>> {
+        // Where the root step's work begins: a record of the claim of a `total` application
+        // the step applies an equation to asks what the work from here on depended on
+        // (`crate::path_facts::note_contradicted_total`).
+        let before_root = if self.checks {
+            crate::path_facts::marker()
+        } else {
+            crate::path_facts::Marker::default()
+        };
+        let (root, root_step, root_equation, unspecified) = simplify_root(
+            definition,
+            &children.term,
+            before_children.as_ref(),
+            assumptions,
+            options,
+            active_conditions,
+            solver,
+            execution.as_deref_mut(),
+            retried,
+        )?;
+        let children = self.accumulated.absorb(children);
+        let mut before_step = unspecified.as_ref().map(|_| self.accumulated.mark());
+        // The root step's own result conjoins `\bottom` and nothing says where: an applied
+        // equation's `#Bottom` right-hand side or refuted `ensures` (`FoundBottom`).
+        // Only the claim check reads where (`crate::path_facts::claims_checked`).
+        let root_bottom = root.undefined_term.is_none()
+            && root.bottom.is_none()
+            && self.checks
+            && root.conjoins_bottom();
+        let root = self.accumulated.absorb(root);
+        if self.accumulated.undefined_term.is_none() {
+            // A child's own report comes first: it names the innermost equation. Otherwise
+            // the undefined term arose in this lineage, after the last `total` step if there
+            // was one. The root step of this round is not that step's cause: an equation's
+            // result carries no undefined term, so a root report comes from a builtin or a
+            // repeated collection.
+            let (undefined, contradicted) = match children.undefined_term {
+                Some(term) => (Some(term), children.contradicted_total),
+                None => (root.undefined_term, None),
+            };
+            if let Some(undefined) = &undefined {
+                self.accumulated.contradicted_total = contradicted.or_else(|| {
+                    self.total_step.as_ref().map(|step| {
+                        let contradicted = ContradictedTotal::new(
+                            step.application.clone(),
+                            &step.rule,
+                            undefined.clone(),
+                        );
+                        // Observed here, whatever becomes of this lineage's result: the
+                        // paths whose decisions rest on it carry the record
+                        // (`crate::path_facts`).
+                        crate::path_facts::note_contradicted_total(
+                            &contradicted,
+                            assumptions.unconditional(),
+                            step.from,
+                        );
+                        contradicted
+                    })
+                });
+            }
+            self.accumulated.undefined_term = undefined;
+        }
+        // `\bottom` found below this lineage's root, other than as an undefined term, is where
+        // the result of the last `total` step reached it, as an undefined term is above.
+        if self.accumulated.undefined_term.is_none()
+            && self.accumulated.bottom.is_none()
+            && let Some(found) = &children.bottom
+        {
+            self.accumulated.bottom =
+                Some(found_bottom(found, self.total_step.as_ref(), assumptions));
+        }
+        if let (Some(step), Some(mut before)) = (unspecified, before_step.take()) {
+            // The step's own result carries no report, so the reports now are those of the
+            // state the step was taken from.
+            before.refresh_reports(&self.accumulated);
+            let rule = root_equation
+                .clone()
+                .expect("an Unspecified step applies an equation");
+            self.values.get_or_insert_with(UnspecifiedValues::open);
+            self.frames.push(UnspecifiedFrame {
+                evaluation: step.evaluation,
+                application: children.term.clone(),
+                rule,
+                history: step.history,
+                before: LineageState {
+                    accumulated: before,
+                    total_step: self.total_step.clone(),
+                    remaining: *remaining,
+                    io: execution
+                        .as_deref()
+                        .map(ExecutionEvaluationContext::snapshot),
+                    diagnostics: step.diagnostics,
+                },
+            });
+        }
+        // The root step's own `\bottom`, after the reports of the state it was taken from
+        // (an undone `Unspecified` step takes it back with the step).
+        if self.accumulated.undefined_term.is_none() && self.accumulated.bottom.is_none() {
+            if let Some(found) = &root.bottom {
+                self.accumulated.bottom =
+                    Some(found_bottom(found, self.total_step.as_ref(), assumptions));
+            } else if root_bottom {
+                self.accumulated.bottom = Some(found_root_bottom(
+                    &children.term,
+                    root_equation.as_deref(),
+                    before_root,
+                    self.total_step.as_ref(),
+                    assumptions,
+                ));
+            }
+        }
+        if self.accumulated.undefined_term.is_none()
+            && let Some(rule) = root_equation
+            && is_total_application(&children.term)
+        {
+            self.total_step = Some(TotalStep {
+                application: children.term.clone(),
+                rule,
+                from: before_root,
+            });
+        }
+        if root.term.ptr_eq(&children.term)
+            || root.term == children.term
+            || root.term.attributes().evaluated
+        {
+            return Ok(ControlFlow::Break(root.term));
+        }
+        // A determined function step is the definition's own computation, not a rewrite the
+        // simplifier chose, so it neither needs nor consumes budget (`RootStep`).
+        let charged = root_step != RootStep::DeterminedFunctionStep;
+        if charged && *remaining == 0 {
+            match options.budget {
+                BudgetPolicy::Fail => {
+                    return Err(SimplificationError::IterationLimit {
+                        limit: options.max_iterations,
+                        term: root.term,
+                    }
+                    .into());
+                }
+                BudgetPolicy::KeepPartial => {
+                    self.accumulated.exhausted = Some(BudgetExhaustion {
+                        limit: options.max_iterations,
+                        subject: BudgetSubject::Term,
+                    });
+                    return Ok(ControlFlow::Break(root.term));
+                }
+            }
+        }
+        if self.accumulated.exhausted.is_some() {
+            return Ok(ControlFlow::Break(root.term));
+        }
+        if charged {
+            *remaining -= 1;
+        }
+        Ok(ControlFlow::Continue(root.term))
+    }
+
+    /// The end of the lineage, whose rounds ended on `end`: each of its `Unspecified` steps is
+    /// decided on it, the latest first. A failed one is undone, and `Continue` holds its
+    /// application, tried again without it; otherwise `Break` holds the lineage's result.
+    #[allow(clippy::too_many_arguments)]
+    #[inline(never)]
+    fn end(
+        &mut self,
+        end: Term,
+        assumptions: &TermAssumptions<'_>,
+        options: SimplificationOptions,
+        remaining: &mut usize,
+        active_conditions: &BTreeSet<(String, Term)>,
+        solver: &dyn SmtSolver,
+        execution: Option<&mut ExecutionEvaluationContext>,
+    ) -> ControlFlow<Simplification, Term> {
+        let Some(failed) = failed_unspecified_frame(&self.frames, &end, &self.accumulated) else {
+            if let Some(values) = &self.values
+                && let Some(first) = self.frames.first()
             {
                 values.record_in_enclosing(
                     first,
                     &end,
-                    &accumulated,
+                    &self.accumulated,
                     execution.as_deref(),
                     &EvaluationGiven {
                         assumptions,
@@ -5227,10 +5315,13 @@ fn simplify_on_stack(
                     },
                 );
             }
-            return Ok(accumulated.finish(end));
+            return ControlFlow::Break(std::mem::take(&mut self.accumulated).finish(end));
         };
-        frames.truncate(failed.index + 1);
-        let frame = frames.pop().expect("the failed frame is the last one kept");
+        self.frames.truncate(failed.index + 1);
+        let frame = self
+            .frames
+            .pop()
+            .expect("the failed frame is the last one kept");
         let UnspecifiedFrame {
             evaluation,
             application,
@@ -5241,19 +5332,19 @@ fn simplify_on_stack(
         // What the failed attempt reached and whether its lineage ran out of budget stay facts
         // of the application's evaluation after the attempt is undone.
         history.reads.merge(&evaluation.reads_below(), usize::MAX);
-        history.exhausted |= accumulated.exhausted.is_some();
+        history.exhausted |= self.accumulated.exhausted.is_some();
         drop(evaluation);
-        accumulated.rewind(&before.accumulated);
-        total_step = before.total_step;
+        self.accumulated.rewind(&before.accumulated);
+        self.total_step = before.total_step;
         *remaining = before.remaining;
-        if let (Some(execution), Some(io)) = (execution.as_deref_mut(), before.io) {
+        if let (Some(execution), Some(io)) = (execution, before.io) {
             execution.restore(io);
         }
         diagnostic::discard_since(before.diagnostics);
         history.excluded.push(rule);
         history.contingent = min_depth(history.contingent, failed.contingent);
-        retry = Some(history);
-        term = application;
+        self.retry = Some(history);
+        ControlFlow::Continue(application)
     }
 }
 
@@ -5654,8 +5745,188 @@ fn note_effect_order(hook: &str) {
     ));
 }
 
+/// The children step of a round of [`simplify_on_stack`]: each child simplified as a lineage of
+/// its own ([`simplify_child`]), and the term rebuilt from the results if any changed.
+///
+/// A nested evaluation recurses through this step once per level, nearly always through an
+/// application or an injection with no operand order of its own, so those take a small function
+/// of their own ([`simplify_plain_children`]) and the other shapes one that is not inlined
+/// ([`simplify_other_children`]): its arms' temporaries are then not part of every frame of that
+/// recursion.
 #[allow(clippy::too_many_arguments)]
 fn simplify_children(
+    definition: &BackendDefinition,
+    term: &Term,
+    assumptions: &TermAssumptions<'_>,
+    options: SimplificationOptions,
+    remaining: &mut usize,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+    execution: Option<&mut ExecutionEvaluationContext>,
+) -> SimplifyResult<Simplification> {
+    let plain = match term.kind() {
+        TermKind::Application {
+            symbol, arguments, ..
+        } => {
+            ShortCircuit::of(term).is_none()
+                && !(arguments.len() == 2
+                    && matches!(
+                        symbol.attributes.hook.as_deref(),
+                        Some("BOOL.and" | "BOOL.or" | "BOOL.implies")
+                    ))
+        }
+        TermKind::Injection { .. } => true,
+        _ => false,
+    };
+    if plain {
+        simplify_plain_children(
+            definition,
+            term,
+            assumptions,
+            options,
+            remaining,
+            active_conditions,
+            solver,
+            execution,
+        )
+    } else {
+        simplify_other_children(
+            definition,
+            term,
+            assumptions,
+            options,
+            remaining,
+            active_conditions,
+            solver,
+            execution,
+        )
+    }
+}
+
+/// Simplify `term`, one child of a children step, as a lineage of its own, with a copy of the
+/// step's budget `remaining`, and fold its result's conditions and reports into the step's
+/// `accumulated`. `unchanged` is cleared if the child changed; `moved_console` says whether its
+/// simplification changed the console as a process observes it (for the effect order of
+/// `andBool`, `orBool` and `impliesBool`, `note_effect_order`).
+#[allow(clippy::too_many_arguments)]
+fn simplify_child(
+    definition: &BackendDefinition,
+    term: &Term,
+    assumptions: &TermAssumptions<'_>,
+    options: SimplificationOptions,
+    remaining: usize,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+    mut execution: Option<&mut ExecutionEvaluationContext>,
+    accumulated: &mut Accumulated,
+    unchanged: &Cell<bool>,
+    moved_console: &Cell<bool>,
+) -> SimplifyResult<Term> {
+    moved_console.set(false);
+    if term.attributes().evaluated && !assumptions.path_condition.can_change(term) {
+        measure::bump(Counter::SimplifyNodesSkippedEvaluated);
+        return Ok(term.clone());
+    }
+    let console_before = execution
+        .as_deref()
+        .map(ExecutionEvaluationContext::observable_position);
+    // The iteration limit bounds one fixed-point lineage, not the total amount of productive
+    // work in an entire term. Siblings receive independent copies of the current budget, while
+    // descendants produced by a rewrite inherit that rewrite's reduced budget. This permits
+    // wide finite constructor trees without allowing an expanding equation to reset its cap.
+    let mut child_remaining = remaining;
+    let result = simplify_with_budget(
+        definition,
+        term,
+        assumptions,
+        options,
+        &mut child_remaining,
+        active_conditions,
+        solver,
+        execution.as_deref_mut(),
+    );
+    moved_console.set(
+        execution
+            .as_deref()
+            .map(ExecutionEvaluationContext::observable_position)
+            != console_before,
+    );
+    let result = accumulated.absorb(result?);
+    if accumulated.undefined_term.is_none() {
+        accumulated.undefined_term = result.undefined_term;
+        accumulated.contradicted_total = result.contradicted_total;
+    }
+    if accumulated.bottom.is_none() {
+        accumulated.bottom = result.bottom;
+    }
+    unchanged.set(unchanged.get() && term.ptr_eq(&result.term));
+    Ok(result.term)
+}
+
+/// [`simplify_children`] of an application with no short-circuit and no `BOOL` connective hook,
+/// or of an injection: the children in order, the first failure ending the step.
+#[allow(clippy::too_many_arguments)]
+fn simplify_plain_children(
+    definition: &BackendDefinition,
+    term: &Term,
+    assumptions: &TermAssumptions<'_>,
+    options: SimplificationOptions,
+    remaining: &mut usize,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+    mut execution: Option<&mut ExecutionEvaluationContext>,
+) -> SimplifyResult<Simplification> {
+    let mut accumulated = Accumulated::default();
+    let unchanged = Cell::new(true);
+    let moved_console = Cell::new(false);
+    let mut child = |child: &Term| {
+        simplify_child(
+            definition,
+            child,
+            assumptions,
+            options,
+            *remaining,
+            active_conditions,
+            solver,
+            execution.as_deref_mut(),
+            &mut accumulated,
+            &unchanged,
+            &moved_console,
+        )
+    };
+    let rebuilt = match term.kind() {
+        TermKind::Application {
+            symbol,
+            sort_arguments,
+            arguments,
+        } => {
+            let symbol = symbol.clone();
+            let sort_arguments = sort_arguments.clone();
+            let mut simplified = Vec::new();
+            for argument in arguments.iter() {
+                simplified.push(child(argument)?);
+            }
+            Term::application(symbol, sort_arguments, simplified)
+        }
+        TermKind::Injection {
+            source,
+            target,
+            term,
+        } => Term::injection(source.clone(), target.clone(), child(term)?),
+        _ => unreachable!("only an application or an injection has plain children"),
+    };
+    let term = if unchanged.get() {
+        term.clone()
+    } else {
+        rebuilt
+    };
+    Ok(accumulated.finish(term))
+}
+
+/// [`simplify_children`] of every shape but those of [`simplify_plain_children`].
+#[allow(clippy::too_many_arguments)]
+#[inline(never)]
+fn simplify_other_children(
     definition: &BackendDefinition,
     term: &Term,
     assumptions: &TermAssumptions<'_>,
@@ -5674,45 +5945,19 @@ fn simplify_children(
     // effect order of `andBool`, `orBool` and `impliesBool`, `note_effect_order`).
     let child_moved_console = Cell::new(false);
     let mut child = |term: &Term| {
-        child_moved_console.set(false);
-        if term.attributes().evaluated && !assumptions.path_condition.can_change(term) {
-            measure::bump(Counter::SimplifyNodesSkippedEvaluated);
-            return Ok::<_, Unwind<SimplificationError>>(term.clone());
-        }
-        let console_before = execution
-            .as_deref()
-            .map(ExecutionEvaluationContext::observable_position);
-        // The iteration limit bounds one fixed-point lineage, not the total amount of productive
-        // work in an entire term. Siblings receive independent copies of the current budget, while
-        // descendants produced by a rewrite inherit that rewrite's reduced budget. This permits
-        // wide finite constructor trees without allowing an expanding equation to reset its cap.
-        let mut child_remaining = *remaining;
-        let result = simplify_with_budget(
+        simplify_child(
             definition,
             term,
             assumptions,
             options,
-            &mut child_remaining,
+            *remaining,
             active_conditions,
             solver,
             execution.as_deref_mut(),
-        );
-        child_moved_console.set(
-            execution
-                .as_deref()
-                .map(ExecutionEvaluationContext::observable_position)
-                != console_before,
-        );
-        let result = accumulated.absorb(result?);
-        if accumulated.undefined_term.is_none() {
-            accumulated.undefined_term = result.undefined_term;
-            accumulated.contradicted_total = result.contradicted_total;
-        }
-        if accumulated.bottom.is_none() {
-            accumulated.bottom = result.bottom;
-        }
-        children_unchanged.set(children_unchanged.get() && term.ptr_eq(&result.term));
-        Ok::<_, Unwind<SimplificationError>>(result.term)
+            &mut accumulated,
+            &children_unchanged,
+            &child_moved_console,
+        )
     };
     let rebuilt = match term.kind() {
         TermKind::And(left, right) => {
@@ -5840,23 +6085,9 @@ fn simplify_children(
             let right = right?;
             Term::application(symbol.clone(), sort_arguments.clone(), vec![left, right])
         }
-        TermKind::Application {
-            symbol,
-            sort_arguments,
-            arguments,
-        } => Term::application(
-            symbol.clone(),
-            sort_arguments.clone(),
-            arguments
-                .iter()
-                .map(&mut child)
-                .collect::<Result<Vec<_>, _>>()?,
-        ),
-        TermKind::Injection {
-            source,
-            target,
-            term,
-        } => Term::injection(source.clone(), target.clone(), child(term)?),
+        TermKind::Application { .. } | TermKind::Injection { .. } => {
+            unreachable!("simplify_plain_children takes the other applications and injections")
+        }
         // Only the entries `child` may change are visited: the tree is entered where a subtree
         // holds an entry that is not evaluated or mentions a variable the path condition binds
         // (its summary), or everywhere when the path condition replaces terms, which no summary

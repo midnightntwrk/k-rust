@@ -24,6 +24,7 @@ pub(crate) mod priority_conjunct;
 
 mod proof_boundary;
 mod recover_boundary;
+mod recursion_stack;
 mod search_boundary;
 #[cfg(feature = "z3")]
 mod smt_boundary;
