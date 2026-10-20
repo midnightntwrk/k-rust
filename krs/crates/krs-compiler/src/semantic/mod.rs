@@ -178,11 +178,7 @@ pub fn lower_descriptor_bundle(
     evaluation::check_evaluation_steps(&modules)?;
     smt::check_smtlib_symbols(&modules)?;
     restriction::check_equation_restrictions(&modules)?;
-    or_positions::check_or_pattern_positions(
-        &modules,
-        &production_catalog,
-        &semantic_sort_parents,
-    )?;
+    or_positions::check_or_pattern_positions(&modules)?;
     restriction::check_smt_lemmas(&modules)?;
     statics::check_static_clauses(&modules)?;
     visibility::check_proof_visibility(&modules)?;

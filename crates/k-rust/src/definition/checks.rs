@@ -20,7 +20,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use super::ast::{ProductionItem, Sentence};
-use super::catalog::{LabelHead, ProductionCatalog};
+use super::catalog::LabelHead;
 use super::partial_order::{Cycle, PartialOrder};
 use super::resolve::{ModuleId, ResolvedDefinition};
 use super::sort_catalog::SortCatalog;
@@ -173,7 +173,7 @@ fn check_module_with_options_and_catalog(
         .chain(check_anonymous_variables(&sentences))
         .chain(check_rhs_variables(&sentences, options.clone()))
         .chain(if options.backend == StructuralCheckBackend::Rust {
-            ml_positions::check_ml_construct_positions(&sentences, production_catalog, None, None)
+            ml_positions::check_ml_construct_positions(&sentences, production_catalog, None)
         } else {
             Vec::new()
         })
@@ -205,8 +205,7 @@ fn check_module_with_options_and_catalog(
 
 /// The matching-logic position refusals (`ml_positions`) of every module's local sentences, each
 /// judged against its module's productions: the check the compile pipeline repeats once macros
-/// and aliases are expanded at their uses, for the Rust target (`rust_target`). There the sorts
-/// are known, so an or-pattern an injection places below a symbol is judged too. For every
+/// and aliases are expanded at their uses, for the Rust target (`rust_target`). For every
 /// target, a claim's right-side alias that `lower term conjunctions` does not lower is refused,
 /// its applications' effects judged by the productions and equations of `compiled`: no compiled
 /// form of the claim keeps the alias's pattern. For the Rust target, an application inside a
@@ -252,23 +251,9 @@ pub(crate) fn check_ml_construct_positions_in_definition(
         if !rust_target {
             continue;
         }
-        let productions = views.production_catalog(module_id);
-        let injector = std::cell::OnceCell::new();
-        let injected = |label: &crate::kast::Label, index: usize, argument: &Term| {
-            injected_or_pattern(
-                &views,
-                module_id,
-                &injector,
-                productions,
-                label,
-                index,
-                argument,
-            )
-        };
         diagnostics.extend(ml_positions::check_ml_construct_positions(
             &sentences,
-            productions,
-            Some(&injected),
+            views.production_catalog(module_id),
             Some(&affects_value),
         ));
     }
@@ -289,45 +274,6 @@ pub(crate) fn search_pattern_position_diagnostics(
     diagnostics.sort();
     diagnostics.dedup();
     diagnostics
-}
-
-/// Whether the or-pattern `argument`, at the root of argument `index` of an application of
-/// `label`, is placed below an injection or a k-sequence when sort injection places it at the
-/// argument's declared sort: the alternatives' sort is below the argument's. `false` where the
-/// label has no single signature or the argument is not placed (the sentence's own sort errors
-/// are reported where they arise).
-fn injected_or_pattern<'v>(
-    views: &'v crate::definition::DefinitionViews<'v>,
-    module: crate::definition::ModuleId,
-    injector: &std::cell::OnceCell<Option<crate::kompile::SortInjector<'v, 'v>>>,
-    productions: &ProductionCatalog<'_>,
-    label: &crate::kast::Label,
-    index: usize,
-    argument: &Term,
-) -> bool {
-    let Some(signatures) = productions.signatures_for(&LabelHead::from(label)) else {
-        return false;
-    };
-    let mut signatures = signatures.iter();
-    let (Some(signature), None) = (signatures.next(), signatures.next()) else {
-        return false;
-    };
-    let Some(sort) = signature.arguments.get(index) else {
-        return false;
-    };
-    let Some(injector) = injector
-        .get_or_init(|| crate::kompile::SortInjector::with_views(views, module).ok())
-        .as_ref()
-    else {
-        return false;
-    };
-    injector.inject(argument, sort).is_ok_and(|placed| {
-        !matches!(
-            crate::kompile::ml_constructs::read_through_casts(&placed),
-            Term::Apply { label, arguments }
-                if label.is(InternalLabel::Or) && arguments.len() == 2
-        )
-    })
 }
 
 /// Run all implemented structural checks across a resolved definition.

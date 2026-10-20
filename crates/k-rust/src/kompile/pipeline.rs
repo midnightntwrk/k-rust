@@ -442,7 +442,8 @@ stage_adapter!(
 /// sentences as the backend will read them: macros and aliases expanded at their uses, and the
 /// conjunctions passes added to conditions chosen. The definition checks judged every sentence as
 /// written; a refusal here is a shape a macro or alias body takes in the context of a use, or one
-/// that needs the sorts (an or-pattern an injection places below a symbol), for the Rust target;
+/// that needs the definition's equations (an effect inside a predicate operand), for the Rust
+/// target;
 /// and, for every target, a claim's right-side alias that `lower term conjunctions` will not
 /// lower, whose pattern no compiled form of the claim would keep.
 fn check_ml_positions_stage(
