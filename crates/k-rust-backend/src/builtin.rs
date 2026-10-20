@@ -3,7 +3,7 @@
 //! caller as `Counter::SimplifyBuiltinEvaluations`; a responsibility, not an algorithm; no
 //! worklist.
 
-use std::{fmt, sync::Arc};
+use std::{cmp::Ordering, fmt, sync::Arc};
 
 use num_bigint::{BigInt, Sign};
 use num_traits::{One, Signed, ToPrimitive, Zero};
@@ -958,21 +958,52 @@ fn evaluate_hook_with_context(
         "BOOL.ne" => bool_binary(hook, arguments, |left, right| left != right),
         "BOOL.not" => bool_not(arguments),
         "BOOL.implies" => bool_implies(arguments),
-        "INT.gt" => int_compare(hook, arguments, |left, right| left > right),
-        "INT.ge" => int_compare(hook, arguments, |left, right| left >= right),
-        "INT.eq" => int_compare(hook, arguments, |left, right| left == right),
-        "INT.le" => int_compare(hook, arguments, |left, right| left <= right),
-        "INT.lt" => int_compare(hook, arguments, |left, right| left < right),
-        "INT.ne" => int_compare(hook, arguments, |left, right| left != right),
-        "INT.add" => int_binary(hook, arguments, |left, right| left + right),
-        "INT.sub" => int_binary(hook, arguments, |left, right| left - right),
-        "INT.mul" => int_binary(hook, arguments, |left, right| left * right),
+        "INT.gt" => int_compare(hook, arguments, Ordering::is_gt),
+        "INT.ge" => int_compare(hook, arguments, Ordering::is_ge),
+        "INT.eq" => int_compare(hook, arguments, Ordering::is_eq),
+        "INT.le" => int_compare(hook, arguments, Ordering::is_le),
+        "INT.lt" => int_compare(hook, arguments, Ordering::is_lt),
+        "INT.ne" => int_compare(hook, arguments, Ordering::is_ne),
+        "INT.add" => int_binary(hook, arguments, i64::checked_add, |left, right| {
+            left + right
+        }),
+        "INT.sub" => int_binary(hook, arguments, i64::checked_sub, |left, right| {
+            left - right
+        }),
+        "INT.mul" => int_binary(hook, arguments, i64::checked_mul, |left, right| {
+            left * right
+        }),
         "INT.abs" => int_abs(arguments),
-        "INT.min" => int_binary(hook, arguments, std::cmp::min),
-        "INT.max" => int_binary(hook, arguments, std::cmp::max),
-        "INT.and" => int_binary(hook, arguments, |left, right| left & right),
-        "INT.or" => int_binary(hook, arguments, |left, right| left | right),
-        "INT.xor" => int_binary(hook, arguments, |left, right| left ^ right),
+        "INT.min" => int_binary(
+            hook,
+            arguments,
+            |left, right| Some(left.min(right)),
+            std::cmp::min,
+        ),
+        "INT.max" => int_binary(
+            hook,
+            arguments,
+            |left, right| Some(left.max(right)),
+            std::cmp::max,
+        ),
+        "INT.and" => int_binary(
+            hook,
+            arguments,
+            |left, right| Some(left & right),
+            |left, right| left & right,
+        ),
+        "INT.or" => int_binary(
+            hook,
+            arguments,
+            |left, right| Some(left | right),
+            |left, right| left | right,
+        ),
+        "INT.xor" => int_binary(
+            hook,
+            arguments,
+            |left, right| Some(left ^ right),
+            |left, right| left ^ right,
+        ),
         "INT.not" => int_unary(hook, arguments, |value| !value),
         "KEQUAL.ite" => kequal_ite(arguments),
         "KEQUAL.eq" => kequal(arguments, false, sort_graph),
@@ -1340,14 +1371,19 @@ fn bool_implies(arguments: &[Term]) -> HookResult<Option<Term>> {
     })
 }
 
+/// Whether the order of the two integer arguments satisfies `holds`. Two operands that fit an
+/// `i64` are compared as machine integers, which order as the integers they are.
 fn int_compare(
     hook: &str,
     arguments: &[Term],
-    comparison: impl FnOnce(&BigInt, &BigInt) -> bool,
+    holds: impl FnOnce(Ordering) -> bool,
 ) -> HookResult<Option<Term>> {
     expect_arity(hook, arguments, 2)?;
+    if let Some((left, right)) = read_small_int(&arguments[0]).zip(read_small_int(&arguments[1])) {
+        return Ok(Some(bool_term(holds(left.cmp(&right)))));
+    }
     if let Some((left, right)) = read_int(&arguments[0]).zip(read_int(&arguments[1])) {
-        return Ok(Some(bool_term(comparison(&left, &right))));
+        return Ok(Some(bool_term(holds(left.cmp(&right)))));
     }
     if arguments[0] == arguments[1] {
         return Ok(match hook {
@@ -1359,12 +1395,22 @@ fn int_compare(
     Ok(None)
 }
 
+/// `operation` of the two integer arguments. When both fit an `i64` and `small`, the same
+/// operation on machine integers, gives a result (it gives `None` exactly when the integer result
+/// does not fit), that result is the value, built without a `BigInt`.
 fn int_binary(
     hook: &str,
     arguments: &[Term],
+    small: impl FnOnce(i64, i64) -> Option<i64>,
     operation: impl FnOnce(BigInt, BigInt) -> BigInt,
 ) -> HookResult<Option<Term>> {
     expect_arity(hook, arguments, 2)?;
+    if let Some(result) = read_small_int(&arguments[0])
+        .zip(read_small_int(&arguments[1]))
+        .and_then(|(left, right)| small(left, right))
+    {
+        return Ok(Some(Term::small_int(result)));
+    }
     Ok(read_int(&arguments[0])
         .zip(read_int(&arguments[1]))
         .map(|(left, right)| int_term(operation(left, right))))
@@ -2217,6 +2263,20 @@ pub(super) fn read_int(term: &Term) -> Option<BigInt> {
     sort.is_builtin(BuiltinSort::Int)
         .then(|| value.as_utf8().ok()?.parse().ok())
         .flatten()
+}
+
+/// The value of an `Int` domain value that fits an `i64`, read without a `BigInt`. A text that
+/// `i64` reads (an optional sign and decimal digits) is read by [`read_int`] as the same integer;
+/// any other text, one too large included, gives `None`, and the caller falls back on
+/// [`read_int`].
+fn read_small_int(term: &Term) -> Option<i64> {
+    let TermKind::DomainValue { sort, value } = term.kind() else {
+        return None;
+    };
+    if !sort.is_builtin(BuiltinSort::Int) {
+        return None;
+    }
+    value.as_utf8().ok()?.parse().ok()
 }
 
 pub(super) fn bool_term(value: bool) -> Term {
@@ -4702,6 +4762,105 @@ mod tests {
                     !misread_by_name(&argument, &facts),
                     "{argument:?}, hooked: {with_hooks}"
                 );
+            }
+        }
+    }
+
+    /// The machine-integer path of the `INT` comparisons and of the binary hooks that have one
+    /// gives the term the `BigInt` arithmetic gives, on operands near zero, near the `i64`
+    /// bounds (so that the results overflow `i64` and take the `BigInt` path), and anywhere.
+    mod small_int_path {
+        use proptest::prelude::*;
+
+        use super::*;
+
+        type Big = fn(&BigInt, &BigInt) -> Term;
+
+        const HOOKS: [(&str, Big); 14] = [
+            ("INT.gt", |left, right| Term::bool(left > right)),
+            ("INT.ge", |left, right| Term::bool(left >= right)),
+            ("INT.eq", |left, right| Term::bool(left == right)),
+            ("INT.le", |left, right| Term::bool(left <= right)),
+            ("INT.lt", |left, right| Term::bool(left < right)),
+            ("INT.ne", |left, right| Term::bool(left != right)),
+            ("INT.add", |left, right| Term::int(left + right)),
+            ("INT.sub", |left, right| Term::int(left - right)),
+            ("INT.mul", |left, right| Term::int(left * right)),
+            ("INT.min", |left, right| Term::int(left.min(right).clone())),
+            ("INT.max", |left, right| Term::int(left.max(right).clone())),
+            ("INT.and", |left, right| Term::int(left & right)),
+            ("INT.or", |left, right| Term::int(left | right)),
+            ("INT.xor", |left, right| Term::int(left ^ right)),
+        ];
+
+        fn operand() -> impl Strategy<Value = i64> {
+            prop_oneof![
+                -3_i64..=3,
+                (0_i64..=3).prop_map(|offset| i64::MIN + offset),
+                (0_i64..=3).prop_map(|offset| i64::MAX - offset),
+                any::<i64>(),
+                any::<i32>().prop_map(i64::from),
+            ]
+        }
+
+        fn check(left: i64, right: i64) -> Result<(), TestCaseError> {
+            let (big_left, big_right) = (BigInt::from(left), BigInt::from(right));
+            for (hook, big) in HOOKS {
+                let arguments = [Term::int(big_left.clone()), Term::int(big_right.clone())];
+                prop_assert_eq!(
+                    evaluate_hook(hook, &arguments),
+                    Ok(Ok(BuiltinResult::Value(big(&big_left, &big_right)))),
+                    "{} {} {}",
+                    hook,
+                    left,
+                    right
+                );
+            }
+            Ok(())
+        }
+
+        #[test]
+        fn at_the_bounds() {
+            let edges = [i64::MIN, i64::MIN + 1, -1, 0, 1, i64::MAX - 1, i64::MAX];
+            for left in edges {
+                for right in edges {
+                    check(left, right).unwrap();
+                }
+            }
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(512))]
+
+            #[test]
+            fn agrees_with_the_bigint_path(left in operand(), right in operand()) {
+                check(left, right)?;
+            }
+        }
+
+        /// `Term::small_int` writes the text `Term::int` writes.
+        #[test]
+        fn small_int_is_int() {
+            for value in [
+                i64::MIN,
+                i64::MIN + 1,
+                -10,
+                -9,
+                -1,
+                0,
+                1,
+                9,
+                10,
+                100,
+                i64::MAX,
+            ] {
+                assert_eq!(Term::small_int(value), Term::int(value));
+                let TermKind::DomainValue { value: text, .. } =
+                    Term::small_int(value).kind().clone()
+                else {
+                    unreachable!()
+                };
+                assert_eq!(text.as_utf8().unwrap(), value.to_string());
             }
         }
     }
