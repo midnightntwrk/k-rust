@@ -35,7 +35,7 @@
 //!
 //! [[cost]]
 //! mode = "simple paths"
-//! bound = "exponential in b and d, plus O(d) visited-list work per pop and O(KORE text bytes) per transition for the returned path identity; digest memory is O(printer traversal stack)"
+//! bound = "exponential in b and d, plus O(1) visited-set work per pop, O(1) per fork and O(d) to copy a branch's visited set at its first state after the fork, and O(KORE text bytes) per transition for the returned path identity; digest memory is O(printer traversal stack)"
 //! ```
 //!
 //! ```toml algorithm
@@ -87,8 +87,8 @@
 //! deduplication, the pattern compared up to the names of the variables the request did not
 //! name (`RequestNames::state_key`, a canonical numbering per state), O(distinct states per
 //! depth) rewrite steps, `Counter::SearchStatesDeduplicated`; breadth-first enumeration of
-//! simple paths with a per-path visited list of the same keys, exponential in branching plus
-//! O(depth) per pop; both count the states they take from their frontier
+//! simple paths with a per-path visited set of the same keys (numbered per search), exponential
+//! in branching plus O(1) per pop; both count the states they take from their frontier
 //! (`Counter::SearchStatesVisited`); pattern search over the result set. A state result, and a
 //! pattern search's solution (`RequestNames::solution_key`), is retained once up to the same
 //! renaming, one key per result. `normalize_match_condition` is the
@@ -2066,6 +2066,8 @@ fn search_paths_collecting(
         FreshCounter::for_request_names(names)
     };
 
+    // The state keys this search has met, numbered: a path's `visited` holds the numbers.
+    let mut state_keys = StateKeyIds::default();
     let initial = PathSearchState {
         state: SearchState {
             pattern: initial,
@@ -2075,8 +2077,9 @@ fn search_paths_collecting(
             observations: Vec::new(),
             diagnostics: Vec::new(),
         },
-        id: Vec::new(),
-        visited: Vec::new(),
+        trace: PathTrace::default(),
+        id: PathIds::default(),
+        visited: VisitedStates::default(),
         observation: None,
         diagnostics: PathDiagnostics::new_request(),
         kind: QueuedStateKind::Rewritable,
@@ -2237,14 +2240,14 @@ fn search_paths_collecting(
                     observation,
                 );
                 effects.extend(simplified.effects.iter().cloned());
-                path.state
-                    .trace
+                let depth = path.state.depth;
+                path.trace
                     .extend(
                         simplified
                             .applied_rules
                             .into_iter()
                             .map(|unique_id| TraceEntry {
-                                depth: path.state.depth,
+                                depth,
                                 kind: TraceKind::Simplification,
                                 label: None,
                                 unique_id,
@@ -2294,14 +2297,13 @@ fn search_paths_collecting(
         // A path that reaches a state it already visited, up to the names of the variables the
         // request did not name, is a cycle: the state's continuations are those of the earlier
         // visit, renamed.
-        let key = (
+        let key = state_keys.id((
             fresh_counter.request().state_key(&path.state.pattern),
             is_rewritable,
-        );
-        if path.visited.contains(&key) {
+        ));
+        if !path.visited.insert(key) {
             continue;
         }
-        path.visited.push(key);
 
         let at_depth_bound = path.state.depth >= options.max_depth;
         let is_result = selects_reachable_state(options.search_type, path.state.depth)
@@ -2516,10 +2518,15 @@ fn search_paths_collecting(
 
 #[derive(Clone)]
 struct PathSearchState {
+    /// The path's last state; its own `trace` stays empty while the path is queued.
     state: SearchState,
-    id: Vec<TransitionId>,
-    /// The `RequestNames::state_key` of every state on the path, with its rewritability.
-    visited: Vec<(Pattern, bool)>,
+    /// The path's trace, shared with the paths it forked from.
+    trace: PathTrace,
+    /// The path's transition identities, shared with the paths it forked from.
+    id: PathIds,
+    /// The `RequestNames::state_key` of every state on the path, with its rewritability, as
+    /// numbered by the search's [`StateKeyIds`].
+    visited: VisitedStates,
     observation: ObservationHead,
     /// The diagnostics of this path so far, shared with the paths that extend it.
     diagnostics: PathDiagnostics,
@@ -2531,7 +2538,7 @@ struct PathSearchState {
 impl PathSearchState {
     fn materialize_state(self, observation_log: &ObservationLog) -> SearchState {
         materialize_search_state(
-            self.state,
+            with_trace(self.state, self.trace),
             self.observation,
             &self.diagnostics,
             observation_log,
@@ -2565,9 +2572,7 @@ fn next_path_state(
     path.observation =
         observation_log.append_applied(path.observation, &applied, observation_options);
     path.rule = Some(applied.observing_rule());
-    let mut trace = std::mem::take(&mut path.state.trace);
-    path.state = next_state(path.state.depth, &mut trace, applied);
-    path.state.trace = trace;
+    path.state = next_state(path.state.depth, &mut path.trace, applied);
     path.kind = QueuedStateKind::Rewritable;
     path
 }
@@ -2593,12 +2598,85 @@ fn remaining_path_state(
         observation_options,
     );
     path.observation = observation;
-    let mut trace = std::mem::take(&mut path.state.trace);
-    path.state = remaining_state(path.state.depth, &mut trace, remainder);
-    path.state.trace = trace;
+    path.state = remaining_state(path.state.depth, &mut path.trace, remainder);
     path.kind = kind;
     path.rule = None;
     path
+}
+
+/// The state keys a path search has met, each numbered in the order it was first met: two keys
+/// have the same number exactly when they are equal.
+#[derive(Default)]
+struct StateKeyIds(rustc_hash::FxHashMap<(Pattern, bool), u32>);
+
+impl StateKeyIds {
+    fn id(&mut self, key: (Pattern, bool)) -> u32 {
+        let next = u32::try_from(self.0.len()).expect("a search meets fewer than 2^32 states");
+        *self.0.entry(key).or_insert(next)
+    }
+}
+
+/// The numbered state keys of one path's states. Paths that forked from one another share the
+/// set until one of them adds a key, which copies it for that path alone, so a fork costs a
+/// handle, a lookup and an addition to an unshared set are constant time, and a path's first
+/// addition after a fork copies its numbers once.
+#[derive(Clone, Default)]
+struct VisitedStates(Rc<rustc_hash::FxHashSet<u32>>);
+
+impl VisitedStates {
+    /// Adds `key` to the path's states; whether it was not among them.
+    fn insert(&mut self, key: u32) -> bool {
+        !self.0.contains(&key) && Rc::make_mut(&mut self.0).insert(key)
+    }
+}
+
+/// One path's transition identities, oldest first, as a persistent list whose nodes point at their
+/// predecessor: a fork clones a handle to the newest node, and an identity appended by one path
+/// is seen by that path only.
+#[derive(Clone, Default)]
+struct PathIds {
+    newest: Option<Rc<PathIdNode>>,
+    len: usize,
+}
+
+struct PathIdNode {
+    id: TransitionId,
+    parent: Option<Rc<PathIdNode>>,
+}
+
+impl PathIds {
+    fn push(&mut self, id: TransitionId) {
+        self.newest = Some(Rc::new(PathIdNode {
+            id,
+            parent: self.newest.take(),
+        }));
+        self.len += 1;
+    }
+
+    /// The path's identities, oldest first.
+    fn to_vec(&self) -> Vec<TransitionId> {
+        let mut ids = Vec::with_capacity(self.len);
+        let mut node = self.newest.as_deref();
+        while let Some(current) = node {
+            ids.push(current.id.clone());
+            node = current.parent.as_deref();
+        }
+        ids.reverse();
+        ids
+    }
+}
+
+impl Drop for PathIdNode {
+    /// Unlink a long unshared list iteratively rather than by recursive drops.
+    fn drop(&mut self) {
+        let mut parent = self.parent.take();
+        while let Some(node) = parent {
+            match Rc::try_unwrap(node) {
+                Ok(mut node) => parent = node.parent.take(),
+                Err(_) => break,
+            }
+        }
+    }
 }
 
 /// Search the selected execution states for instances of `target`.
@@ -4949,6 +5027,40 @@ mod tests {
             Some(2)
         );
         assert!(result.incomplete.is_empty());
+    }
+
+    /// Paths that forked share their earlier trace and transition identities: each witness still
+    /// lists exactly the steps of its own path, in order, in both.
+    #[test]
+    fn forked_witnesses_list_their_own_steps_in_trace_and_id() {
+        let definition = diamond_definition(true);
+        let result = search_paths(
+            &definition,
+            initial(&definition),
+            SearchOptions {
+                search_type: SearchType::Star,
+                ..SearchOptions::default()
+            },
+        );
+        assert_eq!(result.witnesses.len(), 5);
+        for witness in &result.witnesses {
+            let steps = witness
+                .trace
+                .iter()
+                .filter_map(|entry| match entry.kind {
+                    TraceKind::Rewrite => Some(entry.unique_id.clone()),
+                    TraceKind::Remainder => Some(format!("remainder:{}", entry.unique_id)),
+                    TraceKind::Simplification | TraceKind::Claim => None,
+                })
+                .collect::<Vec<_>>();
+            let ids = witness
+                .id
+                .iter()
+                .map(|id| id.rule.clone())
+                .collect::<Vec<_>>();
+            assert_eq!(ids, steps, "{witness:?}");
+            assert_eq!(ids.len(), usize::try_from(witness.depth).unwrap());
+        }
     }
 
     #[test]

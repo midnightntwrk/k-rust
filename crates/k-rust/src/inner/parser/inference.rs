@@ -2542,6 +2542,7 @@ impl Grammar {
                 PriorityFilter::Enforced,
                 None,
                 false,
+                crate::inner::parser::Predictions::Kept,
                 &mut false,
                 &mut super::WorkMeter::unlimited(),
                 &mut scanner_cache,

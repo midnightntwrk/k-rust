@@ -138,7 +138,7 @@ No phase contains these algorithms and no representation connects them to a comm
 - backend.rule.select — O(log k) index lookups plus O(r) covers checks… +2 modes — at backend/rule.rs `applicable_groups`
 - backend.search.configurations — O(n) rewrite steps plus O(r) pattern comparisons… +3 modes — in: [rewrite result] — at backend/search.rs `search_graph_using`
 - backend.search.output — O(q + sum e h + D log D c) — at k-rust/backend/search.rs `MatchOutput::with_source`
-- backend.search.paths — exponential in b and d, plus O(d) visited-list… — in: [rewrite result] — at backend/search.rs `search_paths_using`
+- backend.search.paths — exponential in b and d, plus O(1) visited-set… — in: [rewrite result] — at backend/search.rs `search_paths_using`
 - backend.search.patterns — O(m) matches, each followed by one predicate… — in: [match result] — at backend/search.rs `search_pattern_using`
 - backend.simplify.predicates — n predicate simplifications plus up to n rebuilds… +5 modes — in: [match result] — at backend/simplify.rs `simplify_predicates_with_solver`
 - backend.simplify.term — O(r x |t| x c), with the rounds that are not… +4 modes — in: [match result] — at backend/simplify.rs `simplify_with_optional_execution`
