@@ -1535,11 +1535,13 @@ impl<'a> Guard<'a> {
     }
 }
 
-/// The conjuncts of a guard: the operands of nested `bool::and`.
+/// The conjuncts of a guard: the operands of nested `bool::and` and
+/// `bool::and_then` (`&&`), each of which holds only when both operands do.
 fn conjuncts(pattern: &Pattern) -> Vec<&Pattern> {
     match pattern {
         Pattern::Application {
-            application: ApplicationRef::Builtin(BuiltinOperation::BoolAnd),
+            application:
+                ApplicationRef::Builtin(BuiltinOperation::BoolAnd | BuiltinOperation::BoolAndThen),
             arguments,
             ..
         } => arguments.iter().flat_map(conjuncts).collect(),
