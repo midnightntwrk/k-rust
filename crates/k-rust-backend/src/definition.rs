@@ -2254,7 +2254,7 @@ impl BackendDefinition {
     }
 
     /// The names of the symbols whose applications may perform a console effect, as the load
-    /// computes them ([`crate::deferred::ConsoleReach`]), sorted; `None` when an equation whose
+    /// computes them (the crate's private `ConsoleReach`), sorted; `None` when an equation whose
     /// left-hand side has no symbol at its root mentions one, so that every term may.
     pub fn console_effect_symbols(&self) -> Option<std::collections::BTreeSet<String>> {
         self.console_reach.symbol_names()
