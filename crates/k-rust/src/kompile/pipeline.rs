@@ -1031,7 +1031,8 @@ pub(crate) fn run_stages_seeded_with_resolved(
 }
 
 /// The child phase of a stage that checks the stage's output against the kompile invariants
-/// (`kompile/invariants.rs`), in builds that run those checks.
+/// (`kompile/invariants.rs`), in builds that run those checks. The stage's own seconds include
+/// it.
 #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
 const CHECK_INVARIANTS: &str = "check invariants";
 
@@ -1053,9 +1054,8 @@ fn run_stages_seeded_current(
         measure::without_counting(|| state.checks.start(&current.definition, options));
     })?;
     for stage in stages {
-        // The stage's phase holds all the work done for it: sizing the stack for its input,
-        // running it, and, in builds that check invariants, checking its output (as the child
-        // phase `CHECK_INVARIANTS`), so that no part of a compile goes unattributed.
+        // The stage's phase covers sizing the stack for its input, running it, and, in builds
+        // that check invariants, checking its output (as the child phase `CHECK_INVARIANTS`).
         #[cfg_attr(
             not(any(debug_assertions, feature = "kompile-invariant-checks")),
             allow(unused_mut)
