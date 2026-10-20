@@ -151,6 +151,7 @@ pub(crate) fn init(
 
         #(#key_functions)*
 
+        #(#cfg)*
         #[doc(hidden)]
         pub(crate) fn __krs_initializer_payload() -> ::core::result::Result<(
             &'static str,

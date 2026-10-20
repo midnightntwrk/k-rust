@@ -18,7 +18,10 @@ use crate::term::{
     is_term_macro, push_lexeme_anchors, push_record_field_anchors, push_sort_test_anchors,
     unexpected_macro,
 };
-use crate::term_sort::{TermSort, parse_readable_sort, parse_rule_term_sort, parse_term_sort};
+use crate::term_sort::{
+    TermSort, parse_readable_sort, parse_rule_term_sort, parse_term_or_readable_sort,
+    parse_term_sort,
+};
 use crate::{
     ProvenanceAnchor, ProvenanceRole, ReferenceCandidate, SyntaxError, SyntaxErrorKind,
     TermExpression, TermNode, TermSymbolKind, TermTree, TokenRange,
@@ -1062,8 +1065,7 @@ fn parse_rule_binders(item: &ItemFn, trailing: usize) -> Result<Vec<RuleBinder>,
             ));
         }
         let authored = (*argument.ty).clone();
-        let term_sort =
-            parse_term_sort(authored.clone()).or_else(|_| parse_readable_sort(authored))?;
+        let term_sort = parse_term_or_readable_sort(authored)?;
         binders.push(RuleBinder {
             name: pattern.ident.clone(),
             term_sort,

@@ -656,7 +656,7 @@ fn readable_group_terms(
     for extra in &mut rule.extras {
         match extra {
             krs_ir::ProtocolHeadRuleExtra::RewriteCell { before, after, .. } => {
-                for term in [before, after] {
+                for term in std::iter::once(before).chain(after) {
                     let taken = std::mem::replace(term, placeholder_term());
                     *term = readable_group_term(taken, declarations);
                 }

@@ -90,6 +90,9 @@ pub struct DiagnosticEnvelope {
     /// Stable supplemental detail, in deterministic order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub notes: Vec<String>,
+    /// Advice on how to fix the problem, in deterministic order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub help: Vec<String>,
 }
 
 impl DiagnosticEnvelope {
@@ -110,6 +113,7 @@ impl DiagnosticEnvelope {
             authored_range,
             generated_range: None,
             notes: Vec::new(),
+            help: Vec::new(),
         }
     }
 
@@ -174,5 +178,6 @@ pub fn diagnostic_envelope(
         authored_range,
         generated_range,
         notes: diagnostic.notes,
+        help: diagnostic.help,
     })
 }

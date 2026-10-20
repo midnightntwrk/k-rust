@@ -471,7 +471,9 @@ fn collect_head_rule_packages(
             }
             krs_ir::ProtocolHeadRuleExtra::RewriteCell { before, after, .. } => {
                 collect_term_packages(before, packages);
-                collect_term_packages(after, packages);
+                if let Some(after) = after {
+                    collect_term_packages(after, packages);
+                }
             }
             krs_ir::ProtocolHeadRuleExtra::RewriteState { before, after, .. } => {
                 for term in before

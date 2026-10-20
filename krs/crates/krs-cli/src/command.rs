@@ -11,11 +11,12 @@ use krs_compiler::{
     lower_descriptor_bundle, lower_semantic_theory,
 };
 use krs_diagnostic::{Diagnostic, ToDiagnostic};
+use krs_ir::measure::Timings;
 use krs_ir::measure::{Counters, Measurement};
 use krs_ir::{DescriptorBundle, PackageId};
 use krs_k_rust::{
-    Backend, CompileOptions, DefinitionCompileError, FRONTEND_CAPABILITIES,
-    compile_definition_timed,
+    Backend, CompiledArtifacts, ConfigurationContext, DefinitionCompileError,
+    FRONTEND_CAPABILITIES, Route,
 };
 use std::borrow::Cow;
 use std::error::Error;
@@ -24,6 +25,7 @@ use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
 
+mod agreement;
 mod collector;
 mod counters;
 mod exec;
@@ -87,10 +89,10 @@ impl CommandKind {
 /// A production command with its command-specific inputs.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Command {
-    /// Check Rust and the selected KRS theory with a native backend dialect.
+    /// Check Rust and the selected KRS theory as every command that compiles it would.
     Check {
-        /// Native backend dialect to check.
-        backend: Backend,
+        /// The one native backend dialect to judge (`--backend`); every native route when absent.
+        backend: Option<Backend>,
         /// Print each package's program-syntax partition instead of the summary.
         partition: bool,
     },
@@ -142,7 +144,8 @@ impl Command {
     #[must_use]
     pub const fn backend(&self) -> Option<Backend> {
         match self {
-            Self::Check { backend, .. } | Self::Build { backend, .. } => Some(*backend),
+            Self::Check { backend, .. } => *backend,
+            Self::Build { backend, .. } => Some(*backend),
             Self::Expand
             | Self::EmitK { .. }
             | Self::Parse(_)
@@ -261,6 +264,8 @@ struct PreparedDefinition {
     bundle: DescriptorBundle,
     semantic: krs_ir_levels::SemanticTheory,
     lowered: krs_compiler::LoweredDefinition,
+    /// k-rust's compiles of `lowered`, kept only for the agreement test.
+    compiles: agreement::CompileMemo,
 }
 
 type OutputArtifact = (String, Vec<u8>);
@@ -376,7 +381,7 @@ fn execute_with_sources(
     let (stdout, read_set) = run_collector(&collector_directory, &executable, measurement)?;
     let prepared = prepare(stdout, request.profile, measurement)?;
 
-    let outcome = match &request.command {
+    let mut outcome = match &request.command {
         Command::Check { backend, partition } => {
             check(&prepared, *backend, *partition, measurement)
                 .map(CommandExecution::without_artifacts)
@@ -398,6 +403,14 @@ fn execute_with_sources(
             )
         }
     };
+    if let Command::Check { backend, .. } = &request.command
+        && agreement::enabled()
+    {
+        let checked = outcome.as_ref().map(drop).map_err(ToString::to_string);
+        if let Err(disagreement) = agreement::verify(&prepared, *backend, checked) {
+            outcome = Err(disagreement);
+        }
+    }
     measurement.timings.span("release", |_| drop(prepared));
     if let Ok(ref value) = outcome
         && request.command.kind().reuses_results()
@@ -423,10 +436,7 @@ fn exec_command(
     measurement: &mut Measurement,
 ) -> Result<CommandExecution, CommandError> {
     // krs-exec compiles the definition natively in the symbolic dialect.
-    require_route(
-        prepared.lowered.definition(),
-        krs_k_rust::Route::native(Backend::Haskell),
-    )?;
+    require_route(prepared.lowered.definition(), Route::NativeRust)?;
     let (stage_cache, refused_store) =
         match StageCache::new(prepared.lowered.definition(), workspace_root) {
             Ok(cache) => (cache, None),
@@ -519,6 +529,7 @@ fn prepare(
         bundle,
         semantic,
         lowered,
+        compiles: agreement::CompileMemo::new(),
     })
 }
 
@@ -534,43 +545,48 @@ fn lower_definition(
     lower_semantic_theory(semantic).map_err(CommandError::Lowering)
 }
 
-/// `krs check --backend B`: the verdict `krs build --backend B` reaches,
-/// without writing artifacts.
+/// `krs check`: the verdict of every command behind it that needs no
+/// external K toolchain, without writing artifacts.
 ///
-/// A check stands in front of `build`, so it is useful exactly to the degree
-/// that its verdict predicts `build`'s; it therefore runs the same native
-/// judgement ([`compile_native`]) rather than a hand-maintained subset of it.
-/// The one difference is the route capability table: a route that lacks a
-/// feature the definition needs is a property of that route, not a defect of
-/// the definition, so `check` reports the refusal as a
-/// `krs::capability::unavailable` warning, and, since `build` refuses such a
-/// definition before compiling it, it has no native verdict to predict.
+/// A check stands in front of `emit-k`, `build`, and the run commands, so it is
+/// useful exactly to the degree that its verdict predicts theirs; it therefore
+/// runs their judgements rather than a hand-maintained subset of them: the K
+/// emission of `emit-k` ([`render_emitted`], in memory), and, for each judged
+/// native route, the route's capability table and `build`'s native compile
+/// ([`compile_native`]). The `native-rust` route is the one `run`, `search`,
+/// and `prove` share with `build --backend haskell`, so on it the check also
+/// loads the compiled definition as they do ([`exec::judge`]).
+///
+/// Without `--backend` every native route is judged, so a pass means that
+/// `emit-k`, `build` on either backend, and the run commands all accept the
+/// definition, and a failure names the route and the commands that refuse it.
+/// `--backend B` narrows the claim to `emit-k` and `B`'s route.
 fn check(
     prepared: &PreparedDefinition,
-    backend: Backend,
+    backend: Option<Backend>,
     partition: bool,
     measurement: &mut Measurement,
 ) -> Result<CommandOutcome, CommandError> {
-    require_backend(backend)?;
-    let route = krs_k_rust::Route::native(backend);
-    let warnings = match route_refusal(prepared.lowered.definition(), route) {
-        Some(refusal) => {
-            let mut warnings = definition_warnings(prepared);
-            warnings.unlocated.push(crate::UnlocatedDiagnostic {
-                code: krs_diagnostic::codes::capability::UNAVAILABLE.to_string(),
-                severity: crate::DiagnosticSeverity::Warning,
-                message: refusal.to_string(),
-                source: None,
-                generated_range: None,
-                notes: vec![format!(
-                    "`krs build --backend {}` refuses this definition before compiling it, so the check did not compile it natively",
-                    backend.as_str()
-                )],
-            });
-            warnings
-        }
-        None => compile_native(prepared, backend, measurement)?.1,
-    };
+    let backends = judged_backends(backend)?;
+    let several = backend.is_none();
+    render_emitted(prepared, measurement)
+        .map_err(|error| error.attributed("`krs emit-k` refuses this definition".to_owned()))?;
+    // Every route's capability table before any compile: a refusal costs nothing to find.
+    let mut refusals = backends.iter().filter_map(|&backend| {
+        route_refusal(prepared.lowered.definition(), Route::native(backend))
+            .map(|refusal| (backend, refusal))
+    });
+    if let Some((backend, refusal)) = refusals.next() {
+        let every = refusals.count() + 1 == backends.len();
+        return Err(if several && every {
+            every_route_refuses(refusal)
+        } else {
+            route_attributed(refusal, backend, several)
+        });
+    }
+    let warnings = measurement.timings.try_span("check.routes", |timings| {
+        judge_routes(prepared, &backends, several, timings)
+    })?;
     let stdout = if partition {
         prepared.lowered.partition().render()
     } else {
@@ -586,6 +602,166 @@ fn check(
         warnings,
         stdout: stdout.into_bytes(),
     })
+}
+
+/// Judges each of `backends`' native routes and returns their warnings, or
+/// the first refusal in `backends` order.
+///
+/// The routes' compiles are independent, so they run concurrently, each on its
+/// own thread (`check.<route>` spans, recorded below `check.routes` once every
+/// compile has ended, so the children's seconds may sum to more than their
+/// parent's): judging both routes costs about the wall time of the slower one.
+/// What follows each compile, the error or warnings `build` reports and, on
+/// the `native-rust` route, the run commands' definition load
+/// ([`exec::judge`], span `check.load`), runs here in `backends` order.
+fn judge_routes(
+    prepared: &PreparedDefinition,
+    backends: &[Backend],
+    several: bool,
+    timings: &mut Timings,
+) -> Result<crate::DiagnosticReports, CommandError> {
+    let definition = prepared.lowered.definition();
+    let memo = &prepared.compiles;
+    let enabled = timings.is_enabled();
+    let compiled = std::thread::scope(|scope| {
+        let workers = backends
+            .iter()
+            .map(|&backend| {
+                std::thread::Builder::new()
+                    .name(format!("krs-check-{}", backend.as_str()))
+                    .stack_size(exec::WORKER_STACK)
+                    .spawn_scoped(scope, move || {
+                        let mut timings = if enabled {
+                            Timings::enabled()
+                        } else {
+                            Timings::disabled()
+                        };
+                        let id = format!("check.{}", Route::native(backend).name());
+                        let compiled = timings
+                            .try_span(&id, |timings| memo.compile(definition, backend, timings));
+                        (compiled, timings)
+                    })
+            })
+            .collect::<Vec<_>>();
+        workers
+            .into_iter()
+            .map(|worker| {
+                worker
+                    .map_err(|error| {
+                        CommandError::InvalidRequest(format!(
+                            "could not start a check worker: {error}"
+                        ))
+                    })?
+                    .join()
+                    .map_err(|_| CommandError::InvalidRequest("a check worker panicked".into()))
+            })
+            .collect::<Result<Vec<_>, _>>()
+    })?;
+    for (_, route_timings) in &compiled {
+        timings.import(route_timings.spans().iter().cloned());
+    }
+    let every = compiled.iter().all(|(compiled, _)| compiled.is_err());
+    let mut warnings = crate::DiagnosticReports::default();
+    for (&backend, (compiled, route_timings)) in backends.iter().zip(compiled) {
+        if let Some(failed) = route_timings.failed_span() {
+            timings.mark_failed(failed);
+        }
+        let route_warnings =
+            judge_route(prepared, backend, compiled, timings).map_err(|error| {
+                if several && every {
+                    every_route_refuses(error)
+                } else {
+                    route_attributed(error, backend, several)
+                }
+            })?;
+        extend_unique(&mut warnings, route_warnings);
+    }
+    Ok(warnings)
+}
+
+/// `build`'s verdict on `backend`'s route from its compile; on the
+/// `native-rust` route also the definition load of `run`, `search`, and `prove`.
+fn judge_route(
+    prepared: &PreparedDefinition,
+    backend: Backend,
+    compiled: Result<(CompiledArtifacts, ConfigurationContext), DefinitionCompileError>,
+    timings: &mut Timings,
+) -> Result<crate::DiagnosticReports, CommandError> {
+    let (artifacts, context, warnings) = finish_native(prepared, backend, compiled, timings)?;
+    if Route::native(backend) == Route::NativeRust {
+        timings
+            .try_span("check.load", |timings| {
+                exec::judge(prepared, artifacts, context, timings)
+            })
+            .map_err(|error| {
+                error.attributed(
+                    "`krs run`, `krs search`, and `krs prove` refuse this definition when they load it"
+                        .to_owned(),
+                )
+            })?;
+    }
+    Ok(warnings)
+}
+
+/// The native backends `check` judges: the one `--backend` selects, or every
+/// backend `build` takes.
+fn judged_backends(backend: Option<Backend>) -> Result<Vec<Backend>, CommandError> {
+    let backends = backend.map_or_else(|| Backend::ALL.to_vec(), |backend| vec![backend]);
+    for &backend in &backends {
+        require_backend(backend)?;
+    }
+    Ok(backends)
+}
+
+/// The commands that compile for `backend`'s native route.
+const fn route_commands(backend: Backend) -> &'static str {
+    match backend {
+        Backend::Llvm => "`krs build --backend llvm`",
+        Backend::Haskell => {
+            "`krs build --backend haskell`, `krs run`, `krs search`, and `krs prove`"
+        }
+    }
+}
+
+/// When `check` judges several routes, names the route that refused and the
+/// commands that use it, and the `--backend` that judges only the other route.
+fn route_attributed(error: CommandError, backend: Backend, several: bool) -> CommandError {
+    if !several {
+        return error;
+    }
+    let other = match backend {
+        Backend::Llvm => Backend::Haskell,
+        Backend::Haskell => Backend::Llvm,
+    };
+    error.attributed(format!(
+        "`{}` is the route of {}; `krs check --backend {}` judges only the route of {}",
+        Route::native(backend).name(),
+        route_commands(backend),
+        other.as_str(),
+        route_commands(other),
+    ))
+}
+
+/// When `check` judges every route and each refuses the definition, says so.
+fn every_route_refuses(error: CommandError) -> CommandError {
+    error.attributed(
+        "every native route refuses this definition, so no `krs build`, `krs run`, `krs search`, or `krs prove` accepts it; `krs emit-k` still writes its K"
+            .to_owned(),
+    )
+}
+
+/// Appends the diagnostics of `more` that `reports` does not already hold.
+fn extend_unique(reports: &mut crate::DiagnosticReports, more: crate::DiagnosticReports) {
+    for envelope in more.envelopes {
+        if !reports.envelopes.contains(&envelope) {
+            reports.envelopes.push(envelope);
+        }
+    }
+    for diagnostic in more.unlocated {
+        if !reports.unlocated.contains(&diagnostic) {
+            reports.unlocated.push(diagnostic);
+        }
+    }
 }
 
 /// Appends one `krs::emit::trusted-claim` warning per trusted claim (KF-042): every
@@ -701,45 +877,46 @@ fn expand(
     })
 }
 
+/// The artifacts `emit-k` writes, rendered in memory, in `emit-k`'s order;
+/// `check` renders them too, so an emission failure fails the check.
+fn render_emitted(
+    prepared: &PreparedDefinition,
+    measurement: &mut Measurement,
+) -> Result<Vec<(&'static str, Vec<u8>)>, CommandError> {
+    measurement.timings.try_span("emit_k.render", |_| {
+        let descriptor_bundle = prepared.bundle.to_canonical_json()?;
+        let semantic_ir = prepared.semantic.to_canonical_json()?;
+        let definition_ir = prepared.lowered.definition().to_canonical_json()?;
+        let emitted = emit_k(&prepared.lowered)?;
+        let symbols = emitted.symbol_map().to_canonical_json()?;
+        let sources = emitted.source_map().to_canonical_json()?;
+        let mut artifacts = vec![
+            (DESCRIPTOR_ARTIFACT, descriptor_bundle.into_bytes()),
+            (SEMANTIC_ARTIFACT, semantic_ir.into_bytes()),
+            (DEFINITION_IR_ARTIFACT, definition_ir.into_bytes()),
+            (DEFINITION_ARTIFACT, emitted.source().as_bytes().to_vec()),
+        ];
+        if let Some(spec) = emitted.spec() {
+            artifacts.push((SPEC_ARTIFACT, spec.source().as_bytes().to_vec()));
+        }
+        artifacts.extend([
+            (SYMBOLS_ARTIFACT, symbols.into_bytes()),
+            (SOURCES_ARTIFACT, sources.into_bytes()),
+        ]);
+        Ok::<_, CommandError>(artifacts)
+    })
+}
+
 fn emit(
     prepared: &PreparedDefinition,
     output: &Path,
     measurement: &mut Measurement,
 ) -> Result<CommandExecution, CommandError> {
-    let (descriptor_bundle, semantic_ir, definition_ir, emitted, symbols, sources) =
-        measurement.timings.try_span("emit_k.render", |_| {
-            let descriptor_bundle = prepared.bundle.to_canonical_json()?;
-            let semantic_ir = prepared.semantic.to_canonical_json()?;
-            let definition_ir = prepared.lowered.definition().to_canonical_json()?;
-            let emitted = emit_k(&prepared.lowered)?;
-            let symbols = emitted.symbol_map().to_canonical_json()?;
-            let sources = emitted.source_map().to_canonical_json()?;
-            Ok::<_, CommandError>((
-                descriptor_bundle,
-                semantic_ir,
-                definition_ir,
-                emitted,
-                symbols,
-                sources,
-            ))
-        })?;
-    let mut artifacts = vec![
-        (DESCRIPTOR_ARTIFACT, descriptor_bundle.as_bytes()),
-        (SEMANTIC_ARTIFACT, semantic_ir.as_bytes()),
-        (DEFINITION_IR_ARTIFACT, definition_ir.as_bytes()),
-        (DEFINITION_ARTIFACT, emitted.source().as_bytes()),
-    ];
-    if let Some(spec) = emitted.spec() {
-        artifacts.push((SPEC_ARTIFACT, spec.source().as_bytes()));
-    }
-    artifacts.extend([
-        (SYMBOLS_ARTIFACT, symbols.as_bytes()),
-        (SOURCES_ARTIFACT, sources.as_bytes()),
-    ]);
-    let stdout = emission_stdout(&artifacts);
-    let mut artifacts = artifacts
+    let rendered = render_emitted(prepared, measurement)?;
+    let stdout = emission_stdout(&rendered);
+    let mut artifacts = rendered
         .into_iter()
-        .map(|(name, bytes)| (name.to_owned(), bytes.to_vec()))
+        .map(|(name, bytes)| (name.to_owned(), bytes))
         .collect::<Vec<_>>();
     artifacts.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
     measurement.timings.try_span("emit_k.write", |_| {
@@ -765,7 +942,7 @@ fn emit(
     })
 }
 
-fn emission_stdout(artifacts: &[(&str, &[u8])]) -> Vec<u8> {
+fn emission_stdout<B>(artifacts: &[(&str, B)]) -> Vec<u8> {
     let names = artifacts.iter().map(|(name, _)| *name).collect::<Vec<_>>();
     format!("emitted {}\n", names.join(", ")).into_bytes()
 }
@@ -820,22 +997,59 @@ fn require_backend(backend: Backend) -> Result<(), CommandError> {
 /// The native judgement `build` makes of a definition once its route accepts
 /// it: k-rust's preparation, compilation, and KORE reparse for `backend`, and
 /// every warning `build` reports with the result. `check` runs this same
-/// function, so the two commands cannot disagree about a definition.
+/// function, so the two commands cannot disagree about a definition; the
+/// configuration context is what the run commands load with the artifacts.
 fn compile_native(
     prepared: &PreparedDefinition,
     backend: Backend,
-    measurement: &mut Measurement,
-) -> Result<(krs_k_rust::CompiledArtifacts, crate::DiagnosticReports), CommandError> {
-    let artifacts = compile_definition_timed(
-        prepared.lowered.definition(),
-        CompileOptions {
+    timings: &mut Timings,
+) -> Result<
+    (
+        CompiledArtifacts,
+        ConfigurationContext,
+        crate::DiagnosticReports,
+    ),
+    CommandError,
+> {
+    let compiled = prepared
+        .compiles
+        .compile(prepared.lowered.definition(), backend, timings);
+    finish_native(prepared, backend, compiled, timings)
+}
+
+/// k-rust's compile of `definition` for `backend`, as every command makes it.
+fn compile_for(
+    definition: &krs_ir_levels::DefinitionIr,
+    backend: Backend,
+    timings: &mut Timings,
+) -> Result<(CompiledArtifacts, ConfigurationContext), DefinitionCompileError> {
+    krs_k_rust::compile_definition_with_context_timed(
+        definition,
+        krs_k_rust::CompileOptions {
             backend,
-            ..CompileOptions::default()
+            ..krs_k_rust::CompileOptions::default()
         },
-        &mut measurement.timings,
+        timings,
     )
-    .map_err(|error| {
-        measurement.timings.span("native.diagnostics", |_| {
+}
+
+/// [`compile_native`] after k-rust's compile: the compile error as `build`
+/// reports it, or the compiled definition with every warning `build` reports.
+fn finish_native(
+    prepared: &PreparedDefinition,
+    backend: Backend,
+    compiled: Result<(CompiledArtifacts, ConfigurationContext), DefinitionCompileError>,
+    timings: &mut Timings,
+) -> Result<
+    (
+        CompiledArtifacts,
+        ConfigurationContext,
+        crate::DiagnosticReports,
+    ),
+    CommandError,
+> {
+    let (artifacts, context) = compiled.map_err(|error| {
+        timings.span("native.diagnostics", |_| {
             native_command_error(prepared.lowered.source_map(), error)
         })
     })?;
@@ -873,7 +1087,7 @@ fn compile_native(
         crate::DiagnosticReports::native(prepared.lowered.source_map(), &artifacts.diagnostics);
     warnings.envelopes.extend(native.envelopes);
     warnings.unlocated.extend(native.unlocated);
-    Ok((artifacts, warnings))
+    Ok((artifacts, context, warnings))
 }
 
 fn build(
@@ -883,11 +1097,8 @@ fn build(
     measurement: &mut Measurement,
 ) -> Result<CommandExecution, CommandError> {
     require_backend(backend)?;
-    require_route(
-        prepared.lowered.definition(),
-        krs_k_rust::Route::native(backend),
-    )?;
-    let (artifacts, warnings) = compile_native(prepared, backend, measurement)?;
+    require_route(prepared.lowered.definition(), Route::native(backend))?;
+    let (artifacts, _, warnings) = compile_native(prepared, backend, &mut measurement.timings)?;
     let files = vec![
         (
             "definition.kore".to_owned(),
@@ -1040,6 +1251,16 @@ pub enum CommandError {
     Exec(krs_exec::ExecError),
     /// A run-family invocation that the selected definition rules out (exit status 2).
     Usage(String),
+    /// A refusal `krs check` reports for another command, with a note naming that command.
+    Attributed {
+        /// Names the command, or the route, that refuses the definition.
+        note: String,
+        /// The refusal.
+        source: Box<CommandError>,
+    },
+    /// `KRS_CHECK_AGREEMENT=1`: the verdict of `krs check` differs from the
+    /// verdicts of the commands it judges.
+    CheckDisagreement(String),
 }
 
 impl fmt::Display for CommandError {
@@ -1117,7 +1338,8 @@ impl fmt::Display for CommandError {
                 path.display()
             ),
             Self::Exec(error) => error.fmt(formatter),
-            Self::Usage(message) => formatter.write_str(message),
+            Self::Usage(message) | Self::CheckDisagreement(message) => formatter.write_str(message),
+            Self::Attributed { note, source } => write!(formatter, "{source} ({note})"),
         }
     }
 }
@@ -1139,7 +1361,9 @@ impl Error for CommandError {
             Self::ReferenceExpansion(error) => Some(error),
             Self::Native(error) | Self::NativeDiagnostics { source: error, .. } => Some(error),
             Self::Exec(error) => Some(error),
+            Self::Attributed { source, .. } => Some(source.as_ref()),
             Self::Usage(_)
+            | Self::CheckDisagreement(_)
             | Self::InvalidRequest(_)
             | Self::InvalidMetadata(_)
             | Self::ProcessFailed { .. }
@@ -1154,8 +1378,9 @@ impl Error for CommandError {
 impl CommandError {
     /// The process exit status for this failure: 2 for a usage error, 1 otherwise.
     #[must_use]
-    pub const fn exit_code(&self) -> i32 {
+    pub fn exit_code(&self) -> i32 {
         match self {
+            Self::Attributed { source, .. } => source.exit_code(),
             Self::Usage(_)
             | Self::Exec(krs_exec::ExecError::StrayProgram | krs_exec::ExecError::MissingProgram) => {
                 2
@@ -1208,6 +1433,13 @@ impl CommandError {
     /// Returns diagnostics that have no exact authored range.
     #[must_use]
     pub fn unlocated_diagnostics(&self) -> Cow<'_, [crate::UnlocatedDiagnostic]> {
+        if let Self::Attributed { note, source } = self {
+            let mut diagnostics = source.unlocated_diagnostics().into_owned();
+            for diagnostic in &mut diagnostics {
+                diagnostic.notes.push(note.clone());
+            }
+            return Cow::Owned(diagnostics);
+        }
         if let Self::NativeDiagnostics { reports, .. } = self {
             return Cow::Borrowed(&reports.unlocated);
         }
@@ -1231,6 +1463,13 @@ impl CommandError {
     #[must_use]
     pub fn diagnostics(&self) -> Option<Cow<'_, [DiagnosticEnvelope]>> {
         match self {
+            Self::Attributed { note, source } => {
+                let mut diagnostics = source.diagnostics()?.into_owned();
+                for diagnostic in &mut diagnostics {
+                    diagnostic.notes.push(note.clone());
+                }
+                return Some(Cow::Owned(diagnostics));
+            }
             Self::Diagnostics(diagnostics) => return Some(Cow::Borrowed(diagnostics)),
             Self::NativeDiagnostics { reports, .. } => {
                 return Some(Cow::Borrowed(&reports.envelopes));
@@ -1243,6 +1482,16 @@ impl CommandError {
                 .into_iter()
                 .collect(),
         ))
+    }
+}
+
+impl CommandError {
+    /// This refusal with `note`, which names the command that refuses.
+    fn attributed(self, note: String) -> Self {
+        Self::Attributed {
+            note,
+            source: Box::new(self),
+        }
     }
 }
 
@@ -1443,10 +1692,30 @@ mod tests {
     }
 
     #[test]
+    fn attributed_refusals_keep_the_refusal_and_add_the_note() {
+        let refusal = CommandError::CapabilityUnavailable {
+            route: Route::NativeLlvm,
+            message: "lacks a feature".to_owned(),
+        };
+        let unlocated = refusal.unlocated_diagnostics().into_owned();
+        let attributed = refusal.attributed("the note".to_owned());
+        assert_eq!(attributed.exit_code(), 1);
+        assert!(attributed.diagnostics().unwrap().is_empty());
+        let diagnostics = attributed.unlocated_diagnostics();
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].message, unlocated[0].message);
+        assert_eq!(diagnostics[0].notes, ["the note"]);
+        assert_eq!(
+            attributed.to_string(),
+            "route `native-llvm` refuses this definition: lacks a feature (the note)"
+        );
+    }
+
+    #[test]
     fn manifest_path_must_name_cargo_toml() {
         let base = CommandRequest {
             command: Command::Check {
-                backend: Backend::Llvm,
+                backend: None,
                 partition: false,
             },
             manifest_path: PathBuf::from("Cargo.toml"),

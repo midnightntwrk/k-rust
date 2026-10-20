@@ -66,6 +66,11 @@ fn syntax_categories_have_distinct_registered_codes() {
         SyntaxErrorKind::UnsupportedRuleSignature { reason: "example" },
         SyntaxErrorKind::UnsupportedRulePattern { reason: "example" },
         SyntaxErrorKind::InvalidTermType,
+        SyntaxErrorKind::ParametricCollectionSort {
+            collection: "List",
+            bare: example(),
+            narrowing: true,
+        },
         SyntaxErrorKind::UnsupportedRuleBody { reason: "example" },
         SyntaxErrorKind::UnexpectedMacro {
             path: String::from("example"),

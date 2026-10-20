@@ -2,7 +2,7 @@ use quote::ToTokens;
 use syn::spanned::Spanned;
 use syn::{GenericArgument, Path, PathArguments, TraitBoundModifier, Type, TypeParamBound};
 
-use crate::path::is_plain_path;
+use crate::path::{is_plain_path, parametric_collection_error};
 use crate::{SyntaxError, SyntaxErrorKind};
 
 /// A validated `Term<SortPath>` or `Term<dyn SortPath>` type reference, or
@@ -98,6 +98,12 @@ pub(crate) fn parse_term_sort(ty: Type) -> Result<TermSort, SyntaxError> {
         ));
     };
 
+    if let Type::Path(sort) = sort_type
+        && sort.qself.is_none()
+        && let Some(error) = parametric_collection_error(&sort.path, false)
+    {
+        return Err(error);
+    }
     let (sort, dynamic) = match sort_type {
         Type::Path(sort) if sort.qself.is_none() && is_plain_path(&sort.path) => {
             (sort.path.clone(), false)
@@ -159,6 +165,16 @@ pub(crate) fn parse_rule_term_sort(ty: Type) -> Result<TermSort, SyntaxError> {
     parse_term_sort(ty)
 }
 
+/// Parses a `Term<..>` sort, or else a readable sort path. A parametric
+/// collection sort inside `Term<..>` reports that rather than the readable
+/// parse's failure on the `Term` path itself.
+pub(crate) fn parse_term_or_readable_sort(ty: Type) -> Result<TermSort, SyntaxError> {
+    parse_term_sort(ty.clone()).or_else(|error| match error.kind() {
+        SyntaxErrorKind::ParametricCollectionSort { .. } => Err(error),
+        _ => parse_readable_sort(ty),
+    })
+}
+
 pub(crate) fn parse_readable_sort(ty: Type) -> Result<TermSort, SyntaxError> {
     let Type::Path(path) = &ty else {
         return Err(SyntaxError::new(
@@ -166,6 +182,11 @@ pub(crate) fn parse_readable_sort(ty: Type) -> Result<TermSort, SyntaxError> {
             ty.span(),
         ));
     };
+    if path.qself.is_none()
+        && let Some(error) = parametric_collection_error(&path.path, false)
+    {
+        return Err(error);
+    }
     if path.qself.is_some() || !is_plain_path(&path.path) {
         return Err(SyntaxError::new(
             SyntaxErrorKind::InvalidTermType,

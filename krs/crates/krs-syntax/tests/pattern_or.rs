@@ -159,7 +159,7 @@ fn malformed_or_patterns_are_rejected() {
         "{records}"
     );
     let inside = krs_syntax::RuleBlock::parse_source(
-        "for Machine; good: { fuel: Red() | Green(), acc: a } => { fuel: Red(), acc: a };",
+        "for Machine; good: { fuel: Red() | Green(), acc: a } => { fuel: Red() };",
     );
     assert!(inside.is_ok(), "{:?}", inside.err());
 }

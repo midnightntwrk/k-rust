@@ -210,7 +210,8 @@ def java_haskell_outcomes(
 def verify_functions(harness: FixtureGate) -> None:
     """Parametric functions run natively and on Java Haskell; LLVM refuses them."""
 
-    harness.check(FUNCTIONS)
+    # Only the native-rust route compiles parametric function equations.
+    harness.check(FUNCTIONS, "--backend", "haskell")
     expansion = "".join(harness.expand(FUNCTIONS).split())
     if "crate::Choose::<dyncrate::ExpSort>(" not in expansion:
         raise GateError(f"{FUNCTIONS.package}: krs expand does not render the readable turbofish as its marker")
@@ -256,6 +257,10 @@ def verify_functions(harness: FixtureGate) -> None:
     if not lines or "krs::capability::unavailable" not in lines[0]:
         raise GateError(f"{FUNCTIONS.package}: krs build --backend llvm failed without the capability refusal:\n{refused.stderr}")
     harness.pins.expect(("diagnostics", "functions-llvm"), lines)
+    # `krs check` predicts `build` on every backend, so it refuses with the same refusal.
+    checked = harness._krs(FUNCTIONS, "check", check=False)  # noqa: SLF001
+    if checked.returncode == 0 or diagnostic_lines(checked.stderr)[:1] != lines[:1]:
+        raise GateError(f"{FUNCTIONS.package}: krs check did not refuse as krs build --backend llvm does:\n{checked.stderr}")
 
 
 def verify_constructors(harness: FixtureGate) -> None:

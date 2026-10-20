@@ -12,7 +12,7 @@ use k_rust::kast::Sort as KastSort;
 use k_rust::provenance::SourceTable;
 use krs_ir::measure::Timings;
 use krs_ir_levels::DefinitionIr;
-use krs_k_rust::{CompiledArtifacts, NativeDefinition, SentenceProvenance};
+use krs_k_rust::{CompiledArtifacts, ConfigurationContext, NativeDefinition, SentenceProvenance};
 use serde::{Deserialize, Serialize};
 
 use crate::{ExecError, compile_definition, compile_spec_definition};
@@ -45,6 +45,14 @@ impl CompiledStage {
     pub fn compile(definition: &DefinitionIr, timings: &mut Timings) -> Result<Self, ExecError> {
         let (artifacts, context) =
             compile_definition(definition, timings).map_err(ExecError::Compile)?;
+        Ok(Self::from_compiled(artifacts, context))
+    }
+
+    /// The stage of a definition that [`crate::compile_definition`] compiled (or
+    /// [`krs_k_rust::compile_definition_with_context_timed`] with the same options),
+    /// for a caller that already holds the compiled artifacts.
+    #[must_use]
+    pub fn from_compiled(artifacts: CompiledArtifacts, context: ConfigurationContext) -> Self {
         let CompiledArtifacts {
             definition_kore,
             syntax_definition_kore,
@@ -52,7 +60,7 @@ impl CompiledStage {
             sentence_provenance,
             ..
         } = artifacts;
-        Ok(Self {
+        Self {
             definition_kore,
             syntax_definition_kore,
             macros_kore,
@@ -60,7 +68,7 @@ impl CompiledStage {
             frontend_definition: context.frontend_definition,
             source_table: context.source_table,
             configuration_variables: context.configuration_variables,
-        })
+        }
     }
 
     /// The compiled KORE definition text.
