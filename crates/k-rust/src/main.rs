@@ -51,8 +51,9 @@ use k_rust::{
     kast::{Sort as KastSort, WellKnownModule, parser::parse_sort},
     kompile::{
         CompilationBackend, CompileOptions, CompileSearchPatternError, CompiledSearchPattern,
-        ConfigurationAssembler, ConfigurationError, ProgramGrammar, compile_loaded_definition,
-        compile_loaded_definition_with_timings, compile_search_pattern,
+        ConfigurationAssembler, ConfigurationError, ProgramGrammar,
+        compile_loaded_definition_for_proof, compile_loaded_definition_with_timings,
+        compile_search_pattern,
         pipeline::{emission_phase, load_phase},
     },
     kore::{
@@ -3325,7 +3326,7 @@ fn compile_proof_source(
         )?
     };
     let builtin_source_prefixes = common.builtin_source_prefixes();
-    let compiled = match compile_loaded_definition(
+    let compiled = match compile_loaded_definition_for_proof(
         &loaded,
         CompileOptions {
             backend: CompilationBackend::Rust,
@@ -3345,7 +3346,9 @@ fn compile_proof_source(
         }
     };
     emit_diagnostics(&compiled.diagnostics);
-    Ok(parse_kore_definition(&compiled.definition_kore)?)
+    // The compiler's KORE value is what `definition.kore` prints for these options, and what
+    // parsing that text gives back, so the prover reads it without the round trip.
+    Ok(compiled.definition)
 }
 
 /// Load a specification against a prepared semantics directory, recording the prepared-artifact
