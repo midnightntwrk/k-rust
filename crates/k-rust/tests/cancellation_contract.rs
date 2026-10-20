@@ -217,11 +217,28 @@ fn a_proof_cancelled_after_a_certified_refutation_keeps_its_verdict() {
 
 /// With the default limit of one counterexample, the stuck leaf ends the proof; a watchdog that
 /// fires later, or a cancellation the last leaf's refinement observed, leaves that verdict.
+///
+/// The stuck leaf is two steps from the start, but nothing bounds the wall-clock time a loaded
+/// host takes to reach it, and a cancellation that lands first ends a proof that has decided
+/// nothing, which answers `Err(Cancelled)` (as in
+/// `a_proof_cancelled_while_it_runs_answers_the_cancellation`). So an `Err` must be that
+/// cancellation, the test retries with a longer delay until the proof reaches its limit first,
+/// and an `Ok`, whatever the delay, must be the refutation.
 #[test]
 fn a_proof_that_reached_its_counterexample_limit_keeps_its_verdict() {
     let mut backend = Backend::new(REFUTED, "REFUTED", BackendOptions::default()).unwrap();
-    let result = with_watchdog(|| backend.prove(ProveRequest::default())).unwrap();
-    assert_eq!(result.status, "disproved");
+    for delay in [100, 400, 1_600, 6_400] {
+        match with_watchdog_after(Duration::from_millis(delay), || {
+            backend.prove(ProveRequest::default())
+        }) {
+            Ok(result) => {
+                assert_eq!(result.status, "disproved");
+                return;
+            }
+            Err(error) => assert_cancelled(&error),
+        }
+    }
+    panic!("the proof never reached its counterexample limit before the cancellation");
 }
 
 /// Under `cancelledResult: error` a cancellation that ends a running `execute` answers `Err` with
