@@ -90,6 +90,16 @@ fn framed<'a>(cell: &'a SemanticId, before: &'a SemanticTerm) -> ClauseView<'a> 
     }
 }
 
+fn framed_map<'a>(cell: &'a SemanticId, before: &'a SemanticTerm) -> ClauseView<'a> {
+    ClauseView {
+        cell,
+        before,
+        completed_head: false,
+        frame: Frame::Map,
+        unconstrained: false,
+    }
+}
+
 #[test]
 fn disjoint_footprints_are_not_reported() {
     let graph = graph();
@@ -243,16 +253,16 @@ fn framed_map_reads_overlap_whatever_entries_they_name() {
     // One map can hold entries for 0, 1, and 2 at once, so a read of two
     // entries and a read of another entry can apply to one configuration.
     assert!(clauses_overlap(
-        &[framed(&mem, &both)],
+        &[framed_map(&mem, &both)],
         None,
-        &[framed(&mem, &other)],
+        &[framed_map(&mem, &other)],
         None,
         &graph,
     ));
     assert!(clauses_overlap(
-        &[framed(&mem, &both)],
+        &[framed_map(&mem, &both)],
         None,
-        &[framed(&mem, &swapped)],
+        &[framed_map(&mem, &swapped)],
         None,
         &graph,
     ));
