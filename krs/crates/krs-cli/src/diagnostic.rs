@@ -164,6 +164,7 @@ pub fn translate_k_frontend_diagnostic(
         authored_range,
         generated_range: Some(generated_range),
         notes: Vec::new(),
+        help: Vec::new(),
     })
 }
 
@@ -199,14 +200,15 @@ mod tests {
     }
 
     #[test]
-    fn envelope_preserves_the_producers_message_severity_and_notes() {
+    fn envelope_preserves_the_producers_message_severity_notes_and_help() {
         let mut diagnostic = Diagnostic::error(
             krs_diagnostic::codes::analysis::OVERLAPPING_RULE_HEADS,
             "overlap",
             Location::Source(range()),
         )
         .with_note("first rule: first")
-        .with_note("second rule: second");
+        .with_note("second rule: second")
+        .with_help("reorder the rules");
         diagnostic.severity = Severity::Warning;
         let envelope = diagnostic_envelope(diagnostic, DiagnosticStage::Analysis, None).unwrap();
         assert_eq!(envelope.code, "krs::analysis::overlapping-rule-heads");
@@ -214,6 +216,7 @@ mod tests {
         assert_eq!(envelope.severity, DiagnosticSeverity::Warning);
         assert_eq!(envelope.message, "overlap");
         assert_eq!(envelope.notes, ["first rule: first", "second rule: second"]);
+        assert_eq!(envelope.help, ["reorder the rules"]);
         assert_eq!(envelope.authored_range, range());
         assert_eq!(envelope.generated_range, None);
     }
