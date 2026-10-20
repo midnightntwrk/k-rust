@@ -1938,15 +1938,22 @@ pub fn internalize_axiom(
             else {
                 return Ok(vec![]);
             };
+            // The equation is `requires ∧ ⋀ Xi ∈ Pi → f(X⃗) = rhs`. Every symbol is interpreted
+            // pointwise, so a disjunction below a symbol of `Pi`, or below an operand of its
+            // `\and`, distributes to the root (`σ(.., A ∨ B, ..) = σ(.., A, ..) ∨ σ(.., B, ..)`,
+            // and `\and` distributes over `\or`), and `Xi ∈ (A ∨ B) → φ` is
+            // `(Xi ∈ A → φ) ∧ (Xi ∈ B → φ)`: one rule per choice of a disjunct for each argument,
+            // all of them with the axiom's attributes. A `\bottom` disjunct at the root is no
+            // value of `Xi`, so it gives no rule.
             let mut binding_alternatives = vec![Substitution::new()];
             for binder in binders {
                 let variable =
                     definition.internalize_variable(&binder.variable, sort_parameters)?;
-                let alternatives = binder_term_alternatives(&binder.pattern)
+                let alternatives = term_disjuncts(&binder.pattern)
                     .into_iter()
                     .filter_map(|pattern| {
                         live_matched(definition.internalize_term_with_validation(
-                            pattern,
+                            &pattern,
                             sort_parameters,
                             injection_role,
                         ))
@@ -4539,19 +4546,6 @@ fn extract_binders(pattern: &kore::Pattern) -> Result<Vec<ArgumentBinder>, Axiom
     }
 }
 
-fn binder_term_alternatives(pattern: &kore::Pattern) -> Vec<&kore::Pattern> {
-    let kore::Pattern::Or { arguments, .. } = pattern else {
-        return vec![pattern];
-    };
-    if arguments.is_empty() {
-        return vec![pattern];
-    }
-    arguments
-        .iter()
-        .flat_map(binder_term_alternatives)
-        .collect()
-}
-
 fn extract_existentials(mut pattern: kore::Pattern) -> (kore::Pattern, Vec<kore::Variable>) {
     let mut variables = Vec::new();
     while let kore::Pattern::Exists { variable, body, .. } = &mut pattern {
@@ -5276,29 +5270,71 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn rejects_disjunction_nested_below_a_binder_term_head() {
-        let error = internalize_function(
-            r#"axiom{R} \implies{R}(
-                \and{R}(
-                    \top{R}(),
-                    \and{R}(
-                        \in{SortS{}, R}(
-                            X:SortS{},
-                            wrap{}(\or{SortS{}}(a{}(), b{}()))
-                        ),
-                        \top{R}()
+    /// The rules of the one-argument equation of `unary` whose argument binder is `pattern`.
+    fn unary_equation_rules(pattern: &str) -> Vec<InternalizedRule> {
+        internalize_function(&format!(
+            r#"axiom{{R}} \implies{{R}}(
+                \and{{R}}(
+                    \top{{R}}(),
+                    \and{{R}}(
+                        \in{{SortS{{}}, R}}(X:SortS{{}}, {pattern}),
+                        \top{{R}}()
                     )
                 ),
-                \equals{SortS{}, R}(
-                    unary{}(X:SortS{}),
-                    \and{SortS{}}(result{}(), \top{SortS{}}())
+                \equals{{SortS{{}}, R}}(
+                    unary{{}}(X:SortS{{}}),
+                    \and{{SortS{{}}}}(result{{}}(), \top{{SortS{{}}}}())
                 )
-            ) [label{}("nested-term-or")]"#,
-        )
-        .expect_err("only a binder's top-level disjunction is admissible");
+            ) [label{{}}("nested-term-or")]"#
+        ))
+        .unwrap_or_else(|error| panic!("{pattern}: {error:?}"))
+    }
 
-        assert_eq!(error, DefinitionError::ExpectedTerm("or"));
+    /// A disjunction below a symbol of an argument binder, or below its `\and`, is distributed
+    /// to the binder's root: the equation gives the rules of the binder's disjunction of
+    /// distributed terms, in the same order.
+    #[test]
+    fn distributes_a_disjunction_nested_below_a_binder_term_head() {
+        for (nested, distributed) in [
+            (
+                r"wrap{}(\or{SortS{}}(a{}(), b{}()))",
+                r"\or{SortS{}}(wrap{}(a{}()), wrap{}(b{}()))",
+            ),
+            (
+                r"wrap{}(wrap{}(\or{SortS{}}(a{}(), \or{SortS{}}(b{}(), c{}()))))",
+                r"\or{SortS{}}(wrap{}(wrap{}(a{}())), \or{SortS{}}(wrap{}(wrap{}(b{}())), wrap{}(wrap{}(c{}()))))",
+            ),
+            (
+                r"\and{SortS{}}(Y:SortS{}, \or{SortS{}}(a{}(), b{}()))",
+                r"\or{SortS{}}(\and{SortS{}}(Y:SortS{}, a{}()), \and{SortS{}}(Y:SortS{}, b{}()))",
+            ),
+            (
+                r"wrap{}(\and{SortS{}}(Y:SortS{}, \or{SortS{}}(a{}(), b{}())))",
+                r"\or{SortS{}}(wrap{}(\and{SortS{}}(Y:SortS{}, a{}())), wrap{}(\and{SortS{}}(Y:SortS{}, b{}())))",
+            ),
+        ] {
+            let rules = unary_equation_rules(nested);
+            assert_eq!(
+                rules.len(),
+                2 + usize::from(nested.contains("c{}")),
+                "{nested}"
+            );
+            assert_eq!(rules, unary_equation_rules(distributed), "{nested}");
+        }
+    }
+
+    /// A `\bottom` disjunct of an argument binder is no value of its variable, so it gives no
+    /// rule.
+    #[test]
+    fn a_bottom_disjunct_of_a_binder_gives_no_rule() {
+        assert_eq!(
+            unary_equation_rules(r"\or{SortS{}}(\bottom{SortS{}}(), a{}())"),
+            unary_equation_rules(r"a{}()"),
+        );
+        assert_eq!(
+            unary_equation_rules(r"wrap{}(\or{SortS{}}(\or{SortS{}}(), a{}()))"),
+            unary_equation_rules(r"wrap{}(a{}())"),
+        );
     }
 
     #[test]
