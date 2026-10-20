@@ -6,8 +6,9 @@
 // - `check-hit`: its guard `A ==Int 42` fails on every other input, so `check(A)` reaches the
 //   condition (coverage `matched`) and ends through `check-miss`.
 // - `twin-a` and `twin-b` are equal rules under two labels: one compiled identity shared by two
-//   catalog entries (`shared_identity`). `dormant` is `non-executable`. `double` is a function
-//   equation. A rule target naming any of these is refused.
+//   catalog entries (`shared_identity`). `double` is a function equation, and `dormant` a
+//   `non-executable` one (k-rust accepts the attribute only on function equations, so no
+//   rewrite rule has `executable: false`). A rule target naming any of these is refused.
 
 module RULES-SYNTAX
   imports INT-SYNTAX
@@ -24,6 +25,7 @@ module RULES
   imports BOOL
 
   syntax Int ::= double(Int)  [function, total, symbol(double)]
+                 | triple(Int)  [function, symbol(triple)]
 
   configuration <k> $PGM:Pgm </k>
                 <out> 0 </out>
@@ -36,5 +38,5 @@ module RULES
   rule [twice]:      <k> twice(A) => .K ... </k> <out> _ => double(A) </out>
   rule [twin-a]:     <k> twin => .K ... </k> <out> _ => 2 </out>
   rule [twin-b]:     <k> twin => .K ... </k> <out> _ => 2 </out>
-  rule [dormant]:    <k> twin => .K ... </k> <out> _ => 3 </out> [non-executable]
+  rule [dormant]:    triple(I) => I *Int 3 [non-executable]
 endmodule

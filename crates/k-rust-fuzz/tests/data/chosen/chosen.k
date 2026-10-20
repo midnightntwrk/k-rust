@@ -17,12 +17,13 @@ module CHOSEN
   imports MAP
   imports SET
   imports LIST
+  imports COLLECTIONS
 
   configuration <k> $PGM:Pgm </k>
                 <out> .List </out>
 
   rule [list-keys]: <k> listKeys(A, B) => .K ... </k>
-                    <out> _ => keys_list(.Map [ A <- 0 ] [ B <- 1 ]) </out>
+                    <out> _ => keys_list((A |-> 0) [ B <- 1 ]) </out>
   rule [list-set]:  <k> listSet(A, B) => .K ... </k>
-                    <out> _ => Set2List(SetItem(A) |Set SetItem(B)) </out>
+                    <out> _ => Set2List(List2Set(ListItem(A) ListItem(B))) </out>
 endmodule

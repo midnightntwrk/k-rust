@@ -1,0 +1,403 @@
+//! Fixture definitions for the fuzz crate's tests (FZ-FIX).
+//!
+//! Each [`Fixture`] is a K definition under `tests/data` with the programs the tests run on it;
+//! `tests/data/README.md` says what each one is for. [`Fixture::compiled`] compiles a fixture
+//! in-process in the portable build, as `kcompile` does for the Rust backend: the definition is
+//! loaded with [`load_for_compilation`] (the embedded prelude as an implicit source, the modules
+//! [`CompilationBackend::Rust`] excludes left out) and compiled by [`compile_loaded_definition`].
+//! Neither call is `cli`-gated, and neither reads a file: every source is embedded with
+//! `include_str!`, and `requires` resolve only to k-rust's embedded builtins.
+//!
+//! A compiled fixture is built once per test binary and shared ([`OnceLock`]). Only immutable
+//! artefacts are shared; every [`Backend`] and [`ConfigurationAssembler`] a test drives is built
+//! by that test. Compilation reads the process-wide `KRUST_TYPE_INFERENCE_MODE`; the cache keeps
+//! the first build of the process, so a test binary must not change that variable while it runs.
+//!
+//! Test binaries include this module with `mod support;`.
+
+#![allow(dead_code)]
+
+use std::{collections::BTreeMap, sync::OnceLock};
+
+use k_rust::{
+    backend::{Backend, BackendOptions, ExecutionDigest, execution_digest},
+    builtin::embedded,
+    definition::Definition,
+    kast::Sort,
+    kompile::{
+        CompilationBackend, CompileOptions, CompiledKoreArtifacts, ConfigurationAssembler,
+        ConfigurationError, ProgramGrammar, compile_loaded_definition,
+    },
+    kore::{
+        ast::{Definition as KoreDefinition, Pattern},
+        parser::parse_definition,
+    },
+    outer::{LoadOptions, ResolvedSource, load_for_compilation},
+};
+use k_rust_fuzz::{BackendRoute, CompiledDefinition, ProgramSource, spec::ProgramText};
+
+/// One program of a fixture: a runnable program text, and the configuration variables other
+/// than `$PGM` the program binds, as `(name without $, value text)`.
+#[derive(Debug)]
+pub struct Program {
+    /// The file under `tests/data`, which is also the name the program's locations carry.
+    pub file: &'static str,
+    pub text: &'static str,
+    pub bindings: &'static [(&'static str, &'static str)],
+}
+
+/// A K definition under `tests/data` and the programs the tests run on it.
+#[derive(Debug)]
+pub struct Fixture {
+    /// The definition file under `tests/data`, which is also its source name.
+    pub file: &'static str,
+    pub source: &'static str,
+    pub main_module: &'static str,
+    /// The sort the program parser starts at (`krun --sort`).
+    pub start_sort: &'static str,
+    pub programs: &'static [Program],
+    compiled: &'static OnceLock<Compiled>,
+}
+
+/// A fixture compiled in-process, with everything a campaign's `Definitions` is built from.
+pub struct Compiled {
+    pub fixture: &'static Fixture,
+    /// The syntax module [`load_for_compilation`] selected (`<MAIN>-SYNTAX` in every fixture).
+    pub syntax_module: String,
+    /// The program grammar, over the loaded frontend definition
+    /// ([`ProgramGrammar::definition`] is that definition).
+    pub grammar: ProgramGrammar,
+    /// The compiler's output: `definition_kore`, the configuration-variable sorts, the execution
+    /// definition (for patterns) and the execution rewrite order.
+    pub artifacts: CompiledKoreArtifacts,
+    /// `artifacts.definition_kore`, parsed.
+    pub kore: KoreDefinition,
+}
+
+impl std::fmt::Debug for Compiled {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Compiled")
+            .field("fixture", &self.fixture.file)
+            .field("syntax_module", &self.syntax_module)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Fixture {
+    /// The fixture compiled, built on first use in this test binary.
+    ///
+    /// # Panics
+    ///
+    /// If the fixture does not load or compile.
+    pub fn compiled(&'static self) -> &'static Compiled {
+        self.compiled.get_or_init(|| compile(self))
+    }
+
+    /// The program whose file is `file`.
+    ///
+    /// # Panics
+    ///
+    /// If the fixture has no such program.
+    pub fn program(&self, file: &str) -> &'static Program {
+        self.programs
+            .iter()
+            .find(|program| program.file == file)
+            .unwrap_or_else(|| panic!("{} has no program {file}", self.file))
+    }
+}
+
+fn compile(fixture: &'static Fixture) -> Compiled {
+    let mut resolver = |_: &str, required: &str| {
+        embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let options = LoadOptions {
+        implicit_sources: vec![embedded("prelude.md").expect("the prelude is embedded")],
+        ..CompilationBackend::Rust.load_options()
+    };
+    let (loaded, syntax_module) = load_for_compilation(
+        ResolvedSource::new(fixture.file, fixture.source),
+        fixture.main_module,
+        None,
+        &mut resolver,
+        &options,
+    )
+    .unwrap_or_else(|error| panic!("{} does not load: {error:?}", fixture.file));
+    let artifacts =
+        compile_loaded_definition(&loaded, CompileOptions::default()).unwrap_or_else(|error| {
+            panic!(
+                "{} does not compile: {error}: {:#?}",
+                fixture.file, error.diagnostics
+            )
+        });
+    let frontend: Definition = loaded.into_definition();
+    let grammar = ProgramGrammar::new(&frontend)
+        .unwrap_or_else(|error| panic!("{} has no program grammar: {error}", fixture.file));
+    let kore = parse_definition(&artifacts.definition_kore)
+        .unwrap_or_else(|error| panic!("{}'s KORE does not parse: {error}", fixture.file));
+    Compiled {
+        fixture,
+        syntax_module,
+        grammar,
+        artifacts,
+        kore,
+    }
+}
+
+impl Compiled {
+    pub fn main_module(&self) -> &'static str {
+        self.fixture.main_module
+    }
+
+    /// The loaded frontend definition, whose grammar parses programs.
+    pub fn frontend(&self) -> &Definition {
+        self.grammar.definition()
+    }
+
+    /// The configuration-variable sorts, names without `$`.
+    pub fn configuration_variables(&self) -> &BTreeMap<String, Sort> {
+        &self.artifacts.configuration_variables
+    }
+
+    pub fn start_sort(&self) -> Sort {
+        Sort::new(self.fixture.start_sort)
+    }
+
+    /// An assembler for this definition, as `krun` builds one.
+    pub fn assembler(&self) -> ConfigurationAssembler<'_> {
+        ConfigurationAssembler::new(
+            &self.grammar,
+            self.fixture.main_module,
+            &self.syntax_module,
+            &self.artifacts.configuration_variables,
+        )
+    }
+
+    /// The initial configuration of `text` with `bindings`, assembled as `krun --io off` does
+    /// with no standard input: `$PGM` parsed at the start sort, each binding parsed at its
+    /// variable's sort, and every declared stream variable left unbound given its default.
+    ///
+    /// # Errors
+    ///
+    /// When the program or a binding does not parse or place.
+    pub fn assemble(
+        &self,
+        file: &str,
+        text: &str,
+        bindings: &[(&str, &str)],
+    ) -> Result<Pattern, ConfigurationError> {
+        let mut assembler = self.assembler();
+        assembler.program_file(&self.start_sort(), text, file)?;
+        for (name, value) in bindings {
+            assembler.bind(name, value)?;
+        }
+        assembler.bind_stream_defaults(false, false, || Ok::<_, ConfigurationError>(Vec::new()))?;
+        assembler.finish()
+    }
+
+    /// The initial configuration of the fixture's program `file`, unchanged.
+    ///
+    /// # Panics
+    ///
+    /// If the program does not assemble.
+    pub fn initial(&self, file: &str) -> Pattern {
+        let program = self.fixture.program(file);
+        self.assemble(program.file, program.text, program.bindings)
+            .unwrap_or_else(|error| panic!("{file} does not assemble: {error}"))
+    }
+
+    /// A backend on `krun`'s route: the definition internalized with the compiler's rewrite
+    /// order (`Backend::internalize_source_definition`), which orders rules and so selects the
+    /// path strategy `any` follows.
+    ///
+    /// # Panics
+    ///
+    /// If the definition does not internalize.
+    pub fn source_backend(&self) -> Backend {
+        let definition = Backend::internalize_source_definition(
+            &self.kore,
+            self.fixture.main_module,
+            &self.artifacts.execution_rewrite_order,
+        )
+        .unwrap_or_else(|error| panic!("{}: {error:?}", self.fixture.file));
+        Backend::from_internalized(definition, BackendOptions::default())
+            .unwrap_or_else(|error| panic!("{}: {error:?}", self.fixture.file))
+    }
+
+    /// A backend from the KORE alone (`Backend::from_definition`, the route that takes no
+    /// rewrite order, as kink builds one).
+    ///
+    /// # Panics
+    ///
+    /// If the definition does not load.
+    pub fn kore_backend(&self) -> Backend {
+        Backend::from_definition(
+            self.kore.clone(),
+            self.fixture.main_module,
+            BackendOptions::default(),
+        )
+        .unwrap_or_else(|error| panic!("{}: {error:?}", self.fixture.file))
+    }
+
+    /// The execution digest of `definition_kore`.
+    ///
+    /// # Panics
+    ///
+    /// If the definition has none (compiler output always has one).
+    pub fn digest(&self) -> ExecutionDigest {
+        execution_digest(&self.kore)
+            .unwrap_or_else(|error| panic!("{}: {error:?}", self.fixture.file))
+    }
+
+    /// The campaign's view of this definition on `krun`'s route
+    /// ([`BackendRoute::SourceExecution`] with the compiler's rewrite order).
+    ///
+    /// # Panics
+    ///
+    /// If the KORE does not parse (compiler output always parses).
+    pub fn definition(&self) -> CompiledDefinition {
+        CompiledDefinition::from_artifacts(
+            self.fixture.main_module,
+            self.syntax_module.clone(),
+            self.frontend().clone(),
+            self.artifacts.clone(),
+        )
+        .unwrap_or_else(|error| panic!("{}: {error:?}", self.fixture.file))
+    }
+
+    /// [`Self::definition`] on `route`.
+    pub fn definition_on(&self, route: BackendRoute) -> CompiledDefinition {
+        CompiledDefinition {
+            route,
+            ..self.definition()
+        }
+    }
+
+    /// The fixture's program `file` as a campaign's program input: its text unchanged, its
+    /// start sort, and its configuration-variable bindings.
+    pub fn program_source(&self, file: &str) -> ProgramSource {
+        let program = self.fixture.program(file);
+        ProgramSource {
+            program: Some(ProgramText {
+                name: program.file.to_owned(),
+                text: program.text.to_owned(),
+                start_sort: self.fixture.start_sort.to_owned(),
+            }),
+            config_vars: program
+                .bindings
+                .iter()
+                .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+                .collect(),
+        }
+    }
+}
+
+macro_rules! data {
+    ($path:literal) => {
+        include_str!(concat!("../data/", $path))
+    };
+}
+
+macro_rules! program {
+    ($path:literal) => {
+        Program {
+            file: $path,
+            text: data!($path),
+            bindings: &[],
+        }
+    };
+    ($path:literal, $($name:literal = $value:literal),+) => {
+        Program {
+            file: $path,
+            text: data!($path),
+            bindings: &[$(($name, data!($value).trim_ascii_end())),+],
+        }
+    };
+}
+
+macro_rules! fixture {
+    ($name:ident, $file:literal, $main:literal, $programs:expr) => {
+        pub static $name: Fixture = Fixture {
+            file: $file,
+            source: data!($file),
+            main_module: $main,
+            start_sort: "Pgm",
+            programs: $programs,
+            compiled: {
+                static COMPILED: OnceLock<Compiled> = OnceLock::new();
+                &COMPILED
+            },
+        };
+    };
+}
+
+/// IMP, from the fz26 experiment, with signed Int literals.
+pub const IMP_PROGRAMS: &[Program] = &[
+    program!("imp/commute.imp"),
+    program!("imp/le.imp"),
+    program!("imp/div.imp"),
+    program!("imp/loop.imp"),
+];
+fixture!(IMP, "imp/imp.k", "IMP", IMP_PROGRAMS);
+
+fixture!(
+    UNSIGNED,
+    "unsigned/unsigned.k",
+    "UNSIGNED",
+    &[program!("unsigned/sum.pgm")]
+);
+
+fixture!(
+    CHOSEN,
+    "chosen/chosen.k",
+    "CHOSEN",
+    &[program!("chosen/keys.pgm"), program!("chosen/set.pgm")]
+);
+
+fixture!(
+    RULES,
+    "rules/rules.k",
+    "RULES",
+    &[
+        program!("rules/div.pgm"),
+        program!("rules/check.pgm"),
+        program!("rules/twice.pgm"),
+    ]
+);
+
+/// The programs of the baseline and of every mutant of `coin/`.
+pub const COIN_PROGRAMS: &[Program] = &[program!("coin/flip.pgm"), program!("coin/count.pgm")];
+fixture!(COIN, "coin/coin.k", "COIN", COIN_PROGRAMS);
+fixture!(COIN_LAYOUT, "coin/coin-layout.k", "COIN", COIN_PROGRAMS);
+fixture!(COIN_SWAPPED, "coin/coin-swapped.k", "COIN", COIN_PROGRAMS);
+fixture!(COIN_PRIO, "coin/coin-prio.k", "COIN", COIN_PROGRAMS);
+fixture!(COIN_KILL, "coin/coin-kill.k", "COIN", COIN_PROGRAMS);
+
+fixture!(
+    LEDGER,
+    "ledger/ledger.k",
+    "LEDGER",
+    &[program!("ledger/settle.pgm", "TX" = "ledger/settle.tx")]
+);
+
+fixture!(
+    LOADCLAIM,
+    "loadclaim/loadclaim.k",
+    "LOADCLAIM",
+    &[program!("loadclaim/go.pgm")]
+);
+
+/// Every fixture, in the order of `tests/data/README.md`.
+pub static ALL: [&Fixture; 11] = [
+    &IMP,
+    &UNSIGNED,
+    &CHOSEN,
+    &RULES,
+    &COIN,
+    &COIN_LAYOUT,
+    &COIN_SWAPPED,
+    &COIN_PRIO,
+    &COIN_KILL,
+    &LEDGER,
+    &LOADCLAIM,
+];
