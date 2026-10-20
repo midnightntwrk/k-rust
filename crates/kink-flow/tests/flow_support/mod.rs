@@ -76,12 +76,25 @@ pub fn corpus_run(manifest: &Path, mutations: &Path) -> (Value, bool) {
 }
 
 /// Where this test binary keeps the cold runs of this test run: one directory per nextest run
-/// (`NEXTEST_RUN_ID`) or, under `cargo test`, per process, and per test binary.
+/// (`NEXTEST_RUN_ID`) or, under `cargo test`, per process, and per test binary. A process is
+/// named by its id and the time it first asked, so a later process that reuses the id never
+/// finds an earlier build's cold run.
 fn cold_root() -> PathBuf {
+    static PROCESS: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     let run = std::env::var("NEXTEST_RUN_ID")
         .ok()
         .filter(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'))
-        .unwrap_or_else(|| format!("process-{}", std::process::id()));
+        .unwrap_or_else(|| {
+            PROCESS
+                .get_or_init(|| {
+                    let started = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_nanos();
+                    format!("process-{}-{started}", std::process::id())
+                })
+                .clone()
+        });
     let binary = std::env::current_exe().unwrap();
     Path::new(env!("CARGO_TARGET_TMPDIR"))
         .join("kink-flow-cold")
@@ -106,8 +119,11 @@ pub fn after_cold(name: &str, manifest: &str, mutations: &str, into: &Path) -> V
         copy_dir(&flow(name), &dir);
         let (cold, ok) = corpus_run(&dir.join(manifest), &dir.join(mutations));
         assert!(ok, "{cold:#}");
-        // Written last: a run that failed or was cut short leaves no document to share.
-        fs::write(&done, serde_json::to_vec(&cold).unwrap()).unwrap();
+        // Written last, and renamed into place: a run that failed or was cut short leaves no
+        // document to share, and no half-written one.
+        let partial = root.join("cold.json.partial");
+        fs::write(&partial, serde_json::to_vec(&cold).unwrap()).unwrap();
+        fs::rename(&partial, &done).unwrap();
     }
     let cold: Value = serde_json::from_slice(&fs::read(&done).unwrap()).unwrap();
     let _ = fs::remove_dir_all(into);

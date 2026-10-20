@@ -245,8 +245,10 @@ fn another_identity() -> Value {
 const ROUNDS: [&str; 3] = ["cold", "warm", "warm again"];
 
 fn compare(name: &str, list: &str, rounds: &[&str]) {
-    let with = fixture(name, &format!("{list}-on"));
-    let without = fixture(name, &format!("{list}-off"));
+    // The round count is in the tag: under `cargo test` the kink-tier and heavy variants share a
+    // process, and so the directory root.
+    let with = fixture(name, &format!("{list}-{}-on", rounds.len()));
+    let without = fixture(name, &format!("{list}-{}-off", rounds.len()));
     for round in rounds {
         let (on, on_ok) = search(&with, list, MemoUse::On, RunMode::Search);
         let (off, off_ok) = search(&without, list, MemoUse::Off, RunMode::Search);

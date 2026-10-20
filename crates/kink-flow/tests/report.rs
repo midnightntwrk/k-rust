@@ -174,6 +174,89 @@ fn walkthrough() -> Vec<Step> {
     steps
 }
 
+// The light tier's CLI and report smoke test (review of TG-F): `run` and `report` through the
+// binary.
+#[test]
+fn report_reprints_the_same_bytes() {
+    let dir = fixture("calc", "reprint");
+    let cache = dir.join(CACHE_DIRECTORY);
+    // No run yet: nothing to print.
+    let output = binary(&["report", "FLOW.toml"], &dir);
+    assert_eq!(output.status.code(), Some(i32::from(EXIT_CORPUS)));
+    let document: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(document["schema"], MISSING_SCHEMA);
+    assert_eq!(document["outcome"], "missing");
+
+    let ran = binary(
+        &[
+            "run",
+            "FLOW.toml",
+            "MUTATIONS.toml",
+            "--only",
+            "add-swaps-operands",
+        ],
+        &dir,
+    );
+    assert_eq!(ran.status.code(), Some(i32::from(EXIT_OK)));
+    let reported = binary(&["report", "FLOW.toml"], &dir);
+    assert_eq!(reported.status.code(), Some(i32::from(EXIT_OK)));
+    assert_eq!(reported.stdout, ran.stdout);
+    let document: Value = serde_json::from_slice(&ran.stdout).unwrap();
+    let stored: Value =
+        serde_json::from_str(&fs::read_to_string(cache.join(REPORT_FILE)).unwrap()).unwrap();
+    assert_eq!(stored, document);
+    assert_eq!(document["survivors"], json!(["add-swaps-operands"]));
+
+    // The report is the last run's: a run that selects no mutation replaces it too.
+    fs::write(dir.join("EMPTY.toml"), "").unwrap();
+    let empty = binary(&["run", "FLOW.toml", "EMPTY.toml"], &dir);
+    assert_eq!(empty.status.code(), Some(i32::from(EXIT_OK)));
+    let reported = binary(&["report", "FLOW.toml"], &dir);
+    assert_eq!(reported.stdout, empty.stdout);
+    let document: Value = serde_json::from_slice(&empty.stdout).unwrap();
+    assert_eq!(document["mutations"], json!([]));
+
+    // --cache selects another cache; a stored report that is not a current run document is
+    // refused, not printed.
+    let other = scratch("reprint-cache");
+    let output = binary(
+        &["report", "FLOW.toml", "--cache", other.to_str().unwrap()],
+        &dir,
+    );
+    assert_eq!(output.status.code(), Some(i32::from(EXIT_CORPUS)));
+    fs::write(
+        other.join(REPORT_FILE),
+        r#"{"schema": "kink-flow-run", "version": 1}"#,
+    )
+    .unwrap();
+    let output = binary(
+        &["report", "FLOW.toml", "--cache", other.to_str().unwrap()],
+        &dir,
+    );
+    assert_eq!(output.status.code(), Some(i32::from(EXIT_CORPUS)));
+    let document: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(document["outcome"], "unreadable");
+    fs::write(other.join(REPORT_FILE), "not json").unwrap();
+    let output = binary(
+        &["report", "FLOW.toml", "--cache", other.to_str().unwrap()],
+        &dir,
+    );
+    assert_eq!(output.status.code(), Some(i32::from(EXIT_CORPUS)));
+    for args in [
+        vec!["report"],
+        vec!["report", "missing.toml"],
+        vec!["report", "FLOW.toml", "--cache"],
+        vec!["report", "FLOW.toml", "--verify"],
+    ] {
+        let output = binary(&args, &dir);
+        assert_eq!(
+            output.status.code(),
+            Some(i32::from(EXIT_USAGE)),
+            "{args:?}"
+        );
+    }
+}
+
 mod kink_tier {
     use super::*;
 
@@ -262,88 +345,6 @@ mod kink_tier {
             assert!(!ok, "{refused:#}");
             assert_eq!(refused["schema"], MISSING_SCHEMA);
             assert_eq!(refused["outcome"], "unreadable", "{refused:#}");
-        }
-    }
-
-    #[test]
-    #[ignore = "kink"]
-    fn report_reprints_the_same_bytes() {
-        let dir = fixture("calc", "reprint");
-        let cache = dir.join(CACHE_DIRECTORY);
-        // No run yet: nothing to print.
-        let output = binary(&["report", "FLOW.toml"], &dir);
-        assert_eq!(output.status.code(), Some(i32::from(EXIT_CORPUS)));
-        let document: Value = serde_json::from_slice(&output.stdout).unwrap();
-        assert_eq!(document["schema"], MISSING_SCHEMA);
-        assert_eq!(document["outcome"], "missing");
-
-        let ran = binary(
-            &[
-                "run",
-                "FLOW.toml",
-                "MUTATIONS.toml",
-                "--only",
-                "add-swaps-operands",
-            ],
-            &dir,
-        );
-        assert_eq!(ran.status.code(), Some(i32::from(EXIT_OK)));
-        let reported = binary(&["report", "FLOW.toml"], &dir);
-        assert_eq!(reported.status.code(), Some(i32::from(EXIT_OK)));
-        assert_eq!(reported.stdout, ran.stdout);
-        let document: Value = serde_json::from_slice(&ran.stdout).unwrap();
-        let stored: Value =
-            serde_json::from_str(&fs::read_to_string(cache.join(REPORT_FILE)).unwrap()).unwrap();
-        assert_eq!(stored, document);
-        assert_eq!(document["survivors"], json!(["add-swaps-operands"]));
-
-        // The report is the last run's: a run that selects no mutation replaces it too.
-        fs::write(dir.join("EMPTY.toml"), "").unwrap();
-        let empty = binary(&["run", "FLOW.toml", "EMPTY.toml"], &dir);
-        assert_eq!(empty.status.code(), Some(i32::from(EXIT_OK)));
-        let reported = binary(&["report", "FLOW.toml"], &dir);
-        assert_eq!(reported.stdout, empty.stdout);
-        let document: Value = serde_json::from_slice(&empty.stdout).unwrap();
-        assert_eq!(document["mutations"], json!([]));
-
-        // --cache selects another cache; a stored report that is not a current run document is
-        // refused, not printed.
-        let other = scratch("reprint-cache");
-        let output = binary(
-            &["report", "FLOW.toml", "--cache", other.to_str().unwrap()],
-            &dir,
-        );
-        assert_eq!(output.status.code(), Some(i32::from(EXIT_CORPUS)));
-        fs::write(
-            other.join(REPORT_FILE),
-            r#"{"schema": "kink-flow-run", "version": 1}"#,
-        )
-        .unwrap();
-        let output = binary(
-            &["report", "FLOW.toml", "--cache", other.to_str().unwrap()],
-            &dir,
-        );
-        assert_eq!(output.status.code(), Some(i32::from(EXIT_CORPUS)));
-        let document: Value = serde_json::from_slice(&output.stdout).unwrap();
-        assert_eq!(document["outcome"], "unreadable");
-        fs::write(other.join(REPORT_FILE), "not json").unwrap();
-        let output = binary(
-            &["report", "FLOW.toml", "--cache", other.to_str().unwrap()],
-            &dir,
-        );
-        assert_eq!(output.status.code(), Some(i32::from(EXIT_CORPUS)));
-        for args in [
-            vec!["report"],
-            vec!["report", "missing.toml"],
-            vec!["report", "FLOW.toml", "--cache"],
-            vec!["report", "FLOW.toml", "--verify"],
-        ] {
-            let output = binary(&args, &dir);
-            assert_eq!(
-                output.status.code(),
-                Some(i32::from(EXIT_USAGE)),
-                "{args:?}"
-            );
         }
     }
 
