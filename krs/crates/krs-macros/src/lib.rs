@@ -90,8 +90,11 @@ pub fn constructor(attributes: TokenStream, item: TokenStream) -> TokenStream {
 /// The attribute requires exactly one of `total` or `partial`, a `sort`, and a
 /// `syntax` template, and accepts an optional `hook` from the typed function
 /// hook catalog. `total` adds K's `total` attribute to the emitted `function`
-/// production; `partial` omits it, so an application that no equation covers
-/// has no denotation.
+/// production, which promises that every application has a value: one that no
+/// equation covers still has some value, which the definition does not name.
+/// `partial` omits it, so an application that no equation covers is
+/// unconstrained: the definition neither names a value for it nor says that it
+/// has none.
 ///
 /// `smtlib = "sym"` names the function in the SMT solver as the
 /// uninterpreted SMT-LIB symbol `sym`; `smt_hook = "(ite (< {value} 0) ..)"`
