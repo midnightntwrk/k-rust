@@ -6,7 +6,9 @@ from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
+import tomllib
 from typing import Any, Mapping
 
 from support import ROOT, GateError
@@ -41,6 +43,53 @@ def build(
     if not binary.is_file():
         raise GateError(f"Cargo did not produce the KRS binary at {binary}")
     return binary
+
+
+COLLECTOR_PREFIX = "krs-generated-collector-"
+
+
+def prune_dead_collectors(target: Path) -> int:
+    """Remove the collectors `krs` generated in `target` for packages that no longer exist.
+
+    A gate that materializes a package in a temporary directory leaves its
+    generated collector (`target/krs/collectors/<digest>`) and the collector's
+    build artifacts behind, about 30 MB a collector, and no later build can use
+    them once the directory is gone, since a collector names its packages by
+    path. A collector is dead when one of its path dependencies is not a
+    directory; a collector in use has every path in place, so it is kept.
+    Return the number of collectors removed.
+    """
+
+    removed = 0
+    for directory in sorted((target / "krs" / "collectors").glob("*")):
+        try:
+            manifest = tomllib.loads((directory / "Cargo.toml").read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, tomllib.TOMLDecodeError):
+            continue
+        name = manifest.get("package", {}).get("name", "")
+        dependencies = manifest.get("dependencies", {})
+        if not name.startswith(COLLECTOR_PREFIX) or not isinstance(dependencies, dict):
+            continue
+        paths = [
+            Path(dependency["path"]) for dependency in dependencies.values()
+            if isinstance(dependency, dict) and isinstance(dependency.get("path"), str)
+        ]
+        if all(path.is_dir() for path in paths):
+            continue
+        crate = name.replace("-", "_")
+        for profile in (target / "debug", *target.glob("*/debug")):
+            for pattern in (
+                name, f"{name}.d", f"deps/{crate}-*", f".fingerprint/{name}-*",
+                f"incremental/{crate}-*", f"build/{name}-*",
+            ):
+                for artifact in profile.glob(pattern):
+                    if artifact.is_dir() and not artifact.is_symlink():
+                        shutil.rmtree(artifact, ignore_errors=True)
+                    else:
+                        artifact.unlink(missing_ok=True)
+        shutil.rmtree(directory, ignore_errors=True)
+        removed += 1
+    return removed
 
 
 @dataclass(frozen=True)
