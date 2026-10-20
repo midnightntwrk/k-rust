@@ -54,6 +54,9 @@
 //! point of `crate::matching` keeps its path.
 
 mod collections;
+mod contents;
+
+pub use contents::ContentsClash;
 
 pub(crate) use collections::{
     CollectionMatches, CollectionSolution, DecidedSolutions, Narrowing,
@@ -94,6 +97,18 @@ use crate::{
     },
 };
 
+/// What a caller does with a match: apply a rewrite rule (`Rewrite`), apply an equation to the
+/// term it is tried on (`Evaluate`), or check that a pattern holds of the instances of a state
+/// (`Implies`).
+///
+/// The mode chooses how a pattern's roots are read (as written, or up to equations), how a
+/// conjunction in the subject is taken, which variables the two sides may share, and what the
+/// caller does with a pair the matcher leaves open: a rewrite may narrow a subject frame in the
+/// collection solver, an equation leaves the pair undecided, and an implication states it as an
+/// obligation. It never changes what a subject denotes, so in every mode
+/// [`MatchResult::Failed`] states the same thing: no instance of the subject is an instance of
+/// the pattern. A closed collection pattern against a subject whose opaque part may hold the
+/// pattern's leftover items, or nothing, is left open in every mode ([`ContentsClash`]).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MatchMode {
     Rewrite,
@@ -183,6 +198,16 @@ pub struct MatchFailed(());
 /// }
 /// ```
 ///
+/// Nor can two collections be stated to differ in their contents, which a subject's opaque part
+/// may complete:
+///
+/// ```compile_fail
+/// use k_rust_backend::{matching::FailReason, term::Term};
+/// fn refute(t: Term) -> FailReason {
+///     FailReason::DifferentContents(t.clone(), t)
+/// }
+/// ```
+///
 /// A question the matcher does not answer is no refutation, so it has no reason here but an
 /// [`UndecidedReason`]: neither shared variables nor an undecided subsort question can be
 /// stated as a failure.
@@ -207,8 +232,9 @@ pub enum FailReason {
     /// Two roots that no one value has.
     DifferentSymbols(HeadClash),
     /// Two collections whose elements or entries cannot be paired: their contents differ, not
-    /// their roots.
-    DifferentContents(Term, Term),
+    /// their roots. A [`ContentsClash`] is built only from item counts that exclude each other
+    /// on every valuation, never against a subject whose opaque part could complete the match.
+    DifferentContents(ContentsClash),
     DifferentSorts(Term, Term),
     /// A variable that would be bound to a term built around it by free constructors and
     /// injections.
@@ -1939,57 +1965,70 @@ impl<'a> Matcher<'a> {
         let mut rest_problems = match (pattern_rest, subject_rest, head_remainder) {
             (None, None, None) => Vec::new(),
             (None, None, Some(PairRemainder::Left(heads))) => {
-                return Err(FailReason::DifferentValues(list(heads, None), empty()));
+                self.refute_contents_or_defer(list(heads, None), empty())?;
+                Vec::new()
             }
             (None, None, Some(PairRemainder::Right(heads))) => {
-                return Err(FailReason::DifferentValues(empty(), list(heads, None)));
+                self.refute_contents_or_defer(empty(), list(heads, None))?;
+                Vec::new()
             }
-            (None, Some(rest), remainder) => {
-                let narrowable = self.mode == MatchMode::Rewrite
-                    && !matches!(remainder, Some(PairRemainder::Right(_)));
-                if narrowable {
-                    let pattern_heads = match remainder {
-                        Some(PairRemainder::Left(heads)) => heads,
-                        None => Items::new(),
-                        Some(PairRemainder::Right(_)) => unreachable!("excluded above"),
-                    };
-                    self.defer(list(pattern_heads, None), list(Items::new(), Some(rest)))?;
-                    Vec::new()
-                } else {
-                    let (left, right) = match remainder {
-                        Some(PairRemainder::Left(heads)) => {
-                            (list(heads, None), list(Items::new(), Some(rest)))
+            // A closed pattern against a subject with a middle: the pattern's items the subject's
+            // heads did not take must be the middle's items followed by the subject's tails. The
+            // subject fixes too many items for that when it has heads left over or more tails
+            // than the pattern has items left; otherwise the tails are paired with the pattern's
+            // last items, and the middle, whatever it is, may be exactly the items before them,
+            // which is the collection solver's question in every mode.
+            (None, Some((middle, tails)), remainder) => {
+                let (pattern_items, subject_heads) = match remainder {
+                    Some(PairRemainder::Left(heads)) => (heads, Items::new()),
+                    Some(PairRemainder::Right(heads)) => (Items::new(), heads),
+                    None => (Items::new(), Items::new()),
+                };
+                let pattern = list(pattern_items.clone(), None);
+                let subject = list(subject_heads, Some((middle.clone(), tails.clone())));
+                match ContentsClash::between(pattern, subject) {
+                    Ok(clash) => return Err(FailReason::DifferentContents(clash)),
+                    Err((pattern, subject)) => match pair_suffix(&pattern_items, &tails) {
+                        (tail_pairs, None) => {
+                            self.defer(empty(), list(Items::new(), Some((middle, Items::new()))))?;
+                            tail_pairs
                         }
-                        Some(PairRemainder::Right(heads)) => (empty(), list(heads, Some(rest))),
-                        None => (empty(), list(Items::new(), Some(rest))),
-                    };
-                    return Err(FailReason::DifferentValues(left, right));
+                        (tail_pairs, Some(PairRemainder::Left(extra))) => {
+                            self.defer(
+                                list(extra, None),
+                                list(Items::new(), Some((middle, Items::new()))),
+                            )?;
+                            tail_pairs
+                        }
+                        // More tails than items left: the counts exclude that above.
+                        (_, Some(PairRemainder::Right(_))) => {
+                            self.defer(pattern, subject)?;
+                            Vec::new()
+                        }
+                    },
                 }
             }
             (Some((middle, tails)), None, None) if tails.is_empty() => {
                 vec![(middle, empty())]
             }
             (Some(rest), None, None) => {
-                return Err(FailReason::DifferentValues(
-                    list(Items::new(), Some(rest)),
-                    empty(),
-                ));
+                self.refute_contents_or_defer(list(Items::new(), Some(rest)), empty())?;
+                Vec::new()
             }
             (Some(rest), None, Some(PairRemainder::Left(heads))) => {
-                return Err(FailReason::DifferentValues(
-                    list(heads, Some(rest)),
-                    empty(),
-                ));
+                self.refute_contents_or_defer(list(heads, Some(rest)), empty())?;
+                Vec::new()
             }
             (Some((middle, tails)), None, Some(PairRemainder::Right(heads))) => {
                 let (tail_pairs, tail_remainder) = pair_suffix(&tails, &heads);
                 match tail_remainder {
                     None => prepend((middle, empty()), tail_pairs),
                     Some(PairRemainder::Left(extra)) => {
-                        return Err(FailReason::DifferentValues(
+                        self.refute_contents_or_defer(
                             list(Items::new(), Some((middle, extra))),
                             empty(),
-                        ));
+                        )?;
+                        Vec::new()
                     }
                     Some(PairRemainder::Right(extra)) => {
                         prepend((middle, list(extra, None)), tail_pairs)
@@ -2102,7 +2141,7 @@ impl<'a> Matcher<'a> {
             && pattern_entries.len() > subject_entries.len()
         {
             let pattern = Term::map(definition, pattern_entries, pattern_rest);
-            return Err(FailReason::DifferentContents(pattern, subject.clone()));
+            return self.refute_contents_or_defer(pattern, subject.clone());
         }
 
         if pattern_rest
@@ -2249,7 +2288,6 @@ impl<'a> Matcher<'a> {
         let subject_set = |elements, rest| Term::set_of_items(definition.clone(), elements, rest);
         if pattern_only.is_empty() {
             let subject_is_empty = subject_only.is_empty() && subject_rest.is_none();
-            let subject_has_rest = subject_rest.is_some();
             let subject = subject_set(subject_only, subject_rest);
             if let Some(rest) = pattern_rest {
                 self.enqueue(rest, subject);
@@ -2258,13 +2296,9 @@ impl<'a> Matcher<'a> {
             if subject_is_empty {
                 return Ok(());
             }
-            if self.mode == MatchMode::Rewrite && subject_has_rest {
-                return self.defer(set(Vec::new(), None), subject);
-            }
-            return Err(FailReason::DifferentContents(
-                set(Vec::new(), None),
-                subject,
-            ));
+            // The exhausted closed pattern holds no item the subject fixes; with none left, the
+            // subject's rest may be the unit.
+            return self.refute_contents_or_defer(set(Vec::new(), None), subject);
         }
 
         // Every pattern element left is symbolic (the constructor-like ones returned above).
@@ -2280,10 +2314,8 @@ impl<'a> Matcher<'a> {
         }
 
         if subject_only.is_empty() && subject_rest.is_none() {
-            return Err(FailReason::DifferentContents(
-                set(pattern_only, pattern_rest),
-                set(Vec::new(), None),
-            ));
+            return self
+                .refute_contents_or_defer(set(pattern_only, pattern_rest), set(Vec::new(), None));
         }
         let pattern_only = self.unalias_elements(pattern_only)?;
         self.defer(
@@ -2425,16 +2457,12 @@ impl<'a> Matcher<'a> {
             if subject.is_empty() {
                 return Ok(Vec::new());
             }
-            if self.mode == MatchMode::Rewrite && subject.rest.is_some() {
-                let pattern_map =
-                    self.unaliased_map(definition, pattern.entries.iter(), pattern.rest.clone())?;
-                self.defer(pattern_map, subject.to_term(definition.clone()))?;
-                return Ok(Vec::new());
-            }
-            return Err(FailReason::DifferentContents(
-                pattern.to_term(definition.clone()),
-                subject.to_term(definition.clone()),
-            ));
+            // The exhausted closed pattern holds no entry the subject fixes; with none left, the
+            // subject's rest may be the unit.
+            let pattern_map =
+                self.unaliased_map(definition, pattern.entries.iter(), pattern.rest.clone())?;
+            self.refute_contents_or_defer(pattern_map, subject.to_term(definition.clone()))?;
+            return Ok(Vec::new());
         }
         if pattern.symbolic() == 1 && subject.entries.len() == 1 && subject.rest.is_none() {
             let (pattern_key, pattern_value) = pattern
@@ -2452,19 +2480,15 @@ impl<'a> Matcher<'a> {
             return Ok(problems);
         }
         if pattern.symbolic() > 0 {
-            if subject.is_empty()
-                || (pattern.rest.is_none()
-                    && self.mode != MatchMode::Rewrite
-                    && subject.entries.is_empty()
-                    && subject
-                        .rest
-                        .as_ref()
-                        .is_some_and(|term| matches!(term.kind(), TermKind::Variable(_))))
-            {
-                return Err(FailReason::DifferentContents(
+            // Symbolic entries left: refuted by an empty subject only. A subject rest, a frame
+            // variable or any other term, may bind keys apart from the subject's other keys, so
+            // whether it holds exactly the pattern's entries is the collection solver's question.
+            if subject.is_empty() {
+                self.refute_contents_or_defer(
                     pattern.to_term(definition.clone()),
                     subject.to_term(definition.clone()),
-                ));
+                )?;
+                return Ok(Vec::new());
             }
             let pattern_map =
                 self.unaliased_map(definition, pattern.entries.iter(), pattern.rest.clone())?;
@@ -2565,6 +2589,16 @@ impl<'a> Matcher<'a> {
     fn defer(&mut self, pattern: Term, subject: Term) -> Result<(), FailReason> {
         self.indeterminate.push((pattern, subject));
         Ok(())
+    }
+
+    /// Refute the unpaired collection parts `pattern` and `subject` where their item counts
+    /// exclude each other ([`ContentsClash`]), and otherwise leave them to the collection solver.
+    /// The one way a collection is refuted by its contents, in every mode alike.
+    fn refute_contents_or_defer(&mut self, pattern: Term, subject: Term) -> Result<(), FailReason> {
+        match ContentsClash::between(pattern, subject) {
+            Ok(clash) => Err(FailReason::DifferentContents(clash)),
+            Err((pattern, subject)) => self.defer(pattern, subject),
+        }
     }
 
     /// Leave the pair being matched undecided, for `reason`: it binds nothing, and the problem
