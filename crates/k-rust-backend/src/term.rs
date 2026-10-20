@@ -185,6 +185,18 @@ impl Sort {
     }
 }
 
+/// The `Name` a definition's sort table keys the sort `name` with: the one [`Sort::builtin`]
+/// uses when `name` is a builtin sort's KORE name, a new one otherwise. Internalized sorts take
+/// their names from that table, so all sorts of one name, builtin ones included, share one
+/// allocation, and comparing them takes the pointer shortcut of `Ord for Sort` and of `Arc`'s
+/// equality instead of reading the text.
+pub(crate) fn sort_name(name: &str) -> Name {
+    BuiltinSort::ALL
+        .iter()
+        .find(|sort| sort.kore_name() == name)
+        .map_or_else(|| Name::from(name), |sort| builtin_name(*sort))
+}
+
 /// One `Name` per `BuiltinSort` variant, created on first use and indexed by the variant's
 /// position in `BuiltinSort::ALL`.
 fn builtin_name(sort: BuiltinSort) -> Name {
@@ -211,11 +223,35 @@ pub enum VariableKind {
     Set,
 }
 
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Variable {
     pub kind: VariableKind,
     pub sort: Sort,
     pub name: Name,
+}
+
+impl PartialOrd for Variable {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Variable {
+    /// Lexicographic over (`kind`, `sort`, `name`), the order a derived `Ord` gives; two handles
+    /// of one name allocation are equal names without reading them (`Arc`'s own order reads
+    /// the text even then).
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.kind
+            .cmp(&other.kind)
+            .then_with(|| self.sort.cmp(&other.sort))
+            .then_with(|| {
+                if Arc::ptr_eq(&self.name, &other.name) {
+                    Ordering::Equal
+                } else {
+                    self.name.cmp(&other.name)
+                }
+            })
+    }
 }
 
 impl Variable {

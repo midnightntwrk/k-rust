@@ -1,6 +1,6 @@
 //! Backend-internal variable naming: provenance markers, fresh counters, and hook names.
 //!
-//! The marker is part of the name string on purpose: `Ord for Variable` is derived over
+//! The marker is part of the name string on purpose: `Ord for Variable` is lexicographic over
 //! (`kind`, `sort`, `name`) and every `BTreeSet<Variable>` in the rewriter iterates in that
 //! order, which decides fresh-counter assignment and therefore printed variable names.
 //!

@@ -98,6 +98,7 @@ use crate::{
         SymbolType, Term, TermKind, Variable,
         domain::{TextRejection, validate_text},
         names::{HookName, variable_name_problems},
+        sort_name,
     },
 };
 
@@ -2468,7 +2469,7 @@ impl BackendDefinition {
                     has_domain_values: attributes.has(KoreAttribute::HasDomainValues),
                     collection,
                 };
-                if sorts.insert(Name::from(name.as_str()), info).is_some() {
+                if sorts.insert(sort_name(name.as_str()), info).is_some() {
                     return Err(DefinitionError::DuplicateSort(name.clone()));
                 }
             }
@@ -4086,13 +4087,15 @@ pub(crate) fn internalize_sort(
     variables: &BTreeSet<Name>,
 ) -> Result<Sort, DefinitionError> {
     match sort {
-        kore::Sort::Variable(name) if variables.contains(name.as_str()) => {
-            Ok(Sort::Variable(name.as_str().into()))
-        }
-        kore::Sort::Variable(name) => Err(DefinitionError::UnknownSort(name.clone())),
+        kore::Sort::Variable(name) => match variables.get(name.as_str()) {
+            Some(name) => Ok(Sort::Variable(name.clone())),
+            None => Err(DefinitionError::UnknownSort(name.clone())),
+        },
         kore::Sort::Application { name, arguments } => {
-            let info = sorts
-                .get(name.as_str())
+            // The table's own name: every sort of one name shares one allocation, so comparing
+            // two of them takes the pointer shortcut of `Ord for Sort` and `Arc`'s equality.
+            let (table_name, info) = sorts
+                .get_key_value(name.as_str())
                 .ok_or_else(|| DefinitionError::UnknownSort(name.clone()))?;
             if arguments.len() != info.parameters.len() {
                 return Err(DefinitionError::WrongSortArity {
@@ -4102,7 +4105,7 @@ pub(crate) fn internalize_sort(
                 });
             }
             Ok(Sort::application(
-                name.as_str(),
+                table_name.clone(),
                 arguments
                     .iter()
                     .map(|sort| internalize_sort(sort, sorts, variables))
@@ -7104,5 +7107,67 @@ mod tests {
             "{:?}",
             result.err()
         );
+    }
+
+    /// Every internalized sort of one name holds the sort table's name allocation, the builtin
+    /// sorts the one `Sort::builtin` holds, and a sort variable the symbol's own name: comparing
+    /// two of them is a pointer comparison, not a reading of their text.
+    #[test]
+    fn internalized_sorts_of_one_name_share_one_name_allocation() {
+        let syntax = parse_definition(indoc! {r#"
+            []
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                sort SortFoo{} []
+                sort SortBox{S} []
+                symbol f{}(SortFoo{}, SortInt{}) : SortFoo{} [constructor{}()]
+                symbol g{}(SortFoo{}) : SortInt{} [function{}()]
+                symbol box{S}(S) : SortBox{S} [constructor{}()]
+            endmodule []
+        "#})
+        .unwrap();
+        let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+        let shares = |sort: &Sort, expected: &Name| match sort {
+            Sort::Application { name, .. } | Sort::Variable(name) => Arc::ptr_eq(name, expected),
+        };
+        let table = |name: &str| {
+            definition
+                .sorts()
+                .get_key_value(name)
+                .map(|(name, _)| name.clone())
+                .unwrap()
+        };
+        let Sort::Application { name: builtin, .. } = Sort::builtin(BuiltinSort::Int) else {
+            unreachable!()
+        };
+        assert!(Arc::ptr_eq(&table("SortInt"), &builtin));
+
+        let symbol = |name: &str| definition.symbols()[name].clone();
+        let (f, g, boxed) = (symbol("f"), symbol("g"), symbol("box"));
+        assert!(shares(&f.argument_sorts[0], &table("SortFoo")));
+        assert!(shares(&f.argument_sorts[1], &builtin));
+        assert!(shares(&f.result_sort, &table("SortFoo")));
+        assert!(shares(&g.argument_sorts[0], &table("SortFoo")));
+        assert!(shares(&g.result_sort, &builtin));
+        assert!(shares(&boxed.argument_sorts[0], &boxed.sort_variables[0]));
+        let Sort::Application { name, arguments } = &boxed.result_sort else {
+            panic!("{:?}", boxed.result_sort)
+        };
+        assert!(Arc::ptr_eq(name, &table("SortBox")));
+        assert!(shares(&arguments[0], &boxed.sort_variables[0]));
+
+        let pattern = parse_pattern(r#"f{}(X:SortFoo{}, \dv{SortInt{}}("1"))"#).unwrap();
+        let term = definition.internalize_term(&pattern, &[]).unwrap();
+        let TermKind::Application { arguments, .. } = term.kind() else {
+            panic!("{term:?}")
+        };
+        let TermKind::Variable(variable) = arguments[0].kind() else {
+            panic!("{term:?}")
+        };
+        assert!(shares(&variable.sort, &table("SortFoo")));
+        let TermKind::DomainValue { sort, .. } = arguments[1].kind() else {
+            panic!("{term:?}")
+        };
+        assert!(shares(sort, &builtin));
     }
 }
