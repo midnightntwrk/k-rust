@@ -121,21 +121,48 @@ pub(crate) fn plan(options: &CaseOptions) -> DifferentialPlan {
 }
 
 /// Whether the campaign ends before any case with the result `equivalent`
-/// (ARCHITECTURE 4.3, T-16): equal execution digests of baseline and mutant, and on the
-/// rewrite-order route equal rewrite orders too.
+/// (ARCHITECTURE 4.3 as amended by D22, T-16): the two definitions run every case alike, so no
+/// case can kill the mutant.
 ///
-/// Equal digests promise equal results for an equal module, options and initial state through
-/// the routes that take no rewrite order (`docs/compatibility.md`, "Execution digest"). On
-/// [`BackendRoute::SourceExecution`] the rewrite order reorders the rules of each priority, which
-/// selects the one path `strategy: any` follows and, under `max_work`, what a bounded run
-/// reaches, so the orders must be equal as well. The two sides must therefore also use one route,
-/// one main module (the module the backend executes) and one syntax module (the grammar the
-/// program and the hole values are parsed with, which decides each side's initial state).
-/// Anything else is not `equivalent`, and the campaign runs its cases.
+/// A case's result is a function of its initial configuration, assembled from the program text
+/// by each side's frontend, and of the definition that executes it. Both parts must be equal.
+///
+/// Execution. Equal digests promise equal results for an equal module, options and initial
+/// state through the routes that take no rewrite order (`docs/compatibility.md`, "Execution
+/// digest"). On [`BackendRoute::SourceExecution`] the rewrite order reorders the rules of each
+/// priority, which selects the one path `strategy: any` follows and, under `max_work`, what a
+/// bounded run reaches, so the orders must be equal as well. The two sides must also use one
+/// route and one main module (the module the backend executes).
+///
+/// Assembly. The execution digest covers only `definition.kore`, and the map from program text
+/// to initial configuration is not in it: macro rules are emitted into `macros.kore`, so a
+/// mutant that edits only a macro has an equal digest and assembles `inc(3)` into another
+/// state (phase-1 review B1). The map is equal when everything it reads is:
+/// - the syntax module (the grammar the program and the hole values are parsed with) and the
+///   configuration variables with their sorts (which variables are bound, and the sort each
+///   value is parsed at and injected from);
+/// - `macros.kore` and `syntaxDefinition.kore`, the compiled macro rules and the program
+///   productions with their formats and priorities, compared without their `Source` and
+///   `Location` attributes ([`same_kore_without_origins`]);
+/// - the frontend definition the assembler parses and expands macros with, compared without
+///   the attributes that record where its text was read and how the compiler derived it
+///   ([`same_frontend_without_positions`]). `syntaxDefinition.kore` declares only the
+///   productions that are symbols, so token and lexical regular expressions, layout and the
+///   attributes of subsort productions, which the parser also reads, are compared here.
+///
+/// Source positions in the definitions' own text are left out on purpose: a layout-only mutant
+/// moves every `Location` and assembles and executes every program alike. They never reach a
+/// configuration: a definition that records locations in its terms records those of the
+/// program text, which both sides read alike, and whether it records them is a production
+/// attribute that the comparisons keep.
+///
+/// Every comparison that cannot be made (a text that does not parse, a definition without a
+/// digest or a JSON form) counts as unequal: the campaign then runs its cases, which can only
+/// miss a kill that `equivalent` would also have missed, never claim one.
 ///
 /// # Errors
 ///
-/// [`CampaignError::Definition`] when a definition has no digest.
+/// [`CampaignError::Definition`] when an execution definition has no digest.
 pub(crate) fn equivalent(
     baseline: &CompiledDefinition,
     mutant: &CompiledDefinition,
@@ -154,10 +181,105 @@ pub(crate) fn equivalent(
         (BackendRoute::FromDefinition, BackendRoute::SourceExecution { .. })
         | (BackendRoute::SourceExecution { .. }, BackendRoute::FromDefinition) => false,
     };
+    // The cheap comparisons first; the frontend's JSON form is built only when every other
+    // component is equal.
     Ok(digests_equal
         && routes_equal
         && baseline.main_module == mutant.main_module
-        && baseline.syntax_module == mutant.syntax_module)
+        && baseline.syntax_module == mutant.syntax_module
+        && baseline.configuration_variables == mutant.configuration_variables
+        && same_kore_without_origins(
+            &baseline.syntax_definition_kore,
+            &mutant.syntax_definition_kore,
+            KoreText::Definition,
+        )
+        && same_kore_without_origins(
+            &baseline.macros_kore,
+            &mutant.macros_kore,
+            KoreText::Sentences,
+        )
+        && same_frontend_without_positions(
+            &baseline.frontend_definition,
+            &mutant.frontend_definition,
+        ))
+}
+
+/// The form of a KORE artifact's text.
+#[derive(Clone, Copy)]
+enum KoreText {
+    /// A whole definition (`syntaxDefinition.kore`).
+    Definition,
+    /// A bare list of sentences without an enclosing module (`macros.kore`).
+    Sentences,
+}
+
+/// Whether two KORE artifact texts are equal once every `Source` and `Location` attribute is
+/// removed: equal texts, or texts that parse and have equal execution digests, which hash the
+/// definition printed without exactly those attributes (`k_rust::backend::execution_digest`).
+/// A bare sentence list is compared inside one enclosing module, the same for both. A text that
+/// does not parse or has no digest is unequal to every other text.
+fn same_kore_without_origins(left: &str, right: &str, form: KoreText) -> bool {
+    if left == right {
+        return true;
+    }
+    let digest = |text: &str| {
+        let definition = match form {
+            KoreText::Definition => k_rust::kore::parser::parse_definition(text),
+            KoreText::Sentences => k_rust::kore::parser::parse_definition(&format!(
+                "[]\nmodule FUZZMACROS\n{text}\nendmodule\n[]\n"
+            )),
+        }
+        .ok()?;
+        k_rust::backend::execution_digest(&definition).ok()
+    };
+    matches!((digest(left), digest(right)), (Some(left), Some(right)) if left == right)
+}
+
+/// Whether two frontend definitions are equal once every attribute that records a source
+/// position (`Source`, `Location`, the sentence and content offsets) or the compiler's own
+/// provenance (`k_rust::definition::AttributeKey::is_source_position`, `is_provenance_only`)
+/// is removed, compared through their KAST JSON forms. A definition without a JSON form is
+/// unequal to every other definition.
+fn same_frontend_without_positions(
+    left: &k_rust::definition::Definition,
+    right: &k_rust::definition::Definition,
+) -> bool {
+    let normal = |definition| {
+        let text = k_rust::definition::json::to_string(definition).ok()?;
+        let mut value = serde_json::from_str::<serde_json::Value>(&text).ok()?;
+        strip_positions(&mut value);
+        Some(value)
+    };
+    matches!((normal(left), normal(right)), (Some(left), Some(right)) if left == right)
+}
+
+/// Remove, from every KAST attribute map (`{"node": "KAtt", "att": {...}}`) in `value`, the
+/// keys that name a source-position or provenance attribute.
+fn strip_positions(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            if map.get("node").and_then(serde_json::Value::as_str) == Some("KAtt")
+                && let Some(serde_json::Value::Object(att)) = map.get_mut("att")
+            {
+                att.retain(|key, _| {
+                    !k_rust::definition::AttributeKey::from_name(key)
+                        .is_some_and(|key| key.is_source_position() || key.is_provenance_only())
+                });
+            }
+            for child in map.values_mut() {
+                strip_positions(child);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                strip_positions(item);
+            }
+        }
+        serde_json::Value::Null
+        | serde_json::Value::Bool(_)
+        | serde_json::Value::Number(_)
+        | serde_json::Value::String(_) => {}
+    }
 }
 
 /// Judge one pair (ARCHITECTURE 4.3); `paths` is the campaign's path mode, which the mutant ran
@@ -272,14 +394,9 @@ pub(crate) fn judge_pair(
 /// flag matches a run-listed value to leaf marks by hook and class, so it may miss an off-leaf
 /// value whose twin is on some leaf; that leaf's mark already makes the side incomplete.
 ///
-/// Run-observed unsupported hooks need no such check. An application left unevaluated as an
-/// unsupported hook stays in the term as an uncomputed function application. Work ends on no
-/// leaf only through a decision: a right-hand side shown undefined, a condition shown false, or
-/// a higher-priority rule shown to apply. A decision that needs the hook's value cannot be taken
-/// while the value is unknown: the step halts `indeterminate`, or the application stays in the
-/// leaf, where `ceil_free` and condition 4 judge it. A decision that does not need the value is
-/// the same in every model. An implementation-chosen value differs because it is evaluated to
-/// one value, which can drive such a decision.
+/// Run-observed unsupported hooks need no check here: since D21, `exec` marks every leaf of a
+/// run that observed one ([`UncleanReason::UnsupportedHook`]), so [`complete_end`] already
+/// refuses such a side.
 fn complete_ends(result: &CaseResult) -> Option<BTreeSet<&KorePattern>> {
     let run_clean = result.failure.is_none()
         && !result.run_facts_off_leaves
@@ -1248,6 +1365,92 @@ mod fixture_tests {
         let mut other_main = coin.definition();
         other_main.main_module = "COIN-SYNTAX".to_owned();
         assert!(!equivalent(&coin.definition(), &other_main).expect("digests"));
+    }
+
+    #[test]
+    fn a_macro_only_mutant_is_not_equivalent_on_either_route() {
+        // Phase-1 review B1: the macro rule lives in macros.kore, so the execution digests (of
+        // definition.kore without its origins) are equal. The source route's rewrite orders
+        // happen to differ; the from-definition route has none, so there only the assembly
+        // comparisons tell the two apart.
+        let (mac, kill) = (support::MAC.compiled(), support::MAC_KILL.compiled());
+        assert_eq!(mac.digest(), kill.digest());
+        assert_ne!(mac.artifacts.macros_kore, kill.artifacts.macros_kore);
+        assert!(!equivalent(&mac.definition(), &kill.definition()).expect("digests"));
+        assert!(
+            !equivalent(
+                &mac.definition_on(BackendRoute::FromDefinition),
+                &kill.definition_on(BackendRoute::FromDefinition),
+            )
+            .expect("digests")
+        );
+        // Each component on its own: the mutant's macros.kore alone, then its frontend alone.
+        let mut macros_only = mac.definition();
+        macros_only
+            .macros_kore
+            .clone_from(&kill.artifacts.macros_kore);
+        assert!(!equivalent(&mac.definition(), &macros_only).expect("digests"));
+        let mut frontend_only = mac.definition();
+        frontend_only.frontend_definition = kill.definition().frontend_definition;
+        assert!(!equivalent(&mac.definition(), &frontend_only).expect("digests"));
+    }
+
+    /// `text` with the first `Location(` attribute's start line moved by 1000.
+    fn moved_location(text: &str) -> String {
+        let at = text.find("\"Location(").expect("a Location attribute") + "\"Location(".len();
+        format!("{}1000{}", &text[..at], &text[at..])
+    }
+
+    #[test]
+    fn assembly_artifacts_are_compared_without_locations() {
+        let mac = support::MAC.compiled().definition();
+        let mut moved = mac.clone();
+        moved.syntax_definition_kore = moved_location(&moved.syntax_definition_kore);
+        moved.macros_kore = moved_location(&moved.macros_kore);
+        assert_ne!(moved.syntax_definition_kore, mac.syntax_definition_kore);
+        assert_ne!(moved.macros_kore, mac.macros_kore);
+        assert!(equivalent(&mac, &moved).expect("digests"));
+        // A production attribute other than a location is a difference.
+        let mut formatted = mac.clone();
+        formatted.syntax_definition_kore = formatted.syntax_definition_kore.replacen(
+            "format{}(",
+            "format{}(\"%c\"),\nformerly{}(",
+            1,
+        );
+        assert_ne!(formatted.syntax_definition_kore, mac.syntax_definition_kore);
+        assert!(!equivalent(&mac, &formatted).expect("digests"));
+        // A text that does not parse is unequal to every other text, itself excepted.
+        let mut broken = mac.clone();
+        broken.macros_kore = "axiom".to_owned();
+        assert!(!equivalent(&mac, &broken).expect("digests"));
+        assert!(equivalent(&broken, &broken.clone()).expect("digests"));
+    }
+
+    #[test]
+    fn configuration_variable_sorts_and_the_frontend_grammar_are_compared() {
+        let coin = support::COIN.compiled().definition();
+        let mut resorted = coin.clone();
+        let pgm = resorted
+            .configuration_variables
+            .get_mut("PGM")
+            .expect("COIN declares $PGM");
+        *pgm = k_rust::kast::Sort::new("KItem");
+        assert!(!equivalent(&coin, &resorted).expect("digests"));
+        // COIN_PRIO's frontend differs from COIN's in a priority attribute; every compiled
+        // artifact of `regrammared` is still COIN's.
+        let mut regrammared = coin.clone();
+        regrammared.frontend_definition = support::COIN_PRIO
+            .compiled()
+            .definition()
+            .frontend_definition;
+        assert!(!equivalent(&coin, &regrammared).expect("digests"));
+        // COIN_LAYOUT's frontend differs from COIN's only in positions.
+        let mut relaid = coin.clone();
+        relaid.frontend_definition = support::COIN_LAYOUT
+            .compiled()
+            .definition()
+            .frontend_definition;
+        assert!(equivalent(&coin, &relaid).expect("digests"));
     }
 
     #[test]

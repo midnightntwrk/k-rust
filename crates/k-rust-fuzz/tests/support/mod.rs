@@ -489,6 +489,11 @@ fixture!(COIN_PRIO, "coin/coin-prio.k", "COIN", COIN_PROGRAMS);
 fixture!(COIN_KILL, "coin/coin-kill.k", "COIN", COIN_PROGRAMS);
 fixture!(COIN_FUNC, "coin/coin-func.k", "COIN", COIN_PROGRAMS);
 
+/// The macro-only pair (phase-1 review B1): equal `definition.kore`, unequal `macros.kore`.
+pub const MAC_PROGRAMS: &[Program] = &[program!("mac/inc.pgm")];
+fixture!(MAC, "mac/mac.k", "MAC", MAC_PROGRAMS);
+fixture!(MAC_KILL, "mac/mac-kill.k", "MAC", MAC_PROGRAMS);
+
 /// The vanished-end pair (FZ-08 review B1).
 pub const VANISH_PROGRAMS: &[Program] = &[program!("vanish/pick.pgm")];
 fixture!(VANISH, "vanish/vanish.k", "VANISH", VANISH_PROGRAMS);
@@ -594,7 +599,7 @@ fixture!(MAZE, "maze/maze.k", "MAZE", &[program!("maze/walk.pgm")]);
 /// compiles, converts to a campaign definition on both routes, and assembles every program.
 /// TOY is left out because its syntax module is its main module, where the check expects
 /// `<MAIN>-SYNTAX`; `src/holes/tests.rs` covers it.
-pub static ALL: [&Fixture; 25] = [
+pub static ALL: [&Fixture; 27] = [
     &IMP,
     &UNSIGNED,
     &CHOSEN,
@@ -606,6 +611,8 @@ pub static ALL: [&Fixture; 25] = [
     &COIN_PRIO,
     &COIN_KILL,
     &COIN_FUNC,
+    &MAC,
+    &MAC_KILL,
     &VANISH,
     &VANISH_KILL,
     &LEDGER,

@@ -7,29 +7,46 @@ mod support;
 use std::{collections::BTreeMap, sync::Arc};
 
 use k_rust_fuzz::{
-    Budget, CallerIdentity, Campaign, CampaignSpec, CaseOptions, Definitions, HoleDecl,
-    HoleLocation, ProgramInput, ProposerConfig, SpanAddress, Target, TargetKind,
+    BackendRoute, Budget, CallerIdentity, Campaign, CampaignSpec, CaseOptions, Definitions,
+    HoleDecl, HoleLocation, ProgramInput, ProposerConfig, SpanAddress, Target, TargetKind,
     report::{CampaignOutcome, DefinitionRole, HitLabel, KillKind, Reaching},
     spec::DEFAULT_REJECTION_CAP,
     target::DifferentialTarget,
     values::{Constraints, GenerationBounds, Value},
 };
 use num_bigint::BigInt;
-use support::{COIN, COIN_KILL, COIN_LAYOUT, Fixture};
+use support::{COIN, COIN_KILL, COIN_LAYOUT, Fixture, MAC, MAC_KILL};
 
 fn spec(mutant: &'static Fixture) -> CampaignSpec {
-    let baseline = COIN.compiled();
+    spec_on(&COIN, mutant, "coin/flip.pgm", None)
+}
+
+/// A differential campaign over the hole `N` on the `3` of `program`, on the fixtures' route or
+/// on `route`.
+fn spec_on(
+    baseline: &'static Fixture,
+    mutant: &'static Fixture,
+    program: &str,
+    route: Option<BackendRoute>,
+) -> CampaignSpec {
+    let definition = |fixture: &'static Fixture| {
+        let compiled = fixture.compiled();
+        Arc::new(route.clone().map_or_else(
+            || compiled.definition(),
+            |route| compiled.definition_on(route),
+        ))
+    };
     CampaignSpec {
         definitions: Definitions {
-            baseline: Arc::new(baseline.definition()),
-            mutant: Some(Arc::new(mutant.compiled().definition())),
+            baseline: definition(baseline),
+            mutant: Some(definition(mutant)),
         },
-        program: ProgramInput::Source(baseline.program_source("coin/flip.pgm")),
+        program: ProgramInput::Source(baseline.compiled().program_source(program)),
         holes: vec![HoleDecl {
             name: "N".into(),
             sort: "Int".into(),
             location: HoleLocation::Span(SpanAddress {
-                program: "coin/flip.pgm".into(),
+                program: program.into(),
                 line: None,
                 find: "3".into(),
                 literal: "3".into(),
@@ -121,4 +138,35 @@ fn equivalent_definitions_end_the_campaign_before_any_case() {
         .run(Budget::Cases(64), None);
     assert_eq!(report.outcome, CampaignOutcome::Equivalent);
     assert_eq!(report.totals.cases, 0);
+}
+
+#[test]
+fn a_macro_only_mutant_is_killed_on_both_routes() {
+    // Phase-1 review B1: equal definition.kore, unequal macros.kore. `inc(N)` ends with N + 1 on
+    // the baseline and N + 2 on the mutant, so the anchor itself kills.
+    for route in [None, Some(BackendRoute::FromDefinition)] {
+        let report = Campaign::new(spec_on(&MAC, &MAC_KILL, "mac/inc.pgm", route.clone()))
+            .expect("valid")
+            .run(Budget::Cases(16), None);
+        assert_ne!(report.outcome, CampaignOutcome::Equivalent, "{route:?}");
+        assert!(
+            report.engine_defects.is_empty(),
+            "{route:?}: {:?}",
+            report.engine_defects
+        );
+        let witness = report
+            .witness()
+            .unwrap_or_else(|| panic!("{route:?}: a kill, not {:?}", report.outcome));
+        assert_eq!(witness.first.kill, Some(KillKind::AddedEnd), "{route:?}");
+        assert_eq!(
+            witness.first.holes[0].value,
+            Value::Int(BigInt::from(3)),
+            "{route:?}: the anchor kills"
+        );
+        assert!(
+            witness.first.sides[1].final_configurations[0].contains(r#"\dv{SortInt{}}("5")"#),
+            "{route:?}: {:?}",
+            witness.first.sides[1].final_configurations
+        );
+    }
 }
