@@ -944,6 +944,9 @@
     ],
     "io-hooks-run": [
       "error[krs::capability::unavailable]: route `native-rust` refuses this definition: definition contains direct console writes (`io::write`, `io::putc`) [both, bye, hello]; the in-process k-rust backend gives `#write` and `#putc` no console state, so they cannot run; append to a `stream = \"stdout\"` cell instead, or run the emitted K with Java K's krun or build with --backend llvm"
+    ],
+    "float-java-only": [
+      "error[krs::capability::unavailable]: route `native-llvm` refuses this definition: definition contains Float applications to tokens only [krsRule_8d7ad7040ff53b7b168e477e]; the native frontend folds ground Float applications through k-rust's backend, which no native run of KRS has been checked against yet; bind a variable or write the folded literal"
     ]
   },
   "raw_warnings": {

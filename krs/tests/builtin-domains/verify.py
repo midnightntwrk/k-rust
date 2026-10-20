@@ -454,7 +454,12 @@ def ite_instances(harness: FixtureGate, emitted) -> None:
 def java_only_floats(harness: FixtureGate) -> None:
     """Require the Float capability rows and pin each route's refusal (V8, KF-033)."""
 
-    harness.check(FLOAT_JAVA_ONLY)
+    # No native route compiles it, so `krs check` refuses it on every backend.
+    harness.diagnostic("float-java-only", FLOAT_JAVA_ONLY)
+    for backend in ("llvm", "haskell"):
+        checked = harness._krs(FLOAT_JAVA_ONLY, "check", "--backend", backend, check=False)  # noqa: SLF001
+        if checked.returncode == 0:
+            raise GateError(f"{FLOAT_JAVA_ONLY.package}: krs check --backend {backend} accepted it")
     harness.expand(FLOAT_JAVA_ONLY)
     emitted = harness.emit(FLOAT_JAVA_ONLY)
     symbols = json.loads((emitted.directory / "symbols.json").read_text(encoding="utf-8"))
@@ -675,7 +680,8 @@ def console_io(harness: FixtureGate) -> None:
 def console_hooks(harness: FixtureGate) -> None:
     """Run the direct console writes on Java K and pin the native refusal."""
 
-    harness.check(HOOKS)
+    # The in-process route refuses the console hooks, so only a check of the LLVM route passes.
+    harness.check(HOOKS, "--backend", "llvm")
     harness.expand(HOOKS)
     emitted = harness.emit(HOOKS)
     symbols = json.loads((emitted.directory / "symbols.json").read_text(encoding="utf-8"))
@@ -738,6 +744,10 @@ def console_hooks(harness: FixtureGate) -> None:
     if refused.stdout:
         raise GateError(f"{HOOKS.package}: krs run printed {refused.stdout!r} before refusing")
     harness.pins.expect(("diagnostics", "io-hooks-run"), lines)
+    # `krs check` predicts `krs run`, so it refuses with the same refusal.
+    checked = harness._krs(HOOKS, "check", check=False)  # noqa: SLF001
+    if checked.returncode == 0 or diagnostic_lines(checked.stderr)[:1] != lines[:1]:
+        raise GateError(f"{HOOKS.package}: krs check did not refuse as krs run does:\n{checked.stderr}")
     native_llvm = harness.workspace / "native-llvm" / HOOKS.package
     harness._krs(HOOKS, "build", "--backend", "llvm", "--output", native_llvm)  # noqa: SLF001
     krs_gate.require_route(harness.gate, emitted.directory, "java-llvm-reference", environment=harness.environment)

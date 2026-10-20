@@ -416,23 +416,7 @@ fn assert_check_measurement(temporary: &Path, target: &Path, manifest: &Path, st
         ]
         .map(|(id, depth)| (id.to_owned(), depth))
     );
-    // `check` runs the native judgement `build` runs, minus `native.write`.
-    assert_eq!(
-        ids[lowered + 1..]
-            .iter()
-            .filter(|(_, depth)| *depth == 0)
-            .map(|(id, _)| id.as_str())
-            .collect::<Vec<_>>(),
-        [
-            "native.adapt",
-            "native.prepare",
-            "native.compile",
-            "native.reparse.definition",
-            "native.reparse.syntax",
-            "native.provenance",
-            "release",
-        ]
-    );
+    assert_check_routes(&ids[lowered + 1..]);
     assert_timing_invariants(&timings);
     let counters = read_json(&counters_path);
     assert_eq!(counters["schema"], "krs-counters/1");
@@ -460,6 +444,46 @@ fn assert_check_measurement(temporary: &Path, target: &Path, manifest: &Path, st
     assert_eq!(
         fs::read(&counters_path).unwrap(),
         fs::read(&again_path).unwrap()
+    );
+}
+
+/// `check` renders what `emit-k` writes, then judges every native route:
+/// `build`'s native judgement on each, minus `native.write`, and on
+/// `native-rust` the run commands' definition load.
+fn assert_check_routes(ids: &[(String, u64)]) {
+    assert_eq!(
+        ids.iter()
+            .filter(|(_, depth)| *depth <= 1)
+            .map(|(id, depth)| (id.as_str(), *depth))
+            .collect::<Vec<_>>(),
+        [
+            ("emit_k.render", 0),
+            ("check.routes", 0),
+            ("check.native-llvm", 1),
+            ("check.native-rust", 1),
+            ("check.load", 1),
+            ("release", 0),
+        ]
+    );
+    let route = ids
+        .iter()
+        .position(|(id, _)| id == "check.native-llvm")
+        .unwrap();
+    assert_eq!(
+        ids[route + 1..]
+            .iter()
+            .take_while(|(_, depth)| *depth > 1)
+            .filter(|(_, depth)| *depth == 2)
+            .map(|(id, _)| id.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "native.adapt",
+            "native.prepare",
+            "native.compile",
+            "native.reparse.definition",
+            "native.reparse.syntax",
+            "native.provenance",
+        ]
     );
 }
 
@@ -1069,6 +1093,22 @@ fn native_rejection_reports_the_authored_rust_item_on_every_backend() {
             "check {backend}"
         );
     }
+
+    // Without --backend, `check` reports the refusal of the first route with a
+    // note that every native route refuses the definition.
+    let check = command(target.path(), &manifest, "check", None, &[]);
+    let stderr = String::from_utf8(check.stderr).unwrap();
+    assert!(!check.status.success(), "{stderr}");
+    let diagnostics = krs_cli::DiagnosticEnvelope::from_json_lines(&stderr).unwrap();
+    assert_eq!(diagnostics.len(), 1, "{stderr}");
+    assert_eq!(diagnostics[0].code, "IllegalFunctionOnLhs");
+    assert!(
+        diagnostics[0]
+            .notes
+            .last()
+            .is_some_and(|note| note.starts_with("every native route refuses this definition")),
+        "{stderr}"
+    );
 }
 
 /// An existential rule result, which concrete (LLVM) execution cannot run.
@@ -1104,7 +1144,7 @@ pub fn zero_to_unknown(
 "#;
 
 #[test]
-fn check_warns_where_build_refuses_the_route_and_compiles_where_it_does_not() {
+fn check_fails_where_a_route_refuses_and_backend_narrows_it_to_one_route() {
     let target = shared_fixture_target();
     let temporary = temp_dir();
     let manifest = materialize_fixture(temporary.path(), RULE_EXISTENTIAL);
@@ -1121,37 +1161,64 @@ fn check_warns_where_build_refuses_the_route_and_compiles_where_it_does_not() {
     assert!(!build.status.success(), "{build_stderr}");
     assert!(build_stderr.contains(refusal), "{build_stderr}");
 
-    // The route lacks a feature; that is the route's property, so `check`
-    // warns with the refusal `build` reports and compiles nothing natively.
-    let llvm_timings = temporary.path().join("llvm-check-timings.json");
+    // Without --backend, `check` predicts `build` on every backend, so the
+    // route's refusal fails it before anything is compiled, with a note naming
+    // the commands of the refusing route and the --backend that leaves it out.
+    let all_timings = temporary.path().join("check-timings.json");
+    let all = command(
+        target.path(),
+        &manifest,
+        "check",
+        None,
+        &["--no-reuse", "--timings", all_timings.to_str().unwrap()],
+    );
+    let all_stderr = String::from_utf8(all.stderr).unwrap();
+    assert!(!all.status.success(), "{all_stderr}");
+    assert!(all.stdout.is_empty());
+    assert!(all_stderr.contains(refusal), "{all_stderr}");
+    // Human output also renders the note.
+    let mut process = krs_command!();
+    fixture_build_env(&mut process, target.path());
+    let human = process
+        .args(["check", "--manifest-path"])
+        .arg(&manifest)
+        .args([
+            "--package",
+            "krs-cli-foo-bar-fixture",
+            "--definition",
+            "main",
+        ])
+        .env("NO_COLOR", "1")
+        .output()
+        .unwrap();
+    let human_stderr = String::from_utf8(human.stderr).unwrap();
+    assert!(!human.status.success(), "{human_stderr}");
+    assert!(
+        human_stderr.contains(
+            "`native-llvm` is the route of `krs build --backend llvm`; `krs check --backend haskell` judges only the route of"
+        ),
+        "{human_stderr}"
+    );
+    assert!(
+        !span_ids(&read_json(&all_timings))
+            .iter()
+            .any(|(id, _)| id.starts_with("native.") || id == "check.routes"),
+        "check compiled although a route refuses the definition"
+    );
+
+    // `--backend llvm` predicts exactly `build --backend llvm`.
     let llvm = command(
         target.path(),
         &manifest,
         "check",
         None,
-        &[
-            "--backend",
-            "llvm",
-            "--no-reuse",
-            "--timings",
-            llvm_timings.to_str().unwrap(),
-        ],
+        &["--backend", "llvm", "--no-reuse"],
     );
-    let llvm_stderr = String::from_utf8(llvm.stderr).unwrap();
-    assert_success_with(llvm.status, &llvm_stderr);
-    assert!(
-        llvm_stderr.contains("krs::capability::unavailable") && llvm_stderr.contains(refusal),
-        "{llvm_stderr}"
-    );
-    assert!(
-        !span_ids(&read_json(&llvm_timings))
-            .iter()
-            .any(|(id, _)| id.starts_with("native.")),
-        "check compiled for a route that refuses the definition"
-    );
+    assert!(!llvm.status.success());
+    assert_eq!(String::from_utf8(llvm.stderr).unwrap(), build_stderr);
 
-    // The haskell route runs existential results: `check` compiles natively
-    // and has nothing to warn about.
+    // The haskell route runs existential results: `check --backend haskell`
+    // compiles natively, loads the definition as `krs run` does, and passes.
     let haskell_timings = temporary.path().join("haskell-check-timings.json");
     let haskell = command(
         target.path(),
@@ -1172,10 +1239,14 @@ fn check_warns_where_build_refuses_the_route_and_compiles_where_it_does_not() {
         !haskell_stderr.contains("krs::capability::unavailable"),
         "{haskell_stderr}"
     );
+    let ids = span_ids(&read_json(&haskell_timings));
     assert!(
-        span_ids(&read_json(&haskell_timings))
-            .iter()
-            .any(|(id, depth)| id == "native.compile" && *depth == 0)
+        ids.iter()
+            .any(|(id, depth)| id == "native.compile" && *depth == 2)
+    );
+    assert!(
+        ids.iter()
+            .any(|(id, depth)| id == "check.load" && *depth == 1)
     );
 }
 
