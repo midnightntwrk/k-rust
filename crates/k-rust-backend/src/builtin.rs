@@ -2063,6 +2063,8 @@ fn evaluate_equality_by_roots(
                     same.pairs()
                         .map(|(left, right)| (left.clone(), right.clone())),
                 ),
+                // One symbol whose sort arguments are one only on some instances.
+                RootComparison::OpenSortArguments => undecided = true,
                 RootComparison::DomainValues
                 | RootComparison::Injections
                 | RootComparison::Collections(_) => {

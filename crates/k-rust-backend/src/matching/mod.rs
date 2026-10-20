@@ -104,27 +104,38 @@ pub enum MatchMode {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum MatchResult {
     Success(Substitution),
+    /// No instance of the subject is an instance of the pattern.
     Failed(FailReason),
     Indeterminate {
         substitution: Substitution,
         remainder: Vec<(Term, Term)>,
     },
+    /// The matcher could not decide the problem and refuted none of its pairs: a pair asks a
+    /// question one-way matching does not answer, and some answer to it may make the pattern
+    /// match. Unlike [`MatchResult::Indeterminate`], the problem is not reduced to a remainder
+    /// of term pairs, so a caller has nothing to resolve: it reads the match as undecided.
+    Undecided(UndecidedReason),
 }
 
 impl MatchResult {
     /// The refutation this result states: `Some` exactly for [`MatchResult::Failed`], where no
-    /// instance of the subject is an instance of the pattern. A match that succeeded, or one
-    /// left open, refutes nothing:
+    /// instance of the subject is an instance of the pattern. A match that succeeded, one left
+    /// open, and one the matcher could not decide refute nothing:
     ///
     /// ```
-    /// use k_rust_backend::{matching::MatchResult, substitution::Substitution};
+    /// use k_rust_backend::{
+    ///     matching::{MatchResult, SortError, UndecidedReason},
+    ///     substitution::Substitution,
+    /// };
     /// assert!(MatchResult::Success(Substitution::new()).refutation().is_none());
+    /// let open = UndecidedReason::Subsorting(SortError::FoundSortVariable("S".into()));
+    /// assert!(MatchResult::Undecided(open).refutation().is_none());
     /// ```
     #[must_use]
     pub fn refutation(&self) -> Option<MatchFailed> {
         match self {
             Self::Failed(_) => Some(MatchFailed(())),
-            Self::Success(_) | Self::Indeterminate { .. } => None,
+            Self::Success(_) | Self::Indeterminate { .. } | Self::Undecided(_) => None,
         }
     }
 }
@@ -171,6 +182,25 @@ pub struct MatchFailed(());
 ///     FailReason::DifferentValues(t.clone(), t)
 /// }
 /// ```
+///
+/// A question the matcher does not answer is no refutation, so it has no reason here but an
+/// [`UndecidedReason`]: neither shared variables nor an undecided subsort question can be
+/// stated as a failure.
+///
+/// ```compile_fail
+/// use k_rust_backend::matching::{FailReason, SortError};
+/// fn refute(error: SortError) -> FailReason {
+///     FailReason::Subsorting(error)
+/// }
+/// ```
+///
+/// ```compile_fail
+/// use std::collections::BTreeSet;
+/// use k_rust_backend::{matching::FailReason, term::Variable};
+/// fn refute(shared: BTreeSet<Variable>) -> FailReason {
+///     FailReason::SharedVariables(shared)
+/// }
+/// ```
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum FailReason {
     DifferentValues(Term, Term),
@@ -189,9 +219,27 @@ pub enum FailReason {
     KeyNotFound(Term),
     /// A map key or a set element that occurs twice, and the collection: `\bottom`.
     DuplicateKeys(Term, Term),
-    SharedVariables(BTreeSet<Variable>),
-    Subsorting(SortError),
     ArgumentLengthsDiffer(Term, Term),
+}
+
+/// Why the matcher could not decide whether some instance of a subject is an instance of a
+/// pattern. Each names a question one-way matching does not answer, and some answer to it may
+/// make the pattern match, so none is a refutation ([`MatchResult::Undecided`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum UndecidedReason {
+    /// The pattern and the subject share these variables. Matching binds the pattern's
+    /// variables only, so a variable on both sides needs unification; the pattern renamed apart
+    /// has the same instances, and may match.
+    SharedVariables(BTreeSet<Variable>),
+    /// A subsort question the match needs answered depends on a sort variable, or names a sort
+    /// the order does not know ([`SortGraph::check_subsort`]).
+    Subsorting(SortError),
+    /// Two sorts the match needs to be one sort, the sort arguments of two applications of one
+    /// symbol, the targets of two injections or the sorts of two domain values, are one sort on
+    /// some instances of their sort variables and not on others (`SortRelation::Open`); or
+    /// two injections from sorts neither of which is below the other, whose having a common
+    /// subsort depends on a sort variable.
+    OpenSorts(Term, Term),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -241,6 +289,85 @@ fn first_sort_variable(sort: &Sort) -> Option<&Name> {
         Sort::Variable(name) => Some(name),
         Sort::Application { arguments, .. } => arguments.iter().find_map(first_sort_variable),
     }
+}
+
+/// Whether two sorts are one sort, on the instances of their sort variables.
+///
+/// A sort with a sort variable stands for each of its closed instances, as the sort of a
+/// sort-parametric axiom does. Two sorts whose spellings differ only where a variable occurs
+/// are one sort on the instances that make them so, and only there.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[must_use]
+pub(crate) enum SortRelation {
+    /// The two sorts are spelled alike: one sort.
+    Equal,
+    /// No instance of their sort variables makes them one sort: they differ at a position
+    /// where no sort variable occurs, a head or a number of arguments.
+    Distinct,
+    /// A sort variable occurs where they differ, so some instance may make them one sort.
+    Open,
+}
+
+/// The [`SortRelation`] of two sorts. Two different sort variables, or a variable and another
+/// sort, are [`SortRelation::Open`]: an instance may make them one. A variable occurring twice
+/// is read as two occurrences, which may make a relation `Open` that no instance makes
+/// `Equal`; that is undecided, never wrong.
+pub(crate) fn sort_relation(left: &Sort, right: &Sort) -> SortRelation {
+    if left == right {
+        return SortRelation::Equal;
+    }
+    match (left, right) {
+        (Sort::Variable(_), _) | (_, Sort::Variable(_)) => SortRelation::Open,
+        (
+            Sort::Application {
+                name: left_head,
+                arguments: left_arguments,
+            },
+            Sort::Application {
+                name: right_head,
+                arguments: right_arguments,
+            },
+        ) => {
+            if left_head != right_head {
+                SortRelation::Distinct
+            } else {
+                sort_list_relation(left_arguments, right_arguments)
+            }
+        }
+    }
+}
+
+/// The [`SortRelation`] of two lists of sorts, position by position: `Distinct` when their
+/// lengths differ or some position is, `Open` when some position is and none is `Distinct`.
+pub(crate) fn sort_list_relation(left: &[Sort], right: &[Sort]) -> SortRelation {
+    if left.len() != right.len() {
+        return SortRelation::Distinct;
+    }
+    let mut relation = SortRelation::Equal;
+    for (left, right) in left.iter().zip(right) {
+        match sort_relation(left, right) {
+            SortRelation::Distinct => return SortRelation::Distinct,
+            SortRelation::Open => relation = SortRelation::Open,
+            SortRelation::Equal => {}
+        }
+    }
+    relation
+}
+
+/// Where two different sorts stand in the subsort order, on every instance of their sort
+/// variables, as far as the order decides it ([`SortGraph::order`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[must_use]
+pub(crate) enum SortOrder {
+    /// The left sort is below the right one.
+    Below,
+    /// The right sort is below the left one.
+    Above,
+    /// Neither sort is below the other, on any instance of their sort variables.
+    Incomparable,
+    /// The order does not decide it: the answer depends on a sort variable, or a sort is not
+    /// declared.
+    Undecided(SortError),
 }
 
 /// The reflexive-transitive closure of declared pairs over whole closed sorts.
@@ -339,6 +466,21 @@ impl SortGraph {
             return Ok(false);
         }
         Err(SortError::FoundSortVariable(variable.clone()))
+    }
+
+    /// The [`SortOrder`] of two sorts: [`SortGraph::check_subsort`] asked both ways, so that an
+    /// answer that depends on a sort variable is never read as "not below".
+    pub(crate) fn order(&self, left: &Sort, right: &Sort) -> SortOrder {
+        let below = self.check_subsort(left, right);
+        if below == Ok(true) {
+            return SortOrder::Below;
+        }
+        match (below, self.check_subsort(right, left)) {
+            (_, Ok(true)) => SortOrder::Above,
+            (Ok(false), Ok(false)) => SortOrder::Incomparable,
+            (Err(error), _) | (_, Err(error)) => SortOrder::Undecided(error),
+            (Ok(true), _) => unreachable!("a sort below the other returned first"),
+        }
     }
 
     fn overlap(&self, left: &Sort, right: &Sort) -> bool {
@@ -637,7 +779,7 @@ pub(crate) fn match_term_pairs_in_definition(
                         })
                     })
                     .collect::<BTreeSet<_>>();
-                MatchResult::Failed(FailReason::SharedVariables(shared_variables))
+                MatchResult::Undecided(UndecidedReason::SharedVariables(shared_variables))
             }
             MatchMode::Implies => unreachable!(),
         };
@@ -677,7 +819,7 @@ pub(crate) fn match_with_settled_evidence(
             .attributes()
             .variables
             .intersection(&subject.attributes().variables);
-        return MatchResult::Failed(FailReason::SharedVariables(shared));
+        return MatchResult::Undecided(UndecidedReason::SharedVariables(shared));
     }
     let mut matcher = Matcher::new(
         MatchMode::Evaluate,
@@ -826,7 +968,7 @@ fn match_terms_reporting_bindings(
                 substitution: Substitution::new(),
                 remainder: vec![(pattern.clone(), subject.clone())],
             },
-            MatchMode::Evaluate => MatchResult::Failed(FailReason::SharedVariables(
+            MatchMode::Evaluate => MatchResult::Undecided(UndecidedReason::SharedVariables(
                 pattern
                     .attributes()
                     .variables
@@ -864,6 +1006,10 @@ struct Matcher<'a> {
     queue: VecDeque<(Term, Term)>,
     map_queue: VecDeque<(Term, Term)>,
     indeterminate: Vec<(Term, Term)>,
+    /// The first pair the matcher could not decide ([`Matcher::undecided`]). Matching goes on
+    /// past it, as a refutation of another pair still refutes the problem; without one, the
+    /// problem is undecided.
+    undecided: Option<UndecidedReason>,
     /// Algebraic function decomposition gives a sufficient instance only. Its bindings must
     /// not justify refutation elsewhere in this problem or escape an unresolved match.
     tentative_arguments: bool,
@@ -993,6 +1139,7 @@ impl<'a> Matcher<'a> {
             queue,
             map_queue: VecDeque::new(),
             indeterminate: Vec::new(),
+            undecided: None,
             tentative_arguments: false,
             normal_forms: SubjectNormalForms {
                 definition,
@@ -1012,22 +1159,36 @@ impl<'a> Matcher<'a> {
     /// when it rests on a tentative decomposition. Every other outcome is reported
     /// [`Bindings::Forced`]: a tentative decomposition never leaves a failure or a partial
     /// substitution.
+    ///
+    /// A refuted pair refutes the problem even where another pair was left undecided: the
+    /// undecided pair bound nothing, so the refutation rests on the bindings of decided pairs
+    /// only. Without a refutation, an undecided pair leaves the problem undecided, never
+    /// reduced to the remainder of the pairs the matcher deferred, which does not hold it.
     fn finish_reporting_bindings(
         mut self,
         original: impl FnOnce() -> Vec<(Term, Term)>,
     ) -> (MatchResult, Bindings) {
         let result = self.run();
-        if self.tentative_arguments && (result.is_err() || !self.indeterminate.is_empty()) {
-            return (
+        let tentative = || {
+            (
                 MatchResult::Indeterminate {
                     substitution: Substitution::new(),
                     remainder: original(),
                 },
                 Bindings::Forced,
-            );
-        }
+            )
+        };
         if let Err(reason) = result {
+            if self.tentative_arguments {
+                return tentative();
+            }
             return (MatchResult::Failed(reason), Bindings::Forced);
+        }
+        if let Some(reason) = self.undecided {
+            return (MatchResult::Undecided(reason), Bindings::Forced);
+        }
+        if self.tentative_arguments && !self.indeterminate.is_empty() {
+            return tentative();
         }
         if self.indeterminate.is_empty() {
             let bindings = if self.tentative_arguments {
@@ -1135,10 +1296,14 @@ impl<'a> Matcher<'a> {
             ) => {
                 if pattern_value != subject_value {
                     Err(FailReason::DifferentValues(pattern, subject))
-                } else if pattern_sort != subject_sort {
-                    Err(FailReason::DifferentSorts(pattern, subject))
                 } else {
-                    Ok(())
+                    match sort_relation(pattern_sort, subject_sort) {
+                        SortRelation::Equal => Ok(()),
+                        SortRelation::Distinct => Err(FailReason::DifferentSorts(pattern, subject)),
+                        SortRelation::Open => {
+                            self.undecided(UndecidedReason::OpenSorts(pattern, subject))
+                        }
+                    }
                 }
             }
             (
@@ -1153,8 +1318,14 @@ impl<'a> Matcher<'a> {
                     ..
                 },
             ) => {
-                if pattern_target != subject_target {
-                    return Err(FailReason::DifferentSorts(pattern, subject));
+                match sort_relation(pattern_target, subject_target) {
+                    SortRelation::Equal => {}
+                    SortRelation::Distinct => {
+                        return Err(FailReason::DifferentSorts(pattern, subject));
+                    }
+                    SortRelation::Open => {
+                        return self.undecided(UndecidedReason::OpenSorts(pattern, subject));
+                    }
                 }
                 if pattern_source == subject_source {
                     self.match_subterms(
@@ -1194,8 +1365,16 @@ impl<'a> Matcher<'a> {
                 if pattern_arguments.len() != subject_arguments.len() {
                     return Err(FailReason::ArgumentLengthsDiffer(pattern, subject));
                 }
-                if pattern_sorts != subject_sorts {
-                    return Err(FailReason::DifferentSorts(pattern, subject));
+                // A sort-parametric pattern `f{S}(..)` denotes its instances: against `f{T}(..)` it
+                // is refuted only where no instance of `S` makes the symbols one.
+                match sort_list_relation(pattern_sorts, subject_sorts) {
+                    SortRelation::Equal => {}
+                    SortRelation::Distinct => {
+                        return Err(FailReason::DifferentSorts(pattern, subject));
+                    }
+                    SortRelation::Open => {
+                        return self.undecided(UndecidedReason::OpenSorts(pattern, subject));
+                    }
                 }
                 self.match_subterms(
                     pattern_arguments,
@@ -1336,18 +1515,18 @@ impl<'a> Matcher<'a> {
         else {
             unreachable!()
         };
-        let pattern_is_subsort = self
-            .sorts
-            .check_subsort(pattern_source, subject_source)
-            .map_err(FailReason::Subsorting)?;
-        let subject_is_subsort = self
-            .sorts
-            .check_subsort(subject_source, pattern_source)
-            .map_err(FailReason::Subsorting)?;
+        let (pattern_is_subsort, subject_is_subsort) =
+            match self.sorts.order(pattern_source, subject_source) {
+                SortOrder::Below => (true, false),
+                SortOrder::Above => (false, true),
+                SortOrder::Incomparable => (false, false),
+                SortOrder::Undecided(error) => {
+                    return self.undecided(UndecidedReason::Subsorting(error));
+                }
+            };
         if !pattern_is_subsort && !subject_is_subsort {
-            if self.mode == MatchMode::Evaluate
-                && self.sorts.known_overlap(pattern_source, subject_source) == Some(true)
-            {
+            let overlap = self.sorts.known_overlap(pattern_source, subject_source);
+            if self.mode == MatchMode::Evaluate && overlap == Some(true) {
                 match self.lower_normalized_overload_to_sort(subject_term, pattern_source) {
                     OverloadLowering::Lowered(lowered) => {
                         self.enqueue(pattern_term.clone(), lowered);
@@ -1362,16 +1541,25 @@ impl<'a> Matcher<'a> {
                     OverloadLowering::Indeterminate => {}
                 }
             }
-            if self.sorts.known_overlap(pattern_source, subject_source) == Some(true)
-                && !has_constructor_like_top(pattern_term)
-                && !has_constructor_like_top(subject_term)
-            {
-                return self.defer(pattern, subject);
-            }
-            return Err(FailReason::DifferentSorts(
-                pattern_term.clone(),
-                subject_term.clone(),
-            ));
+            // Neither source is below the other on any instance of their sort variables, so a
+            // common value is the injection of a value of a common subsort. A constructor-like
+            // operand, built by a constructor of its own sort, is no such injection.
+            let constructor_like =
+                has_constructor_like_top(pattern_term) || has_constructor_like_top(subject_term);
+            return match overlap {
+                Some(true) if !constructor_like => self.defer(pattern, subject),
+                Some(_) => Err(FailReason::DifferentSorts(
+                    pattern_term.clone(),
+                    subject_term.clone(),
+                )),
+                None if constructor_like => Err(FailReason::DifferentSorts(
+                    pattern_term.clone(),
+                    subject_term.clone(),
+                )),
+                // Whether the sources have a common subsort depends on a sort variable, or on a
+                // sort the order does not know: `known_overlap` does not decide it.
+                None => self.undecided(UndecidedReason::OpenSorts(pattern, subject)),
+            };
         }
         if pattern_is_subsort
             && (is_function(subject_term) || matches!(subject_term.kind(), TermKind::Variable(_)))
@@ -2304,7 +2492,8 @@ impl<'a> Matcher<'a> {
                 self.defer(pattern, subject)
             }
             Ok(false) => Err(FailReason::DifferentSorts(pattern, subject)),
-            Err(error) => Err(FailReason::Subsorting(error)),
+            // `X:S` against a subject of a closed sort: some instance of `S` may be a supersort.
+            Err(error) => self.undecided(UndecidedReason::Subsorting(error)),
         }
     }
 
@@ -2359,6 +2548,16 @@ impl<'a> Matcher<'a> {
 
     fn defer(&mut self, pattern: Term, subject: Term) -> Result<(), FailReason> {
         self.indeterminate.push((pattern, subject));
+        Ok(())
+    }
+
+    /// Leave the pair being matched undecided, for `reason`: it binds nothing, and the problem
+    /// is undecided unless another pair refutes it ([`Matcher::finish_reporting_bindings`]).
+    /// The one way a pair reports a question the matcher does not answer: [`FailReason`] has
+    /// no variant for one, so it cannot be returned as a refutation.
+    #[allow(clippy::unnecessary_wraps)]
+    fn undecided(&mut self, reason: UndecidedReason) -> Result<(), FailReason> {
+        self.undecided.get_or_insert(reason);
         Ok(())
     }
 }
@@ -2685,6 +2884,7 @@ fn refutation(pattern: Head<'_>, subject: Head<'_>) -> RootPolicy {
                 // Two roots `compare_roots` does not separate are compared by an arm of their own
                 // kind in `Matcher::match_one`, before any refutation.
                 RootComparison::SameApplication(_)
+                | RootComparison::OpenSortArguments
                 | RootComparison::ArityMismatch
                 | RootComparison::DomainValues
                 | RootComparison::Injections

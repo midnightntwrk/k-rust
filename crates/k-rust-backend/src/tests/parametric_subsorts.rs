@@ -4,7 +4,7 @@ use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
 use crate::{
     definition::{BackendDefinition, DefinitionError},
-    matching::{MatchMode, MatchResult, SortError, match_terms_in_definition},
+    matching::{MatchMode, MatchResult, SortError, UndecidedReason, match_terms_in_definition},
     term::{Sort, Term, Variable},
 };
 
@@ -338,4 +338,38 @@ fn j_total_builders_inhabit_closed_instances_and_their_supersorts() {
     assert!(definition.sort_is_inhabited(&mint("Sort8")));
     assert!(definition.sort_is_inhabited(&Sort::simple("SortKResult")));
     assert!(!definition.sort_is_inhabited(&mint("Sort16")));
+}
+
+fn schematic_mint() -> Sort {
+    Sort::application("SortMInt", vec![Sort::Variable("W".into())])
+}
+
+/// A sort-parametric pattern stands for each of its closed instances: `inj{SortMInt{W},
+/// SortKItem}(X)` matches an injection from `SortMInt{Sort8}` at `W = Sort8`, and `X:SortMInt{W}`
+/// matches a value of `SortMInt{Sort8}` there. The matcher binds no sort variable, so it leaves
+/// both undecided in every mode, and mints no refutation from them.
+#[test]
+fn k_sort_variable_subsort_questions_leave_the_match_undecided() {
+    let definition = definition();
+    let schematic = schematic_mint();
+    let operand = Term::variable(Variable::new("X", schematic.clone()));
+    let injected = Term::injection(schematic, Sort::simple("SortKItem"), operand.clone());
+    let subject = checked_term(
+        &definition,
+        r#"inj{SortMInt{Sort8{}}, SortKItem{}}(\dv{SortMInt{Sort8{}}}("5p8"))"#,
+    );
+    let value = checked_term(&definition, r#"\dv{SortMInt{Sort8{}}}("5p8")"#);
+    let undecided = MatchResult::Undecided(UndecidedReason::Subsorting(
+        SortError::FoundSortVariable("W".into()),
+    ));
+    for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
+        let matched = match_terms_in_definition(mode, &definition, &injected, &subject);
+        assert_eq!(matched, undecided, "{mode:?}");
+        assert!(matched.refutation().is_none(), "{mode:?}");
+        assert_eq!(
+            match_terms_in_definition(mode, &definition, &operand, &value),
+            undecided,
+            "{mode:?}"
+        );
+    }
 }

@@ -1580,9 +1580,20 @@ fn apply_claim(
         &claim.lhs.term,
         &subject.term,
     );
+    // A match the matcher could not decide leaves the claim's applicability open: some instance
+    // of the claim may apply, so it is not read as not applicable.
+    let undecided = || -> Stoppable<ClaimApplication> {
+        Ok(ClaimApplication::Indeterminate(
+            ClaimIndeterminateReason::Match {
+                substitution: Substitution::new(),
+                remainder: vec![(claim.lhs.term.clone(), subject.term.clone())],
+            },
+        ))
+    };
     let matched = match matched {
         MatchResult::Success(substitution) => MatchSolution::new(substitution),
         MatchResult::Failed(_) => return Ok(ClaimApplication::NotApplicable),
+        MatchResult::Undecided(_) => return undecided(),
         MatchResult::Indeterminate {
             substitution,
             remainder,
@@ -1607,6 +1618,7 @@ fn apply_claim(
             };
             match recovered {
                 RecoveredMatch::Failed(_) => return Ok(ClaimApplication::NotApplicable),
+                RecoveredMatch::Undecided(_) => return undecided(),
                 RecoveredMatch::Matched {
                     solution,
                     remainder,

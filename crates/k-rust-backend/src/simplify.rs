@@ -106,8 +106,8 @@ use crate::{
     diagnostic::{self, BackendDiagnostic, Occurrences, Subject},
     evaluation::EvaluationMode,
     matching::{
-        Bindings, CollectionMatches, DecidedSolutions, FailReason, InjectionEquality, MatchFailed,
-        MatchMode, MatchResult, match_collection_remainders_all_in_definition,
+        Bindings, CollectionMatches, DecidedSolutions, InjectionEquality, MatchFailed, MatchMode,
+        MatchResult, UndecidedReason, match_collection_remainders_all_in_definition,
         match_equation_in_definition, match_injection_equality, match_term_pairs_in_definition,
     },
     path_facts::FactSet,
@@ -3191,15 +3191,13 @@ fn predicate_equation_probe<'a>(
 ) -> impl FnMut(&PredicateRewriteRule) -> bool + 'a {
     move |rule| {
         let matched = match match_predicate(definition, &rule.lhs, predicate) {
-            PredicateMatch::Failed {
-                shared_names: false,
-            } => return false,
+            PredicateMatch::Failed => return false,
             matched => match rename_predicate_rule_apart(rule, predicate, known_predicates) {
                 Some((renamed, _)) => match_predicate(definition, &renamed.lhs, predicate),
                 None => matched,
             },
         };
-        !matches!(matched, PredicateMatch::Failed { .. })
+        !matches!(matched, PredicateMatch::Failed)
     }
 }
 
@@ -3220,19 +3218,15 @@ fn apply_predicate_equation(
     // when its names can matter. Matching binds the equation's variables to the subject's terms,
     // which it never substitutes into, so the names of the equation's variables decide nothing
     // where the subject has no variable of the same name: a match that fails without meeting a
-    // shared name (`PredicateMatch::Failed { shared_names: false }`) fails renamed too, as the
-    // renamed problem has the same pairs up to the renaming and possibly more. Otherwise the
+    // shared name (`PredicateMatch::Failed`) fails renamed too, as the renamed problem has the
+    // same pairs up to the renaming and possibly more. Otherwise the
     // clash is checked, once per equation that matched or could, not per equation tried, and on
     // one the attempt is made renamed (`rename_predicate_rule_apart`), as before; the renaming
     // also keeps the variables the left-hand side does not bind apart from the path, which
     // matching does not read.
     let matched = match_predicate(definition, &rule.lhs, predicate);
-    if !matches!(
-        matched,
-        PredicateMatch::Failed {
-            shared_names: false
-        }
-    ) && let Some((renamed, _)) = rename_predicate_rule_apart(rule, predicate, known_predicates)
+    if !matches!(matched, PredicateMatch::Failed)
+        && let Some((renamed, _)) = rename_predicate_rule_apart(rule, predicate, known_predicates)
     {
         return apply_predicate_equation(
             definition,
@@ -3245,8 +3239,10 @@ fn apply_predicate_equation(
         );
     }
     let substitution = match matched {
-        PredicateMatch::Failed { .. } => return Ok(EquationAttempt::NotApplicable(())),
-        PredicateMatch::Indeterminate => {
+        PredicateMatch::Failed => return Ok(EquationAttempt::NotApplicable(())),
+        // A shared name the renaming did not remove, or a question matching does not answer:
+        // neither refutes the equation.
+        PredicateMatch::SharedNames | PredicateMatch::Indeterminate => {
             // The matching is undecided: the equation competed here (`crate::coverage`).
             crate::coverage::note_offered(&rule.attributes.unique_id);
             return Ok(EquationAttempt::Indeterminate(
@@ -3767,12 +3763,12 @@ pub(crate) fn without_term_conjunctions(term: &Term) -> Option<(Term, Vec<Predic
 
 enum PredicateMatch {
     Success(Substitution),
-    /// No match. `shared_names` is whether the term matcher refused because a variable of the
-    /// pattern and one of the subject have one name ([`FailReason::SharedVariables`]); any other
-    /// failure is one of the predicates' shapes or terms, whatever the names.
-    Failed {
-        shared_names: bool,
-    },
+    /// No match: the predicates' shapes differ, or their terms are refuted, whatever the names.
+    Failed,
+    /// The term matcher refused because a variable of the pattern and one of the subject have
+    /// one name ([`UndecidedReason::SharedVariables`]). That is no refutation: renamed apart,
+    /// the pattern has the same instances and may match.
+    SharedNames,
     Indeterminate,
 }
 
@@ -3799,9 +3795,7 @@ fn match_predicate(
     // costs nothing more. Without a quantifier in the pattern, a subject quantifier is in no
     // pair (its connective meets another of the pattern's), so nothing needs renaming.
     if !collect_predicate_term_pairs(pattern, subject, &mut pairs, &mut binders) {
-        return PredicateMatch::Failed {
-            shared_names: false,
-        };
+        return PredicateMatch::Failed;
     }
     let renamed;
     if has_quantifier(pattern) {
@@ -3835,9 +3829,7 @@ fn match_predicate(
                     None => {}
                     Some(bound) if bound == Term::variable((*subject_bound).clone()) => {}
                     Some(_) => {
-                        return PredicateMatch::Failed {
-                            shared_names: false,
-                        };
+                        return PredicateMatch::Failed;
                     }
                 }
             }
@@ -3846,16 +3838,14 @@ fn match_predicate(
                     .iter()
                     .any(|(_, bound)| value.attributes().variables.contains(bound))
             }) {
-                return PredicateMatch::Failed {
-                    shared_names: false,
-                };
+                return PredicateMatch::Failed;
             }
             PredicateMatch::Success(substitution)
         }
-        MatchResult::Failed(reason) => PredicateMatch::Failed {
-            shared_names: matches!(reason, FailReason::SharedVariables(_)),
-        },
-        MatchResult::Indeterminate { .. } => PredicateMatch::Indeterminate,
+        MatchResult::Failed(_) => PredicateMatch::Failed,
+        MatchResult::Undecided(UndecidedReason::SharedVariables(_)) => PredicateMatch::SharedNames,
+        MatchResult::Undecided(UndecidedReason::Subsorting(_) | UndecidedReason::OpenSorts(..))
+        | MatchResult::Indeterminate { .. } => PredicateMatch::Indeterminate,
     }
 }
 
@@ -7465,8 +7455,9 @@ fn decide_unused_instance<T, N>(
 pub(crate) enum EquationInstances {
     /// The left-hand side does not match the subject: no instance of the equation is the subject.
     NotMatched(MatchFailed),
-    /// Matching modulo the map and set axioms could not decide whether the left-hand side
-    /// matches the subject.
+    /// Matching could not decide whether the left-hand side matches the subject: matching modulo
+    /// the map and set axioms left it open, or the matcher met a question it does not answer
+    /// ([`MatchResult::Undecided`]).
     Undecided,
     /// The instances in the matcher's order; never empty. When matching modulo the map and set
     /// axioms decided some matchings but not every one, or some matching rests on a binding that
@@ -7574,6 +7565,10 @@ pub(crate) fn equation_instances<'r>(
                 .expect("a failed match states its refutation");
             return (rule, EquationInstances::NotMatched(failed));
         }
+        // A question matching does not answer, such as a sort question that depends on a
+        // sort-parametric equation's sort variable: some instance of the equation may match, so
+        // it is not refuted and lower-priority equations do not apply.
+        MatchResult::Undecided(_) => return (rule, EquationInstances::Undecided),
         MatchResult::Indeterminate {
             substitution,
             remainder,

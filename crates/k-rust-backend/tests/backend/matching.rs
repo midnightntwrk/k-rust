@@ -21,6 +21,7 @@ enum Outcome {
     Success,
     Failed,
     Indeterminate,
+    Undecided,
 }
 
 fn outcome(result: MatchResult) -> Outcome {
@@ -28,6 +29,7 @@ fn outcome(result: MatchResult) -> Outcome {
         MatchResult::Success(_) => Outcome::Success,
         MatchResult::Failed(_) => Outcome::Failed,
         MatchResult::Indeterminate { .. } => Outcome::Indeterminate,
+        MatchResult::Undecided(_) => Outcome::Undecided,
     }
 }
 
@@ -2130,4 +2132,170 @@ fn algebraic_function_candidate_bindings_cannot_feed_a_later_refutation() {
             );
         }
     }
+}
+
+/// A sort-parametric pattern stands for each of its closed instances, as the left-hand side of an
+/// axiom `axiom{S} φ(S)` does. The matcher binds no sort variable, so where a question about the
+/// pattern's sorts depends on one, some instance may match and the match is undecided, in every
+/// mode: never a refutation, which would let a lower-priority equation apply, certify a normal
+/// form or drop a rewrite step that an instance of the pattern justifies.
+#[test]
+fn sort_variable_questions_leave_the_match_undecided() {
+    let item = Sort::simple("SortKItem");
+    let int = Sort::simple("SortInt");
+    let boolean = Sort::simple("SortBool");
+    let open = Sort::Variable("S".into());
+    let mut graph = SortGraph::default();
+    graph.insert("SortKItem", [Name::from("SortInt"), Name::from("SortBool")]);
+    graph.insert("SortInt", []);
+    graph.insert("SortBool", []);
+    graph.insert("SortWrap", []);
+    let five = domain_value(int.clone(), "5");
+    let mut wrap = Symbol::constructor("wrap", vec![open.clone()], Sort::simple("SortWrap"));
+    wrap.sort_variables = vec!["S".into()];
+    let wrap = Arc::new(wrap);
+    let pair = Arc::new(Symbol::constructor(
+        "pair",
+        vec![item.clone(), int.clone()],
+        Sort::simple("SortWrap"),
+    ));
+    let subsorting = MatchResult::Undecided(UndecidedReason::Subsorting(
+        SortError::FoundSortVariable("S".into()),
+    ));
+
+    for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
+        // `inj{S, KItem}(X:S)` matches `inj{Int, KItem}(5)` at `S = Int`.
+        let injected = Term::injection(open.clone(), item.clone(), var("X", open.clone()));
+        let subject = Term::injection(int.clone(), item.clone(), five.clone());
+        let matched = match_terms(mode, &graph, &injected, &subject);
+        assert_eq!(matched, subsorting, "{mode:?}");
+        assert!(matched.refutation().is_none(), "{mode:?}");
+
+        // `X:S` matches `5` at `S = Int`.
+        assert_eq!(
+            match_terms(mode, &graph, &var("X", open.clone()), &five),
+            subsorting,
+            "{mode:?}",
+        );
+
+        // `wrap{S}(X:S)` matches `wrap{Int}(5)` at `S = Int`: one symbol on that instance.
+        let pattern = Term::application(
+            wrap.clone(),
+            vec![open.clone()],
+            vec![var("X", open.clone())],
+        );
+        let subject = Term::application(wrap.clone(), vec![int.clone()], vec![five.clone()]);
+        assert_eq!(
+            match_terms(mode, &graph, &pattern, &subject),
+            MatchResult::Undecided(UndecidedReason::OpenSorts(pattern.clone(), subject)),
+            "{mode:?}",
+        );
+
+        // Two closed sort arguments that differ are still refuted.
+        let closed =
+            Term::application(wrap.clone(), vec![int.clone()], vec![var("Y", int.clone())]);
+        let other = Term::application(
+            wrap.clone(),
+            vec![boolean.clone()],
+            vec![domain_value(boolean.clone(), "true")],
+        );
+        assert!(
+            matches!(
+                match_terms(mode, &graph, &closed, &other),
+                MatchResult::Failed(FailReason::DifferentSorts(..))
+            ),
+            "{mode:?}",
+        );
+
+        // A refuted pair refutes the problem although another pair is undecided: `1` is not
+        // `2` on any instance of `S`.
+        let pattern = Term::application(
+            pair.clone(),
+            Vec::new(),
+            vec![
+                Term::injection(open.clone(), item.clone(), var("X", open.clone())),
+                domain_value(int.clone(), "1"),
+            ],
+        );
+        let subject = Term::application(
+            pair.clone(),
+            Vec::new(),
+            vec![
+                Term::injection(int.clone(), item.clone(), five.clone()),
+                domain_value(int.clone(), "2"),
+            ],
+        );
+        assert!(
+            matches!(
+                match_terms(mode, &graph, &pattern, &subject),
+                MatchResult::Failed(FailReason::DifferentValues(..))
+            ),
+            "{mode:?}",
+        );
+    }
+}
+
+/// Two injections from sorts neither of which is below the other, on any instance of the sort
+/// variable (the order relates neither head to the other): a constructor-like operand is no
+/// injection from a common subsort, so the pair is refuted; otherwise whether the sources have a
+/// common subsort depends on the variable, and the match is undecided.
+#[test]
+fn injections_from_open_incomparable_sources_are_refuted_only_by_a_constructor() {
+    let item = Sort::simple("SortKItem");
+    let foo = Sort::simple("SortFoo");
+    let open_list = Sort::Application {
+        name: Name::from("SortList"),
+        arguments: vec![Sort::Variable("S".into())],
+    };
+    let mut graph = SortGraph::default();
+    graph.insert("SortKItem", [Name::from("SortFoo"), Name::from("SortList")]);
+    graph.insert("SortFoo", []);
+    graph.insert("SortList", []);
+    let pattern = Term::injection(open_list.clone(), item.clone(), var("L", open_list));
+    let symbolic = Term::injection(foo.clone(), item.clone(), var("F", foo.clone()));
+    let concrete = Term::injection(foo.clone(), item.clone(), domain_value(foo, "foo"));
+    for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
+        assert_eq!(
+            outcome(match_terms(mode, &graph, &pattern, &symbolic)),
+            Outcome::Undecided,
+            "{mode:?}",
+        );
+        assert_eq!(
+            outcome(match_terms(mode, &graph, &pattern, &concrete)),
+            Outcome::Failed,
+            "{mode:?}",
+        );
+    }
+}
+
+/// One-way matching binds the pattern's variables only, so a variable on both sides of an
+/// `Evaluate` problem leaves it undecided: the pattern renamed apart has the same instances, and
+/// here matches (`X' = con1(X)`). It is never a refutation, whose answer would then depend on
+/// the names the two sides happen to share.
+#[test]
+fn shared_variables_leave_an_evaluate_match_undecided() {
+    let pattern = var("X", sort());
+    let subject = application(constructor(), var("X", sort()));
+    let matched = match_terms(
+        MatchMode::Evaluate,
+        &SortGraph::default(),
+        &pattern,
+        &subject,
+    );
+    assert_eq!(
+        matched,
+        MatchResult::Undecided(UndecidedReason::SharedVariables(
+            [variable("X", sort())].into_iter().collect()
+        ))
+    );
+    assert!(matched.refutation().is_none());
+    assert_eq!(
+        outcome(match_terms(
+            MatchMode::Rewrite,
+            &SortGraph::default(),
+            &pattern,
+            &subject
+        )),
+        Outcome::Indeterminate,
+    );
 }

@@ -849,7 +849,7 @@ fn higher_group_applies(
                     return Some(true);
                 }
             }
-            MatchResult::Indeterminate { .. } => return None,
+            MatchResult::Indeterminate { .. } | MatchResult::Undecided(_) => return None,
         }
     }
     Some(false)

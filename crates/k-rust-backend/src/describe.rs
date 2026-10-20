@@ -14,7 +14,7 @@ use k_rust_kore::kore::printer::Printer;
 use crate::{
     builtin::BuiltinError,
     externalize,
-    matching::SortError,
+    matching::{SortError, UndecidedReason},
     proof::{ClaimIndeterminateReason, ProofIndeterminateReason},
     rewrite::{AppliedRule, HaltReason, IndeterminateReason},
     rule::Predicate,
@@ -458,6 +458,27 @@ impl Display for SortError {
             Self::FoundUnknownSort(sort) => {
                 write!(formatter, "the sort {} is not declared", printed_sort(sort))
             }
+        }
+    }
+}
+
+/// Why a match was left undecided: a question one-way matching does not answer, whose answer
+/// may make the pattern match.
+impl Display for UndecidedReason {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::SharedVariables(variables) => write!(
+                formatter,
+                "the pattern and the subject share {}, which matching does not bind",
+                english_list(&variables.iter().map(printed_variable).collect::<Vec<_>>())
+            ),
+            Self::Subsorting(error) => write!(formatter, "{error}"),
+            Self::OpenSorts(pattern, subject) => write!(
+                formatter,
+                "the sorts of {} and {} are one sort only on some instances of their sort variables",
+                compact_term(pattern),
+                compact_term(subject)
+            ),
         }
     }
 }

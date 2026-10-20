@@ -2812,6 +2812,9 @@ fn apart_step<'t>(
         head::RootComparison::SameApplication(same) => ApartStep::Arguments(same),
         // Applications of one symbol with different arities are ill-formed.
         head::RootComparison::ArityMismatch => ApartStep::Undecided,
+        // One symbol whose sort arguments are one on some instances of their sort variables:
+        // the two terms are one term there.
+        head::RootComparison::OpenSortArguments => ApartStep::Undecided,
         head::RootComparison::DomainValues => head::Apart::of_domain_values(left_root, right_root)
             .map_or(ApartStep::Undecided, ApartStep::Apart),
         head::RootComparison::Injections => {
