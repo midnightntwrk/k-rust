@@ -1,13 +1,15 @@
 //! Observer targets: a client's deterministic [`Observer`] decides whether the steps of a case
 //! reach the target (ARCHITECTURE 4.1, 9.2). Owner: FZ-10.
 //!
-//! Until the rewrite loop has a per-step hook (gap G-9), observers are fed after each case. The
-//! case is executed and judged as every case is ([`Executor::run`]); then the same request runs
-//! again through `Backend::execute_observed`, which returns the same leaves in the same order
-//! and adds, per leaf, the committed transitions of its path (`branch`) and their observation
-//! events (`ObservationEventOutput::Transition`, which carry the configuration each step leaves
-//! from). Observed execution carries two full configurations per step, so it runs only for an
-//! observer target.
+//! Until the rewrite loop has a per-step hook (gap G-9), observers are fed after each case. An
+//! observer case runs once, through `Backend::execute_observed` ([`Executor::run_observed`]),
+//! under the same cancellation scope, per-case safety limit and work budget as every case. The
+//! observed run answers the leaves `Backend::execute` would, in the same order, and adds, per
+//! leaf, the committed transitions of its path (`branch`) and their observation events
+//! (`ObservationEventOutput::Transition`, which carry the configuration each step leaves from).
+//! The leaves are judged as every case's are; the observer then walks the same leaves' paths.
+//! Observed execution carries two full configurations per step, so it runs only for an observer
+//! target.
 //!
 //! The leaves' paths share their prefixes: under all paths every leaf reports its whole path
 //! from the initial state. The paths are merged into a tree keyed by transition identity, and
@@ -15,6 +17,14 @@
 //! edge, from one normalized configuration to the next (`walk_paths`), and
 //! [`Observer::branch`] for each successor of a state with several. A leaf *reaches* the target
 //! when some step on its path answered [`ObserverVerdict::Hit`].
+//!
+//! A `work-bound`, `timeout` or `cancelled` leaf holds the stopped, unnormalised state the
+//! worklist held, not a reached configuration (`classify`'s cut-leaf contract, review 2 S1). The
+//! observer is never shown that state, so the step into it gives no verdict: such a leaf reaches
+//! only when a step before it, between normalized configurations, answered `Hit`, as a rule
+//! target reaches such a leaf only from its `rewrites`, which leave the last step out. A leaf
+//! whose state is not shown for this reason is not a configuration the observer missed: the
+//! leaf takes its halt's class.
 //!
 //! The case is then classed by [`crate::exec::classify`] like every other target: a hit needs a
 //! reaching leaf that is clean (ARCHITECTURE 5.2) and, under `run-to-completion`, a natural end,
@@ -32,8 +42,7 @@ use std::{any::Any, collections::BTreeSet, fmt, rc::Rc, sync::Arc};
 
 use k_rust::{
     backend::{
-        BackendError, CancellationToken, CompiledRuleKind, ExecutionLeaf, ExecutionResult,
-        HaltReasonOutput, ObservationEventOutput, ObservedInOutput, ObservedRequest, StopCause,
+        CancellationToken, CompiledRuleKind, ExecutionLeaf, ObservationEventOutput,
         TransitionIdOutput,
     },
     k_rust_backend::transition::ObservationOptions,
@@ -349,29 +358,27 @@ impl ResolvedTarget {
     }
 
     /// Run one case with `executor` and judge it: [`Executor::run`] with this target's matchers,
-    /// then [`Self::judge`], or for an observer target the observed re-run and the observer's
-    /// walk (module documentation). The engine's entry point for rule, pattern and observer
-    /// targets.
+    /// then [`Self::judge`], or for an observer target [`Executor::run_observed`] and the
+    /// observer's walk over the leaves' paths (module documentation). The engine's entry point
+    /// for rule, pattern and observer targets.
     ///
-    /// The observed re-run is not observed when it cannot answer the judged run's leaves: it is
-    /// skipped when the judged run failed, met the per-case safety limit, was cut by a clock or
-    /// has any other determinism break (ARCHITECTURE 5.4), or when `cancel` is already
-    /// cancelled; and its answer is not used when it was cancelled or timed out, stopped for lack
-    /// of stack, or has a determinism break of its own. The case is then classed with no leaf
-    /// reaching the target, and lifted to `timeout` (a clock was involved) or `unsupported`
-    /// unless that already gives one of those or `rejected`: never a hit or a `miss`.
+    /// An observer case runs once, through `Backend::execute_observed`, under the same
+    /// cancellation scope, per-case safety limit and work budget as every other case, so its
+    /// [`CaseResult::work`] is that one run's.
     ///
-    /// Until FZ-04's `Executor::run_observed` exists, the re-run is bounded by the request and
-    /// `cancel` only: it escapes the per-case safety limit, which belongs to the executor, and it
-    /// repeats every leaf's path from the root while encoding each configuration, so it can cost
-    /// several times the judged run. Its `work` is added to the case's [`CaseResult::work`], so
-    /// `Budget::Work` charges it.
+    /// The observer is not walked over a case it cannot judge: a failed run is classed by its
+    /// failure, and a case outside the determinism contract (ARCHITECTURE 5.4: the safety limit,
+    /// a clock cut, a stack stop, an undecided solver answer, an allowance refusal) or whose
+    /// `cancel` is cancelled by the time it is judged is classed with no leaf reaching the
+    /// target, and lifted to `timeout` (a clock was involved) or `unsupported` unless that
+    /// already gives one of those or `rejected`: never a hit or a `miss`, since a path such a
+    /// stop cut, or whose facts were not decided, may hide a configuration the observer would
+    /// accept.
     ///
     /// # Errors
     ///
-    /// [`Abort`] for a failed solver prelude in either run. The judgement is an
-    /// [`EngineDefect`] as for [`Self::judge`], and when the observed run, outside those
-    /// exclusions, fails or answers other leaves than the judged run.
+    /// [`Abort`] for a failed solver prelude. The judgement is an [`EngineDefect`] as for
+    /// [`Self::judge`], and when the observed leaves are not the judged result's.
     pub(crate) fn run_and_judge(
         &self,
         executor: &mut Executor,
@@ -379,106 +386,65 @@ impl ResolvedTarget {
         shape: &CaseRequestShape,
         cancel: Option<&CancellationToken>,
     ) -> Result<(CaseResult, Result<Judgement, EngineDefect>), Abort> {
-        let mut result = executor.run(initial, shape, &self.matchers(), cancel)?;
-        let judgement = match &self.resolved {
-            Resolved::Observer { rules } => self.judge_observed(
-                executor,
-                initial,
-                shape,
-                cancel,
-                rules.as_deref(),
-                &mut result,
-            )?,
-            Resolved::Rule { .. } | Resolved::PatternFinal | Resolved::Differential => {
-                self.judge(&result)
+        match &self.resolved {
+            Resolved::Observer { rules } => {
+                let (result, leaves) = executor.run_observed(
+                    initial,
+                    shape,
+                    &self.matchers(),
+                    cancel,
+                    rules.clone(),
+                )?;
+                let judgement = self.judge_observed(&result, &leaves, cancel);
+                Ok((result, judgement))
             }
-        };
-        Ok((result, judgement))
+            Resolved::Rule { .. } | Resolved::PatternFinal | Resolved::Differential => {
+                let result = executor.run(initial, shape, &self.matchers(), cancel)?;
+                let judgement = self.judge(&result);
+                Ok((result, judgement))
+            }
+        }
     }
 
+    /// Judge an observer case from its judged `result` and the raw observed `leaves` of the
+    /// same run ([`Self::run_and_judge`]).
     fn judge_observed(
         &self,
-        executor: &mut Executor,
-        initial: &KorePattern,
-        shape: &CaseRequestShape,
+        result: &CaseResult,
+        leaves: &[ExecutionLeaf],
         cancel: Option<&CancellationToken>,
-        rules: Option<&[String]>,
-        result: &mut CaseResult,
-    ) -> Result<Result<Judgement, EngineDefect>, Abort> {
+    ) -> Result<Judgement, EngineDefect> {
         let run_to_completion = self.target.run_to_completion;
-        let cancelled = || cancel.is_some_and(CancellationToken::is_cancelled);
         if result.failure.is_some() {
             // A failed run is classed by its failure alone.
-            return Ok(exec::classify(result, &[], run_to_completion).map(plain));
+            return exec::classify(result, &[], run_to_completion).map(plain);
         }
+        let cancelled = cancel.is_some_and(CancellationToken::is_cancelled);
         let breaks = result.determinism_breaks();
-        if result.safety_limit_hit || !breaks.is_empty() || cancelled() {
-            // The re-run would not answer the same leaves, or would meet the same unbounded
-            // step the safety limit stopped.
+        if result.safety_limit_hit || !breaks.is_empty() || cancelled {
             let clock =
-                result.safety_limit_hit || breaks.contains(&DeterminismBreak::Clock) || cancelled();
-            return Ok(unobserved(result, run_to_completion, clock));
+                result.safety_limit_hit || breaks.contains(&DeterminismBreak::Clock) || cancelled;
+            return unobserved(result, run_to_completion, clock);
         }
         let super::TargetKind::Observer(target) = &self.target.kind else {
-            return Ok(Err(defect("an observer resolution of another target kind")));
+            return Err(defect("an observer resolution of another target kind"));
         };
         let Some(handle) = &target.observer.0 else {
-            return Ok(Err(defect(
-                "an observer target resolved without its observer",
+            return Err(defect("an observer target resolved without its observer"));
+        };
+        if leaves.len() != result.leaves.len() {
+            return Err(defect(&format!(
+                "the observed run returned {} leaves where its judged result has {}",
+                leaves.len(),
+                result.leaves.len()
             )));
-        };
-        let request = ObservedRequest {
-            request: shape.request(initial.clone()),
-            rules: rules.map(<[String]>::to_vec),
-        };
-        let backend = executor.backend_mut();
-        let observed = match cancel {
-            Some(token) => token.scope(|| backend.execute_observed(request)),
-            None => backend.execute_observed(request),
-        };
-        let observed = match observed {
-            Ok(observed) => observed,
-            Err(error) => {
-                return match error.stop_cause() {
-                    Some(StopCause::SolverPrelude(_)) => Err(Abort {
-                        reason: error.message().to_owned(),
-                    }),
-                    Some(StopCause::Cancelled | StopCause::Deadline(_)) => {
-                        Ok(unobserved(result, run_to_completion, true))
-                    }
-                    Some(StopCause::StackExhausted(_)) => {
-                        Ok(unobserved(result, run_to_completion, false))
-                    }
-                    None => Ok(Err(observed_failure(&error))),
-                };
-            }
-        };
-        result.work = result.work.saturating_add(observed.work);
-        let clock_cut = observed.leaves.iter().any(|leaf| {
-            matches!(
-                leaf.reason,
-                HaltReasonOutput::Cancelled | HaltReasonOutput::Timeout
-            )
-        });
-        if clock_cut || cancelled() || has_run_break(&observed) {
-            return Ok(unobserved(
-                result,
-                run_to_completion,
-                clock_cut || cancelled(),
-            ));
         }
-        if let Some(mismatch) = mismatch(&observed, result) {
-            return Ok(Err(defect(&mismatch)));
-        }
-        let paths = walk_paths(&**handle, &observed.leaves);
-        let class = match exec::classify(result, &paths.reached, run_to_completion) {
-            Ok(class) => class,
-            Err(defect) => return Ok(Err(defect)),
-        };
+        let paths = walk_paths(&**handle, leaves);
+        let class = exec::classify(result, &paths.reached, run_to_completion)?;
         if class != OutcomeClass::Hit && paths.unobservable {
             // A configuration the observer could not be shown may lead to the target: never a
             // `miss`.
-            return Ok(Ok(plain(OutcomeClass::Unsupported)));
+            return Ok(plain(OutcomeClass::Unsupported));
         }
         let hit_site = if class == OutcomeClass::Hit {
             let leaf = result
@@ -489,19 +455,19 @@ impl ResolvedTarget {
                     *reached && leaf.is_clean() && (!run_to_completion || leaf.natural_end)
                 });
             let Some(leaf) = leaf else {
-                return Ok(Err(defect(
+                return Err(defect(
                     "a case classed `hit` has no clean leaf that reaches the target",
-                )));
+                ));
             };
             Some(HitSite::Leaf(leaf))
         } else {
             None
         };
-        Ok(Ok(Judgement {
+        Ok(Judgement {
             class,
             hit_site,
             blocked: false,
-        }))
+        })
     }
 }
 
@@ -514,9 +480,10 @@ fn plain(class: OutcomeClass) -> Judgement {
     }
 }
 
-/// The class of a case whose observed run was skipped or not used: [`exec::classify`] with no
-/// leaf reaching the target, lifted to `timeout` when a clock was involved and to `unsupported`
-/// otherwise, since a leaf the observer was not shown may reach the target.
+/// The class of a case the observer is not walked over ([`ResolvedTarget::run_and_judge`]):
+/// [`exec::classify`] with no leaf reaching the target, lifted to `timeout` when a clock was
+/// involved and to `unsupported` otherwise, since a leaf the observer was not shown may reach
+/// the target.
 fn unobserved(
     result: &CaseResult,
     run_to_completion: bool,
@@ -531,55 +498,10 @@ fn unobserved(
     }))
 }
 
-/// Whether the observed run has a determinism break of its own (ARCHITECTURE 5.4): stack stops,
-/// undecided solver answers or an allowance refusal in the run.
-fn has_run_break(observed: &ExecutionResult) -> bool {
-    observed.stack_stops > 0
-        || observed.smt_unknowns > 0
-        || observed
-            .allowance_refusals
-            .iter()
-            .any(|refusal| refusal.observed_in == ObservedInOutput::Run)
-}
-
-/// Why the observed leaves are not the judged ones, if they are not: their number, or a leaf's
-/// halt, depth or state.
-fn mismatch(observed: &ExecutionResult, result: &CaseResult) -> Option<String> {
-    if observed.leaves.len() != result.leaves.len() {
-        return Some(format!(
-            "the observed run answered {} leaves where the judged run answered {}",
-            observed.leaves.len(),
-            result.leaves.len()
-        ));
-    }
-    observed
-        .leaves
-        .iter()
-        .zip(&result.leaves)
-        .position(|(observed, judged)| {
-            observed.reason != judged.halt
-                || observed.depth != judged.depth
-                || !codec::from_value(&observed.state).is_ok_and(|state| state == judged.state)
-        })
-        .map(|index| {
-            format!("the observed run's leaf {index} is not the judged run's leaf {index}")
-        })
-}
-
 fn defect(description: &str) -> EngineDefect {
     EngineDefect {
         case: None,
         description: description.to_owned(),
-    }
-}
-
-fn observed_failure(error: &BackendError) -> EngineDefect {
-    EngineDefect {
-        case: None,
-        description: format!(
-            "the observed run failed where the judged run answered: {}",
-            error.message()
-        ),
     }
 }
 
@@ -609,6 +531,9 @@ struct Node<'a> {
     edges: Vec<Edge<'a>>,
     /// The leaves that end here.
     leaves: Vec<usize>,
+    /// A `work-bound`, `timeout` or `cancelled` leaf ends here: the node's state is the stopped,
+    /// unnormalised state, which the observer is never shown (module documentation).
+    stopped: bool,
 }
 
 /// The configuration each transition of `leaf`'s path leaves from, aligned with its `branch`,
@@ -643,6 +568,10 @@ struct Frame {
 
 /// Merge the leaves' paths into a tree and walk it with `observer` (module documentation).
 ///
+/// A node where a `work-bound`, `timeout` or `cancelled` leaf ends takes no configuration from
+/// that leaf, and the walk does not step into it: its leaves reach only when a step above it
+/// answered `Hit` (the cut-leaf contract of [`crate::exec::classify`]).
+///
 /// The tree's shape comes from every leaf's committed transition identities, which the backend
 /// reports whatever the observation filter, so `branch` is called where the run branched. Its
 /// configurations come from the observation events of the paths that have them all, and from
@@ -672,7 +601,11 @@ fn walk_paths(observer: &dyn ErasedObserver, leaves: &[ExecutionLeaf]) -> Observ
                 child
             };
         }
-        nodes[node].configuration.get_or_insert(&leaf.state);
+        if exec::stopped_state(leaf.reason) {
+            nodes[node].stopped = true;
+        } else {
+            nodes[node].configuration.get_or_insert(&leaf.state);
+        }
         nodes[node].leaves.push(index);
     }
     let mut work = vec![Frame {
@@ -691,6 +624,14 @@ fn walk_paths(observer: &dyn ErasedObserver, leaves: &[ExecutionLeaf]) -> Observ
         let current = &nodes[node];
         let mut view = None;
         let mut state = state;
+        if !hit && current.stopped && current.edges.is_empty() {
+            // The stopped state reached no configuration: the step into it gives no verdict,
+            // and its leaves keep the reach of the steps before it (unreached here).
+            for &leaf in &current.leaves {
+                reached[leaf] = false;
+            }
+            continue;
+        }
         if !hit && (pre.is_some() || !current.edges.is_empty()) {
             let decoded = current.configuration.map(codec::from_value);
             let Some(Ok(pattern)) = decoded else {

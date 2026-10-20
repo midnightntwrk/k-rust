@@ -1,6 +1,6 @@
 //! Observer targets on real runs (ARCHITECTURE 4.1, 9.2): FZ-FIX's fixtures (`tests/support`)
-//! compiled in-process, each case executed through [`Executor::run`], observed through
-//! `Backend::execute_observed`, and classed by [`crate::exec::classify`].
+//! compiled in-process, each case executed once through [`Executor::run_observed`] (which
+//! calls `Backend::execute_observed`), and classed by [`crate::exec::classify`].
 //!
 //! - COIN `count(N)` steps `count-step` N times, then `count-done` empties `<k>`;
 //!   `flip(N)` takes `heads` or `tails` in one step, two paths under all-paths.
@@ -13,7 +13,9 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
-use k_rust::backend::{CancellationToken, ExecutionLeaf, ObservationEventOutput, ObservedRequest};
+use k_rust::backend::{
+    CancellationToken, ExecutionLeaf, HaltReasonOutput, ObservationEventOutput, ObservedRequest,
+};
 
 use k_rust::kore::ast::Pattern as KorePattern;
 
@@ -406,8 +408,8 @@ fn joined(coin: &mut Harness, first: &str, second: &str) -> KorePattern {
     initial
 }
 
-/// Run `initial` under all paths through `execute_observed` with every event, as the observer
-/// target's re-run does, and return its leaves.
+/// Run `initial` through `execute_observed` with every event, under the harness's options, as
+/// an observer case runs, and return its leaves.
 fn observed_leaves(coin: &mut Harness, initial: KorePattern) -> Vec<ExecutionLeaf> {
     let shape = CaseRequestShape::new(&coin.options, &crate::exec::TargetNeeds::default());
     coin.executor
@@ -529,7 +531,7 @@ fn the_observation_filter_keeps_rewrite_rules_only_and_a_blank_name_is_refused()
 }
 
 #[test]
-fn the_observed_re_run_is_charged_to_the_case() {
+fn an_observer_case_runs_once_and_is_charged_one_run() {
     let target = observer("count-then-done", CountThenDone, false);
     let mut coin = Harness::new(COIN.compiled(), one_path());
     let resolved = coin.resolve(&target).expect("the target resolves");
@@ -543,9 +545,82 @@ fn the_observed_re_run_is_charged_to_the_case() {
         .executor
         .run(&initial, &shape, &[], None)
         .expect("no abort");
-    let (observed, _) = resolved
+    let (observed, judgement) = resolved
         .run_and_judge(&mut coin.executor, &initial, &shape, None)
         .expect("no abort");
+    assert_eq!(judgement.expect("no defect").class, OutcomeClass::Hit);
     assert!(plain.work > 0);
-    assert_eq!(observed.work, 2 * plain.work);
+    assert_eq!(observed.work, plain.work);
+}
+
+#[test]
+fn the_step_into_a_stopped_state_gives_no_verdict() {
+    // `count(3)` on one path: three `count-step`s, then `count-done`, the step CountThenDone
+    // accepts, is the path's last.
+    let mut coin = Harness::new(COIN.compiled(), one_path());
+    let program = COIN.compiled().fixture.program("coin/count.pgm");
+    let initial = COIN
+        .compiled()
+        .assemble(program.file, program.text, program.bindings)
+        .expect("assembles");
+    let leaves = observed_leaves(&mut coin, initial);
+    assert_eq!(leaves.len(), 1);
+    assert_eq!(walk_paths(&CountThenDone, &leaves).reached, [true]);
+    // The same path ending in a stopped state: the accepting step built that state, which is
+    // not a reached configuration, so it reaches nothing (classify's cut-leaf contract).
+    for halt in [
+        HaltReasonOutput::WorkBound,
+        HaltReasonOutput::Timeout,
+        HaltReasonOutput::Cancelled,
+    ] {
+        let mut stopped = leaves.clone();
+        stopped[0].reason = halt;
+        let paths = walk_paths(&CountThenDone, &stopped);
+        assert_eq!(paths.reached, [false], "{halt:?}");
+        // The unshown state is the cut's, not a configuration the observer missed.
+        assert!(!paths.unobservable, "{halt:?}");
+        // A hit on an earlier step still reaches the stopped leaf.
+        assert_eq!(walk_paths(&FirstStep, &stopped).reached, [true], "{halt:?}");
+    }
+}
+
+#[test]
+fn a_work_bound_case_is_reached_only_from_a_step_before_its_cut() {
+    // FirstStep accepts every step. A work bound that cuts `count(3)` after its first step
+    // leaves a work-bound leaf at depth 1 whose only step built the stopped state: no reach,
+    // so the case is `work-bound`. A cut further on follows an accepted, established step.
+    let mut seen_depths = std::collections::BTreeSet::new();
+    for max_work in 1..=12 {
+        let options = CaseOptions {
+            max_work: Some(max_work),
+            ..CaseOptions::default()
+        };
+        let mut coin = Harness::new(COIN.compiled(), options);
+        for run_to_completion in [false, true] {
+            let target = observer("first", FirstStep, run_to_completion);
+            let (result, judgement) = coin.judge(&target, "coin/count.pgm");
+            let [leaf] = result.leaves.as_slice() else {
+                panic!("one leaf: {result:#?}");
+            };
+            if leaf.halt != HaltReasonOutput::WorkBound {
+                continue;
+            }
+            seen_depths.insert(leaf.depth);
+            let expected = match (leaf.depth, run_to_completion) {
+                (0 | 1, _) => OutcomeClass::WorkBound,
+                (_, false) => OutcomeClass::Unsupported,
+                (_, true) => OutcomeClass::ReachedUnfinished,
+            };
+            assert_eq!(
+                judgement.class, expected,
+                "max-work {max_work}, depth {}, run-to-completion {run_to_completion}",
+                leaf.depth
+            );
+        }
+    }
+    assert!(seen_depths.contains(&1), "{seen_depths:?}");
+    assert!(
+        seen_depths.iter().any(|depth| *depth >= 2),
+        "{seen_depths:?}"
+    );
 }
