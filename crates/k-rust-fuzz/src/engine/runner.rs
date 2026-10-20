@@ -34,6 +34,8 @@ pub(crate) struct CaseRun {
     pub(crate) load_records: Vec<LoadRecord>,
     /// Engine defects the case's judgement met, without their case number.
     pub(crate) defects: Vec<String>,
+    /// Warnings about the case for the report, which lists each distinct text once.
+    pub(crate) warnings: Vec<String>,
     /// For a (candidate) hit, what a witness reports of it.
     pub(crate) hit: Option<HitDetail>,
 }
@@ -51,6 +53,7 @@ impl CaseRun {
             rejection: Some(reason),
             load_records: Vec::new(),
             defects: Vec::new(),
+            warnings: Vec::new(),
             hit: None,
         }
     }

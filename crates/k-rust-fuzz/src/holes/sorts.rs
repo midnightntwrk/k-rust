@@ -273,6 +273,7 @@ impl SortRule {
     /// [`Self::verdict`] with the override applied: `Ok(None)` when nothing is refused, the
     /// first refusal (the own sort's, else the first contained one) when the override admits
     /// it, and that refusal as the error otherwise.
+    #[cfg(test)]
     pub(super) fn check(&self, decl: &HoleDecl) -> Result<Option<SortRefusal>, CampaignError> {
         let verdict = self.verdict(decl)?;
         let Some((_, reason)) = verdict.all(&decl.sort).into_iter().next() else {

@@ -27,7 +27,7 @@ use super::{
     LOAD_STACK_STOP, LeafReport, UncleanReason,
 };
 use crate::{
-    assemble::{ProgramAssembly, build_backend},
+    assemble::ProgramAssembly,
     error::CampaignError,
     report::LoadRecord,
     spec::{CaseOptions, CompiledDefinition},
@@ -272,6 +272,7 @@ pub(crate) struct Executor {
 }
 
 impl Executor {
+    #[cfg(test)]
     /// Build the backend on `definition`'s route ([`crate::assemble::build_backend`]) and
     /// compile the normal-termination pattern of `options` (`<k> .K </k>` with the rest free
     /// when absent, which needs exactly one `<k>` cell; ARCHITECTURE 5.2, R-2).
@@ -286,10 +287,11 @@ impl Executor {
         assembly: &ProgramAssembly,
         options: &CaseOptions,
     ) -> Result<Self, CampaignError> {
-        let backend = build_backend(definition, options.backend.options())?;
+        let backend = crate::assemble::build_backend(definition, options.backend.options())?;
         Self::with_backend(backend, assembly.grammar(), definition, options)
     }
 
+    #[cfg(test)]
     /// [`Self::new`] over a backend the caller built on `definition`'s route, with the program
     /// grammar given directly.
     ///

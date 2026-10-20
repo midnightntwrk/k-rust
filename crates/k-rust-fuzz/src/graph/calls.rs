@@ -71,16 +71,25 @@ impl FunctionCalls {
     }
 
     /// The equations of `function`, empty when it has none.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the guidance API of the dictionary and climb proposers (ARCHITECTURE 8.3, 8.4), which M1 does not provide; the graph tests use it"
+        )
+    )]
     pub(crate) fn equations(&self, function: &str) -> &[Arc<RewriteRule>] {
         self.equations.get(function).map_or(&[], Vec::as_slice)
     }
 
-    /// The symbols with equations that an equation of `function` applies directly.
-    pub(crate) fn callees(&self, function: &str) -> BTreeSet<String> {
-        self.callees.get(function).cloned().unwrap_or_default()
-    }
-
     /// `roots` and every symbol with equations reachable from them through call edges.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the guidance API of the dictionary and climb proposers (ARCHITECTURE 8.3, 8.4), which M1 does not provide; the graph tests use it"
+        )
+    )]
     pub(crate) fn closure(&self, roots: BTreeSet<String>) -> BTreeSet<String> {
         let mut reached = BTreeSet::new();
         let mut pending: Vec<String> = roots.into_iter().collect();

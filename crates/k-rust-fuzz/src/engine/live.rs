@@ -31,7 +31,6 @@ use crate::{
 
 /// One definition's half of case execution: its assembly, executor, holes and round-trip check.
 pub(crate) struct Side {
-    role: DefinitionRole,
     definition: Arc<CompiledDefinition>,
     assembly: ProgramAssembly,
     executor: Executor,
@@ -85,7 +84,6 @@ impl Side {
         };
         if let Some((holes, round_trip)) = seed.resolved {
             return Ok(Self {
-                role,
                 definition: Arc::clone(definition),
                 assembly,
                 executor,
@@ -122,7 +120,6 @@ impl Side {
             &holes,
         )?);
         Ok(Self {
-            role,
             definition: Arc::clone(definition),
             assembly,
             executor,
@@ -471,16 +468,13 @@ impl LiveCases {
                 if judgement.class == OutcomeClass::Hit {
                     // An added end: the killing mutant leaf. A removed end (all-paths mode): the
                     // baseline end the mutant cannot reach. Both sides list every leaf.
-                    let witness = match (judgement.killing_leaf, judgement.removed_end) {
-                        (Some(index), _) => mutated
-                            .leaves
-                            .get(index)
-                            .map(|leaf| (KillKind::AddedEnd, DefinitionRole::Mutant, index, leaf)),
-                        (None, Some(index)) => baseline.leaves.get(index).map(|leaf| {
-                            (KillKind::RemovedEnd, DefinitionRole::Baseline, index, leaf)
-                        }),
-                        (None, None) => None,
-                    };
+                    let witness = judgement.witness().and_then(|(kind, index)| {
+                        let (role, side) = match kind {
+                            KillKind::AddedEnd => (DefinitionRole::Mutant, &mutated),
+                            KillKind::RemovedEnd => (DefinitionRole::Baseline, &baseline),
+                        };
+                        side.leaves.get(index).map(|leaf| (kind, role, index, leaf))
+                    });
                     match witness {
                         Some((kind, role, index, leaf)) => {
                             let holes = self.hole_values(values, &baseline_case.printed);
@@ -548,6 +542,7 @@ fn run_of(covered: &CaseResult, sides: &[&CaseResult]) -> CaseRun {
         rejection: None,
         load_records,
         defects: Vec::new(),
+        warnings: Vec::new(),
         hit: None,
     }
 }
@@ -717,7 +712,9 @@ impl DefinitionCache {
 ///
 /// The graph's warnings go into the report, and every case's coverage `applied` is checked
 /// against the entry: a rule applied outside the graph, or an id the definition does not know,
-/// is an engine defect noted on the case ([`RuleGraph::unreachable_applied`]). Differential
+/// is an engine defect noted on the case ([`RuleGraph::unreachable_applied`]), and an id the
+/// check cannot judge is a warning. The check costs under 1% of a case on the IMP and maze
+/// fixtures (a breadth-first search over the graph per case), so it runs on every case. Differential
 /// campaigns are not checked: a case's coverage there is the mutant's, and each side would need
 /// its own graph.
 pub(crate) struct GraphCheck {
@@ -769,17 +766,17 @@ impl GraphCheck {
         &self.warnings
     }
 
-    /// The engine defects of one case whose coverage `applied` holds `applied`: one description
-    /// per applied rule the graph cannot reach from the entry and per unknown id
-    /// ([`graph::entry::AppliedCheck::defects`]). Ambiguous ids (shared by a rule and an
-    /// equation) are not defects and are not reported per case.
-    pub(crate) fn defects(&self, applied: &[String]) -> Vec<String> {
+    /// The self-check of one case whose coverage `applied` holds `applied`: the engine defects
+    /// (one per applied rule the graph cannot reach from the entry and per unknown id,
+    /// [`graph::entry::AppliedCheck::defects`]) and the warnings (one per id shared by a rule
+    /// and an equation whose rule is unreachable, which the check cannot judge).
+    pub(crate) fn check(&self, applied: &[String]) -> (Vec<String>, Vec<String>) {
         match self
             .graph
             .unreachable_applied(&self.entry, applied.iter().map(String::as_str))
         {
-            Ok(check) => check.defects(),
-            Err(foreign) => vec![foreign.to_string()],
+            Ok(check) => (check.defects(), check.warnings()),
+            Err(foreign) => (vec![foreign.to_string()], Vec::new()),
         }
     }
 }
@@ -804,7 +801,9 @@ impl CaseRunner for LiveRunner {
         if let Some(graph) = &self.graph
             && run.class != OutcomeClass::Rejected
         {
-            run.defects.extend(graph.defects(&run.applied));
+            let (defects, warnings) = graph.check(&run.applied);
+            run.defects.extend(defects);
+            run.warnings.extend(warnings);
         }
         Ok(run)
     }

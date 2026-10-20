@@ -87,7 +87,15 @@ impl Proposal {
 }
 
 /// What the engine observed of one case (the LibAFL *observer* output; ARCHITECTURE 6.1).
+///
+/// The M1 feedback reads the class and the coverage; the case number, the work and the score
+/// are for the corpus and climb proposers (ARCHITECTURE 6.4, 8.4, 8.5).
 #[derive(Clone, Debug)]
+#[expect(
+    dead_code,
+    reason = "`case`, `work` and `score` are read by the guidance proposers, which M1 does not \
+              provide"
+)]
 pub(crate) struct Observation {
     /// The case number.
     pub(crate) case: u64,
@@ -137,6 +145,11 @@ impl Feedback for CoverageFeedback {
 }
 
 /// What a proposer may draw from when proposing.
+#[expect(
+    dead_code,
+    reason = "the guidance proposers draw their non-value choices from `rng`; blind sampling \
+              makes none"
+)]
 pub(crate) struct ProposalContext<'a> {
     /// The schedule's RNG for every choice that is not a value draw, seeded from the campaign
     /// seed.

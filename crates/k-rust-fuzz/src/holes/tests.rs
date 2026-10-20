@@ -233,7 +233,7 @@ fn a_span_hole_with_context_resolves_to_its_literal() {
         assert_eq!(hole.anchor_text.as_deref(), Some("1"));
         assert_eq!(hole.anchor, Some(Value::Int(BigInt::from(1))));
         assert_eq!(hole.sort, ValueSort::Int);
-        assert_eq!(hole.overridden, None);
+        assert!(hole.refusals.is_empty());
     }
 }
 
@@ -408,7 +408,7 @@ fn an_id_hole_is_refused_unless_overridden() {
     let [hole] = holes.holes.as_slice() else {
         panic!("one hole: {holes:?}");
     };
-    assert_eq!(hole.overridden, Some(SortRefusal::Token));
+    assert_eq!(hole.refusals, [("Id".to_owned(), SortRefusal::Token)]);
     assert_eq!(
         hole.sort,
         ValueSort::Token {
@@ -485,7 +485,6 @@ fn a_configuration_variable_hole_replaces_its_binding() {
             sort: ValueSort::Int,
             anchor_text: Some(SETTLE_TX.trim_end().to_owned()),
             anchor: None,
-            overridden: None,
             refusals: Vec::new(),
         }],
     };
@@ -637,7 +636,6 @@ fn every_free_template_variable_is_a_hole() {
         sort: ValueSort::Int,
         anchor_text: None,
         anchor: None,
-        overridden: None,
         refusals: Vec::new(),
     };
     let holes = ResolvedHoles {
@@ -1110,7 +1108,6 @@ fn an_override_of_a_contained_token_sort_keeps_the_hole_a_value_of_its_sort() {
         "{:?}",
         hole.sort
     );
-    assert_eq!(hole.overridden, Some(SortRefusal::Token));
     assert_eq!(hole.refusals, [("Id".to_owned(), SortRefusal::Token)]);
     // The report records the refused sort, not the hole's own (`Map`), once per refusal.
     let record = |sort: &str, refusal: &str| crate::report::SortOverride {

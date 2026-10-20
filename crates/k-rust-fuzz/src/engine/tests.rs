@@ -54,6 +54,7 @@ fn run(class: OutcomeClass, work: u64) -> CaseRun {
         rejection: None,
         load_records: Vec::new(),
         defects: Vec::new(),
+        warnings: Vec::new(),
         hit: None,
     }
 }
@@ -439,6 +440,33 @@ fn a_failed_draw_is_a_rejected_case_that_is_not_run() {
         .filter(|warning| warning.contains("generator rejected a draw"))
         .collect();
     assert_eq!(warnings.len(), 1, "{:?}", report.warnings);
+}
+
+#[test]
+fn a_case_warning_is_reported_once() {
+    let mut runner = Scripted::new(
+        |_| CaseRun {
+            warnings: vec!["applied id X is ambiguous".to_owned()],
+            ..run(OutcomeClass::Miss, 1)
+        },
+        |_| unreachable!("no case hits"),
+    );
+    let mut loop_settings = settings(1);
+    loop_settings.warnings = vec!["statically-unreachable: rule R".to_owned()];
+    let report = run_loop(
+        &mut runner,
+        &mut counter_schedule(1, 1),
+        &loop_settings,
+        Budget::Cases(3),
+        None,
+    );
+    assert_eq!(
+        report.warnings,
+        [
+            "statically-unreachable: rule R".to_owned(),
+            "applied id X is ambiguous".to_owned()
+        ]
+    );
 }
 
 #[test]

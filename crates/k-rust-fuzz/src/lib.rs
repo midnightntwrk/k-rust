@@ -23,13 +23,6 @@
 //! - [`report`]: the canonical JSON report.
 //! - [`error`]: the errors [`Campaign::new`] reports.
 
-// Phase-1 skeleton: some cross-module interfaces are written before the code that calls them.
-// Integration round 1 removes this expectation once every one has a caller.
-#![expect(
-    dead_code,
-    reason = "phase-1 interface stubs (FZ-01); removed at integration round 1"
-)]
-
 // The unit tests share the integration tests' fixture module (tests/support), declared once
 // here as `crate::support`, so that crate-private code is tested against the real fixtures. The
 // module names this crate `k_rust_fuzz`, as an integration test does.

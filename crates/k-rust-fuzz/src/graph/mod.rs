@@ -95,18 +95,47 @@ static NEXT_GRAPH: AtomicU64 = AtomicU64::new(0);
 pub(crate) struct RuleGraph {
     /// The rule ids, sorted; a node is an index into this list. Rules that share an id (a
     /// collapsed axiom, the generated `UNKNOWN`) are one node, as coverage records them.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the guidance API of the dictionary and climb proposers (ARCHITECTURE 8.3, 8.4), which M1 does not provide; the graph tests use it"
+        )
+    )]
     ids: Vec<String>,
     /// The node of each id.
     nodes: BTreeMap<String, usize>,
     /// The executable rewrite rules of each node, in the rewrite theory's order.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the guidance API of the dictionary and climb proposers (ARCHITECTURE 8.3, 8.4), which M1 does not provide; the graph tests use it"
+        )
+    )]
     rules: Vec<Vec<IndexedRewriteRule>>,
     /// The left-hand-side keys of every executable rule, with its node.
     targets: Vec<Target>,
     /// The nodes each node enables, and the nodes that enable it.
     successors: Vec<BTreeSet<usize>>,
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the guidance API of the dictionary and climb proposers (ARCHITECTURE 8.3, 8.4), which M1 does not provide; the graph tests use it"
+        )
+    )]
     predecessors: Vec<BTreeSet<usize>>,
     /// Some rule holds a `<k>` cell inside a collection or more than one `<k>` cell.
     shared_k: bool,
+    /// The function-call edges of the definition's function theory.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the guidance API of the dictionary and climb proposers (ARCHITECTURE 8.3, 8.4), which M1 does not provide; the graph tests use it"
+        )
+    )]
     calls: FunctionCalls,
     /// The ids of the definition's equations (function, simplification and definedness
     /// axioms, `BackendDefinition::classified_axioms`), which coverage also names.
@@ -301,6 +330,22 @@ impl RuleGraph {
         backend.with_solver_over(None, &[], |definition, _| Ok(Self::new(definition)))
     }
 
+    /// Whether `definition` is the one the graph was built from.
+    fn is_definition_of(&self, definition: &BackendDefinition) -> bool {
+        definition_fingerprint(definition) == self.fingerprint
+    }
+}
+
+/// The guidance API: rule lookup, edges, distances and the functions a rule calls, for the
+/// proposers that read the graph (module documentation, "Use").
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the guidance API of the dictionary and climb proposers (ARCHITECTURE 8.3, 8.4), which M1 does not provide; the graph tests use it"
+    )
+)]
+impl RuleGraph {
     /// The rule ids, sorted.
     pub(crate) fn rule_ids(&self) -> impl Iterator<Item = &str> {
         self.ids.iter().map(String::as_str)
@@ -416,11 +461,6 @@ impl RuleGraph {
             self.calls.collect_rule(rule, part, &mut called);
         }
         self.calls.closure(called)
-    }
-
-    /// Whether `definition` is the one the graph was built from.
-    fn is_definition_of(&self, definition: &BackendDefinition) -> bool {
-        definition_fingerprint(definition) == self.fingerprint
     }
 
     fn named(&self, nodes: &BTreeSet<usize>) -> BTreeSet<String> {

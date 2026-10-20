@@ -101,6 +101,7 @@ pub(crate) struct AppliedCheck {
 impl AppliedCheck {
     /// Whether the check found no engine defect: no unreachable rule and no unknown id. The
     /// ambiguous ids are warnings and do not count.
+    #[cfg(test)]
     pub(crate) fn is_clean(&self) -> bool {
         self.unreachable.is_empty() && self.unknown.is_empty()
     }
@@ -326,6 +327,13 @@ impl RuleGraph {
     /// # Errors
     ///
     /// [`ForeignEntry`] when another graph computed `entry`.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "diagnostics of an entry for the guidance proposers and the graph tests; the engine reads only the warnings and the self-check"
+        )
+    )]
     pub(crate) fn entry_rules(&self, entry: &Entry) -> Result<BTreeSet<String>, ForeignEntry> {
         self.own(entry)?;
         Ok(self.named(&entry.nodes))
@@ -336,6 +344,13 @@ impl RuleGraph {
     /// # Errors
     ///
     /// [`ForeignEntry`] when another graph computed `entry`.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "diagnostics of an entry for the guidance proposers and the graph tests; the engine reads only the warnings and the self-check"
+        )
+    )]
     pub(crate) fn reachable(&self, entry: &Entry) -> Result<BTreeSet<String>, ForeignEntry> {
         Ok(self.named(&self.reachable_nodes(entry)?))
     }

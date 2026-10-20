@@ -353,6 +353,7 @@ pub(super) fn resolve(
 
 impl ResolvedTarget {
     /// Whether this target is judged from observed execution ([`Self::run_and_judge`]).
+    #[cfg(test)]
     pub(crate) fn observes(&self) -> bool {
         matches!(self.resolved, Resolved::Observer { .. })
     }

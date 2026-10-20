@@ -155,9 +155,6 @@ pub(crate) struct ResolvedHole {
     /// The anchor as a value, the first value the explicit proposer tries (ARCHITECTURE 2.2,
     /// 8.1); `None` for a KORE template variable.
     pub(crate) anchor: Option<Value>,
-    /// The first refusal an override admitted (the hole's own sort's, else the first sort its
-    /// values may contain), recorded in the report (ARCHITECTURE 2.4).
-    pub(crate) overridden: Option<SortRefusal>,
     /// Every refusal the override admitted: the refused sort and why, the hole's own sort first,
     /// then the contained sorts by name. Empty when nothing was refused.
     pub(crate) refusals: Vec<(String, SortRefusal)>,
@@ -343,7 +340,6 @@ pub(crate) fn resolve(
             sort,
             anchor_text,
             anchor,
-            overridden: refusals.first().map(|(_, reason)| reason.clone()),
             refusals,
         });
     }
@@ -375,6 +371,7 @@ pub(crate) fn resolve(
 ///
 /// [`CampaignError::RefusedHoleSort`] for a refused sort without an override;
 /// [`CampaignError::Definition`] when the definition's grammar does not resolve.
+#[cfg(test)]
 pub(crate) fn check_hole_sort(
     decl: &HoleDecl,
     program: &ProgramInput,

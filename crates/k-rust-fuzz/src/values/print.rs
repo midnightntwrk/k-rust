@@ -110,7 +110,7 @@ pub(crate) fn print_k_text(value: &Value, sort: &ValueSort) -> Result<String, Pr
 /// subsort), without an injection to the hole's sort: the assembler places a value under the
 /// one injection its position needs (`inj{SortCircle{}, SortKItem{}}` for a `Shape` value in a
 /// `KItem` position, not an injection to `Shape` inside one to `KItem`), so that injection
-/// belongs to the position ([`kore_sort_of`] gives the value's own sort). The shape of
+/// belongs to the position. The shape of
 /// collections and data values is the one the assembler builds from their K text
 /// (`values/term.rs`).
 ///
@@ -184,18 +184,6 @@ pub(crate) fn to_kore(value: &Value, sort: &ValueSort) -> Result<KorePattern, Pr
         sort,
         value: payload,
     })
-}
-
-/// The KORE sort of [`to_kore`]'s pattern for `value`: the value's own sort (for a data value,
-/// its constructor's result sort or its subsort's sort). A position that holds the value holds
-/// it under `inj{<this sort>, <the position's sort>}` when the two differ.
-///
-/// # Errors
-///
-/// [`PrintError`] when the value's shape does not match the sort.
-pub(crate) fn kore_sort_of(value: &Value, sort: &ValueSort) -> Result<KoreSort, PrintError> {
-    check_shape(value, sort).map_err(|_| PrintError::SortMismatch)?;
-    term::kore_of(value, sort).map(|(_, own)| own)
 }
 
 /// `text`, a K literal of `sort` in the lexical syntax of the module comment, as the value it

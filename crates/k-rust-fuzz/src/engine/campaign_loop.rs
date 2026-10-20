@@ -103,6 +103,11 @@ pub(crate) fn run_loop(
         for defect in &run.defects {
             state.defect(Some(case), defect.clone());
         }
+        for warning in &run.warnings {
+            if !state.warnings.contains(warning) {
+                state.warnings.push(warning.clone());
+            }
+        }
         let mut class = run.class;
         if class == OutcomeClass::Hit {
             match confirm(runner, &mut state, &proposal.values, &run, cancel) {

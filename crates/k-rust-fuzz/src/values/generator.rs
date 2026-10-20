@@ -185,8 +185,8 @@ impl Generator {
     ///
     /// A message when the strategy rejects the draw. No strategy of this module rejects (there
     /// is no `prop_filter`, `prop_flat_map` or filtering collection, and sets and maps are
-    /// distinct by construction), so this does not happen; a caller that can count a failed
-    /// draw as a `rejected` case should still call this rather than [`Self::generate`].
+    /// distinct by construction), so this does not happen; the engine still counts a failed draw
+    /// as a `rejected` case (`generation`).
     pub(crate) fn try_generate(&self, rng: &mut ValueRng) -> Result<ShrinkableValue, String> {
         self.strategy
             .new_tree(&mut rng.runner)
@@ -194,8 +194,9 @@ impl Generator {
             .map_err(|reason| format!("the generator rejected a draw: {reason}"))
     }
 
-    /// [`Self::try_generate`] for the callers that cannot record a failed draw. It cannot fail,
-    /// since no strategy of this module rejects a draw.
+    /// [`Self::try_generate`] for tests, where a failed draw is a bug. It cannot fail, since no
+    /// strategy of this module rejects a draw.
+    #[cfg(test)]
     pub(crate) fn generate(&self, rng: &mut ValueRng) -> ShrinkableValue {
         self.try_generate(rng)
             .unwrap_or_else(|reason| unreachable!("no generator strategy rejects: {reason}"))

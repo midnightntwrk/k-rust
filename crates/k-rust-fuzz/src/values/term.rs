@@ -288,8 +288,8 @@ pub(super) fn value_of(pattern: &KorePattern, sort: &ValueSort) -> Result<Value,
 
 impl ValueSort {
     /// The sort's own KORE sort: the sort a hole declared with this sort holds (`SortInt`,
-    /// `SortMInt{Sort64{}}`, `SortList`, `SortTx`), as opposed to the own sort of one value
-    /// ([`super::print::kore_sort_of`]), which for a data value may be a subsort.
+    /// `SortMInt{Sort64{}}`, `SortList`, `SortTx`), as opposed to the own sort of one value,
+    /// which for a data value may be a subsort.
     ///
     /// # Errors
     ///
