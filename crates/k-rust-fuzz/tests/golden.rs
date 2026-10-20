@@ -6,8 +6,8 @@
 //! report of the parent process. The environments differ in every variable proptest reads, in
 //! locale, time zone, home directory and backtrace settings: none of them may reach the report.
 //!
-//! The test also pins a fingerprint of the case sequence (each report's witness values, case
-//! count and classes) for the current [`ENGINE_VERSION`], so that a change to the proposers,
+//! The test also pins a fingerprint of the case sequence (each report's case-sequence digest,
+//! witness values, case count, classes and rejections) for the current [`ENGINE_VERSION`], so that a change to the proposers,
 //! the schedule or the generators that changes the sequence fails here until the version is
 //! bumped and the fingerprint re-pinned. `KRUST_FUZZ_GOLDEN_PRINT=1` prints the fingerprint.
 
@@ -20,10 +20,12 @@ use k_rust_fuzz::{
     HoleDecl, HoleLocation, ProgramInput, ProposerConfig, SpanAddress, Target, TargetKind,
     report::{FuzzReport, digest_hex},
     spec::DEFAULT_REJECTION_CAP,
-    target::{PatternAt, PatternTarget},
-    values::{Constraints, GenerationBounds},
+    spec::PathMode,
+    target::{DifferentialTarget, PatternAt, PatternTarget},
+    values::{Constraints, GenerationBounds, IntRange},
 };
-use support::IMP;
+use num_bigint::BigInt;
+use support::{COIN, COIN_KILL, IMP, UNSIGNED};
 
 /// The variable that makes [`golden_child`] run the campaigns and print their reports.
 const CHILD: &str = "KRUST_FUZZ_GOLDEN_CHILD";
@@ -35,7 +37,7 @@ const END: &str = "=====END-KRUST-FUZZ-REPORTS=====";
 /// a version bump, only when the case sequence is meant to change.
 const PINNED: Option<(u32, &str)> = Some((
     1,
-    "5edef64b477337d606be930e02c9e96931c7eb72ba7ff5ffb5b104c67bf7768e",
+    "f903fed03207d94ac94a4beff8a2c72061a003ed4663e947d2926cde1e5d16e2",
 ));
 
 fn int_hole(name: &str, program: &str, find: &str, literal: &str) -> HoleDecl {
@@ -58,7 +60,7 @@ fn int_hole(name: &str, program: &str, find: &str, literal: &str) -> HoleDecl {
 fn spec(
     program: &str,
     holes: Vec<HoleDecl>,
-    violation: &str,
+    pattern: &str,
     explicit: &[i64],
     seed: u64,
 ) -> CampaignSpec {
@@ -70,14 +72,7 @@ fn spec(
         },
         program: ProgramInput::Source(compiled.program_source(program)),
         holes,
-        target: Target {
-            kind: TargetKind::Pattern(PatternTarget {
-                pattern: violation.into(),
-                at: PatternAt::Final,
-            }),
-            run_to_completion: false,
-            negated_property: true,
-        },
+        target: violation(pattern),
         options: CaseOptions::default(),
         proposers: ProposerConfig {
             anchors_first: true,
@@ -97,9 +92,25 @@ fn spec(
     }
 }
 
-/// Two campaigns: one whose blind proposer finds a witness that is confirmed and shrunk along
-/// its value trees (`le.imp`), and one that tries explicit assignments and then runs out of
-/// budget (`commute.imp`).
+/// A pattern target over a clean final leaf, as a negated property.
+fn violation(pattern: &str) -> Target {
+    Target {
+        kind: TargetKind::Pattern(PatternTarget {
+            pattern: pattern.into(),
+            at: PatternAt::Final,
+        }),
+        run_to_completion: false,
+        negated_property: true,
+    }
+}
+
+/// The golden campaigns, which between them exercise every part of the report:
+/// - `le.imp`: a blind witness, confirmed and shrunk along its value trees;
+/// - `commute.imp`: explicit assignments, then blind cases, and no witness;
+/// - COIN against COIN-KILL in all-paths mode under a work budget: a differential witness with
+///   both sides' leaves, and all-paths leaf order;
+/// - UNSIGNED with a range that excludes the anchor and admits negative values, which do not
+///   round-trip: rejections for two reasons.
 fn golden_reports() -> Vec<FuzzReport> {
     let le = spec(
         "imp/le.imp",
@@ -124,14 +135,53 @@ fn golden_reports() -> Vec<FuzzReport> {
         &[-1, 7],
         0x0bad_5eed,
     );
-    [(le, Budget::Cases(40)), (commute, Budget::Cases(24))]
-        .into_iter()
-        .map(|(spec, budget)| {
-            Campaign::new(spec)
-                .expect("the golden campaign is valid")
-                .run(budget, None)
-        })
-        .collect()
+    let coin = {
+        let baseline = COIN.compiled();
+        let mut spec = spec("imp/le.imp", Vec::new(), "<k> .K </k>", &[], 0x0c01_0c01);
+        spec.definitions = Definitions {
+            baseline: Arc::new(baseline.definition()),
+            mutant: Some(Arc::new(COIN_KILL.compiled().definition())),
+        };
+        spec.program = ProgramInput::Source(baseline.program_source("coin/flip.pgm"));
+        spec.holes = vec![int_hole("N", "coin/flip.pgm", "3", "3")];
+        spec.target = Target {
+            kind: TargetKind::Differential(DifferentialTarget::default()),
+            run_to_completion: false,
+            negated_property: false,
+        };
+        spec.options.paths = PathMode::AllPaths;
+        spec
+    };
+    let unsigned = {
+        let compiled = UNSIGNED.compiled();
+        let mut spec = spec("imp/le.imp", Vec::new(), "<k> .K </k>", &[], 0x0005_1673);
+        spec.definitions = Definitions {
+            baseline: Arc::new(compiled.definition()),
+            mutant: None,
+        };
+        spec.program = ProgramInput::Source(compiled.program_source("unsigned/sum.pgm"));
+        let mut hole = int_hole("B", "unsigned/sum.pgm", "5 ;", "5");
+        hole.constraints.range = Some(IntRange {
+            min: Some(BigInt::from(-40)),
+            max: Some(BigInt::from(4)),
+        });
+        spec.holes = vec![hole];
+        spec.target = violation("<k> .K </k> <out> ListItem(N:Int) </out> requires N ==Int 9");
+        spec
+    };
+    [
+        (le, Budget::Cases(40)),
+        (commute, Budget::Cases(24)),
+        (coin, Budget::Work(4000)),
+        (unsigned, Budget::Cases(30)),
+    ]
+    .into_iter()
+    .map(|(spec, budget)| {
+        Campaign::new(spec)
+            .expect("the golden campaign is valid")
+            .run(budget, None)
+    })
+    .collect()
 }
 
 fn render(reports: &[FuzzReport]) -> String {
@@ -159,10 +209,12 @@ fn fingerprint(reports: &[FuzzReport]) -> String {
                 (values(&witness.first), witness.shrunk.as_ref().map(values))
             });
             format!(
-                "{}|{:?}|{}",
+                "{}|{}|{:?}|{}|{}",
                 report.totals.cases,
+                report.totals.case_sequence_digest,
                 witness,
-                serde_json::to_string(&report.totals.classes).expect("serializes")
+                serde_json::to_string(&report.totals.classes).expect("serializes"),
+                serde_json::to_string(&report.totals.rejections).expect("serializes")
             )
         })
         .collect();

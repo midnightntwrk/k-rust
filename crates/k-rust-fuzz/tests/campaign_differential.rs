@@ -9,7 +9,7 @@ use std::{collections::BTreeMap, sync::Arc};
 use k_rust_fuzz::{
     Budget, CallerIdentity, Campaign, CampaignSpec, CaseOptions, Definitions, HoleDecl,
     HoleLocation, ProgramInput, ProposerConfig, SpanAddress, Target, TargetKind,
-    report::{CampaignOutcome, DefinitionRole, HitLabel},
+    report::{CampaignOutcome, DefinitionRole, HitLabel, KillKind, Reaching},
     spec::DEFAULT_REJECTION_CAP,
     target::DifferentialTarget,
     values::{Constraints, GenerationBounds, Value},
@@ -85,6 +85,14 @@ fn a_mutant_that_adds_an_end_is_killed_by_a_confirmed_witness() {
             panic!("an Int")
         };
         assert!(*n > BigInt::from(10), "only N > 10 adds an end: {n}");
+        assert_eq!(case.kill, Some(KillKind::AddedEnd));
+        assert_eq!(
+            case.reaching,
+            Reaching {
+                role: DefinitionRole::Mutant,
+                leaf: Some(0)
+            }
+        );
         let roles: Vec<DefinitionRole> = case.sides.iter().map(|side| side.role).collect();
         assert_eq!(roles, [DefinitionRole::Baseline, DefinitionRole::Mutant]);
         assert_eq!(
@@ -95,7 +103,7 @@ fn a_mutant_that_adds_an_end_is_killed_by_a_confirmed_witness() {
         assert_eq!(
             case.sides[1].final_configurations.len(),
             1,
-            "the killing end"
+            "the mutant's single end, which kills"
         );
     }
     // The anchor 3 and the explicit 10 are within the baseline's behaviour.

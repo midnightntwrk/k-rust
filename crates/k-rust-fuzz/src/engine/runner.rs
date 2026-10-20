@@ -9,7 +9,7 @@ use k_rust::backend::CancellationToken;
 
 use crate::{
     exec::{Abort, OutcomeClass},
-    report::{HoleValue, LoadRecord, RejectionReason, WitnessSide},
+    report::{HoleValue, KillKind, LoadRecord, Reaching, RejectionReason, WitnessSide},
     values::Value,
 };
 
@@ -64,6 +64,11 @@ pub(crate) struct HitDetail {
     /// Each definition's initial and final configurations: the baseline, then the mutant of a
     /// differential case.
     pub(crate) sides: Vec<WitnessSide>,
+    /// Which side's leaf reached the target, and its index in that side's configurations.
+    pub(crate) reaching: Reaching,
+    /// For a differential hit, whether the mutant added or removed an end; a confirmation and
+    /// a kept shrink candidate must agree on it.
+    pub(crate) kill: Option<KillKind>,
     /// The depth of the reaching leaf; `None` for a hit of the whole run, which names no leaf
     /// (ARCHITECTURE 5.3, D16).
     pub(crate) steps: Option<u64>,

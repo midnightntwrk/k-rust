@@ -379,8 +379,8 @@ pub enum Budget {
     /// proposer's runs (R-7). Every case is charged at least 1, rejected and failed (`Err`)
     /// cases included, so a campaign whose cases do no work still ends. An execution starts
     /// only while the work spent is below the budget, except the confirmation of a candidate
-    /// hit, which always runs; the total may therefore exceed the budget by the last
-    /// execution's work and one confirmation's.
+    /// hit, which always runs; the total may therefore exceed the budget by the last case's
+    /// work and one confirmation's, which for a differential case are two executions each.
     Work(#[serde(with = "crate::report::decimal_u64")] u64),
 }
 

@@ -3,9 +3,10 @@
 //!
 //! The report is canonical: its fields serialize in declaration order, every map is ordered,
 //! integers and byte strings in values are text, and no float occurs, so equal reports are equal
-//! bytes ([`FuzzReport::to_canonical_json`]). The seed and the budget, which a caller may draw
-//! at random or set to an extreme, are decimal strings; every other integer is a count or a
-//! bound that a JavaScript client reads exactly as long as it stays below 2^53. A campaign's report is a function of its
+//! bytes ([`FuzzReport::to_canonical_json`]). The seed, the budget, the rejection cap and the
+//! thread stack size, which a caller may draw at random or set to an extreme, are canonical
+//! decimal strings; every other integer is a count, or a case bound in the options, that a
+//! JavaScript client reads exactly as long as it stays below 2^53. A campaign's report is a function of its
 //! specification, budget, seed, the k-rust revision and [`crate::ENGINE_VERSION`]
 //! (ARCHITECTURE 5.4).
 
@@ -111,12 +112,6 @@ pub struct ReportIdentity {
     pub overlay_digest: String,
     /// [`digest_hex`] of the canonical JSON of the target.
     pub target_digest: String,
-    /// [`digest_hex`] of the baseline's initial configuration with every hole at its anchor,
-    /// as printed KORE: it identifies the grammar, the configuration-variable bindings and the
-    /// stream defaults the program was assembled with, which the program digest does not
-    /// (two grammars can parse one text differently). `None` when a hole has no anchor (a
-    /// KORE-template variable); the template itself is then the program digest's input.
-    pub initial_configuration_digest: Option<String>,
     /// The case options as given, with [`CaseOptions::effective_max_work`] applied; they carry
     /// the backend's solver options.
     pub options: CaseOptions,
@@ -124,17 +119,20 @@ pub struct ReportIdentity {
     pub proposers: ProposerConfig,
     /// The generation bounds used.
     pub bounds: GenerationBounds,
-    /// The rejection cap.
+    /// The rejection cap, as a decimal string.
+    #[serde(with = "decimal_u64")]
     pub rejection_cap: u64,
     /// The campaign seed, as a decimal string.
     #[serde(with = "decimal_u64")]
     pub seed: u64,
     /// The budget [`crate::Campaign::run`] was given.
     pub budget: Budget,
-    /// The executing thread's stack size, as the caller gave it.
+    /// The executing thread's stack size, as the caller gave it, as a decimal string.
+    #[serde(with = "decimal_u64_option")]
     pub thread_stack_size: Option<u64>,
-    /// `"z3"` when the crate was built with its `z3` feature, `"none"` otherwise: a build
-    /// without a solver leaves undecided some conditions a solver decides.
+    /// `"z3"` when k-rust was built with its solver (`k_rust::Z3_INFERENCE`, whatever enabled
+    /// it), `"none"` otherwise: a build without a solver leaves undecided some conditions a
+    /// solver decides.
     pub solver: String,
 }
 
@@ -162,6 +160,19 @@ pub struct DefinitionIdentity {
     pub execution_digest: String,
     /// `"source-execution"` or `"from-definition"` ([`crate::BackendRoute`]).
     pub route: String,
+    /// [`digest_hex`] of the `Debug` rendering of the frontend definition the program grammar
+    /// is resolved from, which the execution digest does not cover: two definitions with equal
+    /// KORE can parse one program into different initial configurations.
+    pub frontend_digest: String,
+    /// [`digest_hex`] of the `Debug` rendering of the execution definition that pattern targets
+    /// and the normal-termination pattern are compiled in.
+    pub execution_definition_digest: String,
+    /// [`digest_hex`] of this definition's initial configuration, as printed KORE, assembled
+    /// by its own grammar with every hole at its anchor (or, when some hole has no anchor, at
+    /// the first explicit assignment's values): it pins the grammar, the configuration-variable
+    /// bindings and the stream defaults exactly. `None` when no complete assignment is known
+    /// before the campaign runs; the frontend digest still covers the grammar.
+    pub initial_configuration_digest: Option<String>,
     /// [`digest_hex`] of the rewrite order (ids joined by newlines) on the source-execution
     /// route; the order selects the one path `strategy: any` follows.
     pub execution_rewrite_order_digest: Option<String>,
@@ -236,6 +247,14 @@ pub struct Totals {
     pub best_score: Option<Vec<u64>>,
     /// Cases outside the determinism contract (ARCHITECTURE 5.4).
     pub outside_determinism: u64,
+    /// Candidates that reached the target but were not confirmed: the confirmation failed,
+    /// disagreed (an engine defect) or was cancelled. One of them may be a real witness.
+    pub unconfirmed: u64,
+    /// [`digest_hex`] chained over the proposed values of every case, in order (each step
+    /// hashes the previous digest and the canonical JSON of the case's values; the empty
+    /// campaign has the digest of the empty input). It pins the case sequence itself, so a
+    /// client can detect two runs that diverged even when every case had the same class.
+    pub case_sequence_digest: String,
 }
 
 /// The rules the campaign's cases reached (ARCHITECTURE 6.1, 9.3).
@@ -317,12 +336,41 @@ pub struct WitnessCase {
     /// differential witness the mutant, whose killing end is not among the baseline's ends
     /// (ARCHITECTURE 4.3).
     pub sides: Vec<WitnessSide>,
+    /// Where the target was reached.
+    pub reaching: Reaching,
+    /// For a differential witness, whether the mutant added an end or removed one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kill: Option<KillKind>,
     /// The step count of the reaching leaf (the killing mutant leaf of a differential
     /// witness). Absent for a hit of the whole run, which names no leaf: a coverage-mode rule
     /// target over several leaves (ARCHITECTURE 5.3, D16), whose witness is the case with every
     /// leaf's configuration in `sides`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub steps: Option<u64>,
+}
+
+/// Where a witness case reached its target.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct Reaching {
+    /// The side whose leaf reached it: the baseline for a rule or pattern target, the mutant
+    /// for an added end, the baseline for a removed end (the baseline end the mutant cannot
+    /// reach).
+    pub role: DefinitionRole,
+    /// The index of that leaf in the side's `final-configurations`; absent for a hit of the
+    /// whole run (D16), which rests on every leaf.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub leaf: Option<u64>,
+}
+
+/// How a differential witness kills the mutant (ARCHITECTURE 4.3).
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum KillKind {
+    /// The mutant reaches an end the baseline cannot.
+    AddedEnd,
+    /// The baseline reaches an end the mutant cannot (all-paths mode).
+    RemovedEnd,
 }
 
 /// One definition's run of a witness case.
@@ -333,11 +381,8 @@ pub struct WitnessSide {
     pub role: DefinitionRole,
     /// The concrete initial configuration this definition's grammar assembled, as KORE text.
     pub initial_configuration: String,
-    /// The configurations the witness rests on, as KORE text: every leaf, in the backend's
-    /// order, for the baseline (for a differential witness, its complete set of ends); for the
-    /// mutant of a differential witness, the killing leaf alone when the mutant adds an end,
-    /// and every mutant leaf when it removes one (all-paths mode; the witness's steps are then
-    /// those of the removed baseline end).
+    /// Every leaf's configuration, as KORE text, in the backend's order: for the baseline of a
+    /// differential witness, its complete set of ends. [`WitnessCase::reaching`] indexes it.
     pub final_configurations: Vec<String>,
 }
 
@@ -419,10 +464,50 @@ pub(crate) mod decimal_u64 {
         serializer.collect_str(value)
     }
 
+    /// Only the canonical form is read (no sign, no leading zero), so that reading and
+    /// re-writing a report gives the same bytes.
     pub(crate) fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error> {
-        String::deserialize(deserializer)?
+        parse(&String::deserialize(deserializer)?).map_err(D::Error::custom)
+    }
+
+    pub(crate) fn parse(text: &str) -> Result<u64, String> {
+        let value: u64 = text
             .parse()
-            .map_err(D::Error::custom)
+            .map_err(|error| format!("not a decimal u64 `{text}`: {error}"))?;
+        if value.to_string() == text {
+            Ok(value)
+        } else {
+            Err(format!(
+                "`{text}` is not the canonical decimal form of {value}"
+            ))
+        }
+    }
+}
+
+/// Serialize an optional `u64` as an optional canonical decimal string.
+pub(crate) mod decimal_u64_option {
+    use serde::{Deserialize, Deserializer, Serializer, de::Error};
+
+    #[expect(
+        clippy::ref_option,
+        reason = "serde's `with` passes a reference to the field"
+    )]
+    pub(crate) fn serialize<S: Serializer>(
+        value: &Option<u64>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        match value {
+            Some(value) => serializer.collect_str(value),
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub(crate) fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<u64>, D::Error> {
+        Option::<String>::deserialize(deserializer)?
+            .map(|text| super::decimal_u64::parse(&text).map_err(D::Error::custom))
+            .transpose()
     }
 }
 
@@ -471,6 +556,11 @@ mod tests {
                 initial_configuration: "Lbl'-LT-'generatedTop'-GT-'{}()".into(),
                 final_configurations: vec!["Lbl'-LT-'generatedTop'-GT-'{}()".into()],
             }],
+            reaching: Reaching {
+                role: DefinitionRole::Baseline,
+                leaf: Some(0),
+            },
+            kill: None,
             steps: Some(12),
         };
         FuzzReport {
@@ -483,6 +573,9 @@ mod tests {
                     role: DefinitionRole::Baseline,
                     main_module: "IMP".into(),
                     syntax_module: "IMP-SYNTAX".into(),
+                    frontend_digest: digest_hex(b"frontend"),
+                    execution_definition_digest: digest_hex(b"execution"),
+                    initial_configuration_digest: Some(digest_hex(b"initial")),
                     execution_digest: "0123".into(),
                     route: "source-execution".into(),
                     execution_rewrite_order_digest: Some(digest_hex(b"rule-1\nrule-2")),
@@ -490,7 +583,6 @@ mod tests {
                 program_digest: digest_hex(b"program"),
                 overlay_digest: digest_hex(b"overlay"),
                 target_digest: digest_hex(b"target"),
-                initial_configuration_digest: Some(digest_hex(b"initial")),
                 options: CaseOptions {
                     max_work: Some(100_000),
                     ..CaseOptions::default()
@@ -538,6 +630,8 @@ mod tests {
                 target_blocked: 3,
                 best_score: Some(vec![0, 2]),
                 outside_determinism: 0,
+                unconfirmed: 1,
+                case_sequence_digest: digest_hex(b"cases"),
             },
             load_records: vec![LoadRecord {
                 kind: "contradicted-claim".into(),
@@ -593,18 +687,19 @@ mod tests {
             r#""k-rust-revision":"b322de1ab","definitions":[{"role":"baseline","#,
             r#""main-module":"IMP","syntax-module":"IMP-SYNTAX","#,
             r#""execution-digest":"0123","route":"source-execution","#,
+            r#""frontend-digest":"FRONTEND","execution-definition-digest":"EXECUTION","#,
+            r#""initial-configuration-digest":"INITIAL","#,
             r#""execution-rewrite-order-digest":"#,
             r#""ORDER"}],"#,
             r#""program-digest":"PROGRAM","overlay-digest":"OVERLAY","target-digest":"TARGET","#,
-            r#""initial-configuration-digest":"INITIAL","#,
             r#""options":{"paths":"one-path","max-depth":null,"max-work":100000,"#,
             r#""max-simplification-iterations":ITER,"normal-end-pattern":null,"#,
             r#""safety-limit-ms":null,"backend":{"smt-timeout-ms":125,"smt-retry-limit":3}},"#,
             r#""proposers":{"anchors-first":true,"explicit":"#,
             r#"[{"AMOUNT":{"bytes":"00ab"}}],"weights":{"blind":1}},"#,
-            r#""bounds":{"int-bits":64,"length":16,"depth":4},"rejection-cap":10,"#,
+            r#""bounds":{"int-bits":64,"length":16,"depth":4},"rejection-cap":"10","#,
             r#""seed":"18446744073709551615","budget":{"cases":"5000"},"#,
-            r#""thread-stack-size":67108864,"solver":"none"},"#,
+            r#""thread-stack-size":"67108864","solver":"none"},"#,
             r#""outcome":{"status":"witness-found","witness":{"label":"property-failure","#,
             r#""first":CASE,"shrunk":CASE,"clean-leaf-facts":["ceil-free"],"#,
             r#""krun-command":"krust krun transfer.imp"}},"#,
@@ -612,7 +707,8 @@ mod tests {
             r#""classes":{"hit":1,"miss":37,"rejected":2},"rejection-rate-permille":50,"#,
             r#""rejections":{"round-trip":1,"backend-refused":1},"#,
             r#""coverage":{"applied":["a","b"],"matched":["c"]},"target-blocked":3,"#,
-            r#""best-score":[0,2],"outside-determinism":0},"#,
+            r#""best-score":[0,2],"outside-determinism":0,"unconfirmed":1,"#,
+            r#""case-sequence-digest":"CASES"},"#,
             r#""load-records":[{"kind":"contradicted-claim","#,
             r#""detail":"total"}],"sort-overrides":[{"hole":"X","sort":"Id","#,
             r#""refusal":"Token"}],"warnings":["statically-unreachable"],"#,
@@ -625,7 +721,8 @@ mod tests {
             r#""value":{"int":"-7"}}],"class":"hit","#,
             r#""sides":[{"role":"baseline","#,
             r#""initial-configuration":"Lbl'-LT-'generatedTop'-GT-'{}()","#,
-            r#""final-configurations":["Lbl'-LT-'generatedTop'-GT-'{}()"]}],"steps":12}"#,
+            r#""final-configurations":["Lbl'-LT-'generatedTop'-GT-'{}()"]}],"#,
+            r#""reaching":{"role":"baseline","leaf":0},"steps":12}"#,
         );
         let expected = expected
             .replace("ORDER", &digest_hex(b"rule-1\nrule-2"))
@@ -633,6 +730,9 @@ mod tests {
             .replace("OVERLAY", &digest_hex(b"overlay"))
             .replace("TARGET", &digest_hex(b"target"))
             .replace("INITIAL", &digest_hex(b"initial"))
+            .replace("FRONTEND", &digest_hex(b"frontend"))
+            .replace("EXECUTION", &digest_hex(b"execution"))
+            .replace("CASES", &digest_hex(b"cases"))
             .replace(
                 "ITER",
                 &CaseOptions::default()
@@ -683,6 +783,20 @@ mod tests {
                 r#""backend-refused":5}"#
             )
         );
+    }
+
+    #[test]
+    fn decimal_strings_are_read_only_in_canonical_form() {
+        assert_eq!(decimal_u64::parse("5"), Ok(5));
+        assert_eq!(decimal_u64::parse("0"), Ok(0));
+        assert_eq!(decimal_u64::parse("18446744073709551615"), Ok(u64::MAX));
+        for text in ["+5", "05", "", "-1", " 5", "0x5", "18446744073709551616"] {
+            assert!(decimal_u64::parse(text).is_err(), "{text:?}");
+        }
+        let text = fixed_report()
+            .to_canonical_json()
+            .replace(r#""seed":"18446744073709551615""#, r#""seed":"+5""#);
+        assert!(FuzzReport::from_json(&text).is_err());
     }
 
     #[test]

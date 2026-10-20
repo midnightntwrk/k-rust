@@ -303,14 +303,15 @@ fn a_bounded_run_is_never_a_hit() {
     assert_eq!(single_class(&setup).0, OutcomeClass::DepthBound);
     setup.options = work.clone();
     assert_eq!(single_class(&setup).0, OutcomeClass::WorkBound);
-    // The cut leaf matches `ANYTHING`; a reaching leaf whose run was cut is never a hit.
-    setup.target = anything_to_completion();
-    for options in [depth, work] {
-        setup.options = options;
-        assert_eq!(single_class(&setup).0, OutcomeClass::ReachedUnfinished);
+    // A cut leaf is not an end, so a final pattern is not matched on it at all (D16): the
+    // case takes its bound's class, with or without run-to-completion.
+    for target in [anything_to_completion(), final_pattern(ANYTHING, true)] {
+        setup.target = target;
+        setup.options = depth.clone();
+        assert_eq!(single_class(&setup).0, OutcomeClass::DepthBound);
+        setup.options = work.clone();
+        assert_eq!(single_class(&setup).0, OutcomeClass::WorkBound);
     }
-    setup.target = final_pattern(ANYTHING, true);
-    assert_eq!(single_class(&setup).0, OutcomeClass::Unsupported);
 }
 
 #[test]

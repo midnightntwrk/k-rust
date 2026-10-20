@@ -71,6 +71,13 @@ impl Campaign {
     pub fn new(spec: CampaignSpec) -> Result<Campaign, CampaignError> {
         check_definitions(&spec)?;
         check_proposers(&spec.proposers)?;
+        if spec.rejection_cap == 0 {
+            return Err(CampaignError::InvalidOptions {
+                message: "the rejection cap must be at least 1: a cap of 0 would end the campaign \
+                          before its first case"
+                    .into(),
+            });
+        }
         let spec = Arc::new(spec);
         let cases = LiveCases::build(Arc::clone(&spec))?;
         let holes = &cases.baseline.holes.holes;
@@ -91,21 +98,43 @@ impl Campaign {
         }
         let explicit = explicit_proposals(&names, &anchors, &spec.proposers)?;
         generators(&cases, &spec)?;
-        let initial = match cases.anchor_configuration() {
-            None => None,
-            Some(Ok(configuration)) => Some(digest_hex(configuration.to_string().as_bytes())),
-            Some(Err(reason)) => {
-                return Err(CampaignError::Program {
-                    message: format!("the program with its anchor values is refused: {reason:?}"),
-                });
+        // Each side's initial configuration at the anchors, or at the first explicit
+        // assignment when some hole has no anchor, identifies its grammar (FZ-06 review S2).
+        let known = anchors
+            .iter()
+            .cloned()
+            .collect::<Option<Vec<Value>>>()
+            .or_else(|| explicit.first().cloned());
+        let mut initial = Vec::new();
+        if let Some(values) = known {
+            for (side, configuration) in cases
+                .initial_configurations(&values)
+                .into_iter()
+                .enumerate()
+            {
+                match configuration {
+                    Ok(configuration) => {
+                        initial.push(Some(digest_hex(configuration.to_string().as_bytes())));
+                    }
+                    Err(reason) if side == 0 => {
+                        return Err(CampaignError::Program {
+                            message: format!(
+                                "the program with its anchor values is refused: {reason:?}"
+                            ),
+                        });
+                    }
+                    // A mutant that refuses the anchors refuses those cases; the frontend
+                    // digest still identifies its grammar.
+                    Err(_) => initial.push(None),
+                }
             }
-        };
+        }
         let equivalent = match &spec.definitions.mutant {
             Some(mutant) => differential::equivalent(&spec.definitions.baseline, mutant)?,
             None => false,
         };
         let settings = LoopSettings {
-            identity: identity(&spec, initial)?,
+            identity: identity(&spec, &initial)?,
             rejection_cap: spec.rejection_cap,
             options: spec.options.clone(),
             label: if spec.target.negated_property {
@@ -254,8 +283,14 @@ fn generators(cases: &LiveCases, spec: &CampaignSpec) -> Result<Vec<Generator>, 
 
 /// The report identity of `spec`, with a placeholder budget the loop replaces
 /// (ARCHITECTURE 5.4, 9.3).
-fn identity(spec: &CampaignSpec, initial: Option<String>) -> Result<ReportIdentity, CampaignError> {
-    let definition = |role, definition: &CompiledDefinition| -> Result<_, CampaignError> {
+fn identity(
+    spec: &CampaignSpec,
+    initial: &[Option<String>],
+) -> Result<ReportIdentity, CampaignError> {
+    let definition = |role,
+                      definition: &CompiledDefinition,
+                      initial: Option<&Option<String>>|
+     -> Result<_, CampaignError> {
         let (route, order) = match &definition.route {
             BackendRoute::SourceExecution {
                 execution_rewrite_order,
@@ -269,6 +304,9 @@ fn identity(spec: &CampaignSpec, initial: Option<String>) -> Result<ReportIdenti
             role,
             main_module: definition.main_module.clone(),
             syntax_module: definition.syntax_module.clone(),
+            frontend_digest: debug_digest(&definition.frontend_definition),
+            execution_definition_digest: debug_digest(&definition.execution_definition),
+            initial_configuration_digest: initial.cloned().flatten(),
             execution_digest: definition.execution_digest()?.to_string(),
             route: route.into(),
             execution_rewrite_order_digest: order,
@@ -277,9 +315,10 @@ fn identity(spec: &CampaignSpec, initial: Option<String>) -> Result<ReportIdenti
     let mut definitions = vec![definition(
         DefinitionRole::Baseline,
         &spec.definitions.baseline,
+        initial.first(),
     )?];
     if let Some(mutant) = &spec.definitions.mutant {
-        definitions.push(definition(DefinitionRole::Mutant, mutant)?);
+        definitions.push(definition(DefinitionRole::Mutant, mutant, initial.get(1))?);
     }
     let program = match &spec.program {
         ProgramInput::Source(source) => format!("source:{}", json(source)),
@@ -292,7 +331,6 @@ fn identity(spec: &CampaignSpec, initial: Option<String>) -> Result<ReportIdenti
         program_digest: digest_hex(program.as_bytes()),
         overlay_digest: digest_hex(json(&spec.holes).as_bytes()),
         target_digest: digest_hex(json(&spec.target).as_bytes()),
-        initial_configuration_digest: initial,
         options: CaseOptions {
             max_work: spec.options.effective_max_work(),
             ..spec.options.clone()
@@ -303,8 +341,32 @@ fn identity(spec: &CampaignSpec, initial: Option<String>) -> Result<ReportIdenti
         seed: spec.seed,
         budget: Budget::Cases(0),
         thread_stack_size: spec.identity.thread_stack_size,
-        solver: if cfg!(feature = "z3") { "z3" } else { "none" }.into(),
+        // k-rust's solver feature, whatever enabled it (Cargo unifies features across a build).
+        solver: if k_rust::Z3_INFERENCE { "z3" } else { "none" }.into(),
     })
+}
+
+/// [`digest_hex`] of `value`'s `Debug` rendering, streamed into the hash. The frontend
+/// definition types hold only ordered containers, so the rendering is deterministic for one
+/// k-rust revision, which the identity also records.
+fn debug_digest(value: &impl std::fmt::Debug) -> String {
+    use sha2::{Digest as _, Sha256};
+    use std::fmt::Write as _;
+    struct Hasher(Sha256);
+    impl std::fmt::Write for Hasher {
+        fn write_str(&mut self, text: &str) -> std::fmt::Result {
+            self.0.update(text.as_bytes());
+            Ok(())
+        }
+    }
+    let mut hasher = Hasher(Sha256::new());
+    write!(hasher, "{value:?}").expect("hashing does not fail");
+    let digest = hasher.0.finalize();
+    let mut text = String::with_capacity(64);
+    for byte in digest {
+        write!(text, "{byte:02x}").expect("writing to a String does not fail");
+    }
+    text
 }
 
 /// Canonical JSON of a spec part the identity digests.
@@ -332,12 +394,9 @@ fn clean_leaf_facts(spec: &CampaignSpec) -> Vec<String> {
                 facts.push("natural-end");
             }
         }
-        TargetKind::Differential(_) => facts.extend([
-            "baseline-complete",
-            "natural-end",
-            "constructor-only",
-            "not-in-baseline-ends",
-        ]),
+        // The differential conditions depend on the kind of kill; the loop adds them per
+        // witness.
+        TargetKind::Differential(_) => {}
         TargetKind::Rule(_) | TargetKind::Observer(_) => {
             if spec.target.run_to_completion {
                 facts.push("natural-end");

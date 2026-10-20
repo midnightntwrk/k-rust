@@ -1,7 +1,7 @@
 //! The loop over cases, the budget, confirmation, shrinking and the report (ARCHITECTURE 7,
 //! 9.2, 9.3). Owner: FZ-06.
 
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, fmt::Write as _};
 
 use k_rust::backend::CancellationToken;
 
@@ -14,8 +14,9 @@ use super::{
 use crate::{
     exec::OutcomeClass,
     report::{
-        CampaignOutcome, EngineDefect, FuzzReport, HitLabel, LoadRecord, NoWitness, REPORT_SCHEMA,
-        REPORT_VERSION, ReportIdentity, SortOverride, Totals, Witness, WitnessCase,
+        CampaignOutcome, EngineDefect, FuzzReport, HitLabel, KillKind, LoadRecord, NoWitness,
+        REPORT_SCHEMA, REPORT_VERSION, RejectionReason, ReportIdentity, SortOverride, Totals,
+        Witness, WitnessCase, digest_hex,
     },
     spec::{Budget, CaseOptions, PathMode},
     values::{Constraints, Value},
@@ -74,6 +75,7 @@ pub(crate) fn run_loop(
             break Ending::Exhausted;
         };
         let case = state.totals.cases;
+        state.sequence(&proposal.values);
         let run = match runner.run_case(&proposal.values, cancel) {
             Ok(run) => run,
             Err(abort) => {
@@ -101,10 +103,23 @@ pub(crate) fn run_loop(
                     );
                 }
                 Confirmed::Cancelled => {
-                    state.record(&run, OutcomeClass::Timeout);
+                    // The candidate was not confirmed: a clock-dependent case, whose coverage
+                    // the totals do not take, and a trace in the report (ARCHITECTURE 5.4).
+                    state.totals.unconfirmed += 1;
+                    state.warnings.push(format!(
+                        "case {case} reached the target with the values {}; its confirmation \
+                         was cancelled, so it is not a witness",
+                        render(&proposal.values)
+                    ));
+                    let cancelled = CaseRun {
+                        outside_determinism: true,
+                        ..run
+                    };
+                    state.record(&cancelled, OutcomeClass::Timeout);
                     break Ending::Cancelled;
                 }
                 Confirmed::Disagrees(description) => {
+                    state.totals.unconfirmed += 1;
                     state.defect(Some(case), description);
                     class = OutcomeClass::Unsupported;
                 }
@@ -179,7 +194,7 @@ fn confirm(
     let reaching = candidate
         .hit
         .as_ref()
-        .map(|detail| detail.reaching_state.clone());
+        .map(|detail| (detail.reaching_state.clone(), detail.kill));
     match runner.confirm(values, cancel) {
         Err(message) => {
             state.charge(0);
@@ -199,13 +214,14 @@ fn confirm(
             match confirmation.hit {
                 Some(detail)
                     if confirmation.class == OutcomeClass::Hit
-                        && reaching.as_ref() == Some(&detail.reaching_state) =>
+                        && reaching.as_ref()
+                            == Some(&(detail.reaching_state.clone(), detail.kill)) =>
                 {
                     Confirmed::Agrees(Box::new(detail))
                 }
                 Some(_) if confirmation.class == OutcomeClass::Hit => Confirmed::Disagrees(
                     "the case reached the target, but its confirmation reached it in another \
-                     configuration"
+                     configuration or by another kind of kill"
                         .into(),
                 ),
                 _ => Confirmed::Disagrees(format!(
@@ -228,6 +244,7 @@ fn finish_witness(
     cancel: Option<&CancellationToken>,
 ) -> Witness {
     let Proposal { values, trees, .. } = proposal;
+    let kind = first.kill;
     let mut last: Option<HitDetail> = None;
     let mut runs = 0_u64;
     let shrunk = {
@@ -256,7 +273,11 @@ fn finish_witness(
                 }
             };
             state.charge(screened.work);
-            if screened.class != OutcomeClass::Hit {
+            // A shrink keeps the witness's kind of kill: a removed end never shrinks into an
+            // added one, which is another behaviour (FZ-08 review S1).
+            if screened.class != OutcomeClass::Hit
+                || screened.hit.as_ref().map(|detail| detail.kill) != Some(kind)
+            {
                 return Verdict::Miss;
             }
             match confirm(runner, state, candidate, &screened, cancel) {
@@ -280,6 +301,8 @@ fn finish_witness(
         holes: detail.holes,
         class: OutcomeClass::Hit,
         sides: detail.sides,
+        reaching: detail.reaching,
+        kill: detail.kill,
         steps: detail.steps,
     };
     let (shrunk, krun_command) = match last {
@@ -293,9 +316,36 @@ fn finish_witness(
         label: settings.label,
         first: to_case(first),
         shrunk,
-        clean_leaf_facts: settings.clean_leaf_facts.clone(),
+        clean_leaf_facts: witness_facts(&settings.clean_leaf_facts, kind),
         krun_command,
     }
+}
+
+/// The facts a witness rests on: the clean-leaf facts of its target, and for a differential
+/// witness the conditions of ARCHITECTURE 4.3 for its kind of kill (with D15's requirement that
+/// every end of the complete side be data).
+fn witness_facts(base: &[String], kind: Option<KillKind>) -> Vec<String> {
+    let extra: &[&str] = match kind {
+        None => &[],
+        Some(KillKind::AddedEnd) => &[
+            "baseline-complete",
+            "every-baseline-end-constructor-only",
+            "mutant-end-natural",
+            "mutant-end-constructor-only",
+            "mutant-end-not-in-baseline-ends",
+        ],
+        Some(KillKind::RemovedEnd) => &[
+            "mutant-complete",
+            "every-mutant-end-constructor-only",
+            "baseline-end-natural",
+            "baseline-end-constructor-only",
+            "baseline-end-not-in-mutant-ends",
+        ],
+    };
+    base.iter()
+        .cloned()
+        .chain(extra.iter().map(|fact| (*fact).to_owned()))
+        .collect()
 }
 
 fn render(values: &[Value]) -> String {
@@ -316,7 +366,10 @@ impl State {
     fn new(budget: Budget) -> Self {
         Self {
             budget,
-            totals: Totals::default(),
+            totals: Totals {
+                case_sequence_digest: digest_hex(b""),
+                ..Totals::default()
+            },
             load_records: BTreeSet::new(),
             warnings: Vec::new(),
             defects: Vec::new(),
@@ -353,6 +406,14 @@ impl State {
         self.totals.work = self.totals.work.saturating_add(work.max(1));
     }
 
+    /// Chain one case's values into [`Totals::case_sequence_digest`].
+    fn sequence(&mut self, values: &[Value]) {
+        let mut bytes = self.totals.case_sequence_digest.clone().into_bytes();
+        bytes.push(b'\n');
+        bytes.extend(render(values).into_bytes());
+        self.totals.case_sequence_digest = digest_hex(&bytes);
+    }
+
     fn defect(&mut self, case: Option<u64>, description: String) {
         self.defects.push(EngineDefect { case, description });
     }
@@ -361,9 +422,10 @@ impl State {
     fn record(&mut self, run: &CaseRun, class: OutcomeClass) {
         *self.totals.classes.entry(class).or_insert(0) += 1;
         if class == OutcomeClass::Rejected {
-            if let Some(reason) = run.rejection {
-                *self.totals.rejections.entry(reason).or_insert(0) += 1;
-            }
+            // `Totals::rejections` sums to the `rejected` count; every runner gives a reason.
+            debug_assert!(run.rejection.is_some(), "a rejected case without a reason");
+            let reason = run.rejection.unwrap_or(RejectionReason::BackendRefused);
+            *self.totals.rejections.entry(reason).or_insert(0) += 1;
             return;
         }
         self.load_records.extend(run.load_records.iter().cloned());
@@ -428,8 +490,9 @@ pub(crate) enum Ending {
 }
 
 /// The bounded statement of a campaign that ended without a witness (ARCHITECTURE 9.3): the
-/// cases and work spent, that it is no proof, the path mode explored, and the bounds to raise.
-/// In one-path mode it always names the all-paths option (see [`NoWitness::statement`]).
+/// cases and work spent, that it is no proof, why it ended, the path mode followed, every count
+/// of cases that could not yield a witness or could not be judged, and the bounds to raise. In
+/// one-path mode it always names the all-paths option (see [`NoWitness::statement`]).
 pub(crate) fn no_witness(
     ending: Ending,
     totals: &Totals,
@@ -450,80 +513,163 @@ pub(crate) fn no_witness(
         plural(totals.cases, "case"),
         totals.work
     );
-    text.push_str(match ending {
-        Ending::Budget => " The budget was spent.",
-        Ending::Exhausted => {
+    match ending {
+        Ending::Budget => text.push_str(" The budget was spent."),
+        Ending::Exhausted => text.push_str(
             " The campaign ended before its budget because every proposer was exhausted; enable \
-             the blind proposer to run more cases."
+             the blind proposer to run more cases.",
+        ),
+        Ending::RejectedOut => {
+            let reasons: Vec<String> = totals
+                .rejections
+                .iter()
+                .map(|(reason, count)| {
+                    let name = serde_json::to_value(reason)
+                        .ok()
+                        .and_then(|name| name.as_str().map(str::to_owned))
+                        .unwrap_or_default();
+                    format!("{count} {name}")
+                })
+                .collect();
+            write!(
+                text,
+                " The campaign ended at the rejection cap of {rejection_cap} rejected cases ({}).",
+                reasons.join(", ")
+            )
+            .expect("writing to a String");
         }
-        Ending::RejectedOut => "",
-        Ending::Cancelled => " The caller cancelled the campaign.",
-        Ending::Aborted => " The campaign aborted on a failure every case would repeat.",
-    });
-    if ending == Ending::RejectedOut {
-        text.push_str(&format!(
-            " The campaign ended at the rejection cap of {rejection_cap}: the holes' values did \
-             not satisfy their constraints, did not round-trip through the program's syntax, or \
-             were refused by the backend."
-        ));
+        Ending::Cancelled => text.push_str(" The caller cancelled the campaign."),
+        Ending::Aborted => {
+            text.push_str(" The campaign aborted on a failure every case would repeat.");
+        }
     }
+    let rejected = count(OutcomeClass::Rejected);
+    if rejected > 0 && ending != Ending::RejectedOut {
+        write!(text, " {} rejected and not run.", plural_were(rejected))
+            .expect("writing to a String");
+    }
+    let unsupported = count(OutcomeClass::Unsupported);
+    if unsupported > 0 {
+        write!(
+            text,
+            " {} could not be judged (unsupported) and may hide a witness.",
+            plural(unsupported, "case")
+        )
+        .expect("writing to a String");
+    }
+    let incomplete = count(OutcomeClass::BaselineIncomplete);
+    if incomplete > 0 {
+        write!(
+            text,
+            " {} had an incomplete baseline, so no kill could be judged.",
+            plural(incomplete, "case")
+        )
+        .expect("writing to a String");
+    }
+    if totals.unconfirmed > 0 {
+        write!(
+            text,
+            " {} reached the target but {} not confirmed (see the warnings and engine defects); \
+             one of them may be a real witness.",
+            plural(totals.unconfirmed, "candidate"),
+            if totals.unconfirmed == 1 {
+                "was"
+            } else {
+                "were"
+            }
+        )
+        .expect("writing to a String");
+    }
+    if totals.outside_determinism > 0 {
+        write!(
+            text,
+            " {} outside the determinism contract.",
+            plural_were(totals.outside_determinism)
+        )
+        .expect("writing to a String");
+    }
+    let depth = count(OutcomeClass::DepthBound);
+    let work = count(OutcomeClass::WorkBound);
+    let timeouts = count(OutcomeClass::Timeout);
+    let unfinished = count(OutcomeClass::ReachedUnfinished);
     match options.paths {
         PathMode::OnePath => text.push_str(
             " Only k-rust's first-applicable path of each input was explored (one-path mode); \
              the all-paths option explores every path.",
         ),
-        PathMode::AllPaths => {
+        PathMode::AllPaths if depth + work + timeouts + unsupported == 0 => {
             text.push_str(" Every path of each input was explored (all-paths mode).");
         }
+        PathMode::AllPaths => text.push_str(
+            " Every path of each input was followed up to the bounds below (all-paths mode); \
+             the cases they cut or that could not be judged were not explored to their ends.",
+        ),
     }
-    let depth = count(OutcomeClass::DepthBound);
     if depth > 0 {
         let bound = options.max_depth.map_or_else(
             || "its depth or breadth bound".to_owned(),
             |d| format!("max-depth {d}"),
         );
-        text.push_str(&format!(
+        write!(
+            text,
             " {} stopped at {bound}: raise max-depth.",
             plural(depth, "case")
-        ));
+        )
+        .expect("writing to a String");
     }
-    let work = count(OutcomeClass::WorkBound);
     if work > 0 {
         let bound = options
             .effective_max_work()
             .map_or_else(|| "its work bound".to_owned(), |w| format!("max-work {w}"));
-        text.push_str(&format!(
+        write!(
+            text,
             " {} stopped at {bound}: raise max-work.",
             plural(work, "case")
-        ));
+        )
+        .expect("writing to a String");
     }
-    let timeouts = count(OutcomeClass::Timeout);
-    if timeouts > 0 && options.safety_limit_ms.is_some() {
-        text.push_str(&format!(
-            " {} timed out: raise the per-case safety limit.",
-            plural(timeouts, "case")
-        ));
+    if timeouts > 0 {
+        let advice = if options.safety_limit_ms.is_some() {
+            ": raise the per-case safety limit"
+        } else {
+            ""
+        };
+        write!(text, " {} timed out{advice}.", plural(timeouts, "case"))
+            .expect("writing to a String");
     }
-    let unfinished = count(OutcomeClass::ReachedUnfinished);
     if unfinished > 0 {
-        text.push_str(&format!(
+        write!(
+            text,
             " {} reached the target without ending naturally: raise the bounds so that they \
              finish.",
             plural(unfinished, "case")
-        ));
+        )
+        .expect("writing to a String");
     }
-    if matches!(ending, Ending::Budget) {
-        text.push_str(&match budget {
-            Budget::Cases(cases) => {
-                format!(" To run more cases, raise the case budget above {cases}.")
-            }
-            Budget::Work(work) => {
-                format!(" To run more cases, raise the work budget above {work}.")
-            }
-        });
+    if ending == Ending::Budget {
+        match budget {
+            Budget::Cases(cases) => write!(
+                text,
+                " To run more cases, raise the case budget above {cases}."
+            ),
+            Budget::Work(work) => write!(
+                text,
+                " To run more cases, raise the work budget above {work}."
+            ),
+        }
+        .expect("writing to a String");
     }
     NoWitness {
         statement: text,
         path_mode: options.paths,
+    }
+}
+
+/// "1 case was" or "N cases were".
+fn plural_were(count: u64) -> String {
+    if count == 1 {
+        "1 case was".to_owned()
+    } else {
+        format!("{count} cases were")
     }
 }

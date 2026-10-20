@@ -23,7 +23,7 @@ use crate::{
     holes::HoleLocation,
     report::{
         CampaignOutcome, DefinitionIdentity, DefinitionRole, FuzzReport, HitLabel, HoleValue,
-        RejectionReason, ReportIdentity, Totals, WitnessSide,
+        KillKind, Reaching, RejectionReason, ReportIdentity, Totals, WitnessSide,
     },
     spec::{Budget, CaseOptions, PathMode, ProposerConfig, ProposerKind},
     values::{Constraints, GenerationBounds, IntRange, LengthRange, Value},
@@ -78,6 +78,11 @@ fn detail(values: &[Value], state: &str) -> HitDetail {
             initial_configuration: format!("init{values:?}"),
             final_configurations: vec![state.to_owned()],
         }],
+        reaching: Reaching {
+            role: DefinitionRole::Baseline,
+            leaf: Some(0),
+        },
+        kill: None,
         steps: Some(3),
         reaching_state: state.to_owned(),
         krun_command: Some(format!("krust krun {values:?}")),
@@ -199,6 +204,9 @@ fn identity() -> ReportIdentity {
             role: DefinitionRole::Baseline,
             main_module: "MAIN".into(),
             syntax_module: "MAIN-SYNTAX".into(),
+            frontend_digest: "f".into(),
+            execution_definition_digest: "e".into(),
+            initial_configuration_digest: None,
             execution_digest: "00".into(),
             route: "from-definition".into(),
             execution_rewrite_order_digest: None,
@@ -206,7 +214,6 @@ fn identity() -> ReportIdentity {
         program_digest: "p".into(),
         overlay_digest: "o".into(),
         target_digest: "t".into(),
-        initial_configuration_digest: None,
         options: CaseOptions::default(),
         proposers: ProposerConfig::default(),
         bounds: GenerationBounds::default(),
@@ -1076,4 +1083,233 @@ fn the_coverage_feedback_finds_new_rules_only_in_misses() {
     assert!(feedback.is_interesting(&observation(OutcomeClass::Miss, &["a"])));
     assert!(!feedback.is_interesting(&observation(OutcomeClass::Miss, &["a"])));
     assert!(feedback.is_interesting(&observation(OutcomeClass::Miss, &["a", "b"])));
+}
+
+// ---------------------------------------------------------------------------------------------
+// Fix round: kinds of kill, cancelled confirmations, the statement's counts, the case sequence
+
+fn kill(values: &[Value], state: &str, kind: KillKind) -> CaseRun {
+    let mut case = hit(values, 1, state);
+    if let Some(detail) = &mut case.hit {
+        detail.kill = Some(kind);
+    }
+    case
+}
+
+#[test]
+fn a_confirmation_with_another_kind_of_kill_is_an_engine_defect() {
+    let mut runner = Scripted::new(
+        |values| kill(values, "end", KillKind::AddedEnd),
+        |values| Ok(kill(values, "end", KillKind::RemovedEnd)),
+    );
+    let report = run_loop(
+        &mut runner,
+        &mut counter_schedule(1, 1),
+        &settings(1),
+        Budget::Cases(1),
+        None,
+    );
+    assert_eq!(report.witness(), None);
+    assert_eq!(report.totals.unconfirmed, 1);
+    assert_eq!(report.engine_defects.len(), 1);
+    let statement = report.no_witness().expect("no witness").statement.clone();
+    assert!(
+        statement.contains("1 candidate reached the target but was not confirmed"),
+        "{statement}"
+    );
+}
+
+#[test]
+fn shrinking_keeps_the_kind_of_kill_and_the_facts_follow_it() {
+    // From 50 down the mutant removes an end instead of adding one: another behaviour, which
+    // shrinking must not slide into.
+    let judge = |values: &[Value]| {
+        let n = as_int(&values[0]);
+        if n >= 50 {
+            kill(values, "end", KillKind::RemovedEnd)
+        } else if n >= 10 {
+            kill(values, "end", KillKind::AddedEnd)
+        } else {
+            run(OutcomeClass::Miss, 1)
+        }
+    };
+    let mut runner = Scripted::new(judge, move |values| Ok(judge(values)));
+    let mut schedule = Schedule::new(
+        1,
+        Vec::new(),
+        vec![(1, Counter::boxed(ProposerKind::Blind, 100, 0))],
+    );
+    let report = run_loop(
+        &mut runner,
+        &mut schedule,
+        &settings(1),
+        Budget::Cases(1),
+        None,
+    );
+    let witness = report.witness().expect("a witness");
+    assert_eq!(witness.first.kill, Some(KillKind::RemovedEnd));
+    let shrunk = witness.shrunk.as_ref().expect("a shrunk witness");
+    assert_eq!(shrunk.holes[0].value, int(50));
+    assert_eq!(shrunk.kill, Some(KillKind::RemovedEnd));
+    assert!(
+        witness
+            .clean_leaf_facts
+            .contains(&"baseline-end-not-in-mutant-ends".to_owned()),
+        "{:?}",
+        witness.clean_leaf_facts
+    );
+    assert!(
+        !witness
+            .clean_leaf_facts
+            .contains(&"every-baseline-end-constructor-only".to_owned())
+    );
+}
+
+#[test]
+fn a_cancelled_confirmation_leaves_a_trace_and_counts_outside_determinism() {
+    let token = CancellationToken::new();
+    let cancelling = token.clone();
+    let mut runner = Scripted::new(
+        |values| {
+            let mut case = hit(values, 1, "end");
+            case.applied = vec!["covered".into()];
+            case
+        },
+        move |_| {
+            cancelling.cancel();
+            Ok(run(OutcomeClass::Timeout, 1))
+        },
+    );
+    let report = run_loop(
+        &mut runner,
+        &mut counter_schedule(1, 7),
+        &settings(1),
+        Budget::Cases(10),
+        Some(&token),
+    );
+    assert!(matches!(report.outcome, CampaignOutcome::Cancelled { .. }));
+    assert_eq!(classes(&report), [(OutcomeClass::Timeout, 1)]);
+    assert_eq!(report.totals.outside_determinism, 1);
+    assert_eq!(report.totals.unconfirmed, 1);
+    assert!(report.totals.coverage.applied.is_empty());
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("case 0")
+                && warning.contains("confirmation was cancelled")
+                && warning.contains(r#"{"int":"7"}"#)),
+        "{:?}",
+        report.warnings
+    );
+    let statement = &report.no_witness().expect("a statement").statement;
+    assert!(statement.contains("not confirmed"), "{statement}");
+    assert!(
+        statement.contains("outside the determinism contract"),
+        "{statement}"
+    );
+}
+
+#[test]
+fn the_statement_counts_every_case_that_could_not_yield_a_witness() {
+    let all_incomplete = totals_with(&[(OutcomeClass::BaselineIncomplete, 64)]);
+    let text = no_witness(
+        Ending::Budget,
+        &all_incomplete,
+        Budget::Cases(64),
+        &CaseOptions::default(),
+        100,
+    )
+    .statement;
+    assert!(
+        text.contains("64 cases had an incomplete baseline, so no kill could be judged"),
+        "{text}"
+    );
+
+    let mut mixed = totals_with(&[
+        (OutcomeClass::Miss, 2),
+        (OutcomeClass::Unsupported, 3),
+        (OutcomeClass::Rejected, 4),
+        (OutcomeClass::DepthBound, 1),
+    ]);
+    mixed.unconfirmed = 2;
+    mixed.outside_determinism = 1;
+    let all_paths = CaseOptions {
+        paths: PathMode::AllPaths,
+        max_depth: Some(9),
+        ..CaseOptions::default()
+    };
+    let text = no_witness(Ending::Budget, &mixed, Budget::Cases(10), &all_paths, 100).statement;
+    for expected in [
+        "4 cases were rejected and not run",
+        "3 cases could not be judged (unsupported) and may hide a witness",
+        "2 candidates reached the target but were not confirmed",
+        "1 case was outside the determinism contract",
+        "followed up to the bounds below (all-paths mode)",
+        "1 case stopped at max-depth 9",
+    ] {
+        assert!(text.contains(expected), "missing {expected:?} in {text:?}");
+    }
+    assert!(
+        !text.contains("Every path of each input was explored"),
+        "{text}"
+    );
+
+    let mut rejected = totals_with(&[(OutcomeClass::Rejected, 3)]);
+    rejected.rejections =
+        BTreeMap::from([(RejectionReason::Print, 1), (RejectionReason::Assembly, 2)]);
+    let text = no_witness(
+        Ending::RejectedOut,
+        &rejected,
+        Budget::Cases(10),
+        &CaseOptions::default(),
+        3,
+    )
+    .statement;
+    assert!(
+        text.contains("rejection cap of 3 rejected cases (1 print, 2 assembly)"),
+        "{text}"
+    );
+}
+
+#[test]
+fn the_case_sequence_digest_pins_the_proposed_values() {
+    let digest = |start: i64, cases: u64| {
+        let mut runner = Scripted::new(|_| run(OutcomeClass::Miss, 1), |_| unreachable!());
+        run_loop(
+            &mut runner,
+            &mut counter_schedule(1, start),
+            &settings(1),
+            Budget::Cases(cases),
+            None,
+        )
+        .totals
+        .case_sequence_digest
+    };
+    assert_eq!(digest(1, 5), digest(1, 5));
+    assert_ne!(digest(1, 5), digest(2, 5));
+    assert_ne!(digest(1, 5), digest(1, 4));
+    assert_eq!(digest(1, 0), crate::report::digest_hex(b""));
+}
+
+#[test]
+fn a_state_the_backend_refuses_is_recognized_on_either_side() {
+    use crate::exec::{CaseFailure, CaseResult, FailureCause};
+    let result = |cause| CaseResult {
+        leaves: Vec::new(),
+        work: 0,
+        coverage: None,
+        stack_stops: 0,
+        smt_unknowns: 0,
+        run_allowance_refusals: 0,
+        load_records: Vec::new(),
+        safety_limit_hit: false,
+        failure: Some(CaseFailure {
+            message: "refused".into(),
+            cause,
+        }),
+        run_facts_off_leaves: false,
+    };
+    assert!(super::live::refused(&result(FailureCause::StateRefused)));
+    assert!(!super::live::refused(&result(FailureCause::Other)));
 }

@@ -10,9 +10,9 @@ use super::runner::{CaseRun, CaseRunner, HitDetail};
 use crate::{
     assemble::ProgramAssembly,
     error::{CampaignError, SortRefusal},
-    exec::{Abort, CaseRequestShape, CaseResult, Executor, OutcomeClass, TargetNeeds},
+    exec::{self, Abort, CaseRequestShape, CaseResult, Executor, OutcomeClass, TargetNeeds},
     holes::{self, InstantiatedProgram, PrintedValue, ResolvedHoles, RoundTripCheck},
-    report::{DefinitionRole, HoleValue, RejectionReason, WitnessSide},
+    report::{DefinitionRole, HoleValue, KillKind, Reaching, RejectionReason, WitnessSide},
     spec::{BackendRoute, CampaignSpec, CompiledDefinition, PathMode, ProgramInput},
     target::{HitSite, ResolvedTarget, TargetKind, differential},
     values::{self, Value, print},
@@ -76,10 +76,23 @@ impl Side {
         program: &ProgramInput,
         values: &[Value],
     ) -> Result<Prepared, RejectionReason> {
+        self.prepare_checked(program, values, true)
+    }
+
+    /// [`Self::prepare`], with the constraint check optional: an anchor may lie outside its
+    /// hole's constraints, which narrow what is generated, and still identify the grammar.
+    fn prepare_checked(
+        &self,
+        program: &ProgramInput,
+        values: &[Value],
+        check_constraints: bool,
+    ) -> Result<Prepared, RejectionReason> {
         let mut printed = Vec::with_capacity(values.len());
         for (hole, value) in self.holes.holes.iter().zip(values) {
-            values::check_constraints(value, &hole.sort, &hole.decl.constraints)
-                .map_err(|_| RejectionReason::Constraint)?;
+            if check_constraints {
+                values::check_constraints(value, &hole.sort, &hole.decl.constraints)
+                    .map_err(|_| RejectionReason::Constraint)?;
+            }
             let k_text =
                 print::print_k_text(value, &hole.sort).map_err(|_| RejectionReason::Print)?;
             let kore = print::to_kore(value, &hole.sort).map_err(|_| RejectionReason::Print)?;
@@ -162,20 +175,23 @@ impl LiveCases {
         })
     }
 
-    /// The baseline configuration with every hole at its anchor, when every hole has one.
-    pub(crate) fn anchor_configuration(&self) -> Option<Result<KorePattern, RejectionReason>> {
-        let anchors: Option<Vec<Value>> = self
-            .baseline
-            .holes
-            .holes
-            .iter()
-            .map(|hole| hole.anchor.clone())
-            .collect();
-        anchors.map(|values| {
-            self.baseline
-                .prepare(&self.spec.program, &values)
-                .map(|prepared| prepared.assembled)
-        })
+    /// Each side's initial configuration for `values` (the baseline, then the mutant of a
+    /// differential campaign), without the constraint check; `Err` for a side that refuses them.
+    pub(crate) fn initial_configurations(
+        &self,
+        values: &[Value],
+    ) -> Vec<Result<KorePattern, RejectionReason>> {
+        let mut sides = vec![&self.baseline];
+        if let Judge::Differential(mutant) = &self.judge {
+            sides.push(mutant);
+        }
+        sides
+            .into_iter()
+            .map(|side| {
+                side.prepare_checked(&self.spec.program, values, false)
+                    .map(|prepared| prepared.assembled)
+            })
+            .collect()
     }
 
     fn hole_values(&self, values: &[Value], printed: &[PrintedValue]) -> Vec<HoleValue> {
@@ -194,16 +210,19 @@ impl LiveCases {
             .collect()
     }
 
+    /// The `krun` command line equivalent to a case of this campaign, or `None` when no `krun`
+    /// run is: a differential pair, the `from-definition` route, a KORE template, or a program
+    /// without `$PGM` (krun would read `$PGM` from its standard input).
     fn krun_command(&self, instantiated: &InstantiatedProgram) -> Option<String> {
-        if matches!(self.judge, Judge::Differential(_)) {
+        let Judge::Target(target) = &self.judge else {
             return None;
-        }
+        };
         let definition = &self.spec.definitions.baseline;
         if definition.route == BackendRoute::FromDefinition {
             return None;
         }
         let InstantiatedProgram::Source {
-            program,
+            program: Some(program),
             config_vars,
         } = instantiated
         else {
@@ -215,9 +234,7 @@ impl LiveCases {
             quote(&definition.main_module),
             quote(&definition.syntax_module)
         );
-        if let Some(program) = program {
-            write!(line, " -s {}", quote(&program.start_sort)).expect("writing to a String");
-        }
+        write!(line, " -s {}", quote(&program.start_sort)).expect("writing to a String");
         line.push_str(" --io off --strategy ");
         line.push_str(match options.paths {
             PathMode::OnePath => "any",
@@ -225,6 +242,10 @@ impl LiveCases {
         });
         if let Some(depth) = options.max_depth {
             write!(line, " --depth {depth}").expect("writing to a String");
+        }
+        // A `fired` target under one path stops at its rule (FZ-05, D16); so must krun.
+        for rule in target.needs(options.paths).terminal_rules {
+            write!(line, " --terminal-rule {}", quote(&rule)).expect("writing to a String");
         }
         write!(
             line,
@@ -237,9 +258,8 @@ impl LiveCases {
         for (name, value) in config_vars {
             write!(line, " -c {}", quote(&format!("{name}={value}"))).expect("writing to a String");
         }
-        if let Some(program) = program {
-            write!(line, " -e {}", quote(&program.text)).expect("writing to a String");
-        }
+        // `--io off` buffers standard input into `$STDIN`; the campaign binds it empty.
+        write!(line, " -e {} < /dev/null", quote(&program.text)).expect("writing to a String");
         if let Some(work) = options.effective_max_work() {
             write!(
                 line,
@@ -263,11 +283,12 @@ impl LiveCases {
             unreachable!("run_target is called for rule and pattern targets")
         };
         let side = &mut self.baseline;
-        let result =
-            side.executor
-                .run(&prepared.assembled, &side.shape, &target.matchers(), cancel)?;
+        // `run_and_judge` is `run` then `judge` for rule and pattern targets; an observer target
+        // also walks its observer over the observed run (FZ-10).
+        let (result, judged) =
+            target.run_and_judge(&mut side.executor, &prepared.assembled, &side.shape, cancel)?;
         let mut run = run_of(&result, &[&result]);
-        match target.judge(&result) {
+        match judged {
             Ok(judgement) => {
                 run.class = judgement.class;
                 run.blocked = judgement.blocked;
@@ -278,8 +299,9 @@ impl LiveCases {
                         Some(HitSite::Leaf(index)) => result
                             .leaves
                             .get(index)
-                            .map(|leaf| (Some(leaf.depth), leaf.state.to_string())),
+                            .map(|leaf| (Some(index), Some(leaf.depth), leaf.state.to_string())),
                         Some(HitSite::Run) => Some((
+                            None,
                             None,
                             result
                                 .leaves
@@ -290,10 +312,15 @@ impl LiveCases {
                         )),
                         None => None,
                     };
-                    if let Some((steps, reaching_state)) = reached {
+                    if let Some((leaf, steps, reaching_state)) = reached {
                         run.hit = Some(HitDetail {
                             holes: self.hole_values(values, &prepared.printed),
                             sides: vec![side_of(DefinitionRole::Baseline, &prepared, &result)],
+                            reaching: Reaching {
+                                role: DefinitionRole::Baseline,
+                                leaf: leaf.map(index_u64),
+                            },
+                            kill: None,
                             steps,
                             reaching_state,
                             krun_command: self.krun_command(&prepared.instantiated),
@@ -340,6 +367,13 @@ impl LiveCases {
             .executor
             .run(&mutant_case.assembled, &mutant.shape, &[], cancel)?;
         let mut run = run_of(&mutated, &[&baseline, &mutated]);
+        // A value either side's backend refuses makes the case `rejected` (ARCHITECTURE 4.3,
+        // 5.3), before the pair is judged: a refused baseline is not an incomplete one.
+        if refused(&baseline) || refused(&mutated) {
+            run.class = OutcomeClass::Rejected;
+            run.rejection = Some(RejectionReason::BackendRefused);
+            return Ok(run);
+        }
         match differential::judge_pair(
             &baseline,
             &mutated,
@@ -350,36 +384,31 @@ impl LiveCases {
                 run.class = judgement.class;
                 if judgement.class == OutcomeClass::Hit {
                     // An added end: the killing mutant leaf. A removed end (all-paths mode): the
-                    // baseline leaf the mutant cannot reach; the mutant side then lists every
-                    // mutant leaf, its complete set of ends.
+                    // baseline end the mutant cannot reach. Both sides list every leaf.
                     let witness = match (judgement.killing_leaf, judgement.removed_end) {
                         (Some(index), _) => mutated
                             .leaves
                             .get(index)
-                            .map(|leaf| (leaf, vec![leaf.state.to_string()])),
+                            .map(|leaf| (KillKind::AddedEnd, DefinitionRole::Mutant, index, leaf)),
                         (None, Some(index)) => baseline.leaves.get(index).map(|leaf| {
-                            let ends = mutated
-                                .leaves
-                                .iter()
-                                .map(|leaf| leaf.state.to_string())
-                                .collect();
-                            (leaf, ends)
+                            (KillKind::RemovedEnd, DefinitionRole::Baseline, index, leaf)
                         }),
                         (None, None) => None,
                     };
                     match witness {
-                        Some((leaf, mutant_ends)) => {
+                        Some((kind, role, index, leaf)) => {
                             let holes = self.hole_values(values, &baseline_case.printed);
                             run.hit = Some(HitDetail {
                                 holes,
                                 sides: vec![
                                     side_of(DefinitionRole::Baseline, &baseline_case, &baseline),
-                                    WitnessSide {
-                                        role: DefinitionRole::Mutant,
-                                        initial_configuration: mutant_case.assembled.to_string(),
-                                        final_configurations: mutant_ends,
-                                    },
+                                    side_of(DefinitionRole::Mutant, &mutant_case, &mutated),
                                 ],
+                                reaching: Reaching {
+                                    role,
+                                    leaf: Some(index_u64(index)),
+                                },
+                                kill: Some(kind),
                                 steps: Some(leaf.depth),
                                 reaching_state: leaf.state.to_string(),
                                 krun_command: None,
@@ -435,6 +464,19 @@ fn run_of(covered: &CaseResult, sides: &[&CaseResult]) -> CaseRun {
         defects: Vec::new(),
         hit: None,
     }
+}
+
+/// Whether the backend refused `result`'s initial state: an `Err` for a refused state, or every
+/// leaf `vacuous` at depth 0, which classification makes `rejected`.
+pub(crate) fn refused(result: &CaseResult) -> bool {
+    matches!(
+        exec::classify(result, &vec![false; result.leaves.len()], false),
+        Ok(OutcomeClass::Rejected)
+    )
+}
+
+fn index_u64(index: usize) -> u64 {
+    u64::try_from(index).expect("a leaf index fits in u64")
 }
 
 fn side_of(role: DefinitionRole, prepared: &Prepared, result: &CaseResult) -> WitnessSide {
