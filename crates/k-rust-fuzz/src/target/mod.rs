@@ -7,6 +7,8 @@
 //! property failure (ARCHITECTURE 4).
 
 pub(crate) mod differential;
+#[cfg(test)]
+mod fixture_tests;
 mod rule;
 #[cfg(test)]
 mod tests;
