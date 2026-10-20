@@ -17,7 +17,9 @@
 //!
 //! An identifier is a digest of the sentence's text in the identifier format of K's `kompile`, so
 //! that a definition compiled by either compiler names a sentence alike; the comments below that
-//! describe the hashed text describe that format.
+//! describe the hashed text describe that format. Terms are written in the identifier layout
+//! (`Printer::print_identifier_term`), which is fixed apart from the readable KAST layout, so that
+//! making printed KAST easier to read back does not rename sentences.
 #![deny(clippy::wildcard_enum_match_arm)]
 
 use std::{collections::BTreeMap, convert::Infallible, fmt::Write};
@@ -28,7 +30,7 @@ use sha3::{Digest, Sha3_256};
 use crate::definition::AttributeKey;
 use crate::{
     definition::{Attributes, Definition, Sentence},
-    kast::{Term, binding},
+    kast::{Term, binding, printer::Printer},
 };
 
 const PRESERVED_ATTRIBUTES: [AttributeKey; 7] = [
@@ -125,7 +127,8 @@ pub(crate) fn unique_id_text(sentence: &Sentence, attributes: &Attributes) -> St
             ensures,
             ..
         } => {
-            let [body, requires, ensures] = normalize_rule_variables(body, requires, ensures);
+            let [body, requires, ensures] = normalize_rule_variables(body, requires, ensures)
+                .map(|term| Printer::new().print_identifier_term(&term));
             format!(
                 "rule {body} requires {requires} ensures {ensures} {}",
                 format_attributes(attributes)
@@ -138,10 +141,14 @@ pub(crate) fn unique_id_text(sentence: &Sentence, attributes: &Attributes) -> St
             requires,
             ensures,
             ..
-        } => format!(
-            "claim {body} requires {requires} ensures {ensures} {}",
-            format_attributes(attributes)
-        ),
+        } => {
+            let [body, requires, ensures] =
+                [body, requires, ensures].map(|term| Printer::new().print_identifier_term(term));
+            format!(
+                "claim {body} requires {requires} ensures {ensures} {}",
+                format_attributes(attributes)
+            )
+        }
         Sentence::SyntaxSort { .. }
         | Sentence::SortSynonym { .. }
         | Sentence::SyntaxLexical { .. }
@@ -384,6 +391,28 @@ mod tests {
             ))
         };
         assert_eq!(text(&nested("X")), text(&nested("Z")));
+    }
+
+    /// The hashed text writes a rewrite between sequences in the identifier layout, without the
+    /// groups the readable KAST layout puts around a sequence operand, so a rule's identifier
+    /// does not depend on how readable KAST is laid out.
+    #[test]
+    fn unique_id_text_writes_sequence_rewrites_in_the_identifier_layout() {
+        let item = |name: &str| Term::apply(name, Vec::new());
+        let sentence = Sentence::Rule {
+            body: Term::Rewrite {
+                left: Box::new(Term::Sequence(vec![item("a"), Term::variable("K")])),
+                right: Box::new(Term::Sequence(vec![item("b"), Term::variable("K")])),
+            },
+            requires: truth(),
+            ensures: truth(),
+            attributes: Attributes::default(),
+        };
+        assert_eq!(
+            unique_id_text(&sentence, &Attributes::default()),
+            "rule a(.KList)~>_0=>b(.KList)~>_0 requires #token(\"true\",\"Bool\") ensures \
+             #token(\"true\",\"Bool\") "
+        );
     }
 
     #[test]
