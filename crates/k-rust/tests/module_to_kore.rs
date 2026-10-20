@@ -1498,6 +1498,94 @@ module_snapshot!(
     "MAIN"
 );
 
+/// An application is impure exactly when evaluating it may perform an effect: when a rule that
+/// evaluation can apply to it (a function, anywhere or simplification rule, or a macro's own
+/// rule, which expansion applies before evaluation) applies an impure label in its right side,
+/// `requires` or `ensures`. `eff` is declared `impure`; `viaAny` reaches it through an anywhere
+/// rule and `fa` and `callsFa` through `viaAny`; `viaEns` through its `ensures`; `simp` through a
+/// simplification; `m` is a macro whose right side applies it; `fu` calls `myRead`, which is hooked
+/// to a console read (`IO.getc`) without being declared `impure`. `clean` and `callsClean` reach
+/// no impure label, nor does `pure`, whose simplification restates a value, nor `lhsS`, whose
+/// simplification applies `eff` only on its left side, where it is matched, not evaluated.
+#[test]
+fn impure_attribute_closes_over_every_rule_evaluation_applies() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= "done" [symbol(done)]
+          syntax Exp ::= "eff(" Exp ")" [function, impure, symbol(eff)]
+          syntax Bool ::= "isDone(" Exp ")" [function, symbol(isDone)]
+          syntax Exp ::= "viaAny(" Exp ")" [symbol(viaAny)]
+          syntax Exp ::= "fa" [function, symbol(fa)]
+          syntax Exp ::= "callsFa" [function, symbol(callsFa)]
+          syntax Exp ::= "viaEns(" Exp ")" [function, symbol(viaEns)]
+          syntax Exp ::= "simp(" Exp ")" [function, symbol(simp)]
+          syntax Exp ::= "m(" Exp ")" [macro, symbol(m)]
+          syntax Exp ::= "clean(" Exp ")" [symbol(clean)]
+          syntax Exp ::= "callsClean" [function, symbol(callsClean)]
+          syntax Exp ::= "pure(" Exp ")" [function, symbol(pure)]
+          syntax Exp ::= "myRead(" Exp ")" [function, hook(IO.getc), symbol(myRead)]
+          syntax Exp ::= "fu" [function, symbol(fu)]
+          syntax Exp ::= "lhsS(" Exp ")" [function, symbol(lhsS)]
+
+          rule eff(X:Exp) => X:Exp
+          rule viaAny(X:Exp) => eff(X:Exp) [anywhere]
+          rule fa => viaAny(done)
+          rule callsFa => fa
+          rule viaEns(X:Exp) => X:Exp ensures isDone(eff(X:Exp))
+          rule simp(X:Exp) => eff(X:Exp) [simplification]
+          rule m(X:Exp) => eff(X:Exp)
+          rule clean(X:Exp) => X:Exp [anywhere]
+          rule callsClean => clean(done)
+          rule pure(X:Exp) => X:Exp [simplification]
+          rule fu => myRead(done)
+          rule lhsS(X:Exp) => X:Exp
+          rule lhsS(eff(X:Exp)) => X:Exp [simplification]
+        endmodule
+    "#};
+    let modules = module_to_kore(&rules(source, "MAIN"), "MAIN").expect("KORE modules should emit");
+    let impure = |module: &k_rust::kore::ast::Module, symbol: &str| {
+        module
+            .sentences
+            .iter()
+            .find_map(|sentence| match sentence {
+                Sentence::SymbolDeclaration {
+                    symbol: declared,
+                    attributes,
+                    ..
+                } if declared.name == symbol => Some(attributes.0.iter().any(|attribute| {
+                    matches!(attribute, Pattern::Application { symbol, .. } if symbol.name == "impure")
+                })),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("{symbol} should be declared"))
+    };
+    for module in [&modules.semantics, &modules.syntax] {
+        for symbol in [
+            "Lbleff",
+            "LblviaAny",
+            "Lblfa",
+            "LblcallsFa",
+            "LblviaEns",
+            "Lblsimp",
+            "Lblm",
+            "LblmyRead",
+            "Lblfu",
+        ] {
+            assert!(impure(module, symbol), "{symbol} in {}", module.name);
+        }
+        for symbol in [
+            "Lbldone",
+            "Lblclean",
+            "LblcallsClean",
+            "Lblpure",
+            "LblisDone",
+            "LbllhsS",
+        ] {
+            assert!(!impure(module, symbol), "{symbol} in {}", module.name);
+        }
+    }
+}
+
 /// `injective` is an axiom of the emitted theory, so it is declared only for productions whose
 /// equations cannot identify two applications with different arguments.
 #[test]
