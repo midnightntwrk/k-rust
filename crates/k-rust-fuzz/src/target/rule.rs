@@ -15,7 +15,7 @@ use k_rust::backend::{CompiledRuleKind, CompiledRuleOutput, RunCoverageOutput};
 use super::{RuleMode, RuleRef};
 use crate::{
     error::TargetProblem,
-    exec::{CaseResult, TargetNeeds},
+    exec::{self, CaseResult, TargetNeeds},
 };
 
 /// Resolve `rule` to the unique id of one catalog entry, refusing the entries whose coverage may
@@ -186,6 +186,15 @@ pub(crate) fn rule_needs(id: &str, mode: RuleMode, run_to_completion: bool) -> T
 ///   leaves that do not qualify do, which is "reached on a leaf that cannot carry a hit" for
 ///   [`crate::exec::classify`] and never a hit.
 ///
+/// A `work-bound`, `timeout` or `cancelled` leaf is never marked from coverage, in any mode
+/// (`classify`'s cut-leaf contract, review 2 S1). Its state is the stopped, unnormalised state
+/// the worklist held, and the step that built it is in coverage although its result may
+/// normalize to `\bottom`: that step reached no configuration. Such a leaf reaches only when
+/// its [`crate::exec::LeafReport::rewrites`], which leave that step out, hold the rule. A step
+/// that applied the rule entered its condition, so this also stands for `matched`. Without
+/// traces (the coverage modes ask for none) the list is empty, and the leaf takes its halt's
+/// class.
+///
 /// Whether the leaf is clean is not decided here: a reaching leaf that is not clean is
 /// classified, never a hit (ARCHITECTURE 5.3).
 pub(crate) fn rule_reached(
@@ -207,11 +216,13 @@ pub(crate) fn rule_reached(
             .map(|leaf| leaf.rewrites.iter().any(|entry| entry == id))
             .collect(),
         RuleMode::Covered => run_reached(
+            id,
             covered(|coverage| &coverage.applied),
             run_to_completion,
             result,
         ),
         RuleMode::ConditionReached => run_reached(
+            id,
             covered(|coverage| &coverage.matched),
             run_to_completion,
             result,
@@ -219,25 +230,37 @@ pub(crate) fn rule_reached(
     }
 }
 
-/// The per-leaf reach of a run-level fact `holds` (ARCHITECTURE 5.3, D13); see
-/// [`rule_reached`].
-fn run_reached(holds: bool, run_to_completion: bool, result: &CaseResult) -> Vec<bool> {
-    if !holds {
-        return vec![false; result.leaves.len()];
-    }
-    if result.leaves.len() <= 1 {
-        return vec![true; result.leaves.len()];
-    }
-    let qualifies: Vec<bool> = result
+/// The per-leaf reach of a run-level fact `holds` about the rule `id` (ARCHITECTURE 5.3, D13);
+/// see [`rule_reached`], which also states why a stopped leaf reaches only from its rewrites.
+fn run_reached(id: &str, holds: bool, run_to_completion: bool, result: &CaseResult) -> Vec<bool> {
+    let from_coverage = if !holds {
+        vec![false; result.leaves.len()]
+    } else if result.leaves.len() <= 1 {
+        vec![true; result.leaves.len()]
+    } else {
+        let qualifies: Vec<bool> = result
+            .leaves
+            .iter()
+            .map(|leaf| leaf.is_clean() && (!run_to_completion || leaf.natural_end))
+            .collect();
+        if qualifies.iter().all(|qualifies| *qualifies) {
+            qualifies
+        } else {
+            qualifies.into_iter().map(|qualifies| !qualifies).collect()
+        }
+    };
+    result
         .leaves
         .iter()
-        .map(|leaf| leaf.is_clean() && (!run_to_completion || leaf.natural_end))
-        .collect();
-    if qualifies.iter().all(|qualifies| *qualifies) {
-        qualifies
-    } else {
-        qualifies.into_iter().map(|qualifies| !qualifies).collect()
-    }
+        .zip(from_coverage)
+        .map(|(leaf, from_coverage)| {
+            if exec::stopped_state(leaf.halt) {
+                leaf.rewrites.iter().any(|entry| entry == id)
+            } else {
+                from_coverage
+            }
+        })
+        .collect()
 }
 
 /// The rule's condition was entered and it built no successor: in coverage `matched`, not in

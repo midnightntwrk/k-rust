@@ -619,6 +619,79 @@ fn a_coverage_hit_needs_every_run_fact_on_a_leaf() {
 }
 
 #[test]
+fn a_stopped_leaf_reaches_a_coverage_target_only_from_its_rewrites() {
+    // The step that built a work-bound, timeout or cancelled leaf's state is in coverage, but
+    // that state is not a reached configuration (classify's cut-leaf contract, review 2 S1).
+    for halt in [
+        HaltReasonOutput::WorkBound,
+        HaltReasonOutput::Timeout,
+        HaltReasonOutput::Cancelled,
+    ] {
+        let stopped = leaf(halt, vec![UncleanReason::Halt], false);
+        let halt_class = if halt == HaltReasonOutput::WorkBound {
+            OutcomeClass::WorkBound
+        } else {
+            OutcomeClass::Timeout
+        };
+        // One leaf: coverage alone does not mark it, so it takes its halt's class.
+        let alone = case(vec![stopped.clone()], &["id-div"], &["id-div"]);
+        for mode in [RuleMode::Covered, RuleMode::ConditionReached] {
+            for run_to_completion in [false, true] {
+                assert_eq!(
+                    rule_reached("id-div", mode, run_to_completion, &alone),
+                    [false],
+                    "{halt:?} {mode:?}"
+                );
+                let judgement = judge(&rule_target("id-div", mode, run_to_completion), &alone);
+                assert_eq!(judgement.class, halt_class, "{halt:?} {mode:?}");
+            }
+        }
+        // Several leaves, one of them stopped: the stopped leaf is not marked either, and no
+        // clean leaf carries the run's fact.
+        let mixed = case(
+            vec![natural_end(), stopped.clone()],
+            &["id-div"],
+            &["id-div"],
+        );
+        for mode in [RuleMode::Covered, RuleMode::ConditionReached] {
+            assert_eq!(
+                rule_reached("id-div", mode, false, &mixed),
+                [false, false],
+                "{halt:?} {mode:?}"
+            );
+            let judgement = judge(&rule_target("id-div", mode, false), &mixed);
+            assert_eq!(judgement.class, halt_class, "{halt:?} {mode:?}");
+        }
+        // An established step of the rule (the trace's last entry is already left out) marks
+        // the leaf in both coverage modes, so it is `reached-unfinished` under
+        // run-to-completion.
+        let mut traced = stopped.clone();
+        traced.rewrites = vec!["id-div".to_owned()];
+        let established = case(vec![traced], &["id-div"], &["id-div"]);
+        for mode in [RuleMode::Covered, RuleMode::ConditionReached] {
+            assert_eq!(rule_reached("id-div", mode, true, &established), [true]);
+            let judgement = judge(&rule_target("id-div", mode, true), &established);
+            assert_eq!(
+                judgement.class,
+                OutcomeClass::ReachedUnfinished,
+                "{halt:?} {mode:?}"
+            );
+        }
+    }
+    // A depth-bound leaf holds a normalized state, so coverage still marks it.
+    let bounded = leaf(
+        HaltReasonOutput::DepthBound,
+        vec![UncleanReason::Halt],
+        false,
+    );
+    let one = case(vec![bounded], &["id-div"], &["id-div"]);
+    assert_eq!(
+        rule_reached("id-div", RuleMode::Covered, true, &one),
+        [true]
+    );
+}
+
+#[test]
 fn a_relative_source_names_its_own_file_and_an_absolute_one_falls_back_to_a_suffix() {
     let at = |id: &str, source: &str, line: u32| {
         let mut entry = entry(id, Some(id), CompiledRuleKind::Rewrite, line);

@@ -530,6 +530,16 @@ impl CaseRequestShape {
     }
 }
 
+/// Whether a leaf with `halt` holds the stopped, unnormalised state the worklist held rather
+/// than a reached configuration: `work-bound`, `timeout` and `cancelled` (review 2, S1). A
+/// judge may mark such a leaf reaching only from its [`LeafReport::rewrites`] ([`classify`]).
+pub(crate) fn stopped_state(halt: HaltReasonOutput) -> bool {
+    matches!(
+        halt,
+        HaltReasonOutput::WorkBound | HaltReasonOutput::Timeout | HaltReasonOutput::Cancelled
+    )
+}
+
 /// Class `result` (ARCHITECTURE 5.3, D13; the rules are in the [`OutcomeClass`] rustdoc).
 ///
 /// `reached[i]` says whether leaf `i` reaches the target, as the target judge decided
