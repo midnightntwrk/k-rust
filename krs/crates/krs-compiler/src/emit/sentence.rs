@@ -566,6 +566,7 @@ fn emit_fixed_configuration(
             writer.record(origin.key(), start, writer.source.len())?;
         }
     }
+    record_configuration_variables(configuration, writer)?;
     writer.record(
         configuration.initializer_origin().key(),
         writer.source.len(),
@@ -715,23 +716,78 @@ fn emit_initializer_term(
         DefinitionTermKind::KSequence { items, .. } if items.len() == 1 => (&items[0], Some(term)),
         _ => (term, None),
     };
-    if let DefinitionTermKind::Variable { variable } = term.kind()
-        && let Some(declaration) = variables.iter().find(|value| value.id() == variable)
+    let start = writer.source.len();
+    writer.append_rendered(render_term(term, context, names, false)?)?;
+    if let Some(sequence) = sequence_origin
+        && let DefinitionTermKind::Variable { variable } = term.kind()
+        && variables.iter().any(|value| value.id() == variable)
     {
-        let start = writer.source.len();
-        writer.push("$");
-        writer.push(declaration.external_name());
-        writer.push(":");
-        writer.push(&context.sort_name_ref(term.sort())?);
-        writer.record(term.origin().key(), start, writer.source.len())?;
-        writer.record(declaration.origin().key(), start, writer.source.len())?;
-        if let Some(sequence) = sequence_origin {
-            writer.record(sequence.origin().key(), start, writer.source.len())?;
-        }
-    } else {
-        writer.append_rendered(render_term(term, context, names, false)?)?;
+        writer.record(sequence.origin().key(), start, writer.source.len())?;
     }
     Ok(())
+}
+
+/// Maps each configuration variable's declaration to its first `$NAME`
+/// occurrence in the emitted initializer.
+///
+/// A configuration variable may occur anywhere in an initial term and more
+/// than once, as in `regs: k::map![A -> a, B -> b]` or two cells both
+/// starting from `a`, so its declaration takes the range of the occurrence
+/// that comes first in the emitted text.
+fn record_configuration_variables(
+    configuration: &FixedConfiguration<DefinitionSortRef, SymbolId, DefinitionTerm>,
+    writer: &mut Writer,
+) -> Result<(), EmitError> {
+    for declaration in configuration.variables() {
+        let mut occurrences = Vec::new();
+        initializer_occurrences(
+            configuration.initializer(),
+            declaration.id(),
+            &mut occurrences,
+        );
+        let first = occurrences
+            .into_iter()
+            .filter_map(|term| writer.ranges.get(term.origin().key()).copied())
+            .min_by_key(|range| range.start());
+        if let Some(range) = first {
+            writer.record(declaration.origin().key(), range.start(), range.end())?;
+        }
+    }
+    Ok(())
+}
+
+fn initializer_occurrences<'a>(
+    cells: &'a [FixedInitializerCell<SymbolId, DefinitionTerm>],
+    variable: &SemanticId,
+    occurrences: &mut Vec<&'a DefinitionTerm>,
+) {
+    for cell in cells {
+        match cell.content() {
+            FixedInitializerContent::Term { term } => {
+                term_occurrences(term, variable, occurrences);
+            }
+            FixedInitializerContent::Children { children } => {
+                initializer_occurrences(children, variable, occurrences);
+            }
+        }
+    }
+}
+
+fn term_occurrences<'a>(
+    term: &'a DefinitionTerm,
+    variable: &SemanticId,
+    occurrences: &mut Vec<&'a DefinitionTerm>,
+) {
+    if let DefinitionTermKind::Variable {
+        variable: occurrence,
+    } = term.kind()
+        && occurrence == variable
+    {
+        occurrences.push(term);
+    }
+    for child in term.children() {
+        term_occurrences(child, variable, occurrences);
+    }
 }
 
 fn emit_rule(

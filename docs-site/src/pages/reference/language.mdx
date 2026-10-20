@@ -57,6 +57,7 @@ Colours belong to terminals: `color = "magenta"` paints every terminal, and `col
 `#[k::function(total, memo, ...)]` gives a function K's `memo` hint, written as a bare flag after the totality in both layers: the Haskell backend may cache its results, while the LLVM backend and k-rust accept the hint and ignore it, so results never depend on it.
 `#[k::function(total, fresh_generator, ...)]` makes a total function of one Int field K's `freshGenerator` of its result sort, the function a [fresh binder](#fresh-values) of that sort draws from.
 Initializer parameters may use `#[k::config_var(name = "PGM", main)]`.
+A configuration variable is a value supplied at start, so the initializer may read it anywhere and more than once, as in `regs: k::map![Reg::A -> a, Reg::B -> b]`; each read is K's `$NAME:Sort`.
 Readable rule clauses can carry `#[k::rule(owise, label = "...")]` when they are an explicit fallback.
 
 `#[k::requires]` guards rules, equations, and claims with an object-language Bool as allowed by the containing sentence.
