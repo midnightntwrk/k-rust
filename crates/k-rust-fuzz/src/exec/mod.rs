@@ -26,7 +26,7 @@ use k_rust::{
 };
 use serde::{Deserialize, Serialize};
 
-pub(crate) use run::{Executor, LeafMatcher};
+pub(crate) use run::{CompiledPattern, Executor, LeafMatcher, NormalEnd, PatternCompiler};
 
 use crate::{
     report::{EngineDefect, LoadRecord},

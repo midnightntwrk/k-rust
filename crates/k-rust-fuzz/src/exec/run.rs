@@ -132,6 +132,9 @@ pub(crate) struct NormalEnd {
 /// configuration's cells, and every operation that matches it passes its KORE form to
 /// `Backend::with_solver_over`, so the operation's stack is measured for it too.
 pub(crate) struct LeafMatcher {
+    /// The backend-independent compiled pattern this matcher was prepared from, which another
+    /// backend of the same definition can prepare again ([`Self::compiled`]).
+    compiled: CompiledPattern,
     /// The compiled KORE pattern, for the depth `with_solver_over` measures.
     kore: KorePattern,
     /// The prepared internal target.
@@ -157,9 +160,8 @@ impl LeafMatcher {
         Self::compile_with(executor, assembly.grammar(), definition, pattern)
     }
 
-    /// [`Self::compile`] with the program grammar given directly. The executor resolves the
-    /// execution definition on its first compilation if it was built from a compiled
-    /// normal-end pattern.
+    /// [`Self::compile`] with the program grammar given directly: [`Executor::compile_pattern`],
+    /// then [`Self::prepare`].
     ///
     /// # Errors
     ///
@@ -170,15 +172,7 @@ impl LeafMatcher {
         definition: &CompiledDefinition,
         pattern: &str,
     ) -> Result<Self, String> {
-        if executor.compiler.is_none() {
-            executor.compiler =
-                Some(PatternCompiler::new(definition).map_err(|error| error.to_string())?);
-        }
-        let compiled = executor
-            .compiler
-            .as_ref()
-            .expect("the compiler was just built")
-            .compile(grammar, pattern)?;
+        let compiled = executor.compile_pattern(grammar, definition, pattern)?;
         Self::prepare(executor, &compiled)
     }
 
@@ -192,6 +186,11 @@ impl LeafMatcher {
         pattern: &CompiledPattern,
     ) -> Result<Self, String> {
         prepare_matcher(&mut executor.backend, pattern)
+    }
+
+    /// The backend-independent compiled pattern this matcher was prepared from.
+    pub(crate) fn compiled(&self) -> &CompiledPattern {
+        &self.compiled
     }
 }
 
@@ -237,6 +236,7 @@ fn prepare_matcher(
         })
         .map_err(|error| error.to_string())?;
     Ok(LeafMatcher {
+        compiled: pattern.clone(),
         kore,
         target,
         mode_independent,
@@ -259,8 +259,8 @@ pub(crate) struct Executor {
     normal_end: LeafMatcher,
     /// The normal-termination pattern is the default `<k> .K </k>`.
     default_normal_end: bool,
-    /// The pattern compiler, built on the first [`LeafMatcher::compile_with`] when the executor
-    /// was built from a compiled normal-end pattern.
+    /// The pattern compiler, built on the first [`Self::compile_pattern`] when the executor was
+    /// built from a compiled normal-end pattern without one.
     compiler: Option<PatternCompiler>,
     max_simplification_iterations: usize,
     /// Stops for lack of stack in the definition's load (ARCHITECTURE 5.4).
@@ -304,9 +304,38 @@ impl Executor {
     ) -> Result<Self, CampaignError> {
         let compiler = PatternCompiler::new(definition)?;
         let normal_end = compiler.normal_end(grammar, options)?;
-        let mut executor = Self::with_normal_end(backend, &normal_end, options)?;
-        executor.compiler = Some(compiler);
-        Ok(executor)
+        Ok(Self::with_normal_end(backend, &normal_end, options)?.with_compiler(compiler))
+    }
+
+    /// This executor, with `compiler` (built for its definition) as the compiler of
+    /// [`Self::compile_pattern`], so that the execution definition is not resolved again.
+    #[must_use]
+    pub(crate) fn with_compiler(mut self, compiler: PatternCompiler) -> Self {
+        self.compiler = Some(compiler);
+        self
+    }
+
+    /// Compile `pattern` (krun's `--pattern` surface syntax, `requires` allowed) with the program
+    /// grammar `grammar`, backend-independently ([`PatternCompiler::compile`]). An executor built
+    /// without a compiler resolves `definition`'s execution definition on its first call.
+    ///
+    /// # Errors
+    ///
+    /// The compiler's message.
+    pub(crate) fn compile_pattern(
+        &mut self,
+        grammar: &ProgramGrammar,
+        definition: &CompiledDefinition,
+        pattern: &str,
+    ) -> Result<CompiledPattern, String> {
+        if self.compiler.is_none() {
+            self.compiler =
+                Some(PatternCompiler::new(definition).map_err(|error| error.to_string())?);
+        }
+        self.compiler
+            .as_ref()
+            .expect("the compiler was just built")
+            .compile(grammar, pattern)
     }
 
     /// An executor over a backend the caller built on the definition's route, with the

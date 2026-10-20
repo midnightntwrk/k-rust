@@ -15,9 +15,12 @@ use k_rust::{
 
 use super::runner::{CaseRun, CaseRunner, HitDetail};
 use crate::{
-    assemble::ProgramAssembly,
+    assemble::{ProgramAssembly, build_backend},
     error::{CampaignError, SortRefusal},
-    exec::{self, Abort, CaseRequestShape, CaseResult, Executor, OutcomeClass, TargetNeeds},
+    exec::{
+        self, Abort, CaseRequestShape, CaseResult, CompiledPattern, Executor, NormalEnd,
+        OutcomeClass, PatternCompiler, TargetNeeds,
+    },
     holes::{self, InstantiatedProgram, PrintedValue, ResolvedHoles, RoundTripCheck},
     report::{DefinitionRole, HoleValue, KillKind, Reaching, RejectionReason, WitnessSide},
     spec::{BackendRoute, CampaignSpec, CompiledDefinition, PathMode, ProgramInput},
@@ -31,17 +34,22 @@ pub(crate) struct Side {
     definition: Arc<CompiledDefinition>,
     assembly: ProgramAssembly,
     executor: Executor,
+    /// The normal-termination pattern, compiled once for this definition and prepared on the
+    /// executor's backend.
+    normal_end: NormalEnd,
     pub(crate) holes: ResolvedHoles,
     round_trip: Arc<RoundTripCheck>,
     shape: CaseRequestShape,
 }
 
 /// What a side may reuse from a [`DefinitionCache`]: the internalized definition its fresh
-/// backend copies, and the hole resolution and round-trip positions, which are functions of the
+/// backend copies, the compiled normal-termination pattern, which only needs preparing on that
+/// backend, and the hole resolution and round-trip positions, which are functions of the
 /// grammar, the program and the hole declarations alone.
 #[derive(Clone, Copy, Default)]
 struct Seed<'a> {
     internalized: Option<&'a BackendDefinition>,
+    normal_end: Option<&'a NormalEnd>,
     resolved: Option<(&'a ResolvedHoles, &'a Arc<RoundTripCheck>)>,
 }
 
@@ -53,17 +61,26 @@ impl Side {
         seed: Seed<'_>,
     ) -> Result<Self, CampaignError> {
         let assembly = ProgramAssembly::new(definition)?;
-        let mut executor = match seed.internalized {
+        let backend = match seed.internalized {
             // A fresh backend over a copy of the cached, immutable internalized definition.
             Some(internalized) => {
-                let backend = Backend::from_internalized(
-                    internalized.clone(),
-                    spec.options.backend.options(),
-                )
-                .map_err(CampaignError::from)?;
-                Executor::with_backend(backend, assembly.grammar(), definition, &spec.options)?
+                Backend::from_internalized(internalized.clone(), spec.options.backend.options())
+                    .map_err(CampaignError::from)?
             }
-            None => Executor::new(definition, &assembly, &spec.options)?,
+            None => build_backend(definition, spec.options.backend.options())?,
+        };
+        let (mut executor, normal_end) = match seed.normal_end {
+            Some(normal_end) => (
+                Executor::with_normal_end(backend, normal_end, &spec.options)?,
+                normal_end.clone(),
+            ),
+            None => {
+                let compiler = PatternCompiler::new(definition)?;
+                let normal_end = compiler.normal_end(assembly.grammar(), &spec.options)?;
+                let executor = Executor::with_normal_end(backend, &normal_end, &spec.options)?
+                    .with_compiler(compiler);
+                (executor, normal_end)
+            }
         };
         if let Some((holes, round_trip)) = seed.resolved {
             return Ok(Self {
@@ -71,6 +88,7 @@ impl Side {
                 definition: Arc::clone(definition),
                 assembly,
                 executor,
+                normal_end,
                 holes: holes.clone(),
                 round_trip: Arc::clone(round_trip),
                 shape: CaseRequestShape::new(&spec.options, &TargetNeeds::default()),
@@ -107,6 +125,7 @@ impl Side {
             definition: Arc::clone(definition),
             assembly,
             executor,
+            normal_end,
             holes,
             round_trip,
             shape: CaseRequestShape::new(&spec.options, &TargetNeeds::default()),
@@ -223,11 +242,12 @@ impl LiveCases {
             mutant.shape = CaseRequestShape::new(&spec.options, &plan.mutant);
             Judge::Differential(Box::new(mutant))
         } else {
-            let target = ResolvedTarget::resolve(
+            let target = ResolvedTarget::resolve_with(
                 &spec.target,
                 &mut baseline.executor,
                 &spec.definitions.baseline,
                 &baseline.assembly,
+                cache.map(|cache| cache.target_patterns.as_slice()),
             )?;
             baseline.shape =
                 CaseRequestShape::new(&spec.options, &target.needs(spec.options.paths));
@@ -569,11 +589,15 @@ fn quote(text: &str) -> String {
 }
 
 /// What confirmations reuse (ARCHITECTURE 7): each side's internalized definition, which every
-/// confirmation copies into a fresh backend, and its hole resolution and round-trip positions,
-/// which depend only on the grammar, the program and the hole declarations. Every confirmation
-/// still builds a fresh `Backend`, a fresh program assembly that assembles its configuration
-/// from the instantiated text, and a freshly resolved target. Internalization is a pure function of the KORE definition, the main module
-/// and the rewrite order; the result is immutable apart from lazily computed facts of the
+/// confirmation copies into a fresh backend; its compiled normal-termination pattern and the
+/// target's compiled patterns, which are backend-independent KORE that each fresh backend
+/// prepares for itself (`exec::run::PatternCompiler`: a function of the definition, the program
+/// grammar and the pattern text); and its hole resolution and round-trip positions, which
+/// depend only on the grammar, the program and the hole declarations. Every confirmation still
+/// builds a fresh `Backend`, a fresh program assembly that assembles its configuration from the
+/// instantiated text, and a freshly resolved target (its rule looked up in the fresh backend's
+/// catalog, its patterns prepared on it). Internalization is a pure function of the KORE
+/// definition, the main module and the rewrite order; the result is immutable apart from lazily computed facts of the
 /// definition itself (`OnceLock`s of inhabited sorts and the like), which are the same whoever
 /// computes them. Every mutable cache that could make a run depend on earlier runs (the
 /// solver and its cache of decided answers, the session's module table) belongs to the
@@ -585,11 +609,15 @@ fn quote(text: &str) -> String {
 pub(crate) struct DefinitionCache {
     baseline: SideCache,
     mutant: Option<SideCache>,
+    /// The target's patterns compiled for the baseline definition
+    /// ([`ResolvedTarget::compiled_patterns`]); empty for a differential target.
+    target_patterns: Vec<CompiledPattern>,
 }
 
 /// One side's part of a [`DefinitionCache`].
 struct SideCache {
     internalized: Option<BackendDefinition>,
+    normal_end: NormalEnd,
     holes: ResolvedHoles,
     round_trip: Arc<RoundTripCheck>,
 }
@@ -598,14 +626,25 @@ impl SideCache {
     fn seed(&self) -> Seed<'_> {
         Seed {
             internalized: self.internalized.as_ref(),
+            normal_end: Some(&self.normal_end),
             resolved: Some((&self.holes, &self.round_trip)),
+        }
+    }
+
+    fn of(side: Side, internalized: Option<BackendDefinition>) -> Self {
+        Self {
+            internalized,
+            normal_end: side.normal_end,
+            holes: side.holes,
+            round_trip: side.round_trip,
         }
     }
 }
 
 impl DefinitionCache {
-    /// Internalize every `source-execution` definition of `spec` once, then resolve the holes
-    /// and locate their positions once, on a build of its own (not the campaign's).
+    /// Internalize every `source-execution` definition of `spec` once, then, on a build of its
+    /// own (not the campaign's), compile the normal-termination pattern and the target's
+    /// patterns, resolve the holes and locate their positions once.
     ///
     /// # Errors
     ///
@@ -635,33 +674,39 @@ impl DefinitionCache {
                 role,
                 Seed {
                     internalized: internalized.as_ref(),
-                    resolved: None,
+                    ..Seed::default()
                 },
             )
-            .map(|side| (side.holes, side.round_trip))
         };
-        let (holes, round_trip) = side(
+        let mut baseline_side = side(
             &spec.definitions.baseline,
             DefinitionRole::Baseline,
             &baseline,
         )?;
-        let baseline = SideCache {
-            internalized: baseline,
-            holes,
-            round_trip,
+        let target_patterns = if let TargetKind::Differential(_) = spec.target.kind {
+            Vec::new()
+        } else {
+            ResolvedTarget::resolve(
+                &spec.target,
+                &mut baseline_side.executor,
+                &spec.definitions.baseline,
+                &baseline_side.assembly,
+            )?
+            .compiled_patterns()
         };
+        let baseline = SideCache::of(baseline_side, baseline);
         let mutant = match &spec.definitions.mutant {
-            Some(definition) => {
-                let (holes, round_trip) = side(definition, DefinitionRole::Mutant, &mutant)?;
-                Some(SideCache {
-                    internalized: mutant,
-                    holes,
-                    round_trip,
-                })
-            }
+            Some(definition) => Some(SideCache::of(
+                side(definition, DefinitionRole::Mutant, &mutant)?,
+                mutant,
+            )),
             None => None,
         };
-        Ok(Self { baseline, mutant })
+        Ok(Self {
+            baseline,
+            mutant,
+            target_patterns,
+        })
     }
 }
 

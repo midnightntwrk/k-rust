@@ -24,7 +24,7 @@ pub use observer::{
 use crate::{
     assemble::ProgramAssembly,
     error::{CampaignError, TargetProblem},
-    exec::{self, CaseResult, Executor, LeafMatcher, OutcomeClass, TargetNeeds},
+    exec::{self, CaseResult, CompiledPattern, Executor, LeafMatcher, OutcomeClass, TargetNeeds},
     report::EngineDefect,
     spec::{CompiledDefinition, PathMode},
 };
@@ -245,6 +245,25 @@ impl ResolvedTarget {
         definition: &CompiledDefinition,
         assembly: &ProgramAssembly,
     ) -> Result<Self, CampaignError> {
+        Self::resolve_with(target, executor, definition, assembly, None)
+    }
+
+    /// [`Self::resolve`], with the target's patterns already compiled for this definition
+    /// (`compiled`, as [`Self::compiled_patterns`] of an earlier resolution of the same target
+    /// gave them), so that only their preparation on `executor`'s backend runs. A compiled
+    /// pattern is a function of the definition, the program grammar and the pattern text alone,
+    /// so preparing it is the same as compiling it again (FZ-06's confirmation request).
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::resolve`].
+    pub(crate) fn resolve_with(
+        target: &Target,
+        executor: &mut Executor,
+        definition: &CompiledDefinition,
+        assembly: &ProgramAssembly,
+        compiled: Option<&[CompiledPattern]>,
+    ) -> Result<Self, CampaignError> {
         let mut matchers = Vec::new();
         let resolved = match &target.kind {
             TargetKind::Rule(rule_target) => {
@@ -262,12 +281,16 @@ impl ResolvedTarget {
             }
             TargetKind::Pattern(pattern) => match pattern.at {
                 PatternAt::Final => {
-                    matchers.push(
-                        LeafMatcher::compile(executor, definition, assembly, &pattern.pattern)
-                            .map_err(|message| {
-                                CampaignError::Target(TargetProblem::Pattern(message))
-                            })?,
-                    );
+                    let pattern_problem =
+                        |message| CampaignError::Target(TargetProblem::Pattern(message));
+                    let matcher = match compiled.and_then(<[CompiledPattern]>::first) {
+                        Some(compiled) => LeafMatcher::prepare(executor, compiled),
+                        None => {
+                            LeafMatcher::compile(executor, definition, assembly, &pattern.pattern)
+                        }
+                    }
+                    .map_err(pattern_problem)?;
+                    matchers.push(matcher);
                     Resolved::PatternFinal
                 }
                 PatternAt::AnyState => {
@@ -303,6 +326,15 @@ impl ResolvedTarget {
                 TargetNeeds::default()
             }
         }
+    }
+
+    /// The target's patterns compiled for its definition, in the order of [`Self::matchers`],
+    /// for [`Self::resolve_with`] on another backend of the same definition.
+    pub(crate) fn compiled_patterns(&self) -> Vec<CompiledPattern> {
+        self.matchers
+            .iter()
+            .map(|matcher| matcher.compiled().clone())
+            .collect()
     }
 
     /// The leaf matchers [`Executor::run`] must judge for this target, in the order
