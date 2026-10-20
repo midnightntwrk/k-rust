@@ -261,8 +261,8 @@ fn assert_naming_invariant(fixture: &str) {
         .expect("a VI-AT2/AT3 program");
     let validator = cache::validator(fixture);
     for (context, spellings) in [("AT2", &OLD_MINT_SPELLINGS), ("AT3", &NEW_MINT_SPELLINGS)] {
-        let mut backend = backend(validator, None, module);
-        let neutral = summaries(&mut backend, &initial);
+        let mut reused = backend(validator, None, module);
+        let neutral = summaries(&mut reused, &initial);
         eprintln!("{context} {fixture} neutral {neutral:?}");
         assert_eq!(
             neutral.iter().map(|(row, _)| *row).collect::<Vec<_>>(),
@@ -272,9 +272,17 @@ fn assert_naming_invariant(fixture: &str) {
         for naming in rotations(&initial, spellings) {
             let forged = renamed(&initial, &naming);
             assert_eq!(
-                summaries(&mut backend, &forged),
+                summaries(&mut reused, &forged),
                 neutral,
                 "{context} {fixture} naming {naming:?}"
+            );
+            // The forged run as the first request of a fresh backend too, as the folded
+            // name_identity test ran ExVarI0 on conflate2: a mint counter that outlived a request
+            // would pass on the reused backend above and collide here.
+            assert_eq!(
+                summaries(&mut backend(validator, None, module), &forged),
+                neutral,
+                "{context} {fixture} naming {naming:?} on a fresh backend"
             );
         }
     }
