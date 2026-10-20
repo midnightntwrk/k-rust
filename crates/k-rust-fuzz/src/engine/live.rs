@@ -327,7 +327,12 @@ impl LiveCases {
             .executor
             .run(&mutant_case.assembled, &mutant.shape, &[], cancel)?;
         let mut run = run_of(&mutated, &[&baseline, &mutated]);
-        match differential::judge_pair(&baseline, &mutated, self.spec.target.run_to_completion) {
+        match differential::judge_pair(
+            &baseline,
+            &mutated,
+            self.spec.options.paths,
+            self.spec.target.run_to_completion,
+        ) {
             Ok(judgement) => {
                 run.class = judgement.class;
                 if judgement.class == OutcomeClass::Hit {

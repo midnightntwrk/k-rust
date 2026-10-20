@@ -33,7 +33,10 @@ const END: &str = "=====END-KRUST-FUZZ-REPORTS=====";
 /// The pinned fingerprint of the golden campaigns' case sequence at [`ENGINE_VERSION`] 1.
 /// Pinned at integration round 1, when the modules behind the engine landed; re-pin it, with
 /// a version bump, only when the case sequence is meant to change.
-const PINNED: Option<(u32, &str)> = None;
+const PINNED: Option<(u32, &str)> = Some((
+    1,
+    "5edef64b477337d606be930e02c9e96931c7eb72ba7ff5ffb5b104c67bf7768e",
+));
 
 fn int_hole(name: &str, program: &str, find: &str, literal: &str) -> HoleDecl {
     HoleDecl {
@@ -50,7 +53,15 @@ fn int_hole(name: &str, program: &str, find: &str, literal: &str) -> HoleDecl {
     }
 }
 
-fn spec(program: &str, holes: Vec<HoleDecl>, violation: &str, seed: u64) -> CampaignSpec {
+/// A campaign on IMP's `program` whose target is a natural end matching `violation`; the
+/// explicit proposer tries the anchors, then `explicit` (values of `Y`), before blind sampling.
+fn spec(
+    program: &str,
+    holes: Vec<HoleDecl>,
+    violation: &str,
+    explicit: &[i64],
+    seed: u64,
+) -> CampaignSpec {
     let compiled = IMP.compiled();
     CampaignSpec {
         definitions: Definitions {
@@ -70,10 +81,10 @@ fn spec(program: &str, holes: Vec<HoleDecl>, violation: &str, seed: u64) -> Camp
         options: CaseOptions::default(),
         proposers: ProposerConfig {
             anchors_first: true,
-            explicit: vec![BTreeMap::from([(
-                "Y".to_owned(),
-                k_rust_fuzz::Value::Int((-1).into()),
-            )])],
+            explicit: explicit
+                .iter()
+                .map(|y| BTreeMap::from([("Y".to_owned(), k_rust_fuzz::Value::Int((*y).into()))]))
+                .collect(),
             weights: ProposerConfig::default().weights,
         },
         bounds: GenerationBounds::default(),
@@ -86,8 +97,9 @@ fn spec(program: &str, holes: Vec<HoleDecl>, violation: &str, seed: u64) -> Camp
     }
 }
 
-/// Two campaigns: one that finds, confirms and shrinks a witness (`le.imp`), and one that runs
-/// out of budget (`commute.imp`).
+/// Two campaigns: one whose blind proposer finds a witness that is confirmed and shrunk along
+/// its value trees (`le.imp`), and one that tries explicit assignments and then runs out of
+/// budget (`commute.imp`).
 fn golden_reports() -> Vec<FuzzReport> {
     let le = spec(
         "imp/le.imp",
@@ -96,6 +108,7 @@ fn golden_reports() -> Vec<FuzzReport> {
             int_hole("Y", "imp/le.imp", "y = 5;", "5"),
         ],
         r#"<k> .K </k> <state> (#token("r", "Id") |-> R:Int) _:Map </state> requires R =/=Int 1"#,
+        &[],
         0x00c0_ffee,
     );
     let commute = spec(
@@ -108,6 +121,7 @@ fn golden_reports() -> Vec<FuzzReport> {
             r#"<k> .K </k> <state> (#token("a", "Id") |-> A:Int) "#,
             r#"(#token("b", "Id") |-> B:Int) _:Map </state> requires A =/=Int B"#
         ),
+        &[-1, 7],
         0x0bad_5eed,
     );
     [(le, Budget::Cases(40)), (commute, Budget::Cases(24))]

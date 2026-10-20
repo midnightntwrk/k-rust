@@ -262,29 +262,55 @@ fn single_class(setup: &Setup) -> (OutcomeClass, FuzzReport) {
     (class, report)
 }
 
+/// A property violation stated, as negated properties are, over a natural end: here every
+/// natural end violates it, so any run that ended naturally would be a hit.
+const ANY_NATURAL_END: &str = "<k> .K </k>";
+
+/// `ANYTHING` under `run-to-completion`: a reaching leaf must also be a natural end to hit.
+fn anything_to_completion() -> Target {
+    Target {
+        run_to_completion: true,
+        ..final_pattern(ANYTHING, true)
+    }
+}
+
 #[test]
 fn a_stuck_run_is_never_a_hit() {
-    let mut setup = Setup::new(&IMP, "imp/div.imp", final_pattern(ANYTHING, true));
+    // `10 / 0` is left on `<k>`: a clean abnormal stop, which is not a natural end.
+    let mut setup = Setup::new(&IMP, "imp/div.imp", final_pattern(ANY_NATURAL_END, true));
     setup.holes = vec![int_hole("Y", "imp/div.imp", "y = 2;", "2")];
     setup.proposers = explicit(&[&[("Y", 0)]]);
     assert_eq!(single_class(&setup).0, OutcomeClass::Stuck);
+    // A target the stuck leaf does match, but under run-to-completion: reached, not finished.
+    setup.target = anything_to_completion();
+    assert_eq!(single_class(&setup).0, OutcomeClass::ReachedUnfinished);
 }
 
 #[test]
 fn a_bounded_run_is_never_a_hit() {
-    let mut setup = Setup::new(&IMP, "imp/loop.imp", final_pattern(ANYTHING, true));
+    let mut setup = Setup::new(&IMP, "imp/loop.imp", final_pattern(ANY_NATURAL_END, true));
     setup.holes = vec![int_hole("N", "imp/loop.imp", "n = 10;", "10")];
     setup.proposers = anchors_only();
-    setup.options = CaseOptions {
+    let depth = CaseOptions {
         max_depth: Some(20),
         ..CaseOptions::default()
     };
-    assert_eq!(single_class(&setup).0, OutcomeClass::DepthBound);
-    setup.options = CaseOptions {
+    let work = CaseOptions {
         max_work: Some(20),
         ..CaseOptions::default()
     };
+    setup.options = depth.clone();
+    assert_eq!(single_class(&setup).0, OutcomeClass::DepthBound);
+    setup.options = work.clone();
     assert_eq!(single_class(&setup).0, OutcomeClass::WorkBound);
+    // The cut leaf matches `ANYTHING`; a reaching leaf whose run was cut is never a hit.
+    setup.target = anything_to_completion();
+    for options in [depth, work] {
+        setup.options = options;
+        assert_eq!(single_class(&setup).0, OutcomeClass::ReachedUnfinished);
+    }
+    setup.target = final_pattern(ANYTHING, true);
+    assert_eq!(single_class(&setup).0, OutcomeClass::Unsupported);
 }
 
 #[test]
@@ -312,7 +338,11 @@ fn an_undefined_step_is_never_a_hit() {
 fn a_run_that_reads_an_implementation_chosen_value_is_never_a_hit() {
     // `listKeys(1, 2)` ends naturally, but its `<out>` holds the listing order of two keys,
     // which the definition leaves open: the leaf is not clean, so neither a hit nor a pass.
-    let mut setup = Setup::new(&CHOSEN, "chosen/keys.pgm", final_pattern(ANYTHING, true));
+    let mut setup = Setup::new(
+        &CHOSEN,
+        "chosen/keys.pgm",
+        final_pattern(ANY_NATURAL_END, true),
+    );
     setup.holes = vec![int_hole("B", "chosen/keys.pgm", "2)", "2")];
     setup.proposers = anchors_only();
     assert_eq!(single_class(&setup).0, OutcomeClass::Unsupported);

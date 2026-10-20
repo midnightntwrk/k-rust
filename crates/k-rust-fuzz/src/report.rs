@@ -171,7 +171,12 @@ pub struct DefinitionIdentity {
 /// equivalence carries the bounded statement, so that no report of a campaign that stopped
 /// early reads as a pass.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(tag = "status", rename_all = "kebab-case", deny_unknown_fields)]
+#[serde(
+    tag = "status",
+    rename_all = "kebab-case",
+    rename_all_fields = "kebab-case",
+    deny_unknown_fields
+)]
 pub enum CampaignOutcome {
     /// A witness was found and confirmed. A cancellation or abort during shrinking keeps this
     /// outcome: the witness was confirmed before it.

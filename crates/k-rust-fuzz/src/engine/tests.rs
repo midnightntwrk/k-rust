@@ -451,12 +451,12 @@ fn explicit_proposals_try_the_anchors_first_then_the_assignments() {
 
     // A hole without an anchor (a KORE-template variable) makes the anchor proposal impossible;
     // an assignment must then give it a value.
-    let partial = [Some(int(3)), None];
+    let partial = [None, Some(int(5))];
     assert_eq!(
         explicit_proposals(&names, &partial, &config),
         Err(CampaignError::ExplicitAssignment {
             index: 0,
-            hole: "Y".into(),
+            hole: "X".into(),
             message: "the hole has no anchor value and the assignment omits it".into(),
         })
         .map(|()| Vec::new())
@@ -945,7 +945,8 @@ fn shrink_ints(start: i64, constraints: Constraints, hits: impl Fn(i64) -> bool)
 fn integer_moves_bisect_towards_the_admissible_value_nearest_zero() {
     let (value, tests) = shrink_ints(1_000_000, Constraints::default(), |n| n >= 17);
     assert_eq!(value, 17);
-    assert!(tests <= 22, "{tests} tests");
+    // About log2(10^6) bisection steps, then a second pass that confirms 17 is a fixpoint.
+    assert!(tests <= 30, "{tests} tests");
     assert_eq!(
         shrink_ints(-1_000, Constraints::default(), |n| n <= -5).0,
         -5
