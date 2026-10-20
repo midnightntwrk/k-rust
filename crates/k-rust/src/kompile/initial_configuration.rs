@@ -257,9 +257,10 @@ impl From<TermConversionError> for ConfigurationError {
 /// - Applications convert to KORE with the main module; tokens keep the lexical hooks of the
 ///   module that parsed them.
 ///
-/// Parsers, the macro expander, and the sort injector are built on first use and kept, so one
-/// assembler should serve every configuration built for its definition. `finish` returns the
-/// pattern and leaves the assembler empty for the next configuration.
+/// Parsers, the macro expander, and the sort injectors are built on first use and kept, so one
+/// assembler should serve every configuration built for its definition. The program has its own
+/// parser and its own sort injector, apart from those of the configuration values. `finish`
+/// returns the pattern and leaves the assembler empty for the next configuration.
 pub struct ConfigurationAssembler<'g> {
     grammar: &'g ProgramGrammar,
     main_module: String,
@@ -269,6 +270,11 @@ pub struct ConfigurationAssembler<'g> {
     macro_definition: Option<MacroExpansionDefinition>,
     parsers: BTreeMap<String, ProgramParser>,
     injector: Option<SortInjector<'g, 'g>>,
+    /// The syntax module's parser, which parses every program.
+    program_parser: Option<ProgramParser>,
+    /// The injector the program is instantiated with, apart from [`Self::injector`], which the
+    /// configuration values and the assembly share.
+    program_injector: Option<SortInjector<'g, 'g>>,
     program: Option<ConfigurationBinding>,
     bound: BTreeSet<String>,
     bindings: Vec<ConfigurationBinding>,
@@ -291,6 +297,8 @@ impl<'g> ConfigurationAssembler<'g> {
             macro_definition: None,
             parsers: BTreeMap::new(),
             injector: None,
+            program_parser: None,
+            program_injector: None,
             program: None,
             bound: BTreeSet::new(),
             bindings: Vec::new(),
@@ -318,7 +326,16 @@ impl<'g> ConfigurationAssembler<'g> {
         if self.program.is_some() {
             return Err(ConfigurationError::Duplicate { name: "PGM".into() });
         }
-        let parser = ProgramParser::from_resolved(self.grammar.resolved(), &self.syntax_module)?;
+        if self.program_parser.is_none() {
+            self.program_parser = Some(ProgramParser::from_resolved(
+                self.grammar.resolved(),
+                &self.syntax_module,
+            )?);
+        }
+        let parser = self
+            .program_parser
+            .as_ref()
+            .expect("the program parser was created above");
         let denoted = parser.start_sort(start_sort).clone();
         let program = parser
             .parse_file(start_sort, text, file)
@@ -326,9 +343,20 @@ impl<'g> ConfigurationAssembler<'g> {
         let position = configuration_position(&denoted);
         let program = self.expand(program, &position)?;
         // The program is instantiated independently of the configuration values; no sentence
-        // sort variable may survive in either kind of ground value.
-        let injector = SortInjector::new(self.grammar.resolved(), &self.main_module)?;
-        let value = self.to_kore(&injector, &self.syntax_module, &program, "$PGM")?;
+        // sort variable may survive in either kind of ground value. Its injector draws its fresh
+        // sort parameters from zero for each program, as a new injector does.
+        if self.program_injector.is_none() {
+            self.program_injector = Some(SortInjector::new(
+                self.grammar.resolved(),
+                &self.main_module,
+            )?);
+        }
+        let injector = self
+            .program_injector
+            .as_ref()
+            .expect("the program injector was created above");
+        injector.reset_sort_parameters();
+        let value = self.to_kore(injector, &self.syntax_module, &program, "$PGM")?;
         self.program = Some(ConfigurationBinding {
             name: "$PGM".to_owned(),
             value,
@@ -525,6 +553,9 @@ impl<'g> ConfigurationAssembler<'g> {
         // Reset temporary inference variables between configurations, including after a failed
         // binding. Successful ground values contain none of these variables.
         if let Some(injector) = &self.injector {
+            injector.reset_sort_parameters();
+        }
+        if let Some(injector) = &self.program_injector {
             injector.reset_sort_parameters();
         }
     }
