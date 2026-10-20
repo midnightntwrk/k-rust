@@ -290,21 +290,18 @@ impl LiveCases {
                         )),
                         None => None,
                     };
-                    match reached {
-                        Some((steps, reaching_state)) => {
-                            run.hit = Some(HitDetail {
-                                holes: self.hole_values(values, &prepared.printed),
-                                sides: vec![side_of(DefinitionRole::Baseline, &prepared, &result)],
-                                steps,
-                                reaching_state,
-                                krun_command: self.krun_command(&prepared.instantiated),
-                            });
-                        }
-                        None => {
-                            run.class = OutcomeClass::Unsupported;
-                            run.defects
-                                .push("a hit names no leaf of the result".to_owned());
-                        }
+                    if let Some((steps, reaching_state)) = reached {
+                        run.hit = Some(HitDetail {
+                            holes: self.hole_values(values, &prepared.printed),
+                            sides: vec![side_of(DefinitionRole::Baseline, &prepared, &result)],
+                            steps,
+                            reaching_state,
+                            krun_command: self.krun_command(&prepared.instantiated),
+                        });
+                    } else {
+                        run.class = OutcomeClass::Unsupported;
+                        run.defects
+                            .push("a hit names no leaf of the result".to_owned());
                     }
                 }
             }
