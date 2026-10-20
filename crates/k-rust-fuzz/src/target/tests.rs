@@ -171,34 +171,27 @@ fn entries_whose_coverage_may_come_from_elsewhere_are_refused() {
 }
 
 #[test]
-fn fired_always_traces_and_stops_early_only_on_one_path_without_run_to_completion() {
+fn fired_always_traces_and_stops_early_without_run_to_completion() {
     let traced = TargetNeeds {
         trace: true,
         ..TargetNeeds::default()
     };
+    // The early stop applies in both path modes (D18); the needs do not depend on the mode.
     assert_eq!(
-        rule_needs("id-div", RuleMode::Fired, false, PathMode::OnePath),
+        rule_needs("id-div", RuleMode::Fired, false),
         TargetNeeds {
             terminal_rules: vec!["id-div".to_owned()],
             ..traced.clone()
         }
     );
-    assert_eq!(
-        rule_needs("id-div", RuleMode::Fired, false, PathMode::AllPaths),
-        traced
-    );
-    for paths in [PathMode::OnePath, PathMode::AllPaths] {
-        assert_eq!(rule_needs("id-div", RuleMode::Fired, true, paths), traced);
-    }
+    assert_eq!(rule_needs("id-div", RuleMode::Fired, true), traced);
     for mode in [RuleMode::Covered, RuleMode::ConditionReached] {
         for run_to_completion in [false, true] {
-            for paths in [PathMode::OnePath, PathMode::AllPaths] {
-                assert_eq!(
-                    rule_needs("id-div", mode, run_to_completion, paths),
-                    TargetNeeds::default(),
-                    "{mode:?}"
-                );
-            }
+            assert_eq!(
+                rule_needs("id-div", mode, run_to_completion),
+                TargetNeeds::default(),
+                "{mode:?}"
+            );
         }
     }
 }
@@ -428,7 +421,11 @@ fn judge(target: &ResolvedTarget, result: &CaseResult) -> Judgement {
 fn needs_follow_the_resolved_rule() {
     assert_eq!(
         rule_target("id-div", RuleMode::Fired, false).needs(PathMode::AllPaths),
-        rule_needs("id-div", RuleMode::Fired, false, PathMode::AllPaths)
+        rule_needs("id-div", RuleMode::Fired, false)
+    );
+    assert_eq!(
+        rule_target("id-div", RuleMode::Fired, false).needs(PathMode::OnePath),
+        rule_needs("id-div", RuleMode::Fired, false)
     );
     assert_eq!(
         rule_target("id-div", RuleMode::Covered, true).needs(PathMode::OnePath),
@@ -597,4 +594,65 @@ fn a_pattern_match_on_a_cut_leaf_does_not_reach_a_final_target() {
         );
         assert_eq!(judgement.hit_site, None);
     }
+}
+
+#[test]
+fn a_coverage_hit_needs_every_run_fact_on_a_leaf() {
+    // One clean natural end, coverage holding the rule, and a run fact (a vanished candidate's
+    // chosen value or contradicted claim) on no leaf: the coverage may rest on that work.
+    let mut end = natural_end();
+    end.rewrites = vec!["id-div".to_owned()];
+    for leaves in [vec![end.clone()], vec![end.clone(), end.clone()]] {
+        let result = CaseResult {
+            run_facts_off_leaves: true,
+            ..case(leaves, &["id-div"], &["id-div"])
+        };
+        for mode in [RuleMode::Covered, RuleMode::ConditionReached] {
+            let judgement = judge(&rule_target("id-div", mode, false), &result);
+            assert_eq!(judgement.class, OutcomeClass::Unsupported, "{mode:?}");
+            assert_eq!(judgement.hit_site, None);
+        }
+        // `fired` rests on the leaf's own trace, which the off-leaf facts do not touch.
+        let fired = judge(&rule_target("id-div", RuleMode::Fired, true), &result);
+        assert_eq!(fired.class, OutcomeClass::Hit);
+    }
+}
+
+#[test]
+fn a_relative_source_names_its_own_file_and_an_absolute_one_falls_back_to_a_suffix() {
+    let at = |id: &str, source: &str, line: u32| {
+        let mut entry = entry(id, Some(id), CompiledRuleKind::Rewrite, line);
+        entry.origins[0].source = Some(format!("Source({source})"));
+        entry
+    };
+    let catalog = vec![
+        at("top-12", "rules.k", 12),
+        at("lib-12", "lib/rules.k", 12),
+        at("lib-20", "lib/rules.k", 20),
+        at("top-30", "rules.k", 30),
+    ];
+    let resolve = |given: &str, line| resolve_rule(&catalog, &source(given, line));
+    // `lib/rules.k` names only the file `lib/rules.k`, never `rules.k`.
+    assert_eq!(resolve("lib/rules.k", 12), Ok("lib-12".to_owned()));
+    assert_eq!(resolve("lib/rules.k", 30), Err(TargetProblem::UnknownRule));
+    assert_eq!(resolve("Source(lib/rules.k)", 20), Ok("lib-20".to_owned()));
+    // `rules.k` is a suffix of both paths at a `/`.
+    assert_eq!(
+        resolve("rules.k", 12),
+        Err(TargetProblem::AmbiguousRule(vec![
+            "lib-12".to_owned(),
+            "top-12".to_owned()
+        ]))
+    );
+    // An absolute path ends with the catalog's relative path.
+    assert_eq!(
+        resolve("/work/defs/lib/rules.k", 20),
+        Ok("lib-20".to_owned())
+    );
+    assert_eq!(resolve("/work/defs/rules.k", 30), Ok("top-30".to_owned()));
+    // At line 12 both relative paths are suffixes of the absolute one: refused, not guessed.
+    assert!(matches!(
+        resolve("/work/defs/lib/rules.k", 12),
+        Err(TargetProblem::AmbiguousRule(_))
+    ));
 }

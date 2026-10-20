@@ -499,3 +499,140 @@ fn a_pattern_match_cut_by_a_bound_keeps_the_bound_class() {
     }
     assert!(cut_matches > 0, "no depth cut a matching state");
 }
+
+#[test]
+fn fired_stops_early_under_all_paths_so_a_cut_after_the_firing_is_still_a_hit() {
+    // COIN `count(3)`: `count-step` fires on a step with one successor (`count-done`'s guard
+    // fails), and the run needs four steps to end. With `max_depth` 2 the path would be cut
+    // after the firing; the early stop ends it at the firing as a clean `terminal` leaf (D18).
+    let options = CaseOptions {
+        paths: PathMode::AllPaths,
+        max_depth: Some(2),
+        ..CaseOptions::default()
+    };
+    let mut coin = Harness::with(COIN.compiled(), COIN.compiled().definition(), options);
+    let (hit, result) = coin.run(
+        &rule("count-step", RuleMode::Fired, false),
+        "coin/count.pgm",
+        "3",
+        "3",
+    );
+    assert_eq!(class(&hit), OutcomeClass::Hit, "{result:#?}");
+    assert_eq!(hit.hit_site, Some(HitSite::Leaf(0)));
+    assert_eq!(
+        result.leaves[0].halt,
+        k_rust::backend::HaltReasonOutput::Terminal
+    );
+    // Under run-to-completion the path runs on and is cut: reached, not finished.
+    let unfinished = coin.judge(
+        &rule("count-step", RuleMode::Fired, true),
+        "coin/count.pgm",
+        "3",
+        "3",
+    );
+    assert_eq!(
+        class(&unfinished),
+        OutcomeClass::ReachedUnfinished,
+        "{unfinished:?}"
+    );
+}
+
+/// The SIBLING fixture (`tests/data/sibling`), compiled in-process as `tests/support` compiles
+/// the others.
+fn sibling() -> &'static CompiledDefinition {
+    use std::sync::OnceLock;
+
+    use k_rust::{
+        builtin::embedded,
+        kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
+        outer::{LoadOptions, ResolvedSource, load_for_compilation},
+    };
+
+    static SIBLING: OnceLock<CompiledDefinition> = OnceLock::new();
+    SIBLING.get_or_init(|| {
+        let file = "sibling/sibling.k";
+        let source = include_str!("../../tests/data/sibling/sibling.k");
+        let mut resolver = |_: &str, required: &str| {
+            embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+        };
+        let options = LoadOptions {
+            implicit_sources: vec![embedded("prelude.md").expect("the prelude is embedded")],
+            ..CompilationBackend::Rust.load_options()
+        };
+        let (loaded, syntax_module) = load_for_compilation(
+            ResolvedSource::new(file, source),
+            "SIBLING",
+            None,
+            &mut resolver,
+            &options,
+        )
+        .unwrap_or_else(|error| panic!("{file} does not load: {error:?}"));
+        let artifacts = compile_loaded_definition(&loaded, CompileOptions::default())
+            .unwrap_or_else(|error| panic!("{file} does not compile: {error}"));
+        CompiledDefinition::from_artifacts(
+            "SIBLING",
+            syntax_module,
+            loaded.into_definition(),
+            artifacts,
+        )
+        .unwrap_or_else(|error| panic!("{file}: {error}"))
+    })
+}
+
+#[test]
+fn a_coverage_fact_resting_on_a_vanished_candidate_is_never_a_hit() {
+    let definition = sibling();
+    // A depth bound and no work bound: under `max_work` every leaf would carry every run fact
+    // (ARCHITECTURE 5.2), and the off-leaf case would not arise.
+    let options = CaseOptions {
+        paths: PathMode::AllPaths,
+        max_depth: Some(10),
+        ..CaseOptions::default()
+    };
+    assert_eq!(options.effective_max_work(), None);
+    let assembly = ProgramAssembly::new(definition).expect("the definition assembles");
+    let mut executor = Executor::new(definition, &assembly, &options).expect("the executor builds");
+    let initial = assembly
+        .assemble(
+            definition,
+            &crate::holes::InstantiatedProgram::Source {
+                program: Some(crate::spec::ProgramText {
+                    name: "sibling/sib.pgm".to_owned(),
+                    text: include_str!("../../tests/data/sibling/sib.pgm").to_owned(),
+                    start_sort: "Pgm".to_owned(),
+                }),
+                config_vars: Vec::new(),
+            },
+        )
+        .expect("sib(1, 2) assembles");
+    for mode in [RuleMode::Covered, RuleMode::ConditionReached] {
+        let target = rule("sib-chosen", mode, false);
+        let resolved = ResolvedTarget::resolve(&target, &mut executor, definition, &assembly)
+            .expect("the target resolves");
+        let shape = CaseRequestShape::new(&options, &resolved.needs(options.paths));
+        let result = executor
+            .run(&initial, &shape, &resolved.matchers(), None)
+            .expect("no abort");
+        // The fixture does what it is for: one clean leaf, by `sib-ok`; the chosen value of
+        // `sib-chosen`'s condition on no leaf; and `sib-chosen` in coverage.
+        let [leaf] = result.leaves.as_slice() else {
+            panic!("one leaf: {result:#?}");
+        };
+        assert!(leaf.is_clean(), "{result:#?}");
+        assert!(result.run_facts_off_leaves, "{result:#?}");
+        let Resolved::Rule { id, .. } = &resolved.resolved else {
+            panic!("a rule target");
+        };
+        let coverage = result.coverage.as_ref().expect("coverage is collected");
+        let listed = match mode {
+            RuleMode::Covered => &coverage.applied,
+            _ => &coverage.matched,
+        };
+        assert!(listed.contains(id), "{mode:?}: {coverage:#?}");
+        let judgement = resolved
+            .judge(&result)
+            .unwrap_or_else(|defect| panic!("{defect:?}"));
+        assert_eq!(class(&judgement), OutcomeClass::Unsupported, "{mode:?}");
+        assert_eq!(judgement.hit_site, None);
+    }
+}

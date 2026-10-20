@@ -288,15 +288,16 @@ impl ResolvedTarget {
         })
     }
 
-    /// What every execute request on `paths` must carry for this target (traces for `fired`,
-    /// and its rule as the only terminal rule on one path without `run-to-completion`;
-    /// ARCHITECTURE 5.1, D16).
+    /// What every execute request on `paths` must carry for this target: traces for `fired`,
+    /// and its rule as the only terminal rule without `run-to-completion`, in both path modes
+    /// (ARCHITECTURE 5.1, D16, D18). The needs do not depend on the path mode since D18; the
+    /// parameter keeps the request shape's inputs in one place.
     ///
     /// The differential target's needs per side come from [`differential::plan`].
-    pub(crate) fn needs(&self, paths: PathMode) -> TargetNeeds {
+    pub(crate) fn needs(&self, _paths: PathMode) -> TargetNeeds {
         match &self.resolved {
             Resolved::Rule { id, mode } => {
-                rule::rule_needs(id, *mode, self.target.run_to_completion, paths)
+                rule::rule_needs(id, *mode, self.target.run_to_completion)
             }
             Resolved::PatternFinal | Resolved::Differential | Resolved::Observer { .. } => {
                 TargetNeeds::default()
@@ -341,7 +342,20 @@ impl ResolvedTarget {
                 });
             }
         };
-        let class = exec::classify(result, &reached, run_to_completion)?;
+        let coverage_mode = matches!(
+            &self.resolved,
+            Resolved::Rule {
+                mode: RuleMode::Covered | RuleMode::ConditionReached,
+                ..
+            }
+        );
+        let mut class = exec::classify(result, &reached, run_to_completion)?;
+        if class == OutcomeClass::Hit && coverage_mode && result.run_facts_off_leaves {
+            // A candidate that vanished from every leaf (its successor was no state, and a
+            // sibling took its instances) left its applications in coverage and its facts on no
+            // leaf, so the coverage fact may rest on that unclean work (ARCHITECTURE 5.3, D18).
+            class = OutcomeClass::Unsupported;
+        }
         let hit_site = if class == OutcomeClass::Hit {
             let leaf = result
                 .leaves
@@ -358,13 +372,7 @@ impl ResolvedTarget {
                 });
             };
             // Run coverage over several leaves names no leaf (D13): the hit is the run's.
-            let run_level = matches!(
-                &self.resolved,
-                Resolved::Rule {
-                    mode: RuleMode::Covered | RuleMode::ConditionReached,
-                    ..
-                }
-            ) && result.leaves.len() > 1;
+            let run_level = coverage_mode && result.leaves.len() > 1;
             Some(if run_level {
                 HitSite::Run
             } else {

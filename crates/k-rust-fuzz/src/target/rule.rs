@@ -16,7 +16,6 @@ use super::{RuleMode, RuleRef};
 use crate::{
     error::TargetProblem,
     exec::{CaseResult, TargetNeeds},
-    spec::PathMode,
 };
 
 /// Resolve `rule` to the unique id of one catalog entry, refusing the entries whose coverage may
@@ -26,9 +25,9 @@ use crate::{
 ///   label is `<module>.<text>`, so `div` names `RULES.div` when no other module has a `div`.
 /// - `UniqueId` matches the entries with that id.
 /// - `Source` matches the entries with an origin written in that source (the catalog's
-///   `Source(path)` text, the path inside it, a suffix of that path at a `/`, or an absolute
-///   path that ends with `/` and the catalog's relative path) whose location starts on that
-///   line. Equal written axioms are one catalog entry with all their origins and one id, so a
+///   `Source(path)` text, the path inside it, or a suffix of that path at a `/`; failing all
+///   of those, an absolute path that ends with `/` and the catalog's relative path) whose
+///   location starts on that line. Equal written axioms are one catalog entry with all their origins and one id, so a
 ///   reference to one position also counts firings of an identical sentence at another
 ///   position: the two have the same meaning, but a claim about the position names both.
 ///
@@ -60,22 +59,32 @@ pub(crate) fn resolve_rule(
             }
         }
         RuleRef::UniqueId(id) => catalog.iter().filter(|entry| entry.id == *id).collect(),
-        RuleRef::Source { source, line } => catalog
-            .iter()
-            .filter(|entry| {
-                entry.origins.iter().any(|origin| {
-                    origin
-                        .source
-                        .as_deref()
-                        .is_some_and(|written| source_matches(written, source))
-                        && origin
-                            .location
-                            .as_deref()
-                            .and_then(start_line)
-                            .is_some_and(|start| start == *line)
-                })
-            })
-            .collect(),
+        RuleRef::Source { source, line } => {
+            let at = |matches: fn(&str, &str) -> bool| -> Vec<&CompiledRuleOutput> {
+                catalog
+                    .iter()
+                    .filter(|entry| {
+                        entry.origins.iter().any(|origin| {
+                            origin
+                                .source
+                                .as_deref()
+                                .is_some_and(|written| matches(catalog_path(written), source))
+                                && origin
+                                    .location
+                                    .as_deref()
+                                    .and_then(start_line)
+                                    .is_some_and(|start| start == *line)
+                        })
+                    })
+                    .collect()
+            };
+            let named = at(source_names);
+            if named.is_empty() && source.starts_with('/') {
+                at(absolute_source_names)
+            } else {
+                named
+            }
+        }
     };
     let ids: BTreeSet<&str> = matching.iter().map(|entry| entry.id.as_str()).collect();
     if ids.len() > 1 {
@@ -102,23 +111,31 @@ pub(crate) fn resolve_rule(
     Ok(entry.id.clone())
 }
 
-/// Whether the catalog's source text `written` (`Source(path)`) names the source `given`: the
-/// text itself, its path, a suffix of the path that starts after a `/`, or a longer path (an
-/// absolute one) that ends with `/` and the catalog's path, which the compiler recorded relative
-/// to where it ran.
-fn source_matches(written: &str, given: &str) -> bool {
-    let path = written
+/// The path inside the catalog's source text `Source(path)`, or the text itself.
+fn catalog_path(written: &str) -> &str {
+    written
         .strip_prefix("Source(")
         .and_then(|path| path.strip_suffix(')'))
-        .unwrap_or(written);
-    let ends_at_directory = |long: &str, short: &str| {
-        long.strip_suffix(short)
-            .is_some_and(|rest| rest.ends_with('/'))
-    };
-    written == given
-        || path == given
-        || ends_at_directory(path, given)
-        || ends_at_directory(given, path)
+        .unwrap_or(written)
+}
+
+/// `long` ends with `short` right after a `/`.
+fn ends_at_directory(long: &str, short: &str) -> bool {
+    long.strip_suffix(short)
+        .is_some_and(|rest| rest.ends_with('/'))
+}
+
+/// Whether the catalog path `path` is the source `given`: the same path, its `Source(path)`
+/// text, or `given` is a suffix of it that starts after a `/`.
+fn source_names(path: &str, given: &str) -> bool {
+    path == given || format!("Source({path})") == given || ends_at_directory(path, given)
+}
+
+/// Whether the relative catalog path `path` is the absolute source `given`: `given` ends with
+/// `/` and `path`, which the compiler recorded relative to where it ran. Used only when no entry
+/// is [`source_names`]' match, so a relative `lib/rules.k` never names `Source(rules.k)`.
+fn absolute_source_names(path: &str, given: &str) -> bool {
+    !path.starts_with('/') && ends_at_directory(given, path)
 }
 
 /// The first line of a catalog location `Location(start_line,start_column,end_line,end_column)`.
@@ -129,28 +146,25 @@ fn start_line(location: &str) -> Option<u32> {
     (parts.count() == 3).then_some(line)
 }
 
-/// What every request of a rule target needs (ARCHITECTURE 5.1, 5.3; D16).
+/// What every request of a rule target needs (ARCHITECTURE 5.1, 5.3; D16, D18).
 ///
 /// `fired` is judged from each leaf's trace, so it always asks for traces. Without
-/// run-to-completion and on one path it also makes the rule the request's only terminal rule,
-/// as an early stop: the path ends at the rule's first firing, whose `Rewrite` entry ends the
-/// leaf's trace. Under all paths it does not: the backend applies a stop rule only on a step with
-/// a single successor, so a firing at a branching step would not stop its path anyway, and the
-/// stop rule would move sibling candidates' facts onto every successor. The coverage modes read
-/// coverage, which every request collects.
-pub(crate) fn rule_needs(
-    id: &str,
-    mode: RuleMode,
-    run_to_completion: bool,
-    paths: PathMode,
-) -> TargetNeeds {
+/// run-to-completion it also makes the rule the request's only terminal rule, in both path
+/// modes, as an early stop: a path whose firing step has a single successor ends there, as a
+/// `terminal` leaf whose trace ends with the rule's `Rewrite` entry, so what follows the firing
+/// (a loop, a bound, an undefined step) cannot hide it. The backend applies a stop rule only on a
+/// step with a single successor, so a firing at a branching step does not stop its path, and the
+/// trace finds it. Under all paths the stop rule moves sibling candidates' facts onto the
+/// successor, which is conservative. The coverage modes read coverage, which every request
+/// collects.
+pub(crate) fn rule_needs(id: &str, mode: RuleMode, run_to_completion: bool) -> TargetNeeds {
     match mode {
         RuleMode::Fired => TargetNeeds {
             trace: true,
-            terminal_rules: if !run_to_completion && paths == PathMode::OnePath {
-                vec![id.to_owned()]
-            } else {
+            terminal_rules: if run_to_completion {
                 Vec::new()
+            } else {
+                vec![id.to_owned()]
             },
             ..TargetNeeds::default()
         },
