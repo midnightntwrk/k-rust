@@ -1948,10 +1948,24 @@ pub fn internalize_axiom(
             // `(Xi ∈ A → φ) ∧ (Xi ∈ B → φ)`: one rule per choice of a disjunct for each argument,
             // all of them with the axiom's attributes. A `\bottom` disjunct at the root is no
             // value of `Xi`, so it gives no rule.
+            //
+            // Under `Xi ∈ Pi`, `Xi` is the subject's argument at position i. A right-hand side
+            // or requires that names `Xi` (an equation whose head carries a root alias states the
+            // alias as `f(X⃗)`) means that argument, so the rule's left-hand side keeps `Xi` at
+            // position i beside `Pi`, as `\and(Pi, Xi)`, and matching binds it there. Putting
+            // `Pi` alone in place of `Xi` would leave `Xi` free in the other parts, a variable
+            // no match binds, and the rule would not state the axiom's equation. A rule whose
+            // other parts do not name `Xi` keeps `Pi` alone, which states the same equation.
+            let named = {
+                let mut named = rhs.free_variables();
+                named.extend(requires.free_variables());
+                named
+            };
             let mut binding_alternatives = vec![Substitution::new()];
             for binder in binders {
                 let variable =
                     definition.internalize_variable(&binder.variable, sort_parameters)?;
+                let keeps_variable = named.contains(&binder.variable);
                 let alternatives = binder_disjuncts(&binder.pattern)
                     .into_iter()
                     .filter_map(|pattern| {
@@ -1973,6 +1987,14 @@ pub fn internalize_axiom(
                         ));
                     }
                 }
+                let alternatives = if keeps_variable {
+                    alternatives
+                        .into_iter()
+                        .map(|alternative| Term::and(alternative, Term::variable(variable.clone())))
+                        .collect()
+                } else {
+                    alternatives
+                };
                 binding_alternatives = binding_alternatives
                     .into_iter()
                     .flat_map(|bindings| {
@@ -5392,6 +5414,65 @@ mod tests {
         assert_eq!(
             unary_equation_rules(r"wrap{}(\or{SortS{}}(\or{SortS{}}(), a{}()))"),
             unary_equation_rules(r"wrap{}(a{}())"),
+        );
+    }
+
+    /// An equation whose right-hand side names its argument variable `X` (an alias of the
+    /// matched application, `f(X) #as V`, states `V` as `f(X)`) means by `X` the subject's
+    /// argument, so each rule binds `X` beside the argument's pattern, as `\and(P, X)`, and has
+    /// no unbound variable. An equation whose right-hand side does not name `X` keeps the
+    /// pattern alone.
+    #[test]
+    fn an_argument_variable_the_right_hand_side_names_is_bound_by_the_left_hand_side() {
+        let equation = |binder: &str, right: &str| {
+            internalize_function(&format!(
+                r#"axiom{{R}} \implies{{R}}(
+                    \and{{R}}(
+                        \top{{R}}(),
+                        \and{{R}}(
+                            \in{{SortS{{}}, R}}(X:SortS{{}}, {binder}),
+                            \top{{R}}()
+                        )
+                    ),
+                    \equals{{SortS{{}}, R}}(
+                        unary{{}}(X:SortS{{}}),
+                        \and{{SortS{{}}}}({right}, \top{{SortS{{}}}}())
+                    )
+                ) [label{{}}("argument-named")]"#
+            ))
+            .unwrap_or_else(|error| panic!("{binder} = {right}: {error:?}"))
+            .into_iter()
+            .map(|rule| {
+                let InternalizedRule::Term(RuleKind::Function, rule) = rule else {
+                    panic!("expected function rule");
+                };
+                let TermKind::Application { arguments, .. } = rule.lhs.kind() else {
+                    panic!("expected function application lhs");
+                };
+                let [argument] = arguments.as_slice() else {
+                    panic!("expected one argument");
+                };
+                (
+                    matches!(argument.kind(), TermKind::And(..)),
+                    rule.computed_attributes.unbound_variables.is_empty(),
+                )
+            })
+            .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            equation(r"wrap{}(Y:SortS{})", r"wrap{}(X:SortS{})"),
+            [(true, true)]
+        );
+        assert_eq!(
+            equation(
+                r"\or{SortS{}}(a{}(), wrap{}(Y:SortS{}))",
+                r"wrap{}(X:SortS{})"
+            ),
+            [(true, true), (true, true)]
+        );
+        assert_eq!(
+            equation(r"wrap{}(Y:SortS{})", r"wrap{}(Y:SortS{})"),
+            [(false, true)]
         );
     }
 
