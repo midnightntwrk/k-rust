@@ -73,7 +73,7 @@ use crate::provenance::{
 
 use super::compile::CompilationBackend;
 use super::fresh_names::FreshNames;
-use super::label_graph::{Edges, LabelDependencyGraph};
+use super::label_graph::impure_labels;
 use super::passes::number_sentence;
 use super::sort_injections::{SortInjectionError, SortInjector};
 use super::term_to_kore::{TermConversionError, TermConverter};
@@ -162,6 +162,14 @@ impl DeclarationModules {
     /// Wrap the backend-facing module in K's standard KORE prelude.
     pub fn semantics_definition(&self) -> KoreDefinition {
         self.definition_with(self.semantics.clone())
+    }
+
+    /// [`Self::semantics_definition`], moving the semantics module into it instead of cloning it.
+    pub fn into_semantics_definition(self) -> KoreDefinition {
+        let mut definition = standard_kore_prelude();
+        definition.attributes = self.definition_attributes;
+        definition.modules.push(self.semantics);
+        definition
     }
 
     /// Print [`Self::semantics_definition`] without cloning the semantics module into it.
@@ -1345,39 +1353,14 @@ fn propagate_macro_attribute(sentence: &Sentence, productions: &ProductionCatalo
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+/// The labels the emitted definition declares `impure` ([`impure_labels`]).
 fn transitive_impure_labels(
     definition: &ResolvedDefinition,
     module: ModuleId,
     productions: &ProductionCatalog<'_>,
 ) -> BTreeSet<String> {
     let rules = definition.rule_catalog(module);
-    let graph =
-        LabelDependencyGraph::build(productions, &rules, is_macro_rule, Edges::FUNCTION_RULES);
-    let impure = productions
-        .productions()
-        .filter_map(|(_, production)| match production {
-            Sentence::Production {
-                label: Some(label),
-                attributes,
-                ..
-            } if attributes.has(AttributeKey::Impure) => Some(LabelHead::from(label)),
-            Sentence::SyntaxSort { .. }
-            | Sentence::SortSynonym { .. }
-            | Sentence::SyntaxLexical { .. }
-            | Sentence::Production { .. }
-            | Sentence::SyntaxAssociativity { .. }
-            | Sentence::SyntaxPriority { .. }
-            | Sentence::ContextAlias { .. }
-            | Sentence::Context { .. }
-            | Sentence::Rule { .. }
-            | Sentence::Claim { .. }
-            | Sentence::Configuration { .. }
-            | Sentence::Bubble { .. } => None,
-        })
-        .collect::<BTreeSet<_>>();
-    graph
-        .backward_closure(impure)
+    impure_labels(productions, &rules, is_macro_rule)
         .into_iter()
         .map(|label| label.as_str().to_owned())
         .collect()

@@ -91,6 +91,7 @@ module MAIN
   symbol LblusesMacroAnywhere{}() : SortExp{}
   [
     function{}(),
+    impure{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,18,12,75)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     symbol'Kywd'{}("usesMacroAnywhere")
@@ -348,6 +349,7 @@ module MAIN
   [
     format{}(),
     function{}(),
+    impure{}(),
     left{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,18,12,75)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),

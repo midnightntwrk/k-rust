@@ -2935,7 +2935,7 @@ symbol = "search_paths_collecting"
 
 [[node.cost]]
 mode = "simple paths"
-bound = "exponential in b and d, plus O(d) visited-list work per pop and O(KORE text bytes) per transition for the returned path identity; digest memory is O(printer traversal stack)"
+bound = "exponential in b and d, plus O(1) visited-set work per pop, O(1) per fork and O(d) to copy a branch's visited set at its first state after the fork, and O(KORE text bytes) per transition for the returned path identity; digest memory is O(printer traversal stack)"
 
 [[node]]
 kind = "algorithm"
@@ -6201,7 +6201,7 @@ id = "kompile.labels.backward_closure"
 provenance = "declared"
 area = "kompile"
 name = "backward closure over the label-dependency graph"
-variable = "V = function, anywhere and (under READS) macro labels; E = rule dependency edges; R = rules; N_f = term nodes of the rules that give edges"
+variable = "V = function, anywhere, (under EFFECTS) simplification-head and (under READS and EFFECTS) macro labels; E = rule dependency edges; R = rules; N_f = term nodes of the rules that give edges"
 no_counter = "label-dependency closure has no dedicated counter"
 table = "Algorithm::ALL"
 registry_name = "KompileLabelsBackwardClosure"
@@ -6220,6 +6220,11 @@ symbol = "LabelDependencyGraph::build"
 crate = "k-rust"
 file = "crates/k-rust/src/kompile/label_graph.rs"
 symbol = "LabelDependencyGraph::backward_closure"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/label_graph.rs"
+symbol = "impure_labels"
 
 [[node.cost]]
 mode = "graph construction"
@@ -7396,6 +7401,11 @@ symbol = "Derivations::insert_uncovered"
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/chart.rs"
 symbol = "Derivations::covers_extension"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/chart.rs"
+symbol = "Chart::add_prediction"
 
 [[node.sites]]
 crate = "k-rust"

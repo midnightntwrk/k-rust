@@ -105,7 +105,6 @@ k::rules! {
         store: s,
     } => {
         k: [k::project!(Value, map::get(s, name)), ..],
-        store: s,
     }
     where name: Id;
 

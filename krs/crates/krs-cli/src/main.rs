@@ -32,7 +32,8 @@ Usage:
   krs fmt --stdin [--edition YEAR]
 
 Commands:
-  check                     Judge the definition as build does for --backend; write nothing
+  check                     Judge the definition as emit-k, build, and the run commands do;
+                            write nothing
   expand                    Render the selected Rust reference surface
   emit-k                    Emit canonical K and shared artifacts
   build                     Compile native backend artifacts
@@ -49,7 +50,8 @@ Options:
   --definition NAME          Root package definition facet
   --dependency PACKAGE:NAME  Composed dependency facet; repeatable
   --cfg KEY[=VALUE]          KRS rustc cfg; repeatable
-  --backend llvm|haskell     Native target dialect (default: llvm)
+  --backend llvm|haskell     Native target dialect (default: llvm); with check, judge only
+                             that backend's route (default: every route)
   --output DIRECTORY         Required for emit-k and build
   --output FORMAT            Result format: pretty (default of run, search, prove), program (parse), kast (default of parse), json, kore, none (run)
   -c NAME=TEXT               Bind configuration variable NAME ($ENV, ENV, or init parameter env); repeatable
@@ -710,10 +712,7 @@ fn finish_run(kind: CommandKind, options: RunOptions) -> Result<ParseResult, Usa
                 kind.as_str()
             )));
         }
-        CommandKind::Check => Command::Check {
-            backend: backend.unwrap_or(Backend::Llvm),
-            partition,
-        },
+        CommandKind::Check => Command::Check { backend, partition },
         CommandKind::Expand => Command::Expand,
         CommandKind::EmitK => Command::EmitK {
             output: output.ok_or_else(|| usage("missing --output"))?,
@@ -1080,7 +1079,7 @@ mod tests {
         assert_eq!(
             request.command,
             Command::Check {
-                backend: Backend::Haskell,
+                backend: Some(Backend::Haskell),
                 partition: false,
             }
         );

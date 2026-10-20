@@ -34,6 +34,12 @@ output, which changes with k-rust and which k-rust's own gates check.
 
 Negative fixtures pin the first diagnostic line of a failing `krs check`
 (`diagnostics.<name>`), with absolute paths of the repository replaced.
+
+Every `krs` command the harness runs sets `KRS_CHECK_AGREEMENT=1`, so every
+`krs check` of a fixture is also the agreement test of `check`: in the same
+process, `krs` runs `emit-k`, `build` on each backend the check judged, and the
+run commands' definition load, and fails unless the check passed exactly when
+all of them accepted the fixture (`krs/crates/krs-cli/src/command/agreement.rs`).
 """
 
 from __future__ import annotations
@@ -147,10 +153,11 @@ class FixtureGate:
 
     def _krs(self, fixture: Fixture, command: str, *extra: os.PathLike[str] | str, check: bool = True) -> subprocess.CompletedProcess[str]:
         argv = fixture.invocation(self.krs).argv(command, *fixture.argv_extra(), *extra)
+        environment = {**self.environment, "KRS_CHECK_AGREEMENT": "1"}
         if check:
-            return run(argv, environment=self.environment, timeout=900)
+            return run(argv, environment=environment, timeout=900)
         return subprocess.run(
-            argv, cwd=ROOT, env={**os.environ, **self.environment}, text=True,
+            argv, cwd=ROOT, env={**os.environ, **environment}, text=True,
             capture_output=True, timeout=900, check=False,
         )
 

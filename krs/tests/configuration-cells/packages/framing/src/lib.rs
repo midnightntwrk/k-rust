@@ -86,7 +86,5 @@ k::rules! {
         acc: a,
     } => {
         k: [a, ..],
-        fuel: f,
-        acc: a,
     };
 }

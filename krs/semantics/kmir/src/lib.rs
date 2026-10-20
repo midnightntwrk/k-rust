@@ -6526,7 +6526,6 @@ k::rules! {
         current_body: program,
     } => {
         k: [Execution::ExecBlockIdx(0), ..],
-        current_body: program,
     }
     where program: List;
 
@@ -6535,7 +6534,6 @@ k::rules! {
         current_body: program,
     } => {
         k: [Execution::ExecBlock(list::get(program, index)), ..],
-        current_body: program,
     }
     where index: Int, program: List;
 
@@ -6590,8 +6588,6 @@ k::rules! {
         types: types,
     } => {
         k: [Execution::EvalOperand { operand: MirOperand::Copy(MirPlace::Place { local, projections }), continuation: EvaluationContinuation::FinishPtrCast { place, source: LookupMaybeTy { types, ty: GetTyOf { types, ty: LocalTy { entry: list::get(locals, local) }, projections } }, target: map::get(types, target) } }, ..],
-        locals: locals,
-        types: types,
     }
     where local: Int, projections: ProjectionElems, target: Ty, place: Place, locals: List, types: Map;
 
@@ -6601,8 +6597,6 @@ k::rules! {
         types: types,
     } => {
         k: [Execution::EvalOperand { operand: MirOperand::Move(MirPlace::Place { local, projections }), continuation: EvaluationContinuation::FinishPtrCast { place, source: LookupMaybeTy { types, ty: GetTyOf { types, ty: LocalTy { entry: list::get(locals, local) }, projections } }, target: map::get(types, target) } }, ..],
-        locals: locals,
-        types: types,
     }
     where local: Int, projections: ProjectionElems, target: Ty, place: Place, locals: List, types: Map;
 
@@ -6612,8 +6606,6 @@ k::rules! {
         types: types,
     } => {
         k: [Execution::EvalOperand { operand: MirOperand::Copy(MirPlace::Place { local, projections }), continuation: EvaluationContinuation::FinishTransmute { place, source: LookupMaybeTy { types, ty: GetTyOf { types, ty: LocalTy { entry: list::get(locals, local) }, projections } }, target: map::get(types, target) } }, ..],
-        locals: locals,
-        types: types,
     }
     where local: Int, projections: ProjectionElems, target: Ty, place: Place, locals: List, types: Map;
 
@@ -6623,8 +6615,6 @@ k::rules! {
         types: types,
     } => {
         k: [Execution::EvalOperand { operand: MirOperand::Move(MirPlace::Place { local, projections }), continuation: EvaluationContinuation::FinishTransmute { place, source: LookupMaybeTy { types, ty: GetTyOf { types, ty: LocalTy { entry: list::get(locals, local) }, projections } }, target: map::get(types, target) } }, ..],
-        locals: locals,
-        types: types,
     }
     where local: Int, projections: ProjectionElems, target: Ty, place: Place, locals: List, types: Map;
 
@@ -6634,8 +6624,6 @@ k::rules! {
         types: types,
     } => {
         k: [Execution::TraverseProjection { target: MirProjectionTarget::ToLocal(local), value: LocalValueOf { entry: list::get(locals, local) }, projections, contexts: MirProjectionContexts::ContextsEmpty(), locals, action: MirProjectionAction::ReferenceAction { place, mutability: BorrowMutability { kind }, metadata: MirMetadata::Metadata { size: ProjectionMetadataSize { ty: LocalTy { entry: list::get(locals, local) }, projections, types }, offset: 0, origin_size: MirMetadataSize::NoMetadataSize() } } }, ..],
-        locals: locals,
-        types: types,
     }
     where kind: BorrowKind, local: Int, projections: ProjectionElems, place: Place, locals: List, types: Map;
 
@@ -6644,7 +6632,6 @@ k::rules! {
         locals: locals,
     } => {
         k: [Execution::ResolveAddressOf { entry: list::get(locals, local), mutability, referenced: MirPlace::Place { local, projections }, destination }, ..],
-        locals: locals,
     }
     where mutability: Mutability, local: Int, projections: ProjectionElems, destination: Place, locals: List;
 
@@ -6661,7 +6648,6 @@ k::rules! {
         locals: locals,
     } => {
         k: [Execution::SetLocalValue { place: destination, value: Value::Pointer { height: 0, place: FreezePlace { place: referenced, locals }, mutability, metadata: MirMetadata::Metadata { size: MirMetadataSize::NoMetadataSize(), offset: 0, origin_size: MirMetadataSize::NoMetadataSize() } } }, ..],
-        locals: locals,
     }
     where mutability: Mutability, referenced: Place, destination: Place, locals: List;
 
@@ -6685,7 +6671,6 @@ k::rules! {
         types: types,
     } => {
         k: [Execution::SetLocalValue { place, value: Value::Integer { value: SizeOfTypeInfo { types, info: map::get(types, ty) }, width: 64, signed: false } }, ..],
-        types: types,
     }
     where ty: Ty, place: Place, types: Map;
 
@@ -6695,7 +6680,6 @@ k::rules! {
         types: types,
     } => {
         k: [Execution::SetLocalValue { place, value: Value::Integer { value: AlignOfTypeInfo { types, info: map::get(types, ty) }, width: 64, signed: false } }, ..],
-        types: types,
     }
     where ty: Ty, place: Place, types: Map;
 
@@ -6754,8 +6738,6 @@ k::rules! {
         types: types,
     } => {
         k: [Execution::EvalOperand { operand: MirOperand::Copy(MirPlace::Place { local, projections }), continuation: EvaluationContinuation::FinishDiscriminant { place, info: LookupMaybeTy { types, ty: GetTyOf { types, ty: LocalTy { entry: list::get(locals, local) }, projections } } } }, ..],
-        locals: locals,
-        types: types,
     }
     where local: Int, projections: ProjectionElems, place: Place, locals: List, types: Map;
 
@@ -6772,8 +6754,6 @@ k::rules! {
         memory: memory,
     } => {
         k: [Execution::Continue { value: DecodeAllocatedReference { allocation, bytes, stored: map::get(memory, allocation), info: map::get(types, ty), types }, continuation }, ..],
-        types: types,
-        memory: memory,
     }
     where allocation: AllocId, bytes: Bytes, ty: Ty, continuation: Continuation, types: Map, memory: Map;
 
@@ -6782,7 +6762,6 @@ k::rules! {
         types: types,
     } => {
         k: [Execution::Continue { value: DecodeAllocatedValue { bytes, info: map::get(types, ty), types }, continuation }, ..],
-        types: types,
     }
     where bytes: Bytes, ty: Ty, continuation: Continuation, types: Map;
 
@@ -6791,7 +6770,6 @@ k::rules! {
         types: types,
     } => {
         k: [Execution::Continue { value: DecodeZeroSizedConstant { info: map::get(types, ty) }, continuation }, ..],
-        types: types,
     }
     where ty: Ty, continuation: Continuation, types: Map;
 
@@ -6800,7 +6778,6 @@ k::rules! {
         locals: locals,
     } => {
         k: [Execution::ReadLocal { entry: list::get(locals, local), move_after: false, index: local, continuation }, ..],
-        locals: locals,
     }
     where local: Int, continuation: Continuation, locals: List;
 
@@ -6809,7 +6786,6 @@ k::rules! {
         locals: locals,
     } => {
         k: [Execution::ReadProjectedLocal { entry: list::get(locals, local), local, projections: Projections::ProjectionsCons { head, tail }, continuation }, ..],
-        locals: locals,
     }
     where local: Int, head: ProjectionElem, tail: ProjectionElems, continuation: Continuation, locals: List;
 
@@ -6818,7 +6794,6 @@ k::rules! {
         locals: locals,
     } => {
         k: [Execution::ReadLocal { entry: list::get(locals, local), move_after: true, index: local, continuation }, ..],
-        locals: locals,
     }
     where local: Int, continuation: Continuation, locals: List;
 
@@ -6827,7 +6802,6 @@ k::rules! {
         locals: locals,
     } => {
         k: [Execution::ReadMovedProjectedLocal { entry: list::get(locals, local), local, projections: Projections::ProjectionsCons { head, tail }, continuation }, ..],
-        locals: locals,
     }
     where local: Int, head: ProjectionElem, tail: ProjectionElems, continuation: Continuation, locals: List;
 
@@ -6852,7 +6826,6 @@ k::rules! {
         locals: locals,
     } => {
         k: [Execution::TraverseProjection { target: MirProjectionTarget::ToLocal(local), value, projections, contexts: MirProjectionContexts::ContextsEmpty(), locals, action: MirProjectionAction::ReadAction(continuation) }, ..],
-        locals: locals,
     }
     where value: MirValue, local: Int, projections: ProjectionElems, continuation: Continuation, locals: List;
 
@@ -6861,7 +6834,6 @@ k::rules! {
         locals: locals,
     } => {
         k: [Execution::TraverseProjection { target: MirProjectionTarget::ToLocal(local), value, projections, contexts: MirProjectionContexts::ContextsEmpty(), locals, action: MirProjectionAction::MoveAction(continuation) }, ..],
-        locals: locals,
     }
     where value: MirValue, local: Int, projections: ProjectionElems, continuation: Continuation, locals: List;
 
@@ -7045,7 +7017,6 @@ k::rules! {
         stack: stack,
     } => {
         k: [Execution::TraverseProjection { target: MirProjectionTarget::ToStack { height, local }, value: LocalFromFrame { frame: list::get(stack, int::sub(height, 1)), local, offset: height }, projections: DerefProjectionPath { referenced, size, offset, origin_size, tail }, contexts: MirProjectionContexts::ContextsEmpty(), locals, action }, ..],
-        stack: stack,
     }
     where height: Int, local: Int, referenced: ProjectionElems, size: MetadataSize, offset: Int, origin_size: MetadataSize, tail: ProjectionElems, locals: List, action: ProjectionAction, stack: List;
 
@@ -7063,7 +7034,6 @@ k::rules! {
         stack: stack,
     } => {
         k: [Execution::TraverseProjection { target: MirProjectionTarget::ToStack { height, local }, value: LocalFromFrame { frame: list::get(stack, int::sub(height, 1)), local, offset: height }, projections: DerefProjectionPath { referenced, size, offset, origin_size, tail }, contexts: MirProjectionContexts::ContextsEmpty(), locals, action }, ..],
-        stack: stack,
     }
     where height: Int, local: Int, referenced: ProjectionElems, size: MetadataSize, offset: Int, origin_size: MetadataSize, tail: ProjectionElems, locals: List, action: ProjectionAction, stack: List;
 
@@ -7072,7 +7042,6 @@ k::rules! {
         memory: memory,
     } => {
         k: [Execution::TraverseProjection { target: MirProjectionTarget::ToAllocation(allocation), value: map::get(memory, allocation), projections: DerefProjectionPath { referenced, size, offset: 0, origin_size: MirMetadataSize::NoMetadataSize(), tail }, contexts: MirProjectionContexts::ContextsEmpty(), locals, action: MirProjectionAction::ReadAction(continuation) }, ..],
-        memory: memory,
     }
     where allocation: AllocId, referenced: ProjectionElems, size: MetadataSize, tail: ProjectionElems, locals: List, continuation: Continuation, memory: Map;
 
@@ -7081,7 +7050,6 @@ k::rules! {
         memory: memory,
     } => {
         k: [Execution::TraverseProjection { target: MirProjectionTarget::ToAllocation(allocation), value: map::get(memory, allocation), projections: DerefProjectionPath { referenced, size, offset: 0, origin_size: MirMetadataSize::NoMetadataSize(), tail }, contexts: MirProjectionContexts::ContextsEmpty(), locals, action: MirProjectionAction::ReferenceAction { place, mutability, metadata } }, ..],
-        memory: memory,
     }
     where allocation: AllocId, referenced: ProjectionElems, size: MetadataSize, tail: ProjectionElems, locals: List, place: Place, mutability: Mutability, metadata: Metadata, memory: Map;
 
@@ -7204,7 +7172,6 @@ k::rules! {
         types: types,
     } => {
         k: [Execution::ResolvePtrCast { phase: MirPtrCastPhase::Compare(), height, pointer_place, mutability, metadata, destination, source: map::get(types, source), target: map::get(types, target), projections: Projections::ProjectionsEmpty(), target_size: MetadataSizeOf { info: map::get(types, target) } }, ..],
-        types: types,
     }
     where height: Int, pointer_place: Place, mutability: Mutability, metadata: Metadata, destination: Place, source: Ty, target: Ty, types: Map;
 
@@ -7214,7 +7181,6 @@ k::rules! {
         types: types,
     } => {
         k: [Execution::ResolvePtrCast { phase: MirPtrCastPhase::Compare(), height, pointer_place, mutability, metadata, destination, source: map::get(types, source), target: map::get(types, target), projections: Projections::ProjectionsEmpty(), target_size: MetadataSizeOf { info: map::get(types, target) } }, ..],
-        types: types,
     }
     where height: Int, pointer_place: Place, mutability: Mutability, metadata: Metadata, destination: Place, source: Ty, target: Ty, types: Map;
 
@@ -7224,7 +7190,6 @@ k::rules! {
         types: types,
     } => {
         k: [Execution::ResolvePtrCast { phase: MirPtrCastPhase::Compare(), height, pointer_place, mutability, metadata, destination, source: map::get(types, source), target: map::get(types, target), projections: Projections::ProjectionsEmpty(), target_size: MetadataSizeOf { info: map::get(types, target) } }, ..],
-        types: types,
     }
     where height: Int, pointer_place: Place, mutability: Mutability, metadata: Metadata, destination: Place, source: Ty, target: Ty, types: Map;
 
@@ -7234,7 +7199,6 @@ k::rules! {
         types: types,
     } => {
         k: [Execution::ResolvePtrCast { phase: MirPtrCastPhase::Compare(), height, pointer_place, mutability, metadata, destination, source: map::get(types, source), target: map::get(types, target), projections: Projections::ProjectionsEmpty(), target_size: MetadataSizeOf { info: map::get(types, target) } }, ..],
-        types: types,
     }
     where height: Int, pointer_place: Place, mutability: Mutability, metadata: Metadata, destination: Place, source: Ty, target: Ty, types: Map;
 
@@ -7299,7 +7263,6 @@ k::rules! {
         types: types,
     } => {
         k: [Execution::ResolvePtrCast { phase: MirPtrCastPhase::Compare(), height, pointer_place, mutability, metadata, destination, source: MirTypeInfo::ArrayType { element: source_element, size: source_size }, target: map::get(types, field), projections: AppendCastProjections { first: projections, second: Projections::ProjectionsCons { head: Projection::WrapStruct(), tail: Projections::ProjectionsEmpty() } }, target_size }, ..],
-        types: types,
     }
     where height: Int, pointer_place: Place, mutability: Mutability, metadata: Metadata, destination: Place, source_element: Ty, source_size: MaybeTyConst, name: String, adt_def: AdtDef, field: Ty, layout: MaybeLayoutShape, projections: ProjectionElems, target_size: MetadataSize, types: Map;
 
@@ -7317,7 +7280,6 @@ k::rules! {
         types: types,
     } => {
         k: [Execution::ResolvePtrCast { phase: MirPtrCastPhase::Compare(), height, pointer_place, mutability, metadata, destination, source: map::get(types, field), target, projections: AppendCastProjections { first: projections, second: Projections::ProjectionsCons { head: Projection::Field { field: 0, ty: field }, tail: Projections::ProjectionsEmpty() } }, target_size }, ..],
-        types: types,
     }
     where height: Int, pointer_place: Place, mutability: Mutability, metadata: Metadata, destination: Place, name: String, adt_def: AdtDef, field: Ty, layout: MaybeLayoutShape, target: TypeInfo, projections: ProjectionElems, target_size: MetadataSize, types: Map;
 
@@ -7326,7 +7288,6 @@ k::rules! {
         types: types,
     } => {
         k: [Execution::ResolvePtrCast { phase: MirPtrCastPhase::Compare(), height, pointer_place, mutability, metadata, destination, source: map::get(types, element), target, projections: AppendCastProjections { first: projections, second: Projections::ProjectionsCons { head: Projection::ConstantIndex { offset: 0, min_length: 0, from_end: false }, tail: Projections::ProjectionsEmpty() } }, target_size }, ..],
-        types: types,
     }
     where height: Int, pointer_place: Place, mutability: Mutability, metadata: Metadata, destination: Place, element: Ty, target: TypeInfo, projections: ProjectionElems, target_size: MetadataSize, types: Map;
 
@@ -7343,7 +7304,6 @@ k::rules! {
         types: types,
     } => {
         k: [Execution::ResolvePtrCast { phase: MirPtrCastPhase::Compare(), height, pointer_place, mutability, metadata, destination, source, target: map::get(types, element), projections: AppendCastProjections { first: projections, second: Projections::ProjectionsCons { head: Projection::SingletonArray(), tail: Projections::ProjectionsEmpty() } }, target_size }, ..],
-        types: types,
     }
     where height: Int, pointer_place: Place, mutability: Mutability, metadata: Metadata, destination: Place, source: TypeInfo, element: Ty, projections: ProjectionElems, target_size: MetadataSize, types: Map;
 
@@ -7353,7 +7313,6 @@ k::rules! {
         types: types,
     } => {
         k: [Execution::ResolvePtrCast { phase: MirPtrCastPhase::Compare(), height, pointer_place, mutability, metadata, destination, source, target: map::get(types, field), projections: AppendCastProjections { first: projections, second: Projections::ProjectionsCons { head: Projection::WrapStruct(), tail: Projections::ProjectionsEmpty() } }, target_size }, ..],
-        types: types,
     }
     where height: Int, pointer_place: Place, mutability: Mutability, metadata: Metadata, destination: Place, source: TypeInfo, name: String, adt_def: AdtDef, field: Ty, layout: MaybeLayoutShape, projections: ProjectionElems, target_size: MetadataSize, types: Map;
 
@@ -7714,7 +7673,6 @@ k::rules! {
         locals: locals,
     } => {
         k: [Execution::WriteLocal { entry: list::get(locals, local), index: local, value }, ..],
-        locals: locals,
     }
     where value: MirValue, local: Int, locals: List;
 
@@ -7723,7 +7681,6 @@ k::rules! {
         locals: locals,
     } => {
         k: [Execution::WriteProjectedLocal { entry: list::get(locals, local), local, projections: Projections::ProjectionsCons { head, tail }, value }, ..],
-        locals: locals,
     }
     where value: MirValue, local: Int, head: ProjectionElem, tail: ProjectionElems, locals: List;
 
@@ -7732,7 +7689,6 @@ k::rules! {
         locals: locals,
     } => {
         k: [Execution::TraverseProjection { target: MirProjectionTarget::ToLocal(local), value: original, projections, contexts: MirProjectionContexts::ContextsEmpty(), locals, action: MirProjectionAction::WriteAction(value) }, ..],
-        locals: locals,
     }
     where original: MirValue, local: Int, projections: ProjectionElems, value: MirValue, locals: List;
 
@@ -7793,7 +7749,6 @@ k::rules! {
         unwind: unwind,
         locals: FunctionLocals { function: map::get(functions, callee) },
         stack: list::concat(list::item(MirStackFrame::StackFrame { caller: old_caller, dest: old_dest, target: old_target, unwind: old_unwind, locals: caller_locals, span }), stack),
-        functions: functions,
     }
     where span: Int, callee: Ty, args: Operands, destination: Place, target: Int, unwind: UnwindAction, current_func: Ty, current_body: List, old_caller: Ty, old_dest: Place, old_target: MaybeBasicBlockIdx, old_unwind: UnwindAction, caller_locals: List, stack: List, functions: Map;
 
@@ -7822,7 +7777,6 @@ k::rules! {
         stack: list::concat(list::item(MirStackFrame::StackFrame { caller, dest, target, unwind, locals: caller_locals, span }), rest),
     } => {
         k: [Execution::SetLocalValue { place: MirPlace::Place { local: index, projections: Projections::ProjectionsEmpty() }, value: AdjustRef { value: LocalValueOf { entry: list::get(caller_locals, local) }, offset: 1 } }, ..],
-        stack: list::concat(list::item(MirStackFrame::StackFrame { caller, dest, target, unwind, locals: caller_locals, span }), rest),
     }
     where index: Int, local: Int, caller: Ty, dest: Place, target: MaybeBasicBlockIdx, unwind: UnwindAction, caller_locals: List, span: Int, rest: List;
 
@@ -7957,8 +7911,6 @@ k::rules! {
         unwind: new_unwind,
         locals: new_locals,
         stack: remaining_stack,
-        functions: functions,
-        ret_val: ReturnValue::NoReturn(),
     }
     where callee: Ty, callee_body: List, caller: Ty, destination: Place, target: Int, callee_unwind: UnwindAction, value: MirValue, return_ty: Ty, return_mutability: Mutability, callee_locals_tail: List, new_caller: Ty, new_dest: Place, new_target: MaybeBasicBlockIdx, new_unwind: UnwindAction, new_locals: List, return_span: Int, remaining_stack: List, functions: Map;
 
@@ -7984,8 +7936,6 @@ k::rules! {
         unwind: new_unwind,
         locals: new_locals,
         stack: remaining_stack,
-        functions: functions,
-        ret_val: ReturnValue::NoReturn(),
     }
     where callee: Ty, callee_body: List, caller: Ty, destination: Place, target: Int, callee_unwind: UnwindAction, return_ty: Ty, return_mutability: Mutability, callee_locals_tail: List, new_caller: Ty, new_dest: Place, new_target: MaybeBasicBlockIdx, new_unwind: UnwindAction, new_locals: List, return_span: Int, remaining_stack: List, functions: Map;
 
@@ -7996,9 +7946,6 @@ k::rules! {
         ret_val: ReturnValue::NoReturn(),
     } => {
         k: [Execution::ReturnLocal { entry: list::get(locals, 0) }, ..],
-        target: MirMaybeBasicBlockIdx::NoBasicBlockIdx(),
-        locals: locals,
-        ret_val: ReturnValue::NoReturn(),
     }
     where locals: List;
 

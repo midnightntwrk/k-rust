@@ -7,7 +7,7 @@
 //! rules name `F:FrameCell`, never the cells inside `<frame>`.
 //!
 //! `save` and `restore` are the same machine written the long way: they
-//! restate every leaf of `<frame>` and rebuild it with `k::fragment!`.
+//! name every leaf of `<frame>` and rebuild it with `k::fragment!`.
 //! `call` and `ret` are `push` and `pop` in the reference spelling `krs
 //! expand` prints: a nested field's `cells!` entry has no wrapper, and the
 //! group binder is typed by the nested `#[k::cell]` struct. `wrap` and
@@ -123,7 +123,6 @@ k::rules! {
     } => {
         k: [..],
         stack: list::concat(list::item(f), s),
-        frame: f,
     };
 
     /// Restore the most recently saved frame.
@@ -144,8 +143,6 @@ k::rules! {
         gas: g,
     } => {
         k: [int::add(int::mul(p, 100), g), ..],
-        pc: p,
-        gas: g,
     };
 
     /// Skip ten instructions, matching and rebuilding the whole frame.
@@ -166,7 +163,6 @@ k::rules! {
     } => {
         k: [..],
         stack: list::concat(list::item(Held { saved: f }), s),
-        frame: f,
     };
 
     /// `pop` for a frame saved by `wrap`.
@@ -180,7 +176,7 @@ k::rules! {
         frame: f,
     };
 
-    /// `push` written the long way: restate every leaf of the frame.
+    /// `push` written the long way: name every leaf of the frame.
     save: {
         k: [Save(), ..],
         stack: s,
@@ -189,8 +185,6 @@ k::rules! {
     } => {
         k: [..],
         stack: list::concat(list::item(k::fragment![Frame { pc: p, gas: g }]), s),
-        pc: p,
-        gas: g,
     };
 
     /// `pop` written the long way.

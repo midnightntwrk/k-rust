@@ -49,6 +49,7 @@ impl DiagnosticSources {
             &envelope.message,
             Some(&envelope.authored_range),
             &envelope.notes,
+            &envelope.help,
             envelope.generated_range.as_ref(),
             color,
         )
@@ -75,6 +76,7 @@ impl DiagnosticSources {
             &diagnostic.message,
             range,
             &diagnostic.notes,
+            &diagnostic.help,
             generated,
             color,
         )
@@ -91,6 +93,7 @@ impl DiagnosticSources {
         message: &'a str,
         range: Option<&'a SourceRange>,
         notes: &'a [String],
+        help: &'a [String],
         generated: Option<&DiagnosticGeneratedRange>,
         color: bool,
     ) -> String {
@@ -122,6 +125,10 @@ impl DiagnosticSources {
         for note in notes {
             group = group
                 .element(Level::NOTE.message(annotate_snippets::normalize_untrusted_str(note)));
+        }
+        for help in help {
+            group = group
+                .element(Level::HELP.message(annotate_snippets::normalize_untrusted_str(help)));
         }
         if let Some(generated) = generated {
             let note = format!(
@@ -309,6 +316,23 @@ mod tests {
               |
               = note: first rule: first
               = note: second rule: second"]]
+        .assert_eq(&render_fixture(&root, &sources, &envelope));
+    }
+
+    #[test]
+    fn located_error_with_help_after_notes() {
+        let (root, sources, mut envelope) = fixture();
+        envelope.notes = vec!["a note".into()];
+        envelope.help = vec!["remove `()` at src/lib.rs:2:8".into()];
+        expect![[r"
+            error[krs::analysis::overlapping-rule-heads]: rule heads overlap
+             --> <package>/src/lib.rs:2:5
+              |
+            2 |     Foo,
+              |     ^^^
+              |
+              = note: a note
+              = help: remove `()` at src/lib.rs:2:8"]]
         .assert_eq(&render_fixture(&root, &sources, &envelope));
     }
 

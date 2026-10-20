@@ -358,22 +358,32 @@ fn expand_head_rule(
                 let (cell_name, left_ordinal, before) = &rewrite_befores[rewrite_index];
                 rewrite_index += 1;
                 debug_assert_eq!(cell_name, &cell.unraw().to_string());
-                builder.arm_record_root(after.tree());
-                let after = builder.expand_wire(after.tree(), TermSide::Right, &mut slots)?;
-                let right_ordinal = update_ordinal;
-                update_ordinal = update_ordinal.checked_add(1).ok_or_else(|| {
-                    ExpandError::new(
-                        expand::DESCRIPTOR_CAPACITY,
-                        cell.span(),
-                        "too many readable cell updates",
+                // A cell the result leaves out is read only: it has no
+                // result term and no result-field key.
+                let (result_key, after) = if let Some(after) = after {
+                    builder.arm_record_root(after.tree());
+                    let after = builder.expand_wire(after.tree(), TermSide::Right, &mut slots)?;
+                    let right_ordinal = update_ordinal;
+                    update_ordinal = update_ordinal.checked_add(1).ok_or_else(|| {
+                        ExpandError::new(
+                            expand::DESCRIPTOR_CAPACITY,
+                            cell.span(),
+                            "too many readable cell updates",
+                        )
+                    })?;
+                    (
+                        Some(rule_right_cells_field_role.key(right_ordinal)),
+                        Some(after),
                     )
-                })?;
+                } else {
+                    (None, None)
+                };
                 update_extras.push(krs_ir::wire::WireHeadRuleExtra::RewriteCell {
                     cell: krs_ir::wire::WireHeadRuleCellReference {
                         key: rule_left_cells_field_role.key(*left_ordinal),
                         name: cell_name.clone(),
                     },
-                    result_key: rule_right_cells_field_role.key(right_ordinal),
+                    result_key,
                     before: before.clone(),
                     after,
                 });

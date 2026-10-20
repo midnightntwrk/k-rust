@@ -1287,6 +1287,60 @@ mod tests {
         ProgramParser::new(&definition, "MAIN").unwrap()
     }
 
+    /// `source`'s module `MAIN` with the K prelude, as `kast` loads it.
+    fn parser_with_prelude(source: &str) -> ProgramParser {
+        let prelude = crate::builtin::embedded("prelude.md").expect("embedded prelude");
+        let mut resolver = |_: &str, required: &str| {
+            crate::builtin::embedded(required)
+                .ok_or_else(|| format!("unexpected require {required}"))
+        };
+        let loaded = crate::outer::load_with_options(
+            crate::outer::ResolvedSource::new("main.k", source.to_owned()),
+            "MAIN",
+            &mut resolver,
+            &crate::outer::LoadOptions {
+                implicit_sources: vec![prelude],
+                ..crate::outer::LoadOptions::default()
+            },
+        )
+        .unwrap_or_else(|error| panic!("MAIN loads: {error}"));
+        ProgramParser::from_resolved(loaded.resolved(), "MAIN").unwrap()
+    }
+
+    /// `A ::= A "λλ" A` is a prediction that no later token lets advance, but `A` matches the
+    /// empty text (through the zero-width `Num`), so popping it reads the completions of `A`
+    /// over no text, which builds nodes and registers them for the same-span cycle check. The
+    /// cycle `D ::= D` found here is reported through those nodes, with the empty `D` it
+    /// repeats, whether or not the recognition skips predictions no token can advance.
+    #[test]
+    fn a_skipped_prediction_does_not_change_the_cycle_reported() {
+        let parser = parser_with_prelude(
+            r#"
+module MAIN
+  syntax Num ::= r"[0-9]*" [token]
+  syntax A ::= A "λλ" A [symbol(p2)] | B B [symbol(p1)]
+      > C
+  syntax B ::= B "⇒" B [symbol(p5)] | B "]" B [symbol(p4), left] | A | B ")" B [symbol(p6)]
+      > Num | D B D "⇒" [symbol(p3)]
+  syntax C ::= "(" C ")" [bracket] | "(" C ")" [bracket] | "-" ")" A [symbol(p7), prefer] | Num | "(" C ")" [symbol(p8)]
+  syntax D ::= "" [symbol(p9)] | Num
+      > D [symbol(p10)]
+  syntax left p10
+endmodule
+"#,
+        );
+        let Err(error) = parser.parse(&Sort::new("A"), "42 ) 99 1 ⇒") else {
+            panic!("the input has infinitely many parses");
+        };
+        assert!(
+            error.to_string().ends_with(
+                "derive D from itself without consuming input:\n    \
+                 syntax D ::= D [symbol(p10)]\nwhere D matches the empty string."
+            ),
+            "{error}"
+        );
+    }
+
     #[test]
     fn configuration_k_binding_prefers_an_item_reading() {
         let parser = parser(

@@ -4003,6 +4003,59 @@ fn folds_pure_constants_only_on_rule_right_hand_sides_and_conditions() {
     assert_generated_by(&transformed, GeneratingPass::ConstantFolding);
 }
 
+/// An application that may perform an effect is more than its value, so it is never folded:
+/// `add` reaches the impure `eff` through an anywhere rule and `sub` through a simplification, so
+/// neither is folded on literals. `mul` is folded: its simplification applies `eff` only on its
+/// left side, which is matched, not evaluated. `tdiv` is not: its simplification's right side
+/// applies `eff`, here a copy of what the left side matched, which the backend's load-time effect
+/// set counts too.
+#[test]
+fn folds_no_application_of_a_label_that_reaches_an_effect() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int [hook(INT.Int)]
+          syntax Int ::= r"[\\+\\-]?[0-9]+" [token, prec(2)]
+          syntax Int ::= "eff(" Int ")" [function, impure, symbol(eff)]
+          syntax Int ::= "add(" Int "," Int ")" [function, hook(INT.add), symbol(add)]
+          syntax Int ::= "sub(" Int "," Int ")" [function, hook(INT.sub), symbol(sub)]
+          syntax Int ::= "mul(" Int "," Int ")" [function, hook(INT.mul), symbol(mul)]
+          syntax Int ::= "tdiv(" Int "," Int ")" [function, hook(INT.tdiv), symbol(tdiv)]
+          syntax Int ::= "f(" Int ")" [function, symbol(f)]
+          rule add(X, 0) => eff(X) [anywhere]
+          rule sub(X, 0) => eff(X) [simplification]
+          rule mul(eff(X), 1) => X [simplification]
+          rule tdiv(eff(X), 1) => eff(X) [simplification]
+          rule f(X) => add(add(1, 0), add(sub(2, 0), add(mul(2, 3), tdiv(8, 2))))
+        endmodule
+    "#};
+    let right = constant_folded_right_hand_sides(source);
+    assert!(
+        right.contains(
+            &r#"add(add(#token("1","Int"),#token("0","Int")),add(sub(#token("2","Int"),#token("0","Int")),add(#token("6","Int"),tdiv(#token("8","Int"),#token("2","Int")))))"#
+                .to_owned()
+        ),
+        "{right:?}"
+    );
+}
+
+/// The printed right-hand sides of the rules of `source` after constant folding.
+fn constant_folded_right_hand_sides(source: &str) -> Vec<String> {
+    let transformed = constant_fold(&resolve_semantic_casts(&parsed(source)).unwrap()).unwrap();
+    transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match &**sentence {
+            Sentence::Rule { body, .. } => match body.unannotated() {
+                Term::Rewrite { right, .. } => Some(Printer::new().print_term(right)),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect()
+}
+
 /// A loaded parametric label carries no instance. `peq`'s result sort `Bool` does not mention its
 /// parameter, so its application folds; `padd`'s result sort is its parameter, which only sort
 /// injection instantiates, so its application is left for injection.

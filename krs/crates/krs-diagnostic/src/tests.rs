@@ -109,6 +109,7 @@ fn error_constructor_starts_with_only_a_primary_label() {
     assert!(diagnostic.primary.message.is_none());
     assert!(diagnostic.secondary.is_empty());
     assert!(diagnostic.notes.is_empty());
+    assert!(diagnostic.help.is_empty());
 }
 
 #[test]
@@ -119,8 +120,11 @@ fn builders_preserve_label_explanations_and_producer_order() {
         .with_secondary(Label::new(Location::Definition(first_key.clone())).with_message("first"))
         .with_secondary(Label::new(Location::Definition(second_key.clone())))
         .with_note("first note")
-        .with_note(String::from("second note"));
+        .with_note(String::from("second note"))
+        .with_help("first help")
+        .with_help(String::from("second help"));
     assert_eq!(diagnostic.notes, ["first note", "second note"]);
+    assert_eq!(diagnostic.help, ["first help", "second help"]);
     assert_eq!(diagnostic.secondary.len(), 2);
     assert_eq!(diagnostic.secondary[0].message.as_deref(), Some("first"));
     assert!(diagnostic.secondary[1].message.is_none());

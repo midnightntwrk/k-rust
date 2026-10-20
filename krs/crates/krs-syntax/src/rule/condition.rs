@@ -108,7 +108,9 @@ pub enum RuleExtra {
         /// Complete ordinary three-argument update term.
         update: Box<RuleMapUpdate>,
     },
-    /// Simultaneous exact rewrite of one ordinary fixed leaf cell.
+    /// Exact match of one ordinary fixed cell, simultaneously rewritten when
+    /// the result record restates it and read only when the result leaves it
+    /// out.
     RewriteCell {
         /// Named fixed cell.
         cell: Ident,
@@ -116,8 +118,9 @@ pub enum RuleExtra {
         before: Box<RulePattern>,
         /// Parser-owned subject tree for descriptor expansion and provenance.
         before_tree: Box<TermTree>,
-        /// Complete replacement term after the rewrite.
-        after: Box<TermExpression>,
+        /// Complete replacement term after the rewrite, absent when the
+        /// result leaves the cell out (the cell is then read only).
+        after: Option<Box<TermExpression>>,
     },
     /// An optional (`?`) or collection (`*`) cell (KF-023): `Some(p)` or
     /// `None`, or an instance list, and its result when the record restates
