@@ -203,9 +203,8 @@ pub(crate) fn is_impure_symbol(definition: &BackendDefinition, symbol: &Symbol) 
 /// equation, an anywhere rule or a simplification (every equation that can rewrite an
 /// application) whose right-hand side, requires or ensures mentions a symbol it holds: such an
 /// application may be rewritten into one that performs the effect. The frontend declares `impure`
-/// by the same closure over the same rules and rule parts, so on compiled KORE whose `IO.` hooks
-/// are declared `impure` the load adds no symbol; hand-written KORE without the attribute is
-/// covered here too.
+/// by the same closure, from the same seeds over the same rules and rule parts, so on compiled
+/// KORE the load adds no symbol; hand-written KORE without the attribute is covered here too.
 ///
 /// `unindexed` holds when an equation whose left-hand side has no symbol at its root (a
 /// collection, an injection, a variable) mentions such a symbol: it can rewrite terms the walk
@@ -289,6 +288,11 @@ impl ConsoleReach {
     /// Whether an application of `symbol` may perform a console effect.
     pub(crate) fn may_reach(&self, symbol: &Symbol) -> bool {
         self.symbols.contains(&symbol.name)
+    }
+
+    /// The names of the symbols held, sorted; `None` when `unindexed` holds.
+    pub(crate) fn symbol_names(&self) -> Option<std::collections::BTreeSet<String>> {
+        (!self.unindexed).then(|| self.symbols.iter().map(|name| name.to_string()).collect())
     }
 }
 

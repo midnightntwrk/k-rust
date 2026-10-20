@@ -57,6 +57,9 @@ pub(crate) struct Edges {
     /// Anywhere and simplification rules give edges from their heads, whatever kind of label the
     /// head is, and those heads are edge targets.
     pub(crate) equations: bool,
+    /// Only what a rule introduces gives edges: the right sides of its rewrites, not their left
+    /// sides, whose applications are matched, not evaluated.
+    pub(crate) right_sides: bool,
 }
 
 impl Edges {
@@ -66,6 +69,7 @@ impl Edges {
         ensures: true,
         macros: true,
         equations: false,
+        right_sides: false,
     };
     /// Every rule that evaluating an application `f(…)` can apply, with every part of it that
     /// evaluation then evaluates: such a rule puts its right side where `f(…)` was and decides its
@@ -75,11 +79,14 @@ impl Edges {
     ///   its left side, whatever kind of label heads it) are such rules.
     /// - A macro is expanded before evaluation, so its application is evaluated as its right
     ///   side: it is a node, with an edge to what its right side applies.
-    /// - Body, `requires` and `ensures` give edges.
+    /// - The right side, `requires` and `ensures` give edges. The left side does not: its
+    ///   arguments are matched, and an application among them was evaluated before the rule
+    ///   applies, by whoever evaluated it, so its effects are not the head's.
     pub(crate) const EFFECTS: Self = Self {
         ensures: true,
         macros: true,
         equations: true,
+        right_sides: true,
     };
 }
 
@@ -174,10 +181,19 @@ impl LabelDependencyGraph {
                     continue;
                 }
                 let current_node = result.node(current);
-                let roots = [Some(body), Some(requires), edges.ensures.then_some(ensures)];
+                let mut roots = Vec::new();
+                if edges.right_sides {
+                    right_sides(body, &mut roots);
+                } else {
+                    roots.push(body);
+                }
+                roots.push(requires);
+                if edges.ensures {
+                    roots.push(ensures);
+                }
                 result.add_edges(
                     current_node,
-                    roots.into_iter().flatten(),
+                    roots.into_iter(),
                     &evaluated_labels,
                     &anywhere_labels,
                 );
@@ -287,9 +303,10 @@ impl LabelDependencyGraph {
 }
 
 /// The labels whose application may perform an effect when it is evaluated: the labels of the
-/// productions declared `impure`, and every label an [`Edges::EFFECTS`] rule of which (a function,
-/// anywhere or simplification rule, or a macro's own rule) applies one of them in its body,
-/// `requires` or `ensures`, transitively. Evaluating such an application may apply that rule,
+/// productions declared `impure` or hooked to an `IO.` operation (a console or file operation,
+/// which the backend performs as an effect whatever the declaration says), and every label an
+/// [`Edges::EFFECTS`] rule of which (a function, anywhere or simplification rule, or a macro's own
+/// rule) applies one of them in its right side, `requires` or `ensures`, transitively. Evaluating such an application may apply that rule,
 /// which evaluates what it applies.
 pub(crate) fn impure_labels(
     productions: &ProductionCatalog<'_>,
@@ -297,14 +314,20 @@ pub(crate) fn impure_labels(
     is_macro: impl Fn(&Sentence) -> bool,
 ) -> BTreeSet<LabelHead> {
     let graph = LabelDependencyGraph::build(productions, rules, is_macro, Edges::EFFECTS);
-    let declared = productions
+    let effects = productions
         .productions()
         .filter_map(|(_, production)| match production {
             Sentence::Production {
                 label: Some(label),
                 attributes,
                 ..
-            } if attributes.has(AttributeKey::Impure) => Some(LabelHead::from(label)),
+            } if attributes.has(AttributeKey::Impure)
+                || attributes
+                    .string(AttributeKey::Hook)
+                    .is_some_and(|hook| hook.starts_with("IO.")) =>
+            {
+                Some(LabelHead::from(label))
+            }
             Sentence::SyntaxSort { .. }
             | Sentence::SortSynonym { .. }
             | Sentence::SyntaxLexical { .. }
@@ -319,7 +342,21 @@ pub(crate) fn impure_labels(
             | Sentence::Bubble { .. } => None,
         })
         .collect::<BTreeSet<_>>();
-    graph.backward_closure(declared)
+    graph.backward_closure(effects)
+}
+
+/// The right sides of the rewrites in `body`: what applying the rule puts in place of what it
+/// matched.
+fn right_sides<'t>(body: &'t Term, roots: &mut Vec<&'t Term>) {
+    if let Term::Rewrite { right, .. } = body.unannotated() {
+        roots.push(right);
+        return;
+    }
+    // Invariant: every rewrite in the children before `child` has its right side in `roots`; the
+    // recursion descends one level of the finite term per call.
+    for child in body.children() {
+        right_sides(child, roots);
+    }
 }
 
 /// Whether `rule`, whose head is a macro label, is one of the macro's own rules: a simplification

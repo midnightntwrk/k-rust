@@ -1387,8 +1387,10 @@ module_snapshot!(
 /// rule, which expansion applies before evaluation) applies an impure label in its right side,
 /// `requires` or `ensures`. `eff` is declared `impure`; `viaAny` reaches it through an anywhere
 /// rule and `fa` and `callsFa` through `viaAny`; `viaEns` through its `ensures`; `simp` through a
-/// simplification; `m` is a macro whose right side applies it. `clean` and `callsClean` reach no
-/// impure label, nor does `pure`, whose simplification restates a value.
+/// simplification; `m` is a macro whose right side applies it; `fu` calls `myRead`, which is hooked
+/// to a console read (`IO.getc`) without being declared `impure`. `clean` and `callsClean` reach
+/// no impure label, nor does `pure`, whose simplification restates a value, nor `lhsS`, whose
+/// simplification applies `eff` only on its left side, where it is matched, not evaluated.
 #[test]
 fn impure_attribute_closes_over_every_rule_evaluation_applies() {
     let source = indoc! {r#"
@@ -1405,6 +1407,9 @@ fn impure_attribute_closes_over_every_rule_evaluation_applies() {
           syntax Exp ::= "clean(" Exp ")" [symbol(clean)]
           syntax Exp ::= "callsClean" [function, symbol(callsClean)]
           syntax Exp ::= "pure(" Exp ")" [function, symbol(pure)]
+          syntax Exp ::= "myRead(" Exp ")" [function, hook(IO.getc), symbol(myRead)]
+          syntax Exp ::= "fu" [function, symbol(fu)]
+          syntax Exp ::= "lhsS(" Exp ")" [function, symbol(lhsS)]
 
           rule eff(X:Exp) => X:Exp
           rule viaAny(X:Exp) => eff(X:Exp) [anywhere]
@@ -1416,6 +1421,9 @@ fn impure_attribute_closes_over_every_rule_evaluation_applies() {
           rule clean(X:Exp) => X:Exp [anywhere]
           rule callsClean => clean(done)
           rule pure(X:Exp) => X:Exp [simplification]
+          rule fu => myRead(done)
+          rule lhsS(X:Exp) => X:Exp
+          rule lhsS(eff(X:Exp)) => X:Exp [simplification]
         endmodule
     "#};
     let modules = module_to_kore(&rules(source, "MAIN"), "MAIN").expect("KORE modules should emit");
@@ -1444,6 +1452,8 @@ fn impure_attribute_closes_over_every_rule_evaluation_applies() {
             "LblviaEns",
             "Lblsimp",
             "Lblm",
+            "LblmyRead",
+            "Lblfu",
         ] {
             assert!(impure(module, symbol), "{symbol} in {}", module.name);
         }
@@ -1453,6 +1463,7 @@ fn impure_attribute_closes_over_every_rule_evaluation_applies() {
             "LblcallsClean",
             "Lblpure",
             "LblisDone",
+            "LbllhsS",
         ] {
             assert!(!impure(module, symbol), "{symbol} in {}", module.name);
         }

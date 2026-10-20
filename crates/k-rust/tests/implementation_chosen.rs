@@ -1389,6 +1389,91 @@ endmodule
         );
     }
 
+    /// Labels that reach an effect through an anywhere rule (`viaAny`, and `fa` through it), an
+    /// `ensures` (`viaEns`), a macro's right side (`usesM` through `m`), a console hook not
+    /// declared `impure` (`fu` through `myGetc`), and a simplification whose right side copies a
+    /// matched application (`_+Int_`, through `eff(N) +Int 0 => eff(N)`); `lhsS` applies `eff`
+    /// only on a simplification's left side and `clean` reaches nothing.
+    const REACH: &str = r#"
+module MAIN
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  imports K-IO
+  syntax Pgm ::= "p"
+  configuration <k> $PGM:Pgm </k>
+  rule p => .K
+  syntax Int ::= fa() [function] | viaEns(Int) [function] | myGetc(Int) [function, hook(IO.getc)]
+               | fu() [function] | eff(Int) [function, impure] | lhsS(Int) [function]
+  syntax Num ::= Int | viaAny(Int) | m(Int) [macro] | usesM() [function] | clean(Int)
+  rule viaAny(N) => {#getc(N)}:>Int [anywhere]
+  rule fa() => {viaAny(0)}:>Int
+  rule viaEns(N) => N ensures {#getc(0)}:>Int ==Int 65
+  rule m(N) => {#getc(N)}:>Int
+  rule usesM() => m(0)
+  rule clean(N) => N [anywhere]
+  rule fu() => myGetc(0)
+  rule eff(N) => N
+  rule lhsS(N) => N
+  rule lhsS(eff(N)) => N [simplification]
+  rule eff(N) +Int 0 => eff(N) [simplification]
+endmodule
+"#;
+
+    /// The frontend's `impure` attribute and the backend's load-time console-effect set are one
+    /// closure from the same seeds over the same rules and rule parts, so on the compiled KORE of
+    /// the FU-27 and KINK-17/4 fixtures the symbols the KORE declares `impure` are exactly the
+    /// symbols the load finds.
+    #[test]
+    fn the_emitted_impure_attribute_equals_the_load_time_effect_set() {
+        for (name, source, program) in [("REACH", REACH, "p"), ("EFFECTS", EFFECTS, "pAnd")] {
+            let (kore, _) = compile(source, program);
+            let parsed = k_rust::kore::parser::parse_definition(&kore).unwrap();
+            let declared: BTreeSet<String> = parsed
+                .modules
+                .iter()
+                .flat_map(|module| module.sentences.iter())
+                .filter_map(|sentence| match sentence {
+                    k_rust::kore::ast::Sentence::SymbolDeclaration {
+                        symbol, attributes, ..
+                    } if attributes.0.iter().any(|attribute| {
+                        matches!(attribute, Pattern::Application { symbol, .. } if symbol.name == "impure")
+                    }) =>
+                    {
+                        Some(symbol.name.clone())
+                    }
+                    _ => None,
+                })
+                .collect();
+            let mut backend = backend(&kore);
+            let loaded = backend
+                .select_definition(None)
+                .unwrap()
+                .console_effect_symbols()
+                .expect("every effectful equation has a root symbol");
+            assert_eq!(declared, loaded, "{name}");
+            if name == "REACH" {
+                for symbol in [
+                    "Lblfa'LParRParUnds'MAIN'Unds'Int",
+                    "LblviaEns'LParUndsRParUnds'MAIN'Unds'Int'Unds'Int",
+                    "LblmyGetc'LParUndsRParUnds'MAIN'Unds'Int'Unds'Int",
+                    "Lblfu'LParRParUnds'MAIN'Unds'Int",
+                    "LblviaAny'LParUndsRParUnds'MAIN'Unds'Num'Unds'Int",
+                    "LblusesM'LParRParUnds'MAIN'Unds'Num",
+                    "Lbl'UndsPlus'Int'Unds'",
+                ] {
+                    assert!(declared.contains(symbol), "{symbol}: {declared:?}");
+                }
+                for symbol in [
+                    "LbllhsS'LParUndsRParUnds'MAIN'Unds'Int'Unds'Int",
+                    "Lblclean'LParUndsRParUnds'MAIN'Unds'Num'Unds'Int",
+                ] {
+                    assert!(!declared.contains(symbol), "{symbol}: {declared:?}");
+                }
+            }
+        }
+    }
+
     /// A run without a console performs no effect, so a decided `#if` over a discarded `#write`
     /// marks nothing, on the leaf or on the run's list; with a console it is marked.
     #[test]
