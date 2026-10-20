@@ -94,8 +94,13 @@ pub(crate) trait CaseRunner {
         cancel: Option<&CancellationToken>,
     ) -> Result<CaseRun, Abort>;
 
-    /// Confirm a case independently of the path that found it (ARCHITECTURE 7): fresh assembly,
-    /// fresh backend, public execute, re-resolved target.
+    /// Confirm a case independently of the path that found it (ARCHITECTURE 7): a fresh
+    /// `Backend` (its own session and solver, so no solver cache is shared), a fresh program
+    /// assembly that assembles the case from the instantiated text, public execute, and a
+    /// re-resolved target. What is reused is immutable and independent of every earlier run:
+    /// the internalized definition each fresh backend copies, and the hole resolution and
+    /// round-trip positions, computed once on a build of their own
+    /// ([`super::live::DefinitionCache`]).
     ///
     /// # Errors
     ///
