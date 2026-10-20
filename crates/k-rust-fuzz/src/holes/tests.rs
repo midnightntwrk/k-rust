@@ -7,14 +7,17 @@ mod support;
 use std::sync::OnceLock;
 
 use k_rust::{
-    backend::{Backend, BackendOptions},
+    backend::{Backend, BackendOptions, ExecuteRequest},
+    builtin::embedded,
     k_rust_backend::definition::BackendDefinition,
-    kast::Sort as KastSort,
-    kompile::{ConfigurationAssembler, ConfigurationError},
+    kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
     kore::{
         ast::{KoreString, Pattern, Sort as KoreSort, Symbol, Variable, VariableKind},
+        codec,
+        parser::parse_pattern,
         printer::Printer,
     },
+    outer::{LoadOptions, ResolvedSource, load_for_compilation},
 };
 use num_bigint::BigInt;
 
@@ -27,14 +30,59 @@ use crate::{
     assemble::{ProgramAssembly, build_backend},
     error::{CampaignError, SortRefusal, SpanProblem},
     spec::{CompiledDefinition, ProgramInput, ProgramSource, ProgramText},
-    values::{Constraints, Value, ValueSort},
+    values::{Constraints, ElementSorts, Value, ValueSort},
 };
 
+const IMP_K: &str = include_str!("../../tests/data/imp/imp.k");
+const STREAMS_K: &str = include_str!("../../tests/data/streams/streams.k");
+const GO_PGM: &str = include_str!("../../tests/data/streams/go.pgm");
+const WRAPS_K: &str = include_str!("../../tests/data/wraps/wraps.k");
+const ONE_PGM: &str = include_str!("../../tests/data/wraps/one.pgm");
 const COMMUTE_IMP: &str = include_str!("../../tests/data/imp/commute.imp");
 const LOOP_IMP: &str = include_str!("../../tests/data/imp/loop.imp");
 const SUM_PGM: &str = include_str!("../../tests/data/unsigned/sum.pgm");
 const SETTLE_PGM: &str = include_str!("../../tests/data/ledger/settle.pgm");
 const SETTLE_TX: &str = include_str!("../../tests/data/ledger/settle.tx");
+
+/// Compile a fixture the shared support module does not list, as `tests/support` compiles its
+/// fixtures: the embedded prelude as an implicit source, the Rust backend's load options, then
+/// `compile_loaded_definition`; the frontend definition is the loaded one, as krun keeps it.
+fn compile(file: &str, source: &str, main_module: &str) -> CompiledDefinition {
+    let mut resolver = |_: &str, required: &str| {
+        embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let options = LoadOptions {
+        implicit_sources: vec![embedded("prelude.md").expect("the prelude is embedded")],
+        ..CompilationBackend::Rust.load_options()
+    };
+    let (loaded, syntax_module) = load_for_compilation(
+        ResolvedSource::new(file, source),
+        main_module,
+        None,
+        &mut resolver,
+        &options,
+    )
+    .unwrap_or_else(|error| panic!("{file} does not load: {error:?}"));
+    let artifacts = compile_loaded_definition(&loaded, CompileOptions::default())
+        .unwrap_or_else(|error| panic!("{file} does not compile: {error}"));
+    CompiledDefinition::from_artifacts(
+        main_module,
+        syntax_module,
+        loaded.into_definition(),
+        artifacts,
+    )
+    .unwrap_or_else(|error| panic!("{file}: {error}"))
+}
+
+fn streams() -> &'static CompiledDefinition {
+    static DEFINITION: OnceLock<CompiledDefinition> = OnceLock::new();
+    DEFINITION.get_or_init(|| compile("streams/streams.k", STREAMS_K, "STREAMS"))
+}
+
+fn wraps() -> &'static CompiledDefinition {
+    static DEFINITION: OnceLock<CompiledDefinition> = OnceLock::new();
+    DEFINITION.get_or_init(|| compile("wraps/wraps.k", WRAPS_K, "WRAPS"))
+}
 
 fn imp() -> &'static CompiledDefinition {
     static DEFINITION: OnceLock<CompiledDefinition> = OnceLock::new();
@@ -688,19 +736,41 @@ fn an_anchor_that_is_not_a_value_of_its_sort_is_refused() {
 }
 
 #[test]
-fn the_program_text_is_never_modified() {
-    let definition = imp();
-    let program = program("imp/commute.imp", COMMUTE_IMP, &[]);
+fn the_program_and_definition_files_are_never_modified() {
+    // The program and the definition are read from files, as a client reads them; every step a
+    // case takes (resolve, locate, instantiate, assemble, execute) runs, and the files' bytes
+    // and modification times are compared before and after.
+    let directory =
+        std::env::temp_dir().join(format!("k-rust-fuzz-fz02-files-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).expect("the temporary directory is created");
+    let definition_path = directory.join("imp.k");
+    let program_path = directory.join("commute.imp");
+    std::fs::write(&definition_path, IMP_K).expect("the definition is written");
+    std::fs::write(&program_path, COMMUTE_IMP).expect("the program is written");
+    let snapshot = |path: &std::path::Path| {
+        (
+            std::fs::read(path).expect("the file is read"),
+            std::fs::metadata(path)
+                .and_then(|metadata| metadata.modified())
+                .expect("the file has a modification time"),
+        )
+    };
+    let before = [snapshot(&definition_path), snapshot(&program_path)];
+
+    let source = std::fs::read_to_string(&definition_path).expect("the definition is read");
+    let definition = compile("imp.k", &source, "IMP");
+    let text = std::fs::read_to_string(&program_path).expect("the program is read");
+    let program = program("commute.imp", &text, &[]);
     let holes = resolve_ok(
         &[
-            span("X", "Int", "imp/commute.imp", None, "x = 3;", "3"),
-            span("Y", "Int", "imp/commute.imp", Some(3), "5", "5"),
+            span("X", "Int", "commute.imp", None, "x = 3;", "3"),
+            span("Y", "Int", "commute.imp", Some(3), "5", "5"),
         ],
         &program,
-        definition,
+        &definition,
     );
-    let assembly = ProgramAssembly::new(definition).expect("the grammar resolves");
-    let check = RoundTripCheck::new(&assembly, definition, &program, &holes)
+    let assembly = ProgramAssembly::new(&definition).expect("the grammar resolves");
+    let check = RoundTripCheck::new(&assembly, &definition, &program, &holes)
         .expect("the anchors parse back at their positions");
     let values = [int(-7), int(11)];
     let instantiated = instantiate(&program, &holes, &values);
@@ -711,61 +781,274 @@ fn the_program_text_is_never_modified() {
             .replacen("y = 5;", "y = 11;", 1)
     );
     let built = assembly
-        .assemble(definition, &instantiated)
+        .assemble(&definition, &instantiated)
         .expect("the instantiated program assembles");
     assert_eq!(check.check(&built, &values), Ok(()));
     // The swapped values are at the wrong positions.
     assert!(check.check(&built, &[int(11), int(-7)]).is_err());
-    let ProgramInput::Source(ProgramSource {
-        program: Some(text),
-        ..
-    }) = &program
-    else {
-        unreachable!("built as a source program");
+    let mut backend = build_backend(&definition, BackendOptions::default()).expect("a backend");
+    let result = backend
+        .execute(ExecuteRequest::new(built))
+        .expect("the case executes");
+    assert!(!result.leaves.is_empty());
+
+    let after = [snapshot(&definition_path), snapshot(&program_path)];
+    std::fs::remove_dir_all(&directory).expect("the temporary directory is removed");
+    assert_eq!(before, after);
+}
+
+/// What `krust krun streams.k go.pgm --main-module STREAMS --sort Pgm -c LIMIT=3 --io off
+/// --depth 0 < /dev/null` prints (run once, at `fz26/G15` `c5ae476d9`): the configuration krun
+/// builds, evaluated, before any rewrite step. `<in>` holds `"\n"`: krun buffers the empty
+/// standard input to one newline.
+const KRUN_STREAMS_DEPTH_0: &str = r#"Lbl'-LT-'generatedTop'-GT-'{}(
+  Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortPgm{}, SortKItem{}}(Lblgo{}(\dv{SortInt{}}("5"))), dotk{}())),
+  Lbl'-LT-'limit'-GT-'{}(\dv{SortInt{}}("3")),
+  Lbl'-LT-'in'-GT-'{}(\dv{SortString{}}("\n")),
+  Lbl'-LT-'io'-GT-'{}(\dv{SortString{}}("off")),
+  Lbl'-LT-'generatedCounter'-GT-'{}(\dv{SortInt{}}("0"))
+)"#;
+
+#[test]
+fn a_case_binds_the_streams_as_krun_does_with_an_empty_standard_input() {
+    let definition = streams();
+    let program = program("streams/go.pgm", GO_PGM, &[("LIMIT", "3")]);
+    let assembly = ProgramAssembly::new(definition).expect("the grammar resolves");
+    let initial = assembly
+        .assemble(
+            definition,
+            &instantiate(&program, &ResolvedHoles { holes: Vec::new() }, &[]),
+        )
+        .expect("the program assembles");
+    // krun binds `$PGM`, then the `-c` values in order, then `$IO` and `$STDIN`; the
+    // initializer's map keeps that order.
+    let text = printed(&initial);
+    let at = |key: &str| {
+        text.find(&format!(r#"\dv{{SortKConfigVar{{}}}}("{key}")"#))
+            .unwrap_or_else(|| panic!("{key} is bound: {text}"))
     };
-    assert_eq!(text.text.as_bytes(), COMMUTE_IMP.as_bytes());
+    assert!(at("$PGM") < at("$LIMIT"), "{text}");
+    assert!(at("$LIMIT") < at("$IO"), "{text}");
+    assert!(at("$IO") < at("$STDIN"), "{text}");
+
+    let mut backend = build_backend(definition, BackendOptions::default()).expect("a backend");
+    let result = backend
+        .execute(ExecuteRequest {
+            max_depth: Some(0),
+            ..ExecuteRequest::new(initial)
+        })
+        .expect("zero steps execute");
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("one leaf: {result:#?}");
+    };
+    let state = codec::from_value(&leaf.state).expect("a KORE leaf");
+    let expected = parse_pattern(KRUN_STREAMS_DEPTH_0).expect("krun's output parses");
+    assert_eq!(printed(&state), printed(&expected));
 }
 
 #[test]
-fn the_anchor_program_assembles_as_krun_assembles_it() {
+fn a_reused_assembler_gives_the_one_shot_configuration() {
+    let definition = streams();
+    let program = program("streams/go.pgm", GO_PGM, &[("LIMIT", "3")]);
+    let empty = ResolvedHoles { holes: Vec::new() };
+    let assembly = ProgramAssembly::new(definition).expect("the grammar resolves");
+    let expected = assembly
+        .assemble(definition, &instantiate(&program, &empty, &[]))
+        .expect("the program assembles");
+    let mut reused = assembly.assembler(definition);
+    let broken = self::program("streams/go.pgm", "go ;", &[("LIMIT", "3")]);
+    assert!(reused.assemble(&instantiate(&broken, &empty, &[])).is_err());
+    for _ in 0..2 {
+        let again = reused
+            .assemble(&instantiate(&program, &empty, &[]))
+            .expect("the program assembles");
+        assert_eq!(printed(&again), printed(&expected));
+    }
+}
+
+#[test]
+fn under_start_sort_k_every_sort_of_the_syntax_module_is_program_syntax() {
+    let definition = imp();
+    for start in ["K", "KItem"] {
+        let program = ProgramInput::Source(ProgramSource {
+            program: Some(ProgramText {
+                name: "imp/commute.imp".to_owned(),
+                text: COMMUTE_IMP.to_owned(),
+                start_sort: start.to_owned(),
+            }),
+            config_vars: Vec::new(),
+        });
+        let refusal = |sort: &str| {
+            check_hole_sort(
+                &span("H", sort, "imp/commute.imp", None, "x = 3;", "3"),
+                &program,
+                definition,
+            )
+        };
+        for sort in ["AExp", "BExp", "Stmt", "Pgm", "Ids"] {
+            assert_eq!(
+                refusal(sort),
+                Err(CampaignError::RefusedHoleSort {
+                    hole: "H".to_owned(),
+                    sort: sort.to_owned(),
+                    reason: SortRefusal::ProgramSyntax,
+                }),
+                "{start}: {sort}"
+            );
+        }
+        assert_eq!(refusal("Int"), Ok(None), "{start}");
+    }
+}
+
+fn with_elements(decl: HoleDecl, elements: ElementSorts) -> HoleDecl {
+    HoleDecl {
+        constraints: Constraints {
+            elements: Some(elements),
+            ..Constraints::default()
+        },
+        ..decl
+    }
+}
+
+fn refused(sort: &str, reason: SortRefusal) -> Result<Option<SortRefusal>, CampaignError> {
+    Err(CampaignError::RefusedHoleSort {
+        hole: "H".to_owned(),
+        sort: sort.to_owned(),
+        reason,
+    })
+}
+
+#[test]
+fn the_sorts_a_value_may_contain_are_data_too() {
     let definition = imp();
     let program = program("imp/commute.imp", COMMUTE_IMP, &[]);
+    let list = |element: &str| {
+        with_elements(
+            span("H", "List", "imp/commute.imp", None, "x = 3;", "3"),
+            ElementSorts::Elements {
+                element: element.to_owned(),
+            },
+        )
+    };
+    let check = |decl: &HoleDecl| check_hole_sort(decl, &program, definition);
+    assert_eq!(check(&list("Int")), Ok(None));
+    assert_eq!(
+        check(&list("Stmt")),
+        refused("List", SortRefusal::ProgramSyntax)
+    );
+    assert_eq!(check(&list("K")), refused("List", SortRefusal::Computation));
+    assert_eq!(
+        check(&list("KItem")),
+        refused("List", SortRefusal::Computation)
+    );
+    assert_eq!(
+        check(&list("List")),
+        refused("List", SortRefusal::Computation)
+    );
+    assert_eq!(check(&list("Nope")), refused("List", SortRefusal::Unknown));
+    let map = with_elements(
+        span("H", "Map", "imp/commute.imp", None, "x = 3;", "3"),
+        ElementSorts::Entries {
+            key: "Id".to_owned(),
+            value: "Int".to_owned(),
+        },
+    );
+    assert_eq!(check(&map), refused("Map", SortRefusal::Token));
+    // The override admits an element sort as it admits the hole's own sort.
+    let overridden = HoleDecl {
+        allow_refused_sort: true,
+        ..list("AExp")
+    };
+    assert_eq!(check(&overridden), Ok(Some(SortRefusal::ProgramSyntax)));
+    assert_eq!(
+        check(&span(
+            "H",
+            "KResult",
+            "imp/commute.imp",
+            None,
+            "x = 3;",
+            "3"
+        )),
+        refused("KResult", SortRefusal::Computation)
+    );
+
+    // Data sorts of the semantic module, by what their constructors take.
+    let definition = wraps();
+    let program = self::program("wraps/one.pgm", ONE_PGM, &[]);
+    let check = |sort: &str| {
+        check_hole_sort(
+            &span("H", sort, "wraps/one.pgm", None, "1", "1"),
+            &program,
+            definition,
+        )
+    };
+    assert_eq!(check("Pair"), Ok(None));
+    assert_eq!(check("Job"), refused("Job", SortRefusal::ProgramSyntax));
+    assert_eq!(
+        check("Nested"),
+        refused("Nested", SortRefusal::ProgramSyntax)
+    );
+    assert_eq!(check("Bag"), refused("Bag", SortRefusal::Computation));
+    assert_eq!(check("Stmt"), refused("Stmt", SortRefusal::ProgramSyntax));
+}
+
+#[test]
+fn a_template_hole_has_its_variable_sort() {
+    let definition = imp();
+    let template = ProgramInput::KoreTemplate(Pattern::Variable(Variable {
+        kind: VariableKind::Element,
+        name: "VarA".to_owned(),
+        sort: kore_sort("SortInt"),
+    }));
+    assert_eq!(
+        resolve_err(&[kore_variable("A", "Bool", "VarA")], &template, definition),
+        span_error("A", SpanProblem::KoreVariable)
+    );
+}
+
+#[test]
+fn an_anchor_written_other_than_canonically_is_refused_with_its_spelling() {
+    let definition = imp();
+    for (text, literal) in [("int x;\nx = 07;\n", "07"), ("int x;\nx = +7;\n", "+7")] {
+        let program = program("leading.imp", text, &[]);
+        let holes = resolve_ok(
+            &[span("X", "Int", "leading.imp", None, literal, literal)],
+            &program,
+            definition,
+        );
+        let assembly = ProgramAssembly::new(definition).expect("the grammar resolves");
+        let Err(CampaignError::AnchorDoesNotParse { hole, message }) =
+            RoundTripCheck::new(&assembly, definition, &program, &holes)
+        else {
+            panic!("`{literal}` is refused");
+        };
+        assert_eq!(hole, "X");
+        assert!(
+            message.contains(&format!("written `{literal}`")) && message.contains("canonically"),
+            "{message}"
+        );
+    }
+}
+
+#[test]
+fn a_literal_that_is_part_of_a_token_is_refused() {
+    let definition = imp();
+    let program = program("imp/loop.imp", LOOP_IMP, &[]);
+    // `0` of `10`: the configuration changes in `\dv("10")`, which is not the anchor `0`.
     let holes = resolve_ok(
-        &[span("X", "Int", "imp/commute.imp", None, "x = 3;", "3")],
+        &[span("Z", "Int", "imp/loop.imp", None, "n = 10;", "0")],
         &program,
         definition,
     );
-    let anchors = [int(3)];
     let assembly = ProgramAssembly::new(definition).expect("the grammar resolves");
-    let built = assembly
-        .assemble(definition, &instantiate(&program, &holes, &anchors))
-        .expect("the anchor program assembles");
-
-    // krun's order, spelled out on the public assembler (main.rs:2508-2552).
-    let mut krun = ConfigurationAssembler::new(
-        assembly.grammar(),
-        definition.main_module.as_str(),
-        definition.syntax_module.as_str(),
-        &definition.configuration_variables,
+    let error = RoundTripCheck::new(&assembly, definition, &program, &holes)
+        .err()
+        .expect("the partial token is refused");
+    assert!(
+        matches!(&error, CampaignError::AnchorDoesNotParse { hole, message }
+            if hole == "Z" && !message.contains("canonically")),
+        "{error:?}"
     );
-    krun.program_file(&KastSort::new("Pgm"), COMMUTE_IMP, "imp/commute.imp")
-        .expect("the program parses");
-    krun.bind_stream_defaults(false, false, || Ok::<_, ConfigurationError>(b"\n".to_vec()))
-        .expect("the stream defaults bind");
-    let expected = krun.finish().expect("the configuration assembles");
-    assert_eq!(printed(&built), printed(&expected));
-
-    // A reused assembler gives the same configuration, also after a program that fails.
-    let mut reused = assembly.assembler(definition);
-    let broken = self::program("imp/commute.imp", "int x; x = ;", &[]);
-    let broken = instantiate(&broken, &ResolvedHoles { holes: Vec::new() }, &[]);
-    assert!(reused.assemble(&broken).is_err());
-    for _ in 0..2 {
-        let again = reused
-            .assemble(&instantiate(&program, &holes, &anchors))
-            .expect("the anchor program assembles");
-        assert_eq!(printed(&again), printed(&expected));
-    }
 }
 
 #[test]

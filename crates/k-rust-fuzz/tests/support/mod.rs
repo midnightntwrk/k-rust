@@ -212,7 +212,8 @@ impl Compiled {
         for (name, value) in bindings {
             assembler.bind(name, value)?;
         }
-        assembler.bind_stream_defaults(false, false, || Ok::<_, ConfigurationError>(Vec::new()))?;
+        assembler
+            .bind_stream_defaults(false, false, || Ok::<_, ConfigurationError>(b"\n".to_vec()))?;
         assembler.finish()
     }
 

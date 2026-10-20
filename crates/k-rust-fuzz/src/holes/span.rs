@@ -3,15 +3,19 @@
 
 use std::collections::BTreeMap;
 
-use k_rust::kore::{
-    ast::{Pattern as KorePattern, VariableKind},
-    node::PatternSource,
-    walk,
+use k_rust::{
+    kast::parser::parse_sort,
+    kompile::encode_kore_sort,
+    kore::{
+        ast::{Pattern as KorePattern, VariableKind},
+        node::PatternSource,
+        walk,
+    },
 };
 
 use super::{HoleDecl, HoleLocation, HoleSite, SpanAddress, SpanText};
 use crate::{
-    error::{CampaignError, SpanProblem},
+    error::{CampaignError, SortRefusal, SpanProblem},
     spec::{CompiledDefinition, ProgramInput},
 };
 
@@ -48,7 +52,12 @@ pub(super) fn locate(
                 .find(|(bound, _)| bound.strip_prefix('$').unwrap_or(bound) == name)
                 .filter(|_| definition.configuration_variables.contains_key(name))
                 .ok_or_else(|| refuse(SpanProblem::UnknownConfigVar))?;
-            Ok((HoleSite::ConfigVar(name.to_owned()), Some(bound.1.clone())))
+            // Whitespace around the value (a trailing newline of a file it was read from) is
+            // not part of the value; replacing the whole binding drops it too.
+            Ok((
+                HoleSite::ConfigVar(name.to_owned()),
+                Some(bound.1.trim().to_owned()),
+            ))
         }
         HoleLocation::KoreVariable { name } => {
             let ProgramInput::KoreTemplate(template) = program else {
@@ -62,6 +71,16 @@ pub(super) fn locate(
             // A variable also bound somewhere in the template would need a substitution that
             // avoids the bound occurrences; templates are configurations, so refuse it.
             if binds(template, name) {
+                return Err(refuse(SpanProblem::KoreVariable));
+            }
+            // The hole's values are values of its declared sort, substituted for the variable
+            // as they are, so the two sorts must be one (D17).
+            let sort = parse_sort(&decl.sort).map_err(|_| CampaignError::RefusedHoleSort {
+                hole: decl.name.clone(),
+                sort: decl.sort.clone(),
+                reason: SortRefusal::Unknown,
+            })?;
+            if encode_kore_sort(&sort) != variable.sort {
                 return Err(refuse(SpanProblem::KoreVariable));
             }
             Ok((HoleSite::KoreVariable(variable), None))

@@ -24,10 +24,11 @@
 //! value tried. A configuration-variable hole replaces a whole binding (`name`, without `$`),
 //! and a template hole a free variable of a KORE initial pattern.
 //!
-//! The hole's sort must be data ([`check_hole_sort`]). Builtin sorts with a generator are
-//! admitted although programs contain their literals; `K`, `KItem`, cell sorts, the sorts
-//! programs are written in and token sorts such as `Id` are refused, the last three unless the
-//! declaration sets `allow-refused-sort`, which the report records.
+//! The hole's sort, and every sort its values may contain, must be data ([`check_hole_sort`]).
+//! Builtin sorts with a generator are admitted although programs contain their literals; `K`,
+//! `KItem`, `KResult`, cell sorts, the sorts programs are written in and token sorts such as
+//! `Id` are refused. An override (`allow-refused-sort`) admits all but an undeclared sort, and
+//! the report records it. A template hole's sort must be its variable's sort.
 
 mod position;
 mod sorts;
@@ -58,9 +59,12 @@ pub struct HoleDecl {
     pub sort: String,
     /// What the hole replaces.
     pub location: HoleLocation,
-    /// Optional constraints (ARCHITECTURE 2.5).
+    /// Optional constraints (ARCHITECTURE 2.5); none when omitted.
+    #[serde(default)]
     pub constraints: Constraints,
     /// Admit a sort the hole-sort rule refuses (ARCHITECTURE 2.4); recorded in the report.
+    /// `false` when omitted.
+    #[serde(default)]
     pub allow_refused_sort: bool,
 }
 
@@ -240,7 +244,7 @@ pub(crate) fn resolve(
     let rule = sorts::SortRule::new(program, definition)?;
     let mut holes = Vec::with_capacity(decls.len());
     for (decl, (site, anchor_text)) in decls.iter().zip(located) {
-        let overridden = rule.check(decl)?;
+        let mut overridden = rule.check(decl)?;
         let sort = if overridden == Some(SortRefusal::Token) {
             // A token sort has no generator of its own: an overridden hole takes tokens.
             ValueSort::Token {
@@ -255,6 +259,18 @@ pub(crate) fn resolve(
                 }
             })?
         };
+        // The backend may see a token sort the frontend's token declarations do not name; a
+        // token hole is admitted only with a recorded override, whichever side saw it.
+        if matches!(sort, ValueSort::Token { .. }) && overridden.is_none() {
+            if !decl.allow_refused_sort {
+                return Err(CampaignError::RefusedHoleSort {
+                    hole: decl.name.clone(),
+                    sort: decl.sort.clone(),
+                    reason: SortRefusal::Token,
+                });
+            }
+            overridden = Some(SortRefusal::Token);
+        }
         let anchor = anchor_text
             .as_deref()
             .map(|text| {
@@ -276,18 +292,26 @@ pub(crate) fn resolve(
     Ok(ResolvedHoles { holes })
 }
 
-/// The hole-sort rule (ARCHITECTURE 2.4, R-11, T-9): refuse `K`, `KItem`, cell sorts, user
-/// sorts in the closure of the program start sort's productions, and user token sorts such as
-/// `Id`; builtin and hooked sorts that have a generator (`Int`, `Bool`, `String`, `Bytes`,
-/// `MInt`) are exempt from the closure rule even though programs contain their literals.
+/// The hole-sort rule (ARCHITECTURE 2.4 as amended by D17, R-11, T-9). Refused: `K`, `KItem`,
+/// `KResult` and K's other internal sorts, cell sorts, user sorts programs are written in, and
+/// user token sorts such as `Id`. Builtin and hooked sorts that have a generator (`Int`,
+/// `Bool`, `String`, `Bytes`, `MInt`) are admitted even though programs contain their literals.
+/// The rule also applies to every sort a value of the hole's sort may contain: a collection's
+/// declared element sorts, and transitively the argument sorts of the main module's productions
+/// of a data sort, so `List<Stmt>`, `List<K>` and a record holding an `AExp` are refused. A
+/// collection reached inside a data sort declares no element sorts, so it holds `KItem`s and is
+/// refused as a computation.
+///
 /// Returns `Ok(None)` for an admitted sort and `Ok(Some(refusal))` for a refused sort that
 /// `decl.allow_refused_sort` admits (recorded in the report). A sort the definition does not
 /// declare is refused whatever the override. Whether a hooked sort has a generator is
 /// [`crate::values::resolve_value_sort`]'s part of the rule.
 ///
-/// The closure is taken over the productions of the syntax module, the grammar programs are
-/// written in, from the program's start sort (krun's `--sort`), or from the declared sort of
-/// `$PGM` when the program has no text.
+/// The sorts programs are written in are those reachable from the program's start sort (krun's
+/// `--sort`, or the declared sort of `$PGM` when the program has no text) through the
+/// productions of the syntax module. Every sort is a `KItem`, so when that start sort is `K` or
+/// `KItem` (or the closure reaches one of them) they are every non-hooked sort the syntax
+/// module declares.
 ///
 /// # Errors
 ///

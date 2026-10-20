@@ -65,7 +65,7 @@ pub(super) fn locate_all(
                 hole.decl.sort
             ))
         })?;
-        let printed = printed(&second, hole).map_err(&unlocatable)?;
+        let printed = printed(&second, hole).map_err(unlocatable)?;
         let mut values = anchors.clone();
         values[index] = printed;
         let second_configuration = assembler
@@ -128,6 +128,12 @@ fn printed(value: &Value, hole: &ResolvedHole) -> Result<PrintedValue, String> {
 /// definition that records them) do not move: an integer changes its last digit, a string or a
 /// token its last character. `None` when the sort has one value or no second value is known
 /// (collections and data sorts, whose anchors are not read in M1).
+///
+/// The length is not kept for a `Bool` (`true` and `false`), an empty string or byte string,
+/// and a string or byte string whose anchor is written with escapes (the second value is
+/// printed afresh). On a definition that records locations the later columns then differ too,
+/// no single subterm holds every difference, and the hole is refused: a false refusal, never a
+/// false acceptance.
 fn alternative(anchor: &Value) -> Option<Value> {
     let ten = || BigUint::from(10_u8);
     let nine = || BigUint::from(9_u8);
@@ -212,7 +218,27 @@ fn locate(
             return Ok(path.to_vec());
         }
     }
-    let found = at(first, &common).map_or_else(|| "nothing".to_owned(), quote);
+    let found = at(first, &common);
+    if let (
+        [_],
+        Some(KorePattern::DomainValue {
+            sort: found_sort,
+            value: found_value,
+        }),
+        KorePattern::DomainValue { sort, value },
+    ) = (differences.as_slice(), found, anchor)
+        && found_sort == sort
+        && same_integer(found_value.as_bytes(), value.as_bytes())
+    {
+        return Err(format!(
+            "the anchor is written `{}`, which the configuration keeps as written, while the \
+             hole's values are compared in their canonical spelling `{}`; write the literal \
+             canonically",
+            String::from_utf8_lossy(found_value.as_bytes()),
+            String::from_utf8_lossy(value.as_bytes()),
+        ));
+    }
+    let found = found.map_or_else(|| "nothing".to_owned(), quote);
     Err(format!(
         "the anchor does not parse back to its value at the hole's position: the configuration \
          differs from the one with another value at {} place(s), and the innermost subterm \
@@ -220,6 +246,16 @@ fn locate(
         differences.len(),
         quote(anchor)
     ))
+}
+
+/// Whether two domain-value texts are integers of one value (`07`, `+7` and `7`).
+fn same_integer(left: &[u8], right: &[u8]) -> bool {
+    let parse = |text: &[u8]| {
+        std::str::from_utf8(text)
+            .ok()
+            .and_then(|text| text.parse::<num_bigint::BigInt>().ok())
+    };
+    matches!((parse(left), parse(right)), (Some(left), Some(right)) if left == right)
 }
 
 /// The paths of the outermost subterms at which `left` and `right` differ in their root node,

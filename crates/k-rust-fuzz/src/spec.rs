@@ -202,8 +202,9 @@ pub struct ProgramSource {
     /// runs from its configuration variables alone.
     pub program: Option<ProgramText>,
     /// `NAME=VALUE` bindings of configuration variables (name without `$`, value as K text), in
-    /// krun's `--config-var` order. `$IO` is bound `off` and `$STDIN` empty unless bound here or
-    /// by a hole (ARCHITECTURE 5.1).
+    /// krun's `--config-var` order. Unless bound here or by a hole, `$IO` is bound `off` and
+    /// `$STDIN` to `"\n"`, what `krun --io off` binds from an empty standard input (ARCHITECTURE
+    /// 5.1, D17).
     pub config_vars: Vec<(String, String)>,
 }
 
