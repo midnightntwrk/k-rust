@@ -25,7 +25,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// The fixtures every protected kill and the declaration census's protected set rest on
-/// (kink-native tests/census.rs `PROTECTED`).
+/// (kink-native tests/sweep.rs `PROTECTED`).
 const PROTECTED: &[&str] = &[
     "counter.k",
     "symmem.k",
@@ -488,6 +488,20 @@ fn assert_label_pins(by_fixture: &BTreeMap<String, BTreeSet<String>>, every: boo
 #[test]
 fn the_protected_fixtures_have_a_deterministic_sweep() {
     sweep_all(PROTECTED);
+}
+
+/// The sweep of the fixtures that pin the catalogue labels the protected fixtures do not write
+/// (`+Int`, `-Int`, `*Int`, `%Int`, `==K`, `notBool`), so that every operator the catalogue has a
+/// site for is generated and applied on a real site in every run, not only in the heavy sweep
+/// (review of TG-P).
+#[test]
+fn the_label_pin_fixtures_have_a_deterministic_sweep() {
+    let fixtures = LABEL_PINS
+        .iter()
+        .filter_map(|(_, fixture)| *fixture)
+        .filter(|fixture| !PROTECTED.contains(fixture))
+        .collect::<BTreeSet<_>>();
+    sweep_all(&fixtures.into_iter().collect::<Vec<_>>());
 }
 
 /// Each catalogue label is written by an authored rule of the fixture that pins it (formerly

@@ -309,6 +309,36 @@ fn binary_matches_library_and_resume_and_summary_preserve_store_bytes(
     });
 }
 
+/// The light tier's CLI smoke test of kink-corpus: `run` admits and campaigns a definition,
+/// and `replay-check` reproduces its report (review of TG-P).
+#[test]
+fn leading_dash_definition_is_admitted_and_replayed_after_option_terminator() {
+    let scratch = Scratch::new("leading-dash");
+    let mut value = clean();
+    value["definitions"][0]["id"] = json!("-id");
+    let (path, manifest) = scratch.manifest(&value);
+    let store = Store::new(scratch.0.join("store"));
+    success(command("run", &path, &store).output().unwrap());
+    let admission = store
+        .read_json(
+            &store
+                .admission_path(manifest.digest(), profile(), "-id")
+                .unwrap(),
+        )
+        .unwrap();
+    assert_eq!(admission["outcome"], "admitted");
+    assert_eq!(
+        success(
+            command("replay-check", &path, &store)
+                .arg("-id")
+                .output()
+                .unwrap()
+        )
+        .trim(),
+        "Reproduced"
+    );
+}
+
 mod kink_tier {
     use super::*;
 
@@ -674,35 +704,6 @@ mod kink_tier {
             assert!(output.trim_end().ends_with(&summary));
             assert_eq!(stored_bytes(store.root()), before);
         });
-    }
-
-    #[test]
-    #[ignore = "kink"]
-    fn leading_dash_definition_is_admitted_and_replayed_after_option_terminator() {
-        let scratch = Scratch::new("leading-dash");
-        let mut value = clean();
-        value["definitions"][0]["id"] = json!("-id");
-        let (path, manifest) = scratch.manifest(&value);
-        let store = Store::new(scratch.0.join("store"));
-        success(command("run", &path, &store).output().unwrap());
-        let admission = store
-            .read_json(
-                &store
-                    .admission_path(manifest.digest(), profile(), "-id")
-                    .unwrap(),
-            )
-            .unwrap();
-        assert_eq!(admission["outcome"], "admitted");
-        assert_eq!(
-            success(
-                command("replay-check", &path, &store)
-                    .arg("-id")
-                    .output()
-                    .unwrap()
-            )
-            .trim(),
-            "Reproduced"
-        );
     }
 
     /// F-16 review 1 minor 2 (flow F-17): the resume binding checks the same file set as

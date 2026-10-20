@@ -23,8 +23,14 @@ test-group = "wall-clock"
 # kink-flow: the work-bounded run must finish within 30 s; and the slow program's recorded wall
 # time must exceed the fast one's.
 [[profile.default.overrides]]
-filter = 'package(kink-flow) & ((binary(work_budget) & test(=a_mutant_that_never_ends_is_unknown_under_the_work_budget_and_never_cached)) | (binary(usability) & test(=the_cheaper_killer_is_found_and_hinted_first)))'
+filter = 'package(kink-flow) & ((binary(work_budget) & test(=kink_tier::a_mutant_that_never_ends_is_unknown_under_the_work_budget_and_never_cached)) | (binary(usability) & test(=kink_tier::the_cheaper_killer_is_found_and_hinted_first)))'
 test-group = "wall-clock"
+
+# Heavy tests that take longer than the default ten minutes on a quiet host: the one-sided
+# differential over IMP and its mutants takes about 21 minutes alone.
+[[profile.default.overrides]]
+filter = 'package(kink-flow) & binary(one_sided) & test(=heavy::every_one_sided_kill_on_imp_agrees_with_the_unbounded_verdict)'
+slow-timeout = { period = "60s", terminate-after = 40 }
 
 # Continuous integration and gate runs: run every test even after a failure, print each
 # failure's output at the end as well, and write a JUnit report (target/nextest/ci/junit.xml)

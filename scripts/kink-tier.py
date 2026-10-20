@@ -3,7 +3,7 @@
 
     scripts/kink-tier.py run TIER [--z3] [--no-budget] [--and EXPR] [-- NEXTEST_ARGS...]
     scripts/kink-tier.py budget TIER JUNIT
-    scripts/kink-tier.py lint [--z3]
+    scripts/kink-tier.py lint [--z3]   (under with-z3-static-4.16.0 with --z3)
 
 TIER is light, kink, heavy, gate (light and kink in one run) or all (every tier).
 `--and EXPR` narrows the tier to the tests that also match the nextest filterset EXPR
@@ -180,6 +180,25 @@ def lint(argv):
             if not case["ignored"] and tier != "light":
                 problems.append(f"{binary} {name}: inside a {TIER_MODULES[tier]} module but not "
                                 "ignored, so the light tier runs it")
+    # An override whose filter matches no test (a test renamed or moved into a tier module) would
+    # silently stop applying its group or timeout. Checked over the whole workspace (no `--z3`),
+    # where every kink package is listed.
+    overrides = []
+    if not z3:
+        with (ROOT / ".config" / "nextest.toml").open("rb") as f:
+            overrides = tomllib.load(f).get("profile", {}).get("default", {}).get("overrides", [])
+    for override in overrides:
+        if "kink-" not in override["filter"]:
+            continue
+        matched = subprocess.run(
+            ["cargo", "nextest", "list", *packages, "--run-ignored", "all",
+             "--message-format", "json", "-E", override["filter"]],
+            cwd=ROOT, check=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+        ).stdout
+        if not any(case["filter-match"]["status"] == "matches"
+                   for suite in json.loads(matched)["rust-suites"].values()
+                   for case in suite["testcases"].values()):
+            problems.append(f".config/nextest.toml override matches no test: {override['filter']}")
     print("kink-tier lint:", ", ".join(f"{t} {n}" for t, n in sorted(counts.items())))
     for line in problems:
         print(f"LINT: {line}", file=sys.stderr)
