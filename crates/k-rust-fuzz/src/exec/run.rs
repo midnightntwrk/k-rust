@@ -312,6 +312,8 @@ impl Executor {
                 ..judge
             };
             let outcome = token.scope(|| judge.execute(backend, request));
+            // A deadline that passes after the run returned and before this disarm still marks
+            // the case `timeout` though its result is complete: conservative (review N3).
             let fired = armed.disarm();
             return outcome.map(|mut result| {
                 result.safety_limit_hit = fired;
