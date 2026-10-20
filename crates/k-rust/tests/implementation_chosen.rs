@@ -1319,8 +1319,10 @@ endmodule
     /// `a_decided_connective_in_an_equation_condition_is_marked`).
     /// An operand that reaches the read through an anywhere rule (`viaAny(0)`, and `fa()`, whose
     /// equation gives `viaAny(0)`) holds a console effect too, in a discarded `#if` branch and in
-    /// a condition (`pAnyCondIte`): whether an application may perform an effect is closed over
-    /// the definition's equations, not read from the `impure` attribute alone.
+    /// a condition (`pAnyCondIte`). `viaAny` is therefore `impure`, and it is not `total`: the
+    /// definedness of the discarded `viaAny(0)` (`pAnyIte`) depends on an application that is not
+    /// performed, so the run stops there at the unsupported hook, marked and with nothing read;
+    /// `fa()` is declared `total`, so `pAnyFunIte` goes on and reads.
     /// The operands compare the read with `==K`, which is defined whatever is read, so that the
     /// discarded `andThenBool` operand's definedness does not rest on a read that is not
     /// performed (that is the unsupported-hook outcome).
@@ -1332,27 +1334,26 @@ endmodule
                 .map(|hook| format!("{hook}/effect-order"))
                 .collect()
         };
-        let expected: [(&str, Vec<String>, &str); 16] = [
-            ("pAnd", effect_order(&["BOOL.and"]), "66"),
-            ("pOr", effect_order(&["BOOL.or"]), "66"),
-            ("pAndThen", Vec::new(), "65"),
-            ("pImplies", effect_order(&["BOOL.implies"]), "66"),
-            ("pImpliesWrite", effect_order(&["BOOL.implies"]), "65"),
-            ("pRelevant", Vec::new(), "66"),
-            ("pPure", Vec::new(), "65"),
-            ("pEmpty", Vec::new(), "65"),
-            ("pIte", effect_order(&["KEQUAL.ite"]), "65"),
-            ("pNest", effect_order(&["BOOL.and", "BOOL.or"]), "66"),
-            ("pFun", effect_order(&["BOOL.and"]), "66"),
-            ("pWrite", effect_order(&["BOOL.and"]), "65"),
-            ("pCondIte", effect_order(&["KEQUAL.ite"]), "65"),
-            ("pAnyIte", effect_order(&["KEQUAL.ite"]), "65"),
-            ("pAnyFunIte", effect_order(&["KEQUAL.ite"]), "65"),
-            ("pAnyCondIte", effect_order(&["KEQUAL.ite"]), "65"),
+        let expected: [(&str, Vec<String>, Option<&str>); 16] = [
+            ("pAnd", effect_order(&["BOOL.and"]), Some("66")),
+            ("pOr", effect_order(&["BOOL.or"]), Some("66")),
+            ("pAndThen", Vec::new(), Some("65")),
+            ("pImplies", effect_order(&["BOOL.implies"]), Some("66")),
+            ("pImpliesWrite", effect_order(&["BOOL.implies"]), Some("65")),
+            ("pRelevant", Vec::new(), Some("66")),
+            ("pPure", Vec::new(), Some("65")),
+            ("pEmpty", Vec::new(), Some("65")),
+            ("pIte", effect_order(&["KEQUAL.ite"]), Some("65")),
+            ("pNest", effect_order(&["BOOL.and", "BOOL.or"]), Some("66")),
+            ("pFun", effect_order(&["BOOL.and"]), Some("66")),
+            ("pWrite", effect_order(&["BOOL.and"]), Some("65")),
+            ("pCondIte", effect_order(&["KEQUAL.ite"]), Some("65")),
+            ("pAnyIte", effect_order(&["KEQUAL.ite"]), None),
+            ("pAnyFunIte", effect_order(&["KEQUAL.ite"]), Some("65")),
+            ("pAnyCondIte", effect_order(&["KEQUAL.ite"]), Some("65")),
         ];
         // A run with one leaf lists exactly that leaf's marks.
-        let expected =
-            expected.map(|(program, marks, read)| (program, marks.clone(), marks, Some(read)));
+        let expected = expected.map(|(program, marks, read)| (program, marks.clone(), marks, read));
         let found = expected.clone().map(|(program, _, _, _)| {
             let (marks, listed, read) = effect_run(program, false);
             (program, marks, listed, read)

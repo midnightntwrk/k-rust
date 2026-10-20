@@ -202,9 +202,10 @@ pub(crate) fn is_impure_symbol(definition: &BackendDefinition, symbol: &Symbol) 
 /// It holds every symbol with an `IO.` hook or declared `impure`, and every head of a function
 /// equation, an anywhere rule or a simplification (every equation that can rewrite an
 /// application) whose right-hand side, requires or ensures mentions a symbol it holds: such an
-/// application may be rewritten into one that performs the effect. The frontend's propagation of
-/// `impure` follows function-headed rules only, so an anywhere head and the functions that reach
-/// it are found here and not there; hand-written KORE without the attribute is covered too.
+/// application may be rewritten into one that performs the effect. The frontend declares `impure`
+/// by the same closure over the same rules and rule parts, so on compiled KORE whose `IO.` hooks
+/// are declared `impure` the load adds no symbol; hand-written KORE without the attribute is
+/// covered here too.
 ///
 /// `unindexed` holds when an equation whose left-hand side has no symbol at its root (a
 /// collection, an injection, a variable) mentions such a symbol: it can rewrite terms the walk

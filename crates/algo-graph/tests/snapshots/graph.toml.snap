@@ -6191,7 +6191,7 @@ id = "kompile.labels.backward_closure"
 provenance = "declared"
 area = "kompile"
 name = "backward closure over the label-dependency graph"
-variable = "V = function, anywhere and (under READS) macro labels; E = rule dependency edges; R = rules; N_f = term nodes of the rules that give edges"
+variable = "V = function, anywhere, (under EFFECTS) simplification-head and (under READS and EFFECTS) macro labels; E = rule dependency edges; R = rules; N_f = term nodes of the rules that give edges"
 no_counter = "label-dependency closure has no dedicated counter"
 table = "Algorithm::ALL"
 registry_name = "KompileLabelsBackwardClosure"
@@ -6210,6 +6210,11 @@ symbol = "LabelDependencyGraph::build"
 crate = "k-rust"
 file = "crates/k-rust/src/kompile/label_graph.rs"
 symbol = "LabelDependencyGraph::backward_closure"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/label_graph.rs"
+symbol = "impure_labels"
 
 [[node.cost]]
 mode = "graph construction"

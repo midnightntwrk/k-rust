@@ -1,8 +1,8 @@
 //! ```toml algorithm
 //! id = "kompile.labels.backward_closure"
 //! name = "backward closure over the label-dependency graph"
-//! sites = ["LabelDependencyGraph::build", "LabelDependencyGraph::backward_closure"]
-//! variable = "V = function, anywhere and (under READS) macro labels; E = rule dependency edges; R = rules; N_f = term nodes of the rules that give edges"
+//! sites = ["LabelDependencyGraph::build", "LabelDependencyGraph::backward_closure", "impure_labels"]
+//! variable = "V = function, anywhere, (under EFFECTS) simplification-head and (under READS and EFFECTS) macro labels; E = rule dependency edges; R = rules; N_f = term nodes of the rules that give edges"
 //! counters = []
 //! no_counter = "label-dependency closure has no dedicated counter"
 //!
@@ -16,16 +16,19 @@
 //! ```
 //!
 //! Backward dependency closure over the call graph of rules. The sources of edges are function
-//! labels, and under [`Edges::READS`] macro labels too; an edge goes from a source to each
-//! function, non-macro anywhere or (under [`Edges::READS`]) macro label its rules apply, so anywhere
-//! labels are edge targets only.
+//! labels, under [`Edges::READS`] and [`Edges::EFFECTS`] macro labels too, and under
+//! [`Edges::EFFECTS`] the heads of anywhere and simplification rules; an edge goes from a source
+//! to each label of those kinds its rules apply. Without [`Edges::EFFECTS`], anywhere labels are
+//! edge targets only.
 //!
-//! [`Edges`] selects the rule parts that give edges. With [`Edges::FUNCTION_RULES`] they are the
-//! body and `requires` of function rules. With [`Edges::READS`], used for the functions that read
+//! [`Edges`] selects the rule parts that give edges; the body and `requires` of function rules
+//! always do. With [`Edges::READS`], used for the functions that read
 //! the configuration, they are every part a rule's evaluation reads: the body, `requires` and
 //! `ensures` of a function rule, and a macro is a node too, with an edge from each rule part that
 //! uses it to the macro and from the macro to what its right side applies, since expansion puts
-//! that right side where the macro is used. A rule is credited to the label its head has once
+//! that right side where the macro is used. With [`Edges::EFFECTS`], used for [`impure_labels`],
+//! they are every part of every rule that evaluating an application can apply (see
+//! [`Edges::EFFECTS`]). A rule is credited to the label its head has once
 //! macros are expanded ([`LabelDependencyGraph::rule_heads`]): a simplification rule written with
 //! a macro or alias head is a rule of the function that head expands to. A macro label can enter
 //! a closure; a caller that needs function labels only keeps those.
@@ -51,19 +54,32 @@ pub(crate) struct Edges {
     pub(crate) ensures: bool,
     /// Macro labels as nodes: an application of one is an edge target, and its rules give edges.
     pub(crate) macros: bool,
+    /// Anywhere and simplification rules give edges from their heads, whatever kind of label the
+    /// head is, and those heads are edge targets.
+    pub(crate) equations: bool,
 }
 
 impl Edges {
-    /// The body and `requires` of function rules only.
-    pub(crate) const FUNCTION_RULES: Self = Self {
-        ensures: false,
-        macros: false,
-    };
     /// Every part of a function rule, and macros, through which evaluating a function reaches
     /// another label.
     pub(crate) const READS: Self = Self {
         ensures: true,
         macros: true,
+        equations: false,
+    };
+    /// Every rule that evaluating an application `f(…)` can apply, with every part of it that
+    /// evaluation then evaluates: such a rule puts its right side where `f(…)` was and decides its
+    /// `requires` and `ensures` there, so evaluating `f(…)` evaluates what they apply.
+    /// - A function rule, an anywhere rule (evaluation rewrites a subterm it matches wherever the
+    ///   subterm is) and a simplification rule (an equation evaluation may apply to any instance of
+    ///   its left side, whatever kind of label heads it) are such rules.
+    /// - A macro is expanded before evaluation, so its application is evaluated as its right
+    ///   side: it is a node, with an edge to what its right side applies.
+    /// - Body, `requires` and `ensures` give edges.
+    pub(crate) const EFFECTS: Self = Self {
+        ensures: true,
+        macros: true,
+        equations: true,
     };
 }
 
@@ -114,6 +130,17 @@ impl LabelDependencyGraph {
             macro_labels,
             expansions,
         };
+        // Under `equations`, the labels whose evaluation applies an anywhere or simplification
+        // rule are evaluated labels, besides the function labels: edge sources and targets.
+        let mut evaluated_labels = function_labels.clone();
+        if edges.equations {
+            evaluated_labels.extend(anywhere_labels.iter().cloned());
+            for (_, rule) in rules.rules() {
+                if rule.attributes().has(AttributeKey::Simplification) {
+                    evaluated_labels.extend(result.equation_heads(rule));
+                }
+            }
+        }
         for function in function_labels {
             result.node(function.clone());
         }
@@ -130,8 +157,20 @@ impl LabelDependencyGraph {
                 unreachable!("rule catalogs contain rules")
             };
             // Invariant: `result.graph` has every edge of the rule's heads before `current`.
-            for current in result.rule_heads(rule) {
-                if !function_labels.contains(&current) && !result.macro_labels.contains(&current) {
+            let evaluation_rule = edges.equations
+                && !is_macro(rule)
+                && (rule.attributes().has(AttributeKey::Anywhere)
+                    || rule.attributes().has(AttributeKey::Simplification));
+            let heads = if evaluation_rule {
+                result.equation_heads(rule)
+            } else {
+                result.rule_heads(rule)
+            };
+            for current in heads {
+                if !evaluation_rule
+                    && !function_labels.contains(&current)
+                    && !result.macro_labels.contains(&current)
+                {
                     continue;
                 }
                 let current_node = result.node(current);
@@ -139,7 +178,7 @@ impl LabelDependencyGraph {
                 result.add_edges(
                     current_node,
                     roots.into_iter().flatten(),
-                    function_labels,
+                    &evaluated_labels,
                     &anywhere_labels,
                 );
             }
@@ -151,7 +190,22 @@ impl LabelDependencyGraph {
     /// not a macro's own rule but whose head is a macro label (a simplification rule written with
     /// a macro or alias head), the non-macro labels that head expands to, through macro chains.
     pub(crate) fn rule_heads(&self, rule: &Sentence) -> BTreeSet<LabelHead> {
-        let head = LabelHead::from(&match_rule_label(rule));
+        self.heads_through_macros(LabelHead::from(&match_rule_label(rule)), rule)
+    }
+
+    /// The labels an anywhere or simplification `rule` rewrites applications of: as
+    /// [`Self::rule_heads`], with the label under an injection at the root of its left side.
+    fn equation_heads(&self, rule: &Sentence) -> BTreeSet<LabelHead> {
+        let label = match_rule_label(rule);
+        if label.is(WellKnownSymbol::Inj)
+            && let Some(head) = anywhere_lhs_label(rule)
+        {
+            return self.heads_through_macros(head, rule);
+        }
+        self.heads_through_macros(LabelHead::from(&label), rule)
+    }
+
+    fn heads_through_macros(&self, head: LabelHead, rule: &Sentence) -> BTreeSet<LabelHead> {
         if !self.macro_labels.contains(&head) || defines_macro(rule) {
             return BTreeSet::from([head]);
         }
@@ -172,18 +226,19 @@ impl LabelDependencyGraph {
         heads
     }
 
-    /// Add an edge from `current_node` for every non-injection application, in `roots`, of a
-    /// function, anywhere or macro label.
+    /// Add an edge from `current_node` for every non-injection application, in `roots`, of an
+    /// evaluated (function, or under [`Edges::EFFECTS`] anywhere or simplification-head), anywhere
+    /// or macro label.
     fn add_edges<'t>(
         &mut self,
         current_node: NodeIndex,
         roots: impl Iterator<Item = &'t Term>,
-        function_labels: &BTreeSet<LabelHead>,
+        evaluated_labels: &BTreeSet<LabelHead>,
         anywhere_labels: &BTreeSet<LabelHead>,
     ) {
-        // Invariant: `self.graph` has an edge from `current_node` to every function, anywhere or macro label applied in the roots before `root` (`body`, `requires`, then `ensures` when `edges.ensures`).
+        // Invariant: `self.graph` has an edge from `current_node` to every evaluated, anywhere or macro label applied in the roots before `root` (`body`, `requires`, then `ensures` when `edges.ensures`).
         for root in roots {
-            // Invariant: the preorder traversal visits each node of `root` once and adds one edge from `current_node` for every non-injection application whose label is in `function_labels`, `anywhere_labels` or `macro_labels`.
+            // Invariant: the preorder traversal visits each node of `root` once and adds one edge from `current_node` for every non-injection application whose label is in `evaluated_labels`, `anywhere_labels` or `macro_labels`.
             root.visit_preorder(&mut |term| {
                 let Term::Apply { label, .. } = term.unannotated() else {
                     return;
@@ -192,7 +247,7 @@ impl LabelDependencyGraph {
                     return;
                 }
                 let dependency = LabelHead::from(label);
-                if function_labels.contains(&dependency)
+                if evaluated_labels.contains(&dependency)
                     || anywhere_labels.contains(&dependency)
                     || self.macro_labels.contains(&dependency)
                 {
@@ -229,6 +284,42 @@ impl LabelDependencyGraph {
             .entry(label.clone())
             .or_insert_with(|| self.graph.add_node(label))
     }
+}
+
+/// The labels whose application may perform an effect when it is evaluated: the labels of the
+/// productions declared `impure`, and every label an [`Edges::EFFECTS`] rule of which (a function,
+/// anywhere or simplification rule, or a macro's own rule) applies one of them in its body,
+/// `requires` or `ensures`, transitively. Evaluating such an application may apply that rule,
+/// which evaluates what it applies.
+pub(crate) fn impure_labels(
+    productions: &ProductionCatalog<'_>,
+    rules: &RuleCatalog<'_>,
+    is_macro: impl Fn(&Sentence) -> bool,
+) -> BTreeSet<LabelHead> {
+    let graph = LabelDependencyGraph::build(productions, rules, is_macro, Edges::EFFECTS);
+    let declared = productions
+        .productions()
+        .filter_map(|(_, production)| match production {
+            Sentence::Production {
+                label: Some(label),
+                attributes,
+                ..
+            } if attributes.has(AttributeKey::Impure) => Some(LabelHead::from(label)),
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => None,
+        })
+        .collect::<BTreeSet<_>>();
+    graph.backward_closure(declared)
 }
 
 /// Whether `rule`, whose head is a macro label, is one of the macro's own rules: a simplification
