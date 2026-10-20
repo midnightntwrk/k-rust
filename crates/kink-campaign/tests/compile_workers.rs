@@ -1,39 +1,24 @@
-//! Re-pin L1-3 deliverable 3: compiling ahead changes nothing a campaign reports. Every case of
-//! the representative campaign set (`representative/mod.rs`, flow F-01), and a campaign of two
-//! generations of structurally equal patches (every later candidate `same_as` the first), runs
-//! with 1, 2 and 5 compile workers in Full and FirstKill: the complete typed runs, the canonical
-//! manifest bytes and the canonical report bytes must be equal. With 2 workers a chunk holds
-//! 8 candidates, so the larger cases span several chunks.
+//! Re-pin L1-3 deliverable 3: compiling ahead changes nothing a campaign reports. A campaign of
+//! two generations of structurally equal patches (every later candidate `same_as` the first)
+//! runs with 1, 2 and 5 compile workers in Full and FirstKill: the complete typed runs, the
+//! canonical manifest bytes and the canonical report bytes must be equal. Every case of the
+//! representative campaign set (`representative/mod.rs`, flow F-01) runs through the same
+//! comparison in `representative_set.rs` (test-gate TG-C).
 #[path = "../../../testdata/k/step_support.rs"]
 mod step_support;
 #[path = "../../../testdata/k/support.rs"]
 mod support;
-
-mod representative;
 
 use kink_campaign::*;
 use kink_patch::CandidateGeneration;
 
 const WORKERS: [usize; 3] = [1, 2, 5];
 
-/// What the comparison saw over the cases, for the deliverable's minimum.
-#[derive(Default)]
-struct Seen {
-    /// Cases with several candidates that ran.
-    several: usize,
-    same_as: bool,
-    /// A candidate refused before any test ran (Invalid or Equivalent).
-    refused: bool,
-    /// Candidates over all compared runs.
-    candidates: usize,
-}
-
 /// Runs `generations` with every count of [`WORKERS`] in Full and FirstKill and requires equal
 /// complete runs, manifests and reports. Returns the 1-worker runs, Full first.
 fn compare_workers(
     campaign: &Campaign<'_>,
     generations: &[CandidateGeneration<'_>],
-    seen: &mut Seen,
 ) -> [Result<CampaignRun, CampaignFailure>; 2] {
     if campaign.validator.compile_workers(2) < 2 {
         // Review L1-3-1 D3: one CPU, or a memory allowance too small for two workers.
@@ -108,17 +93,6 @@ fn compare_workers(
                     "STOP: {workers} compile workers changed the report bytes"
                 );
             }
-            if schedule == ScheduleMode::Full {
-                seen.several += usize::from(sequential.mutants.len() > 1);
-                seen.same_as |= sequential.mutants.iter().any(|m| m.same_as.is_some());
-                seen.refused |= sequential.mutants.iter().any(|m| {
-                    matches!(
-                        m.report.status,
-                        MutantStatus::Invalid | MutantStatus::Equivalent
-                    )
-                });
-            }
-            seen.candidates += sequential.mutants.len();
         }
         let [first, ..] = runs;
         first
@@ -192,79 +166,71 @@ fn duplicates(baseline: &kink_patch::Baseline) -> Vec<CandidateGeneration<'_>> {
     vec![generation(), generation()]
 }
 
-#[test]
-fn compile_workers_preserve_every_representative_campaign() {
-    with_stack(|| {
-        let mut coverage = representative::Coverage::default();
-        let mut seen = Seen::default();
-        representative::representative_set(&mut |case| {
-            eprintln!("L13_COMPILE_WORKERS_CASE {}", case.name);
-            let [full, first_kill] = compare_workers(&case.campaign, &case.generations, &mut seen);
-            representative::check_expected(case, &full, &first_kill);
-            coverage.record(case, &full);
-        });
-        coverage.assert_complete();
+mod kink_tier {
+    use super::*;
 
-        let validator = kink_native::NativeValidator::bind(
-            support::load("counter.k"),
-            k_rust::kompile::CompileOptions::default(),
-        );
-        let tests = ["true", "false"].map(|value| TestCase {
-            id: format!("choose-{value}"),
-            initial_state: support::initial_state(
-                support::app(
-                    "Lblchoose",
-                    vec![k_rust::kore::ast::Pattern::DomainValue {
-                        sort: k_rust::kompile::initial_configuration::kore_sort("SortBool"),
-                        value: value.into(),
-                    }],
+    /// The duplicates campaign under every worker count; its 1-worker Full run pairs every later
+    /// candidate with the first. The representative set's cases are compared in
+    /// `representative_set.rs`, which also requires the minimum this comparison had over the set
+    /// (two campaigns with several candidates, one candidate refused before any test).
+    #[test]
+    #[ignore = "kink"]
+    fn compile_workers_preserve_a_campaign_of_structurally_equal_patches() {
+        with_stack(|| {
+            let validator = kink_native::NativeValidator::bind(
+                support::load("counter.k"),
+                k_rust::kompile::CompileOptions::default(),
+            );
+            let tests = ["true", "false"].map(|value| TestCase {
+                id: format!("choose-{value}"),
+                initial_state: support::initial_state(
+                    support::app(
+                        "Lblchoose",
+                        vec![k_rust::kore::ast::Pattern::DomainValue {
+                            sort: k_rust::kompile::initial_configuration::kore_sort("SortBool"),
+                            value: value.into(),
+                        }],
+                    ),
+                    "SortControl",
                 ),
-                "SortControl",
-            ),
-            oracles: vec![
-                OracleDeclaration::new(
-                    CrashPolicy::CompareIdentity,
-                    Projection::State(StateProjection::WholeTerm),
-                )
-                .unwrap(),
-            ],
+                oracles: vec![
+                    OracleDeclaration::new(
+                        CrashPolicy::CompareIdentity,
+                        Projection::State(StateProjection::WholeTerm),
+                    )
+                    .unwrap(),
+                ],
+            });
+            let campaign = Campaign {
+                validator: &validator,
+                module: "COUNTER",
+                observation: &[],
+                classify: &|_| kink_pattern::ExecutionTerminalKind::Normal,
+                tests: &tests,
+                budget: kink_native::execution::ExecutionBudget {
+                    time: std::time::Duration::from_secs(30),
+                    max_simplification_iterations: 1000,
+                    max_depth: Some(32),
+                    max_breadth: None,
+                },
+            };
+            let generations = duplicates(validator.baseline());
+            let [full, _] = compare_workers(&campaign, &generations);
+            let same_as = full
+                .expect("the duplicates campaign")
+                .mutants
+                .iter()
+                .map(|mutant| mutant.same_as)
+                .collect::<Vec<_>>();
+            assert_eq!(
+                same_as,
+                [
+                    None,
+                    Some(MutantId(0)),
+                    Some(MutantId(0)),
+                    Some(MutantId(0))
+                ]
+            );
         });
-        let campaign = Campaign {
-            validator: &validator,
-            module: "COUNTER",
-            observation: &[],
-            classify: &|_| kink_pattern::ExecutionTerminalKind::Normal,
-            tests: &tests,
-            budget: kink_native::execution::ExecutionBudget {
-                time: std::time::Duration::from_secs(30),
-                max_simplification_iterations: 1000,
-                max_depth: Some(32),
-                max_breadth: None,
-            },
-        };
-        let generations = duplicates(validator.baseline());
-        let [full, _] = compare_workers(&campaign, &generations, &mut seen);
-        let same_as = full
-            .expect("the duplicates campaign")
-            .mutants
-            .iter()
-            .map(|mutant| mutant.same_as)
-            .collect::<Vec<_>>();
-        assert_eq!(
-            same_as,
-            [
-                None,
-                Some(MutantId(0)),
-                Some(MutantId(0)),
-                Some(MutantId(0))
-            ]
-        );
-        eprintln!(
-            "L13_COMPILE_WORKERS several={} same_as={} refused={} candidates={}",
-            seen.several, seen.same_as, seen.refused, seen.candidates
-        );
-        assert!(seen.several >= 2, "two campaigns with several candidates");
-        assert!(seen.same_as, "a same_as pair");
-        assert!(seen.refused, "a candidate refused before any test");
-    });
+    }
 }

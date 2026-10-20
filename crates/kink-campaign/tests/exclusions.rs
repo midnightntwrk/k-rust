@@ -179,237 +179,6 @@ fn on_a_big_stack(work: impl FnOnce() + Send + 'static) {
         .unwrap();
 }
 
-/// Decision 2 (finding A-13): a mutant that contradicts a trusted claim at the test's input (k-rust
-/// names the contradicted `total`, or the undefined step's rule carries `preserves-definedness`)
-/// ends in an undefined step where the baseline computes a value. Before R0b that undefined step
-/// was a complete terminal and killed the mutant; now the mutant's run is excluded and the mutant
-/// is `Unknown`, in both schedules.
-///
-/// Re-pin R0c-fix-2: a mutant now keeps only the claims its edit does not reach (kink-patch
-/// `ClaimSupport::withdraw`), so the guard fires for a baseline claim the mutant still carries.
-/// `r0c/tdivshift.k`'s mutants of the rewrite rules `tdiv` and `go` drop a shift and reach -1,
-/// where `td`'s `total` and `pd`'s `preserves-definedness` are false. The TDIV mutants this test
-/// used before (edits of `td`'s equation and of `pd`'s own rule) now run without the claim their
-/// edit falsified and are killed (`a_mutant_whose_edit_falsified_a_claim_runs_claim_free`).
-#[test]
-fn a_mutant_that_contradicts_a_claim_is_unknown() {
-    on_a_big_stack(|| {
-        let validator = r0c_validator("tdivshift");
-        let baseline = validator.baseline();
-        for (rule, symbol) in [("TDIVSHIFT.tdiv", "Lbltdiv"), ("TDIVSHIFT.go", "Lblgo")] {
-            let generation = one_to_zero(baseline, rule);
-            let tests = [test("t", support::app(symbol, vec![support::int(-1)]))];
-            let campaign = campaign(&validator, "TDIVSHIFT", &tests);
-            for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
-                let run = run_campaign(&campaign, &generation, schedule).unwrap();
-                let [mutant] = run.mutants.as_slice() else {
-                    panic!("one mutant")
-                };
-                assert!(mutant.report.claims.withdrawn.is_empty(), "{rule}");
-                assert_eq!(
-                    mutant.plan.tests[0].run,
-                    TestRun::Failed(ExecutionFailureKind::ContradictedClaim),
-                    "{rule} {schedule:?}"
-                );
-                assert_eq!(
-                    mutant.report.status,
-                    MutantStatus::Unknown,
-                    "{rule} {schedule:?}"
-                );
-                assert!(mutant.report.killing_test_ids.is_empty());
-            }
-        }
-    });
-}
-
-/// Re-pin R0c-fix-2 (a mutant drops the claims its edit leaves unbacked): the TDIV mutant of
-/// `td`'s equation (`I +Int 0`) runs without `td`'s `total`, and the mutant of `pd`'s own rule
-/// without its `preserves-definedness`. On 0 each takes an undefined step of the claim-free
-/// mutant (`10 /Int 0` is undefined in every model of it), where the baseline computes `val(10)`:
-/// a kill on a consistent theory, in both schedules. Before R0c-fix-2 each mutant carried the
-/// claim its edit falsified, contradicted it, and was `Unknown` (`contradicted-claim`).
-#[test]
-fn a_mutant_whose_edit_falsified_a_claim_runs_claim_free() {
-    on_a_big_stack(|| {
-        let validator = validator("tdiv");
-        let baseline = validator.baseline();
-        for (rule, symbol, removed) in [
-            ("TDIV.tdeq", "Lbltdiv", "total"),
-            ("TDIV.pd", "Lblpd", "preserves-definedness"),
-        ] {
-            let generation = one_to_zero(baseline, rule);
-            let tests = [test("t", support::app(symbol, vec![support::int(0)]))];
-            let campaign = campaign(&validator, "TDIV", &tests);
-            for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
-                let run = run_campaign(&campaign, &generation, schedule).unwrap();
-                let [mutant] = run.mutants.as_slice() else {
-                    panic!("one mutant")
-                };
-                assert_eq!(
-                    mutant
-                        .report
-                        .claims
-                        .withdrawn
-                        .iter()
-                        .map(|claim| claim.key.as_str())
-                        .collect::<Vec<_>>(),
-                    [removed],
-                    "{rule}"
-                );
-                assert_eq!(
-                    mutant.plan.tests[0].run,
-                    TestRun::Compared(vec![
-                        kink_campaign::OracleOutcome::Distinguish,
-                        kink_campaign::OracleOutcome::Distinguish,
-                    ]),
-                    "{rule} {schedule:?}"
-                );
-                assert_eq!(
-                    mutant.report.status,
-                    MutantStatus::Killed,
-                    "{rule} {schedule:?}"
-                );
-                assert_clean(&run, mutant, "t");
-            }
-        }
-    });
-}
-
-/// The baseline side of each exclusion that a definition or a test's initial state carries:
-/// decision 1's census (a rule listing a map's keys; an initial state applying `keys_list` over a
-/// definition with no such rule) and finding C-10 (an equation or a simplification rooted at a
-/// collection role symbol makes the List or Set terminal no value). Each baseline is refused as
-/// `BaselineOracleFailed` before any mutant runs; before R0b each was admitted.
-#[test]
-fn an_excluded_baseline_is_refused() {
-    on_a_big_stack(|| {
-        let keys = parse_pattern(
-            r#"Lblkeys{}(Lblkeys'Unds'list'LParUndsRParUnds'MAP'Unds'List'Unds'Map{}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1")), inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1")))))"#,
-        )
-        .unwrap();
-        for (name, program, reason) in [
-            (
-                "implchosen",
-                support::app("Lblstart", vec![support::int(1)]),
-                Some("implementation-chosen-hook"),
-            ),
-            ("keysfree", keys, Some("implementation-chosen-hook")),
-            (
-                "rolerooted",
-                support::app("Lblstart", vec![support::int(5)]),
-                None,
-            ),
-            (
-                "rolesimp",
-                support::app("Lblstart", vec![support::int(5)]),
-                None,
-            ),
-        ] {
-            let validator = validator(name);
-            let module = name.to_ascii_uppercase();
-            let tests = [test("t", program)];
-            let campaign = campaign(&validator, &module, &tests);
-            let generation = no_mutant(validator.baseline());
-            let failure = run_campaign(&campaign, &generation, ScheduleMode::Full).expect_err(name);
-            assert_eq!(
-                failure.kind(),
-                CampaignFailureKind::BaselineOracleFailed,
-                "{name}"
-            );
-            if let Some(reason) = reason {
-                assert!(failure.to_string().contains(reason), "{name}: {failure}");
-            }
-        }
-        // Control: the same initial-state shape without `keys_list` is admitted.
-        let validator = validator("keysfree");
-        let tests = [test("t", support::app("Lblstart", vec![support::int(1)]))];
-        let campaign = campaign(&validator, "KEYSFREE", &tests);
-        run_campaign(
-            &campaign,
-            &no_mutant(validator.baseline()),
-            ScheduleMode::Full,
-        )
-        .expect("a definition that only imports MAP is admitted");
-    });
-}
-
-/// Re-pin R0c-fix-1 deliverable 1 (decision 2 per test, Sebastien 2026-10-17: "killing test
-/// only"): the mutant distinguishes on `tdiv(1)` and contradicts `td`'s `total` claim on
-/// another input (since re-pin R0c-fix-2 `r0c/tdivshift.k`'s `tdiv` with `I +Int 0`, which keeps
-/// the claim: `val(5)` against the baseline's `val(3)` on 1, `td(-1)` on -1). The contradicting test
-/// is unknown and the kill by `tdiv(1)` stands, in both orders and both schedules, so `Full` and
-/// `FirstKill` agree (under R0c's mutant-wide rule `Full`, and `FirstKill` with the contradicting
-/// test first, gave `Unknown`). The killing test is free of contradictions: both of its runs gave
-/// sides, which an excluded run never does.
-#[test]
-fn a_contradicted_claim_leaves_the_kill_of_another_test_standing() {
-    on_a_big_stack(|| {
-        // Re-pin R0c-fix-2: `r0c/tdivshift.k`'s mutant of the rewrite rule `tdiv` keeps `td`'s
-        // `total` (its edit does not reach `td`) and contradicts it on tdiv(-1). Before, the TDIV
-        // mutant of `td`'s equation contradicted it on tdiv(0); it now runs without the claim.
-        let validator = r0c_validator("tdivshift");
-        let baseline = validator.baseline();
-        let generation = one_to_zero(baseline, "TDIVSHIFT.tdiv");
-        let kill = || test("kill", support::app("Lbltdiv", vec![support::int(1)]));
-        let contra = || test("contra", support::app("Lbltdiv", vec![support::int(-1)]));
-        let distinguish = TestRun::Compared(vec![
-            kink_campaign::OracleOutcome::Agree,
-            kink_campaign::OracleOutcome::Distinguish,
-        ]);
-        let contradicted = TestRun::Failed(ExecutionFailureKind::ContradictedClaim);
-        for (tests, schedule, runs) in [
-            (
-                [kill(), contra()],
-                ScheduleMode::Full,
-                vec![distinguish.clone(), contradicted.clone()],
-            ),
-            (
-                [contra(), kill()],
-                ScheduleMode::Full,
-                vec![contradicted.clone(), distinguish.clone()],
-            ),
-            (
-                [contra(), kill()],
-                ScheduleMode::FirstKill,
-                vec![contradicted.clone(), distinguish.clone()],
-            ),
-            (
-                [kill(), contra()],
-                ScheduleMode::FirstKill,
-                vec![distinguish.clone(), TestRun::SkippedAfterKill],
-            ),
-        ] {
-            let campaign = campaign(&validator, "TDIVSHIFT", &tests);
-            let run = run_campaign(&campaign, &generation, schedule).unwrap();
-            let [mutant] = run.mutants.as_slice() else {
-                panic!("one mutant")
-            };
-            let ids = tests.iter().map(|t| t.id.as_str()).collect::<Vec<_>>();
-            assert_eq!(
-                mutant
-                    .plan
-                    .tests
-                    .iter()
-                    .map(|t| t.run.clone())
-                    .collect::<Vec<_>>(),
-                runs,
-                "{ids:?} {schedule:?}"
-            );
-            assert_eq!(
-                mutant.report.status,
-                MutantStatus::Killed,
-                "{ids:?} {schedule:?}"
-            );
-            assert_eq!(
-                mutant.report.killing_test_ids,
-                vec!["kill".to_owned()],
-                "{ids:?} {schedule:?}"
-            );
-            assert_clean(&run, mutant, "kill");
-        }
-    });
-}
-
 /// The killing test `id`'s baseline and mutant runs both gave sides: neither is excluded, so
 /// neither has a leaf that contradicts a claim.
 fn assert_clean(run: &kink_campaign::CampaignRun, mutant: &kink_campaign::MutantRun, id: &str) {
@@ -423,56 +192,6 @@ fn assert_clean(run: &kink_campaign::CampaignRun, mutant: &kink_campaign::Mutant
     assert_eq!(sides(&mutant.evidence), Some(true), "{id}: mutant");
 }
 
-/// Re-pin R0c-fix-1 deliverable 1: a baseline run that contradicts a claim no longer refuses the
-/// campaign; it makes its own test unknown for every mutant. The baseline `TDIV` contradicts
-/// `td`'s `total` claim on `tdiv(-1)`. Under R0b and R0c the campaign was refused
-/// (`BaselineOracleFailed`, `contradicted-claim`); now the mutant `tdeq` with `I +Int 0`, which is
-/// defined on -1, is killed by `tdiv(1)`, whose runs are clean, and the contradicting test is
-/// `Failed(ContradictedClaim)`, in both schedules.
-#[test]
-fn a_contradicted_baseline_run_makes_only_its_test_unknown() {
-    on_a_big_stack(|| {
-        let validator = validator("tdiv");
-        let baseline = validator.baseline();
-        let generation = one_to_zero(baseline, "TDIV.tdeq");
-        let tests = [
-            test("base", support::app("Lbltdiv", vec![support::int(-1)])),
-            test("kill", support::app("Lbltdiv", vec![support::int(1)])),
-        ];
-        let campaign_of_both = campaign(&validator, "TDIV", &tests);
-        for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
-            let run = run_campaign(&campaign_of_both, &generation, schedule).unwrap();
-            assert_eq!(
-                run.baseline[0].run,
-                kink_campaign::SideRun::Failed(ExecutionFailureKind::ContradictedClaim)
-            );
-            let [mutant] = run.mutants.as_slice() else {
-                panic!("one mutant")
-            };
-            assert_eq!(
-                mutant.plan.tests[0].run,
-                TestRun::Failed(ExecutionFailureKind::ContradictedClaim),
-                "{schedule:?}"
-            );
-            assert_eq!(mutant.report.status, MutantStatus::Killed, "{schedule:?}");
-            assert_eq!(mutant.report.killing_test_ids, vec!["kill".to_owned()]);
-            assert_clean(&run, mutant, "kill");
-        }
-        // A campaign of the contradicting test alone is admitted, and its mutant is unknown.
-        let alone = [test(
-            "base",
-            support::app("Lbltdiv", vec![support::int(-1)]),
-        )];
-        let run = run_campaign(
-            &campaign(&validator, "TDIV", &alone),
-            &generation,
-            ScheduleMode::Full,
-        )
-        .unwrap();
-        assert_eq!(run.mutants[0].report.status, MutantStatus::Unknown);
-    });
-}
-
 /// Re-pin R0c-fix-1 deliverable 1 (R0c review 1 major 1, the reviewer's `tdivloop` probe): a
 /// contradiction inside a run that is also timed out is never a kill. On `both(0)` the mutant
 /// `tdeq` with `I +Int 0` takes an undefined step that contradicts `td`'s `total` claim and spins
@@ -480,10 +199,13 @@ fn a_contradicted_baseline_run_makes_only_its_test_unknown() {
 /// (read from the mutant's text, `r0c/tdivloopm.k`). The test is `Failed(TimeLimit)`, never
 /// compared; with `tdiv(1)` beside it the mutant is killed by `tdiv(1)` alone, whose runs are
 /// clean, in both schedules; alone it is `Timeout`.
-#[test]
-fn a_timed_out_run_with_a_contradiction_never_distinguishes() {
+///
+/// Each run waits for the 3 s bound, and the schedule does not change what the bound checks: the
+/// kink tier runs the mutant's own run, the campaign in Full and the campaign alone
+/// (`own_run_and_alone`), the heavy tier the campaign in FirstKill.
+fn timed_out_contradiction(schedules: &'static [ScheduleMode], own_run_and_alone: bool) {
     use kink_native::execution::{ExecutionAdapter, SolverProfile};
-    on_a_big_stack(|| {
+    on_a_big_stack(move || {
         let both = || support::app("Lblboth", vec![support::int(0)]);
         let budget = ExecutionBudget {
             time: Duration::from_secs(3),
@@ -491,27 +213,30 @@ fn a_timed_out_run_with_a_contradiction_never_distinguishes() {
             max_depth: None,
             max_breadth: None,
         };
-        // The mutant's own run: timed out, with a contradicted leaf.
-        let mutant = r0c_validator("tdivloopm").compile_baseline().unwrap();
-        let mut backend = k_rust::backend::Backend::new(
-            &mutant.artifacts().definition_kore,
-            k_rust::kast::identifier::encode("TDIVLOOPM"),
-            k_rust::backend::BackendOptions::default(),
-        )
-        .unwrap();
-        let execution = ExecutionAdapter::with_profile(SolverProfile::BUILD)
-            .execute(
-                &mut backend,
-                &support::initial_state(both(), "SortProg"),
-                budget,
+        if own_run_and_alone {
+            // The mutant's own run: timed out, with a contradicted leaf.
+            let mutant = r0c_validator("tdivloopm").compile_baseline().unwrap();
+            let mut backend = k_rust::backend::Backend::new(
+                &mutant.artifacts().definition_kore,
+                k_rust::kast::identifier::encode("TDIVLOOPM"),
+                k_rust::backend::BackendOptions::default(),
             )
             .unwrap();
-        assert!(execution.timed_out());
-        // Re-pin L1-1 (finding A-03): every request answers a cancellation with an error, so the
-        // timed-out run publishes no leaf at all, the contradicted one included. Before, under
-        // `cancelled_result: partial`, it returned the leaves finished before the cancel, one of
-        // them naming the contradicted `total` claim; either way the run is never compared.
-        assert!(execution.leaves().is_empty(), "{execution:?}");
+            let execution = ExecutionAdapter::with_profile(SolverProfile::BUILD)
+                .execute(
+                    &mut backend,
+                    &support::initial_state(both(), "SortProg"),
+                    budget,
+                )
+                .unwrap();
+            assert!(execution.timed_out());
+            // Re-pin L1-1 (finding A-03): every request answers a cancellation with an error, so
+            // the timed-out run publishes no leaf at all, the contradicted one included. Before,
+            // under `cancelled_result: partial`, it returned the leaves finished before the
+            // cancel, one of them naming the contradicted `total` claim; either way the run is
+            // never compared.
+            assert!(execution.leaves().is_empty(), "{execution:?}");
+        }
 
         let validator = r0c_validator("tdivloop");
         let generation = one_to_zero(validator.baseline(), "TDIVLOOP.tdeq");
@@ -521,7 +246,7 @@ fn a_timed_out_run_with_a_contradiction_never_distinguishes() {
         ];
         let mut both_tests = campaign(&validator, "TDIVLOOP", &tests);
         both_tests.budget = budget;
-        for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+        for &schedule in schedules {
             let run = run_campaign(&both_tests, &generation, schedule).unwrap();
             let [mutant] = run.mutants.as_slice() else {
                 panic!("one mutant")
@@ -539,6 +264,9 @@ fn a_timed_out_run_with_a_contradiction_never_distinguishes() {
             assert_eq!(mutant.report.status, MutantStatus::Killed, "{schedule:?}");
             assert_eq!(mutant.report.killing_test_ids, vec!["kill".to_owned()]);
             assert_clean(&run, mutant, "kill");
+        }
+        if !own_run_and_alone {
+            return;
         }
         let alone = [test("masked", both())];
         let mut masked = campaign(&validator, "TDIVLOOP", &alone);
@@ -561,208 +289,519 @@ fn a1_validator(name: &str) -> NativeValidator {
     )
 }
 
-/// Re-pin adoption A-1 (ADOPTION.md section 2.2, the README's former residual): the mutant
-/// `sobtd` with `X +Int 0` keeps `td`'s `total` (its edit does not reach `td`) and on `sob(0)`
-/// its candidate `val(td(0))` is undefined beside the defined sibling `sobok`, so its one leaf
-/// `done` is clean while the baseline gives `val(10)` and `done`. Only k-rust's list holds the
-/// record. Before A-1 kink read only the leaves, so the two sets differed and `sob(0)` killed the
-/// mutant on a claim that is false in the baseline too; now the test is
-/// `Failed(ContradictedClaim)` and the mutant `Unknown`, in both schedules. A kill by a test whose
-/// runs list no record (`sob(1)`: `val(10)` against the baseline's `val(5)`) stands.
-#[test]
-fn a_record_on_the_mutant_run_list_alone_makes_its_test_unknown() {
-    on_a_big_stack(|| {
-        let validator = a1_validator("a1claims");
-        let generation = one_to_zero(validator.baseline(), "A1CLAIMS.sobtd");
-        let contradicted = TestRun::Failed(ExecutionFailureKind::ContradictedClaim);
-        let alone = [test(
-            "contra",
-            support::app("Lblsob", vec![support::int(0)]),
-        )];
-        for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
-            let run = run_campaign(
-                &campaign(&validator, "A1CLAIMS", &alone),
-                &generation,
-                schedule,
-            )
-            .unwrap();
-            let [mutant] = run.mutants.as_slice() else {
-                panic!("one mutant")
-            };
-            assert!(mutant.report.claims.withdrawn.is_empty());
-            assert_eq!(mutant.plan.tests[0].run, contradicted, "{schedule:?}");
-            assert_eq!(mutant.report.status, MutantStatus::Unknown, "{schedule:?}");
-            assert!(mutant.report.killing_test_ids.is_empty());
-            // The record is carried as a note of the mutant's evidence; its baseline run is clean.
-            assert_eq!(mutant.evidence[0].notes.contradicted_claims.len(), 1);
-            assert!(!mutant.evidence[0].notes.leaf_contradiction);
-            assert!(run.baseline[0].notes.contradicted_claims.is_empty());
-        }
-        let kill = || test("kill", support::app("Lblsob", vec![support::int(1)]));
-        let contra = || test("contra", support::app("Lblsob", vec![support::int(0)]));
-        for (tests, schedule) in [
-            ([contra(), kill()], ScheduleMode::Full),
-            ([contra(), kill()], ScheduleMode::FirstKill),
-        ] {
-            let run = run_campaign(
-                &campaign(&validator, "A1CLAIMS", &tests),
-                &generation,
-                schedule,
-            )
-            .unwrap();
-            let [mutant] = run.mutants.as_slice() else {
-                panic!("one mutant")
-            };
-            assert_eq!(mutant.plan.tests[0].run, contradicted, "{schedule:?}");
-            assert_eq!(mutant.report.status, MutantStatus::Killed, "{schedule:?}");
-            assert_eq!(mutant.report.killing_test_ids, vec!["kill".to_owned()]);
-            assert_clean(&run, mutant, "kill");
-        }
-    });
-}
+mod kink_tier {
+    use super::*;
 
-/// Re-pin adoption A-1: the mutant `rr` with `rq(I +Int 0)` keeps `td`'s `total`; on `rr(0)` it
-/// reaches `rq(0)`, whose condition `td(0) >Int 0` is undefined, read as false, and its stuck leaf
-/// carries the record (ADOPTION.md's `r(0)`, the README's former residual); the baseline reaches
-/// `rq(1)` and `done`. Before A-1 the leaf's diagnostic made the
-/// mutant's side unknown; now the test is `Failed(ContradictedClaim)`. The mutant is `Unknown`
-/// either way, in both schedules.
-#[test]
-fn a_mutant_whose_condition_rests_on_a_record_is_unknown() {
-    on_a_big_stack(|| {
-        let validator = a1_validator("a1claims");
-        let generation = one_to_zero(validator.baseline(), "A1CLAIMS.rr");
-        let tests = [test("t", support::app("Lblrr", vec![support::int(0)]))];
-        for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
-            let run = run_campaign(
-                &campaign(&validator, "A1CLAIMS", &tests),
-                &generation,
-                schedule,
+    #[test]
+    #[ignore = "kink"]
+    fn a_timed_out_run_with_a_contradiction_never_distinguishes() {
+        timed_out_contradiction(&[ScheduleMode::Full], true);
+    }
+
+    /// Decision 2 (finding A-13): a mutant that contradicts a trusted claim at the test's input (k-rust
+    /// names the contradicted `total`, or the undefined step's rule carries `preserves-definedness`)
+    /// ends in an undefined step where the baseline computes a value. Before R0b that undefined step
+    /// was a complete terminal and killed the mutant; now the mutant's run is excluded and the mutant
+    /// is `Unknown`, in both schedules.
+    ///
+    /// Re-pin R0c-fix-2: a mutant now keeps only the claims its edit does not reach (kink-patch
+    /// `ClaimSupport::withdraw`), so the guard fires for a baseline claim the mutant still carries.
+    /// `r0c/tdivshift.k`'s mutants of the rewrite rules `tdiv` and `go` drop a shift and reach -1,
+    /// where `td`'s `total` and `pd`'s `preserves-definedness` are false. The TDIV mutants this test
+    /// used before (edits of `td`'s equation and of `pd`'s own rule) now run without the claim their
+    /// edit falsified and are killed (`a_mutant_whose_edit_falsified_a_claim_runs_claim_free`).
+    #[test]
+    #[ignore = "kink"]
+    fn a_mutant_that_contradicts_a_claim_is_unknown() {
+        on_a_big_stack(|| {
+            let validator = r0c_validator("tdivshift");
+            let baseline = validator.baseline();
+            for (rule, symbol) in [("TDIVSHIFT.tdiv", "Lbltdiv"), ("TDIVSHIFT.go", "Lblgo")] {
+                let generation = one_to_zero(baseline, rule);
+                let tests = [test("t", support::app(symbol, vec![support::int(-1)]))];
+                let campaign = campaign(&validator, "TDIVSHIFT", &tests);
+                for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                    let run = run_campaign(&campaign, &generation, schedule).unwrap();
+                    let [mutant] = run.mutants.as_slice() else {
+                        panic!("one mutant")
+                    };
+                    assert!(mutant.report.claims.withdrawn.is_empty(), "{rule}");
+                    assert_eq!(
+                        mutant.plan.tests[0].run,
+                        TestRun::Failed(ExecutionFailureKind::ContradictedClaim),
+                        "{rule} {schedule:?}"
+                    );
+                    assert_eq!(
+                        mutant.report.status,
+                        MutantStatus::Unknown,
+                        "{rule} {schedule:?}"
+                    );
+                    assert!(mutant.report.killing_test_ids.is_empty());
+                }
+            }
+        });
+    }
+
+    /// Re-pin R0c-fix-2 (a mutant drops the claims its edit leaves unbacked): the TDIV mutant of
+    /// `td`'s equation (`I +Int 0`) runs without `td`'s `total`, and the mutant of `pd`'s own rule
+    /// without its `preserves-definedness`. On 0 each takes an undefined step of the claim-free
+    /// mutant (`10 /Int 0` is undefined in every model of it), where the baseline computes `val(10)`:
+    /// a kill on a consistent theory, in both schedules. Before R0c-fix-2 each mutant carried the
+    /// claim its edit falsified, contradicted it, and was `Unknown` (`contradicted-claim`).
+    #[test]
+    #[ignore = "kink"]
+    fn a_mutant_whose_edit_falsified_a_claim_runs_claim_free() {
+        on_a_big_stack(|| {
+            let validator = validator("tdiv");
+            let baseline = validator.baseline();
+            for (rule, symbol, removed) in [
+                ("TDIV.tdeq", "Lbltdiv", "total"),
+                ("TDIV.pd", "Lblpd", "preserves-definedness"),
+            ] {
+                let generation = one_to_zero(baseline, rule);
+                let tests = [test("t", support::app(symbol, vec![support::int(0)]))];
+                let campaign = campaign(&validator, "TDIV", &tests);
+                for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                    let run = run_campaign(&campaign, &generation, schedule).unwrap();
+                    let [mutant] = run.mutants.as_slice() else {
+                        panic!("one mutant")
+                    };
+                    assert_eq!(
+                        mutant
+                            .report
+                            .claims
+                            .withdrawn
+                            .iter()
+                            .map(|claim| claim.key.as_str())
+                            .collect::<Vec<_>>(),
+                        [removed],
+                        "{rule}"
+                    );
+                    assert_eq!(
+                        mutant.plan.tests[0].run,
+                        TestRun::Compared(vec![
+                            kink_campaign::OracleOutcome::Distinguish,
+                            kink_campaign::OracleOutcome::Distinguish,
+                        ]),
+                        "{rule} {schedule:?}"
+                    );
+                    assert_eq!(
+                        mutant.report.status,
+                        MutantStatus::Killed,
+                        "{rule} {schedule:?}"
+                    );
+                    assert_clean(&run, mutant, "t");
+                }
+            }
+        });
+    }
+
+    /// The baseline side of each exclusion that a definition or a test's initial state carries:
+    /// decision 1's census (a rule listing a map's keys; an initial state applying `keys_list` over a
+    /// definition with no such rule) and finding C-10 (an equation or a simplification rooted at a
+    /// collection role symbol makes the List or Set terminal no value). Each baseline is refused as
+    /// `BaselineOracleFailed` before any mutant runs; before R0b each was admitted.
+    #[test]
+    #[ignore = "kink"]
+    fn an_excluded_baseline_is_refused() {
+        on_a_big_stack(|| {
+            let keys = parse_pattern(
+                r#"Lblkeys{}(Lblkeys'Unds'list'LParUndsRParUnds'MAP'Unds'List'Unds'Map{}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1")), inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1")))))"#,
             )
             .unwrap();
-            let [mutant] = run.mutants.as_slice() else {
-                panic!("one mutant")
-            };
-            assert_eq!(
-                mutant.plan.tests[0].run,
-                TestRun::Failed(ExecutionFailureKind::ContradictedClaim),
-                "{schedule:?}"
-            );
-            assert_eq!(mutant.report.status, MutantStatus::Unknown, "{schedule:?}");
-        }
-    });
-}
-
-/// Re-pin adoption A-1: a baseline run that one of k-rust's run-level lists excludes is refused
-/// before any mutant runs (`BaselineOracleFailed`, naming the exclusion), as every other excluded
-/// baseline is. A record on the list alone is not decision 2's leaf rule, so admission does not
-/// keep the baseline per test: before A-1 such a run was either compared (`sib(0)`, `m(0)`,
-/// `go(1)`, `run(2^40)`, `runh(1)`: their leaves are clean, so each was admitted) or, when its
-/// leaf carried the record, unknown and refused (`r(0)`, refused then for its unknown side, now
-/// for `contradicted-claim`); keeping it per test would relax the second refusal. The load record
-/// of `loadrec.k` is on every run's list (decision D-6), so no campaign over that definition is
-/// admitted. The controls `sib(1)` and `run(1)` are admitted, and so is `tv(0)`, whose undefined
-/// step names the contradicted claim on its leaf: that test alone is unknown (decision 2 per test).
-#[test]
-fn a_baseline_whose_run_list_holds_an_entry_is_refused() {
-    on_a_big_stack(|| {
-        for (name, program, reason) in [
-            (
-                "a1claims",
-                support::app("Lblsib", vec![support::int(0)]),
-                "contradicted-claim",
-            ),
-            (
-                "a1claims",
-                support::app("Lblm", vec![support::int(0)]),
-                "contradicted-claim",
-            ),
-            (
-                "a1claims",
-                support::app("Lblr", vec![support::int(0)]),
-                "contradicted-claim",
-            ),
-            (
-                "loadrec",
-                support::app("Lblgo", vec![support::int(1)]),
-                "contradicted-claim",
-            ),
-            (
-                "refusals",
-                support::app("Lblrun", vec![support::int(1 << 40)]),
-                "allowance-refusal",
-            ),
-            (
-                "refusals",
-                support::app("Lblrunh", vec![support::int(1)]),
-                "unsupported-hook",
-            ),
-        ] {
-            let validator = a1_validator(name);
-            let module = name.to_ascii_uppercase();
-            let tests = [test("t", program)];
-            let failure = run_campaign(
-                &campaign(&validator, &module, &tests),
-                &no_mutant(validator.baseline()),
-                ScheduleMode::Full,
-            )
-            .expect_err(name);
-            assert_eq!(
-                failure.kind(),
-                CampaignFailureKind::BaselineOracleFailed,
-                "{name}"
-            );
-            assert!(
-                failure.to_string().contains(reason),
-                "{name} {reason}: {failure}"
-            );
-        }
-        // The load record refuses a campaign whose mutant would otherwise be killed: `go` with
-        // `I +Int 0` gives `val(1)` where the baseline gives `val(2)`.
-        let validator = a1_validator("loadrec");
-        let generation = one_to_zero(validator.baseline(), "LOADREC.go");
-        let tests = [test("t", support::app("Lblgo", vec![support::int(1)]))];
-        let failure = run_campaign(
-            &campaign(&validator, "LOADREC", &tests),
-            &generation,
-            ScheduleMode::Full,
-        )
-        .expect_err("a load record refuses the baseline");
-        assert_eq!(failure.kind(), CampaignFailureKind::BaselineOracleFailed);
-        // Controls.
-        for (name, program) in [
-            ("a1claims", support::app("Lblsib", vec![support::int(1)])),
-            ("refusals", support::app("Lblrun", vec![support::int(1)])),
-        ] {
-            let validator = a1_validator(name);
-            let module = name.to_ascii_uppercase();
-            let tests = [test("t", program)];
+            for (name, program, reason) in [
+                (
+                    "implchosen",
+                    support::app("Lblstart", vec![support::int(1)]),
+                    Some("implementation-chosen-hook"),
+                ),
+                ("keysfree", keys, Some("implementation-chosen-hook")),
+                (
+                    "rolerooted",
+                    support::app("Lblstart", vec![support::int(5)]),
+                    None,
+                ),
+                (
+                    "rolesimp",
+                    support::app("Lblstart", vec![support::int(5)]),
+                    None,
+                ),
+            ] {
+                let validator = validator(name);
+                let module = name.to_ascii_uppercase();
+                let tests = [test("t", program)];
+                let campaign = campaign(&validator, &module, &tests);
+                let generation = no_mutant(validator.baseline());
+                let failure =
+                    run_campaign(&campaign, &generation, ScheduleMode::Full).expect_err(name);
+                assert_eq!(
+                    failure.kind(),
+                    CampaignFailureKind::BaselineOracleFailed,
+                    "{name}"
+                );
+                if let Some(reason) = reason {
+                    assert!(failure.to_string().contains(reason), "{name}: {failure}");
+                }
+            }
+            // Control: the same initial-state shape without `keys_list` is admitted.
+            let validator = validator("keysfree");
+            let tests = [test("t", support::app("Lblstart", vec![support::int(1)]))];
+            let campaign = campaign(&validator, "KEYSFREE", &tests);
             run_campaign(
-                &campaign(&validator, &module, &tests),
+                &campaign,
                 &no_mutant(validator.baseline()),
                 ScheduleMode::Full,
             )
-            .unwrap_or_else(|failure| panic!("{name}: {failure}"));
-        }
-        let validator = a1_validator("a1claims");
-        let tests = [
-            test("leaf", support::app("Lbltv", vec![support::int(0)])),
-            test("clean", support::app("Lblsib", vec![support::int(1)])),
-        ];
-        let run = run_campaign(
-            &campaign(&validator, "A1CLAIMS", &tests),
-            &no_mutant(validator.baseline()),
-            ScheduleMode::Full,
-        )
-        .expect("a leaf's contradiction makes only its test unknown");
-        assert_eq!(
-            run.baseline[0].run,
-            kink_campaign::SideRun::Failed(ExecutionFailureKind::ContradictedClaim)
-        );
-        assert!(run.baseline[0].notes.leaf_contradiction);
-        assert!(matches!(
-            run.baseline[1].run,
-            kink_campaign::SideRun::Sides { .. }
-        ));
-    });
+            .expect("a definition that only imports MAP is admitted");
+        });
+    }
+
+    /// Re-pin R0c-fix-1 deliverable 1 (decision 2 per test, Sebastien 2026-10-17: "killing test
+    /// only"): the mutant distinguishes on `tdiv(1)` and contradicts `td`'s `total` claim on
+    /// another input (since re-pin R0c-fix-2 `r0c/tdivshift.k`'s `tdiv` with `I +Int 0`, which keeps
+    /// the claim: `val(5)` against the baseline's `val(3)` on 1, `td(-1)` on -1). The contradicting test
+    /// is unknown and the kill by `tdiv(1)` stands, in both orders and both schedules, so `Full` and
+    /// `FirstKill` agree (under R0c's mutant-wide rule `Full`, and `FirstKill` with the contradicting
+    /// test first, gave `Unknown`). The killing test is free of contradictions: both of its runs gave
+    /// sides, which an excluded run never does.
+    #[test]
+    #[ignore = "kink"]
+    fn a_contradicted_claim_leaves_the_kill_of_another_test_standing() {
+        on_a_big_stack(|| {
+            // Re-pin R0c-fix-2: `r0c/tdivshift.k`'s mutant of the rewrite rule `tdiv` keeps `td`'s
+            // `total` (its edit does not reach `td`) and contradicts it on tdiv(-1). Before, the TDIV
+            // mutant of `td`'s equation contradicted it on tdiv(0); it now runs without the claim.
+            let validator = r0c_validator("tdivshift");
+            let baseline = validator.baseline();
+            let generation = one_to_zero(baseline, "TDIVSHIFT.tdiv");
+            let kill = || test("kill", support::app("Lbltdiv", vec![support::int(1)]));
+            let contra = || test("contra", support::app("Lbltdiv", vec![support::int(-1)]));
+            let distinguish = TestRun::Compared(vec![
+                kink_campaign::OracleOutcome::Agree,
+                kink_campaign::OracleOutcome::Distinguish,
+            ]);
+            let contradicted = TestRun::Failed(ExecutionFailureKind::ContradictedClaim);
+            for (tests, schedule, runs) in [
+                (
+                    [kill(), contra()],
+                    ScheduleMode::Full,
+                    vec![distinguish.clone(), contradicted.clone()],
+                ),
+                (
+                    [contra(), kill()],
+                    ScheduleMode::Full,
+                    vec![contradicted.clone(), distinguish.clone()],
+                ),
+                (
+                    [contra(), kill()],
+                    ScheduleMode::FirstKill,
+                    vec![contradicted.clone(), distinguish.clone()],
+                ),
+                (
+                    [kill(), contra()],
+                    ScheduleMode::FirstKill,
+                    vec![distinguish.clone(), TestRun::SkippedAfterKill],
+                ),
+            ] {
+                let campaign = campaign(&validator, "TDIVSHIFT", &tests);
+                let run = run_campaign(&campaign, &generation, schedule).unwrap();
+                let [mutant] = run.mutants.as_slice() else {
+                    panic!("one mutant")
+                };
+                let ids = tests.iter().map(|t| t.id.as_str()).collect::<Vec<_>>();
+                assert_eq!(
+                    mutant
+                        .plan
+                        .tests
+                        .iter()
+                        .map(|t| t.run.clone())
+                        .collect::<Vec<_>>(),
+                    runs,
+                    "{ids:?} {schedule:?}"
+                );
+                assert_eq!(
+                    mutant.report.status,
+                    MutantStatus::Killed,
+                    "{ids:?} {schedule:?}"
+                );
+                assert_eq!(
+                    mutant.report.killing_test_ids,
+                    vec!["kill".to_owned()],
+                    "{ids:?} {schedule:?}"
+                );
+                assert_clean(&run, mutant, "kill");
+            }
+        });
+    }
+
+    /// Re-pin R0c-fix-1 deliverable 1: a baseline run that contradicts a claim no longer refuses the
+    /// campaign; it makes its own test unknown for every mutant. The baseline `TDIV` contradicts
+    /// `td`'s `total` claim on `tdiv(-1)`. Under R0b and R0c the campaign was refused
+    /// (`BaselineOracleFailed`, `contradicted-claim`); now the mutant `tdeq` with `I +Int 0`, which is
+    /// defined on -1, is killed by `tdiv(1)`, whose runs are clean, and the contradicting test is
+    /// `Failed(ContradictedClaim)`, in both schedules.
+    #[test]
+    #[ignore = "kink"]
+    fn a_contradicted_baseline_run_makes_only_its_test_unknown() {
+        on_a_big_stack(|| {
+            let validator = validator("tdiv");
+            let baseline = validator.baseline();
+            let generation = one_to_zero(baseline, "TDIV.tdeq");
+            let tests = [
+                test("base", support::app("Lbltdiv", vec![support::int(-1)])),
+                test("kill", support::app("Lbltdiv", vec![support::int(1)])),
+            ];
+            let campaign_of_both = campaign(&validator, "TDIV", &tests);
+            for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                let run = run_campaign(&campaign_of_both, &generation, schedule).unwrap();
+                assert_eq!(
+                    run.baseline[0].run,
+                    kink_campaign::SideRun::Failed(ExecutionFailureKind::ContradictedClaim)
+                );
+                let [mutant] = run.mutants.as_slice() else {
+                    panic!("one mutant")
+                };
+                assert_eq!(
+                    mutant.plan.tests[0].run,
+                    TestRun::Failed(ExecutionFailureKind::ContradictedClaim),
+                    "{schedule:?}"
+                );
+                assert_eq!(mutant.report.status, MutantStatus::Killed, "{schedule:?}");
+                assert_eq!(mutant.report.killing_test_ids, vec!["kill".to_owned()]);
+                assert_clean(&run, mutant, "kill");
+            }
+            // A campaign of the contradicting test alone is admitted, and its mutant is unknown.
+            let alone = [test(
+                "base",
+                support::app("Lbltdiv", vec![support::int(-1)]),
+            )];
+            let run = run_campaign(
+                &campaign(&validator, "TDIV", &alone),
+                &generation,
+                ScheduleMode::Full,
+            )
+            .unwrap();
+            assert_eq!(run.mutants[0].report.status, MutantStatus::Unknown);
+        });
+    }
+
+    /// Re-pin adoption A-1 (ADOPTION.md section 2.2, the README's former residual): the mutant
+    /// `sobtd` with `X +Int 0` keeps `td`'s `total` (its edit does not reach `td`) and on `sob(0)`
+    /// its candidate `val(td(0))` is undefined beside the defined sibling `sobok`, so its one leaf
+    /// `done` is clean while the baseline gives `val(10)` and `done`. Only k-rust's list holds the
+    /// record. Before A-1 kink read only the leaves, so the two sets differed and `sob(0)` killed the
+    /// mutant on a claim that is false in the baseline too; now the test is
+    /// `Failed(ContradictedClaim)` and the mutant `Unknown`, in both schedules. A kill by a test whose
+    /// runs list no record (`sob(1)`: `val(10)` against the baseline's `val(5)`) stands.
+    #[test]
+    #[ignore = "kink"]
+    fn a_record_on_the_mutant_run_list_alone_makes_its_test_unknown() {
+        on_a_big_stack(|| {
+            let validator = a1_validator("a1claims");
+            let generation = one_to_zero(validator.baseline(), "A1CLAIMS.sobtd");
+            let contradicted = TestRun::Failed(ExecutionFailureKind::ContradictedClaim);
+            let alone = [test(
+                "contra",
+                support::app("Lblsob", vec![support::int(0)]),
+            )];
+            for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                let run = run_campaign(
+                    &campaign(&validator, "A1CLAIMS", &alone),
+                    &generation,
+                    schedule,
+                )
+                .unwrap();
+                let [mutant] = run.mutants.as_slice() else {
+                    panic!("one mutant")
+                };
+                assert!(mutant.report.claims.withdrawn.is_empty());
+                assert_eq!(mutant.plan.tests[0].run, contradicted, "{schedule:?}");
+                assert_eq!(mutant.report.status, MutantStatus::Unknown, "{schedule:?}");
+                assert!(mutant.report.killing_test_ids.is_empty());
+                // The record is carried as a note of the mutant's evidence; its baseline run is clean.
+                assert_eq!(mutant.evidence[0].notes.contradicted_claims.len(), 1);
+                assert!(!mutant.evidence[0].notes.leaf_contradiction);
+                assert!(run.baseline[0].notes.contradicted_claims.is_empty());
+            }
+            let kill = || test("kill", support::app("Lblsob", vec![support::int(1)]));
+            let contra = || test("contra", support::app("Lblsob", vec![support::int(0)]));
+            for (tests, schedule) in [
+                ([contra(), kill()], ScheduleMode::Full),
+                ([contra(), kill()], ScheduleMode::FirstKill),
+            ] {
+                let run = run_campaign(
+                    &campaign(&validator, "A1CLAIMS", &tests),
+                    &generation,
+                    schedule,
+                )
+                .unwrap();
+                let [mutant] = run.mutants.as_slice() else {
+                    panic!("one mutant")
+                };
+                assert_eq!(mutant.plan.tests[0].run, contradicted, "{schedule:?}");
+                assert_eq!(mutant.report.status, MutantStatus::Killed, "{schedule:?}");
+                assert_eq!(mutant.report.killing_test_ids, vec!["kill".to_owned()]);
+                assert_clean(&run, mutant, "kill");
+            }
+        });
+    }
+
+    /// Re-pin adoption A-1: the mutant `rr` with `rq(I +Int 0)` keeps `td`'s `total`; on `rr(0)` it
+    /// reaches `rq(0)`, whose condition `td(0) >Int 0` is undefined, read as false, and its stuck leaf
+    /// carries the record (ADOPTION.md's `r(0)`, the README's former residual); the baseline reaches
+    /// `rq(1)` and `done`. Before A-1 the leaf's diagnostic made the
+    /// mutant's side unknown; now the test is `Failed(ContradictedClaim)`. The mutant is `Unknown`
+    /// either way, in both schedules.
+    #[test]
+    #[ignore = "kink"]
+    fn a_mutant_whose_condition_rests_on_a_record_is_unknown() {
+        on_a_big_stack(|| {
+            let validator = a1_validator("a1claims");
+            let generation = one_to_zero(validator.baseline(), "A1CLAIMS.rr");
+            let tests = [test("t", support::app("Lblrr", vec![support::int(0)]))];
+            for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                let run = run_campaign(
+                    &campaign(&validator, "A1CLAIMS", &tests),
+                    &generation,
+                    schedule,
+                )
+                .unwrap();
+                let [mutant] = run.mutants.as_slice() else {
+                    panic!("one mutant")
+                };
+                assert_eq!(
+                    mutant.plan.tests[0].run,
+                    TestRun::Failed(ExecutionFailureKind::ContradictedClaim),
+                    "{schedule:?}"
+                );
+                assert_eq!(mutant.report.status, MutantStatus::Unknown, "{schedule:?}");
+            }
+        });
+    }
+
+    /// Re-pin adoption A-1: a baseline run that one of k-rust's run-level lists excludes is refused
+    /// before any mutant runs (`BaselineOracleFailed`, naming the exclusion), as every other excluded
+    /// baseline is. A record on the list alone is not decision 2's leaf rule, so admission does not
+    /// keep the baseline per test: before A-1 such a run was either compared (`sib(0)`, `m(0)`,
+    /// `go(1)`, `run(2^40)`, `runh(1)`: their leaves are clean, so each was admitted) or, when its
+    /// leaf carried the record, unknown and refused (`r(0)`, refused then for its unknown side, now
+    /// for `contradicted-claim`); keeping it per test would relax the second refusal. The load record
+    /// of `loadrec.k` is on every run's list (decision D-6), so no campaign over that definition is
+    /// admitted. The controls `sib(1)` and `run(1)` are admitted, and so is `tv(0)`, whose undefined
+    /// step names the contradicted claim on its leaf: that test alone is unknown (decision 2 per test).
+    #[test]
+    #[ignore = "kink"]
+    fn a_baseline_whose_run_list_holds_an_entry_is_refused() {
+        on_a_big_stack(|| {
+            for (name, program, reason) in [
+                (
+                    "a1claims",
+                    support::app("Lblsib", vec![support::int(0)]),
+                    "contradicted-claim",
+                ),
+                (
+                    "a1claims",
+                    support::app("Lblm", vec![support::int(0)]),
+                    "contradicted-claim",
+                ),
+                (
+                    "a1claims",
+                    support::app("Lblr", vec![support::int(0)]),
+                    "contradicted-claim",
+                ),
+                (
+                    "loadrec",
+                    support::app("Lblgo", vec![support::int(1)]),
+                    "contradicted-claim",
+                ),
+                (
+                    "refusals",
+                    support::app("Lblrun", vec![support::int(1 << 40)]),
+                    "allowance-refusal",
+                ),
+                (
+                    "refusals",
+                    support::app("Lblrunh", vec![support::int(1)]),
+                    "unsupported-hook",
+                ),
+            ] {
+                let validator = a1_validator(name);
+                let module = name.to_ascii_uppercase();
+                let tests = [test("t", program)];
+                let failure = run_campaign(
+                    &campaign(&validator, &module, &tests),
+                    &no_mutant(validator.baseline()),
+                    ScheduleMode::Full,
+                )
+                .expect_err(name);
+                assert_eq!(
+                    failure.kind(),
+                    CampaignFailureKind::BaselineOracleFailed,
+                    "{name}"
+                );
+                assert!(
+                    failure.to_string().contains(reason),
+                    "{name} {reason}: {failure}"
+                );
+            }
+            // The load record refuses a campaign whose mutant would otherwise be killed: `go` with
+            // `I +Int 0` gives `val(1)` where the baseline gives `val(2)`.
+            let validator = a1_validator("loadrec");
+            let generation = one_to_zero(validator.baseline(), "LOADREC.go");
+            let tests = [test("t", support::app("Lblgo", vec![support::int(1)]))];
+            let failure = run_campaign(
+                &campaign(&validator, "LOADREC", &tests),
+                &generation,
+                ScheduleMode::Full,
+            )
+            .expect_err("a load record refuses the baseline");
+            assert_eq!(failure.kind(), CampaignFailureKind::BaselineOracleFailed);
+            // Controls.
+            for (name, program) in [
+                ("a1claims", support::app("Lblsib", vec![support::int(1)])),
+                ("refusals", support::app("Lblrun", vec![support::int(1)])),
+            ] {
+                let validator = a1_validator(name);
+                let module = name.to_ascii_uppercase();
+                let tests = [test("t", program)];
+                run_campaign(
+                    &campaign(&validator, &module, &tests),
+                    &no_mutant(validator.baseline()),
+                    ScheduleMode::Full,
+                )
+                .unwrap_or_else(|failure| panic!("{name}: {failure}"));
+            }
+            let validator = a1_validator("a1claims");
+            let tests = [
+                test("leaf", support::app("Lbltv", vec![support::int(0)])),
+                test("clean", support::app("Lblsib", vec![support::int(1)])),
+            ];
+            let run = run_campaign(
+                &campaign(&validator, "A1CLAIMS", &tests),
+                &no_mutant(validator.baseline()),
+                ScheduleMode::Full,
+            )
+            .expect("a leaf's contradiction makes only its test unknown");
+            assert_eq!(
+                run.baseline[0].run,
+                kink_campaign::SideRun::Failed(ExecutionFailureKind::ContradictedClaim)
+            );
+            assert!(run.baseline[0].notes.leaf_contradiction);
+            assert!(matches!(
+                run.baseline[1].run,
+                kink_campaign::SideRun::Sides { .. }
+            ));
+        });
+    }
+}
+
+mod heavy {
+    use super::*;
+
+    /// `kink_tier::a_timed_out_run_with_a_contradiction_never_distinguishes` in FirstKill.
+    #[test]
+    #[ignore = "heavy"]
+    fn a_timed_out_run_with_a_contradiction_never_distinguishes() {
+        timed_out_contradiction(&[ScheduleMode::FirstKill], false);
+    }
 }

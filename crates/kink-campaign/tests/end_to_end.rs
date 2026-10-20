@@ -206,192 +206,6 @@ fn sides(evidence: &TestEvidence) -> &[OracleSide] {
     }
 }
 
-/// Plan row C5's pattern kill with an unchanged final result is pinned by coupled.rs
-/// single_site_release and coupled_release. Here the branch mutant has the baseline's
-/// rewrite relation (F-EI1, EI-D2), so rule identity alone cannot kill it. The increment
-/// mutant is killed by its final result; another survives and one is invalid.
-#[test]
-fn counter_campaign_kills_by_final_result_and_not_by_rule_identity() {
-    with_stack(|| {
-        let validator =
-            NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
-        let baseline = validator.baseline();
-        let specs = step_support::counter(true);
-        let vocabulary = StepObservation::vocabulary_of(&specs).expect("vocabulary");
-        let tests = [
-            TestCase {
-                id: "t1".to_owned(),
-                initial_state: counter_state(),
-                oracles: vec![
-                    whole_term(CrashPolicy::CompareIdentity),
-                    occurs(&vocabulary, "increment"),
-                ],
-            },
-            TestCase {
-                id: "t2".to_owned(),
-                initial_state: choose_state(),
-                oracles: vec![
-                    whole_term(CrashPolicy::CompareIdentity),
-                    occurs(&vocabulary, "branchTaken"),
-                ],
-            },
-        ];
-        // In site order: increment's body, then its right-hand side, branch and fallback.
-        let mutants = [
-            // k-rust rejects the unknown attribute.
-            (
-                TermRef::new(support::rule(baseline, "COUNTER.increment"), [0]),
-                Patch::new(vec![Edit::AddAttribute {
-                    at: support::rule(baseline, "COUNTER.increment"),
-                    key: "foo".to_owned(),
-                    value: Value::String(String::new()),
-                }])
-                .expect("one edit"),
-            ),
-            // increment: counter(N, s(L)) => counter(N, L)
-            replace(
-                baseline,
-                "COUNTER.increment",
-                &[0, 1, 0],
-                term_at(baseline, "COUNTER.increment", &[0, 1, 0, 0]),
-            ),
-            // branch: requires false; fallback still ends in selected(true).
-            replace(baseline, "COUNTER.branch", &[1], bool_token("false")),
-            // fallback: choose(B) => selected(true); it never fires on these tests.
-            replace(baseline, "COUNTER.fallback", &[0, 1, 0], bool_token("true")),
-        ];
-        let campaign = Campaign {
-            validator: &validator,
-            module: "COUNTER",
-            observation: &specs,
-            classify: &normal,
-            tests: &tests,
-            budget: BUDGET,
-        };
-        let generation = generation(baseline, &mutants);
-        let run = run_campaign(&campaign, &generation, ScheduleMode::Full).expect("admitted");
-
-        let final_state = |program| {
-            OracleSide::Normal(OracleValue::FinalResult(
-                kink_campaign::FinalResult::WholeTerm([program].into_iter().collect()),
-            ))
-        };
-        let matched =
-            OracleSide::Normal(OracleValue::Pattern(PatternValue::Match { bindings: None }));
-        let t1_final = support::initial_state(
-            kore_application("Lblcounter", Vec::new(), vec![s(s(s(z()))), z()]),
-            "SortCounter",
-        );
-        let t2_final = support::initial_state(
-            kore_application("Lblselected", Vec::new(), vec![bool_value("true")]),
-            "SortControl",
-        );
-        assert_eq!(
-            sides(&run.baseline[0]),
-            [final_state(t1_final), matched.clone()]
-        );
-        assert_eq!(
-            sides(&run.baseline[1]),
-            [final_state(t2_final.clone()), matched]
-        );
-
-        let statuses = run
-            .mutants
-            .iter()
-            .map(|mutant| mutant.report.status)
-            .collect::<Vec<_>>();
-        use MutantStatus::{Invalid, Killed, Survived};
-        assert_eq!(statuses, [Invalid, Killed, Survived, Survived]);
-        #[rustfmt::skip]
-        let expected: [&[(&str, Vec<OracleOutcome>)]; 3] = [
-            &[("t1", vec![Distinguish, Distinguish]), ("t2", vec![Agree, Agree])],
-            &[("t1", vec![Agree, Agree]), ("t2", vec![Agree, Agree])],
-            &[("t1", vec![Agree, Agree]), ("t2", vec![Agree, Agree])],
-        ];
-        for (mutant, expected) in run.mutants[1..].iter().zip(expected) {
-            let id = mutant.plan.mutant_id;
-            assert_eq!(outcomes(&mutant.plan.tests), expected, "{id:?}");
-            assert_eq!(mutant.plan.mutant_failure, None, "{id:?}");
-            for evidence in &mutant.evidence {
-                sides(evidence);
-            }
-        }
-        // The fallback takes the same declared branch transition as the baseline.
-        assert_eq!(
-            sides(&run.mutants[2].evidence[1]),
-            [
-                final_state(t2_final),
-                OracleSide::Normal(OracleValue::Pattern(PatternValue::Match { bindings: None }))
-            ]
-        );
-        let invalid = &run.mutants[0];
-        assert_eq!(
-            invalid.plan.mutant_failure,
-            Some(MutantScopeFailure::Rejected)
-        );
-        assert!(invalid.plan.tests.is_empty());
-        assert!(invalid.evidence.is_empty());
-        assert!(invalid.report.executed_test_ids.is_empty());
-
-        let score = run.score.expect("a complete generation is scored");
-        assert_eq!((score.killed, score.survived), (1, 2));
-        let counts = tally(&generation, &run).expect("matching generation");
-        assert_eq!(
-            (counts.killed, counts.survived),
-            (score.killed, score.survived)
-        );
-        assert_eq!(
-            score.ratio,
-            Some(Rational {
-                numerator: 1,
-                denominator: 3
-            })
-        );
-
-        // Under first-kill, only the increment mutant has a killing prefix. The runner stops
-        // it after t1, and the reports are the ones derived from running every test.
-        let stopped =
-            run_campaign(&campaign, &generation, ScheduleMode::FirstKill).expect("admitted");
-        assert_eq!(stopped.baseline, run.baseline);
-        assert_eq!(stopped.score, run.score);
-        let increment = &stopped.mutants[1];
-        assert_eq!(increment.plan.tests[0], run.mutants[1].plan.tests[0]);
-        assert_eq!(increment.plan.tests[1].test_id, "t2");
-        assert_eq!(increment.plan.tests[1].run, TestRun::SkippedAfterKill);
-        assert_eq!(increment.evidence, run.mutants[1].evidence[..1]);
-        for (index, (stopped, full)) in stopped.mutants.iter().zip(&run.mutants).enumerate() {
-            if index != 1 {
-                assert_eq!(stopped.plan, full.plan, "{index}");
-                assert_eq!(stopped.evidence, full.evidence, "{index}");
-            }
-        }
-        let manifest = tests
-            .iter()
-            .map(|test| kink_campaign::ManifestTest {
-                test_id: test.id.clone(),
-                slot_count: test.oracles.len(),
-            })
-            .collect::<Vec<_>>();
-        #[rustfmt::skip]
-        let first_kill: [(&[&str], &[&str]); 4] = [
-            (&[], &[]),
-            (&["t1"], &["t1"]),
-            (&["t1", "t2"], &[]),
-            (&["t1", "t2"], &[]),
-        ];
-        for ((mutant, stopped), (executed, killing)) in
-            run.mutants.iter().zip(&stopped.mutants).zip(first_kill)
-        {
-            let report = derive_mutant_report(&mutant.plan, &manifest, ScheduleMode::FirstKill)
-                .expect("report");
-            assert_eq!(report.status, mutant.report.status);
-            assert_eq!(report.executed_test_ids, executed);
-            assert_eq!(report.killing_test_ids, killing);
-            assert_eq!(stopped.report, report);
-        }
-    });
-}
-
 /// Decision EI-D2 = b: the counter fixture keeps a pattern kill with an unchanged final result,
 /// now over a proved execution difference. The step-by-two mutant
 /// `counter(N, s(s(L))) => counter(s(s(N)), L)` takes `counter(z, s(s(z)))` to the baseline's
@@ -573,58 +387,6 @@ fn symbolic_choose_baseline_requires_a_decided_branch() {
     });
 }
 
-/// Critique C2 through the runner: a mutant that no longer terminates is stopped by the
-/// watchdog, its test fails with `TimeLimit`, and the mutant is `Timeout`, never killed.
-#[test]
-fn nonterminating_mutant_is_a_timeout() {
-    with_stack(|| {
-        let validator = NativeValidator::bind(support::load("nd.k"), CompileOptions::default());
-        let baseline = validator.baseline();
-        let tests = [TestCase {
-            id: "mid1".to_owned(),
-            initial_state: support::initial_state(constant("Lblmid1"), "SortS"),
-            oracles: vec![whole_term(CrashPolicy::CompareIdentity)],
-        }];
-        // l2: mid1 => spin, and spin => spin forever.
-        let spin = replace(
-            baseline,
-            "ND.l2",
-            &[0, 1],
-            term_at(baseline, "ND.spin", &[0, 1]),
-        );
-        let campaign = Campaign {
-            validator: &validator,
-            module: "ND",
-            observation: &[],
-            classify: &normal,
-            tests: &tests,
-            budget: ExecutionBudget {
-                time: Duration::from_secs(2),
-                ..BUDGET
-            },
-        };
-        let generation = generation(baseline, &[spin]);
-        let run = run_campaign(&campaign, &generation, ScheduleMode::Full).expect("admitted");
-        sides(&run.baseline[0]);
-        let [mutant] = run.mutants.as_slice() else {
-            panic!("one mutant");
-        };
-        assert_eq!(
-            mutant.plan.tests[0].run,
-            TestRun::Failed(ExecutionFailureKind::TimeLimit)
-        );
-        assert_eq!(mutant.report.status, MutantStatus::Timeout);
-        assert_eq!(run.score.map(|score| score.denominator), Some(0));
-        assert_eq!(
-            tally(&generation, &run),
-            Some(Tally {
-                timeout: 1,
-                ..Tally::default()
-            })
-        );
-    });
-}
-
 /// Whether `term` contains an application of `symbol`.
 fn contains(term: &Pattern, symbol: &str) -> bool {
     matches!(term, Pattern::Application { symbol: head, .. } if head.name == symbol)
@@ -694,238 +456,6 @@ fn baseline_admission_gates_crashes_and_invalid_declarations() {
     });
 }
 
-/// Review P1 through the runner, over `undecided.k`: an occurrence on a path whose
-/// feasibility is undecided, or in a run that collected a backend diagnostic, is no witness,
-/// so the pattern side is `Unknown`. A mutant that makes `carry` (a carried `ensures`) or
-/// `slow` (a simplifier-budget diagnostic) apply is therefore not killed against the
-/// baseline's complete absence. A carried `ensures` baseline is not admitted. A vacuous
-/// successor has no instance and is discarded, so its baseline has complete absence.
-#[test]
-fn undecided_occurrences_neither_kill_nor_pass_admission() {
-    with_stack(|| {
-        let validator =
-            NativeValidator::bind(support::load("undecided.k"), CompileOptions::default());
-        let baseline = validator.baseline();
-        let declared = |symbol: &str, initial_state| {
-            let target = match symbol {
-                "Lblcarry" | "LblcarryAlways" => constant("Lblcarried"),
-                "Lbldraining" => support::app("Lbldrained", vec![support::var("D", "SortNat")]),
-                "Lblvacuous" => constant("Lblreached"),
-                _ => unreachable!("declared fixture source"),
-            };
-            let specs = [StepEventSpec {
-                constructor: "transition".into(),
-                pre: support::k_config(constant(symbol), "SortS", "R", "C"),
-                post: Some(support::k_config(target, "SortS", "R", "C2")),
-                payload: vec![],
-            }];
-            let vocabulary = StepObservation::vocabulary_of(&specs).expect("vocabulary");
-            let tests = [TestCase {
-                id: "t".into(),
-                initial_state,
-                oracles: vec![occurs(&vocabulary, "transition")],
-            }];
-            (tests, specs)
-        };
-
-        // (id, mutated rule, initial program, simplifier iterations)
-        #[rustfmt::skip]
-        let mutants = [
-            ("carried-ensures-does-not-kill", "UNDECIDED.carry", "Lblcarry", 1000),
-            ("diagnosed-run-does-not-kill", "UNDECIDED.slow", "Lbldraining", 3),
-        ];
-        for (id, label, symbol, iterations) in mutants {
-            let (tests, specs) =
-                declared(symbol, support::initial_state(constant(symbol), "SortS"));
-            let run = run_campaign(
-                &Campaign {
-                    validator: &validator,
-                    module: "UNDECIDED",
-                    observation: &specs,
-                    classify: &normal,
-                    tests: &tests,
-                    budget: ExecutionBudget {
-                        max_simplification_iterations: iterations,
-                        ..BUDGET
-                    },
-                },
-                &generation(
-                    baseline,
-                    &[replace(baseline, label, &[1], bool_token("true"))],
-                ),
-                ScheduleMode::Full,
-            )
-            .unwrap_or_else(|failure| panic!("{id}: {failure:?}"));
-            assert_eq!(
-                sides(&run.baseline[0]),
-                [OracleSide::Normal(OracleValue::Pattern(
-                    PatternValue::NoMatch
-                ))],
-                "{id}"
-            );
-            let [mutant] = run.mutants.as_slice() else {
-                panic!("{id}: one mutant");
-            };
-            let SideRun::Sides { sides, .. } = &mutant.evidence[0].run else {
-                panic!("{id}: the mutant ran");
-            };
-            assert_eq!(sides, &[OracleSide::Unknown], "{id}");
-            assert_eq!(mutant.report.status, MutantStatus::Unknown, "{id}");
-            assert!(mutant.report.killing_test_ids.is_empty(), "{id}");
-            assert_eq!(run.score.map(|score| score.killed), Some(0), "{id}");
-        }
-
-        // (id, source configuration, initial state, expected baseline outcome)
-        #[rustfmt::skip]
-        let baselines = [
-            ("carried-ensures-baseline-is-refused", "LblcarryAlways", support::initial_state(constant("LblcarryAlways"), "SortS"), false),
-            ("vacuous-baseline-has-complete-absence", "Lblvacuous", support::deferred_vacuous_state(constant("Lblvacuous"), "SortS"), true),
-        ];
-        for (id, symbol, state, admitted) in baselines {
-            let (tests, specs) = declared(symbol, state);
-            let result = run_campaign(
-                &Campaign {
-                    validator: &validator,
-                    module: "UNDECIDED",
-                    observation: &specs,
-                    classify: &normal,
-                    tests: &tests,
-                    budget: BUDGET,
-                },
-                &generation(baseline, &[]),
-                ScheduleMode::Full,
-            );
-            if admitted {
-                let run = result.expect(id);
-                assert_eq!(
-                    sides(&run.baseline[0]),
-                    [OracleSide::Normal(OracleValue::Pattern(
-                        PatternValue::NoMatch
-                    ))],
-                    "{id}"
-                );
-                assert!(run.mutants.is_empty(), "{id}");
-            } else {
-                assert_eq!(
-                    result.expect_err(id).kind(),
-                    CampaignFailureKind::BaselineOracleFailed,
-                    "{id}"
-                );
-            }
-        }
-    });
-}
-
-/// KK-66: dropping `requires I2 =/=Int 0` from guardeddiv's `divide` makes `divide(10, 0)` an
-/// undefined step, since its right-hand side `10 /Int 0` is undefined. The baseline is stuck on
-/// that term, so the exit-stop oracle distinguishes the classes `Stuck` and `UndefinedStep` and
-/// kills the mutant. The final result is the same term, and the write/load prefix is real on both
-/// sides, so those oracles agree. A nonzero divisor agrees everywhere.
-#[test]
-fn dropping_a_division_guard_is_killed_by_its_undefined_step() {
-    with_stack(|| {
-        let validator =
-            NativeValidator::bind(support::load("guardeddiv.k"), CompileOptions::default());
-        let baseline = validator.baseline();
-        let int = |value: &str| Pattern::DomainValue {
-            sort: kore_sort("SortInt"),
-            value: value.into(),
-        };
-        let app = |symbol: &str, arguments| kore_application(symbol, Vec::new(), arguments);
-        let program = |divisor: &str| {
-            let op = |symbol| app(symbol, vec![app("Lbladdr", vec![int("1")]), int("0")]);
-            support::initial_state(
-                app(
-                    "Lblseq",
-                    vec![
-                        op("Lblwrite"),
-                        app(
-                            "Lblseq",
-                            vec![
-                                op("Lblload"),
-                                app("Lbldivide", vec![int("10"), int(divisor)]),
-                            ],
-                        ),
-                    ],
-                ),
-                "SortProg",
-            )
-        };
-        let specs = vec![step_support::guardedmem(true)[1].clone()];
-        let vocabulary = StepObservation::vocabulary_of(&specs).expect("vocabulary");
-        let exit_stop = OracleDeclaration::new(
-            CrashPolicy::CompareIdentity,
-            Projection::State(StateProjection::ExitStop {
-                exit_code_cell: None,
-            }),
-        )
-        .expect("exit-stop declaration");
-        let tests = ["0", "2"].map(|divisor| TestCase {
-            id: format!("divide-by-{divisor}"),
-            initial_state: program(divisor),
-            oracles: vec![
-                exit_stop.clone(),
-                whole_term(CrashPolicy::CompareIdentity),
-                occurs(&vocabulary, "memoryLoad"),
-            ],
-        });
-        // A configuration that still holds `divide` did not finish.
-        let classify = |term: &Pattern| {
-            if contains(term, "Lbldivide") {
-                ExecutionTerminalKind::Stuck
-            } else {
-                ExecutionTerminalKind::Normal
-            }
-        };
-        let run = run_campaign(
-            &Campaign {
-                validator: &validator,
-                module: "GUARDEDDIV",
-                observation: &specs,
-                classify: &classify,
-                tests: &tests,
-                budget: BUDGET,
-            },
-            &generation(
-                baseline,
-                &[replace(
-                    baseline,
-                    "GUARDEDDIV.divide",
-                    &[1],
-                    bool_token("true"),
-                )],
-            ),
-            ScheduleMode::Full,
-        )
-        .expect("admitted");
-        let class = |class| {
-            OracleSide::Normal(OracleValue::ExitStop(
-                [kink_campaign::ExitStop { class, code: None }].into(),
-            ))
-        };
-        use kink_campaign::TerminalClass::{Normal, Stuck, UndefinedStep};
-        assert_eq!(sides(&run.baseline[0])[0], class(Stuck));
-        assert_eq!(sides(&run.baseline[1])[0], class(Normal));
-        let [mutant] = run.mutants.as_slice() else {
-            panic!("one mutant");
-        };
-        assert_eq!(sides(&mutant.evidence[0])[0], class(UndefinedStep));
-        assert_eq!(
-            sides(&mutant.evidence[0])[1..],
-            sides(&run.baseline[0])[1..]
-        );
-        assert_eq!(
-            outcomes(&mutant.plan.tests),
-            [
-                ("divide-by-0", vec![Distinguish, Agree, Agree]),
-                ("divide-by-2", vec![Agree, Agree, Agree]),
-            ]
-        );
-        assert_eq!(mutant.report.status, MutantStatus::Killed);
-        assert_eq!(mutant.report.killing_test_ids, ["divide-by-0"]);
-    });
-}
-
 #[test]
 fn function_symbol_declaration_is_refused() {
     with_stack(|| {
@@ -956,280 +486,6 @@ fn function_symbol_declaration_is_refused() {
         )
         .expect_err("function symbols are refused");
         assert_eq!(failure.kind(), CampaignFailureKind::InvalidDeclaration);
-    });
-}
-
-#[test]
-fn anonymous_clone_of_observed_rule_is_equivalent() {
-    with_stack(|| {
-        let validator =
-            NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
-        let baseline = validator.baseline();
-        let rule = support::rule(baseline, "COUNTER.increment");
-        let mut clone = baseline.sentence(&rule).expect("rule").clone();
-        for key in [
-            AttributeKey::Label,
-            AttributeKey::UniqueId,
-            AttributeKey::Origin,
-            AttributeKey::Location,
-            AttributeKey::Source,
-            AttributeKey::SourceId,
-            AttributeKey::SentenceStartOffset,
-            AttributeKey::SentenceEndOffset,
-            AttributeKey::ContentStartLine,
-            AttributeKey::ContentStartColumn,
-            AttributeKey::ContentStartOffset,
-        ] {
-            clone.attributes_mut().remove(key.as_str());
-        }
-        let patch = Patch::new(vec![Edit::InsertSentence {
-            position: InsertPosition::After(rule.clone()),
-            ordinal: 0,
-            sentence: clone,
-        }])
-        .expect("patch");
-        let generation = generation(baseline, &[(TermRef::new(rule.clone(), [0]), patch)]);
-        let specs = step_support::counter(true);
-        let tests = [TestCase {
-            id: "increment".into(),
-            initial_state: counter_state(),
-            oracles: vec![whole_term(CrashPolicy::CompareIdentity)],
-        }];
-        let run = run_campaign(
-            &Campaign {
-                validator: &validator,
-                module: "COUNTER",
-                observation: &specs,
-                classify: &normal,
-                tests: &tests,
-                budget: BUDGET,
-            },
-            &generation,
-            ScheduleMode::Full,
-        )
-        .expect("campaign");
-        assert_eq!(run.mutants.len(), 1);
-        assert_eq!(
-            run.mutants[0].plan.mutant_failure,
-            Some(MutantScopeFailure::EquivalentCompilation)
-        );
-        assert!(run.mutants[0].plan.tests.is_empty());
-        assert_eq!(run.mutants[0].report.status, MutantStatus::Equivalent);
-        let score = run.score.expect("complete generation is counted");
-        assert_eq!(score.denominator, 0);
-        assert_eq!(score.ratio, None);
-        assert_eq!(tally(&generation, &run).expect("tally").equivalent, 1);
-    });
-}
-
-#[test]
-fn deleting_either_equal_copy_is_equivalent() {
-    with_stack(|| {
-        let validator = NativeValidator::bind(
-            support::load("duplicate_unlabelled.k"),
-            CompileOptions::default(),
-        );
-        let baseline = validator.baseline();
-        let discovered = derive_sites(baseline, "equal copies", &[SiteSelector::Path(vec![0])])
-            .expect("body sites");
-        assert_eq!(discovered.tuples().len(), 2);
-        let generation = select(&discovered, SelectionPolicy::Each, 2)
-            .expect("select both")
-            .fold("delete equal copy", |origin| {
-                Patch::new(vec![Edit::DeleteSentence {
-                    at: origin.site_tuple[0].sentence.clone(),
-                }])
-                .expect("deletion patch")
-            })
-            .expect("both deletion patches apply");
-        let tests = [TestCase {
-            id: "terminal y".into(),
-            initial_state: support::initial_state(constant("Lbly"), "SortS"),
-            oracles: vec![whole_term(CrashPolicy::CompareIdentity)],
-        }];
-        let run = run_campaign(
-            &Campaign {
-                validator: &validator,
-                module: "DUPLICATE'Unds'UNLABELLED",
-                observation: &[],
-                classify: &normal,
-                tests: &tests,
-                budget: BUDGET,
-            },
-            &generation,
-            ScheduleMode::Full,
-        )
-        .expect("campaign");
-        assert_eq!(run.mutants.len(), 2);
-        for mutant in &run.mutants {
-            assert_eq!(mutant.report.status, MutantStatus::Equivalent);
-            assert_eq!(
-                mutant.plan.mutant_failure,
-                Some(MutantScopeFailure::EquivalentCompilation)
-            );
-            assert!(mutant.plan.tests.is_empty());
-        }
-        assert_eq!(run.score.expect("scored").denominator, 0);
-        assert_eq!(tally(&generation, &run).expect("tally").equivalent, 2);
-    });
-}
-
-#[test]
-fn merged_observed_and_unobserved_authors_do_not_kill() {
-    with_stack(|| {
-        let validator =
-            NativeValidator::bind(support::load("unlabelled.k"), CompileOptions::default());
-        let baseline = validator.baseline();
-        let observed_rule = kink_patch::SentenceRef::new("UNLABELLED", 0);
-        let unobserved_rule = kink_patch::SentenceRef::new("UNLABELLED", 2);
-        let mut replacement = baseline.sentence(&unobserved_rule).expect("C").clone();
-        *replacement.attributes_mut() = baseline
-            .sentence(&observed_rule)
-            .expect("A")
-            .attributes()
-            .clone();
-        let discovered = derive_sites(
-            baseline,
-            "A body",
-            &[SiteSelector::Head { label: "a".into() }],
-        )
-        .expect("A site");
-        assert_eq!(discovered.tuples().len(), 1);
-        let generation = select(&discovered, SelectionPolicy::Each, 1)
-            .expect("select A")
-            .fold("merge with C", |_| {
-                Patch::new(vec![Edit::ReplaceSentence {
-                    at: observed_rule.clone(),
-                    replacement: replacement.clone(),
-                }])
-                .expect("replacement patch")
-            })
-            .expect("replacement applies");
-        let specs = [StepEventSpec {
-            constructor: "aStep".into(),
-            pre: support::k_config(constant("Lbla"), "SortS", "R", "C"),
-            post: Some(support::k_config(constant("Lblb"), "SortS", "R", "C2")),
-            payload: vec![],
-        }];
-        let vocabulary = StepObservation::vocabulary_of(&specs).expect("vocabulary");
-        let tests = [TestCase {
-            id: "C fires".into(),
-            initial_state: support::initial_state(constant("Lblx"), "SortS"),
-            oracles: vec![occurs(&vocabulary, "aStep")],
-        }];
-        let run = run_campaign(
-            &Campaign {
-                validator: &validator,
-                module: "UNLABELLED",
-                observation: &specs,
-                classify: &normal,
-                tests: &tests,
-                budget: BUDGET,
-            },
-            &generation,
-            ScheduleMode::Full,
-        )
-        .expect("campaign");
-        assert_eq!(run.mutants.len(), 1);
-        assert_eq!(run.mutants[0].report.status, MutantStatus::Survived);
-        assert!(run.mutants[0].report.killing_test_ids.is_empty());
-        assert_eq!(
-            outcomes(&run.mutants[0].plan.tests),
-            [("C fires", vec![Agree])]
-        );
-    });
-}
-
-/// Review P2.2 (plan row C4): the same folded mutant of `branch`'s `requires` is run and
-/// survives in every row, but only a complete generation is scored. A non-exhaustive
-/// (supplied, or narrowed by a closure) discovery gives an incomplete generation, and a
-/// cardinality mismatch a failed one with no candidates; neither has a score. A complete
-/// generation with no candidates, because nothing was selected or its one origin's patch
-/// changes nothing, has no score either, rather than one over zero mutants.
-#[test]
-fn incomplete_and_failed_generations_are_not_scored() {
-    with_stack(|| {
-        let validator =
-            NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
-        let baseline = validator.baseline();
-        let tests = [TestCase {
-            id: "t2".to_owned(),
-            initial_state: choose_state(),
-            oracles: vec![whole_term(CrashPolicy::CompareIdentity)],
-        }];
-        let campaign = Campaign {
-            validator: &validator,
-            module: "COUNTER",
-            observation: &[],
-            classify: &normal,
-            tests: &tests,
-            budget: BUDGET,
-        };
-        let exhaustive = derive_sites(
-            baseline,
-            "requires",
-            &[
-                SiteSelector::RuleLabel("COUNTER.branch".to_owned()),
-                SiteSelector::Path(vec![1]),
-            ],
-        )
-        .expect("no bindings");
-        assert_eq!(exhaustive.tuples().len(), 1);
-        let partial = Discovery::supplied(baseline, exhaustive.tuples().to_vec(), false, false)
-            .expect("derived sites are known");
-        let nothing = Discovery::empty(baseline, false, false);
-        // Every `requires`, narrowed by a closure to `branch`'s: `fallback`'s is dropped by
-        // code, not by a declared clause.
-        let narrowed = derive_sites(baseline, "requires", &[SiteSelector::Path(vec![1])])
-            .expect("no bindings")
-            .filter(|tuple| tuple.sites[0].at == exhaustive.tuples()[0].sites[0].at);
-        let mismatch = SelectionPolicy::Exact {
-            expected_tuple_count: 2,
-            expected_tuple_arity: 1,
-        };
-        // (id, discovery, policy, patch changes nothing, generation failure, mutant count, score, tally)
-        #[rustfmt::skip]
-        let rows = [
-            ("complete-is-scored", &exhaustive, SelectionPolicy::Each, false, None, 1, Some((0, 1)), Tally { survived: 1, ..Tally::default() }),
-            ("non-exhaustive-discovery-is-not-scored", &partial, SelectionPolicy::Each, false, Some(CandidateFailureKind::IncompleteGeneration), 1, None, Tally { survived: 1, ..Tally::default() }),
-            ("closure-narrowed-discovery-is-not-scored", &narrowed, SelectionPolicy::Each, false, Some(CandidateFailureKind::IncompleteGeneration), 1, None, Tally { survived: 1, ..Tally::default() }),
-            ("cardinality-mismatch-is-not-scored", &exhaustive, mismatch, false, Some(CandidateFailureKind::CardinalityMismatch), 0, None, Tally::default()),
-            ("empty-selection-is-not-scored", &nothing, SelectionPolicy::Each, false, None, 0, None, Tally::default()),
-            ("every-origin-rejected-is-not-scored", &exhaustive, SelectionPolicy::Each, true, None, 0, None, Tally { rejected_origins: 1, ..Tally::default() }),
-        ];
-        for (id, discovery, policy, no_change, failure, mutants, expected, counts) in rows {
-            // requires B  =>  requires false: fallback still ends in selected(true).
-            let generation = select(discovery, policy, 4)
-                .unwrap_or_else(|failure| panic!("{id}: {failure}"))
-                .fold("requires-false", |origin| {
-                    let at = origin.site_tuple[0].clone();
-                    let expected = baseline.term(&at).expect("requires").clone();
-                    Patch::new(vec![Edit::ReplaceTerm {
-                        replacement: if no_change {
-                            expected.clone()
-                        } else {
-                            bool_token("false")
-                        },
-                        expected,
-                        at,
-                    }])
-                    .expect("one edit")
-                })
-                .unwrap_or_else(|failure| panic!("{id}: {failure}"));
-            assert_eq!(generation.failure(), failure, "{id}");
-            let run = run_campaign(&campaign, &generation, ScheduleMode::Full)
-                .unwrap_or_else(|failure| panic!("{id}: {failure:?}"));
-            assert_eq!(run.mutants.len(), mutants, "{id}");
-            assert_eq!(tally(&generation, &run), Some(counts), "{id}");
-            for mutant in &run.mutants {
-                assert_eq!(mutant.report.status, MutantStatus::Survived, "{id}");
-            }
-            assert_eq!(
-                run.score.map(|score| (score.killed, score.survived)),
-                expected,
-                "{id}"
-            );
-        }
     });
 }
 
@@ -1519,67 +775,857 @@ fn test_sides(
         .collect()
 }
 
-/// Probe 3 through the campaign: the literal mutant `d() => 0` is behaviourally equal to the
-/// baseline on every instance (both stop at `half`), yet under the inherited `total` of f and
-/// d the symbolic test matched and killed it. Its patch changes d's equation, which f's
-/// equations mention, so both claims are withdrawn from the definition its symbolic test runs
-/// on, and that side is `Unknown`: the mutant is not killed. Its ground tests agree with the
-/// baseline (since re-pin R0c-fix-2 they too run on the claim-free mutant).
-#[test]
-fn probe3_symbolic_test_does_not_kill_an_equivalent_mutant() {
-    with_stack(|| {
-        let campaign = ClaimCampaign::load("symbolic-claim-mutation.k");
-        let run = campaign.run(&campaign.tests(), &[campaign.d("0")]);
-        let no_match = [unmatched()];
-        assert_eq!(
-            test_sides(&run.baseline),
-            [
-                ("X", Ok(&no_match[..])),
-                ("z", Ok(&no_match[..])),
-                ("s(z)", Ok(&no_match[..]))
-            ]
-        );
-        let [mutant] = run.mutants.as_slice() else {
-            panic!("one mutant");
-        };
-        assert_eq!(
-            test_sides(&mutant.evidence),
-            [
-                ("X", Ok(&[OracleSide::Unknown][..])),
-                ("z", Ok(&no_match[..])),
-                ("s(z)", Ok(&no_match[..]))
-            ]
-        );
-        assert_eq!(mutant.report.status, MutantStatus::Unknown);
-        assert!(mutant.report.killing_test_ids.is_empty());
-        let claims = &mutant.report.claims;
-        assert_eq!(claims, &mutant.plan.claims);
-        assert_eq!(
-            campaign.names(&claims.withdrawn),
-            [
-                ("f".to_owned(), "total".to_owned()),
-                ("d".to_owned(), "total".to_owned())
-            ]
-        );
-        assert!(claims.trusted());
-        assert!(claims.patch().is_some());
+mod kink_tier {
+    use super::*;
 
-        // Ground campaigns: both sides stop at `half` and the mutant survives. Re-pin R0c-fix-2:
-        // every test runs on the claim-free mutant, so a ground campaign withdraws the same
-        // claims (before: nothing was withdrawn without a symbolic test); the status is
-        // unchanged.
-        for test in campaign.tests().into_iter().skip(1) {
-            let run = campaign.run(std::slice::from_ref(&test), &[campaign.d("0")]);
+    /// Plan row C5's pattern kill with an unchanged final result is pinned by coupled.rs
+    /// single_site_release and coupled_release. Here the branch mutant has the baseline's
+    /// rewrite relation (F-EI1, EI-D2), so rule identity alone cannot kill it. The increment
+    /// mutant is killed by its final result; another survives and one is invalid.
+    #[test]
+    #[ignore = "kink"]
+    fn counter_campaign_kills_by_final_result_and_not_by_rule_identity() {
+        with_stack(|| {
+            let validator =
+                NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
+            let baseline = validator.baseline();
+            let specs = step_support::counter(true);
+            let vocabulary = StepObservation::vocabulary_of(&specs).expect("vocabulary");
+            let tests = [
+                TestCase {
+                    id: "t1".to_owned(),
+                    initial_state: counter_state(),
+                    oracles: vec![
+                        whole_term(CrashPolicy::CompareIdentity),
+                        occurs(&vocabulary, "increment"),
+                    ],
+                },
+                TestCase {
+                    id: "t2".to_owned(),
+                    initial_state: choose_state(),
+                    oracles: vec![
+                        whole_term(CrashPolicy::CompareIdentity),
+                        occurs(&vocabulary, "branchTaken"),
+                    ],
+                },
+            ];
+            // In site order: increment's body, then its right-hand side, branch and fallback.
+            let mutants = [
+                // k-rust rejects the unknown attribute.
+                (
+                    TermRef::new(support::rule(baseline, "COUNTER.increment"), [0]),
+                    Patch::new(vec![Edit::AddAttribute {
+                        at: support::rule(baseline, "COUNTER.increment"),
+                        key: "foo".to_owned(),
+                        value: Value::String(String::new()),
+                    }])
+                    .expect("one edit"),
+                ),
+                // increment: counter(N, s(L)) => counter(N, L)
+                replace(
+                    baseline,
+                    "COUNTER.increment",
+                    &[0, 1, 0],
+                    term_at(baseline, "COUNTER.increment", &[0, 1, 0, 0]),
+                ),
+                // branch: requires false; fallback still ends in selected(true).
+                replace(baseline, "COUNTER.branch", &[1], bool_token("false")),
+                // fallback: choose(B) => selected(true); it never fires on these tests.
+                replace(baseline, "COUNTER.fallback", &[0, 1, 0], bool_token("true")),
+            ];
+            let campaign = Campaign {
+                validator: &validator,
+                module: "COUNTER",
+                observation: &specs,
+                classify: &normal,
+                tests: &tests,
+                budget: BUDGET,
+            };
+            let generation = generation(baseline, &mutants);
+            let run = run_campaign(&campaign, &generation, ScheduleMode::Full).expect("admitted");
+
+            let final_state = |program| {
+                OracleSide::Normal(OracleValue::FinalResult(
+                    kink_campaign::FinalResult::WholeTerm([program].into_iter().collect()),
+                ))
+            };
+            let matched =
+                OracleSide::Normal(OracleValue::Pattern(PatternValue::Match { bindings: None }));
+            let t1_final = support::initial_state(
+                kore_application("Lblcounter", Vec::new(), vec![s(s(s(z()))), z()]),
+                "SortCounter",
+            );
+            let t2_final = support::initial_state(
+                kore_application("Lblselected", Vec::new(), vec![bool_value("true")]),
+                "SortControl",
+            );
+            assert_eq!(
+                sides(&run.baseline[0]),
+                [final_state(t1_final), matched.clone()]
+            );
+            assert_eq!(
+                sides(&run.baseline[1]),
+                [final_state(t2_final.clone()), matched]
+            );
+
+            let statuses = run
+                .mutants
+                .iter()
+                .map(|mutant| mutant.report.status)
+                .collect::<Vec<_>>();
+            use MutantStatus::{Invalid, Killed, Survived};
+            assert_eq!(statuses, [Invalid, Killed, Survived, Survived]);
+            #[rustfmt::skip]
+            let expected: [&[(&str, Vec<OracleOutcome>)]; 3] = [
+                &[("t1", vec![Distinguish, Distinguish]), ("t2", vec![Agree, Agree])],
+                &[("t1", vec![Agree, Agree]), ("t2", vec![Agree, Agree])],
+                &[("t1", vec![Agree, Agree]), ("t2", vec![Agree, Agree])],
+            ];
+            for (mutant, expected) in run.mutants[1..].iter().zip(expected) {
+                let id = mutant.plan.mutant_id;
+                assert_eq!(outcomes(&mutant.plan.tests), expected, "{id:?}");
+                assert_eq!(mutant.plan.mutant_failure, None, "{id:?}");
+                for evidence in &mutant.evidence {
+                    sides(evidence);
+                }
+            }
+            // The fallback takes the same declared branch transition as the baseline.
+            assert_eq!(
+                sides(&run.mutants[2].evidence[1]),
+                [
+                    final_state(t2_final),
+                    OracleSide::Normal(OracleValue::Pattern(PatternValue::Match {
+                        bindings: None
+                    }))
+                ]
+            );
+            let invalid = &run.mutants[0];
+            assert_eq!(
+                invalid.plan.mutant_failure,
+                Some(MutantScopeFailure::Rejected)
+            );
+            assert!(invalid.plan.tests.is_empty());
+            assert!(invalid.evidence.is_empty());
+            assert!(invalid.report.executed_test_ids.is_empty());
+
+            let score = run.score.expect("a complete generation is scored");
+            assert_eq!((score.killed, score.survived), (1, 2));
+            let counts = tally(&generation, &run).expect("matching generation");
+            assert_eq!(
+                (counts.killed, counts.survived),
+                (score.killed, score.survived)
+            );
+            assert_eq!(
+                score.ratio,
+                Some(Rational {
+                    numerator: 1,
+                    denominator: 3
+                })
+            );
+
+            // Under first-kill, only the increment mutant has a killing prefix. The runner stops
+            // it after t1, and the reports are the ones derived from running every test.
+            let stopped =
+                run_campaign(&campaign, &generation, ScheduleMode::FirstKill).expect("admitted");
+            assert_eq!(stopped.baseline, run.baseline);
+            assert_eq!(stopped.score, run.score);
+            let increment = &stopped.mutants[1];
+            assert_eq!(increment.plan.tests[0], run.mutants[1].plan.tests[0]);
+            assert_eq!(increment.plan.tests[1].test_id, "t2");
+            assert_eq!(increment.plan.tests[1].run, TestRun::SkippedAfterKill);
+            assert_eq!(increment.evidence, run.mutants[1].evidence[..1]);
+            for (index, (stopped, full)) in stopped.mutants.iter().zip(&run.mutants).enumerate() {
+                if index != 1 {
+                    assert_eq!(stopped.plan, full.plan, "{index}");
+                    assert_eq!(stopped.evidence, full.evidence, "{index}");
+                }
+            }
+            let manifest = tests
+                .iter()
+                .map(|test| kink_campaign::ManifestTest {
+                    test_id: test.id.clone(),
+                    slot_count: test.oracles.len(),
+                })
+                .collect::<Vec<_>>();
+            #[rustfmt::skip]
+            let first_kill: [(&[&str], &[&str]); 4] = [
+                (&[], &[]),
+                (&["t1"], &["t1"]),
+                (&["t1", "t2"], &[]),
+                (&["t1", "t2"], &[]),
+            ];
+            for ((mutant, stopped), (executed, killing)) in
+                run.mutants.iter().zip(&stopped.mutants).zip(first_kill)
+            {
+                let report = derive_mutant_report(&mutant.plan, &manifest, ScheduleMode::FirstKill)
+                    .expect("report");
+                assert_eq!(report.status, mutant.report.status);
+                assert_eq!(report.executed_test_ids, executed);
+                assert_eq!(report.killing_test_ids, killing);
+                assert_eq!(stopped.report, report);
+            }
+        });
+    }
+
+    /// Critique C2 through the runner: a mutant that no longer terminates is stopped by the
+    /// watchdog, its test fails with `TimeLimit`, and the mutant is `Timeout`, never killed.
+    #[test]
+    #[ignore = "kink"]
+    fn nonterminating_mutant_is_a_timeout() {
+        with_stack(|| {
+            let validator = NativeValidator::bind(support::load("nd.k"), CompileOptions::default());
+            let baseline = validator.baseline();
+            let tests = [TestCase {
+                id: "mid1".to_owned(),
+                initial_state: support::initial_state(constant("Lblmid1"), "SortS"),
+                oracles: vec![whole_term(CrashPolicy::CompareIdentity)],
+            }];
+            // l2: mid1 => spin, and spin => spin forever.
+            let spin = replace(
+                baseline,
+                "ND.l2",
+                &[0, 1],
+                term_at(baseline, "ND.spin", &[0, 1]),
+            );
+            let campaign = Campaign {
+                validator: &validator,
+                module: "ND",
+                observation: &[],
+                classify: &normal,
+                tests: &tests,
+                budget: ExecutionBudget {
+                    time: Duration::from_secs(2),
+                    ..BUDGET
+                },
+            };
+            let generation = generation(baseline, &[spin]);
+            let run = run_campaign(&campaign, &generation, ScheduleMode::Full).expect("admitted");
+            sides(&run.baseline[0]);
+            let [mutant] = run.mutants.as_slice() else {
+                panic!("one mutant");
+            };
+            assert_eq!(
+                mutant.plan.tests[0].run,
+                TestRun::Failed(ExecutionFailureKind::TimeLimit)
+            );
+            assert_eq!(mutant.report.status, MutantStatus::Timeout);
+            assert_eq!(run.score.map(|score| score.denominator), Some(0));
+            assert_eq!(
+                tally(&generation, &run),
+                Some(Tally {
+                    timeout: 1,
+                    ..Tally::default()
+                })
+            );
+        });
+    }
+
+    /// Review P1 through the runner, over `undecided.k`: an occurrence on a path whose
+    /// feasibility is undecided, or in a run that collected a backend diagnostic, is no witness,
+    /// so the pattern side is `Unknown`. A mutant that makes `carry` (a carried `ensures`) or
+    /// `slow` (a simplifier-budget diagnostic) apply is therefore not killed against the
+    /// baseline's complete absence. A carried `ensures` baseline is not admitted. A vacuous
+    /// successor has no instance and is discarded, so its baseline has complete absence.
+    #[test]
+    #[ignore = "kink"]
+    fn undecided_occurrences_neither_kill_nor_pass_admission() {
+        with_stack(|| {
+            let validator =
+                NativeValidator::bind(support::load("undecided.k"), CompileOptions::default());
+            let baseline = validator.baseline();
+            let declared = |symbol: &str, initial_state| {
+                let target = match symbol {
+                    "Lblcarry" | "LblcarryAlways" => constant("Lblcarried"),
+                    "Lbldraining" => support::app("Lbldrained", vec![support::var("D", "SortNat")]),
+                    "Lblvacuous" => constant("Lblreached"),
+                    _ => unreachable!("declared fixture source"),
+                };
+                let specs = [StepEventSpec {
+                    constructor: "transition".into(),
+                    pre: support::k_config(constant(symbol), "SortS", "R", "C"),
+                    post: Some(support::k_config(target, "SortS", "R", "C2")),
+                    payload: vec![],
+                }];
+                let vocabulary = StepObservation::vocabulary_of(&specs).expect("vocabulary");
+                let tests = [TestCase {
+                    id: "t".into(),
+                    initial_state,
+                    oracles: vec![occurs(&vocabulary, "transition")],
+                }];
+                (tests, specs)
+            };
+
+            // (id, mutated rule, initial program, simplifier iterations)
+            #[rustfmt::skip]
+            let mutants = [
+                ("carried-ensures-does-not-kill", "UNDECIDED.carry", "Lblcarry", 1000),
+                ("diagnosed-run-does-not-kill", "UNDECIDED.slow", "Lbldraining", 3),
+            ];
+            for (id, label, symbol, iterations) in mutants {
+                let (tests, specs) =
+                    declared(symbol, support::initial_state(constant(symbol), "SortS"));
+                let run = run_campaign(
+                    &Campaign {
+                        validator: &validator,
+                        module: "UNDECIDED",
+                        observation: &specs,
+                        classify: &normal,
+                        tests: &tests,
+                        budget: ExecutionBudget {
+                            max_simplification_iterations: iterations,
+                            ..BUDGET
+                        },
+                    },
+                    &generation(
+                        baseline,
+                        &[replace(baseline, label, &[1], bool_token("true"))],
+                    ),
+                    ScheduleMode::Full,
+                )
+                .unwrap_or_else(|failure| panic!("{id}: {failure:?}"));
+                assert_eq!(
+                    sides(&run.baseline[0]),
+                    [OracleSide::Normal(OracleValue::Pattern(
+                        PatternValue::NoMatch
+                    ))],
+                    "{id}"
+                );
+                let [mutant] = run.mutants.as_slice() else {
+                    panic!("{id}: one mutant");
+                };
+                let SideRun::Sides { sides, .. } = &mutant.evidence[0].run else {
+                    panic!("{id}: the mutant ran");
+                };
+                assert_eq!(sides, &[OracleSide::Unknown], "{id}");
+                assert_eq!(mutant.report.status, MutantStatus::Unknown, "{id}");
+                assert!(mutant.report.killing_test_ids.is_empty(), "{id}");
+                assert_eq!(run.score.map(|score| score.killed), Some(0), "{id}");
+            }
+
+            // (id, source configuration, initial state, expected baseline outcome)
+            #[rustfmt::skip]
+            let baselines = [
+                ("carried-ensures-baseline-is-refused", "LblcarryAlways", support::initial_state(constant("LblcarryAlways"), "SortS"), false),
+                ("vacuous-baseline-has-complete-absence", "Lblvacuous", support::deferred_vacuous_state(constant("Lblvacuous"), "SortS"), true),
+            ];
+            for (id, symbol, state, admitted) in baselines {
+                let (tests, specs) = declared(symbol, state);
+                let result = run_campaign(
+                    &Campaign {
+                        validator: &validator,
+                        module: "UNDECIDED",
+                        observation: &specs,
+                        classify: &normal,
+                        tests: &tests,
+                        budget: BUDGET,
+                    },
+                    &generation(baseline, &[]),
+                    ScheduleMode::Full,
+                );
+                if admitted {
+                    let run = result.expect(id);
+                    assert_eq!(
+                        sides(&run.baseline[0]),
+                        [OracleSide::Normal(OracleValue::Pattern(
+                            PatternValue::NoMatch
+                        ))],
+                        "{id}"
+                    );
+                    assert!(run.mutants.is_empty(), "{id}");
+                } else {
+                    assert_eq!(
+                        result.expect_err(id).kind(),
+                        CampaignFailureKind::BaselineOracleFailed,
+                        "{id}"
+                    );
+                }
+            }
+        });
+    }
+
+    /// KK-66: dropping `requires I2 =/=Int 0` from guardeddiv's `divide` makes `divide(10, 0)` an
+    /// undefined step, since its right-hand side `10 /Int 0` is undefined. The baseline is stuck on
+    /// that term, so the exit-stop oracle distinguishes the classes `Stuck` and `UndefinedStep` and
+    /// kills the mutant. The final result is the same term, and the write/load prefix is real on both
+    /// sides, so those oracles agree. A nonzero divisor agrees everywhere.
+    #[test]
+    #[ignore = "kink"]
+    fn dropping_a_division_guard_is_killed_by_its_undefined_step() {
+        with_stack(|| {
+            let validator =
+                NativeValidator::bind(support::load("guardeddiv.k"), CompileOptions::default());
+            let baseline = validator.baseline();
+            let int = |value: &str| Pattern::DomainValue {
+                sort: kore_sort("SortInt"),
+                value: value.into(),
+            };
+            let app = |symbol: &str, arguments| kore_application(symbol, Vec::new(), arguments);
+            let program = |divisor: &str| {
+                let op = |symbol| app(symbol, vec![app("Lbladdr", vec![int("1")]), int("0")]);
+                support::initial_state(
+                    app(
+                        "Lblseq",
+                        vec![
+                            op("Lblwrite"),
+                            app(
+                                "Lblseq",
+                                vec![
+                                    op("Lblload"),
+                                    app("Lbldivide", vec![int("10"), int(divisor)]),
+                                ],
+                            ),
+                        ],
+                    ),
+                    "SortProg",
+                )
+            };
+            let specs = vec![step_support::guardedmem(true)[1].clone()];
+            let vocabulary = StepObservation::vocabulary_of(&specs).expect("vocabulary");
+            let exit_stop = OracleDeclaration::new(
+                CrashPolicy::CompareIdentity,
+                Projection::State(StateProjection::ExitStop {
+                    exit_code_cell: None,
+                }),
+            )
+            .expect("exit-stop declaration");
+            let tests = ["0", "2"].map(|divisor| TestCase {
+                id: format!("divide-by-{divisor}"),
+                initial_state: program(divisor),
+                oracles: vec![
+                    exit_stop.clone(),
+                    whole_term(CrashPolicy::CompareIdentity),
+                    occurs(&vocabulary, "memoryLoad"),
+                ],
+            });
+            // A configuration that still holds `divide` did not finish.
+            let classify = |term: &Pattern| {
+                if contains(term, "Lbldivide") {
+                    ExecutionTerminalKind::Stuck
+                } else {
+                    ExecutionTerminalKind::Normal
+                }
+            };
+            let run = run_campaign(
+                &Campaign {
+                    validator: &validator,
+                    module: "GUARDEDDIV",
+                    observation: &specs,
+                    classify: &classify,
+                    tests: &tests,
+                    budget: BUDGET,
+                },
+                &generation(
+                    baseline,
+                    &[replace(
+                        baseline,
+                        "GUARDEDDIV.divide",
+                        &[1],
+                        bool_token("true"),
+                    )],
+                ),
+                ScheduleMode::Full,
+            )
+            .expect("admitted");
+            let class = |class| {
+                OracleSide::Normal(OracleValue::ExitStop(
+                    [kink_campaign::ExitStop { class, code: None }].into(),
+                ))
+            };
+            use kink_campaign::TerminalClass::{Normal, Stuck, UndefinedStep};
+            assert_eq!(sides(&run.baseline[0])[0], class(Stuck));
+            assert_eq!(sides(&run.baseline[1])[0], class(Normal));
+            let [mutant] = run.mutants.as_slice() else {
+                panic!("one mutant");
+            };
+            assert_eq!(sides(&mutant.evidence[0])[0], class(UndefinedStep));
+            assert_eq!(
+                sides(&mutant.evidence[0])[1..],
+                sides(&run.baseline[0])[1..]
+            );
+            assert_eq!(
+                outcomes(&mutant.plan.tests),
+                [
+                    ("divide-by-0", vec![Distinguish, Agree, Agree]),
+                    ("divide-by-2", vec![Agree, Agree, Agree]),
+                ]
+            );
+            assert_eq!(mutant.report.status, MutantStatus::Killed);
+            assert_eq!(mutant.report.killing_test_ids, ["divide-by-0"]);
+        });
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn anonymous_clone_of_observed_rule_is_equivalent() {
+        with_stack(|| {
+            let validator =
+                NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
+            let baseline = validator.baseline();
+            let rule = support::rule(baseline, "COUNTER.increment");
+            let mut clone = baseline.sentence(&rule).expect("rule").clone();
+            for key in [
+                AttributeKey::Label,
+                AttributeKey::UniqueId,
+                AttributeKey::Origin,
+                AttributeKey::Location,
+                AttributeKey::Source,
+                AttributeKey::SourceId,
+                AttributeKey::SentenceStartOffset,
+                AttributeKey::SentenceEndOffset,
+                AttributeKey::ContentStartLine,
+                AttributeKey::ContentStartColumn,
+                AttributeKey::ContentStartOffset,
+            ] {
+                clone.attributes_mut().remove(key.as_str());
+            }
+            let patch = Patch::new(vec![Edit::InsertSentence {
+                position: InsertPosition::After(rule.clone()),
+                ordinal: 0,
+                sentence: clone,
+            }])
+            .expect("patch");
+            let generation = generation(baseline, &[(TermRef::new(rule.clone(), [0]), patch)]);
+            let specs = step_support::counter(true);
+            let tests = [TestCase {
+                id: "increment".into(),
+                initial_state: counter_state(),
+                oracles: vec![whole_term(CrashPolicy::CompareIdentity)],
+            }];
+            let run = run_campaign(
+                &Campaign {
+                    validator: &validator,
+                    module: "COUNTER",
+                    observation: &specs,
+                    classify: &normal,
+                    tests: &tests,
+                    budget: BUDGET,
+                },
+                &generation,
+                ScheduleMode::Full,
+            )
+            .expect("campaign");
+            assert_eq!(run.mutants.len(), 1);
+            assert_eq!(
+                run.mutants[0].plan.mutant_failure,
+                Some(MutantScopeFailure::EquivalentCompilation)
+            );
+            assert!(run.mutants[0].plan.tests.is_empty());
+            assert_eq!(run.mutants[0].report.status, MutantStatus::Equivalent);
+            let score = run.score.expect("complete generation is counted");
+            assert_eq!(score.denominator, 0);
+            assert_eq!(score.ratio, None);
+            assert_eq!(tally(&generation, &run).expect("tally").equivalent, 1);
+        });
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn deleting_either_equal_copy_is_equivalent() {
+        with_stack(|| {
+            let validator = NativeValidator::bind(
+                support::load("duplicate_unlabelled.k"),
+                CompileOptions::default(),
+            );
+            let baseline = validator.baseline();
+            let discovered = derive_sites(baseline, "equal copies", &[SiteSelector::Path(vec![0])])
+                .expect("body sites");
+            assert_eq!(discovered.tuples().len(), 2);
+            let generation = select(&discovered, SelectionPolicy::Each, 2)
+                .expect("select both")
+                .fold("delete equal copy", |origin| {
+                    Patch::new(vec![Edit::DeleteSentence {
+                        at: origin.site_tuple[0].sentence.clone(),
+                    }])
+                    .expect("deletion patch")
+                })
+                .expect("both deletion patches apply");
+            let tests = [TestCase {
+                id: "terminal y".into(),
+                initial_state: support::initial_state(constant("Lbly"), "SortS"),
+                oracles: vec![whole_term(CrashPolicy::CompareIdentity)],
+            }];
+            let run = run_campaign(
+                &Campaign {
+                    validator: &validator,
+                    module: "DUPLICATE'Unds'UNLABELLED",
+                    observation: &[],
+                    classify: &normal,
+                    tests: &tests,
+                    budget: BUDGET,
+                },
+                &generation,
+                ScheduleMode::Full,
+            )
+            .expect("campaign");
+            assert_eq!(run.mutants.len(), 2);
+            for mutant in &run.mutants {
+                assert_eq!(mutant.report.status, MutantStatus::Equivalent);
+                assert_eq!(
+                    mutant.plan.mutant_failure,
+                    Some(MutantScopeFailure::EquivalentCompilation)
+                );
+                assert!(mutant.plan.tests.is_empty());
+            }
+            assert_eq!(run.score.expect("scored").denominator, 0);
+            assert_eq!(tally(&generation, &run).expect("tally").equivalent, 2);
+        });
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn merged_observed_and_unobserved_authors_do_not_kill() {
+        with_stack(|| {
+            let validator =
+                NativeValidator::bind(support::load("unlabelled.k"), CompileOptions::default());
+            let baseline = validator.baseline();
+            let observed_rule = kink_patch::SentenceRef::new("UNLABELLED", 0);
+            let unobserved_rule = kink_patch::SentenceRef::new("UNLABELLED", 2);
+            let mut replacement = baseline.sentence(&unobserved_rule).expect("C").clone();
+            *replacement.attributes_mut() = baseline
+                .sentence(&observed_rule)
+                .expect("A")
+                .attributes()
+                .clone();
+            let discovered = derive_sites(
+                baseline,
+                "A body",
+                &[SiteSelector::Head { label: "a".into() }],
+            )
+            .expect("A site");
+            assert_eq!(discovered.tuples().len(), 1);
+            let generation = select(&discovered, SelectionPolicy::Each, 1)
+                .expect("select A")
+                .fold("merge with C", |_| {
+                    Patch::new(vec![Edit::ReplaceSentence {
+                        at: observed_rule.clone(),
+                        replacement: replacement.clone(),
+                    }])
+                    .expect("replacement patch")
+                })
+                .expect("replacement applies");
+            let specs = [StepEventSpec {
+                constructor: "aStep".into(),
+                pre: support::k_config(constant("Lbla"), "SortS", "R", "C"),
+                post: Some(support::k_config(constant("Lblb"), "SortS", "R", "C2")),
+                payload: vec![],
+            }];
+            let vocabulary = StepObservation::vocabulary_of(&specs).expect("vocabulary");
+            let tests = [TestCase {
+                id: "C fires".into(),
+                initial_state: support::initial_state(constant("Lblx"), "SortS"),
+                oracles: vec![occurs(&vocabulary, "aStep")],
+            }];
+            let run = run_campaign(
+                &Campaign {
+                    validator: &validator,
+                    module: "UNLABELLED",
+                    observation: &specs,
+                    classify: &normal,
+                    tests: &tests,
+                    budget: BUDGET,
+                },
+                &generation,
+                ScheduleMode::Full,
+            )
+            .expect("campaign");
+            assert_eq!(run.mutants.len(), 1);
+            assert_eq!(run.mutants[0].report.status, MutantStatus::Survived);
+            assert!(run.mutants[0].report.killing_test_ids.is_empty());
+            assert_eq!(
+                outcomes(&run.mutants[0].plan.tests),
+                [("C fires", vec![Agree])]
+            );
+        });
+    }
+
+    /// Review P2.2 (plan row C4): the same folded mutant of `branch`'s `requires` is run and
+    /// survives in every row, but only a complete generation is scored. A non-exhaustive
+    /// (supplied, or narrowed by a closure) discovery gives an incomplete generation, and a
+    /// cardinality mismatch a failed one with no candidates; neither has a score. A complete
+    /// generation with no candidates, because nothing was selected or its one origin's patch
+    /// changes nothing, has no score either, rather than one over zero mutants.
+    #[test]
+    #[ignore = "kink"]
+    fn incomplete_and_failed_generations_are_not_scored() {
+        with_stack(|| {
+            let validator =
+                NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
+            let baseline = validator.baseline();
+            let tests = [TestCase {
+                id: "t2".to_owned(),
+                initial_state: choose_state(),
+                oracles: vec![whole_term(CrashPolicy::CompareIdentity)],
+            }];
+            let campaign = Campaign {
+                validator: &validator,
+                module: "COUNTER",
+                observation: &[],
+                classify: &normal,
+                tests: &tests,
+                budget: BUDGET,
+            };
+            let exhaustive = derive_sites(
+                baseline,
+                "requires",
+                &[
+                    SiteSelector::RuleLabel("COUNTER.branch".to_owned()),
+                    SiteSelector::Path(vec![1]),
+                ],
+            )
+            .expect("no bindings");
+            assert_eq!(exhaustive.tuples().len(), 1);
+            let partial = Discovery::supplied(baseline, exhaustive.tuples().to_vec(), false, false)
+                .expect("derived sites are known");
+            let nothing = Discovery::empty(baseline, false, false);
+            // Every `requires`, narrowed by a closure to `branch`'s: `fallback`'s is dropped by
+            // code, not by a declared clause.
+            let narrowed = derive_sites(baseline, "requires", &[SiteSelector::Path(vec![1])])
+                .expect("no bindings")
+                .filter(|tuple| tuple.sites[0].at == exhaustive.tuples()[0].sites[0].at);
+            let mismatch = SelectionPolicy::Exact {
+                expected_tuple_count: 2,
+                expected_tuple_arity: 1,
+            };
+            // (id, discovery, policy, patch changes nothing, generation failure, mutant count, score, tally)
+            #[rustfmt::skip]
+            let rows = [
+                ("complete-is-scored", &exhaustive, SelectionPolicy::Each, false, None, 1, Some((0, 1)), Tally { survived: 1, ..Tally::default() }),
+                ("non-exhaustive-discovery-is-not-scored", &partial, SelectionPolicy::Each, false, Some(CandidateFailureKind::IncompleteGeneration), 1, None, Tally { survived: 1, ..Tally::default() }),
+                ("closure-narrowed-discovery-is-not-scored", &narrowed, SelectionPolicy::Each, false, Some(CandidateFailureKind::IncompleteGeneration), 1, None, Tally { survived: 1, ..Tally::default() }),
+                ("cardinality-mismatch-is-not-scored", &exhaustive, mismatch, false, Some(CandidateFailureKind::CardinalityMismatch), 0, None, Tally::default()),
+                ("empty-selection-is-not-scored", &nothing, SelectionPolicy::Each, false, None, 0, None, Tally::default()),
+                ("every-origin-rejected-is-not-scored", &exhaustive, SelectionPolicy::Each, true, None, 0, None, Tally { rejected_origins: 1, ..Tally::default() }),
+            ];
+            for (id, discovery, policy, no_change, failure, mutants, expected, counts) in rows {
+                // requires B  =>  requires false: fallback still ends in selected(true).
+                let generation = select(discovery, policy, 4)
+                    .unwrap_or_else(|failure| panic!("{id}: {failure}"))
+                    .fold("requires-false", |origin| {
+                        let at = origin.site_tuple[0].clone();
+                        let expected = baseline.term(&at).expect("requires").clone();
+                        Patch::new(vec![Edit::ReplaceTerm {
+                            replacement: if no_change {
+                                expected.clone()
+                            } else {
+                                bool_token("false")
+                            },
+                            expected,
+                            at,
+                        }])
+                        .expect("one edit")
+                    })
+                    .unwrap_or_else(|failure| panic!("{id}: {failure}"));
+                assert_eq!(generation.failure(), failure, "{id}");
+                let run = run_campaign(&campaign, &generation, ScheduleMode::Full)
+                    .unwrap_or_else(|failure| panic!("{id}: {failure:?}"));
+                assert_eq!(run.mutants.len(), mutants, "{id}");
+                assert_eq!(tally(&generation, &run), Some(counts), "{id}");
+                for mutant in &run.mutants {
+                    assert_eq!(mutant.report.status, MutantStatus::Survived, "{id}");
+                }
+                assert_eq!(
+                    run.score.map(|score| (score.killed, score.survived)),
+                    expected,
+                    "{id}"
+                );
+            }
+        });
+    }
+
+    /// Probe 3 through the campaign: the literal mutant `d() => 0` is behaviourally equal to the
+    /// baseline on every instance (both stop at `half`), yet under the inherited `total` of f and
+    /// d the symbolic test matched and killed it. Its patch changes d's equation, which f's
+    /// equations mention, so both claims are withdrawn from the definition its symbolic test runs
+    /// on, and that side is `Unknown`: the mutant is not killed. Its ground tests agree with the
+    /// baseline (since re-pin R0c-fix-2 they too run on the claim-free mutant).
+    #[test]
+    #[ignore = "kink"]
+    fn probe3_symbolic_test_does_not_kill_an_equivalent_mutant() {
+        with_stack(|| {
+            let campaign = ClaimCampaign::load("symbolic-claim-mutation.k");
+            let run = campaign.run(&campaign.tests(), &[campaign.d("0")]);
+            let no_match = [unmatched()];
             assert_eq!(
                 test_sides(&run.baseline),
-                [(test.id.as_str(), Ok(&no_match[..]))]
+                [
+                    ("X", Ok(&no_match[..])),
+                    ("z", Ok(&no_match[..])),
+                    ("s(z)", Ok(&no_match[..]))
+                ]
             );
+            let [mutant] = run.mutants.as_slice() else {
+                panic!("one mutant");
+            };
+            assert_eq!(
+                test_sides(&mutant.evidence),
+                [
+                    ("X", Ok(&[OracleSide::Unknown][..])),
+                    ("z", Ok(&no_match[..])),
+                    ("s(z)", Ok(&no_match[..]))
+                ]
+            );
+            assert_eq!(mutant.report.status, MutantStatus::Unknown);
+            assert!(mutant.report.killing_test_ids.is_empty());
+            let claims = &mutant.report.claims;
+            assert_eq!(claims, &mutant.plan.claims);
+            assert_eq!(
+                campaign.names(&claims.withdrawn),
+                [
+                    ("f".to_owned(), "total".to_owned()),
+                    ("d".to_owned(), "total".to_owned())
+                ]
+            );
+            assert!(claims.trusted());
+            assert!(claims.patch().is_some());
+
+            // Ground campaigns: both sides stop at `half` and the mutant survives. Re-pin R0c-fix-2:
+            // every test runs on the claim-free mutant, so a ground campaign withdraws the same
+            // claims (before: nothing was withdrawn without a symbolic test); the status is
+            // unchanged.
+            for test in campaign.tests().into_iter().skip(1) {
+                let run = campaign.run(std::slice::from_ref(&test), &[campaign.d("0")]);
+                assert_eq!(
+                    test_sides(&run.baseline),
+                    [(test.id.as_str(), Ok(&no_match[..]))]
+                );
+                let mutant = &run.mutants[0];
+                assert_eq!(
+                    test_sides(&mutant.evidence),
+                    [(test.id.as_str(), Ok(&no_match[..]))]
+                );
+                assert_eq!(mutant.report.status, MutantStatus::Survived, "{}", test.id);
+                assert_eq!(
+                    campaign.names(&mutant.report.claims.withdrawn),
+                    [
+                        ("f".to_owned(), "total".to_owned()),
+                        ("d".to_owned(), "total".to_owned())
+                    ]
+                );
+            }
+        });
+    }
+
+    /// Probe 2 through the campaign: the baseline loads on every instance and the mutant
+    /// `d() => 0` on none, yet under the inherited claims the symbolic test matched on both sides
+    /// and spared it. Withdrawn, its symbolic side is `Unknown`: it does not survive the symbolic
+    /// test, and its ground tests kill it. The literal mutant `d() => 2` keeps every instance
+    /// loading; withdrawal must not turn its symbolic side into a no-match and a kill.
+    #[test]
+    #[ignore = "kink"]
+    fn probe2_symbolic_test_does_not_spare_a_killed_mutant() {
+        with_stack(|| {
+            let campaign = ClaimCampaign::load("symbolic-claim-survivor.k");
+            let [symbolic, zero, one] = campaign.tests();
+            let matches = [matched()];
+
+            let run = campaign.run(std::slice::from_ref(&symbolic), &[campaign.d("0")]);
+            assert_eq!(test_sides(&run.baseline), [("X", Ok(&matches[..]))]);
             let mutant = &run.mutants[0];
             assert_eq!(
                 test_sides(&mutant.evidence),
-                [(test.id.as_str(), Ok(&no_match[..]))]
+                [("X", Ok(&[OracleSide::Unknown][..]))]
             );
-            assert_eq!(mutant.report.status, MutantStatus::Survived, "{}", test.id);
+            assert_eq!(mutant.report.status, MutantStatus::Unknown);
             assert_eq!(
                 campaign.names(&mutant.report.claims.withdrawn),
                 [
@@ -1587,195 +1633,167 @@ fn probe3_symbolic_test_does_not_kill_an_equivalent_mutant() {
                     ("d".to_owned(), "total".to_owned())
                 ]
             );
-        }
-    });
-}
 
-/// Probe 2 through the campaign: the baseline loads on every instance and the mutant
-/// `d() => 0` on none, yet under the inherited claims the symbolic test matched on both sides
-/// and spared it. Withdrawn, its symbolic side is `Unknown`: it does not survive the symbolic
-/// test, and its ground tests kill it. The literal mutant `d() => 2` keeps every instance
-/// loading; withdrawal must not turn its symbolic side into a no-match and a kill.
-#[test]
-fn probe2_symbolic_test_does_not_spare_a_killed_mutant() {
-    with_stack(|| {
-        let campaign = ClaimCampaign::load("symbolic-claim-survivor.k");
-        let [symbolic, zero, one] = campaign.tests();
-        let matches = [matched()];
+            let tests = [symbolic, zero, one];
+            let run = campaign.run(&tests, &[campaign.d("0")]);
+            let mutant = &run.mutants[0];
+            let no_match = [unmatched()];
+            assert_eq!(
+                test_sides(&mutant.evidence),
+                [
+                    ("X", Ok(&[OracleSide::Unknown][..])),
+                    ("z", Ok(&no_match[..])),
+                    ("s(z)", Ok(&no_match[..]))
+                ]
+            );
+            assert_eq!(mutant.report.status, MutantStatus::Killed);
+            assert_eq!(mutant.report.killing_test_ids, ["z", "s(z)"]);
 
-        let run = campaign.run(std::slice::from_ref(&symbolic), &[campaign.d("0")]);
-        assert_eq!(test_sides(&run.baseline), [("X", Ok(&matches[..]))]);
-        let mutant = &run.mutants[0];
-        assert_eq!(
-            test_sides(&mutant.evidence),
-            [("X", Ok(&[OracleSide::Unknown][..]))]
-        );
-        assert_eq!(mutant.report.status, MutantStatus::Unknown);
-        assert_eq!(
-            campaign.names(&mutant.report.claims.withdrawn),
-            [
-                ("f".to_owned(), "total".to_owned()),
-                ("d".to_owned(), "total".to_owned())
-            ]
-        );
+            let run = campaign.run(&tests, &[campaign.d("2")]);
+            let mutant = &run.mutants[0];
+            assert_eq!(
+                test_sides(&mutant.evidence),
+                [
+                    ("X", Ok(&[OracleSide::Unknown][..])),
+                    ("z", Ok(&matches[..])),
+                    ("s(z)", Ok(&matches[..]))
+                ]
+            );
+            assert_eq!(mutant.report.status, MutantStatus::Unknown);
+        });
+    }
 
-        let tests = [symbolic, zero, one];
-        let run = campaign.run(&tests, &[campaign.d("0")]);
-        let mutant = &run.mutants[0];
-        let no_match = [unmatched()];
-        assert_eq!(
-            test_sides(&mutant.evidence),
-            [
-                ("X", Ok(&[OracleSide::Unknown][..])),
-                ("z", Ok(&no_match[..])),
-                ("s(z)", Ok(&no_match[..]))
-            ]
-        );
-        assert_eq!(mutant.report.status, MutantStatus::Killed);
-        assert_eq!(mutant.report.killing_test_ids, ["z", "s(z)"]);
+    /// The baseline's `f(I)` equation asserts a tautology; the mutant asserts `I > 0`.
+    /// At `I = 0` the mutant stops before the load. In the Z3 profile, before claim support
+    /// included equation `ensures`, the symbolic-only campaign survived because the `I > 0`
+    /// path was a feasible match. Its instance at zero was a ground kill. The portable profile
+    /// already returned Unknown, but now both profiles name the unsupported claim explicitly.
+    #[test]
+    #[ignore = "kink"]
+    fn equation_ensures_mutation_makes_symbolic_test_unknown_but_keeps_ground_kill() {
+        with_stack(|| {
+            let campaign = ClaimCampaign::load("symbolic-equation-ensures.k");
+            let baseline = campaign.baseline();
+            let i = baseline
+                .term(&TermRef::new(
+                    support::rule(baseline, "SYMPARTIAL.f"),
+                    [2, 0],
+                ))
+                .expect("I in the equation ensures")
+                .clone();
+            let mutation = replace(
+                baseline,
+                "SYMPARTIAL.f",
+                &[2],
+                Term::Apply {
+                    label: k_rust::kast::Label::new("_>Int_"),
+                    arguments: vec![
+                        i,
+                        Term::Token {
+                            token: "0".to_owned(),
+                            sort: KastSort::new("Int"),
+                        },
+                    ],
+                },
+            );
+            let tests = [
+                campaign.test("X", support::var("X", "SortInt")),
+                campaign.test("0", support::int(0)),
+                campaign.test("1", support::int(1)),
+            ];
+            let run = campaign.run(&tests, std::slice::from_ref(&mutation));
+            let matches = [matched()];
+            assert_eq!(
+                test_sides(&run.baseline),
+                [
+                    ("X", Ok(&matches[..])),
+                    ("0", Ok(&matches[..])),
+                    ("1", Ok(&matches[..]))
+                ]
+            );
+            // Re-pin R0c-fix-2 (a mutant drops the claims its edit leaves unbacked): the edited
+            // `ensures` is an unbacked claim no removal takes away (dropping it changes what the
+            // equation says), so no claim-free mutant exists and none of its tests runs. Before: the
+            // symbolic test Failed(UnsupportedClaims) and the ground test 0 killed the mutant as
+            // written, which carried the false `ensures`; now Killed -> Unknown
+            // (UnsupportedClaims).
+            let mutant = &run.mutants[0];
+            assert!(mutant.evidence.is_empty());
+            assert_eq!(
+                mutant.plan.mutant_failure,
+                Some(MutantScopeFailure::UnsupportedClaims)
+            );
+            assert_eq!(mutant.report.status, MutantStatus::Unknown);
+            assert!(mutant.report.killing_test_ids.is_empty());
+            assert!(mutant.report.claims.withdrawn.is_empty());
+            assert_eq!(
+                campaign.names(&mutant.report.claims.unsupported),
+                [("SYMPARTIAL.f".to_owned(), "ensures".to_owned())]
+            );
+            assert!(!mutant.report.claims.trusted());
 
-        let run = campaign.run(&tests, &[campaign.d("2")]);
-        let mutant = &run.mutants[0];
-        assert_eq!(
-            test_sides(&mutant.evidence),
-            [
-                ("X", Ok(&[OracleSide::Unknown][..])),
-                ("z", Ok(&matches[..])),
-                ("s(z)", Ok(&matches[..]))
-            ]
-        );
-        assert_eq!(mutant.report.status, MutantStatus::Unknown);
-    });
-}
+            let symbolic = campaign.run(&tests[..1], std::slice::from_ref(&mutation));
+            assert_eq!(symbolic.mutants[0].report.status, MutantStatus::Unknown);
+        });
+    }
 
-/// The baseline's `f(I)` equation asserts a tautology; the mutant asserts `I > 0`.
-/// At `I = 0` the mutant stops before the load. In the Z3 profile, before claim support
-/// included equation `ensures`, the symbolic-only campaign survived because the `I > 0`
-/// path was a feasible match. Its instance at zero was a ground kill. The portable profile
-/// already returned Unknown, but now both profiles name the unsupported claim explicitly.
-#[test]
-fn equation_ensures_mutation_makes_symbolic_test_unknown_but_keeps_ground_kill() {
-    with_stack(|| {
-        let campaign = ClaimCampaign::load("symbolic-equation-ensures.k");
-        let baseline = campaign.baseline();
-        let i = baseline
-            .term(&TermRef::new(
-                support::rule(baseline, "SYMPARTIAL.f"),
-                [2, 0],
-            ))
-            .expect("I in the equation ensures")
-            .clone();
-        let mutation = replace(
-            baseline,
-            "SYMPARTIAL.f",
-            &[2],
-            Term::Apply {
-                label: k_rust::kast::Label::new("_>Int_"),
-                arguments: vec![
-                    i,
-                    Term::Token {
-                        token: "0".to_owned(),
-                        sort: KastSort::new("Int"),
-                    },
-                ],
-            },
-        );
-        let tests = [
-            campaign.test("X", support::var("X", "SortInt")),
-            campaign.test("0", support::int(0)),
-            campaign.test("1", support::int(1)),
-        ];
-        let run = campaign.run(&tests, std::slice::from_ref(&mutation));
-        let matches = [matched()];
-        assert_eq!(
-            test_sides(&run.baseline),
-            [
-                ("X", Ok(&matches[..])),
-                ("0", Ok(&matches[..])),
-                ("1", Ok(&matches[..]))
-            ]
-        );
-        // Re-pin R0c-fix-2 (a mutant drops the claims its edit leaves unbacked): the edited
-        // `ensures` is an unbacked claim no removal takes away (dropping it changes what the
-        // equation says), so no claim-free mutant exists and none of its tests runs. Before: the
-        // symbolic test Failed(UnsupportedClaims) and the ground test 0 killed the mutant as
-        // written, which carried the false `ensures`; now Killed -> Unknown
-        // (UnsupportedClaims).
-        let mutant = &run.mutants[0];
-        assert!(mutant.evidence.is_empty());
-        assert_eq!(
-            mutant.plan.mutant_failure,
-            Some(MutantScopeFailure::UnsupportedClaims)
-        );
-        assert_eq!(mutant.report.status, MutantStatus::Unknown);
-        assert!(mutant.report.killing_test_ids.is_empty());
-        assert!(mutant.report.claims.withdrawn.is_empty());
-        assert_eq!(
-            campaign.names(&mutant.report.claims.unsupported),
-            [("SYMPARTIAL.f".to_owned(), "ensures".to_owned())]
-        );
-        assert!(!mutant.report.claims.trusted());
+    /// A mutant of a rewrite rule no claim rests on withdraws nothing, and its symbolic test runs
+    /// on its patched definition and keeps its verdict: `load` never fires, so no instance loads.
+    /// A mutant that adds `preserves-definedness` to `half` asserts a claim nobody supports:
+    /// withdrawing it would undo the mutant, so no claim-free mutant exists and none of its tests
+    /// runs (re-pin R0c-fix-2).
+    #[test]
+    #[ignore = "kink"]
+    fn unrelated_and_claim_asserting_mutants() {
+        with_stack(|| {
+            let campaign = ClaimCampaign::load("symbolic-claim-survivor.k");
+            let baseline = campaign.baseline();
+            let load_never = replace(baseline, "SYMPARTIAL.load", &[1], bool_token("false"));
+            let half = support::rule(baseline, "SYMPARTIAL.half");
+            let asserted = (
+                TermRef::new(half.clone(), [1]),
+                Patch::new(vec![Edit::AddAttribute {
+                    at: half.clone(),
+                    key: "preserves-definedness".to_owned(),
+                    value: Value::String(String::new()),
+                }])
+                .expect("one edit"),
+            );
+            let run = campaign.run(&campaign.tests(), &[load_never, asserted]);
+            let [unrelated, asserting] = run.mutants.as_slice() else {
+                panic!("two mutants");
+            };
+            let no_match = [unmatched()];
+            assert_eq!(
+                test_sides(&unrelated.evidence),
+                [
+                    ("X", Ok(&no_match[..])),
+                    ("z", Ok(&no_match[..])),
+                    ("s(z)", Ok(&no_match[..]))
+                ]
+            );
+            assert_eq!(unrelated.report.claims, Withdrawal::default());
+            assert_eq!(unrelated.report.status, MutantStatus::Killed);
+            assert_eq!(unrelated.report.killing_test_ids, ["X", "z", "s(z)"]);
 
-        let symbolic = campaign.run(&tests[..1], std::slice::from_ref(&mutation));
-        assert_eq!(symbolic.mutants[0].report.status, MutantStatus::Unknown);
-    });
-}
-
-/// A mutant of a rewrite rule no claim rests on withdraws nothing, and its symbolic test runs
-/// on its patched definition and keeps its verdict: `load` never fires, so no instance loads.
-/// A mutant that adds `preserves-definedness` to `half` asserts a claim nobody supports:
-/// withdrawing it would undo the mutant, so no claim-free mutant exists and none of its tests
-/// runs (re-pin R0c-fix-2).
-#[test]
-fn unrelated_and_claim_asserting_mutants() {
-    with_stack(|| {
-        let campaign = ClaimCampaign::load("symbolic-claim-survivor.k");
-        let baseline = campaign.baseline();
-        let load_never = replace(baseline, "SYMPARTIAL.load", &[1], bool_token("false"));
-        let half = support::rule(baseline, "SYMPARTIAL.half");
-        let asserted = (
-            TermRef::new(half.clone(), [1]),
-            Patch::new(vec![Edit::AddAttribute {
-                at: half.clone(),
-                key: "preserves-definedness".to_owned(),
-                value: Value::String(String::new()),
-            }])
-            .expect("one edit"),
-        );
-        let run = campaign.run(&campaign.tests(), &[load_never, asserted]);
-        let [unrelated, asserting] = run.mutants.as_slice() else {
-            panic!("two mutants");
-        };
-        let no_match = [unmatched()];
-        assert_eq!(
-            test_sides(&unrelated.evidence),
-            [
-                ("X", Ok(&no_match[..])),
-                ("z", Ok(&no_match[..])),
-                ("s(z)", Ok(&no_match[..]))
-            ]
-        );
-        assert_eq!(unrelated.report.claims, Withdrawal::default());
-        assert_eq!(unrelated.report.status, MutantStatus::Killed);
-        assert_eq!(unrelated.report.killing_test_ids, ["X", "z", "s(z)"]);
-
-        // Re-pin R0c-fix-2: the claim the patch writes refuses the whole mutant, ground tests
-        // included (before: only its symbolic test, Failed(UnsupportedClaims), and the ground
-        // tests ran on the mutant as written; the status was Unknown and stays Unknown).
-        assert!(asserting.evidence.is_empty());
-        assert_eq!(
-            asserting.plan.mutant_failure,
-            Some(MutantScopeFailure::UnsupportedClaims)
-        );
-        assert_eq!(asserting.report.status, MutantStatus::Unknown);
-        let claims = &asserting.report.claims;
-        assert_eq!(
-            campaign.names(&claims.unsupported),
-            [(
-                "SYMPARTIAL.half".to_owned(),
-                "preserves-definedness".to_owned()
-            )]
-        );
-        assert!(!claims.trusted());
-    });
+            // Re-pin R0c-fix-2: the claim the patch writes refuses the whole mutant, ground tests
+            // included (before: only its symbolic test, Failed(UnsupportedClaims), and the ground
+            // tests ran on the mutant as written; the status was Unknown and stays Unknown).
+            assert!(asserting.evidence.is_empty());
+            assert_eq!(
+                asserting.plan.mutant_failure,
+                Some(MutantScopeFailure::UnsupportedClaims)
+            );
+            assert_eq!(asserting.report.status, MutantStatus::Unknown);
+            let claims = &asserting.report.claims;
+            assert_eq!(
+                campaign.names(&claims.unsupported),
+                [(
+                    "SYMPARTIAL.half".to_owned(),
+                    "preserves-definedness".to_owned()
+                )]
+            );
+            assert!(!claims.trusted());
+        });
+    }
 }

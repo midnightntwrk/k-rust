@@ -341,28 +341,6 @@ fn campaign_sides(campaign: &CampaignRun, test: usize, slot: usize) -> [OracleSi
     [baseline[slot].clone(), mutant[slot].clone()]
 }
 
-/// Baseline and patched sides are compared with one baseline-owned decider, with both
-/// schedules. A state-only test follows the pattern test to exercise cache lifetime.
-#[test]
-fn campaign_pattern_sides_equal_the_reference_in_both_schedules() {
-    with_stack(|| {
-        let validator =
-            NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
-        let specs = step_support::counter(true);
-        let vocabulary = StepObservation::vocabulary_of(&specs).expect("vocabulary");
-        let tests = tests(&vocabulary);
-        let generation = branch_false(validator.baseline());
-        let expected = reference_sides(&validator, &specs, &tests[0], 1, &generation);
-        for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
-            let campaign = run(&validator, &specs, &tests, &generation, schedule);
-            let [baseline, mutant] = campaign_sides(&campaign, 0, 1);
-            assert_eq!(baseline, expected[0].side);
-            assert_eq!(mutant, expected[1].side);
-            assert_eq!(campaign.baseline_coverage.len(), tests.len());
-        }
-    });
-}
-
 /// A plan of one arm `increment`, with an arm without atoms inserted in front of it after
 /// `PatternPlan::new` (its fields are public and nothing on the campaign path re-validates).
 fn empty_arm_plan(vocabulary: &EventVocabulary) -> OracleDeclaration {
@@ -385,81 +363,6 @@ fn empty_arm_plan(vocabulary: &EventVocabulary) -> OracleDeclaration {
         },
     )
     .expect("the campaign API accepts the edited plan")
-}
-
-/// CS-06 review 1, critical: on a plan edited after validation (an arm without atoms) the
-/// shared-prefix monitor and `evaluate_with` disagree, and at b3a1fab the campaign killed a
-/// mutant the reference leaves `Survived`. The campaign must keep the reference sides, status
-/// and killing tests in both schedules, alone and next to a plain test.
-#[test]
-fn an_edited_plan_keeps_the_reference_sides_and_verdict() {
-    with_stack(|| {
-        let validator =
-            NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
-        let specs = step_support::counter(true);
-        let vocabulary = StepObservation::vocabulary_of(&specs).expect("vocabulary");
-        let generation = increment_child(validator.baseline());
-        let edited = TestCase {
-            id: "empty-arm".to_owned(),
-            initial_state: counter_state(),
-            oracles: vec![empty_arm_plan(&vocabulary)],
-        };
-        let plain = TestCase {
-            id: "plain".to_owned(),
-            initial_state: counter_state(),
-            oracles: vec![occurs(&vocabulary, "increment")],
-        };
-        let expected = reference_sides(&validator, &specs, &edited, 0, &generation);
-        let matched =
-            OracleSide::Normal(OracleValue::Pattern(PatternValue::Match { bindings: None }));
-        assert_eq!(expected[0].side, matched, "reference baseline side");
-        assert_eq!(expected[1].side, matched, "reference mutant side");
-        for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
-            let alone = run(
-                &validator,
-                &specs,
-                std::slice::from_ref(&edited),
-                &generation,
-                schedule,
-            );
-            let [baseline, mutant] = campaign_sides(&alone, 0, 0);
-            assert_eq!(baseline, expected[0].side, "{schedule:?} baseline");
-            assert_eq!(mutant, expected[1].side, "{schedule:?} mutant");
-            assert_eq!(
-                alone.mutants[0].report.status,
-                MutantStatus::Survived,
-                "{schedule:?}"
-            );
-            assert!(
-                alone.mutants[0].report.killing_test_ids.is_empty(),
-                "{schedule:?}"
-            );
-
-            let both = run(
-                &validator,
-                &specs,
-                &[edited.clone(), plain.clone()],
-                &generation,
-                schedule,
-            );
-            assert_eq!(
-                both.mutants[0].report.status,
-                MutantStatus::Killed,
-                "{schedule:?}"
-            );
-            assert_eq!(
-                both.mutants[0].report.killing_test_ids,
-                vec!["plain".to_owned()],
-                "{schedule:?}"
-            );
-            let [baseline, mutant] = campaign_sides(&both, 0, 0);
-            assert_eq!(
-                baseline, expected[0].side,
-                "{schedule:?} baseline, two tests"
-            );
-            assert_eq!(mutant, expected[1].side, "{schedule:?} mutant, two tests");
-        }
-    });
 }
 
 fn counter_of(steps: usize) -> Pattern {
@@ -506,46 +409,150 @@ fn partial_heavy(vocabulary: &EventVocabulary) -> OracleDeclaration {
     .expect("pattern declaration")
 }
 
-/// CS-06 review 1, minor: the campaign bounds the monitor's live partials, and an overflow
-/// never reaches a side. The bare capped evaluator overflows here and is `Unknown`; the
-/// campaign's sides are the reference's `NoMatch` (a baseline `Unknown` would refuse the
-/// campaign), in both schedules.
-#[test]
-fn a_monitor_cap_overflow_keeps_the_reference_sides() {
-    with_stack(|| {
-        let validator =
-            NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
-        let specs = step_support::counter(true);
-        let vocabulary = StepObservation::vocabulary_of(&specs).expect("vocabulary");
-        let generation = branch_false(validator.baseline());
-        let test = TestCase {
-            id: "partials".to_owned(),
-            initial_state: counter_of(30),
-            oracles: vec![partial_heavy(&vocabulary)],
-        };
-        let expected = reference_sides(&validator, &specs, &test, 0, &generation);
-        let no_match = OracleSide::Normal(OracleValue::Pattern(PatternValue::NoMatch));
-        for side in &expected {
-            assert_eq!(side.side, no_match, "reference side");
-            assert!(side.overflowed, "the default cap overflows");
-            assert_eq!(side.capped, PatternOutcome::Unknown, "capped evaluator");
-        }
-        for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
-            let campaign = run(
-                &validator,
-                &specs,
-                std::slice::from_ref(&test),
-                &generation,
-                schedule,
-            );
-            let [baseline, mutant] = campaign_sides(&campaign, 0, 0);
-            assert_eq!(baseline, no_match, "{schedule:?} baseline");
-            assert_eq!(mutant, no_match, "{schedule:?} mutant");
-            assert_eq!(
-                campaign.mutants[0].report.status,
-                MutantStatus::Survived,
-                "{schedule:?}"
-            );
-        }
-    });
+mod kink_tier {
+    use super::*;
+
+    /// Baseline and patched sides are compared with one baseline-owned decider, with both
+    /// schedules. A state-only test follows the pattern test to exercise cache lifetime.
+    #[test]
+    #[ignore = "kink"]
+    fn campaign_pattern_sides_equal_the_reference_in_both_schedules() {
+        with_stack(|| {
+            let validator =
+                NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
+            let specs = step_support::counter(true);
+            let vocabulary = StepObservation::vocabulary_of(&specs).expect("vocabulary");
+            let tests = tests(&vocabulary);
+            let generation = branch_false(validator.baseline());
+            let expected = reference_sides(&validator, &specs, &tests[0], 1, &generation);
+            for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                let campaign = run(&validator, &specs, &tests, &generation, schedule);
+                let [baseline, mutant] = campaign_sides(&campaign, 0, 1);
+                assert_eq!(baseline, expected[0].side);
+                assert_eq!(mutant, expected[1].side);
+                assert_eq!(campaign.baseline_coverage.len(), tests.len());
+            }
+        });
+    }
+
+    /// CS-06 review 1, critical: on a plan edited after validation (an arm without atoms) the
+    /// shared-prefix monitor and `evaluate_with` disagree, and at b3a1fab the campaign killed a
+    /// mutant the reference leaves `Survived`. The campaign must keep the reference sides, status
+    /// and killing tests in both schedules, alone and next to a plain test.
+    #[test]
+    #[ignore = "kink"]
+    fn an_edited_plan_keeps_the_reference_sides_and_verdict() {
+        with_stack(|| {
+            let validator =
+                NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
+            let specs = step_support::counter(true);
+            let vocabulary = StepObservation::vocabulary_of(&specs).expect("vocabulary");
+            let generation = increment_child(validator.baseline());
+            let edited = TestCase {
+                id: "empty-arm".to_owned(),
+                initial_state: counter_state(),
+                oracles: vec![empty_arm_plan(&vocabulary)],
+            };
+            let plain = TestCase {
+                id: "plain".to_owned(),
+                initial_state: counter_state(),
+                oracles: vec![occurs(&vocabulary, "increment")],
+            };
+            let expected = reference_sides(&validator, &specs, &edited, 0, &generation);
+            let matched =
+                OracleSide::Normal(OracleValue::Pattern(PatternValue::Match { bindings: None }));
+            assert_eq!(expected[0].side, matched, "reference baseline side");
+            assert_eq!(expected[1].side, matched, "reference mutant side");
+            for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                let alone = run(
+                    &validator,
+                    &specs,
+                    std::slice::from_ref(&edited),
+                    &generation,
+                    schedule,
+                );
+                let [baseline, mutant] = campaign_sides(&alone, 0, 0);
+                assert_eq!(baseline, expected[0].side, "{schedule:?} baseline");
+                assert_eq!(mutant, expected[1].side, "{schedule:?} mutant");
+                assert_eq!(
+                    alone.mutants[0].report.status,
+                    MutantStatus::Survived,
+                    "{schedule:?}"
+                );
+                assert!(
+                    alone.mutants[0].report.killing_test_ids.is_empty(),
+                    "{schedule:?}"
+                );
+
+                let both = run(
+                    &validator,
+                    &specs,
+                    &[edited.clone(), plain.clone()],
+                    &generation,
+                    schedule,
+                );
+                assert_eq!(
+                    both.mutants[0].report.status,
+                    MutantStatus::Killed,
+                    "{schedule:?}"
+                );
+                assert_eq!(
+                    both.mutants[0].report.killing_test_ids,
+                    vec!["plain".to_owned()],
+                    "{schedule:?}"
+                );
+                let [baseline, mutant] = campaign_sides(&both, 0, 0);
+                assert_eq!(
+                    baseline, expected[0].side,
+                    "{schedule:?} baseline, two tests"
+                );
+                assert_eq!(mutant, expected[1].side, "{schedule:?} mutant, two tests");
+            }
+        });
+    }
+
+    /// CS-06 review 1, minor: the campaign bounds the monitor's live partials, and an overflow
+    /// never reaches a side. The bare capped evaluator overflows here and is `Unknown`; the
+    /// campaign's sides are the reference's `NoMatch` (a baseline `Unknown` would refuse the
+    /// campaign), in both schedules.
+    #[test]
+    #[ignore = "kink"]
+    fn a_monitor_cap_overflow_keeps_the_reference_sides() {
+        with_stack(|| {
+            let validator =
+                NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
+            let specs = step_support::counter(true);
+            let vocabulary = StepObservation::vocabulary_of(&specs).expect("vocabulary");
+            let generation = branch_false(validator.baseline());
+            let test = TestCase {
+                id: "partials".to_owned(),
+                initial_state: counter_of(30),
+                oracles: vec![partial_heavy(&vocabulary)],
+            };
+            let expected = reference_sides(&validator, &specs, &test, 0, &generation);
+            let no_match = OracleSide::Normal(OracleValue::Pattern(PatternValue::NoMatch));
+            for side in &expected {
+                assert_eq!(side.side, no_match, "reference side");
+                assert!(side.overflowed, "the default cap overflows");
+                assert_eq!(side.capped, PatternOutcome::Unknown, "capped evaluator");
+            }
+            for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                let campaign = run(
+                    &validator,
+                    &specs,
+                    std::slice::from_ref(&test),
+                    &generation,
+                    schedule,
+                );
+                let [baseline, mutant] = campaign_sides(&campaign, 0, 0);
+                assert_eq!(baseline, no_match, "{schedule:?} baseline");
+                assert_eq!(mutant, no_match, "{schedule:?} mutant");
+                assert_eq!(
+                    campaign.mutants[0].report.status,
+                    MutantStatus::Survived,
+                    "{schedule:?}"
+                );
+            }
+        });
+    }
 }

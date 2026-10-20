@@ -1,16 +1,20 @@
 //! The representative campaign set of flow packet F-01 (deliverable 3).
 //!
-//! `dedup.rs` runs every case through the evidence-sharing comparison (sharing on and
-//! off, Full and FirstKill, complete runs and canonical report bytes), and
-//! `selection.rs` runs every case through the CS-07 Prioritize theorem check. Each case
+//! `representative_set.rs` runs every case once in its reference configuration (evidence
+//! sharing on, selection none, one compile worker, Full and FirstKill) and compares it with
+//! the evidence-sharing, compile-worker and CS-07 Prioritize variants (test-gate TG-C, which
+//! replaced the three walks of dedup.rs, compile_workers.rs and selection.rs). Each case
 //! rebuilds, from the same fixtures, the campaign of the original test it names. That
-//! original still runs in the per-commit gate with all of its assertions. The expected
+//! original still runs in its own file with all of its assertions. The expected
 //! statuses and killing test ids here are copied from it, except where a case says
 //! otherwise (the Error case, which no original produces, the multi-generation
 //! statuses and the Z3 column of G's ground campaign, all measured at 47e9285), so the
 //! set also shows that it holds what it claims to hold. [`Coverage`] asserts that the
 //! set contains every protected kill's campaign, every mutant status, a coupled mutant,
-//! an admitted symbolic test in the running profile and a multi-generation campaign.
+//! an admitted symbolic test in the running profile and a multi-generation campaign:
+//! over the contributions each case declares ([`Contribution::declared`]), which each
+//! case's own test requires to equal the contribution of its Full run
+//! ([`Contribution::observed`]).
 //!
 //! The fixture builders are copies of the ones in `coupled.rs`, `end_to_end.rs` and
 //! `multi_operator.rs`; they are copied rather than shared so that the fixtures and
@@ -163,7 +167,90 @@ fn observed(run: &CampaignRun) -> Vec<(MutantStatus, Vec<&str>)> {
         .collect()
 }
 
-/// What the set has been shown to contain, accumulated over its cases' Full runs.
+/// What one case adds to the set's coverage.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Contribution {
+    pub protected: Option<&'static str>,
+    pub statuses: BTreeSet<String>,
+    pub coupled: bool,
+    pub symbolic: bool,
+    pub multi_generation: bool,
+    /// The Full run holds several mutants (the compile-worker comparison's minimum).
+    pub several: bool,
+    /// A mutant refused before any test ran (Invalid or Equivalent).
+    pub refused: bool,
+}
+
+impl Contribution {
+    /// The contribution of the case's Full run.
+    pub fn observed(case: &Case<'_>, full: &Result<CampaignRun, CampaignFailure>) -> Self {
+        let mut contribution = Self {
+            protected: case.protected,
+            statuses: BTreeSet::new(),
+            coupled: false,
+            symbolic: false,
+            multi_generation: false,
+            several: false,
+            refused: false,
+        };
+        let Ok(run) = full else {
+            return contribution;
+        };
+        contribution.multi_generation = case.generations.len() > 1 && !run.mutants.is_empty();
+        for mutant in &run.mutants {
+            contribution
+                .statuses
+                .insert(format!("{:?}", mutant.report.status));
+            contribution.coupled |= mutant.written_sentences.len() > 1;
+            contribution.refused |= matches!(
+                mutant.report.status,
+                MutantStatus::Invalid | MutantStatus::Equivalent
+            );
+        }
+        contribution.several = run.mutants.len() > 1;
+        contribution.symbolic = !run.mutants.is_empty() && symbolic_tests(case);
+        contribution
+    }
+
+    /// The contribution the case declares through what it expects: its expected statuses
+    /// and its candidates' written sentences, without running it.
+    pub fn declared(case: &Case<'_>) -> Self {
+        let statuses = match &case.expected {
+            Expected::Refused(_) => Vec::new(),
+            Expected::Run { full, .. } => full.iter().map(|(status, _)| *status).collect(),
+            Expected::Statuses(statuses) => statuses.clone(),
+        };
+        let ran = !statuses.is_empty();
+        Self {
+            protected: case.protected,
+            statuses: statuses
+                .iter()
+                .map(|status| format!("{status:?}"))
+                .collect(),
+            coupled: ran
+                && case
+                    .generations
+                    .iter()
+                    .flat_map(CandidateGeneration::candidates)
+                    .any(|candidate| candidate.patch.written_sentences().len() > 1),
+            symbolic: ran && symbolic_tests(case),
+            multi_generation: ran && case.generations.len() > 1,
+            several: statuses.len() > 1,
+            refused: statuses
+                .iter()
+                .any(|status| matches!(status, MutantStatus::Invalid | MutantStatus::Equivalent)),
+        }
+    }
+}
+
+fn symbolic_tests(case: &Case<'_>) -> bool {
+    case.campaign
+        .tests
+        .iter()
+        .any(|test| !test.initial_state.variable_occurrences().is_empty())
+}
+
+/// What the set has been shown to contain, accumulated over its cases' contributions.
 #[derive(Default)]
 pub struct Coverage {
     names: BTreeSet<String>,
@@ -172,32 +259,31 @@ pub struct Coverage {
     coupled: bool,
     symbolic: bool,
     multi_generation: bool,
+    pub several: usize,
+    pub refused: bool,
 }
 
 impl Coverage {
-    pub fn record(&mut self, case: &Case<'_>, full: &Result<CampaignRun, CampaignFailure>) {
+    pub fn record(&mut self, case: &Case<'_>, contribution: Contribution) {
         assert!(
             self.names.insert(case.name.clone()),
             "duplicate case {}",
             case.name
         );
-        if let Some(protected) = case.protected {
+        if let Some(protected) = contribution.protected {
             self.protected.insert(protected);
         }
-        let Ok(run) = full else {
-            return;
-        };
-        self.multi_generation |= case.generations.len() > 1 && !run.mutants.is_empty();
-        for mutant in &run.mutants {
-            self.statuses.insert(format!("{:?}", mutant.report.status));
-            self.coupled |= mutant.written_sentences.len() > 1;
-        }
-        self.symbolic |= !run.mutants.is_empty()
-            && case
-                .campaign
-                .tests
-                .iter()
-                .any(|test| !test.initial_state.variable_occurrences().is_empty());
+        self.statuses.extend(contribution.statuses);
+        self.coupled |= contribution.coupled;
+        self.symbolic |= contribution.symbolic;
+        self.multi_generation |= contribution.multi_generation;
+        self.several += usize::from(contribution.several);
+        self.refused |= contribution.refused;
+    }
+
+    /// The case names recorded, in name order.
+    pub fn names(&self) -> &BTreeSet<String> {
+        &self.names
     }
 
     /// Fails unless the set contains every element F-01 deliverable 3 lists.
@@ -221,13 +307,67 @@ impl Coverage {
     }
 }
 
+/// The names of the set's cases, in the order [`representative_set`] builds them.
+pub const CASES: [&str; 19] = [
+    "S1 whole=true",
+    "K whole=true",
+    "S1 whole=false",
+    "K whole=false",
+    "Unknown: coherent value representation",
+    "Unknown: coherent value representation, ground test",
+    "C row 1b: valued",
+    "C row 1b: zero valued",
+    "C row 1b: guarded name swap",
+    "AS7(a): load as write",
+    "G",
+    "G: ground test",
+    "digit audit",
+    "EI-D2=b",
+    "Invalid, Killed, Survived: counter final result",
+    "Equivalent: anonymous clone",
+    "Error: crash against a normal result",
+    "multi-generation: counter catalogue and code",
+    "Timeout: nonterminating mutant",
+];
+
+/// Builds the one case of the set named `name` and hands it to `visit`, loading only the
+/// fixtures that case uses. Fails unless exactly one case has that name.
+pub fn representative_case(name: &str, visit: &mut dyn FnMut(&Case<'_>)) {
+    let want = |case: &str| case == name;
+    let mut visited = 0;
+    let mut one = |case: &Case<'_>| {
+        assert_eq!(case.name, name);
+        visited += 1;
+        visit(case);
+    };
+    let index = CASES
+        .iter()
+        .position(|case| *case == name)
+        .unwrap_or_else(|| panic!("no representative case {name}"));
+    match index {
+        0..=9 => symmem_cases(&want, &mut one),
+        10..=12 => guarded_cases(&want, &mut one),
+        13..=17 => counter_cases(&want, &mut one),
+        _ => timeout_case(&want, &mut one),
+    }
+    assert_eq!(visited, 1, "{name}");
+}
+
 /// Builds every case of the representative set in a fixed order and hands each to
 /// `visit`. This is the one place that names the set.
 pub fn representative_set(visit: &mut dyn FnMut(&Case<'_>)) {
-    symmem_cases(visit);
-    guarded_cases(visit);
-    counter_cases(visit);
-    timeout_case(visit);
+    let all = |_: &str| true;
+    symmem_cases(&all, visit);
+    guarded_cases(&all, visit);
+    counter_cases(&all, visit);
+    timeout_case(&all, visit);
+}
+
+/// Hands `case` to `visit` if `want` names it.
+fn offer(want: &dyn Fn(&str) -> bool, visit: &mut dyn FnMut(&Case<'_>), case: Case<'_>) {
+    if want(&case.name) {
+        visit(&case);
+    }
 }
 
 // ---------------------------------------------------------------- shared builders
@@ -759,61 +899,83 @@ fn coupled(baseline: &Baseline, value: bool) -> CandidateGeneration<'_> {
     generation
 }
 
-fn symmem_cases(visit: &mut dyn FnMut(&Case<'_>)) {
+fn symmem_cases(want: &dyn Fn(&str) -> bool, visit: &mut dyn FnMut(&Case<'_>)) {
     use MutantStatus::{Killed, Survived, Unknown};
     for whole in [true, false] {
+        if !want(&format!("S1 whole={whole}")) && !want(&format!("K whole={whole}")) {
+            continue;
+        }
         let fixture = Symmem::new(whole);
         let baseline = fixture.validator.baseline();
-        visit(&Case {
-            name: format!("S1 whole={whole}"),
-            origin: "coupled.rs::single_site_release_is_killed_by_its_trace",
-            protected: Some("S1"),
-            campaign: fixture.campaign(&fixture.tests),
-            generations: vec![release_after_write(baseline)],
-            expected: run(vec![(
-                Killed,
-                vec!["ground-shared", "sym-shared", "sym-distinct"],
-            )]),
-            wall_clock_bound: false,
-        });
-        visit(&Case {
-            name: format!("K whole={whole}"),
-            origin: "coupled.rs::coupled_release_is_one_mutant_killed_by_its_trace",
-            protected: Some("K"),
-            campaign: fixture.campaign(&fixture.tests),
-            generations: vec![coupled(baseline, false)],
-            expected: run(vec![(
-                Killed,
-                if whole {
-                    vec!["ground-shared", "sym-shared", "sym-distinct"]
-                } else {
-                    vec!["ground-shared", "sym-shared", "sym-distinct", "sym-clash"]
-                },
-            )]),
-            wall_clock_bound: false,
-        });
+        offer(
+            want,
+            visit,
+            Case {
+                name: format!("S1 whole={whole}"),
+                origin: "coupled.rs::single_site_release_is_killed_by_its_trace",
+                protected: Some("S1"),
+                campaign: fixture.campaign(&fixture.tests),
+                generations: vec![release_after_write(baseline)],
+                expected: run(vec![(
+                    Killed,
+                    vec!["ground-shared", "sym-shared", "sym-distinct"],
+                )]),
+                wall_clock_bound: false,
+            },
+        );
+        offer(
+            want,
+            visit,
+            Case {
+                name: format!("K whole={whole}"),
+                origin: "coupled.rs::coupled_release_is_one_mutant_killed_by_its_trace",
+                protected: Some("K"),
+                campaign: fixture.campaign(&fixture.tests),
+                generations: vec![coupled(baseline, false)],
+                expected: run(vec![(
+                    Killed,
+                    if whole {
+                        vec!["ground-shared", "sym-shared", "sym-distinct"]
+                    } else {
+                        vec!["ground-shared", "sym-shared", "sym-distinct", "sym-clash"]
+                    },
+                )]),
+                wall_clock_bound: false,
+            },
+        );
     }
 
+    if !CASES[4..10].iter().any(|name| want(name)) {
+        return;
+    }
     let fixture = Symmem::new(true);
     let baseline = fixture.validator.baseline();
-    visit(&Case {
-        name: "Unknown: coherent value representation".into(),
-        origin: "coupled.rs::coherent_value_representation_is_not_killed",
-        protected: None,
-        campaign: fixture.campaign(&fixture.tests),
-        generations: vec![coupled(baseline, true)],
-        expected: run(vec![(Unknown, vec![])]),
-        wall_clock_bound: false,
-    });
-    visit(&Case {
-        name: "Unknown: coherent value representation, ground test".into(),
-        origin: "coupled.rs::coherent_value_representation_is_not_killed",
-        protected: None,
-        campaign: fixture.campaign(&fixture.tests[..1]),
-        generations: vec![coupled(baseline, true)],
-        expected: run(vec![(Survived, vec![])]),
-        wall_clock_bound: false,
-    });
+    offer(
+        want,
+        visit,
+        Case {
+            name: "Unknown: coherent value representation".into(),
+            origin: "coupled.rs::coherent_value_representation_is_not_killed",
+            protected: None,
+            campaign: fixture.campaign(&fixture.tests),
+            generations: vec![coupled(baseline, true)],
+            expected: run(vec![(Unknown, vec![])]),
+            wall_clock_bound: false,
+        },
+    );
+    offer(
+        want,
+        visit,
+        Case {
+            name: "Unknown: coherent value representation, ground test".into(),
+            origin: "coupled.rs::coherent_value_representation_is_not_killed",
+            protected: None,
+            campaign: fixture.campaign(&fixture.tests[..1]),
+            generations: vec![coupled(baseline, true)],
+            expected: run(vec![(Survived, vec![])]),
+            wall_clock_bound: false,
+        },
+    );
 
     // C row 1b: audit A6, all three of its campaigns.
     let valued = [case(
@@ -828,15 +990,19 @@ fn symmem_cases(visit: &mut dyn FnMut(&Case<'_>)) {
             true,
         )],
     )];
-    visit(&Case {
-        name: "C row 1b: valued".into(),
-        origin: "coupled.rs::audit_a6_name_kept_meaning_change_is_not_killed",
-        protected: Some("C row 1b"),
-        campaign: fixture.campaign(&valued),
-        generations: vec![coupled(baseline, true)],
-        expected: run(vec![(Survived, vec![])]),
-        wall_clock_bound: false,
-    });
+    offer(
+        want,
+        visit,
+        Case {
+            name: "C row 1b: valued".into(),
+            origin: "coupled.rs::audit_a6_name_kept_meaning_change_is_not_killed",
+            protected: Some("C row 1b"),
+            campaign: fixture.campaign(&valued),
+            generations: vec![coupled(baseline, true)],
+            expected: run(vec![(Survived, vec![])]),
+            wall_clock_bound: false,
+        },
+    );
     let zero_valued = [case(
         "ground-zero-value",
         state(addr(z()), z(), addr(z()), z()),
@@ -845,46 +1011,56 @@ fn symmem_cases(visit: &mut dyn FnMut(&Case<'_>)) {
             binds(&fixture.vocabulary, "memoryWrite", 1, "V", "SortNat", true),
         ],
     )];
-    visit(&Case {
-        name: "C row 1b: zero valued".into(),
-        origin: "coupled.rs::audit_a6_name_kept_meaning_change_is_not_killed",
-        protected: Some("C row 1b"),
-        campaign: fixture.campaign(&zero_valued),
-        generations: vec![coupled(baseline, true)],
-        expected: run(vec![(Killed, vec!["ground-zero-value"])]),
-        wall_clock_bound: false,
-    });
-    let guarded = Guarded::new();
-    let guarded_baseline = guarded.validator.baseline();
-    let swap = Patch::new(vec![
-        renamed(guarded_baseline, "GUARDEDMEM.write", &[0], "A", "V"),
-        renamed(guarded_baseline, "GUARDEDMEM.write", &[1], "A", "V"),
-    ])
-    .expect("patch");
-    let distinct_values = [case(
-        "ground-distinct-values",
-        state(
-            addr(support::int(1)),
-            support::int(5),
-            addr(support::int(1)),
-            support::int(7),
-        ),
-        &guarded.tests[1].oracles,
-    )];
-    visit(&Case {
-        name: "C row 1b: guarded name swap".into(),
-        origin: "coupled.rs::audit_a6_name_kept_meaning_change_is_not_killed",
-        protected: Some("C row 1b"),
-        campaign: guarded.campaign(&distinct_values),
-        generations: vec![fixed(
-            guarded_baseline,
-            &[("GUARDEDMEM.write", &[0])],
-            "swap-names",
-            &swap,
-        )],
-        expected: run(vec![(Survived, vec![])]),
-        wall_clock_bound: false,
-    });
+    offer(
+        want,
+        visit,
+        Case {
+            name: "C row 1b: zero valued".into(),
+            origin: "coupled.rs::audit_a6_name_kept_meaning_change_is_not_killed",
+            protected: Some("C row 1b"),
+            campaign: fixture.campaign(&zero_valued),
+            generations: vec![coupled(baseline, true)],
+            expected: run(vec![(Killed, vec!["ground-zero-value"])]),
+            wall_clock_bound: false,
+        },
+    );
+    if want("C row 1b: guarded name swap") {
+        let guarded = Guarded::new();
+        let guarded_baseline = guarded.validator.baseline();
+        let swap = Patch::new(vec![
+            renamed(guarded_baseline, "GUARDEDMEM.write", &[0], "A", "V"),
+            renamed(guarded_baseline, "GUARDEDMEM.write", &[1], "A", "V"),
+        ])
+        .expect("patch");
+        let distinct_values = [case(
+            "ground-distinct-values",
+            state(
+                addr(support::int(1)),
+                support::int(5),
+                addr(support::int(1)),
+                support::int(7),
+            ),
+            &guarded.tests[1].oracles,
+        )];
+        offer(
+            want,
+            visit,
+            Case {
+                name: "C row 1b: guarded name swap".into(),
+                origin: "coupled.rs::audit_a6_name_kept_meaning_change_is_not_killed",
+                protected: Some("C row 1b"),
+                campaign: guarded.campaign(&distinct_values),
+                generations: vec![fixed(
+                    guarded_baseline,
+                    &[("GUARDEDMEM.write", &[0])],
+                    "swap-names",
+                    &swap,
+                )],
+                expected: run(vec![(Survived, vec![])]),
+                wall_clock_bound: false,
+            },
+        );
+    }
 
     // AS7(a): the load operation replaced by the write operation.
     let load_as_write = Patch::new(vec![replaced(
@@ -894,20 +1070,24 @@ fn symmem_cases(visit: &mut dyn FnMut(&Case<'_>)) {
         term(baseline, "SYMMEM.write", &[0, 0, 0]),
     )])
     .expect("patch");
-    visit(&Case {
-        name: "AS7(a): load as write".into(),
-        origin: "coupled.rs::audit_ks_as7_anchoring_fails_closed",
-        protected: Some("AS7(a)"),
-        campaign: fixture.campaign(&fixture.tests),
-        generations: vec![fixed(
-            baseline,
-            &[("SYMMEM.load", &[0, 0, 0])],
-            "load-as-write",
-            &load_as_write,
-        )],
-        expected: run(vec![(Killed, vec!["ground-shared"])]),
-        wall_clock_bound: false,
-    });
+    offer(
+        want,
+        visit,
+        Case {
+            name: "AS7(a): load as write".into(),
+            origin: "coupled.rs::audit_ks_as7_anchoring_fails_closed",
+            protected: Some("AS7(a)"),
+            campaign: fixture.campaign(&fixture.tests),
+            generations: vec![fixed(
+                baseline,
+                &[("SYMMEM.load", &[0, 0, 0])],
+                "load-as-write",
+                &load_as_write,
+            )],
+            expected: run(vec![(Killed, vec!["ground-shared"])]),
+            wall_clock_bound: false,
+        },
+    );
 }
 
 // ---------------------------------------------------------------- guardedmem.k (coupled.rs)
@@ -1023,38 +1203,46 @@ fn inverted_load_sign(baseline: &Baseline) -> CandidateGeneration<'_> {
     generation
 }
 
-fn guarded_cases(visit: &mut dyn FnMut(&Case<'_>)) {
+fn guarded_cases(want: &dyn Fn(&str) -> bool, visit: &mut dyn FnMut(&Case<'_>)) {
     use MutantStatus::Killed;
     let fixture = Guarded::new();
     let baseline = fixture.validator.baseline();
     let refused = Expected::Refused(CampaignFailureKind::BaselineOracleFailed);
-    visit(&Case {
-        name: "G".into(),
-        origin: "coupled.rs::inverted_load_sign_is_killed_by_a_solver_unsat",
-        protected: Some("G"),
-        campaign: fixture.campaign(&fixture.tests),
-        generations: vec![inverted_load_sign(baseline)],
-        expected: if cfg!(feature = "z3") {
-            Expected::Run {
-                full: vec![(Killed, vec!["sym-guarded", "ground-guarded"])],
-                first_kill: Some(vec![(Killed, vec!["sym-guarded"])]),
-            }
-        } else {
-            Expected::Refused(CampaignFailureKind::BaselineOracleFailed)
+    offer(
+        want,
+        visit,
+        Case {
+            name: "G".into(),
+            origin: "coupled.rs::inverted_load_sign_is_killed_by_a_solver_unsat",
+            protected: Some("G"),
+            campaign: fixture.campaign(&fixture.tests),
+            generations: vec![inverted_load_sign(baseline)],
+            expected: if cfg!(feature = "z3") {
+                Expected::Run {
+                    full: vec![(Killed, vec!["sym-guarded", "ground-guarded"])],
+                    first_kill: Some(vec![(Killed, vec!["sym-guarded"])]),
+                }
+            } else {
+                Expected::Refused(CampaignFailureKind::BaselineOracleFailed)
+            },
+            wall_clock_bound: false,
         },
-        wall_clock_bound: false,
-    });
+    );
     // The original runs the ground campaign without Z3 only (Full); the Z3 column and
     // FirstKill of this one-test campaign are measured.
-    visit(&Case {
-        name: "G: ground test".into(),
-        origin: "coupled.rs::inverted_load_sign_is_killed_by_a_solver_unsat",
-        protected: Some("G"),
-        campaign: fixture.campaign(&fixture.tests[1..]),
-        generations: vec![inverted_load_sign(baseline)],
-        expected: run_both(vec![(Killed, vec!["ground-guarded"])]),
-        wall_clock_bound: false,
-    });
+    offer(
+        want,
+        visit,
+        Case {
+            name: "G: ground test".into(),
+            origin: "coupled.rs::inverted_load_sign_is_killed_by_a_solver_unsat",
+            protected: Some("G"),
+            campaign: fixture.campaign(&fixture.tests[1..]),
+            generations: vec![inverted_load_sign(baseline)],
+            expected: run_both(vec![(Killed, vec!["ground-guarded"])]),
+            wall_clock_bound: false,
+        },
+    );
     let int = |name: &str| support::var(name, "SortInt");
     let digit_tests = [
         case(
@@ -1064,22 +1252,26 @@ fn guarded_cases(visit: &mut dyn FnMut(&Case<'_>)) {
         ),
         fixture.tests[1].clone(),
     ];
-    visit(&Case {
-        name: "digit audit".into(),
-        origin: "coupled.rs::audit_vi_digit_suffixed_initial_names_are_stable",
-        protected: Some("digit audit"),
-        campaign: fixture.campaign(&digit_tests),
-        generations: vec![inverted_load_sign(baseline)],
-        expected: if cfg!(feature = "z3") {
-            Expected::Run {
-                full: vec![(Killed, vec!["sym-guarded-1", "ground-guarded"])],
-                first_kill: Some(vec![(Killed, vec!["sym-guarded-1"])]),
-            }
-        } else {
-            refused
+    offer(
+        want,
+        visit,
+        Case {
+            name: "digit audit".into(),
+            origin: "coupled.rs::audit_vi_digit_suffixed_initial_names_are_stable",
+            protected: Some("digit audit"),
+            campaign: fixture.campaign(&digit_tests),
+            generations: vec![inverted_load_sign(baseline)],
+            expected: if cfg!(feature = "z3") {
+                Expected::Run {
+                    full: vec![(Killed, vec!["sym-guarded-1", "ground-guarded"])],
+                    first_kill: Some(vec![(Killed, vec!["sym-guarded-1"])]),
+                }
+            } else {
+                refused
+            },
+            wall_clock_bound: false,
         },
-        wall_clock_bound: false,
-    });
+    );
 }
 
 // ---------------------------------------------------------------- counter.k (end_to_end.rs, multi_operator.rs)
@@ -1162,7 +1354,7 @@ fn attribute_code(b: &Baseline) -> CandidateGeneration<'_> {
         .expect("generation")
 }
 
-fn counter_cases(visit: &mut dyn FnMut(&Case<'_>)) {
+fn counter_cases(want: &dyn Fn(&str) -> bool, visit: &mut dyn FnMut(&Case<'_>)) {
     use MutantStatus::{Equivalent, Error, Invalid, Killed, Survived};
     let validator = NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
     let baseline = validator.baseline();
@@ -1209,15 +1401,19 @@ fn counter_cases(visit: &mut dyn FnMut(&Case<'_>)) {
         TermRef::new(support::rule(baseline, "COUNTER.increment"), [0]),
         Patch::new(vec![doubled(&[0, 0, 1]), doubled(&[0, 1, 0])]).expect("two edits"),
     );
-    visit(&Case {
-        name: "EI-D2=b".into(),
-        origin: "end_to_end.rs::counter_campaign_kills_by_pattern_with_unchanged_final_result_over_a_proved_difference",
-        protected: Some("EI-D2=b"),
-        campaign: counter_campaign(&validator, &specs, &normal, &two),
-        generations: vec![generation(baseline, &[by_two])],
-        expected: run_both(vec![(Killed, vec!["two"])]),
-        wall_clock_bound: false,
-    });
+    offer(
+        want,
+        visit,
+        Case {
+            name: "EI-D2=b".into(),
+            origin: "end_to_end.rs::counter_campaign_kills_by_pattern_with_unchanged_final_result_over_a_proved_difference",
+            protected: Some("EI-D2=b"),
+            campaign: counter_campaign(&validator, &specs, &normal, &two),
+            generations: vec![generation(baseline, &[by_two])],
+            expected: run_both(vec![(Killed, vec!["two"])]),
+            wall_clock_bound: false,
+        },
+    );
 
     // Invalid, Killed and Survived in one campaign.
     let t1_t2 = [
@@ -1251,28 +1447,32 @@ fn counter_cases(visit: &mut dyn FnMut(&Case<'_>)) {
         replace(baseline, "COUNTER.branch", &[1], bool_token("false")),
         replace(baseline, "COUNTER.fallback", &[0, 1, 0], bool_token("true")),
     ];
-    visit(&Case {
-        name: "Invalid, Killed, Survived: counter final result".into(),
-        origin: "end_to_end.rs::counter_campaign_kills_by_final_result_and_not_by_rule_identity",
-        protected: None,
-        campaign: counter_campaign(&validator, &specs, &normal, &t1_t2),
-        generations: vec![generation(baseline, &mutants)],
-        expected: Expected::Run {
-            full: vec![
-                (Invalid, vec![]),
-                (Killed, vec!["t1"]),
-                (Survived, vec![]),
-                (Survived, vec![]),
-            ],
-            first_kill: Some(vec![
-                (Invalid, vec![]),
-                (Killed, vec!["t1"]),
-                (Survived, vec![]),
-                (Survived, vec![]),
-            ]),
+    offer(
+        want,
+        visit,
+        Case {
+            name: "Invalid, Killed, Survived: counter final result".into(),
+            origin: "end_to_end.rs::counter_campaign_kills_by_final_result_and_not_by_rule_identity",
+            protected: None,
+            campaign: counter_campaign(&validator, &specs, &normal, &t1_t2),
+            generations: vec![generation(baseline, &mutants)],
+            expected: Expected::Run {
+                full: vec![
+                    (Invalid, vec![]),
+                    (Killed, vec!["t1"]),
+                    (Survived, vec![]),
+                    (Survived, vec![]),
+                ],
+                first_kill: Some(vec![
+                    (Invalid, vec![]),
+                    (Killed, vec!["t1"]),
+                    (Survived, vec![]),
+                    (Survived, vec![]),
+                ]),
+            },
+            wall_clock_bound: false,
         },
-        wall_clock_bound: false,
-    });
+    );
 
     // Equivalent: an anonymous clone of `increment`.
     let rule = support::rule(baseline, "COUNTER.increment");
@@ -1299,15 +1499,19 @@ fn counter_cases(visit: &mut dyn FnMut(&Case<'_>)) {
     }])
     .expect("patch");
     let increment_test = [case("increment", counter_state(), &[whole_term()])];
-    visit(&Case {
-        name: "Equivalent: anonymous clone".into(),
-        origin: "end_to_end.rs::anonymous_clone_of_observed_rule_is_equivalent",
-        protected: None,
-        campaign: counter_campaign(&validator, &specs, &normal, &increment_test),
-        generations: vec![generation(baseline, &[(TermRef::new(rule, [0]), insert)])],
-        expected: run(vec![(Equivalent, vec![])]),
-        wall_clock_bound: false,
-    });
+    offer(
+        want,
+        visit,
+        Case {
+            name: "Equivalent: anonymous clone".into(),
+            origin: "end_to_end.rs::anonymous_clone_of_observed_rule_is_equivalent",
+            protected: None,
+            campaign: counter_campaign(&validator, &specs, &normal, &increment_test),
+            generations: vec![generation(baseline, &[(TermRef::new(rule, [0]), insert)])],
+            expected: run(vec![(Equivalent, vec![])]),
+            wall_clock_bound: false,
+        },
+    );
 
     // Error: no replaced copy produced it (handoff F-01), so the set adds this campaign.
     // The baseline ends normally in `selected(true)`; the mutant ends in `selected(false)`,
@@ -1315,15 +1519,19 @@ fn counter_cases(visit: &mut dyn FnMut(&Case<'_>)) {
     // normal value is Incomparable, which folds to Error, never to a kill.
     let choose = [case("choose", choose_state(), &[whole_term()])];
     let select_false = replace(baseline, "COUNTER.branch", &[0, 1, 0], bool_token("false"));
-    visit(&Case {
-        name: "Error: crash against a normal result".into(),
-        origin: "representative/mod.rs (constructed for F-01; status rule of campaign.rs)",
-        protected: None,
-        campaign: counter_campaign(&validator, &[], &false_selection_is_a_crash, &choose),
-        generations: vec![generation(baseline, &[select_false])],
-        expected: run_both(vec![(Error, vec![])]),
-        wall_clock_bound: false,
-    });
+    offer(
+        want,
+        visit,
+        Case {
+            name: "Error: crash against a normal result".into(),
+            origin: "representative/mod.rs (constructed for F-01; status rule of campaign.rs)",
+            protected: None,
+            campaign: counter_campaign(&validator, &[], &false_selection_is_a_crash, &choose),
+            generations: vec![generation(baseline, &[select_false])],
+            expected: run_both(vec![(Error, vec![])]),
+            wall_clock_bound: false,
+        },
+    );
 
     // Multi-generation: three catalogue specs and a code operator over one campaign.
     let universe = resolve_universe(baseline, &Universe::v1());
@@ -1350,24 +1558,28 @@ fn counter_cases(visit: &mut dyn FnMut(&Case<'_>)) {
     ];
     let mut multi_budget = counter_campaign(&validator, &multi_specs, &normal, &multi_tests);
     multi_budget.budget.max_depth = Some(32);
-    visit(&Case {
-        name: "multi-generation: counter catalogue and code".into(),
-        origin: "multi_operator.rs::mixed_generations_equal_single_runs_and_replay_manifest_specs",
-        protected: None,
-        campaign: multi_budget,
-        generations,
-        // Measured at 47e9285 in both profiles (THROWAWAY_STATUS census, handoff F-01):
-        // cond-true, cond-false and delete-rule over counter.k, then the rejected attribute.
-        expected: Expected::Statuses(vec![
-            Survived, Killed, Survived, Survived, Killed, Survived, Survived, Invalid,
-        ]),
-        wall_clock_bound: false,
-    });
+    offer(
+        want,
+        visit,
+        Case {
+            name: "multi-generation: counter catalogue and code".into(),
+            origin: "multi_operator.rs::mixed_generations_equal_single_runs_and_replay_manifest_specs",
+            protected: None,
+            campaign: multi_budget,
+            generations,
+            // Measured at 47e9285 in both profiles (THROWAWAY_STATUS census, handoff F-01):
+            // cond-true, cond-false and delete-rule over counter.k, then the rejected attribute.
+            expected: Expected::Statuses(vec![
+                Survived, Killed, Survived, Survived, Killed, Survived, Survived, Invalid,
+            ]),
+            wall_clock_bound: false,
+        },
+    );
 }
 
 // ---------------------------------------------------------------- nd.k (end_to_end.rs)
 
-fn timeout_case(visit: &mut dyn FnMut(&Case<'_>)) {
+fn timeout_case(want: &dyn Fn(&str) -> bool, visit: &mut dyn FnMut(&Case<'_>)) {
     let validator = NativeValidator::bind(support::load("nd.k"), CompileOptions::default());
     let baseline = validator.baseline();
     let tests = [case(
@@ -1382,23 +1594,27 @@ fn timeout_case(visit: &mut dyn FnMut(&Case<'_>)) {
         &[0, 1],
         term(baseline, "ND.spin", &[0, 1]),
     );
-    visit(&Case {
-        name: "Timeout: nonterminating mutant".into(),
-        origin: "end_to_end.rs::nonterminating_mutant_is_a_timeout",
-        protected: None,
-        campaign: Campaign {
-            validator: &validator,
-            module: "ND",
-            observation: &[],
-            classify: &normal,
-            tests: &tests,
-            budget: ExecutionBudget {
-                time: Duration::from_secs(2),
-                ..BUDGET
+    offer(
+        want,
+        visit,
+        Case {
+            name: "Timeout: nonterminating mutant".into(),
+            origin: "end_to_end.rs::nonterminating_mutant_is_a_timeout",
+            protected: None,
+            campaign: Campaign {
+                validator: &validator,
+                module: "ND",
+                observation: &[],
+                classify: &normal,
+                tests: &tests,
+                budget: ExecutionBudget {
+                    time: Duration::from_secs(2),
+                    ..BUDGET
+                },
             },
+            generations: vec![generation(baseline, &[spin])],
+            expected: run(vec![(MutantStatus::Timeout, vec![])]),
+            wall_clock_bound: true,
         },
-        generations: vec![generation(baseline, &[spin])],
-        expected: run(vec![(MutantStatus::Timeout, vec![])]),
-        wall_clock_bound: true,
-    });
+    );
 }

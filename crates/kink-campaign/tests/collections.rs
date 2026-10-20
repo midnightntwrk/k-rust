@@ -242,51 +242,57 @@ fn row(
         }
     }
 }
-#[test]
-fn c1_c4_collection_campaign_rows() {
-    std::thread::Builder::new()
-        .stack_size(64 << 20)
-        .spawn(|| {
-            let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-            use OracleOutcome::{Agree as A, Distinguish as D, Unknown as U};
-            row(
-                "C1",
-                &root.join("testdata/flow/map-store/map-store.k"),
-                "MAP-STORE",
-                ("MAP-STORE-SYNTAX", "Stmt"),
-                "MAP-STORE.store",
-                "store(1, 2)",
-                Some((MutantStatus::Killed, vec![A, D])),
-            );
-            row(
-                "C2",
-                &root.join("testdata/k/collstore.k"),
-                "COLLSTORE",
-                ("COLLSTORE-SYNTAX", "Prog"),
-                "COLLSTORE.putTwo",
-                "putTwo(1, 10, 2, 20)",
-                Some((MutantStatus::Survived, vec![A, A])),
-            );
-            row(
-                "C3",
-                &root.join("testdata/k/collstore.k"),
-                "COLLSTORE",
-                ("COLLSTORE-SYNTAX", "Prog"),
-                "COLLSTORE.f0",
-                "fKey(0)",
-                Some((MutantStatus::Unknown, vec![U, U])),
-            );
-            row(
-                "C4",
-                &root.join("testdata/k/b1coll.k"),
-                "B1COLL",
-                ("B1COLL-SYNTAX", "Prog"),
-                "B1COLL.start",
-                "start(1)",
-                None,
-            );
-        })
-        .unwrap()
-        .join()
-        .unwrap();
+
+mod kink_tier {
+    use super::*;
+
+    #[test]
+    #[ignore = "kink"]
+    fn c1_c4_collection_campaign_rows() {
+        std::thread::Builder::new()
+            .stack_size(64 << 20)
+            .spawn(|| {
+                let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+                use OracleOutcome::{Agree as A, Distinguish as D, Unknown as U};
+                row(
+                    "C1",
+                    &root.join("testdata/flow/map-store/map-store.k"),
+                    "MAP-STORE",
+                    ("MAP-STORE-SYNTAX", "Stmt"),
+                    "MAP-STORE.store",
+                    "store(1, 2)",
+                    Some((MutantStatus::Killed, vec![A, D])),
+                );
+                row(
+                    "C2",
+                    &root.join("testdata/k/collstore.k"),
+                    "COLLSTORE",
+                    ("COLLSTORE-SYNTAX", "Prog"),
+                    "COLLSTORE.putTwo",
+                    "putTwo(1, 10, 2, 20)",
+                    Some((MutantStatus::Survived, vec![A, A])),
+                );
+                row(
+                    "C3",
+                    &root.join("testdata/k/collstore.k"),
+                    "COLLSTORE",
+                    ("COLLSTORE-SYNTAX", "Prog"),
+                    "COLLSTORE.f0",
+                    "fKey(0)",
+                    Some((MutantStatus::Unknown, vec![U, U])),
+                );
+                row(
+                    "C4",
+                    &root.join("testdata/k/b1coll.k"),
+                    "B1COLL",
+                    ("B1COLL-SYNTAX", "Prog"),
+                    "B1COLL.start",
+                    "start(1)",
+                    None,
+                );
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
 }

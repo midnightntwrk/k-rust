@@ -2837,84 +2837,6 @@ mod input_test_support;
 mod tests {
     use super::*;
 
-    /// The module is a key component of a stored baseline run (flow F-12): on the same baseline
-    /// `Runtime`, a request under another module misses and runs live; the same request again is
-    /// a hit. (No fixture has a second executable module, so the integration tests in
-    /// tests/session.rs cannot vary it through a campaign.)
-    #[test]
-    fn a_session_key_holds_the_module() {
-        std::thread::Builder::new()
-            .stack_size(16 * 1024 * 1024)
-            .spawn(|| {
-                let validator = NativeValidator::bind(
-                    input_test_support::load_path(
-                        &std::path::Path::new(input_test_support::DIR).join("counter.k"),
-                        "COUNTER",
-                    ),
-                    k_rust::kompile::CompileOptions::default(),
-                );
-                let compiled = validator.compile_baseline().unwrap();
-                let classify: &dyn Fn(&Pattern) -> ExecutionTerminalKind =
-                    &|_| ExecutionTerminalKind::Normal;
-                let z = || input_test_support::app("Lblz", vec![]);
-                let test = TestCase {
-                    id: "t".into(),
-                    initial_state: input_test_support::initial_state(
-                        input_test_support::app(
-                            "Lblcounter",
-                            vec![z(), input_test_support::app("Lbls", vec![z()])],
-                        ),
-                        "SortCounter",
-                    ),
-                    oracles: vec![
-                        OracleDeclaration::new(
-                            CrashPolicy::Reject,
-                            Projection::State(StateProjection::WholeTerm),
-                        )
-                        .unwrap(),
-                    ],
-                };
-                let tests = [test];
-                let campaign = |module| Campaign {
-                    validator: &validator,
-                    module,
-                    observation: &[],
-                    classify,
-                    tests: &tests,
-                    budget: ExecutionBudget {
-                        time: std::time::Duration::from_secs(30),
-                        max_depth: None,
-                        max_simplification_iterations: 1000,
-                        max_breadth: None,
-                    },
-                };
-                let counter = campaign("COUNTER");
-                let other = campaign("COUNTER-OTHER");
-                let mut runtime = Runtime::prepare(&counter, &compiled)
-                    .unwrap_or_else(|_| panic!("baseline runtime"));
-                let mut session = BaselineSession::new(&validator);
-                assert!(BaselineSession::memoises(&counter) && BaselineSession::memoises(&other));
-                let first = session.baseline_run(&mut runtime, &counter, &tests[0], true);
-                assert_eq!((session.live_runs(), session.reused_runs()), (1, 0));
-                let moved = session.baseline_run(&mut runtime, &other, &tests[0], true);
-                assert_eq!((session.live_runs(), session.reused_runs()), (2, 0));
-                assert_eq!(moved.0, first.0, "the same runtime gives the same evidence");
-                session.baseline_run(&mut runtime, &other, &tests[0], true);
-                session.baseline_run(&mut runtime, &counter, &tests[0], true);
-                assert_eq!(
-                    (
-                        session.live_runs(),
-                        session.reused_runs(),
-                        session.stored_runs()
-                    ),
-                    (2, 2, 2)
-                );
-            })
-            .unwrap()
-            .join()
-            .unwrap();
-    }
-
     /// Re-pin R0b deliverables 1, 2, 7 and 9: `judge` gives an excluded run no side for any
     /// slot (`SideRun::Failed` with the exclusion), on a live run and on a run a baseline session
     /// reuses alike, before any evidence leaves the runner: a run that counted a stack stop, a
@@ -3424,101 +3346,6 @@ mod tests {
             .unwrap();
     }
 
-    /// Re-pin R0c deliverable 1 (R0b review 1 major 1, the reviewer's probe): every call prepares
-    /// its own baseline `Runtime`, and so its own load. A baseline run whose load counted a stack
-    /// stop is excluded in its call; a later call whose own load is clean must not admit it.
-    /// Before R0c the session stored the run and judged it again on call 2's clean load alone,
-    /// which admitted it (`SideRun::Sides`, `Accepted`). Now only its exclusion is stored, and
-    /// call 2's request is answered with it.
-    #[test]
-    fn a_reused_baseline_of_a_stopped_load_is_refused() {
-        let z = || input_test_support::app("Lblz", vec![]);
-        let program = input_test_support::app(
-            "Lblcounter",
-            vec![z(), input_test_support::app("Lbls", vec![z()])],
-        );
-        with_one_test(
-            "counter.k",
-            "COUNTER",
-            program,
-            "SortCounter",
-            |validator, compiled, campaign| {
-                let test = &campaign.tests[0];
-                let mut session = BaselineSession::new(validator);
-                // Call 1: its load counted a stack stop.
-                let mut first = Runtime::prepare(campaign, compiled).unwrap_or_else(|_| panic!());
-                first.exclusions.load_stack_stops = 1;
-                let (e1, _) = session.baseline_run(&mut first, campaign, test, true);
-                assert_eq!(e1.run, SideRun::Failed(ExecutionFailureKind::LoadStackStop));
-                // Call 2: a clean load; the request is answered from the session, with call 1's
-                // exclusion, and admission refuses it.
-                let mut second = Runtime::prepare(campaign, compiled).unwrap_or_else(|_| panic!());
-                assert_eq!(second.exclusions.definition_exclusion(), None);
-                let (e2, _) = session.baseline_run(&mut second, campaign, test, true);
-                assert_eq!(
-                    (
-                        session.live_runs(),
-                        session.reused_runs(),
-                        session.stored_runs()
-                    ),
-                    (1, 1, 1)
-                );
-                assert_eq!(e2.run, SideRun::Failed(ExecutionFailureKind::LoadStackStop));
-                assert_eq!(
-                    admit(campaign.tests, std::slice::from_ref(&e2)),
-                    BaselineAdmission::OracleFailed
-                );
-                // The same request on a fresh session and call 2's clean load is evidence.
-                let (fresh, _) =
-                    BaselineSession::new(validator).baseline_run(&mut second, campaign, test, true);
-                assert!(
-                    matches!(fresh.run, SideRun::Sides { .. }),
-                    "{:?}",
-                    fresh.run
-                );
-            },
-        );
-    }
-
-    /// Re-pin R0c deliverable 1: a stored baseline run is judged under the load facts of the
-    /// load that produced it combined with the requesting call's. Call 1's load holds an axiom
-    /// rooted at a collection role symbol (finding C-10, set here as the load would report it),
-    /// so the run's List terminal `keys(ListItem(3))` has no value; call 2's load is clean, and
-    /// the reused run still has none. The same execution judged on call 2's load alone is a value.
-    #[test]
-    fn a_reused_baseline_is_judged_under_its_producing_load() {
-        let program = input_test_support::app("Lblstart", vec![input_test_support::int(3)]);
-        with_one_test(
-            "r0b/keysfree.k",
-            "KEYSFREE",
-            program,
-            "SortProg",
-            |validator, compiled, campaign| {
-                let test = &campaign.tests[0];
-                let mut session = BaselineSession::new(validator);
-                let mut first = Runtime::prepare(campaign, compiled).unwrap_or_else(|_| panic!());
-                first.exclusions.role_rooted_axioms = vec!["a role-rooted equation".into()];
-                let unknown = SideRun::Sides {
-                    sides: vec![OracleSide::Unknown],
-                };
-                let (e1, _) = session.baseline_run(&mut first, campaign, test, true);
-                assert_eq!(e1.run, unknown);
-                let mut second = Runtime::prepare(campaign, compiled).unwrap_or_else(|_| panic!());
-                assert!(second.exclusions.collections_trusted());
-                let (e2, _) = session.baseline_run(&mut second, campaign, test, true);
-                assert_eq!((session.live_runs(), session.reused_runs()), (1, 1));
-                assert_eq!(e2.run, unknown);
-                let StoredRun::Executed { executed, .. } = &session.runs[0].run else {
-                    panic!("a clean-census load's run is stored")
-                };
-                assert!(matches!(
-                    second.judge(campaign, test, executed).run,
-                    SideRun::Sides { ref sides } if matches!(sides.as_slice(), [OracleSide::Normal(_)])
-                ));
-            },
-        );
-    }
-
     /// Re-pin R0c deliverable 4 (R0b review 1 minor; finding A-12): `run_tests` passes the
     /// mutant's own runtime to `step_sides`, so the mutant's leaves are admitted, and their
     /// feasibility and relations decided, on the mutant's definition. `r0c/a12partial.k` and
@@ -3683,192 +3510,6 @@ mod tests {
                     );
                 } else {
                     assert_eq!(evidence[0].run, unknown);
-                }
-            })
-            .unwrap()
-            .join()
-            .unwrap();
-    }
-
-    /// Equal patched KORE does not identify the mutant's claim-free side: an equation metadata
-    /// edit still withdraws claims whose support it touched, while the transition-only twin does
-    /// not, so the two run on different definitions (re-pin R0c-fix-2: every test runs on the
-    /// claim-free mutant).
-    #[test]
-    fn evidence_cache_separates_symbolic_sides_and_test_ids() {
-        std::thread::Builder::new()
-            .stack_size(16 * 1024 * 1024)
-            .spawn(|| {
-                use k_rust::kast::{Sort, Term};
-                use kink_patch::{Edit, TermRef};
-                let validator = NativeValidator::bind(
-                    input_test_support::load_path(
-                        &std::path::Path::new(input_test_support::DIR)
-                            .join("symbolic-claim-survivor.k"),
-                        "SYMPARTIAL",
-                    ),
-                    k_rust::kompile::CompileOptions::default(),
-                );
-                let baseline = validator.baseline();
-                let condition =
-                    TermRef::new(input_test_support::rule(baseline, "SYMPARTIAL.half"), [1]);
-                let main = Edit::ReplaceTerm {
-                    expected: baseline.term(&condition).unwrap().clone(),
-                    at: condition,
-                    replacement: Term::Token {
-                        token: "false".into(),
-                        sort: Sort::new("Bool"),
-                    },
-                };
-                let metadata = Edit::AddAttribute {
-                    at: input_test_support::rule(baseline, "SYMPARTIAL.d"),
-                    key: "group".into(),
-                    value: serde_json::json!("cs10"),
-                };
-                let a = Patch::new(vec![main.clone()])
-                    .unwrap()
-                    .pinned(baseline)
-                    .unwrap();
-                let b = Patch::new(vec![main, metadata])
-                    .unwrap()
-                    .pinned(baseline)
-                    .unwrap();
-                let compiled = validator.compile_baseline().unwrap();
-                assert_eq!(
-                    validator.validate(&a).unwrap().kore_sha256(),
-                    validator.validate(&b).unwrap().kore_sha256()
-                );
-                let support = MutantAdmission::new(baseline, &compiled);
-                let input = input_test_support::initial_state(
-                    input_test_support::app(
-                        "Lblseq",
-                        vec![
-                            input_test_support::app(
-                                "Lblhalf",
-                                vec![input_test_support::var("X", "SortNat")],
-                            ),
-                            input_test_support::app("Lblhalt", vec![]),
-                        ],
-                    ),
-                    "SortProg",
-                );
-                let tests = ["one", "two"].map(|id| TestCase {
-                    id: id.into(),
-                    initial_state: input.clone(),
-                    oracles: vec![
-                        OracleDeclaration::new(
-                            CrashPolicy::CompareIdentity,
-                            Projection::State(StateProjection::WholeTerm),
-                        )
-                        .unwrap(),
-                    ],
-                });
-                let campaign = Campaign {
-                    validator: &validator,
-                    module: "SYMPARTIAL",
-                    observation: &[],
-                    classify: &|_| ExecutionTerminalKind::Normal,
-                    tests: &tests,
-                    budget: ExecutionBudget {
-                        time: std::time::Duration::from_secs(30),
-                        max_depth: Some(32),
-                        max_simplification_iterations: 1000,
-                        max_breadth: None,
-                    },
-                };
-                for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
-                    let mut runtime = Runtime::prepare(&campaign, &compiled)
-                        .unwrap_or_else(|_| panic!("baseline runtime"));
-                    let observation = StepObservation::new(&mut runtime.backend, vec![]).unwrap();
-                    let evidence = tests
-                        .iter()
-                        .map(|test| runtime.run(&campaign, test).0)
-                        .collect::<Vec<_>>();
-                    let coverage = tests
-                        .iter()
-                        .map(|test| TestCoverage::failed(&test.id))
-                        .collect::<Vec<_>>();
-                    let paired = tests
-                        .iter()
-                        .zip(&evidence)
-                        .zip(&coverage)
-                        .map(|((test, baseline), coverage)| {
-                            (
-                                test.id.as_str(),
-                                PairedTest {
-                                    test,
-                                    baseline,
-                                    coverage,
-                                    mutant_max_work: None,
-                                },
-                            )
-                        })
-                        .collect();
-                    let mut observations = BaselineObservations {
-                        runtime: &mut runtime,
-                        observation,
-                        evidence: Some(BTreeMap::new()),
-                    };
-                    let (mut sides_a, claims_a) =
-                        prepare_mutant(&campaign, &a, &compiled, &support).unwrap();
-                    let (mut sides_b, claims_b) =
-                        prepare_mutant(&campaign, &b, &compiled, &support).unwrap();
-                    assert!(claims_a.withdrawn.is_empty());
-                    assert_eq!(claims_b.withdrawn.len(), 2);
-                    assert!(claims_b.patch().is_some());
-                    assert_ne!(sides_a.evidence_key(), sides_b.evidence_key());
-                    let order = tests.iter().map(|test| test.id.clone()).collect::<Vec<_>>();
-                    let (_, first, _) = run_tests(
-                        &campaign,
-                        &mut sides_a,
-                        &paired,
-                        &order,
-                        schedule,
-                        &mut observations,
-                    );
-                    assert_eq!(first.len(), 2);
-                    assert_eq!(observations.evidence.as_ref().unwrap().len(), 2);
-                    run_tests(
-                        &campaign,
-                        &mut sides_b,
-                        &paired,
-                        &order,
-                        schedule,
-                        &mut observations,
-                    );
-                    assert_eq!(
-                        observations.evidence.as_ref().unwrap().len(),
-                        4,
-                        "a different claim-free side must miss"
-                    );
-                    let key = (sides_a.evidence_key(), "one".into());
-                    let cached = observations
-                        .evidence
-                        .as_mut()
-                        .unwrap()
-                        .get_mut(&key)
-                        .unwrap();
-                    cached.evidence.run = SideRun::Failed(ExecutionFailureKind::Infrastructure);
-                    let (mut repeated, _) =
-                        prepare_mutant(&campaign, &a, &compiled, &support).unwrap();
-                    let (_, hit, _) = run_tests(
-                        &campaign,
-                        &mut repeated,
-                        &paired,
-                        &order,
-                        schedule,
-                        &mut observations,
-                    );
-                    assert_eq!(
-                        hit[0].run,
-                        SideRun::Failed(ExecutionFailureKind::Infrastructure),
-                        "hit must reuse post-replacement evidence"
-                    );
-                    assert_eq!(
-                        hit[1], first[1],
-                        "test-id pairing must not reuse another test's evidence"
-                    );
-                    assert_eq!(observations.evidence.as_ref().unwrap().len(), 4);
                 }
             })
             .unwrap()
@@ -4084,197 +3725,576 @@ mod tests {
         }
     }
 
-    /// Re-pin L1-3 deliverable 3: with compile workers, every consistency check, backend build
-    /// and execution of a campaign runs on the calling thread, each candidate's after its turn
-    /// begins and before the next one's, in candidate order, and the steps are the sequential
-    /// run's, in the same order, with the same run. Two generations of the same pair of patches
-    /// (structurally equal, so every candidate after the first is `same_as` an earlier one).
-    #[test]
-    fn only_compiling_leaves_the_calling_thread_and_candidates_keep_their_order() {
-        use k_rust::{
-            definition::Sentence,
-            kast::{Sort, Term},
-        };
-        use kink_patch::{Discovery, Edit, SiteSelector, TermRef, derive_sites, select};
-        use stage_log::Stage;
-        std::thread::Builder::new()
-            .stack_size(16 * 1024 * 1024)
-            .spawn(|| {
-                let validator = NativeValidator::bind(
-                    input_test_support::load("counter.k"),
-                    k_rust::kompile::CompileOptions::default(),
-                );
-                let baseline = validator.baseline();
-                let at = input_test_support::rule(baseline, "COUNTER.branch");
-                let term_at = TermRef::new(at.clone(), [1]);
-                let false_term = Term::Token {
-                    token: "false".into(),
-                    sort: Sort::new("Bool"),
-                };
-                let mut replacement = baseline.sentence(&at).unwrap().clone();
-                let Sentence::Rule { requires, .. } = &mut replacement else {
-                    panic!("rule");
-                };
-                *requires = false_term.clone();
-                let mut discovery = Discovery::empty(baseline, false, false);
-                for path in [vec![0], vec![1]] {
-                    discovery = discovery
-                        .union(
-                            &derive_sites(
-                                baseline,
-                                "site",
-                                &[
-                                    SiteSelector::RuleLabel("COUNTER.branch".into()),
-                                    SiteSelector::Path(path),
-                                ],
+    mod kink_tier {
+        use super::*;
+
+        /// Equal patched KORE does not identify the mutant's claim-free side: an equation metadata
+        /// edit still withdraws claims whose support it touched, while the transition-only twin does
+        /// not, so the two run on different definitions (re-pin R0c-fix-2: every test runs on the
+        /// claim-free mutant).
+        #[test]
+        #[ignore = "kink"]
+        fn evidence_cache_separates_symbolic_sides_and_test_ids() {
+            std::thread::Builder::new()
+                .stack_size(16 * 1024 * 1024)
+                .spawn(|| {
+                    use k_rust::kast::{Sort, Term};
+                    use kink_patch::{Edit, TermRef};
+                    let validator = NativeValidator::bind(
+                        input_test_support::load_path(
+                            &std::path::Path::new(input_test_support::DIR)
+                                .join("symbolic-claim-survivor.k"),
+                            "SYMPARTIAL",
+                        ),
+                        k_rust::kompile::CompileOptions::default(),
+                    );
+                    let baseline = validator.baseline();
+                    let condition =
+                        TermRef::new(input_test_support::rule(baseline, "SYMPARTIAL.half"), [1]);
+                    let main = Edit::ReplaceTerm {
+                        expected: baseline.term(&condition).unwrap().clone(),
+                        at: condition,
+                        replacement: Term::Token {
+                            token: "false".into(),
+                            sort: Sort::new("Bool"),
+                        },
+                    };
+                    let metadata = Edit::AddAttribute {
+                        at: input_test_support::rule(baseline, "SYMPARTIAL.d"),
+                        key: "group".into(),
+                        value: serde_json::json!("cs10"),
+                    };
+                    let a = Patch::new(vec![main.clone()])
+                        .unwrap()
+                        .pinned(baseline)
+                        .unwrap();
+                    let b = Patch::new(vec![main, metadata])
+                        .unwrap()
+                        .pinned(baseline)
+                        .unwrap();
+                    let compiled = validator.compile_baseline().unwrap();
+                    assert_eq!(
+                        validator.validate(&a).unwrap().kore_sha256(),
+                        validator.validate(&b).unwrap().kore_sha256()
+                    );
+                    let support = MutantAdmission::new(baseline, &compiled);
+                    let input = input_test_support::initial_state(
+                        input_test_support::app(
+                            "Lblseq",
+                            vec![
+                                input_test_support::app(
+                                    "Lblhalf",
+                                    vec![input_test_support::var("X", "SortNat")],
+                                ),
+                                input_test_support::app("Lblhalt", vec![]),
+                            ],
+                        ),
+                        "SortProg",
+                    );
+                    let tests = ["one", "two"].map(|id| TestCase {
+                        id: id.into(),
+                        initial_state: input.clone(),
+                        oracles: vec![
+                            OracleDeclaration::new(
+                                CrashPolicy::CompareIdentity,
+                                Projection::State(StateProjection::WholeTerm),
                             )
                             .unwrap(),
+                        ],
+                    });
+                    let campaign = Campaign {
+                        validator: &validator,
+                        module: "SYMPARTIAL",
+                        observation: &[],
+                        classify: &|_| ExecutionTerminalKind::Normal,
+                        tests: &tests,
+                        budget: ExecutionBudget {
+                            time: std::time::Duration::from_secs(30),
+                            max_depth: Some(32),
+                            max_simplification_iterations: 1000,
+                            max_breadth: None,
+                        },
+                    };
+                    for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                        let mut runtime = Runtime::prepare(&campaign, &compiled)
+                            .unwrap_or_else(|_| panic!("baseline runtime"));
+                        let observation =
+                            StepObservation::new(&mut runtime.backend, vec![]).unwrap();
+                        let evidence = tests
+                            .iter()
+                            .map(|test| runtime.run(&campaign, test).0)
+                            .collect::<Vec<_>>();
+                        let coverage = tests
+                            .iter()
+                            .map(|test| TestCoverage::failed(&test.id))
+                            .collect::<Vec<_>>();
+                        let paired = tests
+                            .iter()
+                            .zip(&evidence)
+                            .zip(&coverage)
+                            .map(|((test, baseline), coverage)| {
+                                (
+                                    test.id.as_str(),
+                                    PairedTest {
+                                        test,
+                                        baseline,
+                                        coverage,
+                                        mutant_max_work: None,
+                                    },
+                                )
+                            })
+                            .collect();
+                        let mut observations = BaselineObservations {
+                            runtime: &mut runtime,
+                            observation,
+                            evidence: Some(BTreeMap::new()),
+                        };
+                        let (mut sides_a, claims_a) =
+                            prepare_mutant(&campaign, &a, &compiled, &support).unwrap();
+                        let (mut sides_b, claims_b) =
+                            prepare_mutant(&campaign, &b, &compiled, &support).unwrap();
+                        assert!(claims_a.withdrawn.is_empty());
+                        assert_eq!(claims_b.withdrawn.len(), 2);
+                        assert!(claims_b.patch().is_some());
+                        assert_ne!(sides_a.evidence_key(), sides_b.evidence_key());
+                        let order = tests.iter().map(|test| test.id.clone()).collect::<Vec<_>>();
+                        let (_, first, _) = run_tests(
+                            &campaign,
+                            &mut sides_a,
+                            &paired,
+                            &order,
+                            schedule,
+                            &mut observations,
+                        );
+                        assert_eq!(first.len(), 2);
+                        assert_eq!(observations.evidence.as_ref().unwrap().len(), 2);
+                        run_tests(
+                            &campaign,
+                            &mut sides_b,
+                            &paired,
+                            &order,
+                            schedule,
+                            &mut observations,
+                        );
+                        assert_eq!(
+                            observations.evidence.as_ref().unwrap().len(),
+                            4,
+                            "a different claim-free side must miss"
+                        );
+                        let key = (sides_a.evidence_key(), "one".into());
+                        let cached = observations
+                            .evidence
+                            .as_mut()
+                            .unwrap()
+                            .get_mut(&key)
+                            .unwrap();
+                        cached.evidence.run = SideRun::Failed(ExecutionFailureKind::Infrastructure);
+                        let (mut repeated, _) =
+                            prepare_mutant(&campaign, &a, &compiled, &support).unwrap();
+                        let (_, hit, _) = run_tests(
+                            &campaign,
+                            &mut repeated,
+                            &paired,
+                            &order,
+                            schedule,
+                            &mut observations,
+                        );
+                        assert_eq!(
+                            hit[0].run,
+                            SideRun::Failed(ExecutionFailureKind::Infrastructure),
+                            "hit must reuse post-replacement evidence"
+                        );
+                        assert_eq!(
+                            hit[1], first[1],
+                            "test-id pairing must not reuse another test's evidence"
+                        );
+                        assert_eq!(observations.evidence.as_ref().unwrap().len(), 4);
+                    }
+                })
+                .unwrap()
+                .join()
+                .unwrap();
+        }
+
+        /// Re-pin L1-3 deliverable 3: with compile workers, every consistency check, backend build
+        /// and execution of a campaign runs on the calling thread, each candidate's after its turn
+        /// begins and before the next one's, in candidate order, and the steps are the sequential
+        /// run's, in the same order, with the same run. Two generations of the same pair of patches
+        /// (structurally equal, so every candidate after the first is `same_as` an earlier one).
+        #[test]
+        #[ignore = "kink"]
+        fn only_compiling_leaves_the_calling_thread_and_candidates_keep_their_order() {
+            use k_rust::{
+                definition::Sentence,
+                kast::{Sort, Term},
+            };
+            use kink_patch::{Discovery, Edit, SiteSelector, TermRef, derive_sites, select};
+            use stage_log::Stage;
+            std::thread::Builder::new()
+                .stack_size(16 * 1024 * 1024)
+                .spawn(|| {
+                    let validator = NativeValidator::bind(
+                        input_test_support::load("counter.k"),
+                        k_rust::kompile::CompileOptions::default(),
+                    );
+                    let baseline = validator.baseline();
+                    let at = input_test_support::rule(baseline, "COUNTER.branch");
+                    let term_at = TermRef::new(at.clone(), [1]);
+                    let false_term = Term::Token {
+                        token: "false".into(),
+                        sort: Sort::new("Bool"),
+                    };
+                    let mut replacement = baseline.sentence(&at).unwrap().clone();
+                    let Sentence::Rule { requires, .. } = &mut replacement else {
+                        panic!("rule");
+                    };
+                    *requires = false_term.clone();
+                    let mut discovery = Discovery::empty(baseline, false, false);
+                    for path in [vec![0], vec![1]] {
+                        discovery = discovery
+                            .union(
+                                &derive_sites(
+                                    baseline,
+                                    "site",
+                                    &[
+                                        SiteSelector::RuleLabel("COUNTER.branch".into()),
+                                        SiteSelector::Path(path),
+                                    ],
+                                )
+                                .unwrap(),
+                            )
+                            .unwrap();
+                    }
+                    let generation = || {
+                        select(&discovery, kink_patch::SelectionPolicy::Each, 2)
+                            .unwrap()
+                            .fold("duplicates", |origin| {
+                                Patch::new(vec![if origin.site_tuple[0].path.0 == [0] {
+                                    Edit::ReplaceSentence {
+                                        at: at.clone(),
+                                        replacement: replacement.clone(),
+                                    }
+                                } else {
+                                    Edit::ReplaceTerm {
+                                        at: term_at.clone(),
+                                        expected: baseline.term(&term_at).unwrap().clone(),
+                                        replacement: false_term.clone(),
+                                    }
+                                }])
+                                .unwrap()
+                            })
+                            .unwrap()
+                    };
+                    let generations = [generation(), generation()];
+                    let z = |b: &str| Pattern::DomainValue {
+                        sort: k_rust::kompile::initial_configuration::kore_sort("SortBool"),
+                        value: b.into(),
+                    };
+                    let tests = ["true", "false"].map(|b| TestCase {
+                        id: format!("choose-{b}"),
+                        initial_state: input_test_support::initial_state(
+                            input_test_support::app("Lblchoose", vec![z(b)]),
+                            "SortControl",
+                        ),
+                        oracles: vec![
+                            OracleDeclaration::new(
+                                CrashPolicy::CompareIdentity,
+                                Projection::State(StateProjection::WholeTerm),
+                            )
+                            .unwrap(),
+                        ],
+                    });
+                    let campaign = Campaign {
+                        validator: &validator,
+                        module: "COUNTER",
+                        observation: &[],
+                        classify: &|_| ExecutionTerminalKind::Normal,
+                        tests: &tests,
+                        budget: ExecutionBudget {
+                            time: std::time::Duration::from_secs(30),
+                            max_depth: Some(32),
+                            max_simplification_iterations: 1000,
+                            max_breadth: None,
+                        },
+                    };
+                    if validator.compile_workers(4) < 2 {
+                        // Review L1-3-1 D3: one CPU, or a memory allowance too small for two.
+                        eprintln!(
+                            "skipped: this host allows one compile worker, so 4 would run the \
+                             sequential path"
+                        );
+                        return;
+                    }
+                    let address = std::ptr::from_ref(&campaign).addr();
+                    let thread = std::thread::current().id();
+                    let steps = |workers| {
+                        let start = stage_log::LOG.lock().unwrap().len();
+                        let run = run_campaign_multi(
+                            &campaign,
+                            &generations,
+                            &CampaignOptions {
+                                schedule: ScheduleMode::Full,
+                                selection: SelectionPolicy::None,
+                                share_evidence: false,
+                                run: RunOptions::default(),
+                                compile_workers: workers,
+                            },
                         )
                         .unwrap();
-                }
-                let generation = || {
-                    select(&discovery, kink_patch::SelectionPolicy::Each, 2)
-                        .unwrap()
-                        .fold("duplicates", |origin| {
-                            Patch::new(vec![if origin.site_tuple[0].path.0 == [0] {
-                                Edit::ReplaceSentence {
-                                    at: at.clone(),
-                                    replacement: replacement.clone(),
-                                }
-                            } else {
-                                Edit::ReplaceTerm {
-                                    at: term_at.clone(),
-                                    expected: baseline.term(&term_at).unwrap().clone(),
-                                    replacement: false_term.clone(),
-                                }
-                            }])
-                            .unwrap()
-                        })
-                        .unwrap()
-                };
-                let generations = [generation(), generation()];
-                let z = |b: &str| Pattern::DomainValue {
-                    sort: k_rust::kompile::initial_configuration::kore_sort("SortBool"),
-                    value: b.into(),
-                };
-                let tests = ["true", "false"].map(|b| TestCase {
-                    id: format!("choose-{b}"),
-                    initial_state: input_test_support::initial_state(
-                        input_test_support::app("Lblchoose", vec![z(b)]),
-                        "SortControl",
-                    ),
-                    oracles: vec![
-                        OracleDeclaration::new(
-                            CrashPolicy::CompareIdentity,
-                            Projection::State(StateProjection::WholeTerm),
+                        let log = stage_log::LOG.lock().unwrap()[start..]
+                            .iter()
+                            .filter(|(at, _, _)| *at == address)
+                            .copied()
+                            .collect::<Vec<_>>();
+                        assert!(
+                            log.iter().all(|(_, _, on)| *on == thread),
+                            "{workers} workers: a step left the calling thread: {log:?}"
+                        );
+                        (
+                            run,
+                            log.into_iter()
+                                .map(|(_, stage, _)| stage)
+                                .collect::<Vec<_>>(),
                         )
-                        .unwrap(),
-                    ],
-                });
-                let campaign = Campaign {
-                    validator: &validator,
-                    module: "COUNTER",
-                    observation: &[],
-                    classify: &|_| ExecutionTerminalKind::Normal,
-                    tests: &tests,
-                    budget: ExecutionBudget {
-                        time: std::time::Duration::from_secs(30),
-                        max_depth: Some(32),
-                        max_simplification_iterations: 1000,
-                        max_breadth: None,
-                    },
-                };
-                if validator.compile_workers(4) < 2 {
-                    // Review L1-3-1 D3: one CPU, or a memory allowance too small for two.
-                    eprintln!(
-                        "skipped: this host allows one compile worker, so 4 would run the \
-                         sequential path"
-                    );
-                    return;
-                }
-                let address = std::ptr::from_ref(&campaign).addr();
-                let thread = std::thread::current().id();
-                let steps = |workers| {
-                    let start = stage_log::LOG.lock().unwrap().len();
-                    let run = run_campaign_multi(
-                        &campaign,
-                        &generations,
-                        &CampaignOptions {
-                            schedule: ScheduleMode::Full,
-                            selection: SelectionPolicy::None,
-                            share_evidence: false,
-                            run: RunOptions::default(),
-                            compile_workers: workers,
-                        },
-                    )
-                    .unwrap();
-                    let log = stage_log::LOG.lock().unwrap()[start..]
-                        .iter()
-                        .filter(|(at, _, _)| *at == address)
-                        .copied()
-                        .collect::<Vec<_>>();
-                    assert!(
-                        log.iter().all(|(_, _, on)| *on == thread),
-                        "{workers} workers: a step left the calling thread: {log:?}"
-                    );
-                    (
-                        run,
-                        log.into_iter()
-                            .map(|(_, stage, _)| stage)
-                            .collect::<Vec<_>>(),
-                    )
-                };
-                let (sequential, sequential_steps) = steps(1);
-                let (ahead, ahead_steps) = steps(4);
-                assert_eq!(ahead, sequential);
-                assert_eq!(ahead_steps, sequential_steps);
-                assert_eq!(
-                    ahead.mutants.iter().map(|m| m.same_as).collect::<Vec<_>>(),
-                    [
-                        None,
-                        Some(MutantId(0)),
-                        Some(MutantId(0)),
-                        Some(MutantId(0))
-                    ]
-                );
-                // The baseline's steps, then each candidate's turn in candidate order, each
-                // with its own consistency check, backend build and executions.
-                let turns = ahead_steps
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(at, stage)| match stage {
-                        Stage::Mutant(index) => Some((at, *index)),
-                        _ => None,
-                    })
-                    .collect::<Vec<_>>();
-                assert_eq!(
-                    turns.iter().map(|(_, index)| *index).collect::<Vec<_>>(),
-                    [0, 1, 2, 3]
-                );
-                assert!(
-                    ahead_steps[..turns[0].0].contains(&Stage::Backend)
-                        && ahead_steps[..turns[0].0].contains(&Stage::Execute),
-                    "the baseline is built and run first"
-                );
-                for (n, (at, _)) in turns.iter().enumerate() {
-                    let end = turns
-                        .get(n + 1)
-                        .map_or(ahead_steps.len(), |(next, _)| *next);
-                    let own = &ahead_steps[at + 1..end];
+                    };
+                    let (sequential, sequential_steps) = steps(1);
+                    let (ahead, ahead_steps) = steps(4);
+                    assert_eq!(ahead, sequential);
+                    assert_eq!(ahead_steps, sequential_steps);
                     assert_eq!(
-                        own,
+                        ahead.mutants.iter().map(|m| m.same_as).collect::<Vec<_>>(),
                         [
-                            Stage::Consistency,
-                            Stage::Backend,
-                            Stage::Execute,
-                            Stage::Execute
-                        ],
-                        "candidate {n}"
+                            None,
+                            Some(MutantId(0)),
+                            Some(MutantId(0)),
+                            Some(MutantId(0))
+                        ]
                     );
-                }
-            })
-            .unwrap()
-            .join()
-            .unwrap();
+                    // The baseline's steps, then each candidate's turn in candidate order, each
+                    // with its own consistency check, backend build and executions.
+                    let turns = ahead_steps
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(at, stage)| match stage {
+                            Stage::Mutant(index) => Some((at, *index)),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>();
+                    assert_eq!(
+                        turns.iter().map(|(_, index)| *index).collect::<Vec<_>>(),
+                        [0, 1, 2, 3]
+                    );
+                    assert!(
+                        ahead_steps[..turns[0].0].contains(&Stage::Backend)
+                            && ahead_steps[..turns[0].0].contains(&Stage::Execute),
+                        "the baseline is built and run first"
+                    );
+                    for (n, (at, _)) in turns.iter().enumerate() {
+                        let end = turns
+                            .get(n + 1)
+                            .map_or(ahead_steps.len(), |(next, _)| *next);
+                        let own = &ahead_steps[at + 1..end];
+                        assert_eq!(
+                            own,
+                            [
+                                Stage::Consistency,
+                                Stage::Backend,
+                                Stage::Execute,
+                                Stage::Execute
+                            ],
+                            "candidate {n}"
+                        );
+                    }
+                })
+                .unwrap()
+                .join()
+                .unwrap();
+        }
+
+        /// The module is a key component of a stored baseline run (flow F-12): on the same baseline
+        /// `Runtime`, a request under another module misses and runs live; the same request again is
+        /// a hit. (No fixture has a second executable module, so the integration tests in
+        /// tests/session.rs cannot vary it through a campaign.)
+        #[test]
+        #[ignore = "kink"]
+        fn a_session_key_holds_the_module() {
+            std::thread::Builder::new()
+                .stack_size(16 * 1024 * 1024)
+                .spawn(|| {
+                    let validator = NativeValidator::bind(
+                        input_test_support::load_path(
+                            &std::path::Path::new(input_test_support::DIR).join("counter.k"),
+                            "COUNTER",
+                        ),
+                        k_rust::kompile::CompileOptions::default(),
+                    );
+                    let compiled = validator.compile_baseline().unwrap();
+                    let classify: &dyn Fn(&Pattern) -> ExecutionTerminalKind =
+                        &|_| ExecutionTerminalKind::Normal;
+                    let z = || input_test_support::app("Lblz", vec![]);
+                    let test = TestCase {
+                        id: "t".into(),
+                        initial_state: input_test_support::initial_state(
+                            input_test_support::app(
+                                "Lblcounter",
+                                vec![z(), input_test_support::app("Lbls", vec![z()])],
+                            ),
+                            "SortCounter",
+                        ),
+                        oracles: vec![
+                            OracleDeclaration::new(
+                                CrashPolicy::Reject,
+                                Projection::State(StateProjection::WholeTerm),
+                            )
+                            .unwrap(),
+                        ],
+                    };
+                    let tests = [test];
+                    let campaign = |module| Campaign {
+                        validator: &validator,
+                        module,
+                        observation: &[],
+                        classify,
+                        tests: &tests,
+                        budget: ExecutionBudget {
+                            time: std::time::Duration::from_secs(30),
+                            max_depth: None,
+                            max_simplification_iterations: 1000,
+                            max_breadth: None,
+                        },
+                    };
+                    let counter = campaign("COUNTER");
+                    let other = campaign("COUNTER-OTHER");
+                    let mut runtime = Runtime::prepare(&counter, &compiled)
+                        .unwrap_or_else(|_| panic!("baseline runtime"));
+                    let mut session = BaselineSession::new(&validator);
+                    assert!(
+                        BaselineSession::memoises(&counter) && BaselineSession::memoises(&other)
+                    );
+                    let first = session.baseline_run(&mut runtime, &counter, &tests[0], true);
+                    assert_eq!((session.live_runs(), session.reused_runs()), (1, 0));
+                    let moved = session.baseline_run(&mut runtime, &other, &tests[0], true);
+                    assert_eq!((session.live_runs(), session.reused_runs()), (2, 0));
+                    assert_eq!(moved.0, first.0, "the same runtime gives the same evidence");
+                    session.baseline_run(&mut runtime, &other, &tests[0], true);
+                    session.baseline_run(&mut runtime, &counter, &tests[0], true);
+                    assert_eq!(
+                        (
+                            session.live_runs(),
+                            session.reused_runs(),
+                            session.stored_runs()
+                        ),
+                        (2, 2, 2)
+                    );
+                })
+                .unwrap()
+                .join()
+                .unwrap();
+        }
+
+        /// Re-pin R0c deliverable 1 (R0b review 1 major 1, the reviewer's probe): every call prepares
+        /// its own baseline `Runtime`, and so its own load. A baseline run whose load counted a stack
+        /// stop is excluded in its call; a later call whose own load is clean must not admit it.
+        /// Before R0c the session stored the run and judged it again on call 2's clean load alone,
+        /// which admitted it (`SideRun::Sides`, `Accepted`). Now only its exclusion is stored, and
+        /// call 2's request is answered with it.
+        #[test]
+        #[ignore = "kink"]
+        fn a_reused_baseline_of_a_stopped_load_is_refused() {
+            let z = || input_test_support::app("Lblz", vec![]);
+            let program = input_test_support::app(
+                "Lblcounter",
+                vec![z(), input_test_support::app("Lbls", vec![z()])],
+            );
+            with_one_test(
+                "counter.k",
+                "COUNTER",
+                program,
+                "SortCounter",
+                |validator, compiled, campaign| {
+                    let test = &campaign.tests[0];
+                    let mut session = BaselineSession::new(validator);
+                    // Call 1: its load counted a stack stop.
+                    let mut first =
+                        Runtime::prepare(campaign, compiled).unwrap_or_else(|_| panic!());
+                    first.exclusions.load_stack_stops = 1;
+                    let (e1, _) = session.baseline_run(&mut first, campaign, test, true);
+                    assert_eq!(e1.run, SideRun::Failed(ExecutionFailureKind::LoadStackStop));
+                    // Call 2: a clean load; the request is answered from the session, with call 1's
+                    // exclusion, and admission refuses it.
+                    let mut second =
+                        Runtime::prepare(campaign, compiled).unwrap_or_else(|_| panic!());
+                    assert_eq!(second.exclusions.definition_exclusion(), None);
+                    let (e2, _) = session.baseline_run(&mut second, campaign, test, true);
+                    assert_eq!(
+                        (
+                            session.live_runs(),
+                            session.reused_runs(),
+                            session.stored_runs()
+                        ),
+                        (1, 1, 1)
+                    );
+                    assert_eq!(e2.run, SideRun::Failed(ExecutionFailureKind::LoadStackStop));
+                    assert_eq!(
+                        admit(campaign.tests, std::slice::from_ref(&e2)),
+                        BaselineAdmission::OracleFailed
+                    );
+                    // The same request on a fresh session and call 2's clean load is evidence.
+                    let (fresh, _) = BaselineSession::new(validator).baseline_run(
+                        &mut second,
+                        campaign,
+                        test,
+                        true,
+                    );
+                    assert!(
+                        matches!(fresh.run, SideRun::Sides { .. }),
+                        "{:?}",
+                        fresh.run
+                    );
+                },
+            );
+        }
+
+        /// Re-pin R0c deliverable 1: a stored baseline run is judged under the load facts of the
+        /// load that produced it combined with the requesting call's. Call 1's load holds an axiom
+        /// rooted at a collection role symbol (finding C-10, set here as the load would report it),
+        /// so the run's List terminal `keys(ListItem(3))` has no value; call 2's load is clean, and
+        /// the reused run still has none. The same execution judged on call 2's load alone is a value.
+        #[test]
+        #[ignore = "kink"]
+        fn a_reused_baseline_is_judged_under_its_producing_load() {
+            let program = input_test_support::app("Lblstart", vec![input_test_support::int(3)]);
+            with_one_test(
+                "r0b/keysfree.k",
+                "KEYSFREE",
+                program,
+                "SortProg",
+                |validator, compiled, campaign| {
+                    let test = &campaign.tests[0];
+                    let mut session = BaselineSession::new(validator);
+                    let mut first =
+                        Runtime::prepare(campaign, compiled).unwrap_or_else(|_| panic!());
+                    first.exclusions.role_rooted_axioms = vec!["a role-rooted equation".into()];
+                    let unknown = SideRun::Sides {
+                        sides: vec![OracleSide::Unknown],
+                    };
+                    let (e1, _) = session.baseline_run(&mut first, campaign, test, true);
+                    assert_eq!(e1.run, unknown);
+                    let mut second =
+                        Runtime::prepare(campaign, compiled).unwrap_or_else(|_| panic!());
+                    assert!(second.exclusions.collections_trusted());
+                    let (e2, _) = session.baseline_run(&mut second, campaign, test, true);
+                    assert_eq!((session.live_runs(), session.reused_runs()), (1, 1));
+                    assert_eq!(e2.run, unknown);
+                    let StoredRun::Executed { executed, .. } = &session.runs[0].run else {
+                        panic!("a clean-census load's run is stored")
+                    };
+                    assert!(matches!(
+                        second.judge(campaign, test, executed).run,
+                        SideRun::Sides { ref sides } if matches!(sides.as_slice(), [OracleSide::Normal(_)])
+                    ));
+                },
+            );
+        }
     }
 }

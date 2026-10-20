@@ -187,66 +187,71 @@ fn direct(side: &ValidatedDefinition, test: &TestCase) -> TestCoverage {
     TestCoverage::of_execution(&test.id, &execution, &RuleAuthors::of(side))
 }
 
-/// One coverage entry per test, in manifest order, equal to a direct computation from the
-/// same test's run (the stepped run of t1 included), in both schedules; reordering the tests
-/// reorders the entries and changes nothing else.
-#[test]
-fn campaign_run_records_baseline_coverage_in_manifest_order() {
-    with_stack(|| {
-        let validator =
-            NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
-        let side = validator.compile_baseline().expect("baseline");
-        let specs = step_support::counter(true);
-        let vocabulary = StepObservation::vocabulary_of(&specs).expect("vocabulary");
-        let tests = tests(&vocabulary);
-        let full = run(&validator, &specs, &tests, ScheduleMode::Full);
-        let first_kill = run(&validator, &specs, &tests, ScheduleMode::FirstKill);
-        assert_eq!(
-            full.baseline_coverage
-                .iter()
-                .map(|coverage| coverage.test_id.as_str())
-                .collect::<Vec<_>>(),
-            ["t1", "t2"]
-        );
-        assert_eq!(full.baseline_coverage, first_kill.baseline_coverage);
-        for (test, coverage) in tests.iter().zip(&full.baseline_coverage) {
-            assert_eq!(coverage, &direct(&side, test), "{}", test.id);
-            assert!(coverage.complete, "{}", test.id);
-            assert!(coverage.unmapped.is_empty(), "{}", test.id);
-        }
-        assert_eq!(
-            full.baseline_coverage[0].sentences,
-            [SentenceRef::new("COUNTER", 0)].into_iter().collect()
-        );
-        assert_eq!(
-            full.baseline_coverage[1].sentences,
-            [SentenceRef::new("COUNTER", 1)].into_iter().collect()
-        );
-        eprintln!(
-            "CAMPAIGN_COVERAGE_DIGEST {}",
-            coverage_digest(&full.baseline_coverage)
-        );
+mod kink_tier {
+    use super::*;
 
-        let reversed = tests.iter().rev().cloned().collect::<Vec<_>>();
-        let reordered = run(&validator, &specs, &reversed, ScheduleMode::Full);
-        assert_eq!(
-            reordered.baseline_coverage,
-            full.baseline_coverage
-                .iter()
-                .rev()
-                .cloned()
-                .collect::<Vec<_>>()
-        );
-        assert_eq!(
-            reordered
-                .mutants
-                .iter()
-                .map(|mutant| mutant.report.status)
-                .collect::<Vec<_>>(),
-            full.mutants
-                .iter()
-                .map(|mutant| mutant.report.status)
-                .collect::<Vec<_>>()
-        );
-    });
+    /// One coverage entry per test, in manifest order, equal to a direct computation from the
+    /// same test's run (the stepped run of t1 included), in both schedules; reordering the tests
+    /// reorders the entries and changes nothing else.
+    #[test]
+    #[ignore = "kink"]
+    fn campaign_run_records_baseline_coverage_in_manifest_order() {
+        with_stack(|| {
+            let validator =
+                NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
+            let side = validator.compile_baseline().expect("baseline");
+            let specs = step_support::counter(true);
+            let vocabulary = StepObservation::vocabulary_of(&specs).expect("vocabulary");
+            let tests = tests(&vocabulary);
+            let full = run(&validator, &specs, &tests, ScheduleMode::Full);
+            let first_kill = run(&validator, &specs, &tests, ScheduleMode::FirstKill);
+            assert_eq!(
+                full.baseline_coverage
+                    .iter()
+                    .map(|coverage| coverage.test_id.as_str())
+                    .collect::<Vec<_>>(),
+                ["t1", "t2"]
+            );
+            assert_eq!(full.baseline_coverage, first_kill.baseline_coverage);
+            for (test, coverage) in tests.iter().zip(&full.baseline_coverage) {
+                assert_eq!(coverage, &direct(&side, test), "{}", test.id);
+                assert!(coverage.complete, "{}", test.id);
+                assert!(coverage.unmapped.is_empty(), "{}", test.id);
+            }
+            assert_eq!(
+                full.baseline_coverage[0].sentences,
+                [SentenceRef::new("COUNTER", 0)].into_iter().collect()
+            );
+            assert_eq!(
+                full.baseline_coverage[1].sentences,
+                [SentenceRef::new("COUNTER", 1)].into_iter().collect()
+            );
+            eprintln!(
+                "CAMPAIGN_COVERAGE_DIGEST {}",
+                coverage_digest(&full.baseline_coverage)
+            );
+
+            let reversed = tests.iter().rev().cloned().collect::<Vec<_>>();
+            let reordered = run(&validator, &specs, &reversed, ScheduleMode::Full);
+            assert_eq!(
+                reordered.baseline_coverage,
+                full.baseline_coverage
+                    .iter()
+                    .rev()
+                    .cloned()
+                    .collect::<Vec<_>>()
+            );
+            assert_eq!(
+                reordered
+                    .mutants
+                    .iter()
+                    .map(|mutant| mutant.report.status)
+                    .collect::<Vec<_>>(),
+                full.mutants
+                    .iter()
+                    .map(|mutant| mutant.report.status)
+                    .collect::<Vec<_>>()
+            );
+        });
+    }
 }

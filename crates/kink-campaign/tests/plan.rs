@@ -162,204 +162,213 @@ fn deterministic_plan_counts_populations_rejections_and_global_structures() {
     });
 }
 
-#[test]
-fn sampled_campaigns_remain_unscored_and_replay_requires_the_declared_budget() {
-    with_stack(|| {
-        let validator =
-            NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
-        let tests = [TestCase {
-            id: "counter".into(),
-            initial_state: support::initial_state(
-                support::app(
-                    "Lblcounter",
-                    vec![
-                        support::app("Lblz", vec![]),
-                        support::app("Lbls", vec![support::app("Lblz", vec![])]),
-                    ],
+mod kink_tier {
+    use super::*;
+
+    #[test]
+    #[ignore = "kink"]
+    fn sampled_campaigns_remain_unscored_and_replay_requires_the_declared_budget() {
+        with_stack(|| {
+            let validator =
+                NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
+            let tests = [TestCase {
+                id: "counter".into(),
+                initial_state: support::initial_state(
+                    support::app(
+                        "Lblcounter",
+                        vec![
+                            support::app("Lblz", vec![]),
+                            support::app("Lbls", vec![support::app("Lblz", vec![])]),
+                        ],
+                    ),
+                    "SortCounter",
                 ),
-                "SortCounter",
-            ),
-            oracles: vec![
-                OracleDeclaration::new(
-                    CrashPolicy::CompareIdentity,
-                    Projection::State(StateProjection::WholeTerm),
-                )
-                .unwrap(),
-            ],
-        }];
-        let campaign = Campaign {
-            validator: &validator,
-            module: "COUNTER",
-            observation: &[],
-            classify: &normal,
-            tests: &tests,
-            budget: EXECUTION_BUDGET,
-        };
-        let universe = resolve_universe(validator.baseline(), &Universe::v1());
-        let specs = [delete_rule(), delete_rule()];
-        let budget = BudgetMutants {
-            per_spec_max: 2,
-            total_max: 2,
-            seed: vec![0, 1, 254, 255],
-        };
-        let inputs = specs.iter().map(|s| (s, usize::MAX)).collect::<Vec<_>>();
-        let generations = OperatorSpec::generate_all(
-            validator.baseline(),
-            &universe,
-            &inputs,
-            Some((budget.per_spec_max, budget.total_max, &budget.seed)),
-        )
-        .unwrap();
-        assert_eq!(
-            generations
-                .iter()
-                .map(|g| g.selected_origins().len())
-                .sum::<usize>(),
-            2
-        );
-        for generation in &generations {
-            assert_eq!(generation.completeness(), Completeness::Incomplete);
-            assert_eq!(generation.failure(), Some(CandidateFailureKind::Sampled));
-            assert!(!generation.scored(), "STOP: sampled generation scored");
-        }
-        let operators = specs.iter().map(ManifestOperator::Spec).collect::<Vec<_>>();
-        let replay_operators = specs
-            .iter()
-            .map(|spec| ReplayOperator::Spec {
-                spec,
-                cap: usize::MAX,
-            })
-            .collect::<Vec<_>>();
-        for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
-            let run = run_campaign_multi(
-                &campaign,
-                &generations,
-                &CampaignOptions {
-                    schedule,
-                    selection: SelectionPolicy::None,
-                    share_evidence: true,
-                    run: kink_campaign::RunOptions::default(),
-                    compile_workers: 1,
-                },
-            )
-            .unwrap();
-            assert!(run.score.is_none(), "STOP: sampled campaign scored");
-            let manifest = campaign_manifest_multi_with_budget(
-                &MultiManifestInput {
-                    campaign: &campaign,
-                    generations: &generations,
-                    operators: &operators,
-                    universe: Some(&universe),
-                    schedule,
-                    selection: SelectionPolicy::None,
-                    classifier: "normal",
-                },
-                Some(&budget),
-            )
-            .unwrap();
-            assert_eq!(
-                manifest.value()["budget_mutants"],
-                json!({"per_spec_max":2,"total_max":2,"seed":"0001feff"})
-            );
-            for ((operator, generation), spec) in manifest.value()["operators"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .zip(&generations)
-                .zip(&specs)
-            {
-                let (population, digest) =
-                    spec.population(validator.baseline(), &universe).unwrap();
-                assert_eq!(operator["population"], population);
-                assert_eq!(operator["population_sha256"], digest.to_string());
-                assert!(population > generation.selected_origins().len() as u64);
-                assert_eq!(operator["generation"]["failure"], "sampled");
-                assert_eq!(operator["generation"]["scored"], false);
-                assert_eq!(
-                    operator["sampling"],
-                    json!({
-                        "seed":"0001feff", "size":generation.selected_origins().len(),
-                        "population":operator["population"],
-                    })
-                );
-            }
-            let report = campaign_report_multi(&manifest, &campaign, &generations, &run).unwrap();
-            no_timeout(report.value());
-            assert!(report.value()["summary"]["score"].is_null());
-            for (index, row) in report.value()["summary"]["per_operator"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .enumerate()
-            {
-                assert!(row["score"].is_null());
-                let tally = row["tally"].as_object().unwrap();
-                let total: u64 = tally
-                    .iter()
-                    .filter(|(key, _)| key.as_str() != "rejected_origins")
-                    .map(|(_, count)| count.as_u64().unwrap())
-                    .sum();
-                assert_eq!(total, generations[index].candidates().len() as u64);
-            }
-            let declaration = ReplayDeclaration {
+                oracles: vec![
+                    OracleDeclaration::new(
+                        CrashPolicy::CompareIdentity,
+                        Projection::State(StateProjection::WholeTerm),
+                    )
+                    .unwrap(),
+                ],
+            }];
+            let campaign = Campaign {
+                validator: &validator,
                 module: "COUNTER",
                 observation: &[],
                 classify: &normal,
-                classifier: "normal",
                 tests: &tests,
                 budget: EXECUTION_BUDGET,
-                schedule,
-                selection: SelectionPolicy::None,
-                operators: &replay_operators,
             };
-            let artifact = manifest.baseline_input().text();
+            let universe = resolve_universe(validator.baseline(), &Universe::v1());
+            let specs = [delete_rule(), delete_rule()];
+            let budget = BudgetMutants {
+                per_spec_max: 2,
+                total_max: 2,
+                seed: vec![0, 1, 254, 255],
+            };
+            let inputs = specs.iter().map(|s| (s, usize::MAX)).collect::<Vec<_>>();
+            let generations = OperatorSpec::generate_all(
+                validator.baseline(),
+                &universe,
+                &inputs,
+                Some((budget.per_spec_max, budget.total_max, &budget.seed)),
+            )
+            .unwrap();
             assert_eq!(
-                replay_with_budget(&report.text(), artifact, &declaration, Some(&budget)),
-                ReplayOutcome::Reproduced,
-                "STOP: sampled replay differs"
+                generations
+                    .iter()
+                    .map(|g| g.selected_origins().len())
+                    .sum::<usize>(),
+                2
             );
-            for row in 0..5 {
-                let mut changed = report.value().clone();
-                match row {
-                    0 => changed["manifest"]["budget_mutants"]["seed"] = json!("01"),
-                    1 => changed["manifest"]["operators"][0]["sampling"]["seed"] = json!("01"),
-                    2 => changed["manifest"]["operators"][0]["sampling"]["size"] = json!(99),
-                    3 => changed["manifest"]["operators"][0]["sampling"]["population"] = json!(99),
-                    _ => {
-                        changed["manifest"]["operators"][0]["population_sha256"] =
-                            json!("00".repeat(32))
-                    }
-                }
-                changed["manifest_sha256"] = json!(
-                    payload_digest(
-                        CAMPAIGN_MANIFEST_DOMAIN,
-                        canonical_json(&changed["manifest"]).as_bytes(),
-                    )
-                    .to_string()
-                );
+            for generation in &generations {
+                assert_eq!(generation.completeness(), Completeness::Incomplete);
+                assert_eq!(generation.failure(), Some(CandidateFailureKind::Sampled));
+                assert!(!generation.scored(), "STOP: sampled generation scored");
+            }
+            let operators = specs.iter().map(ManifestOperator::Spec).collect::<Vec<_>>();
+            let replay_operators = specs
+                .iter()
+                .map(|spec| ReplayOperator::Spec {
+                    spec,
+                    cap: usize::MAX,
+                })
+                .collect::<Vec<_>>();
+            for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                let run = run_campaign_multi(
+                    &campaign,
+                    &generations,
+                    &CampaignOptions {
+                        schedule,
+                        selection: SelectionPolicy::None,
+                        share_evidence: true,
+                        run: kink_campaign::RunOptions::default(),
+                        compile_workers: 1,
+                    },
+                )
+                .unwrap();
+                assert!(run.score.is_none(), "STOP: sampled campaign scored");
+                let manifest = campaign_manifest_multi_with_budget(
+                    &MultiManifestInput {
+                        campaign: &campaign,
+                        generations: &generations,
+                        operators: &operators,
+                        universe: Some(&universe),
+                        schedule,
+                        selection: SelectionPolicy::None,
+                        classifier: "normal",
+                    },
+                    Some(&budget),
+                )
+                .unwrap();
                 assert_eq!(
-                    replay_with_budget(
-                        &canonical_json(&changed),
-                        artifact,
-                        &declaration,
-                        Some(&budget)
-                    ),
-                    ReplayOutcome::Refused(ReplayRefusal::Declaration),
-                    "tamper row {row}"
+                    manifest.value()["budget_mutants"],
+                    json!({"per_spec_max":2,"total_max":2,"seed":"0001feff"})
+                );
+                for ((operator, generation), spec) in manifest.value()["operators"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .zip(&generations)
+                    .zip(&specs)
+                {
+                    let (population, digest) =
+                        spec.population(validator.baseline(), &universe).unwrap();
+                    assert_eq!(operator["population"], population);
+                    assert_eq!(operator["population_sha256"], digest.to_string());
+                    assert!(population > generation.selected_origins().len() as u64);
+                    assert_eq!(operator["generation"]["failure"], "sampled");
+                    assert_eq!(operator["generation"]["scored"], false);
+                    assert_eq!(
+                        operator["sampling"],
+                        json!({
+                            "seed":"0001feff", "size":generation.selected_origins().len(),
+                            "population":operator["population"],
+                        })
+                    );
+                }
+                let report =
+                    campaign_report_multi(&manifest, &campaign, &generations, &run).unwrap();
+                no_timeout(report.value());
+                assert!(report.value()["summary"]["score"].is_null());
+                for (index, row) in report.value()["summary"]["per_operator"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .enumerate()
+                {
+                    assert!(row["score"].is_null());
+                    let tally = row["tally"].as_object().unwrap();
+                    let total: u64 = tally
+                        .iter()
+                        .filter(|(key, _)| key.as_str() != "rejected_origins")
+                        .map(|(_, count)| count.as_u64().unwrap())
+                        .sum();
+                    assert_eq!(total, generations[index].candidates().len() as u64);
+                }
+                let declaration = ReplayDeclaration {
+                    module: "COUNTER",
+                    observation: &[],
+                    classify: &normal,
+                    classifier: "normal",
+                    tests: &tests,
+                    budget: EXECUTION_BUDGET,
+                    schedule,
+                    selection: SelectionPolicy::None,
+                    operators: &replay_operators,
+                };
+                let artifact = manifest.baseline_input().text();
+                assert_eq!(
+                    replay_with_budget(&report.text(), artifact, &declaration, Some(&budget)),
+                    ReplayOutcome::Reproduced,
+                    "STOP: sampled replay differs"
+                );
+                for row in 0..5 {
+                    let mut changed = report.value().clone();
+                    match row {
+                        0 => changed["manifest"]["budget_mutants"]["seed"] = json!("01"),
+                        1 => changed["manifest"]["operators"][0]["sampling"]["seed"] = json!("01"),
+                        2 => changed["manifest"]["operators"][0]["sampling"]["size"] = json!(99),
+                        3 => {
+                            changed["manifest"]["operators"][0]["sampling"]["population"] =
+                                json!(99)
+                        }
+                        _ => {
+                            changed["manifest"]["operators"][0]["population_sha256"] =
+                                json!("00".repeat(32))
+                        }
+                    }
+                    changed["manifest_sha256"] = json!(
+                        payload_digest(
+                            CAMPAIGN_MANIFEST_DOMAIN,
+                            canonical_json(&changed["manifest"]).as_bytes(),
+                        )
+                        .to_string()
+                    );
+                    assert_eq!(
+                        replay_with_budget(
+                            &canonical_json(&changed),
+                            artifact,
+                            &declaration,
+                            Some(&budget)
+                        ),
+                        ReplayOutcome::Refused(ReplayRefusal::Declaration),
+                        "tamper row {row}"
+                    );
+                }
+                assert_eq!(
+                    replay(&report.text(), artifact, &declaration),
+                    ReplayOutcome::Refused(ReplayRefusal::Declaration)
+                );
+                let mismatched = BudgetMutants {
+                    total_max: 3,
+                    ..budget.clone()
+                };
+                assert_eq!(
+                    replay_with_budget(&report.text(), artifact, &declaration, Some(&mismatched)),
+                    ReplayOutcome::Refused(ReplayRefusal::Declaration)
                 );
             }
-            assert_eq!(
-                replay(&report.text(), artifact, &declaration),
-                ReplayOutcome::Refused(ReplayRefusal::Declaration)
-            );
-            let mismatched = BudgetMutants {
-                total_max: 3,
-                ..budget.clone()
-            };
-            assert_eq!(
-                replay_with_budget(&report.text(), artifact, &declaration, Some(&mismatched)),
-                ReplayOutcome::Refused(ReplayRefusal::Declaration)
-            );
-        }
-    });
+        });
+    }
 }

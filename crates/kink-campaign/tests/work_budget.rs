@@ -204,7 +204,9 @@ fn the_limit_is_factor_times_baseline_work_plus_floor() {
 
 /// The step's `1` becomes `-1`: `count(3)` counts up forever. Without a work budget its run is
 /// stopped by the time bound (`Timeout`); under a calibrated budget it ends in a work-bound leaf
-/// long before, and the mutant is `Unknown`, never killed.
+/// long before, and the mutant is `Unknown`, never killed. The time bound is waited for once, in
+/// Full: the test has one test case, so FirstKill runs it as Full does;
+/// `heavy::a_mutant_that_never_ends_times_out_unbounded_in_first_kill` waits for it in FirstKill.
 #[test]
 fn a_mutant_that_never_ends_is_unknown_under_a_work_budget() {
     on_a_big_stack(|| {
@@ -212,13 +214,14 @@ fn a_mutant_that_never_ends_is_unknown_under_a_work_budget() {
         let tests = tests();
         let campaign = campaign(&validator, &tests);
         let generation = replace(validator.baseline(), "WORKLOOP.step", "1", "-1");
+        let unbounded = run(
+            &campaign,
+            &generation,
+            ScheduleMode::Full,
+            RunOptions::default(),
+        );
+        assert_never_ends_unbounded(&unbounded);
         for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
-            let unbounded = run(&campaign, &generation, schedule, RunOptions::default());
-            assert_eq!(
-                unbounded.mutants[0].plan.tests[0].run,
-                TestRun::Failed(ExecutionFailureKind::TimeLimit)
-            );
-            assert_eq!(unbounded.mutants[0].report.status, MutantStatus::Timeout);
             let started = Instant::now();
             let bounded = run(&campaign, &generation, schedule, calibrated(4, 100));
             assert!(
@@ -226,63 +229,114 @@ fn a_mutant_that_never_ends_is_unknown_under_a_work_budget() {
                 "{:?}",
                 started.elapsed()
             );
-            assert_eq!(
-                bounded.mutants[0].plan.tests[0].run,
-                TestRun::Compared(vec![OracleOutcome::Unknown, OracleOutcome::Unknown])
-            );
-            assert_eq!(bounded.mutants[0].report.status, MutantStatus::Unknown);
-            assert!(bounded.mutants[0].report.killing_test_ids.is_empty());
-            // The baseline is never bounded.
-            assert_eq!(bounded.baseline, unbounded.baseline);
+            assert_never_ends_bounded(&bounded, &unbounded);
         }
     });
 }
 
-/// The budget only decides how many mutants end `Unknown`. `stop`'s `7` becomes `8`: the same
-/// work, another result, killed under every budget. The guard's `0` becomes `-2`: two more
-/// states and another final state, killed without a budget and under a budget with room, and
-/// `Unknown` (never another verdict) under a budget of exactly the baseline's work. The result
-/// modality changes no status.
-#[test]
-fn a_work_budget_decides_only_how_many_mutants_are_unknown() {
-    on_a_big_stack(|| {
-        let validator = validator();
-        let tests = tests();
-        let campaign = campaign(&validator, &tests);
-        let baseline = validator.baseline();
-        let same_work = replace(baseline, "WORKLOOP.stop", "7", "8");
-        let more_work = replace(baseline, "WORKLOOP.step", "0", "-2");
-        let path_set = RunOptions {
-            result_modality: ResultModality::PathSet,
-            work: WorkBudget::Unbounded,
-            one_sided: OneSided::Off,
-        };
-        for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
-            for options in [
+/// The unbounded run of the never-ending mutant: stopped by the time bound.
+fn assert_never_ends_unbounded(unbounded: &CampaignRun) {
+    assert_eq!(
+        unbounded.mutants[0].plan.tests[0].run,
+        TestRun::Failed(ExecutionFailureKind::TimeLimit)
+    );
+    assert_eq!(unbounded.mutants[0].report.status, MutantStatus::Timeout);
+}
+
+/// The bounded run of the never-ending mutant: a work-bound leaf, `Unknown`, never killed.
+fn assert_never_ends_bounded(bounded: &CampaignRun, unbounded: &CampaignRun) {
+    assert_eq!(
+        bounded.mutants[0].plan.tests[0].run,
+        TestRun::Compared(vec![OracleOutcome::Unknown, OracleOutcome::Unknown])
+    );
+    assert_eq!(bounded.mutants[0].report.status, MutantStatus::Unknown);
+    assert!(bounded.mutants[0].report.killing_test_ids.is_empty());
+    // The baseline is never bounded.
+    assert_eq!(bounded.baseline, unbounded.baseline);
+}
+
+mod heavy {
+    use super::*;
+
+    /// `a_mutant_that_never_ends_is_unknown_under_a_work_budget` in FirstKill: the unbounded run
+    /// waits for the time bound, and the bounded run keeps its baseline. (The bounded run's
+    /// elapsed time is checked in the light tier, in the wall-clock test group.)
+    #[test]
+    #[ignore = "heavy"]
+    fn a_mutant_that_never_ends_times_out_unbounded_in_first_kill() {
+        on_a_big_stack(|| {
+            let validator = validator();
+            let tests = tests();
+            let campaign = campaign(&validator, &tests);
+            let generation = replace(validator.baseline(), "WORKLOOP.step", "1", "-1");
+            let unbounded = run(
+                &campaign,
+                &generation,
+                ScheduleMode::FirstKill,
                 RunOptions::default(),
-                path_set,
-                calibrated(1, 0),
-                calibrated(1, 10),
-            ] {
-                let report = &run(&campaign, &same_work, schedule, options).mutants[0].report;
-                assert_eq!(report.status, MutantStatus::Killed, "{options:?}");
-                assert_eq!(report.killing_test_ids, ["three"]);
-            }
-            for (options, expected) in [
-                (RunOptions::default(), MutantStatus::Killed),
-                (path_set, MutantStatus::Killed),
-                (calibrated(1, 10), MutantStatus::Killed),
-                (calibrated(1, 0), MutantStatus::Unknown),
-            ] {
-                let run = run(&campaign, &more_work, schedule, options);
-                assert_eq!(run.mutants[0].report.status, expected, "{options:?}");
-                if expected == MutantStatus::Unknown {
-                    assert_eq!(
-                        run.mutants[0].plan.tests[0].run,
-                        TestRun::Compared(vec![OracleOutcome::Unknown, OracleOutcome::Unknown])
-                    );
+            );
+            assert_never_ends_unbounded(&unbounded);
+            let bounded = run(
+                &campaign,
+                &generation,
+                ScheduleMode::FirstKill,
+                calibrated(4, 100),
+            );
+            assert_never_ends_bounded(&bounded, &unbounded);
+        });
+    }
+}
+
+mod kink_tier {
+    use super::*;
+
+    /// The budget only decides how many mutants end `Unknown`. `stop`'s `7` becomes `8`: the same
+    /// work, another result, killed under every budget. The guard's `0` becomes `-2`: two more
+    /// states and another final state, killed without a budget and under a budget with room, and
+    /// `Unknown` (never another verdict) under a budget of exactly the baseline's work. The result
+    /// modality changes no status.
+    #[test]
+    #[ignore = "kink"]
+    fn a_work_budget_decides_only_how_many_mutants_are_unknown() {
+        on_a_big_stack(|| {
+            let validator = validator();
+            let tests = tests();
+            let campaign = campaign(&validator, &tests);
+            let baseline = validator.baseline();
+            let same_work = replace(baseline, "WORKLOOP.stop", "7", "8");
+            let more_work = replace(baseline, "WORKLOOP.step", "0", "-2");
+            let path_set = RunOptions {
+                result_modality: ResultModality::PathSet,
+                work: WorkBudget::Unbounded,
+                one_sided: OneSided::Off,
+            };
+            for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                for options in [
+                    RunOptions::default(),
+                    path_set,
+                    calibrated(1, 0),
+                    calibrated(1, 10),
+                ] {
+                    let report = &run(&campaign, &same_work, schedule, options).mutants[0].report;
+                    assert_eq!(report.status, MutantStatus::Killed, "{options:?}");
+                    assert_eq!(report.killing_test_ids, ["three"]);
+                }
+                for (options, expected) in [
+                    (RunOptions::default(), MutantStatus::Killed),
+                    (path_set, MutantStatus::Killed),
+                    (calibrated(1, 10), MutantStatus::Killed),
+                    (calibrated(1, 0), MutantStatus::Unknown),
+                ] {
+                    let run = run(&campaign, &more_work, schedule, options);
+                    assert_eq!(run.mutants[0].report.status, expected, "{options:?}");
+                    if expected == MutantStatus::Unknown {
+                        assert_eq!(
+                            run.mutants[0].plan.tests[0].run,
+                            TestRun::Compared(vec![OracleOutcome::Unknown, OracleOutcome::Unknown])
+                        );
+                    }
                 }
             }
-        }
-    });
+        });
+    }
 }

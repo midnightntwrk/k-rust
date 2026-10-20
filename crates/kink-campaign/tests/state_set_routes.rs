@@ -275,198 +275,205 @@ fn on_a_big_stack(work: impl FnOnce() + Send + 'static) {
         .unwrap();
 }
 
-/// Route 1, crash multiplicity (L1-1 review 1 minor 1). conv.k's `a(3)` reaches `crash(3)` by
-/// two paths. As a path set that is two crash terminals, which `state_side` reads as `Unknown`
-/// (a crash among several terminals), so the baseline gate refuses the campaign. As a state set it
-/// is one crash terminal, a `SemanticCrash` side, and the mutant `mc: 1 -> 2` (`crash(1)`, again
-/// by two merged paths) is killed under `CompareIdentity`. Premise: decision 3 (the merged leaf is
-/// the set of the path set's final configurations, `{crash(3)}` against `{crash(1)}`).
-#[test]
-fn route_1_the_single_crash_rule_reads_leaf_multiplicity() {
-    on_a_big_stack(|| {
-        let validator = validator("conv", "CONV");
-        let tests = test("a3", "Lbla", 3, CrashPolicy::CompareIdentity);
-        let generation = replace(validator.baseline(), "CONV.mc", "1", "2");
-        let campaign = Campaign {
-            validator: &validator,
-            module: "CONV",
-            observation: &[],
-            classify: &crash_is_a_crash,
-            tests: &tests,
-            budget: BUDGET,
-        };
-        let state = &tests[0].initial_state;
-        let side = validator.compile_baseline().unwrap();
-        assert_eq!(
-            leaves(
-                &side,
-                "CONV",
-                state,
-                BUDGET,
-                Some(ResultRun {
-                    modality: ResultModality::PathSet,
-                    max_work: None
-                })
-            ),
-            (
-                ResultModality::PathSet,
-                vec![(HaltClass::Stuck, 3), (HaltClass::Stuck, 3)]
-            )
-        );
-        assert_eq!(
-            leaves(&side, "CONV", state, BUDGET, None),
-            (ResultModality::StateSet, vec![(HaltClass::Stuck, 3)])
-        );
-        let [path_set, state_set] =
-            MODALITIES.map(|modality| run(&campaign, &generation, modality));
-        assert_refused(&path_set, "crash multiplicity");
-        let state_set = state_set.expect("the state set admits the baseline");
-        let OracleSide::SemanticCrash(term) = baseline_side(&state_set) else {
-            panic!("a crash side: {:?}", baseline_side(&state_set));
-        };
-        assert_eq!(argument_of(term, "Lblcrash").as_deref(), Some("3"));
-        assert_killed(&state_set, "a3", "crash multiplicity");
-    });
-}
+mod kink_tier {
+    use super::*;
 
-/// Route 2, mixed modality (L1-1 review 1 minor 2). conv.k's state set has no undefined step and
-/// stays a state set; convz.k (what conv.k's mutant `mc: 1 -> 0` compiles to) ends in undefined
-/// steps, so its state set is replaced by its path set. Within the one test of the campaign the
-/// baseline is then a state set (one crash terminal, a `SemanticCrash` side) and the mutant a path
-/// set (two undefined steps, a `Normal` side of class `UndefinedStep`), and `CrashPolicy::
-/// Distinguish` kills. Both sides as path sets refuse the baseline (route 1). Premise: decision 3
-/// (the two sides' leaf sets are their sets of final configurations, whatever the modality).
-#[test]
-fn route_2_one_test_compares_a_state_set_with_a_path_set() {
-    on_a_big_stack(|| {
-        let tests = test("a3", "Lbla", 3, CrashPolicy::Distinguish);
-        let state = &tests[0].initial_state;
-        for (name, module, expected) in [
-            (
-                "conv",
-                "CONV",
-                (ResultModality::StateSet, vec![(HaltClass::Stuck, 3)]),
-            ),
-            (
-                "convz",
-                "CONVZ",
+    /// Route 1, crash multiplicity (L1-1 review 1 minor 1). conv.k's `a(3)` reaches `crash(3)` by
+    /// two paths. As a path set that is two crash terminals, which `state_side` reads as `Unknown`
+    /// (a crash among several terminals), so the baseline gate refuses the campaign. As a state set it
+    /// is one crash terminal, a `SemanticCrash` side, and the mutant `mc: 1 -> 2` (`crash(1)`, again
+    /// by two merged paths) is killed under `CompareIdentity`. Premise: decision 3 (the merged leaf is
+    /// the set of the path set's final configurations, `{crash(3)}` against `{crash(1)}`).
+    #[test]
+    #[ignore = "kink"]
+    fn route_1_the_single_crash_rule_reads_leaf_multiplicity() {
+        on_a_big_stack(|| {
+            let validator = validator("conv", "CONV");
+            let tests = test("a3", "Lbla", 3, CrashPolicy::CompareIdentity);
+            let generation = replace(validator.baseline(), "CONV.mc", "1", "2");
+            let campaign = Campaign {
+                validator: &validator,
+                module: "CONV",
+                observation: &[],
+                classify: &crash_is_a_crash,
+                tests: &tests,
+                budget: BUDGET,
+            };
+            let state = &tests[0].initial_state;
+            let side = validator.compile_baseline().unwrap();
+            assert_eq!(
+                leaves(
+                    &side,
+                    "CONV",
+                    state,
+                    BUDGET,
+                    Some(ResultRun {
+                        modality: ResultModality::PathSet,
+                        max_work: None
+                    })
+                ),
                 (
                     ResultModality::PathSet,
-                    vec![(HaltClass::Trivial, 2), (HaltClass::Trivial, 2)],
-                ),
-            ),
-        ] {
-            let side = validator(name, module).compile_baseline().unwrap();
-            assert_eq!(
-                leaves(&side, module, state, BUDGET, None),
-                expected,
-                "{name}"
+                    vec![(HaltClass::Stuck, 3), (HaltClass::Stuck, 3)]
+                )
             );
-        }
-        let validator = validator("conv", "CONV");
-        let generation = replace(validator.baseline(), "CONV.mc", "1", "0");
-        let campaign = Campaign {
-            validator: &validator,
-            module: "CONV",
-            observation: &[],
-            classify: &crash_is_a_crash,
-            tests: &tests,
-            budget: BUDGET,
-        };
-        let [path_set, state_set] =
-            MODALITIES.map(|modality| run(&campaign, &generation, modality));
-        assert_refused(&path_set, "mixed modality");
-        let state_set = state_set.expect("the state set admits the baseline");
-        assert!(
-            matches!(baseline_side(&state_set), OracleSide::SemanticCrash(_)),
-            "{:?}",
-            baseline_side(&state_set)
-        );
-        assert_killed(&state_set, "a3", "mixed modality");
-    });
-}
+            assert_eq!(
+                leaves(&side, "CONV", state, BUDGET, None),
+                (ResultModality::StateSet, vec![(HaltClass::Stuck, 3)])
+            );
+            let [path_set, state_set] =
+                MODALITIES.map(|modality| run(&campaign, &generation, modality));
+            assert_refused(&path_set, "crash multiplicity");
+            let state_set = state_set.expect("the state set admits the baseline");
+            let OracleSide::SemanticCrash(term) = baseline_side(&state_set) else {
+                panic!("a crash side: {:?}", baseline_side(&state_set));
+            };
+            assert_eq!(argument_of(term, "Lblcrash").as_deref(), Some("3"));
+            assert_killed(&state_set, "a3", "crash multiplicity");
+        });
+    }
 
-/// Route 3, absorbed depth bound (L1-1 review 1 minor 3; L1-1 listed it as "theoretically possible,
-/// not observed"). absorb.k's `s(3)` reaches `d(4)` at depth 3 and again at depth 4, where
-/// `max_depth = 4` stops the second path. The path set is `[Stuck 3, DepthBound 4]`, incomplete,
-/// so the baseline gate refuses the campaign; the state set is `[Stuck 3]`, the depth-bound leaf
-/// absorbed, so kink reads it as complete, and the mutant `start: 1 -> 2` (`d(5)`) is killed.
-/// Premise: decision 3, through k-rust's "a stuck leaf stands for any later leaf of its
-/// configuration" (the absorbed path's configuration is decided stuck by the earlier leaf), not
-/// through k-rust's coverage statement, which requires a run without depth stops.
-#[test]
-fn route_3_a_stuck_leaf_absorbs_a_later_depth_bound_leaf() {
-    on_a_big_stack(|| {
-        let budget = ExecutionBudget {
-            max_depth: Some(4),
-            ..BUDGET
-        };
-        let validator = validator("absorb", "ABSORB");
-        let tests = test("s3", "Lbls", 3, CrashPolicy::Reject);
-        let state = &tests[0].initial_state;
-        let side = validator.compile_baseline().unwrap();
-        assert_eq!(
-            leaves(
-                &side,
-                "ABSORB",
-                state,
+    /// Route 2, mixed modality (L1-1 review 1 minor 2). conv.k's state set has no undefined step and
+    /// stays a state set; convz.k (what conv.k's mutant `mc: 1 -> 0` compiles to) ends in undefined
+    /// steps, so its state set is replaced by its path set. Within the one test of the campaign the
+    /// baseline is then a state set (one crash terminal, a `SemanticCrash` side) and the mutant a path
+    /// set (two undefined steps, a `Normal` side of class `UndefinedStep`), and `CrashPolicy::
+    /// Distinguish` kills. Both sides as path sets refuse the baseline (route 1). Premise: decision 3
+    /// (the two sides' leaf sets are their sets of final configurations, whatever the modality).
+    #[test]
+    #[ignore = "kink"]
+    fn route_2_one_test_compares_a_state_set_with_a_path_set() {
+        on_a_big_stack(|| {
+            let tests = test("a3", "Lbla", 3, CrashPolicy::Distinguish);
+            let state = &tests[0].initial_state;
+            for (name, module, expected) in [
+                (
+                    "conv",
+                    "CONV",
+                    (ResultModality::StateSet, vec![(HaltClass::Stuck, 3)]),
+                ),
+                (
+                    "convz",
+                    "CONVZ",
+                    (
+                        ResultModality::PathSet,
+                        vec![(HaltClass::Trivial, 2), (HaltClass::Trivial, 2)],
+                    ),
+                ),
+            ] {
+                let side = validator(name, module).compile_baseline().unwrap();
+                assert_eq!(
+                    leaves(&side, module, state, BUDGET, None),
+                    expected,
+                    "{name}"
+                );
+            }
+            let validator = validator("conv", "CONV");
+            let generation = replace(validator.baseline(), "CONV.mc", "1", "0");
+            let campaign = Campaign {
+                validator: &validator,
+                module: "CONV",
+                observation: &[],
+                classify: &crash_is_a_crash,
+                tests: &tests,
+                budget: BUDGET,
+            };
+            let [path_set, state_set] =
+                MODALITIES.map(|modality| run(&campaign, &generation, modality));
+            assert_refused(&path_set, "mixed modality");
+            let state_set = state_set.expect("the state set admits the baseline");
+            assert!(
+                matches!(baseline_side(&state_set), OracleSide::SemanticCrash(_)),
+                "{:?}",
+                baseline_side(&state_set)
+            );
+            assert_killed(&state_set, "a3", "mixed modality");
+        });
+    }
+
+    /// Route 3, absorbed depth bound (L1-1 review 1 minor 3; L1-1 listed it as "theoretically possible,
+    /// not observed"). absorb.k's `s(3)` reaches `d(4)` at depth 3 and again at depth 4, where
+    /// `max_depth = 4` stops the second path. The path set is `[Stuck 3, DepthBound 4]`, incomplete,
+    /// so the baseline gate refuses the campaign; the state set is `[Stuck 3]`, the depth-bound leaf
+    /// absorbed, so kink reads it as complete, and the mutant `start: 1 -> 2` (`d(5)`) is killed.
+    /// Premise: decision 3, through k-rust's "a stuck leaf stands for any later leaf of its
+    /// configuration" (the absorbed path's configuration is decided stuck by the earlier leaf), not
+    /// through k-rust's coverage statement, which requires a run without depth stops.
+    #[test]
+    #[ignore = "kink"]
+    fn route_3_a_stuck_leaf_absorbs_a_later_depth_bound_leaf() {
+        on_a_big_stack(|| {
+            let budget = ExecutionBudget {
+                max_depth: Some(4),
+                ..BUDGET
+            };
+            let validator = validator("absorb", "ABSORB");
+            let tests = test("s3", "Lbls", 3, CrashPolicy::Reject);
+            let state = &tests[0].initial_state;
+            let side = validator.compile_baseline().unwrap();
+            assert_eq!(
+                leaves(
+                    &side,
+                    "ABSORB",
+                    state,
+                    budget,
+                    Some(ResultRun {
+                        modality: ResultModality::PathSet,
+                        max_work: None
+                    })
+                ),
+                (
+                    ResultModality::PathSet,
+                    vec![(HaltClass::Stuck, 3), (HaltClass::DepthBound, 4)]
+                )
+            );
+            assert_eq!(
+                leaves(&side, "ABSORB", state, budget, None),
+                (ResultModality::StateSet, vec![(HaltClass::Stuck, 3)])
+            );
+            // Without the depth bound both modalities are complete and agree.
+            assert_eq!(
+                leaves(
+                    &side,
+                    "ABSORB",
+                    state,
+                    BUDGET,
+                    Some(ResultRun {
+                        modality: ResultModality::PathSet,
+                        max_work: None
+                    })
+                ),
+                (
+                    ResultModality::PathSet,
+                    vec![(HaltClass::Stuck, 3), (HaltClass::Stuck, 4)]
+                )
+            );
+            let generation = replace(validator.baseline(), "ABSORB.start", "1", "2");
+            let campaign = Campaign {
+                validator: &validator,
+                module: "ABSORB",
+                observation: &[],
+                classify: &normal,
+                tests: &tests,
                 budget,
-                Some(ResultRun {
-                    modality: ResultModality::PathSet,
-                    max_work: None
-                })
-            ),
-            (
-                ResultModality::PathSet,
-                vec![(HaltClass::Stuck, 3), (HaltClass::DepthBound, 4)]
-            )
-        );
-        assert_eq!(
-            leaves(&side, "ABSORB", state, budget, None),
-            (ResultModality::StateSet, vec![(HaltClass::Stuck, 3)])
-        );
-        // Without the depth bound both modalities are complete and agree.
-        assert_eq!(
-            leaves(
-                &side,
-                "ABSORB",
-                state,
-                BUDGET,
-                Some(ResultRun {
-                    modality: ResultModality::PathSet,
-                    max_work: None
-                })
-            ),
-            (
-                ResultModality::PathSet,
-                vec![(HaltClass::Stuck, 3), (HaltClass::Stuck, 4)]
-            )
-        );
-        let generation = replace(validator.baseline(), "ABSORB.start", "1", "2");
-        let campaign = Campaign {
-            validator: &validator,
-            module: "ABSORB",
-            observation: &[],
-            classify: &normal,
-            tests: &tests,
-            budget,
-        };
-        let [path_set, state_set] =
-            MODALITIES.map(|modality| run(&campaign, &generation, modality));
-        assert_refused(&path_set, "absorbed depth bound");
-        let state_set = state_set.expect("the state set admits the baseline");
-        let OracleSide::Normal(OracleValue::FinalResult(FinalResult::WholeTerm(terms))) =
-            baseline_side(&state_set)
-        else {
-            panic!("a whole-term side: {:?}", baseline_side(&state_set));
-        };
-        assert_eq!(
-            terms
-                .iter()
-                .map(|term| argument_of(term, "Lbld"))
-                .collect::<Vec<_>>(),
-            vec![Some("4".to_owned())]
-        );
-        assert_killed(&state_set, "s3", "absorbed depth bound");
-    });
+            };
+            let [path_set, state_set] =
+                MODALITIES.map(|modality| run(&campaign, &generation, modality));
+            assert_refused(&path_set, "absorbed depth bound");
+            let state_set = state_set.expect("the state set admits the baseline");
+            let OracleSide::Normal(OracleValue::FinalResult(FinalResult::WholeTerm(terms))) =
+                baseline_side(&state_set)
+            else {
+                panic!("a whole-term side: {:?}", baseline_side(&state_set));
+            };
+            assert_eq!(
+                terms
+                    .iter()
+                    .map(|term| argument_of(term, "Lbld"))
+                    .collect::<Vec<_>>(),
+                vec![Some("4".to_owned())]
+            );
+            assert_killed(&state_set, "s3", "absorbed depth bound");
+        });
+    }
 }

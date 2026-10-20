@@ -674,203 +674,211 @@ fn different_keys(a: &Value, b: &Value) -> Vec<String> {
         .collect()
 }
 
-#[test]
-fn counter_manifest_is_deterministic_and_declaration_changes_are_local() {
-    let mut outputs = Vec::new();
-    for _ in 0..2 {
-        let validator =
-            NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
+mod kink_tier {
+    use super::*;
+
+    #[test]
+    #[ignore = "kink"]
+    fn counter_manifest_is_deterministic_and_declaration_changes_are_local() {
+        let mut outputs = Vec::new();
+        for _ in 0..2 {
+            let validator =
+                NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
+            let specs = step_support::counter(true);
+            let tests = counter_tests(&specs);
+            let generation = counter_generation(validator.baseline());
+            let mut campaign = Campaign {
+                validator: &validator,
+                module: "COUNTER",
+                observation: &specs,
+                classify: &normal,
+                tests: &tests,
+                budget: BUDGET,
+            };
+            let original = build(&campaign, &generation, 1).unwrap();
+            check_manifest(&original);
+            // Re-pin R0a (finding E-07; k-rust 67b9f5c54): the semantic input is KRUST-PROVENANCE
+            // version 8 at 501f18b9, and the structure digest moved with the builtin Markdown
+            // sources' positions (finding E-09's identity offset map) and builtin kast.md's layout
+            // regexes (k-rust df11bc569, 4df229f70); compiled KORE is unchanged (kink-patch
+            // semantic_input.rs literal_digests, compiled_kore_is_unchanged_by_the_provenance_move).
+            assert_eq!(
+                original.value()["baseline"]["semantic_input_sha256"],
+                "a7181f8fe5cad482a4b76e0bfb506e1eb00b55f354f87a1b1684442cd740bb49"
+            );
+            assert_eq!(
+                original.value()["baseline"]["structure_sha256"],
+                "f71bf625e0ba7b96ef9377c0b9bf550b57210b0422ce294df7146bd334649e2a"
+            );
+            let mutants = original.value()["mutants"].as_array().unwrap();
+            assert_eq!(mutants.len(), 4);
+            assert_eq!(
+                mutants[0]["validation"],
+                json!({"outcome":"rejected","stage":"compilation","detail":"definition checks"})
+            );
+            for mutant in &mutants[1..] {
+                assert_eq!(
+                    mutant["validation"],
+                    json!({"outcome":"compiled","stage":null,"detail":null})
+                );
+            }
+            for (candidate, recorded) in generation.candidates().iter().zip(mutants) {
+                let decoded =
+                    Patch::from_canonical_json(&candidate.patch.canonical_json().unwrap()).unwrap();
+                assert_eq!(decoded, candidate.patch);
+                assert_eq!(
+                    recorded["patch_sha256"],
+                    decoded.digest().unwrap().to_string()
+                );
+            }
+            let changed_version = build(&campaign, &generation, 2).unwrap();
+            assert_eq!(
+                different_keys(original.value(), changed_version.value()),
+                ["operators"]
+            );
+            campaign.budget.max_depth = Some(123);
+            let changed_budget = build(&campaign, &generation, 1).unwrap();
+            assert_eq!(
+                different_keys(original.value(), changed_budget.value()),
+                ["budget"]
+            );
+            campaign.budget = BUDGET;
+            let mut changed_tests = tests.clone();
+            changed_tests[0].initial_state = choose_state();
+            campaign.tests = &changed_tests;
+            let changed_state = build(&campaign, &generation, 1).unwrap();
+            assert_eq!(
+                different_keys(original.value(), changed_state.value()),
+                ["tests"]
+            );
+            assert_eq!(
+                different_keys(&original.value()["tests"], &changed_state.value()["tests"]),
+                ["sha256"]
+            );
+            outputs.push(original.text());
+        }
+        assert_eq!(outputs[0], outputs[1]);
+        let path = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!(
+            "si02-counter-manifest-{}.json",
+            if cfg!(feature = "z3") { "z3" } else { "no-z3" }
+        ));
+        std::fs::write(path, &outputs[0]).unwrap();
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn coupled_manifest_is_deterministic() {
+        let mut outputs = Vec::new();
+        for _ in 0..2 {
+            let validator =
+                NativeValidator::bind(support::load("symmem.k"), CompileOptions::default());
+            let (specs, tests) = symmem::declaration();
+            let generation = symmem::generation(validator.baseline());
+            let campaign = Campaign {
+                validator: &validator,
+                module: "SYMMEM",
+                observation: &specs,
+                classify: &normal,
+                tests: &tests,
+                budget: BUDGET,
+            };
+            let manifest = campaign_manifest(&ManifestInput {
+                campaign: &campaign,
+                generation: &generation,
+                schedule: ScheduleMode::Full,
+                selection: kink_campaign::SelectionPolicy::None,
+                operators: &[kink_campaign::ManifestOperator::Code(OperatorId {
+                    id: "release-after-access",
+                    version: 1,
+                    policy: SelectionPolicy::Exact {
+                        expected_tuple_count: 1,
+                        expected_tuple_arity: 2,
+                    },
+                })],
+                classifier: "normal",
+            })
+            .unwrap();
+            check_manifest(&manifest);
+            // Re-pin R0a (finding E-07; k-rust 67b9f5c54): the semantic input is KRUST-PROVENANCE
+            // version 8 at 501f18b9, and the structure digest moved with the builtin Markdown
+            // sources' positions (finding E-09's identity offset map) and builtin kast.md's layout
+            // regexes (k-rust df11bc569, 4df229f70); compiled KORE is unchanged (kink-patch
+            // semantic_input.rs literal_digests, compiled_kore_is_unchanged_by_the_provenance_move).
+            assert_eq!(
+                manifest.value()["baseline"]["semantic_input_sha256"],
+                "31458cc30035f03ed69d43a180358989867e952b570b81a031c4fb4fe4d03fe4"
+            );
+            assert_eq!(
+                manifest.value()["baseline"]["structure_sha256"],
+                "149d73dc878819b0974b7aabcad4402ada7f0ef90b6d1531e16b5ed92ef7d8af"
+            );
+            assert_eq!(manifest.value()["mutants"].as_array().unwrap().len(), 1);
+            let patch = &generation.candidates()[0].patch;
+            assert_eq!(patch.edits().len(), 2);
+            assert_eq!(
+                Patch::from_canonical_json(&patch.canonical_json().unwrap()).unwrap(),
+                *patch
+            );
+            outputs.push(manifest.text());
+        }
+        assert_eq!(outputs[0], outputs[1]);
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn foreign_generation_operator_mismatch_and_nondefault_options_are_refused() {
+        let first = NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
+        let second = NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
         let specs = step_support::counter(true);
         let tests = counter_tests(&specs);
-        let generation = counter_generation(validator.baseline());
-        let mut campaign = Campaign {
-            validator: &validator,
+        let generation = counter_generation(first.baseline());
+        let campaign = Campaign {
+            validator: &second,
             module: "COUNTER",
             observation: &specs,
             classify: &normal,
             tests: &tests,
             budget: BUDGET,
         };
-        let original = build(&campaign, &generation, 1).unwrap();
-        check_manifest(&original);
-        // Re-pin R0a (finding E-07; k-rust 67b9f5c54): the semantic input is KRUST-PROVENANCE
-        // version 8 at 501f18b9, and the structure digest moved with the builtin Markdown
-        // sources' positions (finding E-09's identity offset map) and builtin kast.md's layout
-        // regexes (k-rust df11bc569, 4df229f70); compiled KORE is unchanged (kink-patch
-        // semantic_input.rs literal_digests, compiled_kore_is_unchanged_by_the_provenance_move).
         assert_eq!(
-            original.value()["baseline"]["semantic_input_sha256"],
-            "a7181f8fe5cad482a4b76e0bfb506e1eb00b55f354f87a1b1684442cd740bb49"
+            build(&campaign, &generation, 1).unwrap_err(),
+            ManifestError::ForeignGeneration
         );
-        assert_eq!(
-            original.value()["baseline"]["structure_sha256"],
-            "f71bf625e0ba7b96ef9377c0b9bf550b57210b0422ce294df7146bd334649e2a"
-        );
-        let mutants = original.value()["mutants"].as_array().unwrap();
-        assert_eq!(mutants.len(), 4);
-        assert_eq!(
-            mutants[0]["validation"],
-            json!({"outcome":"rejected","stage":"compilation","detail":"definition checks"})
-        );
-        for mutant in &mutants[1..] {
-            assert_eq!(
-                mutant["validation"],
-                json!({"outcome":"compiled","stage":null,"detail":null})
-            );
-        }
-        for (candidate, recorded) in generation.candidates().iter().zip(mutants) {
-            let decoded =
-                Patch::from_canonical_json(&candidate.patch.canonical_json().unwrap()).unwrap();
-            assert_eq!(decoded, candidate.patch);
-            assert_eq!(
-                recorded["patch_sha256"],
-                decoded.digest().unwrap().to_string()
-            );
-        }
-        let changed_version = build(&campaign, &generation, 2).unwrap();
-        assert_eq!(
-            different_keys(original.value(), changed_version.value()),
-            ["operators"]
-        );
-        campaign.budget.max_depth = Some(123);
-        let changed_budget = build(&campaign, &generation, 1).unwrap();
-        assert_eq!(
-            different_keys(original.value(), changed_budget.value()),
-            ["budget"]
-        );
-        campaign.budget = BUDGET;
-        let mut changed_tests = tests.clone();
-        changed_tests[0].initial_state = choose_state();
-        campaign.tests = &changed_tests;
-        let changed_state = build(&campaign, &generation, 1).unwrap();
-        assert_eq!(
-            different_keys(original.value(), changed_state.value()),
-            ["tests"]
-        );
-        assert_eq!(
-            different_keys(&original.value()["tests"], &changed_state.value()["tests"]),
-            ["sha256"]
-        );
-        outputs.push(original.text());
-    }
-    assert_eq!(outputs[0], outputs[1]);
-    let path = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!(
-        "si02-counter-manifest-{}.json",
-        if cfg!(feature = "z3") { "z3" } else { "no-z3" }
-    ));
-    std::fs::write(path, &outputs[0]).unwrap();
-}
-
-#[test]
-fn coupled_manifest_is_deterministic() {
-    let mut outputs = Vec::new();
-    for _ in 0..2 {
-        let validator = NativeValidator::bind(support::load("symmem.k"), CompileOptions::default());
-        let (specs, tests) = symmem::declaration();
-        let generation = symmem::generation(validator.baseline());
         let campaign = Campaign {
-            validator: &validator,
-            module: "SYMMEM",
-            observation: &specs,
-            classify: &normal,
-            tests: &tests,
-            budget: BUDGET,
+            validator: &first,
+            ..campaign
         };
-        let manifest = campaign_manifest(&ManifestInput {
+        let input = ManifestInput {
             campaign: &campaign,
             generation: &generation,
             schedule: ScheduleMode::Full,
             selection: kink_campaign::SelectionPolicy::None,
             operators: &[kink_campaign::ManifestOperator::Code(OperatorId {
-                id: "release-after-access",
+                id: "other",
                 version: 1,
-                policy: SelectionPolicy::Exact {
-                    expected_tuple_count: 1,
-                    expected_tuple_arity: 2,
-                },
+                policy: SelectionPolicy::Each,
             })],
             classifier: "normal",
-        })
-        .unwrap();
-        check_manifest(&manifest);
-        // Re-pin R0a (finding E-07; k-rust 67b9f5c54): the semantic input is KRUST-PROVENANCE
-        // version 8 at 501f18b9, and the structure digest moved with the builtin Markdown
-        // sources' positions (finding E-09's identity offset map) and builtin kast.md's layout
-        // regexes (k-rust df11bc569, 4df229f70); compiled KORE is unchanged (kink-patch
-        // semantic_input.rs literal_digests, compiled_kore_is_unchanged_by_the_provenance_move).
+        };
         assert_eq!(
-            manifest.value()["baseline"]["semantic_input_sha256"],
-            "31458cc30035f03ed69d43a180358989867e952b570b81a031c4fb4fe4d03fe4"
+            campaign_manifest(&input).unwrap_err(),
+            ManifestError::OperatorMismatch
         );
+        let validator = NativeValidator::bind(
+            support::load("counter.k"),
+            CompileOptions {
+                kore_width: 80,
+                ..CompileOptions::default()
+            },
+        );
+        let generation = counter_generation(validator.baseline());
+        let campaign = Campaign {
+            validator: &validator,
+            ..campaign
+        };
         assert_eq!(
-            manifest.value()["baseline"]["structure_sha256"],
-            "149d73dc878819b0974b7aabcad4402ada7f0ef90b6d1531e16b5ed92ef7d8af"
+            build(&campaign, &generation, 1).unwrap_err(),
+            ManifestError::NonDefaultCompileOptions
         );
-        assert_eq!(manifest.value()["mutants"].as_array().unwrap().len(), 1);
-        let patch = &generation.candidates()[0].patch;
-        assert_eq!(patch.edits().len(), 2);
-        assert_eq!(
-            Patch::from_canonical_json(&patch.canonical_json().unwrap()).unwrap(),
-            *patch
-        );
-        outputs.push(manifest.text());
     }
-    assert_eq!(outputs[0], outputs[1]);
-}
-
-#[test]
-fn foreign_generation_operator_mismatch_and_nondefault_options_are_refused() {
-    let first = NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
-    let second = NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
-    let specs = step_support::counter(true);
-    let tests = counter_tests(&specs);
-    let generation = counter_generation(first.baseline());
-    let campaign = Campaign {
-        validator: &second,
-        module: "COUNTER",
-        observation: &specs,
-        classify: &normal,
-        tests: &tests,
-        budget: BUDGET,
-    };
-    assert_eq!(
-        build(&campaign, &generation, 1).unwrap_err(),
-        ManifestError::ForeignGeneration
-    );
-    let campaign = Campaign {
-        validator: &first,
-        ..campaign
-    };
-    let input = ManifestInput {
-        campaign: &campaign,
-        generation: &generation,
-        schedule: ScheduleMode::Full,
-        selection: kink_campaign::SelectionPolicy::None,
-        operators: &[kink_campaign::ManifestOperator::Code(OperatorId {
-            id: "other",
-            version: 1,
-            policy: SelectionPolicy::Each,
-        })],
-        classifier: "normal",
-    };
-    assert_eq!(
-        campaign_manifest(&input).unwrap_err(),
-        ManifestError::OperatorMismatch
-    );
-    let validator = NativeValidator::bind(
-        support::load("counter.k"),
-        CompileOptions {
-            kore_width: 80,
-            ..CompileOptions::default()
-        },
-    );
-    let generation = counter_generation(validator.baseline());
-    let campaign = Campaign {
-        validator: &validator,
-        ..campaign
-    };
-    assert_eq!(
-        build(&campaign, &generation, 1).unwrap_err(),
-        ManifestError::NonDefaultCompileOptions
-    );
 }

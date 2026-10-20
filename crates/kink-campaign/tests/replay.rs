@@ -557,39 +557,57 @@ fn rehash_manifest(report: &mut Value) {
         .to_string()
     );
 }
-#[test]
-fn counter_reproduces_in_full_and_first_kill_and_from_files() {
-    with_stack(|| {
+// The SI-04 replay rows on counter.k, one test per row so that they run in parallel (test-gate
+// TG-C): `counter-full`, `counter-file` (the Full report and artifact written to files and read
+// back) and `counter-first-kill` were one test, `counter_reproduces_in_full_and_first_kill_and_
+// from_files`; each test builds its own report.
+
+/// The counter campaign's report and artifact in `schedule`, its mutant 1 killed.
+fn counter_build(
+    schedule: ScheduleMode,
+    check: impl FnOnce(&ReplayDeclaration<'_>, CampaignReport, String) + Send + 'static,
+) {
+    with_stack(move || {
         let specs = step_support::counter(true);
         let tests = counter_tests(&specs);
-        for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
-            let declaration = counter_declaration(&specs, &tests, schedule);
-            let (report, artifact) = build("counter.k", &declaration);
-            assert_eq!(report.value()["mutants"][1]["status"], "killed");
-            let name = if schedule == ScheduleMode::Full {
-                "counter-full"
-            } else {
-                "counter-first-kill"
-            };
-            reproduced(name, &report.text(), &artifact, &declaration);
-            if schedule == ScheduleMode::Full {
-                let root = std::path::Path::new(env!("CARGO_TARGET_TMPDIR"));
-                let report_path =
-                    root.join(format!("counter-report-{}.json", cfg!(feature = "z3")));
-                let artifact_path =
-                    root.join(format!("counter-artifact-{}.json", cfg!(feature = "z3")));
-                std::fs::write(&report_path, report.text()).unwrap();
-                std::fs::write(&artifact_path, artifact).unwrap();
-                reproduced(
-                    "counter-file",
-                    &std::fs::read_to_string(report_path).unwrap(),
-                    &std::fs::read_to_string(artifact_path).unwrap(),
-                    &declaration,
-                );
-            }
-        }
+        let declaration = counter_declaration(&specs, &tests, schedule);
+        let (report, artifact) = build("counter.k", &declaration);
+        assert_eq!(report.value()["mutants"][1]["status"], "killed");
+        check(&declaration, report, artifact);
     });
 }
+
+#[test]
+fn counter_reproduces_in_full() {
+    counter_build(ScheduleMode::Full, |declaration, report, artifact| {
+        reproduced("counter-full", &report.text(), &artifact, declaration);
+    });
+}
+
+#[test]
+fn counter_reproduces_from_files() {
+    counter_build(ScheduleMode::Full, |declaration, report, artifact| {
+        let root = std::path::Path::new(env!("CARGO_TARGET_TMPDIR"));
+        let report_path = root.join(format!("counter-report-{}.json", cfg!(feature = "z3")));
+        let artifact_path = root.join(format!("counter-artifact-{}.json", cfg!(feature = "z3")));
+        std::fs::write(&report_path, report.text()).unwrap();
+        std::fs::write(&artifact_path, artifact).unwrap();
+        reproduced(
+            "counter-file",
+            &std::fs::read_to_string(report_path).unwrap(),
+            &std::fs::read_to_string(artifact_path).unwrap(),
+            declaration,
+        );
+    });
+}
+
+#[test]
+fn counter_reproduces_in_first_kill() {
+    counter_build(ScheduleMode::FirstKill, |declaration, report, artifact| {
+        reproduced("counter-first-kill", &report.text(), &artifact, declaration);
+    });
+}
+
 #[test]
 fn coupled_protected_kill_reproduces_and_reversed_edits_are_refused() {
     with_stack(|| {
@@ -640,19 +658,33 @@ fn equivalent_clone_reproduces() {
         reproduced("equivalent", &report.text(), &artifact, &declaration);
     });
 }
-#[test]
-fn counter_tampers_are_refused_or_diverge_before_any_verdict() {
-    with_stack(|| {
+// The SI-04 tamper rows on counter.k's Full report, four tests that run in parallel (test-gate
+// TG-C; together they were `counter_tampers_are_refused_or_diverge_before_any_verdict`): the
+// refusals of a changed patch, artifact, environment, budget or baseline; the refusal of another
+// operator version; the refusal under another campaign's declaration; and the changed verdict
+// that replay reruns to find.
+
+/// The counter campaign's Full report and artifact, for the tamper rows.
+fn counter_tampers(
+    check: impl FnOnce(&ReplayDeclaration<'_>, &Value, &str, &CampaignReport) + Send + 'static,
+) {
+    with_stack(move || {
         let specs = step_support::counter(true);
         let tests = counter_tests(&specs);
-        let mut declaration = counter_declaration(&specs, &tests, ScheduleMode::Full);
+        let declaration = counter_declaration(&specs, &tests, ScheduleMode::Full);
         let (report, artifact) = build("counter.k", &declaration);
-        let original = report.value();
+        check(&declaration, report.value(), &artifact, &report);
+    });
+}
+
+#[test]
+fn counter_tampers_are_refused_before_any_verdict() {
+    counter_tampers(|declaration, original, artifact, report| {
         let mut changed = original.clone();
         changed["mutants"][2]["canonical_patch"]["edits"][0]["replacement"]["term"]["token"] =
             json!("falsE");
         assert!(matches!(
-            replay(&canonical_json(&changed), &artifact, &declaration),
+            replay(&canonical_json(&changed), artifact, declaration),
             ReplayOutcome::Refused(
                 ReplayRefusal::PatchDecode(MutantId(2)) | ReplayRefusal::PatchDigest(MutantId(2))
             )
@@ -665,60 +697,38 @@ fn counter_tampers_are_refused_or_diverge_before_any_verdict() {
             "a valid changed artifact"
         );
         assert_eq!(
-            replay(&report.text(), &token_changed, &declaration),
+            replay(&report.text(), &token_changed, declaration),
             ReplayOutcome::Refused(ReplayRefusal::BaselineDigest)
-        );
-
-        let root = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("si04-variant");
-        std::fs::create_dir_all(&root).unwrap();
-        let path = root.join("counter.k");
-        let source = std::fs::read_to_string(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/k/counter.k"),
-        )
-        .unwrap();
-        let source = source.replace("counter(s(N), L)", "counter(s(s(N)), L)");
-        std::fs::write(&path, source).unwrap();
-        let variant = SemanticInput::of(&support::load_path(&path, "COUNTER")).unwrap();
-        changed = original.clone();
-        changed["manifest"]["baseline"]["semantic_input_sha256"] =
-            json!(variant.digest().to_string());
-        rehash_manifest(&mut changed);
-        assert!(matches!(
-            replay(&canonical_json(&changed), variant.text(), &declaration),
-            ReplayOutcome::Refused(ReplayRefusal::Stale(_) | ReplayRefusal::MutantDigest(_))
-        ));
-
-        changed = original.clone();
-        changed["mutants"][1]["status"] = json!("survived");
-        assert_eq!(
-            replay(&canonical_json(&changed), &artifact, &declaration),
-            ReplayOutcome::Diverged {
-                pointer: "/mutants/1/status".into(),
-                mutants: vec![MutantId(1)]
-            }
         );
 
         changed = original.clone();
         changed["manifest"]["k_rust"]["revision"] = json!("different");
         rehash_manifest(&mut changed);
         assert_eq!(
-            replay(&canonical_json(&changed), &artifact, &declaration),
+            replay(&canonical_json(&changed), artifact, declaration),
             ReplayOutcome::Refused(ReplayRefusal::Environment("k_rust.revision".into()))
         );
         changed = original.clone();
         changed["manifest"]["profile"] = json!(if cfg!(feature = "z3") { "no-z3" } else { "z3" });
         rehash_manifest(&mut changed);
         assert_eq!(
-            replay(&canonical_json(&changed), &artifact, &declaration),
+            replay(&canonical_json(&changed), artifact, declaration),
             ReplayOutcome::Refused(ReplayRefusal::Environment("profile".into()))
         );
         changed = original.clone();
         changed["manifest"]["budget"]["max_depth"] = json!(1);
         rehash_manifest(&mut changed);
         assert_eq!(
-            replay(&canonical_json(&changed), &artifact, &declaration),
+            replay(&canonical_json(&changed), artifact, declaration),
             ReplayOutcome::Refused(ReplayRefusal::Declaration)
         );
+        stale_baseline_is_refused(declaration, original);
+    });
+}
+
+#[test]
+fn counter_tampers_with_another_operator_version_are_refused() {
+    counter_tampers(|declaration, _, artifact, report| {
         let kink_campaign::ReplayOperator::Code {
             id, policy, select, ..
         } = &declaration.operators[0]
@@ -731,17 +741,63 @@ fn counter_tampers_are_refused_or_diverge_before_any_verdict() {
             policy: *policy,
             select: *select,
         }];
-        declaration.operators = &changed_operators;
+        let versioned = ReplayDeclaration {
+            operators: &changed_operators,
+            ..*declaration
+        };
         assert_eq!(
-            replay(&report.text(), &artifact, &declaration),
+            replay(&report.text(), artifact, &versioned),
             ReplayOutcome::Refused(ReplayRefusal::Declaration)
         );
+    });
+}
+
+#[test]
+fn counter_report_under_another_campaigns_declaration_is_refused() {
+    counter_tampers(|_, _, artifact, report| {
         let (coupled_specs, coupled_tests) = symmem::declaration();
         let coupled = coupled_declaration(&coupled_specs, &coupled_tests);
         assert!(matches!(
-            replay(&report.text(), &artifact, &coupled),
+            replay(&report.text(), artifact, &coupled),
             ReplayOutcome::Refused(_)
         ));
+    });
+}
+
+/// A report whose baseline digest names a changed counter.k is refused as stale (or at the first
+/// mutant digest), before any verdict.
+fn stale_baseline_is_refused(declaration: &ReplayDeclaration<'_>, original: &Value) {
+    let root = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("si04-variant");
+    std::fs::create_dir_all(&root).unwrap();
+    let path = root.join("counter.k");
+    let source = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/k/counter.k"),
+    )
+    .unwrap();
+    let source = source.replace("counter(s(N), L)", "counter(s(s(N)), L)");
+    std::fs::write(&path, source).unwrap();
+    let variant = SemanticInput::of(&support::load_path(&path, "COUNTER")).unwrap();
+    let mut changed = original.clone();
+    changed["manifest"]["baseline"]["semantic_input_sha256"] = json!(variant.digest().to_string());
+    rehash_manifest(&mut changed);
+    assert!(matches!(
+        replay(&canonical_json(&changed), variant.text(), declaration),
+        ReplayOutcome::Refused(ReplayRefusal::Stale(_) | ReplayRefusal::MutantDigest(_))
+    ));
+}
+
+#[test]
+fn counter_tampers_with_a_verdict_diverge() {
+    counter_tampers(|declaration, original, artifact, _| {
+        let mut changed = original.clone();
+        changed["mutants"][1]["status"] = json!("survived");
+        assert_eq!(
+            replay(&canonical_json(&changed), artifact, declaration),
+            ReplayOutcome::Diverged {
+                pointer: "/mutants/1/status".into(),
+                mutants: vec![MutantId(1)]
+            }
+        );
     });
 }
 

@@ -219,158 +219,6 @@ fn start() -> TestCase {
     test("start", support::app("Lblstart", vec![]))
 }
 
-/// The review's critical 1 (`r0c/lamrule.k`): the rewrite rule `go` holds
-/// `#fun((_K |-> V) _R => V *Int 0)`, whose map pattern matches `(1 |-> 10) (2 |-> 20)` in two
-/// ways. In the baseline both matchings give 0; the int-literal mutant 0 -> 1 makes the lambda
-/// give 10 and 20 on one map, so it has no model. The source reading redefines nothing (a
-/// rewrite rule), but the compiled lambda's equation differs, so its self pair is checked and the
-/// mutant is refused. At 25e229e it was killed by `start` (mutant `val(10)`, baseline `val(0)`).
-#[test]
-fn a_lambda_in_a_rewrite_rule_is_read_from_the_compiled_definition() {
-    on_a_big_stack(|| {
-        let validator = validator("lamrule");
-        let baseline = validator.baseline();
-        let generation = literal(baseline, "LAMRULE.go", "0", "1");
-        let tests = [start()];
-        let campaign = campaign(&validator, "LAMRULE", &tests);
-        for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
-            let run = run_campaign(&campaign, &generation, schedule).unwrap();
-            assert!(matches!(run.baseline[0].run, SideRun::Sides { .. }));
-            assert_self_pair(&run.mutants[0], None);
-        }
-    });
-}
-
-/// The review's critical 1 (`r0c/lamfun.k`): the same lambda in the equation of `f`. The source
-/// reading redefines `f`; the lambda is a generated symbol outside it, read from the compiled
-/// diff. At 25e229e the mutant was killed by `start`.
-#[test]
-fn a_lambda_in_a_function_equation_is_read_from_the_compiled_definition() {
-    on_a_big_stack(|| {
-        let validator = validator("lamfun");
-        let baseline = validator.baseline();
-        let generation = literal(baseline, "LAMFUN.f", "0", "1");
-        let tests = [start()];
-        let campaign = campaign(&validator, "LAMFUN", &tests);
-        for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
-            let run = run_campaign(&campaign, &generation, schedule).unwrap();
-            assert_self_pair(&run.mutants[0], None);
-        }
-    });
-}
-
-/// The control (`r0c/mapfun.k`): the map pattern as `f`'s own equation stays refused.
-#[test]
-fn a_map_pattern_equation_stays_refused() {
-    on_a_big_stack(|| {
-        let validator = validator("mapfun");
-        let baseline = validator.baseline();
-        let generation = literal(baseline, "MAPFUN.f", "0", "1");
-        let tests = [start()];
-        let campaign = campaign(&validator, "MAPFUN", &tests);
-        for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
-            let run = run_campaign(&campaign, &generation, schedule).unwrap();
-            assert_self_pair(&run.mutants[0], Some("MAPFUN.f"));
-        }
-    });
-}
-
-/// An edit that changes no equation still runs: `start`'s map literal 10 -> 11 leaves every
-/// compiled equation as it is (the lambda's included), so nothing is checked, and the mutant
-/// survives (every matching still gives 0).
-#[test]
-fn an_edit_that_changes_no_equation_runs() {
-    on_a_big_stack(|| {
-        let validator = validator("lamrule");
-        let baseline = validator.baseline();
-        let generation = literal(baseline, "LAMRULE.start", "10", "11");
-        let tests = [start()];
-        let campaign = campaign(&validator, "LAMRULE", &tests);
-        for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
-            let run = run_campaign(&campaign, &generation, schedule).unwrap();
-            let mutant = &run.mutants[0];
-            assert_eq!(mutant.plan.mutant_failure, None, "{schedule:?}");
-            assert!(mutant.report.inconsistent_pairs.is_empty());
-            assert_eq!(mutant.report.status, MutantStatus::Survived, "{schedule:?}");
-        }
-    });
-}
-
-/// The review's critical 2 (`r0c/cfgf.k`): `rule [[ f(I) => 1 ]] <k> _ </k> requires I >=Int 0`
-/// is an equation of `f`, which k-rust loads as `#withConfig(F, C)`; kink-patch now reads its head
-/// through `#withConfig`. The guard mutants that make `fpos` and `fneg` overlap are refused, as on
-/// `r0c/nomatch.k` (at 25e229e `fpos` 0 -> -5 was killed by `go(-1)` and `fneg` 0 -> 5 survived),
-/// and the narrowing `fpos` 0 -> 5 withdraws `f`'s `total` (at 25e229e it was kept). The
-/// narrowed pair `I >=Int 5` / `I <Int 0` is not refuted without a solver, so that mutant is
-/// refused too, as `nomatch.k`'s.
-///
-/// Re-pin P-2 (k-rust KINK-20/3, head 0749cd518, merge 879fce1cc, on main since 58720d2e5;
-/// k-rust's draft answers-add3 section 2.1 "Fewer withdrawn claims / more refutations at load";
-/// Sebastien's decision draft/tasks/flow/decisions/human-decisions-2026-10-14.md, "2026-10-20:
-/// admit mutants whose guards k-rust's KINK-20/3 refutes as disjoint", accepting P-1's STOP 1):
-/// k-rust now refutes one-term integer bounds exactly, so `I >=Int 5` beside `I <Int 0` is
-/// refuted, the pair is disjoint, and the narrowing `fpos` 0 -> 5 is admitted: it runs, `f` is
-/// partial on 0..4 with its `total` withdrawn, and both of its tests are Unknown, so the mutant
-/// is Unknown in both schedules (no pair reported, no kill). The two overlapping mutants are still
-/// refused for the pair `fpos`/`fneg`.
-#[test]
-fn a_function_rule_with_configuration_context_is_an_equation_of_its_head() {
-    on_a_big_stack(|| {
-        let validator = validator("cfgf");
-        let baseline = validator.baseline();
-        let go = |i| support::app("Lblgo", vec![support::int(i)]);
-        let chk = |i| support::app("Lblchk", vec![support::int(i)]);
-        for (rule, from, to, tests, refused) in [
-            (
-                "CFGF.fpos",
-                "0",
-                "-5",
-                vec![test("gom1", go(-1)), test("chkm1", chk(-1))],
-                true,
-            ),
-            (
-                "CFGF.fneg",
-                "0",
-                "5",
-                vec![test("go1", go(1)), test("go7", go(7))],
-                true,
-            ),
-            (
-                "CFGF.fpos",
-                "0",
-                "5",
-                vec![test("go1", go(1)), test("chk1", chk(1))],
-                // Re-pin P-2 (KINK-20/3; the decision above): admitted, Unknown.
-                false,
-            ),
-        ] {
-            let generation = literal(baseline, rule, from, to);
-            let campaign = campaign(&validator, "CFGF", &tests);
-            for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
-                let run = run_campaign(&campaign, &generation, schedule).unwrap();
-                let mutant = &run.mutants[0];
-                assert_eq!(
-                    named(baseline, "CFGF", &mutant.report.claims.withdrawn),
-                    [("f".to_owned(), "total".to_owned())],
-                    "{rule} {to} {schedule:?}"
-                );
-                if refused {
-                    assert_inconsistent(mutant, "CFGF.fpos", "CFGF.fneg");
-                } else {
-                    assert_eq!(mutant.plan.mutant_failure, None, "{rule} {to} {schedule:?}");
-                    assert!(mutant.report.inconsistent_pairs.is_empty());
-                    assert!(mutant.report.killing_test_ids.is_empty());
-                    assert_eq!(
-                        mutant.report.status,
-                        MutantStatus::Unknown,
-                        "{rule} {to} {schedule:?}"
-                    );
-                }
-            }
-        }
-    });
-}
-
 /// `mutant` is refused as inconsistent for the self pair of one equation (a map pattern that
 /// matches one subject in several ways, with a result that reads the choice): `equation`, or a
 /// generated lambda's (`None`; it has no label or position, so it is named by its unique id).
@@ -392,4 +240,165 @@ fn assert_self_pair(mutant: &MutantRun, equation: Option<&str>) {
         "{:?}",
         mutant.report.inconsistent_pairs
     );
+}
+
+mod kink_tier {
+    use super::*;
+
+    /// The review's critical 1 (`r0c/lamrule.k`): the rewrite rule `go` holds
+    /// `#fun((_K |-> V) _R => V *Int 0)`, whose map pattern matches `(1 |-> 10) (2 |-> 20)` in two
+    /// ways. In the baseline both matchings give 0; the int-literal mutant 0 -> 1 makes the lambda
+    /// give 10 and 20 on one map, so it has no model. The source reading redefines nothing (a
+    /// rewrite rule), but the compiled lambda's equation differs, so its self pair is checked and the
+    /// mutant is refused. At 25e229e it was killed by `start` (mutant `val(10)`, baseline `val(0)`).
+    #[test]
+    #[ignore = "kink"]
+    fn a_lambda_in_a_rewrite_rule_is_read_from_the_compiled_definition() {
+        on_a_big_stack(|| {
+            let validator = validator("lamrule");
+            let baseline = validator.baseline();
+            let generation = literal(baseline, "LAMRULE.go", "0", "1");
+            let tests = [start()];
+            let campaign = campaign(&validator, "LAMRULE", &tests);
+            for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                let run = run_campaign(&campaign, &generation, schedule).unwrap();
+                assert!(matches!(run.baseline[0].run, SideRun::Sides { .. }));
+                assert_self_pair(&run.mutants[0], None);
+            }
+        });
+    }
+
+    /// The review's critical 1 (`r0c/lamfun.k`): the same lambda in the equation of `f`. The source
+    /// reading redefines `f`; the lambda is a generated symbol outside it, read from the compiled
+    /// diff. At 25e229e the mutant was killed by `start`.
+    #[test]
+    #[ignore = "kink"]
+    fn a_lambda_in_a_function_equation_is_read_from_the_compiled_definition() {
+        on_a_big_stack(|| {
+            let validator = validator("lamfun");
+            let baseline = validator.baseline();
+            let generation = literal(baseline, "LAMFUN.f", "0", "1");
+            let tests = [start()];
+            let campaign = campaign(&validator, "LAMFUN", &tests);
+            for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                let run = run_campaign(&campaign, &generation, schedule).unwrap();
+                assert_self_pair(&run.mutants[0], None);
+            }
+        });
+    }
+
+    /// The control (`r0c/mapfun.k`): the map pattern as `f`'s own equation stays refused.
+    #[test]
+    #[ignore = "kink"]
+    fn a_map_pattern_equation_stays_refused() {
+        on_a_big_stack(|| {
+            let validator = validator("mapfun");
+            let baseline = validator.baseline();
+            let generation = literal(baseline, "MAPFUN.f", "0", "1");
+            let tests = [start()];
+            let campaign = campaign(&validator, "MAPFUN", &tests);
+            for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                let run = run_campaign(&campaign, &generation, schedule).unwrap();
+                assert_self_pair(&run.mutants[0], Some("MAPFUN.f"));
+            }
+        });
+    }
+
+    /// An edit that changes no equation still runs: `start`'s map literal 10 -> 11 leaves every
+    /// compiled equation as it is (the lambda's included), so nothing is checked, and the mutant
+    /// survives (every matching still gives 0).
+    #[test]
+    #[ignore = "kink"]
+    fn an_edit_that_changes_no_equation_runs() {
+        on_a_big_stack(|| {
+            let validator = validator("lamrule");
+            let baseline = validator.baseline();
+            let generation = literal(baseline, "LAMRULE.start", "10", "11");
+            let tests = [start()];
+            let campaign = campaign(&validator, "LAMRULE", &tests);
+            for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                let run = run_campaign(&campaign, &generation, schedule).unwrap();
+                let mutant = &run.mutants[0];
+                assert_eq!(mutant.plan.mutant_failure, None, "{schedule:?}");
+                assert!(mutant.report.inconsistent_pairs.is_empty());
+                assert_eq!(mutant.report.status, MutantStatus::Survived, "{schedule:?}");
+            }
+        });
+    }
+
+    /// The review's critical 2 (`r0c/cfgf.k`): `rule [[ f(I) => 1 ]] <k> _ </k> requires I >=Int 0`
+    /// is an equation of `f`, which k-rust loads as `#withConfig(F, C)`; kink-patch now reads its head
+    /// through `#withConfig`. The guard mutants that make `fpos` and `fneg` overlap are refused, as on
+    /// `r0c/nomatch.k` (at 25e229e `fpos` 0 -> -5 was killed by `go(-1)` and `fneg` 0 -> 5 survived),
+    /// and the narrowing `fpos` 0 -> 5 withdraws `f`'s `total` (at 25e229e it was kept). The
+    /// narrowed pair `I >=Int 5` / `I <Int 0` is not refuted without a solver, so that mutant is
+    /// refused too, as `nomatch.k`'s.
+    ///
+    /// Re-pin P-2 (k-rust KINK-20/3, head 0749cd518, merge 879fce1cc, on main since 58720d2e5;
+    /// k-rust's draft answers-add3 section 2.1 "Fewer withdrawn claims / more refutations at load";
+    /// Sebastien's decision draft/tasks/flow/decisions/human-decisions-2026-10-14.md, "2026-10-20:
+    /// admit mutants whose guards k-rust's KINK-20/3 refutes as disjoint", accepting P-1's STOP 1):
+    /// k-rust now refutes one-term integer bounds exactly, so `I >=Int 5` beside `I <Int 0` is
+    /// refuted, the pair is disjoint, and the narrowing `fpos` 0 -> 5 is admitted: it runs, `f` is
+    /// partial on 0..4 with its `total` withdrawn, and both of its tests are Unknown, so the mutant
+    /// is Unknown in both schedules (no pair reported, no kill). The two overlapping mutants are still
+    /// refused for the pair `fpos`/`fneg`.
+    #[test]
+    #[ignore = "kink"]
+    fn a_function_rule_with_configuration_context_is_an_equation_of_its_head() {
+        on_a_big_stack(|| {
+            let validator = validator("cfgf");
+            let baseline = validator.baseline();
+            let go = |i| support::app("Lblgo", vec![support::int(i)]);
+            let chk = |i| support::app("Lblchk", vec![support::int(i)]);
+            for (rule, from, to, tests, refused) in [
+                (
+                    "CFGF.fpos",
+                    "0",
+                    "-5",
+                    vec![test("gom1", go(-1)), test("chkm1", chk(-1))],
+                    true,
+                ),
+                (
+                    "CFGF.fneg",
+                    "0",
+                    "5",
+                    vec![test("go1", go(1)), test("go7", go(7))],
+                    true,
+                ),
+                (
+                    "CFGF.fpos",
+                    "0",
+                    "5",
+                    vec![test("go1", go(1)), test("chk1", chk(1))],
+                    // Re-pin P-2 (KINK-20/3; the decision above): admitted, Unknown.
+                    false,
+                ),
+            ] {
+                let generation = literal(baseline, rule, from, to);
+                let campaign = campaign(&validator, "CFGF", &tests);
+                for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                    let run = run_campaign(&campaign, &generation, schedule).unwrap();
+                    let mutant = &run.mutants[0];
+                    assert_eq!(
+                        named(baseline, "CFGF", &mutant.report.claims.withdrawn),
+                        [("f".to_owned(), "total".to_owned())],
+                        "{rule} {to} {schedule:?}"
+                    );
+                    if refused {
+                        assert_inconsistent(mutant, "CFGF.fpos", "CFGF.fneg");
+                    } else {
+                        assert_eq!(mutant.plan.mutant_failure, None, "{rule} {to} {schedule:?}");
+                        assert!(mutant.report.inconsistent_pairs.is_empty());
+                        assert!(mutant.report.killing_test_ids.is_empty());
+                        assert_eq!(
+                            mutant.report.status,
+                            MutantStatus::Unknown,
+                            "{rule} {to} {schedule:?}"
+                        );
+                    }
+                }
+            }
+        });
+    }
 }

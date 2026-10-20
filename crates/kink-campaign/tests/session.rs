@@ -260,106 +260,6 @@ fn validator() -> NativeValidator {
     NativeValidator::bind(support::load("counter.k"), CompileOptions::default())
 }
 
-/// Two calls through one session give the runs two fresh calls give (stop rule 2: a hit's
-/// evidence equals a live run of the same test in a fresh call), the second with no live
-/// baseline run; so do a reordered call and a call over a subset. In both schedules, with and
-/// without evidence sharing.
-#[test]
-fn calls_through_one_session_equal_fresh_calls_and_reuse_each_baseline() {
-    with_stack(|| {
-        let classify: &Classify = &normal;
-        let validator = validator();
-        let tests = tests();
-        let reversed = tests.iter().rev().cloned().collect::<Vec<_>>();
-        let subset = vec![tests[1].clone()];
-        for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
-            for share in [false, true] {
-                let options = options(schedule, share);
-                let mut session = BaselineSession::new(&validator);
-                assert_eq!(counts(&session), (0, 0, 0));
-                let (fresh, first) = both(
-                    &validator,
-                    &Inputs::new(&tests, classify),
-                    &options,
-                    &mut session,
-                );
-                let fresh = fresh.expect("fresh call");
-                assert_eq!(first.expect("first call"), fresh, "{schedule:?} {share}");
-                assert_eq!(counts(&session), (2, 0, 2), "first call runs both live");
-                let (fresh_again, second) = both(
-                    &validator,
-                    &Inputs::new(&tests, classify),
-                    &options,
-                    &mut session,
-                );
-                assert_eq!(fresh_again.expect("fresh call"), fresh);
-                assert_eq!(second.expect("second call"), fresh, "{schedule:?} {share}");
-                assert_eq!(counts(&session), (2, 2, 2), "second call reuses both");
-                let (fresh, third) = both(
-                    &validator,
-                    &Inputs::new(&reversed, classify),
-                    &options,
-                    &mut session,
-                );
-                assert_eq!(third.expect("reversed"), fresh.expect("fresh reversed"));
-                assert_eq!(counts(&session), (2, 4, 2));
-                let (fresh, fourth) = both(
-                    &validator,
-                    &Inputs::new(&subset, classify),
-                    &options,
-                    &mut session,
-                );
-                assert_eq!(fourth.expect("subset"), fresh.expect("fresh subset"));
-                assert_eq!(counts(&session), (2, 5, 2));
-            }
-        }
-    });
-}
-
-/// A session belongs to one validator: a campaign over another one, even an equal clone, is
-/// refused before anything runs, and the session stays empty.
-#[test]
-fn a_campaign_over_another_validator_is_refused() {
-    with_stack(|| {
-        let classify: &Classify = &normal;
-        let validator = validator();
-        let clone = validator.clone();
-        let other =
-            NativeValidator::bind(support::load("counter_bytwo.k"), CompileOptions::default());
-        let tests = tests();
-        let generation = generation(validator.baseline());
-        let mut session = BaselineSession::new(&validator);
-        // The session records its validator's compiled baseline and compile options.
-        let compiled = validator.compile_baseline().expect("baseline");
-        assert_eq!(
-            session.compiled_baseline(),
-            Some((compiled.kore_sha256(), compiled.compile_options()))
-        );
-        let inputs = Inputs::new(&tests, classify);
-        for foreign in [&clone, &other] {
-            let foreign_generation = generation_of(foreign);
-            let failure = run_campaign_multi_with(
-                &inputs.campaign(foreign),
-                std::slice::from_ref(&foreign_generation),
-                &options(ScheduleMode::FirstKill, false),
-                &mut session,
-            )
-            .expect_err("another validator is refused");
-            assert_eq!(failure.kind(), CampaignFailureKind::InvalidDeclaration);
-            assert_eq!(counts(&session), (0, 0, 0));
-        }
-        // The session's own validator still runs.
-        run_campaign_multi_with(
-            &inputs.campaign(&validator),
-            std::slice::from_ref(&generation),
-            &options(ScheduleMode::FirstKill, false),
-            &mut session,
-        )
-        .expect("own validator");
-        assert_eq!(counts(&session), (2, 0, 2));
-    });
-}
-
 /// The generation of `validator`'s own baseline: counter_bytwo has no `branch` rule, so it gets
 /// the empty generation.
 fn generation_of(validator: &NativeValidator) -> CandidateGeneration<'_> {
@@ -380,190 +280,6 @@ fn generation_of(validator: &NativeValidator) -> CandidateGeneration<'_> {
     .expect("fold")
 }
 
-/// The session memoises only kink-flow's setting: no observation, no pattern oracle and
-/// concrete tests. Any other campaign runs live (it equals the fresh call) and leaves the
-/// session untouched. (Before flow F-16 a campaign with another classifier was not memoised
-/// either; it now is, and is judged with its own classifier: see
-/// `another_classifier_is_memoised_and_judged_with_its_own_classifier`.)
-#[test]
-fn observation_pattern_and_symbolic_campaigns_are_not_memoised() {
-    with_stack(|| {
-        let classify: &Classify = &normal;
-        let validator = validator();
-        let specs = step_support::counter(true);
-        let vocabulary = StepObservation::vocabulary_of(&specs).expect("vocabulary");
-        let plain = tests();
-        let mut patterned = tests();
-        patterned[0].oracles.push(occurs(&vocabulary, "increment"));
-        let mut symbolic = tests();
-        symbolic[0].initial_state = support::initial_state(
-            app("Lblcounter", vec![support::var("N", "SortNat"), z()]),
-            "SortCounter",
-        );
-        let observed = Inputs {
-            observation: &specs,
-            ..Inputs::new(&plain, classify)
-        };
-        let observed_with_pattern = Inputs {
-            observation: &specs,
-            ..Inputs::new(&patterned, classify)
-        };
-        let pattern_only = Inputs::new(&patterned, classify);
-        let symbolic = Inputs::new(&symbolic, classify);
-        let cases: [(&str, &Inputs<'_>); 4] = [
-            ("observation", &observed),
-            ("observation and pattern oracle", &observed_with_pattern),
-            ("pattern oracle", &pattern_only),
-            ("symbolic test", &symbolic),
-        ];
-        for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
-            let options = options(schedule, false);
-            let mut session = BaselineSession::new(&validator);
-            for (name, inputs) in cases {
-                for _ in 0..2 {
-                    let (fresh, shared) = both(&validator, inputs, &options, &mut session);
-                    assert_eq!(shared, fresh, "{name} {schedule:?}");
-                    assert_eq!(counts(&session), (0, 0, 0), "{name} is not memoised");
-                }
-            }
-        }
-    });
-}
-
-/// Flow F-16: a campaign with another classifier than an earlier call's reuses the stored
-/// executions and judges them with its own classifier, so each call gives what a fresh call
-/// gives.
-#[test]
-fn another_classifier_is_memoised_and_judged_with_its_own_classifier() {
-    with_stack(|| {
-        let validator = validator();
-        let tests = tests();
-        for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
-            let options = options(schedule, false);
-            let mut session = BaselineSession::new(&validator);
-            let normal_inputs = Inputs::new(&tests, &normal);
-            let stuck_inputs = Inputs::new(&tests, &stuck);
-            let (fresh_normal, first) = both(&validator, &normal_inputs, &options, &mut session);
-            let fresh_normal = fresh_normal.expect("fresh normal");
-            assert_eq!(first.expect("first"), fresh_normal, "{schedule:?}");
-            assert_eq!(counts(&session), (2, 0, 2));
-            let (fresh_stuck, second) = both(&validator, &stuck_inputs, &options, &mut session);
-            let fresh_stuck = fresh_stuck.expect("fresh stuck");
-            assert_eq!(second.expect("second"), fresh_stuck, "{schedule:?}");
-            assert_eq!(
-                counts(&session),
-                (2, 2, 2),
-                "the stored executions are reused"
-            );
-            // The two classifiers judge the same executions differently (the exit stop's
-            // class), so the reused baseline evidence is the requesting campaign's own.
-            assert_ne!(fresh_stuck.baseline, fresh_normal.baseline);
-            let (fresh, third) = both(&validator, &normal_inputs, &options, &mut session);
-            assert_eq!(third.expect("third"), fresh.expect("fresh"), "{schedule:?}");
-            assert_eq!(counts(&session), (2, 4, 2));
-        }
-    });
-}
-
-/// A baseline stopped by its time budget is stored like any other run and reused as refused:
-/// the second call through the session fails as the fresh call does, with no live run.
-#[test]
-fn a_time_limited_baseline_is_reused_as_refused() {
-    with_stack(|| {
-        let classify: &Classify = &normal;
-        let validator = validator();
-        let tests = tests();
-        let expired = Inputs {
-            budget: ExecutionBudget {
-                time: Duration::ZERO,
-                ..BUDGET
-            },
-            ..Inputs::new(&tests, classify)
-        };
-        let options = options(ScheduleMode::FirstKill, false);
-        let mut session = BaselineSession::new(&validator);
-        let (fresh, first) = both(&validator, &expired, &options, &mut session);
-        let fresh = fresh.expect_err("an expired budget refuses the baseline");
-        assert_eq!(first.expect_err("refused through the session"), fresh);
-        assert_eq!(counts(&session), (2, 0, 2));
-        let (_, second) = both(&validator, &expired, &options, &mut session);
-        assert_eq!(second.expect_err("reused as refused"), fresh);
-        assert_eq!(counts(&session), (2, 2, 2));
-        // The same tests under the full budget are other keys: they run live and are admitted.
-        let (fresh, admitted) = both(
-            &validator,
-            &Inputs::new(&tests, classify),
-            &options,
-            &mut session,
-        );
-        assert_eq!(admitted.expect("admitted"), fresh.expect("fresh"));
-        assert_eq!(counts(&session), (4, 2, 4));
-    });
-}
-
-/// Every key component is an input of the baseline run: changing the budget, the oracle
-/// declarations, the initial state under the same test id or the test id misses, runs live,
-/// and gives the fresh call's run. (counter.k has one executable module; the module component
-/// is pinned by the runner's unit test `a_session_key_holds_the_module`.)
-#[test]
-fn a_changed_key_component_misses() {
-    with_stack(|| {
-        let classify: &Classify = &normal;
-        let validator = validator();
-        let tests = tests();
-        let options = options(ScheduleMode::FirstKill, false);
-        let mut session = BaselineSession::new(&validator);
-        let (_, first) = both(
-            &validator,
-            &Inputs::new(&tests, classify),
-            &options,
-            &mut session,
-        );
-        first.expect("first call");
-        assert_eq!(counts(&session), (2, 0, 2));
-
-        let depth = Inputs {
-            budget: ExecutionBudget {
-                max_depth: Some(100),
-                ..BUDGET
-            },
-            ..Inputs::new(&tests, classify)
-        };
-        let mut exit_only = tests.clone();
-        for test in &mut exit_only {
-            test.oracles.truncate(1);
-        }
-        let mut other_state = tests.clone();
-        other_state[0].initial_state = counter_state(1);
-        let mut renamed = tests.clone();
-        renamed[1].id = "t2-renamed".into();
-        let cases: [(&str, Inputs<'_>, usize); 4] = [
-            ("budget", depth, 2),
-            ("oracles", Inputs::new(&exit_only, classify), 2),
-            ("initial state", Inputs::new(&other_state, classify), 1),
-            ("test id", Inputs::new(&renamed, classify), 1),
-        ];
-        for (name, inputs, misses) in cases {
-            let (live, reused, stored) = counts(&session);
-            let (fresh, shared) = both(&validator, &inputs, &options, &mut session);
-            assert_eq!(shared, fresh, "{name}");
-            assert_eq!(
-                counts(&session),
-                (live + misses, reused + 2 - misses, stored + misses),
-                "{name}"
-            );
-            // The same inputs again: every baseline is now a hit.
-            let (fresh, shared) = both(&validator, &inputs, &options, &mut session);
-            assert_eq!(shared, fresh, "{name} again");
-            assert_eq!(
-                counts(&session),
-                (live + misses, reused + 4 - misses, stored + misses),
-                "{name} again"
-            );
-        }
-    });
-}
-
 /// The ids of a call's recorded baseline requests and whether each was reused.
 fn baseline_requests(recording: &CallRecording) -> Vec<(&str, bool)> {
     recording
@@ -573,286 +289,585 @@ fn baseline_requests(recording: &CallRecording) -> Vec<(&str, bool)> {
         .collect()
 }
 
-/// Flow F-13: a session records what each call through it ran (recording only): every baseline
-/// request in test order with the live run's wall time, leaf census and coverage, whether it was
-/// reused, and every live mutant run. The call's `CampaignRun` is the fresh call's, and a reused
-/// request carries the recording of the live run it reuses.
-#[test]
-fn a_session_records_each_calls_runs_without_changing_them() {
-    with_stack(|| {
-        let classify: &Classify = &normal;
-        let validator = validator();
-        let tests = tests();
-        for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
-            let options = options(schedule, false);
+mod kink_tier {
+    use super::*;
+
+    /// Two calls through one session give the runs two fresh calls give (stop rule 2: a hit's
+    /// evidence equals a live run of the same test in a fresh call), the second with no live
+    /// baseline run; so do a reordered call and a call over a subset. In both schedules, with and
+    /// without evidence sharing.
+    #[test]
+    #[ignore = "kink"]
+    fn calls_through_one_session_equal_fresh_calls_and_reuse_each_baseline() {
+        with_stack(|| {
+            let classify: &Classify = &normal;
+            let validator = validator();
+            let tests = tests();
+            let reversed = tests.iter().rev().cloned().collect::<Vec<_>>();
+            let subset = vec![tests[1].clone()];
+            for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                for share in [false, true] {
+                    let options = options(schedule, share);
+                    let mut session = BaselineSession::new(&validator);
+                    assert_eq!(counts(&session), (0, 0, 0));
+                    let (fresh, first) = both(
+                        &validator,
+                        &Inputs::new(&tests, classify),
+                        &options,
+                        &mut session,
+                    );
+                    let fresh = fresh.expect("fresh call");
+                    assert_eq!(first.expect("first call"), fresh, "{schedule:?} {share}");
+                    assert_eq!(counts(&session), (2, 0, 2), "first call runs both live");
+                    let (fresh_again, second) = both(
+                        &validator,
+                        &Inputs::new(&tests, classify),
+                        &options,
+                        &mut session,
+                    );
+                    assert_eq!(fresh_again.expect("fresh call"), fresh);
+                    assert_eq!(second.expect("second call"), fresh, "{schedule:?} {share}");
+                    assert_eq!(counts(&session), (2, 2, 2), "second call reuses both");
+                    let (fresh, third) = both(
+                        &validator,
+                        &Inputs::new(&reversed, classify),
+                        &options,
+                        &mut session,
+                    );
+                    assert_eq!(third.expect("reversed"), fresh.expect("fresh reversed"));
+                    assert_eq!(counts(&session), (2, 4, 2));
+                    let (fresh, fourth) = both(
+                        &validator,
+                        &Inputs::new(&subset, classify),
+                        &options,
+                        &mut session,
+                    );
+                    assert_eq!(fourth.expect("subset"), fresh.expect("fresh subset"));
+                    assert_eq!(counts(&session), (2, 5, 2));
+                }
+            }
+        });
+    }
+
+    /// A session belongs to one validator: a campaign over another one, even an equal clone, is
+    /// refused before anything runs, and the session stays empty.
+    #[test]
+    #[ignore = "kink"]
+    fn a_campaign_over_another_validator_is_refused() {
+        with_stack(|| {
+            let classify: &Classify = &normal;
+            let validator = validator();
+            let clone = validator.clone();
+            let other =
+                NativeValidator::bind(support::load("counter_bytwo.k"), CompileOptions::default());
+            let tests = tests();
+            let generation = generation(validator.baseline());
             let mut session = BaselineSession::new(&validator);
-            assert_eq!(session.last_call(), &CallRecording::default());
-            let inputs = Inputs::new(&tests, classify);
-            let (fresh, first) = both(&validator, &inputs, &options, &mut session);
-            let run = first.expect("first call");
-            assert_eq!(run, fresh.expect("fresh call"), "{schedule:?}");
-            let recording = session.last_call().clone();
+            // The session records its validator's compiled baseline and compile options.
+            let compiled = validator.compile_baseline().expect("baseline");
             assert_eq!(
-                baseline_requests(&recording),
+                session.compiled_baseline(),
+                Some((compiled.kore_sha256(), compiled.compile_options()))
+            );
+            let inputs = Inputs::new(&tests, classify);
+            for foreign in [&clone, &other] {
+                let foreign_generation = generation_of(foreign);
+                let failure = run_campaign_multi_with(
+                    &inputs.campaign(foreign),
+                    std::slice::from_ref(&foreign_generation),
+                    &options(ScheduleMode::FirstKill, false),
+                    &mut session,
+                )
+                .expect_err("another validator is refused");
+                assert_eq!(failure.kind(), CampaignFailureKind::InvalidDeclaration);
+                assert_eq!(counts(&session), (0, 0, 0));
+            }
+            // The session's own validator still runs.
+            run_campaign_multi_with(
+                &inputs.campaign(&validator),
+                std::slice::from_ref(&generation),
+                &options(ScheduleMode::FirstKill, false),
+                &mut session,
+            )
+            .expect("own validator");
+            assert_eq!(counts(&session), (2, 0, 2));
+        });
+    }
+
+    /// The session memoises only kink-flow's setting: no observation, no pattern oracle and
+    /// concrete tests. Any other campaign runs live (it equals the fresh call) and leaves the
+    /// session untouched. (Before flow F-16 a campaign with another classifier was not memoised
+    /// either; it now is, and is judged with its own classifier: see
+    /// `another_classifier_is_memoised_and_judged_with_its_own_classifier`.)
+    #[test]
+    #[ignore = "kink"]
+    fn observation_pattern_and_symbolic_campaigns_are_not_memoised() {
+        with_stack(|| {
+            let classify: &Classify = &normal;
+            let validator = validator();
+            let specs = step_support::counter(true);
+            let vocabulary = StepObservation::vocabulary_of(&specs).expect("vocabulary");
+            let plain = tests();
+            let mut patterned = tests();
+            patterned[0].oracles.push(occurs(&vocabulary, "increment"));
+            let mut symbolic = tests();
+            symbolic[0].initial_state = support::initial_state(
+                app("Lblcounter", vec![support::var("N", "SortNat"), z()]),
+                "SortCounter",
+            );
+            let observed = Inputs {
+                observation: &specs,
+                ..Inputs::new(&plain, classify)
+            };
+            let observed_with_pattern = Inputs {
+                observation: &specs,
+                ..Inputs::new(&patterned, classify)
+            };
+            let pattern_only = Inputs::new(&patterned, classify);
+            let symbolic = Inputs::new(&symbolic, classify);
+            let cases: [(&str, &Inputs<'_>); 4] = [
+                ("observation", &observed),
+                ("observation and pattern oracle", &observed_with_pattern),
+                ("pattern oracle", &pattern_only),
+                ("symbolic test", &symbolic),
+            ];
+            for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                let options = options(schedule, false);
+                let mut session = BaselineSession::new(&validator);
+                for (name, inputs) in cases {
+                    for _ in 0..2 {
+                        let (fresh, shared) = both(&validator, inputs, &options, &mut session);
+                        assert_eq!(shared, fresh, "{name} {schedule:?}");
+                        assert_eq!(counts(&session), (0, 0, 0), "{name} is not memoised");
+                    }
+                }
+            }
+        });
+    }
+
+    /// Flow F-16: a campaign with another classifier than an earlier call's reuses the stored
+    /// executions and judges them with its own classifier, so each call gives what a fresh call
+    /// gives.
+    #[test]
+    #[ignore = "kink"]
+    fn another_classifier_is_memoised_and_judged_with_its_own_classifier() {
+        with_stack(|| {
+            let validator = validator();
+            let tests = tests();
+            for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                let options = options(schedule, false);
+                let mut session = BaselineSession::new(&validator);
+                let normal_inputs = Inputs::new(&tests, &normal);
+                let stuck_inputs = Inputs::new(&tests, &stuck);
+                let (fresh_normal, first) =
+                    both(&validator, &normal_inputs, &options, &mut session);
+                let fresh_normal = fresh_normal.expect("fresh normal");
+                assert_eq!(first.expect("first"), fresh_normal, "{schedule:?}");
+                assert_eq!(counts(&session), (2, 0, 2));
+                let (fresh_stuck, second) = both(&validator, &stuck_inputs, &options, &mut session);
+                let fresh_stuck = fresh_stuck.expect("fresh stuck");
+                assert_eq!(second.expect("second"), fresh_stuck, "{schedule:?}");
+                assert_eq!(
+                    counts(&session),
+                    (2, 2, 2),
+                    "the stored executions are reused"
+                );
+                // The two classifiers judge the same executions differently (the exit stop's
+                // class), so the reused baseline evidence is the requesting campaign's own.
+                assert_ne!(fresh_stuck.baseline, fresh_normal.baseline);
+                let (fresh, third) = both(&validator, &normal_inputs, &options, &mut session);
+                assert_eq!(third.expect("third"), fresh.expect("fresh"), "{schedule:?}");
+                assert_eq!(counts(&session), (2, 4, 2));
+            }
+        });
+    }
+
+    /// A baseline stopped by its time budget is stored like any other run and reused as refused:
+    /// the second call through the session fails as the fresh call does, with no live run.
+    #[test]
+    #[ignore = "kink"]
+    fn a_time_limited_baseline_is_reused_as_refused() {
+        with_stack(|| {
+            let classify: &Classify = &normal;
+            let validator = validator();
+            let tests = tests();
+            let expired = Inputs {
+                budget: ExecutionBudget {
+                    time: Duration::ZERO,
+                    ..BUDGET
+                },
+                ..Inputs::new(&tests, classify)
+            };
+            let options = options(ScheduleMode::FirstKill, false);
+            let mut session = BaselineSession::new(&validator);
+            let (fresh, first) = both(&validator, &expired, &options, &mut session);
+            let fresh = fresh.expect_err("an expired budget refuses the baseline");
+            assert_eq!(first.expect_err("refused through the session"), fresh);
+            assert_eq!(counts(&session), (2, 0, 2));
+            let (_, second) = both(&validator, &expired, &options, &mut session);
+            assert_eq!(second.expect_err("reused as refused"), fresh);
+            assert_eq!(counts(&session), (2, 2, 2));
+            // The same tests under the full budget are other keys: they run live and are admitted.
+            let (fresh, admitted) = both(
+                &validator,
+                &Inputs::new(&tests, classify),
+                &options,
+                &mut session,
+            );
+            assert_eq!(admitted.expect("admitted"), fresh.expect("fresh"));
+            assert_eq!(counts(&session), (4, 2, 4));
+        });
+    }
+
+    /// Every key component is an input of the baseline run: changing the budget, the oracle
+    /// declarations, the initial state under the same test id or the test id misses, runs live,
+    /// and gives the fresh call's run. (counter.k has one executable module; the module component
+    /// is pinned by the runner's unit test `a_session_key_holds_the_module`.)
+    #[test]
+    #[ignore = "kink"]
+    fn a_changed_key_component_misses() {
+        with_stack(|| {
+            let classify: &Classify = &normal;
+            let validator = validator();
+            let tests = tests();
+            let options = options(ScheduleMode::FirstKill, false);
+            let mut session = BaselineSession::new(&validator);
+            let (_, first) = both(
+                &validator,
+                &Inputs::new(&tests, classify),
+                &options,
+                &mut session,
+            );
+            first.expect("first call");
+            assert_eq!(counts(&session), (2, 0, 2));
+
+            let depth = Inputs {
+                budget: ExecutionBudget {
+                    max_depth: Some(100),
+                    ..BUDGET
+                },
+                ..Inputs::new(&tests, classify)
+            };
+            let mut exit_only = tests.clone();
+            for test in &mut exit_only {
+                test.oracles.truncate(1);
+            }
+            let mut other_state = tests.clone();
+            other_state[0].initial_state = counter_state(1);
+            let mut renamed = tests.clone();
+            renamed[1].id = "t2-renamed".into();
+            let cases: [(&str, Inputs<'_>, usize); 4] = [
+                ("budget", depth, 2),
+                ("oracles", Inputs::new(&exit_only, classify), 2),
+                ("initial state", Inputs::new(&other_state, classify), 1),
+                ("test id", Inputs::new(&renamed, classify), 1),
+            ];
+            for (name, inputs, misses) in cases {
+                let (live, reused, stored) = counts(&session);
+                let (fresh, shared) = both(&validator, &inputs, &options, &mut session);
+                assert_eq!(shared, fresh, "{name}");
+                assert_eq!(
+                    counts(&session),
+                    (live + misses, reused + 2 - misses, stored + misses),
+                    "{name}"
+                );
+                // The same inputs again: every baseline is now a hit.
+                let (fresh, shared) = both(&validator, &inputs, &options, &mut session);
+                assert_eq!(shared, fresh, "{name} again");
+                assert_eq!(
+                    counts(&session),
+                    (live + misses, reused + 4 - misses, stored + misses),
+                    "{name} again"
+                );
+            }
+        });
+    }
+
+    /// Flow F-13: a session records what each call through it ran (recording only): every baseline
+    /// request in test order with the live run's wall time, leaf census and coverage, whether it was
+    /// reused, and every live mutant run. The call's `CampaignRun` is the fresh call's, and a reused
+    /// request carries the recording of the live run it reuses.
+    #[test]
+    #[ignore = "kink"]
+    fn a_session_records_each_calls_runs_without_changing_them() {
+        with_stack(|| {
+            let classify: &Classify = &normal;
+            let validator = validator();
+            let tests = tests();
+            for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                let options = options(schedule, false);
+                let mut session = BaselineSession::new(&validator);
+                assert_eq!(session.last_call(), &CallRecording::default());
+                let inputs = Inputs::new(&tests, classify);
+                let (fresh, first) = both(&validator, &inputs, &options, &mut session);
+                let run = first.expect("first call");
+                assert_eq!(run, fresh.expect("fresh call"), "{schedule:?}");
+                let recording = session.last_call().clone();
+                assert_eq!(
+                    baseline_requests(&recording),
+                    [("t1", false), ("t2", false)]
+                );
+                for request in &recording.baseline {
+                    let census = &request.run.census;
+                    assert_eq!(census.stop, RunStop::Finished, "{request:?}");
+                    assert!(
+                        census.total() >= 1 && census.deepest.is_some(),
+                        "{request:?}"
+                    );
+                    assert!(!census.rule_ids.is_empty(), "{request:?}");
+                    // The baseline's coverage as the runner returned it.
+                    let coverage = run
+                        .baseline_coverage
+                        .iter()
+                        .find(|c| c.test_id == request.run.test_id);
+                    assert_eq!(request.coverage.as_ref(), coverage);
+                }
+                // t1 increments its counter three times, then is stuck.
+                let t1 = &recording.baseline[0].run.census;
+                assert_eq!(t1.leaves, BTreeMap::from([(HaltClass::Stuck, 1)]));
+                assert!(t1.deepest.unwrap() >= 3, "{t1:?}");
+                // One mutant; a recorded run for every test it executed, in its order.
+                let [mutant] = run.mutants.as_slice() else {
+                    panic!("one mutant")
+                };
+                let executed = mutant
+                    .plan
+                    .tests
+                    .iter()
+                    .filter(|test| test.run != TestRun::SkippedAfterKill)
+                    .map(|test| test.test_id.as_str())
+                    .collect::<Vec<_>>();
+                let [(id, runs)] = recording.mutants.as_slice() else {
+                    panic!("one recorded mutant")
+                };
+                assert_eq!(*id, MutantId(0));
+                assert_eq!(
+                    runs.iter().map(|r| r.test_id.as_str()).collect::<Vec<_>>(),
+                    executed
+                );
+                for test in &executed {
+                    assert!(recording.mutant_run(MutantId(0), test).is_some());
+                }
+
+                // The second call reuses both baselines and records the live runs it reuses.
+                let (fresh, second) = both(&validator, &inputs, &options, &mut session);
+                assert_eq!(second.expect("second call"), fresh.expect("fresh call"));
+                let again = session.last_call();
+                assert_eq!(baseline_requests(again), [("t1", true), ("t2", true)]);
+                for (request, live) in again.baseline.iter().zip(&recording.baseline) {
+                    assert_eq!(request.run, live.run);
+                    assert_eq!(request.coverage, live.coverage);
+                }
+                assert_eq!(again.mutants.len(), 1);
+            }
+        });
+    }
+
+    /// Recording is not memoisation: a campaign the session does not memoise records its live
+    /// baseline runs and leaves the store untouched; a baseline stopped by its time budget is a
+    /// time stop; a call refused before its baseline runs records nothing. (Before flow F-16 the
+    /// unmemoised campaign here was one with another classifier; it is now one with a step
+    /// observation, since the classifier no longer decides memoisation.)
+    #[test]
+    #[ignore = "kink"]
+    fn time_stops_unmemoised_calls_and_refused_calls_are_recorded_as_such() {
+        with_stack(|| {
+            let classify: &Classify = &normal;
+            let validator = validator();
+            let tests = tests();
+            let options = options(ScheduleMode::FirstKill, false);
+            let mut session = BaselineSession::new(&validator);
+            let specs = step_support::counter(true);
+            let observed = Inputs {
+                observation: &specs,
+                ..Inputs::new(&tests, classify)
+            };
+            let (fresh, shared) = both(&validator, &observed, &options, &mut session);
+            assert_eq!(shared, fresh);
+            assert_eq!(counts(&session), (0, 0, 0));
+            assert_eq!(
+                baseline_requests(session.last_call()),
                 [("t1", false), ("t2", false)]
             );
-            for request in &recording.baseline {
-                let census = &request.run.census;
-                assert_eq!(census.stop, RunStop::Finished, "{request:?}");
-                assert!(
-                    census.total() >= 1 && census.deepest.is_some(),
-                    "{request:?}"
-                );
-                assert!(!census.rule_ids.is_empty(), "{request:?}");
-                // The baseline's coverage as the runner returned it.
-                let coverage = run
-                    .baseline_coverage
+
+            let expired = Inputs {
+                budget: ExecutionBudget {
+                    time: Duration::ZERO,
+                    ..BUDGET
+                },
+                ..Inputs::new(&tests, classify)
+            };
+            let (_, refused) = both(&validator, &expired, &options, &mut session);
+            refused.expect_err("an expired budget refuses the baseline");
+            let recording = session.last_call();
+            assert_eq!(baseline_requests(recording), [("t1", false), ("t2", false)]);
+            assert!(
+                recording
+                    .baseline
                     .iter()
-                    .find(|c| c.test_id == request.run.test_id);
-                assert_eq!(request.coverage.as_ref(), coverage);
-            }
-            // t1 increments its counter three times, then is stuck.
-            let t1 = &recording.baseline[0].run.census;
-            assert_eq!(t1.leaves, BTreeMap::from([(HaltClass::Stuck, 1)]));
-            assert!(t1.deepest.unwrap() >= 3, "{t1:?}");
-            // One mutant; a recorded run for every test it executed, in its order.
-            let [mutant] = run.mutants.as_slice() else {
-                panic!("one mutant")
-            };
-            let executed = mutant
-                .plan
-                .tests
-                .iter()
-                .filter(|test| test.run != TestRun::SkippedAfterKill)
-                .map(|test| test.test_id.as_str())
-                .collect::<Vec<_>>();
-            let [(id, runs)] = recording.mutants.as_slice() else {
-                panic!("one recorded mutant")
-            };
-            assert_eq!(*id, MutantId(0));
-            assert_eq!(
-                runs.iter().map(|r| r.test_id.as_str()).collect::<Vec<_>>(),
-                executed
+                    .all(|request| request.run.census.stop == RunStop::Time),
+                "{recording:?}"
             );
-            for test in &executed {
-                assert!(recording.mutant_run(MutantId(0), test).is_some());
+            assert!(recording.mutants.is_empty());
+
+            let clone = validator.clone();
+            let foreign_generation = generation_of(&clone);
+            run_campaign_multi_with(
+                &Inputs::new(&tests, classify).campaign(&clone),
+                std::slice::from_ref(&foreign_generation),
+                &options,
+                &mut session,
+            )
+            .expect_err("another validator is refused");
+            assert_eq!(session.last_call(), &CallRecording::default());
+        });
+    }
+
+    /// F-12 review 1 major (flow F-16): a classifier is a `dyn Fn` and may hold state, so one
+    /// reference can classify differently in two calls of one session. A hit must classify the
+    /// stored run with the campaign's classifier as it is now, exactly as a fresh call does: the
+    /// reviewer's probe (a classifier over a shared flag, `Normal` while it is clear and `Stuck`
+    /// once it is set) gives, through one session and one reference, the run a fresh call gives in
+    /// both calls, in both schedules. Before F-16 the second call through the session reused the
+    /// baseline classified `Normal` against a `Stuck` mutant and reported an unjustified Killed.
+    #[test]
+    #[ignore = "kink"]
+    fn a_stateful_classifier_through_one_session_classifies_as_a_fresh_call() {
+        with_stack(|| {
+            use std::cell::Cell;
+            use std::rc::Rc;
+            let validator = validator();
+            let tests = tests();
+            for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                let flag = Rc::new(Cell::new(false));
+                let seen = Rc::clone(&flag);
+                let stateful = move |_: &Pattern| {
+                    if seen.get() {
+                        ExecutionTerminalKind::Stuck
+                    } else {
+                        ExecutionTerminalKind::Normal
+                    }
+                };
+                let classify: &Classify = &stateful;
+                let options = options(schedule, false);
+                let mut session = BaselineSession::new(&validator);
+                let inputs = Inputs::new(&tests, classify);
+                let (fresh, first) = both(&validator, &inputs, &options, &mut session);
+                let fresh = fresh.expect("fresh call");
+                assert_eq!(first.expect("first call"), fresh, "{schedule:?}");
+                assert_eq!(counts(&session), (2, 0, 2));
+                flag.set(true);
+                let (fresh_after, second) = both(&validator, &inputs, &options, &mut session);
+                let fresh_after = fresh_after.expect("fresh call after the flag");
+                let second = second.expect("second call");
+                assert_eq!(second, fresh_after, "{schedule:?}");
+                // The second call reused both baseline runs; only their classification is new.
+                assert_eq!(counts(&session), (2, 2, 2));
+                // The probe's fresh status: the flag classifies both sides alike, so the mutant
+                // is not killed; the session must not report a kill the fresh call does not.
+                let [mutant] = second.mutants.as_slice() else {
+                    panic!("one mutant")
+                };
+                assert_eq!(
+                    mutant.report.status, fresh_after.mutants[0].report.status,
+                    "{schedule:?}"
+                );
+                assert!(
+                    mutant.report.killing_test_ids.is_empty(),
+                    "{schedule:?}: {:?}",
+                    mutant.report
+                );
             }
+        });
+    }
 
-            // The second call reuses both baselines and records the live runs it reuses.
-            let (fresh, second) = both(&validator, &inputs, &options, &mut session);
-            assert_eq!(second.expect("second call"), fresh.expect("fresh call"));
-            let again = session.last_call();
-            assert_eq!(baseline_requests(again), [("t1", true), ("t2", true)]);
-            for (request, live) in again.baseline.iter().zip(&recording.baseline) {
-                assert_eq!(request.run, live.run);
-                assert_eq!(request.coverage, live.coverage);
-            }
-            assert_eq!(again.mutants.len(), 1);
-        }
-    });
-}
+    /// A hit calls the campaign's classifier on the stored run's terminals as a fresh call does,
+    /// so a classifier that panics from some point on panics through the session too, instead of
+    /// a hit returning evidence it never classified; and a classifier that records its calls sees
+    /// the same calls on a hit as in a fresh call.
+    #[test]
+    #[ignore = "kink"]
+    fn a_hit_calls_the_classifier_as_a_fresh_call_does() {
+        with_stack(|| {
+            use std::cell::{Cell, RefCell};
+            use std::panic::{AssertUnwindSafe, catch_unwind};
+            use std::rc::Rc;
+            let validator = validator();
+            let tests = tests();
+            let options = options(ScheduleMode::Full, false);
 
-/// Recording is not memoisation: a campaign the session does not memoise records its live
-/// baseline runs and leaves the store untouched; a baseline stopped by its time budget is a
-/// time stop; a call refused before its baseline runs records nothing. (Before flow F-16 the
-/// unmemoised campaign here was one with another classifier; it is now one with a step
-/// observation, since the classifier no longer decides memoisation.)
-#[test]
-fn time_stops_unmemoised_calls_and_refused_calls_are_recorded_as_such() {
-    with_stack(|| {
-        let classify: &Classify = &normal;
-        let validator = validator();
-        let tests = tests();
-        let options = options(ScheduleMode::FirstKill, false);
-        let mut session = BaselineSession::new(&validator);
-        let specs = step_support::counter(true);
-        let observed = Inputs {
-            observation: &specs,
-            ..Inputs::new(&tests, classify)
-        };
-        let (fresh, shared) = both(&validator, &observed, &options, &mut session);
-        assert_eq!(shared, fresh);
-        assert_eq!(counts(&session), (0, 0, 0));
-        assert_eq!(
-            baseline_requests(session.last_call()),
-            [("t1", false), ("t2", false)]
-        );
-
-        let expired = Inputs {
-            budget: ExecutionBudget {
-                time: Duration::ZERO,
-                ..BUDGET
-            },
-            ..Inputs::new(&tests, classify)
-        };
-        let (_, refused) = both(&validator, &expired, &options, &mut session);
-        refused.expect_err("an expired budget refuses the baseline");
-        let recording = session.last_call();
-        assert_eq!(baseline_requests(recording), [("t1", false), ("t2", false)]);
-        assert!(
-            recording
-                .baseline
-                .iter()
-                .all(|request| request.run.census.stop == RunStop::Time),
-            "{recording:?}"
-        );
-        assert!(recording.mutants.is_empty());
-
-        let clone = validator.clone();
-        let foreign_generation = generation_of(&clone);
-        run_campaign_multi_with(
-            &Inputs::new(&tests, classify).campaign(&clone),
-            std::slice::from_ref(&foreign_generation),
-            &options,
-            &mut session,
-        )
-        .expect_err("another validator is refused");
-        assert_eq!(session.last_call(), &CallRecording::default());
-    });
-}
-
-/// F-12 review 1 major (flow F-16): a classifier is a `dyn Fn` and may hold state, so one
-/// reference can classify differently in two calls of one session. A hit must classify the
-/// stored run with the campaign's classifier as it is now, exactly as a fresh call does: the
-/// reviewer's probe (a classifier over a shared flag, `Normal` while it is clear and `Stuck`
-/// once it is set) gives, through one session and one reference, the run a fresh call gives in
-/// both calls, in both schedules. Before F-16 the second call through the session reused the
-/// baseline classified `Normal` against a `Stuck` mutant and reported an unjustified Killed.
-#[test]
-fn a_stateful_classifier_through_one_session_classifies_as_a_fresh_call() {
-    with_stack(|| {
-        use std::cell::Cell;
-        use std::rc::Rc;
-        let validator = validator();
-        let tests = tests();
-        for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
-            let flag = Rc::new(Cell::new(false));
-            let seen = Rc::clone(&flag);
-            let stateful = move |_: &Pattern| {
-                if seen.get() {
-                    ExecutionTerminalKind::Stuck
-                } else {
-                    ExecutionTerminalKind::Normal
-                }
+            let calls = Rc::new(RefCell::new(Vec::<Pattern>::new()));
+            let log = Rc::clone(&calls);
+            let recording = move |term: &Pattern| {
+                log.borrow_mut().push(term.clone());
+                ExecutionTerminalKind::Normal
             };
-            let classify: &Classify = &stateful;
-            let options = options(schedule, false);
+            let classify: &Classify = &recording;
             let mut session = BaselineSession::new(&validator);
             let inputs = Inputs::new(&tests, classify);
-            let (fresh, first) = both(&validator, &inputs, &options, &mut session);
-            let fresh = fresh.expect("fresh call");
-            assert_eq!(first.expect("first call"), fresh, "{schedule:?}");
-            assert_eq!(counts(&session), (2, 0, 2));
-            flag.set(true);
-            let (fresh_after, second) = both(&validator, &inputs, &options, &mut session);
-            let fresh_after = fresh_after.expect("fresh call after the flag");
-            let second = second.expect("second call");
-            assert_eq!(second, fresh_after, "{schedule:?}");
-            // The second call reused both baseline runs; only their classification is new.
-            assert_eq!(counts(&session), (2, 2, 2));
-            // The probe's fresh status: the flag classifies both sides alike, so the mutant
-            // is not killed; the session must not report a kill the fresh call does not.
-            let [mutant] = second.mutants.as_slice() else {
-                panic!("one mutant")
-            };
-            assert_eq!(
-                mutant.report.status, fresh_after.mutants[0].report.status,
-                "{schedule:?}"
-            );
-            assert!(
-                mutant.report.killing_test_ids.is_empty(),
-                "{schedule:?}: {:?}",
-                mutant.report
-            );
-        }
-    });
-}
-
-/// A hit calls the campaign's classifier on the stored run's terminals as a fresh call does,
-/// so a classifier that panics from some point on panics through the session too, instead of
-/// a hit returning evidence it never classified; and a classifier that records its calls sees
-/// the same calls on a hit as in a fresh call.
-#[test]
-fn a_hit_calls_the_classifier_as_a_fresh_call_does() {
-    with_stack(|| {
-        use std::cell::{Cell, RefCell};
-        use std::panic::{AssertUnwindSafe, catch_unwind};
-        use std::rc::Rc;
-        let validator = validator();
-        let tests = tests();
-        let options = options(ScheduleMode::Full, false);
-
-        let calls = Rc::new(RefCell::new(Vec::<Pattern>::new()));
-        let log = Rc::clone(&calls);
-        let recording = move |term: &Pattern| {
-            log.borrow_mut().push(term.clone());
-            ExecutionTerminalKind::Normal
-        };
-        let classify: &Classify = &recording;
-        let mut session = BaselineSession::new(&validator);
-        let inputs = Inputs::new(&tests, classify);
-        let generation = generation(validator.baseline());
-        let campaign = inputs.campaign(&validator);
-        run_campaign_multi_with(
-            &campaign,
-            std::slice::from_ref(&generation),
-            &options,
-            &mut session,
-        )
-        .expect("first call");
-        calls.borrow_mut().clear();
-        let fresh = run_campaign_multi(&campaign, std::slice::from_ref(&generation), &options)
-            .expect("fresh call");
-        let fresh_calls = std::mem::take(&mut *calls.borrow_mut());
-        let hit = run_campaign_multi_with(
-            &campaign,
-            std::slice::from_ref(&generation),
-            &options,
-            &mut session,
-        )
-        .expect("hit");
-        assert_eq!(counts(&session), (2, 2, 2));
-        assert_eq!(hit, fresh);
-        assert!(!fresh_calls.is_empty());
-        assert_eq!(
-            *calls.borrow(),
-            fresh_calls,
-            "the hit classifies as a fresh call"
-        );
-
-        let armed = Rc::new(Cell::new(false));
-        let trigger = Rc::clone(&armed);
-        let panicking = move |_: &Pattern| {
-            assert!(!trigger.get(), "the armed classifier panics");
-            ExecutionTerminalKind::Normal
-        };
-        let classify: &Classify = &panicking;
-        let mut session = BaselineSession::new(&validator);
-        let inputs = Inputs::new(&tests, classify);
-        let campaign = inputs.campaign(&validator);
-        run_campaign_multi_with(
-            &campaign,
-            std::slice::from_ref(&generation),
-            &options,
-            &mut session,
-        )
-        .expect("unarmed call");
-        armed.set(true);
-        let fresh = catch_unwind(AssertUnwindSafe(|| {
-            run_campaign_multi(&campaign, std::slice::from_ref(&generation), &options)
-        }));
-        assert!(fresh.is_err(), "a fresh call classifies and panics");
-        let hit = catch_unwind(AssertUnwindSafe(|| {
+            let generation = generation(validator.baseline());
+            let campaign = inputs.campaign(&validator);
             run_campaign_multi_with(
                 &campaign,
                 std::slice::from_ref(&generation),
                 &options,
                 &mut session,
             )
-        }));
-        assert!(
-            hit.is_err(),
-            "a hit classifies and panics as the fresh call"
-        );
-    });
+            .expect("first call");
+            calls.borrow_mut().clear();
+            let fresh = run_campaign_multi(&campaign, std::slice::from_ref(&generation), &options)
+                .expect("fresh call");
+            let fresh_calls = std::mem::take(&mut *calls.borrow_mut());
+            let hit = run_campaign_multi_with(
+                &campaign,
+                std::slice::from_ref(&generation),
+                &options,
+                &mut session,
+            )
+            .expect("hit");
+            assert_eq!(counts(&session), (2, 2, 2));
+            assert_eq!(hit, fresh);
+            assert!(!fresh_calls.is_empty());
+            assert_eq!(
+                *calls.borrow(),
+                fresh_calls,
+                "the hit classifies as a fresh call"
+            );
+
+            let armed = Rc::new(Cell::new(false));
+            let trigger = Rc::clone(&armed);
+            let panicking = move |_: &Pattern| {
+                assert!(!trigger.get(), "the armed classifier panics");
+                ExecutionTerminalKind::Normal
+            };
+            let classify: &Classify = &panicking;
+            let mut session = BaselineSession::new(&validator);
+            let inputs = Inputs::new(&tests, classify);
+            let campaign = inputs.campaign(&validator);
+            run_campaign_multi_with(
+                &campaign,
+                std::slice::from_ref(&generation),
+                &options,
+                &mut session,
+            )
+            .expect("unarmed call");
+            armed.set(true);
+            let fresh = catch_unwind(AssertUnwindSafe(|| {
+                run_campaign_multi(&campaign, std::slice::from_ref(&generation), &options)
+            }));
+            assert!(fresh.is_err(), "a fresh call classifies and panics");
+            let hit = catch_unwind(AssertUnwindSafe(|| {
+                run_campaign_multi_with(
+                    &campaign,
+                    std::slice::from_ref(&generation),
+                    &options,
+                    &mut session,
+                )
+            }));
+            assert!(
+                hit.is_err(),
+                "a hit classifies and panics as the fresh call"
+            );
+        });
+    }
 }

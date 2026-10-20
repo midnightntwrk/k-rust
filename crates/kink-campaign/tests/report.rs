@@ -786,120 +786,6 @@ fn check_run(report: &CampaignReport, run: &CampaignRun) {
         }
     }
 }
-#[test]
-fn counter_reports_are_identical_and_match_runs_in_both_schedules() {
-    with_stack(|| {
-        for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
-            let mut outputs = Vec::new();
-            for _ in 0..2 {
-                let validator =
-                    NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
-                let specs = step_support::counter(true);
-                let tests = counter_tests(&specs);
-                let generation = counter_generation(validator.baseline());
-                let campaign = Campaign {
-                    validator: &validator,
-                    module: "COUNTER",
-                    observation: &specs,
-                    classify: &normal,
-                    tests: &tests,
-                    budget: BUDGET,
-                };
-                let (report, run) = build(
-                    &campaign,
-                    &generation,
-                    schedule,
-                    "test",
-                    SelectionPolicy::Each,
-                );
-                check_run(&report, &run);
-                assert_eq!(report.value()["mutants"][1]["status"], "killed");
-                assert_eq!(
-                    report.value()["mutants"][1]["tests"][0]["run"],
-                    json!({"compared":["distinguish","distinguish"]})
-                );
-                let affected = &report.value()["mutants"][1]["affected_sentences"][0];
-                assert_eq!(
-                    affected["old_fingerprint"],
-                    "54fe0f8ab4a2960043bf920269631e53512f3777f1a35c10da9db9a0812cc935"
-                );
-                assert_ne!(affected["old_fingerprint"], affected["new_fingerprint"]);
-                assert_eq!(affected["label"], "COUNTER.increment");
-                assert_eq!(affected["source"], "counter.k");
-                assert_eq!(array(&affected["location"]).len(), 4);
-                for key in POSITION_KEYS {
-                    assert!(
-                        !report.value()["mutants"][1]["diff"]
-                            .to_string()
-                            .contains(key.as_str())
-                    );
-                }
-                if schedule == ScheduleMode::FirstKill {
-                    assert_eq!(
-                        report.value()["mutants"][1]["tests"][1]["run"],
-                        "skipped-after-kill"
-                    );
-                    assert!(report.value()["mutants"][1]["tests"][1]["mutant"].is_null());
-                }
-                outputs.push(report.text());
-                let manifest = campaign_manifest(&ManifestInput {
-                    campaign: &campaign,
-                    generation: &generation,
-                    schedule,
-                    selection: kink_campaign::SelectionPolicy::None,
-                    operators: &[kink_campaign::ManifestOperator::Code(OperatorId {
-                        id: "test",
-                        version: 1,
-                        policy: SelectionPolicy::Each,
-                    })],
-                    classifier: "normal",
-                })
-                .unwrap();
-                let mut short = run.clone();
-                short.mutants.pop();
-                assert_eq!(
-                    campaign_report(&manifest, &campaign, &generation, &short).unwrap_err(),
-                    ReportError::MutantCountMismatch
-                );
-                let changed = altered_counter_generation(validator.baseline(), &generation);
-                assert_eq!(
-                    campaign_report(&manifest, &campaign, &changed, &run).unwrap_err(),
-                    ReportError::ManifestMismatch
-                );
-                let different = generation_one(
-                    validator.baseline(),
-                    "COUNTER.increment",
-                    bool_token("false"),
-                );
-                let (_, other_run) = build(
-                    &campaign,
-                    &different,
-                    schedule,
-                    "test",
-                    SelectionPolicy::Each,
-                );
-                assert_eq!(
-                    campaign_report(&manifest, &campaign, &different, &other_run).unwrap_err(),
-                    ReportError::ManifestMismatch
-                );
-            }
-            assert_eq!(
-                outputs[0], outputs[1],
-                "STOP: independent counter reports differ"
-            );
-            if schedule == ScheduleMode::Full {
-                std::fs::write(
-                    std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!(
-                        "si03-counter-report-{}.json",
-                        if cfg!(feature = "z3") { "z3" } else { "no-z3" }
-                    )),
-                    &outputs[0],
-                )
-                .unwrap();
-            }
-        }
-    });
-}
 fn altered_counter_generation<'a>(
     b: &'a Baseline,
     original: &CandidateGeneration<'_>,
@@ -931,211 +817,193 @@ fn generation_one<'a>(
 ) -> CandidateGeneration<'a> {
     generation(baseline, &[replace(baseline, label, &[1], replacement)])
 }
-#[test]
-fn coupled_reports_are_identical_and_keep_two_edits_in_one_mutant() {
-    with_stack(|| {
-        let mut outputs = Vec::new();
-        for _ in 0..2 {
+
+mod kink_tier {
+    use super::*;
+
+    #[test]
+    #[ignore = "kink"]
+    fn counter_reports_are_identical_and_match_runs_in_both_schedules() {
+        with_stack(|| {
+            for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                let mut outputs = Vec::new();
+                for _ in 0..2 {
+                    let validator = NativeValidator::bind(
+                        support::load("counter.k"),
+                        CompileOptions::default(),
+                    );
+                    let specs = step_support::counter(true);
+                    let tests = counter_tests(&specs);
+                    let generation = counter_generation(validator.baseline());
+                    let campaign = Campaign {
+                        validator: &validator,
+                        module: "COUNTER",
+                        observation: &specs,
+                        classify: &normal,
+                        tests: &tests,
+                        budget: BUDGET,
+                    };
+                    let (report, run) = build(
+                        &campaign,
+                        &generation,
+                        schedule,
+                        "test",
+                        SelectionPolicy::Each,
+                    );
+                    check_run(&report, &run);
+                    assert_eq!(report.value()["mutants"][1]["status"], "killed");
+                    assert_eq!(
+                        report.value()["mutants"][1]["tests"][0]["run"],
+                        json!({"compared":["distinguish","distinguish"]})
+                    );
+                    let affected = &report.value()["mutants"][1]["affected_sentences"][0];
+                    assert_eq!(
+                        affected["old_fingerprint"],
+                        "54fe0f8ab4a2960043bf920269631e53512f3777f1a35c10da9db9a0812cc935"
+                    );
+                    assert_ne!(affected["old_fingerprint"], affected["new_fingerprint"]);
+                    assert_eq!(affected["label"], "COUNTER.increment");
+                    assert_eq!(affected["source"], "counter.k");
+                    assert_eq!(array(&affected["location"]).len(), 4);
+                    for key in POSITION_KEYS {
+                        assert!(
+                            !report.value()["mutants"][1]["diff"]
+                                .to_string()
+                                .contains(key.as_str())
+                        );
+                    }
+                    if schedule == ScheduleMode::FirstKill {
+                        assert_eq!(
+                            report.value()["mutants"][1]["tests"][1]["run"],
+                            "skipped-after-kill"
+                        );
+                        assert!(report.value()["mutants"][1]["tests"][1]["mutant"].is_null());
+                    }
+                    outputs.push(report.text());
+                    let manifest = campaign_manifest(&ManifestInput {
+                        campaign: &campaign,
+                        generation: &generation,
+                        schedule,
+                        selection: kink_campaign::SelectionPolicy::None,
+                        operators: &[kink_campaign::ManifestOperator::Code(OperatorId {
+                            id: "test",
+                            version: 1,
+                            policy: SelectionPolicy::Each,
+                        })],
+                        classifier: "normal",
+                    })
+                    .unwrap();
+                    let mut short = run.clone();
+                    short.mutants.pop();
+                    assert_eq!(
+                        campaign_report(&manifest, &campaign, &generation, &short).unwrap_err(),
+                        ReportError::MutantCountMismatch
+                    );
+                    let changed = altered_counter_generation(validator.baseline(), &generation);
+                    assert_eq!(
+                        campaign_report(&manifest, &campaign, &changed, &run).unwrap_err(),
+                        ReportError::ManifestMismatch
+                    );
+                    let different = generation_one(
+                        validator.baseline(),
+                        "COUNTER.increment",
+                        bool_token("false"),
+                    );
+                    let (_, other_run) = build(
+                        &campaign,
+                        &different,
+                        schedule,
+                        "test",
+                        SelectionPolicy::Each,
+                    );
+                    assert_eq!(
+                        campaign_report(&manifest, &campaign, &different, &other_run).unwrap_err(),
+                        ReportError::ManifestMismatch
+                    );
+                }
+                assert_eq!(
+                    outputs[0], outputs[1],
+                    "STOP: independent counter reports differ"
+                );
+                if schedule == ScheduleMode::Full {
+                    std::fs::write(
+                        std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!(
+                            "si03-counter-report-{}.json",
+                            if cfg!(feature = "z3") { "z3" } else { "no-z3" }
+                        )),
+                        &outputs[0],
+                    )
+                    .unwrap();
+                }
+            }
+        });
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn coupled_reports_are_identical_and_keep_two_edits_in_one_mutant() {
+        with_stack(|| {
+            let mut outputs = Vec::new();
+            for _ in 0..2 {
+                let validator =
+                    NativeValidator::bind(support::load("symmem.k"), CompileOptions::default());
+                let (specs, tests) = symmem::declaration();
+                let generation = symmem::generation(validator.baseline());
+                let campaign = Campaign {
+                    validator: &validator,
+                    module: "SYMMEM",
+                    observation: &specs,
+                    classify: &normal,
+                    tests: &tests,
+                    budget: BUDGET,
+                };
+                let (report, run) = build(
+                    &campaign,
+                    &generation,
+                    ScheduleMode::Full,
+                    "release-after-access",
+                    SelectionPolicy::Exact {
+                        expected_tuple_count: 1,
+                        expected_tuple_arity: 2,
+                    },
+                );
+                check_run(&report, &run);
+                assert_eq!(array(&report.value()["mutants"]).len(), 1);
+                let mutant = &report.value()["mutants"][0];
+                assert_eq!(mutant["status"], "killed");
+                assert_eq!(array(&mutant["affected_sentences"]).len(), 2);
+                assert_eq!(array(&mutant["diff"]).len(), 2);
+                outputs.push(report.text());
+            }
+            assert_eq!(
+                outputs[0], outputs[1],
+                "STOP: independent coupled reports differ"
+            );
+        });
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn no_change_origin_is_reported_as_rejected() {
+        with_stack(|| {
             let validator =
-                NativeValidator::bind(support::load("symmem.k"), CompileOptions::default());
-            let (specs, tests) = symmem::declaration();
-            let generation = symmem::generation(validator.baseline());
+                NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
+            let b = validator.baseline();
+            let generation = generation_one(
+                b,
+                "COUNTER.increment",
+                term_at(b, "COUNTER.increment", &[1]),
+            );
+            let specs = step_support::counter(true);
+            let tests = counter_tests(&specs);
             let campaign = Campaign {
                 validator: &validator,
-                module: "SYMMEM",
+                module: "COUNTER",
                 observation: &specs,
                 classify: &normal,
                 tests: &tests,
                 budget: BUDGET,
             };
-            let (report, run) = build(
-                &campaign,
-                &generation,
-                ScheduleMode::Full,
-                "release-after-access",
-                SelectionPolicy::Exact {
-                    expected_tuple_count: 1,
-                    expected_tuple_arity: 2,
-                },
-            );
-            check_run(&report, &run);
-            assert_eq!(array(&report.value()["mutants"]).len(), 1);
-            let mutant = &report.value()["mutants"][0];
-            assert_eq!(mutant["status"], "killed");
-            assert_eq!(array(&mutant["affected_sentences"]).len(), 2);
-            assert_eq!(array(&mutant["diff"]).len(), 2);
-            outputs.push(report.text());
-        }
-        assert_eq!(
-            outputs[0], outputs[1],
-            "STOP: independent coupled reports differ"
-        );
-    });
-}
-#[test]
-fn no_change_origin_is_reported_as_rejected() {
-    with_stack(|| {
-        let validator =
-            NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
-        let b = validator.baseline();
-        let generation = generation_one(
-            b,
-            "COUNTER.increment",
-            term_at(b, "COUNTER.increment", &[1]),
-        );
-        let specs = step_support::counter(true);
-        let tests = counter_tests(&specs);
-        let campaign = Campaign {
-            validator: &validator,
-            module: "COUNTER",
-            observation: &specs,
-            classify: &normal,
-            tests: &tests,
-            budget: BUDGET,
-        };
-        let (report, _) = build(
-            &campaign,
-            &generation,
-            ScheduleMode::Full,
-            "test",
-            SelectionPolicy::Each,
-        );
-        assert_eq!(
-            report.value()["origins"][0]["disposition"],
-            json!({"rejected":"no-change"})
-        );
-        assert!(array(&report.value()["mutants"]).is_empty());
-        assert!(report.value()["summary"]["score"].is_null());
-    });
-}
-#[test]
-fn equivalent_clone_has_inserted_sentence_and_equivalent_failure() {
-    with_stack(|| {
-        let validator =
-            NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
-        let b = validator.baseline();
-        let at = support::rule(b, "COUNTER.increment");
-        let mut clone = b.sentence(&at).unwrap().clone();
-        for key in POSITION_KEYS
-            .into_iter()
-            .chain([AttributeKey::Label, AttributeKey::UniqueId])
-        {
-            clone.attributes_mut().remove(key.as_str());
-        }
-        let patch = Patch::new(vec![Edit::InsertSentence {
-            position: InsertPosition::After(at.clone()),
-            ordinal: 0,
-            sentence: clone,
-        }])
-        .unwrap();
-        let generation = generation(b, &[(TermRef::new(at, [0]), patch)]);
-        let specs = step_support::counter(true);
-        let tests = [TestCase {
-            id: "increment".into(),
-            initial_state: counter_state(),
-            oracles: vec![whole_term(CrashPolicy::CompareIdentity)],
-        }];
-        let campaign = Campaign {
-            validator: &validator,
-            module: "COUNTER",
-            observation: &specs,
-            classify: &normal,
-            tests: &tests,
-            budget: BUDGET,
-        };
-        let (report, _) = build(
-            &campaign,
-            &generation,
-            ScheduleMode::Full,
-            "test",
-            SelectionPolicy::Each,
-        );
-        let m = &report.value()["mutants"][0];
-        assert_eq!(m["status"], "equivalent");
-        assert_eq!(m["mutant_failure"], "equivalent-compilation");
-        assert_eq!(array(&m["inserted_sentences"]).len(), 1);
-        assert!(array(&m["affected_sentences"]).is_empty());
-        assert!(m["diff"][0]["old"].is_null());
-        assert!(m["diff"][0]["sentence"].is_null());
-        for key in POSITION_KEYS {
-            assert!(!m["diff"][0]["new"].to_string().contains(key.as_str()));
-        }
-    });
-}
-
-#[test]
-fn sentence_and_attribute_diffs_use_normalized_baseline_content() {
-    with_stack(|| {
-        let validator =
-            NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
-        let b = validator.baseline();
-        let at = support::rule(b, "COUNTER.fallback");
-        let original = b.sentence(&at).unwrap();
-        let priority = original.attributes().get("priority").unwrap().clone();
-        let mut replacement = original.clone();
-        if let k_rust::definition::Sentence::Rule { requires, .. } = &mut replacement {
-            *requires = bool_token("false");
-        } else {
-            panic!("rule");
-        }
-        let cases = [
-            (
-                Edit::ReplaceSentence {
-                    at: at.clone(),
-                    replacement: replacement.clone(),
-                },
-                json!(
-                    serde_json::from_str::<Value>(
-                        &kink_patch::fingerprint_payload(original).unwrap()
-                    )
-                    .unwrap()
-                ),
-                json!(
-                    serde_json::from_str::<Value>(
-                        &kink_patch::fingerprint_payload(&replacement).unwrap()
-                    )
-                    .unwrap()
-                ),
-            ),
-            (
-                Edit::DeleteSentence { at: at.clone() },
-                serde_json::from_str::<Value>(&kink_patch::fingerprint_payload(original).unwrap())
-                    .unwrap(),
-                Value::Null,
-            ),
-            (
-                Edit::RemoveAttribute {
-                    at: at.clone(),
-                    key: "priority".into(),
-                    expected: priority.clone(),
-                },
-                priority.clone(),
-                Value::Null,
-            ),
-            (
-                Edit::ReplaceAttribute {
-                    at: at.clone(),
-                    key: "priority".into(),
-                    expected: priority.clone(),
-                    replacement: json!("60"),
-                },
-                priority,
-                json!("60"),
-            ),
-        ];
-        let specs = step_support::counter(true);
-        let tests = counter_tests(&specs);
-        let campaign = Campaign {
-            validator: &validator,
-            module: "COUNTER",
-            observation: &specs,
-            classify: &normal,
-            tests: &tests,
-            budget: BUDGET,
-        };
-        for (edit, old, new) in cases {
-            let patch = Patch::new(vec![edit]).unwrap();
-            let generation = generation(b, &[(TermRef::new(at.clone(), [0]), patch)]);
             let (report, _) = build(
                 &campaign,
                 &generation,
@@ -1143,126 +1011,276 @@ fn sentence_and_attribute_diffs_use_normalized_baseline_content() {
                 "test",
                 SelectionPolicy::Each,
             );
-            let mutant = &report.value()["mutants"][0];
-            let diff = &mutant["diff"][0];
-            assert_eq!(diff["old"], old);
-            assert_eq!(diff["new"], new);
             assert_eq!(
-                diff["sentence"],
-                json!({"module":at.module,"index":at.index})
+                report.value()["origins"][0]["disposition"],
+                json!({"rejected":"no-change"})
             );
-            assert!(diff["path"].is_null());
-            assert!(diff["position"].is_null());
-            assert_eq!(
-                mutant["affected_sentences"][0]["new_fingerprint"].is_null(),
-                diff["op"] == "delete-sentence"
-            );
-            for key in POSITION_KEYS {
-                assert!(!diff.to_string().contains(key.as_str()));
-            }
-        }
-    });
-}
+            assert!(array(&report.value()["mutants"]).is_empty());
+            assert!(report.value()["summary"]["score"].is_null());
+        });
+    }
 
-/// Exercise every side and claim object with supplied evidence; this is a serialization
-/// test and does not claim that these deliberately combined sides came from execution.
-#[test]
-fn supplied_evidence_and_claims_keep_their_exact_schema() {
-    with_stack(|| {
-        use kink_campaign::{
-            ExecutionFailureKind, ExitStop, FinalResult, OracleOutcome, OracleSide, OracleValue,
-            PatternValue, SideRun, TerminalClass,
-        };
-        use std::collections::BTreeSet;
-        let validator =
-            NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
-        let b = validator.baseline();
-        let generation = generation_one(b, "COUNTER.increment", bool_token("false"));
-        let specs = step_support::counter(true);
-        let tests = counter_tests(&specs);
-        let campaign = Campaign {
-            validator: &validator,
-            module: "COUNTER",
-            observation: &specs,
-            classify: &normal,
-            tests: &tests,
-            budget: BUDGET,
-        };
-        let manifest = campaign_manifest(&ManifestInput {
-            campaign: &campaign,
-            generation: &generation,
-            schedule: ScheduleMode::Full,
-            selection: kink_campaign::SelectionPolicy::None,
-            operators: &[kink_campaign::ManifestOperator::Code(OperatorId {
-                id: "test",
-                version: 1,
-                policy: SelectionPolicy::Each,
-            })],
-            classifier: "normal",
-        })
-        .unwrap();
-        let mut run = run_campaign(&campaign, &generation, ScheduleMode::Full).unwrap();
-        let witness = kink_pattern::Binding {
-            name: "A".into(),
-            term: z(),
-        };
-        let sides = vec![
-            OracleSide::Normal(OracleValue::ExitStop(
-                [ExitStop {
-                    class: TerminalClass::UndefinedStep,
-                    code: None,
-                }]
-                .into(),
-            )),
-            OracleSide::Normal(OracleValue::FinalResult(FinalResult::TermPaths(
-                [vec![(vec![0], z())]].into(),
-            ))),
-            OracleSide::Normal(OracleValue::Pattern(PatternValue::Match {
-                bindings: Some(BTreeSet::from([vec![witness]])),
-            })),
-            OracleSide::Normal(OracleValue::Pattern(PatternValue::Match { bindings: None })),
-            OracleSide::SemanticCrash(z()),
-            OracleSide::Timeout,
-            OracleSide::Unknown,
-            OracleSide::Error,
-        ];
-        run.baseline[0].run = SideRun::Sides {
-            sides: sides.clone(),
-        };
-        run.baseline[1].run = SideRun::Failed(ExecutionFailureKind::TimeLimit);
-        let m = &mut run.mutants[0];
-        m.plan.tests[0].run = TestRun::Compared(vec![OracleOutcome::Unknown]);
-        m.plan.tests[1].run = TestRun::Failed(ExecutionFailureKind::ContradictedClaim);
-        m.evidence[0].run = SideRun::Sides { sides };
-        m.evidence[1].run = SideRun::Failed(ExecutionFailureKind::ContradictedClaim);
-        m.plan.claims.withdrawn.push(Claim {
-            origin: SentenceOrigin::Baseline(support::rule(b, "COUNTER.increment")),
-            key: "total".into(),
-            value: json!(""),
+    #[test]
+    #[ignore = "kink"]
+    fn equivalent_clone_has_inserted_sentence_and_equivalent_failure() {
+        with_stack(|| {
+            let validator =
+                NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
+            let b = validator.baseline();
+            let at = support::rule(b, "COUNTER.increment");
+            let mut clone = b.sentence(&at).unwrap().clone();
+            for key in POSITION_KEYS
+                .into_iter()
+                .chain([AttributeKey::Label, AttributeKey::UniqueId])
+            {
+                clone.attributes_mut().remove(key.as_str());
+            }
+            let patch = Patch::new(vec![Edit::InsertSentence {
+                position: InsertPosition::After(at.clone()),
+                ordinal: 0,
+                sentence: clone,
+            }])
+            .unwrap();
+            let generation = generation(b, &[(TermRef::new(at, [0]), patch)]);
+            let specs = step_support::counter(true);
+            let tests = [TestCase {
+                id: "increment".into(),
+                initial_state: counter_state(),
+                oracles: vec![whole_term(CrashPolicy::CompareIdentity)],
+            }];
+            let campaign = Campaign {
+                validator: &validator,
+                module: "COUNTER",
+                observation: &specs,
+                classify: &normal,
+                tests: &tests,
+                budget: BUDGET,
+            };
+            let (report, _) = build(
+                &campaign,
+                &generation,
+                ScheduleMode::Full,
+                "test",
+                SelectionPolicy::Each,
+            );
+            let m = &report.value()["mutants"][0];
+            assert_eq!(m["status"], "equivalent");
+            assert_eq!(m["mutant_failure"], "equivalent-compilation");
+            assert_eq!(array(&m["inserted_sentences"]).len(), 1);
+            assert!(array(&m["affected_sentences"]).is_empty());
+            assert!(m["diff"][0]["old"].is_null());
+            assert!(m["diff"][0]["sentence"].is_null());
+            for key in POSITION_KEYS {
+                assert!(!m["diff"][0]["new"].to_string().contains(key.as_str()));
+            }
         });
-        m.plan.claims.unsupported.push(Claim {
-            origin: SentenceOrigin::Inserted { edit: 0 },
-            key: "functional".into(),
-            value: json!(""),
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn sentence_and_attribute_diffs_use_normalized_baseline_content() {
+        with_stack(|| {
+            let validator =
+                NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
+            let b = validator.baseline();
+            let at = support::rule(b, "COUNTER.fallback");
+            let original = b.sentence(&at).unwrap();
+            let priority = original.attributes().get("priority").unwrap().clone();
+            let mut replacement = original.clone();
+            if let k_rust::definition::Sentence::Rule { requires, .. } = &mut replacement {
+                *requires = bool_token("false");
+            } else {
+                panic!("rule");
+            }
+            let cases = [
+                (
+                    Edit::ReplaceSentence {
+                        at: at.clone(),
+                        replacement: replacement.clone(),
+                    },
+                    json!(
+                        serde_json::from_str::<Value>(
+                            &kink_patch::fingerprint_payload(original).unwrap()
+                        )
+                        .unwrap()
+                    ),
+                    json!(
+                        serde_json::from_str::<Value>(
+                            &kink_patch::fingerprint_payload(&replacement).unwrap()
+                        )
+                        .unwrap()
+                    ),
+                ),
+                (
+                    Edit::DeleteSentence { at: at.clone() },
+                    serde_json::from_str::<Value>(
+                        &kink_patch::fingerprint_payload(original).unwrap(),
+                    )
+                    .unwrap(),
+                    Value::Null,
+                ),
+                (
+                    Edit::RemoveAttribute {
+                        at: at.clone(),
+                        key: "priority".into(),
+                        expected: priority.clone(),
+                    },
+                    priority.clone(),
+                    Value::Null,
+                ),
+                (
+                    Edit::ReplaceAttribute {
+                        at: at.clone(),
+                        key: "priority".into(),
+                        expected: priority.clone(),
+                        replacement: json!("60"),
+                    },
+                    priority,
+                    json!("60"),
+                ),
+            ];
+            let specs = step_support::counter(true);
+            let tests = counter_tests(&specs);
+            let campaign = Campaign {
+                validator: &validator,
+                module: "COUNTER",
+                observation: &specs,
+                classify: &normal,
+                tests: &tests,
+                budget: BUDGET,
+            };
+            for (edit, old, new) in cases {
+                let patch = Patch::new(vec![edit]).unwrap();
+                let generation = generation(b, &[(TermRef::new(at.clone(), [0]), patch)]);
+                let (report, _) = build(
+                    &campaign,
+                    &generation,
+                    ScheduleMode::Full,
+                    "test",
+                    SelectionPolicy::Each,
+                );
+                let mutant = &report.value()["mutants"][0];
+                let diff = &mutant["diff"][0];
+                assert_eq!(diff["old"], old);
+                assert_eq!(diff["new"], new);
+                assert_eq!(
+                    diff["sentence"],
+                    json!({"module":at.module,"index":at.index})
+                );
+                assert!(diff["path"].is_null());
+                assert!(diff["position"].is_null());
+                assert_eq!(
+                    mutant["affected_sentences"][0]["new_fingerprint"].is_null(),
+                    diff["op"] == "delete-sentence"
+                );
+                for key in POSITION_KEYS {
+                    assert!(!diff.to_string().contains(key.as_str()));
+                }
+            }
         });
-        let report = campaign_report(&manifest, &campaign, &generation, &run).unwrap();
-        check_report(&report);
-        assert_eq!(
-            report.value()["mutants"][0]["claims"]["unsupported"][0]["origin"],
-            json!({"inserted":0})
-        );
-        let recorded = &report.value()["baseline"][0]["run"]["sides"];
-        assert_eq!(
-            recorded[0],
-            json!({"normal":{"exit-stop":[{"class":"undefined-step","code":null}]}})
-        );
-        assert_eq!(recorded[2]["normal"]["pattern"]["match"][0][0]["name"], "A");
-        assert_eq!(
-            recorded[4],
-            json!({"semantic-crash":k_rust::kore::codec::to_value(&z()).unwrap()})
-        );
-        assert_eq!(recorded[5], "timeout");
-        assert_eq!(recorded[6], "unknown");
-        assert_eq!(recorded[7], "error");
-    });
+    }
+
+    /// Exercise every side and claim object with supplied evidence; this is a serialization
+    /// test and does not claim that these deliberately combined sides came from execution.
+    #[test]
+    #[ignore = "kink"]
+    fn supplied_evidence_and_claims_keep_their_exact_schema() {
+        with_stack(|| {
+            use kink_campaign::{
+                ExecutionFailureKind, ExitStop, FinalResult, OracleOutcome, OracleSide,
+                OracleValue, PatternValue, SideRun, TerminalClass,
+            };
+            use std::collections::BTreeSet;
+            let validator =
+                NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
+            let b = validator.baseline();
+            let generation = generation_one(b, "COUNTER.increment", bool_token("false"));
+            let specs = step_support::counter(true);
+            let tests = counter_tests(&specs);
+            let campaign = Campaign {
+                validator: &validator,
+                module: "COUNTER",
+                observation: &specs,
+                classify: &normal,
+                tests: &tests,
+                budget: BUDGET,
+            };
+            let manifest = campaign_manifest(&ManifestInput {
+                campaign: &campaign,
+                generation: &generation,
+                schedule: ScheduleMode::Full,
+                selection: kink_campaign::SelectionPolicy::None,
+                operators: &[kink_campaign::ManifestOperator::Code(OperatorId {
+                    id: "test",
+                    version: 1,
+                    policy: SelectionPolicy::Each,
+                })],
+                classifier: "normal",
+            })
+            .unwrap();
+            let mut run = run_campaign(&campaign, &generation, ScheduleMode::Full).unwrap();
+            let witness = kink_pattern::Binding {
+                name: "A".into(),
+                term: z(),
+            };
+            let sides = vec![
+                OracleSide::Normal(OracleValue::ExitStop(
+                    [ExitStop {
+                        class: TerminalClass::UndefinedStep,
+                        code: None,
+                    }]
+                    .into(),
+                )),
+                OracleSide::Normal(OracleValue::FinalResult(FinalResult::TermPaths(
+                    [vec![(vec![0], z())]].into(),
+                ))),
+                OracleSide::Normal(OracleValue::Pattern(PatternValue::Match {
+                    bindings: Some(BTreeSet::from([vec![witness]])),
+                })),
+                OracleSide::Normal(OracleValue::Pattern(PatternValue::Match { bindings: None })),
+                OracleSide::SemanticCrash(z()),
+                OracleSide::Timeout,
+                OracleSide::Unknown,
+                OracleSide::Error,
+            ];
+            run.baseline[0].run = SideRun::Sides {
+                sides: sides.clone(),
+            };
+            run.baseline[1].run = SideRun::Failed(ExecutionFailureKind::TimeLimit);
+            let m = &mut run.mutants[0];
+            m.plan.tests[0].run = TestRun::Compared(vec![OracleOutcome::Unknown]);
+            m.plan.tests[1].run = TestRun::Failed(ExecutionFailureKind::ContradictedClaim);
+            m.evidence[0].run = SideRun::Sides { sides };
+            m.evidence[1].run = SideRun::Failed(ExecutionFailureKind::ContradictedClaim);
+            m.plan.claims.withdrawn.push(Claim {
+                origin: SentenceOrigin::Baseline(support::rule(b, "COUNTER.increment")),
+                key: "total".into(),
+                value: json!(""),
+            });
+            m.plan.claims.unsupported.push(Claim {
+                origin: SentenceOrigin::Inserted { edit: 0 },
+                key: "functional".into(),
+                value: json!(""),
+            });
+            let report = campaign_report(&manifest, &campaign, &generation, &run).unwrap();
+            check_report(&report);
+            assert_eq!(
+                report.value()["mutants"][0]["claims"]["unsupported"][0]["origin"],
+                json!({"inserted":0})
+            );
+            let recorded = &report.value()["baseline"][0]["run"]["sides"];
+            assert_eq!(
+                recorded[0],
+                json!({"normal":{"exit-stop":[{"class":"undefined-step","code":null}]}})
+            );
+            assert_eq!(recorded[2]["normal"]["pattern"]["match"][0][0]["name"], "A");
+            assert_eq!(
+                recorded[4],
+                json!({"semantic-crash":k_rust::kore::codec::to_value(&z()).unwrap()})
+            );
+            assert_eq!(recorded[5], "timeout");
+            assert_eq!(recorded[6], "unknown");
+            assert_eq!(recorded[7], "error");
+        });
+    }
 }
