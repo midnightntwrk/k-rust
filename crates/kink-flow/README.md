@@ -92,7 +92,7 @@ A program's class is
 | --- | --- | --- |
 | `comparable` | The run ended and its final configuration is a value kink compares. | Nothing: this program can kill mutants. |
 | `timeout` | The run did not end within `budget.time_ms`; `cause` gives what k-rust returned when the bound fired (see below). | Make the program terminate, or raise the budget. |
-| `unknown` | The run ended without a comparable value (for example a collection with a Bytes key, `budget.max_depth` reached, an undecided step); `cause` says which. | Write a program whose final configuration kink can compare. |
+| `unknown` | The run ended without a comparable value (for example a collection with a Bytes key, `budget.max_depth` reached, an undecided step), or the run is excluded (`cause` then names the exclusion, such as `contradicted-claim`); `cause` says which. | Write a program whose final configuration kink can compare; for a `contradicted-claim` exclusion fix the claim the row's `specification_diagnostics` names, not the program. |
 | `refused` | The program was not read, parsed or assembled; `cause` is the refusal. | Fix the program. |
 | `error` | The run or the runner failed. | Report it. |
 
@@ -100,11 +100,13 @@ Only comparable programs can kill a mutant; the others are reported and never co
 
 The cache is `.kink-flow/` next to `FLOW.toml` (or `--cache DIR`); deleting it is always safe.
 One JSON record per program, `results/<spec digest>/<program digest>.json`, holds its key
-(result schema version `kink-flow/result/v4`, kink's build identity `kink_build`, kink's semantics identity `kink`, the two digests and the budget), class and cause,
+(result schema version `kink-flow/result/v5`, kink's build identity `kink_build`, kink's semantics identity `kink`, the two digests and the budget), class and cause,
 the baseline row exactly as the campaign report encodes it with the digest of its `run` part
 (`run_sha256`, comparable programs only), the final configuration as KORE text, the rule
-coverage, and `wall_ms`, the wall time of the program's live baseline run (outside the key and
-the run digest; it orders the kill search, see `run`).
+coverage, `wall_ms`, the wall time of the program's live baseline run (outside the key and
+the run digest; it orders the kill search, see `run`), and, since v5 (re-pin adoption A-1),
+`specification_diagnostics`, the baseline run's contradicted-claim records (see `run`), and
+`smt_unknowns`, its count of undecided solver answers (both outside the key and the run digest).
 `kink_build` is the SHA-256 of the executable that wrote the record (kink-campaign `identity::kink_build`, packet CACHE-ID-fix-1), so a record another build wrote, or one without `kink_build`, is recomputed: the code that decides a result class mostly has no version constant, and only the build tells that it changed.
 When the executable cannot be read, no record is read or written, and each row says so (`cache_error`).
 The specification digest covers the k-rust revision, the solver profile, how the
@@ -131,15 +133,19 @@ the bound fired k-rust returned no leaves, so neither the paths nor the depth re
 census with leaves, depths and applied rules is given for runs that ended otherwise (a depth bound,
 a work bound, an undecided end). No second run is
 made. For any other refusal (an `unknown` or `error` run) one diagnostic run of the initial state
-supplies the class, the cause, the final states and the coverage (`diagnostic` counts them). Only
-the campaign admitting a baseline makes a program `comparable`.
+supplies the class, the cause, the final states and the coverage (`diagnostic` counts them). When
+the campaign named the exclusion of the baseline run, the cause says that exclusion and why it
+holds, never a guess from the shape of the leaves (an excluded run's leaves can all be values); for
+`contradicted-claim` it points at the row's `specification_diagnostics` and says to fix the claim,
+not the program (re-pin adoption A-1b). Only the campaign admitting a baseline makes a program
+`comparable`.
 
 `--verify` reruns every program that has a current record and compares: a different class,
 a different `run_sha256`, or a record whose `run_sha256` is not the digest of its own baseline
 row is a mismatch. Mismatches are listed (program, record path, detail) and records are never
 rewritten by `--verify`; delete a mismatching record (or the cache) to recompute it.
 
-The document (version 2 since re-pin L2-1) lists every program `{id, digest, class, cause, cached, verify, wall_ms}`, every authored
+The document (version 2 since re-pin L2-1) lists every program `{id, digest, class, cause, cached, verify, wall_ms, specification_diagnostics, smt_unknowns}` (the last two from the result record since re-pin adoption A-1, so absent on a `refused` row, which has none), every authored
 rule `{module, index, label, file, start_line, end_line, status, reached_by, fired_by}` with status
 `uncovered` (no comparable program reaches it: the next program to write) first, then
 `covered`, then `no-coverage-signal` (none of the rule's compiled ids can appear in a run's coverage: it
@@ -414,11 +420,11 @@ Besides `results/` and `report.json` (the last run's document, also written when
   `{schema: "kink-flow-outcomes", version: 1, context, context_sha256, mutation_identity, mutation_id, removed_claims, records: {<program digest>: {program_id, baseline_run_sha256, outcome, slots, mutant_run_sha256, allowance_bytes, record_sha256}}}`.
   `removed_claims` is the row's (below), for the reader only: it is read back by nothing and is in no digest.
   The context is `{outcome_schema: "kink-flow/outcome/v1", kink_build, kink, profile, execution_digest: {kind, digest}, budget, oracles, classifier, schedule}` (with `work_factor` set, `budget` also holds `work: {factor, floor}`):
-  `kink` is kink's semantics identity (kink-campaign `identity`, packet CACHE-ID), `{k_rust_revision, fingerprint, canonical_patch, compiled_kore, patch_admission, claim_removal, mutant_consistency, mutant_effect, definition_exclusion, execution_request, result_schema, coverage}`, the version of every kink algorithm an outcome can depend on. Among them:
+  `kink` is kink's semantics identity (kink-campaign `identity`, packet CACHE-ID), `{k_rust_revision, fingerprint, canonical_patch, compiled_kore, patch_admission, claim_removal, mutant_consistency, mutant_effect, definition_exclusion, execution_request, result_schema, coverage, one_sided}`, the version of every kink algorithm an outcome can depend on. Among them:
   `claim_removal` is kink-patch's `CLAIM_REMOVAL_VERSION`, since the mutant every record ran on depends on the claim-removal algorithm (v2 since re-pin R0c-fix-3: the reach follows the overload and unit axioms; v3 since R0c-fix-4: a rule with configuration context is an equation of its head);
   `mutant_consistency` is kink-native's `MUTANT_CONSISTENCY_VERSION`, since a mutant runs (and a record exists) only when its equations are shown consistent (v2 since R0c-fix-4: the check's guard reads the equation and skipped-pair counts);
   `mutant_effect` is kink-native's `MUTANT_EFFECT_VERSION`, since the symbols the check reads, and the cross-check of kink-patch's source reading, come from the compiled definitions (re-pin R0c-fix-4);
-  `definition_exclusion`, `patch_admission` and `execution_request` name the definition exclusions (re-pin R0-tail), the rule that no typing error refuses a patch (L2-2-fix-1) and the execution request with its state-set modality and work budget (L1-1);
+  `definition_exclusion`, `patch_admission` and `execution_request` name the definition exclusions (re-pin R0-tail; v2 since re-pin adoption A-1, which reads k-rust's run-level lists), the rule that no typing error refuses a patch (L2-2-fix-1) and the execution request with its state-set modality and work budget (L1-1);
   `kink_build` is the SHA-256 of the running `kink-flow` executable, so any rebuild (debug or release) starts a new context;
   `execution_digest` is today the specification digest (kind `kink-flow/spec/v1`), so any edit of the specification, a comment included, starts a new context.
   The mutation identity hashes each edit's kind, module, the addressed rule's fingerprint, its occurrence among equal fingerprints of the module,
@@ -451,14 +457,14 @@ no program is comparable, a corpus error stopped the run, or `--verify` found a 
 
 `run` prints one document and writes the same document to `.kink-flow/report.json` (after every mutation, and once more at the end):
 
-`{schema: "kink-flow-run", version: 8, k_rust_revision, profile, result_schema_version, kink_build, kink, spec, programs, unusable_programs, mutations, counts, survivors, stopped, outcome_cache, mismatches, baseline_runs, order, untargeted_rules}`.
-Version 3 (F-13) names the oracle slots of an executed entry, versions 4 to 6 add row fields (below), version 7 (packet CACHE-ID) adds `kink`, kink's semantics identity, and version 8 (packet CACHE-ID-fix-1) adds `kink_build`, the SHA-256 of the executable that wrote it.
+`{schema: "kink-flow-run", version: 9, k_rust_revision, profile, result_schema_version, kink_build, kink, spec, programs, unusable_programs, mutations, counts, survivors, stopped, outcome_cache, mismatches, baseline_runs, order, untargeted_rules}`.
+Version 3 (F-13) names the oracle slots of an executed entry, versions 4 to 6 add row fields (below), version 7 (packet CACHE-ID) adds `kink`, kink's semantics identity, version 8 (packet CACHE-ID-fix-1) adds `kink_build`, the SHA-256 of the executable that wrote it, and version 9 (re-pin adoption A-1) adds `specification_diagnostics` and `smt_unknowns` to program rows and executed entries.
 `report` prints the stored statuses without re-deriving them, so it refuses (`unreadable`) a document of another version, one written by another build (or naming none), and one whose `kink` is not this build's.
 
 | Field | Meaning |
 | --- | --- |
 | `spec` | `{outcome, stage, reason, detail, digest, files}`: the specification's admission and its digest. |
-| `programs` | The `results` rows `{id, digest, class, cause, cached, verify, wall_ms}`, plus `rerun` for a timeout record run again. |
+| `programs` | The `results` rows `{id, digest, class, cause, cached, verify, wall_ms, specification_diagnostics, smt_unknowns}`, plus `rerun` for a timeout record run again. `specification_diagnostics` (the baseline run's contradicted-claim records, above) and `smt_unknowns` (its undecided solver answers, reported only) come from the result record (absent on a `refused` row, which has none). |
 | `unusable_programs` | Every program whose class is not `comparable`, once: `{id, class, cause}`. These programs are never run on a mutant. |
 | `mutations` | One row per selected mutation, in the list's order (below). |
 | `counts` | The number of mutations per status (all eight statuses). |
@@ -483,7 +489,7 @@ A mutation row is `{id, note, digest, identity, removed_claims, inconsistent_pai
 | `killer`, `killer_source`, `killer_from_cache` | The first killing program of a `killed` mutation; where the kill came from: `outcome-cache` (tier 1, no call), `hint` (the hinted program's one-program call) or `search` (the call over the remaining programs); `killer_from_cache` is true for the first two. Null, null and false otherwise. |
 | `unusable_killer` | `{program, class, cause, source}` when a cached kill (`source` `outcome-cache`) or the hint (`hint`) names a program of the corpus that is not comparable now; else null. |
 | `reaching` | The comparable programs whose cached coverage witnesses an edited rule's edit (step 3: reached for an edit of the rule's `requires`, fired for any other edit), in the order they were tried. |
-| `executed` | `{program, outcome, slots | failure, cause, cached, wall_ms, baseline_ms, baseline_reused}` for every program whose outcome decided the status: first the cached ones (`cached: true`, in the order of step 3), then each program the mutant ran on in this command, in the runner's order, each listed once (a hinted program that did not kill and ran again in the next call is listed with that later run; `calls` lists every call). `outcome` is `distinguish`, `agree`, `timeout`, `unknown`, `incomparable` or `error`; `failure` names a run that produced no value (`time-limit`, `resource-limit`, `indeterminate`, `infrastructure`). `slots` is below. `cause` is null when the outcome is `agree` or `distinguish`, else what the runner's evidence says stopped the comparison, per slot (`exit-stop, whole-term: ...`), with the budget values, followed by the mutant run's leaf census for a time limit (`; when the bound fired k-rust returned ...`) or an unknown or timed-out slot (`; the mutant's run: k-rust returned 1 leaf (depth-bound 1), the deepest at depth 200`), which tells a depth bound from an undecided end. `wall_ms` is the mutant's run of the program, `baseline_ms` the program's live baseline run in this command and `baseline_reused` whether this call reused it; all three are null on a cached entry. |
+| `executed` | `{program, outcome, slots | failure, cause, cached, wall_ms, baseline_ms, baseline_reused}`, plus `specification_diagnostics` when the mutant's run lists a contradicted-claim record and `smt_unknowns` when its count of undecided solver answers is nonzero (version 9), for every program whose outcome decided the status: first the cached ones (`cached: true`, in the order of step 3), then each program the mutant ran on in this command, in the runner's order, each listed once (a hinted program that did not kill and ran again in the next call is listed with that later run; `calls` lists every call). `outcome` is `distinguish`, `agree`, `timeout`, `unknown`, `incomparable` or `error`; `failure` names a run that produced no value (`time-limit`, `resource-limit`, `indeterminate`, `infrastructure`) or one that is excluded (`stack-stop`, `load-stack-stop`, `contradicted-claim`, `implementation-chosen-hook`, `short-circuit-reading`, `allowance-refusal`, `equals-condition`, `implementation-chosen-value`, `unsupported-hook`). `slots` is below. `cause` is null when the outcome is `agree` or `distinguish`, else what the runner's evidence says stopped the comparison, per slot (`exit-stop, whole-term: ...`), with the budget values, followed by the mutant run's leaf census for a time limit (`; when the bound fired k-rust returned ...`) or an unknown or timed-out slot (`; the mutant's run: k-rust returned 1 leaf (depth-bound 1), the deepest at depth 200`), which tells a depth bound from an undecided end. `wall_ms` is the mutant's run of the program, `baseline_ms` the program's live baseline run in this command and `baseline_reused` whether this call reused it; all three are null on a cached entry. |
 | `calls` | `{programs, status}` of each runner call: `[]` when tier 1 decided, `[[hint]]` when the hinted program killed, `[[hint], [rest]]` when it did not, `[[rest]]` without a usable hint. |
 | `call_wall_ms` | The wall time of each call of `calls`, in the same order (the mutant's compile and every run of the call). |
 | `rules` | Null for a `killed` mutation and for an `invalid-mutation`; otherwise each edited rule, in sentence order: `{module, index, file, label, start_line, end_line, edits, before, after}`. `before` and `after` are the rule's K text before and after the mutation's edits, sliced from the file's K view by the sentence's span (`after` is null for a deleted rule); `edits` are the indices of the mutation's edits addressed to the rule. |

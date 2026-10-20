@@ -667,6 +667,7 @@ pub enum CampaignFailureKind {
 pub struct CampaignFailure {
     kind: CampaignFailureKind,
     detail: String,
+    exclusion: Option<kink_native::exclusion::Exclusion>,
 }
 
 impl CampaignFailure {
@@ -674,6 +675,19 @@ impl CampaignFailure {
         Self {
             kind,
             detail: detail.into(),
+            exclusion: None,
+        }
+    }
+
+    /// A refusal of the campaign because a baseline run is excluded ([`kink_native::exclusion`]).
+    pub(crate) fn excluded(
+        kind: CampaignFailureKind,
+        exclusion: kink_native::exclusion::Exclusion,
+        detail: impl Into<String>,
+    ) -> Self {
+        Self {
+            exclusion: Some(exclusion),
+            ..Self::new(kind, detail)
         }
     }
 
@@ -681,6 +695,14 @@ impl CampaignFailure {
     #[must_use]
     pub const fn kind(&self) -> CampaignFailureKind {
         self.kind
+    }
+
+    /// The exclusion of the baseline run that refused the campaign, when an exclusion did (its
+    /// name is also in the detail). Diagnostic only: it decides nothing (re-pin adoption A-1b,
+    /// so that kink-flow's cause names the exclusion rather than guessing from the leaves).
+    #[must_use]
+    pub const fn exclusion(&self) -> Option<kink_native::exclusion::Exclusion> {
+        self.exclusion
     }
 }
 

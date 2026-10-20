@@ -1173,8 +1173,9 @@ pub fn run_campaign_multi_with(
         if admission == BaselineAdmission::OracleFailed
             && let Some((test_id, exclusion)) = baseline_exclusion(&baseline_evidence)
         {
-            return Err(CampaignFailure::new(
+            return Err(CampaignFailure::excluded(
                 CampaignFailureKind::BaselineOracleFailed,
+                exclusion,
                 format!(
                     "the baseline run of test {test_id} is no evidence: {}",
                     exclusion.name()

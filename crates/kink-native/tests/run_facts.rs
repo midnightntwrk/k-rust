@@ -235,6 +235,89 @@ fn a_replaced_state_set_keeps_its_facts() {
     });
 }
 
+/// Re-pin adoption A-1b (review A-1-review-1 finding 6): the replacement keeps a fact only the
+/// state set it replaces reached. Under a work budget of 13 states (`testdata/k/a1/replace.k`,
+/// `s(0)`), the state set merges the diamond's second arrival at `c`, completes (the `Trivial`
+/// leaf `val(10 /Int 0)` and the stuck `done`) and lists `ytd`'s record; the path set of the same
+/// request explores the chain under `c` twice and stops at its `work-bound` leaf before it reaches
+/// `y`, so its own list is empty and alone it would be no excluded run. `execute_result` replaces
+/// the state set by that path set (the `Trivial` leaf), and the result must still list the record
+/// and so be excluded (`contradicted-claim`). Dropping the union in the replacement fails here.
+#[test]
+fn a_replacement_keeps_a_fact_only_the_state_set_reached() {
+    on_a_big_stack(|| {
+        let (side, module) = fixture("replace");
+        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+        assert_eq!(exclusions.definition_exclusion(), None);
+        let adapter = ExecutionAdapter::with_profile(SolverProfile::BUILD);
+        let initial = state(call("s", 0));
+        let bounded = |modality| ResultRun {
+            modality,
+            max_work: Some(13),
+        };
+        let expected = [td_record("REPLACE", Some("ytd"), ObservedInOutput::Run)];
+
+        let state_set = adapter
+            .execute_once(
+                &mut backend(&side, &module),
+                &initial,
+                budget(),
+                bounded(ResultModality::StateSet),
+            )
+            .unwrap();
+        assert_eq!(state_set.modality(), ResultModality::StateSet);
+        assert_eq!(records(&state_set), expected);
+        let halts = state_set
+            .leaves()
+            .iter()
+            .map(|leaf| leaf.halt)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            halts,
+            [HaltClass::Trivial, HaltClass::Stuck],
+            "{state_set:?}"
+        );
+
+        let path_set = adapter
+            .execute_once(
+                &mut backend(&side, &module),
+                &initial,
+                budget(),
+                bounded(ResultModality::PathSet),
+            )
+            .unwrap();
+        assert_eq!(path_set.modality(), ResultModality::PathSet);
+        assert!(records(&path_set).is_empty(), "{path_set:?}");
+        let halts = path_set
+            .leaves()
+            .iter()
+            .map(|leaf| leaf.halt)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            halts,
+            [HaltClass::Trivial, HaltClass::WorkBound],
+            "{path_set:?}"
+        );
+        assert_eq!(exclusions.run_exclusion(&path_set), None);
+
+        let replaced = adapter
+            .execute_result(
+                &mut backend(&side, &module),
+                &initial,
+                budget(),
+                bounded(ResultModality::StateSet),
+            )
+            .unwrap();
+        assert_eq!(replaced.modality(), ResultModality::PathSet);
+        assert_eq!(replaced.leaves(), path_set.leaves());
+        assert_eq!(records(&replaced), expected);
+        assert_eq!(
+            exclusions.run_exclusion(&replaced),
+            Some(Exclusion::ContradictedClaim)
+        );
+    });
+}
+
 /// ADOPTION.md section 2.2: a record on the run's list excludes the run (`contradicted-claim`)
 /// where no leaf shows it (before A-1 each of these runs was complete and compared):
 /// - `sib(0)`: a candidate a defined sibling covered (compat 1536);

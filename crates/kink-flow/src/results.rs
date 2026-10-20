@@ -53,6 +53,7 @@ use kink_corpus::{
 use kink_native::{
     K_RUST_REVISION,
     coverage::{RuleAuthors, TestCoverage, coverage_domain, non_executable_ids},
+    exclusion::Exclusion,
     execution::{ExecutionAdapter, ExecutionBudget, HaltClass, SolverProfile},
 };
 use kink_patch::{
@@ -347,6 +348,7 @@ impl<'a> BaselineRunner<'a> {
                     let mut result = self.diagnose(
                         &test,
                         CampaignFailureKind::BaselineOracleFailed,
+                        kind.exclusion(),
                         &format!(
                             "the campaign runner gave the baseline run no sides: {}",
                             kind.exclusion().map_or("a failed run", |e| e.name())
@@ -396,6 +398,7 @@ impl<'a> BaselineRunner<'a> {
             Err(failure) => self.diagnose(
                 &test,
                 failure.kind(),
+                failure.exclusion(),
                 &format!("the campaign runner refused the baseline run ({failure})"),
             ),
         };
@@ -418,8 +421,16 @@ impl<'a> BaselineRunner<'a> {
 
     /// The campaign refused the baseline run, or gave it no sides, and it did not stop on time:
     /// run the initial state once more through the execution adapter, for the class, the cause,
-    /// the final states and the coverage.
-    fn diagnose(&self, test: &TestCase, kind: CampaignFailureKind, refused: &str) -> ProgramResult {
+    /// the final states and the coverage. When the campaign named the exclusion of the baseline
+    /// run (`exclusion`), the cause's hint is that exclusion's ([`exclusion_hint`]), not one read
+    /// from the leaves' shape (re-pin adoption A-1b): an excluded run's leaves can all be clean.
+    fn diagnose(
+        &self,
+        test: &TestCase,
+        kind: CampaignFailureKind,
+        exclusion: Option<Exclusion>,
+        refused: &str,
+    ) -> ProgramResult {
         self.diagnostic.set(self.diagnostic.get() + 1);
         let mut backend = match input_backend(&self.spec.compiled, self.main_module) {
             Ok(backend) => backend,
@@ -467,7 +478,9 @@ impl<'a> BaselineRunner<'a> {
                 )
             })
             .collect::<Vec<_>>();
-        let hint = if leaves.iter().any(|leaf| leaf.halt == HaltClass::DepthBound) {
+        let hint = if let Some(exclusion) = exclusion {
+            exclusion_hint(exclusion, !execution.facts().contradicted_claims.is_empty())
+        } else if leaves.iter().any(|leaf| leaf.halt == HaltClass::DepthBound) {
             format!(
                 "the run reached max_depth = {}",
                 self.budget.max_depth.unwrap_or_default()
@@ -512,6 +525,59 @@ impl<'a> BaselineRunner<'a> {
             smt_unknowns: execution.facts().smt_unknowns,
         }
     }
+}
+
+/// Why an excluded baseline run is not comparable, and what to fix, in the reader's words (re-pin
+/// adoption A-1b). `records`: the diagnostic run lists a contradicted-claim record, which the
+/// program's row reports as a specification diagnostic.
+fn exclusion_hint(exclusion: Exclusion, records: bool) -> String {
+    let why = match exclusion {
+        Exclusion::ContradictedClaim if records => {
+            "the run contradicts a trusted claim of the definition: k-rust lists a contradicted \
+             claim the run or the definition's load observed, named with the application it is \
+             false at in this row's specification_diagnostics; the definition, not the program, \
+             is wrong there, so fix the claim (or the rule it is about), not the program"
+        }
+        Exclusion::ContradictedClaim => {
+            "the run contradicts a trusted claim of the definition: a leaf takes an undefined \
+             step that falsifies a `total` or `preserves-definedness` claim (see this row's \
+             specification_diagnostics for any record k-rust lists); the definition, not the \
+             program, is wrong there, so fix the claim (or the rule it is about), not the program"
+        }
+        Exclusion::StackStop => {
+            "the run met a stop for lack of native stack, so its result can depend on the host's \
+             threads"
+        }
+        Exclusion::LoadStackStop => {
+            "loading the definition met a stop for lack of native stack, so its loaded theory can \
+             depend on the host's threads"
+        }
+        Exclusion::ImplementationChosenHook => {
+            "the definition uses a hook whose value the definition leaves open and k-rust chooses"
+        }
+        Exclusion::ShortCircuitReading => {
+            "the run's result depends on whether andBool, orBool, impliesBool, #if, andThenBool or \
+             orElseBool skip an operand that may be undefined, which the definition leaves to the \
+             backend"
+        }
+        Exclusion::AllowanceRefusal => {
+            "a Bytes hook of the run was refused for the process's memory allowance, a property \
+             of the host"
+        }
+        Exclusion::EqualsCondition => {
+            "a rule or equation condition equates two terms ({ A #Equals B }), which k-rust may \
+             decide wrongly when they may be undefined"
+        }
+        Exclusion::ImplementationChosenValue => {
+            "the run read a value the definition leaves open, which k-rust chose (k-rust's list \
+             of the run's open values)"
+        }
+        Exclusion::UnsupportedHook => {
+            "the run, or the definition's load, left an application unevaluated as an \
+             unsupported hook"
+        }
+    };
+    format!("the run is excluded ({}): {why}", exclusion.name())
 }
 
 /// A duration in whole milliseconds.
