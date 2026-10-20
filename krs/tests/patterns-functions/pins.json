@@ -188,9 +188,6 @@
     "or-remainder": [
       "error[krs::syntax::invalid-pattern-or]: or-patterns combine terms, not remainders"
     ],
-    "or-below-alias": [
-      "error[krs::analysis::invalid-pattern-or]: `x @ (A | B)` puts the alternatives below the alias, but an equation's alternatives compile only at the root of an argument of the function it defines; write `(x @ A) | (x @ B)`, which binds `x` to the same term"
-    ],
     "or-simplification": [
       "error[krs::analysis::invalid-pattern-or]: a simplification rewrites one term, and an or-pattern in its left-hand side is not one; write one simplification per alternative"
     ],
@@ -217,9 +214,6 @@
     ],
     "matches-claim": [
       "error[krs::expand::matches-outside-condition]: `k::matches!` is not supported in claims: Java K's kprove and the native prover both reject K's :=K in a claim; match the shape in the claim's subject instead"
-    ],
-    "matches-or-below-root": [
-      "error[krs::analysis::invalid-pattern-or]: a `k::matches!` pattern's alternatives compile only at its root (K tests it with a generated equation), and a symbol distributes over `|`; write them at the root, `G(A) | G(B)` for `G(A | B)`, or test each with `k::matches!(t, P1) || k::matches!(t, P2)`"
     ],
     "let-shape": [
       "error[krs::syntax::invalid-let]: a term block is `let pattern = term;`* followed by one result term (K's #let)"
