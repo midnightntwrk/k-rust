@@ -56,6 +56,7 @@ use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::{
     coverage::{Selection, by_priority, every, offer_all},
+    definedness::ceil_term,
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic, extend_distinct, in_emission_order},
     fresh::FreshCounter,
@@ -70,7 +71,8 @@ use crate::{
     },
     smt::{Satisfiability, SmtSolver},
     stop::Stoppable,
-    substitution::Substitution,
+    substitution::{Substitution, substitute},
+    term::TermKind,
     transition::ExecutionIoState,
 };
 
@@ -152,7 +154,7 @@ fn apply_priority_group<'r>(
                 for group in groups {
                     let common = group.common.unwrap_or_default();
                     for mut application in group.applied {
-                        restrict_successor(&mut application.applied, &restriction);
+                        restrict_successor(definition, &mut application.applied, &restriction);
                         application.applied.diagnostics =
                             in_emission_order([common.as_slice(), &application.diagnostics]);
                         undefined_work.extend(application.diagnostics.iter().cloned());
@@ -382,13 +384,95 @@ fn classify_first_group(
 /// definedness keeps every such instance out, whichever recovery consumed it. A successor's
 /// normalization has not run yet: the step's caller (or the sequential step, after this) does it
 /// on the restricted constraints.
-fn restrict_successor(successor: &mut AppliedRule, restriction: &[Predicate]) {
+///
+/// The restriction is stated of the subject instance the step's bindings build
+/// ([`instantiated_restriction`]), so the successor does not restate, in an undecomposed form,
+/// a definedness its step already stated of that instance.
+fn restrict_successor(
+    definition: &BackendDefinition,
+    successor: &mut AppliedRule,
+    restriction: &[Predicate],
+) {
     if !restriction.is_empty() {
-        extend_unique(
-            &mut successor.pattern.constraints,
-            restriction.iter().cloned(),
-        );
+        let restriction = instantiated_restriction(definition, successor, restriction);
+        extend_unique(&mut successor.pattern.constraints, restriction);
     }
+}
+
+/// `restriction`, the subject's decided definedness, stated of the subject instance `σ(t)` that
+/// `successor`'s step binds, where its match bound subject variables (`X = u` among the step's
+/// conditions, as when unification splits a symbolic collection); `restriction` itself where it
+/// bound none.
+///
+/// Every instance of the successor satisfies the bindings, so the predecessor instances it is
+/// reached from are those of `σ(t)`, and the definedness to state is `⌈σ(t)⌉`, which
+/// `ceil_term(σ(t))` states. An obligation of `restriction` that mentions no bound variable is
+/// unchanged by `σ` and is kept. One that mentions a bound variable and is a member of
+/// `ceil_term(t)` is the definedness of a subterm the bindings rewrite; `ceil_term(σ(t))` states
+/// the definedness of each rewritten subterm by its members that are not members of
+/// `ceil_term(t)` (a subterm `σ` leaves alone gives the same members in both), and those replace
+/// it. Stated this way they are decomposed through the bound value, as the step's own
+/// obligations of what it binds and consumes are, so the successor's normalization finds the
+/// ones the step already stated instead of carrying an undecomposed instance such as
+/// `\not(in_keys(a, (K |-> V) F))` beside them. An obligation that is no member of
+/// `ceil_term(t)` (the simplification under `φ` rewrote it) is kept as it is, and so is the
+/// whole restriction where either `ceil_term` cannot be stated: the normalization then replaces
+/// the bound variables in it, which states the same instances.
+fn instantiated_restriction(
+    definition: &BackendDefinition,
+    successor: &AppliedRule,
+    restriction: &[Predicate],
+) -> Vec<Predicate> {
+    let subject = &successor.before.term;
+    let mut bindings = successor
+        .rule_predicates
+        .iter()
+        .filter_map(|predicate| match predicate {
+            Predicate::Equals(left, right) => match left.kind() {
+                TermKind::Variable(variable)
+                    if subject.attributes().variables.contains(variable) =>
+                {
+                    Some((variable.clone(), right.clone()))
+                }
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect::<Substitution>();
+    // A binding whose value mentions a bound variable is left out, so that `σ` is idempotent and
+    // `σ(t)` mentions no bound variable.
+    let bound = bindings.keys().cloned().collect::<Vec<_>>();
+    bindings.retain(|_, value| {
+        !bound
+            .iter()
+            .any(|variable| value.attributes().variables.contains(variable))
+    });
+    let touches = |obligation: &Predicate| {
+        obligation
+            .free_variables()
+            .iter()
+            .any(|variable| bindings.contains_key(variable))
+    };
+    if bindings.is_empty() || !restriction.iter().any(touches) {
+        return restriction.to_vec();
+    }
+    let (Ok(stated), Ok(instantiated)) = (
+        ceil_term(definition, subject),
+        ceil_term(definition, &substitute(subject, &bindings)),
+    ) else {
+        return restriction.to_vec();
+    };
+    let mut result = restriction
+        .iter()
+        .filter(|obligation| !touches(obligation) || !stated.contains(obligation))
+        .cloned()
+        .collect::<Vec<_>>();
+    result.extend(
+        instantiated
+            .into_iter()
+            .filter(|obligation| !stated.contains(obligation)),
+    );
+    result
 }
 
 /// The subject of a step no rule applies to, as its stuck result: its instances where its
@@ -1213,7 +1297,7 @@ pub(super) fn rewrite_step_any(
                     let mut applied_group = Vec::with_capacity(group.applied.len());
                     let mut undefined_work = Vec::new();
                     for mut application in group.applied {
-                        restrict_successor(&mut application.applied, restriction);
+                        restrict_successor(definition, &mut application.applied, restriction);
                         if !later_alternative {
                             applied_group.push(application);
                             continue;

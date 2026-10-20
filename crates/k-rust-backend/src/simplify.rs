@@ -2240,9 +2240,13 @@ fn simplify_predicate_on_stack(
             } else {
                 right.clone()
             };
-            let equality =
-                normalize_hooked_boolean_predicate(definition, Predicate::Equals(left, right));
-            let equality = normalize_injection_equality(definition, equality);
+            let known = |obligation: &Predicate| assumptions.contains(obligation);
+            let equality = normalize_hooked_boolean_predicate(
+                definition,
+                Predicate::Equals(left, right),
+                &known,
+            );
+            let equality = normalize_injection_equality(definition, equality, &known);
             let equality = match equality {
                 Predicate::Equals(left, right) => {
                     let (equality, resimplify) =
@@ -2596,7 +2600,9 @@ fn simplify_predicate_on_stack(
     // above, so they are such results, and one level of normalization over them equals
     // `normalize_predicate` (`normalize_root`). An atom's simplification may conjoin the
     // conditions its terms' simplification left unsimplified, so it is normalized throughout.
-    let simplified = normalize_hooked_boolean_predicate(definition, simplified);
+    let simplified = normalize_hooked_boolean_predicate(definition, simplified, &|obligation| {
+        assumptions.contains(obligation)
+    });
     let simplified = match predicate {
         Predicate::Not(_)
         | Predicate::And(_)
@@ -2690,13 +2696,17 @@ fn simplify_predicate_on_stack(
     )
 }
 
-fn normalize_injection_equality(definition: &BackendDefinition, predicate: Predicate) -> Predicate {
+fn normalize_injection_equality(
+    definition: &BackendDefinition,
+    predicate: Predicate,
+    known: &dyn Fn(&Predicate) -> bool,
+) -> Predicate {
     let Predicate::Equals(left, right) = predicate else {
         return predicate;
     };
     match match_injection_equality(Some(definition.sort_graph()), &left, &right) {
         Some(InjectionEquality::Direct(left, right) | InjectionEquality::Split(left, right)) => {
-            normalize_hooked_boolean_predicate(definition, Predicate::Equals(left, right))
+            normalize_hooked_boolean_predicate(definition, Predicate::Equals(left, right), known)
         }
         // Separated injections are apart; the caller reads that through `terms_apart`
         // (R-eq), which states the definedness a refutation requires.
@@ -4060,14 +4070,24 @@ fn first_predicate_term(predicate: &Predicate) -> Option<&Term> {
 /// so a predicate the simplifier normalizes again gains nothing more: an obligation is added only
 /// where an equation of a term with `false` (or of a connective with the value one operand
 /// decides) is rewritten away, and an equation left in the result is one returned as it is.
+///
+/// `known` tells whether the context already states an obligation (a known fact, or a sibling
+/// conjunct as it currently stands). The obligations the `t = false` rewrite and the rewrite of
+/// a connective decided by one operand add are left out where known: the context conjoins them,
+/// so what is left is equivalent to the equation there, and simplifying the result again under
+/// the same context gains nothing. A disjunct of a connective decided by one operand never
+/// restates an obligation its disjunction is conjoined with, since that conjunction holds
+/// wherever the disjunct is read.
 fn normalize_hooked_boolean_predicate(
     definition: &BackendDefinition,
     predicate: Predicate,
+    known: &dyn Fn(&Predicate) -> bool,
 ) -> Predicate {
     if let Predicate::Term(term) = &predicate {
         let normalized = normalize_hooked_boolean_predicate(
             definition,
             Predicate::Equals(term.clone(), Term::bool(true)),
+            known,
         );
         return match &normalized {
             Predicate::Equals(left, right) if left == term && bool_value(right) == Some(true) => {
@@ -4090,7 +4110,7 @@ fn normalize_hooked_boolean_predicate(
         symbol, arguments, ..
     } = application.kind()
     else {
-        return boolean_literal_equality(definition, application, value)
+        return boolean_literal_equality(definition, application, value, known)
             .unwrap_or(Predicate::Equals(left, right));
     };
     if let Some(operator) = symbol.attributes.hook.as_deref() {
@@ -4098,21 +4118,30 @@ fn normalize_hooked_boolean_predicate(
             normalize_hooked_boolean_predicate(
                 definition,
                 Predicate::Equals(term.clone(), Term::bool(value)),
+                known,
             )
         };
         // The connective's value decided by one operand's equation (`false` for a conjunction,
         // `true` for a disjunction): a disjunction of the operands' equations, which states
-        // neither operand's definedness beside the one whose equation holds.
+        // neither operand's definedness beside the one whose equation holds. Each disjunct is
+        // read where both operands' obligations hold, so a disjunct's conjunct among them is
+        // `\top` there and is left out: `O /\ ((O1 /\ E) \/ F)` is `O /\ (E \/ F)` when `O1` is
+        // a member of `O`.
         let decided_by_one = |first: &Term, second: &Term, value| {
-            let (Ok(mut predicates), Ok(second_obligations)) =
+            let (Ok(mut obligations), Ok(second_obligations)) =
                 (ceil_term(definition, first), ceil_term(definition, second))
             else {
                 return None;
             };
-            predicates.extend(second_obligations);
-            predicates.push(Predicate::Or(
-                vec![bool_operand(first, value), bool_operand(second, value)].into(),
-            ));
+            obligations.extend(second_obligations);
+            let disjunct = |term: &Term| without_conjuncts(bool_operand(term, value), &obligations);
+            let disjunction = Predicate::Or(vec![disjunct(first), disjunct(second)].into());
+            let mut predicates = obligations
+                .iter()
+                .filter(|obligation| !known(obligation))
+                .cloned()
+                .collect::<Vec<_>>();
+            predicates.push(disjunction);
             Some(normalize_predicate(Predicate::And(predicates.into())))
         };
         match (operator, arguments.as_slice()) {
@@ -4134,7 +4163,8 @@ fn normalize_hooked_boolean_predicate(
             }
             ("BOOL.not", [operand]) => return bool_operand(operand, !value),
             ("SET.in", [element, set]) => {
-                if let Some(membership) = set_membership_equations(definition, element, set, value)
+                if let Some(membership) =
+                    set_membership_equations(definition, element, set, value, known)
                 {
                     return membership;
                 }
@@ -4148,7 +4178,7 @@ fn normalize_hooked_boolean_predicate(
         Some("INT.eq") => (!value, false),
         Some("INT.ne") => (value, false),
         _ => {
-            return boolean_literal_equality(definition, application, value)
+            return boolean_literal_equality(definition, application, value, known)
                 .unwrap_or(Predicate::Equals(left, right));
         }
     };
@@ -4206,6 +4236,7 @@ fn set_membership_equations(
     element: &Term,
     set: &Term,
     value: bool,
+    known: &dyn Fn(&Predicate) -> bool,
 ) -> Option<Predicate> {
     let TermKind::Set {
         elements,
@@ -4227,7 +4258,8 @@ fn set_membership_equations(
     let mut equations = Vec::with_capacity(candidates.len());
     for existing in candidates {
         let (left, right) = align_subsort_operands(definition, element, existing)?;
-        let equality = normalize_injection_equality(definition, Predicate::Equals(left, right));
+        let equality =
+            normalize_injection_equality(definition, Predicate::Equals(left, right), known);
         equations.push(if value {
             equality
         } else {
@@ -4251,11 +4283,13 @@ fn set_membership_equations(
 /// `term = true` is the atom `term`. `term = false` holds exactly where `term` is defined and
 /// not `true`, so it is `\ceil(term) /\ \not(term)`: the negated atom alone also holds where
 /// `term` is undefined, since `\equals(\bottom, true)` is false. The obligation is
-/// `ceil_term(term)`, empty for a `ceil_free` term.
+/// `ceil_term(term)`, empty for a `ceil_free` term, less its members the context states
+/// (`known`), where the negated atom alone is equivalent to the equation.
 fn boolean_literal_equality(
     definition: &BackendDefinition,
     term: &Term,
     value: bool,
+    known: &dyn Fn(&Predicate) -> bool,
 ) -> Option<Predicate> {
     if !term.sort().is_builtin(BuiltinSort::Bool) || bool_value(term).is_some() {
         return None;
@@ -4265,11 +4299,28 @@ fn boolean_literal_equality(
     }
     let negation = Predicate::Not(Arc::new(Predicate::Term(term.clone())));
     let mut predicates = ceil_term(definition, term).ok()?;
+    predicates.retain(|obligation| !known(obligation));
     if predicates.is_empty() {
         return Some(negation);
     }
     predicates.push(negation);
     Some(normalize_predicate(Predicate::And(predicates.into())))
+}
+
+/// `predicate` read where every member of `stated` holds: a conjunct of it among `stated` is
+/// `\top` there and is left out, and so is `predicate` itself when it is one.
+fn without_conjuncts(predicate: Predicate, stated: &[Predicate]) -> Predicate {
+    match predicate {
+        Predicate::And(conjuncts) => normalize_predicate(Predicate::And(
+            conjuncts
+                .iter()
+                .filter(|conjunct| !stated.contains(conjunct))
+                .cloned()
+                .collect(),
+        )),
+        predicate if stated.contains(&predicate) => Predicate::True,
+        predicate => predicate,
+    }
 }
 
 fn align_subsort_operands(
