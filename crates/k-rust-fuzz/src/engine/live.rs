@@ -336,17 +336,36 @@ impl LiveCases {
             Ok(judgement) => {
                 run.class = judgement.class;
                 if judgement.class == OutcomeClass::Hit {
-                    match judgement
-                        .killing_leaf
-                        .and_then(|index| mutated.leaves.get(index))
-                    {
-                        Some(leaf) => {
+                    // An added end: the killing mutant leaf. A removed end (all-paths mode): the
+                    // baseline leaf the mutant cannot reach; the mutant side then lists every
+                    // mutant leaf, its complete set of ends.
+                    let witness = match (judgement.killing_leaf, judgement.removed_end) {
+                        (Some(index), _) => mutated
+                            .leaves
+                            .get(index)
+                            .map(|leaf| (leaf, vec![leaf.state.to_string()])),
+                        (None, Some(index)) => baseline.leaves.get(index).map(|leaf| {
+                            let ends = mutated
+                                .leaves
+                                .iter()
+                                .map(|leaf| leaf.state.to_string())
+                                .collect();
+                            (leaf, ends)
+                        }),
+                        (None, None) => None,
+                    };
+                    match witness {
+                        Some((leaf, mutant_ends)) => {
                             let holes = self.hole_values(values, &baseline_case.printed);
                             run.hit = Some(HitDetail {
                                 holes,
                                 sides: vec![
                                     side_of(DefinitionRole::Baseline, &baseline_case, &baseline),
-                                    side_of(DefinitionRole::Mutant, &mutant_case, &mutated),
+                                    WitnessSide {
+                                        role: DefinitionRole::Mutant,
+                                        initial_configuration: mutant_case.assembled.to_string(),
+                                        final_configurations: mutant_ends,
+                                    },
                                 ],
                                 steps: leaf.depth,
                                 reaching_state: leaf.state.to_string(),
@@ -356,7 +375,7 @@ impl LiveCases {
                         None => {
                             run.class = OutcomeClass::Unsupported;
                             run.defects
-                                .push("a kill names no leaf of the mutant's result".to_owned());
+                                .push("a kill names no leaf of either result".to_owned());
                         }
                     }
                 }

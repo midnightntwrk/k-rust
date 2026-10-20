@@ -330,7 +330,11 @@ pub struct WitnessSide {
     pub role: DefinitionRole,
     /// The concrete initial configuration this definition's grammar assembled, as KORE text.
     pub initial_configuration: String,
-    /// Every leaf's configuration, as KORE text, in the backend's order.
+    /// The configurations the witness rests on, as KORE text: every leaf, in the backend's
+    /// order, for the baseline (for a differential witness, its complete set of ends); for the
+    /// mutant of a differential witness, the killing leaf alone when the mutant adds an end,
+    /// and every mutant leaf when it removes one (all-paths mode; the witness's steps are then
+    /// those of the removed baseline end).
     pub final_configurations: Vec<String>,
 }
 
