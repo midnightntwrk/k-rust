@@ -1269,7 +1269,11 @@ mod tests {
 
     /// The step `Unifier::unify_one` took, after its variable and conjunction arms, at the
     /// integration base (`c11e4adb`): each arm as written there, with its `decomposable` and
-    /// `rigid`, over the roles.
+    /// `rigid`, over the roles. One departure: two fixed roots of one symbol whose sort
+    /// arguments differ only where a sort variable stands (`f{S}` against `f{SortInt}`) are
+    /// unsupported, where the base refuted them as a clash or kept them. Some instance of the
+    /// sort variable makes the two roots one root, so no clash refutes the pair; unifying it
+    /// needs a sort substitution, which the unifier does not compute.
     fn transcribed_step(definition: &BackendDefinition, left: &Term, right: &Term) -> &'static str {
         let decomposable = |symbol: &Symbol| match symbol.attributes.head_role() {
             HeadRole::FreeConstructor => true,
@@ -1279,6 +1283,16 @@ mod tests {
             }
             HeadRole::Function { injective, .. } => injective,
             HeadRole::Uninterpreted | HeadRole::Residual => false,
+        };
+        // Both roots fixed, as the unifier classifies one symbol on both sides: a free
+        // constructor, or an equation head with both applications instance-normal.
+        let fixed_root = |symbol: &Symbol| match symbol.attributes.head_role() {
+            HeadRole::FreeConstructor => true,
+            HeadRole::EquationHead => {
+                definition.instance_normal(left).is_some()
+                    && definition.instance_normal(right).is_some()
+            }
+            HeadRole::Function { .. } | HeadRole::Uninterpreted | HeadRole::Residual => false,
         };
         let rigid = |kind: &TermKind| match kind {
             TermKind::DomainValue { .. } | TermKind::Injection { .. } => true,
@@ -1316,6 +1330,24 @@ mod tests {
                 } else {
                     "decompose"
                 }
+            }
+            (
+                TermKind::Application {
+                    symbol: left_symbol,
+                    sort_arguments: left_sorts,
+                    ..
+                },
+                TermKind::Application {
+                    symbol: right_symbol,
+                    sort_arguments: right_sorts,
+                    ..
+                },
+            ) if left_symbol.name == right_symbol.name
+                && crate::matching::sort_list_relation(left_sorts, right_sorts)
+                    == crate::matching::SortRelation::Open
+                && fixed_root(left_symbol) =>
+            {
+                "unsupported"
             }
             (
                 TermKind::Application {
