@@ -13,7 +13,7 @@ use k_rust::{
     kore::ast::Pattern as KorePattern,
 };
 
-use super::runner::{CaseRun, CaseRunner, Cut, HitDetail};
+use super::runner::{CaseRun, CaseRunner, ConfirmFailure, Cut, HitDetail};
 use crate::{
     assemble::{CaseAssembler, ProgramAssembly, build_backend},
     error::{CampaignError, SortRefusal},
@@ -662,6 +662,11 @@ fn quote(text: &str) -> String {
 /// solver and its cache of decided answers, the session's module table) belongs to the
 /// `Backend`, which each confirmation builds anew, so no such state is shared.
 ///
+/// Confirmation therefore re-executes the case independently, but it does not re-derive the
+/// hole resolution or the round-trip positions: they are computed on a build of their own, by
+/// the same code that computed the campaign's, so a defect of that code is not caught by
+/// confirmation (phase-1 review N8, accepted by INT-A item 3).
+///
 /// Only the `source-execution` route's internalization is cached: the `from-definition` route
 /// internalizes inside the backend's session, and a confirmation on it builds its backend from
 /// the KORE as the campaign's own backend was built.
@@ -893,34 +898,38 @@ impl CaseRunner for LiveRunner<'_> {
         cancel: Option<&CancellationToken>,
     ) -> Result<CaseRun, Abort> {
         let mut run = run_live(&mut self.cases, &mut self.assemblers, values, cancel)?;
-        if let Some(graph) = &self.graph
-            && run.class != OutcomeClass::Rejected
-        {
-            let (defects, warnings) = graph.check(&run.applied);
-            run.defects.extend(defects);
-            run.warnings.extend(warnings);
-        }
+        self.self_check(&mut run);
         Ok(run)
     }
 
     /// A fresh `Backend` (fresh solver, fresh session) over a copy of the cached internalized
     /// definition, with a fresh assembly, fresh hole resolution and a freshly resolved target.
+    ///
+    /// A confirmation is self-checked against the rule graph like a case.
     fn confirm(
         &mut self,
         values: &[Value],
         cancel: Option<&CancellationToken>,
-    ) -> Result<CaseRun, String> {
+    ) -> Result<CaseRun, ConfirmFailure> {
         let spec = Arc::clone(&self.cases.spec);
         let cache = self
             .cache
             .get_or_init(|| DefinitionCache::build(&spec).map_err(|error| error.to_string()))
             .as_ref()
-            .map_err(|error| format!("the definition did not internalize: {error}"))?;
-        let mut fresh = LiveCases::build_with(spec, Some(cache))
-            .map_err(|error| format!("the fresh backend or assembly did not build: {error}"))?;
+            .map_err(|error| {
+                ConfirmFailure::Failed(format!("the definition did not internalize: {error}"))
+            })?;
+        let mut fresh = LiveCases::build_with(spec, Some(cache)).map_err(|error| {
+            ConfirmFailure::Failed(format!(
+                "the fresh backend or assembly did not build: {error}"
+            ))
+        })?;
         let parts = fresh.assembly_parts();
         let mut assemblers = parts.assemblers();
-        run_live(&mut fresh, &mut assemblers, values, cancel).map_err(|abort| abort.reason)
+        let mut run =
+            run_live(&mut fresh, &mut assemblers, values, cancel).map_err(ConfirmFailure::Abort)?;
+        self.self_check(&mut run);
+        Ok(run)
     }
 
     fn admissible(&self, hole: usize, value: &Value) -> bool {
@@ -932,6 +941,20 @@ impl CaseRunner for LiveRunner<'_> {
             .is_some_and(|hole| {
                 values::check_constraints(value, &hole.sort, &hole.decl.constraints).is_ok()
             })
+    }
+}
+
+impl LiveRunner<'_> {
+    /// The rule-graph self-check of an executed run: its engine defects and warnings are added
+    /// to the run's.
+    fn self_check(&self, run: &mut CaseRun) {
+        if let Some(graph) = &self.graph
+            && run.class != OutcomeClass::Rejected
+        {
+            let (defects, warnings) = graph.check(&run.applied);
+            run.defects.extend(defects);
+            run.warnings.extend(warnings);
+        }
     }
 }
 

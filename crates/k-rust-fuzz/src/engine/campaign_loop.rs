@@ -7,7 +7,7 @@ use k_rust::backend::CancellationToken;
 
 use super::{
     proposer::{CoverageFeedback, Feedback as _, Observation, Proposal},
-    runner::{CaseRun, CaseRunner, Cut, HitDetail},
+    runner::{CaseRun, CaseRunner, ConfirmFailure, Cut, HitDetail},
     schedule::Schedule,
     shrink::{Verdict, shrink},
 };
@@ -97,7 +97,7 @@ pub(crate) fn run_loop(
         }
         let mut class = run.class;
         if class == OutcomeClass::Hit {
-            match confirm(runner, &mut state, &proposal.values, &run, cancel) {
+            match confirm(runner, &mut state, case, &proposal.values, &run, cancel) {
                 Confirmed::Agrees(detail) => {
                     state.record(&run, OutcomeClass::Hit);
                     let witness = finish_witness(
@@ -129,6 +129,19 @@ pub(crate) fn run_loop(
                     state.totals.unconfirmed += 1;
                     state.defect(Some(case), description);
                     class = OutcomeClass::Unsupported;
+                }
+                Confirmed::Aborted(reason) => {
+                    // The fresh backend failed as every run would: the campaign aborts, and the
+                    // candidate stays unconfirmed (ARCHITECTURE 5.3).
+                    state.totals.unconfirmed += 1;
+                    state.warnings.push(format!(
+                        "case {case} reached the target with the values {}; its confirmation \
+                         aborted, so it is not a witness",
+                        render(&proposal.values)
+                    ));
+                    state.record(&run, OutcomeClass::Unsupported);
+                    state.abort = Some(reason);
+                    break Ending::Aborted;
                 }
             }
         }
@@ -209,12 +222,18 @@ enum Confirmed {
     Cancelled,
     /// It failed or disagreed: an engine defect, described.
     Disagrees(String),
+    /// It aborted as every run would (a failed solver prelude on the fresh backend); why.
+    Aborted(String),
 }
 
 /// Confirm a candidate (ARCHITECTURE 7), charging its work.
+///
+/// The confirmation's own engine defects (its rule-graph self-check) and warnings are recorded
+/// under `case`, whatever the verdict.
 fn confirm(
     runner: &mut dyn CaseRunner,
     state: &mut State,
+    case: u64,
     values: &[Value],
     candidate: &CaseRun,
     cancel: Option<&CancellationToken>,
@@ -224,18 +243,27 @@ fn confirm(
         .as_ref()
         .map(|detail| (detail.reaching_state.clone(), detail.kill));
     match runner.confirm(values, cancel) {
-        Err(message) => {
+        Err(failure) => {
             state.charge(0);
-            if is_cancelled(cancel) {
-                Confirmed::Cancelled
-            } else {
-                Confirmed::Disagrees(format!(
+            match failure {
+                _ if is_cancelled(cancel) => Confirmed::Cancelled,
+                ConfirmFailure::Abort(abort) => Confirmed::Aborted(abort.reason),
+                ConfirmFailure::Failed(message) => Confirmed::Disagrees(format!(
                     "the case reached the target, but its confirmation failed: {message}"
-                ))
+                )),
             }
         }
         Ok(confirmation) => {
             state.charge(confirmation.work);
+            for defect in &confirmation.defects {
+                state.defect(
+                    Some(case),
+                    format!("confirmation of {}: {defect}", render(values)),
+                );
+            }
+            for warning in &confirmation.warnings {
+                state.warn(warning.clone());
+            }
             if is_cancelled(cancel) && confirmation.class != OutcomeClass::Hit {
                 return Confirmed::Cancelled;
             }
@@ -317,6 +345,15 @@ fn finish_witness(
                 }
             };
             state.charge(screened.work);
+            for defect in &screened.defects {
+                state.defect(
+                    Some(case),
+                    format!("shrink candidate {}: {defect}", render(candidate)),
+                );
+            }
+            for warning in &screened.warnings {
+                state.warn(warning.clone());
+            }
             // A shrink keeps the witness's kind of kill: a removed end never shrinks into an
             // added one, which is another behaviour (FZ-08 review S1).
             if screened.class != OutcomeClass::Hit
@@ -324,12 +361,16 @@ fn finish_witness(
             {
                 return Verdict::Miss;
             }
-            match confirm(runner, state, candidate, &screened, cancel) {
+            match confirm(runner, state, case, candidate, &screened, cancel) {
                 Confirmed::Agrees(detail) => {
                     last = Some(*detail);
                     Verdict::Hit
                 }
                 Confirmed::Cancelled => Verdict::Stop,
+                Confirmed::Aborted(reason) => {
+                    state.warnings.push(format!("shrinking stopped: {reason}"));
+                    Verdict::Stop
+                }
                 Confirmed::Disagrees(description) => {
                     state.defect(
                         Some(case),

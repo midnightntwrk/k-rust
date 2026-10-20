@@ -13,7 +13,7 @@ use super::{
         CoverageFeedback, Feedback as _, Observation, Origin, Proposal, ProposalContext, Proposer,
         ValueShrinker,
     },
-    runner::{CaseRun, CaseRunner, Cut, HitDetail},
+    runner::{CaseRun, CaseRunner, ConfirmFailure, Cut, HitDetail},
     schedule::{Schedule, derive_seed},
     shrink::{Verdict, shrink},
 };
@@ -108,6 +108,8 @@ struct Scripted {
     confirm: ConfirmScript,
     admissible: AdmissibleScript,
     abort_at: Option<usize>,
+    /// Every confirmation aborts as a failed solver prelude does.
+    confirm_aborts: bool,
     cases: Vec<Vec<Value>>,
     confirmed: Vec<Vec<Value>>,
 }
@@ -122,6 +124,7 @@ impl Scripted {
             confirm: Box::new(confirm),
             admissible: Box::new(|_, _| true),
             abort_at: None,
+            confirm_aborts: false,
             cases: Vec::new(),
             confirmed: Vec::new(),
         }
@@ -147,9 +150,14 @@ impl CaseRunner for Scripted {
         &mut self,
         values: &[Value],
         _cancel: Option<&CancellationToken>,
-    ) -> Result<CaseRun, String> {
+    ) -> Result<CaseRun, ConfirmFailure> {
         self.confirmed.push(values.to_vec());
-        (self.confirm)(values)
+        if self.confirm_aborts {
+            return Err(ConfirmFailure::Abort(Abort {
+                reason: "the fresh backend's solver prelude failed".into(),
+            }));
+        }
+        (self.confirm)(values).map_err(ConfirmFailure::Failed)
     }
 
     fn admissible(&self, hole: usize, value: &Value) -> bool {
@@ -826,6 +834,88 @@ fn shrink_candidates_are_kept_only_when_their_confirmation_agrees() {
         report.outcome,
         CampaignOutcome::WitnessFound { .. }
     ));
+}
+
+#[test]
+fn self_check_defects_of_shrink_screening_and_confirmation_runs_are_recorded() {
+    // Phase-1 review N3: a shrink candidate's screening run and every confirmation carry the
+    // rule graph's self-check defects like a case.
+    let mut runner = Scripted::new(
+        |values| CaseRun {
+            defects: vec!["screened defect".to_owned()],
+            ..hit(values, 1, "end")
+        },
+        |values| {
+            Ok(CaseRun {
+                defects: vec!["confirmed defect".to_owned()],
+                ..hit(values, 1, "end")
+            })
+        },
+    );
+    let mut schedule = Schedule::new(
+        1,
+        Vec::new(),
+        vec![(1, Counter::boxed(ProposerKind::Blind, 100, 0))],
+    );
+    let report = run_loop(
+        &mut runner,
+        &mut schedule,
+        &settings(1),
+        Budget::Cases(1),
+        None,
+    );
+    assert!(report.witness().is_some(), "{:?}", report.outcome);
+    let described = |prefix: &str, suffix: &str| {
+        report.engine_defects.iter().any(|defect| {
+            defect.case == Some(0)
+                && defect.description.starts_with(prefix)
+                && defect.description.ends_with(suffix)
+        })
+    };
+    assert!(
+        described("confirmation of [", "confirmed defect"),
+        "{:?}",
+        report.engine_defects
+    );
+    assert!(
+        described("shrink candidate [", "screened defect"),
+        "{:?}",
+        report.engine_defects
+    );
+    // The case's own defect, recorded without a prefix.
+    assert!(
+        described("screened", "screened defect"),
+        "{:?}",
+        report.engine_defects
+    );
+}
+
+#[test]
+fn a_confirmation_that_aborts_aborts_the_campaign() {
+    // Phase-1 review N6: a fresh backend whose solver prelude fails would fail every run, so
+    // the campaign aborts rather than booking one engine defect per candidate.
+    let mut runner = Scripted::new(|values| hit(values, 1, "end"), |_| unreachable!());
+    runner.confirm_aborts = true;
+    let report = run_loop(
+        &mut runner,
+        &mut counter_schedule(1, 1),
+        &settings(1),
+        Budget::Cases(10),
+        None,
+    );
+    let CampaignOutcome::Aborted { reason, .. } = &report.outcome else {
+        panic!("{:?}", report.outcome);
+    };
+    assert!(reason.contains("solver prelude"), "{reason}");
+    assert_eq!(report.totals.cases, 1);
+    assert_eq!(report.totals.unconfirmed, 1);
+    assert_eq!(classes(&report), [(OutcomeClass::Unsupported, 1)]);
+    assert!(
+        report.engine_defects.is_empty(),
+        "{:?}",
+        report.engine_defects
+    );
+    assert_eq!(runner.confirmed.len(), 1);
 }
 
 #[test]

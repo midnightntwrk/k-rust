@@ -103,6 +103,17 @@ pub(crate) struct HitDetail {
     pub(crate) krun_command: Option<String>,
 }
 
+/// Why a confirmation gave no run.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum ConfirmFailure {
+    /// A failure every execution would repeat, such as a failed solver prelude on the fresh
+    /// backend: the campaign aborts (ARCHITECTURE 5.3).
+    Abort(Abort),
+    /// The fresh backend, assembly or target did not build: the candidate is not confirmed, an
+    /// engine defect.
+    Failed(String),
+}
+
 /// Case execution as the loop sees it.
 pub(crate) trait CaseRunner {
     /// Run one case (values in hole order) on the campaign's own backend(s), within `cancel`'s
@@ -127,12 +138,14 @@ pub(crate) trait CaseRunner {
     ///
     /// # Errors
     ///
-    /// A message when the fresh backend or assembly cannot be built or the run aborts.
+    /// [`ConfirmFailure::Abort`] when the run aborts as every run would (a failed solver
+    /// prelude), and [`ConfirmFailure::Failed`] when the fresh backend or assembly cannot be
+    /// built.
     fn confirm(
         &mut self,
         values: &[Value],
         cancel: Option<&CancellationToken>,
-    ) -> Result<CaseRun, String>;
+    ) -> Result<CaseRun, ConfirmFailure>;
 
     /// Whether `value` satisfies hole `hole`'s sort and constraints; shrink moves that leave
     /// them are never run.
