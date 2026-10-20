@@ -887,6 +887,8 @@ Macro expansion runs before sort injection, so where a macro rule's head is para
 The instance is the label's own, as injection instantiates it.
 A macro rule applies only to an application whose instance agrees with its head's on every parameter both fix; a parameter the typing leaves open agrees with every value.
 Where the sentence or ground value does not type yet, the instance is unknown and only a head that fixes no parameter applies; one still unknown at the fixpoint is left for injection to reject.
+A head whose own macro rule does not type, or whose typing records no instance at the head, has an unknown instance, which is not an open one: whether the rule is an equation about an application's instance is then undecided, so the rule is passed over where it would not apply anyway (its left side does not match, or it is not recursive and has already applied on that path) and is otherwise rejected with a diagnostic naming the rule, the application and why the head's instance is not known.
+A macro module whose typing view cannot be built (a subsort cycle) is rejected when it has a rule with a parametric head.
 Every application to which no rule applied from a rule set with a parametric head fixing a parameter is retried after later rewrites until nothing changes, since a rewrite elsewhere can change even a known instance.
 Every other comparison of a rule's label with a production or term label (the macro table, `anywhere`, and rule-by-label lookups) is by the label's name.
 

@@ -105,20 +105,43 @@ struct MacroRule {
 }
 
 impl MacroRule {
-    /// The instance of a parametric head, one entry per sort parameter of its production, as
-    /// the typing of the macro rule gives it; `None` in an entry the rule leaves open, and `None`
-    /// altogether for a head whose production has no sort parameter.
+    /// What the typing of the macro rule says of the instance of its parametric head
+    /// ([`HeadTyping`]); `None` for a head whose production has no sort parameter.
     ///
     /// The instance must have been typed ([`Expander::type_heads`]): the expander types the
     /// rules of a head before it tries them on a subject.
-    fn typed_head_instance(&self) -> Option<&[Option<Sort>]> {
+    fn head_typing(&self) -> Option<&HeadTyping> {
         self.head_instance.as_ref().map(|head| {
             head.instance
                 .get()
                 .expect("a head is typed before its rules are tried")
-                .as_slice()
         })
     }
+
+    /// Whether the rule's head is known to fix a sort parameter: only such a rule can start or
+    /// stop applying to an application when a later rewrite changes the application's instance.
+    fn fixes_a_parameter(&self) -> bool {
+        matches!(
+            self.head_typing(),
+            Some(HeadTyping::Instance(head)) if head.iter().any(Option::is_some)
+        )
+    }
+}
+
+/// What the typing of a macro rule says of the instance of its parametric head.
+///
+/// A macro rule over a parametric symbol is an equation about the instances its typing allows,
+/// so it may rewrite an application only where that application's instance is shown to be one
+/// of them. A typing that fails, or that records no instance at the head, shows nothing: that
+/// state is kept apart from an instance the typing leaves open, which is an equation about
+/// every value of the parameter.
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum HeadTyping {
+    /// One entry per sort parameter of the head's production, `None` where the rule's typing
+    /// leaves the parameter open.
+    Instance(Vec<Option<Sort>>),
+    /// The instance is not known; why, for a diagnostic.
+    Unknown(String),
 }
 
 /// The instance of a macro rule's parametric head, typed on first use.
@@ -136,7 +159,7 @@ struct HeadInstance {
     parameters: usize,
     /// The depth of the rule, from which the typing's stack zone is measured.
     depth: usize,
-    instance: OnceCell<Vec<Option<Sort>>>,
+    instance: OnceCell<HeadTyping>,
 }
 
 /// Expand the macro and alias rules of each module in the rules, claims and contexts the
@@ -723,23 +746,29 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         let mut typer = None;
         let mut macro_typer = None;
         if parametric {
-            // A typing view that cannot be built leaves every instance open.
-            macro_typer = SentenceTyper::for_macro_expansion(
-                definition,
-                &definition.module(macro_module).name,
-            )
-            .ok();
-            if macro_typer.is_some() {
-                for (rule, depth) in all.iter_mut().zip(&depths) {
-                    rule.head_instance =
-                        parametric_head(productions, rule).map(|(path, parameters)| HeadInstance {
-                            path,
-                            parameters,
-                            depth: *depth,
-                            instance: OnceCell::new(),
-                        });
-                }
+            // Without a typing view of the macro module no head's instance can be known, and a
+            // rule whose instance is not known is not shown to apply to any application of its
+            // head. The view fails only on a subsort cycle, an error of the definition.
+            let module = &definition.module(macro_module).name;
+            macro_typer = Some(
+                SentenceTyper::for_macro_expansion(definition, module).map_err(|error| {
+                    plain_error(format!(
+                        "Cannot type the parametric macro rules of module {module}: {error}"
+                    ))
+                })?,
+            );
+            for (rule, depth) in all.iter_mut().zip(&depths) {
+                rule.head_instance =
+                    parametric_head(productions, rule).map(|(path, parameters)| HeadInstance {
+                        path,
+                        parameters,
+                        depth: *depth,
+                        instance: OnceCell::new(),
+                    });
             }
+            // A subject the term module's view cannot type has an unknown instance
+            // ([`Expander::subject_instance`]), which agrees only with a head that fixes no
+            // parameter, so this view may be absent.
             typer = SentenceTyper::for_macro_expansion(
                 definition,
                 &definition.module(term_module).name,
@@ -1124,6 +1153,11 @@ impl<'view, 'definition> Expander<'view, 'definition> {
     /// The index in `rules` of the first rule that applies to `subject` (its head instance
     /// agreeing with `instance`, its left side matching, and it recursive or absent from
     /// `applied`).
+    ///
+    /// A rule whose head instance cannot be compared with `instance` ([`Agreement::Undecided`])
+    /// is passed over when it would not apply anyway, and is reported when it would: choosing
+    /// it or passing it over would then each assert something about its instance that nothing
+    /// shows.
     fn select_rule(
         &self,
         subject: &Term,
@@ -1143,14 +1177,20 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                     &rule.sentence,
                 ));
             }
-            if let Some(instance) = instance
-                && !instances_agree(rule.typed_head_instance(), instance)
-            {
+            let agreement = instance.map_or(Agreement::Agrees, |instance| {
+                instances_agree(rule.head_typing(), instance)
+            });
+            if agreement == Agreement::Disagrees {
                 continue;
             }
             let mut bindings = BTreeMap::new();
             let matched = self.matches(&mut bindings, &rule.left, subject)?;
             if matched && (rule.recursive || !applied.contains(&rule.id)) {
+                if let Some(instance) = instance
+                    && agreement == Agreement::Undecided
+                {
+                    return Err(undecided_instance(rule, subject, instance));
+                }
                 measure::bump(Counter::KompileMacroApplications);
                 return Ok(Some(index));
             }
@@ -1416,12 +1456,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         let subject = site.term(path);
         let Some(index) = self.select_rule(subject, &rules, applied, instance.as_ref())? else {
             let shape = self.shape(subject, children, true);
-            if instance.is_some()
-                && rules.iter().any(|rule| {
-                    rule.typed_head_instance()
-                        .is_some_and(|head| head.iter().any(Option::is_some))
-                })
-            {
+            if instance.is_some() && rules.iter().any(MacroRule::fixes_a_parameter) {
                 measure::bump(Counter::KompileMacroSubjectWalks);
                 let subject = subject.clone();
                 site.tried
@@ -2426,24 +2461,86 @@ enum Instance {
     Unknown,
 }
 
+/// Whether a macro rule's head instance shows the rule to be an equation about an
+/// application's instance ([`instances_agree`]).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Agreement {
+    /// The rule is an equation about the application's instance.
+    Agrees,
+    /// The rule is not shown to be one: the instances differ on a parameter both fix, or the
+    /// application's instance is not known yet and the head fixes a parameter (a retry after a
+    /// later rewrite may learn it).
+    Disagrees,
+    /// The head's instance is not known, or has another number of parameters than the
+    /// application's, so nothing decides whether the rule is about the application's instance.
+    Undecided,
+}
+
 /// A macro rule is an axiom about one instance of its head's symbol, so it applies to an
 /// application only where their instances agree on every parameter both fix; an open
-/// parameter agrees with every value. An unknown instance agrees only with a head that fixes
-/// no parameter.
-fn instances_agree(head: Option<&[Option<Sort>]>, subject: &Instance) -> bool {
-    let Some(head) = head else {
-        return true;
+/// parameter agrees with every value. An unknown application instance agrees only with a head
+/// that fixes no parameter. A head whose instance is not known agrees with no instance and
+/// disagrees with none: whether its rule applies is [`Agreement::Undecided`], never read as
+/// the open head that agrees with all of them. Two instances of one label always have one
+/// length, so differing lengths are an inconsistency of the typings, undecided as well.
+fn instances_agree(head: Option<&HeadTyping>, subject: &Instance) -> Agreement {
+    let head = match head {
+        None => return Agreement::Agrees,
+        Some(HeadTyping::Unknown(_)) => return Agreement::Undecided,
+        Some(HeadTyping::Instance(head)) => head,
     };
-    match subject {
-        Instance::Known(subject) => {
-            head.len() != subject.len()
-                || head.iter().zip(subject).all(|pair| match pair {
-                    (Some(head), Some(subject)) => head == subject,
-                    _ => true,
-                })
+    let agrees = match subject {
+        Instance::Known(subject) if subject.len() != head.len() => {
+            return Agreement::Undecided;
         }
+        Instance::Known(subject) => head.iter().zip(subject).all(|pair| match pair {
+            (Some(head), Some(subject)) => head == subject,
+            _ => true,
+        }),
         Instance::Unknown => head.iter().all(Option::is_none),
+    };
+    if agrees {
+        Agreement::Agrees
+    } else {
+        Agreement::Disagrees
     }
+}
+
+/// The error for a macro rule whose left side matches `subject`, at `instance`, but whose head
+/// instance cannot be compared with `instance` ([`Agreement::Undecided`]).
+fn undecided_instance(rule: &MacroRule, subject: &Term, instance: &Instance) -> Diagnostic {
+    let reason = match rule.head_typing() {
+        Some(HeadTyping::Unknown(reason)) => reason.clone(),
+        Some(HeadTyping::Instance(head)) => format!(
+            "its head's instance {} has another number of sort parameters than the application's",
+            shown_instance(head)
+        ),
+        None => "its head has no sort parameter".to_owned(),
+    };
+    let instance = match instance {
+        Instance::Known(instance) => format!("at instance {}", shown_instance(instance)),
+        Instance::Unknown => "at an instance not known yet".to_owned(),
+    };
+    Diagnostic::error(
+        DiagnosticCode::InvalidMacroExpansion,
+        format!(
+            "Cannot decide whether this macro rule applies to {} {instance}: its left side matches, but the instance of its parametric head is not known ({reason}), so the rule is not shown to be an equation about that instance.",
+            shown(subject)
+        ),
+        &rule.sentence,
+    )
+}
+
+/// A label instance as K text, `_` for a parameter left open: `{Int, _}`.
+fn shown_instance(instance: &[Option<Sort>]) -> String {
+    let parameters = instance
+        .iter()
+        .map(|sort| {
+            sort.as_ref()
+                .map_or_else(|| "_".to_owned(), Sort::to_string)
+        })
+        .collect::<Vec<_>>();
+    format!("{{{}}}", parameters.join(", "))
 }
 
 /// Whether `rule`'s head is parametric, decided from the production alone: when it is, the
@@ -2476,17 +2573,27 @@ fn parametric_head(
 }
 
 /// The instance of `rule`'s parametric head `head`, from the typing of the macro rule itself.
-fn head_instance(
-    typer: &SentenceTyper<'_>,
-    rule: &MacroRule,
-    head: &HeadInstance,
-) -> Vec<Option<Sort>> {
-    // A head the typing view cannot type is fixed by nothing it can see.
-    typer
-        .typing(&rule.sentence)
-        .ok()
-        .and_then(|typing| typing.instances.get(head.path.as_slice()).cloned())
-        .unwrap_or_else(|| vec![None; head.parameters])
+///
+/// A typing that fails, or that records no instance of the head's production at the head
+/// (a successful typing records one at every application of a parametric production, unless
+/// the two sides of a nested rewrite type it differently), leaves the instance unknown: it is
+/// not evidence that the rule leaves any parameter open.
+fn head_instance(typer: &SentenceTyper<'_>, rule: &MacroRule, head: &HeadInstance) -> HeadTyping {
+    let typing = match typer.typing(&rule.sentence) {
+        Ok(typing) => typing,
+        Err(error) => return HeadTyping::Unknown(format!("the rule does not type: {error}")),
+    };
+    match typing.instances.get(head.path.as_slice()) {
+        Some(instance) if instance.len() == head.parameters => {
+            HeadTyping::Instance(instance.clone())
+        }
+        Some(instance) => HeadTyping::Unknown(format!(
+            "the rule's typing gives its head the instance {}, where its production has {} sort parameters",
+            shown_instance(instance),
+            head.parameters
+        )),
+        None => HeadTyping::Unknown("the rule's typing records no instance at its head".to_owned()),
+    }
 }
 
 /// Whether `sentence` is a macro rule and, if it is, whether it is recursive (`macro-rec` or
@@ -3060,5 +3167,148 @@ mod identity_tests {
                 "{fields:?}"
             );
         }
+    }
+}
+
+/// Selection of a parametric macro rule when its head's instance is or is not known.
+#[cfg(test)]
+mod head_instance_tests {
+    use std::collections::BTreeSet;
+
+    use super::{
+        Agreement, Expander, HeadTyping, Instance, MacroExpansionDefinition, instances_agree,
+    };
+    use crate::{
+        definition::LabelHead,
+        diagnostic::DiagnosticCode,
+        kast::{Label, Sort, Term},
+        outer::{ResolvedSource, load},
+    };
+
+    fn sort(name: &str) -> Option<Sort> {
+        Some(Sort::new(name))
+    }
+
+    /// An open parameter agrees with every value, a fixed one only with itself; an unknown
+    /// application instance agrees only with a head that fixes nothing. A head whose instance
+    /// is not known is undecided against every application, known or not, and so are two
+    /// instances of different lengths: neither is read as an open head.
+    #[test]
+    fn an_unknown_head_instance_is_undecided_never_open() {
+        let int = HeadTyping::Instance(vec![sort("Int")]);
+        let open = HeadTyping::Instance(vec![None]);
+        let unknown = HeadTyping::Unknown("no typing".to_owned());
+        let at_int = Instance::Known(vec![sort("Int")]);
+        let at_bool = Instance::Known(vec![sort("Bool")]);
+        let at_open = Instance::Known(vec![None]);
+        let two = Instance::Known(vec![sort("Int"), sort("Int")]);
+        let cases = [
+            (None, &at_bool, Agreement::Agrees),
+            (None, &Instance::Unknown, Agreement::Agrees),
+            (Some(&int), &at_int, Agreement::Agrees),
+            (Some(&int), &at_bool, Agreement::Disagrees),
+            (Some(&int), &at_open, Agreement::Agrees),
+            (Some(&int), &Instance::Unknown, Agreement::Disagrees),
+            (Some(&open), &at_bool, Agreement::Agrees),
+            (Some(&open), &Instance::Unknown, Agreement::Agrees),
+            (Some(&unknown), &at_int, Agreement::Undecided),
+            (Some(&unknown), &at_bool, Agreement::Undecided),
+            (Some(&unknown), &at_open, Agreement::Undecided),
+            (Some(&unknown), &Instance::Unknown, Agreement::Undecided),
+            (Some(&int), &two, Agreement::Undecided),
+            (Some(&open), &two, Agreement::Undecided),
+        ];
+        for (index, (head, subject, expected)) in cases.into_iter().enumerate() {
+            assert_eq!(instances_agree(head, subject), expected, "case {index}");
+        }
+    }
+
+    /// `m():Int => 1` and `m():Bool => true` have one left side, so only their head instances
+    /// tell which applies to `m()` at `Bool`. When the first rule's head instance is not known,
+    /// selection neither takes it (its right side is an `Int`) nor passes over it to the
+    /// second: it reports that it cannot decide. Where the first rule would not apply anyway
+    /// (it is not recursive and has applied on this path), it is passed over.
+    #[test]
+    fn a_matching_rule_with_an_unknown_head_instance_is_reported_not_applied() {
+        let source = r#"
+module MAIN
+  syntax Int ::= r"[0-9]+" [token]
+  syntax Bool ::= "true" [token] | "false" [token]
+  syntax {S} S ::= "m" "(" ")" [macro, symbol(m)]
+  rule m():Int => 1
+  rule m():Bool => true
+endmodule
+"#;
+        let mut resolver = |_: &str, required: &str| Err(format!("unexpected require {required}"));
+        let definition = load(
+            ResolvedSource::new("definition.k", source),
+            "MAIN",
+            &mut resolver,
+        )
+        .expect("the source loads")
+        .into_definition();
+        let prepared = MacroExpansionDefinition::prepare(&definition).expect("prepared");
+        let views = prepared.resolved.views();
+        let module = views.definition().module_id("MAIN").expect("MAIN");
+        let head = LabelHead::from(&Label::new("m"));
+        let subject = Term::apply("m", Vec::new());
+        let at = |name: &str| Instance::Known(vec![sort(name)]);
+
+        // Both heads typed: each instance selects its own rule.
+        let expander = Expander::new(&views, module, module).expect("an expander");
+        let rules = expander.macros.get(&head).cloned().expect("rules of m");
+        assert_eq!(rules.len(), 2);
+        expander.type_heads(&rules);
+        assert_eq!(
+            rules[0].head_typing(),
+            Some(&HeadTyping::Instance(vec![sort("Int")]))
+        );
+        assert_eq!(
+            rules[1].head_typing(),
+            Some(&HeadTyping::Instance(vec![sort("Bool")]))
+        );
+        for (name, index) in [("Int", 0), ("Bool", 1)] {
+            assert_eq!(
+                expander
+                    .select_rule(&subject, &rules, &BTreeSet::new(), Some(&at(name)))
+                    .expect("no diagnostic"),
+                Some(index),
+                "{name}"
+            );
+        }
+
+        // The first rule's head instance not known.
+        let expander = Expander::new(&views, module, module).expect("an expander");
+        let rules = expander.macros.get(&head).cloned().expect("rules of m");
+        rules[0]
+            .head_instance
+            .as_ref()
+            .expect("a parametric head")
+            .instance
+            .set(HeadTyping::Unknown("forced by the test".to_owned()))
+            .expect("not typed yet");
+        expander.type_heads(&rules);
+        let diagnostic = expander
+            .select_rule(&subject, &rules, &BTreeSet::new(), Some(&at("Bool")))
+            .expect_err("an undecided matching rule is reported");
+        assert_eq!(diagnostic.code, DiagnosticCode::InvalidMacroExpansion);
+        assert!(
+            diagnostic.message.contains("forced by the test")
+                && diagnostic.message.contains("{Bool}"),
+            "{}",
+            diagnostic.message
+        );
+        assert!(
+            expander
+                .select_rule(&subject, &rules, &BTreeSet::new(), Some(&Instance::Unknown))
+                .is_err()
+        );
+        let applied = BTreeSet::from([rules[0].id]);
+        assert_eq!(
+            expander
+                .select_rule(&subject, &rules, &applied, Some(&at("Bool")))
+                .expect("a rule that would not apply is passed over"),
+            Some(1)
+        );
     }
 }
