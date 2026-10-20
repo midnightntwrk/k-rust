@@ -5,14 +5,14 @@
     "krs-builtin-bool-ops": "57f55087ec0741edf63b488a53fd13a6e079b0ed3b1f019097d2a1a2f5c919bc",
     "krs-builtin-bytes-ops": "563494860541932f270323b17c09cb13455d77809821e0f7c8ef450cd3a15a7d",
     "krs-builtin-set-ops": "4982a447eb3ec15b98fb6deb6a6b2cb9639877baba1cc762916b5da5832827eb",
-    "krs-builtin-map-ops": "b60d9bfe74a78cfd0d374c0fc01a084929f4b60ea2a3008fa0bf3bbec02ec8a1",
+    "krs-builtin-map-ops": "9a12bb2646986b1a69951797e464a9edac9568103c28204f59ba45f2b30b4a68",
     "krs-builtin-int-sign": "e1a2cfafcd110b748449853e8fd98af2b2e0de92a30976572d17dbabc01f10b6",
     "krs-builtin-int-sign-unsigned": "a1b724f11e7a58c236d6651b21645d08f23b31e991dc814fe60c44350bed7448",
     "krs-builtin-strings": "acd3d4df499c5de0289e99945fa5e7ee4809c84c497c51eb9c9de76e14809b35",
     "krs-builtin-k-equal": "b60322a703e2d37c1758791f4993e3e94a1c84eb3d85e7511558a441d4a6800f",
     "krs-builtin-floats": "247813e120a0f4d665c42058912a85f9845c16408ebdc443880a86b659b4adbf",
     "krs-builtin-float-java-only": "b34aeb0d65e6aac48bc1abbe4bd9b867dad43a9e6586b5b6cdbfe1e4663fed7a",
-    "krs-builtin-io": "0240434b269985643cd8d980003bd6403d88a7073ba38d1cbad9c1913f50daaf",
+    "krs-builtin-io": "3d4211cbd0ecd1fc80ee084d908ac6a11595155d24e05f1ee25cc68bdeabccc2",
     "krs-builtin-raw-k": "77df98c8479bf964d8b3ca2ce807e7af4108a7247146f4aed386c7886b642d1b",
     "krs-builtin-raw-hook": "6aae83077dbd4ae0146cf99dd9a2e2e4edbf8dcca8d26f726c81b6bc6a7244ca",
     "krs-builtin-sort-tests": "263c20c184972e54dd614f78fb536c86b7920d1e469f77a813f724a6ef58584a",
@@ -33,7 +33,7 @@
       "definition.k": "1b68da78eb93fb66827a288b42e608ff3dceadfd28d02a5ea06e7be4d2a762d1"
     },
     "krs-builtin-map-ops": {
-      "definition.k": "0fbeaf57c811f2b930b953a11116e418d3de872c07139bbe882515e5278b0a17"
+      "definition.k": "12df4e9144cf379480483c93814d98f0dec17a69c64082140fa590f6dd738908"
     },
     "krs-builtin-int-sign": {
       "definition.k": "e0a448da699ceea224bf3085be8d5ccb2694ba4a0fff66f9e9b97247009962f0"
@@ -54,7 +54,7 @@
       "definition.k": "0e30d56cd5343e9455d388e8214940ad127bfdcbf9ea8af0e6d5cd314c0ee694"
     },
     "krs-builtin-io": {
-      "definition.k": "1b13c02023a891dabab55637c6dfaf74e43aaf61aef6748be13dd4200571d367"
+      "definition.k": "672fd8eadf06dd5a3ee84a99481807dd321348537841490c73e8ac320b74ad9d"
     },
     "krs-builtin-raw-k": {
       "definition.k": "f282e69740f0143fc06381f1f475e4fa2473a0b36bbd395f11054fdc4b69fbde"
@@ -77,14 +77,14 @@
     "krs-builtin-bool-ops": "cc859734215c55f5b93bb49e459e6ac25daa22ea67dc3e90dfe55b28528ac976",
     "krs-builtin-bytes-ops": "3305bf128f6d52349f475b2607265e49918542ba97e440c55359e12c8bb3e164",
     "krs-builtin-set-ops": "547e8bfbb49db07d6bde2380c1f63239e906bf72f213e38fd55f90edc1899e2b",
-    "krs-builtin-map-ops": "ca7ca06593d1c493e998bda7764c454fd95d68e78f92d937086dbd35767178ae",
+    "krs-builtin-map-ops": "0981573adc15a6dba7f177ecf7eaa9c2366dc3f80794e572921cccb823631206",
     "krs-builtin-int-sign": "bc698f50ed325be1fd86baddf573d2352df71d7a8ea11c54468b32cac0810453",
     "krs-builtin-int-sign-unsigned": "243df2ced4c3da8960392438b8619be7832a59800e04135360237226a6a95162",
     "krs-builtin-strings": "b792cc9d0a0f4f56467f329167aecce08a1235a7d2c48febb68bd934a960f4dd",
     "krs-builtin-k-equal": "8c3e96010bbe14f66c6595cf868c90ab038a8688cb2d0c6c40c7c0b8ffe9b480",
     "krs-builtin-floats": "f17d72f219227cd7c47ccff662f7dc672aa8c7e80b65826e5b1be81d7b23cb40",
     "krs-builtin-float-java-only": "12ac6d5d467497efe3212b5ec59477270c039747a3bb00d30cd2b70b49f570d5",
-    "krs-builtin-io": "b2d5abdfa4b07398f3bf88c25cb6f23f21d7281a1ae9a78b193cf4a95fffda1c",
+    "krs-builtin-io": "4560885b45335d7902f61ac19a484c3106c53d670edb692751e2b91c51871857",
     "krs-builtin-raw-k": "2cb88332eb3d1ab846c43bbd0b4ac1dcd601beac727d130fc2f60ff33c6ef37a",
     "krs-builtin-raw-hook-haskell": "e3504c9d4446c6ad01c76aefa91a26ca75af355ebde8bc5db855098a1dd49839",
     "krs-builtin-sort-tests": "c7571e17d21ad3aa80c1fbabe9e1a2aa23468c26dc0b8614cf5474545ea01109",

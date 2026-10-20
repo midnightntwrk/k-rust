@@ -92,7 +92,6 @@ k::rules! {
     } => {
         k: [..],
         output: list::concat(out, list::item(s)),
-        sum: s,
     };
 
     /// Halting sets the exit status.
@@ -102,7 +101,6 @@ k::rules! {
         status: previous,
     } => {
         k: [..],
-        sum: s,
         status: s,
     };
 }
