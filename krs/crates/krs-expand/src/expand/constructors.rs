@@ -85,7 +85,7 @@ pub(crate) fn constructor(
     item: TokenStream,
 ) -> crate::Result<TokenStream> {
     let attribute = krs_syntax::ConstructorAttribute::parse_tokens(attributes)?;
-    constructor_like(env, attribute, item, None, [None, None], None, None)
+    constructor_like(env, attribute, item, None, [None, None], None, [None, None])
 }
 
 pub(crate) fn function(
@@ -180,6 +180,22 @@ fn function_production(
         })
         .transpose()?;
     let smt = expanded_smt(function, &item)?;
+    let underspecified = function
+        .underspecified()
+        .map(|reason| -> crate::Result<ExpandedSmt> {
+            Ok(ExpandedSmt {
+                anchors: vec![ProvenanceAnchor::new(
+                    ProvenanceRole::FunctionUnderspecified,
+                    0,
+                    TokenRange::for_tokens(reason)?,
+                )],
+                attribute: WireProductionAttribute::Underspecified {
+                    key: wire_key(ProvenanceRole::FunctionUnderspecified, 0),
+                    reason: reason.value(),
+                },
+            })
+        })
+        .transpose()?;
     constructor_like(
         env,
         function.production().clone(),
@@ -187,12 +203,13 @@ fn function_production(
         Some((totality_anchor, function.is_total())),
         [memo, fresh_generator],
         hook,
-        smt,
+        [smt, underspecified],
     )
 }
 
-/// The `smtlib` or `smt_hook` of a function production, with its provenance
-/// anchors and its wire attribute (KF-044).
+/// A function key that becomes one wire attribute, with its provenance
+/// anchors: the `smtlib` or `smt_hook` of a function production (KF-044), or
+/// its `underspecified` reason.
 pub(super) struct ExpandedSmt {
     anchors: Vec<ProvenanceAnchor>,
     attribute: WireProductionAttribute,
@@ -386,7 +403,7 @@ fn constructor_like(
     totality: Option<(ProvenanceAnchor, bool)>,
     [memo, fresh_generator]: [Option<ProvenanceAnchor>; 2],
     hook: Option<(ProvenanceAnchor, ExpandedHook)>,
-    smt: Option<ExpandedSmt>,
+    [smt, underspecified]: [Option<ExpandedSmt>; 2],
 ) -> crate::Result<TokenStream> {
     let functional = totality.is_some();
     let total = totality.as_ref().is_some_and(|(_, total)| *total);
@@ -476,8 +493,8 @@ fn constructor_like(
     if let Some((anchor, _)) = &hook {
         grammar_anchors.push(anchor.clone());
     }
-    if let Some(smt) = &smt {
-        grammar_anchors.extend(smt.anchors.iter().cloned());
+    for extra in [&smt, &underspecified].into_iter().flatten() {
+        grammar_anchors.extend(extra.anchors.iter().cloned());
     }
     if let Some(strictness) = &strictness {
         grammar_anchors.extend(strictness.provenance()?);
@@ -625,7 +642,10 @@ fn constructor_like(
         total,
         [memo.is_some(), fresh_generator.is_some()],
         hook.as_ref().map(|(_, operation)| operation),
-        smt.map(|smt| smt.attribute),
+        [
+            smt.map(|smt| smt.attribute),
+            underspecified.map(|underspecified| underspecified.attribute),
+        ],
         static_marker.as_ref().map(|(marker, _)| *marker),
     )?;
 
@@ -1121,7 +1141,7 @@ fn constructor_grammar(
     total: bool,
     [memo, fresh_generator]: [bool; 2],
     hook: Option<&ExpandedHook>,
-    smt: Option<WireProductionAttribute>,
+    [smt, underspecified]: [Option<WireProductionAttribute>; 2],
     static_marker: Option<krs_syntax::StaticProductionAttribute>,
 ) -> crate::Result<TokenStream> {
     let function_total_role = ProvenanceRole::FunctionTotal;
@@ -1255,6 +1275,10 @@ fn constructor_grammar(
                 + usize::from(hook.is_some()),
             smt,
         );
+    }
+    // `underspecified` is KRS-only; lowering drops it before K.
+    if let Some(underspecified) = underspecified {
+        attributes.push(underspecified);
     }
     if let Some(marker) = &static_marker {
         attributes.insert(0, super::productions::static_mode_wire(marker));

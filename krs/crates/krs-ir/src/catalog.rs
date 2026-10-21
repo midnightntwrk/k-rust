@@ -2312,6 +2312,131 @@ impl BuiltinOperation {
     }
 }
 
+impl BuiltinOperation {
+    /// Whether the operation has a value on every argument of its sorts.
+    ///
+    /// `false` also when totality is not established here, so a reader that
+    /// needs a defined term (the coverage lint's guard reading) stays sound.
+    /// Excluded for a reason: division and remainder by zero, a negative
+    /// shift or exponent, `log2Int` of a non-positive Int, bit ranges and
+    /// byte operations with an out-of-range index or length, the conversions
+    /// partial on their input (`String2Int`, `String2Bool`, `String2Bytes`),
+    /// `findString` with a negative start, `chrChar`/`ordChar`, `_dividesInt_`
+    /// of zero, the polymorphic `#if`, every Float operation, and I/O.
+    #[must_use]
+    pub const fn is_total(self) -> bool {
+        matches!(
+            self,
+            Self::IntAdd
+                | Self::IntSub
+                | Self::IntMul
+                | Self::IntBitAnd
+                | Self::IntBitXor
+                | Self::IntBitOr
+                | Self::IntBitNot
+                | Self::IntMin
+                | Self::IntMax
+                | Self::IntAbs
+                | Self::IntLess
+                | Self::IntLessEqual
+                | Self::IntGreater
+                | Self::IntGreaterEqual
+                | Self::IntEqual
+                | Self::IntNotEqual
+                | Self::BoolNot
+                | Self::BoolEqual
+                | Self::BoolNotEqual
+                | Self::BoolAnd
+                | Self::BoolOr
+                | Self::BoolXor
+                | Self::BoolImplies
+                | Self::BoolAndThen
+                | Self::BoolOrElse
+                | Self::BytesLength
+                | Self::BytesEmpty
+                | Self::BytesConcat
+                | Self::BytesReverse
+                | Self::BytesToInt
+                | Self::BytesLittleEndian
+                | Self::BytesBigEndian
+                | Self::BytesSigned
+                | Self::BytesUnsigned
+                | Self::StringConcat
+                | Self::StringEqual
+                | Self::StringNotEqual
+                | Self::StringLess
+                | Self::StringLessEqual
+                | Self::StringGreater
+                | Self::StringGreaterEqual
+                | Self::StringLength
+                | Self::StringFromInt
+                | Self::StringFromBool
+                | Self::KEqualEq
+                | Self::KEqualNe
+        )
+    }
+}
+
+impl MapOperation {
+    /// Whether the operation has a value on every operand of its sorts.
+    ///
+    /// Lookup is undefined for an absent key, and a term of several items,
+    /// or a concatenation, is undefined when two of its keys are equal.
+    #[must_use]
+    pub const fn is_total(self) -> bool {
+        matches!(
+            self,
+            Self::Empty
+                | Self::Update
+                | Self::InKeys
+                | Self::Remove
+                | Self::RemoveAll
+                | Self::Keys
+                | Self::KeysList
+                | Self::Values
+                | Self::Size
+                | Self::UpdateAll
+                | Self::GetOrDefault
+        )
+    }
+}
+
+impl ListOperation {
+    /// Whether the operation has a value on every operand of its sorts.
+    ///
+    /// Indexed lookup, update, range and region replacement are undefined
+    /// out of range, and `makeList` for a negative length.
+    #[must_use]
+    pub const fn is_total(self) -> bool {
+        matches!(
+            self,
+            Self::Empty | Self::Item | Self::Concat | Self::Size | Self::Contains
+        )
+    }
+}
+
+impl SetOperation {
+    /// Whether the operation has a value on every operand of its sorts.
+    ///
+    /// Concatenation is defined only on disjoint operands, and `Set2List`
+    /// fixes no element order, so neither is counted.
+    #[must_use]
+    pub const fn is_total(self) -> bool {
+        matches!(
+            self,
+            Self::Empty
+                | Self::Item
+                | Self::Union
+                | Self::Contains
+                | Self::Difference
+                | Self::Intersect
+                | Self::Size
+                | Self::IsSubset
+                | Self::FromList
+        )
+    }
+}
+
 // Every Bool-valued builtin, and only those, has a guard meaning; a canonical
 // relation is a positive, unswapped literal of itself with the same symmetry,
 // and a symmetric relation never needs its operands swapped.

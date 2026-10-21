@@ -362,6 +362,11 @@ pub enum SyntaxErrorKind {
         /// Complete explanation, naming the fix.
         reason: String,
     },
+    /// A function's `underspecified` key was malformed or misplaced.
+    InvalidUnderspecified {
+        /// Complete explanation, naming the fix.
+        reason: String,
+    },
     /// A `concrete`, `symbolic`, or `smt_lemma` key was malformed (KF-043).
     InvalidMatchRestriction {
         /// Complete explanation, naming the fix.
@@ -479,6 +484,7 @@ impl SyntaxErrorKind {
             Self::RawKShape { .. } => codes::syntax::RAW_K_SHAPE,
             Self::FreshBinderPosition { .. } => codes::analysis::FRESH_BINDER_POSITION,
             Self::InvalidSmtMetadata { .. } => codes::syntax::INVALID_SMT_METADATA,
+            Self::InvalidUnderspecified { .. } => codes::syntax::INVALID_UNDERSPECIFIED,
             Self::InvalidMatchRestriction { .. } => codes::syntax::INVALID_MATCH_RESTRICTION_KEY,
             Self::InvalidUnboundVariables { .. } => codes::syntax::INVALID_UNBOUND_VARIABLES,
             Self::InvalidSpecModule { .. } => codes::syntax::INVALID_SPEC_MODULE,
@@ -750,6 +756,7 @@ impl fmt::Display for SyntaxError {
             | SyntaxErrorKind::CatchAllEquationRow { reason }
             | SyntaxErrorKind::RawKShape { reason }
             | SyntaxErrorKind::InvalidSmtMetadata { reason }
+            | SyntaxErrorKind::InvalidUnderspecified { reason }
             | SyntaxErrorKind::InvalidMatchRestriction { reason }
             | SyntaxErrorKind::InvalidUnboundVariables { reason }
             | SyntaxErrorKind::InvalidSpecModule { reason }

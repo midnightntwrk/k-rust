@@ -15,6 +15,7 @@ krs-diagnostic = { path = "../krs-diagnostic" }
 krs-ir = { path = "../krs-ir", features = ["proc-macro2"] }
 krs-ir-levels = { path = "../krs-ir-levels" }
 krs-syntax = { path = "../krs-syntax" }
+num-bigint.workspace = true
 proc-macro2 = { workspace = true, features = ["span-locations"] }
 prettyplease = { workspace = true }
 quote = { workspace = true }

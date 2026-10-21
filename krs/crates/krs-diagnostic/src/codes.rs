@@ -228,6 +228,8 @@ register_codes! {
         NO_CELL_DEFAULT: "krs::analysis::no-cell-default" => "A created instance's `..` defaults a child whose template reads a configuration variable, so K has no default for it.",
         IMPLICIT_AND_EXPLICIT_INSTANCES: "krs::analysis::implicit-and-explicit-instances" => "A rule names a cell collection's instances and also a cell inside it as the collection's implicit single instance.",
         COLLECTION_ENTRY: "krs::analysis::collection-entry" => "A collection entry is braced for a List collection or bracketed for a Set or Map collection, names a cell that is not a collection or a child its instance does not declare, or has a shape K cannot express.",
+        UNCOVERED_TOTAL_FUNCTION: "krs::analysis::uncovered-total-function" => "A `total` function has arguments that no equation defines, so the function's value there is unconstrained.",
+        STALE_UNDERSPECIFIED: "krs::analysis::stale-underspecified" => "A function states `underspecified`, but its equations define every argument.",
         COLLECTION_CONFIG_VAR_WITHOUT_INITIAL: "krs::analysis::collection-config-var-without-initial" => "An optional or collection cell's template reads a configuration variable without `initial`, so K starts with the cell present.",
         COLLECTION_SIBLINGS: "krs::analysis::collection-siblings" => "A `multiplicity = \"*\"` collection cell shares its parent with other cells; K requires it to be the parent's only child.",
     }
@@ -311,6 +313,7 @@ register_codes! {
         RAW_K_SHAPE: "krs::syntax::raw-k-shape" => "A `raw_k!` text is not exactly one rule, claim, or context sentence.",
         INVALID_MATCH_RESTRICTION_KEY: "krs::syntax::invalid-match-restriction" => "A `concrete`, `symbolic`, or `smt_lemma` key was malformed: repeated, `concrete` or `symbolic` both bare and with a list, an empty list, or a key on `#[k::rule]`.",
         INVALID_SMT_METADATA: "krs::syntax::invalid-smt-metadata" => "A function's `smtlib` or `smt_hook` was malformed: both keys, an `smtlib` value that is not an SMT-LIB simple symbol, or an `smt_hook` template with a placeholder naming no field, unbalanced parentheses, a positional `#N`, or a `\"`.",
+        INVALID_UNDERSPECIFIED: "krs::syntax::invalid-underspecified" => "A function's `underspecified` key was malformed or misplaced: not a nonempty string literal, repeated, or on a `partial` function.",
         INVALID_UNBOUND_VARIABLES: "krs::syntax::invalid-unbound-variables" => "An `unbound_variables = [..]` key was malformed or misplaced: outside a desugar clause's `#[k::desugar(..)]`, an empty or repeated list, a name the clause's pattern binds or its result does not use, or `_` with no `_` in the result.",
         INVALID_SPEC_MODULE: "krs::syntax::invalid-spec-module" => "A `#[k::spec_module]` was malformed: it is not on an inline `mod`, repeats or misspells a key, or names an invalid K module or one ending in the reserved `-SYNTAX` suffix.",
         INVALID_SORT_PARAMETER: "krs::syntax::invalid-sort-parameter" => "A production struct's generic parameter is not a K sort parameter `S: ?Sized` used by a field: a lifetime, const, default, other bound, or where clause.",

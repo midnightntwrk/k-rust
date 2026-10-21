@@ -353,6 +353,9 @@ pub struct FunctionAttribute {
     fresh_generator: Option<Ident>,
     hook: Option<FunctionHook>,
     smt: Option<FunctionSmt>,
+    /// `underspecified = "reason"`: the equations leave some arguments of
+    /// this total function without a value on purpose.
+    underspecified: Option<LitStr>,
 }
 
 /// A function's SMT-LIB translation (KF-044): `smtlib` and `smt_hook` are
@@ -515,6 +518,12 @@ impl FunctionAttribute {
         }
     }
 
+    /// The `underspecified = "reason"` statement of an intended coverage gap.
+    #[must_use]
+    pub const fn underspecified(&self) -> Option<&LitStr> {
+        self.underspecified.as_ref()
+    }
+
     /// The bare `fresh_generator` flag: K's `freshGenerator`, the function a
     /// fresh binder (`#[k::fresh(x: S)]`) of the result sort draws from.
     #[must_use]
@@ -568,6 +577,13 @@ impl FunctionAttribute {
             )),
             Some(FunctionSmt::Hook(template)) => anchors.extend(template.provenance()?),
             None => {}
+        }
+        if let Some(reason) = &self.underspecified {
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::FunctionUnderspecified,
+                0,
+                TokenRange::for_tokens(reason)?,
+            ));
         }
         Ok(anchors)
     }
@@ -1313,6 +1329,7 @@ fn parse_function_keys(
     let mut syntax = None;
     let mut hook = None;
     let mut smt = None;
+    let mut underspecified: Option<LitStr> = None;
     let mut placement = PlacementFlags::default();
 
     while !input.is_empty() {
@@ -1407,6 +1424,16 @@ fn parse_function_keys(
             "smtlib" | "smt_hook" => {
                 smt = Some(parse_function_smt(&key, input, smt.as_ref())?);
             }
+            "underspecified" if underspecified.is_some() => {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::DuplicateArgument {
+                        name: "underspecified",
+                    },
+                    key.span(),
+                )
+                .into());
+            }
+            "underspecified" => underspecified = Some(parse_underspecified(&key, input)?),
             "sort" | "syntax" | "hook" => {
                 input.parse::<Token![=]>()?;
                 let value: Expr = input.parse()?;
@@ -1448,6 +1475,15 @@ fn parse_function_keys(
             missing_span,
         )
     })?;
+    if let (Some(reason), FunctionTotality::Partial(_)) = (&underspecified, &totality) {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::InvalidUnderspecified {
+                reason: "`underspecified` states a gap in a `total` function's equations; a `partial` function has no value where no equation applies, so remove `underspecified`".to_owned(),
+            },
+            reason.span(),
+        )
+        .into());
+    }
     let sort = match shorthand_sort {
         Some(sort) => sort,
         None => sort.ok_or_else(|| {
@@ -1482,7 +1518,48 @@ fn parse_function_keys(
         fresh_generator,
         hook,
         smt,
+        underspecified,
     })
+}
+
+/// Parses `underspecified = "reason"`: a nonempty string literal.
+fn parse_underspecified(key: &Ident, input: ParseStream<'_>) -> Result<LitStr, ParseError> {
+    if !input.peek(Token![=]) {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::InvalidUnderspecified {
+                reason: "`underspecified` takes a reason: write `underspecified = \"why some arguments have no equation\"`".to_owned(),
+            },
+            key.span(),
+        )
+        .into());
+    }
+    input.parse::<Token![=]>()?;
+    let value: Expr = input.parse()?;
+    match &value {
+        Expr::Lit(syn::ExprLit {
+            lit: syn::Lit::Str(literal),
+            attrs,
+        }) if attrs.is_empty() => {
+            if literal.value().trim().is_empty() {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::InvalidUnderspecified {
+                        reason: "an `underspecified` reason must not be empty; say why some arguments have no equation".to_owned(),
+                    },
+                    literal.span(),
+                )
+                .into());
+            }
+            Ok(literal.clone())
+        }
+        _ => Err(SyntaxError::new(
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: "underspecified",
+                expected: "a string literal",
+            },
+            value.span(),
+        )
+        .into()),
+    }
 }
 
 /// Parses `smtlib = "sym"` or `smt_hook = "tmpl"` (KF-044).
