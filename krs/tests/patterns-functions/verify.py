@@ -105,6 +105,16 @@ stands for, byte for byte, and `byteOf(300)` is `44`, `halfOf(9)` `4`,
 backend, whose `kompile` accepts the default templates `byte({value})` and
 `pick({flag}, {value})`.
 
+The `bits` package decodes SM83-style opcodes with `k::bits!` templates in
+`k::equations!` rows, an `#[k::equation]` fn, and `k::rules!` transitions; its
+emitted K equals that of `bits-long`, which writes each template's range and
+fixed-run guard and its fields' `bitRangeInt` terms by hand, byte for byte once
+the hidden binder `Krs_Bits0` of an unnamed template is renamed to `Op`; the
+two `kindOf` transitions, whose templates differ in the top bit, pass the
+overlap check; and `decodeOf(4)` is `inc rb`, `decodeOf(118)` `halt`,
+`decodeOf(65)` `ld rb, rc`, `decodeOf(256)` and `decodeOf(-1)` `unknown`, and
+`decodeCbOf(255)` `set 7 ra`, natively and on Java K's LLVM backend.
+
 Run it from the repository root; `--record` rewrites the measured pins after
 every step passes, and `--refresh-reference` reruns Java K instead of
 replaying the per-user reference cache.
@@ -206,6 +216,29 @@ SUGAR_PROGRAMS = (
     Program("pick-true", "pickOf(true, 7)", "accepted", "7"),
     Program("pick-false", "pickOf(false, 7)", "accepted", "0"),
 )
+
+BITS = Fixture(MANIFEST, "krs-patterns-functions-bits")
+BITS_LONG = Fixture(MANIFEST, "krs-patterns-functions-bits-long")
+BITS_PROGRAMS = (
+    Program("decode-inc", "decodeOf(4)", "accepted", "inc rb"),
+    Program("decode-dec", "decodeOf(61)", "accepted", "dec ra"),
+    Program("decode-jr", "decodeOf(32)", "accepted", "jr 0"),
+    Program("decode-halt", "decodeOf(118)", "accepted", "halt"),
+    Program("decode-ld", "decodeOf(65)", "accepted", "ld rb, rc"),
+    Program("decode-alu", "decodeOf(128)", "accepted", "alu 0 rb"),
+    Program("decode-push", "decodeOf(197)", "accepted", "push 0"),
+    Program("decode-rst", "decodeOf(255)", "accepted", "rst 56"),
+    Program("decode-nop", "decodeOf(0)", "accepted", "nop"),
+    Program("decode-wide", "decodeOf(256)", "accepted", "unknown 256"),
+    Program("decode-negative", "decodeOf(-1)", "accepted", "unknown -1"),
+    Program("decode-unlisted", "decodeOf(211)", "accepted", "unknown 211"),
+    Program("decode-cb-set", "decodeCbOf(255)", "accepted", "set 7 ra"),
+    Program("decode-cb-rot", "decodeCbOf(7)", "accepted", "rot 0 ra"),
+    Program("kind-low", "kindOf(5)", "accepted", "0"),
+    Program("kind-high", "kindOf(200)", "accepted", "1"),
+)
+# The hidden binder of an unnamed template, and the long form's name for it.
+BITS_HIDDEN_BINDER = ("Krs_Bits0", "Op")
 
 NEGATIVE = (
     "alias-ref",
@@ -479,6 +512,40 @@ def verify_sugar(harness: FixtureGate) -> None:
     harness.compare(emitted, SUGAR_PROGRAMS, sort="Exp", kore=True)
 
 
+def verify_bits(harness: FixtureGate) -> None:
+    """Bit templates emit the K of their hand-written long form, up to the hidden binder's name, and run natively and on Java LLVM."""
+
+    harness.check(BITS)
+    expansion = harness.expand(BITS)
+    # `krs expand` writes the long form, naming an unnamed template's value.
+    for fragment in (
+        "k::term![crate ::Decode(bits)]",
+        "k::builtin::int::eq(k::builtin::int::bit_range(bits, 0, 3), 4)",
+        "crate::Instruction::Inc(crate::R8(k::builtin::int::bit_range(bits, 3, 3)))",
+        "k::term![crate ::Decode(118)]",
+    ):
+        if fragment not in expansion:
+            raise GateError(f"{BITS.package}: krs expand omits {fragment!r}")
+    emitted = harness.emit(BITS)
+    harness.check(BITS_LONG)
+    long_form = harness.emit_unpinned(BITS_LONG, harness.workspace / "emitted-long" / BITS_LONG.package)
+    hidden, named = BITS_HIDDEN_BINDER
+    sugar_source = emitted.source.read_text(encoding="utf-8")
+    long_source = (long_form / emitted.source.name).read_text(encoding="utf-8")
+    if f"{named}:Int" not in long_source or f"{hidden}:Int" not in sugar_source:
+        raise GateError(f"{BITS.package}: the binders the comparison renames are absent")
+    if sugar_source.replace(hidden, named) != long_source:
+        raise GateError(
+            f"{BITS.package}: the emitted K differs from its long form {BITS_LONG.package}"
+        )
+    emitted_fragments(emitted, (
+        "rule decode ( 118 ) => halt [label(",
+        "rule decode ( Krs_Bits0:Int ) => inc r8 ( bitRangeInt(Krs_Bits0:Int, 3, 3) )",
+        "requires (((Krs_Bits0:Int >=Int 0) andThenBool (Krs_Bits0:Int <Int 256)) andThenBool ((bitRangeInt(Krs_Bits0:Int, 6, 2)) ==Int 0)) andThenBool ((bitRangeInt(Krs_Bits0:Int, 0, 3)) ==Int 4) [label(",
+    ))
+    harness.compare(emitted, BITS_PROGRAMS, sort="Exp", kore=True)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--record", action="store_true", help="run the gate and rewrite the output pins it measured")
@@ -518,6 +585,9 @@ def main() -> int:
 
         verify_sugar(harness)
         print("PASS sugar: the function shorthand and equation tables emit their long form's K; byteOf, halfOf, regOf, and pickOf agree natively and on Java LLVM")
+
+        verify_bits(harness)
+        print("PASS bits: bit templates emit their long form's K up to the hidden binder's name; decodeOf, decodeCbOf, and kindOf agree natively and on Java LLVM")
 
         for name in NEGATIVE:
             manifest = materialize(name, workspace)

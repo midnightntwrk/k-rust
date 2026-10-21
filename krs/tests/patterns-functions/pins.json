@@ -6,7 +6,8 @@
     "krs-patterns-functions-matches": "4825b9f25c8396e70b9aeefe48944af6c0435206ba031e646be9207401515494",
     "krs-patterns-functions-lets": "b2b5e427d943341fdd36bdec70374491ca40966802fb50d7ac61028ade1901b6",
     "krs-patterns-functions-contexts": "59b7b10614675509d38fdc2d0b619dbe4f3b1172cf528a9b44f5202ab0aba10b",
-    "krs-patterns-functions-sugar": "464535f3657b94046a40e7b1eff94142115be2a672f430f351cfdf5167579bf6"
+    "krs-patterns-functions-sugar": "464535f3657b94046a40e7b1eff94142115be2a672f430f351cfdf5167579bf6",
+    "krs-patterns-functions-bits": "87a3477fcd4f5e9780b32bfa6a2d9dffce4c528dfc0dd87fe0850d5acf5b71e3"
   },
   "emitted": {
     "krs-patterns-functions-aliases": {
@@ -26,6 +27,9 @@
     },
     "krs-patterns-functions-sugar": {
       "definition.k": "744acd07a1d15594384c289ef5725dadcb350b496626e1c54c8af897c4d78e62"
+    },
+    "krs-patterns-functions-bits": {
+      "definition.k": "225a08e4214698711a28aea56c3163abf3ff2dc1a9af393837ad3deacac45243"
     }
   },
   "reference_sha256": {
@@ -43,7 +47,8 @@
     "krs-patterns-functions-contexts": "69b7199deaaaf3005bfdbc3fed34cd72913ba9707c482539d4da5317e81986d9",
     "krs-patterns-functions-contexts-reference": "be6c0d3a52e322a849f9b3824d92a6df6c81b8bdf43ea8a3d4a922fb6776ad63",
     "krs-patterns-functions-contexts-haskell": "99bf2f669427d4b1136238cb1a208d26b1e90e77dad64a0f30ad648f6363acbc",
-    "krs-patterns-functions-sugar": "677a14fd74c6717e28c88c2b9b55b16632d53b845e8ab4596dcd31dcb77325cd"
+    "krs-patterns-functions-sugar": "677a14fd74c6717e28c88c2b9b55b16632d53b845e8ab4596dcd31dcb77325cd",
+    "krs-patterns-functions-bits": "32dcba9532c5f84c3b50c4b67f2d9e503a6672a15f5b5ac3228bfe8729745c8d"
   },
   "outcomes": {
     "krs-patterns-functions-aliases": {
@@ -192,6 +197,72 @@
       "pick-false": {
         "parse": "accepted",
         "run": "0"
+      }
+    },
+    "krs-patterns-functions-bits": {
+      "decode-inc": {
+        "parse": "accepted",
+        "run": "inc rb"
+      },
+      "decode-dec": {
+        "parse": "accepted",
+        "run": "dec ra"
+      },
+      "decode-jr": {
+        "parse": "accepted",
+        "run": "jr 0"
+      },
+      "decode-halt": {
+        "parse": "accepted",
+        "run": "halt"
+      },
+      "decode-ld": {
+        "parse": "accepted",
+        "run": "ld rb, rc"
+      },
+      "decode-alu": {
+        "parse": "accepted",
+        "run": "alu 0 rb"
+      },
+      "decode-push": {
+        "parse": "accepted",
+        "run": "push 0"
+      },
+      "decode-rst": {
+        "parse": "accepted",
+        "run": "rst 56"
+      },
+      "decode-nop": {
+        "parse": "accepted",
+        "run": "nop"
+      },
+      "decode-wide": {
+        "parse": "accepted",
+        "run": "unknown 256"
+      },
+      "decode-negative": {
+        "parse": "accepted",
+        "run": "unknown -1"
+      },
+      "decode-unlisted": {
+        "parse": "accepted",
+        "run": "unknown 211"
+      },
+      "decode-cb-set": {
+        "parse": "accepted",
+        "run": "set 7 ra"
+      },
+      "decode-cb-rot": {
+        "parse": "accepted",
+        "run": "rot 0 ra"
+      },
+      "kind-low": {
+        "parse": "accepted",
+        "run": "0"
+      },
+      "kind-high": {
+        "parse": "accepted",
+        "run": "1"
       }
     }
   },
