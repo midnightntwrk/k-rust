@@ -17,15 +17,16 @@ use std::{collections::BTreeMap, process::Command, sync::Arc};
 
 use k_rust_fuzz::{
     Budget, CallerIdentity, Campaign, CampaignSpec, CaseOptions, Definitions, ENGINE_VERSION,
-    HoleDecl, HoleLocation, ProgramInput, ProposerConfig, SpanAddress, Target, TargetKind,
+    HoleDecl, HoleLocation, ProgramInput, ProgramSource, ProposerConfig, SpanAddress, Target,
+    TargetKind,
     report::{FuzzReport, digest_hex},
     spec::PathMode,
-    spec::{DEFAULT_REJECTION_CAP, ProposerKind},
+    spec::{DEFAULT_REJECTION_CAP, ProgramText, ProposerKind},
     target::{DifferentialTarget, PatternAt, PatternTarget, RuleMode, RuleRef, RuleTarget},
-    values::{Constraints, GenerationBounds, IntRange},
+    values::{Constraints, ElementSorts, GenerationBounds, IntRange},
 };
 use num_bigint::BigInt;
-use support::{COIN, COIN_KILL, DICT, IMP, UNSIGNED};
+use support::{COIN, COIN_KILL, DICT, IMP, UNSIGNED, VALUES};
 
 /// The variable that makes [`golden_child`] run the campaigns and print their reports.
 const CHILD: &str = "KRUST_FUZZ_GOLDEN_CHILD";
@@ -34,12 +35,13 @@ const END: &str = "=====END-KRUST-FUZZ-REPORTS=====";
 
 /// The pinned fingerprint of the golden campaigns' case sequence at [`ENGINE_VERSION`] 2.
 /// Pinned at integration round 1, when the modules behind the engine landed; re-pin it, with
-/// a version bump, only when the case sequence is meant to change. Version 2 (map holes shrink
-/// by whole entries) leaves these Int-hole campaigns' sequences and shrunk witnesses as they
-/// were, so the fingerprint is version 1's.
+/// a version bump, only when the case sequence is meant to change. Version 2 left the four
+/// Int-hole campaigns' fingerprint as it was at version 1 (`f903fed0…`), and added the map
+/// campaign, whose shrunk witness guards version 2's shrinking of map holes by whole entries:
+/// a change to the map shrinker moves it.
 const PINNED: Option<(u32, &str)> = Some((
     2,
-    "f903fed03207d94ac94a4beff8a2c72061a003ed4663e947d2926cde1e5d16e2",
+    "3467dc44eb5c354ad40f63d31f772e20887bda003d72049f6f4946b309272d8c",
 ));
 
 /// The pinned fingerprint of the dictionary campaigns' case sequence (FZ-11) at
@@ -52,7 +54,10 @@ const PINNED_DICTIONARY: Option<(u32, &str)> = Some((
 
 /// How many of [`golden_reports`] are blind campaigns, fingerprinted by [`PINNED`]; the rest
 /// enable the dictionary and are fingerprinted by [`PINNED_DICTIONARY`].
-const BLIND_CAMPAIGNS: usize = 4;
+const BLIND_CAMPAIGNS: usize = 5;
+
+/// The index of the map campaign in [`golden_reports`].
+const MAP_CAMPAIGN: usize = 4;
 
 fn int_hole(name: &str, program: &str, find: &str, literal: &str) -> HoleDecl {
     HoleDecl {
@@ -125,6 +130,8 @@ fn violation(pattern: &str) -> Target {
 ///   both sides' leaves, and all-paths leaf order;
 /// - UNSIGNED with a range that excludes the anchor and admits negative values, which do not
 ///   round-trip: rejections for two reasons;
+/// - VALUES with a `Map` configuration-variable hole and a target that needs three entries: a
+///   map witness that shrinks by whole entries (ENGINE_VERSION 2);
 /// - DICT's `goal` with blind and the dictionary: a witness of harvested values, shrunk by
 ///   moves;
 /// - DICT's `probe` under a pattern target, with the dictionary alone: the pattern's own
@@ -188,12 +195,57 @@ fn golden_reports() -> Vec<FuzzReport> {
         spec.target = violation("<k> .K </k> <out> ListItem(N:Int) </out> requires N ==Int 9");
         spec
     };
+    let map = {
+        let compiled = VALUES.compiled();
+        let mut spec = spec("imp/le.imp", Vec::new(), "<k> .K </k>", &[], 0x0000_3a95);
+        spec.definitions = Definitions {
+            baseline: Arc::new(compiled.definition()),
+            mutant: None,
+        };
+        let bindings = [
+            ("SHAPE", "circle(5)"),
+            ("REC", "rec(1, unit, leaf(0))"),
+            ("PAIR", "1 & 2"),
+            ("WRAPPER", "wrap(3)"),
+            ("ACCOUNT", "account(1, .Map)"),
+            ("LIST", ".List"),
+            ("SET", ".Set"),
+            ("MAP", ".Map"),
+        ];
+        spec.program = ProgramInput::Source(ProgramSource {
+            program: Some(ProgramText {
+                name: "values/run.pgm".into(),
+                text: "run".into(),
+                start_sort: "Pgm".into(),
+            }),
+            config_vars: bindings
+                .iter()
+                .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+                .collect(),
+        });
+        spec.holes = vec![HoleDecl {
+            name: "M".into(),
+            sort: "Map".into(),
+            location: HoleLocation::ConfigVar { name: "MAP".into() },
+            constraints: Constraints {
+                elements: Some(ElementSorts::Entries {
+                    key: "Int".into(),
+                    value: "Int".into(),
+                }),
+                ..Constraints::default()
+            },
+            allow_refused_sort: false,
+        }];
+        spec.target = violation("<k> .K </k> <map> M:Map </map> requires size(M) >=Int 3");
+        spec
+    };
     let coin_spec = coin.clone();
     [
         (le, Budget::Cases(40)),
         (commute, Budget::Cases(24)),
         (coin, Budget::Work(4000)),
         (unsigned, Budget::Cases(30)),
+        (map, Budget::Cases(40)),
     ]
     .into_iter()
     .chain(dictionary_campaigns(&coin_spec))
@@ -372,6 +424,18 @@ fn the_same_campaign_in_two_processes_gives_byte_identical_reports() {
     assert_eq!(first, second, "the environment reached the report");
     let reports = golden_reports();
     assert_eq!(render(&reports), first, "the parent's report differs");
+    // The map campaign pins map shrinking: its witness loses whole entries down to the three
+    // the target needs.
+    let entries = |case: &k_rust_fuzz::report::WitnessCase| match &case.holes[0].value {
+        k_rust_fuzz::Value::Map(entries) => entries.len(),
+        other => panic!("a map value: {other:?}"),
+    };
+    let map = reports[MAP_CAMPAIGN]
+        .witness()
+        .expect("the map campaign finds a witness");
+    let shrunk = map.shrunk.as_ref().expect("the map witness shrinks");
+    assert!(entries(&map.first) > 3, "{:?}", map.first.holes[0].value);
+    assert_eq!(entries(shrunk), 3, "{:?}", shrunk.holes[0].value);
 
     let computed = fingerprint(&reports[..BLIND_CAMPAIGNS]);
     let dictionary = fingerprint(&reports[BLIND_CAMPAIGNS..]);
