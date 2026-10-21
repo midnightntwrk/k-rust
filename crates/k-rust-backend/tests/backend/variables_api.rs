@@ -12,10 +12,7 @@ use k_rust_backend::{
 };
 
 fn sort(name: &str) -> Sort {
-    Sort::Application {
-        name: name.into(),
-        arguments: Vec::new(),
-    }
+    Sort::simple(name)
 }
 
 fn variable(name: &str) -> Variable {

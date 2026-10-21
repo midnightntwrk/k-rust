@@ -398,14 +398,14 @@ fn grouping_key() -> impl Strategy<Value = Term> {
         let (loc, pair, norm) = (loc.clone(), pair.clone(), norm.clone());
         (0..6usize, value(), value(), any::<bool>()).prop_map(
             move |(template, first, second, marked)| {
-                let dv = |sort: &Sort, value: &str| Term::raw_domain_value(sort.clone(), value);
+                let dv = |sort: &Sort, value: &str| Term::raw_domain_value(*sort, value);
                 match template {
                     0 => dv(&int, first),
-                    1 => Term::injection(int.clone(), kitem.clone(), dv(&int, first)),
+                    1 => Term::injection(int, kitem, dv(&int, first)),
                     2 => Term::application(
                         loc.clone(),
                         vec![],
-                        vec![Term::injection(int.clone(), s.clone(), dv(&int, first))],
+                        vec![Term::injection(int, s, dv(&int, first))],
                     ),
                     3 => Term::application(
                         pair.clone(),
@@ -424,7 +424,7 @@ fn grouping_key() -> impl Strategy<Value = Term> {
                             term
                         }
                     }
-                    _ => Term::injection(s.clone(), kitem.clone(), dv(&s, first)),
+                    _ => Term::injection(s, kitem, dv(&s, first)),
                 }
             },
         )
@@ -679,22 +679,17 @@ fn keys_of_one_skeleton_need_no_apartness_check() {
         Sort::simple("SortKItem"),
         Sort::simple("SortS"),
     );
-    let key = |value: usize| {
-        Term::injection(
-            int.clone(),
-            kitem.clone(),
-            Term::raw_domain_value(int.clone(), value.to_string()),
-        )
-    };
-    let mut partial = Symbol::constructor("partial", vec![s.clone()], kitem.clone());
+    let key =
+        |value: usize| Term::injection(int, kitem, Term::raw_domain_value(int, value.to_string()));
+    let mut partial = Symbol::constructor("partial", vec![s], kitem);
     partial.attributes.symbol_type =
         crate::term::SymbolType::Function(crate::term::FunctionType::Partial);
     let undefined = Term::application(
         Arc::new(partial),
         vec![],
-        vec![Term::raw_domain_value(s.clone(), "a")],
+        vec![Term::raw_domain_value(s, "a")],
     );
-    let value = Term::raw_domain_value(int.clone(), "0");
+    let value = Term::raw_domain_value(int, "0");
     let checks = |entries: Vec<(Term, Term)>| {
         let map = Term::map(map_definition.clone(), entries, None);
         crate::definedness::APARTNESS_CHECKS.set(0);
@@ -723,11 +718,7 @@ fn keys_of_one_skeleton_need_no_apartness_check() {
     entries.pop();
     entries.extend((0..3).map(|index| {
         (
-            Term::injection(
-                s.clone(),
-                kitem.clone(),
-                Term::raw_domain_value(s.clone(), index.to_string()),
-            ),
+            Term::injection(s, kitem, Term::raw_domain_value(s, index.to_string())),
             value.clone(),
         )
     }));
@@ -751,20 +742,15 @@ fn one_undefined_item_of_a_large_collection_is_reached_without_the_others() {
         Sort::simple("SortKItem"),
         Sort::simple("SortS"),
     );
-    let key = |value: usize| {
-        Term::injection(
-            int.clone(),
-            kitem.clone(),
-            Term::raw_domain_value(int.clone(), value.to_string()),
-        )
-    };
-    let mut partial = Symbol::constructor("partial", vec![s.clone()], kitem.clone());
+    let key =
+        |value: usize| Term::injection(int, kitem, Term::raw_domain_value(int, value.to_string()));
+    let mut partial = Symbol::constructor("partial", vec![s], kitem);
     partial.attributes.symbol_type =
         crate::term::SymbolType::Function(crate::term::FunctionType::Partial);
     let undefined = Term::application(
         Arc::new(partial),
         vec![],
-        vec![Term::raw_domain_value(s.clone(), "a")],
+        vec![Term::raw_domain_value(s, "a")],
     );
     let map = Term::map(
         map_definition,
@@ -825,18 +811,14 @@ fn collections_of(item: impl Fn(usize) -> Term) -> [Term; 3] {
 #[cfg(debug_assertions)]
 fn collection_key(index: usize) -> Term {
     let (int, kitem) = (Sort::simple("SortInt"), Sort::simple("SortKItem"));
-    Term::injection(
-        int.clone(),
-        kitem,
-        Term::raw_domain_value(int, index.to_string()),
-    )
+    Term::injection(int, kitem, Term::raw_domain_value(int, index.to_string()))
 }
 
 /// `partial(\dv{S}(name))`, an application of a partial function: its ceil is an obligation.
 #[cfg(debug_assertions)]
 fn undefined_item(name: &str) -> Term {
     let (kitem, s) = (Sort::simple("SortKItem"), Sort::simple("SortS"));
-    let mut partial = Symbol::constructor("partial", vec![s.clone()], kitem);
+    let mut partial = Symbol::constructor("partial", vec![s], kitem);
     partial.attributes.symbol_type =
         crate::term::SymbolType::Function(crate::term::FunctionType::Partial);
     Term::application(
@@ -934,6 +916,85 @@ fn the_debug_check_of_passed_over_items_reads_what_an_edit_built() {
         assert!(
             after_edit <= again + 2 * DEFAULT_BRANCHING,
             "{name}: {after_edit} items handed over after one addition"
+        );
+    }
+}
+
+/// The stored `may_be_rigid` attribute is false exactly when some node of the term is a variable,
+/// a conjunction, a collection, or an application of a symbol whose role is neither
+/// `FreeConstructor` nor `EquationHead` (checked against a walk over every node), and the
+/// shortcuts it gives `rigid_apart_skeleton_hash` and `has_key_header` return what their walks
+/// return, on the grouping keys and on the bridge's terms, which hold every kind of node at
+/// every depth.
+#[test]
+fn may_be_rigid_shortcuts_return_the_walks() {
+    use proptest::prelude::*;
+
+    use crate::term::{
+        has_key_header, key_header_walk, rigid_apart_skeleton_hash, rigid_apart_skeleton_walk,
+    };
+    fn every_node_may_be_rigid(term: &Term) -> bool {
+        let mut pending = vec![term];
+        while let Some(term) = pending.pop() {
+            match term.kind() {
+                TermKind::DomainValue { .. } => {}
+                TermKind::Injection { term, .. } => pending.push(term),
+                TermKind::Application {
+                    symbol, arguments, ..
+                } if matches!(
+                    symbol.attributes.head_role(),
+                    HeadRole::FreeConstructor | HeadRole::EquationHead
+                ) =>
+                {
+                    pending.extend(arguments);
+                }
+                _ => return false,
+            }
+        }
+        true
+    }
+    let mut runner = TestRunner::new_with_rng(
+        Config::default(),
+        TestRng::deterministic_rng(RngAlgorithm::ChaCha),
+    );
+    let keys = grouping_key();
+    let terms = term_with_ground_keys();
+    // Cases by (stored attribute, skeleton walk answers `Some`).
+    let mut classes = BTreeMap::<(bool, bool), usize>::new();
+    for case in 0..CASES {
+        let term = if case % 2 == 0 {
+            keys.new_tree(&mut runner).expect("a case").current()
+        } else {
+            terms.new_tree(&mut runner).expect("a case").current()
+        };
+        let stored = term.attributes().may_be_rigid();
+        assert_eq!(
+            stored,
+            every_node_may_be_rigid(&term),
+            "case {case}: {term:?}"
+        );
+        let mut pending = Vec::new();
+        let walked = rigid_apart_skeleton_walk(&term, &mut pending);
+        assert_eq!(
+            rigid_apart_skeleton_hash(&term, &mut pending),
+            walked,
+            "case {case}: {term:?}"
+        );
+        assert!(pending.is_empty());
+        assert_eq!(
+            has_key_header(&term),
+            key_header_walk(&term),
+            "case {case}: {term:?}"
+        );
+        *classes.entry((stored, walked.is_some())).or_default() += 1;
+    }
+    // Every term the walk finds rigid has the attribute; both answers occur among the terms that
+    // have it (an equation head without the certificate is not rigid), and many terms lack it.
+    assert_eq!(classes.get(&(false, true)), None);
+    for class in [(true, true), (true, false), (false, false)] {
+        assert!(
+            classes.get(&class).is_some_and(|&cases| cases >= 32),
+            "class {class:?} has too few cases: {classes:?}"
         );
     }
 }

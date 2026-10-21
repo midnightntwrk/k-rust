@@ -52,7 +52,9 @@ use std::collections::BTreeMap;
 use k_rust::{
     k_rust_backend::{
         definition::BackendDefinition,
-        term::{DomainKind, HeadRole, MIntWidth, Sort as BackendSort, Symbol, SymbolType},
+        term::{
+            DomainKind, HeadRole, MIntWidth, Sort as BackendSort, SortNode, Symbol, SymbolType,
+        },
     },
     names::{BuiltinSort, MINT_SORT, WellKnownSymbol},
 };
@@ -150,7 +152,7 @@ impl Builder<'_> {
             if !admissible(symbol) {
                 continue;
             }
-            let BackendSort::Application { name, arguments } = &symbol.result_sort else {
+            let SortNode::Application { name, arguments } = symbol.result_sort.node() else {
                 continue;
             };
             // The result sort must itself be a data sort that is not excluded: a production of a
@@ -179,7 +181,7 @@ impl Builder<'_> {
         }
         let mut constructors = Vec::with_capacity(candidates.len());
         for candidate in candidates {
-            let BackendSort::Application { name, .. } = &candidate.symbol.result_sort else {
+            let SortNode::Application { name, .. } = candidate.symbol.result_sort.node() else {
                 unreachable!("candidates have closed result sorts");
             };
             let arguments = candidate
@@ -235,7 +237,7 @@ impl Builder<'_> {
     /// and collections are recognized before the exclusions are read: only a data sort can be
     /// excluded.
     fn classify(&self, sort: &BackendSort) -> Class {
-        let BackendSort::Application { name, arguments } = sort else {
+        let SortNode::Application { name, arguments } = sort.node() else {
             return Class::Unavailable;
         };
         if let Some(builtin) = builtin_value_sort(sort, self.definition) {
@@ -313,7 +315,7 @@ pub(super) fn builtin_value_sort(
     sort: &BackendSort,
     definition: &BackendDefinition,
 ) -> Option<ValueSort> {
-    let BackendSort::Application { name, arguments } = sort else {
+    let SortNode::Application { name, arguments } = sort.node() else {
         return None;
     };
     let (base, canonical) = match definition.domain_kind(sort)? {

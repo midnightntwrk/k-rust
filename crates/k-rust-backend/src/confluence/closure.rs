@@ -49,7 +49,9 @@ use super::{
 use crate::{
     definition::BackendDefinition,
     rule::{RewriteRule, RuleRhs},
-    term::{CollectionMetadata, FunctionType, HeadRole, Name, Sort, Symbol, SymbolType, Term},
+    term::{
+        CollectionMetadata, FunctionType, HeadRole, Name, Sort, SortNode, Symbol, SymbolType, Term,
+    },
 };
 
 /// ```toml algorithm-site
@@ -338,21 +340,20 @@ impl SortReach {
         for (sup, below) in definition.sort_graph().closures() {
             reach
                 .edges
-                .entry(sup.sort().clone())
+                .entry(*sup.sort())
                 .or_default()
-                .extend(below.iter().map(|sort| sort.sort().clone()));
+                .extend(below.iter().map(|sort| *sort.sort()));
         }
         for symbol in definition.symbols().values() {
             if let Some(collection) = &symbol.attributes.collection
                 && !switches.drop_collection_edges
             {
                 let (sort, parts) = match collection {
-                    CollectionMetadata::Map(map) => (
-                        map.map_sort.clone(),
-                        vec![map.key_sort.clone(), map.value_sort.clone()],
-                    ),
+                    CollectionMetadata::Map(map) => {
+                        (map.map_sort.clone(), vec![map.key_sort, map.value_sort])
+                    }
                     CollectionMetadata::List(list) | CollectionMetadata::Set(list) => {
-                        (list.list_sort.clone(), vec![list.element_sort.clone()])
+                        (list.list_sort.clone(), vec![list.element_sort])
                     }
                 };
                 reach
@@ -373,7 +374,7 @@ impl SortReach {
                 } else {
                     reach
                         .heads_of
-                        .entry(symbol.result_sort.clone())
+                        .entry(symbol.result_sort)
                         .or_default()
                         .insert(symbol.name.clone());
                 }
@@ -399,13 +400,13 @@ impl SortReach {
                 if has_sort_variable(argument) {
                     reach.reaches_everything = true;
                 } else if parametric_result {
-                    reach.from_everywhere.insert(argument.clone());
+                    reach.from_everywhere.insert(*argument);
                 } else {
                     reach
                         .edges
-                        .entry(symbol.result_sort.clone())
+                        .entry(symbol.result_sort)
                         .or_default()
-                        .insert(argument.clone());
+                        .insert(*argument);
                 }
             }
         }
@@ -438,11 +439,11 @@ impl SortReach {
             return known.clone();
         }
         let mut seen = BTreeSet::new();
-        let mut stack = vec![sort.clone()];
+        let mut stack = vec![*sort];
         stack.extend(self.from_everywhere.iter().cloned());
         let mut heads = self.everywhere.clone();
         while let Some(sort) = stack.pop() {
-            if !seen.insert(sort.clone()) {
+            if !seen.insert(sort) {
                 continue;
             }
             if has_sort_variable(&sort) {
@@ -455,7 +456,7 @@ impl SortReach {
                 stack.extend(next.iter().cloned());
             }
         }
-        self.memo.insert(sort.clone(), heads.clone());
+        self.memo.insert(*sort, heads.clone());
         heads
     }
 }
@@ -476,9 +477,9 @@ fn revision_two_reading(definition: &BackendDefinition, symbol: &Symbol) -> OnNe
         && symbol.attributes.hook.is_none()
         && !definition
             .sorts()
-            .get(match &symbol.result_sort {
-                Sort::Application { name, .. } => name,
-                Sort::Variable(_) => return OnNewArguments::Formal,
+            .get(match symbol.result_sort.node() {
+                SortNode::Application { name, .. } => name,
+                SortNode::Variable(_) => return OnNewArguments::Formal,
             })
             .is_some_and(|info| info.hook.is_some() || info.has_domain_values);
     if matches!(role, HeadRole::FreeConstructor | HeadRole::EquationHead) || injective_total {
@@ -489,8 +490,8 @@ fn revision_two_reading(definition: &BackendDefinition, symbol: &Symbol) -> OnNe
 }
 
 fn has_sort_variable(sort: &Sort) -> bool {
-    match sort {
-        Sort::Variable(_) => true,
-        Sort::Application { arguments, .. } => arguments.iter().any(has_sort_variable),
+    match sort.node() {
+        SortNode::Variable(_) => true,
+        SortNode::Application { arguments, .. } => arguments.iter().any(has_sort_variable),
     }
 }

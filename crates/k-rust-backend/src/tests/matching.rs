@@ -93,7 +93,7 @@ fn solve_with_test_frames(
 ) -> Option<Vec<CollectionSolution>> {
     let mut counter = 0;
     let mut fresh_frame = |sort: &Sort| {
-        let variable = Variable::new(format!("Ex#Frame!{counter}"), sort.clone());
+        let variable = Variable::new(format!("Ex#Frame!{counter}"), *sort);
         counter += 1;
         variable
     };
@@ -1677,8 +1677,8 @@ fn a_conjunction_under_an_injection_matches_a_value_of_a_subsort() {
         assert_eq!(
             substitution,
             Substitution::from([
-                (variable("X", exp.clone()), value.clone()),
-                (variable("Y", exp.clone()), value.clone()),
+                (variable("X", exp), value.clone()),
+                (variable("Y", exp), value.clone()),
             ]),
             "{mode:?}"
         );
@@ -2356,7 +2356,7 @@ fn an_aliased_map_key_is_sought_as_the_pattern_it_aliases() {
     };
     let wrapped_sort = Sort::simple("SortWrapped");
     assert_eq!(
-        substitution.get(&variable("K", wrapped_sort.clone())),
+        substitution.get(&variable("K", wrapped_sort)),
         Some(&wrapped("2"))
     );
     assert_eq!(
@@ -2428,12 +2428,12 @@ fn an_aliased_map_key_among_several_binds_its_aliases_to_each_entry_its_pattern_
             let substitution = solution.matched.substitution();
             let instance = |term: &Term| crate::substitution::substitute(term, substitution);
             assert_eq!(
-                substitution.get(&variable("K", wrapped_sort.clone())),
+                substitution.get(&variable("K", wrapped_sort)),
                 Some(&instance(&key_pattern)),
                 "{substitution:?}"
             );
             assert_eq!(
-                substitution.get(&variable("A", wrapped_sort.clone())),
+                substitution.get(&variable("A", wrapped_sort)),
                 Some(&instance(&value_pattern)),
                 "{substitution:?}"
             );
@@ -2505,12 +2505,12 @@ fn an_alias_inside_an_aliased_set_element_is_read_as_its_pattern() {
             let substitution = solution.matched.substitution();
             let instance = |term: &Term| crate::substitution::substitute(term, substitution);
             assert_eq!(
-                substitution.get(&variable("K", wrapped_sort.clone())),
+                substitution.get(&variable("K", wrapped_sort)),
                 Some(&instance(&key_pattern)),
                 "{substitution:?}"
             );
             assert_eq!(
-                substitution.get(&variable("A", wrapped_sort.clone())),
+                substitution.get(&variable("A", wrapped_sort)),
                 Some(&instance(&element_pattern)),
                 "{substitution:?}"
             );
@@ -2556,8 +2556,8 @@ fn free_set_and_map_parts_merge_into_the_first() {
         Some((
             concat_set(&definition, &[b, "A:SortSet{}"]),
             vec![
-                (variable("B", set.clone()), empty.clone()),
-                (variable("C", set.clone()), empty.clone()),
+                (variable("B", set), empty.clone()),
+                (variable("C", set), empty.clone()),
             ],
         )),
     );
@@ -2565,10 +2565,7 @@ fn free_set_and_map_parts_merge_into_the_first() {
     let parts = concat_set(&definition, &["A:SortSet{}", "B:SortSet{}"]);
     assert_eq!(
         merge_free_parts(&parts, |_| true),
-        Some((
-            var("A", set.clone()),
-            vec![(variable("B", set.clone()), empty)],
-        )),
+        Some((var("A", set), vec![(variable("B", set), empty)],)),
     );
 
     let map = Sort::simple("SortMap");
@@ -2604,9 +2601,9 @@ fn a_destination_item_against_current_items_alone_has_a_branch_per_placement() {
     let b = r#"setItem{}(\dv{SortElement{}}("b"))"#;
     let c = r#"setItem{}(\dv{SortElement{}}("c"))"#;
     let pattern = concat_set(&definition, &[b, "A:SortSet{}"]);
-    let a = var("A", set.clone());
-    let x = var("X", element.clone());
-    let y = var("Y", element.clone());
+    let a = var("A", set);
+    let x = var("X", element);
+    let y = var("Y", element);
 
     // One undecided current item: the destination item is `X`.
     let subject = concat_set(&definition, &["setItem{}(X:SortElement{})", c]);
@@ -2655,7 +2652,7 @@ fn a_destination_item_against_current_items_alone_has_a_branch_per_placement() {
     let subject = concat_set(&definition, &[b, "setItem{}(X:SortElement{})"]);
     assert_eq!(
         expand_implication_remainders(&definition, &Substitution::new(), &[(pattern, subject)]),
-        Some(vec![vec![(var("Z", element.clone()), x.clone())]]),
+        Some(vec![vec![(var("Z", element), x.clone())]]),
     );
     let subject = concat_set(&definition, &["setItem{}(X:SortElement{})", c]);
     assert_eq!(
@@ -2704,15 +2701,15 @@ fn only_free_variable_parts_that_occur_once_merge() {
         &definition,
         &["A:SortSet{}", b, "B:SortSet{}", "C:SortSet{}"],
     );
-    let c = variable("C", set.clone());
+    let c = variable("C", set);
     assert_eq!(
         merge_free_parts(&pattern, |variable| variable != &c),
         Some((
             concat_set(&definition, &[b, "A:SortSet{}", "C:SortSet{}"]),
-            vec![(variable("B", set.clone()), empty)],
+            vec![(variable("B", set), empty)],
         )),
     );
-    let a = variable("A", set.clone());
+    let a = variable("A", set);
     let only_a = |variable: &Variable| variable == &a;
     assert_eq!(merge_free_parts(&pattern, only_a), None);
 

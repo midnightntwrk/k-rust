@@ -13,7 +13,7 @@ use k_rust_kore::names::{BuiltinSort, KoreAttribute};
 use crate::{
     alias::AliasDefinition,
     definition::{DefinitionError, SortInfo, internalize_sort, substitute_sort},
-    term::{Name, Sort, Symbol, SymbolType},
+    term::{Name, Sort, SortNode, Symbol, SymbolType},
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -165,9 +165,9 @@ impl<'a> VerifyContext<'a> {
                     (
                         declaration.sort_variables.clone(),
                         declaration.argument_sorts.clone(),
-                        declaration.result_sort.clone(),
+                        declaration.result_sort,
                         declaration.attributes.declares_constructor()
-                            && matches!(declaration.result_sort, Sort::Variable(_)),
+                            && matches!(declaration.result_sort.node(), SortNode::Variable(_)),
                     )
                 } else if let Some(alias) = ctx.aliases.get(&symbol.name) {
                     let parameters = alias
@@ -213,7 +213,7 @@ impl<'a> VerifyContext<'a> {
                 .collect::<Vec<_>>();
             let result = substitute_sort(&result, &substitution);
             if constructor_schema
-                && let Sort::Application { name, .. } = &result
+                && let SortNode::Application { name, .. } = result.node()
                 && ctx
                     .sorts
                     .get(name)
@@ -271,7 +271,7 @@ impl<'a> VerifyContext<'a> {
             operands.try_fold(first, |accumulated, operand| {
                 ctx.expect_sort(accumulated_expected, accumulated)?;
                 ctx.expect_sort(operand_expected, operand)?;
-                Ok(result.clone())
+                Ok(result)
             })
         })
     }
@@ -299,7 +299,7 @@ impl<'a> VerifyContext<'a> {
                         )));
                     }
                 } else {
-                    self.free.insert(key, sort.clone());
+                    self.free.insert(key, sort);
                 }
                 Ok(sort)
             }
@@ -389,7 +389,7 @@ impl<'a> VerifyContext<'a> {
             }
             Pattern::Mu { variable, body } | Pattern::Nu { variable, body } => {
                 let result = self.sort(&variable.sort)?;
-                self.bound.push(((variable.kind, variable.name.clone()), result.clone()));
+                self.bound.push(((variable.kind, variable.name.clone()), result));
                 let body_sort = self.pattern(body)?;
                 self.bound.pop();
                 self.expect_sort(&result, body_sort)?;
@@ -447,7 +447,7 @@ impl<'a> VerifyContext<'a> {
             }
             Pattern::DomainValue { sort, value } => self.with_context("\\dv", |ctx| {
                 let sort = ctx.sort(sort)?;
-                let Sort::Application { name, .. } = &sort else {
+                let SortNode::Application { name, .. } = sort.node() else {
                     return Err(ctx.error(
                         "Sorts used with domain value must have the hasDomainValues attribute.",
                     ));
@@ -668,19 +668,19 @@ fn verify_declaration(
                 let result = ctx
                     .sort(result_sort)
                     .map_err(DefinitionError::Verification)?;
-                match result {
+                match result.node() {
                     // The variable denotes an instance sort, not a fixed result head.
-                    Sort::Variable(_) => Ok(()),
-                    Sort::Application { name, .. }
+                    SortNode::Variable(_) => Ok(()),
+                    SortNode::Application { name, .. }
                         if sorts
-                            .get(&name)
+                            .get(name)
                             .is_some_and(|info| info.hook.is_some() || info.has_domain_values) =>
                     {
                         Err(DefinitionError::Verification(ctx.error(
                             "Constructor result sort must not be hooked or have domain values.",
                         )))
                     }
-                    Sort::Application { .. } => Ok(()),
+                    SortNode::Application { .. } => Ok(()),
                 }
             } else {
                 Ok(())
@@ -946,9 +946,9 @@ fn free_variables(
 }
 
 fn render_sort(sort: &Sort) -> String {
-    match sort {
-        Sort::Variable(name) => name.to_string(),
-        Sort::Application { name, arguments } => format!(
+    match sort.node() {
+        SortNode::Variable(name) => name.to_string(),
+        SortNode::Application { name, arguments } => format!(
             "{}{{{}}}",
             name,
             arguments

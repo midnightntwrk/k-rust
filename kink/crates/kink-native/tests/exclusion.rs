@@ -1167,10 +1167,11 @@ endmodule []"#;
 /// adapter entry points keep the count, and the run is excluded; the same run with the default
 /// stack budget reports none and is not excluded.
 ///
-/// `deep(4000)`: with a zero simplification stack budget the run first meets a stack stop at
-/// about 2,000 levels (measured 2026-10-21 at the dev profile's opt-level 1 on an 8 MiB thread:
-/// 1,500 levels do not stop, 2,000 do), so 4,000 keeps a factor of two; the run with the
-/// default budget then costs a seventh of the former `deep(30000)`.
+/// `deep(12000)`: with a zero simplification stack budget the run first meets a stack stop at
+/// 4,000 to 6,000 levels (measured 2026-10-22 at the dev profile's opt-level 1 on an 8 MiB
+/// thread, after backend sorts became interned `Copy` handles, which more than halved a level's
+/// frame: 4,000 levels do not stop, 6,000 do; about 2,000 before), so 12,000 keeps a factor of
+/// two; the run with the default budget then costs less than half the former `deep(30000)`.
 #[test]
 fn a_run_with_a_stack_stop_is_excluded() {
     let result = |stack_budget: Option<usize>| {
@@ -1181,7 +1182,7 @@ fn a_run_with_a_stack_stop_is_excluded() {
                 if let Some(stack_budget) = stack_budget {
                     backend.set_simplification_stack_budget(stack_budget);
                 }
-                let state = parse_pattern(r#"done{}(deep{}(\dv{SortInt{}}("4000")))"#).unwrap();
+                let state = parse_pattern(r#"done{}(deep{}(\dv{SortInt{}}("12000")))"#).unwrap();
                 let bounds = ExecutionBudget {
                     max_depth: Some(0),
                     ..budget()

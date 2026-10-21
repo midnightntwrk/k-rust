@@ -6592,16 +6592,16 @@ fn an_equation_requirement_on_a_variable_the_match_leaves_unbound_is_not_capture
         panic!("expected one lhs variable");
     };
     let sort = Sort::simple("SortS");
-    let variable = |name: &str| Term::variable(Variable::new(name, sort.clone()));
+    let variable = |name: &str| Term::variable(Variable::new(name, sort));
     let rule_y = "Eq#Y";
     let input = k_rust_backend::substitution::substitute(
         &term(&definition, "f{}(budgetPair{}(A:SortS{}, B:SortS{}))"),
         &Substitution::from([
             (
-                Variable::new("A", sort.clone()),
+                Variable::new("A", sort),
                 Term::variable((*lhs_variable).clone()),
             ),
-            (Variable::new("B", sort.clone()), variable(rule_y)),
+            (Variable::new("B", sort), variable(rule_y)),
         ]),
     );
     let c = term(&definition, r#"\dv{SortS{}}("c")"#);

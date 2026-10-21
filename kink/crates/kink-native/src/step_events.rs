@@ -283,7 +283,7 @@ fn determined_sort(definition: &BackendDefinition, pattern: &Pattern) -> Option<
             .filter(|backend| {
                 backend.sort_variables.is_empty() && symbol.sort_parameters.is_empty()
             })
-            .map(|backend| backend.result_sort.clone()),
+            .map(|backend| backend.result_sort),
         _ => None,
     }
 }

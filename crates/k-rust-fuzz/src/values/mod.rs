@@ -31,7 +31,7 @@ pub mod text;
 use k_rust::{
     k_rust_backend::{
         definition::BackendDefinition,
-        term::{DomainKind, Sort as BackendSort},
+        term::{DomainKind, Sort as BackendSort, SortNode},
     },
     kast::parser::parse_sort,
     kompile::encode_kore_sort,
@@ -505,7 +505,7 @@ pub(super) fn resolve_with(
     let text_sort = sort.trim();
     let kast = parse_sort(text_sort).map_err(|_| SortRefusal::Unknown)?;
     let kore = backend_sort(&encode_kore_sort(&kast));
-    let BackendSort::Application { name, arguments } = &kore else {
+    let SortNode::Application { name, arguments } = kore.node() else {
         return Err(SortRefusal::Unknown);
     };
     let info = definition.sorts().get(name).ok_or(SortRefusal::Unknown)?;
@@ -616,7 +616,7 @@ fn collection_symbols(
         let hook = format!("{namespace}.{operation}");
         let mut found = definition.symbols().values().filter(|symbol| {
             symbol.attributes.hook.as_deref() == Some(hook.as_str())
-                && matches!(&symbol.result_sort, BackendSort::Application { name, arguments }
+                && matches!(symbol.result_sort.node(), SortNode::Application { name, arguments }
                     if arguments.is_empty() && name.as_ref() == kore_name)
         });
         match (found.next(), found.next()) {
@@ -628,8 +628,8 @@ fn collection_symbols(
     let element_arguments = element
         .argument_sorts
         .iter()
-        .map(|sort| match sort {
-            BackendSort::Application { name, arguments } if arguments.is_empty() => {
+        .map(|sort| match sort.node() {
+            SortNode::Application { name, arguments } if arguments.is_empty() => {
                 Ok(name.to_string())
             }
             _ => Err(SortRefusal::Collection),
@@ -647,7 +647,7 @@ fn collection_symbols(
 /// `sort` as the backend's sort type.
 fn backend_sort(sort: &KoreSort) -> BackendSort {
     match sort {
-        KoreSort::Variable(name) => BackendSort::Variable(name.as_str().into()),
+        KoreSort::Variable(name) => BackendSort::variable(name.as_str()),
         KoreSort::Application { name, arguments } => {
             BackendSort::application(name.as_str(), arguments.iter().map(backend_sort).collect())
         }

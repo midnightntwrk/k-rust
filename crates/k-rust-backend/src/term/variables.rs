@@ -358,7 +358,7 @@ mod tests {
                                 })
                                 .map(move |(_, sort)| Variable {
                                     kind,
-                                    sort: sort.clone(),
+                                    sort: *sort,
                                     name: format!("V{index:04}").into(),
                                 })
                         })

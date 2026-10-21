@@ -994,13 +994,9 @@ mod tests {
         let key_sort = Sort::simple("SortKey");
         let application = |name, variable| {
             Term::application(
-                Arc::new(crate::term::Symbol::constructor(
-                    name,
-                    vec![int.clone()],
-                    key_sort.clone(),
-                )),
+                Arc::new(crate::term::Symbol::constructor(name, vec![int], key_sort)),
                 Vec::new(),
-                vec![Term::variable(Variable::new(variable, int.clone()))],
+                vec![Term::variable(Variable::new(variable, int))],
             )
         };
         let a = application("a", "A");

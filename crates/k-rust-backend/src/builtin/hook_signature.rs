@@ -38,7 +38,7 @@ use k_rust_kore::names::BuiltinSort;
 
 use crate::{
     matching::SortGraph,
-    term::{CollectionMetadata, Sort},
+    term::{CollectionMetadata, Sort, SortNode},
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -179,7 +179,7 @@ pub(crate) fn member_of_result(
     }
     facts
         .is_some_and(|facts| facts.check_subsort(&from, result_sort))
-        .then(|| crate::term::Term::injection(from, result_sort.clone(), value))
+        .then(|| crate::term::Term::injection(from, *result_sort, value))
 }
 
 /// What a collection holds, in the sorts of the definition at hand: a list's or set's element
@@ -228,15 +228,11 @@ impl<'c, C: Fn(&Sort) -> Option<&'c CollectionMetadata>> SortFacts for LoadedSor
 
     fn collection(&self, sort: &Sort) -> Option<CollectionShape<Sort>> {
         (self.collection)(sort).map(|collection| match collection {
-            CollectionMetadata::List(definition) => {
-                CollectionShape::List(definition.element_sort.clone())
-            }
-            CollectionMetadata::Set(definition) => {
-                CollectionShape::Set(definition.element_sort.clone())
-            }
+            CollectionMetadata::List(definition) => CollectionShape::List(definition.element_sort),
+            CollectionMetadata::Set(definition) => CollectionShape::Set(definition.element_sort),
             CollectionMetadata::Map(definition) => CollectionShape::Map {
-                key: definition.key_sort.clone(),
-                value: definition.value_sort.clone(),
+                key: definition.key_sort,
+                value: definition.value_sort,
             },
         })
     }
@@ -460,12 +456,12 @@ pub fn misfit<F: SortFacts>(
 
 /// `sort` as a reason names it: its name, with its arguments when it has any.
 pub(crate) fn render(sort: &Sort) -> String {
-    match sort {
-        Sort::Application { name, arguments } if arguments.is_empty() => name.to_string(),
-        Sort::Application { name, arguments } => format!(
+    match sort.node() {
+        SortNode::Application { name, arguments } if arguments.is_empty() => name.to_string(),
+        SortNode::Application { name, arguments } => format!(
             "{name}{{{}}}",
             arguments.iter().map(render).collect::<Vec<_>>().join(", ")
         ),
-        Sort::Variable(name) => name.to_string(),
+        SortNode::Variable(name) => name.to_string(),
     }
 }

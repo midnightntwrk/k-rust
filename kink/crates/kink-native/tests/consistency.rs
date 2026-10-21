@@ -172,8 +172,8 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
     ),
     (
         "crates/k-rust-backend/src/definition.rs",
-        2933,
-        2959,
+        2926,
+        2952,
         "231513b52fc26f915765b47abfb63789954e31ef4271986dd73f218f1ec9c8a0",
     ),
 ];
@@ -196,12 +196,17 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
 /// reports not joined, which kink reads as `inconsistent-mutant`: it can refuse a mutant, never
 /// admit one, and closed sorts, the only ones kink's definitions have, never give the `Err`
 /// (the commit message). No test's verdict moved.
-const CONFLUENCE_RS: &str = "b68ae7c782911977c9a1cb253f4b9676000c7182047b8d784ec236a088b86173";
+///
+/// Re-pin KS-08c (backend sorts become interned `Copy` handles): b68ae7c7 -> 7fb0ca97. Syntax only:
+/// `Sort` patterns read `sort.node()` as `SortNode`, and sort clones become copies; no stage,
+/// count or early return changes.
+const CONFLUENCE_RS: &str = "7fb0ca976d3df364a22b681b2ffa82013ca23ba5ac3800dd52efe3c1a8f3f581";
 
 /// The taint closure (`confluence/closure.rs`): `taintable`, which with `certified_root` decides
 /// the early return the probe head turns off (an equation head is taintable), by digest (re-pin
-/// R0c-fix-4, R0c-fix-3 review minor 4).
-const CLOSURE_RS: &str = "d6fa4b4ccc257ab8ac99f1eaf2d1284a8ff44c57df46951fc819c343b22ca661";
+/// R0c-fix-4, R0c-fix-3 review minor 4). Re-pin KS-08c: d6fa4b4c -> 37bed07e, the same syntax-only
+/// change of its sort patterns as `CONFLUENCE_RS`.
+const CLOSURE_RS: &str = "37bed07ece2d17afb4b1098566ee484167e244ed01104fe07d98d4cbf3df5c95";
 
 /// A re-pin that changes the premise text or the check's driver needs the consistency check
 /// (and its probe head) read again against it.

@@ -517,7 +517,7 @@ fn int2mint(width: Sort, argument: Term) -> Term {
 /// An application to `argument` of a function hooked `MINT.integer` at `MInt{width}`, declared
 /// `total` or not.
 fn int2mint_declared(totality: FunctionType, width: Sort, argument: Term) -> Term {
-    let parameter = Sort::Variable("W".into());
+    let parameter = Sort::variable("W");
     Term::application(
         Arc::new(Symbol {
             name: "LblInt2MInt".into(),
@@ -534,7 +534,7 @@ fn int2mint_declared(totality: FunctionType, width: Sort, argument: Term) -> Ter
 /// An application to `argument`, of sort `MInt{width}`, of a function hooked `MINT.bitwidth`,
 /// declared `total` or not.
 fn bitwidth_declared(totality: FunctionType, width: Sort, argument: Term) -> Term {
-    let parameter = Sort::Variable("W".into());
+    let parameter = Sort::variable("W");
     Term::application(
         Arc::new(Symbol {
             name: "LblbitwidthMInt".into(),
@@ -667,23 +667,16 @@ fn width_zero_has_one_element() {
 #[test]
 fn a_sort_without_a_numeral_width_leaves_the_total_conversions_unspecified() {
     let foo = Sort::simple("SortFoo");
-    let no_width = Sort::application(MINT_SORT, vec![foo.clone()]);
-    assert_eq!(
-        unspecified(&evaluated(&int2mint(foo.clone(), int(5)))),
-        Some(true)
-    );
+    let no_width = Sort::application(MINT_SORT, vec![foo]);
+    assert_eq!(unspecified(&evaluated(&int2mint(foo, int(5)))), Some(true));
     for (totality, defined) in [(FunctionType::Total, true), (FunctionType::Partial, false)] {
-        let conversion = evaluated(&int2mint_declared(totality, foo.clone(), int(5)));
+        let conversion = evaluated(&int2mint_declared(totality, foo, int(5)));
         assert_eq!(
             unspecified(&conversion),
             Some(defined),
             "Int2MInt, {totality:?}: {conversion:?}"
         );
-        let width = evaluated(&bitwidth_declared(
-            totality,
-            foo.clone(),
-            variable("X", no_width.clone()),
-        ));
+        let width = evaluated(&bitwidth_declared(totality, foo, variable("X", no_width)));
         assert_eq!(
             unspecified(&width),
             Some(defined),
@@ -693,9 +686,9 @@ fn a_sort_without_a_numeral_width_leaves_the_total_conversions_unspecified() {
     let result = evaluate("MINT.bitwidth", &[variable("X", no_width)]).unwrap();
     assert_eq!(unspecified(&result), Some(false), "{result:?}");
 
-    let parameter = Sort::Variable("W".into());
+    let parameter = Sort::variable("W");
     assert_eq!(
-        evaluated(&int2mint(parameter.clone(), int(5))),
+        evaluated(&int2mint(parameter, int(5))),
         BuiltinResult::NotApplicable
     );
     let open = Sort::application(MINT_SORT, vec![parameter]);
@@ -925,8 +918,7 @@ fn a_hook_result_is_the_value_its_text_names() {
                 panic!("{hook} at width {width}: {result:?}");
             };
             let width_kind = mint_width(sort).expect("a machine-integer sort");
-            let parsed =
-                Term::domain_value_of(DomainKind::MInt(width_kind), sort.clone(), value.clone());
+            let parsed = Term::domain_value_of(DomainKind::MInt(width_kind), *sort, value.clone());
             assert_eq!(result, parsed, "{hook} at width {width}");
         }
     }

@@ -58,8 +58,8 @@ use crate::{
     definition::BackendDefinition,
     substitution::{Substitution, substitute},
     term::{
-        CollectionMetadata, Items, ListDefinition, MapDefinition, Name, Sort, SymbolType, Term,
-        TermKind, Variable, chunked::Item,
+        CollectionMetadata, Items, ListDefinition, MapDefinition, Name, Sort, Sorts, SymbolType,
+        Term, TermKind, Variable, chunked::Item,
     },
     unification::{MatchUnification, unify_from},
 };
@@ -1667,7 +1667,7 @@ pub(crate) fn match_collection_remainders_all_in_definition(
 #[derive(Clone)]
 struct OpaqueConcatHead {
     symbol: Arc<crate::term::Symbol>,
-    sort_arguments: Vec<Sort>,
+    sort_arguments: Sorts,
 }
 
 /// Cancel opaque chunks which occur on both sides of an AC equation.
@@ -1719,7 +1719,7 @@ fn flatten_opaque_chunks(
         {
             head.get_or_insert_with(|| OpaqueConcatHead {
                 symbol: symbol.clone(),
-                sort_arguments: sort_arguments.clone(),
+                sort_arguments: *sort_arguments,
             });
             visit(left.clone(), concat, chunks, head);
             visit(right.clone(), concat, chunks, head);
@@ -1743,11 +1743,7 @@ fn rebuild_opaque_chunks(chunks: Vec<Term>, head: Option<OpaqueConcatHead>) -> O
         let head = head
             .as_ref()
             .expect("multiple opaque chunks came from a concatenation");
-        Term::application(
-            head.symbol.clone(),
-            head.sort_arguments.clone(),
-            vec![left, right],
-        )
+        Term::application(head.symbol.clone(), head.sort_arguments, vec![left, right])
     }))
 }
 
@@ -2204,7 +2200,7 @@ fn flatten_list_runs(
             let (left, right) = (&arguments[0], &arguments[1]);
             head.get_or_insert_with(|| OpaqueConcatHead {
                 symbol: symbol.clone(),
-                sort_arguments: sort_arguments.clone(),
+                sort_arguments: *sort_arguments,
             });
             flatten_list_runs(definition, left, runs, head);
             flatten_list_runs(definition, right, runs, head);
@@ -2244,11 +2240,7 @@ fn concat_list_runs(
             ListRun::Part(part) => part,
         })
         .reduce(|left, right| {
-            Term::application(
-                head.symbol.clone(),
-                head.sort_arguments.clone(),
-                vec![left, right],
-            )
+            Term::application(head.symbol.clone(), head.sort_arguments, vec![left, right])
         })
         .expect("a list with two parts has runs")
 }
