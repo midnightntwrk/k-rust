@@ -25,14 +25,15 @@ pub use collection_operands::{
 };
 
 pub use definition::{
-    ConfigurationSentence, ContextAliasSentence, DefinitionApplicationRef, DefinitionClaim,
-    DefinitionCondition, DefinitionEvaluationStep, DefinitionFunctionContext, DefinitionIr,
-    DefinitionMlPredicate, DefinitionModule, DefinitionProductionAttribute, DefinitionRuleBody,
-    DefinitionRuleCondition, DefinitionRulePriority, DefinitionScopedBinder, DefinitionSentence,
-    DefinitionSimplification, DefinitionSimplificationPriority, DefinitionSortRef, DefinitionTerm,
-    DefinitionTermKind, DefinitionValidationError, DefinitionVariable, LabelId, LabelIdentity,
-    ModuleRole, ProductionGroupIdentity, ProductionItem, ProductionSentence, RuleSentence,
-    SubsortSentence, SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
+    ConfigurationSentence, ContextAliasSentence, DeclarationPath, DefinitionApplicationRef,
+    DefinitionClaim, DefinitionCondition, DefinitionEvaluationStep, DefinitionFunctionContext,
+    DefinitionIr, DefinitionMlPredicate, DefinitionModule, DefinitionProductionAttribute,
+    DefinitionRuleBody, DefinitionRuleCondition, DefinitionRulePriority, DefinitionScopedBinder,
+    DefinitionSentence, DefinitionSimplification, DefinitionSimplificationPriority,
+    DefinitionSortRef, DefinitionTerm, DefinitionTermKind, DefinitionValidationError,
+    DefinitionVariable, LabelId, LabelIdentity, ModuleRole, ProductionGroupIdentity,
+    ProductionItem, ProductionSentence, RuleSentence, SubsortSentence, SymbolId, SymbolIdentity,
+    SymbolKind, SyntaxSortSentence,
 };
 pub use ir_level::{
     DefinitionLevel, IrClaim, IrCondition, IrContextAlias, IrEvaluationResult, IrEvaluationStep,

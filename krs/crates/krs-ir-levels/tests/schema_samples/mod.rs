@@ -3067,7 +3067,8 @@ impl Sample for DefinitionModule {
                     vec![],
                     sort.clone(),
                 )
-                .unwrap(),
+                .unwrap()
+                .with_field("cell"),
             ],
             sample_origin("definition.initializer"),
             SemanticId::new("definition.initializer").unwrap(),

@@ -303,6 +303,12 @@ fn samples() -> Samples {
         .trace_value(&mut samples, &SymbolId::new("symbol").unwrap())
         .unwrap();
     tracer
+        .trace_value(
+            &mut samples,
+            &DeclarationPath::new("krate", ["module", "Item"]).unwrap(),
+        )
+        .unwrap();
+    tracer
         .trace_value(&mut samples, &LabelId::new("label").unwrap())
         .unwrap();
     tracer
@@ -758,6 +764,7 @@ fn registry() -> Registry {
     trace!(StrictnessKind: StrictnessKind);
     trace!(SortParameterId: SortParameterId);
     trace!(SymbolId: SymbolId);
+    trace!(DeclarationPath: DeclarationPath);
     trace!(SymbolIdentity: SymbolIdentity);
     trace!(SymbolKind: SymbolKind);
     trace!(IntLiterals: IntLiterals);

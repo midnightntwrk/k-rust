@@ -150,8 +150,14 @@ leaf!(
     LabelIdentity::new(sample::<LabelId>(), "label").unwrap()
 );
 leaf!(
+    DeclarationPath,
+    DeclarationPath::new("krate", ["module", "Item"]).unwrap()
+);
+leaf!(
     SymbolIdentity,
-    SymbolIdentity::new(sample::<SymbolId>(), "symbol", sample::<SymbolKind>()).unwrap()
+    SymbolIdentity::new(sample::<SymbolId>(), "symbol", sample::<SymbolKind>())
+        .unwrap()
+        .with_declaration(sample::<DeclarationPath>())
 );
 leaf!(
     DescriptorDeclaration,

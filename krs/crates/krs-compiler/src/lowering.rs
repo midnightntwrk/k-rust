@@ -16,13 +16,13 @@ use krs_ir::{
 };
 use krs_ir_levels::ModuleRole;
 use krs_ir_levels::{
-    ContextAliasSentence, DefinitionClaim, DefinitionIr, DefinitionModule, DefinitionRuleCondition,
-    DefinitionRulePriority, DefinitionScopedBinder, DefinitionSentence, DefinitionSimplification,
-    DefinitionSimplificationPriority, DefinitionSortRef, DefinitionTerm, DefinitionValidationError,
-    LabelId, LabelIdentity, ProductionGroupIdentity, ProductionItem, ProductionSentence,
-    RuleBodyRef, RuleSentence, SemanticConfiguration, SemanticModule, SemanticProduction,
-    SemanticSortRef, SemanticTerm, SemanticTermKind, SemanticTheory, SemanticVariable,
-    SubsortSentence, SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
+    ContextAliasSentence, DeclarationPath, DefinitionClaim, DefinitionIr, DefinitionModule,
+    DefinitionRuleCondition, DefinitionRulePriority, DefinitionScopedBinder, DefinitionSentence,
+    DefinitionSimplification, DefinitionSimplificationPriority, DefinitionSortRef, DefinitionTerm,
+    DefinitionValidationError, LabelId, LabelIdentity, ProductionGroupIdentity, ProductionItem,
+    ProductionSentence, RuleBodyRef, RuleSentence, SemanticConfiguration, SemanticModule,
+    SemanticProduction, SemanticSortRef, SemanticTerm, SemanticTermKind, SemanticTheory,
+    SemanticVariable, SubsortSentence, SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
     k_surface::{ImportPolicy, builtin_imports},
 };
 use sha2::{Digest, Sha256};
@@ -618,7 +618,8 @@ impl NamingPass {
                 )?;
                 pass.sorts.insert(
                     sort.id().clone(),
-                    SymbolIdentity::new(id, name, SymbolKind::Sort)?,
+                    SymbolIdentity::new(id, name, SymbolKind::Sort)?
+                        .with_declaration(declaration_path(sort.id())?),
                 );
             }
             for production in module.productions() {
@@ -670,9 +671,14 @@ impl NamingPass {
                     list_owners.insert(name.clone(), list);
                 }
                 production_displays.insert(name.clone(), display);
+                let symbol = SymbolIdentity::new(id, name, SymbolKind::Production)?;
                 pass.productions.insert(
                     production.id().clone(),
-                    SymbolIdentity::new(id, name, SymbolKind::Production)?,
+                    if production.id().is_generated_production() {
+                        symbol
+                    } else {
+                        symbol.with_declaration(declaration_path(production.id())?)
+                    },
                 );
             }
             if let Some(configuration) = module.configuration() {
@@ -1485,7 +1491,7 @@ fn lower_fixed_cells(
             })?;
             let origin = origins.lower(cell.origin(), "cell", None, Some(cell.id().as_str()))?;
             let attributes = lower_cell_attributes(cell.attributes(), origins)?;
-            match cell.content() {
+            let lowered = match cell.content() {
                 FixedCellContent::Term { sort } => FixedCell::leaf(
                     origin,
                     symbol,
@@ -1502,7 +1508,11 @@ fn lower_fixed_cells(
                     lower_fixed_cells(children, names, origins)?,
                 )
                 .map_err(state_shape_error),
-            }
+            }?;
+            Ok(match cell.field() {
+                Some(field) => lowered.with_field(field),
+                None => lowered,
+            })
         })
         .collect()
 }
@@ -3011,6 +3021,19 @@ fn qualified_variant_symbols(theory: &SemanticTheory) -> BTreeSet<StableItemId> 
 /// `display` prefixed with the item's Rust module path below the crate root
 /// (`first::Collision`), so a collision diagnostic tells apart two
 /// same-named declarations of one package in different modules.
+/// The KRS declaration path of an authored item: its crate, module path, and
+/// name, with an enum variant's enum before the variant.
+fn declaration_path(id: &StableItemId) -> Result<DeclarationPath, LoweringError> {
+    let crate_name = id.package().cargo_name().replace('-', "_");
+    let segments = id
+        .module_path()
+        .iter()
+        .map(String::as_str)
+        .chain(enum_family(id))
+        .chain([id.item_name()]);
+    Ok(DeclarationPath::new(crate_name, segments)?)
+}
+
 fn rust_item_path(id: &StableItemId, display: &str) -> String {
     id.module_path()
         .iter()
