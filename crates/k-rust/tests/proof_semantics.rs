@@ -326,6 +326,66 @@ fn a_power_no_integer_is_the_value_of_proves_nothing() {
     assert_eq!(status("NEGPOW-SPEC.minus-one"), "proven");
 }
 
+/// An opcode decoder in the shape of an instruction table: a literal row, a row guarded by bit
+/// ranges joined with `andThenBool`, and an `owise` row.
+const BIT_DECODE: &str = r#"
+module BITDEC
+  imports INT
+  imports BOOL
+  configuration <k> $PGM:Pgm </k>
+  syntax Pgm ::= decodeOf(Int)
+  syntax Instr ::= "halt" | "inc" Int | "unknown" Int
+  syntax Instr ::= decode(Int) [function, total]
+  rule decode(118) => halt
+  rule decode(Op) => inc bitRangeInt(Op, 3, 3)
+    requires Op >=Int 0 andThenBool Op <Int 256
+      andThenBool bitRangeInt(Op, 6, 2) ==Int 0 andThenBool bitRangeInt(Op, 0, 3) ==Int 4
+  rule decode(Op) => unknown Op [owise]
+  rule <k> decodeOf(Op) => decode(Op) ... </k>
+endmodule
+module BITDEC-SPEC
+  imports BITDEC
+  claim [inc-reordered]: <k> decodeOf(Op) => inc ?Y:Int ... </k>
+    requires bitRangeInt(Op, 0, 3) ==Int 4 andThenBool bitRangeInt(Op, 6, 2) ==Int 0
+      andThenBool Op >=Int 0 andThenBool Op <Int 256
+  claim [inc-arith]: <k> decodeOf(Op) => inc ?Y:Int ... </k>
+    requires Op >=Int 0 andBool Op <Int 64 andBool Op modInt 8 ==Int 4
+  claim [unknown-high]: <k> decodeOf(Op) => unknown Op ... </k> requires Op >=Int 256
+  claim [unknown-negative]: <k> decodeOf(Op) => unknown Op ... </k> requires Op <Int 0
+  claim [halt-or-inc]: <k> decodeOf(Op) => inc ?Y:Int ... </k> requires Op ==Int 118
+endmodule
+"#;
+
+/// Claims over a symbolic opcode decided by [`BIT_DECODE`]'s table. The guarded row applies
+/// where the claim states its guard in another order (its `andThenBool` conjuncts are facts
+/// one by one) and where the claim states it arithmetically (`bitRangeInt` and `>>Int` by
+/// literal amounts are integer division and remainder by powers of two to the solver). The
+/// `owise` row applies where the path condition refutes the literal row as well as the guard,
+/// above the table's range and below it. The literal row decides opcode 118, so `halt-or-inc`
+/// is not proven.
+#[test]
+fn a_symbolic_opcode_is_decided_by_bit_range_guards_and_literal_rows() {
+    let kore = compile(BIT_DECODE, "BITDEC-SPEC", "BITDEC");
+    let status = |claim: &str| {
+        prove(
+            &kore,
+            "BITDEC-SPEC",
+            &format!("BITDEC-SPEC.{claim}"),
+            ProveRequest::default(),
+        )
+        .status
+    };
+    let proven = [
+        "inc-reordered",
+        "inc-arith",
+        "unknown-high",
+        "unknown-negative",
+    ];
+    let statuses = proven.map(|claim| (claim, status(claim)));
+    assert_eq!(statuses, proven.map(|claim| (claim, "proven".to_owned())));
+    assert_ne!(status("halt-or-inc"), "proven");
+}
+
 /// `JUMPI` on `bool2Word(X <Int 0)` branches on the sign of `X`. The claim whose target `<pc>`
 /// is the `#if` of that condition is proven, with or without a lemma about `bool2Word`, and each
 /// claim that fixes one target `<pc>` fails on the other branch: `bool2Word` has no solver

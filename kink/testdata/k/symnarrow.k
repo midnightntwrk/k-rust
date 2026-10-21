@@ -30,6 +30,6 @@ module SYMNARROW
   rule [flag]:  seq(flag(true), P) => P
   rule [pick]:  seq(pick(0), P) => P
   rule [pickOwise]: seq(pick(_), _) => halt [owise]
-  // `A &Int 1` is 0 or 1, so no instance takes this rule.
-  rule [gate]:  seq(gate(A), P) => P requires A &Int 1 ==Int 2
+  // `A &Int 6` is even, so no instance takes this rule.
+  rule [gate]:  seq(gate(A), P) => P requires A &Int 6 ==Int 1
 endmodule

@@ -16459,7 +16459,7 @@ fn kprove_does_not_certify_a_stuck_leaf_from_an_uninterpreted_smtlib_model() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// `stay(X)` under `X &Int 1 ==Int 2` is empty, so it implies anything; `andInt` is an
+/// `stay(X)` under `X &Int 6 ==Int 1` is empty (`X &Int 6` is even), so it implies anything; `andInt` is an
 /// uninterpreted `smtlib` function, so the solver's `Sat` for it is no instance and the answer is
 /// `unknown`, never `invalid`. Under `X +Int 1 ==Int 2` the antecedent has the instance `X = 1`,
 /// so the refutations stay `invalid`.
@@ -16503,7 +16503,7 @@ fn kore_implies_reports_invalid_only_for_an_antecedent_shown_nonempty() {
         ("ant0", "bottom", "invalid", Some("Bottom")),
         // `A -> \not C` is invalid exactly when `A /\ C` is nonempty: `stay(1)` is common to
         // `ant0` and itself, `X +Int 1` is 2 and 3 on no shared `X`, and the solver's `Sat` for
-        // the uninterpreted `X &Int 1 ==Int 2` shows no common value.
+        // the uninterpreted `X &Int 6 ==Int 1` shows no common value.
         ("ant0", "not-ant0", "invalid", None),
         ("ant0", "not-con0", "valid", Some("Top")),
         ("ant", "not-ant", "unknown", None),
