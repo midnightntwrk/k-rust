@@ -1421,7 +1421,13 @@ fn syntaxvars_program() -> ProgramInput {
     program(
         "syntaxvars/go.pgm",
         SYNTAXVARS_PGM,
-        &[("LIB", "lib 2"), ("C", "circle(3)"), ("SHAPE", "square(4)")],
+        &[
+            ("LIB", "lib 2"),
+            ("LIB2", "lib2 loop ret 3"),
+            ("EXT", "ext arg 4"),
+            ("C", "circle(3)"),
+            ("SHAPE", "square(4)"),
+        ],
     )
 }
 
@@ -1441,6 +1447,27 @@ fn a_configuration_variable_read_with_the_syntax_module_is_program_syntax() {
     );
     assert_eq!(check("Circle", "C"), Ok(None));
     assert_eq!(check("Shape", "SHAPE"), Ok(None));
+    // `$LIB2` has no `parser` attribute, so the main module reads it; but `Lib2` is declared in
+    // the syntax module, so its values are terms of the program grammar whichever module reads
+    // them, and so are those of `Body`, which they contain (HARD-A review, S2).
+    assert_eq!(
+        check("Lib2", "LIB2"),
+        refused("Lib2", SortRefusal::ProgramSyntax)
+    );
+    assert_eq!(
+        check("Body", "LIB2"),
+        refused("Body", SortRefusal::ProgramSyntax)
+    );
+    // `$EXT` is read with a second grammar module its cell names: the sorts that grammar reaches
+    // from `Ext` are program syntax too.
+    assert_eq!(
+        check("Ext", "EXT"),
+        refused("Ext", SortRefusal::ProgramSyntax)
+    );
+    assert_eq!(
+        check("Arg", "EXT"),
+        refused("Arg", SortRefusal::ProgramSyntax)
+    );
     assert_eq!(
         check("Pgm", "C"),
         refused("Pgm", SortRefusal::ProgramSyntax)

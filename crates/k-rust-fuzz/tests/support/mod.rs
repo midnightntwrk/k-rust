@@ -605,6 +605,8 @@ fixture!(
     &[program!(
         "syntaxvars/go.pgm",
         "LIB" = "syntaxvars/go.lib",
+        "LIB2" = "syntaxvars/go.lib2",
+        "EXT" = "syntaxvars/go.ext",
         "C" = "syntaxvars/go.c",
         "SHAPE" = "syntaxvars/go.shape"
     )]

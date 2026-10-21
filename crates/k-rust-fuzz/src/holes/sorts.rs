@@ -180,15 +180,15 @@ impl SortRule {
         }
         declared.extend(cells.iter().cloned());
 
-        let seeds = closure_seeds(program, definition, &frontend)?;
-        let program_syntax = if seeds.is_empty() {
-            BTreeSet::new()
-        } else {
-            let syntax = frontend
-                .module_id(&definition.syntax_module)
-                .ok_or_else(|| missing(&definition.syntax_module))?;
-            program_syntax(&frontend.sentences(syntax), &seeds, &hooked)
-        };
+        // Each grammar module's closure is taken over its own productions.
+        let mut program_syntax_sorts = BTreeSet::new();
+        for (module, seeds) in closure_seeds(program, definition, &frontend, &hooked)? {
+            let id = frontend
+                .module_id(&module)
+                .ok_or_else(|| missing(&module))?;
+            program_syntax_sorts.extend(program_syntax(&frontend.sentences(id), &seeds, &hooked));
+        }
+        let program_syntax = program_syntax_sorts;
         Ok(Self {
             declared,
             hooked,
@@ -381,14 +381,34 @@ impl SortRule {
     }
 }
 
-/// The sorts the program-syntax closure starts from: the program's start sort (krun's
-/// `--sort`, or the declared sort of `$PGM` when the program has no text), and the declared
-/// sorts of the configuration variables read with the syntax module.
+/// The sorts the program-syntax closure starts from, grouped by the grammar module whose
+/// productions the closure follows from them:
+///
+/// - the program's start sort (krun's `--sort`, or the declared sort of `$PGM` when the program
+///   has no text), in the syntax module, which parses the program;
+/// - the declared sort of a configuration variable whose cell names a parser module other than
+///   the main module (`<lib parser="LIB, IMP-SYNTAX">`), in that module: a module chosen as the
+///   grammar of a binding is the grammar of program text, as the syntax module is for `$PGM`;
+/// - the declared sort of a configuration variable the main module parses (krun's default), in
+///   the syntax module, when the syntax module is not the main module and the sort is `K` or
+///   `KItem` or is declared among the syntax module's sentences. The terms of a sort that a text
+///   can denote are given by the sort's productions, whichever module parses it; a sort whose
+///   productions are in the syntax module, the grammar programs are written in, has programs as
+///   values (and `K` or `KItem` any term of that grammar). The data sorts a semantics declares
+///   for its inputs (`Tx`) are declared in the main module or other semantic modules, so they
+///   are not seeds.
+///
+/// When the syntax module is the main module (a one-module definition), every sort is declared
+/// there, so where a sort is declared says nothing about whether its values are programs: only
+/// the start sort and the variables a cell gives another grammar start the closure. Hooked
+/// sorts (`Int`, `String` for `$STDIN`, collections) are never seeds: their values are builtin
+/// data, and a collection's element sorts are checked on their own.
 fn closure_seeds(
     program: &ProgramInput,
     definition: &CompiledDefinition,
     frontend: &ResolvedDefinition,
-) -> Result<Vec<KastSort>, CampaignError> {
+    hooked: &BTreeMap<String, String>,
+) -> Result<BTreeMap<String, Vec<KastSort>>, CampaignError> {
     let start = match program {
         ProgramInput::Source(source) => match &source.program {
             Some(text) => Some(parse_sort(&text.start_sort).map_err(|error| {
@@ -400,18 +420,61 @@ fn closure_seeds(
         },
         ProgramInput::KoreTemplate(_) => definition.configuration_variables.get("PGM").cloned(),
     };
-    // A configuration variable whose cell names the syntax module as its parser
-    // (`<lib parser="LIB, IMP-SYNTAX">`) is read as the program is, so its declared sort
-    // starts the closure too. One read with the default parser, the main module, is not:
-    // that module also parses data, even where it is the syntax module itself.
-    let syntax_variables = parser_modules(frontend, &definition.main_module)
-        .map_err(|message| CampaignError::Definition {
+    let mut seeds = BTreeMap::<String, Vec<KastSort>>::new();
+    if let Some(start) = start {
+        seeds
+            .entry(definition.syntax_module.clone())
+            .or_default()
+            .push(start);
+    }
+    // krun's choice of the module that parses each binding: the cell's `parser` attribute, else
+    // the main module (`STRING-SYNTAX` for the `String` streams, which are hooked).
+    let parsers = parser_modules(frontend, &definition.main_module).map_err(|message| {
+        CampaignError::Definition {
             message: format!("the configuration's parser attributes: {message}"),
-        })?
-        .into_iter()
-        .filter(|(name, module)| name != "PGM" && *module == definition.syntax_module)
-        .filter_map(|(name, _)| definition.configuration_variables.get(&name).cloned());
-    Ok(start.into_iter().chain(syntax_variables).collect())
+        }
+    })?;
+    let separate_syntax = definition.syntax_module != definition.main_module;
+    let declared_in_syntax = if separate_syntax {
+        let syntax = frontend
+            .module_id(&definition.syntax_module)
+            .ok_or_else(|| CampaignError::Definition {
+                message: format!(
+                    "module `{}` is not in the definition",
+                    definition.syntax_module
+                ),
+            })?;
+        frontend
+            .sentences(syntax)
+            .into_iter()
+            .filter_map(|sentence| match sentence {
+                Sentence::Production { sort, .. } | Sentence::SyntaxSort { sort, .. } => {
+                    Some(sort.name.clone())
+                }
+                _ => None,
+            })
+            .collect::<BTreeSet<_>>()
+    } else {
+        BTreeSet::new()
+    };
+    let any_item = [BuiltinSort::K, BuiltinSort::KItem].map(BuiltinSort::k_name);
+    for (name, sort) in &definition.configuration_variables {
+        if name == "PGM" || hooked.contains_key(&sort.name) {
+            continue;
+        }
+        let module = match parsers.get(name) {
+            Some(module) if *module != definition.main_module => module.clone(),
+            _ if separate_syntax
+                && (any_item.contains(&sort.name.as_str())
+                    || declared_in_syntax.contains(&sort.name)) =>
+            {
+                definition.syntax_module.clone()
+            }
+            _ => continue,
+        };
+        seeds.entry(module).or_default().push(sort.clone());
+    }
+    Ok(seeds)
 }
 
 /// For each sort with an element production among `sentences` (one hooked `LIST.element`,
@@ -507,9 +570,8 @@ fn mentions(sort: &KastSort, parameters: &[KastSort]) -> bool {
             .any(|argument| mentions(argument, parameters))
 }
 
-/// The sorts programs are written in: those reachable from the `seeds` (the program's start
-/// sort and the sorts of the configuration variables read with the syntax module) through the
-/// productions of the syntax module (`sentences`), where a production of a reached sort reaches
+/// The sorts programs are written in: those reachable from the `seeds` ([`closure_seeds`])
+/// through the productions of one grammar module (`sentences`), where a production of a reached sort reaches
 /// the sorts of its non-terminals and a subsort declaration (`syntax AExp ::= Int`) is such a
 /// production.
 ///

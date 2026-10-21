@@ -390,12 +390,14 @@ pub(crate) fn resolve(
 /// Whether a hooked sort has a generator is [`crate::values::resolve_value_sort`]'s part of the
 /// rule.
 ///
-/// The sorts programs are written in are those reachable from the program's start sort (krun's
-/// `--sort`, or the declared sort of `$PGM` when the program has no text), and from the declared
-/// sorts of the configuration variables whose cells name the syntax module as their parser,
-/// through the productions of the syntax module. Every sort is a `KItem`, so when one of these
-/// sorts is `K` or `KItem` (or the closure reaches one of them) they are every non-hooked sort
-/// the syntax module declares.
+/// The sorts programs are written in are those reachable, through the productions of the
+/// syntax module, from the program's start sort (krun's `--sort`, or the declared sort of `$PGM`
+/// when the program has no text) and from the declared sort of every configuration variable
+/// whose sort's grammar is the program's: when the syntax module is not the main module, a
+/// variable of `K`, `KItem` or a sort declared in the syntax module. A variable whose cell names
+/// another parser module than the main module starts the same closure through that module's
+/// productions. Every sort is a `KItem`, so when one of these sorts is `K` or `KItem` (or the
+/// closure reaches one of them) they are every non-hooked sort its module declares.
 ///
 /// # Errors
 ///
