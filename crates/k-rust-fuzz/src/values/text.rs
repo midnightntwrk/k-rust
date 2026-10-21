@@ -175,6 +175,10 @@ impl TextSyntax {
     /// which happens when the grammar cannot tell the term from another (a nested infix term of
     /// a sort without a bracket production, an overloaded constructor whose more specific
     /// overload the parser prefers, two productions with the same syntax). Never a wrong text.
+    /// In a build without Z3 inference (`k_rust::Z3_INFERENCE`) a value holding a machine
+    /// integer is refused this way too: the frontend reads an `MInt` literal only by inferring
+    /// its parametric sort with Z3 (FZ-G6+09 review N4), so such a value's case is `rejected`
+    /// unless its hole is a KORE-template variable, which needs no text.
     pub(crate) fn print(&self, pattern: &KorePattern, sort: &str) -> Result<String, String> {
         let options = Options {
             mode: Mode::Program,

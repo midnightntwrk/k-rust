@@ -1357,3 +1357,67 @@ fn a_value_nested_too_deep_is_refused_without_exhausting_the_stack() {
         }
     }
 }
+
+/// FZ-G6+09 review N8: a builtin hooked under a second name without literal syntax of its own
+/// (`AInt`) has no domain values, so a hole of it is refused when the campaign is built
+/// (`NoGenerator`), not run case after case with a base literal that reads back at no sort it
+/// has. A renamed sort with its own literals (`MyInt`) prints a text that reads back as its
+/// value. A renamed sort whose literal syntax has another shape than its base's (a hexadecimal
+/// token over `INT.Int`) would print a base literal its grammar does not read; the per-case round
+/// trip refuses such a case (`rejected`), so no witness carries that text.
+#[test]
+fn a_renamed_sort_without_its_own_literals_is_refused() {
+    let definition = values();
+    let syntax = values_syntax();
+    assert_eq!(
+        resolve_value_sort("AInt", &none(), &definition.backend),
+        Err(SortRefusal::NoGenerator)
+    );
+    assert_eq!(
+        syntax.resolve("AInt", &none(), &definition.backend),
+        Err(SortRefusal::NoGenerator)
+    );
+    let my_int = resolve_value_sort("MyInt", &none(), &definition.backend).unwrap();
+    let value = int(5);
+    assert_eq!(
+        syntax.parse(&print_k_text(&value, &my_int).unwrap(), "MyInt"),
+        to_kore(&value, &my_int).map_err(|error| format!("{error:?}"))
+    );
+}
+
+/// FZ-G6+09 review N4: the frontend reads a machine-integer literal (`w8(200p8)`) only with
+/// Z3's inference of the parametric sort `MInt{8}`. Without it, printing such a data value
+/// refuses (`Z3InferenceRequired`) rather than return a text that does not read back, so a span
+/// or configuration-variable case of it is `rejected` (`print`); its KORE needs no frontend, so
+/// a KORE-template hole of the sort runs in every build. With Z3 the text reads back.
+#[test]
+fn a_machine_integer_inside_a_data_value_prints_only_with_z3_inference() {
+    let definition = values();
+    let syntax = values_syntax();
+    let word = resolve(definition, &syntax, "Word", &none());
+    let value = Value::Apply {
+        symbol: "Lblw8".into(),
+        arguments: vec![Value::MInt {
+            width: 8,
+            value: BigUint::from(200u32),
+        }],
+    };
+    let kore = to_kore(&value, &word).expect("the KORE needs no frontend");
+    match print_k_text(&value, &word) {
+        Ok(text) => {
+            assert!(
+                k_rust::Z3_INFERENCE,
+                "`{text}` printed without Z3 inference"
+            );
+            assert_eq!(parse_k_text(&text, &word), Ok(value));
+        }
+        Err(error) => {
+            assert!(!k_rust::Z3_INFERENCE, "{error:?}");
+            assert!(
+                format!("{error:?}").contains("Z3InferenceRequired"),
+                "{error:?}"
+            );
+        }
+    }
+    assert!(matches!(kore, Pattern::Application { .. }));
+}
