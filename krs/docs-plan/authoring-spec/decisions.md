@@ -421,6 +421,44 @@ bug — report it, don't guess.
   purpose; it is KRS-only (lowering drops it before K) and warns when the
   equations cover every argument after all
   (`krs::analysis::stale-underspecified`).
+- **E11 — `k::bits!` templates are `Int` patterns, pure sugar** (2026-10,
+  SM83 feedback, `draft-personal/krs-sm83-feedback/designs/bit-patterns.md`).
+  `k::bits!("00 yyy 100")` stands in an `Int` argument of a rule's,
+  equation's, or table row's left-hand side, never in a result, a guard, a
+  cell pattern, a context, or an alternative of `|`. A template is a string
+  because Rust's lexer rejects `0b00yyy100`. Its characters are `0`/`1`
+  (fixed), `_` (either), a lowercase letter (a field bit), and spaces
+  (groups); its width is its number of bits. It matches exactly the
+  integers `0 <= n < 2^width` whose fixed bits are as written, and a field,
+  whose bits must be adjacent (a scattered field would need an assembly
+  order the template cannot state), names `bitRangeInt(n, offset,
+  length)`. The long form, written into the sentence before it is parsed:
+  the template becomes a variable, `op` for `op @ k::bits!(..)` and
+  otherwise a hidden binder holding the reserved marker, which no author
+  can write, shadow, or collide with; the `requires` gains, after any
+  authored condition, `n >= 0 && n < 2^width` and one `bitRangeInt(n, o,
+  l) == v` per maximal run of fixed bits within a space-separated group
+  (so templates written on one grid test the same terms, which a
+  backend's simplifier or solver can refute by value); each field
+  occurrence becomes `n.bit_range::<Int>(o, l)`; and a template without
+  free bits is its decimal literal. A field letter that is also a binder,
+  a field of another template, or rebound by a `let` or `k::matches!` is
+  `krs::syntax::bit-field-collision`; a malformed template is
+  `krs::syntax::invalid-bit-template`; a misplaced one, or an unnamed one
+  in a sentence that lists its binders, is
+  `krs::syntax::bit-template-position`. In a table, two rows that match one
+  argument with templates of different widths are
+  `krs::syntax::bit-template-width-mismatch`, and E9's duplicate-row check
+  reads literals and templates as sets: two rows without an authored
+  `requires` at one priority whose sets meet in every argument are
+  `krs::syntax::duplicate-equation-row`, with a common argument. The
+  overlap check reads the guards as F2 clause 4's Int facts. No IR change.
+  `krs expand` prints the long form and names a hidden binder `bits` (or a
+  fresh variant) there. Rejected: a structured template in the IR (the
+  sugar and its long form would be checked differently), a guard spelled
+  as one `&Int` mask (different masks are unrelated terms, so neither a
+  simplifier nor a solver refutes two of them), and expansion into one
+  literal equation per value (exponential in the free bits).
 
 ## F. Tooling (co-deliverables, not afterthoughts)
 
@@ -480,7 +518,22 @@ bug — report it, don't guess.
      1.21, which therefore needs no `nondet` group). Int literals outside the
      128-bit range, Float literals and arithmetic operands are not evaluated
      (decided 2026-10-10; extended to the catalog's relations 2026-10-20,
-     CS-11-3). Any other guard pair, including a disjoint but
+     CS-11-3). Since 2026-10-21 (SM83 feedback, bit templates, E11) ground
+     evaluation also computes the builtin Int operations `+`, `-`, `*`,
+     `&Int`, `>>Int` by a non-negative amount, `divInt` and `modInt` by a
+     non-zero divisor, and `bitRangeInt` with a non-negative index and
+     length on literals within 128 bits, and the conjuncts of both guards
+     are read as *Int facts* about terms: `bitRangeInt(t, o, l) ==Int v` and
+     `t &Int m ==Int v` (literal `o`, `l`, `m`, `v`) fix bits of `t`'s two's
+     complement, `t ==Int c` fixes its value, and `c <=Int t`, `t <Int c`
+     and their converses bound it. Two guards separate their rules when the
+     facts about one term (terms compared after the substitution) cannot all
+     hold: a bit both 0 and 1, two values, a value against a bit or bound,
+     an empty interval, or a non-negative term below a bound its known one
+     bits exceed. Each fact is implied by its conjunct, so this is sound;
+     an unrecognized conjunct states nothing. It keeps `k::bits!` templates
+     that differ in a fixed bit disjoint, and their hand-written guards
+     equally. Any other guard pair, including a disjoint but
      non-complementary one such as `int::lt` against `int::gt` on the same
      operands, is treated as possibly overlapping.
   5. *Disjoint footprints* are independent, because the rules commute

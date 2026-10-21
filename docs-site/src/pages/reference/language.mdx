@@ -334,11 +334,62 @@ The table's `use` items are in scope for its rows only, and rustc resolves every
 
 Rows are unordered, like every set of equations: a row never wins by its position, and the label, not the position, is the equation's identity, so reordering rows changes nothing.
 Two consequences are checked at once.
-Two rows without `requires` at one priority whose arguments are the same literals would state that one application equals two results, or repeat one equation (`krs::syntax::duplicate-equation-row`).
+Two rows without `requires` at one priority whose arguments are the same literals, or literals and [bit templates](#bit-templates) that share a value, would state that one application equals two results, or repeat one equation (`krs::syntax::duplicate-equation-row`).
 A row whose arguments are all `_` matches every application, so beside other rows at its priority it needs `#[k::equation(owise)]` (`krs::syntax::catch-all-equation-row`).
 A bare name in a row's pattern is a binder, as in every KRS pattern, so a unit variant is written `A()` or `Register::A`; where the table's `use` items or the module make a bare name a unit variant or a constant, which Rust would read as that constant, rustc rejects the row (``E0308 mismatched types`` at the name) instead of letting it bind everything.
 The header must name a function (rustc's ``E0277 `Seven` is not a non-parametric `#[k::function]` ``), and a row's argument count must be the function's (rustc's ``E0308 expected a tuple with 2 elements``).
 A table's index is always written, never taken from the order of an enum's variants: variant order is presentation, and reordering source must not change a definition.
+
+### Bit templates
+
+`k::bits!("00 yyy 100")` is a pattern of sort `Int` written as its bits, for decoding instruction words and other bit fields:
+
+```rust
+k::equations! {
+    for Decode;
+    use Instruction::*;
+    decode_nop   : 0                           => Nop;
+    decode_jr_cc : k::bits!("00 1cc 000")      => Jr(c);
+    decode_inc_r : k::bits!("00 yyy 100")      => Inc(crate::R8(y));
+    decode_halt  : k::bits!("01 110 110")      => Halt;
+    #[k::requires(op.ne::<Int>(118))]
+    decode_ld_r_r: op @ k::bits!("01 yyy zzz") => Ld(crate::R8(y), crate::R8(z));
+    #[k::equation(owise)]
+    decode_other : opcode                      => Unknown(opcode);
+}
+```
+
+The template is a string because Rust's lexer rejects `0b00yyy100`.
+Its characters are read most significant bit first: `0` and `1` are fixed bits, `_` is a bit that may be either, a lowercase letter is a bit of the field it names, and spaces separate groups and are not bits.
+The width is the number of bits, here 8, and a template matches exactly the integers `n` with `0 <= n < 2^width` whose fixed bits are as written, so `decodeOf(4)` is `inc rb` while `decodeOf(260)`, whose low 8 bits are those of `4`, and `decodeOf(-252)` fall to the `owise` row.
+A field names that part of the matched value, `bitRangeInt(n, offset, length)`, in the sentence's `requires` and result: `y` above is bits 5 to 3.
+A field's bits must be adjacent (``field `a` is split``), because a scattered field would need an order to assemble its parts that the template cannot state; name each part with its own letter and combine them in the result.
+`op @ k::bits!(..)` also binds the whole value; otherwise the value has no name an author can write.
+
+A template is sugar, and `krs expand` prints its long form.
+`decode_inc_r` above is the equation
+
+```rust
+#[k::requires(
+    bits.ge::<Int>(0) && bits.lt::<Int>(256)
+        && bits.bit_range::<Int>(6, 2).eq::<Int>(0)
+        && bits.bit_range::<Int>(0, 3).eq::<Int>(4)
+)]
+#[k::equation]
+fn decode_inc_r(k::term![Decode(bits)]: Term<Instr>) -> Term<Instr> {
+    Instruction::Inc(crate::R8(bits.bit_range::<Int>(3, 3)))
+}
+```
+
+that is: the template becomes a variable, the `requires` gains the range and one `bitRangeInt` equality per run of fixed bits within a group, after any condition the row already has, and each field becomes its bit range.
+K emits `rule decode ( Krs_Bits0:Int ) => inc r8 ( bitRangeInt(Krs_Bits0:Int, 3, 3) ) requires .. andThenBool ((bitRangeInt(Krs_Bits0:Int, 0, 3)) ==Int 4)`: the value's variable is a generated one, which no binder of yours can collide with or shadow, and `krs expand` names it `bits` (or a fresh variant).
+A template without `_` or fields is its decimal literal, `decode_halt` above is the row `118 => Halt`, so it is matched as a literal, without a guard.
+Splitting runs at spaces keeps the guards of templates written on one grid (`xx yyy zzz`) on the same terms, so templates that differ in a fixed bit compare equal terms with different values: the rule-overlap check, which reads such guards as facts about the bits of a term, keeps `kindOf(k::bits!("0___ ____"))` and `kindOf(k::bits!("1___ ____"))` apart, and reads the same guards written by hand alike.
+
+A template stands in an `Int` argument of a rule's, an equation's, or a table row's left-hand side.
+In a result, a guard, a `cells!` cell pattern, a context, or an alternative of `|` it is rejected (`krs::syntax::bit-template-position`), as is an unnamed template in a sentence that lists its binders, whose value must be named to be listed.
+A character that is no bit, an empty template, more than 128 bits, and a split field are `krs::syntax::invalid-bit-template`; a field letter that is also a binder of the sentence, a field of another template, or a name a `let` or `k::matches!` binds again is `krs::syntax::bit-field-collision`.
+In a table, two rows that match one argument with templates of different widths are `krs::syntax::bit-template-width-mismatch`, a missing or extra bit being the likely cause, and two rows without an authored `requires` whose templates and literals share a value are `krs::syntax::duplicate-equation-row`, naming the arguments both apply to.
 
 ### Sort-parametric productions
 
