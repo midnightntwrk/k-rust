@@ -192,9 +192,6 @@ pub fn expand_reference_source(
     semantic: &SemanticTheory,
 ) -> Result<String, ReferenceExpansionError> {
     let mut file = syn::parse_file(source).map_err(ReferenceExpansionError::RustSyntax)?;
-    // The long forms of `k::bits!` templates hold hidden binders until
-    // `rename_hidden_binders` names them.
-    let _hidden = krs_syntax::HiddenBinderReading::start();
     let descriptor_index = DescriptorIndex::new(bundle);
     let macro_entries = reference_macro_entries(&file, facade);
     let semantic_rules = semantic
@@ -1586,9 +1583,20 @@ fn render_rule(
     // the readable record (map reads first), so the order is read back from
     // the rendered subject.
     let subject = quote!(#(#left_cells,)* #state @ ..);
-    let order = krs_syntax::parse_cells_pattern(subject.clone())
+    // A `k::bits!` template's hidden binder is no authored binder, so the
+    // subject is read back with it renamed, and the names mapped back.
+    let (readable, renamed) = rename_hidden_tokens(subject.clone());
+    let order = krs_syntax::parse_cells_pattern(readable)
         .and_then(|cells| krs_syntax::cells_pattern_term_binders(&cells))
-        .map_err(ReferenceExpansionError::KrsSyntax)?;
+        .map_err(ReferenceExpansionError::KrsSyntax)?
+        .into_iter()
+        .map(|binder| {
+            renamed
+                .iter()
+                .find(|(_, fresh)| **fresh == binder)
+                .map_or(binder, |(hidden, fresh)| Ident::new(hidden, fresh.span()))
+        })
+        .collect::<Vec<_>>();
     let position = |name: &str| {
         order
             .iter()
@@ -2330,6 +2338,16 @@ fn render_facade_marker(marker: FacadeMarker) -> TokenStream {
 /// author may write, `bits`, `bits1`, .. in the order of their ordinals,
 /// skipping every identifier the item already spells.
 fn rename_hidden_binders(item: &mut syn::Item) -> Result<(), ReferenceExpansionError> {
+    let (tokens, renamed) = rename_hidden_tokens(item.to_token_stream());
+    if !renamed.is_empty() {
+        *item = syn::parse2(tokens).map_err(ReferenceExpansionError::GeneratedRust)?;
+    }
+    Ok(())
+}
+
+/// `tokens` with each hidden template binder renamed as
+/// [`rename_hidden_binders`] does, and the renaming.
+fn rename_hidden_tokens(tokens: TokenStream) -> (TokenStream, BTreeMap<String, Ident>) {
     fn identifiers(tokens: TokenStream, names: &mut BTreeSet<String>) {
         for token in tokens {
             match token {
@@ -2360,7 +2378,6 @@ fn rename_hidden_binders(item: &mut syn::Item) -> Result<(), ReferenceExpansionE
             })
             .collect()
     }
-    let tokens = item.to_token_stream();
     let mut spelled = BTreeSet::new();
     identifiers(tokens.clone(), &mut spelled);
     let mut hidden = spelled
@@ -2369,7 +2386,7 @@ fn rename_hidden_binders(item: &mut syn::Item) -> Result<(), ReferenceExpansionE
         .cloned()
         .collect::<Vec<_>>();
     if hidden.is_empty() {
-        return Ok(());
+        return (tokens, BTreeMap::new());
     }
     hidden.sort_by_key(|name| {
         name.trim_start_matches(|character: char| !character.is_ascii_digit())
@@ -2383,8 +2400,7 @@ fn rename_hidden_binders(item: &mut syn::Item) -> Result<(), ReferenceExpansionE
             (name, fresh)
         })
         .collect::<BTreeMap<_, _>>();
-    *item = syn::parse2(rename(tokens, &names)).map_err(ReferenceExpansionError::GeneratedRust)?;
-    Ok(())
+    (rename(tokens, &names), names)
 }
 
 fn fresh_ident(base: &str, reserved: &mut BTreeSet<String>) -> Ident {

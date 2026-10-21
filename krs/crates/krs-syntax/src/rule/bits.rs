@@ -9,10 +9,9 @@
 //! - the template becomes a variable: the alias of `op @ k::bits!(..)`, or a
 //!   hidden generated binder authors cannot write (it holds the reserved
 //!   marker); a template without free bits becomes its decimal literal;
-//! - the sentence's `requires` gains, after any authored condition (which
-//!   precedes the parameters in the source, so the condition's tokens stay in
-//!   source order), `X >= 0 && X < 2^w` and one `bit_range(X, o, l) == v` per
-//!   maximal run of fixed bits, most significant first;
+//! - the sentence's `requires` gains, before any authored condition,
+//!   `X >= 0 && X < 2^w` and one `bit_range(X, o, l) == v` per maximal run of
+//!   fixed bits within a space-separated group, most significant first;
 //! - every field occurrence in the `requires`, `ensures`, and result becomes
 //!   `X.bit_range::<Int>(o, l)`.
 //!
@@ -210,8 +209,10 @@ impl BitTemplate {
 
     /// The template's guard on `binder`: the range, then one equality per
     /// fixed run, most significant first.
-    fn guard(&self, binder: &Ident) -> TokenStream {
-        let span = self.span;
+    /// Every token of the guard carries `span`, so the guard's provenance
+    /// range lies where the sentence's condition starts (see [`desugar`]).
+    fn guard(&self, binder: &Ident, span: Span) -> TokenStream {
+        let binder = Ident::new(&binder.to_string(), span);
         let bound = LitInt::new(&power_of_two(self.width), span);
         let zero = LitInt::new("0", span);
         let mut guard = quote_spanned! {span=>
@@ -311,16 +312,13 @@ thread_local! {
     static GENERATED: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
 }
 
-thread_local! {
-    /// Whether every hidden-binder spelling is accepted, while a reference
-    /// rendering reads generated long forms back (see [`HiddenBinderReading`]).
-    static READING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-}
-
 /// Whether `spelling` is a hidden binder of the item being parsed.
+///
+/// The exemption is by origin: [`desugar`] rejects every authored identifier
+/// with the hidden prefix before it rewrites the item, so a listed spelling
+/// that occurs in the rewritten item was inserted by the rewrite.
 pub(crate) fn is_generated_binder(spelling: &str) -> bool {
     GENERATED.with(|generated| generated.borrow().iter().any(|name| name == spelling))
-        || (READING.with(std::cell::Cell::get) && is_hidden_binder(spelling))
 }
 
 /// Whether `spelling` is a hidden template binder's spelling.
@@ -331,29 +329,6 @@ pub fn is_hidden_binder(spelling: &str) -> bool {
         .is_some_and(|ordinal| {
             !ordinal.is_empty() && ordinal.bytes().all(|byte| byte.is_ascii_digit())
         })
-}
-
-/// While alive, the parsers on this thread accept hidden template binders:
-/// a reference rendering (`krs expand`) reads back long forms that hold them
-/// before it renames them to names an author may write.
-pub struct HiddenBinderReading {
-    previous: bool,
-}
-
-impl HiddenBinderReading {
-    /// Starts accepting hidden binders until the guard drops.
-    #[must_use]
-    pub fn start() -> Self {
-        Self {
-            previous: READING.with(|reading| reading.replace(true)),
-        }
-    }
-}
-
-impl Drop for HiddenBinderReading {
-    fn drop(&mut self) {
-        READING.with(|reading| reading.set(self.previous));
-    }
 }
 
 /// While alive, lets the item's hidden binders through binder validation.
@@ -452,13 +427,47 @@ pub(crate) fn desugar(
     if let Some(error) = substitution.error {
         return Err(error);
     }
+    insert_guard(item, &occurrences, requires);
+    Ok(Some(
+        occurrences
+            .iter()
+            .filter(|occurrence| occurrence.hidden)
+            .map(|occurrence| occurrence.binder.to_string())
+            .collect(),
+    ))
+}
+
+/// Puts the templates' guards into the item's `requires`, before the
+/// authored condition at attribute `requires`, if any.
+fn insert_guard(item: &mut ItemFn, occurrences: &[Occurrence], requires: Option<usize>) {
+    // The guard precedes an authored condition: a template is part of the
+    // pattern, matched before any guard, and `&&` (K's `andThenBool`)
+    // evaluates left to right, so an authored condition that is defined only
+    // on the template's values is never evaluated outside them. Provenance
+    // ranges run forward through the source, and the authored condition
+    // precedes the parameters, so the guard's tokens take the span of the
+    // condition's first token; without a condition they take the template's.
+    let span = requires
+        .and_then(|index| match &item.attrs[index].meta {
+            syn::Meta::List(list) => list
+                .tokens
+                .clone()
+                .into_iter()
+                .next()
+                .map(|token| token.span()),
+            _ => None,
+        })
+        .unwrap_or_else(|| {
+            occurrences
+                .first()
+                .map_or_else(Span::call_site, |occurrence| occurrence.template.span)
+        });
     let guards = occurrences
         .iter()
         .filter(|occurrence| occurrence.template.literal().is_none())
-        .map(|occurrence| occurrence.template.guard(&occurrence.binder))
+        .map(|occurrence| occurrence.template.guard(&occurrence.binder, span))
         .collect::<Vec<_>>();
     if !guards.is_empty() {
-        let span = occurrences[0].template.span;
         let mut guard = TokenStream::new();
         for (index, part) in guards.into_iter().enumerate() {
             if index > 0 {
@@ -477,7 +486,7 @@ pub(crate) fn desugar(
             } else {
                 authored.to_token_stream()
             };
-            list.tokens = quote_spanned!(span=> #authored && #guard);
+            list.tokens = quote_spanned!(span=> #guard && #authored);
         } else {
             let attribute: Attribute = syn::parse_quote_spanned!(span=> #[k::requires(#guard)]);
             let position = item
@@ -488,13 +497,6 @@ pub(crate) fn desugar(
             item.attrs.insert(position, attribute);
         }
     }
-    Ok(Some(
-        occurrences
-            .iter()
-            .filter(|occurrence| occurrence.hidden)
-            .map(|occurrence| occurrence.binder.to_string())
-            .collect(),
-    ))
 }
 
 /// Whether `expression` must be parenthesized as the right operand of `&&`.
@@ -1066,12 +1068,12 @@ mod tests {
     }
 
     #[test]
-    fn an_alias_names_the_value_and_the_guard_follows_an_authored_condition() {
+    fn an_alias_names_the_value_and_the_guard_precedes_an_authored_condition() {
         let (long, hidden) = desugar(
             "#[k::requires(op.ne::<Int>(118) || flag)] fn r(Decode(op @ k::bits!(\"01 yyy zz_\"), flag): Instr) -> Instr { Ld { dst: y, z } }",
         );
         assert_eq!(hidden, Some(Vec::new()));
-        assert!(long.starts_with("# [k :: requires ((op . ne :: < Int > (118) || flag) && op . ge :: < Int > (0) && op . lt :: < Int > (256) && op . bit_range :: < Int > (6 , 2) . eq :: < Int > (1))]"), "{long}");
+        assert!(long.starts_with("# [k :: requires (op . ge :: < Int > (0) && op . lt :: < Int > (256) && op . bit_range :: < Int > (6 , 2) . eq :: < Int > (1) && (op . ne :: < Int > (118) || flag))]"), "{long}");
         assert!(long.contains("Decode (op , flag)"), "{long}");
         assert!(long.contains("Ld { dst : op . bit_range :: < Int > (3 , 3) , z : op . bit_range :: < Int > (1 , 2) }"), "{long}");
     }

@@ -381,7 +381,8 @@ fn decode_inc_r(k::term![Decode(bits)]: Term<Instr>) -> Term<Instr> {
 }
 ```
 
-that is: the template becomes a variable, the `requires` gains the range and one `bitRangeInt` equality per run of fixed bits within a group, after any condition the row already has, and each field becomes its bit range.
+that is: the template becomes a variable, the `requires` gains the range and one `bitRangeInt` equality per run of fixed bits within a group, before any condition the row already has, and each field becomes its bit range.
+The template's guard comes first because the template is part of the pattern: `&&` evaluates left to right, so a condition of yours is evaluated only on values the template matches, and a function it calls that is defined only there is never applied outside them.
 K emits `rule decode ( Krs_Bits0:Int ) => inc r8 ( bitRangeInt(Krs_Bits0:Int, 3, 3) ) requires .. andThenBool ((bitRangeInt(Krs_Bits0:Int, 0, 3)) ==Int 4)`: the value's variable is a generated one, which no binder of yours can collide with or shadow, and `krs expand` names it `bits` (or a fresh variant).
 A template without `_` or fields is its decimal literal, `decode_halt` above is the row `118 => Halt`, so it is matched as a literal, without a guard.
 Splitting runs at spaces keeps the guards of templates written on one grid (`xx yyy zzz`) on the same terms, so templates that differ in a fixed bit compare equal terms with different values: the rule-overlap check, which reads such guards as facts about the bits of a term, keeps `kindOf(k::bits!("0___ ____"))` and `kindOf(k::bits!("1___ ____"))` apart, and reads the same guards written by hand alike.

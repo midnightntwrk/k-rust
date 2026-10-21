@@ -435,11 +435,15 @@ bug — report it, don't guess.
   length)`. The long form, written into the sentence before it is parsed:
   the template becomes a variable, `op` for `op @ k::bits!(..)` and
   otherwise a hidden binder holding the reserved marker, which no author
-  can write, shadow, or collide with; the `requires` gains, after any
-  authored condition, `n >= 0 && n < 2^width` and one `bitRangeInt(n, o,
-  l) == v` per maximal run of fixed bits within a space-separated group
-  (so templates written on one grid test the same terms, which a
-  backend's simplifier or solver can refute by value); each field
+  can write, shadow, or collide with (authored identifiers with the hidden
+  prefix are rejected before the rewrite, and only the binders the rewrite
+  inserts are exempt from the reserved-marker check); the `requires`
+  gains, before any authored condition (the template is part of the
+  pattern, and `&&` evaluates left to right, so an authored condition is
+  never evaluated outside the template's values), `n >= 0 && n <
+  2^width` and one `bitRangeInt(n, o, l) == v` per maximal run of fixed
+  bits within a space-separated group (so templates written on one grid
+  test the same terms); each field
   occurrence becomes `n.bit_range::<Int>(o, l)`; and a template without
   free bits is its decimal literal. A field letter that is also a binder,
   a field of another template, or rebound by a `let` or `k::matches!` is

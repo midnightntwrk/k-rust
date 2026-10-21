@@ -7,7 +7,7 @@ mod item;
 mod machine;
 mod pattern;
 
-pub use bits::{HiddenBinderReading, desugar_bit_templates, is_hidden_binder};
+pub use bits::{desugar_bit_templates, is_hidden_binder};
 pub(crate) use bits::{is_bits_macro, is_generated_binder, misplaced as misplaced_bit_template};
 pub use block::{
     BracketAlternative, ReadableStateCounters, RuleBlock, RuleClause, RuleClauseLayout,

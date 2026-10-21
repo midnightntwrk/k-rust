@@ -161,10 +161,10 @@ fn decode_dec_r(k::term![Decode(op)]: Term<Instr>) -> Term<Instr> {
 }
 
 #[k::requires(
-    op.ne::<Int>(118)
-        && op.ge::<Int>(0)
+    op.ge::<Int>(0)
         && op.lt::<Int>(256)
         && op.bit_range::<Int>(6, 2).eq::<Int>(1)
+        && op.ne::<Int>(118)
 )]
 #[k::equation]
 fn decode_ld_r_r(k::term![Decode(op)]: Term<Instr>) -> Term<Instr> {
