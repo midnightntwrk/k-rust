@@ -80,7 +80,7 @@ It assembles and round-trip-checks the program with its anchor values, and retur
 
 `Campaign::run` runs cases on the calling thread until the budget (`Budget::Cases` or `Budget::Work`) is spent, a witness is confirmed and shrunk, the rejection cap is reached, or the `CancellationToken` is cancelled.
 The explicit proposer tries the anchors first, then the author's assignments; the other proposers are mixed by a deterministic schedule seeded from the campaign seed.
-This build provides blind generation (`ProposerKind::Blind`); `Campaign::new` refuses a proposer the build does not provide.
+This build provides blind generation (`ProposerKind::Blind`) and the dictionary (`ProposerKind::Dictionary`): guard harvesting, which draws each hole, with probability 1/2, from the literals of the guards and left-hand sides of the target and of the rules at most two rule-graph edges before it, of the equations their guards call, and of the higher-priority rules an `owise` rule competes with, plus or minus 1 to 3 and negated (ARCHITECTURE 8.3; the rustdoc of `proposers::dictionary`). `Campaign::new` refuses a proposer the build does not provide.
 A candidate hit becomes a witness only after a confirmation on a fresh backend agrees.
 Each run starts from fresh proposer state, so a second run reports exactly what a fresh campaign with the same spec and budget reports.
 The `FuzzReport` (`to_canonical_json` gives its canonical bytes) is a function of the definitions, program, holes, target, options, budget, seed, the k-rust revision and `ENGINE_VERSION`.

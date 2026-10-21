@@ -83,6 +83,7 @@ fn detail(values: &[Value], state: &str) -> HitDetail {
         reaching: Reaching {
             role: DefinitionRole::Baseline,
             leaf: Some(0),
+            step: None,
         },
         kill: None,
         steps: Some(3),
@@ -235,6 +236,7 @@ fn identity() -> ReportIdentity {
         budget: Budget::Cases(0),
         thread_stack_size: None,
         solver: "none".into(),
+        dictionary: None,
     }
 }
 

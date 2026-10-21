@@ -391,6 +391,27 @@ pub const MAX_DEPTH: u32 = 16;
 /// collections hold strings.
 pub const MAX_VALUE_SIZE: u128 = 1 << 17;
 
+/// The deepest value read back from KORE ([`print::parse_k_text`], the anchors) or checked
+/// against its sort ([`check_constraints`]): the number of values on its longest path from the
+/// value down (a builtin is 1 level, `leaf(0)` 2, a collection one more than its deepest
+/// element). Both recurse once per level, and an anchor written by hand can be nested to any
+/// depth, which the frontend reads, so a deeper value is refused rather than allowed to exhaust
+/// the stack (FZ-G6+09 review N8).
+///
+/// 1024 levels leave room for the deepest data written by hand: a K user list
+/// (`List{Int, ","}`) or another cons list nests one level per item, so an anchor of a thousand
+/// items fits, as do records nested far deeper than any hand-written one; generated values are at
+/// most a collection level, [`MAX_DEPTH`] constructor levels and a builtin leaf.
+///
+/// A campaign over an anchor at this depth (resolution, round trip, the case, its confirmation
+/// and its report) runs on a 2 MiB thread, the size of a test thread: it needs about 1.3 MiB in
+/// the test profile, measured (HARD-B round 3). A report carries every admitted value and reads
+/// it back: [`crate::FuzzReport`] writes and reads its JSON on a stack that grows on the heap.
+/// WebAssembly has a 1 MiB stack that cannot grow: there a value this deep may exhaust it, which
+/// traps (the stack lies below every other datum), and a report holding a value deeper than about
+/// 40 levels is refused by [`crate::FuzzReport::from_json`] with an error.
+pub const MAX_VALUE_DEPTH: usize = 1024;
+
 /// Check `bounds` against [`MAX_INT_BITS`], [`MAX_GENERATED_LENGTH`] and [`MAX_DEPTH`].
 /// [`Generator::new`] calls it.
 ///
@@ -462,8 +483,9 @@ impl Default for GenerationBounds {
 ///   `MINT.MInt` sort without a width), a parametric data sort, and a data sort of which no value
 ///   can be built from admissible constructors and inhabited argument sorts;
 /// - [`SortRefusal::Collection`]: a collection without element sorts, with element sorts of the
-///   wrong shape, with an element sort that does not resolve, or whose sort lacks one of its
-///   three symbols.
+///   wrong shape, or whose sort lacks one of its three symbols;
+/// - [`SortRefusal::ElementRefused`]: a collection whose element, key or value sort is refused,
+///   with that sort's own refusal.
 pub(crate) fn resolve_value_sort(
     sort: &str,
     constraints: &Constraints,
@@ -544,10 +566,14 @@ fn resolve_collection(
     definition: &BackendDefinition,
     text: Option<&TextSyntax>,
 ) -> Result<ValueSort, SortRefusal> {
+    // A refused element sort refuses the collection with its own reason (FZ-G6+09 review N7).
     let element = |sort: &str| {
         resolve_with(sort, &Constraints::default(), definition, text)
             .map(Box::new)
-            .map_err(|_| SortRefusal::Collection)
+            .map_err(|reason| SortRefusal::ElementRefused {
+                element: sort.to_owned(),
+                reason: Box::new(reason),
+            })
     };
     let namespace = hook
         .split_once('.')
@@ -802,8 +828,27 @@ pub(crate) fn check_constraints(
     Ok(())
 }
 
-/// Check that `value` is a value of `sort`.
+/// Check that `value` is a value of `sort`, nested at most [`MAX_VALUE_DEPTH`] levels deep.
 pub(crate) fn check_shape(value: &Value, sort: &ValueSort) -> Result<(), String> {
+    check_shape_at(value, sort, 0)
+}
+
+/// The level below `level`, or a message when a value at `level` would be deeper than
+/// [`MAX_VALUE_DEPTH`] (the check recurses once per level).
+fn deeper(level: usize) -> Result<usize, String> {
+    if level >= MAX_VALUE_DEPTH {
+        Err(format!(
+            "the value is nested deeper than {MAX_VALUE_DEPTH} levels, the most a checked value \
+             may have"
+        ))
+    } else {
+        Ok(level + 1)
+    }
+}
+
+/// [`check_shape`] for a value at `level` levels below the value checked.
+fn check_shape_at(value: &Value, sort: &ValueSort, level: usize) -> Result<(), String> {
+    let below = deeper(level)?;
     match (value, sort.generated()) {
         (Value::Int(_), ValueSort::Int)
         | (Value::Bool(_), ValueSort::Bool)
@@ -828,22 +873,29 @@ pub(crate) fn check_shape(value: &Value, sort: &ValueSort) -> Result<(), String>
             }
         }
         (Value::List(items), ValueSort::List { element, .. }) => {
-            items.iter().try_for_each(|item| check_shape(item, element))
+            for item in items {
+                check_shape_at(item, element, below)?;
+            }
+            Ok(())
         }
         (Value::Set(items), ValueSort::Set { element, .. }) => {
             if items.windows(2).any(|pair| pair[0] >= pair[1]) {
                 return Err("a Set's elements are not sorted and distinct".to_owned());
             }
-            items.iter().try_for_each(|item| check_shape(item, element))
+            for item in items {
+                check_shape_at(item, element, below)?;
+            }
+            Ok(())
         }
         (Value::Map(entries), ValueSort::Map { key, value, .. }) => {
             if entries.windows(2).any(|pair| pair[0].0 >= pair[1].0) {
                 return Err("a Map's keys are not sorted and distinct".to_owned());
             }
-            entries.iter().try_for_each(|(entry_key, entry_value)| {
-                check_shape(entry_key, key)?;
-                check_shape(entry_value, value)
-            })
+            for (entry_key, entry_value) in entries {
+                check_shape_at(entry_key, key, below)?;
+                check_shape_at(entry_value, value, below)?;
+            }
+            Ok(())
         }
         (_, ValueSort::Data { table, .. }) => {
             if table.sorts.is_empty() {
@@ -855,7 +907,7 @@ pub(crate) fn check_shape(value: &Value, sort: &ValueSort) -> Result<(), String>
                     Err("the value is not of the hole's sort".to_owned())
                 }
             } else {
-                check_data(value, table, 0).map(|_| ())
+                check_data_at(value, table, 0, level).map(|_| ())
             }
         }
         _ => Err("the value is not of the hole's sort".to_owned()),
@@ -871,13 +923,49 @@ pub(crate) enum DataAlternative<'t> {
     Subsort(&'t ArgumentSort),
 }
 
-/// Check that `value` is a value of entry `index` of `table`: an application of one of its
-/// constructors to values of the argument sorts, or a value of one of its non-data subsorts.
-/// Returns how the value is built.
-pub(crate) fn check_data<'t>(
+/// Check that `value`, at `level` levels below the value checked, is a value of entry `index`
+/// of `table`: an application of one of its constructors to values of the argument sorts, or a
+/// value of one of its non-data subsorts. Returns how the value is built.
+fn check_data_at<'t>(
     value: &Value,
     table: &'t DataSorts,
     index: usize,
+    level: usize,
+) -> Result<DataAlternative<'t>, String> {
+    let below = deeper(level)?;
+    let alternative = alternative_at(value, table, index, level)?;
+    if let (DataAlternative::Constructor(constructor), Value::Apply { arguments, .. }) =
+        (&alternative, value)
+    {
+        // Loops, not iterator chains, in the recursions over a value's levels: each adapter
+        // of a chain is one more stack frame per level in an unoptimized build.
+        for (sort, argument) in constructor.arguments.iter().zip(arguments) {
+            check_argument(argument, sort, table, below)?;
+        }
+    }
+    Ok(alternative)
+}
+
+/// How `value`, already known to be a value of entry `index` of `table` (it passed
+/// [`check_shape`] at an enclosing sort), is built: its constructor, found by symbol and arity
+/// without checking its arguments again, or the subsort it is a value of. Recursions over a
+/// checked value use it at each level, so that they do not check each subtree again on every
+/// level above it, which would take time and stack quadratic in the depth.
+pub(crate) fn data_alternative<'t>(
+    value: &Value,
+    table: &'t DataSorts,
+    index: usize,
+) -> Result<DataAlternative<'t>, String> {
+    alternative_at(value, table, index, 0)
+}
+
+/// [`data_alternative`] for a value at `level` levels below the value checked: a subsort
+/// alternative is checked in full (a builtin or a collection at this level).
+fn alternative_at<'t>(
+    value: &Value,
+    table: &'t DataSorts,
+    index: usize,
+    level: usize,
 ) -> Result<DataAlternative<'t>, String> {
     let entry = table
         .sorts
@@ -887,7 +975,7 @@ pub(crate) fn check_data<'t>(
         return entry
             .subsorts
             .iter()
-            .find(|subsort| check_argument(value, subsort, table).is_ok())
+            .find(|subsort| check_argument(value, subsort, table, level).is_ok())
             .map(DataAlternative::Subsort)
             .ok_or_else(|| format!("the value is not a value of {}", entry.kore_sort));
     };
@@ -903,19 +991,20 @@ pub(crate) fn check_data<'t>(
             arguments.len()
         ));
     }
-    constructor
-        .arguments
-        .iter()
-        .zip(arguments)
-        .try_for_each(|(sort, argument)| check_argument(argument, sort, table))?;
     Ok(DataAlternative::Constructor(constructor))
 }
 
-/// Check that `value` is a value of the argument sort `sort` of `table`.
-fn check_argument(value: &Value, sort: &ArgumentSort, table: &DataSorts) -> Result<(), String> {
+/// Check that `value`, at `level` levels below the value checked, is a value of the argument
+/// sort `sort` of `table`.
+fn check_argument(
+    value: &Value,
+    sort: &ArgumentSort,
+    table: &DataSorts,
+    level: usize,
+) -> Result<(), String> {
     match sort {
-        ArgumentSort::Value(sort) => check_shape(value, sort),
-        ArgumentSort::Data(index) => check_data(value, table, *index).map(|_| ()),
+        ArgumentSort::Value(sort) => check_shape_at(value, sort, level),
+        ArgumentSort::Data(index) => check_data_at(value, table, *index, level).map(|_| ()),
         ArgumentSort::Empty(empty) => match (value, empty.kind) {
             (Value::List(items), CollectionKind::List)
             | (Value::Set(items), CollectionKind::Set)

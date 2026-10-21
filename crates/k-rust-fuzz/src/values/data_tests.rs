@@ -1124,3 +1124,314 @@ fn hex_bytes_require_two_hex_digits() {
         Value::Bytes(vec![15, 15])
     );
 }
+
+// ------------------------------------------------------------------------------------------
+// FZ-G6+09 review N5: shrinking removes a map's entries whole.
+
+/// Drive `tree` as the engine's shrink loop does (`simplify` after an accepted candidate,
+/// `complicate` after a rejected one), rejecting the candidates whose step `reject` names, and
+/// call `each(accepted, candidate)` on every candidate.
+fn shrink_checked(
+    tree: &mut super::generator::ShrinkableValue,
+    reject: impl Fn(usize) -> bool,
+    mut each: impl FnMut(&Value, &Value),
+) {
+    let mut accepted = tree.current();
+    if !tree.simplify() {
+        return;
+    }
+    for step in 0..4000 {
+        let candidate = tree.current();
+        each(&accepted, &candidate);
+        let more = if reject(step) {
+            tree.complicate()
+        } else {
+            accepted = candidate;
+            tree.simplify()
+        };
+        if !more {
+            return;
+        }
+    }
+    panic!("shrinking did not end");
+}
+
+/// A candidate with fewer entries than the last accepted value holds only entries of that
+/// value: a removed key takes its value with it, and every other key keeps its own. A
+/// candidate with as many entries changes at most one of them. Checked for enumerated keys
+/// (a subsequence of the key universe) and for drawn keys (repeated keys replaced), and for
+/// the elements of a set of drawn elements.
+#[test]
+fn shrinking_a_map_removes_its_entries_whole() {
+    let definition = values();
+    let syntax = values_syntax();
+    let length = Some(LengthRange {
+        min: Some(1),
+        max: Some(12),
+    });
+    let map_constraints = Constraints {
+        length,
+        ..entries("Int", "Int")
+    };
+    let set_constraints = Constraints {
+        length,
+        ..elements("Int")
+    };
+    let map = resolve(definition, &syntax, "Map", &map_constraints);
+    let set = resolve(definition, &syntax, "Set", &set_constraints);
+    // `int_bits: 4` leaves 31 Ints, few enough to enumerate; the default window does not.
+    let enumerated = GenerationBounds {
+        int_bits: 4,
+        ..GenerationBounds::default()
+    };
+    let cases = [
+        ("enumerated map keys", &map, &map_constraints, enumerated),
+        (
+            "drawn map keys",
+            &map,
+            &map_constraints,
+            GenerationBounds::default(),
+        ),
+        (
+            "drawn set elements",
+            &set,
+            &set_constraints,
+            GenerationBounds::default(),
+        ),
+    ];
+    for (label, sort, constraints, bounds) in cases {
+        let generator = Generator::new(sort, constraints, &bounds).expect("generates");
+        let mut removals = 0;
+        for byte in 1..=40u8 {
+            let mut rng = ValueRng::from_seed([byte; 32]);
+            let mut tree = generator.generate(&mut rng);
+            shrink_checked(
+                &mut tree,
+                |step| step % 4 == 3,
+                |accepted, candidate| {
+                    let items = |value: &Value| match value {
+                        Value::Map(entries) => entries.clone(),
+                        Value::Set(items) => {
+                            items.iter().map(|item| (item.clone(), int(0))).collect()
+                        }
+                        other => panic!("{label}: {other:?}"),
+                    };
+                    let (before, after) = (items(accepted), items(candidate));
+                    assert!(
+                        after.windows(2).all(|pair| pair[0].0 < pair[1].0),
+                        "{label}: keys sorted and distinct: {after:?}"
+                    );
+                    assert!(!after.is_empty(), "{label}: the minimum length holds");
+                    let changed = after.iter().filter(|entry| !before.contains(entry)).count();
+                    if after.len() < before.len() {
+                        removals += 1;
+                        assert_eq!(
+                            changed, 0,
+                            "{label}: removing an entry changed another: {before:?} -> {after:?}"
+                        );
+                    } else {
+                        assert!(changed <= 1, "{label}: {before:?} -> {after:?}");
+                    }
+                },
+            );
+        }
+        assert!(removals > 0, "{label}: no candidate removed an entry");
+    }
+}
+
+// ------------------------------------------------------------------------------------------
+// FZ-G6+09 review N7: a refused element sort keeps its reason.
+
+/// A collection whose element, key or value sort is refused is refused with that sort and its
+/// own reason, not a bare `Collection`; a collection without element sorts, or with element
+/// sorts of the wrong shape, is still `Collection`.
+#[test]
+fn a_refused_element_sort_keeps_its_reason() {
+    let definition = values();
+    let syntax = values_syntax();
+    let refused = |element: &str, reason| {
+        Err(SortRefusal::ElementRefused {
+            element: element.into(),
+            reason: Box::new(reason),
+        })
+    };
+    let resolve = |sort: &str, constraints: &Constraints| {
+        syntax.resolve(sort, constraints, &definition.backend)
+    };
+    assert_eq!(
+        resolve("List", &elements("Stmt")),
+        refused("Stmt", SortRefusal::ProgramSyntax)
+    );
+    assert_eq!(
+        resolve("Set", &elements("K")),
+        refused("K", SortRefusal::Computation)
+    );
+    assert_eq!(
+        resolve("Map", &entries("NoSuchSort", "Int")),
+        refused("NoSuchSort", SortRefusal::Unknown)
+    );
+    assert_eq!(
+        resolve("Map", &entries("Int", "Stmt")),
+        refused("Stmt", SortRefusal::ProgramSyntax)
+    );
+    assert_eq!(resolve("List", &none()), Err(SortRefusal::Collection));
+    assert_eq!(
+        resolve("List", &entries("Int", "Int")),
+        Err(SortRefusal::Collection)
+    );
+}
+
+// ------------------------------------------------------------------------------------------
+// FZ-G6+09 review N8: deep values, and a renamed sort without literal syntax.
+
+/// `run` on a thread of a 2 MiB stack, the size of a test thread, so that the stack a recursion
+/// takes is the same whichever thread the test harness runs on.
+fn on_small_stack<T: Send + 'static>(run: impl FnOnce() -> T + Send + 'static) -> T {
+    std::thread::Builder::new()
+        .stack_size(2 << 20)
+        .spawn(run)
+        .expect("a thread")
+        .join()
+        .expect("no panic")
+}
+
+/// A value read back from KORE, or checked against its sort, recurses once per level of
+/// nesting; one nested deeper than [`super::MAX_VALUE_DEPTH`] (an anchor written by hand can be
+/// any depth, and the frontend reads any depth) is refused instead of exhausting the stack,
+/// and one at that depth is read on a test thread's stack.
+#[test]
+fn a_value_nested_too_deep_is_refused_without_exhausting_the_stack() {
+    let definition = values();
+    let syntax = values_syntax();
+    let tree = resolve(definition, &syntax, "Tree", &none());
+    let leaf = Value::Apply {
+        symbol: "Lblleaf".into(),
+        arguments: vec![int(0)],
+    };
+    let node = |left: Value| Value::Apply {
+        symbol: "Lblnode".into(),
+        arguments: vec![left, leaf.clone()],
+    };
+    let leaf_kore = to_kore(&leaf, &tree).unwrap();
+    let node_kore = to_kore(&node(leaf.clone()), &tree).unwrap();
+    let Pattern::Application { symbol, .. } = &node_kore else {
+        panic!()
+    };
+    // `node(node(... node(leaf(0), leaf(0)) ..., leaf(0)), leaf(0))`, `depth` nodes deep.
+    let deep_kore = |depth: usize| {
+        let mut pattern = leaf_kore.clone();
+        for _ in 0..depth {
+            pattern = Pattern::Application {
+                symbol: symbol.clone(),
+                arguments: vec![pattern, leaf_kore.clone()],
+            };
+        }
+        pattern
+    };
+    let deep_value = |depth: usize| {
+        let mut value = leaf.clone();
+        for _ in 0..depth {
+            value = node(value);
+        }
+        value
+    };
+    let most = super::MAX_VALUE_DEPTH;
+    // `depth` nodes above `leaf(0)` and its Int: `depth + 2` levels.
+    for (depth, fits) in [(most - 2, true), (most - 1, false), (100_000, false)] {
+        let (pattern, value, sort) = (deep_kore(depth), deep_value(depth), tree.clone());
+        let (read, checked) = on_small_stack(move || {
+            let read = super::term::value_of(&pattern, &sort).map(|_| ());
+            let checked = check_constraints(&value, &sort, &Constraints::default());
+            // Freeing a value 100,000 levels deep recurses as deep: the test leaks it.
+            std::mem::forget(value);
+            (read, checked)
+        });
+        assert_eq!(read.is_ok(), fits, "read at depth {depth}: {read:?}");
+        assert_eq!(
+            checked.is_ok(),
+            fits,
+            "checked at depth {depth}: {checked:?}"
+        );
+        if !fits {
+            assert!(read.unwrap_err().contains("deeper"), "depth {depth}");
+        }
+    }
+}
+
+/// FZ-G6+09 review N8: a builtin hooked under a second name without literal syntax of its own
+/// (`AInt`) has no domain values, so a hole of it is refused when the campaign is built
+/// (`NoGenerator`), not run case after case with a base literal that reads back at no sort it
+/// has. A renamed sort with its own literals (`MyInt`) prints a text that reads back as its
+/// value. A renamed sort whose literal syntax has another shape than its base's (a hexadecimal
+/// token over `INT.Int`) would print a base literal its grammar does not read; the per-case round
+/// trip refuses such a case (`rejected`), so no witness carries that text.
+#[test]
+fn a_renamed_sort_without_its_own_literals_is_refused() {
+    let definition = values();
+    let syntax = values_syntax();
+    assert_eq!(
+        resolve_value_sort("AInt", &none(), &definition.backend),
+        Err(SortRefusal::NoGenerator)
+    );
+    assert_eq!(
+        syntax.resolve("AInt", &none(), &definition.backend),
+        Err(SortRefusal::NoGenerator)
+    );
+    let my_int = resolve_value_sort("MyInt", &none(), &definition.backend).unwrap();
+    let value = int(5);
+    assert_eq!(
+        syntax.parse(&print_k_text(&value, &my_int).unwrap(), "MyInt"),
+        to_kore(&value, &my_int).map_err(|error| format!("{error:?}"))
+    );
+}
+
+/// FZ-G6+09 review N4: the frontend reads a machine-integer literal (`w8(200p8)`) only with
+/// Z3's inference of the parametric sort `MInt{8}`. Without it, printing such a data value
+/// refuses (`Z3InferenceRequired`) rather than return a text that does not read back, so a span
+/// or configuration-variable case of it is `rejected` (`print`); its KORE needs no frontend, so
+/// a KORE-template hole of the sort runs in every build. With Z3 the text reads back.
+#[test]
+fn a_machine_integer_inside_a_data_value_prints_only_with_z3_inference() {
+    let definition = values();
+    let syntax = values_syntax();
+    let word = resolve(definition, &syntax, "Word", &none());
+    let value = Value::Apply {
+        symbol: "Lblw8".into(),
+        arguments: vec![Value::MInt {
+            width: 8,
+            value: BigUint::from(200u32),
+        }],
+    };
+    let kore = to_kore(&value, &word).expect("the KORE needs no frontend");
+    match (print_k_text(&value, &word), k_rust::Z3_INFERENCE) {
+        (Ok(text), true) => assert_eq!(parse_k_text(&text, &word), Ok(value)),
+        (Err(error), false) => assert!(
+            format!("{error:?}").contains("Z3InferenceRequired"),
+            "{error:?}"
+        ),
+        (printed, inference) => panic!("with Z3 inference {inference}: {printed:?}"),
+    }
+    assert!(matches!(kore, Pattern::Application { .. }));
+}
+
+/// HARD-B review S3: generated values stay within [`super::MAX_VALUE_DEPTH`], the deepest value
+/// a report reads back: lists and maps of trees at the deepest depth bound the size budget
+/// admits pass the check that bounds the depth (`draw_checked` checks every draw).
+#[test]
+fn generated_values_fit_in_a_report() {
+    let definition = values();
+    let syntax = values_syntax();
+    for (name, constraints) in [("List", elements("Tree")), ("Map", entries("Tree", "Tree"))] {
+        let sort = resolve(definition, &syntax, name, &constraints);
+        let bounds = (0..=super::MAX_DEPTH)
+            .rev()
+            .map(|depth| GenerationBounds {
+                depth,
+                ..GenerationBounds::default()
+            })
+            .find(|bounds| Generator::new(&sort, &none(), bounds).is_ok())
+            .expect("some depth generates");
+        assert!(bounds.depth >= 8, "{name}: depth {}", bounds.depth);
+        draw_checked(&sort, &none(), &bounds, 50);
+    }
+}

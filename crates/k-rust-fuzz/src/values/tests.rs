@@ -738,9 +738,14 @@ fn builtin_sorts_resolve_and_hooked_sorts_without_a_generator_are_refused() {
             text: None,
         })
     );
+    // An element sort that does not resolve refuses the collection with its own reason
+    // (FZ-G6+09 review N7).
     assert_eq!(
         resolve_value_sort("Set", &elements("NoSuchSort"), definition),
-        Err(SortRefusal::Collection)
+        Err(SortRefusal::ElementRefused {
+            element: "NoSuchSort".into(),
+            reason: Box::new(SortRefusal::Unknown),
+        })
     );
     let entries = Constraints {
         elements: Some(ElementSorts::Entries {

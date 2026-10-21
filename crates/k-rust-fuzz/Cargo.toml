@@ -27,9 +27,17 @@ proptest = { version = "=1.11.0", default-features = false, features = ["alloc",
 rand = { version = "=0.9.5", default-features = false, features = ["alloc"] }
 rand_chacha = { version = "=0.9.0", default-features = false }
 serde.workspace = true
+# The workspace entry enables `unbounded_depth`: reports are read with the recursion limit lifted
+# (report.rs, `FuzzReport::from_json`), the stack guarded by `serde_stacker` below.
 serde_json.workspace = true
 # Digests of the program, the hole overlay, the target and the rewrite order in the report.
 sha2.workspace = true
+
+# A report holds hole values up to `values::MAX_VALUE_DEPTH` levels deep, deeper than
+# `serde_json`'s recursion limit and the stack of a small thread allow: reports are written and
+# read on a stack that grows on the heap. WebAssembly cannot switch stacks (report.rs).
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+serde_stacker = "=0.1.14"
 
 [dev-dependencies]
 indoc.workspace = true

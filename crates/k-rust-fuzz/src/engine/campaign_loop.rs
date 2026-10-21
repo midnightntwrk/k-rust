@@ -223,10 +223,13 @@ fn confirm(
     candidate: &CaseRun,
     cancel: Option<&CancellationToken>,
 ) -> Confirmed {
+    // Where the target was reached: the state, the side, leaf and (for an observer) hit step,
+    // and the kind of kill. Under the determinism contract all of them repeat; a confirmation
+    // that differs in any is an engine defect, never the witness's source (ARCHITECTURE 7).
     let reaching = candidate
         .hit
         .as_ref()
-        .map(|detail| (detail.reaching_state.clone(), detail.kill));
+        .map(|detail| (detail.reaching_state.clone(), detail.reaching, detail.kill));
     match runner.confirm(values, cancel) {
         Err(failure) => {
             state.charge(0);
@@ -249,13 +252,17 @@ fn confirm(
                 Some(detail)
                     if confirmation.class == OutcomeClass::Hit
                         && reaching.as_ref()
-                            == Some(&(detail.reaching_state.clone(), detail.kill)) =>
+                            == Some(&(
+                                detail.reaching_state.clone(),
+                                detail.reaching,
+                                detail.kill,
+                            )) =>
                 {
                     Confirmed::Agrees(Box::new(detail))
                 }
                 Some(_) if confirmation.class == OutcomeClass::Hit => Confirmed::Disagrees(
                     "the case reached the target, but its confirmation reached it in another \
-                     configuration or by another kind of kill"
+                     configuration, at another leaf or step, or by another kind of kill"
                         .into(),
                 ),
                 _ => Confirmed::Disagrees(format!(

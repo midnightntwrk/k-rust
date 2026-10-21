@@ -22,6 +22,9 @@ pub enum SpanProblem {
     /// The hole addresses a variable that is not free in the KORE template, or the template has
     /// a free variable that no hole addresses.
     KoreVariable,
+    /// A configuration-variable hole's sort is neither the variable's declared sort (given here)
+    /// nor a subsort of it, so its values are not values of the variable.
+    ConfigVarSort(String),
 }
 
 /// Why a hole's sort is refused (ARCHITECTURE 2.4, 3).
@@ -38,8 +41,25 @@ pub enum SortRefusal {
     Token,
     /// A hooked sort without a generator (`Float`, `KVar`, IO handles).
     NoGenerator,
-    /// A collection sort without declared element sorts, or with refused element sorts.
+    /// A collection sort without declared element sorts, or with element sorts of the wrong
+    /// shape (entries for a list, one element sort for a map).
     Collection,
+    /// A collection hole's declared element, key or value sort is refused, for `reason`.
+    ElementRefused {
+        /// The refused element sort, as declared.
+        element: String,
+        /// Why it is refused.
+        reason: Box<SortRefusal>,
+    },
+    /// A collection hole declares an element sort that its sort's element production does not
+    /// take (`Int` for a list of `Stmt`), so its values would hold ill-sorted elements; no
+    /// override admits it.
+    ElementNotHeld {
+        /// The declared element sort.
+        declared: String,
+        /// The sort the element production takes at that place.
+        element: String,
+    },
     /// The sort is missing on one side of a differential campaign (ARCHITECTURE 4.3, R-14).
     MissingOnSide {
         /// `"baseline"` or `"mutant"`.
@@ -179,6 +199,11 @@ impl fmt::Display for CampaignError {
                     SpanProblem::KoreVariable => {
                         f.write_str("does not match the KORE template's free variables")
                     }
+                    SpanProblem::ConfigVarSort(variable_sort) => write!(
+                        f,
+                        "its sort is neither the configuration variable's sort `{variable_sort}` \
+                         nor a subsort of it"
+                    ),
                 }
             }
             Self::OverlappingHoles { first, second } => {

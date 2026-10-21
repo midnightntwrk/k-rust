@@ -112,7 +112,8 @@ impl Generator {
     ///   clamped to the number of distinct values the element sort has under `bounds`, and a
     ///   minimum above it is refused. Elements are drawn without constraints under `bounds`.
     ///   Collections shrink by removing elements, never below the minimum length, and by
-    ///   shrinking elements.
+    ///   shrinking elements. A map removes an entry's key and value together, and each step
+    ///   leaves every other entry's key and value as they were ([`MapTree`]).
     /// - A data sort draws, at remaining depth `d`, uniformly among the alternatives of its
     ///   table entry whose least height is at most `d` (its non-data subsorts, then its
     ///   constructors, lowest first), and draws a constructor's data arguments at depth
@@ -628,32 +629,295 @@ fn map_strategy(
         value_size(key, bounds).saturating_add(value_size(value, bounds)),
     )?;
     let value = Generator::new(value, &Constraints::default(), bounds)?.strategy;
-    let strategy = if let Some(universe) = universe(key, bounds) {
-        let most = size.end_incl();
-        (subsequence(universe, size), vec(value, most..=most))
-            .prop_map(|(mut keys, values)| {
-                keys.sort();
-                Value::Map(keys.into_iter().zip(values).collect())
-            })
-            .boxed()
+    let keys = if let Some(universe) = universe(key, bounds) {
+        MapKeys::Enumerated(subsequence(universe, size.clone()))
     } else {
-        let strategy = Generator::new(key, &Constraints::default(), bounds)?.strategy;
-        let (key, bounds) = (key.clone(), *bounds);
-        vec((strategy, value), size)
-            .prop_map(move |entries| {
-                let mut entries = distinct(
-                    entries,
-                    &key,
-                    &bounds,
-                    |entry| &entry.0,
-                    |entry, new| entry.0 = new,
-                );
-                entries.sort_by(|left, right| left.0.cmp(&right.0));
-                Value::Map(entries)
-            })
-            .boxed()
+        MapKeys::Drawn {
+            strategy: Generator::new(key, &Constraints::default(), bounds)?.strategy,
+            sort: key.clone(),
+            bounds: *bounds,
+        }
     };
-    Ok(strategy)
+    Ok(MapStrategy { keys, value, size }.boxed())
+}
+
+/// A `Map` hole's strategy, whose value tree ([`MapTree`]) keeps each key with its value
+/// while it shrinks (FZ-G6+09 review N5).
+///
+/// It draws what the pair of strategies it replaces drew, in the same order from the runner,
+/// so a campaign's first values are unchanged:
+///
+/// - enumerated keys: a subsequence of the key universe, then a vector of values as long as
+///   the longest map (`size.end_incl()`), the `i`-th smallest key taking the `i`-th value and
+///   the values beyond the map's length left unused;
+/// - drawn keys: a length, then a key and a value per entry, each repeated key replaced by the
+///   first unused canonical value ([`distinct`]).
+#[derive(Debug)]
+struct MapStrategy {
+    keys: MapKeys,
+    value: BoxedStrategy<Value>,
+    size: SizeRange,
+}
+
+/// How a [`MapStrategy`] draws its keys.
+#[derive(Debug)]
+enum MapKeys {
+    /// A subsequence of every key, when the key sort has at most [`ENUMERATION_LIMIT`] values.
+    Enumerated(proptest::sample::Subsequence<Value>),
+    /// Keys drawn independently from the key sort's strategy, repeated ones replaced by
+    /// canonical values of `sort` under `bounds`.
+    Drawn {
+        strategy: BoxedStrategy<Value>,
+        sort: ValueSort,
+        bounds: GenerationBounds,
+    },
+}
+
+impl Strategy for MapStrategy {
+    type Tree = MapTree;
+    type Value = Value;
+
+    fn new_tree(&self, runner: &mut TestRunner) -> NewTree<Self> {
+        let (min, most) = (self.size.start(), self.size.end_incl());
+        let entries = match &self.keys {
+            MapKeys::Enumerated(keys) => {
+                let mut keys = keys.new_tree(runner)?.current();
+                keys.sort();
+                // The length draw of the value vector (`vec` of exactly `most`), kept so that
+                // the runner advances as it did.
+                let _ = proptest::num::sample_uniform_incl(runner, most, most);
+                let mut values = Vec::with_capacity(most);
+                for _ in 0..most {
+                    values.push(self.value.new_tree(runner)?);
+                }
+                keys.into_iter()
+                    .zip(values)
+                    .map(|(key, value)| MapEntry {
+                        key: MapKey::Fixed(key),
+                        value,
+                    })
+                    .collect()
+            }
+            MapKeys::Drawn {
+                strategy,
+                sort,
+                bounds,
+            } => {
+                let length = proptest::num::sample_uniform_incl(runner, min, most);
+                let mut drawn = Vec::with_capacity(length);
+                for _ in 0..length {
+                    let key = strategy.new_tree(runner)?;
+                    let value = self.value.new_tree(runner)?;
+                    drawn.push((key, value));
+                }
+                let keys: Vec<Value> = drawn.iter().map(|(key, _)| key.current()).collect();
+                let unique = distinct(
+                    keys.clone(),
+                    sort,
+                    bounds,
+                    |key| key,
+                    |key, new| {
+                        *key = new;
+                    },
+                );
+                drawn
+                    .into_iter()
+                    .zip(keys.iter().zip(unique))
+                    .map(|((tree, value), (drawn, unique))| MapEntry {
+                        // A replaced key is fixed: its drawn tree no longer says what it is.
+                        key: if *drawn == unique {
+                            MapKey::Tree(tree)
+                        } else {
+                            MapKey::Fixed(unique)
+                        },
+                        value,
+                    })
+                    .collect()
+            }
+        };
+        Ok(MapTree::new(entries, min))
+    }
+}
+
+/// One entry of a [`MapTree`]: its key and its value tree.
+struct MapEntry {
+    key: MapKey,
+    value: Box<dyn ValueTree<Value = Value>>,
+}
+
+/// The key of a [`MapEntry`].
+enum MapKey {
+    /// A key that does not shrink: an enumerated key, a canonical replacement of a repeated
+    /// drawn key, or a drawn key whose shrinking stopped where it would repeat another.
+    Fixed(Value),
+    /// A drawn key, which shrinks along its tree.
+    Tree(Box<dyn ValueTree<Value = Value>>),
+}
+
+impl MapKey {
+    fn current(&self) -> Value {
+        match self {
+            Self::Fixed(key) => key.clone(),
+            Self::Tree(tree) => tree.current(),
+        }
+    }
+}
+
+/// What a [`MapTree`] tries next.
+#[derive(Clone, Copy, Debug)]
+enum MapStep {
+    /// Remove the entry at this index, and then each later one.
+    Remove(usize),
+    /// Shrink the key of the entry at this index, then its value.
+    Key(usize),
+    /// Shrink the value of the entry at this index, then the next entry's key.
+    Value(usize),
+}
+
+/// What [`MapTree::complicate`] undoes.
+#[derive(Debug)]
+enum MapUndo {
+    /// The removal of the entry at this index.
+    Remove(usize),
+    /// A simplification of the key at this index, whose last accepted value is kept.
+    Key(usize, Value),
+    /// A simplification of the value at this index.
+    Value(usize),
+}
+
+/// The value tree of a `Map` hole (FZ-G6+09 review N5). It shrinks as proptest's vector tree
+/// does, first removing entries one at a time in draw order (never below the minimum length),
+/// then shrinking each remaining entry's key and then its value; `complicate` undoes the last
+/// step. Every step changes one entry: a removed key takes its value with it, and every other
+/// entry keeps its key and its value, so a smaller map is a sub-map of the last accepted one.
+/// A key never shrinks onto another entry's key: when a step would make it repeat one, the key
+/// stays at its last accepted value and stops shrinking, so keys stay distinct. The value is
+/// the entries in key order.
+struct MapTree {
+    /// In draw order.
+    entries: Vec<MapEntry>,
+    included: Vec<bool>,
+    min: usize,
+    step: MapStep,
+    undo: Option<MapUndo>,
+}
+
+impl MapTree {
+    fn new(entries: Vec<MapEntry>, min: usize) -> Self {
+        Self {
+            included: vec![true; entries.len()],
+            entries,
+            min,
+            step: MapStep::Remove(0),
+            undo: None,
+        }
+    }
+
+    /// Whether `key` is the key of an included entry other than `index`.
+    fn repeats(&self, index: usize, key: &Value) -> bool {
+        self.entries
+            .iter()
+            .zip(&self.included)
+            .enumerate()
+            .any(|(other, (entry, included))| {
+                other != index && *included && entry.key.current() == *key
+            })
+    }
+}
+
+impl ValueTree for MapTree {
+    type Value = Value;
+
+    fn current(&self) -> Value {
+        let mut entries: Vec<(Value, Value)> = self
+            .entries
+            .iter()
+            .zip(&self.included)
+            .filter(|(_, included)| **included)
+            .map(|(entry, _)| (entry.key.current(), entry.value.current()))
+            .collect();
+        entries.sort_by(|left, right| left.0.cmp(&right.0));
+        Value::Map(entries)
+    }
+
+    fn simplify(&mut self) -> bool {
+        loop {
+            match self.step {
+                MapStep::Remove(index) => {
+                    let count = self.included.iter().filter(|included| **included).count();
+                    if index >= self.entries.len() || count <= self.min {
+                        self.step = MapStep::Key(0);
+                    } else {
+                        self.included[index] = false;
+                        self.undo = Some(MapUndo::Remove(index));
+                        self.step = MapStep::Remove(index + 1);
+                        return true;
+                    }
+                }
+                MapStep::Key(index) => {
+                    if index >= self.entries.len() {
+                        return false;
+                    }
+                    if !self.included[index] {
+                        self.step = MapStep::Key(index + 1);
+                        continue;
+                    }
+                    self.step = MapStep::Value(index);
+                    let MapKey::Tree(tree) = &mut self.entries[index].key else {
+                        continue;
+                    };
+                    let accepted = tree.current();
+                    if !tree.simplify() {
+                        continue;
+                    }
+                    let candidate = tree.current();
+                    if self.repeats(index, &candidate) {
+                        self.entries[index].key = MapKey::Fixed(accepted);
+                        continue;
+                    }
+                    self.step = MapStep::Key(index);
+                    self.undo = Some(MapUndo::Key(index, accepted));
+                    return true;
+                }
+                MapStep::Value(index) => {
+                    if self.entries[index].value.simplify() {
+                        self.undo = Some(MapUndo::Value(index));
+                        return true;
+                    }
+                    self.step = MapStep::Key(index + 1);
+                }
+            }
+        }
+    }
+
+    fn complicate(&mut self) -> bool {
+        match self.undo.take() {
+            Some(MapUndo::Value(index)) if self.entries[index].value.complicate() => {
+                self.undo = Some(MapUndo::Value(index));
+                true
+            }
+            None | Some(MapUndo::Value(_)) => false,
+            Some(MapUndo::Remove(index)) => {
+                self.included[index] = true;
+                true
+            }
+            Some(MapUndo::Key(index, accepted)) => {
+                let MapKey::Tree(tree) = &mut self.entries[index].key else {
+                    return false;
+                };
+                if !tree.complicate() {
+                    return false;
+                }
+                let candidate = tree.current();
+                if self.repeats(index, &candidate) {
+                    self.entries[index].key = MapKey::Fixed(accepted);
+                } else {
+                    self.undo = Some(MapUndo::Key(index, accepted));
+                }
+                true
+            }
+        }
+    }
 }
 
 /// The size of the largest value `sort` generates under `bounds`, in [`MAX_VALUE_SIZE`]'s units:
@@ -1048,5 +1312,88 @@ impl ValueTree for IntTree {
         }
         self.lo = &self.curr + 1u8;
         self.reposition()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::values::{ElementSorts, resolve_value_sort, test_definition::values};
+
+    /// The map strategy of FZ-G6+09's fix round, which [`MapStrategy`] replaced: its draws.
+    fn previous_map_strategy(
+        key: &ValueSort,
+        value: &ValueSort,
+        size: SizeRange,
+        bounds: &GenerationBounds,
+    ) -> BoxedStrategy<Value> {
+        let value = Generator::new(value, &Constraints::default(), bounds)
+            .unwrap()
+            .strategy;
+        if let Some(universe) = universe(key, bounds) {
+            let most = size.end_incl();
+            (subsequence(universe, size), vec(value, most..=most))
+                .prop_map(|(mut keys, values)| {
+                    keys.sort();
+                    Value::Map(keys.into_iter().zip(values).collect())
+                })
+                .boxed()
+        } else {
+            let strategy = Generator::new(key, &Constraints::default(), bounds)
+                .unwrap()
+                .strategy;
+            let (key, bounds) = (key.clone(), *bounds);
+            vec((strategy, value), size)
+                .prop_map(move |entries| {
+                    let mut entries = distinct(
+                        entries,
+                        &key,
+                        &bounds,
+                        |entry| &entry.0,
+                        |entry, new| entry.0 = new,
+                    );
+                    entries.sort_by(|left, right| left.0.cmp(&right.0));
+                    Value::Map(entries)
+                })
+                .boxed()
+        }
+    }
+
+    /// N5 changed how a map shrinks, not what it draws: from one runner, the new strategy draws
+    /// the same maps, in the same sequence, as the one it replaced, for enumerated and drawn
+    /// keys.
+    #[test]
+    fn a_map_hole_draws_what_it_drew_before_its_value_tree_changed() {
+        let constraints = Constraints {
+            elements: Some(ElementSorts::Entries {
+                key: "Int".into(),
+                value: "Int".into(),
+            }),
+            length: Some(crate::values::LengthRange {
+                min: Some(1),
+                max: Some(12),
+            }),
+            ..Constraints::default()
+        };
+        let sort = resolve_value_sort("Map", &constraints, &values().backend).unwrap();
+        let ValueSort::Map { key, value, .. } = &sort else {
+            panic!("{sort:?}")
+        };
+        let enumerated = GenerationBounds {
+            int_bits: 4,
+            ..GenerationBounds::default()
+        };
+        for bounds in [enumerated, GenerationBounds::default()] {
+            let size = distinct_size("Map", key, &constraints, &bounds).unwrap();
+            let previous = previous_map_strategy(key, value, size, &bounds);
+            let current = Generator::new(&sort, &constraints, &bounds).unwrap();
+            let (mut old, mut new) = (ValueRng::from_seed([5; 32]), ValueRng::from_seed([5; 32]));
+            for _ in 0..200 {
+                assert_eq!(
+                    current.generate(&mut new).current(),
+                    previous.new_tree(&mut old.runner).unwrap().current()
+                );
+            }
+        }
     }
 }

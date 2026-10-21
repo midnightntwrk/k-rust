@@ -41,6 +41,12 @@ pub(crate) struct Side {
     pub(crate) holes: ResolvedHoles,
     round_trip: Arc<RoundTripCheck>,
     shape: CaseRequestShape,
+    /// On the `source-execution` route, the internalized definition the backend's session holds
+    /// (`Backend::select_definition`), shared, not copied: the campaign's only internalization
+    /// of this definition, from which the rule graph's backend and the confirmations' backends
+    /// are built by copy ([`GraphCheck::build`], [`DefinitionCache::build`]; phase-1 review N9).
+    /// `None` on the `from-definition` route, whose backends internalize inside their sessions.
+    internalized: Option<Arc<BackendDefinition>>,
 }
 
 /// What a side may reuse from a [`DefinitionCache`]: the internalized definition its fresh
@@ -49,7 +55,7 @@ pub(crate) struct Side {
 /// grammar, the program and the hole declarations alone.
 #[derive(Clone, Copy, Default)]
 struct Seed<'a> {
-    internalized: Option<&'a BackendDefinition>,
+    internalized: Option<&'a Arc<BackendDefinition>>,
     normal_end: Option<&'a NormalEnd>,
     resolved: Option<(&'a ResolvedHoles, &'a Arc<RoundTripCheck>)>,
 }
@@ -62,13 +68,29 @@ impl Side {
         seed: Seed<'_>,
     ) -> Result<Self, CampaignError> {
         let assembly = Arc::new(ProgramAssembly::new(definition)?);
-        let backend = match seed.internalized {
+        let (backend, internalized) = if let Some(internalized) = seed.internalized {
             // A fresh backend over a copy of the cached, immutable internalized definition.
-            Some(internalized) => {
-                Backend::from_internalized(internalized.clone(), spec.options.backend.options())
-                    .map_err(CampaignError::from)?
-            }
-            None => build_backend(definition, spec.options.backend.options())?,
+            (
+                Backend::from_internalized(
+                    BackendDefinition::clone(internalized),
+                    spec.options.backend.options(),
+                )
+                .map_err(CampaignError::from)?,
+                Some(Arc::clone(internalized)),
+            )
+        } else {
+            let mut backend = build_backend(definition, spec.options.backend.options())?;
+            let internalized = match &definition.route {
+                BackendRoute::SourceExecution { .. } => {
+                    Some(backend.select_definition(None).map_err(|error| {
+                        CampaignError::Definition {
+                            message: format!("the main module does not load: {error}"),
+                        }
+                    })?)
+                }
+                BackendRoute::FromDefinition => None,
+            };
+            (backend, internalized)
         };
         let (mut executor, normal_end) = if let Some(normal_end) = seed.normal_end {
             (
@@ -91,6 +113,7 @@ impl Side {
                 holes: holes.clone(),
                 round_trip: Arc::clone(round_trip),
                 shape: CaseRequestShape::new(&spec.options, &TargetNeeds::default()),
+                internalized,
             });
         }
         let holes = executor
@@ -127,6 +150,7 @@ impl Side {
             holes,
             round_trip,
             shape: CaseRequestShape::new(&spec.options, &TargetNeeds::default()),
+            internalized,
         })
     }
 
@@ -292,6 +316,22 @@ impl LiveCases {
             .collect()
     }
 
+    /// The baseline's internalized definition on the `source-execution` route, the campaign's
+    /// only internalization of it ([`Side::internalized`]); `None` on the `from-definition`
+    /// route.
+    pub(crate) fn baseline_internalized(&self) -> Option<&Arc<BackendDefinition>> {
+        self.baseline.internalized.as_ref()
+    }
+
+    /// The catalog id of a rule target's rule, as the target resolved it; `None` for every
+    /// other target kind.
+    pub(crate) fn target_rule_id(&self) -> Option<&str> {
+        match &self.judge {
+            Judge::Target(target) => target.rule_id(),
+            Judge::Differential(_) => None,
+        }
+    }
+
     /// What a run's [`RunAssemblers`] borrow: each side's program assembly and definition.
     pub(crate) fn assembly_parts(&self) -> AssemblyParts {
         let part = |side: &Side| (Arc::clone(&side.assembly), Arc::clone(&side.definition));
@@ -400,8 +440,9 @@ impl LiveCases {
         let side = &mut self.baseline;
         // `run_and_judge` is `run` then `judge` for rule and pattern targets; an observer target
         // also walks its observer over the observed run (FZ-10).
-        let (result, judged) =
+        let judged =
             target.run_and_judge(&mut side.executor, &prepared.assembled, &side.shape, cancel)?;
+        let (result, hit_step, judged) = (judged.result, judged.hit_step, judged.judgement);
         let mut run = run_of(&result, &[&result]);
         run.cut = cut_of(&result);
         match judged {
@@ -435,6 +476,9 @@ impl LiveCases {
                             reaching: Reaching {
                                 role: DefinitionRole::Baseline,
                                 leaf: leaf.map(index_u64),
+                                // An observer hit's step on the hit leaf's path (ARCHITECTURE
+                                // 9.2); the leaf runs on to its end, at depth `steps`.
+                                step: hit_step,
                             },
                             kill: None,
                             steps,
@@ -533,6 +577,7 @@ impl LiveCases {
                             reaching: Reaching {
                                 role,
                                 leaf: Some(index_u64(index)),
+                                step: None,
                             },
                             kill: Some(kind),
                             steps: Some(leaf.depth),
@@ -667,6 +712,14 @@ fn quote(text: &str) -> String {
 /// the same code that computed the campaign's, so a defect of that code is not caught by
 /// confirmation (phase-1 review N8, accepted by INT-A item 3).
 ///
+/// The internalized definition is not internalized again: it is the one the campaign's own
+/// backend was built from, which that backend's session holds behind an `Arc` and never
+/// changes ([`Side::internalized`]). It is shared rather than copied, so a campaign internalizes
+/// each definition once and the cache adds no copy of it (phase-1 review N9). Sharing it shares
+/// no run state: the facts a run may have filled in lazily are functions of the definition
+/// alone, computed by infallible initializers, so a copy taken after some runs behaves as one
+/// taken before any.
+///
 /// Only the `source-execution` route's internalization is cached: the `from-definition` route
 /// internalizes inside the backend's session, and a confirmation on it builds its backend from
 /// the KORE as the campaign's own backend was built.
@@ -680,7 +733,7 @@ pub(crate) struct DefinitionCache {
 
 /// One side's part of a [`DefinitionCache`].
 struct SideCache {
-    internalized: Option<BackendDefinition>,
+    internalized: Option<Arc<BackendDefinition>>,
     normal_end: NormalEnd,
     holes: ResolvedHoles,
     round_trip: Arc<RoundTripCheck>,
@@ -695,9 +748,9 @@ impl SideCache {
         }
     }
 
-    fn of(side: Side, internalized: Option<BackendDefinition>) -> Self {
+    fn of(side: Side) -> Self {
         Self {
-            internalized,
+            internalized: side.internalized,
             normal_end: side.normal_end,
             holes: side.holes,
             round_trip: side.round_trip,
@@ -706,32 +759,24 @@ impl SideCache {
 }
 
 impl DefinitionCache {
-    /// Internalize every `source-execution` definition of `spec` once, then, on a build of its
-    /// own (not the campaign's), compile the normal-termination pattern and the target's
-    /// patterns, resolve the holes and locate their positions once.
+    /// Take each `source-execution` definition's internalization from `cases`, the campaign's
+    /// own case execution, then, on a build of its own (not the campaign's), compile the
+    /// normal-termination pattern and the target's patterns, resolve the holes and locate their
+    /// positions once.
     ///
     /// # Errors
     ///
     /// The first refusal, as a [`CampaignError`].
-    pub(crate) fn build(spec: &Arc<CampaignSpec>) -> Result<Self, CampaignError> {
-        let internalize = |definition: &CompiledDefinition| match &definition.route {
-            BackendRoute::SourceExecution {
-                execution_rewrite_order,
-            } => Backend::internalize_source_definition(
-                &definition.kore,
-                &definition.main_module,
-                execution_rewrite_order,
-            )
-            .map(Some)
-            .map_err(CampaignError::from),
-            BackendRoute::FromDefinition => Ok(None),
+    pub(crate) fn build(
+        spec: &Arc<CampaignSpec>,
+        cases: &LiveCases,
+    ) -> Result<Self, CampaignError> {
+        let baseline = cases.baseline.internalized.clone();
+        let mutant = match &cases.judge {
+            Judge::Differential(mutant) => mutant.internalized.clone(),
+            Judge::Target(_) => None,
         };
-        let baseline = internalize(&spec.definitions.baseline)?;
-        let mutant = match &spec.definitions.mutant {
-            Some(mutant) => internalize(mutant)?,
-            None => None,
-        };
-        let side = |definition, role, internalized: &Option<BackendDefinition>| {
+        let side = |definition, role, internalized: &Option<Arc<BackendDefinition>>| {
             Side::build(
                 spec,
                 definition,
@@ -758,12 +803,13 @@ impl DefinitionCache {
             )?
             .compiled_patterns()
         };
-        let baseline = SideCache::of(baseline_side, baseline);
+        let baseline = SideCache::of(baseline_side);
         let mutant = match &spec.definitions.mutant {
-            Some(definition) => Some(SideCache::of(
-                side(definition, DefinitionRole::Mutant, &mutant)?,
-                mutant,
-            )),
+            Some(definition) => Some(SideCache::of(side(
+                definition,
+                DefinitionRole::Mutant,
+                &mutant,
+            )?)),
             None => None,
         };
         Ok(Self {
@@ -776,7 +822,10 @@ impl DefinitionCache {
 
 /// The rule graph of the baseline definition with the campaign's entry (ARCHITECTURE 6.3),
 /// computed once per campaign from the hole template ([`graph::entry::hole_template`]) on the
-/// graph's own backend, which no case uses, so that its solver cache is no case's.
+/// graph's own backend, which no case uses, so that its solver cache is no case's. On the
+/// `source-execution` route that backend is built from a copy of the campaign's internalized
+/// definition ([`Side::internalized`]) rather than from a second internalization (phase-1
+/// review N9).
 ///
 /// The graph's warnings go into the report, and every case's coverage `applied` is checked
 /// against the entry: a rule applied outside the graph, or an id the definition does not know,
@@ -811,8 +860,13 @@ impl GraphCheck {
             }
         }
         let template = graph::entry::hole_template(side.round_trip.anchor_configuration(), &holes)?;
-        let mut backend =
-            build_backend(&spec.definitions.baseline, spec.options.backend.options()).ok()?;
+        let options = spec.options.backend.options();
+        let mut backend = match &side.internalized {
+            Some(internalized) => {
+                Backend::from_internalized(BackendDefinition::clone(internalized), options).ok()?
+            }
+            None => build_backend(&spec.definitions.baseline, options).ok()?,
+        };
         let graph = RuleGraph::of_backend(&mut backend).ok()?;
         let entry = graph
             .entry(&mut backend, side.shape.request(template))
@@ -827,6 +881,12 @@ impl GraphCheck {
             entry,
             warnings,
         })
+    }
+
+    /// The rule graph of the baseline definition, which the dictionary also harvests from
+    /// (ARCHITECTURE 8.3), so that it builds no graph or backend of its own.
+    pub(crate) fn graph(&self) -> &RuleGraph {
+        &self.graph
     }
 
     /// The warnings the report carries for this campaign.
@@ -912,12 +972,15 @@ impl CaseRunner for LiveRunner<'_> {
         cancel: Option<&CancellationToken>,
     ) -> Result<CaseRun, ConfirmFailure> {
         let spec = Arc::clone(&self.cases.spec);
+        let cases = &self.cases;
         let cache = self
             .cache
-            .get_or_init(|| DefinitionCache::build(&spec).map_err(|error| error.to_string()))
+            .get_or_init(|| DefinitionCache::build(&spec, cases).map_err(|error| error.to_string()))
             .as_ref()
             .map_err(|error| {
-                ConfirmFailure::Failed(format!("the definition did not internalize: {error}"))
+                ConfirmFailure::Failed(format!(
+                    "the confirmation's definition cache did not build: {error}"
+                ))
             })?;
         let mut fresh = LiveCases::build_with(spec, Some(cache)).map_err(|error| {
             ConfirmFailure::Failed(format!(
@@ -968,5 +1031,445 @@ fn run_live(
         cases.run_differential(assemblers, values, cancel)
     } else {
         cases.run_target(assemblers, values, cancel)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use super::*;
+    use crate::{
+        holes::{HoleDecl, HoleLocation, SpanAddress},
+        spec::{
+            CallerIdentity, CaseOptions, DEFAULT_REJECTION_CAP, Definitions, ProposerConfig,
+            ProposerKind,
+        },
+        support::{COIN, IMP},
+        target::{PatternAt, PatternTarget, Target},
+        values::{Constraints, GenerationBounds},
+    };
+
+    fn int_hole(name: &str, find: &str, literal: &str) -> HoleDecl {
+        HoleDecl {
+            name: name.into(),
+            sort: "Int".into(),
+            location: HoleLocation::Span(SpanAddress {
+                program: "imp/le.imp".into(),
+                line: None,
+                find: find.into(),
+                literal: literal.into(),
+            }),
+            constraints: Constraints::default(),
+            allow_refused_sort: false,
+        }
+    }
+
+    /// IMP's `le.imp` with `x` and `y` as holes, and the property that `r` ends as 1, on
+    /// `route`.
+    fn le_spec(route: Option<BackendRoute>) -> Arc<CampaignSpec> {
+        let compiled = IMP.compiled();
+        let definition = match route {
+            Some(route) => compiled.definition_on(route),
+            None => compiled.definition(),
+        };
+        Arc::new(CampaignSpec {
+            definitions: Definitions {
+                baseline: Arc::new(definition),
+                mutant: None,
+            },
+            program: ProgramInput::Source(compiled.program_source("imp/le.imp")),
+            holes: vec![int_hole("X", "x = 3;", "3"), int_hole("Y", "y = 5;", "5")],
+            target: Target {
+                kind: TargetKind::Pattern(PatternTarget {
+                    pattern: concat!(
+                        r#"<k> .K </k> <state> (#token("r", "Id") |-> R:Int) _:Map </state> "#,
+                        "requires R =/=Int 1"
+                    )
+                    .into(),
+                    at: PatternAt::Final,
+                }),
+                run_to_completion: false,
+                negated_property: true,
+            },
+            options: CaseOptions::default(),
+            proposers: ProposerConfig {
+                anchors_first: true,
+                explicit: Vec::new(),
+                weights: BTreeMap::from([(ProposerKind::Blind, 1)]),
+            },
+            bounds: GenerationBounds::default(),
+            rejection_cap: DEFAULT_REJECTION_CAP,
+            seed: 1,
+            identity: CallerIdentity::default(),
+        })
+    }
+
+    fn int(n: i64) -> Value {
+        Value::Int(n.into())
+    }
+
+    /// Phase-1 review N9: the campaign's backend, the rule graph's and the confirmations' are
+    /// all built from one internalization, which the confirmation cache shares without a copy,
+    /// while each backend still holds its own copy of it.
+    #[test]
+    fn a_source_campaign_internalizes_its_definition_once() {
+        let spec = le_spec(None);
+        let mut cases = LiveCases::build(Arc::clone(&spec)).expect("the campaign builds");
+        let internalized = cases
+            .baseline
+            .internalized
+            .clone()
+            .expect("the source-execution route keeps its internalization");
+        let own = cases
+            .baseline
+            .executor
+            .backend_mut()
+            .select_definition(None)
+            .expect("loads");
+        assert!(Arc::ptr_eq(&own, &internalized), "shared, not copied");
+        assert!(GraphCheck::build(&spec, &cases).is_some());
+        let cache = DefinitionCache::build(&spec, &cases).expect("the cache builds");
+        let cached = cache.baseline.internalized.as_ref().expect("cached");
+        assert!(Arc::ptr_eq(cached, &internalized), "the cache adds no copy");
+        let mut fresh =
+            LiveCases::build_with(Arc::clone(&spec), Some(&cache)).expect("a confirmation builds");
+        let copy = fresh
+            .baseline
+            .executor
+            .backend_mut()
+            .select_definition(None)
+            .expect("loads");
+        assert!(
+            !Arc::ptr_eq(&copy, &internalized),
+            "a confirmation's backend runs on its own copy"
+        );
+        // The confirmation built from the shared internalization judges as the campaign does:
+        // the anchors (3, 5) take the `x <= y` branch, and (5, 3) violates the property.
+        let parts = cases.assembly_parts();
+        let fresh_parts = fresh.assembly_parts();
+        for (values, class) in [
+            ([int(3), int(5)], OutcomeClass::Miss),
+            ([int(5), int(3)], OutcomeClass::Hit),
+        ] {
+            let campaign =
+                run_live(&mut cases, &mut parts.assemblers(), &values, None).expect("runs");
+            let confirmed =
+                run_live(&mut fresh, &mut fresh_parts.assemblers(), &values, None).expect("runs");
+            assert_eq!(campaign.class, class);
+            assert_eq!(confirmed.class, class);
+            assert_eq!(
+                campaign.hit.map(|hit| hit.reaching_state),
+                confirmed.hit.map(|hit| hit.reaching_state)
+            );
+        }
+    }
+
+    /// Accepts at the first step of every path.
+    struct FirstStep;
+
+    impl crate::target::Observer for FirstStep {
+        type State = ();
+
+        fn start(&self) {}
+
+        fn branch(&self, (): &()) {}
+
+        fn step(
+            &self,
+            (): &mut (),
+            _pre: &crate::target::ConfigurationView,
+            _post: &crate::target::ConfigurationView,
+        ) -> crate::target::ObserverVerdict {
+            crate::target::ObserverVerdict::Hit
+        }
+    }
+
+    /// FZ-10 review N4: an observer witness names the step at which the observer accepted, as
+    /// well as the leaf's own step count, from the case and from its confirmation alike.
+    #[test]
+    fn an_observer_witness_names_its_hit_step() {
+        let compiled = COIN.compiled();
+        let spec = Arc::new(CampaignSpec {
+            program: ProgramInput::Source(compiled.program_source("coin/count.pgm")),
+            holes: vec![HoleDecl {
+                name: "N".into(),
+                sort: "Int".into(),
+                location: HoleLocation::Span(SpanAddress {
+                    program: "coin/count.pgm".into(),
+                    line: None,
+                    find: "count(3)".into(),
+                    literal: "3".into(),
+                }),
+                constraints: Constraints::default(),
+                allow_refused_sort: false,
+            }],
+            target: Target {
+                kind: TargetKind::Observer(crate::target::ObserverTarget::new(
+                    "first-step",
+                    FirstStep,
+                )),
+                run_to_completion: false,
+                negated_property: false,
+            },
+            definitions: Definitions {
+                baseline: Arc::new(compiled.definition()),
+                mutant: None,
+            },
+            ..CampaignSpec::clone(&le_spec(None))
+        });
+        let mut cases = LiveCases::build(Arc::clone(&spec)).expect("the campaign builds");
+        let cache = DefinitionCache::build(&spec, &cases).expect("the cache builds");
+        let mut fresh =
+            LiveCases::build_with(Arc::clone(&spec), Some(&cache)).expect("a confirmation builds");
+        for cases in [&mut cases, &mut fresh] {
+            let parts = cases.assembly_parts();
+            let run = run_live(cases, &mut parts.assemblers(), &[int(3)], None).expect("runs");
+            assert_eq!(run.class, OutcomeClass::Hit, "{run:?}");
+            let hit = run.hit.expect("a hit");
+            assert_eq!(hit.reaching.step, Some(1));
+            assert!(
+                hit.steps > Some(1),
+                "the leaf runs on to its end: {:?}",
+                hit.steps
+            );
+        }
+    }
+
+    /// Accepts at step `n` of the `n`-th path it is started on: its verdict depends on state
+    /// hidden in the observer, which ARCHITECTURE 9.2 forbids.
+    struct StepByWalk(std::sync::atomic::AtomicU32);
+
+    impl crate::target::Observer for StepByWalk {
+        /// The step to accept at, and the steps seen.
+        type State = (u32, u32);
+
+        fn start(&self) -> (u32, u32) {
+            let walk = self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            (walk + 1, 0)
+        }
+
+        fn branch(&self, state: &(u32, u32)) -> (u32, u32) {
+            *state
+        }
+
+        fn step(
+            &self,
+            (accept, seen): &mut (u32, u32),
+            _pre: &crate::target::ConfigurationView,
+            _post: &crate::target::ConfigurationView,
+        ) -> crate::target::ObserverVerdict {
+            *seen += 1;
+            if seen == accept {
+                crate::target::ObserverVerdict::Hit
+            } else {
+                crate::target::ObserverVerdict::Nothing
+            }
+        }
+    }
+
+    /// HARD-B review S1: an observer that breaks the determinism contract accepts the case at
+    /// step 1 and its confirmation at step 2, in the same final configuration. The witness would
+    /// report the confirmation's step; confirmation compares where the target was reached, the
+    /// hit step included, so the disagreement is an engine defect and no witness is reported.
+    #[test]
+    fn a_confirmation_at_another_hit_step_is_an_engine_defect() {
+        let compiled = COIN.compiled();
+        let spec = CampaignSpec {
+            program: ProgramInput::Source(compiled.program_source("coin/count.pgm")),
+            holes: vec![HoleDecl {
+                name: "N".into(),
+                sort: "Int".into(),
+                location: HoleLocation::Span(SpanAddress {
+                    program: "coin/count.pgm".into(),
+                    line: None,
+                    find: "count(3)".into(),
+                    literal: "3".into(),
+                }),
+                constraints: Constraints::default(),
+                allow_refused_sort: false,
+            }],
+            target: Target {
+                kind: TargetKind::Observer(crate::target::ObserverTarget::new(
+                    "step-by-walk",
+                    StepByWalk(std::sync::atomic::AtomicU32::new(0)),
+                )),
+                run_to_completion: false,
+                negated_property: false,
+            },
+            definitions: Definitions {
+                baseline: Arc::new(compiled.definition()),
+                mutant: None,
+            },
+            proposers: ProposerConfig {
+                anchors_first: true,
+                explicit: Vec::new(),
+                weights: BTreeMap::new(),
+            },
+            ..CampaignSpec::clone(&le_spec(None))
+        };
+        let report = crate::Campaign::new(spec)
+            .expect("the campaign builds")
+            .run(crate::spec::Budget::Cases(1), None);
+        assert!(
+            report.witness().is_none(),
+            "a witness from a disagreeing confirmation: {:?}",
+            report.witness()
+        );
+        assert_eq!(report.totals.unconfirmed, 1, "{report:?}");
+        assert!(
+            report
+                .engine_defects
+                .iter()
+                .any(|defect| defect.description.contains("confirmation")),
+            "{:?}",
+            report.engine_defects
+        );
+    }
+
+    /// A VALUES campaign whose `$REC` hole's anchor is `rec(1, unit, t)`, where `t` is a tree
+    /// `nodes` nodes deep: a value of `nodes + 3` levels (the record, the nodes, `leaf(0)` and
+    /// its Int).
+    fn deep_record_campaign(nodes: usize) -> Result<crate::Campaign, CampaignError> {
+        let compiled = crate::support::VALUES.compiled();
+        let tree = format!(
+            "{}leaf(0){}",
+            "node(".repeat(nodes),
+            ", leaf(0))".repeat(nodes)
+        );
+        let record = format!("rec(1, unit, {tree})");
+        let bindings = [
+            ("SHAPE", "circle(5)"),
+            ("REC", record.as_str()),
+            ("PAIR", "1 & 2"),
+            ("WRAPPER", "wrap(3)"),
+            ("ACCOUNT", "account(1, .Map)"),
+            ("LIST", ".List"),
+            ("SET", ".Set"),
+            ("MAP", ".Map"),
+        ];
+        crate::Campaign::new(CampaignSpec {
+            program: ProgramInput::Source(crate::spec::ProgramSource {
+                program: Some(crate::spec::ProgramText {
+                    name: "run.values".into(),
+                    text: "run".into(),
+                    start_sort: "Pgm".into(),
+                }),
+                config_vars: bindings
+                    .iter()
+                    .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+                    .collect(),
+            }),
+            holes: vec![HoleDecl {
+                name: "R".into(),
+                sort: "Rec".into(),
+                location: HoleLocation::ConfigVar { name: "REC".into() },
+                constraints: Constraints::default(),
+                allow_refused_sort: false,
+            }],
+            target: Target {
+                kind: TargetKind::Pattern(PatternTarget {
+                    pattern: "<k> .K </k>".into(),
+                    at: PatternAt::Final,
+                }),
+                run_to_completion: false,
+                negated_property: false,
+            },
+            definitions: Definitions {
+                baseline: Arc::new(compiled.definition()),
+                mutant: None,
+            },
+            proposers: ProposerConfig {
+                anchors_first: true,
+                explicit: Vec::new(),
+                weights: BTreeMap::new(),
+            },
+            ..CampaignSpec::clone(&le_spec(None))
+        })
+    }
+
+    /// HARD-B review S3, round 3: an anchor of [`crate::values::MAX_VALUE_DEPTH`] levels is
+    /// admitted, becomes the witness, and its report reads back; one level deeper is refused
+    /// by `Campaign::new`. Run on a thread of a 2 MiB stack, the size of a test thread.
+    #[test]
+    fn an_anchor_at_the_depth_bound_reaches_a_report_that_reads_back() {
+        let nodes = crate::values::MAX_VALUE_DEPTH - 3;
+        let (deeper, report) = std::thread::Builder::new()
+            .stack_size(2 << 20)
+            .spawn(move || {
+                let deeper = deep_record_campaign(nodes + 1).map(|_| ());
+                let report = deep_record_campaign(nodes)
+                    .expect("an anchor at the bound is admitted")
+                    .run(crate::spec::Budget::Cases(1), None);
+                (deeper, report)
+            })
+            .expect("a thread")
+            .join()
+            .expect("no overflow");
+        assert!(
+            matches!(deeper, Err(CampaignError::AnchorDoesNotParse { .. })),
+            "{deeper:?}"
+        );
+        let witness = report.witness().expect("the anchor reaches the target");
+        assert!(matches!(witness.first.holes[0].value, Value::Apply { .. }));
+        let text = report.to_canonical_json();
+        assert_eq!(crate::FuzzReport::from_json(&text).ok(), Some(report));
+    }
+
+    /// The dictionary's harvest from the campaign's rule graph and resolved target equals the
+    /// harvest it makes on a backend and graph of its own (DICT's request after N9), for a rule
+    /// target and for a pattern target.
+    #[test]
+    fn the_dictionary_harvests_the_same_from_the_campaigns_graph() {
+        use crate::{
+            proposers::dictionary::{self, Harvest},
+            target::{RuleMode, RuleRef, RuleTarget},
+        };
+        let compiled = COIN.compiled();
+        let rule = Arc::new(CampaignSpec {
+            program: ProgramInput::Source(compiled.program_source("coin/count.pgm")),
+            holes: Vec::new(),
+            target: Target {
+                kind: TargetKind::Rule(RuleTarget {
+                    rule: RuleRef::Label("count-done".to_owned()),
+                    mode: RuleMode::Fired,
+                }),
+                run_to_completion: false,
+                negated_property: false,
+            },
+            definitions: Definitions {
+                baseline: Arc::new(compiled.definition()),
+                mutant: None,
+            },
+            ..CampaignSpec::clone(&le_spec(None))
+        });
+        for spec in [rule, le_spec(None)] {
+            let cases = LiveCases::build(Arc::clone(&spec)).expect("the campaign builds");
+            let check = GraphCheck::build(&spec, &cases).expect("a graph check");
+            let target = cases.target_rule_id();
+            let shared = dictionary::harvest(&spec, check.graph(), target).expect("harvests");
+            let own = Harvest::for_campaign(&spec).expect("harvests");
+            assert!(!own.literals().is_empty());
+            assert_eq!(shared.literals(), own.literals());
+            let internalized = cases.baseline_internalized().expect("source route");
+            let graph = RuleGraph::new(internalized);
+            let fresh = dictionary::harvest(&spec, &graph, target).expect("harvests");
+            assert_eq!(fresh.literals(), own.literals());
+        }
+    }
+
+    /// The `from-definition` route internalizes inside each backend's session: nothing is
+    /// shared, and the graph and the confirmations build their backends from the KORE.
+    #[test]
+    fn a_from_definition_campaign_shares_no_internalization() {
+        let spec = le_spec(Some(BackendRoute::FromDefinition));
+        let cases = LiveCases::build(Arc::clone(&spec)).expect("the campaign builds");
+        assert!(cases.baseline.internalized.is_none());
+        assert!(GraphCheck::build(&spec, &cases).is_some());
+        let cache = DefinitionCache::build(&spec, &cases).expect("the cache builds");
+        assert!(cache.baseline.internalized.is_none());
+        let fresh =
+            LiveCases::build_with(Arc::clone(&spec), Some(&cache)).expect("a confirmation builds");
+        assert!(fresh.baseline.internalized.is_none());
     }
 }

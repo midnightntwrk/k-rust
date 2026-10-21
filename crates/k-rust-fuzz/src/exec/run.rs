@@ -112,6 +112,14 @@ pub(crate) struct CompiledPattern {
     search: CompiledSearchPattern,
 }
 
+impl CompiledPattern {
+    /// The compiled KORE pattern: the configuration and its `requires` (the dictionary reads
+    /// a pattern target's literals from it, ARCHITECTURE 8.3).
+    pub(crate) fn kore(&self) -> &KorePattern {
+        &self.search.pattern
+    }
+}
+
 /// A campaign's compiled normal-termination pattern.
 #[derive(Clone, Debug)]
 pub(crate) struct NormalEnd {

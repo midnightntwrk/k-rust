@@ -40,6 +40,9 @@ const LOOP_IMP: &str = include_str!("../../tests/data/imp/loop.imp");
 const SUM_PGM: &str = include_str!("../../tests/data/unsigned/sum.pgm");
 const SETTLE_PGM: &str = include_str!("../../tests/data/ledger/settle.pgm");
 const SETTLE_TX: &str = include_str!("../../tests/data/ledger/settle.tx");
+const ELEMENTS_PGM: &str = include_str!("../../tests/data/elements/sum.pgm");
+const SYNTAXVARS_PGM: &str = include_str!("../../tests/data/syntaxvars/go.pgm");
+const LOCATED_PGM: &str = include_str!("../../tests/data/located/sum.pgm");
 
 fn values() -> &'static CompiledDefinition {
     static DEFINITION: OnceLock<CompiledDefinition> = OnceLock::new();
@@ -74,6 +77,21 @@ fn unsigned() -> &'static CompiledDefinition {
 fn ledger() -> &'static CompiledDefinition {
     static DEFINITION: OnceLock<CompiledDefinition> = OnceLock::new();
     DEFINITION.get_or_init(|| support::LEDGER.compiled().definition())
+}
+
+fn elements() -> &'static CompiledDefinition {
+    static DEFINITION: OnceLock<CompiledDefinition> = OnceLock::new();
+    DEFINITION.get_or_init(|| support::ELEMENTS.compiled().definition())
+}
+
+fn syntaxvars() -> &'static CompiledDefinition {
+    static DEFINITION: OnceLock<CompiledDefinition> = OnceLock::new();
+    DEFINITION.get_or_init(|| support::SYNTAXVARS.compiled().definition())
+}
+
+fn located() -> &'static CompiledDefinition {
+    static DEFINITION: OnceLock<CompiledDefinition> = OnceLock::new();
+    DEFINITION.get_or_init(|| support::LOCATED.compiled().definition())
 }
 
 fn backend_definition(definition: &CompiledDefinition) -> BackendDefinition {
@@ -1301,4 +1319,198 @@ fn backends_are_built_on_the_route_the_definition_names() {
         ..definition.clone()
     };
     build_backend(&from_definition, BackendOptions::default()).expect("kink's route");
+}
+
+#[test]
+fn a_value_of_another_length_round_trips_where_locations_are_recorded() {
+    // Every `Exp` of LOCATED carries its line and columns, so a value printed longer or shorter
+    // than its anchor moves the columns of the terms after it and around it; the whole-
+    // configuration comparison (review R1) lets only those move.
+    let definition = located();
+    let program = program("located/sum.pgm", LOCATED_PGM, &[]);
+    let holes = resolve_ok(
+        &[span("N", "Int", "located/sum.pgm", None, "22", "22")],
+        &program,
+        definition,
+    );
+    let assembly = ProgramAssembly::new(definition).expect("the grammar resolves");
+    let check = RoundTripCheck::new(&assembly, definition, &program, &holes)
+        .unwrap_or_else(|error| panic!("the hole is located: {error}"));
+    assert!(
+        printed(check.anchor_configuration()).contains("Lbl'Hash'location"),
+        "the fixture records locations: {}",
+        printed(check.anchor_configuration())
+    );
+    for value in [7, 12345, -5, 22] {
+        let values = [int(value)];
+        let built = assembly
+            .assemble(definition, &instantiate(&program, &holes, &values))
+            .expect("the case assembles");
+        assert_eq!(check.check(&built, &values), Ok(()), "{value}");
+    }
+}
+
+#[test]
+fn a_collection_hole_declares_only_elements_its_element_production_takes() {
+    // ELEMENTS' `Stmts` holds `Stmt`s and its `Ints` holds `Int`s, both hooked `LIST.List` and
+    // reached from `Pgm` (review 2, N-a). A value of either is built from its own element
+    // production, so its elements are of the sort that production takes.
+    let definition = elements();
+    let program = program("elements/sum.pgm", ELEMENTS_PGM, &[]);
+    let list = |sort: &str, element: &str| {
+        with_elements(
+            span(
+                "H",
+                sort,
+                "elements/sum.pgm",
+                None,
+                "int(1) int(2)",
+                "int(1) int(2)",
+            ),
+            ElementSorts::Elements {
+                element: element.to_owned(),
+            },
+        )
+    };
+    let check = |decl: &HoleDecl| check_hole_sort(decl, &program, definition);
+    let not_held = |sort: &str, declared: &str, element: &str| {
+        refused(
+            sort,
+            SortRefusal::ElementNotHeld {
+                declared: declared.to_owned(),
+                element: element.to_owned(),
+            },
+        )
+    };
+    assert_eq!(check(&list("Ints", "Int")), Ok(None));
+    assert_eq!(
+        check(&list("Stmts", "Int")),
+        not_held("Stmts", "Int", "Stmt")
+    );
+    assert_eq!(
+        check(&list("Ints", "Stmt")),
+        not_held("Ints", "Stmt", "Int")
+    );
+    // No override admits an element the collection cannot hold.
+    let overridden = HoleDecl {
+        allow_refused_sort: true,
+        ..list("Stmts", "Int")
+    };
+    assert_eq!(check(&overridden), not_held("Stmts", "Int", "Stmt"));
+    // The elements it does hold are statements, which are program syntax.
+    assert_eq!(
+        check(&list("Stmts", "Stmt")),
+        refused("Stmts", SortRefusal::ProgramSyntax)
+    );
+    // Resolution refuses the same way, before any value is generated.
+    assert_eq!(
+        resolve_err(&[list("Stmts", "Int")], &program, definition),
+        CampaignError::RefusedHoleSort {
+            hole: "H".to_owned(),
+            sort: "Stmts".to_owned(),
+            reason: SortRefusal::ElementNotHeld {
+                declared: "Int".to_owned(),
+                element: "Stmt".to_owned(),
+            },
+        }
+    );
+}
+
+/// The SYNTAXVARS program and its bindings.
+fn syntaxvars_program() -> ProgramInput {
+    program(
+        "syntaxvars/go.pgm",
+        SYNTAXVARS_PGM,
+        &[
+            ("LIB", "lib 2"),
+            ("LIB2", "lib2 loop ret 3"),
+            ("EXT", "ext arg 4"),
+            ("C", "circle(3)"),
+            ("SHAPE", "square(4)"),
+        ],
+    )
+}
+
+#[test]
+fn a_configuration_variable_read_with_the_syntax_module_is_program_syntax() {
+    // `$LIB` is parsed with the syntax module (its cell's `parser` attribute), as the program
+    // is, so `Lib` is a sort programs are written in, although `Pgm` does not reach it (review
+    // 2, N-b). `$C` and `$SHAPE` are parsed with the main module: their sorts stay data.
+    let definition = syntaxvars();
+    let program = syntaxvars_program();
+    let check = |sort: &str, variable: &str| {
+        check_hole_sort(&config_var("H", sort, variable), &program, definition)
+    };
+    assert_eq!(
+        check("Lib", "LIB"),
+        refused("Lib", SortRefusal::ProgramSyntax)
+    );
+    assert_eq!(check("Circle", "C"), Ok(None));
+    assert_eq!(check("Shape", "SHAPE"), Ok(None));
+    // `$LIB2` has no `parser` attribute, so the main module reads it; but `Lib2` is declared in
+    // the syntax module, so its values are terms of the program grammar whichever module reads
+    // them, and so are those of `Body`, which they contain (HARD-A review, S2).
+    assert_eq!(
+        check("Lib2", "LIB2"),
+        refused("Lib2", SortRefusal::ProgramSyntax)
+    );
+    assert_eq!(
+        check("Body", "LIB2"),
+        refused("Body", SortRefusal::ProgramSyntax)
+    );
+    // `$EXT` is read with a second grammar module its cell names: the sorts that grammar reaches
+    // from `Ext` are program syntax too.
+    assert_eq!(
+        check("Ext", "EXT"),
+        refused("Ext", SortRefusal::ProgramSyntax)
+    );
+    assert_eq!(
+        check("Arg", "EXT"),
+        refused("Arg", SortRefusal::ProgramSyntax)
+    );
+    assert_eq!(
+        check("Pgm", "C"),
+        refused("Pgm", SortRefusal::ProgramSyntax)
+    );
+}
+
+#[test]
+fn a_configuration_variable_hole_takes_values_of_the_variable_sort() {
+    // A case's value replaces the whole binding, which is parsed at the variable's declared
+    // sort: the hole's sort must be that sort or a subsort of it (review 2, under S2).
+    let definition = syntaxvars();
+    let program = syntaxvars_program();
+    let mismatch = |hole: &str, variable_sort: &str| {
+        span_error(hole, SpanProblem::ConfigVarSort(variable_sort.to_owned()))
+    };
+    // `$C:Circle` bound to `circle(3)`: a `Shape` hole would also generate squares.
+    assert_eq!(
+        resolve_err(&[config_var("C", "Shape", "C")], &program, definition),
+        mismatch("C", "Circle")
+    );
+    assert_eq!(
+        resolve_err(&[config_var("C", "Square", "C")], &program, definition),
+        mismatch("C", "Circle")
+    );
+    // The variable's own sort, and a subsort of it, are admitted.
+    let holes = resolve_ok(
+        &[
+            config_var("C", "Circle", "C"),
+            config_var("S", "Square", "SHAPE"),
+        ],
+        &program,
+        definition,
+    );
+    assert_eq!(holes.holes.len(), 2);
+    // LEDGER's `$TX:Tx` with a hole of another record sort.
+    let definition = ledger();
+    let program = self::program(
+        "ledger/settle.pgm",
+        SETTLE_PGM,
+        &[("TX", SETTLE_TX.trim_end())],
+    );
+    assert_eq!(
+        resolve_err(&[config_var("T", "Account", "TX")], &program, definition),
+        mismatch("T", "Tx")
+    );
 }

@@ -23,8 +23,8 @@ use k_rust::{
 use num_bigint::BigInt;
 
 use super::{
-    ArgumentSort, CollectionKind, CollectionSymbols, DataAlternative, DataSorts, Value, ValueSort,
-    check_data,
+    ArgumentSort, CollectionKind, CollectionSymbols, DataAlternative, DataSorts, MAX_VALUE_DEPTH,
+    Value, ValueSort, data_alternative,
     print::{PrintError, parse_int, parse_mint, to_kore},
 };
 
@@ -177,19 +177,20 @@ fn data(
     table: &DataSorts,
     index: usize,
 ) -> Result<(KorePattern, KoreSort), PrintError> {
-    match check_data(value, table, index).map_err(|_| PrintError::SortMismatch)? {
+    // `to_kore` checked the whole value: each level only selects its alternative.
+    match data_alternative(value, table, index).map_err(|_| PrintError::SortMismatch)? {
         DataAlternative::Constructor(constructor) => {
             let Value::Apply { arguments, .. } = value else {
                 unreachable!("a constructor alternative is an application");
             };
-            let arguments = constructor
-                .arguments
-                .iter()
-                .zip(arguments)
-                .map(|(sort, argument)| argument_kore(argument, sort, table, true))
-                .collect::<Result<Vec<_>, _>>()?;
+            // A loop, not an iterator chain: this recursion runs once per level of the value,
+            // and each adapter of a chain is a stack frame per level in an unoptimized build.
+            let mut patterns = Vec::with_capacity(arguments.len());
+            for (sort, argument) in constructor.arguments.iter().zip(arguments) {
+                patterns.push(argument_kore(argument, sort, table, true)?);
+            }
             Ok((
-                application(&constructor.symbol, arguments),
+                application(&constructor.symbol, patterns),
                 simple_sort(&constructor.result_kore_sort),
             ))
         }
@@ -229,7 +230,18 @@ fn argument_kore(
 
 /// The value of `sort` whose KORE is `pattern` (injections around it are ignored): the inverse
 /// of [`kore_of`], which reads collections of any nesting.
+///
+/// # Errors
+///
+/// A message when `pattern` is no value of `sort`, or is nested deeper than
+/// [`MAX_VALUE_DEPTH`] values, which this recursion refuses before the stack runs out.
 pub(super) fn value_of(pattern: &KorePattern, sort: &ValueSort) -> Result<Value, String> {
+    value_at(pattern, sort, 0)
+}
+
+/// [`value_of`] for a value at `level` levels below the value read.
+fn value_at(pattern: &KorePattern, sort: &ValueSort, level: usize) -> Result<Value, String> {
+    let below = deeper(level)?;
     let pattern = uninject(pattern);
     match sort.generated() {
         ValueSort::List {
@@ -237,7 +249,7 @@ pub(super) fn value_of(pattern: &KorePattern, sort: &ValueSort) -> Result<Value,
         } => {
             let items = items(pattern, symbols)?
                 .into_iter()
-                .map(|item| single(item, symbols).and_then(|item| value_of(item, element)))
+                .map(|item| single(item, symbols).and_then(|item| value_at(item, element, below)))
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(Value::List(items))
         }
@@ -246,7 +258,7 @@ pub(super) fn value_of(pattern: &KorePattern, sort: &ValueSort) -> Result<Value,
         } => {
             let mut items = items(pattern, symbols)?
                 .into_iter()
-                .map(|item| single(item, symbols).and_then(|item| value_of(item, element)))
+                .map(|item| single(item, symbols).and_then(|item| value_at(item, element, below)))
                 .collect::<Result<Vec<_>, _>>()?;
             items.sort();
             items.dedup();
@@ -265,8 +277,8 @@ pub(super) fn value_of(pattern: &KorePattern, sort: &ValueSort) -> Result<Value,
                         if symbol.name == symbols.element && arguments.len() == 2 =>
                     {
                         Ok((
-                            value_of(&arguments[0], key)?,
-                            value_of(&arguments[1], value)?,
+                            value_at(&arguments[0], key, below)?,
+                            value_at(&arguments[1], value, below)?,
                         ))
                     }
                     _ => Err(format!(
@@ -281,7 +293,7 @@ pub(super) fn value_of(pattern: &KorePattern, sort: &ValueSort) -> Result<Value,
             }
             Ok(Value::Map(entries))
         }
-        ValueSort::Data { table, .. } => data_value(pattern, table, 0),
+        ValueSort::Data { table, .. } => data_value(pattern, table, 0, level),
         builtin => domain_value(pattern, builtin, &builtin_kore_sort(sort)?),
     }
 }
@@ -367,8 +379,28 @@ fn single<'p>(
     }
 }
 
-/// The value of entry `index` of `table` whose KORE is `pattern`.
-fn data_value(pattern: &KorePattern, table: &DataSorts, index: usize) -> Result<Value, String> {
+/// The level below `level`, or a message when a value at `level` would be deeper than
+/// [`MAX_VALUE_DEPTH`].
+fn deeper(level: usize) -> Result<usize, String> {
+    if level >= MAX_VALUE_DEPTH {
+        Err(format!(
+            "the value is nested deeper than {MAX_VALUE_DEPTH} levels, the most a value read back \
+             may have"
+        ))
+    } else {
+        Ok(level + 1)
+    }
+}
+
+/// The value of entry `index` of `table` whose KORE is `pattern`, at `level` levels below the
+/// value read ([`value_at`]).
+fn data_value(
+    pattern: &KorePattern,
+    table: &DataSorts,
+    index: usize,
+    level: usize,
+) -> Result<Value, String> {
+    let below = deeper(level)?;
     let pattern = uninject(pattern);
     let entry = &table.sorts[index];
     if let KorePattern::Application { symbol, arguments } = pattern
@@ -380,21 +412,20 @@ fn data_value(pattern: &KorePattern, table: &DataSorts, index: usize) -> Result<
         if constructor.arguments.len() != arguments.len() {
             return Err(format!("{} has the wrong number of arguments", symbol.name));
         }
-        let arguments = constructor
-            .arguments
-            .iter()
-            .zip(arguments)
-            .map(|(sort, argument)| argument_value(argument, sort, table))
-            .collect::<Result<Vec<_>, _>>()?;
+        // A loop, not an iterator chain: one stack frame per level ([`data`]).
+        let mut values = Vec::with_capacity(arguments.len());
+        for (sort, argument) in constructor.arguments.iter().zip(arguments) {
+            values.push(argument_value(argument, sort, table, below)?);
+        }
         return Ok(Value::Apply {
             symbol: symbol.name.clone(),
-            arguments,
+            arguments: values,
         });
     }
     entry
         .subsorts
         .iter()
-        .find_map(|subsort| argument_value(pattern, subsort, table).ok())
+        .find_map(|subsort| argument_value(pattern, subsort, table, level).ok())
         .ok_or_else(|| {
             format!(
                 "the pattern is no value of {}: its head is not one of the sort's constructors \
@@ -408,10 +439,11 @@ fn argument_value(
     pattern: &KorePattern,
     sort: &ArgumentSort,
     table: &DataSorts,
+    level: usize,
 ) -> Result<Value, String> {
     match sort {
-        ArgumentSort::Value(sort) => value_of(pattern, sort),
-        ArgumentSort::Data(index) => data_value(pattern, table, *index),
+        ArgumentSort::Value(sort) => value_at(pattern, sort, level),
+        ArgumentSort::Data(index) => data_value(pattern, table, *index, level),
         ArgumentSort::Empty(empty) => match uninject(pattern) {
             KorePattern::Application { symbol, arguments }
                 if symbol.name == empty.symbols.unit && arguments.is_empty() =>
@@ -504,7 +536,7 @@ fn shorter_or_longer<T: Clone>(items: &[T], least: impl FnOnce() -> Option<T>) -
 }
 
 fn second_data(value: &Value, table: &DataSorts, index: usize) -> Option<Value> {
-    if let Ok(DataAlternative::Constructor(constructor)) = check_data(value, table, index)
+    if let Ok(DataAlternative::Constructor(constructor)) = data_alternative(value, table, index)
         && let Value::Apply { symbol, arguments } = value
     {
         for (position, (sort, argument)) in constructor.arguments.iter().zip(arguments).enumerate()
@@ -524,7 +556,7 @@ fn second_data(value: &Value, table: &DataSorts, index: usize) -> Option<Value> 
             }
         }
     } else if let Ok(DataAlternative::Subsort(ArgumentSort::Value(sort))) =
-        check_data(value, table, index)
+        data_alternative(value, table, index)
         && let Some(changed) = second_value(value, sort)
     {
         return Some(changed);

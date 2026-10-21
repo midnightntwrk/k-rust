@@ -59,13 +59,26 @@ impl FuzzReport {
     /// The report as canonical JSON: compact, fields in declaration order, maps ordered. Equal
     /// reports give equal bytes.
     ///
+    /// A hole value may be nested up to [`crate::values::MAX_VALUE_DEPTH`] levels, and writing
+    /// recurses once per level of the JSON, so outside WebAssembly the writer runs on a stack
+    /// that grows on the heap (`serde_stacker`) whenever the thread's runs low; on WebAssembly,
+    /// which cannot switch stacks, a report deeper than its stack allows traps (stack
+    /// exhaustion is a trap there: the stack lies below every other datum).
+    ///
     /// # Panics
     ///
     /// Never: every map of a report has string keys and no field is a float, which are the only
     /// ways `serde_json` serialization fails.
     #[must_use]
     pub fn to_canonical_json(&self) -> String {
-        serde_json::to_string(self).expect("a report has string map keys and no floats")
+        let mut bytes = Vec::new();
+        let mut writer = serde_json::Serializer::new(&mut bytes);
+        #[cfg(not(target_family = "wasm"))]
+        let written = self.serialize(serde_stacker::Serializer::new(&mut writer));
+        #[cfg(target_family = "wasm")]
+        let written = self.serialize(&mut writer);
+        written.expect("a report has string map keys and no floats");
+        String::from_utf8(bytes).expect("serde_json writes UTF-8")
     }
 
     /// The confirmed witness, when the campaign found one.
@@ -92,11 +105,27 @@ impl FuzzReport {
 
     /// Read a report written by [`Self::to_canonical_json`].
     ///
+    /// Every report this crate writes reads back, whatever the depth of its hole values (HARD-B
+    /// review S3): outside WebAssembly, `serde_json`'s recursion limit of 128 nested arrays and
+    /// objects is lifted and the reader runs on a stack that grows on the heap
+    /// (`serde_stacker`), so its depth is bounded by memory, not by the calling thread. On
+    /// WebAssembly, which cannot switch stacks, the limit stays: a report nested deeper (a hole
+    /// value of about 40 levels or more) is refused with `serde_json`'s recursion-limit error.
+    ///
     /// # Errors
     ///
     /// The JSON error, including for an unknown field.
     pub fn from_json(text: &str) -> Result<Self, serde_json::Error> {
-        serde_json::from_str(text)
+        let mut reader = serde_json::Deserializer::from_str(text);
+        #[cfg(not(target_family = "wasm"))]
+        let report = {
+            reader.disable_recursion_limit();
+            Self::deserialize(serde_stacker::Deserializer::new(&mut reader))?
+        };
+        #[cfg(target_family = "wasm")]
+        let report = Self::deserialize(&mut reader)?;
+        reader.end()?;
+        Ok(report)
     }
 }
 
@@ -142,6 +171,39 @@ pub struct ReportIdentity {
     /// it), `"none"` otherwise: a build without a solver leaves undecided some conditions a
     /// solver decides.
     pub solver: String,
+    /// The dictionary proposer's parameters (ARCHITECTURE 8.3), present exactly when the
+    /// dictionary has a positive weight; absent from the JSON otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dictionary: Option<DictionaryParameters>,
+}
+
+/// The fixed parameters of the dictionary proposer (ARCHITECTURE 8.3), which with the
+/// definitions and the target decide its pool and its draws. They are constants of this build;
+/// a change of any of them changes the case sequence and bumps [`crate::ENGINE_VERSION`].
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct DictionaryParameters {
+    /// The harvest radius, in rule-graph edges before the target.
+    pub radius: u32,
+    /// The probability, as `[numerator, denominator]`, with which a hole whose pool is not
+    /// empty takes a harvested value rather than a blind one.
+    pub draw_probability: [u32; 2],
+    /// The largest offset of an integer variant: a constant `v` also yields `v - expansion` ..
+    /// `v + expansion` and `-v`.
+    pub expansion: u32,
+    /// A harvested constant's weight is `distance-weight-base ^ (radius - distance)`.
+    pub distance_weight_base: u32,
+    /// The probability, as `[numerator, denominator]`, with which a pool draw takes the
+    /// harvested constant itself rather than one of its variants.
+    pub exact_probability: [u32; 2],
+}
+
+impl DictionaryParameters {
+    /// The parameters of this build.
+    #[must_use]
+    pub fn current() -> Self {
+        crate::proposers::dictionary::parameters()
+    }
 }
 
 /// The hard caps of the value generators (`crate::values`).
@@ -227,6 +289,10 @@ pub struct DefinitionIdentity {
 /// equivalence carries the bounded statement, so that no report of a campaign that stopped
 /// early reads as a pass.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "one outcome per campaign report; boxing the witness would change the public field"
+)]
 #[serde(
     tag = "status",
     rename_all = "kebab-case",
@@ -409,6 +475,13 @@ pub struct Reaching {
     /// whole run (D16), which rests on every leaf.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub leaf: Option<u64>,
+    /// For an observer target, the step of that leaf's path at which the observer answered
+    /// `Hit`: the number of committed rewrite steps from the initial configuration to the
+    /// configuration that step reached, at least 1 and at most the case's `steps`, since the
+    /// run continues to its end after the observer accepts (ARCHITECTURE 9.2). Absent for
+    /// every other target.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step: Option<u64>,
 }
 
 /// How a differential witness kills the mutant (ARCHITECTURE 4.3).
@@ -611,6 +684,7 @@ mod tests {
             reaching: Reaching {
                 role: DefinitionRole::Baseline,
                 leaf: Some(0),
+                step: Some(4),
             },
             kill: None,
             steps: Some(12),
@@ -660,6 +734,7 @@ mod tests {
                 budget: Budget::Cases(5000),
                 thread_stack_size: Some(64 << 20),
                 solver: "none".into(),
+                dictionary: None,
             },
             outcome: CampaignOutcome::WitnessFound {
                 witness: Witness {
@@ -787,7 +862,7 @@ mod tests {
             r#""sides":[{"role":"baseline","#,
             r#""initial-configuration":"Lbl'-LT-'generatedTop'-GT-'{}()","#,
             r#""final-configurations":["Lbl'-LT-'generatedTop'-GT-'{}()"]}],"#,
-            r#""reaching":{"role":"baseline","leaf":0},"steps":12}"#,
+            r#""reaching":{"role":"baseline","leaf":0,"step":4},"steps":12}"#,
         );
         let expected = expected
             .replace("ORDER", &digest_hex(b"rule-1\nrule-2"))
@@ -872,5 +947,58 @@ mod tests {
             digest_hex(b""),
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         );
+    }
+
+    /// HARD-B review S3: every value a campaign admits reads back from its report. A value
+    /// nested [`crate::values::MAX_VALUE_DEPTH`] levels deep, in the JSON shapes that nest most
+    /// per level (an application's or a map entry's three arrays and objects), as a witness
+    /// hole's value and as an explicit assignment, is written and read back on a thread of a
+    /// 2 MiB stack, the size of a test thread: both directions grow the stack on the heap, and
+    /// reading lifts `serde_json`'s recursion limit of 128 nested arrays and objects.
+    #[cfg(not(target_family = "wasm"))]
+    #[test]
+    fn the_deepest_admitted_value_reads_back_from_a_report() {
+        let chain = |levels: usize, map: bool| {
+            let mut value = Value::MInt {
+                width: 8,
+                value: 1u32.into(),
+            };
+            for _ in 1..levels {
+                value = if map {
+                    Value::Map(vec![(Value::Int(BigInt::from(0)), value)])
+                } else {
+                    Value::Apply {
+                        symbol: "s".into(),
+                        arguments: vec![value],
+                    }
+                };
+            }
+            value
+        };
+        let with = |value: Value| {
+            let mut report = fixed_report();
+            if let CampaignOutcome::WitnessFound { witness } = &mut report.outcome {
+                witness.first.holes[0].value = value.clone();
+                if let Some(shrunk) = &mut witness.shrunk {
+                    shrunk.holes[0].value = value.clone();
+                }
+            }
+            report.identity.proposers.explicit[0].insert("AMOUNT".into(), value);
+            report
+        };
+        let most = crate::values::MAX_VALUE_DEPTH;
+        for map in [false, true] {
+            let report = with(chain(most, map));
+            let (read, report) = std::thread::Builder::new()
+                .stack_size(2 << 20)
+                .spawn(move || {
+                    let text = report.to_canonical_json();
+                    (FuzzReport::from_json(&text).ok(), report)
+                })
+                .expect("a thread")
+                .join()
+                .expect("no overflow");
+            assert_eq!(read.as_ref(), Some(&report), "{most} levels, map {map}");
+        }
     }
 }
