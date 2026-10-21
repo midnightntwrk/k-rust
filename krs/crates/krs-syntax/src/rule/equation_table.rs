@@ -349,6 +349,12 @@ fn row_attributes(attributes: Vec<Attribute>) -> Result<RowAttributes, ParseErro
 /// priority, that apply to a common application (equal literals, or literals
 /// and templates whose sets meet in every argument); and a catch-all row that
 /// shares its priority with another row.
+///
+/// The compiler's overlap check of equations
+/// (`krs::analysis::overlapping-equations`) also reads authored `requires`
+/// and `#[k::equation]` fns of the function, but only where it can evaluate
+/// them on at most 2^16 arguments; these checks stay because they fail fast
+/// here, in the macro, and compare unguarded templates of any width.
 fn check_rows(rows: &[EquationRow]) -> Result<(), SyntaxError> {
     let priority = |row: &EquationRow| {
         row.equation

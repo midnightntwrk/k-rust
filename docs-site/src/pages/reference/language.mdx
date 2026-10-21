@@ -289,8 +289,14 @@ Priorities and `owise` decide which equation applies, never whether one does, so
 An or-pattern covers each alternative; a Map, List, Set or K-sequence pattern, a function application in a pattern, and a binder that occurs twice cover nothing the check can see.
 
 A guarded equation covers its pattern where its `requires` holds.
-The check decides a set of guards as Boolean combinations of comparisons with integer constants (`x < 0`, `x == 3`, `0 < x`, folded through `+`, `-`, `*` and the like), of the order of two integer terms (`a < b`, `a == b`, `b < a`, exactly one of which holds), and of opaque Bool atoms, which two equations share when they test the same term; literal patterns count, so `sgn(-1)`, `sgn(x)` when `x < -1`, when `x == 0` and when `x > 0` cover Int.
-It only counts a guard whose every operation is defined on every argument: `map::get(m, k) > 0` and `map::get(m, k) <= 0` both fail when `k` is not a key, and a division counts only by a nonzero constant.
+When every equation of the function bounds each `Int` argument its `requires` reads to finitely many values, by a literal pattern, an or-pattern of literals, or top-level comparisons with constants (`0 <= x && x < 256`, which every [bit template](#bit-templates) has), and those values, with one more outside them per argument, are at most 2^16 argument vectors, the check evaluates every `requires` on each of them.
+That decides coverage exactly: outside the bounded values a bounded equation does not apply and the others do not read the argument, so one value there stands for all of them.
+The four templates `k::bits!("00 yyy zzz")` to `k::bits!("11 bbb zzz")` of `DecodeCb` cover `0..=255` and no more, so the witness is `DecodeCb(256)`.
+The evaluation is the builtins' definition on literals; a `requires` that calls a function, or is undefined somewhere (`12 / x` at `0`) unless a false top-level conjunct already rules that argument out, ends it, and the check falls back to the abstraction below.
+
+Otherwise the check decides a set of guards as Boolean combinations of comparisons with integer constants (`x < 0`, `x == 3`, `0 < x`, folded through `+`, `-`, `*` and the like), of the order of two integer terms (`a < b`, `a == b`, `b < a`, exactly one of which holds), and of opaque Bool atoms, which two equations share when they test the same term; literal patterns count, so `sgn(-1)`, `sgn(x)` when `x < -1`, when `x == 0` and when `x > 0` cover Int.
+A comparison `x.bit_range::<Int>(o, l) == v` or `(x & m) == v` with constant `o`, `l` and `m` also fixes bits of `x`, and the check skips valuations no integer `x` has, so a bit template's equation covers the values it matches.
+It only counts a guard whose every operation is defined on every argument: `map::get(m, k) > 0` and `map::get(m, k) <= 0` both fail when `k` is not a key, a division counts only by a nonzero constant, and `bitRangeInt(x, o, l)`, which is `(x >>Int o) modInt (1 <<Int l)`, only with constant `o` and `l` that are not negative.
 The abstraction never calls an uncovered argument covered, but it can miss a fact, such as the range of `FieldX(opcode)`, and then report a gap that does not exist.
 A matching-logic `requires` and an equation with a [function context](#function-contexts) are not counted.
 
@@ -349,6 +355,7 @@ Rows are unordered, like every set of equations: a row never wins by its positio
 Two consequences are checked at once.
 Two rows without `requires` at one priority whose arguments are the same literals, or literals and [bit templates](#bit-templates) that share a value, would state that one application equals two results, or repeat one equation (`krs::syntax::duplicate-equation-row`).
 A row whose arguments are all `_` matches every application, so beside other rows at its priority it needs `#[k::equation(owise)]` (`krs::syntax::catch-all-equation-row`).
+These checks see one table's patterns only; the [overlap check of equations](#overlapping-equations) also reads guards and `#[k::equation]` fns.
 A bare name in a row's pattern is a binder, as in every KRS pattern, so a unit variant is written `A()` or `Register::A`; where the table's `use` items or the module make a bare name a unit variant or a constant, which Rust would read as that constant, rustc rejects the row (``E0308 mismatched types`` at the name) instead of letting it bind everything.
 The header must name a function (rustc's ``E0277 `Seven` is not a non-parametric `#[k::function]` ``), and a row's argument count must be the function's (rustc's ``E0308 expected a tuple with 2 elements``).
 A table's index is always written, never taken from the order of an enum's variants: variant order is presentation, and reordering source must not change a definition.
@@ -422,6 +429,20 @@ A decoder written with field functions, such as `FieldX(op) = op >> 6` and `Fiel
 - a field computed from another (`FieldY(op) - 4` for the two low bits of `y`) becomes its own letters, `"00 1cc 000"`;
 - the template also requires `0 <= op < 2^width`: a guard that reads its top field without a mask (`op >> 6`) already did, but one that masks it (`(op >> 6) & 3`) also matched values such as `260`, which a template leaves to the `owise` row;
 - the field functions, which the templates no longer call, can go, and a claim that restated a guard writes `k::bits!(op, "00 yyy 100")`.
+
+#### Overlapping equations
+
+Equations are unordered, so two equations of one function at one priority that apply to one argument state that their results are equal there.
+KRS checks this on the assembled definition, for table rows and `#[k::equation]` fns alike, guarded or not, whenever it can evaluate the equations: when they bound their `Int` arguments to at most 2^16 argument vectors, as for the [coverage check](#coverage-of-total-functions), it evaluates every `requires` on each of them.
+Two equations that both apply to one argument, with results that differ once the argument is substituted and builtins on literals are evaluated, are `krs::analysis::overlapping-equations`.
+`decode_ld_r_r` above with a typo in its guard, `op.ne::<Int>(117)`, is (without any `requires`, the table check above reports the two rows first)
+
+```text
+error[krs::analysis::overlapping-equations]: equations `decode_halt` and `decode_ld_r_r` of `Decode` both apply to `Decode(118)` at the same priority and give it different results, `Instruction::Halt` and `Instruction::Ld(R8(6), R8(6))`; ..
+```
+
+Identical results agree, so equations that overlap with them are no error.
+Equations the check cannot evaluate, because a `requires` calls a function or leaves an argument it reads unbounded, are not checked; nor are templates over more than 16 bits, though the table check above still compares unguarded rows' templates of any width.
 
 ### Sort-parametric productions
 
